@@ -1,5 +1,6 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -12,6 +13,13 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	and,
+	eq,
+	literal,
+	matchNone,
+	sessionUser,
+} from "@/lib/domain/predicate";
 import {
 	compilerNavigationFixture,
 	temporalSearchFixture,
@@ -535,5 +543,105 @@ describe("the texts HQ's build writes for a list and a form", () => {
 			expect(appStrings(zip, dir).get("m0_no_items_text")).toBe(
 				"List is empty.",
 			);
+	});
+});
+
+describe("a survey menu's case type on the local path", () => {
+	it("builds no detail and no string for a survey-only menu with a case type, beside a case menu's", () => {
+		const doc = buildDoc({
+			appName: "Survey menus",
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patient surveys",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Satisfaction",
+							type: "survey",
+							fields: [f({ kind: "text", id: "notes" })],
+						},
+					],
+				},
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "notes" })],
+						},
+					],
+				},
+			],
+		});
+		const { hq, zip, suite } = exported(doc);
+		expect(hq.modules[0].case_type).toBe("patient");
+		const detailIds = xmlChildren(suite, "detail").map(
+			(detail) => detail.attributes.id,
+		);
+		expect(detailIds).toContain("m1_case_short");
+		expect(detailIds.filter((id) => id?.startsWith("m0_"))).toEqual([]);
+		const keys = [...appStrings(zip, "en").keys()];
+		expect(keys.filter((key) => key.startsWith("m1."))).not.toEqual([]);
+		expect(keys.filter((key) => key.startsWith("m0."))).toEqual([]);
+	});
+});
+
+describe("a module's display condition on the local path", () => {
+	const supervisor = eq(sessionUser("role"), literal("supervisor"));
+	const role =
+		"instance('commcaresession')/session/user/data/role = 'supervisor'";
+	function menuOf(change: (doc: BlueprintDoc) => void) {
+		const doc = buildDoc({
+			appName: "Conditions",
+			modules: [
+				{
+					name: "Surveys",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [f({ kind: "text", id: "notes" })],
+						},
+					],
+				},
+			],
+		});
+		change(doc);
+		const { suite } = exported(doc);
+		return onlyXml(
+			xmlChildren(suite, "menu").filter((menu) => menu.attributes.id === "m0"),
+		);
+	}
+	const instanceIds = (menu: ReturnType<typeof menuOf>) =>
+		xmlChildren(menu, "instance").map((node) => node.attributes.id);
+
+	it("declares what a condition that ends in never reads, as it is printed", () => {
+		const menu = menuOf((doc) => {
+			doc.modules[doc.moduleOrder[0]].displayCondition = and(
+				supervisor,
+				matchNone(),
+			);
+		});
+		expect(menu.attributes.relevant).toBe(`${role} and false()`);
+		expect(instanceIds(menu)).toEqual(["commcaresession"]);
+	});
+
+	it("declares what the rest of a module off the menu reads", () => {
+		const menu = menuOf((doc) => {
+			const module = doc.modules[doc.moduleOrder[0]];
+			module.hiddenFromMenu = true;
+			module.displayCondition = supervisor;
+		});
+		expect(menu.attributes.relevant).toBe(`false() and (${role})`);
+		expect(instanceIds(menu)).toEqual(["commcaresession"]);
 	});
 });

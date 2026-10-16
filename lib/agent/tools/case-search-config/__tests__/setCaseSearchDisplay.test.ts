@@ -9,7 +9,14 @@ import {
 	isOrdinaryCaseSearchConfig,
 	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain";
-import { eq, literal, matchAll, prop, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	literal,
+	matchAll,
+	prop,
+	sessionUser,
+	term,
+} from "@/lib/domain/predicate";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
 import { MOD_A, makeCaseSearchDoc, makeCaseSearchFixture } from "./fixtures";
 
@@ -32,7 +39,6 @@ describe("setCaseSearchDisplay", () => {
 				moduleUuid: MOD_A,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
-				searchButtonLabel: null,
 				searchButtonDisplayCondition: eq(
 					prop("patient", "external_id"),
 					literal("abc"),
@@ -51,7 +57,6 @@ describe("setCaseSearchDisplay", () => {
 			moduleUuid: MOD_A,
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: "Type to filter",
-			searchButtonLabel: "Search",
 			searchButtonDisplayCondition: buttonCondition,
 		});
 
@@ -60,7 +65,6 @@ describe("setCaseSearchDisplay", () => {
 		const search = ordinary(config);
 		expect(search.searchScreenTitle).toBe("Find a patient");
 		expect(search.searchScreenSubtitle).toBe("Type to filter");
-		expect(search.searchButtonLabel).toBe("Search");
 		expect(search.searchButtonDisplayCondition).toEqual(buttonCondition);
 	});
 
@@ -73,8 +77,7 @@ describe("setCaseSearchDisplay", () => {
 			moduleUuid: MOD_A,
 			searchScreenTitle: "Search patients",
 			searchScreenSubtitle: null,
-			searchButtonLabel: "Go",
-			searchButtonDisplayCondition: null,
+			searchButtonDisplayCondition: matchAll(),
 		});
 
 		if ("error" in result.result) {
@@ -82,7 +85,7 @@ describe("setCaseSearchDisplay", () => {
 		}
 		expect(result.result.displaySlotsSet).toEqual([
 			"searchScreenTitle",
-			"searchButtonLabel",
+			"searchButtonDisplayCondition",
 		]);
 	});
 
@@ -99,7 +102,6 @@ describe("setCaseSearchDisplay", () => {
 					caseSearchConfig: {
 						searchScreenTitle: "Old title",
 						searchScreenSubtitle: "Old subtitle",
-						searchButtonLabel: "Old search",
 						searchButtonDisplayCondition: matchAll(),
 					},
 				},
@@ -111,7 +113,6 @@ describe("setCaseSearchDisplay", () => {
 			moduleUuid: MOD_A,
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
-			searchButtonLabel: null,
 			searchButtonDisplayCondition: null,
 		});
 
@@ -146,7 +147,6 @@ describe("setCaseSearchDisplay", () => {
 			moduleUuid: MOD_A,
 			searchScreenTitle: "Find patients",
 			searchScreenSubtitle: null,
-			searchButtonLabel: null,
 			searchButtonDisplayCondition: null,
 		});
 
@@ -157,9 +157,10 @@ describe("setCaseSearchDisplay", () => {
 		expect(search.searchScreenTitle).toBe("Find patients");
 	});
 
-	it("turns an owner-only config into explicit Search when action copy is set", async () => {
+	it("turns an owner-only config into explicit Search when the action's condition is set", async () => {
 		const baseDoc = makeCaseSearchDoc();
 		const owner = term({ kind: "literal", value: "owner-a" });
+		const supervisor = eq(sessionUser("role"), literal("supervisor"));
 		const mod = baseDoc.modules[MOD_A];
 		if (mod?.caseListConfig === undefined) {
 			throw new Error("fixture must carry a case-list config");
@@ -185,12 +186,11 @@ describe("setCaseSearchDisplay", () => {
 			moduleUuid: MOD_A,
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
-			searchButtonLabel: "Refresh cases",
-			searchButtonDisplayCondition: null,
+			searchButtonDisplayCondition: supervisor,
 		});
 		expect(h.currentDoc().modules[MOD_A]?.caseSearchConfig).toEqual({
 			excludedOwnerIds: owner,
-			searchButtonLabel: "Refresh cases",
+			searchButtonDisplayCondition: supervisor,
 		});
 	});
 
@@ -200,7 +200,6 @@ describe("setCaseSearchDisplay", () => {
 			moduleUuid: MISSING_MODULE,
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
-			searchButtonLabel: null,
 			searchButtonDisplayCondition: null,
 		});
 
@@ -231,7 +230,6 @@ describe("setCaseSearchDisplay", () => {
 			moduleUuid: MOD_A,
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: null,
-			searchButtonLabel: null,
 			searchButtonDisplayCondition: null,
 		});
 
@@ -248,7 +246,6 @@ describe("setCaseSearchDisplay", () => {
 			moduleUuid: MOD_A,
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
-			searchButtonLabel: null,
 			searchButtonDisplayCondition: null,
 			unknownSlotA: "stray",
 			unknownSlotB: "stray",

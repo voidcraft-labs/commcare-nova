@@ -9,6 +9,11 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { BlueprintDoc } from "@/lib/domain";
 import { formLinkWireFixture } from "./formLinkWireFixture";
+import {
+	admitNestedDoc,
+	followupNestedDoc,
+	nestSecondModule,
+} from "./nestedMenuWireFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 interface StackCreate {
@@ -137,6 +142,53 @@ describe("form-link local wire structure (native HQ/Core proof owns compatibilit
 		expect(form.post_form_workflow_fallback).toBeNull();
 		expect(creates).toEqual([
 			{ ifClause: undefined, children: ["command:'m1'"] },
+		]);
+	});
+
+	it("a firstMenu destination is HQ's root: one empty frame, as a destination and as a fallback", () => {
+		const doc = followupNestedDoc({ sameCaseType: true });
+		const { root } = nestSecondModule(doc);
+		const form = doc.formOrder[root][0];
+		doc.forms[form].postSubmit = "firstMenu";
+		admitNestedDoc(doc);
+		const { hq, suite } = compile(doc);
+		expect(hq.modules[0].forms[0].post_form_workflow).toBe("root");
+		expect(stackCreates(suite, "m0-f0")).toEqual([
+			{ ifClause: undefined, children: [] },
+		]);
+
+		const linked = formLinkWireFixture("home");
+		const homeForm = linked.formOrder[linked.moduleOrder[0]][0];
+		linked.forms[homeForm].postSubmit = "firstMenu";
+		const fallback = compile(linked);
+		expect(fallback.hq.modules[0].forms[0].post_form_workflow_fallback).toBe(
+			"root",
+		);
+		const creates = stackCreates(fallback.suite, "m0-f0");
+		expect(creates).toHaveLength(2);
+		expect(creates[1].children).toEqual([]);
+		expect(creates[1].ifClause).toBe(
+			"not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice')",
+		);
+	});
+
+	it("a parentMenu destination is HQ's parent_module: the parent's frame with its selection", () => {
+		const doc = followupNestedDoc({ sameCaseType: true });
+		const { childForm } = nestSecondModule(doc);
+		if (childForm === undefined) throw new Error("fixture child has no form");
+		doc.forms[childForm].postSubmit = "parentMenu";
+		admitNestedDoc(doc);
+		const { hq, suite } = compile(doc);
+		expect(hq.modules[1].root_module_id).toBe(hq.modules[0].unique_id);
+		expect(hq.modules[1].forms[0].post_form_workflow).toBe("parent_module");
+		expect(stackCreates(suite, "m1-f0")).toEqual([
+			{
+				ifClause: undefined,
+				children: [
+					"command:'m0'",
+					"datum:case_id=instance('commcaresession')/session/data/case_id",
+				],
+			},
 		]);
 	});
 });

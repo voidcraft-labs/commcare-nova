@@ -56,7 +56,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Where the user goes after submitting. "previous" returns to the preceding selection or task shown by the resolved navigation result. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Only set to override. With entry search-no-matches, omission returns to Results and explicit app_home returns home; multiple-selection modules require app_home.',
+				'Where the user goes after submitting: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (this module\'s first screen), "parentMenu" (the parent module, with its selection kept) or "previous" (the preceding selection or task shown by the resolved navigation result). Omit for the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, it opens on Search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. With entry search-no-matches, omission returns to Results and explicit firstMenu returns to the app\'s first menu; multiple-selection modules require firstMenu.',
 			),
 		entry: formEntryInputSchema
 			.nullable()
@@ -117,12 +117,12 @@ export const createFormTool = {
 				};
 			}
 
-			if (entry != null && post_submit != null && post_submit !== "app_home") {
+			if (entry != null && post_submit != null && post_submit !== "firstMenu") {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
-						error: `Form "${name}" can return to Results or App home after an empty-search registration. Leave post_submit out to return to Results, or set post_submit to app_home.`,
+						error: `Form "${name}" can return to Results or First menu after an empty-search registration. Leave post_submit out to return to Results, or set post_submit to firstMenu.`,
 					},
 				};
 			}

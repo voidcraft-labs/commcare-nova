@@ -52,8 +52,14 @@ public class SearchPromptRuntimeTest {
         return node;
     }
     private final class Data extends TestInstanceInitializer {
-        final TreeElement regionGroup = node("region_group", "A");
-        Data() { super(MockDataUtils.getStaticStorage()); }
+        final TreeElement regionGroup;
+        private final String regions;
+        Data() { this("A", "regions.fixture.xml"); }
+        Data(String group, String regions) {
+            super(MockDataUtils.getStaticStorage());
+            regionGroup = node("region_group", group);
+            this.regions = regions;
+        }
         @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
             String id = instance.getInstanceId();
             if (id.startsWith("search-input:")) return new ConcreteInstanceRoot(null);
@@ -63,7 +69,7 @@ public class SearchPromptRuntimeTest {
                 TreeElement user = node("user", null), data = node("data", null);
                 data.addChild(regionGroup); user.addChild(data); root.addChild(user);
             } else if (id.equals("item-list:regions")) {
-                try (InputStream stream = resource("regions.fixture.xml")) {
+                try (InputStream stream = resource(regions)) {
                     root = TreeUtilities.xmlStreamToTreeElement(stream, id).getChild("regions_list", 0);
                 } catch (Exception e) { throw new RuntimeException(e); }
             } else return super.generateRoot(instance);
@@ -125,7 +131,7 @@ public class SearchPromptRuntimeTest {
         for (boolean hq : new boolean[]{false, true}) {
             Data data = new Data();
             RemoteQuerySessionManager manager = manager("prompt-widgets", hq, data);
-            assertEquals(Arrays.asList("north:North & coast", "east:East"), choices(manager, "region"));
+            assertEquals(Arrays.asList("east:East", "north:North & coast"), choices(manager, "region"));
             assertEquals(choices(manager, "region"), choices(manager, "regions"));
             assertEquals("north", manager.getUserAnswers().get("region"));
             answer(manager, "regions", "north#,#east#,#unknown");
@@ -139,6 +145,14 @@ public class SearchPromptRuntimeTest {
             assertFalse(manager.getUserAnswers().containsKey("regions"));
             answer(manager, "region", "south");
             assertEquals(Collections.singletonList("south"), new ArrayList<>(manager.getRawQueryParams(false).get("region")));
+        }
+    }
+    @Test public void lookupChoicesFollowTheirLabelsByCodeUnitKeepingTiesInRowOrder() throws Exception {
+        List<String> expected = Arrays.asList("row_6:10", "row_7:9", "row_1:B", "row_4:Z", "row_2:a", "row_5:a", "row_8:a", "row_0:b", "row_3:\u00e9");
+        for (boolean hq : new boolean[]{false, true}) {
+            RemoteQuerySessionManager manager = manager("prompt-widgets", hq, new Data("C", "regions-order.fixture.xml"));
+            assertEquals("hq=" + hq, expected, choices(manager, "region"));
+            assertEquals("hq=" + hq, expected, choices(manager, "regions"));
         }
     }
     @Test public void computedGuardsFollowSharedValuesWhileLocationGuardsStayIndependent() throws Exception {

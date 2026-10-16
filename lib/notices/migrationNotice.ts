@@ -36,6 +36,7 @@ export const migrationNoticeCutoverSchema = z.enum(MIGRATION_NOTICE_CUTOVERS);
  * A reason joins the list at its place in that order, never at the end.
  */
 export const DOCUMENT_NOTICE_REASONS = [
+	"search-button-text-changed",
 	"question-renamed",
 	"case-operation-renamed",
 	"connect-block-renamed",
@@ -45,6 +46,10 @@ export const DOCUMENT_NOTICE_REASONS = [
 	"option-label-filled",
 	"empty-form-label-added",
 	"session-read-removed",
+	"search-input-renamed",
+	"search-input-removed",
+	"hidden-from-menu-set",
+	"after-submit-destination-moved",
 	"id-mapping-entry-removed",
 	"date-pattern-apostrophe-replaced",
 	"tile-order-rule-removed",
@@ -56,6 +61,8 @@ export const DOCUMENT_NOTICE_REASONS = [
 	"follow-up-now-touches-case",
 	"linked-follow-up-now-writes-case",
 	"close-moves-to-save-to-case",
+	"lookup-choices-order-changes",
+	"survey-menu-takes-case-type",
 	"case-list-order-changes",
 	"case-list-search-matches-hidden-fields",
 	"hidden-order-column-not-in-sort-menu",

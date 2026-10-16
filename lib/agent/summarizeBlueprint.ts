@@ -88,7 +88,8 @@ function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 	const form = doc.forms[formUuid];
 	if (!form) return `  - Missing form [uuid ${formUuid}]`;
 	const count = countFieldsUnder(doc, formUuid);
-	const header = `  - Form "${form.name}" [uuid ${formUuid}] (${form.type}, ${count} field${count === 1 ? "" : "s"})`;
+	const offTheMenu = form.hiddenFromMenu === true ? " [off the menu]" : "";
+	const header = `  - Form "${form.name}" [uuid ${formUuid}] (${form.type}, ${count} field${count === 1 ? "" : "s"})${offTheMenu}`;
 	const extras: string[] = [];
 	if (form.postSubmit) extras.push(`    post_submit: ${form.postSubmit}`);
 	if (form.entry) {
@@ -295,7 +296,13 @@ function formatSearchInput(input: SearchInputDef): string {
 		);
 	}
 	if (input.validation !== undefined) markers.push("check");
-	if ("options" in input) markers.push("lookup choices");
+	if ("options" in input) {
+		markers.push(
+			input.options.sortColumnId === undefined
+				? "lookup choices"
+				: `lookup choices sorted by column ${input.options.sortColumnId}`,
+		);
+	}
 	const suffix = markers.length === 0 ? "" : ` [${markers.join(", ")}]`;
 	return `${input.uuid}: ${body}${suffix}`;
 }
@@ -363,11 +370,12 @@ function summarizeModule(
 	if (!mod) return `${indent}- Missing module [uuid ${moduleUuid}]`;
 	const caseInfo = mod.caseType ? ` (case_type: ${mod.caseType})` : "";
 	const listOnly = mod.caseListOnly ? " [case list only]" : "";
+	const offTheMenu = mod.hiddenFromMenu === true ? " [off the menu]" : "";
 	const parentInfo =
 		mod.parentModuleUuid === undefined
 			? " [top-level menu]"
 			: ` [child menu of uuid ${mod.parentModuleUuid}]`;
-	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${listOnly}`;
+	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${listOnly}${offTheMenu}`;
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
 	if (caseList) sections.push(indentBlock(caseList, indent));

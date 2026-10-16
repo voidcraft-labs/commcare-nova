@@ -155,7 +155,13 @@ describe("HQ nested-selection target compatibility", () => {
 			};
 		}
 		setSharedFormAnswers(doc, root);
-		if (scenario !== "registration") setSharedFormAnswers(doc, child);
+		if (scenario !== "registration") {
+			setSharedFormAnswers(doc, child);
+		} else {
+			// "Previous" is not offered under a parent that selects several cases.
+			for (const form of doc.formOrder[child])
+				delete doc.forms[form].postSubmit;
+		}
 		admitNestedDoc(doc);
 		for (const mode of ["hq-json", "hq-upload"] as const) {
 			const result = await prepareExportBoundary({

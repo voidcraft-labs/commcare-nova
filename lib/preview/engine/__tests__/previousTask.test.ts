@@ -79,6 +79,63 @@ function row(caseId: string, status: "open" | "closed" = "open"): CaseRow {
 	};
 }
 
+describe("the first menu and the parent module as a form's destination", () => {
+	function nestedSurveys(postSubmit: "firstMenu" | "parentMenu" | "app_home") {
+		const blueprint = buildDoc({
+			modules: [
+				{
+					uuid: "households",
+					name: "Households",
+					forms: [
+						{
+							uuid: "household-survey",
+							name: "Household survey",
+							type: "survey",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+				{
+					uuid: "members",
+					name: "Members",
+					forms: [
+						{
+							uuid: "member-survey",
+							name: "Member survey",
+							type: "survey",
+							postSubmit,
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+		blueprint.modules[testUuid("members")].parentModuleUuid =
+			testUuid("households");
+		return blueprint;
+	}
+
+	it("resolves firstMenu to the one home screen app_home resolves to", () => {
+		for (const destination of ["firstMenu", "app_home"] as const) {
+			expect(
+				formNavigation(nestedSurveys(destination), testUuid("member-survey"))
+					?.afterSubmit.fallback,
+			).toEqual({ screen: "home" });
+		}
+	});
+
+	it("resolves parentMenu to the parent module's own screen", () => {
+		expect(
+			formNavigation(nestedSurveys("parentMenu"), testUuid("member-survey"))
+				?.afterSubmit.fallback,
+		).toEqual({
+			screen: "menu",
+			moduleUuid: testUuid("households"),
+			name: "Households",
+		});
+	});
+});
+
 describe("the native preceding task", () => {
 	it("retires a module's leaf selection without discarding its owner-retained parent", () => {
 		const blueprint = followupNestedDoc({ parentSelect: true });

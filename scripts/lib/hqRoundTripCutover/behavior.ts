@@ -6,6 +6,7 @@
  * changes the document.
  */
 
+import { moduleCaseTypeForActions } from "@/lib/commcare/formLinkProjection";
 import { moduleCaseListOrderPlan } from "@/lib/commcare/suite/case-list/orderPlanOptions";
 import {
 	type BlueprintDoc,
@@ -18,6 +19,7 @@ import {
 	type Field,
 	type Form,
 	type Module,
+	searchInputOptions,
 	type Uuid,
 } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
@@ -189,6 +191,68 @@ export const closeMovesToSaveToCase: BehaviorSelection = {
 				? [{ reason: "close-moves-to-save-to-case", entity: formEntity(form) }]
 				: [],
 		);
+	},
+};
+
+/**
+ * `lookup-choices-order-changes`: each Search question whose choices come
+ * from a lookup table. Its choices are now listed in the order of their
+ * labels, where they were listed in the table's row order: the stored input
+ * holds no sort column, which means the label column. Named by the input,
+ * with its menu's name in `detail.menu`.
+ */
+export const lookupChoicesOrderChanges: BehaviorSelection = {
+	reason: "lookup-choices-order-changes",
+	select(target) {
+		return target.moduleOrder.flatMap((moduleUuid) => {
+			const module = target.modules[moduleUuid];
+			return (module?.caseListConfig?.searchInputs ?? []).flatMap(
+				(input): DocumentChange[] =>
+					module !== undefined && searchInputOptions(input) !== undefined
+						? [
+								{
+									reason: "lookup-choices-order-changes",
+									entity: {
+										type: "searchInput",
+										uuid: input.uuid,
+										nameAtMigration: input.label || input.name,
+									},
+									detail: { menu: module.name },
+								},
+							]
+						: [],
+			);
+		});
+	},
+};
+
+/**
+ * `survey-menu-takes-case-type`: each menu with a case type that builds
+ * nothing from it, a menu of survey forms that is not a bare case list
+ * (`moduleCaseTypeForActions` answers `""`). It uploaded no case type
+ * before; it now uploads its own, so CommCare HQ shows that type for the
+ * menu, and its case list settings, from the next publish. Named by the
+ * menu, with the type in `detail.caseType`.
+ */
+export const surveyMenuTakesCaseType: BehaviorSelection = {
+	reason: "survey-menu-takes-case-type",
+	select(target) {
+		return target.moduleOrder.flatMap((moduleUuid): DocumentChange[] => {
+			const module = target.modules[moduleUuid];
+			const caseType = module?.caseType;
+			return module !== undefined &&
+				typeof caseType === "string" &&
+				caseType.length > 0 &&
+				moduleCaseTypeForActions(target, moduleUuid) === ""
+				? [
+						{
+							reason: "survey-menu-takes-case-type",
+							entity: menuEntity(module),
+							detail: { caseType },
+						},
+					]
+				: [];
+		});
 	},
 };
 
@@ -455,6 +519,8 @@ export const BEHAVIOR_SELECTIONS: readonly BehaviorSelection[] = [
 	followUpNowTouchesCase,
 	linkedFollowUpNowWritesCase,
 	closeMovesToSaveToCase,
+	lookupChoicesOrderChanges,
+	surveyMenuTakesCaseType,
 	caseListOrderChanges,
 	caseListSearchMatchesHiddenFields,
 	hiddenOrderColumnNotInSortMenu,

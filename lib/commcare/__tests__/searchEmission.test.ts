@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
-import { input, term } from "@/lib/domain/predicate";
+import { eq, input, literal, prop, term } from "@/lib/domain/predicate";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import { COMMCARE_SERVER_IDS, type CommCareServer } from "../servers";
@@ -109,6 +109,7 @@ it.each(searchEmissionScenarios)(
 		const data = xmlChildren(query, "data");
 		expect(data.map((node) => node.attributes.key)).toEqual([
 			"case_type",
+			...(scenario === "automatic" ? ["_xpath_query"] : []),
 			...(multiple ? ["x_commcare_include_all_related_cases"] : []),
 			...(scenario === "remote-defaults"
 				? ["_xpath_query", "commcare_blacklisted_owner_ids"]
@@ -291,6 +292,37 @@ it.each(COMMCARE_SERVER_IDS)(
 						.attributes.value,
 				).toBe(`${origins[server]}/a/clinic/phone/case_fixture/released-app/`);
 		}
+	},
+);
+
+// Finding 53: a search with no input and no clause sends `match-all()` on
+// both paths; one with a Results filter sends the filter alone on both.
+it.each([
+	["a zero-input search", false],
+	["a search with a Results filter", true],
+] as const)(
+	"sends the same _xpath_query values on both paths for %s",
+	(_label, filtered) => {
+		const doc = searchEmissionFixture("automatic");
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		if (!config) throw new Error("Fixture has a case list");
+		if (filtered)
+			config.filter = eq(prop("patient", "first_name"), literal("Ada"));
+		const { hq, suite } = exported(doc);
+		const query = one(one(entry(suite, "m0-f0"), "session"), "query");
+		const local = xmlChildren(query, "data")
+			.filter((node) => node.attributes.key === "_xpath_query")
+			.map((node) => node.attributes.ref);
+		const uploaded = hq.modules[0].search_config.default_properties.map(
+			(property) => {
+				expect(property.property).toBe("_xpath_query");
+				return property.defaultValue;
+			},
+		);
+		expect(local).toEqual(uploaded);
+		expect(local).toHaveLength(1);
+		if (filtered) expect(local[0]).not.toBe("'match-all()'");
+		else expect(local).toEqual(["'match-all()'"]);
 	},
 );
 

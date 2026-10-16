@@ -17,6 +17,7 @@ import type {
 	HqModule,
 	OpenSubCaseAction,
 } from "@/lib/commcare";
+import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain";
 import { parseXml } from "../xmlParse";
 import {
 	type ValidationError,
@@ -541,6 +542,17 @@ function checkForm(
 		);
 	}
 
+	if (Object.hasOwn(form, "no_vellum")) {
+		errors.push(
+			validationError(
+				"HQJSON_UNWRITTEN_KEY",
+				"form",
+				`"${formName}" carries no_vellum, a key no CommCare HQ editor writes. Look at the form shell. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+
 	checkFormLinks(form, formName, ids, loc, errors);
 	checkFormActions(form.actions, formName, errors);
 }
@@ -588,6 +600,56 @@ function checkDetail(
 	}
 	checkSortElementSpelling(detail, moduleName, errors);
 	checkDetailFields(detail, moduleName, errors);
+	checkDetailEditorSpellings(detail, moduleName, errors);
+}
+
+/**
+ * The spellings HQ's editors write for a detail, so a save keeps the detail
+ * as Nova sent it: no `custom_variables` key (HQ's `Detail` holds
+ * `custom_variables_dict`), a calculated column written `plain` with
+ * `useXpathExpression` as the Case List page writes it, and a short detail
+ * with at least one column, as every new menu holds
+ * (`models/modules.py::Module.new_module`). HQ builds the same files either
+ * way, so none of these is import-fatal.
+ */
+function checkDetailEditorSpellings(
+	detail: Detail,
+	moduleName: string,
+	errors: ValidationError[],
+): void {
+	const loc = { moduleName };
+	if (Object.hasOwn(detail, "custom_variables")) {
+		errors.push(
+			validationError(
+				"HQJSON_UNWRITTEN_KEY",
+				"module",
+				`Module "${moduleName}" has a ${detail.display} case detail carrying custom_variables, a key no CommCare HQ editor writes. Look at the detail shell. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+	for (const column of detail.columns) {
+		const format: string = column.format;
+		if (format !== "calculate") continue;
+		errors.push(
+			validationError(
+				"HQJSON_BAD_DETAIL_FORMAT",
+				"module",
+				`Module "${moduleName}" has a case-list column over "${column.field}" with format "calculate", where CommCare HQ's Case List page writes a calculated column as "plain" with useXpathExpression. Look at how calculated columns are projected. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+	if (detail.display === "short" && detail.columns.length === 0) {
+		errors.push(
+			validationError(
+				"HQJSON_EMPTY_SHORT_DETAIL",
+				"module",
+				`Module "${moduleName}" has a case list with no column, where CommCare HQ gives every menu at least the "name" column and its Case List page has nothing to save from. Look at how an empty case list is projected. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
 }
 
 /**
@@ -779,7 +841,9 @@ function checkLogoRefs(
  * property lists) is either type-guaranteed by the `CaseSearchConfig` TS type or
  * an unconstrained `StringProperty`. The `<remote-request>` enum surface lives
  * in the suite, which the suite oracle owns; nothing in the HQ-JSON
- * `search_config` projection can break the wrap.
+ * `search_config` projection can break the wrap. What the oracle holds there
+ * is what HQ's Case List save keeps: every label language, the button label
+ * and each lookup prompt's sort.
  */
 function checkModule(
 	module: HqModule,
@@ -837,6 +901,8 @@ function checkModule(
 	checkDetail(module.case_details.long, moduleName, errors);
 	checkCaseListForm(module, moduleName, ids, loc, errors);
 	checkSearchLabels(module, moduleName, langs, loc, errors);
+	checkSearchButtonLabel(module, moduleName, loc, errors);
+	checkSearchItemsets(module, moduleName, loc, errors);
 
 	// Module-level + case-list-level menu media. Each carrier emits a
 	// `media_image` / `media_audio` dict (NavMenuItemMediaMixin); when present,
@@ -945,6 +1011,69 @@ function checkSearchLabels(
 				"HQJSON_BAD_SEARCH_LABEL",
 				"module",
 				`Module "${moduleName}" has a search_config.${slot} with no text for ${missing.map((lang) => `"${lang}"`).join(", ")}. It should hold every app language, blank where nothing is authored, because CommCare HQ's Case List save writes the page's language into it otherwise. Look at how the search configuration's labels are seeded. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+}
+
+/**
+ * `search_config.search_button_label` is HQ's own default and nothing else,
+ * keyed `en` alone: HQ's Case List save builds a new `CaseSearch` without a
+ * label, so its default returns on every save
+ * (`views/modules.py::_gather_and_update_search_properties`,
+ * `models/case_search.py::CaseSearch.search_button_label`).
+ */
+function checkSearchButtonLabel(
+	module: HqModule,
+	moduleName: string,
+	loc: ValidationLocation,
+	errors: ValidationError[],
+): void {
+	const label: Record<string, string> =
+		module.search_config.search_button_label;
+	const entries = Object.entries(label);
+	if (
+		entries.length === 1 &&
+		entries[0]?.[0] === "en" &&
+		entries[0]?.[1] === CASE_SEARCH_BUTTON_LABEL
+	) {
+		return;
+	}
+	errors.push(
+		validationError(
+			"HQJSON_BAD_SEARCH_BUTTON_LABEL",
+			"module",
+			`Module "${moduleName}" has a search_config.search_button_label of ${JSON.stringify(label)}, where it should be {"en": "${CASE_SEARCH_BUTTON_LABEL}"}: CommCare HQ's Case List save replaces any other label with that one. Look at the search configuration shell. This is a bug in the app generator.`,
+			loc,
+		),
+	);
+}
+
+/**
+ * Every lookup-backed prompt's itemset names its sort column: HQ's Case List
+ * save refuses an itemset missing any of `instance_id`, `nodeset`, `label`,
+ * `value` and `sort` (`views/modules.py::_update_search_properties`, its
+ * `_get_itemset`).
+ */
+function checkSearchItemsets(
+	module: HqModule,
+	moduleName: string,
+	loc: ValidationLocation,
+	errors: ValidationError[],
+): void {
+	for (const property of module.search_config.properties) {
+		const itemset = property.itemset;
+		if (itemset === undefined) continue;
+		const missing = (
+			["instance_id", "nodeset", "label", "value", "sort"] as const
+		).filter((key) => !itemset[key]);
+		if (missing.length === 0) continue;
+		errors.push(
+			validationError(
+				"HQJSON_BAD_SEARCH_ITEMSET",
+				"module",
+				`Module "${moduleName}" has a search prompt "${property.name}" whose lookup choices have no ${missing.join(", ")}. CommCare HQ's Case List save refuses such a prompt. Look at how lookup-backed prompts are projected. This is a bug in the app generator.`,
 				loc,
 			),
 		);

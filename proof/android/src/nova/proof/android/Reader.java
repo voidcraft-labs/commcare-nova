@@ -41,6 +41,9 @@ import java.nio.file.Files;
  * <li>{@code location}: install {@code archive}, open the form of {@code command}, hand the device's location
  * listener each of {@code fixes} in turn, and after each, whether the form's poll of the location sensor still
  * runs and what {@code node} holds (Location).</li>
+ * <li>{@code nav}: install {@code archive}, and where Android takes a worker from each of {@code commands}, each
+ * of {@code paths} tapped from the app's first menu, and each of {@code endpoints} launched as CommCare's own
+ * launcher sends it (Nav).</li>
  * </ul>
  */
 @Config(application = ProofApplication.class, sdk = 29)
@@ -96,6 +99,8 @@ public class Reader {
                 return Updates.read(request);
             case "location":
                 return Location.read(request);
+            case "nav":
+                return Nav.read(request);
             default:
                 throw new IllegalArgumentException("The Android reader has no request named " + op + ".");
         }

@@ -157,7 +157,10 @@ The requests (`Reader.java`):
     drawn) and its own button confirms; on a tablet the detail is the list
     screen's own right pane and its own button there. Each action the list
     offers (a search behind the list) is a walk of its own;
-  - a **search** (`QueryRequestActivity`, `Queries.java`): its prompts, what
+  - a **search** (`QueryRequestActivity`, `Queries.java`): its prompts, the
+    items each prompt that lists choices shows (a spinner's, or a group of
+    check boxes'), in the screen's order, which is the order Core gives the
+    prompt's itemset (sorted where it holds a sort), what
     it sends, and what it sends and shows for an answer holding both quote
     marks when the server answers 400; and, on a screen of its own, what it
     would send once a worker has typed the answer table's search answers
@@ -283,6 +286,38 @@ The requests (`Reader.java`):
   node the request names holds. A walk gives a form one fix, finer than any
   accuracy a profile names, so the auto-capture accuracy a profile states
   is read here (`predicates.py::test_automatic_capture_stops_at_the_accuracy_the_profile_names`).
+- **`nav`**: where Android takes a worker (`Nav.java`, sent by
+  `navigation.py::nav`), each navigation one session read with the walk's own
+  loop (`Screens.follow`). For each of `commands`, the walk from the
+  command: its form completed, home handed the result, and each screen home
+  then starts. For each of `paths` (lists of menu item ids), the items chosen
+  from the app's first menu as a worker taps them, a list on the way
+  answered with its first case, and the screen reached read as a command's
+  is. For each of `endpoints` (`{id, arguments?, complete?}`), the intent
+  CommCare's own launcher sends (`CommCareLauncher.launchCommCareForAppId`:
+  the action `org.commcare.dalvik.action.CommCareSession`, the installed
+  app's id, the entry point's id, its arguments as a list) handed to
+  `DispatchActivity`, each activity it starts followed until it starts
+  `StandardHomeActivity`, the media check a first open asks for
+  (`CommCareVerificationActivity`) run and its result handed back; home is
+  built from the intent the dispatcher handed it, which runs the entry
+  point's stack as it is created, and what home then starts is read: a case
+  list answered and the screen after it read, a form opened and left, or
+  completed where the entry point carries `"complete": true`. A menu's
+  entry point on a case menu takes the case that menu selects as its
+  argument, since HQ's entry point declares it
+  (`suite_xml/post_process/endpoints.py::_make_session_endpoint`) and Android
+  runs no stack for one launched without it. The answer holds one record a
+  navigation under `navs`, keyed `command:<id>`, `path:<ids joined by />` or
+  `endpoint:<id>`: a command's and a path's `steps`, each with its `screen`
+  (`home`, `MenuActivity`, `EntitySelectActivity` or `FormEntryActivity`),
+  the session frame (`session.command`, and `session.needed` where home
+  starts no screen), a menu's `menu.id` and `menu.items[*].id`, and a form's
+  `form` with `FormEntryActivity.getHeaderString`; an endpoint's
+  `dispatched` (the dispatcher's chain), `handedHome.endpoint` and
+  `landed.steps`. `test_navigation.py` holds what the device does with each
+  after-submit destination, with an item off the menu, and with a link to a
+  target its menu hides.
 
 An answer holds what Android gave: a status Android reports, a screen's own
 alert, what the app itself raised on a walk. A request the reader itself could
@@ -498,6 +533,21 @@ finds that case alone; and `targeted-tile-hidden-order`, its ranks set by
 hand, lists its tiles in the first hidden order rule's order, lays out each
 tile's placed cells and no other, offers those columns alone in its Sort
 menu, and finds a case by a value only the hidden order column holds.
+
+`test_navigation.py` reads the corpus the same way, through the `nav`
+request. On `targeted-multi-select-destinations` home starts no screen at a
+menu that selects several cases, from its forms' commands or by taps, so a
+device opens neither `module` form of `m0` and `m3`; the `firstMenu` form,
+started from its command, lands on the menu listing Batches and Samples;
+the second follow-up of "Samples" lands on the menu's case list; and
+`parentMenu` and `previous` land on the parent menu listing its forms and
+child menus, from the command and by taps. On `targeted-hidden-from-menu` a
+link to a form off the menu and a link into a menu off the menu each open
+their form, and every entry point opens its form with no alert, those that
+do not ignore display conditions as those that do. On
+`targeted-form-link-hidden-target` the links to the shown form and to the
+form a condition hides open them, and the link to the hidden menu opens it
+with nothing in it (finding 58).
 
 Each test carries `@pytest.mark.reader("android")` and takes the `hq` fixture,
 so the pull request lane deselects it and the nightly runs it.

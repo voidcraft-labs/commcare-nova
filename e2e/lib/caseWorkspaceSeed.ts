@@ -291,10 +291,7 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 				},
 				// No subtitle on purpose: the search editor must center a lone title
 				// and only make room when the author actually adds supporting copy.
-				caseSearchConfig: {
-					searchScreenTitle: "Find a patient",
-					searchButtonLabel: "Show patients",
-				},
+				caseSearchConfig: { searchScreenTitle: "Find a patient" },
 			},
 			{
 				uuid: ids.tile.moduleUuid,

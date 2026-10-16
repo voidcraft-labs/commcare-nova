@@ -23,7 +23,6 @@ const SETTINGS = [
 	"excludedOwnerIds",
 	"searchScreenTitle",
 	"searchScreenSubtitle",
-	"searchButtonLabel",
 	"searchButtonDisplayCondition",
 	"searchFirst",
 ] as const satisfies readonly (keyof CaseSearchConfigPatch)[];

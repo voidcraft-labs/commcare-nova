@@ -20,6 +20,7 @@ import {
 	expandDoc as projectUncheckedDoc,
 } from "@/lib/commcare/expander";
 import { expandCaseToWire } from "@/lib/commcare/hashtags";
+import { detailColumn } from "@/lib/commcare/hqShells";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
@@ -59,6 +60,7 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { captureExpanderEvidence } from "./expanderEvidence";
+import { noMatchesDoc } from "./noMatchesWireFixture";
 
 function expandDoc(doc: BlueprintDoc) {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
@@ -219,6 +221,118 @@ describe("display-condition HQ projection", () => {
 		const hq = expandDoc(displayDoc);
 		expect(hq.modules[0].module_filter).toBeNull();
 		expect(hq.modules[0].forms[0].form_filter).toBeNull();
+	});
+});
+
+describe("display-condition HQ projection: an item off the menu", () => {
+	it("writes false() for a menu and a form off the menu, before the condition for when they return", () => {
+		const hiddenDoc = buildDoc({
+			appName: "Hidden menus",
+			modules: [
+				{
+					name: "Start",
+					forms: [
+						{
+							name: "Shown",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
+						},
+						{
+							name: "Hidden",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
+							displayCondition: eq(sessionUser("role"), literal("supervisor")),
+						},
+					],
+				},
+				{
+					name: "Off the menu",
+					forms: [
+						{
+							name: "Inside",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
+						},
+					],
+				},
+			],
+		});
+		const [start, offTheMenu] = hiddenDoc.moduleOrder;
+		hiddenDoc.forms[hiddenDoc.formOrder[start][1]].hiddenFromMenu = true;
+		hiddenDoc.modules[offTheMenu].hiddenFromMenu = true;
+		const hq = expandDoc(hiddenDoc);
+		expect(hq.modules[0].module_filter).toBeNull();
+		expect(hq.modules[0].forms[0].form_filter).toBeNull();
+		expect(hq.modules[0].forms[1].form_filter).toBe(
+			"false() and (instance('commcaresession')/session/user/data/role = 'supervisor')",
+		);
+		expect(hq.modules[1].module_filter).toBe("false()");
+	});
+});
+
+describe("a survey menu's case type", () => {
+	it("uploads a survey-only menu's own case type and builds nothing from it", () => {
+		const surveyDoc = buildDoc({
+			appName: "Survey menus",
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patient surveys",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Satisfaction",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
+						},
+					],
+				},
+				{
+					name: "Plain surveys",
+					forms: [
+						{
+							name: "Feedback",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
+						},
+					],
+				},
+			],
+		});
+		const hq = expandDoc(surveyDoc);
+		const [typed, untyped] = hq.modules;
+		expect(typed.case_type).toBe("patient");
+		expect(untyped.case_type).toBe("");
+		// The gate still decides what is built from the type: no form action,
+		// no case reference, and the search config stays at the shell defaults.
+		expect(typed.forms[0].requires).toBe("none");
+		expect(typed.forms[0].actions.update_case.condition.type).toBe("never");
+		expect(typed.forms[0].actions.open_case.condition.type).toBe("never");
+		expect(typed.search_config.properties).toEqual([]);
+	});
+
+	it("keeps the host's case type on a no-matches form's hidden menu", () => {
+		const hq = expandDoc(noMatchesDoc());
+		const hidden = hq.modules.at(-1);
+		expect(hidden?.module_filter).toBe("false()");
+		expect(hidden?.case_type).toBe(
+			hq.modules.find((module) => module.case_list_form.form_id !== null)
+				?.case_type,
+		);
+		expect(hidden?.case_type).not.toBe("");
 	});
 });
 
@@ -596,6 +710,62 @@ describe("expandDoc", () => {
 		/* Close forms require a case datum (requires: "case") */
 		expect(hq.modules[0].forms[0].requires).toBe("case");
 		expect(hq.modules[0].forms[1].requires).toBe("case");
+	});
+});
+
+describe("keys HQ's editors do not write", () => {
+	it("omits no_vellum from every form and custom_variables from every detail", () => {
+		const hq = expandDoc(followupDoc);
+		for (const module of hq.modules) {
+			for (const form of module.forms) {
+				expect(Object.hasOwn(form, "no_vellum")).toBe(false);
+			}
+			for (const detail of [
+				module.case_details.short,
+				module.case_details.long,
+			]) {
+				expect(Object.hasOwn(detail, "custom_variables")).toBe(false);
+			}
+		}
+	});
+});
+
+describe("a case list with no column", () => {
+	it("writes HQ's one name column on a survey menu's short detail, headed Name in every language", () => {
+		const doc = buildDoc({
+			appName: "Clinica",
+			modules: [
+				{
+					name: "Encuestas",
+					forms: [
+						{
+							name: "Encuesta",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notas") }),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.localization = {
+			...doc.localization,
+			sourceLanguage: "spa",
+			defaultLanguage: "spa",
+			languageOrder: ["spa", "fra"],
+			wireCodes: { spa: "es", fra: "fr" },
+			translations: { fra: {} },
+		};
+		// Admitted, and projected without the expander capture, so the proof
+		// corpus gains no document from it.
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const details = projectUncheckedDoc(doc).modules[0].case_details;
+		expect(details.short.columns).toEqual([
+			detailColumn("name", { es: "Name", fr: "Name" }),
+		]);
+		expect(details.long.columns).toEqual([]);
 	});
 });
 
@@ -4204,7 +4374,8 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 
 	it("projects calculated columns with `useXpathExpression: true` and the lowered XPath as `field`", () => {
 		// Calc columns route through CCHQ's `useXpathExpression`
-		// branch — `format: "calculate"`, `useXpathExpression: true`,
+		// branch — `format: "plain"`, as HQ's Case List page writes a
+		// calculated column, `useXpathExpression: true`,
 		// and `field` carries the lowered XPath expression rather
 		// than a property name (per CCHQ's
 		// `detail_screen.py::FormattedDetailColumn.xpath` switch).
@@ -4221,7 +4392,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			}),
 		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
-		expect(shortCols[0].format).toBe("calculate");
+		expect(shortCols[0].format).toBe("plain");
 		expect(shortCols[0].useXpathExpression).toBe(true);
 		// `field` carries the lowered XPath — for a bare property ref
 		// the on-device emitter renders just the property name.
@@ -4622,7 +4793,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 				expect(detail.columns[0]).toMatchObject({
 					field:
 						"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
-					format: "calculate",
+					format: "plain",
 					useXpathExpression: true,
 				});
 			}
@@ -4651,7 +4822,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			expect(module.case_details.short.columns[0]).toMatchObject({
 				field:
 					"current()/../case[@case_id=current()/index/parent and @case_type='household']/@case_id",
-				format: "calculate",
+				format: "plain",
 				useXpathExpression: true,
 			});
 		});
@@ -4667,7 +4838,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 
 			expect(module.search_config.include_all_related_cases).toBe(false);
 			expect(module.case_details.short.columns[0]).toMatchObject({
-				format: "calculate",
+				format: "plain",
 				useXpathExpression: true,
 			});
 		});
@@ -4812,7 +4983,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			{
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: "Search by **name** or village.",
-				searchButtonLabel: "Search patients",
 				searchButtonDisplayCondition: eq(sessionUser("role"), literal("Alice")),
 			},
 		);
@@ -4821,8 +4991,9 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		expect(searchConfig.description).toEqual({
 			en: "Search by **name** or village.",
 		});
+		// The button has no authored label: it reads HQ's own.
 		expect(searchConfig.search_button_label).toEqual({
-			en: "Search patients",
+			en: "Search All Cases",
 		});
 		expect(searchConfig.search_button_display_condition).toBe(
 			"instance('commcaresession')/session/user/data/role = 'Alice'",
@@ -5310,7 +5481,6 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			},
 			{
 				searchScreenTitle: "Find a patient",
-				searchButtonLabel: "Search patients",
 				excludedOwnerIds: toValueExpression(term(literal("excluded"))),
 			},
 		);
@@ -5337,7 +5507,7 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		// Search-config chrome lands on the matching CCHQ slots.
 		expect(module.search_config.title_label).toEqual({ en: "Find a patient" });
 		expect(module.search_config.search_button_label).toEqual({
-			en: "Search patients",
+			en: "Search All Cases",
 		});
 		expect(module.search_config.blacklisted_owner_ids_expression).toBe(
 			lowerXPathForJavaRosa("normalize-space('excluded')"),

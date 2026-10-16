@@ -25,11 +25,15 @@ import { connectTaskFormsStep } from "./steps/connectTaskForms";
 import { datePatternsStep } from "./steps/datePatterns";
 import { emptyFormsStep } from "./steps/emptyForms";
 import { entryPointIdsStep } from "./steps/entryPointIds";
+import { hiddenFromMenuStep } from "./steps/hiddenFromMenu";
 import { idMappingKeysStep } from "./steps/idMappingKeys";
 import { languageWireCodesStep } from "./steps/languageWireCodes";
 import { optionLabelsStep } from "./steps/optionLabels";
 import { optionValuesStep } from "./steps/optionValues";
+import { postSubmitStep } from "./steps/postSubmit";
 import { questionIdsStep } from "./steps/questionIds";
+import { reservedSearchInputsStep } from "./steps/reservedSearchInputs";
+import { searchButtonLabelStep } from "./steps/searchButtonLabel";
 import { sortPropertyOwnershipStep } from "./steps/sortPropertyOwnership";
 import { tileCellsStep } from "./steps/tileCells";
 import { tileHiddenCalculatedSortStep } from "./steps/tileHiddenCalculatedSort";
@@ -79,7 +83,7 @@ export interface DocumentChange {
  * `--debug-details` prints.
  */
 export interface StepBlocker {
-	readonly code: "unresolved-relative-path";
+	readonly code: "unresolved-relative-path" | "hidden-menu-is-a-destination";
 	readonly entity: NoticeEntityRef;
 	readonly detail: Readonly<Record<string, string>>;
 }
@@ -100,6 +104,7 @@ export interface CutoverStep {
 /** Every registered step, in the one order they run in. */
 export const CUTOVER_STEPS: readonly CutoverStep[] = [
 	languageWireCodesStep,
+	searchButtonLabelStep,
 	questionIdsStep,
 	caseOperationIdsStep,
 	connectIdsStep,
@@ -109,6 +114,9 @@ export const CUTOVER_STEPS: readonly CutoverStep[] = [
 	optionLabelsStep,
 	emptyFormsStep,
 	unsuppliedSessionReadsStep,
+	reservedSearchInputsStep,
+	hiddenFromMenuStep,
+	postSubmitStep,
 	idMappingKeysStep,
 	datePatternsStep,
 	tileHiddenCalculatedSortStep,

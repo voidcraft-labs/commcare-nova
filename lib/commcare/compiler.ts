@@ -53,8 +53,10 @@ import {
 	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 	inlineSearchFor,
+	moduleCaseTypeForActions,
 	moduleDestinationFrameChildren,
 	moduleIndexOf,
+	parentMenuDestinationFrameChildren,
 	parentSelectModuleUuid,
 	previousFrameChildren,
 	projectFormLinks,
@@ -116,8 +118,8 @@ import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	caseListColumnRuns,
-	defaultPostSubmit,
 	effectiveCaseSearchConfig,
+	effectivePostSubmit,
 	makeTranslationUnitId,
 	moduleParent,
 	projectedModulePreorder,
@@ -125,7 +127,7 @@ import {
 	userPropertySlugsByUuid,
 	type WireStringSource,
 } from "@/lib/domain";
-import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
+import { displayConditionForEmission } from "@/lib/domain/predicate";
 import {
 	caseListFormLabelUnit,
 	emissionPlan,
@@ -387,11 +389,18 @@ export function compileCcz(
 
 		const mod = doc.modules[moduleUuid];
 		const modName = mod.name;
-		const caseType = hqMod.case_type;
-		const hqForms = hqMod.forms;
-		const caseSearchConfig = effectiveCaseSearchConfig(mod);
 		// The hidden module of a no-matches form, or the host that offers one.
 		const synthetic = plan.synthetic.get(moduleUuid);
+		// What the local suite builds from a case type follows the gate, not
+		// the uploaded `case_type`, which a survey-only menu writes as its own
+		// type. The hidden menu of a no-matches form reads the uploaded type,
+		// its host's.
+		const caseType =
+			synthetic === undefined
+				? moduleCaseTypeForActions(doc, moduleUuid)
+				: hqMod.case_type;
+		const hqForms = hqMod.forms;
+		const caseSearchConfig = effectiveCaseSearchConfig(mod);
 		const noMatches = plan.noMatchesFormOf.get(moduleUuid);
 		// Owner exclusion belongs to case availability, not to the presence of
 		// a remote Search action. Read the raw authored slot so an owner-only
@@ -407,15 +416,20 @@ export function compileCcz(
 			? undefined
 			: caseSearchConfig?.searchButtonDisplayCondition;
 		const caseSource = searchFirst ? ("results:inline" as const) : undefined;
-		const effectiveModuleDisplayCondition =
-			effectiveDisplayConditionForEmission(mod.displayCondition);
-		// A hidden module's menu is never relevant; the Register action's
-		// push reaches its entry regardless (`CommCareSession.performPushInner`).
+		// The instances a module's `relevant` reads come from the condition
+		// the emitter prints as written; a module off the menu prints `false()`
+		// ahead of it, which reads none.
+		const effectiveModuleDisplayCondition = displayConditionForEmission(
+			mod.displayCondition,
+		);
+		// A no-matches form's synthetic module is never relevant; the Register
+		// action's push reaches its entry regardless
+		// (`CommCareSession.performPushInner`).
 		const moduleRelevant =
 			synthetic !== undefined
 				? NEVER_RELEVANT
 				: emitModuleDisplayCondition(
-						effectiveModuleDisplayCondition,
+						mod,
 						mod.caseType,
 						lookupNaming,
 						userPropertySlugs,
@@ -644,12 +658,11 @@ export function compileCcz(
 			// string whose mapping is lossy (e.g. "app_home" and an absent
 			// field both round-trip through "default"), so the compiler
 			// reads both fields straight from the doc to avoid losing
-			// fidelity. Defaulting follows the form-type rule the expander
-			// applies when emitting the wire payload.
+			// fidelity. The default is the one the expander reads,
+			// `effectivePostSubmit`, from the form type and its module's shape.
 			const form = doc.forms[formUuid];
 			const formType = form.type;
-			const postSubmit =
-				form.postSubmit ?? defaultPostSubmit(formType, { searchFirst });
+			const postSubmit = effectivePostSubmit(doc, formUuid) ?? "app_home";
 			const ownCaseDatum = selectedCaseSessionDatum(
 				doc,
 				linkContext,
@@ -658,7 +671,7 @@ export function compileCcz(
 			);
 			const ownCaseDatumId = ownCaseDatum?.id;
 			const formRelevant = emitFormDisplayConditionForSuite(
-				form.displayCondition,
+				form,
 				mod.caseType,
 				lookupNaming,
 				userPropertySlugs,
@@ -795,11 +808,10 @@ export function compileCcz(
 						})
 					: undefined;
 			// The no-matches form's return frame: after submit, back to the
-			// host's Results showing the case it registered.
-			const resetToAppHome =
-				synthetic !== undefined && form.postSubmit === "app_home";
+			// host's Results showing the case it registered. An explicit
+			// `firstMenu` returns to the app's first menu instead.
 			const returnFrame =
-				synthetic === undefined || resetToAppHome
+				synthetic === undefined || form.postSubmit === "firstMenu"
 					? undefined
 					: caseListFormReturnFrame(
 							doc,
@@ -809,7 +821,6 @@ export function compileCcz(
 							synthetic.caseType,
 						);
 			const entryDef = deriveEntryDefinition({
-				...(resetToAppHome && { resetToAppHome }),
 				formXmlns: xmlns,
 				moduleIndex: mIdx,
 				formIndex: fIdx,
@@ -830,6 +841,10 @@ export function compileCcz(
 					linkContext,
 					moduleUuid,
 				),
+				parentFrame:
+					postSubmit === "parentMenu"
+						? parentMenuDestinationFrameChildren(doc, linkContext, moduleUuid)
+						: [],
 				projectedSessionDatums,
 				caseListFilter: mod.caseListConfig?.filter,
 				searchButtonDisplayCondition,

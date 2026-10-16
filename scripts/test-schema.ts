@@ -24,6 +24,7 @@
  *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
  *     `moveField`, `createForm`, `createModule`, `updateModule`, `updateForm`,
  *     `configureConnect`, `addEntryPoint`, `updateEntryPoint`,
+ *     `addFormLinks`, `updateFormLink`,
  *     `renameCaseProperties`, `addLanguage`, `updateTranslations`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
  *     `setAppLogo`, `listMediaAssets`,
@@ -61,6 +62,8 @@ import {
 	updateEntryPointTool,
 } from "../lib/agent/tools/entry-points";
 import { evaluateFormTool } from "../lib/agent/tools/evaluateForm";
+import { addFormLinksTool } from "../lib/agent/tools/form-links/addFormLinks";
+import { updateFormLinkTool } from "../lib/agent/tools/form-links/updateFormLink";
 import { generateSchemaTool } from "../lib/agent/tools/generateSchema";
 import { getLookupTablesTool } from "../lib/agent/tools/getLookupTables";
 import {
@@ -178,11 +181,25 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 			"Use updateEntryPoint on entryPointUuid 33333333-3333-4333-8333-333333333333 to change its id to home-visit and go back to ordinary display-condition checks.",
 	},
 	{
+		name: "addFormLinks",
+		description: addFormLinksTool.description,
+		schema: addFormLinksTool.inputSchema,
+		prompt:
+			"Use addFormLinks with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add one link with no condition whose target is the form with moduleUuid 33333333-3333-4333-8333-333333333333 and formUuid 44444444-4444-4444-8444-444444444444.",
+	},
+	{
+		name: "updateFormLink",
+		description: updateFormLinkTool.description,
+		schema: updateFormLinkTool.inputSchema,
+		prompt:
+			"Use updateFormLink with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222 and linkUuid 55555555-5555-4555-8555-555555555555 to point the link at the module with moduleUuid 33333333-3333-4333-8333-333333333333, with no condition.",
+	},
+	{
 		name: "configureCaseList",
 		description: configureCaseListTool.description,
 		schema: configureCaseListTool.inputSchema,
 		prompt:
-			"Use configureCaseList with moduleUuid 11111111-1111-4111-8111-111111111111 to add a plain case_name column with columnUuid 33333333-3333-4333-8333-333333333333, use the four root search-display fields to set the title to Find a patient while clearing the other display slots, and set Results order to that column UUID.",
+			"Use configureCaseList with moduleUuid 11111111-1111-4111-8111-111111111111 to add a plain case_name column with columnUuid 33333333-3333-4333-8333-333333333333, use the three root search-display fields to set the title to Find a patient while clearing the other display slots, and set Results order to that column UUID.",
 	},
 	{
 		name: "addCaseListColumns",

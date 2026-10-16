@@ -134,7 +134,7 @@
 		],
 		"valueClass": "zero-input-marker-keys",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's zero-input search, the same state: HQ offers search on it (`util.py::module_offers_search`) and searches every open case of the type, as Nova's `_xpath_query` `'match-all()'` entry does (`lib/commcare/hqJson/caseList.ts`, `ZERO_INPUT_SEARCH_SENTINEL`)",
+		"dispositionCell": "**HELD**: Nova's zero-input search, the same state: HQ offers search on it (`util.py::module_offers_search`) and searches every open case of the type, as Nova's `_xpath_query` `'match-all()'` entry does on both export paths (`lib/commcare/suite/case-search/xpathQuery.ts`, `ZERO_INPUT_SEARCH_SENTINEL`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -485,7 +485,7 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova's validator admits both today; defect 14's fix refuses an input named like one of the module's default filters, and, on an input that reaches HQ as its own key, a name HQ does not search)",
+			"cell": "— (`CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER` refuses the input)",
 			"markers": []
 		},
 		"gates": []
@@ -1052,7 +1052,7 @@
 		"surfaceKeys": ["schema:CaseSearch.search_button_label"],
 		"valueClass": "hq-default",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `searchButtonLabel` absent, once defect 14 stops Nova writing its own \"Search\" for an absent label (`DEFAULT_CASE_SEARCH_BUTTON_LABEL`)",
+		"dispositionCell": "**HELD**: no slot; every search button reads `CASE_SEARCH_BUTTON_LABEL`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1091,8 +1091,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova's `searchButtonLabel` and its default \"Search\" are save-breaking today; emit HQ's default)",
-			"markers": ["save-breaking"]
+			"cell": "— (Nova writes HQ's default alone)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -1900,8 +1900,8 @@
 			}
 		},
 		"emission": {
-			"cell": "`input_: select1` + itemset **with `sort`** (`options.sortColumn`; a save refuses a sort-less itemset, `_get_itemset`: Nova's itemsets carry none and are save-breaking today, defect 14)",
-			"markers": ["save-breaking"]
+			"cell": "`input_: select1` + itemset **with `sort`** (`options.sortColumnId`, else the label column; a save refuses a sort-less itemset, `_get_itemset`)",
+			"markers": []
 		},
 		"gates": []
 	},

@@ -43,11 +43,12 @@ import type { Element } from "domhandler";
 import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
-	type LookupOptionsSource,
 	makeTranslationUnitId,
 	type SearchInputDef,
+	type SearchInputLookupOptions,
 	type SearchInputType,
 	searchInputDefault,
+	searchInputLookupSortColumnId,
 	searchInputOptions,
 	searchInputRequiredMessage,
 	searchInputRuntimeValueType,
@@ -201,6 +202,9 @@ export interface SearchPromptItemset {
 	/** Row-relative column wire names. */
 	readonly label: string;
 	readonly value: string;
+	/** The column whose text orders the choices: the sort column, else the
+	 *  label column. HQ's Case List save refuses an itemset without it. */
+	readonly sort: string;
 }
 
 /**
@@ -378,6 +382,7 @@ export function buildSearchPrompts(
 				el("itemset", { nodeset: wire.itemset.nodeset }, [
 					el("label", { ref: wire.itemset.label }),
 					el("value", { ref: wire.itemset.value }),
+					el("sort", { ref: wire.itemset.sort }),
 				]),
 			);
 		}
@@ -505,13 +510,15 @@ function composeValidationLocaleId(moduleId: string, name: string): string {
  * suite-scope spelling CCHQ pins in
  * `test_suite_remote_request.py::test_prompt_itemset`), `label` and
  * `value` name the two columns' current wire names as row-relative
- * steps, and an authored row filter becomes the nodeset predicate. The
+ * steps, `sort` names the column whose text orders the choices (Core sorts
+ * them by it, `ItemsetBinding.sortChoices`), and an authored row filter
+ * becomes the nodeset predicate. The
  * search screen has no case, so the filter's case anchor is
  * unaddressable; the validator admits only table columns and globals
  * there.
  */
 function buildItemset(
-	options: LookupOptionsSource,
+	options: SearchInputLookupOptions,
 	emission: PromptEmissionContext,
 ): SearchPromptItemset {
 	const { lookupNaming, relationContext, instances } = emission;
@@ -552,6 +559,7 @@ function buildItemset(
 		nodeset: `instance('${table.fixtureId}')/${table.listElementName}/${table.rowElementName}${filterText}`,
 		label: table.wireNameFor(options.labelColumnId),
 		value: table.wireNameFor(options.valueColumnId),
+		sort: table.wireNameFor(searchInputLookupSortColumnId(options)),
 	};
 }
 

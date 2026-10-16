@@ -81,12 +81,12 @@ export interface MappingItem {
 
 /**
  * One detail-column wire shape — CCHQ's `DetailColumn`. The `format`
- * discriminator dispatches the runtime render: `plain` is bare text,
- * `date` formats via `date_format`, `phone` renders a tap link,
+ * discriminator dispatches the runtime render: `plain` is bare text (a
+ * calculated column is `plain` over its expression, with
+ * `useXpathExpression`), `date` formats via `date_format`, `phone` renders a tap link,
  * `enum` projects through `enum`, `time-ago` shows a relative
  * interval scaled by `time_ago_interval`, `late-flag` flags rows
- * past `late_flag` days, `calculate` carries an inline XPath via
- * `useXpathExpression`, `invisible` is search-only (column tracked
+ * past `late_flag` days, `invisible` is search-only (column tracked
  * for sort / index but hidden in the case list).
  */
 export type DetailColumnFormat =
@@ -98,7 +98,6 @@ export type DetailColumnFormat =
 	| "time-ago"
 	| "late-flag"
 	| "translatable-enum"
-	| "calculate"
 	// Renders the cell through CommCare's markdown renderer, which is the
 	// only way a case-list cell becomes a link. Registered upstream at
 	// `detail_screen.py::Markdown` (`@register_format_type('markdown')`) and
@@ -281,7 +280,6 @@ export interface DetailBase {
 		header_rows: number;
 	};
 	custom_xml: null;
-	custom_variables: null;
 }
 
 export interface Detail extends DetailBase {
@@ -344,13 +342,15 @@ export interface CaseSearchAssertion {
  * (`instance('item-list:<tag>')/<tag>_list/<tag>[…]`); `label` /
  * `value` are row-relative column names. `instance_id` repeats the
  * fixture id CCHQ's instance post-process resolves from the nodeset.
- * `sort` is omitted: rows already ship in authored order.
+ * `sort` names the column whose text orders the choices; HQ's Case List
+ * save refuses an itemset without it (`views/modules.py::_get_itemset`).
  */
 export interface CaseSearchItemset {
 	instance_id: string;
 	nodeset: string;
 	label: string;
 	value: string;
+	sort: string;
 }
 
 export interface CaseSearchProperty {
@@ -522,7 +522,6 @@ export interface HqForm {
 	 * slot carries no choice validation and `null` is its stored default.
 	 */
 	post_form_workflow_fallback: string | null;
-	no_vellum: boolean;
 	media_image: Record<string, string>;
 	media_audio: Record<string, string>;
 	custom_icons: unknown[];

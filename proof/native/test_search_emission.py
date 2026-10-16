@@ -2,12 +2,12 @@
 
 Contract: for every scenario of the six corpora, every ``<entry>`` and
 ``<remote-request>`` HQ's suite contributors build equals Nova's, compared
-whole (every attribute, leaf text and child, in order), after exactly two
-recorded differences are set aside and asserted present: HQ adds an explicit
-``match-all()`` ``_xpath_query`` to an unprompted, unfiltered search
-(``automatic``), and Nova declares the selected-cases instance on a
-multi-select remote search even when no suite expression reads it
-(``remote-multiple``). The family's Core class then runs both paths
+whole (every attribute, leaf text and child, in order), after exactly one
+recorded difference is set aside and asserted present: Nova declares the
+selected-cases instance on a multi-select remote search even when no suite
+expression reads it (``remote-multiple``). An unprompted, unfiltered search
+(``automatic``) sends the same ``match-all()`` ``_xpath_query`` on both
+paths, so it is compared whole. The family's Core class then runs both paths
 (``SearchRuntimeTest``, ``SearchPromptRuntimeTest``,
 ``CsqlFunctionRuntimeTest``, ``CsqlQuoteRuntimeTest``,
 ``StaticQuoteRuntimeTest``, ``FormLinkRuntimeTest``). The plausible failures:
@@ -47,12 +47,6 @@ CORPORA = {
 
 def compare_entries(local, native, scenario):
     differences = []
-    if scenario == "automatic":
-        extra = native.findall("entry/session/query/data[@key='_xpath_query']")
-        assert len(extra) == 1 and dict(extra[0].attrib) == {"key": "_xpath_query", "ref": "'match-all()'"}
-        assert not local.findall("entry/session/query/data[@key='_xpath_query']")
-        extra[0].getparent().remove(extra[0])
-        differences.append("HQ adds an explicit match-all query to unprompted unfiltered Search")
     if scenario == "remote-multiple":
         extra = local.findall("entry/instance[@id='selected_cases']")
         assert len(extra) == 1 and dict(extra[0].attrib) == {

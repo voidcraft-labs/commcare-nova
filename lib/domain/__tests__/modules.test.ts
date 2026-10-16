@@ -1070,12 +1070,23 @@ describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 			},
 			searchScreenTitle: "Search for a patient",
 			searchScreenSubtitle: "Use **fuzzy** match for partial names",
-			searchButtonLabel: "Search",
 			searchButtonDisplayCondition: { kind: "match-all" },
 		};
 		const parsed = caseSearchConfigSchema.safeParse(config);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) expect(parsed.data).toEqual(config);
+	});
+
+	it("refuses a search button label: every button reads HQ's own", () => {
+		expect(
+			caseSearchConfigSchema.safeParse({ searchScreenTitle: "Find" }).success,
+		).toBe(true);
+		expect(
+			caseSearchConfigSchema.safeParse({
+				searchScreenTitle: "Find",
+				searchButtonLabel: "Find",
+			}).success,
+		).toBe(false);
 	});
 
 	it("round-trips an empty config (every slot absent)", () => {
@@ -1103,7 +1114,7 @@ describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 		expect(() =>
 			caseSearchConfigSchema.parse({
 				...config,
-				searchButtonLabel: "Find",
+				searchScreenTitle: "Find",
 			}),
 		).toThrow();
 	});
@@ -1298,7 +1309,7 @@ describe("caseSearchConfigHasAuthoredSettings", () => {
 
 	it("recognizes display and advanced overrides", () => {
 		expect(
-			caseSearchConfigHasAuthoredSettings({ searchButtonLabel: "Find" }),
+			caseSearchConfigHasAuthoredSettings({ searchScreenTitle: "Find" }),
 		).toBe(true);
 		expect(
 			caseSearchConfigHasAuthoredSettings({

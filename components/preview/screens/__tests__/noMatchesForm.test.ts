@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	noMatchesFormAdmission,
+	noMatchesPostSubmit,
 	noMatchesRefusalCopy,
 } from "@/lib/preview/noMatchesForm";
 import type { PreviewSearchState } from "@/lib/session/types";
@@ -155,5 +156,15 @@ describe("noMatchesFormAdmission", () => {
 			expect(copy.description.length).toBeGreaterThan(0);
 			expect(copy.description).not.toMatch(/—|\.\.\./);
 		}
+	});
+});
+
+describe("noMatchesPostSubmit", () => {
+	it("returns to Results unless the form holds firstMenu", () => {
+		expect(noMatchesPostSubmit(entry)).toBe("results");
+		expect(noMatchesPostSubmit({ ...entry, postSubmit: "firstMenu" })).toBe(
+			"firstMenu",
+		);
+		expect(noMatchesPostSubmit({ postSubmit: "firstMenu" })).toBeUndefined();
 	});
 });

@@ -234,7 +234,9 @@ export async function evaluatePostSubmissionSnapshot(
 				? route.moduleUuid
 				: route.kind === "post-submit" && route.destination === "module"
 					? moduleUuid
-					: undefined;
+					: route.kind === "post-submit" && route.destination === "parentMenu"
+						? doc.modules[moduleUuid]?.parentModuleUuid
+						: undefined;
 		return {
 			route,
 			selections:

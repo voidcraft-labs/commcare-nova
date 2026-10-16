@@ -1978,7 +1978,7 @@ test.describe("authenticated builder", () => {
 			// search can return a case while Results excludes every available case.
 			await page.getByRole("textbox", { name: "Patient name" }).fill("Nobody");
 			await page
-				.getByRole("button", { name: "Show patients", exact: true })
+				.getByRole("button", { name: "Search All Cases", exact: true })
 				.click();
 			await expect(authoredEmptyTitle).toBeVisible({ timeout: 20_000 });
 			await expect(
@@ -2119,18 +2119,105 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: "Back to edit" }).click();
 		await expect(heading).toBeVisible();
 
+		// This journey opens the app again after each change, and a navigation
+		// that cuts off a write's save leaves the next page a revision behind.
+		// Wait for this exact write's server receipt before leaving.
+		const saved = async (bodyNeedle: string, mutate: () => Promise<void>) => {
+			const response = page.waitForResponse((candidate) => {
+				const request = candidate.request();
+				return (
+					request.method() === "PUT" &&
+					new URL(candidate.url()).pathname ===
+						`/api/apps/${seed.caseWorkspace.appId}` &&
+					(request.postData() ?? "").includes(bodyNeedle)
+				);
+			});
+			const [received] = await Promise.all([response, mutate()]);
+			expect(received.ok()).toBe(true);
+		};
+
 		// Removing the condition leaves the item shown, and the empty state
 		// says so in the author's own words.
 		await conditionSection.getByRole("button", { name: "Always show" }).click();
-		await page
-			.getByRole("alertdialog")
-			.getByRole("button", { name: "Always show" })
-			.click();
+		await saved('"displayCondition":null', () =>
+			page
+				.getByRole("alertdialog")
+				.getByRole("button", { name: "Always show" })
+				.click(),
+		);
 		await expect(
 			conditionSection.getByText(
 				`\u201c${CASE_WORKSPACE_SEED.moduleName}\u201d always appears.`,
 			),
 		).toBeVisible();
+
+		// On a form, "Show on the menu" says where the form still opens on each
+		// platform, and the condition that applies once it is back stays
+		// editable beside it.
+		await page.goto(seed.caseWorkspace.routes.tileForm);
+		const openFormSettings = async () => {
+			await page
+				.getByRole("button", { name: "Form settings", exact: true })
+				.click();
+			return page.getByRole("switch", { name: /^Show on the menu/ });
+		};
+		const formShownSwitch = await openFormSettings();
+		await expect(formShownSwitch).toBeChecked({ timeout: 20_000 });
+		await formShownSwitch.click();
+		await expect(formShownSwitch).not.toBeChecked();
+		await expect(
+			page.getByText(
+				"Off the menu. On Android this form opens from an after-submit link or an entry point.",
+				{ exact: false },
+			),
+		).toBeVisible();
+		await expect(
+			page.getByRole("heading", { name: "When shown on the menu" }),
+		).toBeVisible();
+		await saved('"hiddenFromMenu":null', () => formShownSwitch.click());
+		await expect(formShownSwitch).toBeChecked();
+		await page.keyboard.press("Escape");
+
+		// "Show on the menu" takes the module off Preview's home screen, and the
+		// condition that applies once it is back stays editable meanwhile.
+		await page.goto(seed.caseWorkspace.routes.results);
+		const openModuleSettings = async () => {
+			await page
+				.getByRole("button", { name: "Module settings", exact: true })
+				.click();
+			return page.getByRole("switch", { name: /^Show on the menu/ });
+		};
+		const shownSwitch = await openModuleSettings();
+		await expect(shownSwitch).toBeChecked({ timeout: 20_000 });
+		await saved('"hiddenFromMenu":true', () => shownSwitch.click());
+		await expect(shownSwitch).not.toBeChecked();
+		await expect(
+			page.getByText("Off the menu, with every form in it.", { exact: false }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("heading", { name: "When shown on the menu" }),
+		).toBeVisible();
+		await page.keyboard.press("Escape");
+
+		await page.goto(seed.caseWorkspace.routes.condition);
+		await expect(heading).toBeVisible({ timeout: 20_000 });
+		await expect(
+			conditionSection.getByRole("button", { name: "Add condition" }),
+		).toBeEnabled();
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		await expect(
+			page.locator("main").getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.moduleName}`),
+			}),
+		).toHaveCount(0);
+		await page.getByRole("button", { name: "Back to edit" }).click();
+		await expect(heading).toBeVisible();
+
+		await page.goto(seed.caseWorkspace.routes.results);
+		const hiddenSwitch = await openModuleSettings();
+		await expect(hiddenSwitch).not.toBeChecked({ timeout: 20_000 });
+		await saved('"hiddenFromMenu":null', () => hiddenSwitch.click());
+		await expect(hiddenSwitch).toBeChecked();
 	});
 
 	/**
@@ -3222,7 +3309,7 @@ test.describe("authenticated builder", () => {
 				name: prompt.label,
 			});
 			const runSearch = searchScreen.getByRole("button", {
-				name: "Search",
+				name: "Search All Cases",
 				exact: true,
 			});
 			const resultsTitle = main.locator("[data-results-title]");

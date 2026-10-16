@@ -23,4 +23,4 @@ export const formEntryInputSchema = z.strictObject({
 });
 
 export const FORM_ENTRY_DESCRIPTION =
-	"Use search-no-matches for registration offered after an empty Search result. This enables Search first and lets fields read #search/name. Submission returns to Results unless post_submit is app_home, which several-case selection requires. No other destination, links, or display condition applies. Null restores a menu form, disables Search first, and removes Search-based starting values; omission keeps the current entry.";
+	"Use search-no-matches for registration offered after an empty Search result. This enables Search first and lets fields read #search/name. Submission returns to Results unless post_submit is firstMenu, which several-case selection requires. No other destination, links, display condition, or hiddenFromMenu applies. Null restores a menu form, disables Search first, and removes Search-based starting values; omission keeps the current entry.";

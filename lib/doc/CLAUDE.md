@@ -223,8 +223,26 @@ direct-name authoring, or second starter reconstruction.
   future durable emitter correct by construction. `displayCondition` qualifies
   for null-as-delete because every reader treats absent and `null` identically
   (the validator rules short-circuit on `=== undefined`, and
-  `effectiveDisplayConditionForEmission` folds absent to no wire attribute) —
-  verify that per slot rather than assuming it.
+  `displayConditionForEmission` folds absent to no wire attribute) —
+  verify that per slot rather than assuming it. The same file writes the
+  `hiddenFromMenu` flag (`setModuleHiddenFromMenuMutation` /
+  `setFormHiddenFromMenuMutation`: `true` sets it, the durable `null` clears
+  it), which rides the ordinary module and form patch.
+- `mutations/modules.ts::reconcilePostSubmitWithMenuShape` keeps every form's
+  after-submit destination admitted and meaning what it meant when a write
+  changes what the offered set or the default reads
+  (`lib/domain/postSubmit.ts`): `updateModule` (Search first, the module's
+  `hiddenFromMenu`, a whole `caseListConfig`) and `setCaseListMeta` (the
+  selection mode) reconcile the module's forms and its child modules' forms,
+  `moveModule` the moved module's, `moveForm` the moved form, and
+  `removeFormLink` the form whose last link left. An explicit destination
+  that left the admitted set moves to the nearest admitted (`previous` to
+  `module`, else `firstMenu`; `module` and `parentMenu` to `firstMenu`); an
+  absent slot whose destination left stays absent for the new default; an
+  absent slot whose destination is still admitted while the default moved is
+  pinned. `diffDocsToMutations` replays a batch that holds one of those kinds
+  and appends a final `updateForm` for every form whose destination the replay
+  leaves different from the target.
 - `connectConfig.ts` — the boundary for separate local Connect drafts. `projectDraftConnectId` preserves every explicit buffer byte-for-byte for the adjacent validity guard and derives only a blank draft's proposed id; it never finalizes, sanitizes, or suffixes explicit input. Complete configurations, including session-stashed configurations, are proposed verbatim and the exact app-wide target planner either accepts the whole target or refuses it. Machine authoring reserves every explicit and already-established identity first, preserves an omitted existing same-form/same-kind id, and derives only a genuinely new omitted id in canonical document order. The committed document always carries required, nonblank, mode-compatible, app-wide-unique ids, and neither hydration nor wire emission repairs them. Wire-emit defaults for `deliver_unit.entity_id` / `entity_name` live separately at `lib/commcare/connectDefaults.ts`.
 - `connectTargetState.ts` — the one app-wide Connect target planner shared by builder session actions and machine tools. A null target clears the app mode and every form block; a learn/deliver target requires a complete nonempty UUID-addressed participant set, sets those exact blocks, and clears every unlisted or incompatible block. Duplicate/foreign identities, wrong mode families, incomplete blocks, and duplicate ids reject before a mutation is constructed. The planner emits one atomic batch; it never creates a mode-only or dormant-block intermediate.
 - `hooks/useBlueprintMutations.ts` keeps that ownership boundary on the builder surface: generic `addForm` and `updateForm` omit `connect` from their TypeScript inputs and refuse a runtime own `connect` key from casts, JavaScript, or stale clients. `refineFormConnect` is the explicitly named narrow path for editing a form that already participates; it cannot add or remove participation. The Connect manager/session exact-target action owns those membership transitions.

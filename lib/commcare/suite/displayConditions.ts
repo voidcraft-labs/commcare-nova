@@ -8,7 +8,36 @@ import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import type { Uuid } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
-import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
+import { displayConditionForEmission } from "@/lib/domain/predicate";
+
+/** A menu or a form, as its display condition is emitted: the stored
+ * condition and whether the item is off the menu. */
+export interface DisplayConditionCarrier {
+	readonly displayCondition?: Predicate;
+	readonly hiddenFromMenu?: true;
+}
+
+/** The written `false()` an item off the menu leads with. */
+const OFF_THE_MENU = "false()";
+
+/**
+ * An item off the menu writes `false()` alone, or `false() and (<rest>)`
+ * where it holds a condition for when it is back on the menu; the rest's
+ * parentheses are always written, which is the spelling HQ's module and form
+ * settings saves keep character for character. An item on the menu writes
+ * its condition as stored, or nothing.
+ */
+function withMenuPresence(
+	carrier: DisplayConditionCarrier,
+	emitRest: (rest: Predicate) => string,
+): string | undefined {
+	const rest = displayConditionForEmission(carrier.displayCondition);
+	const restText = rest === undefined ? undefined : emitRest(rest);
+	if (carrier.hiddenFromMenu !== true) return restText;
+	return restText === undefined
+		? OFF_THE_MENU
+		: `${OFF_THE_MENU} and (${restText})`;
+}
 
 function selectedCase(selectedCaseDatumId = "case_id"): string {
 	return `instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/${selectedCaseDatumId}]`;
@@ -17,27 +46,27 @@ function selectedCase(selectedCaseDatumId = "case_id"): string {
 /** Module relevancy runs before case selection, so ordinary on-device terms
  * emit directly; validation has already excluded every case-row term. */
 export function emitModuleDisplayCondition(
-	condition: Predicate | undefined,
+	carrier: DisplayConditionCarrier,
 	currentCaseType?: string,
 	lookupNaming?: LookupWireNaming,
 	userPropertySlugs?: ReadonlyMap<Uuid, string>,
 ): string | undefined {
-	const effective = effectiveDisplayConditionForEmission(condition);
-	if (effective === undefined) return undefined;
-	return emitCaseListFilter(
-		effective,
-		"casedb",
-		{
-			...(currentCaseType !== undefined && { currentCaseType }),
-			...(userPropertySlugs !== undefined && { userPropertySlugs }),
-		},
-		undefined,
-		{
-			...(lookupNaming === undefined
-				? {}
-				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
-			...(userPropertySlugs === undefined ? {} : { userPropertySlugs }),
-		},
+	return withMenuPresence(carrier, (rest) =>
+		emitCaseListFilter(
+			rest,
+			"casedb",
+			{
+				...(currentCaseType !== undefined && { currentCaseType }),
+				...(userPropertySlugs !== undefined && { userPropertySlugs }),
+			},
+			undefined,
+			{
+				...(lookupNaming === undefined
+					? {}
+					: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
+				...(userPropertySlugs === undefined ? {} : { userPropertySlugs }),
+			},
+		),
 	);
 }
 
@@ -48,30 +77,30 @@ export function emitModuleDisplayCondition(
  * rewriting is used: the leaf override is threaded through the typed emitter.
  */
 export function emitFormDisplayConditionForSuite(
-	condition: Predicate | undefined,
+	carrier: DisplayConditionCarrier,
 	currentCaseType?: string,
 	lookupNaming?: LookupWireNaming,
 	userPropertySlugs?: ReadonlyMap<Uuid, string>,
 	selectedCaseDatumId?: string,
 ): string | undefined {
-	const effective = effectiveDisplayConditionForEmission(condition);
-	if (effective === undefined) return undefined;
-	return emitCaseListFilter(
-		effective,
-		"casedb",
-		{
-			...(currentCaseType !== undefined && { currentCaseType }),
-			...(userPropertySlugs !== undefined && { userPropertySlugs }),
-		},
-		undefined,
-		{
-			emitSelfProperty: (property) =>
-				`${selectedCase(selectedCaseDatumId)}/${emitCasePropertyWirePath(property.property)}`,
-			...(lookupNaming !== undefined && {
-				lookup: { naming: lookupNaming, instanceScope: "suite" },
-			}),
-			...(userPropertySlugs !== undefined && { userPropertySlugs }),
-		},
+	return withMenuPresence(carrier, (rest) =>
+		emitCaseListFilter(
+			rest,
+			"casedb",
+			{
+				...(currentCaseType !== undefined && { currentCaseType }),
+				...(userPropertySlugs !== undefined && { userPropertySlugs }),
+			},
+			undefined,
+			{
+				emitSelfProperty: (property) =>
+					`${selectedCase(selectedCaseDatumId)}/${emitCasePropertyWirePath(property.property)}`,
+				...(lookupNaming !== undefined && {
+					lookup: { naming: lookupNaming, instanceScope: "suite" },
+				}),
+				...(userPropertySlugs !== undefined && { userPropertySlugs }),
+			},
+		),
 	);
 }
 
@@ -87,31 +116,31 @@ export function emitFormDisplayConditionForSuite(
  * other property keeps `#case/<property>`.
  */
 export function emitFormDisplayConditionForHq(
-	condition: Predicate | undefined,
+	carrier: DisplayConditionCarrier,
 	currentCaseType?: string,
 	lookupNaming?: LookupWireNaming,
 	userPropertySlugs?: ReadonlyMap<Uuid, string>,
 	selectedCaseDatumId?: string,
 ): string | undefined {
-	const effective = effectiveDisplayConditionForEmission(condition);
-	if (effective === undefined) return undefined;
-	return emitCaseListFilter(
-		effective,
-		"casedb",
-		{
-			...(currentCaseType !== undefined && { currentCaseType }),
-			...(userPropertySlugs !== undefined && { userPropertySlugs }),
-		},
-		undefined,
-		{
-			emitSelfProperty: (property) =>
-				RESERVED_CASE_ATTRIBUTES.has(property.property)
-					? `${selectedCase(selectedCaseDatumId)}/@${property.property}`
-					: `#case/${property.property}`,
-			...(lookupNaming !== undefined && {
-				lookup: { naming: lookupNaming, instanceScope: "suite" },
-			}),
-			...(userPropertySlugs !== undefined && { userPropertySlugs }),
-		},
+	return withMenuPresence(carrier, (rest) =>
+		emitCaseListFilter(
+			rest,
+			"casedb",
+			{
+				...(currentCaseType !== undefined && { currentCaseType }),
+				...(userPropertySlugs !== undefined && { userPropertySlugs }),
+			},
+			undefined,
+			{
+				emitSelfProperty: (property) =>
+					RESERVED_CASE_ATTRIBUTES.has(property.property)
+						? `${selectedCase(selectedCaseDatumId)}/@${property.property}`
+						: `#case/${property.property}`,
+				...(lookupNaming !== undefined && {
+					lookup: { naming: lookupNaming, instanceScope: "suite" },
+				}),
+				...(userPropertySlugs !== undefined && { userPropertySlugs }),
+			},
+		),
 	);
 }

@@ -1010,6 +1010,7 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	type: "discriminator",
 	purpose: "display-text",
 	postSubmit: "config",
+	hiddenFromMenu: "config",
 	"entry.kind": "discriminator",
 	"entry.label": "display-text",
 	"closeCondition.answer": "data-literal",
@@ -1048,6 +1049,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	id: "declaration",
 	name: "display-text",
 	caseListOnly: "config",
+	hiddenFromMenu: "config",
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",
@@ -1115,5 +1117,4 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseSearchConfig.searchFirst": "config",
 	"caseSearchConfig.searchScreenTitle": "display-text",
 	"caseSearchConfig.searchScreenSubtitle": "display-text",
-	"caseSearchConfig.searchButtonLabel": "display-text",
 };

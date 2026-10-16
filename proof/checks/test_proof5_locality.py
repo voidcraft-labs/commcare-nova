@@ -267,6 +267,39 @@ def test_an_unread_element_is_its_entitys_where_the_other_archive_reads_it_and_u
     assert set(_keys(after_unowned)) == {("detail", "m0_case_long"), ("detail", "m1_case_short")}
 
 
+def test_an_unread_element_of_a_removed_module_is_that_modules():
+    """Removing the last module removes its details with it: one no datum names (unread in D, absent from D')
+    is that module's, so a footprint holding the removed module holds it. With two modules gone, or one the
+    other archive still holds, the element is unowned."""
+    detail = '<detail id="m1_case_short"><title><text><locale id="m1.short.title"/></text></title></detail>'
+    after = (
+        TWO_MODULES.replace(detail, "")
+        .replace('<entry><form>urn:f1</form><command id="m1-f0"/></entry>', "")
+        .replace('<menu id="m1"><command id="m1-f0"/></menu>', "")
+    )
+    removed = ({"M0": 0}, {"F0": (0, 0)})
+    (before_placed, before_unowned), (after_placed, after_unowned) = proof5._place_unread(
+        [_side(TWO_MODULES), _side(after, removed)], {}
+    )
+    assert {entity: _keys(elements) for entity, elements in before_placed.items()} == {
+        ("module", "M1"): [("detail", "m1_case_short")]
+    }
+    assert before_unowned == [] and after_placed == {} and after_unowned == []
+
+    # Kept in D', the same detail is no removed module's.
+    kept = TWO_MODULES.replace('<entry><form>urn:f1</form><command id="m1-f0"/></entry>', "").replace(
+        '<menu id="m1"><command id="m1-f0"/></menu>', ""
+    )
+    (before_placed, before_unowned), _ = proof5._place_unread([_side(TWO_MODULES), _side(kept, removed)], {})
+    assert before_placed == {} and _keys(before_unowned) == [("detail", "m1_case_short")]
+
+    # With no module or two modules in D alone, which one it was is unknown.
+    (before_placed, before_unowned), _ = proof5._place_unread([_side(TWO_MODULES), _side(after)], {})
+    assert before_placed == {} and _keys(before_unowned) == [("detail", "m1_case_short")]
+    (before_placed, before_unowned), _ = proof5._place_unread([_side(TWO_MODULES), _side("<suite/>", ({}, {}))], {})
+    assert before_placed == {} and _keys(before_unowned) == [("detail", "m1_case_short")]
+
+
 def _unowned(xml, strings, key):
     suite = proof5.suite_of(parse_xml(xml), strings, TWO_MODULES_CORE, {}, "?")
     return proof5._unowned_record([suite.elements[("detail", key)]], suite, {})

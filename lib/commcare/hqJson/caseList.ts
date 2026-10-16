@@ -111,8 +111,8 @@ import {
 } from "../suite/case-search/searchPrompts";
 import {
 	buildRuntimeCsqlPromptValidations,
-	type ComposedXPathQuery,
 	composeXPathQueryEmission,
+	xpathQueryRequestValues,
 } from "../suite/case-search/xpathQuery";
 import type {
 	CaseSearchProperty,
@@ -156,9 +156,10 @@ interface ColumnProjectionContext {
  * expression column's `field` verbatim as the XPath
  * (`detail_screen.py::FormattedDetailColumn.xpath`).
  *
- *   - `calculated`: `format: "calculate"`, its expression. Effective Search
- *     writes a whole-expression parent property as a context-relative
- *     calculated XPath that CCHQ copies into its Search detail.
+ *   - `calculated`: `format: "plain"` over its expression, as HQ's Case
+ *     List page writes a calculated column. Effective Search writes a
+ *     whole-expression parent property as a context-relative calculated
+ *     XPath that CCHQ copies into its Search detail.
  *   - A column over `case_id`, `owner_id` or `status` is an expression
  *     column of its kind's format, `field: "@<name>"` (finding 57): HQ reads
  *     a property column's `field` as a child element, and its
@@ -198,7 +199,6 @@ function projectColumnToDetail(
 	if (column.kind === "calculated") {
 		return {
 			...detailColumn(expressionField(), headerRecord),
-			format: "calculate",
 			useXpathExpression: true,
 		};
 	}
@@ -582,6 +582,7 @@ function projectSearchInput(
 			nodeset: wire.itemset.nodeset,
 			label: wire.itemset.label,
 			value: wire.itemset.value,
+			sort: wire.itemset.sort,
 		};
 	}
 	if (wire.required !== undefined) {
@@ -659,35 +660,22 @@ function projectSearchProperties(
  * simple-arm derivation; the validator surfaces the structural
  * error separately.
  *
- * Empty-list output when there is nothing to compose — absent
- * `_xpath_query` rows are how CCHQ encodes "no server-side filter."
+ * `values` are `xpathQueryRequestValues`: empty when inputs exist and
+ * nothing composes (absent `_xpath_query` rows are how CCHQ encodes "no
+ * server-side filter"), and the zero-input sentinel alone for a search with
+ * no input and no clause.
  */
 function projectDefaultProperties(
-	emission: ComposedXPathQuery | undefined,
+	values: readonly string[],
 ): DefaultCaseSearchProperty[] {
-	if (emission === undefined) return [];
 	// CCHQ's special `_xpath_query` key routes each value through the
-	// CSQL parser at search time; every wrapper string is one on-device
+	// CSQL parser at search time; every value is one on-device
 	// expression that builds one CSQL query.
-	return emission.clauseWrappers.map((wrapper) => ({
+	return values.map((value) => ({
 		property: "_xpath_query",
-		defaultValue: wrapper,
+		defaultValue: value,
 	}));
 }
-
-/**
- * CCHQ decides whether a module offers Search from the presence of at least
- * one prompt or default property (`app_manager/util.py::module_offers_search`).
- * Nova also supports an intentional zero-input, unfiltered manual Search
- * action, so that one shape needs a semantically neutral default property to
- * survive HQ ingestion. `match-all()` is CCHQ's supported CSQL identity
- * function; the outer quotes make the datum's XPath evaluate to that query
- * string at runtime.
- */
-const ZERO_INPUT_SEARCH_SENTINEL: DefaultCaseSearchProperty = {
-	property: "_xpath_query",
-	defaultValue: "'match-all()'",
-};
 
 /**
  * Build the full `module.search_config` document from a module's
@@ -700,7 +688,6 @@ const ZERO_INPUT_SEARCH_SENTINEL: DefaultCaseSearchProperty = {
  *
  *   - `caseSearchConfig.searchScreenTitle` → `title_label`.
  *   - `caseSearchConfig.searchScreenSubtitle` → `description`.
- *   - `caseSearchConfig.searchButtonLabel` → `search_button_label`.
  *   - `caseSearchConfig.searchButtonDisplayCondition` →
  *     `search_button_display_condition` (compiled to on-device XPath).
  *   - `caseSearchConfig.excludedOwnerIds` →
@@ -757,9 +744,6 @@ function buildSearchConfigDocument(
 				makeTranslationUnitId("module", moduleUuid, "search-subtitle"),
 			);
 		}
-		config.search_button_label = localization.textMap(
-			makeTranslationUnitId("module", moduleUuid, "search-button"),
-		);
 		if (caseSearchConfig.searchButtonDisplayCondition !== undefined) {
 			// CCHQ stores the gating predicate as a bare on-device XPath
 			// string; the runtime evaluates it before rendering the
@@ -807,13 +791,11 @@ function buildSearchConfigDocument(
 			typeContext,
 			lookupNaming,
 		);
-		config.default_properties = projectDefaultProperties(xpathQueryEmission);
-		if (
-			caseListConfig.searchInputs.length === 0 &&
-			config.default_properties.length === 0
-		) {
-			config.default_properties = [{ ...ZERO_INPUT_SEARCH_SENTINEL }];
-		}
+		// A search with no input and no clause carries the zero-input
+		// sentinel, as the local suite's query does.
+		config.default_properties = projectDefaultProperties(
+			xpathQueryRequestValues(caseListConfig, xpathQueryEmission),
+		);
 	}
 
 	// `compileForPlatform`'s three-flag `WireShape` projects onto the
@@ -849,6 +831,27 @@ function buildSearchConfigDocument(
 // ============================================================
 // Public surface
 // ============================================================
+
+const EMPTY_SHORT_LIST_FIELD = "name";
+const EMPTY_SHORT_LIST_HEADER = "Name";
+
+/**
+ * The short detail of a menu whose list shows no column: the one `name`
+ * column HQ's editors give every new menu (`models/modules.py::Module.new_module`),
+ * headed "Name" in every app language so a Case List save changes nothing.
+ * HQ's page has no column to save from in an empty list. The local suite
+ * writes no detail for such a menu, since no session reaches it.
+ */
+export function emptyShortListColumns(
+	languages: readonly string[],
+): WireDetailColumn[] {
+	return [
+		detailColumn(
+			EMPTY_SHORT_LIST_FIELD,
+			repeatForLanguages(languages, EMPTY_SHORT_LIST_HEADER),
+		),
+	];
+}
 
 /**
  * One-call HQ-JSON projection for a module's case-list-side state.
@@ -915,9 +918,10 @@ export function projectCaseListForHq(
 		caseListConfig === undefined ? [] : orderedColumns(caseListConfig, "detail")
 	).filter((column) => column.visibleInDetail !== false);
 
-	const shortColumns = plan.fields.map((field) =>
-		projectColumnForShortDetail(field, ctx),
-	);
+	const shortColumns =
+		plan.fields.length > 0
+			? plan.fields.map((field) => projectColumnForShortDetail(field, ctx))
+			: emptyShortListColumns(localization.languages);
 	const longColumns = longSourceColumns.map((column) =>
 		projectColumnToDetail(column, ctx, "details"),
 	);

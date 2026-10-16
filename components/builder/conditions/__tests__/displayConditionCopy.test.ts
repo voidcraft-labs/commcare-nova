@@ -106,4 +106,31 @@ describe("displayConditionCopy", () => {
 		expect(copy.locus.join(" ")).toContain("case");
 		expect(copy.locus.join(" ")).not.toContain("undefined");
 	});
+
+	it("says what still opens an item off the menu, per platform, and heads the condition with where it applies", () => {
+		const module = displayConditionCopy({
+			kind: "module",
+			moduleName: "Archive",
+			moduleIsBareCaseList: false,
+		});
+		const form = displayConditionCopy({
+			kind: "form",
+			formName: "Review",
+			moduleName: "Archive",
+			caseFirst: false,
+			caseType: undefined,
+			formCount: 2,
+		});
+		expect(module.menuSwitchLabel).toBe("Show on the menu");
+		expect(form.menuSwitchLabel).toBe("Show on the menu");
+		expect(module.settingTitle).toBe("When shown on the menu");
+		expect(form.settingTitle).toBe("When shown on the menu");
+		expect(form.offTheMenuNote).toBe(
+			"Off the menu. On Android this form opens from an after-submit link or an entry point. In Web Apps it opens only from an entry point that ignores display conditions.",
+		);
+		expect(module.offTheMenuNote).toBe(
+			"Off the menu, with every form in it. On Android its forms open from an after-submit link or an entry point. In Web Apps they open only from an entry point that ignores display conditions.",
+		);
+		expect(form.onTheMenuNote).toBe("Workers find this form in “Archive”.");
+	});
 });

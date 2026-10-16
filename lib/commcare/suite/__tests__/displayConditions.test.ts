@@ -13,6 +13,7 @@ import {
 	matchAll,
 	matchNone,
 	neq,
+	or,
 	prop,
 	sessionContext,
 	sessionUser,
@@ -35,22 +36,22 @@ describe("navigation expression projection", () => {
 		);
 		expect(
 			emitFormDisplayConditionForSuite(
-				condition,
+				{ displayCondition: condition },
 				"patient",
 				undefined,
 				undefined,
 				"selected_patient",
 			),
 		).toBe(`concat(${anchor}/given_name, '!') = 'Ada!'`);
-		expect(emitFormDisplayConditionForHq(condition, "patient")).toBe(
-			"concat(#case/given_name, '!') = 'Ada!'",
-		);
+		expect(
+			emitFormDisplayConditionForHq({ displayCondition: condition }, "patient"),
+		).toBe("concat(#case/given_name, '!') = 'Ada!'");
 	});
 	it("keeps reserved metadata as attributes and leaves global terms outside the case anchor", () => {
 		const condition = eq(prop("patient", "owner_id"), sessionContext("userid"));
 		expect(
 			emitFormDisplayConditionForSuite(
-				condition,
+				{ displayCondition: condition },
 				"patient",
 				undefined,
 				undefined,
@@ -63,7 +64,7 @@ describe("navigation expression projection", () => {
 		// through the selected case as the local suite does.
 		expect(
 			emitFormDisplayConditionForHq(
-				condition,
+				{ displayCondition: condition },
 				"patient",
 				undefined,
 				undefined,
@@ -73,9 +74,9 @@ describe("navigation expression projection", () => {
 			`${anchor}/@owner_id = instance('commcaresession')/session/context/userid`,
 		);
 		expect(
-			emitModuleDisplayCondition(
-				eq(sessionUser("role"), literal("supervisor")),
-			),
+			emitModuleDisplayCondition({
+				displayCondition: eq(sessionUser("role"), literal("supervisor")),
+			}),
 		).toBe("instance('commcaresession')/session/user/data/role = 'supervisor'");
 	});
 	it("reads a property through HQ's case placeholder and an attribute through the selected case's datum", () => {
@@ -85,7 +86,7 @@ describe("navigation expression projection", () => {
 		);
 		expect(
 			emitFormDisplayConditionForHq(
-				condition,
+				{ displayCondition: condition },
 				"patient",
 				undefined,
 				undefined,
@@ -93,7 +94,7 @@ describe("navigation expression projection", () => {
 			),
 		).toBe(`#case/x != '' and ${anchor}/@status = 'open'`);
 		const withoutAttribute = emitFormDisplayConditionForHq(
-			neq(prop("patient", "x"), literal("")),
+			{ displayCondition: neq(prop("patient", "x"), literal("")) },
 			"patient",
 			undefined,
 			undefined,
@@ -116,46 +117,68 @@ describe("navigation expression projection", () => {
 		(condition, suffix) => {
 			expect(
 				emitFormDisplayConditionForSuite(
-					condition,
+					{ displayCondition: condition },
 					"patient",
 					undefined,
 					undefined,
 					"selected_patient",
 				),
 			).toBe(`${anchor}/${suffix}`);
-			expect(emitFormDisplayConditionForHq(condition, "patient")).toBe(
-				`#case/${suffix}`,
-			);
+			expect(
+				emitFormDisplayConditionForHq(
+					{ displayCondition: condition },
+					"patient",
+				),
+			).toBe(`#case/${suffix}`);
 		},
 	);
-	it("omits folded true conditions, preserves false, and retains a remaining global comparison", () => {
-		for (const emit of [
-			emitModuleDisplayCondition,
-			emitFormDisplayConditionForSuite,
-			emitFormDisplayConditionForHq,
-		]) {
-			expect(emit(undefined)).toBeUndefined();
+	const worker = eq(sessionContext("userid"), literal("worker"));
+	const workerText =
+		"instance('commcaresession')/session/context/userid = 'worker'";
+	const emitters = [
+		emitModuleDisplayCondition,
+		emitFormDisplayConditionForSuite,
+		emitFormDisplayConditionForHq,
+	] as const;
+
+	it("emits nothing for an absent condition or a root always", () => {
+		for (const emit of emitters) {
+			expect(emit({})).toBeUndefined();
+			expect(emit({ displayCondition: matchAll() })).toBeUndefined();
+		}
+	});
+
+	it("holds every other condition as written, with no clause absorbed", () => {
+		for (const emit of emitters) {
+			expect(emit({ displayCondition: and(worker, matchNone()) })).toBe(
+				`${workerText} and false()`,
+			);
+			expect(emit({ displayCondition: and(worker, matchAll()) })).toBe(
+				`${workerText} and true()`,
+			);
+			expect(emit({ displayCondition: or(worker, matchAll()) })).toBe(
+				`${workerText} or true()`,
+			);
+		}
+	});
+
+	it("writes an item off the menu as false() alone, or false() and (<rest>)", () => {
+		for (const emit of emitters) {
+			expect(emit({ hiddenFromMenu: true })).toBe("false()");
+			expect(emit({ hiddenFromMenu: true, displayCondition: matchAll() })).toBe(
+				"false()",
+			);
+			expect(emit({ hiddenFromMenu: true, displayCondition: worker })).toBe(
+				`false() and (${workerText})`,
+			);
 			expect(
-				emit(
-					and(matchAll(), {
-						kind: "or",
-						clauses: [
-							matchAll(),
-							eq(sessionContext("userid"), literal("someone")),
-						],
-					}),
-				),
-			).toBeUndefined();
-			expect(emit(matchNone())).toBe("false()");
-			expect(
-				emit(
-					and(
-						matchAll(),
-						eq(sessionContext("userid"), literal("worker")),
-						matchAll(),
-					),
-				),
-			).toBe("instance('commcaresession')/session/context/userid = 'worker'");
+				emit({
+					hiddenFromMenu: true,
+					displayCondition: or(worker, eq(sessionUser("role"), literal("x"))),
+				}),
+			).toBe(
+				`false() and (${workerText} or instance('commcaresession')/session/user/data/role = 'x')`,
+			);
 		}
 	});
 });

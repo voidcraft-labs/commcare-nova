@@ -16,6 +16,7 @@ import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	formLinkInputSchema,
 	formName,
+	HIDDEN_TARGET_NOTE,
 	linkAddressSchema,
 	linkByUuid,
 	linkLabel,
@@ -46,8 +47,7 @@ export type UpdateFormLinkResult =
 	| { readonly error: string };
 
 export const updateFormLinkTool = {
-	description:
-		"Replace one after-submit route. An unconditional route must be last; otherwise the form's post-submit setting supplies the fallback.",
+	description: `Replace one after-submit route. An unconditional route must be last; otherwise the form's post-submit setting supplies the fallback. ${HIDDEN_TARGET_NOTE}`,
 	inputSchema: updateFormLinkInputSchema,
 	async execute(
 		input: UpdateFormLinkInput,

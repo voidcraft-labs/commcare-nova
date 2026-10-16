@@ -277,7 +277,9 @@ test("native last Search field removal reviews copy and preserves independent as
 		.click();
 	const dialog = page.getByRole("alertdialog");
 	await expect(dialog).toContainText("Remove the last Search field?");
-	await expect(dialog).toContainText("custom Search action label will stay");
+	await expect(dialog).toContainText(
+		"Search availability condition will stay in More settings",
+	);
 	await expect(
 		dialog.getByRole("button", { name: "Cancel", exact: true }),
 	).toBeFocused();
@@ -300,7 +302,8 @@ test("native last Search field removal reviews copy and preserves independent as
 	expect(after.caseListConfig.columns).toEqual(before.caseListConfig.columns);
 	expect(after.caseSearchConfig).toEqual({
 		excludedOwnerIds: before.caseSearchConfig.excludedOwnerIds,
-		searchButtonLabel: "Find",
+		searchButtonDisplayCondition:
+			before.caseSearchConfig.searchButtonDisplayCondition,
 	});
 	await expect(
 		page.getByText("Search is available from Results", { exact: true }),
@@ -806,7 +809,7 @@ test("native clearing availability confirms once and preserves Search and assign
 	).toBeVisible();
 });
 
-test("native Search screen copy preserves long refused drafts and clears overrides back to visible defaults", async ({
+test("native Search screen copy clears overrides back to visible defaults and states the button's fixed text", async ({
 	page,
 }) => {
 	await page.goto(`${peer.origin}?scenario=search`);
@@ -814,41 +817,26 @@ test("native Search screen copy preserves long refused drafts and clears overrid
 		.getByRole("button", { name: "Edit Search screen", exact: true })
 		.click();
 	const title = page.getByRole("textbox", { name: "Title", exact: true });
-	const label = page.getByRole("textbox", {
-		name: "Search button label",
-		exact: true,
-	});
 	await expect(title).toHaveValue("Search");
-	await expect(label).toHaveValue("Search");
+	// The button's text is CommCare HQ's own, so the rail states it and
+	// offers nothing to edit.
+	await expect(
+		page.getByText("The search button reads “Search All Cases” in every", {
+			exact: false,
+		}),
+	).toBeVisible();
+	await expect(
+		page.getByRole("textbox", { name: "Search button label", exact: true }),
+	).toHaveCount(0);
 	await title.fill("Find clients");
-	await label.click();
+	await title.blur();
 	expect((await savedModule(page)).caseSearchConfig.searchScreenTitle).toBe(
 		"Find clients",
 	);
-	const tooLong = "Find every possible matching client case right now";
-	await label.fill(tooLong);
-	await title.click();
-	await expect(label).toHaveValue(tooLong);
-	await expect(label).toHaveAttribute("aria-invalid", "true");
-	await expect(page.getByRole("alert")).toContainText(
-		"Keep the label to 32 characters or fewer",
-	);
-	expect(
-		(await savedModule(page)).caseSearchConfig.searchButtonLabel,
-	).toBeUndefined();
-	await label.fill("Find cases");
-	await title.click();
-	expect((await savedModule(page)).caseSearchConfig.searchButtonLabel).toBe(
-		"Find cases",
-	);
 	await title.fill("");
-	await label.click();
+	await title.blur();
 	await expect(title).toHaveValue("Search");
-	await label.fill("Search");
-	await title.click();
 	expect((await savedModule(page)).caseSearchConfig).toBeUndefined();
-	await expect(title).toHaveValue("Search");
-	await expect(label).toHaveValue("Search");
 	expect((await savedModule(page)).caseListConfig.searchInputs).toHaveLength(1);
 	await page
 		.getByRole("button", { name: "Close properties", exact: true })

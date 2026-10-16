@@ -292,7 +292,6 @@ export function searchEmissionFixture(
 	}
 	if (scenario === "remote-defaults") {
 		module.caseSearchConfig = {
-			searchButtonLabel: "Find patient",
 			searchScreenTitle: "Search patients",
 			excludedOwnerIds: term(sessionUser("excluded_owners")),
 		};

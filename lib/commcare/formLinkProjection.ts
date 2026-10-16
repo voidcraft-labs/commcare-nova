@@ -1327,6 +1327,25 @@ export function moduleDestinationFrameChildren(
 	return replaceSessionReferences(pending, new Set());
 }
 
+/**
+ * The static `parentMenu` destination (HQ `parent_module`,
+ * `_frame_children_for_module(module.root_module)`): the parent module's
+ * frame with its selections kept, which is the form's module frame without
+ * its last child. A module with no parent has none.
+ */
+export function parentMenuDestinationFrameChildren(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): MatchedChild[] {
+	const parentUuid = moduleParent(doc, moduleUuid);
+	if (parentUuid === undefined || parentUuid === null) return [];
+	const pending: PendingChild[] = moduleFrameChildren(doc, ctx, moduleUuid)
+		.slice(0, -1)
+		.map(staticFrameChild);
+	return replaceSessionReferences(pending, new Set());
+}
+
 // ── Guards ───────────────────────────────────────────────────────────────
 
 export interface GuardPlanLink {

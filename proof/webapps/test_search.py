@@ -31,9 +31,22 @@
   client each with an empty header and a width hint of 0, and the client
   shows neither a header nor a cell for them. The plausible failure is a
   client that shows an empty column.
+
+- **A lookup-backed Search question's choices** (``prompt-widgets``, its
+  worker in the table's group ``A``). Each itemset holds a ``<sort>`` on its
+  label column, which HQ's Case List save requires. Contract: the client's
+  drop-down for each of the two lookup prompts lists the choices in label
+  order, where the table's row order differs. The plausible failure: a
+  drop-down in row order, which a sort-less itemset gives.
+
+Every search button reads "Search All Cases", the label HQ's Case List save
+keeps (``models/case_search.py::CaseSearch.search_button_label``), so a list's
+search action is opened by that text.
 """
 
 from __future__ import annotations
+
+import dataclasses
 
 from proof.editors import pages
 from proof.observe import casedata
@@ -45,6 +58,7 @@ BROWSE = "case-list-browse"
 TO_THE_MENU = steps.path(steps.open_app("Case list proof"), steps.choose("Patients & visits"))
 DESCRIPTION = "Find a patient by code."
 NBSP = "\u00a0"
+SEARCH_BUTTON = "Search All Cases"
 
 
 def _describe(doc):
@@ -61,7 +75,7 @@ def test_web_apps_shows_no_description_for_an_empty_one_or_a_non_breaking_space_
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     with webapps_hq.project(webapps_documents[BROWSE]) as project:
-        to_the_search = [*TO_THE_MENU, steps.SCREEN, *steps.list_action("Search"), steps.SCREEN]
+        to_the_search = [*TO_THE_MENU, steps.SCREEN, *steps.list_action(SEARCH_BUTTON), steps.SCREEN]
         sides = {
             # Nova's export: the menu opens the list, and its Search button the search.
             "nova": ({}, to_the_search),
@@ -177,3 +191,42 @@ def test_web_apps_shows_no_header_and_no_cell_for_a_sort_only_column(
     # The client shows the eight that have one, in order, and eight cells a row.
     assert [header["text"] for header in shown["headers"]] == handed["headers"][:-2]
     assert shown["rows"] and all(len(row["cells"]) == 8 for row in shown["rows"])
+
+
+# Each Search question's label, and the text of each choice its drop-down lists, as the page holds them.
+PROMPT_CHOICES = """() => [...document.querySelectorAll("#query-properties > tr")].map((row) => ({
+    label: row.querySelector(".query-caption label")?.textContent.trim() ?? null,
+    choices: [...row.querySelectorAll("select option")].map((option) => option.textContent.trim()).filter(Boolean),
+}))"""
+
+
+def test_web_apps_lists_a_lookup_prompts_choices_in_label_order(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["prompt-widgets"]
+    # The prompts list the table's rows of the worker's group (``group_name`` against their ``region_group``):
+    # "North & coast" and then "East" in the table's row order.
+    database = casedata.document_case_database(document)
+    database = dataclasses.replace(
+        database,
+        user_data=(
+            *((key, value) for key, value in database.user_data if key != "region_group"),
+            ("region_group", "A"),
+        ),
+    )
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run(
+                [
+                    *steps.open_app("Inline"),
+                    *steps.choose("Followup"),
+                    steps.SCREEN,
+                    *steps.list_action(SEARCH_BUTTON),
+                    steps.SCREEN,
+                    {"eval": PROMPT_CHOICES},
+                ]
+            )
+    prompts = {prompt["label"]: prompt["choices"] for prompt in run.value(-1)}
+    evidence("lookup-choices", {"prompts": prompts, "query": run.screens[-1].get("query")})
+    assert run.page_errors == [] and run.screens[-1].get("query") is not None
+    assert prompts["Region"] == prompts["Regions"] == ["East", "North & coast"]

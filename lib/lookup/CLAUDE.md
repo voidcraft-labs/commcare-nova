@@ -133,6 +133,9 @@ UPDATE` -> exact table/column edges. It never takes an app lock. Blocker results
 contain the sorted exact app-id set only; a fresh carrier-path re-walk belongs to
 confirmation UX.
 
+A lookup-backed search input's `options.sortColumnId` is one more occurrence a
+table or column deletion sees, beside its value and label columns.
+
 An unreferenced table deletion uses the existing
 row/column cascades, retains Project state, and advances/notifies once. Column
 removal rejects the last column before row changes, removes only that immutable

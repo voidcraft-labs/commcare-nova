@@ -805,6 +805,7 @@ export interface ContentBlockerPlace {
 	readonly code:
 		| "unresolved-relative-path"
 		| "link-identifier-reserved"
+		| "hidden-menu-is-a-destination"
 		| "reserved-property-write"
 		| "form-root-read";
 	readonly where: string;
@@ -812,8 +813,9 @@ export interface ContentBlockerPlace {
 }
 
 /**
- * The places of the four blockers part 08 of step 2's plan leaves to a
- * person. A relative path a step could not follow comes from the transform.
+ * The places of the blockers no step can settle for a person. A relative
+ * path a step could not follow, and a menu step `hidden-from-menu` took off
+ * the menu while a link or an entry point opens it, come from the transform.
  * A link identifier HQ's form builder can't keep (`instance`, `bind`,
  * `parsererror`, or `close` or `create`, which it reads as the block's own
  * action) is read from the target's rows, since no step renames one: it is
@@ -829,11 +831,19 @@ export function contentBlockerPlaces(
 	doc: BlueprintDoc | undefined,
 	stepBlockers: readonly StepBlocker[],
 ): ContentBlockerPlace[] {
-	const places: ContentBlockerPlace[] = stepBlockers.map((blocker) => ({
-		code: blocker.code,
-		where: `${blocker.entity.type}=${blocker.entity.uuid ?? ""} ${blocker.entity.nameAtMigration} slot=${blocker.detail.slot ?? ""}`,
-		message: `In "${blocker.detail.form ?? ""}", "${blocker.detail.expression ?? ""}" names "${blocker.detail.name ?? ""}", a node the cutover renames, and the path does not reach it through the form.`,
-	}));
+	const places: ContentBlockerPlace[] = stepBlockers.map((blocker) =>
+		blocker.code === "hidden-menu-is-a-destination"
+			? {
+					code: blocker.code,
+					where: `module=${blocker.entity.uuid ?? ""} ${blocker.entity.nameAtMigration} pointer=${blocker.detail.pointer ?? ""}`,
+					message: `"${blocker.entity.nameAtMigration}" is now off the menu, because its display condition could never be true, and ${hiddenMenuPointer(blocker.detail)} opens it. Point it at a form inside the module, or change the condition so it can be true.`,
+				}
+			: {
+					code: blocker.code,
+					where: `${blocker.entity.type}=${blocker.entity.uuid ?? ""} ${blocker.entity.nameAtMigration} slot=${blocker.detail.slot ?? ""}`,
+					message: `In "${blocker.detail.form ?? ""}", "${blocker.detail.expression ?? ""}" names "${blocker.detail.name ?? ""}", a node the cutover renames, and the path does not reach it through the form.`,
+				},
+	);
 	for (const moduleUuid of raw.moduleOrder) {
 		for (const formUuid of raw.formOrder[moduleUuid] ?? []) {
 			const form = raw.forms[formUuid];
@@ -885,6 +895,18 @@ export function contentBlockerPlaces(
 		});
 	}
 	return places;
+}
+
+/** What points at a menu step `hidden-from-menu` took off the menu. */
+function hiddenMenuPointer(detail: Readonly<Record<string, string>>): string {
+	switch (detail.pointer) {
+		case "link":
+			return `the after-submit link from "${detail.form ?? ""}"`;
+		case "entry-point":
+			return "its entry point";
+		default:
+			return "its case list entry point";
+	}
 }
 
 /** The content blockers as counts, in the order the codes are listed. */

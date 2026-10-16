@@ -739,16 +739,17 @@ oracle in front of any caller oracle, so no surface can silently offer a read
 the commit gate would reject.
 
 A second, independent axis governs **Never match**.
-`DISPLAY_CONDITION_ALWAYS_FALSE` refuses a navigation condition nobody could
-satisfy, so the editor withholds `match-none` there — but the same shape is
+A navigation condition that is, or starts with, `match-none` is refused by a
+shape rule (`DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU`), because "not on the
+menu" is the flag `hiddenFromMenu`, with `displayCondition` holding the rest;
+the editor withholds `match-none` there for that reason. The same shape is
 legitimate authored data in the Search-action carrier, which shares the
-`global` scope, so `allowsNeverMatch` is its own axis rather than a reading of
-the scope. A saved `match-none` always renders and re-emits — the flag governs
-the add and replace menus, never round-tripping. Every *single* choice the
-editors offer is admissible, but "can never match" is a property of the whole
-tree — an author can still compose one deliberately by excluding an
-always-true rule — so the condition canvas commits through the inline gate
-flavor and shows a refusal beside the rule.
+`global` scope, so `allowsNeverMatch` stays its own axis rather than a reading
+of the scope. A saved `match-none` always renders and re-emits: the flag
+governs the add and replace menus, never round-tripping. Any other condition
+that is false in every context is an ordinary condition and is emitted as
+written; the condition canvas commits through the inline gate flavor and shows
+a refusal beside the rule.
 
 Display conditions are UX, not access control: a deep link with
 `respect-relevancy="false"` traverses menus and cases that conditions would

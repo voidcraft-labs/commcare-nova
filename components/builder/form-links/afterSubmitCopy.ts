@@ -2,7 +2,7 @@
 //
 // Every sentence the after-submit surfaces share, in one place: the
 // settings row, the workspace's terminal row, the chooser, and the
-// announcements all describe the same three built-in destinations and the
+// announcements all describe the same five built-in destinations and the
 // same "otherwise" idea, and a second spelling of any of them is how one
 // surface ends up contradicting another.
 //
@@ -14,6 +14,7 @@ import type {
 	AfterSubmitPlan,
 	FallbackChoice,
 } from "@/lib/doc/formLinkMutations";
+import type { FormLinkTargetVisibility } from "@/lib/doc/hooks/useFormLinkFacts";
 import type { FormLinkTarget, PostSubmitDestination } from "@/lib/domain";
 
 /** Where the person goes, as a prepositional phrase: "goes {phrase}". */
@@ -21,20 +22,36 @@ export function destinationPhrase(destination: PostSubmitDestination): string {
 	switch (destination) {
 		case "app_home":
 			return "to the app home";
+		case "firstMenu":
+			return "to the app's first menu";
 		case "module":
 			return "to this module's form list";
+		case "parentMenu":
+			return "to the parent module";
 		case "previous":
 			return "back to the previous screen";
 	}
 }
 
-/** The destination as a standalone label: a chooser item, a trigger. */
-export function destinationLabel(destination: PostSubmitDestination): string {
+/**
+ * The destination as a standalone label: a chooser item, a trigger. The
+ * parent module's label names the parent where the caller knows it.
+ */
+export function destinationLabel(
+	destination: PostSubmitDestination,
+	parentName?: string,
+): string {
 	switch (destination) {
 		case "app_home":
 			return "App home";
+		case "firstMenu":
+			return "First menu";
 		case "module":
 			return "This module";
+		case "parentMenu":
+			return parentName === undefined
+				? "Parent module"
+				: `Parent module: ${parentName}`;
 		case "previous":
 			return "Previous screen";
 	}
@@ -45,11 +62,44 @@ export function destinationDetail(destination: PostSubmitDestination): string {
 	switch (destination) {
 		case "app_home":
 			return "Back to the main screen";
+		case "firstMenu":
+			return FIRST_MENU_HELP;
 		case "module":
 			return "Stay in this module's form list";
+		case "parentMenu":
+			return "Back to the parent module, with its selection kept";
 		case "previous":
 			return "Back to where the person was";
 	}
+}
+
+/**
+ * What First menu means, beside App home: the two land on one screen in
+ * Web Apps and on two on Android.
+ */
+export const FIRST_MENU_HELP =
+	"Opens the app's first menu, which lists its modules. On Android, App home opens the app's home screen, and First menu opens that list.";
+
+/**
+ * The line under a link whose target some worker may not see on the menu,
+ * from `formLinkTargetVisibility`: what each platform does when that worker
+ * submits. `insideHiddenModule` says a target form is off the menu because
+ * the module that holds it is. Nothing for a target nothing hides.
+ */
+export function hiddenTargetLine(
+	visibility: FormLinkTargetVisibility | undefined,
+	insideHiddenModule = false,
+): string | undefined {
+	if (visibility?.hiddenBy === undefined) return undefined;
+	if (visibility.hiddenBy === "condition") {
+		return visibility.targetKind === "form"
+			? "When this form's display condition is false for a worker, Android still opens it after submit, and Web Apps opens the module that holds it instead."
+			: "When this module's display condition is false for a worker, Android opens it with nothing in it, and Web Apps opens the app's first screen instead.";
+	}
+	if (visibility.targetKind === "module") return undefined;
+	return insideHiddenModule
+		? "This form's module is off the menu. Android still opens the form after submit, and Web Apps opens the app's first screen instead."
+		: "This form is off the menu. Android still opens it after submit, and Web Apps opens the module that holds it instead.";
 }
 
 /** The chooser's fourth item: a link instead of a built-in destination. */

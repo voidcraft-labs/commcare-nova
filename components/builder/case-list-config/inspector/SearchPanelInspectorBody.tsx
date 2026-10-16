@@ -5,15 +5,16 @@
 //
 //   1. `searchScreenTitle`: title above the search inputs.
 //   2. `searchScreenSubtitle`: markdown subtitle below the title.
-//   3. `searchButtonLabel`: label on the search button.
-//   4. `searchButtonDisplayCondition`: optional predicate gating the
+//   3. `searchButtonDisplayCondition`: optional predicate gating the
 //      button's visibility at runtime. This rail only summarizes it
 //      (through the shared `ConditionSlotSetting`); the center Search
 //      workbench is its one editing surface.
-//   5. `searchFirst`: the module opens on its Search screen; the browse
+//   4. `searchFirst`: the module opens on its Search screen; the browse
 //      list goes away and Results exist only after a search. Offered only
 //      where the commit gate would admit it (a case-first module or a bare
 //      case list), so the switch never invites a refusal.
+// The search button's text is not authored: it reads
+// `CASE_SEARCH_BUTTON_LABEL` in every language, and the rail says so.
 // Assigned-case availability is edited only in Results beside the other
 // Cases available rules. This inspector owns Search-screen behavior only.
 //
@@ -42,8 +43,8 @@ import {
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
 import {
+	CASE_SEARCH_BUTTON_LABEL,
 	type CaseType,
-	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain";
@@ -101,23 +102,13 @@ export function SearchPanelInspectorBody({
 	};
 	const setSubtitle = (next: string | undefined) =>
 		onChange(setOptionalSlot(value, "searchScreenSubtitle", next));
-	const setButtonLabel = (next: string | undefined) => {
-		const authored =
-			next === DEFAULT_CASE_SEARCH_BUTTON_LABEL ? undefined : next;
-		if (authored === undefined && value?.searchButtonLabel === undefined)
-			return;
-		onChange(setOptionalSlot(value, "searchButtonLabel", authored));
-	};
 	const setDisplayCondition = (next: Predicate | undefined) =>
 		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));
 	const searchFirst = value?.searchFirst === true;
 	const setSearchFirst = (next: boolean) =>
 		onChange(setOptionalSlot(value, "searchFirst", next ? true : undefined));
 	const searchActionIsActive = hasSearchAction ?? value !== undefined;
-	const advancedIsActive =
-		value?.searchButtonDisplayCondition !== undefined ||
-		(!hasVisibleSearchScreen &&
-			(searchActionIsActive || value?.searchButtonLabel !== undefined));
+	const advancedIsActive = value?.searchButtonDisplayCondition !== undefined;
 
 	return (
 		<>
@@ -139,13 +130,10 @@ export function SearchPanelInspectorBody({
 						onCommit={setSubtitle}
 					/>
 
-					<OptionalTextRow
-						label="Search button label"
-						hint="Use a short action, such as Search or Find cases"
-						value={value?.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL}
-						onCommit={setButtonLabel}
-						maxGraphemes={32}
-					/>
+					<p className="px-1 text-[13px] leading-relaxed text-nova-text-muted">
+						The search button reads “{CASE_SEARCH_BUTTON_LABEL}” in every
+						language.
+					</p>
 				</>
 			) : (
 				<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
@@ -184,15 +172,6 @@ export function SearchPanelInspectorBody({
 				label="More settings"
 				defaultOpen={false}
 			>
-				{!hasVisibleSearchScreen && (
-					<OptionalTextRow
-						label="Search action label"
-						hint="Used when the list offers a Search action"
-						value={value?.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL}
-						onCommit={setButtonLabel}
-						maxGraphemes={32}
-					/>
-				)}
 				{searchFirst && value?.searchButtonDisplayCondition === undefined ? (
 					<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
 						This module opens on Search, so there is no Search button to show or

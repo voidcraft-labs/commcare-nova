@@ -17,7 +17,7 @@ import {
 import { loadAppInTransaction } from "@/lib/db/canonicalCommitKernel";
 import type { AppDatabase } from "@/lib/db/pg";
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
-import type { BlueprintDoc } from "@/lib/domain";
+import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import {
 	DEPLOYMENT_NOTICE_REASONS,
 	DOCUMENT_NOTICE_REASONS,
@@ -428,14 +428,18 @@ describe("the fleet transaction over the frozen fixtures", () => {
 				committed.set(row.id, loaded.doc);
 			}
 		});
-		// Each fixture's app holds the notice of each identifier, form content
-		// and case-list step its fixture witnessed, and each case-list line
-		// that writes nothing, all of which read the document alone.
+		// Each fixture's app holds the notice of each identifier, form content,
+		// search, navigation and case-list step its fixture witnessed, and each
+		// search, menu and case-list line that writes nothing, all of which
+		// read the document alone. A menu's condition becomes never only
+		// through step time-ordering, so no fixture here witnesses
+		// hidden-from-menu-set yet.
 		const notices = await sql<{
 			app_id: string;
 			entries: { kind: string; reason: string }[];
 		}>`SELECT app_id, entries FROM app_migration_notices`.execute(h.db());
 		const documentReasons: ReadonlySet<string> = new Set([
+			"search-button-text-changed",
 			"question-renamed",
 			"case-operation-renamed",
 			"connect-block-renamed",
@@ -444,12 +448,17 @@ describe("the fleet transaction over the frozen fixtures", () => {
 			"option-value-split",
 			"empty-form-label-added",
 			"session-read-removed",
+			"search-input-renamed",
+			"search-input-removed",
+			"after-submit-destination-moved",
 			"id-mapping-entry-removed",
 			"date-pattern-apostrophe-replaced",
 			"tile-order-rule-removed",
 			"order-rule-removed-same-property",
 			"order-rule-moved-to-first-column",
 			"tile-cell-defaults-set",
+			"lookup-choices-order-changes",
+			"survey-menu-takes-case-type",
 			"case-list-order-changes",
 			"case-list-search-matches-hidden-fields",
 			"hidden-order-column-not-in-sort-menu",
@@ -519,6 +528,24 @@ describe("the fleet transaction over the frozen fixtures", () => {
 		).toMatchObject({
 			options: [{ value: "yes" }, { value: "yes_2" }, { value: "no" }],
 		});
+
+		// Step `reserved-search-inputs` removes the own-key include_closed and
+		// renames the _xpath_query handle; step `post-submit` writes each
+		// destination a multi-select menu doesn't offer.
+		const search = appOf("hand-xpath-query-input");
+		expect(
+			search.modules[
+				asUuid("1fefe8ae-743a-5a32-ac35-daf498a2c2be")
+			]?.caseListConfig?.searchInputs.map((input) => input.name),
+		).toEqual(["owner_id", "_xpath_query_2"]);
+		const destinations = appOf("hand-post-submit");
+		expect(
+			[
+				"6328425f-f277-5dc3-a39d-c38944b0deef",
+				"71758067-5fb8-5433-aab4-e621619e2937",
+				"76468f4a-b34b-560e-a19a-39e0371c79da",
+			].map((uuid) => destinations.forms[asUuid(uuid)]?.postSubmit),
+		).toEqual(["module", "firstMenu", "module"]);
 
 		const events = await sql<{ kind: string; archived: string }>`
 			SELECT kind, (event -> 'archived')::text AS archived FROM events ORDER BY id

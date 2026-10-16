@@ -96,6 +96,10 @@
  *   worker-record write, another property of the child case), and only the
  *   nested forms that hold it (a selection datum only a case-loading entry
  *   aligns); a link that opens a form so reached is reached too;
+ * - the shape a case-loading form's after-submit default reads (a module
+ *   taken off the menu) reaches its forms that store no destination, and a
+ *   stored destination the shape withholds, which the reducer moves,
+ *   reaches its form; neither reaches the forms nested under it;
  * - a worker property's slug reaches the case-loading forms of a module
  *   whose filter, or whose search input on a module that opens on Search,
  *   reads it, not those of one whose display condition, search button
@@ -1837,6 +1841,33 @@ describe("the footprint's derivations", () => {
 				linkToNested(doc, "Parents", "Child care"),
 			],
 			batch: () => renameFlag,
+			reaches: (doc) => formsOf(doc, "Child care"),
+			leaves: (doc) => formsOf(doc, "Parents"),
+		},
+		// Where a form goes after submit: the default its module's shape gives it, and a destination the shape withholds.
+		{
+			name: "a module taken off the menu reaches its follow-up whose default it moves, and none of the forms nested under it",
+			document: "nested-menu-previous",
+			batch: (doc) => [
+				{
+					kind: "updateModule",
+					uuid: moduleNamed(doc, "Parents"),
+					patch: { hiddenFromMenu: true },
+				},
+			],
+			reaches: (doc) => formOfType(doc, "Parents", "followup"),
+			leaves: (doc) => formsOf(doc, "Child care"),
+		},
+		{
+			name: "a module taken off the menu reaches its follow-up whose stored destination it moves",
+			document: "nested-menu-previous",
+			batch: (doc) => [
+				{
+					kind: "updateModule",
+					uuid: moduleNamed(doc, "Child care"),
+					patch: { hiddenFromMenu: true },
+				},
+			],
 			reaches: (doc) => formsOf(doc, "Child care"),
 			leaves: (doc) => formsOf(doc, "Parents"),
 		},

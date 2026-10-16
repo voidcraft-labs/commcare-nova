@@ -20,6 +20,7 @@ import { runScan } from "../run";
 import {
 	carriersOf,
 	migratedFixtureDocument,
+	readFixtureCarriers,
 	readFixtureSchemas,
 } from "./fixtures/preStep";
 import { fixtureApp, seedFixtureApp } from "./fixtures/seed";
@@ -252,5 +253,46 @@ describe("the advisory scan", () => {
 		} finally {
 			await reader.destroy();
 		}
+	}, 30_000);
+
+	it("stops on a menu step hidden-from-menu takes off the menu while a form link opens it", async () => {
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		const id = "hand-hidden-menu-is-a-destination";
+		const carriers = readFixtureCarriers(id);
+		// The menu's condition is one step time-ordering would leave as never.
+		const never = {
+			...carriers,
+			rows: carriers.rows.map((row) =>
+				row.uuid === "00000000-0000-4000-8000-000000000c01"
+					? {
+							...row,
+							data_text: JSON.stringify({
+								...JSON.parse(row.data_text),
+								displayCondition: { kind: "match-none" },
+							}),
+						}
+					: row,
+			),
+		};
+		await seedFixtureApp(h.db(), {
+			appId: "app-hidden-destination",
+			projectId: PROJECT,
+			owner: OWNER,
+			carriers: never,
+			schemas: readFixtureSchemas(id),
+		});
+		const result = await runScan(h.db());
+		const blockers = Object.fromEntries(
+			section(result.report.all(), "blocker").map((line) => [line.code, line]),
+		);
+		expect(blockers["hidden-menu-is-a-destination"]).toMatchObject({
+			count: 1,
+			apps: ["app-hidden-destination"],
+		});
+		expect(blockers["target-gate"]).toMatchObject({
+			apps: ["app-hidden-destination"],
+			findingCodes: ["HIDDEN_MENU_NOT_A_DESTINATION"],
+		});
+		expect(result.exitCode).toBe(1);
 	}, 30_000);
 });

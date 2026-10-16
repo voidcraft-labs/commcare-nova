@@ -70,7 +70,7 @@ export const addEntryPointInputSchema = z.strictObject({
 		.nullable()
 		.optional()
 		.describe(
-			"Form destinations only: true lets this link open content hidden by display conditions. It never grants access to a Project or case. Omit or null to respect conditions.",
+			"Form destinations only: true lets this link open content hidden by display conditions. It never grants access to a Project or case. Omit or null to respect conditions. In Web Apps it is also what opens a form that is off the menu or inside a module that is off the menu; Android opens such a form either way.",
 		),
 });
 export const updateEntryPointInputSchema = z.strictObject({
@@ -87,7 +87,7 @@ export const updateEntryPointInputSchema = z.strictObject({
 				.nullable()
 				.optional()
 				.describe(
-					"Form destinations only. True bypasses display conditions on this entry; null restores ordinary condition checks; omission keeps the setting.",
+					"Form destinations only. True bypasses display conditions on this entry; null restores ordinary condition checks; omission keeps the setting. In Web Apps it is also what opens a form that is off the menu or inside a module that is off the menu; Android opens such a form either way.",
 				),
 		})
 		.refine(
@@ -164,7 +164,7 @@ export const getEntryPointsTool = {
 
 export const addEntryPointTool = {
 	description:
-		"Create a deep link to an eligible module, Results screen or form. Search-before-selection and no-matches registration require their ordinary launch flow.",
+		"Create a deep link to an eligible module, Results screen or form. Search-before-selection and no-matches registration require their ordinary launch flow. A module that is off the menu takes no link of its own and no case list link.",
 	inputSchema: addEntryPointInputSchema,
 	async execute(
 		input: z.infer<typeof addEntryPointInputSchema>,

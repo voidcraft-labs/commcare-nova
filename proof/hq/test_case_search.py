@@ -12,12 +12,23 @@ Past the flag's gate a related lookup queries HQ's case search index while
 it compiles (``xpath_functions/ancestor_functions.py::_get_case_ids_from_ast_filter``),
 over the unit's own Elasticsearch (``proof.hq.elasticsearch``): that query
 is the observation that the gate let the filter through.
+
+HQ's query builder (``case_search/utils.py::CaseSearchQueryBuilder``) is
+also what decides two things Nova writes for it: the zero-input
+``_xpath_query`` of ``'match-all()'``, which both export paths send because
+HQ builds no search for a menu with neither a property nor a default
+property, adds one ``match_all`` filter and nothing else (finding 53); and a
+request key HQ reads as part of the request never queries a case property
+of its name, so Nova refuses a Search question that would send one
+(``CASE_LIST_SEARCH_INPUT_NAME_RESERVED``, read from the generated
+surface's ``csql-key`` family as Nova's set is).
 """
 
 from __future__ import annotations
 
 import pytest
 
+from proof.checks.manifest_usage import load_manifest
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
@@ -164,3 +175,106 @@ def test_a_search_request_is_read_as_hq_reads_formplayers_post(hq, core_runner):
         ("name", "exact", True),
         ("dob", "date", False),
     ]
+
+
+def _built_queries(domain, default_properties):
+    """The ``<query>`` elements of HQ's suite for one list-first case menu whose search holds no property."""
+    from corehq.apps.app_manager.models import CaseSearch
+    from corehq.apps.app_manager.tests.app_factory import AppFactory
+    from corehq.apps.app_manager.tests.util import patch_get_xform_resource_overrides
+    from corehq.apps.app_manager.util import module_offers_search
+    from lxml import etree
+
+    factory = AppFactory(domain=domain, build_version="2.54.0")
+    module, form = factory.new_basic_module("patients", "patient")
+    factory.form_requires_case(form, "patient")
+    module.search_config = CaseSearch(default_properties=default_properties)
+    with patch_get_xform_resource_overrides():
+        suite = etree.fromstring(factory.app.create_suite())
+    return bool(module_offers_search(module)), list(suite.iter("query"))
+
+
+def _built_search(state, pairs):
+    """HQ's case search for a request of ``pairs``, read as HQ's view reads Formplayer's post."""
+    from corehq.apps.case_search.utils import CaseSearchQueryBuilder, _get_helper
+
+    config = operations.search_request_config(state, "search-app", [("case_type", "patient"), *pairs])
+    helper = _get_helper(None, state.domain, config.case_types, None)
+    return CaseSearchQueryBuilder(helper, config.case_types).build_query(config.criteria)
+
+
+def test_the_zero_input_filter_makes_hq_build_a_search_that_matches_every_case(hq, core_runner):
+    """A search with no input and no filter sends ``_xpath_query`` ``'match-all()'`` on both export paths
+    (``lib/commcare/suite/case-search/xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL``). HQ builds no search for a
+    menu with neither a search property nor a default property (``util.py::module_offers_search``), so the
+    sentinel is what makes HQ's build hold the query; and HQ's query builder turns the request that carries it
+    into the request without it plus one ``match_all`` filter, so a worker finds the same cases. The plausible
+    failures: HQ building a search with no default property, so the sentinel would be needless, and the
+    sentinel narrowing or widening what the search finds."""
+    from corehq.apps.app_manager.models import DefaultCaseSearchProperty
+
+    with hq_check(Configuration()) as (state, _):
+        offered, queries = _built_queries(state.domain, [])
+        assert not offered and queries == []
+        sentinel = DefaultCaseSearchProperty(property="_xpath_query", defaultValue="'match-all()'")
+        offered, queries = _built_queries(state.domain, [sentinel])
+        assert offered and len(queries) == 1
+        data = {element.get("key"): element.get("ref") for element in queries[0].iter("data")}
+        assert data["_xpath_query"] == "'match-all()'"
+
+        without = _built_search(state, []).filters
+        matching_all = _built_search(state, [("_xpath_query", "match-all()")]).filters
+    assert matching_all == [*without, {"match_all": {}}]
+
+
+def _request_keys():
+    """Every request key HQ reads as part of a search request, from the generated surface's ``csql-key``
+    family: the exact keys but ``case_id`` and ``owner_id``, which HQ searches as the case's id and its owner,
+    and one name under each prefix."""
+    names = []
+    for key in load_manifest().family("csql-key"):
+        if key in ("case_id", "owner_id"):
+            continue
+        names.append(f"{key[:-1]}parent" if key.endswith(".*") else key)
+    return names
+
+
+def _queries_property(query, name):
+    """Whether an Elasticsearch query names the case property ``name`` in a term on the property's key. HQ's
+    query builders hold a clause's parts in a list or, from ``filters.AND`` and its kind, a tuple."""
+    from corehq.apps.es.case_search import PROPERTY_KEY
+
+    if isinstance(query, dict):
+        term = query.get("term")
+        if isinstance(term, dict) and term.get(PROPERTY_KEY) == name:
+            return True
+        return any(_queries_property(value, name) for value in query.values())
+    if isinstance(query, (list, tuple)):
+        return any(_queries_property(value, name) for value in query)
+    return False
+
+
+@pytest.mark.parametrize("name", _request_keys())
+def test_a_request_key_hq_reads_never_searches_the_case_property_it_names(hq, core_runner, name):
+    """Nova refuses a Search question that reaches HQ as its own request key under a name HQ reads as part of
+    the request (``CASE_LIST_SEARCH_INPUT_NAME_RESERVED``), and refuses one named ``_xpath_query`` on every
+    route (``CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER``). HQ takes such a key out of the request as a
+    setting, ignores it, filters by owner or project space with it, compiles it as a query, or searches a
+    case index with it (``case_search/models.py::extract_search_request_config``,
+    ``case_search/utils.py::CaseSearchQueryBuilder._apply_filter``); in no case does it query a case property
+    of that name, where ``first_name`` does. The names come from the surface's ``csql-key`` family, so a key
+    HQ adds is run the week it appears. The plausible failure: a key HQ reads as a case property after all,
+    which Nova would refuse for nothing."""
+    from corehq.apps.case_search.exceptions import CaseFilterError
+
+    def queried(state, key):
+        return _queries_property(_built_search(state, [(key, "x")]).raw_query, key)
+
+    with hq_check(Configuration()) as (state, _):
+        assert queried(state, "first_name")
+        if name == "_xpath_query":
+            # Compiled as a query, and a plain value is no query.
+            with pytest.raises(CaseFilterError, match="at least one boolean operator"):
+                queried(state, name)
+        else:
+            assert not queried(state, name)

@@ -1,5 +1,5 @@
 /**
- * The four refusals behind a module that opens on Search
+ * The three refusals behind a module that opens on Search
  * (`caseSearchConfig.searchFirst`), which lowers to CommCare's inline
  * search: the search runs inside every case-loading entry, the browse list
  * goes away, and the results instance is named `results:inline`.
@@ -10,16 +10,17 @@
  *   - `SEARCH_FIRST_NO_BUTTON_DISPLAY_CONDITION`: the inline shape has no
  *     Search button on a list, so a condition on that button has nowhere
  *     to land.
- *   - `SEARCH_FIRST_NO_PREVIOUS_WORKFLOW`: CommCare HQ refuses to build
- *     "previous" after submit for a case-loading form of an inline module
- *     (`helpers/validators.py`, `workflow previous inline search`), so the
- *     stored slot may not say it. The default is already the module.
  *   - `SEARCH_FIRST_UNIQUE_INSTANCE`: CommCare HQ names every module's
  *     results instance `results:inline` and refuses two of them on one
  *     session (`non-unique instance name with parent module` /
  *     `... with parent select module`). Every module Nova uploads carries a
  *     search config, so a search-first module can have no submenus, and no
  *     module may select its parent from a search-first module.
+ *
+ * A form of such a module is not offered "previous" after submit, since
+ * HQ refuses to build it (`helpers/validators.py`, `workflow previous
+ * inline search`); that is one reason of `POST_SUBMIT_NOT_OFFERED`
+ * (`rules/form.ts::postSubmitValidation`).
  */
 
 import {
@@ -73,34 +74,6 @@ export function searchFirstNoButtonDisplayCondition(
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];
-}
-
-export function searchFirstNoPreviousWorkflow(
-	mod: Module,
-	moduleUuid: Uuid,
-	doc: BlueprintDoc,
-): ValidationError[] {
-	if (!moduleOpensOnSearch(mod)) return [];
-	const errors: ValidationError[] = [];
-	for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-		const form = doc.forms[formUuid];
-		if (form === undefined || form.postSubmit !== "previous") continue;
-		if (form.type !== "followup" && form.type !== "close") continue;
-		errors.push(
-			validationError(
-				"SEARCH_FIRST_NO_PREVIOUS_WORKFLOW",
-				"form",
-				`Form "${form.name}" in module "${mod.name}" returns to the previous screen after submit, but CommCare cannot do that in a module that opens on Search. Send it to the module (the worker searches again) or to the app home instead.`,
-				{
-					moduleUuid,
-					moduleName: mod.name,
-					formUuid: formUuid as Uuid,
-					formName: form.name,
-				},
-			),
-		);
-	}
-	return errors;
 }
 
 export function searchFirstUniqueInstance(

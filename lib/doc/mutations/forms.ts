@@ -3,6 +3,7 @@ import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { caseOperationSchema } from "@/lib/domain";
 import { cascadeDeleteForm } from "./helpers";
+import { postSubmitBefore, reconcilePostSubmitWithMenuShape } from "./modules";
 
 /**
  * Form mutations — fine-grained only.
@@ -116,11 +117,15 @@ export function applyFormMutation(
 		case "removeFormLink": {
 			const form = draft.forms[mut.formUuid];
 			if (!form) return;
+			// The last link leaving ends the fallback's exemption from the
+			// several-case reasons, so the destination is reconciled.
+			const before = postSubmitBefore(draft, [mut.formUuid]);
 			const links = (form.formLinks ?? []).filter(
 				(link) => link.uuid !== mut.uuid,
 			);
 			if (links.length === 0) delete form.formLinks;
 			else form.formLinks = links;
+			reconcilePostSubmitWithMenuShape(draft, before);
 			return;
 		}
 		case "moveFormLink": {
@@ -181,6 +186,8 @@ export function applyFormMutation(
 				(mut.after === mut.uuid || !destination.includes(mut.after))
 			)
 				return;
+			// The form's module is a fact its destination reads.
+			const before = postSubmitBefore(draft, [mut.uuid]);
 			// Leave whatever module currently holds it, then land in the target's
 			// sequence at the named placement. Same-module and cross-module are one
 			// path: the source removal is a no-op when the source IS the target,
@@ -210,6 +217,7 @@ export function applyFormMutation(
 					}
 				}
 			}
+			reconcilePostSubmitWithMenuShape(draft, before);
 			return;
 		}
 		case "renameForm": {

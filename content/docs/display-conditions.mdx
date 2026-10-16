@@ -10,10 +10,32 @@ instead of everything the app can do.
 
 Every module and every form can carry one.
 
+## Keep an item off the menu
+
+Some items should never be listed at all: a form reached only from another
+form's after-submit link, or only from a deep link. Turn off **Show on the
+menu** in the item's settings. The switch is on by default.
+
+An item that is off the menu is not listed anywhere. A module that is off the
+menu takes every form in it off the menu too, and its submenus with it, since
+no menu reaches them. What still opens a form that is off the menu depends on
+the platform:
+
+- **On Android**, it opens from an after-submit link or from a deep link.
+- **In Web Apps**, it opens only from a deep link that ignores display
+  conditions.
+
+A module that is off the menu can't be an after-submit link's destination and
+takes no deep link of its own. See [After submit](/docs/form-links) and
+[Deep links](/docs/deep-links) for each.
+
+A display condition you keep stays with the item and applies again once you
+turn **Show on the menu** back on. A condition that starts with "never" is
+refused, because the switch is how you say an item is never listed.
+
 ## Add a condition
 
-Open the item's settings and find **When this module appears** (or **When this
-form appears** on a form):
+Open the item's settings and find **When shown on the menu**:
 
 - For a module, open it and choose the settings gear. A bare case list keeps
   its settings on the Search / Results / Details strip.

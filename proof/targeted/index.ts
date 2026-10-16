@@ -34,6 +34,7 @@ import {
 } from "./documents/formShapes";
 import { gpsQuestion } from "./documents/gpsQuestion";
 import { hiddenCalculatedColumn, hiddenColumn } from "./documents/hiddenColumn";
+import { hiddenFromMenu } from "./documents/hiddenFromMenu";
 import { hqSideLookup } from "./documents/hqSideLookup";
 import { hqSideState } from "./documents/hqSideState";
 import { labelSort } from "./documents/labelSort";
@@ -46,7 +47,6 @@ import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
 import {
 	listFirstWebApps,
-	searchButtonLabel,
 	searchDefaultFilterName,
 	searchHqCompile,
 	searchRelatedLookups,
@@ -91,7 +91,6 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	parentFormSelectionFrame,
 	parentFormPreviousFrame,
 	wireEqualRepublish,
-	searchButtonLabel,
 	formLinkHiddenTarget,
 	emptyListNoEnglish,
 	connectDeliverRename,
@@ -109,6 +108,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	attributeColumns,
 	hiddenCalculatedColumn,
 	tileHiddenOrder,
+	hiddenFromMenu,
 ];
 
 /** Every targeted document, in a fixed order. */

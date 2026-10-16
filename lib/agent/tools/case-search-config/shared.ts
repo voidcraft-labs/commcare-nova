@@ -57,7 +57,6 @@ const valueExpressionInputSchema =
 export const DISPLAY_SLOT_NAMES = [
 	"searchScreenTitle",
 	"searchScreenSubtitle",
-	"searchButtonLabel",
 	"searchButtonDisplayCondition",
 ] as const;
 
@@ -259,8 +258,10 @@ export const setCaseSearchAdvancedBodySchema = z.strictObject({
 // ── Input schemas — display cluster ─────────────────────────────────
 
 /**
- * SA boundary shape for `setCaseSearchDisplay`. Four fields cover
- * the search-screen labels and the search-button display predicate.
+ * SA boundary shape for `setCaseSearchDisplay`. Three fields cover
+ * the search-screen labels and the search-button display predicate. The
+ * search button's own text is not authored: it reads "Search All Cases"
+ * in every language.
  * Required-and-nullable on every slot: the wholesale replace states
  * each one deliberately (null = cleared), never by omission.
  */
@@ -276,12 +277,6 @@ export const setCaseSearchDisplayBodySchema = z.strictObject({
 		.nullable()
 		.describe(
 			"Subtitle rendered through a markdown formatter, or `null` to clear. Use this for short instructional copy under the title; markdown is supported.",
-		),
-	searchButtonLabel: z
-		.string()
-		.nullable()
-		.describe(
-			"Label on the primary search submit button, or `null` to clear. Defaults to a generic 'Search' label when absent.",
 		),
 	searchButtonDisplayCondition: globallyResolvedDisplayConditionSchema
 		.nullable()

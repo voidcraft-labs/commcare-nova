@@ -3,10 +3,12 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
+	and,
 	concat,
 	eq,
 	input,
 	literal,
+	matchNone,
 	prop,
 	sessionUser,
 	term,
@@ -87,6 +89,20 @@ describe("entry instance dependencies", () => {
 			).toEqual([caseInstance, sessionInstance]);
 		},
 	);
+	it("declares what a form condition that ends in never reads, as the emitter prints it", () => {
+		// `x and never` is held as written, `x and false()`, so `x`'s session
+		// read is declared on the entry.
+		expect(
+			xmlChildren(
+				entryXml({
+					caseType: undefined,
+					formType: "survey",
+					formDisplayCondition: and(display, matchNone()),
+				}),
+				"instance",
+			).map((node) => node.attributes),
+		).toEqual([sessionInstance]);
+	});
 	it("deduplicates shared dependencies for both form and browse entries", () => {
 		const form = entryXml({
 			caseListFilter: filter,
@@ -187,10 +203,25 @@ describe("projected navigation frames", () => {
 	it("maps destinations while preserving the supplied module or previous frame", () => {
 		expect([
 			toHqWorkflow("app_home"),
+			toHqWorkflow("firstMenu"),
 			toHqWorkflow("module"),
+			toHqWorkflow("parentMenu"),
 			toHqWorkflow("previous"),
-		]).toEqual(["default", "module", "previous_screen"]);
+		]).toEqual([
+			"default",
+			"root",
+			"module",
+			"parent_module",
+			"previous_screen",
+		]);
 		expect(derivePostSubmitStack("app_home", 2, previous)).toEqual([]);
+		expect(derivePostSubmitStack("firstMenu", 2, previous)).toEqual([
+			{ op: "create", children: [] },
+		]);
+		expect(derivePostSubmitStack("parentMenu", 2, previous)).toEqual([]);
+		expect(
+			derivePostSubmitStack("parentMenu", 2, [], undefined, previous),
+		).toEqual([{ op: "create", children: previousChildren }]);
 		expect(derivePostSubmitStack("previous", 2, [])).toEqual([]);
 		expect(derivePostSubmitStack("previous", 2, previous)).toEqual([
 			{ op: "create", children: previousChildren },
@@ -202,88 +233,91 @@ describe("projected navigation frames", () => {
 			{ op: "create", children: previousChildren },
 		]);
 	});
-	it.each(["app_home", "module", "previous"] as const)(
-		"preserves query data and the %s fallback",
-		(destination) => {
-			const guard =
-				"instance('commcaresession')/session/user/data/role = 'supervisor'";
-			const operations = deriveFormLinkStack(
-				links(guard),
-				destination,
-				2,
-				previous,
-			);
-			const fallback =
-				destination === "app_home"
-					? []
-					: [
-							{
-								op: "create",
-								ifClause: `not(${guard})`,
-								children:
-									destination === "module"
+	it.each([
+		"app_home",
+		"firstMenu",
+		"module",
+		"parentMenu",
+		"previous",
+	] as const)("preserves query data and the %s fallback", (destination) => {
+		const guard =
+			"instance('commcaresession')/session/user/data/role = 'supervisor'";
+		const operations = deriveFormLinkStack(
+			links(guard),
+			destination,
+			2,
+			previous,
+			undefined,
+			previous,
+		);
+		const fallback =
+			destination === "app_home"
+				? []
+				: [
+						{
+							op: "create",
+							ifClause: `not(${guard})`,
+							children:
+								destination === "firstMenu"
+									? []
+									: destination === "module"
 										? [{ type: "command", value: "'m2'" }]
 										: previousChildren,
-							},
-						];
-			expect(operations).toEqual([
+						},
+					];
+		expect(operations).toEqual([
+			{
+				op: "create",
+				ifClause: guard,
+				children: [{ type: "command", value: "'m4'" }, query],
+			},
+			...fallback,
+		]);
+		const xml = entryXml({
+			formLinks: links(guard),
+			postSubmit: destination,
+			previousFrame: previous,
+			parentFrame: previous,
+		});
+		expect(xmlChildren(xml, "instance").map((node) => node.attributes)).toEqual(
+			[caseInstance, sessionInstance],
+		);
+		const stack = onlyXml(xmlChildren(xml, "stack"));
+		expect(stack.children.map((node) => node.attributes)).toEqual([
+			{ if: guard },
+			...fallback.map(() => ({ if: `not(${guard})` })),
+		]);
+		const emittedQuery = onlyXml(xmlChildren(stack.children[0], "query"));
+		expect(emittedQuery.attributes).toEqual({
+			id: "results:inline",
+			value: "'m4'",
+		});
+		expect(
+			emittedQuery.children.map((node) => [node.name, node.attributes]),
+		).toEqual([
+			["data", { key: "case_type", ref: "'patient'" }],
+			[
+				"data",
 				{
-					op: "create",
-					ifClause: guard,
-					children: [{ type: "command", value: "'m4'" }, query],
+					key: "ids",
+					ref: "@case_id",
+					nodeset: "instance('casedb')/casedb/case",
+					exclude: "instance('commcaresession')/session/user/data/skip = 'yes'",
 				},
-				...fallback,
-			]);
-			const xml = entryXml({
-				formLinks: links(guard),
-				postSubmit: destination,
-				previousFrame: previous,
-			});
-			expect(
-				xmlChildren(xml, "instance").map((node) => node.attributes),
-			).toEqual([caseInstance, sessionInstance]);
-			const stack = onlyXml(xmlChildren(xml, "stack"));
-			expect(stack.children.map((node) => node.attributes)).toEqual([
-				{ if: guard },
-				...fallback.map(() => ({ if: `not(${guard})` })),
-			]);
-			const emittedQuery = onlyXml(xmlChildren(stack.children[0], "query"));
-			expect(emittedQuery.attributes).toEqual({
-				id: "results:inline",
-				value: "'m4'",
-			});
-			expect(
-				emittedQuery.children.map((node) => [node.name, node.attributes]),
-			).toEqual([
-				["data", { key: "case_type", ref: "'patient'" }],
-				[
-					"data",
-					{
-						key: "ids",
-						ref: "@case_id",
-						nodeset: "instance('casedb')/casedb/case",
-						exclude:
-							"instance('commcaresession')/session/user/data/skip = 'yes'",
-					},
-				],
-			]);
-		},
-	);
+			],
+		]);
+	});
 	it("omits an unconditional guard and suppresses fallback", () => {
 		const xml = entryXml({ formLinks: links(), postSubmit: "module" });
 		const operation = onlyXml(onlyXml(xmlChildren(xml, "stack")).children);
 		expect(operation.name).toBe("create");
 		expect(operation.attributes).toEqual({});
 	});
-	it("keeps no stack distinct from an explicit reset and lets reset override returns", () => {
+	it("keeps no stack distinct from the first menu's one empty frame", () => {
 		expect(buildStackElement([])).toBeNull();
 		expect(xmlChildren(entryXml(), "stack")).toEqual([]);
-		const reset = entryXml({
-			resetToAppHome: true,
-			formLinks: links(),
-			returnFrame: { ifClause: "true()", children: previous },
-		});
-		expect(onlyXml(xmlChildren(reset, "stack")).children).toEqual([
+		const firstMenu = entryXml({ postSubmit: "firstMenu" });
+		expect(onlyXml(xmlChildren(firstMenu, "stack")).children).toEqual([
 			{ name: "create", uri: "", attributes: {}, children: [], text: "" },
 		]);
 	});

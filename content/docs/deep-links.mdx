@@ -30,6 +30,20 @@ Form entry points have an **Open even when display conditions hide the form**
 setting. It applies only to entry through that link. Workers still need access
 to the app and cases; the setting does not grant permissions.
 
+The same setting decides whether a link opens a form that is off the menu, or
+a form inside a module that is off the menu (see
+[Display conditions](/docs/display-conditions)):
+
+- **In Web Apps**, the link opens such a form only when the setting is on.
+  Otherwise it opens the module that holds the form, or the app's first screen
+  when that module is off the menu.
+- **On Android**, the link opens the form either way.
+
+A module that is off the menu can't have a module link or a case list link of
+its own, because neither would open anything useful: Android would show a menu
+with nothing in it, and Web Apps the app's first screen. Link to a form inside
+the module instead, or show the module on the menu again.
+
 ## Try it in Preview
 
 Choose a Preview worker and the required cases, then open the entry point.

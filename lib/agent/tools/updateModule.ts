@@ -1,7 +1,8 @@
 /**
  * SA tool: `updateModule` — patch module-level metadata.
  *
- * Module-scoped patches: display name and `case_type`. The case-type
+ * Module-scoped patches: display name, `case_type`, the display condition and
+ * `hiddenFromMenu`. The case-type
  * slot is the SA's repair path when the commit gate rejects adding a
  * case form to a module that never declared one (`NO_CASE_TYPE` names
  * exactly this fix) — without it the only correction would be
@@ -38,7 +39,10 @@ import { z } from "zod";
 import { updateModuleMutation } from "@/lib/doc/addModuleMutation";
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
-import { setModuleDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
+import {
+	setModuleDisplayConditionMutation,
+	setModuleHiddenFromMenuMutation,
+} from "@/lib/doc/displayConditionMutations";
 import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
 import {
 	asUuid,
@@ -99,7 +103,14 @@ export const updateModuleInputSchema = moduleAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Running-app visibility rule. A Predicate sets it, null removes it, omission keeps it.",
+				"Running-app visibility rule. A Predicate sets it, null removes it, omission keeps it. It applies while the item is on the menu; hiddenFromMenu takes it off whatever the condition, and a condition that starts with never is refused, since hiddenFromMenu is how that is said.",
+			),
+		hiddenFromMenu: z
+			.literal(true)
+			.nullable()
+			.optional()
+			.describe(
+				"true takes the module and every form in it off the menu, null puts it back, omission keeps it. Off the menu, its forms open on Android from an after-submit link or an entry point, and in Web Apps only from an entry point that ignores display conditions. A module that is off the menu can be no after-submit link's target and takes no entry point or case list entry point.",
 			),
 	})
 	.strict();
@@ -111,6 +122,7 @@ export type UpdateModuleResult =
 	| (MutationSuccess & {
 			columns: Array<{ uuid: Uuid }>;
 			retiredCaseType?: string;
+			hiddenFromMenu?: boolean;
 	  })
 	| { error: string };
 
@@ -129,6 +141,7 @@ export const updateModuleTool = {
 			case_type,
 			case_list_columns,
 			displayCondition,
+			hiddenFromMenu,
 			parentCaseModuleUuid,
 		} = input;
 		try {
@@ -136,6 +149,7 @@ export const updateModuleTool = {
 				name == null &&
 				case_type == null &&
 				displayCondition === undefined &&
+				hiddenFromMenu === undefined &&
 				parentCaseModuleUuid === undefined
 			) {
 				return {
@@ -239,6 +253,17 @@ export const updateModuleTool = {
 								displayCondition ?? undefined,
 							),
 						]),
+				/* Omission keeps the flag; true takes the module off the menu and
+				 * null puts it back. The reducer moves the after-submit
+				 * destinations its forms and its child modules' forms lose. */
+				...(hiddenFromMenu === undefined
+					? []
+					: [
+							setModuleHiddenFromMenuMutation(
+								moduleUuid,
+								hiddenFromMenu === true,
+							),
+						]),
 				// Each column follows the one before it, so the seeded set lands in
 				// the order the SA wrote it.
 				...(seedColumns ?? []).map((column, index, all) =>
@@ -280,6 +305,9 @@ export const updateModuleTool = {
 					ok: true,
 					...(retirement.kind === "retire" && {
 						retiredCaseType: retirement.caseType,
+					}),
+					...(hiddenFromMenu !== undefined && {
+						hiddenFromMenu: newMod.hiddenFromMenu === true,
 					}),
 					columns: (seedColumns ?? []).map((column) => ({
 						uuid: column.uuid,

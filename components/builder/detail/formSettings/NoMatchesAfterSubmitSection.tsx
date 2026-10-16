@@ -33,7 +33,7 @@ export function NoMatchesAfterSubmitSection({
 	const [refusal, setRefusal] = useState<string>();
 	if (!form || !module || !isNoMatchesForm(form)) return null;
 	const model = noMatchesAfterSubmitModel({
-		appHome: form.postSubmit === "app_home",
+		firstMenu: form.postSubmit === "firstMenu",
 		multiple: caseSelectionCardinality(module) === "multiple",
 		hasMenuForms: forms.some(formEntersFromMenu),
 	});
@@ -45,10 +45,10 @@ export function NoMatchesAfterSubmitSection({
 				items={model.options}
 				disabled={!canEdit}
 				onValueChange={(value) => {
-					if (value !== "app_home" && value !== "return") return;
+					if (value !== "firstMenu" && value !== "return") return;
 					if (!model.options.some((option) => option.value === value)) return;
 					const outcome = inline.updateForm(formUuid, {
-						postSubmit: value === "app_home" ? "app_home" : null,
+						postSubmit: value === "firstMenu" ? "firstMenu" : null,
 					});
 					setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
 				}}

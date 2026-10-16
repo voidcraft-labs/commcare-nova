@@ -73,7 +73,6 @@ it("binds refined Search expression families, then enforces the canonical slot r
 	const display = {
 		searchScreenTitle: null,
 		searchScreenSubtitle: null,
-		searchButtonLabel: null,
 		searchButtonDisplayCondition: "session('username') = 'ada@example.org'",
 	};
 	expect(

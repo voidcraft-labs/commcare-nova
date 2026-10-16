@@ -142,7 +142,10 @@ const source = buildDoc({
 										...(scenario === "search-remove"
 											? { searchScreenTitle: "Find a client" }
 											: {}),
-										searchButtonLabel: "Find",
+										searchButtonDisplayCondition: eq(
+											sessionContext("username"),
+											literal("ada"),
+										),
 										excludedOwnerIds: term(sessionContext("userid")),
 									}
 								: {},

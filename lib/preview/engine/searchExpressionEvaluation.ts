@@ -18,6 +18,7 @@ import {
 	type SearchInputDef,
 	type SelectSearchInputDef,
 	searchInputDefault,
+	searchInputLookupSortColumnId,
 } from "@/lib/domain";
 import type {
 	Predicate,
@@ -306,7 +307,8 @@ export function resolveSearchHiddenValues(
 
 /**
  * The choices a lookup-backed Search prompt offers right now: the source
- * table's rows in authored order, filtered by the authored row filter over
+ * table's rows in the order of the sort column's text (the label column's
+ * when none is chosen), as the device lists them, filtered by the authored row filter over
  * table columns and session values (the search screen has no case and the
  * filter admits no sibling answer). `undefined` while the held snapshot
  * does not cover the source, which the widget renders as its loading
@@ -318,16 +320,22 @@ export function resolveSearchInputChoices(
 	session: PreviewSearchSessionValues,
 	lookupData: PreviewLookupData | undefined,
 ): readonly LookupChoice[] | undefined {
+	const sortColumnId = searchInputLookupSortColumnId(input.options);
 	if (
 		lookupData === undefined ||
-		!lookupOptionsSourceCovered(input.options, lookupData)
+		!lookupOptionsSourceCovered(input.options, lookupData, sortColumnId)
 	) {
 		return undefined;
 	}
-	return evaluateLookupChoices(input.options, lookupData, {
-		outer: searchSessionEvalContext(session),
-		userPropertySlugs: previewUserPropertySlugMap(session),
-	});
+	return evaluateLookupChoices(
+		input.options,
+		lookupData,
+		{
+			outer: searchSessionEvalContext(session),
+			userPropertySlugs: previewUserPropertySlugMap(session),
+		},
+		sortColumnId,
+	);
 }
 
 /** CCHQ splits this one niche value on whitespace only; commas remain ids. */

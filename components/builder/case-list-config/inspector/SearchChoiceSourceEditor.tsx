@@ -3,8 +3,9 @@
 // Where a choice search field's options come from. A `select` or
 // `multi-select` prompt reads its choices from one Project data table, the
 // same source vocabulary a lookup-backed form question uses: the table, the
-// column whose value is saved as the answer, the column people read, and an
-// optional rule over the table's rows.
+// column whose value is saved as the answer, the column people read, the
+// column whose text orders the choices (the label column unless another is
+// chosen), and an optional rule over the table's rows.
 //
 // Two modes share one body. With a SAVED source, each column change commits
 // on its own (both columns are still chosen, so every intermediate state is a
@@ -34,8 +35,8 @@ import {
 import type {
 	CaseType,
 	LookupColumnId,
-	LookupOptionsSource,
 	LookupTableId,
+	SearchInputLookupOptions,
 	UserProperty,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
@@ -44,12 +45,12 @@ import { useCanEdit } from "@/lib/session/hooks";
 export interface SearchChoiceSourceEditorProps {
 	/** The saved source, or `undefined` while the author is still choosing
 	 *  one for a field that has no choices yet. */
-	readonly value: LookupOptionsSource | undefined;
+	readonly value: SearchInputLookupOptions | undefined;
 	readonly caseTypes: readonly CaseType[];
 	readonly userProperties: readonly UserProperty[];
 	readonly rowIndex: number;
 	/** Receives only complete sources. */
-	readonly onCommit: (next: LookupOptionsSource) => void;
+	readonly onCommit: (next: SearchInputLookupOptions) => void;
 	/** Offered only while no source is saved: leaves the field unchanged. */
 	readonly onCancel?: () => void;
 }
@@ -58,13 +59,18 @@ interface LookupSourceDraft {
 	readonly tableId: LookupTableId;
 	readonly valueColumnId?: LookupColumnId;
 	readonly labelColumnId?: LookupColumnId;
+	/** Absent means the choices are ordered by the label column. */
+	readonly sortColumnId?: LookupColumnId;
 	readonly filter?: Predicate;
 }
+
+/** The sort picker's item for "order by the label column". */
+const LABEL_COLUMN_SORT = "label-column";
 
 function completeSource(
 	draft: LookupSourceDraft,
 	columnIds: ReadonlySet<LookupColumnId>,
-): LookupOptionsSource | undefined {
+): SearchInputLookupOptions | undefined {
 	if (
 		draft.valueColumnId === undefined ||
 		draft.labelColumnId === undefined ||
@@ -78,6 +84,13 @@ function completeSource(
 		tableId: draft.tableId,
 		valueColumnId: draft.valueColumnId,
 		labelColumnId: draft.labelColumnId,
+		/* A sort column equal to the label column is the default's other
+		 * spelling, and one that left the table orders by the label too. */
+		...(draft.sortColumnId === undefined ||
+		draft.sortColumnId === draft.labelColumnId ||
+		!columnIds.has(draft.sortColumnId)
+			? {}
+			: { sortColumnId: draft.sortColumnId }),
 		...(draft.filter === undefined ? {} : { filter: draft.filter }),
 	};
 }
@@ -93,6 +106,7 @@ export function SearchChoiceSourceEditor({
 	const tableSelectId = useId();
 	const valueColumnSelectId = useId();
 	const labelColumnSelectId = useId();
+	const sortColumnSelectId = useId();
 	const canEdit = useCanEdit();
 	const catalog = useBuilderLookupCatalog();
 	const [draft, setDraft] = useState<LookupSourceDraft | null>(null);
@@ -308,6 +322,62 @@ export function SearchChoiceSourceEditor({
 						active.labelColumnId,
 						(columnId) => write({ ...active, labelColumnId: columnId }),
 					)}
+					<div>
+						<Label htmlFor={sortColumnSelectId} className="text-[13px]">
+							Sort choices by
+						</Label>
+						<Select
+							value={active.sortColumnId ?? LABEL_COLUMN_SORT}
+							disabled={!canEdit}
+							onValueChange={(next) => {
+								const { sortColumnId: _sort, ...rest } = active;
+								if (next === LABEL_COLUMN_SORT) {
+									write(rest);
+									return;
+								}
+								const column = table.columns.find(
+									(candidate) => candidate.id === next,
+								);
+								if (column === undefined) {
+									setRejection(
+										"That column is no longer available. Choose another column.",
+									);
+									return;
+								}
+								write({ ...rest, sortColumnId: column.id });
+							}}
+						>
+							<SelectTrigger
+								id={sortColumnSelectId}
+								wrapValue
+								className="mt-1 min-h-11 w-full"
+							>
+								<SelectValue>
+									{(current) =>
+										current === LABEL_COLUMN_SORT ||
+										current === null ||
+										current === undefined
+											? "Label column"
+											: (table.columns.find((column) => column.id === current)
+													?.label ?? "A column that is no longer available")
+									}
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value={LABEL_COLUMN_SORT} wrap>
+									Label column
+								</SelectItem>
+								{table.columns.map((column) => (
+									<SelectItem key={column.id} value={column.id} wrap>
+										{column.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<p className="mt-1 text-[12px] leading-snug text-nova-text-muted">
+							Choices are listed in the order of this column's text.
+						</p>
+					</div>
 
 					<div className="space-y-3 rounded-lg border border-nova-border bg-nova-elevated p-3">
 						<p className="flex items-start gap-2 text-[13px] font-medium text-nova-text">

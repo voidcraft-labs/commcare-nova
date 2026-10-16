@@ -46,7 +46,7 @@ describe("published entry point selection contracts", () => {
 								name: "Register patient",
 								type: "registration",
 								entry: { kind: "search-no-matches" },
-								...(multiple ? { postSubmit: "app_home" as const } : {}),
+								...(multiple ? { postSubmit: "firstMenu" as const } : {}),
 								fields: [
 									f({
 										kind: "text",

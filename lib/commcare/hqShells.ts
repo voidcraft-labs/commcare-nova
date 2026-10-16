@@ -1,5 +1,6 @@
 /** Factory functions for boilerplate HQ JSON structures. */
 
+import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain";
 import type {
 	CaseSearchConfig,
 	DetailBase,
@@ -120,7 +121,6 @@ function detailBase(): DetailBase {
 		pull_down_tile: null,
 		case_tile_template: null,
 		custom_xml: null,
-		custom_variables: null,
 	};
 }
 
@@ -200,9 +200,9 @@ export function caseSearchConfigShell(
 		Object.fromEntries(languages.map((language) => [language, ""]));
 	return {
 		doc_type: "CaseSearch",
-		// CCHQ default: `{'en': 'Search All Cases'}` per
-		// `CaseSearch.search_button_label = LabelProperty(default={'en': 'Search All Cases'})`.
-		search_button_label: { en: "Search All Cases" },
+		// HQ's default and the only label its Case List save keeps, keyed
+		// `en` alone (`CaseSearch.search_button_label`).
+		search_button_label: { en: CASE_SEARCH_BUTTON_LABEL },
 		properties: [],
 		// CCHQ defaults — the HQ JSON projection at
 		// `lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`
@@ -351,7 +351,6 @@ export function formShell(
 		form_filter: null,
 		post_form_workflow: postFormWorkflow,
 		post_form_workflow_fallback: postFormWorkflowFallback,
-		no_vellum: false,
 		media_image: {},
 		media_audio: {},
 		custom_icons: [],

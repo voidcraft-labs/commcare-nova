@@ -3,11 +3,14 @@
  * Case List page, its Web Apps workflow selector, and its search endpoint.
  *
  * - `targeted-search-default-filter-name` (defect 14, search settings): a
- *   search input named `_xpath_query`, the property every default filter
- *   Nova writes is named (`lib/commcare/hqJson/caseList.ts::projectDefaultProperties`),
- *   beside a case list filter, which Nova writes as one. HQ's Case List page
- *   flags a search property that shares a default property's name
- *   (`details/case_claim.js::commonProperties`) and refuses to save.
+ *   search input named `_xpath_query_2`, beside a case list filter, which
+ *   Nova writes as a default filter named `_xpath_query`
+ *   (`lib/commcare/hqJson/caseList.ts::projectDefaultProperties`). HQ's Case
+ *   List page refuses to save a search property that shares a default
+ *   property's name (`details/case_claim.js::commonProperties`), so Nova
+ *   refuses an input named `_xpath_query`
+ *   (`CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER`); this witness holds
+ *   that the save goes through with the suffixed name.
  * - `targeted-sync-on-form-entry` (defect 20, sync on form entry): a
  *   list-first menu that offers search, whose follow-up form loads the case
  *   the worker picks, published to a project space with sync cases on form
@@ -24,19 +27,16 @@
  *   choice, and the save turns the menu search-first.
  * - `targeted-search-hq-compile` (defects 6 CSQL, 14 reserved input
  *   names): default filters that order a time property and ask whether
- *   `date_opened` is blank, and inputs named `include_closed` and `owner_id`
- *   that reach HQ's search as their own keys. HQ's CSQL compiler refuses
- *   both filters (`case_search/xpath_functions/comparison.py`), and HQ's
- *   search reads the two inputs as configuration and as an owner filter, not
- *   as the properties they name
- *   (`case_search/models.py::extract_search_request_config`,
- *   `case_search/utils.py::_apply_filter`).
- * - `targeted-search-button-label` (defect 14, search settings): a written
- *   edit enables search with Nova's Search label. HQ's Case List save
- *   reconstructs `CaseSearch` without `search_button_label`
- *   (`views/modules.py::_gather_and_update_search_properties`), restoring
- *   the model's Search All Cases default, which app strings and Core's
- *   search action read. Its frozen control remains `case-operation-query`.
+ *   `date_opened` is blank, and one free-text input, `owner_id`, on the
+ *   case's owner. HQ's CSQL compiler refuses both filters
+ *   (`case_search/xpath_functions/comparison.py`). Nova writes the exact
+ *   input on the owner into the query as `@owner_id`
+ *   (`lib/commcare/suite/case-search/simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`),
+ *   so its prompt is excluded from the request's own keys and its answer
+ *   goes through the quote cascade. The input HQ read as configuration,
+ *   `include_closed`, is gone: Nova refuses a name HQ's search request
+ *   reads (`CASE_LIST_SEARCH_INPUT_NAME_RESERVED`), and the document's
+ *   control keeps the input as it was.
  * - `targeted-search-related-lookups` (defect 12, related lookups): a default
  *   filter on a property of the parent case, which HQ's CSQL compiler refuses
  *   in a case search unless the project space has
@@ -166,7 +166,7 @@ export function searchDefaultFilterName() {
 			searchInputs: [
 				simpleSearchInputDef(
 					uuid("input"),
-					"_xpath_query",
+					"_xpath_query_2",
 					"Region",
 					"text",
 					"region",
@@ -178,25 +178,6 @@ export function searchDefaultFilterName() {
 		id,
 		rows: ["14, search settings (an input named like a default filter)"],
 		doc,
-		expected: noteHeld(form),
-	});
-}
-
-export function searchButtonLabel() {
-	const id = "targeted-search-button-label";
-	const { doc, form } = searchApp(id, "Search visits", (uuid) => ({
-		properties: [],
-		list: caseListOf([plainColumn(uuid("name"), "case_name", "Name")]),
-	}));
-	const edit = structuredClone(doc);
-	edit.modules[targetedUuid(id, "module")].caseSearchConfig = {
-		searchButtonLabel: "Search",
-	};
-	return targetedDocument({
-		id,
-		rows: ["14, search settings (the search button label)"],
-		doc,
-		edit,
 		expected: noteHeld(form),
 	});
 }
@@ -254,23 +235,13 @@ export function listFirstWebApps() {
 export function searchHqCompile() {
 	const id = "targeted-search-hq-compile";
 	const { doc, form } = searchApp(id, "Search HQ compiles", (uuid) => ({
-		properties: [
-			{ name: "visit_time", data_type: "time" },
-			{ name: "include_closed" },
-		],
+		properties: [{ name: "visit_time", data_type: "time" }],
 		list: caseListOf([plainColumn(uuid("name"), "case_name", "Name")], {
 			filter: and(
 				gt(prop("patient", "visit_time"), timeLiteral("09:00:00")),
 				isBlank(prop("patient", "date_opened")),
 			),
 			searchInputs: [
-				simpleSearchInputDef(
-					uuid("include-closed"),
-					"include_closed",
-					"Include closed",
-					"text",
-					"include_closed",
-				),
 				simpleSearchInputDef(
 					uuid("owner"),
 					"owner_id",

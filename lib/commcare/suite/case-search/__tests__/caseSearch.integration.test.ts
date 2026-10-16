@@ -33,7 +33,6 @@ it.each(["display-first", "advanced-first"])(
 			moduleUuid,
 			searchScreenTitle: "Find patients",
 			searchScreenSubtitle: "Search by name",
-			searchButtonLabel: "Find",
 			searchButtonDisplayCondition: condition,
 		};
 		const advanced = {
@@ -57,7 +56,6 @@ it.each(["display-first", "advanced-first"])(
 		expect(current.modules[moduleUuid].caseSearchConfig).toEqual({
 			searchScreenTitle: display.searchScreenTitle,
 			searchScreenSubtitle: display.searchScreenSubtitle,
-			searchButtonLabel: display.searchButtonLabel,
 			searchButtonDisplayCondition: condition,
 			excludedOwnerIds: excluded,
 		});
@@ -66,7 +64,7 @@ it.each(["display-first", "advanced-first"])(
 			en: "Find patients",
 		});
 		expect(hq.modules[0].search_config.search_button_label).toEqual({
-			en: "Find",
+			en: "Search All Cases",
 		});
 		expect(hq.modules[0].search_config.search_button_display_condition).toBe(
 			"instance('commcaresession')/session/user/data/role = 'supervisor'",
@@ -96,7 +94,6 @@ it.each(["display-first", "advanced-first"])(
 			moduleUuid,
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
-			searchButtonLabel: null,
 			searchButtonDisplayCondition: null,
 		});
 		expect(cleared.result).not.toHaveProperty("error");
@@ -153,3 +150,30 @@ it.each(["remote", "inline"] as const)(
 		}
 	},
 );
+
+// HQ's Case List save keeps no other label, so every search button reads its
+// default, in every language, on both export paths.
+it("writes HQ's search button label, keyed en alone, and the same text in every language's strings", () => {
+	const doc = searchEmissionFixture("remote");
+	doc.localization = {
+		...doc.localization,
+		sourceLanguage: "eng",
+		defaultLanguage: "spa",
+		languageOrder: ["spa", "eng"],
+		wireCodes: { spa: "es", eng: "en" },
+		translations: { spa: {} },
+	};
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	const hq = expandDoc(doc);
+	expect(hq.modules[0].search_config.search_button_label).toEqual({
+		en: "Search All Cases",
+	});
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
+	for (const code of ["es", "en"]) {
+		const strings = zip.readAsText(`${code}/app_strings.txt`).split("\n");
+		expect(strings).toContain("case_search.m0=Search All Cases");
+	}
+});

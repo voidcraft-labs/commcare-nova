@@ -166,11 +166,15 @@ after that source is complete; cancelling leaves the current source unchanged.
 If the saved table becomes unavailable, it stays selected with an explanation
 until you choose another source.
 
+A Search field's choices also have a column they are sorted by, the label
+column unless you choose another under **Sort choices by**. That column counts
+as one the Search field uses, like the saved-value and label columns.
+
 ## Changes that other apps can block
 
 Deleting a table, removing a column, and changing a column's type each need
 admin access, and Nova refuses them while any app in the Project still uses that
-table or column. An app sitting in the trash counts.
+table or column, including a column a Search field sorts its choices by. An app sitting in the trash counts.
 
 Before it makes the change, Nova names the apps that would break. Point those
 apps at something else first, then come back and make the change.

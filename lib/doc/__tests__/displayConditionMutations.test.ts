@@ -4,7 +4,9 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	setFormDisplayConditionMutation,
+	setFormHiddenFromMenuMutation,
 	setModuleDisplayConditionMutation,
+	setModuleHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
@@ -137,5 +139,93 @@ describe("display-condition mutations", () => {
 			throughTheWire(setModuleDisplayConditionMutation(moduleUuid, CONDITION)),
 		]);
 		expect(next.modules[moduleUuid].displayCondition).toEqual(CONDITION);
+	});
+});
+
+describe("hiddenFromMenu mutations", () => {
+	it("takes a module and a form off the menu and puts them back, through the wire", () => {
+		const doc = docWithModuleAndForm();
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const hidden = apply(doc, [
+			throughTheWire(setModuleHiddenFromMenuMutation(moduleUuid, true)),
+			throughTheWire(setFormHiddenFromMenuMutation(formUuid, true)),
+		]);
+		expect(hidden.modules[moduleUuid].hiddenFromMenu).toBe(true);
+		expect(hidden.forms[formUuid].hiddenFromMenu).toBe(true);
+		const shown = apply(hidden, [
+			throughTheWire(setModuleHiddenFromMenuMutation(moduleUuid, false)),
+			throughTheWire(setFormHiddenFromMenuMutation(formUuid, false)),
+		]);
+		expect(Object.hasOwn(shown.modules[moduleUuid], "hiddenFromMenu")).toBe(
+			false,
+		);
+		expect(Object.hasOwn(shown.forms[formUuid], "hiddenFromMenu")).toBe(false);
+	});
+
+	function linkedToModule(): BlueprintDoc {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Start",
+					forms: [
+						{
+							name: "Go",
+							type: "survey",
+							fields: [{ kind: "text", id: "notes", label: "Notes" }],
+						},
+					],
+				},
+				{
+					name: "Targets",
+					forms: [
+						{
+							name: "Inside",
+							type: "survey",
+							fields: [{ kind: "text", id: "notes", label: "Notes" }],
+						},
+					],
+				},
+			],
+		});
+		const [start, targets] = doc.moduleOrder;
+		doc.forms[doc.formOrder[start][0]].formLinks = [
+			{
+				uuid: testUuid("display-link"),
+				target: { type: "module", moduleUuid: targets },
+			},
+		];
+		assertAdmittedDoc(doc);
+		return doc;
+	}
+
+	it("refuses to take a module off the menu while a link names it", () => {
+		const doc = linkedToModule();
+		const verdict = mutationCommitVerdict(
+			doc,
+			[setModuleHiddenFromMenuMutation(doc.moduleOrder[1], true)],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings.map(({ code }) => code)).toEqual([
+			"HIDDEN_MENU_NOT_A_DESTINATION",
+		]);
+	});
+
+	it("refuses to take a module off the menu while it holds an entry point", () => {
+		const doc = docWithModuleAndForm();
+		const moduleUuid = doc.moduleOrder[0];
+		doc.modules[moduleUuid].entryPoint = {
+			uuid: testUuid("display-entry"),
+			id: "mothers",
+		};
+		assertAdmittedDoc(doc);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[setModuleHiddenFromMenuMutation(moduleUuid, true)],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings.map(({ code }) => code)).toEqual([
+			"HIDDEN_MENU_NOT_A_DESTINATION",
+		]);
 	});
 });

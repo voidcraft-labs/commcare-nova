@@ -36,6 +36,7 @@ import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeM
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
 import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
 import { searchInputRefUsesWhenInputPresent } from "./case-list/searchInputRefUsesWhenInputPresent";
+import { searchInputReservedName } from "./case-list/searchInputReservedName";
 import { searchInputScreenPredicateTypeCheck } from "./case-list/searchInputScreenPredicateTypeCheck";
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
@@ -46,13 +47,13 @@ import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeChe
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
 import {
 	searchFirstNoButtonDisplayCondition,
-	searchFirstNoPreviousWorkflow,
 	searchFirstRequiresCaseFirstModule,
 	searchFirstUniqueInstance,
 } from "./case-search/searchFirst";
 import { searchNoMatchesFormUnique } from "./case-search/searchNoMatches";
 import { searchRelatedCalculationCompatibility } from "./case-search/searchRelatedCalculationCompatibility";
 import { moduleDisplayCondition } from "./displayConditions";
+import { hiddenMenuEntryPoints } from "./hiddenFromMenu";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
 import { multiSelectTopology } from "./multiSelect";
 
@@ -310,6 +311,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	missingCaseListColumns,
 	multiSelectTopology,
 	moduleDisplayCondition,
+	hiddenMenuEntryPoints,
 	// Case-list-config rules (sit at module scope; the cross-form
 	// kind-vs-property-type rule lives at app scope in `app.ts`).
 	columnReferences,
@@ -328,6 +330,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	caseTileLayout,
 	caseTileGrouping,
 	searchInputNameUniqueness,
+	searchInputReservedName,
 	searchInputModeMatchesPropertyType,
 	searchInputTypeMatchesPropertyType,
 	searchInputDefaultTypeCheck,
@@ -348,7 +351,6 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	// shapes it cannot carry.
 	searchFirstRequiresCaseFirstModule,
 	searchFirstNoButtonDisplayCondition,
-	searchFirstNoPreviousWorkflow,
 	searchFirstUniqueInstance,
 	searchNoMatchesFormUnique,
 ];

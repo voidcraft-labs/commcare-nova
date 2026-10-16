@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { type BlueprintDoc, fieldSchema, type Module } from "@/lib/domain";
+import { eq, literal, sessionUser } from "@/lib/domain/predicate";
 import {
 	combineNavigationVisibility,
 	inheritedModuleVisibility,
 	previewCaseDescendantModuleUuids,
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
+	previewModuleVisibility,
 } from "../menuProjection";
 import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
 
@@ -93,6 +95,37 @@ describe("Preview menu projection", () => {
 			]),
 		);
 		expect(projected.get(CHILD)).toBe("pending");
+	});
+
+	it("hides a module off the menu, and its child modules, without reading its condition", () => {
+		const doc = source();
+		doc.modules[ROOT].hiddenFromMenu = true;
+		/* An unresolved worker leaves any condition pending; the flag answers
+		 * before the condition is read. */
+		doc.modules[ROOT].displayCondition = eq(
+			sessionUser("role"),
+			literal("supervisor"),
+		);
+		const visibility = previewModuleVisibility(doc, {
+			authoring: false,
+			session: {
+				identityPending: true,
+				context: {},
+				user: {},
+				userPropertySlugs: {},
+			},
+			lookup: { kind: "idle" },
+		});
+		expect(visibility.get(ROOT)).toBe("hidden");
+		expect(visibility.get(CHILD)).toBe("hidden");
+		expect(visibility.get(OTHER_ROOT)).toBe("shown");
+		expect(
+			previewModuleVisibility(doc, {
+				authoring: true,
+				session: { context: {}, user: {}, userPropertySlugs: {} },
+				lookup: { kind: "idle" },
+			}).get(ROOT),
+		).toBe("shown");
 	});
 
 	it("reuses a structural parent's selection only for the same case type", () => {

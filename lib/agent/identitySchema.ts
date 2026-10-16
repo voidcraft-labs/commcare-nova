@@ -116,6 +116,7 @@ export function classifyIdentity(
 		property === "afterColumnId" ||
 		property === "valueColumnId" ||
 		property === "labelColumnId" ||
+		property === "sortColumnId" ||
 		property === "resultColumnId"
 	) {
 		return "lookup-column";

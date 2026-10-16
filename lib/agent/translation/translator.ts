@@ -389,7 +389,6 @@ export function boundedGlossary(
 		"form-name",
 		"form-entry-label",
 		"search-screen-title",
-		"search-button-label",
 	]);
 	const priority = (entry: TranslationGlossaryEntry) => {
 		if (entry.role !== undefined && navigationRoles.has(entry.role)) return 2;

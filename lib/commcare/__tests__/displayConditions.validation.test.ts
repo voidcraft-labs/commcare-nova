@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
@@ -11,6 +12,7 @@ import {
 import {
 	actingUser,
 	ancestorPath,
+	and,
 	count,
 	dateAdd,
 	eq,
@@ -73,7 +75,17 @@ function admitted(doc: Parameters<typeof runValidation>[0]) {
 	expect(runValidation(doc, lookupContext)).toEqual([]);
 }
 
-function validateModule(condition: Predicate) {
+function validateModule(
+	condition: Predicate,
+	options: { readonly hiddenFromMenu?: true } = {},
+) {
+	return validateModuleFindings(condition, options).map((error) => error.code);
+}
+
+function validateModuleFindings(
+	condition: Predicate,
+	options: { readonly hiddenFromMenu?: true } = {},
+) {
 	const doc = buildDoc({
 		appName: "Display",
 		modules: [
@@ -92,7 +104,8 @@ function validateModule(condition: Predicate) {
 	const moduleUuid = doc.moduleOrder[0];
 	admitted(doc);
 	doc.modules[moduleUuid].displayCondition = condition;
-	return runValidation(doc, lookupContext).map((error) => error.code);
+	if (options.hiddenFromMenu) doc.modules[moduleUuid].hiddenFromMenu = true;
+	return runValidation(doc, lookupContext);
 }
 
 function validateForm(
@@ -188,14 +201,45 @@ describe("module display-condition validation", () => {
 		).toContain("MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE");
 	});
 
-	it("rejects Search answers and conditions that simplify to false", () => {
+	it("rejects Search answers", () => {
 		expect(
 			validateModule(eq(input(testUuid("name")), literal("Ada"))),
 		).toContain("DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE");
-		expect(validateModule(matchNone())).toContain(
-			"DISPLAY_CONDITION_ALWAYS_FALSE",
-		);
 		expect(validateModule(matchAll())).toEqual([]);
+	});
+});
+
+describe("a display condition that spells off the menu", () => {
+	const supervisor = eq(sessionUser("role"), literal("supervisor"));
+
+	it("refuses never and never and x on a module, naming the flag", () => {
+		for (const condition of [matchNone(), and(matchNone(), supervisor)]) {
+			const findings = validateModuleFindings(condition);
+			expect(findings.map((finding) => finding.code)).toEqual([
+				"DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU",
+			]);
+			expect(findings[0].message).toBe(
+				'"Visits" has a display condition that starts with "never". To keep it off the menu, set hiddenFromMenu to true and keep the rest of the condition.',
+			);
+			expect(userFacingError(findings[0])).toBe(
+				'"Visits" has a display condition that starts with "never". To keep it off the menu, turn off "Show on the menu" and keep the rest of the condition.',
+			);
+		}
+	});
+
+	it("refuses the same on a form", () => {
+		expect(validateForm(and(matchNone(), supervisor))).toEqual([
+			"DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU",
+		]);
+	});
+
+	it("admits never in any other position as an ordinary condition", () => {
+		expect(validateModule(and(supervisor, matchNone()))).toEqual([]);
+		expect(validateForm(and(supervisor, matchNone()))).toEqual([]);
+	});
+
+	it("admits a module off the menu with a condition for when it is back", () => {
+		expect(validateModule(supervisor, { hiddenFromMenu: true })).toEqual([]);
 	});
 });
 

@@ -5,7 +5,8 @@
 // row so both read and write one model (`afterSubmitPlan` /
 // `planSetFallback`).
 //
-// Three built-in destinations and "Another form or module". Choosing a
+// The built-in destinations the form's module offers, and "Another form
+// or module". Choosing a
 // built-in while an otherwise link exists REPLACES that link, which is
 // authored work leaving the app, so it asks first, inline. "Another form
 // or module" differs by host: the workspace picks the destination right
@@ -18,8 +19,10 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
 import tablerArrowRampRight from "@iconify-icons/tabler/arrow-ramp-right";
+import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerHome from "@iconify-icons/tabler/home";
+import tablerLayoutList from "@iconify-icons/tabler/layout-list";
 import tablerTable from "@iconify-icons/tabler/table";
 import { useState } from "react";
 import { newUuid } from "@/components/builder/case-list-config/uuid";
@@ -29,19 +32,17 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
+import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormLinks } from "@/lib/doc/hooks/useFormLinks";
 import { useParseXPathForForm } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
-import {
-	type FormLinkTarget,
-	POST_SUBMIT_DESTINATIONS,
-	type PostSubmitDestination,
-} from "@/lib/domain";
+import type { FormLinkTarget, PostSubmitDestination } from "@/lib/domain";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import {
 	destinationDetail,
 	destinationLabel,
+	destinationPhrase,
 	ELSE_LINK_CHOICE_LABEL,
 	fallbackChangedAnnouncement,
 	stopElseLinkQuestion,
@@ -53,15 +54,19 @@ import { useLinkSentenceContext } from "./useLinkSentenceContext";
 
 const DESTINATION_ICON = {
 	app_home: tablerHome,
+	firstMenu: tablerLayoutList,
 	module: tablerTable,
+	parentMenu: tablerArrowUp,
 	previous: tablerArrowBackUp,
-} as const;
+} as const satisfies Record<PostSubmitDestination, unknown>;
 
 export type ChooserOutcome =
 	| { readonly kind: "committed"; readonly announcement: string }
 	| { readonly kind: "refused"; readonly message: string };
 
 export interface FallbackChooserProps {
+	/** The module that holds the form; its parent names "Parent module". */
+	readonly moduleUuid: Uuid;
 	readonly formUuid: Uuid;
 	readonly canEdit: boolean;
 	/** What "Another form or module" does here. */
@@ -80,6 +85,7 @@ export interface FallbackChooserProps {
 }
 
 export function FallbackChooser({
+	moduleUuid,
 	formUuid,
 	canEdit,
 	elseLink,
@@ -87,6 +93,7 @@ export function FallbackChooser({
 	ariaLabel,
 }: FallbackChooserProps) {
 	const view = useFormLinks(formUuid);
+	const parentName = useModule(useModule(moduleUuid)?.parentModuleUuid)?.name;
 	const sentence = useLinkSentenceContext();
 	const parse = useParseXPathForForm(formUuid);
 	const [open, setOpen] = useState(false);
@@ -100,7 +107,7 @@ export function FallbackChooser({
 	const currentLabel =
 		plan.fallback.kind === "else-link"
 			? linkLead(plan.fallback.link.target, sentence)
-			: destinationLabel(plan.fallback.destination);
+			: destinationLabel(plan.fallback.destination, parentName);
 
 	const report = (
 		outcome:
@@ -186,7 +193,7 @@ export function FallbackChooser({
 			>
 				<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 					{elseName === undefined
-						? `Go ${destinationLabel(pending).toLocaleLowerCase()} instead? You can undo this.`
+						? `Go ${destinationPhrase(pending)} instead? You can undo this.`
 						: stopElseLinkQuestion(elseName, pending)}
 				</p>
 				<div className="flex flex-wrap gap-2">
@@ -265,7 +272,7 @@ export function FallbackChooser({
 					</div>
 				) : (
 					<div className="space-y-1">
-						{POST_SUBMIT_DESTINATIONS.map((destination) => {
+						{view.destinationChoices.map((destination) => {
 							const active =
 								plan.fallback.kind === "post-submit" &&
 								plan.fallback.destination === destination;
@@ -273,7 +280,7 @@ export function FallbackChooser({
 								<ChoiceRow
 									key={destination}
 									icon={DESTINATION_ICON[destination]}
-									title={destinationLabel(destination)}
+									title={destinationLabel(destination, parentName)}
 									detail={destinationDetail(destination)}
 									active={active}
 									onClick={() => chooseBuiltIn(destination)}

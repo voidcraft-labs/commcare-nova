@@ -200,6 +200,66 @@ describe("evaluateLookupChoices", () => {
 		expect(choices.map((c) => c.value)).toEqual(["c3"]);
 	});
 
+	describe("with a sort column", () => {
+		// Labels whose code unit order differs from a locale's, with ties.
+		const labels = ["b", "B", "a", "é", "Z", "a", "10", "9", "a"];
+		const sortRows = labels.map((label, index) =>
+			row(
+				`018f0000-0000-7000-8000-0000000001${String(index).padStart(2, "0")}`,
+				{
+					code: `r${index + 1}`,
+					clinic_name: label,
+				},
+			),
+		);
+		const sortData = () =>
+			previewLookupData({
+				projectRevision: parseLookupRevision("7"),
+				definitions: [DEFINITION],
+				rowsByTable: new Map([[TABLE, sortRows]]),
+			});
+
+		it("orders by the column's text code unit by code unit, ties in row order", () => {
+			const choices = evaluateLookupChoices(
+				source(),
+				sortData(),
+				{ outer: outerContext() },
+				COL_NAME,
+			);
+			expect(choices.map((c) => c.label)).toEqual([
+				"10",
+				"9",
+				"B",
+				"Z",
+				"a",
+				"a",
+				"a",
+				"b",
+				"é",
+			]);
+			expect(
+				choices.filter((c) => c.label === "a").map((c) => c.value),
+			).toEqual(["r3", "r6", "r9"]);
+		});
+
+		it("keeps the table's row order without one", () => {
+			const choices = evaluateLookupChoices(source(), sortData(), {
+				outer: outerContext(),
+			});
+			expect(choices.map((c) => c.label)).toEqual(labels);
+		});
+
+		it("orders by a column other than the label", () => {
+			const choices = evaluateLookupChoices(
+				source(),
+				data(),
+				{ outer: outerContext() },
+				COL_STOCK,
+			);
+			expect(choices.map((c) => c.value)).toEqual(["b2", "a1", "c3"]);
+		});
+	});
+
 	it("throws the validation-bypass invariant for an unknown table", () => {
 		const orphan = {
 			...source(),

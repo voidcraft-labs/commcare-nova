@@ -136,9 +136,10 @@ export type CaseDataScope =
 export const GLOBAL_SCOPE_CASE_DATA_REASON =
 	"This is decided before a case is selected, so it can use only fixed values and current-user information";
 
-/** Why a never-matching rule is withheld from a display condition. */
+/** Why a never-matching rule is withheld from a display condition: taking
+ *  the item off the menu is the "Show on the menu" switch's job. */
 export const NEVER_MATCH_UNAVAILABLE_REASON =
-	"Nobody could ever reach this item, so remove the item itself rather than hiding it from everyone";
+	"To keep this item off the menu, turn off “Show on the menu” in its settings";
 
 /** The `"selected-case"` twin of `GLOBAL_SCOPE_CASE_DATA_REASON`: the
  *  chosen case's own information is available, everything reached
@@ -193,9 +194,10 @@ export interface PredicateEditContext {
 	 * condition is deliberately allowed to be `match-none`:
 	 * `lib/domain/CLAUDE.md` records that projection as valid authored
 	 * data an existing document may already hold, never normalized away.
-	 * It is FALSE only for a navigation display condition, where "never"
-	 * means nobody could ever open the item and the commit gate refuses
-	 * it (`DISPLAY_CONDITION_ALWAYS_FALSE`).
+	 * It is FALSE only for a navigation display condition, where an item
+	 * nobody is offered is said with the "Show on the menu" switch
+	 * (`hiddenFromMenu`), and a condition that starts with "never" is
+	 * refused (`DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU`).
 	 *
 	 * Deliberately its own axis rather than a reading of
 	 * `caseDataScope`: a module's display condition and the Search

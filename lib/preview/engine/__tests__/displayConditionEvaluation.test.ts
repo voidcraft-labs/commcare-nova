@@ -12,6 +12,7 @@ import {
 	literal,
 	matchAll,
 	matchNone,
+	or,
 	prop,
 	sessionContext,
 	sessionUserProperty,
@@ -108,7 +109,7 @@ describe("moduleDisplayVisibility", () => {
 			).toBe("shown");
 		}
 	});
-	it("shows on absent and deeply-always-true conditions", () => {
+	it("shows on absent and always-true conditions", () => {
 		expect(
 			moduleDisplayVisibility({
 				condition: undefined,
@@ -174,7 +175,7 @@ describe("moduleDisplayVisibility", () => {
 		).toBe("hidden");
 	});
 
-	it("retains match-none as hidden (legacy tolerance)", () => {
+	it("evaluates never as false", () => {
 		expect(
 			moduleDisplayVisibility({
 				condition: matchNone(),
@@ -182,6 +183,31 @@ describe("moduleDisplayVisibility", () => {
 				lookup: NO_LOOKUP,
 			}),
 		).toBe("hidden");
+	});
+
+	it("hides an item off the menu before reading its condition", () => {
+		const supervisor = eq(
+			term({ kind: "session-user", field: "role" }),
+			literal("supervisor"),
+		);
+		for (const evaluate of [moduleDisplayVisibility, formDisplayVisibility]) {
+			expect(
+				evaluate({
+					condition: supervisor,
+					hiddenFromMenu: true,
+					session: { ...SESSION, identityPending: true },
+					lookup: NO_LOOKUP,
+				}),
+			).toBe("hidden");
+			expect(
+				evaluate({
+					condition: supervisor,
+					hiddenFromMenu: false,
+					session: SESSION,
+					lookup: NO_LOOKUP,
+				}),
+			).toBe("shown");
+		}
 	});
 
 	it("folds a table-lookup over loaded data and pends without it", () => {
@@ -230,6 +256,42 @@ describe("moduleDisplayVisibility", () => {
 				lookup: { kind: "error" },
 			}),
 		).toBe("pending");
+	});
+
+	it("evaluates the stored condition as written, with no clause absorbed", () => {
+		const lookupClause = eq(
+			tableLookup(
+				TABLE,
+				COL_CODE,
+				eq(
+					term(tableColumn(TABLE, COL_REGION)),
+					term(sessionContext("username")),
+				),
+			),
+			literal("a1"),
+		);
+		// `x and never` is not folded to never: it still waits for `x`'s data.
+		expect(
+			moduleDisplayVisibility({
+				condition: and(lookupClause, matchNone()),
+				session: SESSION,
+				lookup: { kind: "loading" },
+			}),
+		).toBe("pending");
+		expect(
+			moduleDisplayVisibility({
+				condition: and(lookupClause, matchNone()),
+				session: SESSION,
+				lookup: LOOKUP_DATA,
+			}),
+		).toBe("hidden");
+		expect(
+			moduleDisplayVisibility({
+				condition: or(lookupClause, matchAll()),
+				session: SESSION,
+				lookup: LOOKUP_DATA,
+			}),
+		).toBe("shown");
 	});
 
 	it("a loaded snapshot that doesn't COVER the condition's table pends too", () => {

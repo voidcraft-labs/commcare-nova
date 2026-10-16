@@ -17,7 +17,17 @@ import {
 	formLinkProjectionContext,
 } from "@/lib/commcare/formLinkProjection";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { applyMutations } from "@/lib/doc/mutations";
+import {
+	searchInputDependencyUses,
+	searchInputFormFieldDependencies,
+	searchInputRemovalDependencies,
+} from "@/lib/doc/searchInputMutations";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import {
+	substituteUnansweredSearchInputsInExpression,
+	substituteUnansweredSearchInputsInPredicate,
+} from "@/lib/domain/predicate";
 import { duplicateSelectOptionValues } from "@/lib/domain/selectOptionValue";
 import { selectOptionValueSpaces } from "../../selectOptionValueRepair";
 import { type JsonRecord, readRawDocument } from "../oldShape";
@@ -25,6 +35,7 @@ import {
 	optionValueSpaces,
 	planDuplicateOptionValueSplit,
 } from "../steps/optionValues";
+import { reservedSearchInputsStep } from "../steps/reservedSearchInputs";
 import { declaredSessionDatumIds } from "../steps/unsuppliedSessionReads";
 import { carriersOf } from "./fixtures/preStep";
 
@@ -469,5 +480,269 @@ describe("option-values groups choice lists into the repair's value spaces", () 
 			["catalog", ...fieldUuidById("status")].sort(),
 		);
 		expect(production.size).toBe(3);
+	});
+});
+
+describe("reserved-search-inputs removes what the removeSearchInput reducer removes, and rewrites the places the removal dependencies name", () => {
+	const PATIENTS = testUuid("patients") as Uuid;
+	const INCLUDE = testUuid("include-closed") as Uuid;
+	const OWNER = testUuid("owner") as Uuid;
+	const QUERY = testUuid("query") as Uuid;
+	const CARRIED = testUuid("carried") as Uuid;
+	const read = {
+		kind: "term",
+		term: { kind: "input", searchInputUuid: INCLUDE },
+	};
+
+	/**
+	 * A menu whose own-key include_closed input is read by the list's filter,
+	 * a sibling's check, a calculated column, the assigned-cases expression,
+	 * the Search action's condition and a no-matches form's field. An
+	 * advanced input named _xpath_query and an exact input on owner_id reach
+	 * HQ under no key of their own and stay. An own-key input named
+	 * _xpath_query can't be built here: a case property's name starts with a
+	 * letter, and an exact input's name is its property's.
+	 */
+	function document(): BlueprintDoc {
+		return produce(
+			buildDoc({
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{ name: "case_name", label: "Name", data_type: "text" as const },
+							{
+								name: "include_closed",
+								label: "Include closed",
+								data_type: "text" as const,
+							},
+						],
+					},
+				],
+				modules: [
+					{
+						uuid: "patients",
+						name: "Patients",
+						caseType: "patient",
+						caseSearchConfig: {
+							searchFirst: true,
+							excludedOwnerIds: read,
+							searchButtonDisplayCondition: {
+								kind: "not",
+								clause: { kind: "is-blank", left: read },
+							},
+						} as never,
+						caseListConfig: {
+							...columns(),
+							filter: {
+								kind: "when-input-present",
+								input: { kind: "input", searchInputUuid: INCLUDE },
+								clause: {
+									kind: "eq",
+									left: {
+										kind: "term",
+										term: {
+											kind: "prop",
+											caseType: "patient",
+											property: "include_closed",
+										},
+									},
+									right: read,
+								},
+							},
+							searchInputs: [
+								{
+									uuid: INCLUDE,
+									kind: "simple",
+									type: "text",
+									name: "include_closed",
+									label: "Include closed",
+									property: "include_closed",
+								},
+								{
+									uuid: OWNER,
+									kind: "simple",
+									type: "text",
+									name: "owner_id",
+									label: "Owner",
+									property: "owner_id",
+									validation: {
+										rule: { kind: "is-blank", left: read },
+										message: "Leave Owner blank to include closed cases.",
+									},
+								},
+								{
+									uuid: QUERY,
+									kind: "advanced",
+									type: "text",
+									name: "_xpath_query",
+									label: "Query",
+									predicate: {
+										kind: "when-input-present",
+										input: { kind: "input", searchInputUuid: QUERY },
+										clause: {
+											kind: "eq",
+											left: {
+												kind: "term",
+												term: {
+													kind: "prop",
+													caseType: "patient",
+													property: "case_name",
+												},
+											},
+											right: {
+												kind: "term",
+												term: { kind: "input", searchInputUuid: QUERY },
+											},
+										},
+									},
+								},
+							],
+						} as never,
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [f({ kind: "text", id: "note" })],
+							},
+							{
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										kind: "hidden",
+										id: "carried",
+										uuid: "carried",
+										calculate: {
+											parts: [
+												{
+													kind: "search-answer-ref",
+													searchInputUuid: INCLUDE,
+												},
+											],
+										},
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+			(draft) => {
+				const config = draft.modules[PATIENTS]?.caseListConfig;
+				if (config === undefined) return;
+				const calculated = testUuid("calculated") as Uuid;
+				config.columns.push({
+					uuid: calculated,
+					kind: "calculated",
+					header: "Closed asked",
+					expression: read,
+				} as never);
+				config.listColumnOrder.push(calculated);
+				config.detailColumnOrder.push(calculated);
+				const register = draft.formOrder[PATIENTS]?.[1];
+				const form = register === undefined ? undefined : draft.forms[register];
+				if (form !== undefined) form.entry = { kind: "search-no-matches" };
+			},
+		);
+	}
+
+	it("over an own-key reserved input read in every place a removal names", () => {
+		const doc = document();
+		const module = doc.modules[PATIENTS];
+		const config = module?.caseListConfig;
+		if (module === undefined || config === undefined)
+			throw new Error("The document lost its menu.");
+		const dependencies = [
+			...searchInputRemovalDependencies(
+				config,
+				module.caseSearchConfig,
+				INCLUDE,
+			),
+			...searchInputFormFieldDependencies(doc, PATIENTS, INCLUDE),
+		];
+		expect(dependencies.map((dependency) => dependency.kind)).toEqual([
+			"cases-available",
+			"search-field-condition",
+			"calculated-column",
+			"assigned-cases",
+			"search-button-visibility",
+			"form-field",
+		]);
+		const reduced = produce(doc, (draft) => {
+			applyMutations(draft, [
+				{ kind: "removeSearchInput", moduleUuid: PATIENTS, uuid: INCLUDE },
+			]);
+		});
+
+		const target = raw("reserved", doc);
+		const changes = reservedSearchInputsStep.apply(target, {
+			appId: "reserved",
+			projectId: "project",
+			lookupColumnTypes: new Map(),
+			deployments: [],
+		});
+		const stepConfig = target.modules[PATIENTS]?.caseListConfig as {
+			searchInputs: JsonRecord[];
+			filter: unknown;
+			columns: JsonRecord[];
+		};
+		expect(stepConfig.searchInputs.map((input) => input.uuid)).toEqual(
+			reduced.modules[PATIENTS]?.caseListConfig?.searchInputs.map(
+				(input) => input.uuid,
+			),
+		);
+		const removed = changes.find(
+			(change) => change.reason === "search-input-removed",
+		);
+		expect(removed?.detail?.expressions).toBe(
+			String(
+				dependencies.reduce(
+					(sum, dependency) =>
+						sum +
+						(dependency.kind === "form-field"
+							? searchInputDependencyUses(dependency)
+							: 1),
+					0,
+				),
+			),
+		);
+
+		// Each place reads the removed input alone, so its rewrite is the
+		// unanswered reading of every Search input.
+		const searchConfig = module.caseSearchConfig as {
+			excludedOwnerIds: never;
+			searchButtonDisplayCondition: never;
+		};
+		const stepSearch = target.modules[PATIENTS]?.caseSearchConfig as JsonRecord;
+		expect(stepConfig.filter).toEqual(
+			substituteUnansweredSearchInputsInPredicate(config.filter as never),
+		);
+		expect(
+			stepConfig.searchInputs.find((input) => input.uuid === OWNER)?.validation,
+		).toEqual({
+			rule: substituteUnansweredSearchInputsInPredicate({
+				kind: "is-blank",
+				left: read,
+			} as never),
+			message: "Leave Owner blank to include closed cases.",
+		});
+		expect(
+			stepConfig.columns.find((column) => column.kind === "calculated")
+				?.expression,
+		).toEqual(substituteUnansweredSearchInputsInExpression(read as never));
+		expect(stepSearch.excludedOwnerIds).toEqual(
+			substituteUnansweredSearchInputsInExpression(
+				searchConfig.excludedOwnerIds,
+			),
+		);
+		expect(stepSearch.searchButtonDisplayCondition).toEqual(
+			substituteUnansweredSearchInputsInPredicate(
+				searchConfig.searchButtonDisplayCondition,
+			),
+		);
+		expect(target.fields[CARRIED]?.calculate).toEqual({
+			parts: [{ kind: "text", text: "''" }],
+		});
 	});
 });

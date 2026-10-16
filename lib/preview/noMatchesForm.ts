@@ -20,13 +20,13 @@ import type {
 } from "@/lib/session/types";
 
 /** A no-matches registration's native return takes precedence over ordinary
- * after-submit routing. Explicit App home is the only alternative. */
+ * after-submit routing. Explicit `firstMenu` is the only alternative. */
 export function noMatchesPostSubmit(
 	form: Pick<Form, "entry" | "postSubmit">,
-): "app_home" | "results" | undefined {
+): "firstMenu" | "results" | undefined {
 	return isNoMatchesForm(form)
-		? form.postSubmit === "app_home"
-			? "app_home"
+		? form.postSubmit === "firstMenu"
+			? "firstMenu"
 			: "results"
 		: undefined;
 }

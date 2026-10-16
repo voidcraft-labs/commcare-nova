@@ -1,32 +1,51 @@
 /**
- * Defect 14, multi-select destinations: a menu of single cases nested under a
- * menu of several, and a menu of several nested under a menu of one, each
- * with a follow-up form that returns to the previous screen.
+ * Defect 14, multi-select destinations: the witness for every after-submit
+ * destination a menu offers, in menus that select several cases and menus
+ * under them.
  *
- * Nova emits `previous_screen` for a follow-up form wherever it is
- * (`lib/domain/forms.ts::defaultPostSubmit`, `lib/commcare/session.ts`), and
- * HQ's build refuses it where exactly one of the menu and its parent is
- * multi-select (`helpers/validators.py::FormBaseValidator.validate_for_module`,
- * `mismatch multi select form links`), so HQ cannot build the app; the form
- * settings save refuses the destination as well, since the page offers no
- * previous screen there (`views/forms.py::get_form_view_context`).
+ * Five menus and six follow-ups, so each destination has a form every
+ * reader can open:
+ *
+ * - "Batches" (`m0`) selects several cases; its follow-up goes to `module`.
+ * - "One sample" (`m1`) selects one case under `m0`; its follow-up goes to
+ *   `firstMenu`, HQ's `root`.
+ * - "Samples" (`m2`) selects one case; its first follow-up stores no
+ *   destination, so it goes to `previous`, and its second goes to `module`.
+ * - "Several samples" (`m3`) selects several cases under `m2`; its
+ *   follow-up goes to `module`.
+ * - "One more look" (`m4`) selects one case under `m2`; its follow-up goes
+ *   to `parentMenu`, HQ's `parent_module`.
+ *
+ * Each destination is one HQ's form settings page offers the form
+ * (`views/forms.py`, the `form_workflows` context), which Nova holds every
+ * stored destination to (`lib/domain/postSubmit.ts::postSubmitDestinationsOffered`,
+ * `POST_SUBMIT_NOT_OFFERED`): no `previous_screen` where the menu or its
+ * parent selects several cases, which HQ's build refuses where exactly one
+ * of them does (`mismatch multi select form links`). Android opens no menu
+ * that selects several cases, nor one under it, so the second follow-up of
+ * "Samples" is the one `module` form a device reads.
  *
  * Fixed values: each form's note holds the text the worker enters.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn, proseText } from "@/lib/domain";
+import {
+	type PostSubmitDestination,
+	plainColumn,
+	proseText,
+} from "@/lib/domain";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
 const ID = "targeted-multi-select-destinations";
 const uuid = (name: string) => targetedUuid(ID, name);
 
-function followup(name: string) {
+function followup(name: string, postSubmit?: PostSubmitDestination) {
 	return {
 		uuid: uuid(`form-${name}`),
 		name: `Review ${name}`,
 		type: "followup" as const,
+		...(postSubmit !== undefined && { postSubmit }),
 		fields: [
 			f({
 				kind: "text",
@@ -63,28 +82,35 @@ export function multiSelectDestinations() {
 				name: "Batches",
 				caseType: "sample",
 				caseListConfig: list("batches", true),
-				forms: [followup("batches")],
+				forms: [followup("batches", "module")],
 			},
 			{
 				uuid: uuid("single-under-batches"),
 				name: "One sample",
 				caseType: "sample",
 				caseListConfig: list("single-under-batches", false),
-				forms: [followup("single-under-batches")],
+				forms: [followup("single-under-batches", "firstMenu")],
 			},
 			{
 				uuid: uuid("samples"),
 				name: "Samples",
 				caseType: "sample",
 				caseListConfig: list("samples", false),
-				forms: [followup("samples")],
+				forms: [followup("samples"), followup("samples-again", "module")],
 			},
 			{
 				uuid: uuid("batch-under-samples"),
 				name: "Several samples",
 				caseType: "sample",
 				caseListConfig: list("batch-under-samples", true),
-				forms: [followup("batch-under-samples")],
+				forms: [followup("batch-under-samples", "module")],
+			},
+			{
+				uuid: uuid("single-under-samples"),
+				name: "One more look",
+				caseType: "sample",
+				caseListConfig: list("single-under-samples", false),
+				forms: [followup("single-under-samples", "parentMenu")],
 			},
 		],
 	});
@@ -95,6 +121,7 @@ export function multiSelectDestinations() {
 	};
 	nest("single-under-batches", "batches");
 	nest("batch-under-samples", "samples");
+	nest("single-under-samples", "samples");
 	return targetedDocument({
 		id: ID,
 		rows: ["14, multi-select destinations"],

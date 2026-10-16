@@ -71,7 +71,11 @@ What is compared is Nova's emitted wire, never what HQ makes of it:
   Core's parse, and is compared all the same (``_place_unread``). Where
   the other archive names the same element and an entity at the same
   position there owns it, it is that entity's: the same element, read on
-  one side (a datum the edit removed or added). Every other is unowned
+  one side (a datum the edit removed or added). One the other archive
+  does not hold at all, in an archive holding exactly one module the
+  other does not (the module the edit removed or added), is that
+  module's: Nova emits each module's unread elements inside its
+  per-module loop, so they leave and arrive with it. Every other is unowned
   (``UNOWNED``), compared as one record with each element's own name and
   every ``locale`` read out (the strings it names, in every language), so
   a module that moves keeps it. It is inside the footprint where the
@@ -883,8 +887,11 @@ def _place_unread(sides, mapping):
     An element unread in one archive is an entity's where the other archive
     owns the element of the same name (D''s name mapped to D's, as every name
     is compared) through an entity at the same position in both: positional
-    names then name the same entity's element on both sides. Every other is
-    unowned (``UNOWNED``).
+    names then name the same entity's element on both sides. One the other
+    archive does not hold at all, where exactly one module sits in this
+    archive alone (a module the edit removed or added), is that module's: a
+    module's elements leave and arrive with it. Every other is unowned
+    (``UNOWNED``).
     """
     reverse = {value: key for key, value in mapping.items()}
     owners = [
@@ -900,12 +907,15 @@ def _place_unread(sides, mapping):
             # The name the other archive gives this element: D''s names are mapped to D's.
             return mapping.get(name, name) if index == 1 else reverse.get(name, name)
 
+        alone = sorted(set(placement[0]) - set(other_placement[0]))
         placed, unowned = {}, []
         for tag, name in unread(suite):
             entity = owners[other].get((tag, named(name)))
             position = None if entity is None else _position(entity, placement)
             if position is not None and position == _position(entity, other_placement):
                 placed.setdefault(entity, []).append(suite.elements[(tag, name)])
+            elif len(alone) == 1 and (tag, named(name)) not in sides[other][0].elements:
+                placed.setdefault(("module", alone[0]), []).append(suite.elements[(tag, name)])
             else:
                 unowned.append(suite.elements[(tag, name)])
         found.append((placed, unowned))

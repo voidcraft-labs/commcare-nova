@@ -63,7 +63,6 @@ import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
-	defaultPostSubmit,
 	effectivePostSubmit,
 	makeTranslationUnitId,
 	moduleParent,
@@ -89,7 +88,7 @@ import {
 	projectFormLinks,
 	selectedCaseSessionDatum,
 } from "./formLinkProjection";
-import { projectCaseListForHq } from "./hqJson/caseList";
+import { emptyShortListColumns, projectCaseListForHq } from "./hqJson/caseList";
 import { buildXFormSource } from "./xform/builder";
 import { formUpdatesSelectedCasesInSource } from "./xform/sourceCaseWrites";
 
@@ -340,13 +339,9 @@ export function expandDoc(
 			// conditional); a terminal unconditional link is the exhaustive
 			// else, and HQ's `_get_fallback_frame` is skipped with a `null`.
 			// Without links, `postSubmit` is the workflow itself, as before.
-			const workflow =
-				plan.synthetic.has(moduleUuid) && form.postSubmit === "app_home"
-					? "root"
-					: toHqWorkflow(
-							effectivePostSubmit(doc, formUuid) ??
-								defaultPostSubmit(form.type),
-						);
+			const workflow = toHqWorkflow(
+				effectivePostSubmit(doc, formUuid) ?? "app_home",
+			);
 			const projectedLinks = projectFormLinks(doc, linkContext, formUuid);
 			const hqFormLinks =
 				projectedLinks === undefined
@@ -375,7 +370,7 @@ export function expandDoc(
 				form.entryPoint?.ignoreDisplayConditions !== true;
 			formShellObj.form_filter =
 				emitFormDisplayConditionForHq(
-					form.displayCondition,
+					form,
 					mod.caseType,
 					opts.lookupNaming,
 					userPropertySlugs,
@@ -415,7 +410,12 @@ export function expandDoc(
 			assets,
 			opts.lookupNaming,
 		);
-		const caseDetails = hasCases ? projection.caseDetails : detailPair([]);
+		// A menu with no case list of its own (a survey menu, the hidden menu
+		// of a no-matches form) still holds the one `name` column every new
+		// menu gets in HQ, so its Case List page has a column to save from.
+		const caseDetails = hasCases
+			? projection.caseDetails
+			: detailPair(emptyShortListColumns(localization.languages));
 		// Every menu's empty-list text, in every app language: HQ's model
 		// default holds `en` alone, and its module settings save writes the
 		// page's language as an empty text, which reads blank in an app with
@@ -426,6 +426,11 @@ export function expandDoc(
 			EMPTY_CASE_LIST_TEXT,
 		);
 
+		// A menu uploads its own case type, a survey-only menu's included: HQ
+		// builds nothing from it, and with it HQ's page offers the menu's
+		// case list settings. `caseType` above, the gate, decides everything
+		// built from the type. The hidden menu of a no-matches form holds its
+		// host's type.
 		const shell = moduleShell(
 			moduleUniqueIds[mIdx],
 			localization.textMap(
@@ -433,7 +438,7 @@ export function expandDoc(
 					? makeTranslationUnitId("module", moduleUuid, "name")
 					: makeTranslationUnitId("form", synthetic.formUuid, "name"),
 			),
-			caseType,
+			mod.caseType ?? "",
 			forms,
 			caseDetails,
 			localization.languages,
@@ -457,7 +462,7 @@ export function expandDoc(
 			synthetic !== undefined
 				? NEVER_RELEVANT
 				: (emitModuleDisplayCondition(
-						mod.displayCondition,
+						mod,
 						mod.caseType,
 						opts.lookupNaming,
 						userPropertySlugs,

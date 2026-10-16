@@ -24,9 +24,20 @@ the build after the save and on Nova's local archive. Plausible failures: a
 save that still writes the maps (Nova's would differ from what it stores),
 and an archive whose search writes no description (Formplayer would hand
 ``""``, as it did before).
+
+A lookup-backed Search question lists its choices in the order of their
+labels (``prompt-widgets``): each itemset holds a ``<sort>`` on its label
+column, which HQ's Case List save requires (``views/modules.py::
+_update_search_properties``), and Core orders the choices by it
+(``ItemsetBinding.sortChoices``). Contract: Formplayer hands the client the
+choices of both of the document's lookup prompts in label order, where the
+table's row order differs. The plausible failure: an itemset without its
+sort, whose choices Formplayer hands in row order.
 """
 
 from __future__ import annotations
+
+import dataclasses
 
 from proof.formplayer import apps
 from proof.formplayer.walk import screen_kind
@@ -56,7 +67,7 @@ def test_formplayer_keeps_a_mixed_quote_answer_from_hq_and_sends_a_one_mark_answ
             screen = web.navigate(SEARCH)
             assert screen_kind(screen) == "query"
             key = screen["queryKey"]
-            assert [display["id"] for display in screen["displays"]] == ["include_closed", "owner_id"]
+            assert [display["id"] for display in screen["displays"]] == ["owner_id"]
             assert served.hq.searches == []
 
             refused = web.navigate(SEARCH, query_data=_query_data(key, {"owner_id": MIXED}))
@@ -83,7 +94,7 @@ def test_formplayer_keeps_a_mixed_quote_answer_from_hq_and_sends_a_one_mark_answ
         )
         # The refusal: the search screen again, the message on the prompt, and nothing sent to HQ.
         assert screen_kind(refused) == "query"
-        assert errors["owner_id"] and errors["include_closed"] is None
+        assert list(errors) == ["owner_id"] and errors["owner_id"]
         assert sent_for_refused == []
         # The accepted counterpart: the search is sent, HQ receives the answer inside the CSQL, and compiles it.
         assert len(sent) == 1
@@ -145,3 +156,34 @@ def test_formplayer_hands_a_non_breaking_space_for_the_empty_description_on_ever
     # The Case List save writes nothing new into either map.
     assert saved_stored == nova_stored
     assert handed == {"build": NBSP, "local": NBSP, "saved": NBSP}
+
+
+def test_formplayer_hands_a_lookup_prompts_choices_in_label_order(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    from proof.observe import casedata
+
+    document = formplayer_documents["prompt-widgets"]
+    # The prompts list the table's rows of the worker's group (``group_name`` against their ``region_group``):
+    # "North & coast" and then "East" in the table's row order.
+    database = casedata.document_case_database(document)
+    database = dataclasses.replace(
+        database,
+        user_data=(
+            *((key, value) for key, value in database.user_data if key != "region_group"),
+            ("region_group", "A"),
+        ),
+    )
+    with apps.published(document, core_runner) as published:
+        with apps.served(published, formplayer_runner, database=database) as served, served.run("choices"):
+            screen = apps.web(formplayer_runner, served).navigate(SEARCH)
+    assert screen_kind(screen) == "query", screen
+    choices = {
+        display["id"]: {"labels": display.get("itemsetChoices"), "keys": display.get("itemsetChoicesKey")}
+        for display in screen["displays"]
+        if display["id"] in ("region", "regions")
+    }
+    evidence("lookup-choices", choices)
+    assert choices == {
+        prompt: {"labels": ["East", "North & coast"], "keys": ["east", "north"]} for prompt in ("region", "regions")
+    }
