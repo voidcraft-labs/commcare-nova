@@ -524,6 +524,7 @@
 				"control:case-capture-followup": 7.039,
 				"control:case-capture-multiple": 7.176,
 				"control:case-capture-multiple-after-13": 5.885,
+				"control:case-capture-multiple-after-3": 8.018,
 				"control:case-capture-query": 5.033,
 				"control:case-capture-repeat": 5.357,
 				"control:case-extension-multiple": 34.925,

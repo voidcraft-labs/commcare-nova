@@ -173,9 +173,13 @@ CASE_XMLNS = "http://commcarehq.org/case/transaction/v2"
 ATTACHMENT_PREFIX = "attachment:"  # commcare-hq corehq/apps/app_manager/const.py::ATTACHMENT_PREFIX
 # lib/domain/standardCaseProperties.ts::STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, and HQ's own name for the case
 # name in its update map (xform.py::CaseBlock.add_case_updates writes "name" as case_name), which Nova refuses as
-# an authored property name (lib/domain/casePropertyName.ts).
+# an authored property name (lib/domain/casePropertyName.ts). And the case's own type, which a Save to Case
+# block's save reference lists when it creates, guards or retypes (as Vellum's saveToCase.js::getCaseSaveData
+# does), which HQ hands on as a property (models/forms.py::FormBase.get_save_to_case_updates) and requires of
+# every create (helpers/validators.py::IndexedFormBaseValidator.check_save_to_case_references), and which Nova
+# refuses as an authored property name (lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES).
 STANDARD_PROPERTIES = frozenset(
-    {"case_id", "case_name", "date_opened", "last_modified", "owner_id", "external_id", "status", "name"}
+    {"case_id", "case_name", "case_type", "date_opened", "last_modified", "owner_id", "external_id", "status", "name"}
 )
 CONTAINER_KINDS = frozenset({"group", "repeat", "section"})
 # The worker's own case, which a form writes and nothing creates (lib/domain/usercase.ts::USERCASE_CASE_TYPE;

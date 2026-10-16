@@ -10,7 +10,10 @@ import type {
 	ResolvedMediaAsset,
 } from "@/lib/commcare/multimedia/assetWirePath";
 import { validateBindingResolution } from "@/lib/commcare/validator/bindingResolutionOracle";
-import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
+import {
+	checkCaseReferences,
+	validateHqJson,
+} from "@/lib/commcare/validator/hqJsonOracle";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
@@ -100,6 +103,7 @@ export function checkCompilerEvidence(doc: BlueprintDoc): void {
 	);
 	const hq = expandDoc(doc, { assets: manifest });
 	expect(validateHqJson(hq)).toEqual([]);
+	expect(checkCaseReferences(hq)).toEqual([]);
 	const sources = Object.entries(hq._attachments).filter(([path]) =>
 		path.endsWith(".xml"),
 	);

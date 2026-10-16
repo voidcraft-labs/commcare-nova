@@ -2502,7 +2502,7 @@ def vellum_case_references(xform):
     1. one entry per data element carrying ``vellum:role="SaveToCase"``, in document order;
     2. ``case_type`` from the ``create/case_type`` bind: its text without its quotes where it is one quoted
        literal, ``""`` where it holds another non-empty expression, else the element's ``vellum:case_type``;
-    3. ``create`` and ``close`` where the block's ``case`` holds a ``create`` or a ``close``;
+    3. ``create`` and ``close`` where a ``create`` or a ``close`` lies anywhere below one of the block's children;
     4. each bind of ``<block>/case/create/<name>`` or ``<block>/case/update/<name>``, in document order, its
        ``case_type``, ``case_name`` and ``owner_id`` create binds read apart;
     5. ``properties``: for a block that creates, the create binds' names then the update binds', each once,
@@ -2513,9 +2513,9 @@ def vellum_case_references(xform):
     binds = list(xform.model.iterfind(f"{{{XFORMS}}}bind")) if xform.model is not None else []
     for node in xform.save_to_case:
         path = xform.paths[node]
-        case = node.find(f"{{{CASE}}}case")
-        creates = case is not None and case.find(f"{{{CASE}}}create") is not None
-        closes = case is not None and case.find(f"{{{CASE}}}close") is not None
+        # saveToCase.js::parseDataNode reads both as $node.children().find(...): anywhere below a child.
+        creates = node.find(f"*//{{{CASE}}}create") is not None
+        closes = node.find(f"*//{{{CASE}}}close") is not None
         case_type = node.get(f"{{{VELLUM}}}case_type") or ""
         type_expression = False
         named = {"create": [], "update": []}

@@ -68,6 +68,7 @@ import { serializeXml } from "@/lib/commcare/serializeXml";
 import { newCaseIdDatumId } from "@/lib/commcare/session";
 import type {
 	FormActionCondition,
+	HqCaseSaveReference,
 	OpenSubCaseAction,
 	UpdateCaseAction,
 } from "@/lib/commcare/types";
@@ -88,6 +89,7 @@ import {
 	collectFieldLocations,
 	type FieldLocation,
 } from "@/lib/commcare/xform/caseOps";
+import { caseSaveReferences } from "@/lib/commcare/xform/caseSaveReferences";
 import { planConstraintCollections } from "@/lib/commcare/xform/constraintCollections";
 import { xformDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
 import {
@@ -648,17 +650,34 @@ function inDataTreeOrder(
 		.map(({ setvalue }) => setvalue);
 }
 
-/**
- * Emit the full XForm XML for `formUuid`. Walks the form's field order
- * (plus any container children), accumulates data / binds / setvalues /
- * body / itext / instances as constructed elements, assembles them under the
- * `<h:html>` root, and serializes the tree once.
- */
+/** A form's source and the `case_references_data.save` map derived from it. */
+export interface XFormSource {
+	xml: string;
+	caseSaveReferences: Record<string, HqCaseSaveReference>;
+}
+
+/** Emit the full XForm XML for `formUuid` (`buildXFormSource`'s `xml`). */
 export function buildXForm(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	opts: BuildXFormOptions,
 ): string {
+	return buildXFormSource(doc, formUuid, opts).xml;
+}
+
+/**
+ * Emit the full XForm XML for `formUuid` and its Save to Case references.
+ * Walks the form's field order (plus any container children), accumulates
+ * data / binds / setvalues / body / itext / instances as constructed
+ * elements, assembles them under the `<h:html>` root, derives the
+ * `case_references_data.save` map from that tree, and serializes the tree
+ * once.
+ */
+export function buildXFormSource(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	opts: BuildXFormOptions,
+): XFormSource {
 	const form = doc.forms[formUuid];
 	const localization = commCareLocalization(doc);
 
@@ -1047,7 +1066,10 @@ export function buildXForm(
 
 	// Single serialization of the whole tree. The XML declaration is the one
 	// byte the serializer doesn't emit, so it's prepended literally.
-	return `<?xml version="1.0"?>\n${serializeXml(html)}`;
+	return {
+		xml: `<?xml version="1.0"?>\n${serializeXml(html)}`,
+		caseSaveReferences: caseSaveReferences(html),
+	};
 }
 
 /**

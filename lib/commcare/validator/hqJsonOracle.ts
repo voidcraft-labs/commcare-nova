@@ -6,6 +6,7 @@
  * It is not part of authoring admission or an export gate.
  */
 
+import { type Element, isTag } from "domhandler";
 import type {
 	Detail,
 	DetailColumn,
@@ -16,6 +17,7 @@ import type {
 	HqModule,
 	OpenSubCaseAction,
 } from "@/lib/commcare";
+import { parseXml } from "../xmlParse";
 import {
 	type ValidationError,
 	type ValidationLocation,
@@ -881,4 +883,88 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 	if (hqApp.logo_refs !== undefined) checkLogoRefs(hqApp.logo_refs, errors);
 
 	return errors;
+}
+
+// ── Case save references ───────────────────────────────────────────────
+
+/** The element children of `parent` named `name`, in document order. */
+function elementsNamed(parent: Element, name: string): Element[] {
+	return parent.children.filter(
+		(child): child is Element => isTag(child) && child.name === name,
+	);
+}
+
+/**
+ * The data path of every element of a form source's primary instance that
+ * carries `vellum:role="SaveToCase"`, read from the source's own bytes.
+ */
+function saveToCaseBlockPaths(xml: string): string[] {
+	const html = parseXml(xml).children.find(isTag);
+	const instance = (html === undefined ? [] : elementsNamed(html, "h:head"))
+		.flatMap((head) => elementsNamed(head, "model"))
+		.flatMap((element) => elementsNamed(element, "instance"))
+		.find((element) => element.attribs.src === undefined);
+	const data = instance?.children.find(isTag);
+	if (data === undefined) return [];
+	const paths: string[] = [];
+	const visit = (element: Element, path: string): void => {
+		for (const child of element.children) {
+			if (!isTag(child)) continue;
+			const childPath = `${path}/${child.name}`;
+			if (child.attribs["vellum:role"] === "SaveToCase") paths.push(childPath);
+			else visit(child, childPath);
+		}
+	};
+	visit(data, `/${data.name}`);
+	return paths;
+}
+
+/**
+ * Nova's own account of each form's `case_references_data.save`, for Nova's
+ * tests: its keys are exactly the Save to Case blocks of the form's source,
+ * and every reference that creates lists `case_type` and `case_name`, which
+ * HQ's build requires of it
+ * (`helpers/validators.py::IndexedFormBaseValidator.check_save_to_case_references`).
+ * It returns one sentence per problem and holds nothing about how HQ or its
+ * form builder read the map; the proof lane does.
+ */
+export function checkCaseReferences(hqApp: HqApplication): string[] {
+	const problems: string[] = [];
+	for (const module of hqApp.modules) {
+		for (const form of module.forms) {
+			const formName = form.name.en ?? form.unique_id;
+			const save = form.case_references_data.save;
+			const source = hqApp._attachments[`${form.unique_id}.xml`];
+			if (source === undefined) {
+				problems.push(
+					`"${formName}" has no form source in the app's attachments, so its case save references cannot be compared with its Save to Case blocks. Look at how expandDoc names each form's source.`,
+				);
+				continue;
+			}
+			const blocks = saveToCaseBlockPaths(source);
+			const keys = Object.keys(save);
+			for (const path of blocks) {
+				if (!(path in save))
+					problems.push(
+						`"${formName}" has a Save to Case block at ${path} that its case_references_data.save does not list, so HQ never learns what that block writes. Look at xform/caseSaveReferences.ts.`,
+					);
+			}
+			for (const key of keys) {
+				if (!blocks.includes(key))
+					problems.push(
+						`"${formName}" lists a case save reference at ${key}, but its source holds no Save to Case block there. Look at xform/caseSaveReferences.ts.`,
+					);
+			}
+			for (const [key, reference] of Object.entries(save)) {
+				if (!reference.create) continue;
+				for (const required of ["case_type", "case_name"]) {
+					if (!reference.properties.includes(required))
+						problems.push(
+							`"${formName}" has a case save reference at ${key} that creates a case without listing ${required}, and HQ's build refuses it. Look at the bind the block's create/${required} carries.`,
+						);
+				}
+			}
+		}
+	}
+	return problems;
 }
