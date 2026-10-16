@@ -8,7 +8,14 @@ import {
 	proseText,
 } from "@/lib/domain";
 
-/** The same admitted documents feed ordinary artifact checks and native consumers. */
+/**
+ * The same admitted documents feed ordinary artifact checks and native
+ * consumers. A deliver scenario's menu holds two forms: the first holds the
+ * deliver unit, and the second, named for the task, holds the task and one
+ * label with the task's description, since Connect turns away the visit of a
+ * form that also completes a task. The entities beyond the first form carry
+ * named uuids, so adding them moves no other document's minted identities.
+ */
 export function connectWireFixtures() {
 	return [
 		"learn-default",
@@ -32,14 +39,12 @@ export function connectWireFixtures() {
 							},
 							assessment: { id: "quiz" },
 						}
-					: {
-							deliver_unit: { id: "visit", name: "Home & clinic <雪>" },
-							task: {
-								id: "task",
-								name: "Record & review",
-								description: "Ask <then> listen",
-							},
-						};
+					: { deliver_unit: { id: "visit", name: "Home & clinic <雪>" } };
+		const task = {
+			id: "follow_up",
+			name: "Record & review",
+			description: "Ask <then> listen",
+		};
 		const doc = buildDoc({
 			appName: name,
 			connectType: name === "absent" ? null : learn ? "learn" : "deliver",
@@ -66,6 +71,24 @@ export function connectWireFixtures() {
 								}),
 							],
 						},
+						...(learn || name === "absent"
+							? []
+							: [
+									{
+										uuid: `${name}-task-form`,
+										name: task.name,
+										type: "survey" as const,
+										connect: { task },
+										fields: [
+											f({
+												uuid: `${name}-task-note`,
+												kind: "label",
+												id: "note",
+												label: proseText(task.description),
+											}),
+										],
+									},
+								]),
 					],
 				},
 			],

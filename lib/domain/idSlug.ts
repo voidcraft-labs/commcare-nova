@@ -63,3 +63,23 @@ export function suffixUntilFree(
 		if (!taken.has(candidate)) return candidate;
 	}
 }
+
+/**
+ * How a refusal offers its replacement name. `free-here`: the name was
+ * checked against everything beside the refused one, so taking it meets no
+ * second refusal. `suggested`: nothing beside it was known when it was
+ * minted (a tool's input schema, read before the document is), so the
+ * sentence offers it without claiming it is free; the commit's own verdict,
+ * which knows the siblings, says so if it is not.
+ */
+export type FreeNameOffer = "free-here" | "suggested";
+
+/** The closing sentence of a refusal that offers `name` in its place. */
+export function freeNameClause(
+	name: string,
+	offer: FreeNameOffer = "free-here",
+): string {
+	return offer === "free-here"
+		? `"${name}" is free here.`
+		: `You could call it "${name}" instead.`;
+}

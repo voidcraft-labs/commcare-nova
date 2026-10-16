@@ -39,8 +39,12 @@ from proof.observe.unit import observe_document
 DOCUMENT = "targeted-form-link-hidden-target"
 # A search whose results a form's end-of-form link fetches again by the case chosen (HQ's case_fixture).
 FETCHED_AGAIN = "search-hidden-link"
-# A form HQ builds that Core cannot install from the archive, so Formplayer reads it at its remote location.
+# The document whose first form a test writes by hand into one HQ builds and Core cannot install from the archive,
+# so Formplayer reads it at its remote location: its root question ``q_Meta`` named ``Meta``, which HQ's build
+# removes as the form's own meta block (``xform.py::XForm.already_has_meta``). Nova's own export of it installs.
 REMOTE_RESOURCE = "targeted-invalid-question-ids"
+WRITTEN_FORM = "0.0"
+NOVA_NAME, REFUSED_NAME = "q_Meta", "Meta"
 
 
 def _served(found):
@@ -183,6 +187,37 @@ def test_a_trace_names_formplayers_own_address_by_a_mark_so_every_runner_records
     }
 
 
+def _meta_named(root):
+    """A form's root question ``q_Meta`` named ``Meta`` by hand: its data node, and each ``nodeset`` and ``ref`` at
+    or below it (HQ's form builder's ``vellum:`` ones too)."""
+    from lxml import etree
+
+    xforms, vellum = "{http://www.w3.org/2002/xforms}", "{http://commcarehq.org/xforms/vellum}"
+    (instance,) = [element for element in root.iter(f"{xforms}instance") if element.get("id") is None]
+    (data,) = [child for child in instance if isinstance(child.tag, str)]
+    (node,) = [child for child in data if isinstance(child.tag, str) and etree.QName(child).localname == NOVA_NAME]
+    node.tag = f"{{{etree.QName(node).namespace}}}{REFUSED_NAME}"
+    root_path = f"/{etree.QName(data).localname}"
+    for element in root.iter():
+        if not isinstance(element.tag, str):
+            continue
+        for attributes, base in ((("nodeset", "ref"), root_path), ((f"{vellum}nodeset", f"{vellum}ref"), "#form")):
+            old, new = f"{base}/{NOVA_NAME}", f"{base}/{REFUSED_NAME}"
+            for attribute in attributes:
+                value = element.get(attribute)
+                if value is not None and (value == old or value.startswith(f"{old}/")):
+                    element.set(attribute, new + value[len(old) :])
+
+
+def _walk_asked(published, formplayer_runner, **options):
+    """Formplayer's walk of the published app as HQ releases it (``options``: ``served``'s), what each step
+    asked HQ, and every exchange HQ's views did not answer with a success."""
+    with apps.served(published, formplayer_runner, **options) as served:
+        trace = apps.walked(formplayer_runner, served)
+        refused = [(asked.url_name, asked.status) for asked in served.hq.exchanges if not 200 <= asked.status < 300]
+    return _asked(trace), refused
+
+
 def test_a_resource_formplayer_reads_at_its_remote_location_is_answered_by_hqs_own_view(
     hq, core_runner, formplayer_runner, formplayer_documents
 ):
@@ -190,11 +225,16 @@ def test_a_resource_formplayer_reads_at_its_remote_location_is_answered_by_hqs_o
     names under the build's own address (``JavaHttpReference``, a URL connection Formplayer's RestTemplate never
     sees). The runner sends that connection to HQ's peer, as Formplayer's replace-host mode sends its other
     requests (``PeerUrls.java``), so HQ's own download view answers it; before, it left for the address HQ's
-    settings name, over the network, and one hosted run waited on it past the request's deadline."""
+    settings name, over the network, and one hosted run waited on it past the request's deadline. No Nova export
+    holds such a form (Nova's validator refuses the name), so it is written by hand before HQ releases the app;
+    Nova's own export, walked beside it, is read whole from the archive."""
+    from proof.rules.conftest import rewritten
+
     with apps.published(formplayer_documents[REMOTE_RESOURCE], core_runner) as published:
-        with apps.served(published, formplayer_runner) as served:
-            trace = apps.walked(formplayer_runner, served)
-            refused = [(asked.url_name, asked.status) for asked in served.hq.exchanges if not 200 <= asked.status < 300]
-    asked = _asked(trace)
+        written = apps.form_written(published, {WRITTEN_FORM: rewritten(_meta_named)})
+        asked, refused = _walk_asked(published, formplayer_runner, label="written", change=written)
+        nova_asked, nova_refused = _walk_asked(published, formplayer_runner)
     assert any(view == "app_download_file" for step in asked for view, _ in step), asked
     assert refused == [], refused
+    assert not any(view == "app_download_file" for step in nova_asked for view, _ in step), nova_asked
+    assert nova_refused == [], nova_refused

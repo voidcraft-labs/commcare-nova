@@ -9,7 +9,10 @@ import { createEntryPointRequirements } from "@/lib/doc/entryPointProjection";
 import {
 	asUuid,
 	type EntryPointTarget,
+	editorSafeEntryPointId,
 	entryPointByUuid,
+	entryPointIdProblem,
+	entryPointIdProblemSentence,
 	entryPointIdSchema,
 	entryPointInventory,
 	entryPointTargetLabel,
@@ -27,6 +30,26 @@ import {
 } from "./common";
 import type { MutationSuccess } from "./shared/toolCallSummary";
 
+/**
+ * A deep link ID as the tools take one: the stored grammar's `pattern`,
+ * which the provider's strict schema can carry, and a refine for what
+ * CommCare HQ saves as written (`entryPointIdProblem`), which needs a
+ * lookahead the strict schema can't. The refine adds nothing to the JSON
+ * schema the provider is sent.
+ */
+const entryPointIdInputSchema = entryPointIdSchema.superRefine((id, ctx) => {
+	const problem = entryPointIdProblem(id);
+	if (problem === undefined) return;
+	ctx.addIssue({
+		code: "custom",
+		message: entryPointIdProblemSentence(
+			problem,
+			editorSafeEntryPointId(id),
+			"suggested",
+		),
+	});
+});
+
 export const getEntryPointsInputSchema = z.strictObject({});
 export const addEntryPointInputSchema = z.strictObject({
 	target: entryPointTargetSchema.describe(
@@ -37,10 +60,10 @@ export const addEntryPointInputSchema = z.strictObject({
 		.describe(
 			"Stable identity to predeclare when another operation needs it; otherwise Nova mints it.",
 		),
-	id: entryPointIdSchema
+	id: entryPointIdInputSchema
 		.optional()
 		.describe(
-			"Optional stable external link ID. Omit to generate it from the destination name. Later destination renames never change it.",
+			"Optional stable external link ID: lowercase letters, digits, underscores and single hyphens, starting and ending with a letter or digit. Omit to generate it from the destination name. Later destination renames never change it.",
 		),
 	ignoreDisplayConditions: z
 		.literal(true)
@@ -54,10 +77,10 @@ export const updateEntryPointInputSchema = z.strictObject({
 	entryPointUuid: uuidSchema,
 	patch: z
 		.strictObject({
-			id: entryPointIdSchema
+			id: entryPointIdInputSchema
 				.optional()
 				.describe(
-					"Changing this external ID can break distributed links. Keep it unless the user intends that change.",
+					"Changing this external ID can break distributed links. Keep it unless the user intends that change. Lowercase letters, digits, underscores and single hyphens, starting and ending with a letter or digit.",
 				),
 			ignoreDisplayConditions: z
 				.literal(true)

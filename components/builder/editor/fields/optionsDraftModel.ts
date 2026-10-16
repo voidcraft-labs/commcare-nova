@@ -6,6 +6,8 @@ import {
 	proseTemplateText,
 	repairSelectOptionValue,
 	type SelectOption,
+	selectOptionValueProblemAmong,
+	suffixUntilFree,
 	suggestSelectOptionValue,
 } from "@/lib/domain";
 import type { Media } from "@/lib/domain/multimedia";
@@ -49,6 +51,31 @@ export function settleDraft<T extends SelectOption>(draft: T[]): T[] {
 		taken.add(value);
 		return { ...option, value };
 	});
+}
+
+/**
+ * Why a row's value can't be saved beside its siblings, or `undefined`.
+ * The value box already keeps a value inside the wire's grammar as it is
+ * typed (`sanitizeSelectOptionValue`); this refuses the one thing a value
+ * can't know alone, a value an earlier choice of the list holds, compared
+ * exactly as the gate's `SELECT_OPTION_VALUE_DUPLICATE` compares. A blank
+ * value is settled at commit, so it is no refusal here.
+ */
+export function optionValueRefusal(
+	draft: readonly SelectOption[],
+	index: number,
+): string | undefined {
+	const value = draft[index]?.value;
+	if (value === undefined || value.length === 0) return undefined;
+	const earlier = new Set(draft.slice(0, index).map((option) => option.value));
+	if (selectOptionValueProblemAmong(value, earlier) !== "duplicate") {
+		return undefined;
+	}
+	const free = suffixUntilFree(
+		value,
+		new Set(draft.map((option) => option.value)),
+	);
+	return `Another choice already stores "${value}", so a saved answer couldn't say which was chosen. "${free}" is free here.`;
 }
 
 /** Labels name only a fresh generated token; authored values and references stay independent. */

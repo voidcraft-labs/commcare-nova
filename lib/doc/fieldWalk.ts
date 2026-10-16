@@ -36,6 +36,28 @@ export function orderedFieldUuids(doc: BlueprintDoc, parentUuid: Uuid): Uuid[] {
 }
 
 /**
+ * Every field uuid under `parentUuid`, at any depth, containers included: a
+ * uuid the order lists with no field record is not one. The one answer to
+ * "does this form hold that field?", which the validator's close-condition
+ * rule and the menu projection's buildability check both ask.
+ */
+export function descendantFieldUuids(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
+): Set<Uuid> {
+	const uuids = new Set<Uuid>();
+	const walk = (uuid: Uuid) => {
+		for (const childUuid of orderedFieldUuids(doc, uuid)) {
+			if (ownRecordValue(doc.fields, childUuid) === undefined) continue;
+			uuids.add(childUuid);
+			walk(childUuid);
+		}
+	};
+	walk(parentUuid);
+	return uuids;
+}
+
+/**
  * One form's identity in canonical (module-then-form) order, alongside
  * its module's display name. The shape callers want when they walk the
  * whole app form-by-form (Connect-defaults derivation, suite emission

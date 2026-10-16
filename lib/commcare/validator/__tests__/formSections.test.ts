@@ -268,7 +268,7 @@ describe("form sections", () => {
 					kind: "group",
 					id: "g",
 					label: proseText("G"),
-					children: [section("inner", [userRepeat("r")])],
+					children: [section("inner", [userRepeat("r", [text("q")])])],
 				}),
 			]),
 		]);

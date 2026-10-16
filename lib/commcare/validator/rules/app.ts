@@ -1,4 +1,10 @@
-import { entryPointIdSchema, entryPointInventory } from "@/lib/domain";
+import {
+	editorSafeEntryPointId,
+	entryPointIdProblem,
+	entryPointIdProblemSentence,
+	entryPointInventory,
+	suffixUntilFree,
+} from "@/lib/domain";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { entryPointProjectionIssue } from "../../entryPointProjection";
 /**
@@ -23,6 +29,7 @@ import {
 	blueprintTopologyIssues,
 	collectTranslationUnits,
 	deriveCaseWriteInventory,
+	duplicateSelectOptionValues,
 	formLinkAdjacency,
 	formLinkPath,
 	isConnectLearnConfig,
@@ -36,6 +43,7 @@ import {
 	type Uuid,
 	xpathPrintContext,
 } from "@/lib/domain";
+import { formRootReadPositions } from "@/lib/preview/xpath/dependencies";
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { type ValidationError, validationError } from "../errors";
@@ -183,6 +191,41 @@ function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
 	return errors;
 }
 
+/**
+ * Two choices of one case property's catalog holding the same value: a
+ * saved value can't say which was chosen. The catalog twin of
+ * `SELECT_OPTION_VALUE_DUPLICATE` (`field.ts`), compared exactly, the first
+ * holder keeping the value and each later one offered a free one.
+ */
+function catalogOptionValuesDistinct(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const caseType of doc.caseTypes ?? []) {
+		for (const property of caseType.properties) {
+			const options = property.options ?? [];
+			for (const { value, suggestion } of duplicateSelectOptionValues(
+				options.map((option) => option.value),
+			)) {
+				errors.push(
+					validationError(
+						"CASE_PROPERTY_OPTION_VALUE_DUPLICATE",
+						"app",
+						`Two choices of the "${caseType.name}" property "${property.name}" both store "${value}", so a saved value can't say which was chosen. "${suggestion}" is free for the second.`,
+						{},
+						{
+							caseType: caseType.name,
+							property: property.name,
+							optionValue: value,
+							problem: "duplicate",
+							suggestedValue: suggestion,
+						},
+					),
+				);
+			}
+		}
+	}
+	return errors;
+}
+
 function canonicalCasePropertyDefaults(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const printContext = xpathPrintContext(doc);
@@ -241,6 +284,16 @@ function canonicalCasePropertyDefaults(doc: BlueprintDoc): ValidationError[] {
 					continue;
 				}
 				const source = projection.text;
+				// The form's root alone is a form answer too: the whole form.
+				if (formRootReadPositions(source).length > 0) {
+					flag(
+						caseType.name,
+						property.name,
+						slot,
+						"Catalog defaults cannot read a form answer; put that reference on the field-specific override.",
+					);
+					continue;
+				}
 				const parsed = parseXPathExpressionWithIssues(
 					source,
 					() => undefined,
@@ -703,21 +756,44 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 	];
 }
 
+/**
+ * Each deep link's ID is one CommCare HQ saves as written
+ * (`entryPointIdProblem`), unique in the app, and its destination is one
+ * the link can open. An ID HQ won't save is offered a replacement free
+ * among the app's other deep link IDs.
+ */
 function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
+	const inventory = entryPointInventory(doc);
 	const ids = new Set<string>();
-	return entryPointInventory(doc).flatMap(({ target, entryPoint }) => {
-		const reason = !entryPointIdSchema.validate(entryPoint.id)
+	return inventory.flatMap(({ target, entryPoint }) => {
+		const idProblem = entryPointIdProblem(entryPoint.id);
+		const refusal =
+			idProblem === undefined
+				? undefined
+				: {
+						problem: idProblem,
+						suggestedId: suffixUntilFree(
+							editorSafeEntryPointId(entryPoint.id),
+							new Set(
+								inventory
+									.filter((item) => item.entryPoint.uuid !== entryPoint.uuid)
+									.map((item) => item.entryPoint.id),
+							),
+						),
+					};
+		const displayConditions =
+			target.kind !== "form" &&
+			entryPoint.ignoreDisplayConditions !== undefined;
+		const reason = refusal
 			? "id-format"
-			: target.kind !== "form" &&
-					entryPoint.ignoreDisplayConditions !== undefined
+			: displayConditions
 				? "display-conditions"
 				: ids.has(entryPoint.id)
 					? "duplicate-id"
 					: "destination";
-		const issue = !entryPointIdSchema.validate(entryPoint.id)
-			? "Entry point IDs use lowercase letters, numbers, underscores, or hyphens."
-			: target.kind !== "form" &&
-					entryPoint.ignoreDisplayConditions !== undefined
+		const issue = refusal
+			? `Deep link "${entryPoint.id}": ${entryPointIdProblemSentence(refusal.problem, refusal.suggestedId)}`
+			: displayConditions
 				? "Only form entry points can ignore display conditions."
 				: ids.has(entryPoint.id)
 					? "Entry point IDs must be unique within the app."
@@ -730,7 +806,7 @@ function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 						"app",
 						issue,
 						{ moduleUuid: target.moduleUuid },
-						{ entryPointUuid: entryPoint.uuid, reason },
+						{ entryPointUuid: entryPoint.uuid, reason, ...refusal },
 					),
 				]
 			: [];
@@ -744,6 +820,7 @@ export const APP_RULES = [
 	catalogXPathCompatible,
 	globallyUniqueEntityUuids,
 	catalogOptionValuesValid,
+	catalogOptionValuesDistinct,
 	canonicalCasePropertyDefaults,
 	noModules,
 	emptyAppName,

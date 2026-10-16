@@ -272,6 +272,35 @@ describe("entry points", () => {
 		).toContain("ENTRY_POINT_INVALID");
 	});
 
+	it.each([
+		["intake_", "edge", "intake"],
+		["-intake", "edge", "intake"],
+		["in--take", "doubled-hyphen", "in-take"],
+	])(
+		"refuses the ID %j CommCare HQ won't save, offering a free one",
+		(id, problem, free) => {
+			const doc = fixture();
+			doc.modules[M].entryPoint = { uuid: testUuid("module-endpoint"), id };
+			const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+			expect(findings).toHaveLength(1);
+			expect(findings[0]).toMatchObject({
+				code: "ENTRY_POINT_INVALID",
+				details: {
+					entryPointUuid: testUuid("module-endpoint"),
+					reason: "id-format",
+					problem,
+					suggestedId: free,
+				},
+			});
+			expect(findings[0]?.message).toContain(`"${free}" is free here.`);
+			doc.modules[M].entryPoint = {
+				uuid: testUuid("module-endpoint"),
+				id: free,
+			};
+			admitted(doc);
+		},
+	);
+
 	it("matches the HQ nested child form partial and binds both selections", () => {
 		const doc = endpointWireFixture("child");
 		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));

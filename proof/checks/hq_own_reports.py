@@ -51,7 +51,9 @@ The members:
   (commcare-connect ``form_receiver/processor.py::get_or_create_learn_module``,
   ``get_or_create_deliver_unit``, ``process_task_modules``), so any app
   whose block id changes meets the same refusals and new rows, whoever
-  changed it.
+  changed it. A renamed task in a form of its own reaches Connect, which
+  takes its payload and completes no task the worker was assigned under
+  the old id (``task-completed-nothing``).
 
 This module reads records only: it imports neither HQ nor Django
 (``test_judge_purity``).
@@ -182,6 +184,7 @@ CONNECT_RENAMED = (
     "/ids/module/moved",
     "/runs/*/refused/400/payment-unit-is-not-configured-for-the-deliver-unit",
     "/runs/*/catalog/learnModules/added",
+    "/runs/*/task-completed-nothing",
 )
 
 

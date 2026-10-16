@@ -101,7 +101,7 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 // per-kind shape.
 
 const FIELD_DOCS = {
-	id: "Question identifier: lowercase words joined by underscores, starting with a letter. Independent of its saved record property.",
+	id: "Question identifier: lowercase words joined by underscores, starting with a letter and never with XML. Not one of meta, case, registration, script, instance, bind, parsererror. Independent of its saved record property.",
 	label: "Visible wording. Empty labels hide group chrome or repeat titles.",
 	hint: "Short guidance below the question.",
 	help: "Longer guidance opened on demand.",

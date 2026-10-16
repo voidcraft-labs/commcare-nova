@@ -52,6 +52,12 @@ const FIELD_ENTITY = {
 	nameAtMigration: "Card number",
 } as const;
 
+const ENTRY_POINT_ENTITY = {
+	type: "entryPoint",
+	uuid: "01992000-0000-7000-8000-0000000000f1",
+	nameAtMigration: "intake",
+} as const;
+
 const LOOKUP_ENTITY = {
 	type: "lookupTable",
 	uuid: "01992000-0000-7000-8000-0000000000c1",
@@ -73,6 +79,18 @@ function deploymentEntries(reason: string, entities: readonly unknown[]) {
 			entities,
 		},
 		bare: { kind: "deployment", reason, deployment: DEPLOYMENT },
+	};
+}
+
+/** A document reason's entries, with details and without any. */
+function documentEntries(
+	reason: string,
+	entity: unknown,
+	detail: Record<string, string>,
+) {
+	return {
+		withDetail: { kind: "document", reason, entity, detail },
+		bare: { kind: "document", reason, entity },
 	};
 }
 
@@ -107,6 +125,49 @@ const ENTRIES: Record<
 			entity: APP_ENTITY,
 		},
 	},
+	"question-renamed": documentEntries("question-renamed", FIELD_ENTITY, {
+		form: "Intake",
+		kind: "question",
+		from: "_notes",
+		to: "notes",
+	}),
+	"case-operation-renamed": documentEntries(
+		"case-operation-renamed",
+		FORM_ENTITY,
+		{ from: "instance", to: "q_instance" },
+	),
+	"connect-block-renamed": documentEntries(
+		"connect-block-renamed",
+		FORM_ENTITY,
+		{ block: "deliver_unit", from: "_1st_visit", to: "q1st_visit" },
+	),
+	"connect-task-moved-to-own-form": documentEntries(
+		"connect-task-moved-to-own-form",
+		FORM_ENTITY,
+		{ task: "follow_up", newForm: "Follow-up task" },
+	),
+	"entry-point-renamed": documentEntries(
+		"entry-point-renamed",
+		ENTRY_POINT_ENTITY,
+		{ from: "intake_", to: "intake" },
+	),
+	"option-value-split": documentEntries("option-value-split", FORM_ENTITY, {
+		question: "consent",
+		value: "yes",
+		to: "yes_2",
+		keptLabel: "Yes",
+		label: "Yes, today",
+	}),
+	"empty-form-label-added": documentEntries(
+		"empty-form-label-added",
+		FORM_ENTITY,
+		{},
+	),
+	"session-read-removed": documentEntries(
+		"session-read-removed",
+		FIELD_ENTITY,
+		{ form: "Intake", datum: "case_id_new" },
+	),
 	"option-label-filled": {
 		withDetail: {
 			kind: "document",
@@ -794,5 +855,158 @@ describe("the home line", () => {
 				timeZone: "UTC",
 			}),
 		).toBe("between October 6 and 7");
+	});
+});
+
+describe("the identifier and form content lines", () => {
+	/* Each entity reads by the name it had when the cutover ran. */
+	const SAME: NoticeRenderContext = {
+		nameOf: (entity) => entity.nameAtMigration,
+	};
+	const render = (raw: unknown) => renderNoticeEntry(parsed(raw), SAME).text;
+	const field = (nameAtMigration: string) => ({
+		...FIELD_ENTITY,
+		nameAtMigration,
+	});
+	const form = (nameAtMigration: string) => ({
+		...FORM_ENTITY,
+		nameAtMigration,
+	});
+	const app = { type: "app", nameAtMigration: "Clinic visits" } as const;
+	const doc = (
+		reason: string,
+		entity: unknown,
+		detail?: Record<string, string>,
+	) => ({ kind: "document", reason, entity, ...(detail && { detail }) });
+
+	it("say a renamed question moves its export column, and a renamed container moves the questions inside it", () => {
+		expect(
+			render(
+				doc("question-renamed", field("notes"), {
+					form: "Intake",
+					kind: "question",
+					from: "_notes",
+					to: "notes",
+				}),
+			),
+		).toBe(
+			"Intake: the question _notes is now notes, because CommCare HQ's form builder can't keep the old ID. Submissions use the new name from your next publish. In CommCare HQ, a form export column or report that reads _notes stops filling and a new notes column starts.",
+		);
+		expect(
+			render(
+				doc("question-renamed", field("q_Meta"), {
+					form: "Intake",
+					kind: "repeat",
+					from: "Meta",
+					to: "q_Meta",
+				}),
+			),
+		).toBe(
+			"Intake: the repeat Meta is now q_Meta, because CommCare HQ's form builder can't keep the old ID. Every question inside it moves with it, so submissions use the new paths from your next publish. In CommCare HQ, a form export column or report that reads a question under Meta stops filling and a new column starts.",
+		);
+	});
+
+	it("say a renamed case change moves its place in each submission", () => {
+		expect(
+			render(
+				doc("case-operation-renamed", form("Visit"), {
+					from: "instance",
+					to: "q_instance",
+				}),
+			),
+		).toBe(
+			"Visit: the case change instance is now q_instance. Its place in each submission moves with the name from your next publish.",
+		);
+	});
+
+	it("say what CommCare Connect does with each kind of renamed block", () => {
+		const block = (kind: string, from: string, to: string) =>
+			render(
+				doc("connect-block-renamed", form("Visit"), { block: kind, from, to }),
+			);
+		expect(block("deliver_unit", "_1st_visit", "q1st_visit")).toBe(
+			"Visit: the deliver unit _1st_visit is now q1st_visit. CommCare Connect reads it as a new deliver unit and turns away each delivery until an opportunity manager adds q1st_visit to a payment unit. It helps to ask them to do that before your next publish: CommCare HQ doesn't send a turned-away delivery again, so deliveries made in between stay unpaid.",
+		);
+		expect(block("learn_module", "_basics", "basics")).toBe(
+			"Visit: the learn module _basics is now basics. CommCare Connect reads it as a second module and keeps the old one, so a learner who had not finished the course before this stays short of finished. A learner who had finished stays finished.",
+		);
+		expect(block("assessment", "XMLquiz", "qXMLquiz")).toBe(
+			"Visit: the assessment XMLquiz is now qXMLquiz. CommCare Connect keeps no record under an assessment's ID, so scoring is unchanged.",
+		);
+		expect(block("task", "task", "q_task")).toBe(
+			"Visit: CommCare Connect could not receive this form while its block was called task. Forms sent before this change are not in CommCare Connect, and CommCare HQ's retries of them keep failing, because each still carries the old name. The task task is now q_task. CommCare Connect reads it as a new task type. A task assigned under task is never completed by this form, and CommCare Connect rejects that worker's deliveries while it stays assigned.",
+		);
+	});
+
+	it("say a task moved to a form of its own keeps its ID", () => {
+		expect(
+			render(
+				doc("connect-task-moved-to-own-form", form("Home visit"), {
+					task: "follow_up",
+					newForm: "Follow up",
+				}),
+			),
+		).toBe(
+			"Home visit: its task follow_up is now in a form of its own, Follow up, in the same menu. CommCare Connect turned away the visit in a form that also completed a task the worker was assigned. The task keeps its ID, so tasks already assigned are completed by the new form from your next publish.",
+		);
+	});
+
+	it("say a renamed deep link breaks links shared with the old ID", () => {
+		expect(
+			render(
+				doc("entry-point-renamed", ENTRY_POINT_ENTITY, {
+					from: "intake_",
+					to: "intake",
+				}),
+			),
+		).toBe(
+			"The deep link intake_ is now intake. Links shared with the old ID stop working after your next publish.",
+		);
+	});
+
+	it("say which choice keeps a shared value, for a question and for a case property's own list", () => {
+		const detail = {
+			value: "yes",
+			to: "yes_2",
+			keptLabel: "Yes",
+			label: "Yes, today",
+		};
+		expect(
+			render(
+				doc("option-value-split", form("Intake"), {
+					...detail,
+					question: "consent",
+				}),
+			),
+		).toBe(
+			"Intake, consent: the choices Yes and Yes, today both stored yes. Yes, today now stores yes_2. Answers saved before this show as Yes.",
+		);
+		expect(
+			render(
+				doc("option-value-split", app, {
+					...detail,
+					caseType: "patient",
+					property: "consent",
+				}),
+			),
+		).toBe(
+			"patient, consent: the choices Yes and Yes, today both stored yes. Yes, today now stores yes_2. Values saved before this show as Yes.",
+		);
+	});
+
+	it("say an empty form gained a label, and a session read that never had a value reads nothing", () => {
+		expect(render(doc("empty-form-label-added", form("Visit")))).toBe(
+			"Visit had no questions, and CommCare HQ won't build a form like that. It now has one label to replace with your first question.",
+		);
+		expect(
+			render(
+				doc("session-read-removed", field("parent_name"), {
+					form: "Visit",
+					datum: "case_id_new_child_0",
+				}),
+			),
+		).toBe(
+			"Visit, parent_name: it read case_id_new_child_0 from the session, which no menu of this app supplies, so the form could not open. It now reads nothing there, and the form opens. You can set what it should read.",
+		);
 	});
 });

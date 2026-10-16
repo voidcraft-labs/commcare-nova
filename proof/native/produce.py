@@ -2,9 +2,9 @@
 
     python3 -m proof.native.produce --out DIR [--jobs N]
 
-runs every native family's producer (``families.FAMILIES``) and the publish
-capture's two commands once, from the checkout's root, and writes into DIR,
-which must be new or empty:
+runs every native family's producer (``families.FAMILIES``), the publish
+capture's two commands and the entry-point id verdicts once, from the
+checkout's root, and writes into DIR, which must be new or empty:
 
 - ``<family>/``: what the family's producer wrote, which
   ``NativeSession.family`` copies into ``$PROOF_OUT/native/<family>``, where
@@ -13,6 +13,9 @@ which must be new or empty:
   ``out/`` (``proof/corpus/writePublishCaptures.ts``) and ``summary.txt``
   (the capture writer's report), which ``proof/hq/test_publish_capture.py``
   applies to HQ;
+- ``entry-point-ids/verdicts.json`` (``proof/hq/entryPointIdVerdicts.ts``):
+  Nova's verdict on each deep link ID it draws, which
+  ``proof/hq/test_endpoint_ids.py`` holds to HQ's own rule;
 - ``produced.json``: each product's outcome, ``{"<name>": {"status": <its
   command's exit status, or null when it did not run to an end>, "error":
   <why it failed, or null>}}``;
@@ -63,6 +66,8 @@ PUBLISH_CAPTURE = "publish-capture"
 NODE = ("node", "--conditions=react-server", "--import", "tsx")
 CAPTURE_DOCUMENTS = "proof/hq/publishCaptureDocuments.ts"
 CAPTURE_WRITER = "proof/corpus/writePublishCaptures.ts"
+ENTRY_POINT_IDS = "entry-point-ids"
+ENTRY_POINT_VERDICTS = "proof/hq/entryPointIdVerdicts.ts"
 
 
 def produced_directory() -> Path | None:
@@ -163,13 +168,29 @@ def produce_publish_captures(directory: Path, log: Path, *, timeout=PRODUCER_TIM
     return status, failure
 
 
+def produce_entry_point_ids(directory: Path, log: Path, *, timeout=PRODUCER_TIMEOUT_SECONDS):
+    """Write Nova's entry-point id verdicts into ``directory/verdicts.json``, its output in ``log``: (exit status,
+    why it failed or None)."""
+    directory.mkdir(parents=True, exist_ok=True)
+    status, failure = _run(
+        [*NODE, ENTRY_POINT_VERDICTS, str(directory / "verdicts.json")],
+        shown=[*NODE, ENTRY_POINT_VERDICTS],
+        log=log,
+        timeout=timeout,
+    )
+    if failure is None and status != 0:
+        failure = f"exited with status {status} writing its verdicts (`{ENTRY_POINT_VERDICTS}`){_without_install()}"
+    return status, failure
+
+
 def produce_all(
     out: Path, *, families=None, captures=True, jobs=PRODUCER_CONCURRENCY, timeout=PRODUCER_TIMEOUT_SECONDS
 ):
     """Every product into ``out`` (new or empty), ``jobs`` at a time; writes ``produced.json`` and ``timings.json``.
 
     ``families`` defaults to ``families.FAMILIES``; ``captures`` adds the
-    publish capture. Returns what ``produced.json`` holds.
+    publish capture and the entry-point id verdicts, the two products the HQ
+    proofs read. Returns what ``produced.json`` holds.
     """
     families = FAMILIES if families is None else families
     out = Path(out)
@@ -190,12 +211,14 @@ def produce_all(
         log = logs / f"{name}.log"
         if name == PUBLISH_CAPTURE:
             status, failure = produce_publish_captures(out / name, log, timeout=timeout)
+        elif name == ENTRY_POINT_IDS:
+            status, failure = produce_entry_point_ids(out / name, log, timeout=timeout)
         else:
             status, failure = produce_family(families[name], out / name, log, vitest_lock=vitest_lock, timeout=timeout)
         timings[name] = round(time.perf_counter() - started, 3)
         outcomes[name] = {"status": status, "error": failure}
 
-    names = sorted(families) + ([PUBLISH_CAPTURE] if captures else [])
+    names = sorted(families) + ([PUBLISH_CAPTURE, ENTRY_POINT_IDS] if captures else [])
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
         list(pool.map(one, names))
     produced = {name: outcomes[name] for name in sorted(outcomes)}
@@ -221,7 +244,8 @@ def read_product(products: Path, name: str, destination: Path, log: Path):
     if outcome is None:
         return (
             f"has no record in the corpus's products ({products}), and `python3 -m proof.native.produce` records "
-            "every family and the publish capture, so they were produced from another checkout"
+            "every family, the publish capture and the entry-point id verdicts, so they were produced from another"
+            " checkout"
         )
     if outcome.get("error"):
         return f"{outcome['error']} (where the corpus was produced)"

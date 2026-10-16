@@ -13,6 +13,7 @@
 import {
 	connectIdConflictError,
 	connectIdError,
+	connectIdRootFieldConflictError,
 	deriveConnectId,
 } from "@/lib/commcare/connectSlugs";
 
@@ -35,9 +36,13 @@ export {
 export { deriveConnectId };
 
 /**
- * Validity of an explicitly-typed Connect id: legal element-name / slug
- * format, then uniqueness against `taken` (every other id in the app's
- * scope). Returns a human-readable reason, or `null` when it's fine. The
+ * Validity of an explicitly-typed Connect id: the question-id grammar
+ * without Connect's own names and the length cap, then uniqueness against
+ * `taken` (every other id in the app's scope) and distinctness from the
+ * form's top-level field ids (`rootFieldIds`), whose elements share the
+ * block's parent; a format refusal's offered replacement avoids both.
+ * Returns a human-readable reason, or
+ * `null` when it's fine. The
  * one place the two wire-vocabulary checks compose, so UI surfaces that
  * collect an id (the form-settings sub-toggles, the app-wide manager) judge
  * a typed id identically without each reaching across the CommCare boundary.
@@ -45,8 +50,14 @@ export { deriveConnectId };
 export function connectIdValidity(
 	id: string,
 	taken: Set<string>,
+	rootFieldIds: ReadonlySet<string> = new Set(),
 ): string | null {
-	return connectIdError(id) ?? connectIdConflictError(id, taken) ?? null;
+	return (
+		connectIdError(id, new Set([...taken, ...rootFieldIds])) ??
+		connectIdRootFieldConflictError(id, rootFieldIds) ??
+		connectIdConflictError(id, taken) ??
+		null
+	);
 }
 
 /**
@@ -61,12 +72,16 @@ export function projectDraftConnectId(
 	id: string | undefined,
 	fallbackName: string,
 	taken: Set<string>,
+	rootFieldIds: ReadonlySet<string> = new Set(),
 ): string {
 	if (id !== undefined) {
 		taken.add(id);
 		return id;
 	}
-	const next = deriveConnectId(fallbackName, taken);
+	const next = deriveConnectId(
+		fallbackName,
+		new Set([...taken, ...rootFieldIds]),
+	);
 	taken.add(next);
 	return next;
 }

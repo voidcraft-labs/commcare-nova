@@ -14,8 +14,10 @@ import {
 	compactTargetRows,
 	deploymentViewKey,
 	INITIAL_PUBLISHING_RECORDS,
+	mayBePublished,
 	preseededDomainSelection,
 	publishAgainDomain,
+	publishedAnywhere,
 	publishingCardNoticeEntries,
 	resolveRecordsLoad,
 	upsertDeploymentViews,
@@ -418,5 +420,73 @@ describe("publishingCardNoticeEntries", () => {
 				card([appResource("2026-10-06T09:00:00.001Z")]),
 			),
 		).toEqual([]);
+	});
+});
+
+describe("publishedAnywhere", () => {
+	it("answers true when a record holds a live app mapping", () => {
+		expect(
+			publishedAnywhere([
+				view({ domain: "first" }),
+				view({ domain: "second", active: [appResource()] }),
+			]),
+		).toBe(true);
+	});
+
+	it("answers false for an app never published, a mapping that was superseded, and before any load has answered", () => {
+		expect(publishedAnywhere([])).toBe(false);
+		expect(publishedAnywhere([view({ state: "preflight" })])).toBe(false);
+		const superseded = view({});
+		expect(
+			publishedAnywhere([
+				{
+					...superseded,
+					deployment: {
+						...superseded.deployment,
+						superseded: [appResource()],
+					},
+				},
+			]),
+		).toBe(false);
+		expect(publishedAnywhere(null)).toBe(false);
+	});
+});
+
+describe("mayBePublished", () => {
+	const published = [view({ active: [appResource()] })];
+
+	it("answers from the held records, a stale copy after a failed refresh included", () => {
+		const loaded = resolveRecordsLoad(
+			beginRecordsLoad(INITIAL_PUBLISHING_RECORDS, 1),
+			1,
+			{ ok: true, views: published },
+		);
+		expect(mayBePublished(loaded)).toBe(true);
+		const stale = resolveRecordsLoad(beginRecordsLoad(loaded, 2), 2, {
+			ok: false,
+			message: "Nova couldn't load it.",
+		});
+		expect(mayBePublished(stale)).toBe(true);
+		expect(
+			mayBePublished(
+				resolveRecordsLoad(beginRecordsLoad(INITIAL_PUBLISHING_RECORDS, 1), 1, {
+					ok: true,
+					views: [],
+				}),
+			),
+		).toBe(false);
+	});
+
+	it("shows the warning when a load failed with nothing held, and nothing while the first load is on its way", () => {
+		const pending = beginRecordsLoad(INITIAL_PUBLISHING_RECORDS, 1);
+		expect(mayBePublished(pending)).toBe(false);
+		expect(
+			mayBePublished(
+				resolveRecordsLoad(pending, 1, {
+					ok: false,
+					message: "Nova couldn't load it.",
+				}),
+			),
+		).toBe(true);
 	});
 });

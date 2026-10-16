@@ -22,6 +22,7 @@ export * from "./caseWriteInventory";
 export * from "./closeCondition";
 export * from "./columnApplicability";
 export * from "./commCareDatePattern";
+export * from "./connectIds";
 export * from "./dateFormats";
 export * from "./effectiveCaseTypes";
 export * from "./entryPoints";

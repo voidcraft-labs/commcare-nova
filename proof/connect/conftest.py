@@ -13,7 +13,7 @@ it:
   document carries the edit that renames its Connect block ids, its answer
   once Nova's publish of that edit is applied over it and released
   (``served_download``);
-- a submission of its Connect form from each runtime path, each made by
+- a submission of each of its forms from each runtime path, each made by
   Core's own session (``proof.observe.sessions``): on HQ's build, on Nova's
   local archive replaying the same script (its runtime URLs naming the app
   HQ holds, ``proof.hq.operations.with_runtime_app_id``), on HQ's build and
@@ -22,6 +22,12 @@ it:
   deliver app, on its control's pre-fix local archive
   (``proof/controls/targeted-connect-deliver-rename/local.ccz``), on the
   lane's day and on the day after;
+- for the deliver apps, forms written by hand in a fork of the published app
+  (``proof.rules.conftest.Published._write``), each a shape Nova's
+  validator refuses or one it admits beside it (``REFUSED_NAMES``,
+  ``ACCEPTED_NAMES`` and ``BOTH_IN_ONE_FORM``): HQ's build of the fork,
+  HQ's own answer to Connect's download of it once released, and Core's
+  submissions on that build;
 - HQ's Connect payload for each, as HQ's own receiver and Connect repeater
   made and sent it (``_forwarded_by_hq``): each submission posted to HQ's
   receiver view under the app's id, which every archive Nova compiles names
@@ -56,17 +62,23 @@ import pytest
 from proof.connect.hq import HQ_XMLNS, META_XMLNS  # noqa: F401 - the tests read them here
 
 # Every corpus document a Connect proof reads, by id: Nova's deliver app and learn app that each carry the edit
-# renaming their Connect ids, and the apps whose blocks are named like Connect's own keys (the deliver app whose
-# task is `task`, and a deliver app and a learn app with one form for each other name).
+# renaming their Connect ids, and the deliver app the hand-written forks of finding 60 are made from. A deliver
+# app holds its deliver unit in its first form and its task in a form of its own (finding 61).
 DOCUMENTS = (
     "targeted-connect-deliver-rename",
     "targeted-connect-learn-rename",
     "connect-deliver-default",
-    "targeted-connect-deliver-key-names",
-    "targeted-connect-learn-key-names",
 )
-DELIVER, LEARN, TASK_NAMED_TASK, DELIVER_KEY_NAMES, LEARN_KEY_NAMES = DOCUMENTS
+DELIVER, LEARN, DELIVER_DEFAULT = DOCUMENTS
 CONFIGURATION = "minimum"
+# A session's submission of a deliver app's task form, named after the session's own (``by_form``).
+TASK_FORM = "#task"
+# A document's forms by their place in HQ's app (``"<module>.<form>"``): the first (a learn app's one form, a deliver
+# app's deliver form) and a deliver app's task form.
+FIRST_FORM_AT, TASK_FORM_AT = "0.0", "0.1"
+# The fork of the deliver app whose deliver form also holds the task, the shape Nova's validator refuses
+# (``CONNECT_DELIVER_FORM_HOLDS_TASK``), written by hand (``task_moved_into_the_deliver_form``, ``task_removed``).
+BOTH_IN_ONE_FORM = "both"
 # The submission of the deliver app's form with its deliver unit's ``work_area_id`` and that node's bind taken out.
 WITHOUT_WORK_AREA = "without-work-area"
 # The submission of the deliver app's control's pre-fix local archive, which names no submission URL.
@@ -151,10 +163,11 @@ class ConnectApp:
     # Each Connect block's id in D and in the edit, by the block's element name.
     renames: dict = field(default_factory=dict)
     # By name: "<path>", "<path>@next" (the day after), each with "+fix", "+near" or "+far" where a fix was
-    # written. The paths are "hq" and "local", "renamed" and "renamed-local" where the document carries the edit,
-    # and "vellum", "without-work-area" (the form with its deliver unit's ``work_area_id`` and that node's bind
-    # taken out) and "control-local" (the control's pre-fix local archive, posted with no app named) for the
-    # deliver app. A document of several forms has "hq#1", "hq#2", one for each form its session submits.
+    # written, and for a deliver app the task form's under the same name with ``TASK_FORM`` after it. The paths
+    # are "hq" and "local", "renamed" and "renamed-local" where the document carries the edit, and "vellum",
+    # "without-work-area" (the form with its deliver unit's ``work_area_id`` and that node's bind taken out),
+    # "both" (``BOTH_IN_ONE_FORM``) and "control-local" (the control's pre-fix local archive, posted with no app
+    # named) for the deliver app, and each hand-written form's name (``REFUSED_NAMES``, ``ACCEPTED_NAMES``).
     submissions: dict = field(default_factory=dict)
     # The profile of the deliver app's control's pre-fix local archive, which names no submission URL.
     control_local_profile: bytes | None = None
@@ -228,7 +241,8 @@ def _in_another_session(submission: bytes, tokens: dict, session: str) -> bytes:
 
 
 class _Paths:
-    """Core's sessions on each build of one published document, and the submission each made."""
+    """Core's sessions on each build of one published document, and the submissions each made, one for each form
+    the document holds (``document.wire_modules``)."""
 
     def __init__(self, document, app, core_runner, scratch):
         from proof.checks import casedata
@@ -239,20 +253,16 @@ class _Paths:
         status, self.restore_hq = hq_restore(app.unit, database, app.export.content.lookups, "restore")
         assert self.restore_hq is not None, f"HQ's restore refused {document.id}'s lookup tables: {status}"
         self.restore_plain = local_restore(app.unit, database)
+        self.forms = sum(len(module["forms"]) for module in document.wire_modules)
+        assert self.forms in (1, 2), (
+            f"{document.id} holds {self.forms} forms, where a Connect proof reads an app of one form, or a deliver"
+            " app of a deliver form and its task's form"
+        )
         self.script = None
 
-    def submission(self, what, path, restore, clock=None):
-        """The one submission Core's session makes on the archive at ``path`` (``submissions``)."""
-        submitted = self.submissions(what, path, restore, clock)
-        assert len(submitted) == 1, (
-            f"{what} of {self.document.id} submitted {len(submitted)} forms where its one form was run"
-        )
-        return submitted[0]
-
-    def submissions(self, what, path, restore, clock=None):
-        """Each submission Core's session makes on the archive at ``path``, in the session's order: the session
-        derived on the first call, whose script every later call replays; on the lane's day, or at ``clock``."""
-        from proof.checks import proof3
+    def _session(self, what, path, restore, script, clock):
+        """Core's session on the archive at ``path``, replaying ``script`` (none: derived), and its submissions in
+        the session's order; on the lane's day, or at ``clock``."""
         from proof.core.client import DEFAULT_CLOCK
         from proof.observe.runs import submission_of
         from proof.observe.sessions import admitted, unmarked_submission
@@ -262,10 +272,8 @@ class _Paths:
                 f"Core did not admit {what} of {self.document.id}: {report}"
             )
             trace = self.core_runner.session(
-                report["app"], restore=restore, script=self.script, clock=clock or DEFAULT_CLOCK
+                report["app"], restore=restore, script=script, clock=clock or DEFAULT_CLOCK
             )
-        if self.script is None:
-            self.script = proof3.script_of(trace)
         made = []
         for run in trace["runs"]:
             if submission_of(run) is None:
@@ -274,32 +282,55 @@ class _Paths:
             # The lane's day's first form keeps the lane's own ids; every other session gets its own.
             session = f"{clock or ''}#{len(made)}"
             made.append(xml if session == "#0" else _in_another_session(xml, tokens, session))
+        return trace, made
+
+    def submissions(self, what, path, restore, clock=None):
+        """Each submission Core's session makes on the archive at ``path``, one for each form the document holds,
+        in the session's order: the session derived on the first call, whose script every later call replays."""
+        from proof.checks import proof3
+
+        trace, made = self._session(what, path, restore, self.script, clock)
+        if self.script is None:
+            self.script = proof3.script_of(trace)
+        assert len(made) == self.forms, (
+            f"{what} of {self.document.id} submitted {len(made)} forms where the session ran its {self.forms}"
+        )
         return made
 
-    def build(self, files, name, clock=None):
+    def by_form(self, name, submitted):
+        """A session's submissions by name: the first form's under ``name``, and a deliver app's task form's under
+        ``name`` with ``TASK_FORM`` after it."""
+        return dict(zip([name, f"{name}{TASK_FORM}"][: len(submitted)], submitted, strict=True))
+
+    def build(self, files, built, clock=None, *, name=None):
+        """HQ's build's submissions of its forms (``by_form``, under ``name``, or ``built`` where none is given), the
+        build arranged once under ``built``."""
         from proof.checks import proof3
 
-        directory = self.scratch / name
+        directory = self.scratch / built
         if not directory.exists():
             proof3.arrange_build(files, directory)
-        return self.submission(f"HQ's build ({name})", directory, self.restore_hq, clock)
+        submitted = self.submissions(f"HQ's build ({built})", directory, self.restore_hq, clock)
+        return self.by_form(name or built, submitted)
 
-    def build_forms(self, files, name):
-        """HQ's build's submission of each of its forms, where the document holds several."""
-        from proof.checks import proof3
+    def archive(self, what, name, path, clock=None):
+        """A local archive's submissions of its forms (``by_form``), under ``name``."""
+        return self.by_form(name, self.submissions(what, path, self.restore_plain, clock))
 
-        return self.submissions(
-            f"HQ's build ({name})", proof3.arrange_build(files, self.scratch / name), self.restore_hq
-        )
+    def alone(self, what, name, path):
+        """The one submission of an archive of one form whose session is its own: derived on it, replaying
+        nothing of the document's (the deliver app's control's pre-fix archive, which holds the task in its one
+        form)."""
+        _, made = self._session(what, path, self.restore_plain, None, None)
+        assert len(made) == 1, f"{what} of {self.document.id} submitted {len(made)} forms where its one form was run"
+        return {name: made[0]}
 
-    def archive(self, what, path, clock=None):
-        return self.submission(what, path, self.restore_plain, clock)
 
-
-def _devices(app, document) -> dict:
-    """The form a device's walk saves and sends HQ (``proof.android.observe``), on HQ's release and on Nova's local
+def _devices(app, document, forms) -> dict:
+    """The forms a device's walk saves and sends HQ (``proof.android.observe``), on HQ's release and on Nova's local
     archive (given the input the lane gives Core over it), at each place its GPS puts it, on the lane's day or the
-    next: ``hq+fix``, ``hq@next+near``, ``hq@next+far``, ``local+fix``, ``local@next+near``."""
+    next: ``hq+fix``, ``hq@next+near``, ``hq@next+far``, ``local+fix``, ``local@next+near``, each with the task
+    form's after it (``TASK_FORM``) where the document holds one (``forms``, the number of its forms)."""
     from proof.android import observe as android
     from proof.formplayer import hq as formplayer_hq
     from proof.hq.operations import with_runtime_app_id
@@ -321,8 +352,10 @@ def _devices(app, document) -> dict:
             android.app(
                 served, blobs, label=name, archive=archive, delivered=delivered, fix=list(fix), clock=clock, sent=sent
             )
-            assert len(sent) == 1, f"A device on {side} of {document.id} sent {len(sent)} forms where one form walks"
-            made[name] = sent[0]
+            assert len(sent) == forms, (
+                f"A device on {side} of {document.id} sent {len(sent)} forms where its walks run {forms}"
+            )
+            made.update(zip([name, f"{name}{TASK_FORM}"][:forms], sent, strict=True))
     return made
 
 
@@ -451,6 +484,186 @@ def _without_work_area(root):
         bind.getparent().remove(bind)
 
 
+# Forms written by hand -------------------------------------------------------------------------------------------
+
+XFORMS = "{http://www.w3.org/2002/xforms}"
+VELLUM = "{http://commcarehq.org/xforms/vellum}"
+
+
+def _data(root):
+    """A form's data node: the one child of its main instance, the instance that carries no id."""
+    (instance,) = [element for element in root.iter(f"{XFORMS}instance") if element.get("id") is None]
+    (data,) = [child for child in instance if isinstance(child.tag, str)]
+    return data
+
+
+def _paths(element):
+    """A data node's absolute path, as a bind's node set and a control's ref name it, and the same path as HQ's
+    form builder names it (``#form/...``)."""
+    from lxml import etree
+
+    steps = [element]
+    while steps[-1].getparent().tag != f"{XFORMS}instance":
+        steps.append(steps[-1].getparent())
+    names = [etree.QName(step).localname for step in reversed(steps)]
+    return "/" + "/".join(names), "/".join(["#form", *names[1:]])
+
+
+def _at_or_below(value, path) -> bool:
+    return value == path or value.startswith(f"{path}/")
+
+
+def _named(element, name):
+    """``element`` named ``name`` in its own namespace."""
+    from lxml import etree
+
+    namespace = etree.QName(element).namespace
+    element.tag = f"{{{namespace}}}{name}" if namespace else name
+
+
+def block_named(kind, name):
+    """A form's one Connect block of the element ``kind`` named ``name`` by hand, as Nova names a block: its wrapper
+    node, each ``nodeset`` and ``ref`` at or below it (HQ's form builder's ``vellum:`` ones too), and the block's
+    own id."""
+
+    def change(root):
+        (block,) = list(_data(root).iter(f"{{{CONNECT_XMLNS}}}{kind}"))
+        wrapper = block.getparent()
+        before = _paths(wrapper)
+        _named(wrapper, name)
+        block.set("id", name)
+        after = _paths(wrapper)
+        for element in root.iter():
+            if not isinstance(element.tag, str):
+                continue
+            for attributes, old, new in (
+                (("nodeset", "ref"), before[0], after[0]),
+                ((f"{VELLUM}nodeset", f"{VELLUM}ref"), before[1], after[1]),
+            ):
+                for attribute in attributes:
+                    value = element.get(attribute)
+                    if value is not None and _at_or_below(value, old):
+                        element.set(attribute, new + value[len(old) :])
+
+    return change
+
+
+def question_named(*names):
+    """A form given one hidden value of each of ``names`` after its other data, each with its bind."""
+    from lxml import etree
+
+    def change(root):
+        data = _data(root)
+        binds = [child for child in data.getparent().getparent() if child.tag == f"{XFORMS}bind"]
+        for name in names:
+            node = etree.SubElement(data, data.tag)
+            _named(node, name)
+            bind = etree.Element(f"{XFORMS}bind", {"nodeset": _paths(node)[0], "calculate": "'kept'"})
+            binds[-1].addnext(bind)
+            binds.append(bind)
+
+    return change
+
+
+def _task_block(root):
+    """A form's task: its wrapper node and the binds at or below it."""
+    (block,) = list(_data(root).iter(f"{{{CONNECT_XMLNS}}}task"))
+    wrapper = block.getparent()
+    path, vellum = _paths(wrapper)
+    binds = [
+        bind
+        for bind in root.iter(f"{XFORMS}bind")
+        if _at_or_below(bind.get("nodeset") or "", path) or _at_or_below(bind.get(f"{VELLUM}nodeset") or "", vellum)
+    ]
+    return wrapper, binds
+
+
+def task_moved_into_the_deliver_form(task_source):
+    """The deliver form given the task form's (``task_source``) wrapper, block and binds beside its deliver unit,
+    the wrapper in the deliver form's own namespace: the one form holding both, as no Nova form may."""
+    import copy
+
+    from lxml import etree
+
+    from proof.checks.compare.xml_tree import parse_xml
+
+    wrapper, binds = _task_block(parse_xml(task_source))
+
+    def change(root):
+        data = _data(root)
+        moved = copy.deepcopy(wrapper)
+        moved.tag = f"{{{etree.QName(data).namespace}}}{etree.QName(moved).localname}"
+        (deliver,) = list(data.iter(f"{{{CONNECT_XMLNS}}}deliver"))
+        deliver.getparent().addnext(moved)
+        held = [child for child in data.getparent().getparent() if child.tag == f"{XFORMS}bind"]
+        for bind in binds:
+            held[-1].addnext(copy.deepcopy(bind))
+            held.append(held[-1].getnext())
+
+    return change
+
+
+def task_removed(root):
+    """The task form with its task's wrapper, block and binds taken out, its label left."""
+    wrapper, binds = _task_block(root)
+    for element in [wrapper, *binds]:
+        element.getparent().remove(element)
+
+
+# Each hand-written form of a document, by name: the form it changes (its place in HQ's app) and the change. The
+# refused are the names Connect's receiver looks for at any depth of a submission, each as Nova would name a
+# block (finding 60); the accepted are their replacements, the same names in another case or in the other kind
+# of app, and hidden values named like the keys, which HQ never forwards.
+REFUSED_NAMES = {
+    DELIVER_DEFAULT: {
+        "deliver-deliver": (FIRST_FORM_AT, block_named("deliver", "deliver")),
+        "deliver-work_area_update": (FIRST_FORM_AT, block_named("deliver", "work_area_update")),
+        "task-task": (TASK_FORM_AT, block_named("task", "task")),
+    },
+    LEARN: {
+        "module-module": (FIRST_FORM_AT, block_named("module", "module")),
+        "assessment-assessment": (FIRST_FORM_AT, block_named("assessment", "assessment")),
+    },
+}
+ACCEPTED_NAMES = {
+    DELIVER_DEFAULT: {
+        **{
+            f"deliver-{name}": (FIRST_FORM_AT, block_named("deliver", name))
+            for name in ("q_deliver", "q_work_area_update", "module", "assessment")
+        },
+        **{f"task-{name}": (TASK_FORM_AT, block_named("task", name)) for name in ("q_task", "Task")},
+        "questions": (FIRST_FORM_AT, question_named("deliver", "task", "work_area_update")),
+    },
+    LEARN: {
+        **{
+            f"module-{name}": (FIRST_FORM_AT, block_named("module", name))
+            for name in ("q_module", "Module", "deliver", "task", "work_area_update")
+        },
+        "assessment-q_assessment": (FIRST_FORM_AT, block_named("assessment", "q_assessment")),
+        "questions": (FIRST_FORM_AT, question_named("module", "assessment")),
+    },
+}
+
+
+def _written(app, document, paths, name, sources, *, next_day=False):
+    """A fork of the published app with ``sources`` (``{"m.f": change of its parsed root}``) written by hand: HQ's
+    own answer to Connect's download of it once released, and Core's submissions on HQ's build of it (and on the
+    day after, with ``next_day``)."""
+    from proof.rules.conftest import rewritten
+
+    written = {position: rewritten(change) for position, change in sources.items()}
+
+    def change():
+        app._write(sources=written)
+
+    download = served_download(app, document, name, change=change)
+    built = _build_in_fork(app, name, change)
+    made = paths.build(built.files, name)
+    if next_day:
+        made.update(paths.build(built.files, name, NEXT_DAY_CLOCK, name=f"{name}@next"))
+    return download, made
+
+
 def _connect_app(document, core_runner, editor_driver, connect_runtime):
     from proof.checks.corpus import CONTROLS_DIR
     from proof.rules.conftest import published, rewritten
@@ -462,14 +675,10 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
         local = _local_archive(scratch, "local.ccz", document.local_ccz, app.app_id)
         control_profile = None
         downloads = {"built": served_download(app, document, "built")}
-        if document.id in (DELIVER_KEY_NAMES, LEARN_KEY_NAMES):
-            forms = paths.build_forms(built.build.files, "built")
-            made = {f"hq#{position}": xml for position, xml in enumerate(forms, start=1)}
-        else:
-            made = {
-                "hq": paths.build(built.build.files, "built"),
-                "local": paths.archive("Nova's local archive", local),
-            }
+        made = {
+            **paths.build(built.build.files, "built", name="hq"),
+            **paths.archive("Nova's local archive", "local", local),
+        }
         renames = {}
         if document.id in (DELIVER, LEARN):
             edited = _edit_build(app, document)
@@ -481,28 +690,48 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
             assert all(old != new for old, new in renames.values()), (
                 f"{document.id}'s edit renames its Connect ids, and HQ's builds of it hold {renames}"
             )
-            made["hq@next"] = paths.build(built.build.files, "built", NEXT_DAY_CLOCK)
-            made["local@next"] = paths.archive("Nova's local archive", local, NEXT_DAY_CLOCK)
-            made["renamed"] = paths.build(edited.files, "edit")
-            made["renamed@next"] = paths.build(edited.files, "edit", NEXT_DAY_CLOCK)
-            made["renamed-local"] = paths.archive(
-                "Nova's local archive of the edit",
-                _local_archive(scratch, "edit-local.ccz", document.edit.local_ccz, app.app_id),
+            made.update(paths.build(built.build.files, "built", NEXT_DAY_CLOCK, name="hq@next"))
+            made.update(paths.archive("Nova's local archive", "local@next", local, NEXT_DAY_CLOCK))
+            made.update(paths.build(edited.files, "edit", name="renamed"))
+            made.update(paths.build(edited.files, "edit", NEXT_DAY_CLOCK, name="renamed@next"))
+            made.update(
+                paths.archive(
+                    "Nova's local archive of the edit",
+                    "renamed-local",
+                    _local_archive(scratch, "edit-local.ccz", document.edit.local_ccz, app.app_id),
+                )
             )
+        for name, (position, change) in {
+            **REFUSED_NAMES.get(document.id, {}),
+            **ACCEPTED_NAMES.get(document.id, {}),
+        }.items():
+            downloads[name], written = _written(app, document, paths, name, {position: change})
+            made.update(written)
         if document.id == DELIVER:
-            ((position, form),) = [
-                (f"{m}.{f}", form)
-                for m, module in enumerate(built.stored["doc"]["modules"])
-                for f, form in enumerate(module["forms"])
-            ]
-            made["vellum"] = paths.build(_vellum_saved_build(app, editor_driver, form["unique_id"]).files, "vellum")
-            without = app.spell(sources={position: rewritten(_without_work_area)})
+            (deliver_form, task_form) = [form for module in built.stored["doc"]["modules"] for form in module["forms"]]
+            # HQ's form builder opens and saves the app's first form, the deliver form.
+            vellum_saved = _vellum_saved_build(app, editor_driver, deliver_form["unique_id"])
+            made.update(paths.build(vellum_saved.files, "vellum"))
+            without = app.spell(sources={FIRST_FORM_AT: rewritten(_without_work_area)})
             assert without.build.files is not None and not without.build.raised, without.build.raised
-            made[WITHOUT_WORK_AREA] = paths.build(without.build.files, WITHOUT_WORK_AREA)
-            made.update(_devices(app, document))
-            # The control's pre-fix archive, which names no submission URL, for the refusal it meets.
+            made.update(paths.build(without.build.files, WITHOUT_WORK_AREA))
+            downloads[BOTH_IN_ONE_FORM], both = _written(
+                app,
+                document,
+                paths,
+                BOTH_IN_ONE_FORM,
+                {
+                    FIRST_FORM_AT: task_moved_into_the_deliver_form(_held_source(app, task_form)),
+                    TASK_FORM_AT: task_removed,
+                },
+                next_day=True,
+            )
+            made.update(both)
+            made.update(_devices(app, document, paths.forms))
+            # The control's pre-fix archive, which names no submission URL, for the refusal it meets. Its one form
+            # holds the deliver unit and the task, so its session is its own.
             control = CONTROLS_DIR / DELIVER / "local.ccz"
-            made[CONTROL_LOCAL] = paths.archive("the control's pre-fix local archive", control)
+            made.update(paths.alone("the control's pre-fix local archive", CONTROL_LOCAL, control))
             control_profile = zipfile.ZipFile(control).read("profile.ccpr")
 
         submissions = _forwarded_by_hq(app, document, made, connect_runtime)
@@ -517,6 +746,11 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
             submissions=submissions,
             control_local_profile=control_profile,
         )
+
+
+def _held_source(app, form):
+    """The source HQ holds of one form of the published app (``form``: the form as the stored app names it)."""
+    return app._app().get_form(form["unique_id"]).source
 
 
 @pytest.fixture(scope="session")

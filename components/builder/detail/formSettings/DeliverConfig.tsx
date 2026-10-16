@@ -2,12 +2,17 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 import { DraftField } from "@/components/builder/detail/appSettings/ConnectEnableDialog";
+import {
+	DELIVER_BLOCK_WITHHELD_NOTE,
+	deliverBlockOffered,
+} from "@/components/builder/detail/appSettings/connectDraft";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Switch } from "@/components/shadcn/switch";
 import { deriveConnectId } from "@/lib/commcare/connectSlugs";
 import {
 	connectIdsExcept,
 	useAppConnectIds,
+	useRootFieldIdsByForm,
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import {
@@ -40,8 +45,9 @@ interface ConnectSubConfigProps {
 }
 
 /**
- * Deliver-mode connect sub-config: two independent sub-toggles for the
- * `deliver_unit` and `task` halves of a Connect deliver app. Structurally
+ * Deliver-mode connect sub-config: two sub-toggles for the `deliver_unit`
+ * and `task` halves of a Connect deliver app, each offered only while the
+ * other is off (`deliverBlockOffered`). Structurally
  * parallel to LearnConfig: each sub-toggle remembers the last populated
  * value in a ref so off+on restores rather than resets, and with no
  * restorable value STAGES the block: the names and descriptions are
@@ -96,20 +102,22 @@ export function DeliverConfig({
 	// Name-derived defaults for a freshly enabled sub-config, unique against
 	// every other connect id in the app (connect ids share one app-wide
 	// namespace). Same `deriveConnectId` + scope the SA path uses.
+	// A block's wrapper sits beside the form's top-level fields, so a
+	// derived id avoids theirs too.
 	const appConnectIds = useAppConnectIds();
+	const rootFieldIds = useRootFieldIdsByForm()[formUuid];
 	const defaultIds = useCallback(() => {
 		const modName = mod?.name ?? "";
 		const pairName = `${modName} ${form?.name ?? ""}`;
-		const deliverId = deriveConnectId(
-			modName,
-			connectIdsExcept(appConnectIds, formUuid, "deliver_unit"),
-		);
-		const taskId = deriveConnectId(
-			pairName,
-			connectIdsExcept(appConnectIds, formUuid, "task"),
-		);
+		const beside = (kind: "deliver_unit" | "task") =>
+			new Set([
+				...connectIdsExcept(appConnectIds, formUuid, kind),
+				...(rootFieldIds ?? []),
+			]);
+		const deliverId = deriveConnectId(modName, beside("deliver_unit"));
+		const taskId = deriveConnectId(pairName, beside("task"));
 		return { deliverId, taskId };
-	}, [mod, form, appConnectIds, formUuid]);
+	}, [mod, form, appConnectIds, formUuid, rootFieldIds]);
 
 	// Refs preserve each sub-block's last-seen value exactly. A restore
 	// proposes that explicit id verbatim; if another form claimed it while
@@ -230,6 +238,16 @@ export function DeliverConfig({
 		if (outcome.ok) setStagedTask(undefined);
 	}, [stagedTask, connect, dispatchSave, defaultIds]);
 
+	/* A deliver unit and a task each go in a form without the other, so a
+	 * block is offered only while its counterpart is off, staged or held. */
+	const held = {
+		deliver_unit: deliverEnabled || stagedDeliver !== undefined,
+		task: taskEnabled || stagedTask !== undefined,
+	};
+	const deliverWithheld =
+		!held.deliver_unit && !deliverBlockOffered("deliver_unit", held);
+	const taskWithheld = !held.task && !deliverBlockOffered("task", held);
+
 	return (
 		<div className="space-y-2">
 			{/* Deliver Unit sub-toggle */}
@@ -237,10 +255,16 @@ export function DeliverConfig({
 				<div className="flex items-center justify-between">
 					<span className="text-xs text-nova-text-muted">Deliver Unit</span>
 					<Switch
-						checked={deliverEnabled || stagedDeliver !== undefined}
+						checked={held.deliver_unit}
 						onCheckedChange={toggleDeliver}
+						disabled={deliverWithheld}
 					/>
 				</div>
+				{deliverWithheld && (
+					<p className="mt-1.5 text-[11px] leading-snug text-nova-text-muted">
+						{DELIVER_BLOCK_WITHHELD_NOTE}
+					</p>
+				)}
 				<AnimatePresence>
 					{(du || stagedDeliver) && (
 						<motion.div
@@ -329,10 +353,16 @@ export function DeliverConfig({
 				<div className="flex items-center justify-between">
 					<span className="text-xs text-nova-text-muted">Task</span>
 					<Switch
-						checked={taskEnabled || stagedTask !== undefined}
+						checked={held.task}
 						onCheckedChange={toggleTask}
+						disabled={taskWithheld}
 					/>
 				</div>
+				{taskWithheld && (
+					<p className="mt-1.5 text-[11px] leading-snug text-nova-text-muted">
+						{DELIVER_BLOCK_WITHHELD_NOTE}
+					</p>
+				)}
 				<AnimatePresence>
 					{(task || stagedTask) && (
 						<motion.div

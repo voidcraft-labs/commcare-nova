@@ -24,7 +24,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerExternalLink from "@iconify-icons/tabler/external-link";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { useCommCareConnection } from "@/components/builder/CommCareConnectionContext";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
 import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
@@ -32,10 +32,9 @@ import { DeploymentWorkers } from "@/components/builder/DeploymentWorkers";
 import { useAppNotices } from "@/components/builder/notices/AppNoticesContext";
 import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
-import {
-	type DeploymentView,
-	type RefreshedDeploymentView,
-	readDeploymentsAction,
+import type {
+	DeploymentView,
+	RefreshedDeploymentView,
 } from "@/lib/deployment/actions";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { documentNoticeNames } from "@/lib/notices/documentNames";
@@ -47,22 +46,15 @@ import {
 import {
 	useAppId,
 	useCanEdit,
-	useDeploymentRecordsRevision,
 	useRequestPublishDialog,
 } from "@/lib/session/hooks";
 import { DeploymentEntryPointLinks } from "./DeploymentEntryPointLinks";
 import {
-	applyRecordUpsert,
-	beginRecordsLoad,
 	deploymentViewKey,
-	INITIAL_PUBLISHING_RECORDS,
 	publishAgainDomain,
 	publishingCardNoticeEntries,
-	resolveRecordsLoad,
 } from "./publishingSectionModel";
-
-const LOAD_FAILED_MESSAGE =
-	"Nova couldn't load where this app has been published. Try again in a moment.";
+import { usePublishingRecords } from "./usePublishingRecords";
 
 export function PublishingSection() {
 	// Absent only on a brand-new build before its app row exists, where
@@ -72,62 +64,13 @@ export function PublishingSection() {
 	const canEdit = useCanEdit();
 	const requestPublishDialog = useRequestPublishDialog();
 	const setProjectSpace = useSetDeploymentProjectSpace();
-	/* The dialog bumps this on every record it writes (a publish landing,
-	 * a Check status made from its landed hero), so a publish made while
-	 * this section is mounted reaches its held records. */
-	const recordsRevision = useDeploymentRecordsRevision();
-
 	const { deploymentEntries: noticeEntries } = useAppNotices();
 
-	const [records, setRecords] = useState(INITIAL_PUBLISHING_RECORDS);
-	/* The stale-response guard's counter. A ref rather than state because it
-	 * is bookkeeping for the async race, not something a render shows. */
-	const generationRef = useRef(0);
+	/* The dialog bumps the records' revision on every record it writes (a
+	 * publish landing, a Check status made from its landed hero), so a
+	 * publish made while this section is mounted reaches its held records. */
+	const { records, load, upsert } = usePublishingRecords();
 
-	const load = useCallback(() => {
-		if (appId === undefined) return;
-		const generation = generationRef.current + 1;
-		generationRef.current = generation;
-		setRecords((current) => beginRecordsLoad(current, generation));
-		/* A rejected Server Action must land in this section's own error
-		 * slot. Without the catch it is an unhandled rejection and the
-		 * section sits on "loading" forever, which reads as "you have
-		 * published nowhere". */
-		void readDeploymentsAction(appId)
-			.then((result) => {
-				setRecords((current) =>
-					resolveRecordsLoad(
-						current,
-						generation,
-						result.success
-							? { ok: true, views: result.data }
-							: { ok: false, message: result.message },
-					),
-				);
-			})
-			.catch(() => {
-				setRecords((current) =>
-					resolveRecordsLoad(current, generation, {
-						ok: false,
-						message: LOAD_FAILED_MESSAGE,
-					}),
-				);
-			});
-	}, [appId]);
-
-	// biome-ignore lint/correctness/useExhaustiveDependencies: recordsRevision is the reload trigger on PURPOSE — the dialog bumps it on every record write, and this effect is how those writes reach the section's held records.
-	useEffect(() => {
-		load();
-	}, [load, recordsRevision]);
-
-	/* Upserts supersede any load in flight (the answer they carry is newer
-	 * than what it will return), so each takes a fresh generation of its
-	 * own — the superseded load's resolve then mismatches and is ignored. */
-	const upsert = useCallback((next: DeploymentView) => {
-		generationRef.current += 1;
-		const generation = generationRef.current;
-		setRecords((current) => applyRecordUpsert(current, next, generation));
-	}, []);
 	/* Every refresh answers with the record AND what Preview may now name,
 	 * because an observation can change both. */
 	const handleRefreshed = useCallback(

@@ -41,14 +41,18 @@ export function isReservedProperty(name: string): boolean {
 	return RESERVED_CASE_PROPERTIES.has(name);
 }
 
-/** Convert a display name to a valid snake_case identifier (alphanumeric, starts with a letter). */
+/**
+ * A display name's words as lowercase snake_case: every run of characters
+ * other than a letter or a digit becomes one underscore, the edges trimmed,
+ * `unnamed` when nothing survives. It may start with a digit; a minter that
+ * needs an identifier runs it through `editorSafeQuestionId`.
+ */
 export function toSnakeId(name: string): string {
 	return (
 		name
 			.trim()
 			.toLowerCase()
 			.replace(/[^a-z0-9]+/g, "_")
-			.replace(/^_|_$/g, "")
-			.replace(/^(\d)/, "_$1") || "unnamed"
+			.replace(/^_|_$/g, "") || "unnamed"
 	);
 }

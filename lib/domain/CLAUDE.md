@@ -38,6 +38,8 @@ Sequence is plain array position. Position belongs to the collection, so entitie
 
 `appSettings` is a required root object, `{ showSavedForms, showIncompleteForms }`, both off in a new app: whether workers see their saved forms, on the Android home screen, and their incomplete forms, on Android and in Web Apps. `setAppSettings` patches it. The fifteen other profile settings Nova states are constants of the emitter (`lib/commcare/appProfileSettings.ts`) and not yet slots of the document.
 
+`questionId.ts` is the one question-id grammar: `QUESTION_ID_PATTERN` (a letter first, then letters, digits and underscores, never starting `XML`), `RESERVED_QUESTION_IDS`, `RESERVED_CONNECT_BLOCK_IDS`, and `editorSafeQuestionId`, the one normalizer every minter and every refusal's offered replacement use.
+
 ## Localization is an overlay over canonical source content
 
 `localization.ts` owns app-language identity. The ordinary Blueprint slots
@@ -68,9 +70,12 @@ only reader of its spelling.
 `translationUnits.ts::collectTranslationUnits` is the ONE inventory of static
 worker-facing strings. A unit id is an injective, versioned projection of stable
 owner identity plus semantic slot, never visible text. Case-property option
-values are their semantic key; because Classic accepts repeated stored values,
-later same-value occurrences add their stable same-value ordinal so no legal
-label silently aliases the first occurrence.
+values are their semantic key, and two options of one list never share one:
+`SELECT_OPTION_VALUE_DUPLICATE` refuses it among a select's written choices and
+`CASE_PROPERTY_OPTION_VALUE_DUPLICATE` in a case property's catalog, compared
+as exact strings, as HQ's form builder and Core compare them. The unit id's
+same-value ordinal stays as the projection's own guard for a value that
+repeats, which no admitted document holds.
 Builder, tools, Preview, translation orchestration, and wire emission resolve
 language values through `resolveTranslationUnit(s)` rather than independently
 walking labels. Each target entry fingerprints the current source.

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
@@ -138,5 +139,41 @@ describe("shared entry-point authoring tools", () => {
 			updateEntryPointInputSchema.safeParse({ entryPointUuid, patch: {} })
 				.success,
 		).toBe(false);
+	});
+
+	it("refuses at the schema an ID CommCare HQ won't save as written, offering one without claiming it is free", () => {
+		const refusal = (id: string) => {
+			const result = addEntryPointInputSchema.safeParse({ target, id });
+			return result.success ? undefined : result.error.issues[0]?.message;
+		};
+		expect(refusal("intake_")).toBe(
+			"A deep link ID starts and ends with a lowercase letter or a digit, because CommCare HQ won't save one that doesn't. You could call it \"intake\" instead.",
+		);
+		expect(refusal("home--visit")).toBe(
+			"A deep link ID can't hold two hyphens in a row, because CommCare HQ won't save it. You could call it \"home-visit\" instead.",
+		);
+		expect(refusal("home-visit")).toBeUndefined();
+		const update = updateEntryPointInputSchema.safeParse({
+			entryPointUuid,
+			patch: { id: "-visit" },
+		});
+		expect(update.success).toBe(false);
+		expect(update.error?.issues[0]?.message).toContain(
+			'You could call it "visit" instead.',
+		);
+	});
+
+	it("keeps the pattern in the schema the provider is sent and adds no lookahead", () => {
+		const schema = JSON.stringify(
+			z.toJSONSchema(addEntryPointInputSchema, {
+				target: "draft-7",
+				io: "input",
+			}),
+		);
+		expect(schema).toContain("^[a-z0-9_-]+$");
+		expect(schema).not.toContain("(?!");
+		expect(schema).toContain(
+			"lowercase letters, digits, underscores and single hyphens, starting and ending with a letter or digit",
+		);
 	});
 });

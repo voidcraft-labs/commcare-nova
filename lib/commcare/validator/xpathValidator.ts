@@ -19,7 +19,10 @@ import {
 	findCaseInsensitiveMatch,
 	functionArityIssue,
 } from "@/lib/domain/expressionFunctions";
-import { extractPathRefs } from "@/lib/preview/xpath/dependencies";
+import {
+	extractPathRefs,
+	formRootReadPositions,
+} from "@/lib/preview/xpath/dependencies";
 import { RESOLVED_REFERENCE_NAMESPACES } from "./reservedNamespaces";
 import { checkTypes } from "./typeChecker";
 
@@ -46,6 +49,18 @@ export type XPathScope = "form" | "session";
  */
 export const SESSION_FORM_READ_MESSAGE =
 	"This runs after the form has closed, so it can't read the form's answers. Save the answer to a case property and read that instead.";
+
+/** The form's root, which names the whole form and never a field. */
+export const FORM_ROOT_PATH = "/data";
+
+/**
+ * What a form-scoped slot says about a read of the form's root alone. HQ's
+ * form builder reports such a read as an unknown question (`#form`), and the
+ * root is never what an author means: it is the whole form, not a question,
+ * a number of rows or a list of ids.
+ */
+export const FORM_ROOT_READ_MESSAGE =
+	"This reads the whole form (/data), not a question. CommCare HQ's form builder shows it as an unknown question. You can read a question, a group or a repeat of this form instead.";
 
 type ExecutableLanguageFindingCode =
 	| "XPATH_UNBOUND_VARIABLE"
@@ -271,6 +286,14 @@ export function validateXPath(
 	// session scope there is no form to read: every `/data/...` path is the
 	// closed form, named as such (a literal path's position is its text).
 	if (session) {
+		for (const position of formRootReadPositions(expr)) {
+			errors.push({
+				code: "INVALID_REF",
+				message: SESSION_FORM_READ_MESSAGE,
+				position,
+				ref: FORM_ROOT_PATH,
+			});
+		}
 		for (const ref of extractPathRefs(expr)) {
 			if (formHashtagPaths.has(ref)) continue;
 			const at = expr.indexOf(ref);
@@ -282,6 +305,14 @@ export function validateXPath(
 			});
 		}
 	} else if (validPaths) {
+		for (const position of formRootReadPositions(expr)) {
+			errors.push({
+				code: "INVALID_REF",
+				message: FORM_ROOT_READ_MESSAGE,
+				position,
+				ref: FORM_ROOT_PATH,
+			});
+		}
 		const refs = extractPathRefs(expr);
 		for (const ref of refs) {
 			if (!validPaths.has(ref)) {

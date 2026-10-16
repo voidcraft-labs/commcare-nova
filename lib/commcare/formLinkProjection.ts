@@ -60,7 +60,7 @@ import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
  * frames resolve reach the wire.
  */
 
-import { orderedFormUuids } from "@/lib/doc/fieldWalk";
+import { descendantFieldUuids, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
@@ -1472,10 +1472,11 @@ export function formLinksProjectable(
  * module's common-prefix datums, which read every form in it), and every
  * structural ancestor form whose datums a child entry inherits. The wire
  * builder fails closed on a module outside the sequence, a case type that
- * is not an identifier, a form whose case writes the admission refuses, or a
- * field id that is not an XML name — each a finding of its own
+ * is not an identifier, a form whose case writes the admission refuses, a
+ * field id that is not an XML name, or a close condition naming a field the
+ * form does not hold — each a finding of its own
  * (`INVALID_CASE_TYPE_FORMAT`, `CASE_WRITE_*`, `CASE_CREATE_NAME_*`,
- * `INVALID_FIELD_ID`, the topology checks) — so the validator asks this
+ * `INVALID_FIELD_ID`, `CLOSE_CONDITION_FIELD_NOT_FOUND`, the topology checks) — so the validator asks this
  * first and never dies where another rule reports. The check reads the same
  * inventory, the same admission, and the same grammars the builder does.
  */
@@ -1549,6 +1550,16 @@ export function moduleFrameActionsBuildable(
 			form.type,
 		);
 		if (caseWriteAdmissionIssues(inventory).length > 0) return false;
+		// A close form's condition is read at its question's path
+		// (`xform/caseOps.ts::formCloseCondition`); one naming a field the form
+		// does not hold is `CLOSE_CONDITION_FIELD_NOT_FOUND`.
+		const close = form.closeCondition;
+		if (
+			close?.field &&
+			close.answer &&
+			!descendantFieldUuids(doc, uuid).has(close.field)
+		)
+			return false;
 		if (
 			!inventory.buckets.every(
 				(bucket) =>
@@ -1561,6 +1572,34 @@ export function moduleFrameActionsBuildable(
 		}
 	}
 	return true;
+}
+
+/** Single-menu answers of `moduleFrameActionsBuildable`, one map per
+ * context. A context is built over one immutable document, so the answer for
+ * a menu holds for every form of it that the context's caller reads. */
+const frameBuildableByContext = new WeakMap<
+	FormLinkProjectionContext,
+	Map<Uuid, boolean>
+>();
+
+/** `moduleFrameActionsBuildable(doc, [moduleUuid])`, derived once per menu
+ * per context: the per-form rules ask it for every form of a menu, and each
+ * answer derives the case-write inventory of every form the menu reaches. */
+export function moduleFrameActionsBuildableIn(
+	doc: BlueprintDoc,
+	context: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): boolean {
+	let held = frameBuildableByContext.get(context);
+	if (held === undefined) {
+		held = new Map();
+		frameBuildableByContext.set(context, held);
+	}
+	const known = held.get(moduleUuid);
+	if (known !== undefined) return known;
+	const answer = moduleFrameActionsBuildable(doc, [moduleUuid]);
+	held.set(moduleUuid, answer);
+	return answer;
 }
 
 /** A link is conditional when its condition prints to non-empty XPath. */

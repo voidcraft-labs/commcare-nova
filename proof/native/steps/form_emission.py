@@ -11,8 +11,10 @@ and regenerates its forms with HQ's case and meta blocks
   the refused pre-fix sources fail, and the accepted ones regenerated.
 - ``connect_forms``: the Connect scenarios, with Connect's own metadata
   extractors (``commcare_connect/opportunity/app_xml.py`` at the pin,
-  fetched by ``NativeSession.connect_checkout``) run over HQ's source, the
-  CCZ form and HQ's regenerated form.
+  fetched by ``NativeSession.connect_checkout``) run over every form of a
+  scenario on each of its three paths: HQ's source, the CCZ form and HQ's
+  regenerated form. A deliver scenario holds its task in a form of its own
+  (``<scenario>.task``), whose regenerated source is written beside it.
 """
 
 import importlib.util
@@ -121,6 +123,13 @@ def _connect_extractors(checkout):
 
 
 def connect_forms(session):
+    """Connect's extractors over each form of each scenario, on each path, read form by form.
+
+    Connect reads an app as the chain of what its extractors find in every
+    form (``app_xml.py::get_deliver_units_for_app`` and its siblings), so a
+    record keeps what each form holds: the test holds the deliver unit and
+    the task to their own forms.
+    """
     domain = "nova-connect-evidence"
     exports = session.family("connect")
     checkout = session.connect_checkout()
@@ -131,24 +140,34 @@ def connect_forms(session):
         for scenario in scenarios:
             name = scenario["name"]
             raw = (exports / f"{name}.json").read_bytes()
-            form = import_source(raw, domain).get_module(0).get_form(0)
-            native = regenerate_form(form, domain)
-            (exports / f"{name}.hq.xml").write_bytes(native)
-            artifacts = {"hq-source": form.source.encode(), "ccz": (exports / f"{name}.xml").read_bytes()}
-            artifacts["hq-regenerated"] = native
-            metadata = {
-                path: {
-                    "modules": [asdict(item) for item in extractors.extract_connect_blocks(xml)],
-                    "deliver": [asdict(item) for item in extractors.extract_deliver_units(xml)],
-                    "tasks": [asdict(item) for item in extractors.extract_task_units(xml)],
+            forms = list(import_source(raw, domain).get_module(0).get_forms())
+            stems = scenario["forms"]
+            if len(forms) != len(stems):
+                raise AssertionError(f"{name}: HQ imported {len(forms)} forms where Nova's archive holds {len(stems)}")
+            artifacts = {}
+            metadata = {}
+            for stem, form in zip(stems, forms, strict=True):
+                native = regenerate_form(form, domain)
+                (exports / f"{stem}.hq.xml").write_bytes(native)
+                paths = {
+                    "hq-source": form.source.encode(),
+                    "ccz": (exports / f"{stem}.xml").read_bytes(),
+                    "hq-regenerated": native,
                 }
-                for path, xml in artifacts.items()
-            }
+                artifacts[stem] = {path: sha256(xml) for path, xml in paths.items()}
+                metadata[stem] = {
+                    path: {
+                        "modules": [asdict(item) for item in extractors.extract_connect_blocks(xml)],
+                        "deliver": [asdict(item) for item in extractors.extract_deliver_units(xml)],
+                        "tasks": [asdict(item) for item in extractors.extract_task_units(xml)],
+                    }
+                    for path, xml in paths.items()
+                }
             records.append(
                 {
                     "name": name,
                     "inputSha256": sha256(raw),
-                    "artifacts": {path: sha256(xml) for path, xml in artifacts.items()},
+                    "artifacts": artifacts,
                     "metadata": metadata,
                 }
             )

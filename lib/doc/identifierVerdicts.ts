@@ -6,10 +6,14 @@
  * A field's semantic ID is its XForm XML element name and the handle sibling
  * XPath references resolve against. Its case-storage destination is the
  * independent `caseWrite` pair. Field IDs therefore carry only form-path
- * constraints:
- * XML element-name legality and sibling-ID uniqueness (CommCare requires
- * unique ids among siblings; cousins may share). Nova reserves no field IDs
- * for the nodes it generates: its allocator steps around authored names.
+ * constraints: Nova's question-id grammar (HQ's form builder's, without the
+ * hyphen: `lib/domain/questionId.ts::QUESTION_ID_PATTERN`), the names no
+ * form may hold (`meta`, `case`, `registration` and `script` in any case;
+ * `instance`, `bind` and `parsererror`, which HQ's form builder can't open a
+ * form with), and sibling-ID uniqueness (CommCare requires unique ids among
+ * siblings; cousins may share). Each refusal offers a replacement that is
+ * free among the siblings. Nova reserves no field IDs for the nodes it
+ * generates: its allocator steps around authored names.
  *
  * This module is the single home of those checks for the commit
  * boundary (the connect-slug pattern: one verdict, every caller). The
@@ -28,7 +32,6 @@ import {
 	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_CASE_TYPE_LENGTH,
-	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare/constants";
 import { RESERVED_CASE_TYPE_NAMES } from "@/lib/commcare/validator/reservedNamespaces";
 import {
@@ -37,10 +40,23 @@ import {
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
+	type FreeNameOffer,
+	formConnectIds,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	caseOperationIdNameProblem,
+	caseOperationLinkNameProblem,
+	caseOperationNameSentence,
+	freeCaseOperationName,
+	freeQuestionId,
+	questionIdProblem,
+	questionIdProblemSentence,
+	sourceWritePropertyProblem,
+	sourceWritePropertySentence,
+} from "@/lib/domain/questionId";
 
 /** Why an ID was rejected. Useful for tests and for callers that brand
  *  failure classes differently; human-facing copy rides `message` /
@@ -75,15 +91,20 @@ export type FieldIdVerdict =
 
 const OK: FieldIdVerdict = { ok: true };
 
-/** The format half of the id law alone — legal characters, no leading
- *  digit — with no sibling scan. For a caller whose
+/** The format half of the id law alone — the question-id grammar and the
+ *  reserved names — with no sibling scan. For a caller whose
  *  sibling universe is not the document's current one (the section
- *  planner collides against the root its plan PRODUCES). */
+ *  planner collides against the root its plan PRODUCES); the replacement
+ *  it offers is unsuffixed. */
 export function fieldIdFormatVerdict(proposedId: string): FieldIdVerdict {
 	return formatVerdict(proposedId);
 }
 
-function formatVerdict(proposedId: string): FieldIdVerdict {
+/** `taken` is the sibling ids the offered replacement must avoid. */
+function formatVerdict(
+	proposedId: string,
+	taken: ReadonlySet<string> = new Set(),
+): FieldIdVerdict {
 	if (proposedId.length === 0) {
 		return {
 			ok: false,
@@ -94,12 +115,19 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 				'A field needs an ID. Try something short, like "first_name".',
 		};
 	}
-	if (!XML_ELEMENT_NAME_REGEX.test(proposedId)) {
+	const problem = questionIdProblem(proposedId);
+	if (problem !== undefined) {
+		// One sentence serves both voices: it names no wire mechanics.
+		const sentence = questionIdProblemSentence(
+			proposedId,
+			problem,
+			freeQuestionId(proposedId, taken),
+		);
 		return {
 			ok: false,
 			code: "illegal_xml_name",
-			message: `"${proposedId}" can't be a field ID. IDs become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores, no spaces, hyphens, or special characters.`,
-			userMessage: `"${proposedId}" won't work as a field ID. Stick to letters, numbers, and underscores, starting with a letter, no spaces or punctuation.`,
+			message: sentence,
+			userMessage: sentence,
 		};
 	}
 	return OK;
@@ -117,19 +145,59 @@ function siblingConflict(proposedId: string, where = ""): FieldIdVerdict {
 	};
 }
 
+/** The rejection for a root field named like one of its form's Connect
+ *  blocks, whose wrapper shares the form's data root with it. */
+function connectBlockConflict(proposedId: string): FieldIdVerdict {
+	return {
+		ok: false,
+		code: "sibling_conflict",
+		message: `A CommCare Connect block of this form is already named "${proposedId}". The block and a top-level field would be two items of one name in the form, so each needs a unique ID. Pick a different one.`,
+		userMessage: `A CommCare Connect block of this form is already named "${proposedId}". Give this field a different ID.`,
+	};
+}
+
+/** The Connect block ids beside `parentUuid`'s children: its form's, when
+ *  the parent is a form (the data root), and none under a group. */
+function connectIdsBeside(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
+): ReadonlySet<string> {
+	return doc.forms[parentUuid] === undefined
+		? new Set()
+		: formConnectIds(doc, parentUuid);
+}
+
 /** True when `parentUuid`'s children (minus the excluded uuid) already
- *  contain a field named `proposedId`. */
+ *  contain a field named `proposedId`, or, at a form's root, one of the
+ *  form's Connect blocks is. */
 function parentHasSibling(
 	doc: BlueprintDoc,
 	parentUuid: Uuid,
 	proposedId: string,
 	exclude: ReadonlySet<Uuid>,
 ): boolean {
+	if (connectIdsBeside(doc, parentUuid).has(proposedId)) return true;
 	for (const siblingUuid of doc.fieldOrder[parentUuid] ?? []) {
 		if (exclude.has(siblingUuid)) continue;
 		if (doc.fields[siblingUuid]?.id === proposedId) return true;
 	}
 	return false;
+}
+
+/** The ids of `parentUuid`'s children, minus the excluded uuids, with the
+ *  Connect block ids beside them at a form's root. */
+function siblingIds(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
+	exclude: ReadonlySet<Uuid>,
+): Set<string> {
+	const ids = new Set<string>(connectIdsBeside(doc, parentUuid));
+	for (const siblingUuid of doc.fieldOrder[parentUuid] ?? []) {
+		if (exclude.has(siblingUuid)) continue;
+		const id = doc.fields[siblingUuid]?.id;
+		if (id !== undefined) ids.add(id);
+	}
+	return ids;
 }
 
 /** Input for {@link fieldIdVerdict} — the add-shaped, single-parent
@@ -162,9 +230,17 @@ export function fieldIdVerdict({
 	excludeUuid,
 	pendingSiblingIds,
 }: FieldIdVerdictInput): FieldIdVerdict {
-	const format = formatVerdict(proposedId);
-	if (!format.ok) return format;
 	const exclude = new Set<Uuid>(excludeUuid ? [excludeUuid] : []);
+	const format = formatVerdict(
+		proposedId,
+		new Set([
+			...siblingIds(doc, parentUuid, exclude),
+			...(pendingSiblingIds ?? []),
+		]),
+	);
+	if (!format.ok) return format;
+	if (connectIdsBeside(doc, parentUuid).has(proposedId))
+		return connectBlockConflict(proposedId);
 	if (
 		parentHasSibling(doc, parentUuid, proposedId, exclude) ||
 		pendingSiblingIds?.has(proposedId)
@@ -219,9 +295,17 @@ export function renameFieldIdVerdict({
 	const field = doc.fields[fieldUuid];
 	if (!field) return OK;
 
-	const format = formatVerdict(newId);
+	const parent = doc.fieldParent[fieldUuid];
+	const format = formatVerdict(
+		newId,
+		parent === undefined
+			? new Set()
+			: siblingIds(doc, parent, new Set([fieldUuid])),
+	);
 	if (!format.ok) return format;
 	if (field.id === newId) return OK;
+	if (parent !== undefined && connectIdsBeside(doc, parent).has(newId))
+		return connectBlockConflict(newId);
 
 	const conflictParent = findRenameSiblingConflict(doc, fieldUuid, newId);
 	if (conflictParent !== undefined) {
@@ -334,6 +418,8 @@ export {
 export type CaseOperationIdRejectionCode =
 	| "empty"
 	| "illegal_format"
+	| "stops_form_builder"
+	| "reads_as_case_action"
 	| "duplicate";
 
 export type CaseOperationIdVerdict =
@@ -343,14 +429,15 @@ export type CaseOperationIdVerdict =
 const CASE_OPERATION_ID_OK: CaseOperationIdVerdict = { ok: true };
 
 /**
- * Adjudicate a case-operation id against the wire's element-name rules
- * and the ids already used by the same form. `taken` must exclude the
- * operation being renamed, so keeping its current name is never a
- * duplicate.
+ * Adjudicate a case-operation id against the wire's element-name rules,
+ * the three names HQ's form builder can't open a form with, and the ids
+ * already used by the same form. `taken` must exclude the operation being
+ * renamed, so keeping its current name is never a duplicate.
  */
 export function caseOperationIdVerdict(
 	id: string,
 	taken: ReadonlySet<string>,
+	offer: FreeNameOffer = "free-here",
 ): CaseOperationIdVerdict {
 	const trimmed = id.trim();
 	if (trimmed.length === 0) {
@@ -365,6 +452,19 @@ export function caseOperationIdVerdict(
 			ok: false,
 			code: "illegal_format",
 			userMessage: CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+		};
+	}
+	const nameProblem = caseOperationIdNameProblem(trimmed);
+	if (nameProblem !== undefined) {
+		return {
+			ok: false,
+			code: nameProblem,
+			userMessage: caseOperationNameSentence(
+				trimmed,
+				nameProblem,
+				freeCaseOperationName(trimmed, taken),
+				offer,
+			),
 		};
 	}
 	if (taken.has(trimmed)) {
@@ -384,6 +484,8 @@ export type CaseOperationPropertyRejectionCode =
 	| "illegal_format"
 	| "reserved"
 	| "too_long"
+	| "stops_form_builder"
+	| "closes_case"
 	| "duplicate";
 
 export type CaseOperationPropertyVerdict =
@@ -402,7 +504,10 @@ const CASE_OPERATION_PROPERTY_OK: CaseOperationPropertyVerdict = { ok: true };
  * Reserved properties are the ones the operation's own facets own (the
  * name, the owner) or that the two runtimes disagree about, so writing
  * one through the generic slot would mean two different things on a
- * device and on HQ. `alreadyWritten` is the set this operation already
+ * device and on HQ. A case operation's write is always in the form's
+ * source, so the names HQ's form builder can't keep there are refused too:
+ * the three it can't open a form with, and `close`, which it reads as
+ * closing the case. `alreadyWritten` is the set this operation already
  * writes: one operation may not write the same property twice.
  */
 export function caseOperationWritePropertyVerdict(
@@ -444,6 +549,14 @@ export function caseOperationWritePropertyVerdict(
 			userMessage: `"${trimmed}" is set by this change itself, not saved as a property.`,
 		};
 	}
+	const sourceProblem = sourceWritePropertyProblem(trimmed);
+	if (sourceProblem !== undefined) {
+		return {
+			ok: false,
+			code: sourceProblem,
+			userMessage: sourceWritePropertySentence(trimmed, sourceProblem),
+		};
+	}
 	if (alreadyWritten.has(trimmed)) {
 		return {
 			ok: false,
@@ -462,13 +575,16 @@ export function isReservedCaseOperationProperty(property: string): boolean {
 /**
  * Adjudicate a link identifier — the name of one connection between two
  * cases ("parent", "host", "referred_by"). It is an XML element name on
- * the wire, capped by CommCare's index-identifier length, and unique
- * within its operation: two links of one change cannot share a name,
- * because the second would replace the first.
+ * the wire, capped by CommCare's index-identifier length, never a name
+ * HQ's form builder can't open a form with or reads as the block's own
+ * action (`close`, `create`), and unique within its operation: two links of
+ * one change cannot share a name, because the second would replace the
+ * first.
  */
 export function caseOperationLinkIdentifierVerdict(
 	identifier: string,
 	taken: ReadonlySet<string>,
+	offer: FreeNameOffer = "free-here",
 ): CaseOperationIdVerdict {
 	const trimmed = identifier.trim();
 	if (trimmed.length === 0) {
@@ -486,6 +602,19 @@ export function caseOperationLinkIdentifierVerdict(
 			ok: false,
 			code: "illegal_format",
 			userMessage: `Keep it to ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters or fewer.`,
+		};
+	}
+	const nameProblem = caseOperationLinkNameProblem(trimmed);
+	if (nameProblem !== undefined) {
+		return {
+			ok: false,
+			code: nameProblem,
+			userMessage: caseOperationNameSentence(
+				trimmed,
+				nameProblem,
+				freeCaseOperationName(trimmed, taken),
+				offer,
+			),
 		};
 	}
 	if (taken.has(trimmed)) {

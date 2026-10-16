@@ -13,14 +13,15 @@ import { directRepeatCountReference } from "@/lib/domain/repeatCount";
  * CommCare's field-kind taxonomy and stay stable.
  */
 
-import { XML_ELEMENT_NAME_REGEX } from "@/lib/commcare";
 import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import {
+	duplicateSelectOptionValues,
 	effectiveAppLocalization,
 	expressionInspectionSource,
 	fieldKindCarriesValidation,
 	filledProse,
+	formConnectIds,
 	hiddenFieldCarriesBothValueSources,
 	makeTranslationUnitId,
 	mintSelectOptionPlaceholder,
@@ -31,6 +32,11 @@ import {
 	selectOptionValueProblem,
 	snapshotTranslationUnits,
 } from "@/lib/domain";
+import {
+	freeQuestionId,
+	questionIdProblem,
+	questionIdProblemSentence,
+} from "@/lib/domain/questionId";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type ValidationError, validationError } from "../errors";
 
@@ -471,13 +477,40 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 	return errors;
 }
 
+/**
+ * Every field kind's ID follows the question-id grammar
+ * (`lib/domain/questionId.ts`): HQ's form builder opens every Nova form, and
+ * a question, group, repeat, Hidden Value or section (a group on the wire)
+ * it can't keep, or one named like a node CommCare keeps for itself, stops
+ * the form there. The finding offers a replacement free among the field's
+ * siblings.
+ */
 function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
-	if (XML_ELEMENT_NAME_REGEX.test(field.id)) return [];
+	const problem = questionIdProblem(field.id);
+	if (problem === undefined) return [];
+	// Read from `fieldOrder`, the persisted order, not the derived parent
+	// index, which a document handed in from storage may not hold.
+	const [parentKey, siblingUuids] = Object.entries(ctx.doc.fieldOrder).find(
+		([, order]) => order?.includes(field.uuid),
+	) ?? [undefined, []];
+	const siblings = new Set(
+		(siblingUuids ?? [])
+			.filter((uuid) => uuid !== field.uuid)
+			.flatMap((uuid) => {
+				const id = ctx.doc.fields[uuid]?.id;
+				return id === undefined ? [] : [id];
+			}),
+	);
+	// A root field's element shares the form's data root with its Connect
+	// blocks' wrappers.
+	if (parentKey === ctx.formUuid)
+		for (const id of formConnectIds(ctx.doc, ctx.formUuid)) siblings.add(id);
+	const suggestedId = freeQuestionId(field.id, siblings);
 	return [
 		validationError(
 			"INVALID_FIELD_ID",
 			"field",
-			`Field "${field.id}" in "${ctx.formName}" has an invalid ID. Field IDs become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores. No spaces, hyphens, or special characters.`,
+			`Field "${field.id}" in "${ctx.formName}": ${questionIdProblemSentence(field.id, problem, suggestedId)}`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,
@@ -486,9 +519,51 @@ function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 				fieldUuid: field.uuid,
 				fieldId: field.id,
 			},
-			{ fieldUuid: field.uuid },
+			{ fieldUuid: field.uuid, problem, suggestedId },
 		),
 	];
+}
+
+/**
+ * Two choices of one question holding the same value: HQ's form builder
+ * reports it on exact string equality (Vellum `src/mugs/types/select.js`),
+ * and an answer saved with it can't say which was chosen. The first holder
+ * keeps the value; each later one is offered a free one. Only written
+ * choices are read, as `selectOptionValueInvalid` reads them: a lookup
+ * source's values are a table's rows and a cases source's are case ids.
+ */
+function selectOptionValueDuplicate(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (field.kind !== "single_select" && field.kind !== "multi_select")
+		return [];
+	if (field.optionsSource.kind !== "inline") return [];
+	const options = field.optionsSource.options;
+	return duplicateSelectOptionValues(options.map((option) => option.value)).map(
+		({ index, value, suggestion }) => {
+			const option = options[index];
+			return validationError(
+				"SELECT_OPTION_VALUE_DUPLICATE",
+				"field",
+				`Two choices of "${field.id}" in "${ctx.formName}" both store "${value}", so a saved answer can't say which was chosen. "${suggestion}" is free for the second.`,
+				{
+					moduleUuid: ctx.moduleUuid,
+					moduleName: ctx.moduleName,
+					formUuid: ctx.formUuid,
+					formName: ctx.formName,
+					fieldUuid: field.uuid,
+					fieldId: field.id,
+				},
+				{
+					optionUuid: option?.uuid ?? "",
+					optionValue: value,
+					problem: "duplicate",
+					suggestedValue: suggestion,
+				},
+			);
+		},
+	);
 }
 
 /**
@@ -555,6 +630,7 @@ const FIELD_RULES = [
 	selectNoOptions,
 	selectTooFewOptions,
 	selectOptionValueInvalid,
+	selectOptionValueDuplicate,
 	selectOptionLabelEmpty,
 	hiddenNoValue,
 	hiddenValueBothSources,

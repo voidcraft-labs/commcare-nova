@@ -2,6 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useState } from "react";
+import { useAppPublishedAnywhere } from "@/components/builder/app-setup/usePublishingRecords";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -10,6 +11,7 @@ import {
 	DialogTitle,
 } from "@/components/shadcn/dialog";
 import { parseXPathForForm, printXPathInDoc } from "@/lib/doc/expressionText";
+import { useRootFieldIdsByForm } from "@/lib/doc/hooks/useAppConnectIds";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
@@ -215,6 +217,10 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 	const enabled = !!connectType;
 
 	const forms = useFormRows();
+	const rootFieldIds = useRootFieldIdsByForm();
+	/* Once the app is on a project space, the ids Connect keys records by
+	 * say what changing one does there. One read for every form's card. */
+	const published = useAppPublishedAnywhere();
 	const initialDrafts = useState<ModeDrafts>(() => {
 		const doc = docApi.getState();
 		return seedDrafts(
@@ -259,7 +265,13 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 	// the mode the app isn't currently in validates against the right set. One
 	// helper per form (built from the same shared scope) drives both the seed
 	// and the inline check.
-	const assignedIds = assignDraftConnectIds(forms, modeDrafts, selectedMode);
+	const assignedIds = assignDraftConnectIds(
+		forms,
+		modeDrafts,
+		selectedMode,
+		[],
+		rootFieldIds,
+	);
 	const idHelpers: Record<string, ReturnType<typeof connectIdHelpers>> = {};
 	for (const f of forms) {
 		idHelpers[f.formUuid] = connectIdHelpers(
@@ -267,6 +279,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			f.formUuid,
 			f.moduleName,
 			f.formName,
+			rootFieldIds[f.formUuid],
 		);
 	}
 
@@ -456,6 +469,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 							validateId={idHelpers[f.formUuid].validateId}
 							derivedId={idHelpers[f.formUuid].derivedId}
 							formUuid={f.formUuid}
+							published={published}
 						/>
 					</div>
 				))}

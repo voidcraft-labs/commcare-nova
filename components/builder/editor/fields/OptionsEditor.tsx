@@ -35,6 +35,7 @@ import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
 import {
 	optionsSnapshotKey,
+	optionValueRefusal,
 	removeOptionDraft,
 	replaceOptionLabel,
 	replaceOptionMedia,
@@ -306,6 +307,7 @@ export function OptionsEditorWidget({
 						>
 							<Icon icon={tablerTrash} width="16" height="16" />
 						</button>
+						<OptionValueRefusal message={optionValueRefusal(draft, i)} />
 						<div className="basis-full pl-1">
 							<MediaSlot
 								value={opt.media}
@@ -387,5 +389,15 @@ export function OptionsEditor<F extends Field>(
 			/>
 			<RejectionInline message={rejection} />
 		</div>
+	);
+}
+
+/** A row's value refusal, beneath the row it is about. */
+function OptionValueRefusal({ message }: { message: string | undefined }) {
+	if (message === undefined) return null;
+	return (
+		<p role="alert" className="basis-full pl-1 text-[11px] text-nova-rose">
+			{message}
+		</p>
 	);
 }

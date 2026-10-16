@@ -48,11 +48,15 @@ import { validateLookupReferences } from "./lookupReferences";
 import { lookupTypeIndex } from "./lookupTypeContext";
 import { APP_RULES } from "./rules/app";
 import { runFieldRules } from "./rules/field";
-import { runFormRules } from "./rules/form";
+import { entryPlanContext, runFormRules } from "./rules/form";
 import { MEDIA_ASSET_RULES } from "./rules/media";
 import { MODULE_RULES } from "./rules/module";
 import { parentSelectionConflicts } from "./rules/parentSelection";
-import type { XPathError } from "./xpathValidator";
+import {
+	FORM_ROOT_PATH,
+	type XPathError,
+	type XPathScope,
+} from "./xpathValidator";
 
 /** Optional context for a validation run. */
 export interface RunValidationOptions {
@@ -218,6 +222,7 @@ export function runValidation(
 	}
 	errors.push(...validateXPathCarrierInstances(doc));
 
+	const entryPlan = entryPlanContext(doc);
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
 		const inModuleScope = scopeHasModule(scope, moduleUuid);
@@ -234,7 +239,9 @@ export function runValidation(
 			if (!scopeHasForm(scope, moduleUuid, formUuid)) {
 				continue;
 			}
-			errors.push(...runFormRules(doc, formUuid, moduleUuid, lookupTables));
+			errors.push(
+				...runFormRules(doc, formUuid, moduleUuid, entryPlan, lookupTables),
+			);
 			const order = doc.fieldOrder[formUuid] ?? [];
 			if (order.length > 0) {
 				errors.push(
@@ -335,6 +342,7 @@ function runDeepValidation(
 						fieldId: deep.fieldId,
 						field: deep.surface,
 					},
+					rootReadDetails(deep.error),
 				);
 
 			case "field-prose":
@@ -370,6 +378,7 @@ function runDeepValidation(
 						formUuid: deep.formUuid,
 						formName: deep.formName,
 					},
+					rootReadDetails(deep.error),
 				);
 
 			case "form-link-xpath": {
@@ -404,6 +413,7 @@ function runDeepValidation(
 					humanizeXPathError(
 						deep.error,
 						`"${deep.formName}" in "${deep.moduleName}" (${carrier})`,
+						"session",
 					),
 					{
 						moduleUuid: deep.moduleUuid,
@@ -498,6 +508,16 @@ function runDeepValidation(
 	});
 }
 
+/** A read of the form's root alone carries its `ref`, so the builder's
+ * renderer can name it; every other finding carries no details here. */
+function rootReadDetails(
+	error: XPathError,
+): Record<string, string> | undefined {
+	return error.code === "INVALID_REF" && error.ref === FORM_ROOT_PATH
+		? { ref: FORM_ROOT_PATH }
+		: undefined;
+}
+
 /**
  * User-facing label for each XPath surface a field can carry. Typed as a
  * total `Record<XPathSurface, …>`, so adding a surface to the deep walk
@@ -569,7 +589,11 @@ function suggestionHint(
  * message specific without re-extracting anything. `where` is the
  * caller-built location prefix (`Field "x" in "Form" (display condition)`).
  */
-function humanizeXPathError(error: XPathError, where: string): string {
+function humanizeXPathError(
+	error: XPathError,
+	where: string,
+	scope: XPathScope = "form",
+): string {
 	switch (error.code) {
 		case "XPATH_SYNTAX":
 			return `${where} has a syntax error: ${error.message}. Check for unbalanced parentheses, missing operators, or stray characters.`;
@@ -598,6 +622,12 @@ function humanizeXPathError(error: XPathError, where: string): string {
 			return `${where} calls a function with the wrong number of arguments: ${error.message}.`;
 
 		case "INVALID_REF": {
+			// A read of the form's root alone names the whole form. Under
+			// session scope every form read is the closed form, and the
+			// message already says so.
+			if (error.ref === FORM_ROOT_PATH && scope === "form") {
+				return `${where} reads the whole form (/data), not a question. CommCare HQ's form builder shows it as an unknown question. You can read a question, a group or a repeat of this form instead.`;
+			}
 			// The slot's stored shape changes what the repair IS — see
 			// `XPathError.storedRef`. A dangling identity reference must not
 			// present its printed text as a path: the text is the internal id

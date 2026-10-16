@@ -15,11 +15,13 @@ import {
 } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
+	type BlueprintDoc,
 	blueprintDocSchema,
 	makeTranslationUnitId,
 	translationSourceFingerprint,
 } from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { casePropertyOptionTranslationUnitId } from "@/lib/domain/translationUnits";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { lookupContextOf } from "@/proof/corpus/documents";
 import { legacyWireCodes } from "../legacyLanguageWireCodes";
@@ -32,11 +34,14 @@ import {
 	rawDocumentDigest,
 	readRawDocument,
 } from "../oldShape";
-import { caseSchemaDifferences } from "../plan";
+import { caseSchemaDifferences, contentBlockerPlaces } from "../plan";
 import { questionPaths } from "../questionPaths";
+import { EMPTY_FORM_NOTE_TEXT } from "../steps/emptyForms";
 import { optionLabelsStep } from "../steps/optionLabels";
+import { rawText } from "../steps/relativePaths";
 import {
 	CUTOVER_STEPS,
+	type DocumentChange,
 	type StepContext,
 	transformDocument,
 } from "../transform";
@@ -77,6 +82,72 @@ function witnesses(id: string, code: string): boolean {
 		manifest.find((fixture) => fixture.id === id)?.blockers.includes(code) ===
 		true
 	);
+}
+
+/**
+ * The fixtures whose stored shape no step rewrites and the gate refuses, by
+ * the codes it refuses them under. A link identifier and a source write the
+ * cutover keeps are the identity of case data, and a read of the form's root
+ * is a person's call (part 08 of step 2's plan): each is a content blocker
+ * of the plan as well.
+ */
+const GATE_REFUSED: Readonly<Record<string, readonly string[]>> = {
+	"hand-link-identifier-reserved": ["CASE_OPERATION_LINK_INVALID"],
+	"hand-reserved-property-write": [
+		"CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP",
+	],
+	"hand-form-root-read": ["INVALID_REF"],
+};
+
+/**
+ * The fixture as the steps leave its question paths: each field a step
+ * renames under its new id, nothing else changed.
+ */
+function renamedSource(
+	id: string,
+	changes: readonly DocumentChange[],
+): RawDocument {
+	const source = copyRawDocument(readRawDocument(id, readFixtureCarriers(id)));
+	for (const change of changes) {
+		if (change.reason !== "question-renamed") continue;
+		const field = source.fields[change.entity.uuid ?? ""];
+		if (field !== undefined && change.detail?.to !== undefined) {
+			(field as { id: string }).id = change.detail.to;
+		}
+	}
+	return source;
+}
+
+/** The target without the forms and fields a step adds. */
+function withoutAdditions(
+	target: RawDocument,
+	source: RawDocument,
+): RawDocument {
+	const kept = copyRawDocument(target) as unknown as {
+		forms: Record<string, JsonRecord>;
+		fields: Record<string, JsonRecord>;
+		formOrder: Record<string, string[]>;
+		fieldOrder: Record<string, string[]>;
+	};
+	for (const uuid of Object.keys(kept.forms)) {
+		if (source.forms[uuid] === undefined) delete kept.forms[uuid];
+	}
+	for (const uuid of Object.keys(kept.fields)) {
+		if (source.fields[uuid] === undefined) delete kept.fields[uuid];
+	}
+	for (const [parent, order] of Object.entries(kept.formOrder)) {
+		kept.formOrder[parent] = order.filter((uuid) => uuid in kept.forms);
+	}
+	for (const parent of Object.keys(kept.fieldOrder)) {
+		if (!(parent in kept.forms) && !(parent in kept.fields)) {
+			delete kept.fieldOrder[parent];
+			continue;
+		}
+		kept.fieldOrder[parent] = (kept.fieldOrder[parent] ?? []).filter(
+			(uuid) => uuid in kept.fields,
+		);
+	}
+	return kept as unknown as RawDocument;
 }
 
 describe("the ordered transform", () => {
@@ -138,7 +209,9 @@ describe("the ordered transform", () => {
 			const doc = hydratePersistedBlueprint(parsed.data);
 			const lookupContext = lookupContextOf(project.lookup as never);
 			const verdict = mutationCommitVerdict(doc, [], lookupContext);
-			expect(verdict.ok ? [] : verdict.findings.map((f) => f.code)).toEqual([]);
+			expect(
+				verdict.ok ? [] : [...new Set(verdict.findings.map((f) => f.code))],
+			).toEqual(GATE_REFUSED[id] ?? []);
 			const media = new Map(
 				fixtureMediaRecords(
 					project,
@@ -156,12 +229,16 @@ describe("the ordered transform", () => {
 			if (witnesses(id, "target-export-readiness")) {
 				expect(exportFindings).toContain("MEDIA_ASSET_NOT_FOUND");
 			} else {
-				expect(exportFindings).toEqual([]);
+				expect([...new Set(exportFindings)]).toEqual(GATE_REFUSED[id] ?? []);
 			}
 		});
 
 		it("keeps every authored question path a step does not rename", () => {
-			expect(questionPaths(result.target)).toEqual(readFixturePaths(id));
+			expect(questionPaths(raw)).toEqual(readFixturePaths(id));
+			const source = renamedSource(id, result.changes);
+			expect(questionPaths(withoutAdditions(result.target, source))).toEqual(
+				questionPaths(source),
+			);
 		});
 
 		it("derives the case schemas the fixture's stored rows hold", () => {
@@ -480,5 +557,1052 @@ describe("step option-labels", () => {
 				JSON.stringify(record),
 			);
 		}
+	});
+});
+
+// ── Pull request 10: identifiers and form content ───────────────────
+
+/** A writable copy of a frozen fixture. */
+function fixtureCopy(id: string): RawDocument {
+	return copyRawDocument(readRawDocument(id, readFixtureCarriers(id)));
+}
+
+type Writable = {
+	fields: Record<string, JsonRecord>;
+	forms: Record<string, JsonRecord>;
+	modules: Record<string, JsonRecord>;
+	fieldOrder: Record<string, string[]>;
+	formOrder: Record<string, string[]>;
+	caseTypes: Json;
+	localization: Json;
+};
+
+function writable(document: RawDocument): Writable {
+	return document as unknown as Writable;
+}
+
+/** Add a field under a form or a container. */
+function addField(
+	document: RawDocument,
+	parent: string,
+	field: Record<string, Json>,
+): void {
+	const doc = writable(document);
+	const uuid = field.uuid as string;
+	doc.fields[uuid] = field as JsonRecord;
+	doc.fieldOrder[parent] = [...(doc.fieldOrder[parent] ?? []), uuid];
+	if (
+		field.kind === "group" ||
+		field.kind === "repeat" ||
+		field.kind === "section"
+	) {
+		doc.fieldOrder[uuid] = doc.fieldOrder[uuid] ?? [];
+	}
+}
+
+function xpathText(value: string): Json {
+	return { parts: [{ kind: "text", text: value }] };
+}
+
+function textOf(document: RawDocument, uuid: string, slot: string): string {
+	const value = document.fields[uuid]?.[slot] as
+		| { parts: { kind: string; text?: string; uuid?: string }[] }
+		| undefined;
+	return (value?.parts ?? [])
+		.map((part) =>
+			part.kind === "text" ? part.text : `{${part.kind}:${part.uuid}}`,
+		)
+		.join("");
+}
+
+/** The target parsed, hydrated and judged by the gate, as plan.ts judges it. */
+function gateCodes(id: string, document: RawDocument): string[] {
+	const doc = parsedTarget(id, document);
+	const verdict = mutationCommitVerdict(
+		doc,
+		[],
+		lookupContextOf(readFixtureProject(id).lookup as never),
+	);
+	return verdict.ok ? [] : [...new Set(verdict.findings.map((f) => f.code))];
+}
+
+function parsedTarget(id: string, document: RawDocument): BlueprintDoc {
+	return hydratePersistedBlueprint(
+		blueprintDocSchema.parse(rawDocumentAssembly(id, document)),
+	);
+}
+
+function stepChanges(
+	result: ReturnType<typeof transformDocument>,
+	stepId: string,
+) {
+	return result.steps.find((step) => step.stepId === stepId)?.changes ?? [];
+}
+
+const uuid = (n: number) =>
+	`00000000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`;
+
+describe("step question-ids", () => {
+	const ID = "targeted-invalid-question-ids";
+	const FORM = "6674aa53-075e-5e5f-a650-342956a17903";
+	const NOTES = "39160b11-9a57-5bd5-ad4d-5763f2529661";
+	const META = "4cdc70c4-40a5-5f60-a6f5-61867579a734";
+	const XML = "d0b66252-a2f7-5d8e-a0e9-cc900926e1a2";
+	const GROUP = uuid(0x1001);
+	const INNER = uuid(0x1002);
+	const COPY = uuid(0x1003);
+	const ECHO = uuid(0x1004);
+	const AGAIN = uuid(0x1005);
+	const DEEP = uuid(0x1006);
+	const CASE = uuid(0x1007);
+	const TAKEN = uuid(0x1008);
+	const ELSEWHERE = uuid(0x1009);
+
+	/** The fixture with every shape the rule renames, and the paths that read them. */
+	function document(): RawDocument {
+		const doc = fixtureCopy(ID);
+		addField(doc, FORM, {
+			uuid: GROUP,
+			kind: "group",
+			id: "meta",
+			label: xpathText("Meta"),
+		});
+		addField(doc, GROUP, {
+			uuid: INNER,
+			kind: "text",
+			id: "inner",
+			label: xpathText("Inner"),
+		});
+		addField(doc, GROUP, {
+			uuid: DEEP,
+			kind: "hidden",
+			id: "deep",
+			calculate: xpathText("../../_notes"),
+		});
+		addField(doc, FORM, {
+			uuid: COPY,
+			kind: "hidden",
+			id: "detail_copy",
+			calculate: { parts: [{ kind: "field-ref", uuid: INNER }] },
+		});
+		addField(doc, FORM, {
+			uuid: ECHO,
+			kind: "hidden",
+			id: "echo",
+			calculate: xpathText("concat(../_notes, ' ', ./../XMLcode)"),
+		});
+		addField(doc, FORM, {
+			uuid: AGAIN,
+			kind: "text",
+			id: "again",
+			label: xpathText("Again"),
+			default_value: xpathText("current()/../_notes"),
+		});
+		addField(doc, FORM, {
+			uuid: TAKEN,
+			kind: "text",
+			id: "q_case",
+			label: xpathText("Taken"),
+		});
+		addField(doc, FORM, {
+			uuid: CASE,
+			kind: "text",
+			id: "case",
+			label: xpathText("Case"),
+		});
+		addField(doc, FORM, {
+			uuid: ELSEWHERE,
+			kind: "hidden",
+			id: "elsewhere",
+			calculate: xpathText(
+				"instance('casedb')/casedb/case[@case_id = ../_notes]/_notes",
+			),
+		});
+		return doc;
+	}
+
+	it("renames each refused id to the free editor-safe id and names the field's kind", () => {
+		const result = transformDocument(document(), contextFor(ID));
+		expect(
+			stepChanges(result, "question-ids").map((change) => ({
+				uuid: change.entity.uuid,
+				...change.detail,
+			})),
+		).toEqual([
+			{
+				uuid: NOTES,
+				form: "Intake",
+				kind: "question",
+				from: "_notes",
+				to: "notes",
+			},
+			{
+				uuid: XML,
+				form: "Intake",
+				kind: "question",
+				from: "XMLcode",
+				to: "qXMLcode",
+			},
+			{
+				uuid: META,
+				form: "Intake",
+				kind: "question",
+				from: "Meta",
+				to: "q_Meta",
+			},
+			{
+				uuid: GROUP,
+				form: "Intake",
+				kind: "group",
+				from: "meta",
+				to: "q_meta",
+			},
+			{
+				uuid: CASE,
+				form: "Intake",
+				kind: "question",
+				from: "case",
+				to: "q_case_2",
+			},
+		]);
+		expect(result.blockers).toEqual([]);
+	});
+
+	it("rewrites the paths written as text that reach a renamed node, and leaves a reference and another document alone", () => {
+		const { target } = transformDocument(document(), contextFor(ID));
+		expect(textOf(target, DEEP, "calculate")).toBe("../../notes");
+		expect(textOf(target, ECHO, "calculate")).toBe(
+			"concat(../notes, ' ', ./../qXMLcode)",
+		);
+		expect(textOf(target, AGAIN, "default_value")).toBe("current()/../notes");
+		expect(textOf(target, COPY, "calculate")).toBe(`{field-ref:${INNER}}`);
+		expect(textOf(target, ELSEWHERE, "calculate")).toBe(
+			"instance('casedb')/casedb/case[@case_id = ../_notes]/_notes",
+		);
+		expect(gateCodes(ID, target)).toEqual([]);
+	});
+
+	it("renames the names HQ's editors warn about or can't open, in any case where the rule says so", () => {
+		const doc = fixtureCopy(ID);
+		const ids = [
+			"registration",
+			"Script",
+			"instance",
+			"bind",
+			"parsererror",
+			"Instance",
+			"scripts",
+		];
+		for (const [index, id] of ids.entries()) {
+			addField(doc, FORM, {
+				uuid: uuid(0x1100 + index),
+				kind: "text",
+				id,
+				label: xpathText(id),
+			});
+		}
+		const result = transformDocument(doc, contextFor(ID));
+		expect(
+			stepChanges(result, "question-ids")
+				.slice(3)
+				.map((change) => [change.detail?.from, change.detail?.to]),
+		).toEqual([
+			["registration", "q_registration"],
+			["Script", "q_Script"],
+			["instance", "q_instance"],
+			["bind", "q_bind"],
+			["parsererror", "q_parsererror"],
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("stops on a relative path that names a renamed question and reaches no node", () => {
+		const result = transformDocument(
+			fixtureCopy("hand-unresolved-relative-path"),
+			contextFor("hand-unresolved-relative-path"),
+		);
+		expect(result.blockers).toEqual([
+			{
+				code: "unresolved-relative-path",
+				entity: {
+					type: "field",
+					uuid: "00000000-0000-4000-8000-000000000a01",
+					nameAtMigration: "echo",
+				},
+				detail: {
+					form: "Intake",
+					slot: "calculate",
+					name: "_notes",
+					expression: "../../_notes",
+				},
+			},
+		]);
+		expect(
+			textOf(
+				result.target,
+				"00000000-0000-4000-8000-000000000a01",
+				"calculate",
+			),
+		).toBe("../../_notes");
+	});
+});
+
+describe("step case-operation-ids", () => {
+	const ID = "hand-case-operation-ids";
+
+	it("renames an operation named instance and keeps an underscore id, which HQ's form builder keeps", () => {
+		const doc = fixtureCopy(ID);
+		const form = writable(doc).forms["66666666-6666-4666-8666-666666666666"];
+		const operations = form?.caseOperations as { id: string }[];
+		const unlink = operations.find(
+			(operation) => operation.id === "unlink_visit",
+		);
+		if (unlink === undefined) throw new Error("The fixture lost unlink_visit.");
+		unlink.id = "_close";
+		const result = transformDocument(doc, contextFor(ID));
+		expect(stepChanges(result, "case-operation-ids")).toEqual([
+			{
+				reason: "case-operation-renamed",
+				entity: {
+					type: "form",
+					uuid: "66666666-6666-4666-8666-666666666666",
+					nameAtMigration: "Edit",
+				},
+				detail: { from: "instance", to: "q_instance" },
+			},
+		]);
+		const ids = (
+			(
+				result.target.forms[
+					"66666666-6666-4666-8666-666666666666"
+				] as JsonRecord
+			).caseOperations as { id: string }[]
+		).map((operation) => operation.id);
+		expect(ids).toEqual([
+			"create_visit",
+			"q_instance",
+			"_close",
+			"finish_visit",
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+});
+
+describe("step connect-ids", () => {
+	it("renames the learn app's module and assessment to the ids the grammar admits", () => {
+		const ID = "targeted-invalid-connect-ids";
+		const FORM = "830417a1-dbc6-5455-a130-97c3d916a951";
+		const doc = fixtureCopy(ID);
+		addField(doc, FORM, {
+			uuid: uuid(0x2001),
+			kind: "hidden",
+			id: "module_name",
+			calculate: xpathText("../_lesson/module/name"),
+		});
+		const result = transformDocument(doc, contextFor(ID));
+		expect(
+			stepChanges(result, "connect-ids").map((change) => change.detail),
+		).toEqual([
+			{ block: "learn_module", from: "_lesson", to: "lesson" },
+			{ block: "assessment", from: "XMLquiz", to: "qXMLquiz" },
+		]);
+		expect(textOf(result.target, uuid(0x2001), "calculate")).toBe(
+			"../lesson/module/name",
+		);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("keeps a 50-character id at 50 and cuts only a collision's tail", () => {
+		const ID = "targeted-invalid-connect-ids";
+		const FORM = "830417a1-dbc6-5455-a130-97c3d916a951";
+		const doc = fixtureCopy(ID);
+		const long = "_1st_lesson".padEnd(50, "x");
+		const connect = writable(doc).forms[FORM]?.connect as {
+			learn_module: { id: string };
+			assessment: { id: string };
+		};
+		connect.learn_module.id = long;
+		connect.assessment.id = "qXMLquiz";
+		const alone = stepChanges(
+			transformDocument(doc, contextFor(ID)),
+			"connect-ids",
+		).map((change) => change.detail?.to);
+		expect(alone).toEqual(["q1st_lesson".padEnd(50, "x")]);
+		connect.assessment.id = "q1st_lesson".padEnd(50, "x");
+		const collided = stepChanges(
+			transformDocument(doc, contextFor(ID)),
+			"connect-ids",
+		).map((change) => change.detail?.to);
+		expect(collided).toEqual([`${"q1st_lesson".padEnd(48, "x")}_2`]);
+	});
+
+	/* A block's wrapper sits beside the form's top-level fields, so neither
+	 * id step may land a field and a block on one name. */
+	it("renames a refused block id clear of a top-level field of its form", () => {
+		const ID = "targeted-invalid-connect-ids";
+		const FORM = "830417a1-dbc6-5455-a130-97c3d916a951";
+		const doc = fixtureCopy(ID);
+		addField(doc, FORM, {
+			uuid: uuid(0x2002),
+			kind: "text",
+			id: "lesson",
+			label: xpathText("Lesson"),
+		});
+		const result = transformDocument(doc, contextFor(ID));
+		expect(
+			stepChanges(result, "connect-ids").map((change) => change.detail),
+		).toEqual([
+			{ block: "learn_module", from: "_lesson", to: "lesson_2" },
+			{ block: "assessment", from: "XMLquiz", to: "qXMLquiz" },
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("renames a refused top-level field id clear of its form's block ids", () => {
+		const ID = "targeted-invalid-connect-ids";
+		const FORM = "830417a1-dbc6-5455-a130-97c3d916a951";
+		const doc = fixtureCopy(ID);
+		addField(doc, FORM, {
+			uuid: uuid(0x2003),
+			kind: "text",
+			id: "_qXMLquiz",
+			label: xpathText("Quiz"),
+		});
+		const connect = writable(doc).forms[FORM]?.connect as {
+			assessment: { id: string };
+		};
+		connect.assessment.id = "qXMLquiz";
+		const result = transformDocument(doc, contextFor(ID));
+		expect(
+			stepChanges(result, "question-ids")
+				.filter((change) => change.entity.uuid === uuid(0x2003))
+				.map((change) => change.detail?.to),
+		).toEqual(["qXMLquiz_2"]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	/* The validator refuses a top-level field named like one of its form's
+	 * blocks (FIELD_ID_NAMES_CONNECT_BLOCK); the field moves, the block keeps
+	 * the id Connect keys its unit on. */
+	it("renames a top-level field named like one of its form's blocks, and its readers follow", () => {
+		const ID = "targeted-invalid-connect-ids";
+		const FORM = "830417a1-dbc6-5455-a130-97c3d916a951";
+		const QUIZ = uuid(0x2004);
+		const doc = fixtureCopy(ID);
+		const connect = writable(doc).forms[FORM]?.connect as {
+			assessment: { id: string };
+		};
+		connect.assessment.id = "quiz";
+		addField(doc, FORM, {
+			uuid: QUIZ,
+			kind: "text",
+			id: "quiz",
+			label: xpathText("Quiz"),
+		});
+		addField(doc, FORM, {
+			uuid: uuid(0x2006),
+			kind: "hidden",
+			id: "echo",
+			calculate: xpathText("concat(../quiz, ' ', current()/../quiz)"),
+		});
+		addField(doc, FORM, {
+			uuid: uuid(0x2008),
+			kind: "hidden",
+			id: "copy",
+			calculate: { parts: [{ kind: "field-ref", uuid: QUIZ }] },
+		});
+		const unrenamed = transformDocument(
+			doc,
+			contextFor(ID),
+			CUTOVER_STEPS.filter((step) => step.id !== "question-ids"),
+		);
+		expect(gateCodes(ID, unrenamed.target)).toEqual([
+			"FIELD_ID_NAMES_CONNECT_BLOCK",
+		]);
+		const result = transformDocument(doc, contextFor(ID));
+		expect(
+			stepChanges(result, "question-ids").filter(
+				(change) => change.entity.uuid === QUIZ,
+			),
+		).toEqual([
+			{
+				reason: "question-renamed",
+				entity: { type: "field", uuid: QUIZ, nameAtMigration: "quiz_2" },
+				detail: {
+					form: rawText(result.target.forms[FORM]?.name),
+					kind: "question",
+					from: "quiz",
+					to: "quiz_2",
+				},
+			},
+		]);
+		expect(
+			stepChanges(result, "connect-ids").map((change) => change.detail?.from),
+		).toEqual(["_lesson"]);
+		expect(textOf(result.target, uuid(0x2006), "calculate")).toBe(
+			"concat(../quiz_2, ' ', current()/../quiz_2)",
+		);
+		expect(textOf(result.target, uuid(0x2008), "calculate")).toBe(
+			`{field-ref:${QUIZ}}`,
+		);
+		expect(result.blockers).toEqual([]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	/* Nova's validator reads no path into a block, so a stored one is the
+	 * gate's to refuse; the rewrite still follows it to the block. */
+	it("leaves a path that steps into the block of the field's name on the block", () => {
+		const ID = "targeted-invalid-connect-ids";
+		const FORM = "830417a1-dbc6-5455-a130-97c3d916a951";
+		const doc = fixtureCopy(ID);
+		const connect = writable(doc).forms[FORM]?.connect as {
+			assessment: { id: string };
+		};
+		connect.assessment.id = "quiz";
+		addField(doc, FORM, {
+			uuid: uuid(0x2007),
+			kind: "text",
+			id: "quiz",
+			label: xpathText("Quiz"),
+		});
+		addField(doc, FORM, {
+			uuid: uuid(0x200b),
+			kind: "hidden",
+			id: "score_read",
+			calculate: xpathText("../quiz/assessment/user_score"),
+		});
+		const result = transformDocument(doc, contextFor(ID));
+		expect(textOf(result.target, uuid(0x200b), "calculate")).toBe(
+			"../quiz/assessment/user_score",
+		);
+		expect(result.blockers).toEqual([]);
+	});
+
+	it("stops on a path that reads a field and a block of one name alike", () => {
+		const ID = "targeted-invalid-connect-ids";
+		const FORM = "830417a1-dbc6-5455-a130-97c3d916a951";
+		const doc = fixtureCopy(ID);
+		const connect = writable(doc).forms[FORM]?.connect as {
+			assessment: { id: string };
+		};
+		connect.assessment.id = "quiz";
+		addField(doc, FORM, {
+			uuid: uuid(0x2009),
+			kind: "text",
+			id: "quiz",
+			label: xpathText("Quiz"),
+		});
+		addField(doc, FORM, {
+			uuid: uuid(0x200a),
+			kind: "hidden",
+			id: "either",
+			calculate: xpathText("count(../quiz/*)"),
+		});
+		const result = transformDocument(doc, contextFor(ID));
+		expect(result.blockers).toMatchObject([
+			{
+				code: "unresolved-relative-path",
+				detail: { name: "quiz", expression: "count(../quiz/*)" },
+			},
+		]);
+	});
+
+	it("renames a task named like one of Connect's own keys, which the next step moves to a form of its own", () => {
+		const ID = "connect-deliver-default";
+		const result = transformDocument(fixtureCopy(ID), contextFor(ID));
+		expect(stepChanges(result, "connect-ids")).toEqual([
+			{
+				reason: "connect-block-renamed",
+				entity: {
+					type: "form",
+					uuid: "c908c5a3-5d53-556f-a21a-3cd50e8658b3",
+					nameAtMigration: "Activity",
+				},
+				detail: { block: "task", from: "task", to: "q_task" },
+			},
+		]);
+	});
+});
+
+describe("step connect-task-forms", () => {
+	const ID = "connect-deliver-default";
+	const SOURCE = "c908c5a3-5d53-556f-a21a-3cd50e8658b3";
+	const MODULE = "fe250245-35e0-5099-a17f-efd368120035";
+
+	it("moves the task into a survey form after its source, with one label, and keeps its id", () => {
+		const result = transformDocument(fixtureCopy(ID), contextFor(ID));
+		const [change] = stepChanges(result, "connect-task-forms");
+		const added = change?.detail?.newFormUuid ?? "";
+		expect(change).toEqual({
+			reason: "connect-task-moved-to-own-form",
+			entity: { type: "form", uuid: SOURCE, nameAtMigration: "Activity" },
+			detail: {
+				task: "q_task",
+				newFormUuid: added,
+				newForm: "Record & review",
+			},
+		});
+		expect(result.target.formOrder[MODULE]).toEqual([SOURCE, added]);
+		expect(result.target.forms[SOURCE]?.connect).toEqual({
+			deliver_unit: { id: "visit", name: "Home & clinic <雪>" },
+		});
+		expect(result.target.forms[added]).toMatchObject({
+			uuid: added,
+			name: "Record & review",
+			type: "survey",
+			connect: {
+				task: {
+					id: "q_task",
+					name: "Record & review",
+					description: "Ask <then> listen",
+				},
+			},
+		});
+		const [note] = result.target.fieldOrder[added] ?? [];
+		expect(result.target.fields[note ?? ""]).toEqual({
+			uuid: note,
+			id: "note",
+			kind: "label",
+			label: { parts: [{ kind: "text", text: "Ask <then> listen" }] },
+		});
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("derives both new uuids, so a second plan writes the same target", () => {
+		const first = transformDocument(fixtureCopy(ID), contextFor(ID));
+		const second = transformDocument(fixtureCopy(ID), contextFor(ID));
+		expect(rawDocumentDigest(first.target)).toBe(
+			rawDocumentDigest(second.target),
+		);
+	});
+
+	it("labels the new form with the task's name where its description is blank", () => {
+		const doc = fixtureCopy(ID);
+		(
+			(writable(doc).forms[SOURCE] as JsonRecord).connect as {
+				task: { description: string };
+			}
+		).task.description = "  ";
+		const result = transformDocument(doc, contextFor(ID));
+		const added =
+			stepChanges(result, "connect-task-forms")[0]?.detail?.newFormUuid ?? "";
+		const [note] = result.target.fieldOrder[added] ?? [];
+		expect(result.target.fields[note ?? ""]?.label).toEqual({
+			parts: [{ kind: "text", text: "Record & review" }],
+		});
+	});
+});
+
+describe("step entry-point-ids", () => {
+	const ID = "targeted-invalid-question-ids";
+	const MODULE = "c575a671-c3c1-5045-a884-3757f5b918a1";
+
+	it("rewrites each id HQ would not save to its slug, free across the app", () => {
+		const doc = fixtureCopy(ID);
+		const menu = writable(doc).modules[MODULE] as Record<string, Json>;
+		menu.entryPoint = { uuid: uuid(0x3001), id: "intake" };
+		menu.caseListEntryPoint = { uuid: uuid(0x3002), id: "a--b-" };
+		const result = transformDocument(doc, contextFor(ID));
+		expect(stepChanges(result, "entry-point-ids")).toEqual([
+			{
+				reason: "entry-point-renamed",
+				entity: {
+					type: "entryPoint",
+					uuid: uuid(0x3002),
+					nameAtMigration: "a-b",
+				},
+				detail: { from: "a--b-", to: "a-b" },
+			},
+			{
+				reason: "entry-point-renamed",
+				entity: {
+					type: "entryPoint",
+					uuid: "8a8e7e87-2b04-53bb-a4b3-b44509bbb157",
+					nameAtMigration: "intake_2",
+				},
+				detail: { from: "intake_", to: "intake_2" },
+			},
+		]);
+	});
+
+	it("gives an id with nothing to keep the id entry", () => {
+		const doc = fixtureCopy(ID);
+		(
+			writable(doc).forms["6674aa53-075e-5e5f-a650-342956a17903"]
+				?.entryPoint as {
+				id: string;
+			}
+		).id = "-_-";
+		const result = transformDocument(doc, contextFor(ID));
+		expect(stepChanges(result, "entry-point-ids")[0]?.detail).toEqual({
+			from: "-_-",
+			to: "entry",
+		});
+	});
+});
+
+describe("step option-values", () => {
+	const ID = "hand-option-values";
+	const FIELD = "00000000-0000-4000-8000-000000000201";
+
+	function values(document: RawDocument, field: string): string[] {
+		return (
+			(document.fields[field] as JsonRecord).optionsSource as {
+				options: { value: string }[];
+			}
+		).options.map((option) => option.value);
+	}
+
+	function catalog(document: RawDocument, property: string): string[] {
+		const patient = (
+			document.caseTypes as {
+				name: string;
+				properties: { name: string; options?: { value: string }[] }[];
+			}[]
+		).find((type) => type.name === "patient");
+		return (
+			patient?.properties.find((candidate) => candidate.name === property)
+				?.options ?? []
+		).map((option) => option.value);
+	}
+
+	it("gives each later holder of a value a value of its own, in a field and in a catalog", () => {
+		const result = transformDocument(fixtureCopy(ID), contextFor(ID));
+		expect(values(result.target, FIELD)).toEqual(["yes", "yes_2", "no"]);
+		expect(catalog(result.target, "risk")).toEqual(["high", "high_2"]);
+		expect(stepChanges(result, "option-values")).toEqual([
+			{
+				reason: "option-value-split",
+				entity: { type: "app", nameAtMigration: result.target.appName },
+				detail: {
+					caseType: "patient",
+					property: "risk",
+					value: "high",
+					to: "high_2",
+					keptLabel: "High",
+					label: "Very high",
+				},
+			},
+			{
+				reason: "option-value-split",
+				entity: {
+					type: "form",
+					uuid: "cd8766da-7326-51ee-aa0b-f8101304f9ea",
+					nameAtMigration: "Visit",
+				},
+				detail: {
+					question: "consent",
+					value: "yes",
+					to: "yes_2",
+					keptLabel: "Yes",
+					label: "Agreed",
+				},
+			},
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("keeps a field and its catalog property in agreement, a list with fewer holders using fewer", () => {
+		const doc = fixtureCopy(ID);
+		const field = writable(doc).fields[FIELD] as Record<string, Json>;
+		field.caseWrite = { caseType: "patient", property: "risk" };
+		field.optionsSource = {
+			kind: "inline",
+			options: [
+				{ uuid: uuid(0x4001), value: "high", label: xpathText("High") },
+				{ uuid: uuid(0x4002), value: "high", label: xpathText("Higher") },
+			],
+		};
+		const patient = (
+			writable(doc).caseTypes as {
+				name: string;
+				properties: { name: string; options?: Json[] }[];
+			}[]
+		).find((type) => type.name === "patient");
+		const risk = patient?.properties.find(
+			(property) => property.name === "risk",
+		);
+		if (risk === undefined) throw new Error("The fixture lost risk.");
+		risk.options = [
+			{ value: "high", label: xpathText("High") },
+			{ value: "high", label: xpathText("Very high") },
+			{ value: "high", label: xpathText("Highest") },
+		];
+		const result = transformDocument(doc, contextFor(ID));
+		expect(catalog(result.target, "risk")).toEqual([
+			"high",
+			"high_2",
+			"high_3",
+		]);
+		expect(values(result.target, FIELD)).toEqual(["high", "high_2"]);
+	});
+
+	it("moves a catalog choice's translation to its new key", () => {
+		const doc = fixtureCopy(ID);
+		const moved = casePropertyOptionTranslationUnitId(
+			"patient",
+			"risk",
+			"high",
+			1,
+		);
+		const entry = {
+			sourceFingerprint: "fixture",
+			origin: "human",
+			review: "reviewed",
+			translatedFrom: "eng",
+			value: xpathText("Muy alto"),
+		};
+		writable(doc).localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
+			translations: { spa: { [moved]: entry } },
+		};
+		const { target } = transformDocument(doc, contextFor(ID));
+		expect(
+			(target.localization as { translations: { spa: Record<string, Json> } })
+				.translations.spa,
+		).toEqual({
+			[casePropertyOptionTranslationUnitId("patient", "risk", "high_2", 0)]:
+				entry,
+		});
+	});
+});
+
+describe("step empty-forms", () => {
+	const ID = "hand-empty-forms";
+	const FLAT = "00000000-0000-4000-8000-000000000401";
+	const SECTIONED = "00000000-0000-4000-8000-000000000402";
+	const SECTION = "00000000-0000-4000-8000-000000000404";
+	const EMPTY = "00000000-0000-4000-8000-000000000406";
+	const EMPTY_FORM_CHANGE = {
+		reason: "empty-form-label-added",
+		entity: { type: "form", uuid: EMPTY, nameAtMigration: "Empty tally" },
+	};
+
+	it("labels a form holding only an empty group, and leaves a form whose only field is a Hidden Value, which the rule counts as a question", () => {
+		const result = transformDocument(fixtureCopy(ID), contextFor(ID));
+		expect(stepChanges(result, "empty-forms")).toEqual([EMPTY_FORM_CHANGE]);
+		const [box, note] = result.target.fieldOrder[EMPTY] ?? [];
+		expect(box).toBe("00000000-0000-4000-8000-000000000407");
+		expect(result.target.fields[note ?? ""]).toMatchObject({
+			id: "note",
+			kind: "label",
+			label: { parts: [{ kind: "text", text: EMPTY_FORM_NOTE_TEXT }] },
+		});
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("names a root label clear of the form's Connect block ids", () => {
+		const doc = fixtureCopy(ID);
+		writable(doc).forms[EMPTY] = {
+			...writable(doc).forms[EMPTY],
+			connect: { deliver_unit: { id: "note", name: "Note" } },
+		};
+		const result = transformDocument(doc, contextFor(ID));
+		const note = result.target.fieldOrder[EMPTY]?.at(-1) ?? "";
+		expect(result.target.fields[note]).toMatchObject({
+			id: "note_2",
+			kind: "label",
+		});
+	});
+
+	it("adds one label at the root of a flat form, and inside the first section of a sectioned one", () => {
+		const doc = fixtureCopy(ID);
+		for (const hidden of [
+			"00000000-0000-4000-8000-000000000403",
+			"00000000-0000-4000-8000-000000000405",
+		]) {
+			const field = writable(doc).fields[hidden] as Record<string, Json>;
+			field.kind = "group";
+			field.label = xpathText("Empty");
+			delete field.calculate;
+			writable(doc).fieldOrder[hidden] = [];
+		}
+		const result = transformDocument(doc, contextFor(ID));
+		expect(stepChanges(result, "empty-forms")).toEqual([
+			{
+				reason: "empty-form-label-added",
+				entity: { type: "form", uuid: FLAT, nameAtMigration: "Tally" },
+			},
+			{
+				reason: "empty-form-label-added",
+				entity: {
+					type: "form",
+					uuid: SECTIONED,
+					nameAtMigration: "Sectioned tally",
+				},
+			},
+			EMPTY_FORM_CHANGE,
+		]);
+		const flatNote = result.target.fieldOrder[FLAT]?.at(-1) ?? "";
+		const sectionNote = result.target.fieldOrder[SECTION]?.at(-1) ?? "";
+		for (const note of [flatNote, sectionNote]) {
+			expect(result.target.fields[note]).toMatchObject({
+				id: "note",
+				kind: "label",
+				label: { parts: [{ kind: "text", text: EMPTY_FORM_NOTE_TEXT }] },
+			});
+		}
+		expect(result.target.fieldOrder[SECTIONED]).toEqual([SECTION]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+});
+
+describe("step unsupplied-session-reads", () => {
+	const ID = "hand-unsupplied-session-reads";
+	const REFERRER = "00000000-0000-4000-8000-000000000501";
+	const VISIT = "cd8766da-7326-51ee-aa0b-f8101304f9ea";
+	const REGISTER = "cb8763b4-7126-5ec8-ac0b-fb361104f6c4";
+
+	it("replaces each read no entry supplies by '' and leaves a supplied read byte for byte", () => {
+		const doc = fixtureCopy(ID);
+		addField(doc, VISIT, {
+			uuid: uuid(0x5001),
+			kind: "hidden",
+			id: "own_case",
+			calculate: xpathText("instance('commcaresession')/session/data/case_id"),
+		});
+		addField(doc, REGISTER, {
+			uuid: uuid(0x5002),
+			kind: "hidden",
+			id: "mixed",
+			calculate: xpathText(
+				"concat( instance('commcaresession')/session/data/referrer_id , 'x', instance('commcaresession')/session/data/case_id_new_patient_0)",
+			),
+		});
+		const result = transformDocument(doc, contextFor(ID));
+		expect(textOf(result.target, REFERRER, "calculate")).toBe("''");
+		expect(textOf(result.target, uuid(0x5002), "calculate")).toBe(
+			"concat( '' , 'x', instance('commcaresession')/session/data/case_id_new_patient_0)",
+		);
+		expect(textOf(result.target, uuid(0x5001), "calculate")).toBe(
+			"instance('commcaresession')/session/data/case_id",
+		);
+		expect(stepChanges(result, "unsupplied-session-reads")).toEqual([
+			{
+				reason: "session-read-removed",
+				entity: { type: "field", uuid: REFERRER, nameAtMigration: "referrer" },
+				detail: { form: "Register", datum: "referrer_id" },
+			},
+			{
+				reason: "session-read-removed",
+				entity: { type: "field", uuid: uuid(0x5002), nameAtMigration: "mixed" },
+				detail: { form: "Register", datum: "referrer_id" },
+			},
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("is refused by the gate where the step does not run", () => {
+		const steps = CUTOVER_STEPS.filter(
+			(step) => step.id !== "unsupplied-session-reads",
+		);
+		expect(
+			gateCodes(
+				ID,
+				transformDocument(fixtureCopy(ID), contextFor(ID), steps).target,
+			),
+		).toEqual(["SESSION_DATUM_NOT_SUPPLIED"]);
+	});
+});
+
+describe("the content blockers", () => {
+	/** The codes a fixture's target meets, as plan.ts reads them. */
+	function blockerCodes(id: string, document = fixtureCopy(id)): string[] {
+		const result = transformDocument(document, contextFor(id));
+		const parsed = blueprintDocSchema.safeParse(
+			rawDocumentAssembly(id, result.target),
+		);
+		return [
+			...new Set(
+				contentBlockerPlaces(
+					result.target,
+					parsed.success ? hydratePersistedBlueprint(parsed.data) : undefined,
+					result.blockers,
+				).map((place) => place.code),
+			),
+		];
+	}
+
+	it.each([
+		["hand-unresolved-relative-path", "unresolved-relative-path"],
+		["hand-link-identifier-reserved", "link-identifier-reserved"],
+		["hand-reserved-property-write", "reserved-property-write"],
+		["hand-form-root-read", "form-root-read"],
+	])("finds %s's blocker", (id, code) => {
+		expect(blockerCodes(id)).toEqual([code]);
+	});
+
+	it.each(
+		fixtures.filter(
+			(id) =>
+				!id.startsWith("hand-unresolved") &&
+				!id.startsWith("hand-link") &&
+				!id.startsWith("hand-reserved") &&
+				!id.startsWith("hand-form-root"),
+		),
+	)("finds none in %s", (id) => {
+		expect(blockerCodes(id)).toEqual([]);
+	});
+
+	const EDIT = "66666666-6666-4666-8666-666666666666";
+
+	function operationsOf(document: RawDocument) {
+		return writable(document).forms[EDIT]?.caseOperations as {
+			id: string;
+			links?: { identifier: string }[];
+			writes?: { property: string }[];
+		}[];
+	}
+
+	it.each(["close", "create"])(
+		"stops on a link identifier %s, which HQ's form builder reads as the block's own action",
+		(identifier) => {
+			const doc = fixtureCopy("hand-case-operation-ids");
+			const create = operationsOf(doc).find(
+				(operation) => operation.id === "create_visit",
+			);
+			const link = create?.links?.[0];
+			if (link === undefined) throw new Error("The fixture lost its link.");
+			link.identifier = identifier;
+			expect(blockerCodes("hand-case-operation-ids", doc)).toEqual([
+				"link-identifier-reserved",
+			]);
+		},
+	);
+
+	function renameProperty(document: RawDocument, from: string, to: string) {
+		for (const caseType of writable(document).caseTypes as {
+			properties: { name: string }[];
+		}[]) {
+			for (const property of caseType.properties) {
+				if (property.name === from) property.name = to;
+			}
+		}
+	}
+
+	it("stops on a property named close written by a case change, which the form's source holds", () => {
+		const doc = fixtureCopy("hand-case-operation-ids");
+		const finish = operationsOf(doc).find(
+			(operation) => operation.id === "finish_visit",
+		);
+		const write = finish?.writes?.[0];
+		if (write === undefined) throw new Error("The fixture lost its write.");
+		write.property = "close";
+		renameProperty(doc, "final_note", "close");
+		expect(blockerCodes("hand-case-operation-ids", doc)).toEqual([
+			"reserved-property-write",
+		]);
+	});
+
+	it("keeps a property named close written only through a basic action, which HQ's build adds", () => {
+		const doc = fixtureCopy("navigation-base");
+		const answer = writable(doc).fields[
+			"f8d4b97c-9f51-5998-aa67-295205b7246c"
+		] as Record<string, Json>;
+		answer.caseWrite = { caseType: "patient", property: "close" };
+		renameProperty(doc, "notes", "close");
+		expect(blockerCodes("navigation-base", doc)).toEqual([]);
 	});
 });

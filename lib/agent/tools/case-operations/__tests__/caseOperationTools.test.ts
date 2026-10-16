@@ -259,6 +259,61 @@ describe("case-operation canonical author boundary", () => {
 		}
 	});
 
+	it("refuses at the schema the names CommCare HQ's form builder can't keep, with the verdicts' sentences", () => {
+		const accepted = {
+			...createVisit,
+			writes: [{ property: "source_id", value: fieldValue }],
+			links: [
+				{
+					identifier: "parent",
+					targetType: "patient",
+					target: null,
+					relationship: "child",
+				},
+			],
+		} as const;
+		const messages = (input: unknown) => {
+			const result = caseOperationInputSchema.safeParse(input);
+			return result.success
+				? []
+				: result.error.issues.map((issue) => issue.message);
+		};
+		expect(messages({ ...accepted, id: "instance" })).toEqual([
+			'"instance" is a name CommCare HQ\'s form builder can\'t open a form with. You could call it "q_instance" instead.',
+		]);
+		/* An operation's wrapper sits above its `<case>`, where the form
+		 * builder never looks for a case action. */
+		expect(messages({ ...accepted, id: "close" })).toEqual([]);
+		expect(
+			messages({
+				...accepted,
+				writes: [{ property: "close", value: fieldValue }],
+			}),
+		).toEqual([
+			"CommCare HQ's form builder reads a property named \"close\" as closing the case, so editing this form there would close the case every time it's sent. Save it under another property name here.",
+		]);
+		expect(
+			messages({
+				...accepted,
+				writes: [{ property: "parsererror", value: fieldValue }],
+			}),
+		).toEqual([
+			"CommCare HQ's form builder can't open a form that saves a property named \"parsererror\" from a case change. Save it under another property name here.",
+		]);
+		const link = (identifier: string) =>
+			messages({ ...accepted, links: [{ ...accepted.links[0], identifier }] });
+		expect(link("close")).toEqual([
+			'"close" is a name CommCare HQ\'s form builder reads as closing the case. You could call it "q_close" instead.',
+		]);
+		expect(link("create")).toEqual([
+			'"create" is a name CommCare HQ\'s form builder reads as starting a new case. You could call it "q_create" instead.',
+		]);
+		expect(link("bind")).toEqual([
+			'"bind" is a name CommCare HQ\'s form builder can\'t open a form with. You could call it "q_bind" instead.',
+		]);
+		expect(link("update")).toEqual([]);
+	});
+
 	it("publishes the same UUID and lookup vocabulary on the chat wire", async () => {
 		const { moduleUuid, formUuid } = fixture();
 		const wire = wireToolSchema(addCaseOperationsInputSchema);

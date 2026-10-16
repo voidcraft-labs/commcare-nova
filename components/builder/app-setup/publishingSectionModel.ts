@@ -18,6 +18,7 @@ import {
 } from "@/lib/deployment";
 import type { DeploymentView } from "@/lib/deployment/actions";
 import {
+	activeRemoteApp,
 	type NextPublishAction,
 	nextPublishAction,
 } from "@/lib/deployment/resources";
@@ -139,6 +140,32 @@ export function applyRecordUpsert(
 		pending: false,
 		views: upsertDeploymentViews(state.views ?? [], view),
 	};
+}
+
+/**
+ * Whether this app is published to some project space: a record holds a
+ * live app mapping. `null` is records no load has answered yet, which
+ * answers false, so a note that depends on it never shows on a guess.
+ */
+export function publishedAnywhere(
+	views: readonly DeploymentView[] | null,
+): boolean {
+	return (
+		views?.some((view) => activeRemoteApp(view.deployment) !== null) ?? false
+	);
+}
+
+/**
+ * Whether a note that warns what a change does once the app is published
+ * shows. A held record answers it, a stale one included when a refresh
+ * failed. With no record held, a failed load can't rule publishing out, so
+ * the warning shows rather than hide behind the failure; a load still on its
+ * way shows nothing yet.
+ */
+export function mayBePublished(records: PublishingRecords): boolean {
+	return records.views !== null
+		? publishedAnywhere(records.views)
+		: records.failure !== null;
 }
 
 // ── The dialog's compact target rows ──────────────────────────────────────

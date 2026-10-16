@@ -4,22 +4,19 @@
 //   - `enforceConnectIds` rejects an explicit id that duplicates another
 //     block's id (→ `{ ok: false }`, no config), including a same-form,
 //     cross-kind duplicate found by the explicit-id reservation pass;
-//   - `collectConnectIds` reads every id from complete final configs.
+//   - `appConnectIds` reads every id from complete final configs.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import {
+	appConnectIds,
 	type BlueprintDoc,
 	type ConnectConfig,
 	connectConfigSchema,
 } from "@/lib/domain";
 import { expectAdmittedDoc } from "../../../__tests__/admittedFixture";
-import {
-	collectConnectIds,
-	enforceConnectIds,
-	reserveExplicitConnectIds,
-} from "../connectIds";
+import { enforceConnectIds, reserveExplicitConnectIds } from "../connectIds";
 
 const FORM_A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const FORM_B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
@@ -142,7 +139,38 @@ describe("reserveExplicitConnectIds — complete target preflight", () => {
 	});
 });
 
-describe("collectConnectIds — final config scope", () => {
+describe("enforceConnectIds — the form's top-level fields share the block's names", () => {
+	it("derives an omitted id clear of a top-level field of the same name", () => {
+		const result = enforceConnectIds(
+			{ deliver_unit: { name: "Visit" } },
+			"deliver",
+			"Visit",
+			"Home visit",
+			new Set(),
+			new Set(["visit"]),
+		);
+		expect(result).toMatchObject({
+			ok: true,
+			config: { deliver_unit: { id: "visit_2" } },
+		});
+	});
+
+	it("refuses an explicit id a top-level field holds", () => {
+		const result = enforceConnectIds(
+			{ deliver_unit: { id: "visit", name: "Visit" } },
+			"deliver",
+			"Visit",
+			"Home visit",
+			new Set(),
+			new Set(["visit"]),
+		);
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("expected rejection");
+		expect(result.error).toContain("top-level field");
+	});
+});
+
+describe("appConnectIds — final config scope", () => {
 	/** Learn doc: FORM_A has two distinct learn-mode ids; FORM_B has one. */
 	function learnDoc(): BlueprintDoc {
 		return expectAdmittedDoc(
@@ -192,13 +220,13 @@ describe("collectConnectIds — final config scope", () => {
 	it("excludes every id belonging to the edited form", () => {
 		const doc = learnDoc();
 		// Excluding FORM_A: FORM_B's learn_module "lesson_two" is in scope.
-		const scope = collectConnectIds(doc, FORM_A);
+		const scope = appConnectIds(doc, FORM_A);
 		expect(scope).toEqual(new Set(["lesson_two"]));
 	});
 
 	it("includes every subkind in a mode-compatible config", () => {
 		const doc = learnDoc();
-		const scope = collectConnectIds(doc, FORM_B);
+		const scope = appConnectIds(doc, FORM_B);
 		expect(scope).toEqual(new Set(["intro", "quiz"]));
 	});
 });

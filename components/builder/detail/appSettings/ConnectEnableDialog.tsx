@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
 import { type ReactNode, useCallback, useId, useState } from "react";
+import { useAppPublishedAnywhere } from "@/components/builder/app-setup/usePublishingRecords";
 import { LabeledXPathField } from "@/components/builder/detail/formSettings/LabeledXPathField";
 import { useFormLintContext } from "@/components/builder/detail/formSettings/useFormLintContext";
 import { RejectionBody } from "@/components/builder/RejectionNotice";
@@ -21,7 +22,10 @@ import {
 	DEFAULT_DELIVER_ENTITY_NAME,
 } from "@/lib/doc/connectConfig";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
-import { useAppConnectIds } from "@/lib/doc/hooks/useAppConnectIds";
+import {
+	useAppConnectIds,
+	useRootFieldIdsByForm,
+} from "@/lib/doc/hooks/useAppConnectIds";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import { asUuid, CONNECT_TYPE_LABELS } from "@/lib/domain";
@@ -31,7 +35,10 @@ import { assertNever } from "@/lib/utils/assertNever";
 import {
 	assignDraftConnectIds,
 	type BlockDraft,
+	CONNECT_ID_PUBLISHED_NOTES,
 	connectIdHelpers,
+	DELIVER_BLOCK_WITHHELD_NOTE,
+	deliverBlockOffered,
 	draftIdsValid,
 	draftParticipates,
 	draftSectionsComplete,
@@ -221,26 +228,40 @@ function AdvancedDisclosure({ children }: { children: ReactNode }) {
 	);
 }
 
-/** One sub-config card: an opt-in toggle revealing its fields. */
+/** One sub-config card: an opt-in toggle revealing its fields. A card whose
+ *  block can't be added beside another keeps its switch off and disabled,
+ *  and says why in `withheldNote`. */
 function SubConfigCard({
 	title,
 	checked,
 	onCheckedChange,
+	withheldNote,
 	children,
 }: {
 	title: string;
 	checked: boolean;
 	onCheckedChange: () => void;
+	withheldNote?: string;
 	children?: ReactNode;
 }) {
+	const withheld = withheldNote !== undefined && !checked;
 	return (
 		<div className="rounded-lg border border-white/[0.06] bg-white/[0.02]">
 			<div className="flex items-center justify-between px-3 py-2.5">
 				<span className="text-xs font-medium text-nova-text-secondary">
 					{title}
 				</span>
-				<Switch checked={checked} onCheckedChange={onCheckedChange} />
+				<Switch
+					checked={checked}
+					onCheckedChange={onCheckedChange}
+					disabled={withheld}
+				/>
 			</div>
+			{withheld && (
+				<p className="px-3 pb-2.5 text-[11px] leading-snug text-nova-text-muted">
+					{withheldNote}
+				</p>
+			)}
 			{checked && children && (
 				<div className="space-y-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2.5">
 					{children}
@@ -295,6 +316,7 @@ export function FormSubConfigs({
 	validateId,
 	derivedId,
 	formUuid,
+	published,
 }: {
 	mode: ConnectType;
 	draft: BlockDraft;
@@ -306,10 +328,22 @@ export function FormSubConfigs({
 	 *  placeholder; what's shown is what the commit will store. */
 	derivedId: (kind: SubConfigKind) => string;
 	formUuid: string;
+	/** Whether the app is on a project space, read once by the parent
+	 *  (`useAppPublishedAnywhere`): the ids Connect keys records by then say
+	 *  what changing one does there. */
+	published: boolean;
 }) {
 	const idCheck = (kind: SubConfigKind) => (value: string) =>
 		value === "" ? null : validateId(kind, value);
 	const getLintContext = useFormLintContext(asUuid(formUuid));
+	const publishedNote = (kind: keyof typeof CONNECT_ID_PUBLISHED_NOTES) =>
+		published ? CONNECT_ID_PUBLISHED_NOTES[kind] : undefined;
+	/* A deliver unit and a task each go in a form without the other. */
+	const deliverHeld = { deliver_unit: draft.deliverOn, task: draft.taskOn };
+	const withheldNote = (kind: "deliver_unit" | "task") =>
+		deliverBlockOffered(kind, deliverHeld)
+			? undefined
+			: DELIVER_BLOCK_WITHHELD_NOTE;
 
 	// Flip a sub-config. Turning it ON seeds the derived id into a still-blank
 	// buffer so its "Advanced → ID" field opens showing the real value; an id
@@ -423,6 +457,7 @@ export function FormSubConfigs({
 							onChange={(v) => onPatch({ learnId: v })}
 							onBlur={blurResetId("learn_module")}
 							validate={idCheck("learn_module")}
+							hint={publishedNote("learn_module")}
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -457,6 +492,7 @@ export function FormSubConfigs({
 					title="Deliver Unit"
 					checked={draft.deliverOn}
 					onCheckedChange={() => toggleSub("deliver_unit")}
+					withheldNote={withheldNote("deliver_unit")}
 				>
 					<DraftField
 						label="Name"
@@ -485,6 +521,7 @@ export function FormSubConfigs({
 							onChange={(v) => onPatch({ deliverId: v })}
 							onBlur={blurResetId("deliver_unit")}
 							validate={idCheck("deliver_unit")}
+							hint={publishedNote("deliver_unit")}
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -493,6 +530,7 @@ export function FormSubConfigs({
 					title="Task"
 					checked={draft.taskOn}
 					onCheckedChange={() => toggleSub("task")}
+					withheldNote={withheldNote("task")}
 				>
 					<DraftField
 						label="Name"
@@ -514,6 +552,7 @@ export function FormSubConfigs({
 							onChange={(v) => onPatch({ taskId: v })}
 							onBlur={blurResetId("task")}
 							validate={idCheck("task")}
+							hint={publishedNote("task")}
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -605,15 +644,20 @@ function ConnectEnableBody({
 	// explicit/live identities before deriving one empty draft, so the inline
 	// guard and final app-wide planner admit the same set.
 	const appConnectIds = useAppConnectIds();
+	/* Once the app is on a project space, the ids Connect keys records by
+	 * say what changing one does there. One read for every form's card. */
+	const published = useAppPublishedAnywhere();
 	const targetFormUuids = new Set(targets.map(({ formUuid }) => formUuid));
 	const committedIdsOutsideTargets = appConnectIds.filter(
 		({ formUuid }) => !targetFormUuids.has(formUuid),
 	);
+	const rootFieldIds = useRootFieldIdsByForm();
 	const assignedIds = assignDraftConnectIds(
 		targets,
 		drafts,
 		mode,
 		committedIdsOutsideTargets,
+		rootFieldIds,
 	);
 	const idHelpers: Record<string, ReturnType<typeof connectIdHelpers>> = {};
 	for (const t of targets) {
@@ -622,6 +666,7 @@ function ConnectEnableBody({
 			t.formUuid,
 			t.moduleName,
 			t.formName,
+			rootFieldIds[t.formUuid],
 		);
 	}
 
@@ -729,6 +774,7 @@ function ConnectEnableBody({
 							validateId={idHelpers[t.formUuid].validateId}
 							derivedId={idHelpers[t.formUuid].derivedId}
 							formUuid={t.formUuid}
+							published={published}
 						/>
 					</div>
 				))}

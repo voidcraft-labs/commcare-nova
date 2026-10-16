@@ -2,8 +2,11 @@
  * Identifier-verdict unit tests — every failure class plus the boundary
  * cases the rules hinge on:
  *
- *   - XML element-name legality (spaces, hyphens, leading digits, empty)
+ *   - the question-id grammar (spaces, hyphens, leading digits and
+ *     underscores, an `XML` prefix, empty) and the reserved names, each
+ *     refusal offering a replacement free among the siblings
  *   - a name that starts with `__nova_` is judged as any leading underscore
+ *   - case operation and link names HQ's form builder can't keep
  *   - sibling-id uniqueness: siblings conflict, cousins share freely,
  *     a field re-checking its own id passes (excludeUuid), and in-flight
  *     batch ids count as siblings (pendingSiblingIds)
@@ -141,8 +144,54 @@ describe("fieldIdVerdict — format classes", () => {
 		expect(at("first_name")).toEqual({ ok: true });
 	});
 
-	it("accepts a leading underscore (legal XML name)", () => {
-		expect(at("_internal")).toEqual({ ok: true });
+	it("refuses a leading underscore, offering the id without it", () => {
+		const sentence =
+			"A question ID can't start with an underscore, because CommCare HQ's form builder can't keep it. \"internal\" is free here.";
+		expect(at("_internal")).toEqual({
+			ok: false,
+			code: "illegal_xml_name",
+			message: sentence,
+			userMessage: sentence,
+		});
+	});
+
+	it("offers a replacement free among the siblings", () => {
+		// `age` is taken at the form's root, so `_age` is offered `age_2`.
+		const v = at("_age");
+		expect(v.ok ? "" : v.message).toContain('"age_2" is free here.');
+		// Inside the group `age` is free.
+		const nested = fieldIdVerdict({ doc, parentUuid: GRP, proposedId: "_age" });
+		expect(nested.ok ? "" : nested.message).toContain('"age" is free here.');
+	});
+
+	it.each([
+		["XMLcode", "qXMLcode", 'can\'t start with "XML"'],
+		["1st", "q1st", "starts with a letter"],
+		["Meta", "q_Meta", "the form's own details"],
+		["Case", "q_Case", "a form's case data"],
+		["SCRIPT", "q_SCRIPT", "warns about"],
+		["registration", "q_registration", "warns about"],
+		["instance", "q_instance", "can't open a form with"],
+		["bind", "q_bind", "can't open a form with"],
+		["parsererror", "q_parsererror", "can't open a form with"],
+	])("refuses %s, offering %s", (id, free, reason) => {
+		const v = at(id);
+		expect(codeOf(v)).toBe("illegal_xml_name");
+		expect(v.ok ? "" : v.message).toContain(reason);
+		expect(v.ok ? "" : v.message).toContain(`"${free}" is free here.`);
+	});
+
+	it.each([
+		"xmlcode",
+		"metadata",
+		"cases",
+		"registrations",
+		"scripts",
+		"instances",
+		"Bind",
+		"itext",
+	])("accepts %s", (id) => {
+		expect(at(id)).toEqual({ ok: true });
 	});
 
 	it("rejects an empty id", () => {
@@ -151,11 +200,16 @@ describe("fieldIdVerdict — format classes", () => {
 		expect(v.ok ? "" : v.message).toContain("empty");
 	});
 
-	it("rejects spaces, hyphens, and leading digits as XML-illegal", () => {
-		for (const bad of ["first name", "first-name", "1st_name", "naïve!"]) {
+	it("rejects spaces, hyphens, and leading digits, offering an editor-safe id", () => {
+		for (const [bad, free] of [
+			["first name", "first_name"],
+			["first-name", "first_name"],
+			["1st_name", "q1st_name"],
+			["naïve!", "na_ve_"],
+		]) {
 			const v = at(bad);
 			expect(codeOf(v)).toBe("illegal_xml_name");
-			expect(v.ok ? "" : v.message).toContain(`"${bad}"`);
+			expect(v.ok ? "" : v.message).toContain(`"${free}" is free here.`);
 		}
 	});
 
@@ -272,6 +326,57 @@ describe("renameFieldIdVerdict", () => {
 	});
 });
 
+describe("a form's Connect blocks share its root's names", () => {
+	/* The Register form joins a deliver app with a deliver unit `visit`,
+	 * whose wrapper sits beside the form's top-level fields. */
+	function connectDoc(): BlueprintDoc {
+		const doc = makeDoc();
+		return {
+			...doc,
+			connectType: "deliver",
+			forms: {
+				...doc.forms,
+				[F1]: {
+					...(doc.forms[F1] as Form),
+					connect: { deliver_unit: { id: "visit", name: "Visit" } },
+				},
+			},
+		};
+	}
+
+	it("refuses a top-level field named like the block, and admits it in a group or another form", () => {
+		const doc = connectDoc();
+		const rename = renameFieldIdVerdict({
+			doc,
+			fieldUuid: AGE,
+			newId: "visit",
+		});
+		expect(codeOf(rename)).toBe("sibling_conflict");
+		expect(rename.ok ? "" : rename.userMessage).toContain("Connect block");
+		expect(
+			codeOf(fieldIdVerdict({ doc, parentUuid: F1, proposedId: "visit" })),
+		).toBe("sibling_conflict");
+		expect(findRenameSiblingConflict(doc, AGE, "visit")).toBe(F1);
+		expect(
+			renameFieldIdVerdict({ doc, fieldUuid: KID_NAME, newId: "visit" }),
+		).toEqual({ ok: true });
+		expect(
+			renameFieldIdVerdict({ doc, fieldUuid: TARGET_F2, newId: "visit" }),
+		).toEqual({ ok: true });
+	});
+
+	it("offers a refused top-level id a name the block doesn't hold", () => {
+		const verdict = fieldIdVerdict({
+			doc: connectDoc(),
+			parentUuid: F1,
+			proposedId: "_visit",
+		});
+		expect(verdict.ok ? "" : verdict.userMessage).toContain(
+			'"visit_2" is free here.',
+		);
+	});
+});
+
 describe("findRenameSiblingConflict (the store-level backstop's scan)", () => {
 	const doc = makeDoc();
 
@@ -329,6 +434,81 @@ describe("caseTypeNameVerdict", () => {
 		// "Patient" and "patient" are distinct, wire-valid case types; the
 		// picker must not be stricter than the wire (no DUPLICATE_CASE_TYPE rule).
 		expect(caseTypeNameVerdict("Patient", existing).ok).toBe(true);
+	});
+});
+
+describe("case-operation names HQ's form builder can't keep", () => {
+	it.each(["instance", "bind", "parsererror"])(
+		"refuses an operation id, a link identifier and a written property %s",
+		(name) => {
+			expect(caseOperationIdVerdict(name, new Set())).toEqual({
+				ok: false,
+				code: "stops_form_builder",
+				userMessage: `"${name}" is a name CommCare HQ's form builder can't open a form with. "q_${name}" is free here.`,
+			});
+			expect(caseOperationLinkIdentifierVerdict(name, new Set())).toEqual({
+				ok: false,
+				code: "stops_form_builder",
+				userMessage: `"${name}" is a name CommCare HQ's form builder can't open a form with. "q_${name}" is free here.`,
+			});
+			expect(caseOperationWritePropertyVerdict(name, new Set())).toEqual({
+				ok: false,
+				code: "stops_form_builder",
+				userMessage: `CommCare HQ's form builder can't open a form that saves a property named "${name}" from a case change. Save it under another property name here.`,
+			});
+		},
+	);
+
+	it("offers a free name among the form's operations or the change's links", () => {
+		expect(
+			caseOperationIdVerdict("instance", new Set(["q_instance"])),
+		).toMatchObject({ userMessage: expect.stringContaining('"q_instance_2"') });
+		expect(
+			caseOperationLinkIdentifierVerdict("close", new Set(["q_close"])),
+		).toMatchObject({ userMessage: expect.stringContaining('"q_close_2"') });
+	});
+
+	it("refuses a link named close or create, which reads as the block's own action", () => {
+		expect(caseOperationLinkIdentifierVerdict("close", new Set())).toEqual({
+			ok: false,
+			code: "reads_as_case_action",
+			userMessage:
+				'"close" is a name CommCare HQ\'s form builder reads as closing the case. "q_close" is free here.',
+		});
+		expect(caseOperationLinkIdentifierVerdict("create", new Set())).toEqual({
+			ok: false,
+			code: "reads_as_case_action",
+			userMessage:
+				'"create" is a name CommCare HQ\'s form builder reads as starting a new case. "q_create" is free here.',
+		});
+	});
+
+	it("refuses a written property close, which closes the case in the form builder", () => {
+		expect(caseOperationWritePropertyVerdict("close", new Set())).toEqual({
+			ok: false,
+			code: "closes_case",
+			userMessage:
+				"CommCare HQ's form builder reads a property named \"close\" as closing the case, so editing this form there would close the case every time it's sent. Save it under another property name here.",
+		});
+	});
+
+	it("keeps the names as operation ids where they name nothing the form builder reads", () => {
+		for (const name of ["close", "create", "_instance", "instances", "Bind"])
+			expect(caseOperationIdVerdict(name, new Set())).toEqual({ ok: true });
+		for (const name of [
+			"_instance",
+			"closed_reason",
+			"Close",
+			"update",
+			"index_of",
+		])
+			expect(caseOperationLinkIdentifierVerdict(name, new Set())).toEqual({
+				ok: true,
+			});
+		for (const name of ["instances", "Bind", "closing_note", "update"])
+			expect(caseOperationWritePropertyVerdict(name, new Set())).toEqual({
+				ok: true,
+			});
 	});
 });
 

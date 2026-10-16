@@ -19,7 +19,6 @@ import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { COMMCARE_VERSION_FLOOR } from "@/lib/commcare/versionFloor";
 import { derivedUniqueId } from "@/lib/commcare/wireIdentity";
 import {
-	formConnectIds,
 	type GeneratedNodePlan,
 	planGeneratedNodes,
 } from "@/lib/commcare/xform/generatedNodes";
@@ -27,11 +26,21 @@ import { parseXml } from "@/lib/commcare/xmlParse";
 import type { AppDatabase } from "@/lib/db/pg";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, isContainer, type Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	formConnectIds,
+	isContainer,
+	type Uuid,
+} from "@/lib/domain";
 import type { DeploymentNoticeReason } from "@/lib/notices/migrationNotice";
 import type { HolderCensus } from "./holders";
 import type { MatchResult } from "./matching";
-import type { CutoverBlockerCode, CutoverPlanBuild, FleetSource } from "./plan";
+import type {
+	ContentBlockerPlace,
+	CutoverBlockerCode,
+	CutoverPlanBuild,
+	FleetSource,
+} from "./plan";
 import { suffixedWireCodeLanguages } from "./steps/languageWireCodes";
 import { CUTOVER_STEPS } from "./transform";
 import type { WriterReport } from "./writer";
@@ -204,6 +213,7 @@ export function planSections(
 		endingSessions: source.privateWork.endingSessions,
 	});
 	deploymentsLine(report, source, build, spaceReads);
+	connectRenamesLine(report, build);
 	if (report.mode !== "scan") settingsLine(report, build);
 	const blockers = new Map<
 		CutoverBlockerCode,
@@ -475,6 +485,46 @@ function settingsLine(report: CutoverReport, build: CutoverPlanBuild): void {
 	});
 }
 
+/** The Connect blocks a renamed id makes Connect read as new ones. */
+const CONNECT_KEYED_BLOCKS: ReadonlySet<string> = new Set([
+	"deliver_unit",
+	"learn_module",
+	"task",
+]);
+
+/**
+ * The `connect-renames` line: each deployment of an app whose deliver unit,
+ * learn module or task step `connect-ids` renames, with the kinds renamed.
+ * Connect reads a renamed block as a new one, and a delivery it turns away
+ * before an opportunity manager pays for the new deliver unit is never sent
+ * again, so the operator tells each app's members before the window (runbook
+ * step 1(d)). Ids and kinds alone, never an authored id.
+ */
+function connectRenamesLine(
+	report: CutoverReport,
+	build: CutoverPlanBuild,
+): void {
+	const deployments = build.plan.apps.flatMap((app) => {
+		const blocks = [
+			...new Set(
+				app.changes.flatMap((change) =>
+					change.reason === "connect-block-renamed" &&
+					CONNECT_KEYED_BLOCKS.has(change.detail?.block ?? "")
+						? [change.detail?.block as string]
+						: [],
+				),
+			),
+		].sort();
+		if (blocks.length === 0) return [];
+		return app.deployments.map((deployment) => ({
+			appId: app.appId,
+			deploymentId: deployment.deploymentId,
+			blocks,
+		}));
+	});
+	report.line("connect-renames", { deployments });
+}
+
 /** What one run sent to a project space, from its pacer. */
 export interface SpaceReads {
 	readonly server: string;
@@ -742,8 +792,9 @@ export async function readRecipients(
 
 /**
  * `--debug-details --app <id>`: for one app, every place each blocker met,
- * by entity id and name with the finding's own sentence, then each form
- * whose generated data paths move, so the people who own HQ form exports and
+ * by entity id and name with the finding's own sentence, then each entity
+ * the app's notice names (each question a step renames, for one), then each
+ * form whose generated data paths move, so the people who own HQ form exports and
  * reports built on the old paths can be told which forms to re-point.
  * Authored content, for the operator's terminal only; nothing of it enters
  * the plan, the digest or the report.
@@ -756,6 +807,7 @@ export function debugDetails(
 		readonly gate: readonly ValidationFindingDetail[];
 		readonly exportReadiness: readonly ValidationFindingDetail[];
 		readonly caseSchemas: readonly string[];
+		readonly content: readonly ContentBlockerPlace[];
 	},
 ): string[] {
 	const target = build.targets.get(appId);
@@ -776,8 +828,19 @@ export function debugDetails(
 	for (const caseType of findings.caseSchemas) {
 		lines.push(`  case-schema-change ${caseType}`);
 	}
+	for (const place of findings.content) {
+		lines.push(`  ${place.code} ${place.where}: ${place.message}`);
+	}
 	if (lines.length === 1) lines.push("  no blocker");
 	const plan = build.plan.apps.find((app) => app.appId === appId);
+	for (const change of plan?.changes ?? []) {
+		const detail = Object.entries(change.detail ?? {})
+			.map(([key, value]) => ` ${key}=${JSON.stringify(value)}`)
+			.join("");
+		lines.push(
+			`  ${change.reason} ${change.entity.type} ${change.entity.uuid ?? ""}: ${change.entity.nameAtMigration}${detail}`,
+		);
+	}
 	if (
 		target?.doc !== undefined &&
 		plan !== undefined &&

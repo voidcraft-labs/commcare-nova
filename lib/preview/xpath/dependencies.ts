@@ -78,6 +78,59 @@ export function extractPathRefs(expr: string, originPath?: string): string[] {
 	return Array.from(refs);
 }
 
+/**
+ * The positions of every read of the form's root alone: a path whose steps
+ * are the one name `data` from the root (`/data`, `count(/data)`,
+ * `/data[1]`), read through Nova's XPath grammar. A path that goes on below
+ * the root (`/data/a`, `/data/@name`, `/data[1]/a`) is a read of what is
+ * under it, and `//data`, `../data`, `current()/data` and `/database` are
+ * not rooted at the form. The root is the whole form, never a question, a
+ * number of rows or a list of ids.
+ */
+export function formRootReadPositions(expr: string): number[] {
+	if (!expr) return [];
+	const positions: number[] = [];
+	parser.parse(expr).iterate({
+		enter(node) {
+			if (!T.Children.has(node.type)) return;
+			const slash = node.node.firstChild;
+			const name = slash?.nextSibling;
+			if (
+				slash?.type !== T.Slash ||
+				name?.type !== T.NameTest ||
+				name.nextSibling !== null ||
+				expr.slice(name.from, name.to) !== "data"
+			)
+				return;
+			if (continuesBelow(node.node)) return;
+			positions.push(node.from);
+		},
+	});
+	return positions;
+}
+
+/** Whether `path` is the left part of a longer path, through any filter
+ * that wraps it (`/data[1]/a`). */
+function continuesBelow(path: SyntaxNode): boolean {
+	let left = path;
+	let parent = left.parent;
+	while (
+		parent !== null &&
+		parent.name === "Filtered" &&
+		parent.firstChild?.from === left.from &&
+		parent.firstChild.to === left.to
+	) {
+		left = parent;
+		parent = left.parent;
+	}
+	if (parent === null) return false;
+	if (!T.Children.has(parent.type) && !T.Descendants.has(parent.type))
+		return false;
+	return (
+		parent.firstChild?.from === left.from && parent.firstChild.to === left.to
+	);
+}
+
 function resolveCurrentPath(
 	node: SyntaxNode,
 	source: string,

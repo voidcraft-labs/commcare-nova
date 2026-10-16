@@ -12,6 +12,10 @@
  * and never written into a stored entry. Client-safe.
  */
 
+import {
+	isReservedName,
+	RESERVED_CONNECT_BLOCK_IDS,
+} from "@/lib/domain/questionId";
 import type {
 	DeploymentNoticeEntry,
 	DocumentNoticeEntry,
@@ -89,11 +93,215 @@ function onOff(value: string | undefined): "on" | "off" | undefined {
 	return value === "on" || value === "off" ? value : undefined;
 }
 
+/** "Intake: " where the entry names its form, else nothing. */
+function formLead(form: string | undefined): NoticeLinePart[] {
+	return form === undefined ? [] : [text(`${form}: `)];
+}
+
+/** "Intake, " where the entry names its form, else nothing. */
+function formBeside(form: string | undefined): NoticeLinePart[] {
+	return form === undefined ? [] : [text(`${form}, `)];
+}
+
+/** The noun a renamed field takes, from `detail.kind`. */
+function containerNoun(
+	kind: string | undefined,
+): "group" | "repeat" | "section" | undefined {
+	return kind === "group" || kind === "repeat" || kind === "section"
+		? kind
+		: undefined;
+}
+
+/**
+ * What a renamed Connect block means to CommCare Connect, by the block's
+ * kind (`detail.block`), after the sentence that names the rename.
+ */
+const CONNECT_BLOCK_RENAME_CONSEQUENCE: Readonly<
+	Record<
+		string,
+		{
+			readonly noun: string;
+			readonly says: (to: string, from: string) => string;
+		}
+	>
+> = {
+	deliver_unit: {
+		noun: "deliver unit",
+		says: (to) =>
+			` CommCare Connect reads it as a new deliver unit and turns away each delivery until an opportunity manager adds ${to} to a payment unit. It helps to ask them to do that before your next publish: CommCare HQ doesn't send a turned-away delivery again, so deliveries made in between stay unpaid.`,
+	},
+	learn_module: {
+		noun: "learn module",
+		says: () =>
+			" CommCare Connect reads it as a second module and keeps the old one, so a learner who had not finished the course before this stays short of finished. A learner who had finished stays finished.",
+	},
+	task: {
+		noun: "task",
+		says: (_to, from) =>
+			` CommCare Connect reads it as a new task type. A task assigned under ${from} is never completed by this form, and CommCare Connect rejects that worker's deliveries while it stays assigned.`,
+	},
+	assessment: {
+		noun: "assessment",
+		says: () =>
+			" CommCare Connect keeps no record under an assessment's ID, so scoring is unchanged.",
+	},
+};
+
 /** What a form's new id means for what HQ already holds that names it. */
 const FORM_ID_REPOINT =
 	"If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish.";
 
 export const MIGRATION_NOTICE_COPY = {
+	/* The entity is the field, by its ID; `detail.form` names its form,
+	 * `detail.kind` its kind (`question`, `group`, `repeat` or `section`) and
+	 * `detail.from` the ID it had. */
+	"question-renamed": (entry: DocumentNoticeEntry, ctx) => {
+		const from = entry.detail?.from;
+		const field = entityPart(entry.entity, ctx);
+		const container = containerNoun(entry.detail?.kind);
+		const renamed =
+			from === undefined
+				? [
+						text(`the ${container ?? "question"} `),
+						field,
+						text(" has a new ID"),
+					]
+				: [text(`the ${container ?? "question"} ${from} is now `), field];
+		const readsOld = from === undefined ? "the old ID" : from;
+		return noticeLine([
+			...formLead(entry.detail?.form),
+			...renamed,
+			text(
+				container === undefined
+					? `, because CommCare HQ's form builder can't keep the old ID. Submissions use the new name from your next publish. In CommCare HQ, a form export column or report that reads ${readsOld} stops filling and a new ${field.text} column starts.`
+					: `, because CommCare HQ's form builder can't keep the old ID. Every question inside it moves with it, so submissions use the new paths from your next publish. In CommCare HQ, a form export column or report that reads a question under ${readsOld} stops filling and a new column starts.`,
+			),
+		]);
+	},
+	/* The entity is the form; `detail.from` and `detail.to` the change's
+	 * IDs. */
+	"case-operation-renamed": (entry: DocumentNoticeEntry, ctx) => {
+		const from = entry.detail?.from;
+		const to = entry.detail?.to;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				from === undefined || to === undefined
+					? ": a case change has a new name. Its place in each submission moves with the name from your next publish."
+					: `: the case change ${from} is now ${to}. Its place in each submission moves with the name from your next publish.`,
+			),
+		]);
+	},
+	/* The entity is the form; `detail.block` the block's kind
+	 * (`deliver_unit`, `learn_module`, `task` or `assessment`), and
+	 * `detail.from` and `detail.to` its IDs. A block renamed from one of the
+	 * names CommCare Connect keeps for itself first says Connect could not
+	 * receive the form. */
+	"connect-block-renamed": (entry: DocumentNoticeEntry, ctx) => {
+		const from = entry.detail?.from;
+		const to = entry.detail?.to;
+		const block = CONNECT_BLOCK_RENAME_CONSEQUENCE[entry.detail?.block ?? ""];
+		const refused =
+			from !== undefined && isReservedName(from, RESERVED_CONNECT_BLOCK_IDS)
+				? `CommCare Connect could not receive this form while its block was called ${from}. Forms sent before this change are not in CommCare Connect, and CommCare HQ's retries of them keep failing, because each still carries the old name. `
+				: "";
+		const noun = block?.noun ?? "Connect block";
+		const lead = refused === "" ? "the" : "The";
+		const renamed =
+			from === undefined || to === undefined
+				? `${lead} ${noun} has a new ID.`
+				: `${lead} ${noun} ${from} is now ${to}.`;
+		const says =
+			block === undefined || from === undefined || to === undefined
+				? ""
+				: block.says(to, from);
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(`: ${refused}${renamed}${says}`),
+		]);
+	},
+	/* The entity is the form that held both blocks; `detail.task` the task's
+	 * ID and `detail.newForm` the name of the form it moved to. */
+	"connect-task-moved-to-own-form": (entry: DocumentNoticeEntry, ctx) => {
+		const task = entry.detail?.task;
+		const newForm = entry.detail?.newForm;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				`: its task ${task === undefined ? "" : `${task} `}is now in a form of its own${newForm === undefined ? "" : `, ${newForm},`} in the same menu. CommCare Connect turned away the visit in a form that also completed a task the worker was assigned. The task keeps its ID, so tasks already assigned are completed by the new form from your next publish.`,
+			),
+		]);
+	},
+	/* The entity is the deep link, by its ID; `detail.from` the ID it had. */
+	"entry-point-renamed": (entry: DocumentNoticeEntry, ctx) => {
+		const from = entry.detail?.from;
+		return noticeLine([
+			text(
+				from === undefined
+					? "A deep link is now "
+					: `The deep link ${from} is now `,
+			),
+			entityPart(entry.entity, ctx),
+			text(
+				". Links shared with the old ID stop working after your next publish.",
+			),
+		]);
+	},
+	/* The entity is the form, with `detail.question` the select, or the app
+	 * for a case property's own list, with `detail.caseType` and
+	 * `detail.property`. `detail.value` is the value both choices stored,
+	 * `detail.to` the second's new one, and `detail.keptLabel` and
+	 * `detail.label` the labels of the choice that kept it and the one that
+	 * moved. */
+	"option-value-split": (entry: DocumentNoticeEntry, ctx) => {
+		const detail = entry.detail ?? {};
+		const first = detail.keptLabel ?? "the first choice";
+		const second = detail.label ?? "the second choice";
+		const catalog = entry.entity.type === "app";
+		const where: NoticeLinePart[] = catalog
+			? [
+					text(
+						detail.caseType !== undefined && detail.property !== undefined
+							? `${detail.caseType}, ${detail.property}: `
+							: "A case property's choices: ",
+					),
+				]
+			: [
+					entityPart(entry.entity, ctx),
+					text(detail.question === undefined ? ": " : `, ${detail.question}: `),
+				];
+		const stored = detail.value ?? "the same value";
+		const now =
+			detail.to === undefined
+				? `${second} now stores a value of its own.`
+				: `${second} now stores ${detail.to}.`;
+		return noticeLine([
+			...where,
+			text(
+				`the choices ${first} and ${second} both stored ${stored}. ${now} ${catalog ? "Values" : "Answers"} saved before this show as ${first}.`,
+			),
+		]);
+	},
+	/* The entity is the form. */
+	"empty-form-label-added": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				" had no questions, and CommCare HQ won't build a form like that. It now has one label to replace with your first question.",
+			),
+		]),
+	/* The entity is the question; `detail.form` its form and `detail.datum`
+	 * the session value it read. */
+	"session-read-removed": (entry: DocumentNoticeEntry, ctx) => {
+		const datum = entry.detail?.datum;
+		return noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				`: it read ${datum ?? "a value"} from the session, which no menu of this app supplies, so the form could not open. It now reads nothing there, and the form opens. You can set what it should read.`,
+			),
+		]);
+	},
 	/* The entity is the form; `detail.question` names the select and
 	 * `detail.value` the option's value, now also its label. */
 	"option-label-filled": (entry: DocumentNoticeEntry, ctx) => {

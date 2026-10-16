@@ -4357,5 +4357,818 @@
 		"path": "/runs/*/steps/*/submit/nextScreen/type",
 		"kind": "changed",
 		"control": "targeted-close-conditions-after-59"
+	},
+	{
+		"id": "d15-question-ids-form-instance-invalid-question-id-9f9c",
+		"defect": 15,
+		"part": "question ids",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/xform:model~1instance~1*~1*/refused/invalid-question-id",
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d15-entry-point-ids-editor-alerts-not-valid-session",
+		"defect": 15,
+		"part": "entry-point ids",
+		"check": "proof4",
+		"artifact": "editor:form settings@*",
+		"path": "/modules/*/forms/*/alerts/'*' is not a valid session endpoint ID. It must contain only lowercase letters, numbers, underscores, and hyphens. Try intake.",
+		"values": {
+			"before": null,
+			"after": "'intake_' is not a valid session endpoint ID. It must contain only lowercase letters, numbers, underscores, and hyphens. Try intake."
+		},
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d15-entry-point-ids-editor-400-not-valid-session",
+		"defect": 15,
+		"part": "entry-point ids",
+		"check": "proof4",
+		"artifact": "editor:form settings@*",
+		"path": "/modules/*/forms/*/save/400/'*' is not a valid session endpoint ID. It must contain only lowercase letters, numbers, underscores, and hyphens. Try intake.",
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d15-entry-point-ids-editor-state-savebtn-bar-retry",
+		"defect": 15,
+		"part": "entry-point ids",
+		"check": "proof4",
+		"artifact": "editor:form settings@*",
+		"path": "/modules/*/forms/*/state/savebtn-bar-retry",
+		"values": {
+			"before": null,
+			"after": "savebtn-bar-retry"
+		},
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d15-ids-app-not-a-slug-or-duplicated",
+		"defect": 15,
+		"part": "question and entry-point ids",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/schema:Form.session_endpoint_id/refused/not-a-slug-or-duplicated",
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d15-ids-form-instance-authored-meta",
+		"defect": 15,
+		"part": "question and entry-point ids",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/xform:model~1instance~1*~1*/refused/authored-meta",
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d15-question-ids-editor-view-form-form-meta-block",
+		"defect": 15,
+		"part": "question ids",
+		"check": "proof4",
+		"artifact": "editor:form settings@*",
+		"path": "/modules/*/forms/*/messages/view_form/This form has a meta block already! It may be replaced by CommCare HQ's standard meta block.",
+		"values": {
+			"before": null,
+			"after": "This form has a meta block already! It may be replaced by CommCare HQ's standard meta block."
+		},
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d15-question-ids-vellum-again-mug-nodeid-error-not-valid-question-21af",
+		"defect": 15,
+		"part": "question ids",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/'*' is not a valid Question ID.",
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d15-question-ids-vellum-again-mug-nodeid-error-not-valid-question-9b4c",
+		"defect": 15,
+		"part": "question ids",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/* is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d15-question-ids-vellum-mug-nodeid-error-not-valid-question-2fda",
+		"defect": 15,
+		"part": "question ids",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/'*' is not a valid Question ID.",
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d15-question-ids-vellum-mug-nodeid-error-not-valid-question-ab8a",
+		"defect": 15,
+		"part": "question ids",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/* is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d31-empty-groups-validate-blank-form",
+		"defect": 31,
+		"part": "a form of empty groups",
+		"check": "bar",
+		"artifact": "validate_app@*",
+		"path": "/modules/*/forms/*/blank form",
+		"control": "expander-empty-container-expansion-emits-an-empty-group-86a5cfc1-0"
+	},
+	{
+		"id": "d43-bind-node-vellum-load-typeerror-cannot-read",
+		"defect": 43,
+		"part": "a question named bind",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/load/TypeError: Cannot read properties of undefined (reading '*')",
+		"control": "targeted-reserved-node-names"
+	},
+	{
+		"id": "d43-instance-node-form-instance-second-instance-without-id",
+		"defect": 43,
+		"part": "a question named instance",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/xform:model~1instance/refused/second-instance-without-id",
+		"control": "targeted-reserved-node-names"
+	},
+	{
+		"id": "d43-instance-node-vellum-load-multiple-unnamed-instance",
+		"defect": 43,
+		"part": "a question named instance",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/load/multiple unnamed instance elements found in the form! this is not allowed. please add id's to all but 1 instance.",
+		"control": "targeted-reserved-node-names"
+	},
+	{
+		"id": "d43-instance-node-vellum-page-errors-multiple-unnamed-instance",
+		"defect": 43,
+		"part": "a question named instance",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/page_errors/multiple unnamed instance elements found in the form! this is not allowed. please add id's to all but 1 instance.",
+		"control": "targeted-reserved-node-names"
+	},
+	{
+		"id": "d44-duplicate-options-form-item-refused-choice-value-9e0a",
+		"defect": 44,
+		"part": "duplicate option values",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/xform:select1~1item~1value/refused/refused-choice-value",
+		"control": "expander-select-option-itext-ids-index-keyed-issue-10-608c801a-0"
+	},
+	{
+		"id": "d44-duplicate-options-form-item-refused-choice-value-cb90",
+		"defect": 44,
+		"part": "duplicate option values",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/xform:select~1item~1value/refused/refused-choice-value",
+		"control": "expander-select-option-itext-ids-index-keyed-issue-10-bf790763-0"
+	},
+	{
+		"id": "d44-duplicate-options-vellum-again-mug-nodeid-error-choice-value-been",
+		"defect": 44,
+		"part": "duplicate option values",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/This choice value has been used in the same question",
+		"control": "expander-select-option-itext-ids-index-keyed-issue-10-bf790763-0"
+	},
+	{
+		"id": "d44-duplicate-options-vellum-mug-nodeid-error-choice-value-been",
+		"defect": 44,
+		"part": "duplicate option values",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/This choice value has been used in the same question",
+		"control": "expander-select-option-itext-ids-index-keyed-issue-10-bf790763-0"
+	},
+	{
+		"id": "d15-question-ids-admission-unresolved-resource",
+		"defect": 15,
+		"part": "question ids",
+		"check": "bar",
+		"artifact": "admission@*",
+		"path": "/problems/*/install/org.commcare.resources.model.UnresolvedResourceException",
+		"control": "targeted-invalid-question-ids",
+		"values": {
+			"before": null,
+			"after": {
+				"stage": "install",
+				"descriptor": "Form: (Module Intake) - Intake",
+				"message": "Question bound to non-existent node: [/data/Meta]\n",
+				"class": "org.commcare.resources.model.UnresolvedResourceException"
+			}
+		}
+	},
+	{
+		"id": "d43-bind-node-vellum-page-errors-typeerror-cannot-read",
+		"defect": 43,
+		"part": "a question named bind",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/page_errors/TypeError: Cannot read properties of undefined (reading '*')",
+		"control": "targeted-reserved-node-names"
+	},
+	{
+		"id": "d60-connect-key-names-connect-a-refused-500-keyerror",
+		"defect": 60,
+		"part": "Connect block named like a Connect key",
+		"check": "proof3",
+		"artifact": "connect@A",
+		"path": "/runs/*/refused/500/KeyError",
+		"kind": "error",
+		"control": "targeted-connect-deliver-key-names"
+	},
+	{
+		"id": "d61-deliver-form-with-a-task-connect-a-visit-rejected",
+		"defect": 61,
+		"part": "deliver form that holds a task",
+		"check": "proof3",
+		"artifact": "connect@A",
+		"path": "/runs/*/visit-rejected-for-the-task-its-form-completes",
+		"kind": "error",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d15-android-proof3-local-ccz-install-changed",
+		"defect": 15,
+		"part": "question ids (HQ's build does not install)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/install",
+		"kind": "changed",
+		"control": "targeted-invalid-question-ids",
+		"values": {
+			"before": "InvalidResource",
+			"after": "Installed"
+		}
+	},
+	{
+		"id": "d15-android-proof1-local-ccz-installs-changed",
+		"defect": 15,
+		"part": "question ids (HQ's build does not install)",
+		"check": "proof1",
+		"artifact": "android@local.ccz",
+		"path": "/installs/*",
+		"kind": "changed",
+		"control": "targeted-invalid-question-ids-after-9",
+		"values": {
+			"before": "InvalidResource",
+			"after": "Installed"
+		}
+	},
+	{
+		"id": "d15-android-proof1-local-ccz-installs-changed-2",
+		"defect": 15,
+		"part": "question ids (HQ's build does not install)",
+		"check": "proof1",
+		"artifact": "android@local.ccz",
+		"path": "/installs/*",
+		"kind": "changed",
+		"control": "targeted-invalid-question-ids-after-9",
+		"values": {
+			"before": "InvalidResource",
+			"after": "DuplicateApp"
+		}
+	},
+	{
+		"id": "d15-android-proof1-local-ccz-update-changed",
+		"defect": 15,
+		"part": "question ids (HQ's build does not install)",
+		"check": "proof1",
+		"artifact": "android@local.ccz",
+		"path": "/update",
+		"kind": "changed",
+		"control": "targeted-invalid-question-ids-after-9",
+		"values": {
+			"before": "not installed: InvalidResource",
+			"after": "UpToDate"
+		}
+	},
+	{
+		"id": "d20-supply-point-manifest-form-supply-point-id-outside-a-computed-datum-refused-0",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "manifest",
+		"artifact": "form:*",
+		"path": "/session-path:session~1data~1*/refused/supply-point-id-outside-a-computed-datum",
+		"kind": "refused",
+		"values": {
+			"before": null,
+			"after": {
+				"key": "session-path:session/data/*",
+				"surfaceItem": true,
+				"uses": 1,
+				"at": ["/h:html/h:head[1]/model[1]/bind[1]/@calculate"],
+				"entries": [
+					{
+						"id": "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form",
+						"disposition": "REFUSED",
+						"valueClass": "supply-point-id-outside-a-computed-datum"
+					}
+				]
+			}
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-suite-xml-vellum-assertions-added-1",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "suite.xml@vellum@*",
+		"path": "/suite/entry[*]/assertions[*]",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": "<assertions>\n      <assert test=\"count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.property_missing\">\n            <argument>commtrack-supply-point</argument>\n          </locale>\n        </text>\n      </assert>\n      <assert test=\"count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/user/data/commtrack-supply-point]) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.case_missing\"/>\n        </text>\n      </assert>\n    </assertions>"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-suite-xml-vellum-datum-id-added-2",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "suite.xml@vellum@*",
+		"path": "/suite/entry[*]/session[*]/datum[@id=*]",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": "<datum id=\"supply_point_id\" function=\"if(count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1, instance('commcaresession')/session/user/data/commtrack-supply-point, '')\"/>"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-suite-xml-vellum-datum-id-added-3",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "suite.xml@vellum@*",
+		"path": "/suite/entry[*]/stack[*]/create[*]/datum[@id=*]",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": "<datum id=\"supply_point_id\" value=\"if(count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1, instance('commcaresession')/session/user/data/commtrack-supply-point, '')\"/>"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-org-javarosa-xpath-xpathnodeset-getinval-changed-4",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/end/form-did-not-open/assertion-failed/org.javarosa.xpath.XPathTypeMismatchException/org.javarosa.xpath.XPathNodeset.getInvalidNodesetException(XPathNodeset.java:146)",
+		"kind": "changed",
+		"values": {
+			"before": "form-did-not-open",
+			"after": "assertion-failed"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-root-added-5",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": {
+				"screen": "assertion",
+				"text": "This form requires access to the user's location, but none was found."
+			}
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-badges-added-6",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/badges",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": [""]
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-badges-removed-7",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/badges",
+		"kind": "removed",
+		"values": {
+			"before": [""],
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-choices-added-8",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/choices",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": [
+				{
+					"audio": null,
+					"command": "m0-f0",
+					"image": null,
+					"text": "Visit"
+				}
+			]
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-choices-removed-9",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/choices",
+		"kind": "removed",
+		"values": {
+			"before": [
+				{
+					"audio": null,
+					"command": "m0-f0",
+					"image": null,
+					"text": "Visit"
+				}
+			],
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-chosen-added-10",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/chosen",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": "m0-f0"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-chosen-removed-11",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/chosen",
+		"kind": "removed",
+		"values": {
+			"before": "m0-f0",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-datum-added-12",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/datum",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": "supply_point_id"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-org-javarosa-xpath-xpathnodeset-getinval-removed-13",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/error/org.javarosa.xpath.XPathTypeMismatchException/org.javarosa.xpath.XPathNodeset.getInvalidNodesetException(XPathNodeset.java:146)",
+		"kind": "removed",
+		"values": {
+			"before": {
+				"class": "org.javarosa.xpath.XPathTypeMismatchException",
+				"message": "Calculation Error: Error in calculation for /data/supply_point\nLogic references instance(commcaresession)/session/data/supply_point_id which is not a valid question or value.",
+				"site": "org.javarosa.xpath.XPathNodeset.getInvalidNodesetException(XPathNodeset.java:146)"
+			},
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-hidden-added-14",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/hidden",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": []
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-hidden-removed-15",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/hidden",
+		"kind": "removed",
+		"values": {
+			"before": [],
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-root-added-16",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/root",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": "m0"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-root-removed-17",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/root",
+		"kind": "removed",
+		"values": {
+			"before": "m0",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-screen-changed-18",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/screen",
+		"kind": "changed",
+		"values": {
+			"before": "form",
+			"after": "menu"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-screen-changed-19",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/screen",
+		"kind": "changed",
+		"values": {
+			"before": "menu",
+			"after": "computed"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-step-added-20",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/step",
+		"kind": "added",
+		"values": {
+			"before": null,
+			"after": {
+				"id": "supply_point_id",
+				"type": "CASE_ID",
+				"value": ""
+			}
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-xmlns-removed-21",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/xmlns",
+		"kind": "removed",
+		"values": {
+			"before": "http://openrosa.org/formdesigner/B039255D-FBEE-5F59-AE2C-4B3F1FEA7CAD",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-android-proof4-vellum-screens-after-menuactivity-formentryactivity-error-occurred-home-unrecoverable-error-changed",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/screens/after-MenuActivity:FormEntryActivity!Error Occurred:home!Unrecoverable Error",
+		"kind": "changed",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-breadcrumbs",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/breadcrumbs/*",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-commands-icon",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/commands/*/icon",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-commands-text",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/commands/*/text",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-route-selections",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/route/selections/*",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-route-sessionid",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/route/sessionId",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-route-sortindex",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/route/sortIndex",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-title",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/title",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d70-reserved-question-names-create-all-files-xformexception",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "bar",
+		"artifact": "create_all_files@*",
+		"path": "/raised/XFormException",
+		"kind": "error",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d70-reserved-question-names-validate-app-error",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "bar",
+		"artifact": "validate_app@*",
+		"path": "/error",
+		"kind": "error",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d70-reserved-question-names-case-management-view-form",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "proof4",
+		"artifact": "editor:case management@*",
+		"path": "/modules/*/forms/*/messages/view_form/You cannot use the Case Management UI if you already have a case block in your form.",
+		"kind": "error",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d70-reserved-question-names-form-settings-view-form",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "proof4",
+		"artifact": "editor:form settings@*",
+		"path": "/modules/*/forms/*/messages/view_form/You cannot use the Case Management UI if you already have a case block in your form.",
+		"kind": "error",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d70-reserved-question-names-vellum-reserved-name-warning",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-reserved-name-warning/The ID '*' may cause problems with form parsing. It is recommended to pick a different Question ID.",
+		"kind": "error",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d70-reserved-question-names-vellum-again-reserved-name-warning",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-reserved-name-warning/The ID '*' may cause problems with form parsing. It is recommended to pick a different Question ID.",
+		"kind": "error",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d43-parsererror-node-vellum-load-parsing-error",
+		"defect": 43,
+		"part": "a question named parsererror",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/load/Parsing Error. Please check that your form is valid XML.",
+		"kind": "refused",
+		"control": "targeted-parsererror-node-name"
+	},
+	{
+		"id": "d43-parsererror-node-vellum-page-errors-invalid-xml",
+		"defect": 43,
+		"part": "a question named parsererror",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/page_errors/Error: Invalid XML: <?xml version=\"*\"?> <h:xdoc xmlns:h=\"*\" xmlns:orx=\"*\" xmlns=\"*\" xmlns:xsd=\"*\" xmlns:jr=\"*\" xmlns:vellum=\"*\"><h:head><h:title>Named parsererror<~1h:title><model><instance><data xmlns=\"*\" xmlns:jrm=\"*\" uiVersion=\"*\" version=\"*\" name=\"*\"><parsererror~1><~1data><~1instance><bind vellum:nodeset=\"~1data~1*\"*\"~1data~1*\"*\"~1><itext><translation lang=\"*\" default=\"\"*\"><value>The parsererror<~1value><value form=\"*\">The parsererror<~1value><~1text><~1translation><~1itext><~1model><~1h:head><h:body><input ref=\"~1data~1*\"*\"~1><~1input><~1h:body><~1h:xdoc>",
+		"kind": "error",
+		"control": "targeted-parsererror-node-name"
+	},
+	{
+		"id": "d71-form-root-read-vellum-logic-bad-path-warning-form",
+		"defect": 71,
+		"part": "a read of the form's root",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/calculateAttr/logic-bad-path-warning/*",
+		"kind": "error",
+		"control": "targeted-form-root-read"
+	},
+	{
+		"id": "d71-form-root-read-vellum-again-logic-bad-path-warning-form",
+		"defect": 71,
+		"part": "a read of the form's root",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/calculateAttr/logic-bad-path-warning/*",
+		"kind": "error",
+		"control": "targeted-form-root-read"
 	}
 ]

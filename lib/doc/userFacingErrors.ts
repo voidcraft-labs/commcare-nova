@@ -54,6 +54,17 @@ import type {
 	ValidationErrorCode,
 } from "@/lib/commcare/validator/errors";
 import type { UserFacingValidationCode } from "@/lib/commcare/validator/gate";
+import {
+	type EntryPointIdProblem,
+	entryPointIdProblemSentence,
+} from "@/lib/domain/entryPoints";
+import {
+	type CaseOperationNameProblem,
+	caseOperationNameSentence,
+	type QuestionIdProblem,
+	questionIdProblemSentence,
+	sourceWritePropertySentence,
+} from "@/lib/domain/questionId";
 
 // ── Interpolation helpers ──────────────────────────────────────────
 //
@@ -85,6 +96,66 @@ const fieldName = (e: ValidationError): string =>
 /** A `details` value, or the fallback. */
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
+
+const QUESTION_ID_PROBLEMS: ReadonlySet<string> = new Set<QuestionIdProblem>([
+	"leading-underscore",
+	"not-letter-first",
+	"characters",
+	"xml-prefix",
+	"reserved-name",
+]);
+
+/**
+ * The question-id sentence a finding's `problem` and `suggestedId` details
+ * name, which the verdicts say too; `undefined` when the finding carries
+ * neither (a document from before the details).
+ */
+const questionIdSentence = (
+	e: ValidationError,
+	id: string,
+	noun: "question" | "connect",
+): string | undefined => {
+	const problem = e.details?.problem;
+	const suggestedId = e.details?.suggestedId;
+	if (problem === undefined || suggestedId === undefined) return undefined;
+	if (!QUESTION_ID_PROBLEMS.has(problem)) return undefined;
+	return questionIdProblemSentence(
+		id,
+		problem as QuestionIdProblem,
+		suggestedId,
+		noun,
+	);
+};
+
+const ENTRY_POINT_ID_PROBLEMS: ReadonlySet<string> =
+	new Set<EntryPointIdProblem>(["characters", "edge", "doubled-hyphen"]);
+
+const CASE_OPERATION_NAME_PROBLEMS: ReadonlySet<string> =
+	new Set<CaseOperationNameProblem>([
+		"stops_form_builder",
+		"reads_as_case_action",
+	]);
+
+/** The reserved-name sentence of an operation id or link finding. */
+const caseOperationNameFindingSentence = (
+	e: ValidationError,
+	name: string | undefined,
+): string | undefined => {
+	const problem = e.details?.problem;
+	const suggestedId = e.details?.suggestedId;
+	if (
+		name === undefined ||
+		problem === undefined ||
+		suggestedId === undefined ||
+		!CASE_OPERATION_NAME_PROBLEMS.has(problem)
+	)
+		return undefined;
+	return caseOperationNameSentence(
+		name,
+		problem as CaseOperationNameProblem,
+		suggestedId,
+	);
+};
 
 /**
  * The person-facing name of the module surface a wire-slot finding sits on,
@@ -253,6 +324,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(det(e, "caseType", "A case type"))}.${det(e, "property", "property")}'s ${det(e, "slot", "default")} setting contains a reference that isn't available there. Replace it with case, worker, or fixed information that exists in every form using this property.`,
 	CASE_PROPERTY_OPTION_VALUE_INVALID: (e) =>
 		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
+	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: (e) =>
+		`Two choices of the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} both store ${q(det(e, "optionValue", ""))}, so a saved value can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	TRANSLATION_UNIT_UNKNOWN: () =>
 		"A translation is attached to content that no longer exists. Open Languages and remove that orphaned translation.",
 	TRANSLATION_VALUE_KIND_MISMATCH: () =>
@@ -340,8 +413,18 @@ const USER_MESSAGE_BY_CODE: Record<
 		switch (e.details?.reason) {
 			case "duplicate-id":
 				return "Two deep links use the same ID. Give one of them a different ID.";
-			case "id-format":
-				return "This deep link ID needs lowercase letters, numbers, underscores, or hyphens.";
+			case "id-format": {
+				const problem = e.details?.problem;
+				const suggestedId = e.details?.suggestedId;
+				return problem !== undefined &&
+					suggestedId !== undefined &&
+					ENTRY_POINT_ID_PROBLEMS.has(problem)
+					? entryPointIdProblemSentence(
+							problem as EntryPointIdProblem,
+							suggestedId,
+						)
+					: "This deep link ID needs lowercase letters, numbers, underscores, or hyphens.";
+			}
 			case "display-conditions":
 				return "Only a link to a form can skip display conditions. Keep display conditions enabled for this destination.";
 			default:
@@ -596,7 +679,9 @@ const USER_MESSAGE_BY_CODE: Record<
 
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: (e) =>
-		`${q(formName(e))} doesn't have any fields yet. Add at least one.`,
+		e.details?.problem === "no_question"
+			? `${q(formName(e))} has sections or groups and no question in them yet. Add a question, a label or a hidden value.`
+			: `${q(formName(e))} doesn't have any fields yet. Add at least one.`,
 	FORM_SECTION_NOT_TOP_LEVEL: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a section sitting inside ${sectionParentPhrase(e)}. A section is a page of the form, so it belongs at the top level. Move it out.`,
 	FORM_SECTIONS_INCOMPLETE: (e) =>
@@ -655,12 +740,54 @@ const USER_MESSAGE_BY_CODE: Record<
 		`A Case change in ${q(formName(e))} can change the selected cases to another type before the next form opens. Send people to the destination's form list so they can choose matching cases, or keep every selected case as ${q(det(e, "expectedCaseType", "the destination's case type"))}.`,
 	CONNECT_ID_TOO_LONG: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
-	CONNECT_ID_INVALID_FORMAT: (e) =>
-		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} won't work. Use letters, numbers, and underscores, starting with a letter.`,
+	CONNECT_ID_INVALID_FORMAT: (e) => {
+		const id = det(e, "connectId", "");
+		const sentence = questionIdSentence(e, id, "connect");
+		return sentence === undefined
+			? `The Connect ID ${q(id)} in ${q(formName(e))} won't work. Use letters, numbers, and underscores, starting with a letter.`
+			: `The Connect ID ${q(id)} in ${q(formName(e))} needs a change. ${sentence}`;
+	},
 	CONNECT_EMPTY_XPATH: (e) =>
 		`A Connect setting on ${q(formName(e))} was left blank. Fill it in, or remove that piece.`,
 	CONNECT_UNQUOTED_XPATH: (e) =>
 		`A Connect setting on ${q(formName(e))} looks like text but isn't quoted. Wrap the value in single quotes.`,
+	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) =>
+		`${q(formName(e))} holds both a deliver unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in this form while the task is assigned. A task goes in a form of its own.`,
+	SESSION_DATUM_NOT_SUPPLIED: (e) => {
+		const datum = q(det(e, "datumId", "a value"));
+		const slot = det(e, "slot", "");
+		if (slot.startsWith("form_link_")) {
+			return `A link from ${q(formName(e))} reads ${datum} from the session, but no menu of this app supplies it, so it never holds a value. You can read a case property or the worker's own record instead.`;
+		}
+		if (e.location.fieldUuid === undefined) {
+			return `A CommCare Connect setting of ${q(formName(e))} reads ${datum} from the session, but no menu of this app supplies it, so it never holds a value. You can read a question, a case property or the worker's own record instead.`;
+		}
+		return `${q(fieldName(e))} reads ${datum} from the session, but no menu of this app supplies it, so CommCare can't open ${q(formName(e))}. You can read a question, a case property or the worker's own record instead.`;
+	},
+	CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP: (e) => {
+		const property = det(e, "property", "that property");
+		const operationId = e.details?.operationId;
+		const writer =
+			e.location.fieldId !== undefined
+				? q(fieldName(e))
+				: typeof operationId === "string" && operationId.length > 0
+					? `The case change ${q(operationId)}`
+					: "A case change";
+		return `${writer} in ${q(formName(e))} saves the case property ${q(property)}. ${sourceWritePropertySentence(
+			property,
+			e.details?.problem === "closes_case"
+				? "closes_case"
+				: "stops_form_builder",
+		)}`;
+	},
+	FIELD_ID_NAMES_CONNECT_BLOCK: (e) => {
+		const suggestedId = e.details?.suggestedId;
+		const offer =
+			typeof suggestedId === "string" && suggestedId.length > 0
+				? ` ${q(suggestedId)} is free for the field.`
+				: "";
+		return `${q(fieldName(e))} and a CommCare Connect block of ${q(formName(e))} share one name, so the form would hold two items CommCare can't tell apart. You can rename the field, or give the block another ID.${offer}`;
+	},
 	DUPLICATE_FIELD_ID: (e) =>
 		`${q(formName(e))} has two fields with the same ID at the same level. Rename one of them.`,
 	CASE_PROPERTY_BAD_FORMAT: (e) =>
@@ -669,7 +796,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))} saves to a name that's way too long. Give it a shorter one.`,
 	CASE_OPERATION_DUPLICATE_UUID: () =>
 		"Two case operations have the same identity. Remove one and add it again.",
-	CASE_OPERATION_INVALID_ID: () =>
+	CASE_OPERATION_INVALID_ID: (e) =>
+		caseOperationNameFindingSentence(e, e.details?.operationId) ??
 		"A case operation has an ID that won't work. Start with a letter or underscore and use only letters, numbers, or underscores.",
 	CASE_OPERATION_DUPLICATE_ID: () =>
 		"Two case operations use the same ID. Rename one of them.",
@@ -722,7 +850,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))} creates a separate child case for each selected case, so an after-submit link can't carry or read one child case for the whole selection. Link to the destination module so the next case can be chosen there, or remove the child-case reference from the link.`,
 	MULTI_SELECT_OPERATION_ORDER: (e) =>
 		`In ${q(formName(e))}, a Case change that runs once comes after a change that runs for each selected case. Move every once-per-form change above the selected-case changes.`,
-	CASE_OPERATION_LINK_INVALID: () =>
+	CASE_OPERATION_LINK_INVALID: (e) =>
+		caseOperationNameFindingSentence(e, e.details?.linkIdentifier) ??
 		"A case link in this operation isn't valid. Review its name and target.",
 	CASE_OPERATION_RETYPE_UNSAFE: () =>
 		"Changing this case's type would leave required information missing. Add those values or choose another case type.",
@@ -746,6 +875,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with only one choice. Add another so there's something to pick between.`,
 	SELECT_OPTION_VALUE_INVALID: (e) =>
 		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
+	SELECT_OPTION_VALUE_DUPLICATE: (e) =>
+		`Two choices of ${q(fieldName(e))} in ${q(formName(e))} both store ${q(det(e, "optionValue", ""))}, so a saved answer can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	SELECT_OPTION_LABEL_EMPTY: (e) =>
 		`${e.details?.optionPosition ? `Choice ${e.details.optionPosition}` : "A choice"} on ${q(fieldName(e))} in ${q(formName(e))} has no label in any language and no image, audio or video, so workers would see an empty choice. Give it a label, or attach media to it.`,
 	CASE_WRITE_UNKNOWN_TYPE: (e) =>
@@ -768,8 +899,12 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} repeats a set number of times, but you haven't said how many. Set the count.`,
 	EMPTY_IDS_QUERY: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} repeats over a list of records, but none is chosen yet. Pick the records it should repeat over.`,
-	INVALID_FIELD_ID: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} has an ID that won't work. Use letters, numbers, and underscores, starting with a letter.`,
+	INVALID_FIELD_ID: (e) => {
+		const sentence = questionIdSentence(e, fieldName(e), "question");
+		return sentence === undefined
+			? `${q(fieldName(e))} in ${q(formName(e))} has an ID that won't work. Use letters, numbers, and underscores, starting with a letter.`
+			: `${q(fieldName(e))} in ${q(formName(e))} needs another ID. ${sentence}`;
+	},
 	FIXTURE_REFERENCE_NOT_MODELED: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} pulls from a data source Nova doesn't support. For a fixed set of choices, add them as options on the field instead.`,
 	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: (e) =>
@@ -798,8 +933,14 @@ const USER_MESSAGE_BY_CODE: Record<
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses a function that doesn't exist. Double-check the spelling.`,
 	WRONG_ARITY: (e) =>
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} gives a function the wrong number of inputs. Check how many it expects.`,
-	INVALID_REF: (e) =>
-		`A formula on ${q(fieldName(e))} in ${q(formName(e))} points to a field that isn't here. Check for a typo, or a field that was renamed or removed.`,
+	INVALID_REF: (e) => {
+		if (e.details?.ref !== "/data")
+			return `A formula on ${q(fieldName(e))} in ${q(formName(e))} points to a field that isn't here. Check for a typo, or a field that was renamed or removed.`;
+		/* A Connect setting's formula belongs to the form, not a field. */
+		return e.location.fieldId === undefined
+			? `A CommCare Connect setting of ${q(formName(e))} reads the whole form, not a question. You can point it at a question, a group or a repeat instead.`
+			: `A formula on ${q(fieldName(e))} in ${q(formName(e))} reads the whole form, not a question. You can point it at a question, a group or a repeat instead.`;
+	},
 	INVALID_CASE_REF: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
 	INVALID_SEARCH_REF: (e) =>

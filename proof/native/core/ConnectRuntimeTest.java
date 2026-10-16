@@ -22,9 +22,15 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import static org.junit.Assert.*;
 
-/** Execute calculated Connect payloads and namespace-preserving submissions. */
+/**
+ * Execute calculated Connect payloads and namespace-preserving submissions.
+ * A deliver scenario holds its task in a form of its own
+ * ({@code <scenario>.task}), so the deliver form's submission carries no task
+ * and the task form's carries the task and no delivery.
+ */
 @RunWith(Parameterized.class)
 public class ConnectRuntimeTest {
     private static final String NS = "http://commcareconnect.com/data/v1/learn";
@@ -34,7 +40,9 @@ public class ConnectRuntimeTest {
             {"learn-default", ".xml"}, {"learn-custom", ".xml"},
             {"deliver-default", ".xml"}, {"deliver-custom", ".xml"}, {"absent", ".xml"},
             {"learn-default", ".hq.xml"}, {"learn-custom", ".hq.xml"},
-            {"deliver-default", ".hq.xml"}, {"deliver-custom", ".hq.xml"}, {"absent", ".hq.xml"}
+            {"deliver-default", ".hq.xml"}, {"deliver-custom", ".hq.xml"}, {"absent", ".hq.xml"},
+            {"deliver-default", ".task.xml"}, {"deliver-custom", ".task.xml"},
+            {"deliver-default", ".task.hq.xml"}, {"deliver-custom", ".task.hq.xml"}
         });
     }
     private final String name;
@@ -79,7 +87,14 @@ public class ConnectRuntimeTest {
                 return new ConcreteInstanceRoot(session);
             }
         });
-        if (name.startsWith("learn")) {
+        if (suffix.startsWith(".task")) {
+            Document sent = submission(form);
+            assertEquals(1, sent.getElementsByTagNameNS(NS, "task").getLength());
+            assertEquals("follow_up", ((Element)sent.getElementsByTagNameNS(NS, "task").item(0)).getAttribute("id"));
+            assertEquals("Record & review", sent.getElementsByTagNameNS(NS, "name").item(0).getTextContent());
+            assertEquals("Ask <then> listen", sent.getElementsByTagNameNS(NS, "description").item(0).getTextContent());
+            assertEquals(0, sent.getElementsByTagNameNS(NS, "deliver").getLength());
+        } else if (name.startsWith("learn")) {
             String expected = name.endsWith("custom") ? "42" : "100";
             assertEquals(expected, value(form, "string(/data/quiz/assessment/user_score)"));
             assertEquals(expected, submission(form).getElementsByTagNameNS(NS, "user_score").item(0).getTextContent());
@@ -91,7 +106,7 @@ public class ConnectRuntimeTest {
             assertEquals(expected, value(form, "string(/data/visit/deliver/entity_id)"));
             assertEquals(name.endsWith("custom") ? "Clinic & child" : "worker-short-name", value(form, "string(/data/visit/deliver/entity_name)"));
             assertEquals(expected, submission(form).getElementsByTagNameNS(NS, "entity_id").item(0).getTextContent());
-            assertEquals(1, submission(form).getElementsByTagNameNS(NS, "task").getLength());
+            assertEquals(0, submission(form).getElementsByTagNameNS(NS, "task").getLength());
             form.setValue(new IntegerData(73), ref(form, "/data/score"));
             form.setValue(new StringData("Changed <雪>"), ref(form, "/data/feedback"));
             assertEquals(name.endsWith("custom") ? "visit-73" : expected, value(form, "string(/data/visit/deliver/entity_id)"));

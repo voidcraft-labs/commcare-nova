@@ -6,7 +6,9 @@ import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { noMatchesFormEntryMutations } from "@/lib/doc/searchNoMatchesForm";
 import type { ConnectConfig, PostSubmitDestination } from "@/lib/domain";
 import {
+	appConnectIds,
 	asUuid,
+	formRootFieldIds,
 	moduleOpensOnSearch,
 	POST_SUBMIT_DESTINATIONS,
 } from "@/lib/domain";
@@ -28,7 +30,7 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
-import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
+import { enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
 import {
 	formAddressSchema,
@@ -263,7 +265,8 @@ export const updateFormTool = {
 						doc.connectType,
 						module.name,
 						name ?? existing.name,
-						collectConnectIds(doc, formUuid),
+						appConnectIds(doc, formUuid),
+						formRootFieldIds(doc, formUuid),
 					);
 					if (!enforced.ok) {
 						return {

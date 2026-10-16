@@ -11,19 +11,23 @@
  * wire (defect 15's migration renames ids its narrowed rule refuses), as
  * Nova's own publish of the edit and Nova's own local archive of it.
  *
- * - `targeted-connect-deliver-rename`: one form holding a deliver unit and a
- *   task. Its ids are none of the names Connect's receiver looks for at any
- *   depth of a submission (`module`, `assessment`, `deliver`, `task`,
- *   `work_area_update`): a Connect block's id is also its wrapper node's
- *   name, and the receiver fails on a wrapper so named (the harness's
- *   finding 60, which `connect-deliver-default`'s task shows).
+ * - `targeted-connect-deliver-rename`: a menu of two forms, the first
+ *   holding a deliver unit and the second, named for the task, the task and
+ *   one label with its description. Connect reads a form's deliver unit
+ *   before its task and rejects a delivery while the worker's task is
+ *   pending, so a form holding both has its own visit rejected
+ *   (`form_receiver/processor.py::process_deliver_form`, finding 61), and a
+ *   task goes in a form of its own. The edit renames the deliver unit in the
+ *   first form and the task in the second. Its control keeps the one form
+ *   holding both.
  * - `targeted-connect-learn-rename`: one form holding a learn module and an
  *   assessment scored by an answer.
  *
- * - `targeted-connect-learn-key-names` and
- *   `targeted-connect-deliver-key-names`: one form for each remaining name
- *   of finding 60 (`module` and `assessment` in a learn app; `deliver` and
- *   `work_area_update` in a deliver app).
+ * No id is one of the names Connect's receiver looks for at any depth of a
+ * submission (`module`, `assessment`, `deliver`, `task`,
+ * `work_area_update`): a Connect block's id is also its wrapper node's name,
+ * and the receiver fails on a wrapper so named (finding 60), which Nova's
+ * validator refuses.
  *
  * Fixed values: each form holds what the worker answers (`./echo.ts`).
  */
@@ -37,7 +41,8 @@ export function connectDeliverRename() {
 	const id = "targeted-connect-deliver-rename";
 	const uuid = (name: string) => targetedUuid(id, name);
 	const form = uuid("form");
-	const make = (deliverUnit: string, task: string) =>
+	const task = { name: "Follow up", description: "Return within a week." };
+	const make = (deliverUnit: string, taskId: string) =>
 		buildDoc({
 			appId: id,
 			appName: "Home visits",
@@ -53,11 +58,6 @@ export function connectDeliverRename() {
 							type: "survey",
 							connect: {
 								deliver_unit: { id: deliverUnit, name: "Home visit" },
-								task: {
-									id: task,
-									name: "Follow up",
-									description: "Return within a week.",
-								},
 							},
 							fields: [
 								f({
@@ -65,6 +65,20 @@ export function connectDeliverRename() {
 									uuid: uuid("household"),
 									id: "household",
 									label: proseText("Household"),
+								}),
+							],
+						},
+						{
+							uuid: uuid("task-form"),
+							name: task.name,
+							type: "survey",
+							connect: { task: { id: taskId, ...task } },
+							fields: [
+								f({
+									kind: "label",
+									uuid: uuid("note"),
+									id: "note",
+									label: proseText(task.description),
 								}),
 							],
 						},
@@ -138,80 +152,4 @@ export function connectLearnRename() {
 			intent: [answerHeld("score-held", form, "/data/score", "8")],
 		},
 	});
-}
-
-/**
- * A Connect app whose blocks are each named like one of the keys Connect's
- * receiver looks for in that kind of app, one block to a form, so each
- * form's submission shows what the receiver makes of one name (the
- * harness's finding 60).
- */
-function keyNamedForms(
-	id: string,
-	connectType: "learn" | "deliver",
-	names: readonly string[],
-) {
-	const uuid = (name: string) => targetedUuid(id, name);
-	const forms = names.map((name) => uuid(`form-${name}`));
-	const doc = buildDoc({
-		appId: id,
-		appName: connectType === "learn" ? "Key names course" : "Key names visits",
-		connectType,
-		modules: [
-			{
-				uuid: uuid("module"),
-				name: "Work",
-				forms: names.map((name, index) => ({
-					uuid: forms[index],
-					name: `Form ${index + 1}`,
-					type: "survey" as const,
-					connect:
-						connectType === "deliver"
-							? { deliver_unit: { id: name, name: `Unit ${index + 1}` } }
-							: name === "assessment"
-								? { assessment: { id: name } }
-								: {
-										learn_module: {
-											id: name,
-											name: `Lesson ${index + 1}`,
-											description: "One lesson.",
-											time_estimate: 5,
-										},
-									},
-					fields: [
-						f({
-							kind: "int",
-							uuid: uuid(`score-${name}`),
-							id: "score",
-							label: proseText("Score"),
-						}),
-					],
-				})),
-			},
-		],
-	});
-	return targetedDocument({
-		id,
-		rows: ["60, a Connect block named like one of Connect's keys"],
-		doc,
-		expected: {
-			intent: forms.map((form, index) =>
-				answerHeld(`score-held-${index + 1}`, form, "/data/score", "8"),
-			),
-		},
-	});
-}
-
-export function connectLearnKeyNames() {
-	return keyNamedForms("targeted-connect-learn-key-names", "learn", [
-		"module",
-		"assessment",
-	]);
-}
-
-export function connectDeliverKeyNames() {
-	return keyNamedForms("targeted-connect-deliver-key-names", "deliver", [
-		"deliver",
-		"work_area_update",
-	]);
 }

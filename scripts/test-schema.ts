@@ -23,6 +23,7 @@
  *     `removeSearchInput`, `reorderSearchInputs`,
  *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
  *     `moveField`, `createForm`, `createModule`, `updateModule`, `updateForm`,
+ *     `configureConnect`, `addEntryPoint`, `updateEntryPoint`,
  *     `renameCaseProperties`, `addLanguage`, `updateTranslations`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
  *     `setAppLogo`, `listMediaAssets`,
@@ -51,9 +52,14 @@ import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/up
 import { updateSearchInputTool } from "../lib/agent/tools/case-list-config/updateSearchInput";
 import { setCaseSearchAdvancedTool } from "../lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/setCaseSearchDisplay";
+import { configureConnectTool } from "../lib/agent/tools/configureConnect";
 import { createFormTool } from "../lib/agent/tools/createForm";
 import { createModuleTool } from "../lib/agent/tools/createModule";
 import { editFieldTool } from "../lib/agent/tools/editField";
+import {
+	addEntryPointTool,
+	updateEntryPointTool,
+} from "../lib/agent/tools/entry-points";
 import { evaluateFormTool } from "../lib/agent/tools/evaluateForm";
 import { generateSchemaTool } from "../lib/agent/tools/generateSchema";
 import { getLookupTablesTool } from "../lib/agent/tools/getLookupTables";
@@ -149,6 +155,27 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: updateFormTool.inputSchema,
 		prompt:
 			"Use updateForm with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to close the case only when the answer to fieldUuid 33333333-3333-4333-8333-333333333333 is 'done'.",
+	},
+	{
+		name: "configureConnect",
+		description: configureConnectTool.description,
+		schema: configureConnectTool.inputSchema,
+		prompt:
+			"Use configureConnect to make the app a learn app whose one participating form is formUuid 22222222-2222-4222-8222-222222222222, with a learn module named 'Hand washing', described as 'Why and when to wash hands', with a time estimate of 1 hour.",
+	},
+	{
+		name: "addEntryPoint",
+		description: addEntryPointTool.description,
+		schema: addEntryPointTool.inputSchema,
+		prompt:
+			"Use addEntryPoint to add an entry point for the form with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222, with the id visit-form, that ignores display conditions.",
+	},
+	{
+		name: "updateEntryPoint",
+		description: updateEntryPointTool.description,
+		schema: updateEntryPointTool.inputSchema,
+		prompt:
+			"Use updateEntryPoint on entryPointUuid 33333333-3333-4333-8333-333333333333 to change its id to home-visit and go back to ordinary display-condition checks.",
 	},
 	{
 		name: "configureCaseList",

@@ -5,9 +5,11 @@ import {
 	planConnectTargetState,
 } from "@/lib/doc/connectTargetState";
 import {
+	asUuid,
 	type BlueprintDoc,
 	type ConnectConfig,
 	type ConnectType,
+	formRootFieldIds,
 	uuidSchema,
 } from "@/lib/domain";
 import { connectFormConfigSchema } from "../planningSchemas";
@@ -189,7 +191,11 @@ function prepareParticipants(
 	// steal an explicit spelling nor change the deterministic suffixes.
 	const taken = new Set<string>();
 	for (const { resolved, draft } of candidates) {
-		for (const error of reserveExplicitConnectIds(draft, taken)) {
+		for (const error of reserveExplicitConnectIds(
+			draft,
+			taken,
+			formRootFieldIds(doc, asUuid(resolved.formUuid)),
+		)) {
 			errors.push(`${resolved.formName}: Connect ${error}`);
 		}
 	}
@@ -210,6 +216,7 @@ function prepareParticipants(
 			resolved.moduleName,
 			resolved.formName,
 			localTaken,
+			formRootFieldIds(doc, asUuid(resolved.formUuid)),
 		);
 		if (!enforced.ok) {
 			errors.push(`${resolved.formName}: ${enforced.error}`);

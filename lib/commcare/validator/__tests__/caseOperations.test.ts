@@ -508,6 +508,55 @@ describe("case-operation activation and identity", () => {
 		);
 	});
 
+	it("refuses an operation id and a link identifier HQ's form builder can't keep, offering a free name", () => {
+		const linked = (identifier: string) =>
+			update({
+				links: [
+					{
+						identifier,
+						targetType: "visit",
+						target: null,
+						relationship: "child",
+					},
+				],
+			});
+		const [idFinding] = errorsFor([update({ id: "instance" })]).filter(
+			(candidate) => candidate.code === "CASE_OPERATION_INVALID_ID",
+		);
+		expect(idFinding?.details).toMatchObject({
+			problem: "stops_form_builder",
+			suggestedId: "q_instance",
+		});
+		expect(idFinding?.message).toContain(
+			`"instance" is a name CommCare HQ's form builder can't open a form with. "q_instance" is free here.`,
+		);
+		for (const [identifier, problem] of [
+			["bind", "stops_form_builder"],
+			["parsererror", "stops_form_builder"],
+			["close", "reads_as_case_action"],
+			["create", "reads_as_case_action"],
+		]) {
+			const [finding] = errorsFor([linked(identifier)]).filter(
+				(candidate) => candidate.code === "CASE_OPERATION_LINK_INVALID",
+			);
+			expect(finding?.details).toMatchObject({
+				linkIdentifier: identifier,
+				problem,
+				suggestedId: `q_${identifier}`,
+			});
+		}
+		// Underscored and differently cased neighbors stay admitted, and an
+		// operation may be named close: its wrapper sits above the block's case.
+		expect(codesFor([update({ id: "_close" })])).toEqual([]);
+		expect(codesFor([update({ id: "close" })])).toEqual([]);
+		expect(codesFor([update({ id: "_instance" })])).toEqual([]);
+		expect(codesFor([linked("_parent")])).toEqual(codesFor([linked("parent")]));
+		expect(codesFor([linked("_instance")])).toEqual(
+			codesFor([linked("parent")]),
+		);
+		expect(codesFor([linked("Close")])).toEqual(codesFor([linked("parent")]));
+	});
+
 	it("accepts underscores but rejects hyphens and dots in emitted node names", () => {
 		expect(codesFor([update({ id: "_update_patient2" })])).toEqual([]);
 		for (const id of ["update-patient", "update.patient"]) {

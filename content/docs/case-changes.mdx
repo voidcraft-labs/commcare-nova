@@ -254,6 +254,11 @@ you later rename or move it, and the names shown in the builder stay current.
 Change ids and connection names use letters, numbers, and underscores and start
 with a letter or underscore; saved property names use the same characters and
 start with a letter.
+Three names are taken, because CommCare HQ's form builder can't open a form that
+holds them: `instance`, `bind` and `parsererror`. A connection can't be named
+`close` or `create`, and a case change can't save a property named `close`,
+because CommCare HQ's form builder reads those names as closing the case or
+starting a new one.
 
 The shared tools also describe each change's target, the record properties its
 conditions and values read, what it writes, and any matching record identities.

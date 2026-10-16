@@ -36,6 +36,7 @@ const test = base.extend<{ choiceApp: ChoiceApp }>({
 				"@/lib/preview/entryPointLaunchAction": boundary,
 				"@/lib/auth/hooks/useAuth": boundary,
 				"@/lib/lookup/actions": boundary,
+				"@/lib/deployment/actions": boundary,
 			},
 		);
 		let guard: Awaited<ReturnType<typeof attachErrorGuard>> | undefined;

@@ -32,6 +32,7 @@ import { z } from "zod";
 import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import {
 	authoredCasePropertyNameSchema,
+	connectDeliverFormHoldsTask,
 	proseTemplateSchema,
 	selectOptionValueSchema,
 	uuidSchema,
@@ -353,7 +354,7 @@ const connectFormConfigShape = z.strictObject({
 		.nullable()
 		.optional()
 		.describe(
-			"Set on a deliver-app form that counts as a payable delivery; `name` shows in Connect's deliver-unit picker.",
+			"Set on a deliver-app form that counts as a payable delivery; `name` shows in Connect's deliver-unit picker. Never on the form that holds a `task`.",
 		),
 	task: z
 		.strictObject({
@@ -369,14 +370,37 @@ const connectFormConfigShape = z.strictObject({
 		.nullable()
 		.optional()
 		.describe(
-			"Optional task description rendered in the Connect mobile UI. Independent of `deliver_unit`.",
+			"A task the worker completes with this form, shown in the Connect mobile UI. It goes in a form of its own, never beside `deliver_unit`: Connect checks a delivery before it completes a task, so a form holding both has its own visit turned away while the task is assigned.",
 		),
 });
+
+const CONNECT_DELIVER_UNIT_AND_TASK_MESSAGE =
+	"A form can't hold both a deliver_unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in that form while the task is assigned. A task goes in a form of its own.";
+
+/** A config that states both a deliver unit and a task, read by the domain's
+ *  one predicate; null states neither on either surface. */
+function statesDeliverUnitAndTask(
+	connect: z.infer<typeof connectFormConfigShape>,
+	ctx: z.RefinementCtx,
+): void {
+	if (
+		connectDeliverFormHoldsTask({
+			deliver_unit: connect.deliver_unit ?? undefined,
+			task: connect.task ?? undefined,
+		})
+	) {
+		ctx.addIssue({
+			code: "custom",
+			message: CONNECT_DELIVER_UNIT_AND_TASK_MESSAGE,
+		});
+	}
+}
 
 /** The exact-target refinement: null ≡ omitted there, so a participant with
  *  no non-null sub-config opts the form into nothing. */
 export const connectFormConfigSchema = connectFormConfigShape.superRefine(
 	(connect, ctx) => {
+		statesDeliverUnitAndTask(connect, ctx);
 		if (
 			!connect.learn_module &&
 			!connect.assessment &&
@@ -398,6 +422,7 @@ export const connectFormConfigSchema = connectFormConfigShape.superRefine(
  *  change nothing — rejects. */
 export const connectFormPatchSchema = connectFormConfigShape.superRefine(
 	(connect, ctx) => {
+		statesDeliverUnitAndTask(connect, ctx);
 		if (
 			connect.learn_module === undefined &&
 			connect.assessment === undefined &&

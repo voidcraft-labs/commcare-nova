@@ -508,7 +508,7 @@ named here, rather than by every document's checks:
 | Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, and its Case List page holds the control for each only under the flag |
 | Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | a device, which restores at the address that names the app, gets the flat fixture whatever the project space says; Web Apps, whose restore names no app, gets it only where the project space syncs it (finding 69) |
 | "12, same-type child" | `proof/targeted/__tests__/unproducedInputs.test.ts` | Nova's gate admits a case type that is its own parent, and a write of the menu's own type from its own menu exports no `subcases` action: there is no such child case to index |
-| "20, CommTrack" | `targeted-supply-point-read`, the manifest check and proof 4; the same vitest file | Nova's gate admits a read of the session's supply point (finding 68) |
+| "20, CommTrack" | `proof/targeted/__tests__/unproducedInputs.test.ts`; the control `targeted-supply-point-read`, the manifest check and proof 4 | Nova's gate refuses a read of the session's supply point, which no menu of a Nova app supplies, and admits a read of a datum the form's entry declares (finding 68) |
 | Defect 20's `product_id` datum | `proof/targeted/__tests__/unproducedInputs.test.ts` | HQ adds it only to an advanced module; a document holding both features HQ's branches read (a case list menu item, a form that loads a case) exports a basic module with basic actions, so no export reaches it |
 | Defect 23 without `MM_CASE_PROPERTIES` | the same vitest file | Nova's publish check, given HQ's own domain list for the flag, refuses a target without it, naming the capability, and passes the same target with it |
 | Defect 12's `VIEW_FORM_ATTACHMENT` | `proof/views/test_form_attachment.py` | a link write's file, submitted by a worker through HQ's receiver, is served by HQ's attachment view to the worker only under the flag, to an administrator either way, and to a web user without Submission History only under the flag |
@@ -1172,7 +1172,7 @@ the highest minimum version HQ's feature support names:
 
 Sync cases on form entry and CommTrack are each off, but where a reproduction
 turns one on for the document (`CorpusDocument.projectSettings`:
-`targeted-sync-on-form-entry`, `targeted-supply-point-read`).
+`targeted-sync-on-form-entry`, and the control `targeted-supply-point-read`).
 
 The plan privileges a document's content needs are HQ's to say: the lane
 derives them where HQ runs, from the apps Nova sends, one rule per privilege
@@ -1234,8 +1234,10 @@ both records under the block's `witnesses/wire-equal-intent/` directory.
 property through a case operation alone and another validates an answer
 against it and against a property an ordinary field writes, so HQ's form
 builder warns about the first read and not the second.
-`targeted-supply-point-read` reads the session's supply point in a project
-space with CommTrack on (finding 68). `targeted-media-slots` holds every
+The control `targeted-supply-point-read` keeps a form that reads the
+session's supply point in a project space with CommTrack on (finding 68); its
+document left the corpus when Nova's gate began refusing the read.
+`targeted-media-slots` holds every
 media slot Nova offers on a question and a group's label, which
 `proof/formplayer/test_media_slots.py` and `proof/webapps/test_media_slots.py`
 read on Formplayer and in the Web Apps client (defect 16); it is the one
@@ -1275,16 +1277,24 @@ question in an app that is not a Connect app, so the local archive writes
 the bare `pollsensor` HQ's build writes for it (finding 34). With
 `targeted-survey-menu`, `targeted-attribute-display-condition` witnesses the
 two form-list settings at both values: the first turns saved forms off and
-incomplete forms on, the second the reverse. Five more show a finding each, with its entries and its control:
+incomplete forms on, the second the reverse. Two more show a finding each, with its entries and its control:
 `targeted-datetime-ordering` (finding 56: a survey form that orders two
 date and time answers an hour apart, and a follow-up form that orders two
-case properties held as text), `targeted-case-id-column` (finding 57: a
-list showing `case_id`, with a hidden order rule over `owner_id`),
-`targeted-reserved-question-names` (finding 70), `targeted-form-root-read`
-(finding 71: a calculation and a repeat's count over `/data`, and a repeat's
-ids query over it) and `targeted-parsererror-node-name` (finding 43: a
-question named `parsererror`, which stops HQ's form builder opening the
-form). `targeted-shared-property-sort` holds two menus: a shown and a hidden
+case properties held as text) and `targeted-case-id-column` (finding 57: a
+list showing `case_id`, with a hidden order rule over `owner_id`). Five
+documents left the corpus when Nova's validator began refusing what they
+showed, and each control keeps it: `targeted-reserved-question-names`
+(finding 70), `targeted-form-root-read` (finding 71: a calculation and a
+repeat's count over `/data`, and a repeat's ids query over it),
+`targeted-parsererror-node-name` (finding 43: a question named
+`parsererror`, which stops HQ's form builder opening the form), and
+`targeted-connect-deliver-key-names` (finding 60: deliver units named
+`deliver` and `work_area_update`), whose learn counterpart left with no
+control; the Connect proofs write each such name by hand
+(`proof/connect/conftest.py`). `targeted-invalid-question-ids`,
+`targeted-invalid-connect-ids` and `targeted-reserved-node-names` hold what
+Nova writes in place of the ids and names it refuses (defect 15, finding
+43), and each control keeps the refused ones. `targeted-shared-property-sort` holds two menus: a shown and a hidden
 column over one property, and a list whose hidden column carries the order
 rule beside a shown image map over the same property, the one shape where a
 sort key on another field changes what a fuzzy search finds (finding 51).
@@ -2067,8 +2077,9 @@ pins, and nothing is called on a system's behalf:
   B-edit's rows are not held to A's; what the edit breaks in Connect is.
   What Connect does itself with a block the edit renamed under the
   opportunity is left out of B-edit's report: the block's id moved, every
-  delivery of a renamed deliver unit refused for its payment unit, and a
-  second learn module. Connect keys an opportunity's rows by each block's id,
+  delivery of a renamed deliver unit refused for its payment unit, a second
+  learn module, and a renamed task's form, in a form of its own, that
+  completes no task the worker was assigned. Connect keys an opportunity's rows by each block's id,
   so an app whose block is renamed in HQ's own form builder meets the same
   (`HQ_OWN_REPORTS`, `connect_block_renamed`, proven by
   `proof/connect/test_hq_own_rename.py`). A report is left out only for a
@@ -2577,7 +2588,8 @@ table's end (56, 57, 70 and 71), each shown by a targeted document.
 
 One row is not reproduced: "12, same-type child", whose input no Nova document
 holds ("Claims held outside a document's checks", above). "20, CommTrack", which step 1
-left out the same way, is a row again: Nova's gate admits the read it needs.
+left out the same way, is a row again: its supply-point part is a read Nova's
+gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its control.
 
 | Defect, part | Symptom | Shown by | Documents |
 |---|---|---|---|
@@ -2594,7 +2606,7 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 5, the upload's answers | without the Lookup Tables privilege HQ's upload API answers Nova's push with its "Upgrade Required" page, status 200, and writes nothing; it takes a 32-character tag and fails with a 500 on a 33-character one | `proof/views/test_lookup_upload.py` (HQ's view, to Nova's captured request) | `lookup-app` |
 | 12, what no editor offers | HQ's Case List page holds the control for an inline search, a multi-select list and an excluded search input only under `CASE_SEARCH_ADVANCED`, which Nova's publish does not ask for | `proof/views/test_case_list_offers.py` (HQ's page in Chromium) | `case-list-inline`, `search-multiple`, an expander search document |
 | 14, `both_fixtures` | a device restores the flat location fixture by the app's own choice, and Web Apps by the project space's setting, so with that setting off the same app has its places on Android and none in Web Apps, where its form moves no case (finding 69) | `proof/views/test_location_fixture.py` (HQ's restore view, as a device and as Formplayer ask it) | `location-direct` |
-| 20, CommTrack | Nova's gate admits a read of the session's `supply_point_id`; no session of a Nova app holds it, so the form does not open; under CommTrack HQ's build gives the form the datum only once a save in HQ's form builder has respelled the source, and then a worker without a supply point is refused the form (finding 68) | manifest; proof 4, then 2 and 3 | `targeted-supply-point-read` |
+| 20, CommTrack | Nova's gate admitted a read of the session's `supply_point_id`; no session of a Nova app holds it, so the form does not open; under CommTrack HQ's build gives the form the datum only once a save in HQ's form builder has respelled the source, and then a worker without a supply point is refused the form (finding 68). Fixed in step 2, its supply-point part: Nova's gate refuses a read of a session datum the form's entry does not declare (`SESSION_DATUM_NOT_SUPPLIED`) | manifest; proof 4, then 2 and 3 | fixed; still shown by the control `targeted-supply-point-read` |
 | 5, reserved substrings | a select over a table whose tag contains `casedb` reads the case database, and one containing `ledgerdb` the ledger database, not the table (`CommCareInstanceInitializer.generateRoot` tests `ledgerdb`, then `casedb`, before `fixture`) | intent (Core); manifest (the instance source Core gives the table) | `targeted-lookup-reserved-tags` |
 | 6, CSQL | HQ's compiler raises `CaseFilterError` for an ordering against a time of day, and for `''` or a number compared with `date_opened`, `closed_on` or `last_modified` | intent (HQ): each CSQL string a run sends, compiled by HQ (`build_filter_from_xpath`); manifest: each search's CSQL, read by HQ's CSQL parser, falls in those comparisons' REFUSED classes | `targeted-search-hq-compile` |
 | 6, Core | `'14:30' < '15:00'` is false on the device while the document orders it | intent (Core); manifest | `targeted-time-ordering` |
@@ -2621,7 +2633,7 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 14, survey menus | the module's case type is `''` where the document holds one | intent (HQ) | `targeted-survey-menu` |
 | 14, tiles | the save writes a font size and places unplaced columns, changing the suite, and aligns every custom-tile cell (defect 42) | proof 4, then 2 | a tile without sizes or positions; `targeted-custom-tile` |
 | 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name. Fixed in step 2: the `name` is the form's name in the default language, which the save writes | proof 4, then 3 | fixed; still shown by the controls `case-operation-query`, `targeted-form-links-hidden-and-fallback`, `case-extension-registration` and `targeted-custom-tile-after-59` |
-| 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). What Connect does with a Connect id renamed under an opportunity that holds it is Connect's own, the same for an id renamed in HQ's form builder ("Connect in the unit") | proof 4; the bar | `targeted-invalid-question-ids`, `targeted-invalid-connect-ids` |
+| 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). What Connect does with a Connect id renamed under an opportunity that holds it is Connect's own, the same for an id renamed in HQ's form builder ("Connect in the unit"). Fixed in step 2: a question id and a Connect id start with a letter, hold letters, digits and underscores, never start with `XML`, and are none of the names CommCare keeps (`lib/domain/questionId.ts`), and a deep link ID is a `slugify` fixed point (`lib/domain/entryPoints.ts::ENTRY_POINT_ID_PATTERN`, held to HQ's own function by `proof/hq/test_endpoint_ids.py`) | proof 4; the bar | fixed; still shown by the controls `targeted-invalid-question-ids` and `targeted-invalid-question-ids-after-9`; `targeted-invalid-question-ids` and `targeted-invalid-connect-ids` hold the replacements |
 | 16, hidden columns | a case list search no longer matches a hidden column's values, because Nova drops the column (`EntitySortUtil.sortEntities`) | intent (Core) | `targeted-hidden-column` |
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`) | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | a module that offers search; `targeted-sync-on-form-entry` |
 | 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps` |
@@ -2634,8 +2646,8 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 30 | Core serializes a second `nova_count_<repeat>` node holding a hidden value's count, truncated where the count is fractional | intent (Core), over the submission; manifest (a count from a hidden value that is not an integer) | `targeted-repeat-count-copy` |
 | 56, datetime ordering | an ordering comparison over a date and time is false on a device wherever an operand is held as text, and orders by calendar day where both are typed, while Preview orders by instant | intent (Core), on the local export and on A | `targeted-datetime-ordering` |
 | 57, `case_id` column | a case list column over `case_id` is blank on HQ's build (`detail_screen.py::CASE_PROPERTY_MAP` has no entry for it, and the case database holds the id only as an attribute), and a hidden sort column over `case_id`, `owner_id` or `status` makes HQ's Case List page refuse to save | manifest; proof 3 across the two paths; proof 4 | `targeted-case-id-column` |
-| 70, reserved question names | HQ's form builder warns about a question named `case`, `registration` or `script` (Vellum `src/mugs/baseSpecs.js`, `RESERVED_NAMES`), and a root question named `case` in a form that saves a case stops HQ's build ("You cannot use the Case Management UI if you already have a case block in your form.", `xform.py::XForm._create_casexml`) | the bar; proof 4 | `targeted-reserved-question-names` |
-| 71, the form's root | HQ's form builder reports "Unknown question: #form" on a calculation or a repeat's count that reads the form's root (`/data`), which Nova admits | proof 4 | `targeted-form-root-read` |
+| 70, reserved question names | HQ's form builder warns about a question named `case`, `registration` or `script` (Vellum `src/mugs/baseSpecs.js`, `RESERVED_NAMES`), and a root question named `case` in a form that saves a case stops HQ's build ("You cannot use the Case Management UI if you already have a case block in your form.", `xform.py::XForm._create_casexml`). Fixed in step 2: Nova refuses the three names in any case for every question and Connect block | the bar; proof 4 | fixed; still shown by the control `targeted-reserved-question-names` |
+| 71, the form's root | HQ's form builder reports "Unknown question: #form" on a calculation or a repeat's count that reads the form's root (`/data`), which Nova admitted. Fixed in step 2: Nova refuses a read of the form's root alone (`INVALID_REF`) | proof 4 | fixed; still shown by the control `targeted-form-root-read` |
 
 The harness's own findings, numbered from 31, are in
 `docs/research/2026-09-26-hq-round-trip/harness-findings.md`, each with what
@@ -3191,9 +3203,12 @@ migrations ten), a scenario under one, and a session about one.
 harness proves itself"). `proof/connect/test_receiver.py` states each of
 these as a test, over `targeted-connect-deliver-rename` and
 `targeted-connect-learn-rename` (a deliver app and a learn app that each
-carry the edit renaming their Connect ids), and, for finding 60,
-`connect-deliver-default`, `targeted-connect-deliver-key-names` and
-`targeted-connect-learn-key-names`:
+carry the edit renaming their Connect ids, the deliver app holding its task
+in a form of its own), and `connect-deliver-default`. Each shape Nova's
+validator refuses is written by hand into a fork of the published app
+(`proof/connect/conftest.py`: `REFUSED_NAMES`, `ACCEPTED_NAMES` and
+`BOTH_IN_ONE_FORM`), released and built by HQ, and submitted by Core on that
+build:
 
 - Connect reads exactly the authored learn module, deliver unit and task from
   HQ's releases.
@@ -3212,13 +3227,17 @@ carry the edit renaming their Connect ids), and, for finding 60,
 - Defect 15: after a rename, deliveries are refused ("Payment unit is not
   configured for the deliver unit") until a manager pays for the new unit; a
   renamed learn module leaves a later learner at half, never finished; a
-  renamed task never completes the task a worker was assigned, which then
-  rejects each of the worker's deliveries.
+  renamed task's form is taken and completes nothing, so the task a worker
+  was assigned stays assigned and rejects each of the worker's deliveries.
 - Finding 60: a block whose id is one of the names the receiver looks for
   (`task`, `deliver`, `work_area_update`, `module`, `assessment`) fails the
-  receiver on every submission of its form.
+  receiver on every submission of its form. The names Nova offers in their
+  place (`q_task` and the others), the same names in another case or in the
+  other kind of app, and a hidden value named like a key, which HQ never
+  forwards, are received.
 - Finding 61: a deliver form that also holds a task loses its own visit while
-  the task is assigned.
+  the task is assigned. With the task in a form of its own, in either order,
+  the task is completed and the next delivery is approved and paid.
 
 Each run leaves, under its block's `connect/`: each document's archive as
 HQ's view served it, each
@@ -4512,8 +4531,9 @@ module) and every entity whose wire Nova derives from what the batch edits;
 the lane's shards run on amd64, where Android runs beside HQ; the input of one defect row ("12, same-type child")
 cannot come from a Nova document, which a test of Nova's planner and gate
 shows, so it is not reproduced (the same was said of "20, CommTrack", whose
-read Nova's gate admits: it is a row again, "The defect rows", and "Claims
-held outside a document's checks" names what holds it); the `hq-api` family
+read Nova's gate admitted: it is a row again, "The defect rows", and from
+step 2 Nova's gate refuses the read, which "Claims held outside a document's
+checks" names the test of); the `hq-api` family
 records each view's decorators
 with their arguments and the module constants a view returns; and the weekly
 pin pull request is opened with the workflow's own token, and the workflow
