@@ -42,8 +42,11 @@
 // for a type-only reference.
 
 export { emitCaseListFilter } from "./caseListFilterEmitter";
-export type { CsqlEmissionResult } from "./csqlEmitter";
-export { emitCsql } from "./csqlEmitter";
+export type {
+	CsqlEmissionResult,
+	CsqlRelatedCaseQuery,
+} from "./csqlEmitter";
+export { collectRelatedCaseQueries, emitCsql } from "./csqlEmitter";
 export type {
 	CsqlRepresentabilityIssue,
 	CsqlRepresentabilityReason,

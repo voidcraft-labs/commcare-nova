@@ -80,9 +80,9 @@ export function PublishingSection() {
 		},
 		[upsert, setProjectSpace],
 	);
-	/* Provisioning answers with the record alone: making accounts cannot
-	 * change which project space Preview names. */
-	const handleProvisioned = useCallback(
+	/* Provisioning and withdrawing a confirmation answer with the record
+	 * alone: neither can change which project space Preview names. */
+	const handleRecordChanged = useCallback(
 		(next: DeploymentView) => {
 			upsert(next);
 		},
@@ -186,12 +186,13 @@ export function PublishingSection() {
 										view={view}
 										canRefresh={canEdit}
 										onUpdated={handleRefreshed}
+										onWithdrawn={handleRecordChanged}
 										workers={
 											<DeploymentWorkers
 												appId={appId ?? ""}
 												deployment={view.deployment}
 												canProvision={canEdit}
-												onUpdated={handleProvisioned}
+												onUpdated={handleRecordChanged}
 											/>
 										}
 									/>

@@ -29,9 +29,17 @@
  * state it was shown in is how a person says "publish over it", and a
  * digest for a state HQ has since left refuses again. Both are per-request
  * and never remembered as a preference: the next publish decides again.
+ *
+ * `confirm` is the third: what a person confirmed about the project space
+ * that no API key reads (a plan feature, the flat location list, a Connect
+ * forwarder), each named after an `hq_confirmation_needed` refusal or the
+ * pre-publish check listed it. Unlike the other two it is remembered, but
+ * only once a publish passes preflight: the deployment keeps it until
+ * someone withdraws it.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import {
 	ApiError,
 	BLUEPRINT_REQUEST_MAX_BYTES,
@@ -48,7 +56,11 @@ import {
 	currentResourceIdentities,
 	publishAppToHq,
 } from "@/lib/deployment/service";
-import type { RemoteChangeDiscard } from "@/lib/deployment/types";
+import {
+	type DeploymentConfirmationKey,
+	deploymentConfirmationKeySchema,
+	type RemoteChangeDiscard,
+} from "@/lib/deployment/types";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
 
@@ -119,6 +131,30 @@ function readDiscardRemoteChanges(
 	}));
 }
 
+const confirmationKeysSchema = z.array(deploymentConfirmationKeySchema);
+
+/**
+ * Read what the person confirmed about the project space: a list of the
+ * keys a refusal names, as the withdraw action reads one.
+ *
+ * As strict as the adoption list: a malformed entry is a client bug, and
+ * reading it as "confirmed nothing" would answer with the very refusal the
+ * person just answered, with nothing to say why.
+ */
+function readConfirmations(
+	value: unknown,
+): readonly DeploymentConfirmationKey[] {
+	if (value === undefined || value === null) return [];
+	const keys = confirmationKeysSchema.safeParse(value);
+	if (!keys.success) {
+		throw new ApiError(
+			"The confirmations sent with this publish have to be a list of what Nova asked about, each with its kind, and a plan feature's id for a plan feature.",
+			400,
+		);
+	}
+	return keys.data;
+}
+
 export async function POST(req: NextRequest) {
 	try {
 		const session = await requireSession(req);
@@ -130,6 +166,7 @@ export async function POST(req: NextRequest) {
 			appId?: string;
 			adopt_resources?: unknown;
 			discard_remote_changes?: unknown;
+			confirm?: unknown;
 		} | null;
 
 		if (!body) throw new ApiError("App data is required", 400);
@@ -157,6 +194,9 @@ export async function POST(req: NextRequest) {
 		const discardRemoteChanges = readDiscardRemoteChanges(
 			body.discard_remote_changes,
 		);
+		/* What the person ticked in the dialog. Preflight keeps only those
+		 * the app needs, and stores them once a publish passes it. */
+		const confirm = readConfirmations(body.confirm);
 
 		/* Publishing to CommCare HQ requires edit, not view: a viewer can't
 		 * push a shared app out of the Project. An `AppAccessError` maps to
@@ -194,6 +234,7 @@ export async function POST(req: NextRequest) {
 			domain: body.domain.trim(),
 			adoptResourceIds,
 			discardRemoteChanges,
+			confirm,
 		});
 
 		/* Whether THIS publish got the app there, which is not the same as
@@ -225,6 +266,12 @@ export async function POST(req: NextRequest) {
 				/* The App Preview statement, on a publish that wrote over the
 				 * app without knowing it unchanged. Null otherwise. */
 				app_preview_note: outcome.landed ? outcome.appPreviewNote : null,
+				/* Whether Web Apps offers the app there, as this publish read
+				 * it. Null on a refusal, where nothing was read back. */
+				web_apps_enabled: outcome.landed ? outcome.webAppsEnabled : null,
+				/* The logo a publish never sends, offered to add in CommCare
+				 * HQ. Null on a refusal and for an app with no logo. */
+				logo_step: outcome.landed ? outcome.logoStep : null,
 				preview_project_space: await previewProjectSpaceFor(scope),
 				/* Null when the app has never reached this target: a refused
 				 * first publish leaves nothing durable behind, and the refusal

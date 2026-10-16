@@ -14,7 +14,11 @@ answers, and HQ keeps the answer on its repeat record.
 The plausible failures: a payload built beside HQ's repeater; a forward
 acknowledged without reaching Connect's receiver; an opportunity made from
 an archive HQ did not serve; a run that reads what another run left in
-Connect; a project space that forwards without Data Forwarding.
+Connect; a project space that forwards without Data Forwarding, or without a
+Connect forwarder. Nova's publish asks a person to confirm both for a
+Connect app, since no API key reads either: the configuration grants Data
+Forwarding, as it grants every privilege the app's content needs, and the
+two arms that hold what each absence does take one away at a time.
 """
 
 import pytest
@@ -27,8 +31,10 @@ from proof.observe.record import Blobs
 def forwarded_delivery(hq, core_runner, connect_runtime, connect_documents, lane_services):
     """``targeted-connect-deliver-rename``'s released build on a device (``proof.android.observe``), whose walks
     send each form they save, the deliver form and the task's, to HQ's own receiver: twice, as two devices of one
-    served state; once on a device whose GPS finds no fix; and once in a project space whose plan has no Data
-    Forwarding."""
+    served state; once on a device whose GPS finds no fix; once in a project space whose plan has no Data
+    Forwarding; and once in one that has it and holds no Connect forwarder."""
+    from corehq import privileges
+
     from proof.android import observe as android
     from proof.connect import hq as connect_hq
     from proof.formplayer import hq as formplayer_hq
@@ -51,16 +57,22 @@ def forwarded_delivery(hq, core_runner, connect_runtime, connect_documents, lane
                             "device": blobs.get_json(found["answer"]),
                             "connect": blobs.get_json(forwarder.take(blobs)),
                         }
-                    # The same state with Data Forwarding taken back off the project space's plan.
-                    seams.ALSO_GRANTED.clear()
-                    android.app(served, blobs, label="unprivileged", archive=archive)
+                    # The same state with Data Forwarding taken off the project space's plan.
+                    with seams.withheld(privileges.DATA_FORWARDING):
+                        android.app(served, blobs, label="unprivileged", archive=archive)
                     unprivileged = forwarder.runs.pop("android", [])
                     assert connect_hq.forwards(app.unit) == []
+                    # The same state with Data Forwarding and no Connect forwarder.
+                    with connect_hq.forwarder_removed(app.unit, served.operation, "no-forwarder"):
+                        android.app(served, blobs, label="no-forwarder", archive=archive)
+                        assert connect_hq.forwards(app.unit) == []
+                    no_forwarder = forwarder.runs.pop("android", [])
                 yield {
                     "served": served,
                     "opportunity": connect.opportunity_record(opportunity),
                     "kept": kept,
                     "unprivileged": unprivileged,
+                    "no_forwarder": no_forwarder,
                 }
             finally:
                 opportunity.close()
@@ -137,5 +149,13 @@ def test_a_project_space_without_data_forwarding_forwards_nothing(forwarded_deli
     """HQ registers a repeat record only where the project space can forward data: without the privilege HQ's
     receiver takes each form and nothing reaches Connect."""
     for name, run in _runs(forwarded_delivery["unprivileged"]).items():
+        assert [received["status"] for received in run["received"]] == [201], name
+        assert (run["forwards"], run["posts"], run["state"]["visits"]) == ([], [], []), name
+
+
+def test_a_project_space_with_data_forwarding_and_no_connect_forwarder_forwards_nothing(forwarded_delivery):
+    """Data Forwarding alone forwards nothing: HQ registers a repeat record only toward a forwarder the project
+    space holds, so with none HQ's receiver takes each form and nothing reaches Connect."""
+    for name, run in _runs(forwarded_delivery["no_forwarder"]).items():
         assert [received["status"] for received in run["received"]] == [201], name
         assert (run["forwards"], run["posts"], run["state"]["visits"]) == ([], [], []), name

@@ -1,31 +1,27 @@
 // lib/media/uploadOutcome.ts
 //
 // Interprets CommCare HQ's bulk-multimedia-upload result into something a
-// person can act on: which media didn't attach, WHERE it lives in the app,
-// and whether the only thing missing is the app logo (which HQ never carries
-// through a bulk upload by design).
+// person can act on: which media didn't attach, and WHERE it lives in the
+// app.
 //
 // HQ reports `unmatched_files` as `{path, reason}` — the wire path of each
 // file it couldn't match, plus a technical reason. This module joins the doc's
 // reference walk (carrier → `MediaAssetId`) with the manifest's asset → wire-path
-// projection to turn each unmatched wire path back into its carrier(s), then
-// partitions:
-//
-//   - logo-only unmatched  → EXPECTED. App-level media doesn't ride the bulk
-//     upload (`carriesViaBulkUpload`), so a logo image used nowhere else always
-//     comes back unmatched. Surfaced as a gentle heads-up, never an error.
-//   - anything else        → a GENUINE failure worth investigating, named by
-//     its carrier so the user sees exactly which media, where, didn't upload.
+// projection to turn each unmatched wire path back into its carrier(s), so
+// the user sees exactly which media, where, didn't upload. Every unmatched
+// file is a failure: the ZIP holds only files some carrier that rides the
+// bulk upload references (`lib/domain/mediaRefs.ts::carriesViaBulkUpload`),
+// so a file only the app logo uses is never sent and never comes back
+// unmatched.
 //
 // `interpretMediaAttach` + `mediaAttachWarnings` are pure; `reportMediaAttach`
 // is the side-effecting wrapper the upload route + MCP tool share — it returns
-// the warning lines and emits the log decision (error for failures / warn for
-// the logo case) in ONE place so the two call sites can't drift.
+// the warning lines and emits the log decision in ONE place so the two call
+// sites can't drift.
 
 import type { BlueprintDoc } from "@/lib/domain";
 import {
 	type AssetRef,
-	carriesViaBulkUpload,
 	describeCarrier,
 	walkAssetRefs,
 } from "@/lib/domain/mediaRefs";
@@ -55,30 +51,22 @@ export interface MediaAttachFailure {
 
 export interface MediaAttachOutcome {
 	/**
-	 * Media HQ genuinely couldn't attach — empty in the common case. Each
-	 * names its carrier so the user isn't left with a bare count. The caller
-	 * logs these loudly (Sentry) because, for non-logo media, an unmatched
-	 * file shouldn't happen.
+	 * Media HQ couldn't attach — empty in the common case. Each names its
+	 * carrier so the user isn't left with a bare count. The caller logs
+	 * these loudly (Sentry) because an unmatched file shouldn't happen.
 	 */
 	readonly failures: readonly MediaAttachFailure[];
-	/**
-	 * The app logo is set but used ONLY as the logo, so CommCare HQ's bulk
-	 * upload skipped it by design (app-level media isn't in the match set).
-	 * Expected, not an error.
-	 */
-	readonly logoNotCarried: boolean;
 }
 
 /**
- * Partition HQ's unmatched-file report into the logo-by-design case and
- * genuine failures, resolving each genuine failure to its carrier.
+ * Resolve each file in HQ's unmatched-file report to the carriers it serves.
  *
  * `assetWirePath` is the resolved manifest's asset → wire-path projection
  * (built by the caller, which owns the `lib/commcare` manifest); this module
  * joins it with the doc's reference walk to turn each unmatched wire path back
  * into the carrier(s) it serves. `hqErrors` are HQ's own processing-error
- * strings (separate from unmatched files), always treated as genuine failures
- * since they can't be pinned to a carrier.
+ * strings (separate from unmatched files), always failures that can't be
+ * pinned to a carrier.
  */
 export function interpretMediaAttach(args: {
 	readonly unmatched: readonly UnmatchedMediaFile[];
@@ -89,9 +77,9 @@ export function interpretMediaAttach(args: {
 	const { unmatched, hqErrors, assetWirePath, doc } = args;
 
 	// wire path → the carriers that reference it. Built by walking the doc's
-	// references and projecting each asset to its wire path, so an asset reused
-	// across several carriers (same image as logo AND a form icon) collects all
-	// of them under one path.
+	// references and projecting each asset to its wire path, so an asset
+	// reused across several carriers (same image as logo AND a form icon)
+	// collects all of them under one path.
 	const refsByWirePath = new Map<string, AssetRef[]>();
 	for (const ref of walkAssetRefs(doc)) {
 		const wirePath = assetWirePath.get(ref.assetId);
@@ -101,55 +89,32 @@ export function interpretMediaAttach(args: {
 		else refsByWirePath.set(wirePath, [ref]);
 	}
 
-	const failures: MediaAttachFailure[] = [];
-	let logoNotCarried = false;
-
-	for (const file of unmatched) {
+	const failures: MediaAttachFailure[] = unmatched.map((file) => {
 		const refs = refsByWirePath.get(file.path) ?? [];
-
-		// All carriers for this file are app-level (don't ride the bulk upload).
-		// Expected — not a failure.
-		if (
-			refs.length > 0 &&
-			refs.every((r) => !carriesViaBulkUpload(r.location))
-		) {
-			logoNotCarried = true;
-			continue;
-		}
-
 		const where =
 			refs.length > 0
 				? CARRIER_LIST.format(refs.map(describeCarrier))
 				: "an unrecognized media file";
-		failures.push({ where, path: file.path, reason: file.reason });
-	}
+		return { where, path: file.path, reason: file.reason };
+	});
 
 	// HQ processing errors are genuine, but carry no path to resolve.
 	for (const reason of hqErrors) {
 		failures.push({ where: "a media file", path: "", reason });
 	}
 
-	return { failures, logoNotCarried };
+	return { failures };
 }
 
 /**
- * The user-facing warning lines for a media-attach outcome — one per genuine
- * failure, plus a single gentle line when the logo won't carry. Empty when
- * everything attached.
+ * The user-facing warning lines for a media-attach outcome, one per
+ * failure. Empty when everything attached.
  */
 export function mediaAttachWarnings(outcome: MediaAttachOutcome): string[] {
-	const lines: string[] = [];
-	for (const f of outcome.failures) {
-		lines.push(
+	return outcome.failures.map(
+		(f) =>
 			`Couldn't attach ${f.where}. CommCare HQ didn't recognize it during upload, so it won't display. Remove and re-add the file, then upload again.`,
-		);
-	}
-	if (outcome.logoNotCarried) {
-		lines.push(
-			"Your logo image won't appear as the app logo. CommCare HQ doesn't apply a logo automatically on upload. Set it in CommCare HQ's app settings, or use the same image somewhere in a form so it's carried with the app.",
-		);
-	}
-	return lines;
+	);
 }
 
 /** The bulk-upload result fields `reportMediaAttach` reads. */
@@ -162,9 +127,8 @@ export interface MediaAttachResult {
 
 /**
  * Reconcile a completed bulk-upload result against the app and produce the
- * user-facing warnings, emitting the log decision in one place: genuine
- * failures mirror to Sentry (`log.error`) with each carrier + reason; the
- * standalone-logo case stays Cloud-Logging-only (`log.warn`). Returns the
+ * user-facing warnings, emitting the log decision in one place: failures
+ * mirror to Sentry (`log.error`) with each carrier + reason. Returns the
  * warning lines for the caller to append to its response.
  *
  * Self-guarding: returns `[]` when nothing was unmatched and no errors were
@@ -202,11 +166,6 @@ export function reportMediaAttach(args: {
 			unmatched: result.unmatched,
 			failures: outcome.failures,
 		});
-	} else if (outcome.logoNotCarried) {
-		log.warn(
-			`${logPrefix} app logo not carried by bulk upload (used only as the logo)`,
-			logContext,
-		);
 	} else {
 		// Positive unmatched count but nothing resolvable — keep a signal.
 		warnings.push(

@@ -29,7 +29,13 @@ The result is one of four clear states:
   CommCare HQ connection. Case search may instead need **Mobile App Access** on
   the CommCare HQ account connected to Nova; a project-space administrator can
   add that permission. A sign-in page or a network error cannot confirm support;
-  Nova waits for a successful check before sending anything.
+  Nova waits for a successful check before sending anything. If the CommCare HQ
+  account connected to Nova is no longer a member of the project space, Nova
+  can't check it at all, and every publish there waits until that account joins
+  it again or you connect a different account in Settings.
+
+Nova reads a project space's support with the CommCare HQ key of the person
+publishing, and no one else's.
 
 Nova checks again as part of every direct publish. A result from an earlier
 check is useful guidance, but it cannot become stale permission to write to a
@@ -86,11 +92,30 @@ space again after the support is available, then publish.
 
 <ProjectSpaceCapabilityCatalog />
 
+Case search asks for more of the project space as a search does more. A search
+whose fields each match their own case property exactly, or cover a date range,
+needs only Case search. A search that opens before the case list, takes one
+date, starts with a suggested value, carries a hidden value, or matches a field
+by a rule Nova writes, which is any match but an exact one, also needs the
+project space's advanced Case search, so Nova checks for it.
+
 <Callout type="info">
 This check covers the project-space capabilities Nova knows the app requires.
-It does not replace CommCare HQ plan access, account permissions, or worker
-permissions. A close condition that CommCare HQ's Case Management tab can't
-show is saved as a Save to Case close, so that app needs Save to Case in the
-project space's plan. See
-[Change cases when a form is submitted](/docs/case-changes).
+It does not replace account permissions or worker permissions.
 </Callout>
+
+## Plan features
+
+Some features come with some CommCare HQ plans and not others, and no API key
+can read a project space's plan. So Nova doesn't check these. The Publish
+dialog lists each one your app needs, with the forms that need it, and asks you
+to confirm the project space has it. Your answer stays with that project space
+until you withdraw it on its card in **App setup → Publishing**, and the next
+publish there asks again. The CommCare HQ app file's guide lists the same
+features.
+
+A close condition that CommCare HQ's Case Management tab can't show is saved as
+a Save to Case close, so that app needs Save to Case. See
+[Change cases when a form is submitted](/docs/case-changes).
+
+<PlanFeatureCatalog />

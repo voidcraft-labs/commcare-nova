@@ -279,10 +279,16 @@ export function applicationShell(
 	 * `wrap` supplies the same default, and `_create_app_from_doc` sets
 	 * `cloudcare_enabled` itself from the domain's Web Apps privilege),
 	 * while an in-place update leaves the project's HQ-side configuration
-	 * standing instead of resetting it on every republish. `logo_refs`
-	 * follows the same rule in `expander.ts`: assigned only when the app has
-	 * a Nova-authored logo, because an empty one would remove a logo
-	 * uploaded on CommCare HQ. */
+	 * standing instead of resetting it on every republish. No `build_spec`
+	 * is written: a create stores the server's default build
+	 * (`_import_app` deletes the body's), an update excludes the key
+	 * (`_merge_source_into_app`), and publish reads HQ's version from the
+	 * app's source. No `logo_refs` is written either: a logo reaches an app
+	 * built on CommCare HQ when a person adds it there.
+	 * `location_fixture_restore` is `project_default` on every app, so a
+	 * device and Web Apps both take the flat location list by the project
+	 * space's own setting (`locations/fixtures.py::should_sync_flat_fixture`
+	 * falls to `LocationFixtureConfiguration.sync_flat_fixture`). */
 	const properties = options?.profileProperties ?? [];
 	const customProperties = options?.profileCustomProperties ?? {};
 	const profile = {
@@ -301,16 +307,9 @@ export function applicationShell(
 		application_version: "2.0",
 		name: appName,
 		langs: options?.langs ?? ["en"],
-		build_spec: {
-			doc_type: "BuildSpec",
-			// Nova emits one current wire shape. This is an export target, never
-			// a feature floor or a runtime capability switch: capture questions
-			// use the same XForm path in every app and no old/new branch exists.
-			version: "2.54.0",
-			build_number: null,
-		},
 		translations: options?.translations ?? {},
 		...(options?.autoGpsCapture === true && { auto_gps_capture: true }),
+		location_fixture_restore: "project_default",
 		...(Object.keys(profile).length > 0 && { profile }),
 		...(addOns.length > 0 && {
 			add_ons: Object.fromEntries(addOns.map((slug) => [slug, true])),

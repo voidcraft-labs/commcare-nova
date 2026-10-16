@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { COMMCARE_VERSION_FLOOR } from "@/lib/commcare/versionFloor";
 import {
 	DEPLOYMENT_NOTICE_REASONS,
 	DOCUMENT_NOTICE_REASONS,
@@ -382,6 +383,37 @@ const ENTRIES: Record<
 			deployment: DEPLOYMENT,
 		},
 	},
+	"next-publish-asks-more": {
+		withDetail: {
+			kind: "deployment",
+			reason: "next-publish-asks-more",
+			deployment: DEPLOYMENT,
+			detail: {
+				planFeatures: "worker-records,organization,data-forwarding",
+				settings: "flat-location-fixture,connect-forwarder",
+				capabilities: "case-search,case-tiles",
+			},
+		},
+		bare: {
+			kind: "deployment",
+			reason: "next-publish-asks-more",
+			deployment: DEPLOYMENT,
+		},
+	},
+	"commcare-version-below-floor": {
+		withDetail: {
+			kind: "deployment",
+			reason: "commcare-version-below-floor",
+			deployment: DEPLOYMENT,
+			detail: { version: "2.53.0" },
+		},
+		bare: {
+			kind: "deployment",
+			reason: "commcare-version-below-floor",
+			deployment: DEPLOYMENT,
+		},
+	},
+	"logo-upload-in-hq": deploymentEntries("logo-upload-in-hq", []),
 	"settings-unknown-unreadable": deploymentEntries(
 		"settings-unknown-unreadable",
 		[],
@@ -781,6 +813,102 @@ describe("the form-list, validation and download lines", () => {
 			).text,
 		).toBe(
 			"After the next publish to field-ops, each app update resets three of a worker's own settings: fuzzy search, automatic updates and text to speech.",
+		);
+	});
+});
+
+describe("the lines about what the next publish checks", () => {
+	const deployment = (reason: string, detail?: object) =>
+		parsed({
+			kind: "deployment",
+			reason,
+			deployment: DEPLOYMENT,
+			...(detail && { detail }),
+		});
+
+	it("names each plan feature, setting and capability the next publish asks about, in every surface's order", () => {
+		// The cutover writes `next-publish-asks-more` with each list
+		// comma-joined: plan feature ids, the two settings, capability ids.
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-more", {
+					planFeatures: "lookup-tables,worker-records",
+					capabilities: "related-case-search,case-tiles",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"The next publish to field-ops asks you to confirm what the project space has: Worker records (user cases), Lookup Tables, Search across related cases and Case tiles.",
+		);
+	});
+
+	it("says why it asks about the flat location list, and that phones get the list today whatever the setting says", () => {
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-more", {
+					planFeatures: "organization",
+					settings: "flat-location-fixture",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"The next publish to field-ops asks you to confirm what the project space has: Locations and the flat location list. Phones and Web Apps both take the location list by field-ops' own setting from then on, so Nova asks whether it still sends it. Until that publish, phones get the list whatever that setting says, so places working on phones today don't show that it's on. It's on unless someone turned it off in the project space's Location Fixture settings.",
+		);
+	});
+
+	it("says a Connect app's forms reach Connect only through data forwarding", () => {
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-more", {
+					planFeatures: "data-forwarding",
+					settings: "connect-forwarder",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"The next publish to field-ops asks you to confirm what the project space has: Data Forwarding and a Connect forwarder. This app's forms reach CommCare Connect only through CommCare HQ's data forwarding, so Nova asks whether field-ops has Data Forwarding and a Connect forwarder.",
+		);
+	});
+
+	it("leaves out an id Nova no longer knows", () => {
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-more", {
+					planFeatures: "retired-feature,child-cases",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"The next publish to field-ops asks you to confirm what the project space has: Child Cases.",
+		);
+	});
+
+	it("names the version the app is set to and how to raise it", () => {
+		expect(
+			renderNoticeEntry(
+				deployment("commcare-version-below-floor", { version: "2.53.0" }),
+				PRESENT,
+			).text,
+		).toBe(
+			"The app on field-ops is set to CommCare 2.53.0, and Nova's apps now need 2.57 or later. The next publish there waits until you raise its CommCare version in that app's settings in CommCare HQ. Phones on an older CommCare can no longer install or update the app after that. Saving that page also sets the app's other settings there, so the publish after it first shows you what changed.",
+		);
+	});
+
+	it("names the floor every other surface names", () => {
+		const { major, minor } = COMMCARE_VERSION_FLOOR;
+		expect(
+			renderNoticeEntry(
+				deployment("commcare-version-below-floor", { version: "2.53.0" }),
+				PRESENT,
+			).text,
+		).toContain(`now need ${major}.${minor} or later`);
+	});
+
+	it("says the logo is no longer sent and where it shows once added in HQ", () => {
+		expect(
+			renderNoticeEntry(deployment("logo-upload-in-hq"), PRESENT).text,
+		).toBe(
+			"From the next publish to field-ops, Nova doesn't send this app's logo with it. Apps built on CommCare HQ show the logo once it is added in that app's settings there; until then they carry none, and Web Apps shows its own icon. After that publish, Nova offers the logo to download.",
 		);
 	});
 });

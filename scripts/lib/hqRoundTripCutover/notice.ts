@@ -19,9 +19,35 @@
  * app's content once the cutover's ledger writes are made. The two drift
  * lines come from the baselines the cutover stores (`baselineNotices`) and
  * are merged with each deployment's other lines in the enum's order.
+ *
+ * Three lines are what the next publish itself now checks (part 03 of step
+ * 2's plan): `next-publish-asks-more` names what it asks a person to confirm
+ * and the capabilities it newly checks, from the document alone;
+ * `commcare-version-below-floor` names a read deployment whose app HQ builds
+ * below the floor, with the version the source read gave; and
+ * `logo-upload-in-hq` tells each deployment of an app with a logo that the
+ * logo is no longer sent.
  */
 
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { moduleCaseTypeForActions } from "@/lib/commcare/formLinkProjection";
+import {
+	type ProjectSpaceCapabilityId,
+	requiredProjectSpaceCapabilities,
+} from "@/lib/commcare/projectSpaceCompatibility";
+import { moduleIsSearchFirst } from "@/lib/commcare/suite/case-search/inlineSearch";
+import {
+	searchInputIsSingleDate,
+	searchInputSuppressesAutoMatch,
+} from "@/lib/commcare/suite/case-search/searchPrompts";
+import { compareToVersionFloor } from "@/lib/commcare/versionFloor";
+import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
+import { requiredConfirmations } from "@/lib/deployment/confirmations";
+import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
+import {
+	asUuid,
+	type BlueprintDoc,
+	effectiveCaseSearchConfig,
+} from "@/lib/domain";
 import { entryPointInventory } from "@/lib/domain/entryPoints";
 import {
 	DEPLOYMENT_NOTICE_REASONS,
@@ -70,6 +96,22 @@ export interface DeploymentNoticeSource {
 	readonly formIdsUnknown?: readonly string[];
 	/** The source read's `profile.properties`; null or absent where no source was read. */
 	readonly profileProperties?: Readonly<Record<string, unknown>> | null;
+	/** HQ's `build_spec.version` from the source read; null or absent where none was read. */
+	readonly buildSpecVersion?: string | null;
+	/**
+	 * Whether a publish of this app sends places: the app's stored
+	 * organization holds a place that is not archived
+	 * (`lib/deployment/locationResourcePlan.ts::plannedPlacesFor`). Absent
+	 * reads as none.
+	 */
+	readonly places?: boolean;
+	/**
+	 * Where the next publish there points the app's capture links: the
+	 * deployment's own server and project space
+	 * (`lib/deployment/attachmentTarget.ts::attachmentUrlTarget`). Absent
+	 * reads as none.
+	 */
+	readonly attachmentTarget?: AttachmentUrlTarget;
 }
 
 /** The classes whose source the cutover read, so whose profile it knows. */
@@ -135,6 +177,81 @@ function settingChanges(
 	return notices;
 }
 
+/**
+ * The capabilities the flag probe checks from step 2 that it did not check
+ * before: each is new, so any app that needs one is newly asked.
+ */
+const NEW_CAPABILITIES: ReadonlySet<ProjectSpaceCapabilityId> = new Set([
+	"multi-select-case-lists",
+	"related-case-search",
+	"case-tiles",
+]);
+
+/**
+ * Whether some module's search needs HQ's advanced case search for a reason
+ * the probe did not check before step 2: a search-first menu, a one-date
+ * Search field or a Search field Nova matches by its own filter. A starting
+ * value and a hidden value were checked already. Each is read only where the
+ * module's search lands, as the probe reads it.
+ */
+function asksAdvancedSearchForNewReason(doc: BlueprintDoc): boolean {
+	return Object.values(doc.modules).some((module) => {
+		if (effectiveCaseSearchConfig(module) === undefined) return false;
+		if (moduleCaseTypeForActions(doc, module.uuid) === "") return false;
+		const inputs = module.caseListConfig?.searchInputs ?? [];
+		return (
+			moduleIsSearchFirst(module) ||
+			inputs.some(searchInputIsSingleDate) ||
+			inputs.some(searchInputSuppressesAutoMatch)
+		);
+	});
+}
+
+/**
+ * `next-publish-asks-more`, from the document alone: what the next publish
+ * asks a person to confirm about the project space, and the capabilities its
+ * flag probe now checks for this app. No deployment holds a confirmation
+ * before its first publish from step 2, so everything the app needs is
+ * asked. `detail.planFeatures` holds the plan feature ids, `detail.settings`
+ * `flat-location-fixture` and `connect-forwarder`, and `detail.capabilities`
+ * the capability ids, each comma-joined in the order every surface lists
+ * them and left out where empty. Null where the publish asks nothing new.
+ */
+export function nextPublishAsksMore(
+	target: BlueprintDoc,
+	places: boolean,
+	attachmentTarget: AttachmentUrlTarget | null,
+): DeploymentNotice | null {
+	const needed = requiredConfirmations(
+		target,
+		{
+			lookupTables: extractLookupReferenceTargets(target).tableIds.length > 0,
+			places,
+		},
+		attachmentTarget,
+	);
+	const planFeatures = needed
+		.filter((need) => need.kind === "plan-feature")
+		.map((need) => need.subject);
+	const settings = needed
+		.filter((need) => need.kind !== "plan-feature")
+		.map((need) => need.subject);
+	const newReason = asksAdvancedSearchForNewReason(target);
+	const capabilities = requiredProjectSpaceCapabilities(target)
+		.map((use) => use.id)
+		.filter(
+			(id) => NEW_CAPABILITIES.has(id) || (id === "case-search" && newReason),
+		);
+	const detail: Record<string, string> = {
+		...(planFeatures.length > 0 && { planFeatures: planFeatures.join(",") }),
+		...(settings.length > 0 && { settings: settings.join(",") }),
+		...(capabilities.length > 0 && { capabilities: capabilities.join(",") }),
+	};
+	return Object.keys(detail).length === 0
+		? null
+		: { reason: "next-publish-asks-more", detail };
+}
+
 /** The deployment reasons one deployment gets, in the enum's order. */
 export function deploymentNoticeReasons(
 	outcome: DeploymentOutcome,
@@ -180,6 +297,22 @@ export function deploymentNotices(
 	notices.push({ reason: "data-paths-move-once" });
 	if (entryPointInventory(target).length > 0) {
 		notices.push({ reason: "deep-links-need-republish" });
+	}
+	const asksMore = nextPublishAsksMore(
+		target,
+		source.places ?? false,
+		source.attachmentTarget ?? null,
+	);
+	if (asksMore !== null) notices.push(asksMore);
+	const version = source.buildSpecVersion ?? null;
+	if (version !== null && compareToVersionFloor(version) === "below") {
+		notices.push({
+			reason: "commcare-version-below-floor",
+			detail: { version: noticeText(version) },
+		});
+	}
+	if (target.logo !== undefined) {
+		notices.push({ reason: "logo-upload-in-hq" });
 	}
 	if (READ.has(outcome)) {
 		const properties = source.profileProperties ?? {};

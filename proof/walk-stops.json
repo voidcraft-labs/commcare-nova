@@ -6,34 +6,16 @@
 		"reason": "Formplayer refuses the form's submission: its guard case block carries no case id (Core's case parser; defect 13), on every state, so no reader sees what follows the form."
 	},
 	{
-		"document": "expander-expanddoc-hq-json-projection-case-search-4d53ba11-0",
+		"control": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0",
 		"reader": "formplayer",
 		"cause": "notification:you-cannot-query-related-cases-here",
-		"reason": "The search the typed prompts send reads related cases, which HQ's case search view refuses in the configuration without the related lookups flag (case_search/filter_dsl.py; defect 12), and Formplayer answers with that in place of the results."
-	},
-	{
-		"document": "expander-expanddoc-hq-json-projection-case-search-cd8e0ffa-0",
-		"reader": "formplayer",
-		"cause": "notification:you-cannot-query-related-cases-here",
-		"reason": "The search the typed prompts send reads related cases, which HQ's case search view refuses in the configuration without the related lookups flag (case_search/filter_dsl.py; defect 12), and Formplayer answers with that in place of the results."
-	},
-	{
-		"document": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0",
-		"reader": "formplayer",
-		"cause": "notification:you-cannot-query-related-cases-here",
-		"reason": "HQ's case search view refuses the query the search sends (case_search/filter_dsl.py: You cannot query related cases here; defect 12) and Formplayer answers with that in place of the results, on every state."
+		"reason": "The control retains the document's configurations from before step 2 asked for the related lookups flag: HQ's case search view refuses a query that reads related cases without CASE_SEARCH_RELATED_LOOKUPS (case_search/filter_dsl.py::_require_related_lookups_flag: You cannot query related cases here; defect 12), and Formplayer answers with that in place of the results, on every state."
 	},
 	{
 		"document": "expander-output-references-in-labels-lowers-several-typed-e72b42c4-0",
 		"reader": "formplayer",
 		"cause": "notification:invalid-data-type-in-setvalue-event-targetting",
 		"reason": "Formplayer answers the form's opening with Core's refusal of the form's setvalue into its date question (the case property it copies holds text that is no date), on every state, so no reader opens the form."
-	},
-	{
-		"document": "function-arguments",
-		"reader": "formplayer",
-		"cause": "notification:you-cannot-query-related-cases-here",
-		"reason": "HQ's case search view refuses the query the search sends (case_search/filter_dsl.py: You cannot query related cases here; defect 12) and Formplayer answers with that in place of the results, on every state."
 	},
 	{
 		"document": "fuzz-suite-20260930-5",
@@ -81,31 +63,19 @@
 		"document": "location-direct",
 		"reader": "formplayer",
 		"cause": "notification:unable-to-find-lookup-table",
-		"reason": "Formplayer answers the form's opening with Core's refusal to find the locations fixture the form reads (CommCareInstanceInitializer): the restore Formplayer asks HQ for names no app, so HQ asks the project space, which syncs none (defect 14, both_fixtures; proof/views/test_location_fixture.py)."
+		"reason": "Formplayer answers the form's opening with Core's refusal to find the locations fixture the form reads (CommCareInstanceInitializer): the restore Formplayer asks HQ for names no app, so HQ asks the project space, which syncs none (finding 69; proof/views/test_location_fixture.py)."
 	},
 	{
 		"document": "location-multirung",
 		"reader": "formplayer",
 		"cause": "notification:unable-to-find-lookup-table",
-		"reason": "Formplayer answers the form's opening with Core's refusal to find the locations fixture the form reads (CommCareInstanceInitializer): the restore Formplayer asks HQ for names no app, so HQ asks the project space, which syncs none (defect 14, both_fixtures; proof/views/test_location_fixture.py)."
-	},
-	{
-		"document": "prompt-guards",
-		"reader": "formplayer",
-		"cause": "notification:you-cannot-query-related-cases-here",
-		"reason": "The search the typed prompts send reads related cases, which HQ's case search view refuses in the configuration without the related lookups flag (case_search/filter_dsl.py; defect 12), and Formplayer answers with that in place of the results."
+		"reason": "Formplayer answers the form's opening with Core's refusal to find the locations fixture the form reads (CommCareInstanceInitializer): the restore Formplayer asks HQ for names no app, so HQ asks the project space, which syncs none (finding 69; proof/views/test_location_fixture.py)."
 	},
 	{
 		"document": "prompt-widgets",
 		"reader": "formplayer",
 		"cause": "search-refused",
 		"reason": "The search's Name prompt is required and this run leaves the screen as it opens, so the client keeps its Search from being sent (menus/views/query.js) and the walk sends none; the run that types into the prompts sends it."
-	},
-	{
-		"document": "search-parent",
-		"reader": "formplayer",
-		"cause": "notification:you-cannot-query-related-cases-here",
-		"reason": "HQ's case search view refuses the query the search sends (case_search/filter_dsl.py: You cannot query related cases here; defect 12) and Formplayer answers with that in place of the results, on every state."
 	},
 	{
 		"control": "targeted-close-condition-unparsable",
@@ -144,10 +114,10 @@
 		"reason": "HQ's case search view refuses the query's own date comparison, which is the document's witness of defect 6, and Formplayer answers with that in place of the results, on every state."
 	},
 	{
-		"document": "targeted-search-related-lookups",
+		"control": "targeted-search-related-lookups",
 		"reader": "formplayer",
 		"cause": "notification:you-cannot-query-related-cases-here",
-		"reason": "HQ's case search view refuses the query the search sends (case_search/filter_dsl.py: You cannot query related cases here; defect 12) and Formplayer answers with that in place of the results, on every state."
+		"reason": "The control retains the document's configurations from before step 2 asked for the related lookups flag: HQ's case search view refuses a query that reads related cases without CASE_SEARCH_RELATED_LOOKUPS (case_search/filter_dsl.py::_require_related_lookups_flag: You cannot query related cases here; defect 12), and Formplayer answers with that in place of the results, on every state."
 	},
 	{
 		"control": "targeted-supply-point-read",

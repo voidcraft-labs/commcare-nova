@@ -2,15 +2,20 @@
  * Defect 12, custom tile, and the tile alignment the Case List save writes.
  *
  * Nova emits `case_tile_template: custom` for any tile layout
- * (`lib/commcare/hqJson/caseList.ts`) and checks it against neither
- * `CASE_LIST_TILE` nor `CASE_LIST_TILE_CUSTOM`
- * (`lib/commcare/projectSpaceCompatibility.ts`), so a project space with
- * `CASE_LIST_TILE` alone is a target Nova publishes to, and a Case List save
- * there drops the custom tile, with every cell's alignment and size. Under
- * both flags the save keeps the tile and writes HQ's defaults (`left`,
- * `start`, `medium`) into each cell that holds none, which HQ's build
- * carries into the suite's `<style>` (`suite_xml/sections/details.py`; the
- * harness's findings, defect 42). Every cell now states all three
+ * (`lib/commcare/hqJson/caseList.ts`), and its publish asks a project space
+ * for both `CASE_LIST_TILE` and `CASE_LIST_TILE_CUSTOM` before it sends one
+ * (`lib/commcare/projectSpaceCompatibility.ts`, the case tiles capability):
+ * HQ's Case List page offers and keeps a custom tile only under both, and a
+ * save under `CASE_LIST_TILE` alone drops it with every cell's alignment and
+ * size. So the document has no `CASE_LIST_TILE` configuration: Nova's
+ * publish refuses that project space, and `proof/corpus/entryWriter.ts`
+ * writes no configuration a verdict refuses. What the save there drops
+ * stays held on the controls `targeted-custom-tile` and
+ * `targeted-custom-tile-explicit-cells`, which keep that configuration.
+ * Under both flags the save keeps the tile and writes HQ's defaults
+ * (`left`, `start`, `medium`) into each cell that holds none, which HQ's
+ * build carries into the suite's `<style>` (`suite_xml/sections/details.py`;
+ * the harness's findings, defect 42). Every cell states all three
  * (`lib/domain/modules.ts::tileCell`, which fills `left`, `top` and
  * `medium`), so that save changes no cell.
  *
@@ -136,7 +141,6 @@ export function customTile() {
 			],
 		},
 		files: { "restore.xml": restore },
-		singleFlags: ["CASE_LIST_TILE"],
 	});
 }
 

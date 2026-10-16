@@ -38,11 +38,6 @@ function application(
 		application_version: "2.0",
 		name: "Clinic",
 		langs: ["en", "fra"],
-		build_spec: {
-			doc_type: "BuildSpec",
-			version: "2.54.0",
-			build_number: null,
-		},
 		translations: {
 			en: { en: "English", fra: "French" },
 			fra: {
@@ -59,6 +54,7 @@ function application(
 			}),
 		},
 		add_ons: { display_conditions: true },
+		location_fixture_restore: "project_default",
 		modules: [],
 		_attachments: { "form.xml": "<data/>" },
 		...overrides,
@@ -69,6 +65,8 @@ function source(overrides: Partial<HqAppSource> = {}): HqAppSource {
 	return {
 		docType: "Application",
 		buildSpecVersion: "2.57.0",
+		cloudcareEnabled: true,
+		logoRefs: {},
 		profile: {},
 		langs: ["en", "fra"],
 		translations: {},

@@ -45,6 +45,11 @@ import {
 	describeArchiveImpact,
 	setLocationArchived,
 } from "@/lib/organization/service";
+import {
+	LOGO_UPLOAD_STEP_TEXT,
+	PLAN_FEATURE_IDS,
+	PLAN_FEATURES,
+} from "@/lib/publish/planFeatures";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { loadAppBlueprint } from "../loadApp";
 import { registerUploadAppToHq } from "../tools/uploadAppToHq";
@@ -89,10 +94,20 @@ function asUser<T>(
 		run,
 	);
 }
+/**
+ * Every confirmation an upload can ask for. The cases are about what an
+ * upload sends, so each says yes to all of them unless it is about the
+ * asking; preflight keeps only what the app needs.
+ */
+const CONFIRM_ALL = {
+	confirm_plan_features: [...PLAN_FEATURE_IDS],
+	confirm_flat_location_fixture: true,
+	confirm_connect_forwarder: true,
+};
 function call(client: Client, extra: Record<string, unknown> = {}) {
 	return client.callTool({
 		name: "upload_app_to_hq",
-		arguments: { app_id: APP, ...extra },
+		arguments: { app_id: APP, ...CONFIRM_ALL, ...extra },
 	});
 }
 function body(result: Awaited<ReturnType<typeof call>>, error = false) {
@@ -699,7 +714,11 @@ it("requires explicit adoption of the named table, then ships its real workbook 
 				await client.callTool(
 					{
 						name: "upload_app_to_hq",
-						arguments: { app_id: APP, adopt_resources: [table.id] },
+						arguments: {
+							app_id: APP,
+							...CONFIRM_ALL,
+							adopt_resources: [table.id],
+						},
 					},
 					{ onprogress: (update) => updates.push(update) },
 				),
@@ -931,7 +950,6 @@ it.each(
 
 it.each([
 	"complete",
-	"logo",
 	"upload-disconnect",
 	"status-disconnect",
 	"malformed-status",
@@ -946,8 +964,7 @@ it.each([
 		const doc = document();
 		const field = Object.values(doc.fields)[0];
 		if (field.kind !== "text") throw new Error("Expected text field");
-		if (outcome === "logo") doc.logo = image;
-		else field.label_media = { image };
+		field.label_media = { image };
 		await seed(doc);
 		await h
 			.db()
@@ -1003,12 +1020,9 @@ it.each([
 						success: true,
 						processing_id: "media-job",
 						complete: outcome === "malformed-status" ? "true" : true,
-						matched_count: outcome === "logo" ? 0 : 1,
-						unmatched_count: outcome === "logo" ? 1 : 0,
-						unmatched_files:
-							outcome === "logo"
-								? [{ path: wire, reason: "Did not match any Image paths." }]
-								: [],
+						matched_count: 1,
+						unmatched_count: 0,
+						unmatched_files: [],
 						errors: [],
 					});
 			}
@@ -1022,9 +1036,7 @@ it.each([
 				expect(result.warnings).toEqual(
 					outcome === "complete"
 						? []
-						: outcome === "logo"
-							? [expect.stringContaining("logo")]
-							: [expect.stringContaining("app was published")],
+						: [expect.stringContaining("app was published")],
 				);
 				expect((await state())?.active).toHaveLength(1);
 			});
@@ -1040,6 +1052,117 @@ it.each([
 		});
 	},
 );
+
+it("offers a logo only the logo uses for upload in CommCare HQ, and sends it in no media upload", async () => {
+	const image = testMediaAssetId("publish-logo");
+	const png = readFileSync("public/nova-icons/household.png");
+	const hash = createHash("sha256").update(png).digest("hex");
+	const doc = document();
+	doc.logo = image;
+	await seed(doc);
+	await h
+		.db()
+		.insertInto("media_assets")
+		.values({
+			id: image,
+			project_id: PROJECT,
+			owner: "creator",
+			kind: "image",
+			content_hash: hash,
+			mime_type: "image/png",
+			extension: ".png",
+			size_bytes: png.length,
+			gcs_object_key: `projects/${PROJECT}/${hash}.png`,
+			original_filename: "household.png",
+			display_name: "Household",
+			status: "ready",
+		})
+		.execute();
+	vi.mocked(downloadAssetBytes).mockResolvedValue(png);
+	await withHttpPeer(async (peer) => {
+		shellCreated(peer);
+		imported(peer);
+		await asUser(async (client) => {
+			const result = body(await call(client));
+			expect(result).toMatchObject({
+				stage: "upload_complete",
+				warnings: [],
+				web_apps_enabled: true,
+				logo_step: {
+					asset_id: image,
+					file_name: "logo.png",
+					changed: true,
+					instructions: LOGO_UPLOAD_STEP_TEXT,
+				},
+			});
+		});
+		expect(requests(peer)).toEqual([
+			PROJECT_SPACES,
+			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
+			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
+		]);
+	});
+});
+
+it("names what a person has to confirm structurally, and sends nothing until they do", async () => {
+	await seedLookup();
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			const refused = body(
+				await call(client, {
+					confirm_plan_features: [],
+					confirm_flat_location_fixture: false,
+					confirm_connect_forwarder: false,
+				}),
+				true,
+			);
+			expect(refused).toEqual({
+				error_type: "hq_confirmation_needed",
+				message:
+					"“clinic” needs a few things Nova can't check from here. Once you confirm that the project space has each one below, publishing can continue.",
+				app_id: APP,
+				confirmations_needed: [
+					{
+						kind: "plan-feature",
+						subject: "lookup-tables",
+						label: PLAN_FEATURES["lookup-tables"].label,
+						plans: PLAN_FEATURES["lookup-tables"].plans,
+						consequence: PLAN_FEATURES["lookup-tables"].consequence,
+						reasons: ["The app reads data from a lookup table."],
+					},
+				],
+			});
+		});
+		expect(requests(peer)).toEqual([]);
+	});
+	expect(await snapshot()).toEqual({ deployments: [], resources: [] });
+});
+
+it("refuses a target app below the CommCare version floor with its address", async () => {
+	await seed();
+	await withHttpPeer(async (peer) => {
+		shellCreated(peer);
+		imported(peer);
+		await asUser(async (client) => {
+			body(await call(client));
+			const below = retainedBodyJson(retainedPublishRead("source-live"));
+			below.build_spec = {
+				...(below.build_spec as Record<string, unknown>),
+				version: "2.53.0",
+			};
+			request(peer, SOURCE).reply(200, JSON.stringify(below));
+			const refused = body(await call(client), true);
+			expect(refused).toMatchObject({
+				error_type: "hq_app_version_below_floor",
+				app_id: APP,
+				url: `${HOST}/a/clinic/apps/view/working-app/`,
+			});
+			expect(refused.message).toContain("CommCare 2.53.0");
+		});
+	});
+});
 
 it.each([
 	{

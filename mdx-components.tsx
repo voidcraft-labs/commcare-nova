@@ -14,7 +14,10 @@ import { Callout } from "fumadocs-ui/components/callout";
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import defaultMdxComponents from "fumadocs-ui/mdx";
 import type { MDXComponents } from "mdx/types";
-import { ProjectSpaceCapabilityCatalog } from "@/components/docs/ProjectSpaceCapabilityCatalog";
+import {
+	PlanFeatureCatalog,
+	ProjectSpaceCapabilityCatalog,
+} from "@/components/docs/ProjectSpaceCapabilityCatalog";
 
 export function getMDXComponents(components?: MDXComponents): MDXComponents {
 	return {
@@ -23,6 +26,7 @@ export function getMDXComponents(components?: MDXComponents): MDXComponents {
 		Steps,
 		Step,
 		ProjectSpaceCapabilityCatalog,
+		PlanFeatureCatalog,
 		...components,
 	};
 }

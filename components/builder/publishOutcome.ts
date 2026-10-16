@@ -25,9 +25,21 @@
 import type { DeploymentView } from "@/lib/deployment/actions";
 import type {
 	DeploymentAttemptRefusal,
+	DeploymentConfirmationNeeded,
+	DeploymentFailureCode,
 	DeploymentRemoteChange,
 	DeploymentResourceConflict,
 } from "@/lib/deployment/types";
+import { webAppsOffText } from "@/lib/publish/planFeatures";
+
+/** The logo a landed publish offers for a person to add in CommCare HQ. */
+export interface PublishLogoStepBody {
+	readonly assetId: string;
+	/** `logo<ext>`, the name the download is offered under. */
+	readonly fileName: string;
+	/** True when this is not the logo the deployment last offered. */
+	readonly changed: boolean;
+}
 
 /** The parts of the publish response this decision reads. */
 export interface PublishResponseBody {
@@ -42,7 +54,18 @@ export interface PublishResponseBody {
 	 * without knowing it unchanged; null on every other publish.
 	 */
 	readonly app_preview_note?: string | null;
-	readonly url?: string;
+	/**
+	 * Whether Web Apps offers the app on the project space, as this publish
+	 * read it back; null on a refusal, where nothing was read back.
+	 */
+	readonly web_apps_enabled?: boolean | null;
+	/** The logo step a landed publish offers; null without a logo. */
+	readonly logo_step?: PublishLogoStepBody | null;
+	/**
+	 * The HQ app's address. A refusal carries it too where the app is
+	 * there, so a person can open it to change what stopped the publish.
+	 */
+	readonly url?: string | null;
 	readonly warnings?: string[];
 	readonly deployment?: DeploymentView["deployment"] | null;
 	readonly setup_artifact?: DeploymentView["artifact"];
@@ -94,6 +117,14 @@ export type PublishOutcome =
 			 * the cutover read. Null on every other publish.
 			 */
 			readonly appPreviewNote: string | null;
+			/**
+			 * Whether Web Apps offers the app there, as this publish read it.
+			 * Null for a response that carried no answer, where nothing is
+			 * said about Web Apps.
+			 */
+			readonly webAppsEnabled: boolean | null;
+			/** The logo step, for an app with a logo; null otherwise. */
+			readonly logoStep: PublishLogoStepBody | null;
 	  }
 	| {
 			readonly kind: "refused";
@@ -104,9 +135,16 @@ export type PublishOutcome =
 			 */
 			readonly deployment: DeploymentView | null;
 			readonly refusal: {
+				/** Which stop it was, so the dialog can offer that stop's next step. */
+				readonly code: DeploymentFailureCode;
 				readonly message: string;
 				readonly items: readonly string[];
 			};
+			/**
+			 * The HQ app's address, where the app is there: the floor's stop
+			 * sends the person to that app's settings. Null otherwise.
+			 */
+			readonly hqAppUrl: string | null;
 			/**
 			 * The resources on the target this publish would have written over
 			 * and did not, because Nova did not create them. Empty for every
@@ -122,6 +160,13 @@ export type PublishOutcome =
 			 * each one back with that state, so they travel structurally too.
 			 */
 			readonly remoteChanges: readonly DeploymentRemoteChange[];
+			/**
+			 * What a person has to confirm about the project space before the
+			 * publish goes ahead. Non-empty only for `hq_confirmation_needed`;
+			 * ticking each one and publishing again sends them back, so they
+			 * travel structurally too.
+			 */
+			readonly confirmationsNeeded: readonly DeploymentConfirmationNeeded[];
 			readonly warnings: string[];
 			readonly previewProjectSpace: string | null;
 	  }
@@ -136,6 +181,20 @@ export type PublishOutcome =
 			 */
 			readonly blockedDetail: string | undefined;
 	  };
+
+/**
+ * The landed dialog's Web Apps line: said where the publish read Web Apps
+ * as off for the app, naming the project space the publish went to. It is
+ * the request's own target, so the line stands whether or not the response
+ * carried the deployment record. Null where Web Apps offers the app, or no
+ * read gave an answer.
+ */
+export function landedWebAppsLine(
+	webAppsEnabled: boolean | null,
+	publishedDomain: string,
+): string | null {
+	return webAppsEnabled === false ? webAppsOffText(publishedDomain) : null;
+}
 
 export function publishOutcome(
 	responseOk: boolean,
@@ -165,6 +224,8 @@ export function publishOutcome(
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,
 			appPreviewNote: body.app_preview_note ?? null,
+			webAppsEnabled: body.web_apps_enabled ?? null,
+			logoStep: body.logo_step ?? null,
 		};
 	}
 	if (responseOk && body.refusal !== undefined && body.refusal !== null) {
@@ -172,14 +233,17 @@ export function publishOutcome(
 			kind: "refused",
 			deployment,
 			refusal: {
+				code: body.refusal.failure.code,
 				message: body.refusal.failure.message,
 				items: body.refusal.failure.details,
 			},
+			hqAppUrl: body.url || null,
 			/* Defaulted rather than required: a response from a server that
-			 * predates either field is a refusal with nothing to take over or
+			 * predates one of these fields is a refusal with nothing to take over or
 			 * publish over, not a crash. */
 			resourceConflicts: body.refusal.resourceConflicts ?? [],
 			remoteChanges: body.refusal.remoteChanges ?? [],
+			confirmationsNeeded: body.refusal.confirmationsNeeded ?? [],
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,
 		};

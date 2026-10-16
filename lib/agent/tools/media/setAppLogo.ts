@@ -1,9 +1,9 @@
 /**
  * SA tool: `set_app_logo` — set or clear the app's logo image.
  *
- * The blueprint root carries a single `logo` image, shown on the
- * web-apps login and home screens (no audio, no per-language variants —
- * see `lib/domain/blueprint.ts`). This is the ONLY writer for `doc.logo`:
+ * The blueprint root carries a single `logo` image, shown in Preview, and
+ * in Web Apps once it is added in the app's settings in CommCare HQ (no
+ * audio, no per-language variants — see `lib/domain/blueprint.ts`). This is the ONLY writer for `doc.logo`:
  * no app-level setter tool exists otherwise.
  *
  * Required-and-nullable: an asset id sets the logo, `null` clears it. The
@@ -31,9 +31,10 @@ import {
 
 export const setAppLogoInputSchema = z.strictObject({
 	logo: nullableAssetSlot(
-		"Asset id of the image to use as the app logo (shown on the login and " +
-			"home screens), or null to clear it. Must be an image asset — discover " +
-			"image asset ids with list_media_assets.",
+		"Asset id of the image to use as the app logo (shown in Preview, and in " +
+			"Web Apps once it is added in the app's settings in CommCare HQ), or " +
+			"null to clear it. Must be an image asset: discover image asset ids " +
+			"with list_media_assets.",
 	),
 });
 
@@ -44,7 +45,7 @@ export type SetAppLogoResult = string | { error: string };
 
 export const setAppLogoTool = {
 	description:
-		"Set or clear the app's logo image — the single image shown on the web-apps login and home screens. Pass an image asset id from list_media_assets to set it, or null to clear it.",
+		"Set or clear the app's logo image. It shows in Preview, and in Web Apps once it is added in the app's settings in CommCare HQ. Pass an image asset id from list_media_assets to set it, or null to clear it.",
 	inputSchema: setAppLogoInputSchema,
 	async execute(
 		input: SetAppLogoInput,

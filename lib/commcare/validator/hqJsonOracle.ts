@@ -760,16 +760,15 @@ function checkColumnNumbers(
 	}
 }
 
-// ── Nav media + logo shape ───────────────────────────────────────────
+// ── Nav media shape ───────────────────────────────────────────────
 
 /**
  * The `jr://file/` prefix every CommCare media reference carries. CCHQ's
  * `suite_xml/generator.py::media_resources` RAISES `MediaResourceError` on
  * any media path that doesn't start with this prefix — the next suite
  * regeneration (any "Make new version" click after the import) trips it.
- * Nav media dict values and the web-apps logo ref carry that prefix
- * contract because the regenerated suite reads them through the same
- * install-path machinery.
+ * Nav media dict values carry that prefix contract because the
+ * regenerated suite reads them through the same install-path machinery.
  */
 const JR_FILE_PREFIX = "jr://file/";
 
@@ -798,33 +797,6 @@ function checkNavMediaDict(
 				"app",
 				`${where} declares a media reference for language "${lang}" with value "${value}" that doesn't start with "${JR_FILE_PREFIX}". CommCare regenerates the suite from these dicts; a missing prefix produces a suite resource pointing nowhere. This is a bug in the app generator.`,
 				loc,
-			),
-		);
-	}
-}
-
-/**
- * Validate every `logo_refs` entry on the application. CCHQ's
- * `commcare-hq/.../app_manager/models.py::ANDROID_LOGO_PROPERTY_MAPPING`
- * maps `hq_logo_web_apps` to the `brand-banner-web-apps` profile property,
- * and CCHQ's `create_profile` reads `logo_refs[name]['path']` into that
- * property's value. A missing `path`, or one that doesn't start with
- * `jr://file/`, produces a profile property whose value the runtime can't
- * resolve to a bundled file.
- */
-function checkLogoRefs(
-	logoRefs: Record<string, { path: string }>,
-	errors: ValidationError[],
-): void {
-	for (const [slot, ref] of Object.entries(logoRefs)) {
-		const path = ref.path;
-		if (typeof path === "string" && path.startsWith(JR_FILE_PREFIX)) continue;
-		errors.push(
-			validationError(
-				"HQJSON_BAD_LOGO_REF",
-				"app",
-				`The generated logo_refs has a "${slot}" entry whose path "${path}" doesn't start with "${JR_FILE_PREFIX}". CommCare reads this value into a profile property the runtime resolves against bundled media; a missing prefix produces an unresolvable banner reference. This is a bug in the app generator.`,
-				{},
 			),
 		);
 	}
@@ -1130,16 +1102,6 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 	for (const module of hqApp.modules) {
 		checkModule(module, hqApp.langs, ids, errors);
 	}
-
-	// The application-level media surface: the `logo_refs` paths, which feed
-	// the suite regeneration on the next CCHQ build, so a malformed entry
-	// detonates at that point even though the initial import wraps clean.
-	// `logo_refs` is present only when the app has a Nova-authored logo (an
-	// emitted empty dict would remove an HQ-uploaded logo on the in-place
-	// update's overlay merge), so an absent slot is correct and there is
-	// nothing to check. Nova emits no `multimedia_map`: HQ's media upload
-	// writes it.
-	if (hqApp.logo_refs !== undefined) checkLogoRefs(hqApp.logo_refs, errors);
 
 	return errors;
 }

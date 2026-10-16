@@ -30,6 +30,7 @@ import { registerSearchApps } from "./tools/searchApps";
 import { registerUpdateMemberRole } from "./tools/updateMemberRole";
 import { registerUploadAppToHq } from "./tools/uploadAppToHq";
 import { registerUploadMediaAsset } from "./tools/uploadMediaAsset";
+import { registerWithdrawDeploymentConfirmation } from "./tools/withdrawDeploymentConfirmation";
 import { registerWorkTools } from "./tools/work";
 import type { ToolContext } from "./types";
 
@@ -48,6 +49,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerUploadAppToHq(server, ctx);
 	registerGetDeployment(server, ctx);
 	registerRefreshDeployment(server, ctx);
+	registerWithdrawDeploymentConfirmation(server, ctx);
 	registerGetEntryPointLink(server, ctx);
 	registerProvisionWorkers(server, ctx);
 	registerUploadMediaAsset(server, ctx);

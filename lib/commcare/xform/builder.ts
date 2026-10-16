@@ -1,4 +1,4 @@
-import { caseOptionsNodeset } from "../caseOptions";
+import { caseOptionsNodeset, fieldTakesCaseChoices } from "../caseOptions";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
 /**
  * XForm XML emitter.
@@ -41,7 +41,10 @@ import {
 	effectiveAssessmentUserScore,
 	effectiveDeliverEntities,
 } from "@/lib/commcare/connectDefaults";
-import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
+import {
+	connectConfigWritesBlocks,
+	type ResolvedConnectConfig,
+} from "@/lib/commcare/connectSlugs";
 import { el, text } from "@/lib/commcare/elementBuilders";
 import { readFieldString } from "@/lib/commcare/fieldProps";
 import { referencesSearchAnswer } from "@/lib/commcare/hashtags";
@@ -435,7 +438,7 @@ function buildConnectBlocks(
 	const dataElements: Element[] = [];
 	const binds: Element[] = [];
 
-	if (!connect) return { dataElements, binds };
+	if (!connectConfigWritesBlocks(connect)) return { dataElements, binds };
 
 	if (connect.learn_module) {
 		const lm = connect.learn_module;
@@ -1540,11 +1543,9 @@ function buildFieldParts(
 	// itext id, plus an optional `<hint>` and `<help>` (each emitted when its
 	// text or media slot is present). The control element + any kind-specific
 	// attributes are decided by `buildLeafControl`.
-	const caseSource =
-		(field.kind === "single_select" || field.kind === "multi_select") &&
-		field.optionsSource.kind === "cases"
-			? field.optionsSource
-			: undefined;
+	const caseSource = fieldTakesCaseChoices(field)
+		? field.optionsSource
+		: undefined;
 	let caseItemset: Element | undefined;
 	if (caseSource) {
 		instances.require("casedb");

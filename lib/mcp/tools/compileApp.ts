@@ -239,12 +239,14 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							doc: preparedDoc,
 							assets,
 							lookupWorkbook,
+							attachmentTarget,
 						});
 						/* base64 inside a `{ format: "zip", ... }` wrapper: MCP
 						 * text content is UTF-8 only, and the wrapper tells the
 						 * client to decode rather than parse the text. */
 						const archive = buildHqJsonExportArchive(
 							app.app_name,
+							preparedDoc,
 							hqJson,
 							assets,
 							lookupWorkbook,

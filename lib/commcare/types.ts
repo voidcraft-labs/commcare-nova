@@ -1,7 +1,5 @@
 /** TypeScript interfaces for CommCare HQ import JSON structures. */
 
-import type { LogoRef } from "./multimedia/logoEntry";
-
 export interface LocalizedString {
 	[lang: string]: string;
 }
@@ -610,8 +608,9 @@ export interface HqApplicationProfile {
  * The HQ app document Nova emits, listing ONLY fields Nova authors.
  *
  * Target-owned settings and state — `cloudcare_enabled`, `case_sharing`,
- * `secure_submissions`, the build/release metadata, and the rest of HQ's App
- * Settings fields — are deliberately absent. Three keys hold Nova's values
+ * `secure_submissions`, `build_spec` and the rest of the build/release
+ * metadata, `logo_refs`, and the rest of HQ's App Settings fields — are
+ * deliberately absent. Three keys hold Nova's values
  * beside the target's own: `translations`, `add_ons` and `profile`. An
  * update replaces each whole, so the publish projects each onto the
  * target's current value (`targetOverlay.ts`) and leaves a key out where the
@@ -622,7 +621,6 @@ export interface HqApplication {
 	application_version: string;
 	name: string;
 	langs: string[];
-	build_spec: { doc_type: "BuildSpec"; version: string; build_number: null };
 	/**
 	 * Per-language app_strings overrides: Nova's language names, and its app
 	 * name only where a language localizes it. On an update the target's own
@@ -642,37 +640,18 @@ export interface HqApplication {
 	 */
 	profile?: HqApplicationProfile;
 	/**
-	 * Present only when the app has a Nova-authored logo: an empty
-	 * `logo_refs` on the update path would remove a logo uploaded on
-	 * CommCare HQ, while an absent one is retained by the merge.
+	 * `project_default` on every app, so a worker's restore takes the flat
+	 * location list by the project space's own setting, on a device and in
+	 * Web Apps alike: `locations/fixtures.py::should_sync_flat_fixture`
+	 * falls to `LocationFixtureConfiguration.for_domain(...).sync_flat_fixture`,
+	 * which is on unless someone turned it off. Formplayer restores at an
+	 * address that names no app, so HQ asks the project space for Web Apps
+	 * whatever the app holds; `project_default` makes a device ask the same.
+	 * Publish asks the person to confirm the setting for an app that reads
+	 * places (`locations/readsLocationsFixture.ts`). An update does not
+	 * exclude the key, so each publish writes it.
 	 */
-	logo_refs?: Record<string, LogoRef>;
-	/**
-	 * Present only when the app reads `instance('locations')`, and then
-	 * always `both_fixtures`.
-	 *
-	 * CommCare HQ decides whether to put that fixture in a worker's
-	 * restore, and by default it asks the PROJECT SPACE:
-	 * `locations/fixtures.py::should_sync_flat_fixture` falls through to
-	 * `LocationFixtureConfiguration.for_domain(...).sync_flat_fixture`, a
-	 * row an administrator can switch off. An app that declares
-	 * `jr://fixture/locations` and does not get one fails to resolve the
-	 * instance on the device, so leaving that to a setting nobody told
-	 * the author about is not an option.
-	 *
-	 * The app can settle it: the same function returns True as soon as
-	 * `app.location_fixture_restore` is in `const.py::SYNC_FLAT_FIXTURES`,
-	 * BEFORE it reads the project row. `both_fixtures` rather than
-	 * `only_flat_fixture` because Nova is answering for its own needs and
-	 * has no business switching the hierarchical fixture OFF —
-	 * `::should_sync_hierarchical_fixture` keeps deciding that from the
-	 * `HIERARCHICAL_LOCATION_FIXTURE` toggle, exactly as it did.
-	 *
-	 * Absent otherwise, for the reason `logo_refs` is: an app with no
-	 * place-based rule has no opinion, and emitting one would overwrite a
-	 * choice somebody made on CommCare HQ on every republish.
-	 */
-	location_fixture_restore?: "both_fixtures";
+	location_fixture_restore: "project_default";
 	/**
 	 * The add-ons the app needs (`addOns.ts::addOnsNeededBy`), each `true`,
 	 * and absent where it needs none. Nova never writes `false`; an update

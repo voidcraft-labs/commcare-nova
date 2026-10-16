@@ -13,6 +13,7 @@ import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
 import { decrypt } from "@/lib/commcare/encryption";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { resolveUploadTarget } from "@/lib/db/settings";
+import { projectSpaceConfirmations } from "@/lib/deployment/service";
 import { projectSpaceCompatibilityForTarget } from "@/lib/publish/projectSpaceCompatibility";
 import {
 	type HqToolErrorType,
@@ -57,7 +58,7 @@ export function registerCheckProjectSpaceCompatibility(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
-				"Read-only check of whether one explicitly selected CommCare HQ project space can run an owned app. Returns friendly required capabilities, their verification state, any blockers, non-blocking performance advisories, and next steps. It does not compile, upload, or change the app or project space. Call `get_hq_connection` first to list reachable project spaces, then pass the exact `domain` the user selected; never choose among several spaces for them. Required support that is missing or could not be verified blocks a later upload, while an advisory never does. This tool reports only what the app needs and whether the selected project space supports it.",
+				"Read-only check of whether one explicitly selected CommCare HQ project space can run an owned app. Returns friendly required capabilities, their verification state, any blockers, non-blocking performance advisories, and next steps. It does not compile, upload, or change the app or project space. Call `get_hq_connection` first to list reachable project spaces, then pass the exact `domain` the user selected; never choose among several spaces for them. Required support that is missing or could not be verified blocks a later upload, while an advisory never does. This tool reports only what the app needs and whether the selected project space supports it. It also returns what an upload there will ask the user to confirm, since no API key can read it: `plan_features` (each plan feature the app needs, with `plans`, `reasons`, `consequence` and its `state`), `flat_location_fixture` (whether the project space still sends its location list, for an app that reads places) and `connect_forwarder` (whether it forwards forms to CommCare Connect, for a Connect app), each `null` when the app needs none. Relay them with their reasons before the upload; a confirmation already on record reads `confirmed` with who confirmed it.",
 			inputSchema: z.object({
 				app_id: z
 					.string()
@@ -90,6 +91,12 @@ export async function checkProjectSpaceCompatibility(
 		// a credential without HQ access learns nothing about the app id.
 		assertScope(ctx, SCOPES.hqRead, "check_project_space_compatibility");
 		const loaded = await loadAppBlueprint(appId, ctx.userId);
+		const scope = {
+			appId,
+			projectId: loaded.access.projectId,
+			role: loaded.access.role,
+			actorUserId: ctx.userId,
+		};
 		const credentials = await resolveUploadTarget(ctx.userId, args.domain);
 		if (!credentials.ok) {
 			if (credentials.error === "not_configured") {
@@ -124,6 +131,10 @@ export async function checkProjectSpaceCompatibility(
 							plan,
 						)
 					).report;
+		const confirmations = await projectSpaceConfirmations(scope, loaded.doc, {
+			server: credentials.server,
+			domain: credentials.domain.name,
+		});
 		return {
 			content: [
 				{
@@ -132,6 +143,7 @@ export async function checkProjectSpaceCompatibility(
 						app_id: appId,
 						app_name: loaded.app.app_name,
 						project_space_compatibility: report,
+						...confirmations,
 					}),
 				},
 			],

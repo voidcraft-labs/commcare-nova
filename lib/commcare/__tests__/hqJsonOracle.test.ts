@@ -932,35 +932,6 @@ describe("HQ-JSON oracle — nav media dict shape", () => {
 	});
 });
 
-// ── Logo refs shape ────────────────────────────────────────────────
-
-describe("HQ-JSON oracle — logo_refs shape", () => {
-	it("flags a logo_refs path missing the jr://file/ prefix", () => {
-		const app = baselineApp();
-		app.logo_refs = {
-			hq_logo_web_apps: { path: "commcare/no-prefix.png" },
-		};
-		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_LOGO_REF"]);
-	});
-
-	it("accepts a well-formed jr://file/ logo path", () => {
-		const app = baselineApp();
-		app.logo_refs = {
-			hq_logo_web_apps: { path: "jr://file/commcare/logo.png" },
-		};
-		expect(validateHqJson(app)).toEqual([]);
-	});
-
-	it("accepts an absent logo_refs (no logo configured)", () => {
-		/* No logo means the field is left off the wire entirely — an emitted
-		 * empty dict would remove an HQ-uploaded logo on the in-place
-		 * update's overlay merge — and the oracle has nothing to check. */
-		const app = baselineApp();
-		expect(app.logo_refs).toBeUndefined();
-		expect(validateHqJson(app)).toEqual([]);
-	});
-});
-
 // ── Search prompt children ─────────────────────────────────────────
 //
 // `CaseSearchProperty` (`commcare-hq/corehq/apps/app_manager/models/case_search.py`)

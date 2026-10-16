@@ -101,7 +101,20 @@
  *                                 pushed, the app's content was not sent,
  *                                 `remote_changes` is empty and calling
  *                                 again lists what changed.
- *  12. `hq_upload_failed`:        `importApp` returned a non-success
+ *  12. `hq_confirmation_needed`:  the app needs something of the project
+ *                                 space no API key reads (a plan feature,
+ *                                 the flat location list, a Connect
+ *                                 forwarder) and nobody confirmed it there.
+ *                                 Nothing was sent; `confirmations_needed`
+ *                                 lists each with why the app needs it.
+ *                                 Naming each back once the user said the
+ *                                 project space has it is the one way past
+ *                                 it.
+ *  13. `hq_app_version_below_floor`: the app on CommCare HQ is set to a
+ *                                 CommCare version below the one Nova's
+ *                                 apps need. Nothing of its content was
+ *                                 sent; `url` is the app's page there.
+ *  14. `hq_upload_failed`:        `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
  *                                 returned 5xx), or CommCare HQ would not
  *                                 take the app's lookup tables or places.
@@ -133,10 +146,17 @@ import {
 	currentResourceIdentities,
 	publishAppToHq,
 } from "@/lib/deployment/service";
-import type {
-	DeploymentRemoteChange,
-	DeploymentResourceConflict,
+import {
+	type DeploymentConfirmationKey,
+	type DeploymentConfirmationNeeded,
+	type DeploymentRemoteChange,
+	type DeploymentResourceConflict,
+	PLAN_FEATURE_ID_LIST,
 } from "@/lib/deployment/types";
+import {
+	LOGO_UPLOAD_STEP_TEXT,
+	type PlanFeatureId,
+} from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import { initMcpCall } from "../context";
 import {
@@ -186,7 +206,14 @@ export const UPLOAD_ERROR_TAGS = {
 	hq_app_state_unknown: "hq_app_state_unknown",
 	/** Something this app publishes changed in CommCare HQ since Nova's last publish. */
 	hq_changed: "hq_changed",
+	/** The app needs something of the project space a person has not confirmed. */
+	hq_confirmation_needed: "hq_confirmation_needed",
+	/** The app on CommCare HQ is set to a CommCare version below the floor. */
+	hq_app_version_below_floor: "hq_app_version_below_floor",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
+
+const CONFIRM_DESCRIPTION =
+	"Send only after an `hq_confirmation_needed` refusal named them and the user said yes to each.";
 
 /**
  * Build an MCP error envelope for a failed upload gate.
@@ -296,6 +323,62 @@ function makeRemoteChangesError(
 	};
 }
 
+/**
+ * Build the envelope for what a person has to confirm about the project
+ * space. Like the name clash, the caller's one move past it needs exact
+ * data: put each item to the user with its reasons, then send back the
+ * ones they said the project space has.
+ */
+function makeConfirmationError(
+	message: string,
+	appId: string,
+	needed: readonly DeploymentConfirmationNeeded[],
+): McpToolErrorResult {
+	return {
+		isError: true,
+		content: [
+			{
+				type: "text",
+				text: JSON.stringify({
+					error_type: UPLOAD_ERROR_TAGS.hq_confirmation_needed,
+					message,
+					app_id: appId,
+					confirmations_needed: needed.map((item) => ({
+						kind: item.kind,
+						subject: item.subject,
+						label: item.label,
+						plans: item.plans,
+						consequence: item.consequence,
+						reasons: item.reasons,
+					})),
+				}),
+			},
+		],
+	};
+}
+
+/** The confirmations an MCP call names, as the publish takes them. */
+function confirmationKeys(args: {
+	readonly confirm_plan_features?: readonly PlanFeatureId[];
+	readonly confirm_flat_location_fixture?: boolean;
+	readonly confirm_connect_forwarder?: boolean;
+}): DeploymentConfirmationKey[] {
+	return [
+		...(args.confirm_plan_features ?? []).map(
+			(subject): DeploymentConfirmationKey => ({
+				kind: "plan-feature",
+				subject,
+			}),
+		),
+		...(args.confirm_flat_location_fixture === true
+			? [{ kind: "flat-location-fixture" } as const]
+			: []),
+		...(args.confirm_connect_forwarder === true
+			? [{ kind: "connect-forwarder" } as const]
+			: []),
+	];
+}
+
 /** Compatibility refusals carry the semantic report as structured data so a
  * client can relay the app capability and next step without parsing prose. */
 function makeCompatibilityError(
@@ -337,7 +420,7 @@ export function registerUploadAppToHq(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Upload an app you can edit in its Project to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. If the app, a lookup table or a place it publishes changed in CommCare HQ since Nova last published it, the call returns `hq_changed` before sending anything: show the user each entry of `remote_changes` (its `name`, `hq_name` and `parts`, or that Nova couldn't tell what changed when `baseline_known` is false) and send them back in `discard_hq_changes` only for the ones the user said to write over. If the app changed while Nova was publishing its lookup tables and places, `hq_changed` comes after those were sent and before the app's content, with `remote_changes` empty; uploading again lists what changed. A success after such a publish can carry `app_preview_note`; relay it. A success returns the same checked `project_space_compatibility` report and the durable deployment state.",
+				"Upload an app you can edit in its Project to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. If the app, a lookup table or a place it publishes changed in CommCare HQ since Nova last published it, the call returns `hq_changed` before sending anything: show the user each entry of `remote_changes` (its `name`, `hq_name` and `parts`, or that Nova couldn't tell what changed when `baseline_known` is false) and send them back in `discard_hq_changes` only for the ones the user said to write over. If the app changed while Nova was publishing its lookup tables and places, `hq_changed` comes after those were sent and before the app's content, with `remote_changes` empty; uploading again lists what changed. A success after such a publish can carry `app_preview_note`; relay it. If the app needs something of the project space that no API key can read (a plan feature, the flat location list, a Connect forwarder) and nobody has confirmed it there, the call returns `hq_confirmation_needed` before sending anything: show the user each entry of `confirmations_needed` (its `label`, `plans`, `consequence` and `reasons`) and send back only the ones the user said the project space has, in `confirm_plan_features`, `confirm_flat_location_fixture` and `confirm_connect_forwarder`; a confirmation is kept once an upload goes ahead, so resend it with each attempt until one does. If the app on CommCare HQ is set to a CommCare version below the one Nova's apps need, the call returns `hq_app_version_below_floor` with the app's `url`; relay its message. A success returns the same checked `project_space_compatibility` report, the durable deployment state, `web_apps_enabled` (false means CommCare HQ doesn't offer the app in Web Apps there; relay the setup artifact's note) and `logo_step` (the app's logo, which an upload never sends, with `instructions` to relay when `changed` is true).",
 			inputSchema: z.object({
 				app_id: z
 					.string()
@@ -374,6 +457,18 @@ export function registerUploadAppToHq(
 					.describe(
 						"Send only after an `hq_changed` refusal listed them, the user saw the list, and said to write over each.",
 					),
+				confirm_plan_features: z
+					.array(z.enum(PLAN_FEATURE_ID_LIST))
+					.optional()
+					.describe(CONFIRM_DESCRIPTION),
+				confirm_flat_location_fixture: z
+					.boolean()
+					.optional()
+					.describe(CONFIRM_DESCRIPTION),
+				confirm_connect_forwarder: z
+					.boolean()
+					.optional()
+					.describe(CONFIRM_DESCRIPTION),
 			}),
 		},
 		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
@@ -488,6 +583,7 @@ export function registerUploadAppToHq(
 								observedDigest: discard.observed_digest,
 							}),
 						),
+						confirm: confirmationKeys(args),
 						onUploadStarted: () => {
 							call.current = initMcpCall(
 								ctx,
@@ -615,6 +711,35 @@ export function registerUploadAppToHq(
 								outcome.refusal.remoteChanges,
 							);
 						}
+						/* What a person has to confirm about the project space.
+						 * The envelope carries each item structurally, because
+						 * the caller asks the user about each and sends back
+						 * the ones they said yes to. */
+						if (failure.code === "hq_confirmation_needed") {
+							return makeConfirmationError(
+								failure.message,
+								appId,
+								outcome.refusal.confirmationsNeeded,
+							);
+						}
+						/* The app's page on CommCare HQ rides along: raising its
+						 * version is done there. */
+						if (failure.code === "hq_app_version_below_floor") {
+							return {
+								isError: true,
+								content: [
+									{
+										type: "text",
+										text: JSON.stringify({
+											error_type: UPLOAD_ERROR_TAGS.hq_app_version_below_floor,
+											message: failure.message,
+											app_id: appId,
+											url: outcome.hqAppUrl,
+										}),
+									},
+								],
+							};
+						}
 						/* The organization does not fit the target's levels. Its
 						 * own tag because no ownership decision resolves it and
 						 * nothing was sent: the generic upload-failed envelope
@@ -657,6 +782,20 @@ export function registerUploadAppToHq(
 						/* The App Preview statement, on a publish that wrote over
 						 * the app without knowing it unchanged; null otherwise. */
 						app_preview_note: outcome.appPreviewNote,
+						/* Whether Web Apps offers the app there, as this upload
+						 * read it. Nova never writes the setting. */
+						web_apps_enabled: outcome.webAppsEnabled,
+						/* The logo an upload never sends, for the user to add in
+						 * the app's settings on CommCare HQ. */
+						logo_step:
+							outcome.logoStep === null
+								? null
+								: {
+										asset_id: outcome.logoStep.assetId,
+										file_name: outcome.logoStep.fileName,
+										changed: outcome.logoStep.changed,
+										instructions: LOGO_UPLOAD_STEP_TEXT,
+									},
 						url: outcome.hqAppUrl,
 						warnings: outcome.warnings,
 						project_space_compatibility: outcome.projectSpaceCompatibility,

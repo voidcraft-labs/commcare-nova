@@ -66,6 +66,7 @@ async function publish(server: "india" | "production", domain: string) {
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: AT,
+		targetWebAppsEnabled: true,
 		baseline: {
 			origin: "unread",
 			remoteAppId: `${server}-${domain}-app`,

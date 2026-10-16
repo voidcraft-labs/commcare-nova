@@ -51,6 +51,7 @@ function app(appId: string, patch: Partial<SourceApp> = {}): SourceApp {
 		activeSchemas: new Map(),
 		deployments: [],
 		deploymentsWithoutMapping: 0,
+		places: [],
 		...patch,
 	};
 }

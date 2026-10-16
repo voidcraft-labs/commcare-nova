@@ -5,8 +5,9 @@ Contract: over places saved through HQ's own models, HQ's
 ``locations`` fixture for the worker, indexed, one ``location`` per place in
 site-code order, each carrying its type, its id and every ancestor's id
 under ``<type>_id`` (blank where the chain skips a level), and every location
-data field (blank where the place has no value). HQ also keeps the owner
-forms' ``both_fixtures`` restore setting and regenerates them;
+data field (blank where the place has no value). HQ also keeps the
+``project_default`` restore setting every app Nova writes carries, owner
+forms and plain alike, and regenerates the owner forms;
 ``LocationOwnerRuntimeTest`` then resolves owners in Core from these exact
 restore bytes. The plausible failures: a lineage attribute HQ fills
 differently, a data field HQ leaves out, and an owner form HQ cannot
@@ -45,8 +46,7 @@ def test_hq_serializes_the_flat_fixture_and_regenerates_the_owner_forms(native):
     records = [_check_fixture(record) for record in result["fixtures"]]
     assert set(result["sources"]) == {"location-direct", "location-multirung", "location-plain"}
     for form in result["forms"]:
-        if form["form"] != "plain":
-            assert form["locationFixtureRestore"] == "both_fixtures"
+        assert form["locationFixtureRestore"] == "project_default", form["form"]
         records.append({key: value for key, value in form.items() if key != "locationFixtureRestore"})
     write_evidence(
         native.family("location"),

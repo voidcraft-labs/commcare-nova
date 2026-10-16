@@ -18,6 +18,9 @@ export function readDownloadTargetsAction(appId: string) {
 export function refreshDeploymentAction(args: unknown) {
 	return post("/publishing/refresh", args);
 }
+export function withdrawDeploymentConfirmationAction(args: unknown) {
+	return post("/publishing/withdraw", args);
+}
 export function getEntryPointLinkAction(args: unknown) {
 	return post("/publishing/link", args);
 }

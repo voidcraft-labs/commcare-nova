@@ -19,6 +19,7 @@ import {
 	manualImportGuide,
 	renderManualImportGuide,
 } from "../manualImportGuide";
+import { PLAN_FEATURES } from "../planFeatures";
 import { PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL } from "../projectSpaceCompatibility";
 
 const BARE: ManualImportGuideInput = {
@@ -101,6 +102,7 @@ describe("manualImportGuide", () => {
 			doc,
 			assets: new Map(),
 			lookupWorkbook: undefined,
+			attachmentTarget: null,
 		});
 		const step = steps.find((s) => s.kind === "capabilities");
 		if (!step) throw new Error("The guide left out the capabilities step");
@@ -118,6 +120,74 @@ describe("manualImportGuide", () => {
 			expect(text).not.toContain(symbol);
 			expect(text).not.toContain(domainFeatureFlag(symbol).slug);
 		}
+	});
+
+	it("holds the plan features, the logo, the location list and Connect forwarding exactly when their inputs do, last", () => {
+		const all: ManualImportGuideInput = {
+			...BARE,
+			capabilities: [{ label: "Case search", reasons: ["It searches."] }],
+			planFeatures: [
+				{
+					label: PLAN_FEATURES["lookup-tables"].label,
+					plans: PLAN_FEATURES["lookup-tables"].plans,
+					consequence: PLAN_FEATURES["lookup-tables"].consequence,
+				},
+			],
+			logo: { fileName: "logo.png" },
+			readsLocations: true,
+			sendsToConnect: true,
+		};
+		expect(kinds(all)).toEqual([
+			"import-app",
+			"commcare-version",
+			"capabilities",
+			"plan-features",
+			"logo",
+			"flat-location-fixture",
+			"connect-forwarding",
+		]);
+		for (const [key, kind] of [
+			["planFeatures", "plan-features"],
+			["logo", "logo"],
+			["readsLocations", "flat-location-fixture"],
+			["sendsToConnect", "connect-forwarding"],
+		] as const) {
+			const without = { ...all, [key]: BARE[key] };
+			expect(kinds(without)).not.toContain(kind);
+		}
+		const steps = manualImportGuide(all);
+		const step = (kind: string) => steps.find((item) => item.kind === kind);
+		expect(step("plan-features")).toEqual({
+			kind: "plan-features",
+			title: "Check the project space's plan",
+			lines: [
+				"This app uses features that come with some CommCare HQ plans and not others:",
+				"",
+				`  - Lookup Tables: Standard, Pro, Advanced and Enterprise. ${PLAN_FEATURES["lookup-tables"].consequence}`,
+				"",
+				"It helps to check that the project space's plan includes each one, on its Current Subscription page in CommCare HQ.",
+			],
+		});
+		expect(step("logo")?.title).toBe("Your app's logo");
+		expect(step("logo")?.lines[0]).toBe(
+			'The ZIP holds your logo as "logo.png"; it isn\'t part of the app file.',
+		);
+		expect(step("flat-location-fixture")).toEqual({
+			kind: "flat-location-fixture",
+			title: "The location list",
+			lines: [
+				"This app reads the places in your organization, on phones and in Web Apps, and its forms that do can't work without them.",
+				"It helps to check that the project space still sends its location list to workers. It does unless someone turned that off on its Location Fixture page. Phones and Web Apps both follow that setting.",
+			],
+		});
+		expect(step("connect-forwarding")).toEqual({
+			kind: "connect-forwarding",
+			title: "Check that the app's forms reach CommCare Connect",
+			lines: [
+				"This app's forms reach CommCare Connect only through CommCare HQ's data forwarding.",
+				"It helps to check that the project space's plan includes Data Forwarding and that it has a forwarder set up as Forward Form Metadata to Commcare Connect.",
+			],
+		});
 	});
 
 	it("renders every step, numbered, as the README holds it", () => {

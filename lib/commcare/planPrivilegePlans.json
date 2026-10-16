@@ -1,0 +1,46 @@
+{
+	"user_case": [
+		"standard_v0",
+		"standard_v1",
+		"pro_v0",
+		"pro_v1",
+		"advanced_v0",
+		"enterprise_v0"
+	],
+	"lookup_tables": [
+		"standard_v0",
+		"standard_v1",
+		"standard_v2",
+		"pro_v0",
+		"pro_v1",
+		"advanced_v0",
+		"enterprise_v0"
+	],
+	"child_cases": [
+		"community_v0",
+		"community_v1",
+		"standard_v0",
+		"pro_v0",
+		"pro_v1",
+		"advanced_v0",
+		"enterprise_v0"
+	],
+	"form_link_workflow": [
+		"standard_v1",
+		"standard_v2",
+		"pro_v1",
+		"advanced_v0",
+		"enterprise_v0"
+	],
+	"save_to_case": ["advanced_v0", "enterprise_v0"],
+	"locations": ["standard_v0", "pro_v0", "advanced_v0", "enterprise_v0"],
+	"data_forwarding": [
+		"community_v0",
+		"community_v1",
+		"standard_v0",
+		"pro_v0",
+		"pro_v1",
+		"advanced_v0",
+		"enterprise_v0"
+	]
+}

@@ -350,6 +350,18 @@ const REAL_ENTRIES = {
 		...deploymentEntry("setting-changes-at-next-publish"),
 		detail: { setting: "incomplete", readers: "android-and-webapps" },
 	},
+	"next-publish-asks-more": {
+		...deploymentEntry("next-publish-asks-more"),
+		detail: {
+			planFeatures: "worker-records",
+			settings: "flat-location-fixture",
+		},
+	},
+	"commcare-version-below-floor": {
+		...deploymentEntry("commcare-version-below-floor"),
+		detail: { version: "2.53.0" },
+	},
+	"logo-upload-in-hq": deploymentEntry("logo-upload-in-hq"),
 	"settings-unknown-unreadable": deploymentEntry("settings-unknown-unreadable"),
 	"worker-settings-reset-at-next-publish": deploymentEntry(
 		"worker-settings-reset-at-next-publish",

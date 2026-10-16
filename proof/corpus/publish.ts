@@ -15,8 +15,9 @@
  * - the source reads from `readHqAppSource`, the lookup workbook from
  *   `uploadLookupTableWorkbook`, the imports from `importApp`, and the media
  *   upload after the content from `uploadAppMediaBundle` over
- *   `buildMediaBulkUploadZip` (`lib/deployment/service.ts::uploadMediaBytes`,
- *   sent whenever the prepared export carries media), each sent to a loopback
+ *   `buildMediaBulkUploadZip` of `bulkUploadAssets`
+ *   (`lib/deployment/service.ts::uploadMediaBytes`, sent whenever some
+ *   carrier the bulk upload maps references media), each sent to a loopback
  *   peer (`./targetPeer.ts`) that answers as the configured project space
  *   does.
  *
@@ -116,8 +117,10 @@ import {
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import {
 	buildHqJsonExportArchive,
+	bulkUploadAssets,
 	hqImportFileGuide,
 } from "@/lib/commcare/multimedia/hqJsonExportArchive";
+import { requiredPlanPrivileges } from "@/lib/commcare/planPrivileges";
 import {
 	HQ_PRIVATE_FEATURE_FLAG_SYMBOLS,
 	type HqPrivateFeatureFlagRequirement,
@@ -125,7 +128,9 @@ import {
 	projectSpaceCompatibilityProbePlan,
 } from "@/lib/commcare/projectSpaceCompatibility";
 import type { CommCareServer } from "@/lib/commcare/servers";
+import gateEntries from "@/lib/commcare/surface/entries/gates.json";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
+import { gateEntriesFileSchema } from "@/lib/commcare/surface/schema";
 import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
@@ -164,6 +169,7 @@ import type {
 	DeploymentResource,
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
+import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import {
@@ -297,7 +303,10 @@ export interface VerdictFlag {
  * capabilities `projectSpaceCompatibilityProbePlan` names, each with the
  * flags and runtime checks the probe makes, and the advisories, which never
  * block a publish. A configuration missing a required flag, or case search
- * where a capability's runtime check needs it, is one Nova refuses.
+ * where a capability's runtime check needs it, is one Nova refuses. Beside
+ * them, the plan privileges Nova's publish asks the person to confirm
+ * (`requiredPlanPrivileges`), which no API key can read and so no
+ * configuration Nova refuses.
  */
 export interface NovaPublishVerdict {
 	readonly capabilities: readonly {
@@ -314,6 +323,57 @@ export interface NovaPublishVerdict {
 		readonly flags: readonly string[];
 		readonly caseSearchEnabled: boolean;
 	};
+	/**
+	 * The `corehq/privileges.py` constants of the plan privileges Nova's
+	 * publish asks the person to confirm for this document, sorted: each use
+	 * of `requiredPlanPrivileges` read through its gate entry's `surfaceKeys`.
+	 * A capture pushes the lookup workbook exactly when the document reads a
+	 * lookup table, and no places (the organization it is published from
+	 * holds none).
+	 */
+	readonly planPrivileges: readonly string[];
+}
+
+/** The privilege constants of each gate entry, by entry id (`privilege:USERCASE` read as `USERCASE`). */
+const PRIVILEGE_CONSTANTS: ReadonlyMap<string, readonly string[]> = new Map(
+	gateEntriesFileSchema
+		.parse(gateEntries)
+		.map((gate) => [
+			gate.id,
+			gate.surfaceKeys.flatMap((key) =>
+				key.startsWith("privilege:") ? [key.slice("privilege:".length)] : [],
+			),
+		]),
+);
+
+/**
+ * The privilege constants Nova's publish asks to be confirmed for `doc`. A
+ * capture publishes to a project space, so its capture links are written
+ * (`capturePublish` hands the emitter that space's target); which space it is
+ * decides no privilege.
+ */
+function planPrivileges(doc: BlueprintDoc): string[] {
+	const uses = requiredPlanPrivileges(
+		doc,
+		{
+			lookupTables: extractLookupReferenceTargets(doc).tableIds.length > 0,
+			places: false,
+		},
+		attachmentUrlTarget({ server: PROOF_SERVER, domain: PROOF_DOMAIN }),
+	);
+	return [
+		...new Set(
+			uses.flatMap((use) => {
+				const constants = PRIVILEGE_CONSTANTS.get(use.gate) ?? [];
+				if (constants.length === 0) {
+					throw new Error(
+						`Nova's publish asks for the plan privilege ${use.id}, and the gate entry ${use.gate} in lib/commcare/surface/entries/gates.json names no privilege constant. Give the entry its surface key, privilege:<constant>.`,
+					);
+				}
+				return constants;
+			}),
+		),
+	].sort();
 }
 
 /**
@@ -355,6 +415,7 @@ export function novaPublishVerdict(doc: BlueprintDoc): NovaPublishVerdict {
 				item.runtimeProbes.includes("case-search"),
 			),
 		},
+		planPrivileges: planPrivileges(doc),
 	};
 }
 
@@ -1351,15 +1412,16 @@ async function sendContent(
 		prepared,
 		await readSource(peer, prepared, imported.appId),
 	);
-	const carriesMedia = prepared.export.assets.size > 0;
-	if (carriesMedia) {
+	const bulkAssets = bulkUploadAssets(
+		prepared.export.doc,
+		prepared.export.assets,
+	);
+	if (bulkAssets.size > 0) {
 		const uploaded = await uploadAppMediaBundle(
 			CREDENTIALS,
 			domain,
 			imported.appId,
-			atInstant(CCZ_CLOCK, () =>
-				buildMediaBulkUploadZip(prepared.export.assets),
-			),
+			atInstant(CCZ_CLOCK, () => buildMediaBulkUploadZip(bulkAssets)),
 		);
 		if ("success" in uploaded || uploaded.timedOut) {
 			throw new Error(
@@ -1378,7 +1440,7 @@ async function sendContent(
 			importApp: await reframed(
 				takeRequest(sent, "POST", `/a/${domain}/apps/api/import_app/`),
 			),
-			...(carriesMedia && {
+			...(bulkAssets.size > 0 && {
 				media: await reframed(
 					takeRequest(
 						sent,
@@ -1969,10 +2031,12 @@ export async function importFile(
 		doc,
 		assets,
 		lookupWorkbook,
+		attachmentTarget: prepared.attachmentTarget,
 	});
 	return atInstant(CCZ_CLOCK, () =>
 		buildHqJsonExportArchive(
 			doc.appName,
+			doc,
 			hqJson,
 			assets,
 			lookupWorkbook,
@@ -1983,8 +2047,9 @@ export async function importFile(
 
 /**
  * The paths of the media upload a publish of the document sends: one per
- * wire path of the export's prepared assets, as `buildMediaBulkUploadZip`
- * writes them, sorted. Empty for a document whose export carries no media.
+ * wire path of the assets the bulk upload carries (`bulkUploadAssets`), as
+ * `buildMediaBulkUploadZip` writes them, sorted. Empty for a document whose
+ * bulk upload carries no media: an image only the logo uses is never in it.
  */
 export async function preparedMediaPaths(
 	source: PublishDocument,
@@ -1996,7 +2061,11 @@ export async function preparedMediaPaths(
 		attachmentUrlTarget({ server: PROOF_SERVER, domain }),
 	);
 	return [
-		...new Set([...prepared.assets.values()].map((asset) => asset.wirePath)),
+		...new Set(
+			[...bulkUploadAssets(prepared.doc, prepared.assets).values()].map(
+				(asset) => asset.wirePath,
+			),
+		),
 	].sort();
 }
 

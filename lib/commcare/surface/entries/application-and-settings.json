@@ -1010,8 +1010,8 @@
 			}
 		},
 		"emission": {
-			"cell": "none: HQ creates a logo's media object only through its session-authenticated uploader (`hqmedia/views.py::ProcessLogoFileUploadView`, privilege `commcare_logo_uploader`), which writes the slot path `jr://file/commcare/logo/data/<slot><ext>` in the full media-info shape (`CommCareMultimedia.get_media_info`) that HQ's Settings preview and a linked app's pull read (`LinkedApplication.reapply_overrides` looks up `m_id`); publish leaves HQ's `logo_refs` and offers the file to upload there (defect 14; Nova writes a path-only content-hash reference today: unproducible); the local `.ccz` carries the logo directly",
-			"markers": ["unproducible"]
+			"cell": "none: HQ creates a logo's media object only through its session-authenticated uploader (`hqmedia/views.py::ProcessLogoFileUploadView`, privilege `commcare_logo_uploader`), which writes the slot path `jr://file/commcare/logo/data/<slot><ext>` in the full media-info shape (`CommCareMultimedia.get_media_info`) that HQ's Settings preview and a linked app's pull read (`LinkedApplication.reapply_overrides` looks up `m_id`); publish leaves HQ's `logo_refs` and offers the file to upload there; the local `.ccz` carries the logo directly",
+			"markers": []
 		},
 		"gates": ["privilege/commcare_logo_uploader"]
 	},
@@ -2448,8 +2448,8 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "`project_default`; publish of an app that reads locations asks the person to confirm the flat fixture still syncs, since Nova cannot read that setting, and stops where it does not (today Nova writes `both_fixtures` for apps that read `instance('locations')`: unproducible)",
-			"markers": ["unproducible"]
+			"cell": "`project_default`; publish of an app that reads locations asks the person to confirm the flat fixture still syncs, since Nova cannot read that setting, and stops where it does not",
+			"markers": []
 		},
 		"gates": [
 			"project-space-setting/LocationFixtureConfiguration.sync_flat_fixture"

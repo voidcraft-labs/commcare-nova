@@ -792,8 +792,7 @@ export function compileCcz(
 							runtimeTarget: opts.runtimeTarget,
 							sessionVar: ownCaseDatumId,
 							collection: ownCaseDatum?.maxSelectValue !== undefined,
-							...(parentSelectModuleUuid(doc, linkContext, moduleUuid) !==
-								undefined && {
+							...(parentSelectModuleUuid(doc, moduleUuid) !== undefined && {
 								parentSelect: {
 									otherSessionVars: projectedSessionDatums
 										.filter(

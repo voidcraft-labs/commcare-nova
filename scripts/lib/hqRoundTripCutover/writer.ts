@@ -75,7 +75,7 @@ import {
 	extractLookupReferenceTargets,
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import type { IconRef } from "@/lib/domain/builtinIcons";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import { isMediaKind } from "@/lib/domain/multimedia";
@@ -124,6 +124,7 @@ import {
 	MARKER_BATCH_ID,
 	type PlannedFleet,
 	readAppCarriers,
+	readAppPlaces,
 	readPrivateWorkCensus,
 } from "./plan";
 
@@ -849,40 +850,6 @@ async function readResourceMappings(
 		remoteId: row.remote_id,
 		pushedIdentity: row.pushed_identity,
 	}));
-}
-
-async function readAppPlaces(
-	tx: Transaction<AppDatabase>,
-	appIds: readonly string[],
-): Promise<Map<string, StoredLocation[]>> {
-	const byApp = new Map<string, StoredLocation[]>();
-	if (appIds.length === 0) return byApp;
-	const rows = await tx
-		.selectFrom("app_locations")
-		.selectAll()
-		.where("app_id", "in", [...appIds])
-		.orderBy("app_id")
-		.orderBy("order_key")
-		.orderBy("id")
-		.execute();
-	for (const row of rows) {
-		const list = byApp.get(row.app_id) ?? [];
-		list.push({
-			id: asUuid(row.id),
-			levelUuid: row.level_uuid,
-			parentId: row.parent_id === null ? null : asUuid(row.parent_id),
-			siteCode: row.site_code,
-			name: row.name,
-			externalId: row.external_id,
-			latitude: row.latitude,
-			longitude: row.longitude,
-			values: row.values,
-			archivedAt: row.archived_at,
-			orderKey: row.order_key,
-		});
-		byApp.set(row.app_id, list);
-	}
-	return byApp;
 }
 
 /**

@@ -95,6 +95,19 @@ function projectConnectXPath(
 }
 
 /**
+ * Whether a deliver unit leaves `entity_id` or `entity_name` unset, so the
+ * emitter writes {@link DEFAULT_DELIVER_ENTITY_ID} or
+ * {@link DEFAULT_DELIVER_ENTITY_NAME}, both of which read `#user/username`:
+ * the form then reads the worker's own record, which a worker has only
+ * under the plan privilege `user_case`
+ * (`callcenter/sync_usercase.py::_iter_sync_usercase_helpers`). An authored
+ * entity id or name is a form slot the worker-record walk already reads.
+ */
+export function deliverUnitTakesDefaultEntity(du: ConnectDeliverUnit): boolean {
+	return du.entity_id === undefined || du.entity_name === undefined;
+}
+
+/**
  * Resolve the effective `entity_id` / `entity_name` XPath expressions
  * for a Connect deliver_unit. Returns the doc's explicit values when
  * present and non-empty; otherwise the canonical defaults.

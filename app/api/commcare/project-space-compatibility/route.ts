@@ -4,6 +4,14 @@
  * With no domain this describes what the app needs in semantic product terms.
  * With a selected domain it also checks whether that project space can run the
  * app. Private HQ probes stay behind the CommCare boundary.
+ *
+ * Beside the capabilities it lists what a publish there will ask the person
+ * to confirm, because no API key reads it: the plan features the app needs
+ * (`plan_features`), whether the project space still sends its flat location
+ * list (`flat_location_fixture`) and whether it holds a Connect forwarder
+ * (`connect_forwarder`), each with its state from the confirmations the
+ * deployment there holds, so the dialog shows the rows before the first
+ * press instead of after a refusal.
  */
 
 import type { NextRequest } from "next/server";
@@ -22,11 +30,12 @@ import {
 	projectSpaceCompatibilityForPrepublish,
 	projectSpaceCompatibilityProbePlan,
 } from "@/lib/commcare/projectSpaceCompatibility";
+import type { CommCareServer } from "@/lib/commcare/servers";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { projectSpaceConfirmations } from "@/lib/deployment/service";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
-import { projectSpaceCompatibilityForTarget } from "@/lib/publish/projectSpaceCompatibility";
 
 export async function POST(req: NextRequest) {
 	try {
@@ -50,6 +59,10 @@ export async function POST(req: NextRequest) {
 			access.app.blueprint as PersistableDoc,
 		);
 		let report = projectSpaceCompatibilityForPrepublish(doc);
+		let target: {
+			readonly server: CommCareServer;
+			readonly domain: string;
+		} | null = null;
 		const domain =
 			typeof request?.domain === "string" ? request.domain.trim() : "";
 		if (domain) {
@@ -79,15 +92,25 @@ export async function POST(req: NextRequest) {
 				credentialResult.domain.name,
 				plan,
 			);
-			report = projectSpaceCompatibilityForTarget(
-				credentialResult.domain.name,
-				probes.capabilities,
-				probes.advisories,
-			);
+			report = probes.report;
+			target = {
+				server: credentialResult.creds.server,
+				domain: credentialResult.domain.name,
+			};
 		}
 
+		const confirmations = await projectSpaceConfirmations(
+			{
+				appId,
+				projectId: access.projectId,
+				role: access.role,
+				actorUserId: session.user.id,
+			},
+			doc,
+			target,
+		);
 		return Response.json(
-			{ project_space_compatibility: report },
+			{ project_space_compatibility: report, ...confirmations },
 			{ headers: { "Cache-Control": "private, no-store" } },
 		);
 	} catch (err) {

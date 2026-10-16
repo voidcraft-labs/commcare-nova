@@ -11,8 +11,8 @@ import "server-only";
  *
  * The source view (`app_manager/views/apps.py::app_source`) needs edit-apps
  * and no API access. It serves `doc_type`, `build_spec`, `profile`, `langs`,
- * `translations`, `add_ons`, each module's `unique_id` and each form's `xmlns`, and the form XML under
- * `_attachments`. It serves no `version` and no `_id`, and every read mints
+ * `translations`, `add_ons`, `cloudcare_enabled`, `logo_refs`, each module's
+ * `unique_id` and each form's `xmlns`, and the form XML under `_attachments`. It serves no `version` and no `_id`, and every read mints
  * its own form ids (`models/applications.py::Application.scrub_source`,
  * `util.py::update_form_unique_ids`), so a form id from one read is a key
  * into that read only.
@@ -54,10 +54,23 @@ export interface HqAppSourceModule {
 export interface HqAppSource {
 	readonly docType: "Application";
 	/**
-	 * `build_spec.version`, HQ's CommCare version for the app. Work item C's
-	 * floor reads this field under this name.
+	 * `build_spec.version`, HQ's CommCare version for the app. The version
+	 * floor (`lib/commcare/versionFloor.ts::compareToVersionFloor`) reads it
+	 * from a publish's first read.
 	 */
 	readonly buildSpecVersion: string;
+	/**
+	 * `cloudcare_enabled`: whether Web Apps offers the app. HQ sets it from
+	 * the project space's plan when an upload creates the app and Nova never
+	 * writes it, so a publish reads it and says so where it is off.
+	 */
+	readonly cloudcareEnabled: boolean;
+	/**
+	 * `logo_refs`, each logo slot HQ holds; `{}` where the key is absent. An
+	 * update that names `logo_refs` replaces the dict whole, so the import
+	 * builds what it sends from this (`lib/commcare/targetLogoRefs.ts`).
+	 */
+	readonly logoRefs: Readonly<Record<string, unknown>>;
 	readonly profile: HqApplicationProfile;
 	/** `langs`, HQ's language codes in order. */
 	readonly langs: readonly string[];
@@ -147,6 +160,7 @@ export async function readHqAppSource(
 	const { modules, _attachments, profile, langs, build_spec, translations } =
 		body;
 	const addOns = body.add_ons;
+	const logoRefs = body.logo_refs;
 	if (!Array.isArray(modules)) return malformed(domain, appId, "modules");
 	if (!isRecord(_attachments)) return malformed(domain, appId, "_attachments");
 	if (!isRecord(profile)) return malformed(domain, appId, "profile");
@@ -173,6 +187,9 @@ export async function readHqAppSource(
 		!Object.values(addOns).every((value) => typeof value === "boolean")
 	) {
 		return malformed(domain, appId, "add_ons");
+	}
+	if (logoRefs !== undefined && !isRecord(logoRefs)) {
+		return malformed(domain, appId, "logo_refs");
 	}
 
 	const parsedModules: HqAppSourceModule[] = [];
@@ -216,6 +233,10 @@ export async function readHqAppSource(
 		source: {
 			docType: "Application",
 			buildSpecVersion: build_spec.version,
+			/* HQ serializes the property on every app, so anything but `true`
+			 * is an app Web Apps does not offer. */
+			cloudcareEnabled: body.cloudcare_enabled === true,
+			logoRefs: isRecord(logoRefs) ? logoRefs : {},
 			profile,
 			langs,
 			translations,

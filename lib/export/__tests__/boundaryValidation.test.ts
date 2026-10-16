@@ -827,12 +827,13 @@ describe("prepareExportBoundary", () => {
 		},
 	);
 
-	it("says nothing about fixtures for an app with no rule that reads one", () => {
-		/* Same rule `logo_refs` follows: CommCare HQ's in-place update is an
-		 * overlay merge, so emitting a value here would overwrite a choice
-		 * somebody made over there on every republish. A fixed-place owner
-		 * prints a literal and reads no instance, so it needs nothing. */
-		expect(expandDoc(fixedOwnerDoc()).location_fixture_restore).toBeUndefined();
+	it("leaves the fixture to the project space for an app with no rule that reads one", () => {
+		/* Every app carries `project_default`, so the project space's own
+		 * setting decides. A fixed-place owner prints a literal and reads no
+		 * instance, so the setting changes nothing for it. */
+		expect(expandDoc(fixedOwnerDoc()).location_fixture_restore).toBe(
+			"project_default",
+		);
 	});
 
 	it.each(["ccz", "hq-json", "hq-upload"] as const)(
@@ -857,7 +858,7 @@ describe("prepareExportBoundary", () => {
 			const app = expandDoc(result.prepared.doc, {
 				assets: result.prepared.assets,
 			});
-			expect(app.location_fixture_restore).toBe("both_fixtures");
+			expect(app.location_fixture_restore).toBe("project_default");
 		},
 	);
 

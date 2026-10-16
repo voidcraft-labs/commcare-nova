@@ -188,7 +188,7 @@ describe("display-condition HQ projection", () => {
 			],
 		});
 		const hq = expandDoc(displayDoc);
-		expect(hq.build_spec.version).toBe("2.54.0");
+		expect(Object.hasOwn(hq, "build_spec")).toBe(false);
 		expect(hq.modules[0].module_filter).toBe(
 			"instance('commcaresession')/session/user/data/role = 'supervisor'",
 		);
@@ -5797,7 +5797,6 @@ describe("expandAppShell", () => {
 			"application_version",
 			"name",
 			"langs",
-			"build_spec",
 			"translations",
 			...(connectApp ? ["auto_gps_capture"] : []),
 			"modules",
@@ -5815,6 +5814,7 @@ describe("expandAppShell", () => {
 			if (connectApp) expect(shell.auto_gps_capture).toBe(true);
 			for (const absent of [
 				"add_ons",
+				"build_spec",
 				"multimedia_map",
 				"logo_refs",
 				"profile",

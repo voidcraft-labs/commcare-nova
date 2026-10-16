@@ -55,8 +55,9 @@ ADVANCED_APP = "suite/suite-advanced.json"
 TWO_LANGUAGE_APP = "yesno.json"
 
 # Every corpus document a test of this package reads, by id, and no other: test_view_equivalence.py's
-# CORPUS_SAMPLE, the document test_retained_reads.py saves each page of, and the list whose mapping
-# test_mapping_keys.py opens.
+# CORPUS_SAMPLE, the document test_retained_reads.py saves each page of, the list whose mapping
+# test_mapping_keys.py opens, and the documents the publish gates' page and Vellum tests open
+# (test_version_raise.py, test_plan_features.py and test_gated_pages.py).
 DOCUMENTS = (
     "case-operation-scalar",
     "case-worker-followup",
@@ -66,6 +67,14 @@ DOCUMENTS = (
     "case-extension-multiple-repeat",
     "navigation-base",
     "targeted-label-sort",
+    "prompt-widgets",
+    "case-capture-query",
+    "form-link-unconditional",
+    "case-operation-query",
+    "case-choice-attendance",
+    "case-list-inline",
+    "search-multiple",
+    "targeted-custom-tile",
 )
 
 _TIMINGS: dict[str, list[float]] = {}

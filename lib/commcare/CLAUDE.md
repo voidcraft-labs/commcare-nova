@@ -207,7 +207,16 @@ requested id. A lost or malformed acknowledgement carries uncertainty.
 
 Public surfaces speak only semantic capabilities from
 `lib/publish/projectSpaceCompatibility.ts`: Case search, CommCare Connect,
-attachments saved to cases, and links to captured files. Literal HQ setting
+attachments saved to cases, links to captured files, registration offered after
+an empty search, choosing several cases at once (a multi-select case list),
+search across related cases (a relation in a search's own filter, supporting
+related cases, or a search-first menu that follows a parent case chosen first),
+and case tiles. Publish names capabilities too, never HQ flag names. At publish
+only the publisher's key reads a space's flags: a toggle keyed by project space
+alone is never on for a user (`corehq/toggles/__init__.py::StaticToggle.enabled`),
+so a flag the probe reads as on is the space's own. A project space the key's
+user has left is the `not-a-member` issue: the unfiltered list answers without
+it, and every publish there stops. Literal HQ setting
 names, namespaces, and raw probe arrays live only inside this boundary: the
 surface manifest (`surface/`), `projectSpaceCompatibility.ts`, and the
 server-side HQ client. They are implementation details, never settings a person
@@ -238,13 +247,27 @@ HTML login/proxy page cannot pass preflight. The successful body is cancelled
 without reading case data. Only the exact configured-off 404 is missing, and no
 result body is retained or logged. Each visibility, flag, and runtime check owns
 its five-second deadline through response-body completion or cancellation.
-Only a Search field with a starting value adds the private child setting to the
-SAME public Case search capability, because HQ omits `<prompt default>` without
-it. A search's own filter (`_xpath_query`), the zero-input `match-all()`
+A Search field with a starting value, a hidden Search value, a search-first
+menu, a one-date Search field and a Search field Nova matches by its own filter
+each add the private child setting to the SAME public Case search capability:
+HQ omits `<prompt default>` without it and its editors offer none of the others
+without it. A search's own filter (`_xpath_query`), the zero-input `match-all()`
 included, does not add it: HQ's Case List page offers and keeps a default
 filter for every project space. Both export paths send the zero-input filter.
 Missing or
 unverified required capabilities block before writes.
+
+`planPrivileges.ts::requiredPlanPrivileges` derives, from the document, what
+the publish pushes, and the attachment target the emitter is handed (a capture
+saved as a link is a case write only where there is a link to write), the plan
+features the content needs (`user_case`, `lookup_tables`, `child_cases`,
+`form_link_workflow`, `save_to_case`, `locations`, `data_forwarding`), each
+with the sentences that say why this app needs it. Each rule asks the
+emitter's own decision over the form link context `expandDoc` builds, so the
+answer and the wire cannot disagree. HQ's slugs stay inside `lib/commcare`; `lib/publish/planFeatures.ts`
+holds what a person reads. No API key reads a plan, so these are confirmed by
+the person, never probed, and a lane test holds `planPrivilegePlans.json` to
+HQ's own plan lists.
 The large-search performance check is advisory: it controls only whether Nova
 can add its derived Search optimization and never blocks publishing or removes
 Search.
@@ -387,7 +410,7 @@ adds that block and the source never holds it.
 
 `xform/captureUpload.ts` owns the `<upload mediatype>` vocabulary. It is a table rather than a conditional because an unmatched `mediatype` does not fail: `XFormParser::parseUpload` matches with literal `String.equals` against exactly four strings (`image/*`, `audio/*`, `video/*`, `application/*,text/*` — comma, NO space), anything else leaves the control at `CONTROL_UPLOAD`, `entries.js::getEntry` falls through to `UnsupportedEntry`, and that constructor SETS the answer to the literal string `Not Supported by Web Entry`, which submits. Silent bad data, not a visible error — so `UploadMediatype` admits only the four literals and `UPLOAD_MEDIATYPE_BY_CAPTURE_KIND` is total over `captureFieldKinds`, making the bad state unrepresentable. Signature shares `image/*` and is split out by `appearance="signature"`; `appearance="face"` and `jr:imageDimensionScaledMax` stay out because both are inert on every runtime Nova targets.
 
-`build_spec.version` in `hqShells.ts` is fixed output metadata for Nova's one application-shell target (`2.54.0`). It is not a feature floor, reader gate, or capability switch; no producer or runtime branch may consult it. The upload path is declarative (`import_app` deletes `build_spec`; `ApplicationBase.wrap` substitutes the domain default).
+Nova writes no `build_spec`. Publish reads the target's `build_spec.version` from its source and stops below `versionFloor.ts`'s 2.57 (`compareToVersionFloor`), which the local profile's `requiredMajor` and `requiredMinor` also state.
 
 ### Vellum dual-attribute pattern
 
@@ -815,11 +838,11 @@ both local CCZ and HQ-regenerated forms. Existing stored dates are not rewritten
 
 `xform/generatedNodes.ts::planGeneratedNodes(doc, formUuid)` names every node Nova adds to a form's source, by purpose and owner identity and never by path, and makes each form's plan once per document object (documents are replaced, never changed in place), so the XForm builder, `formActions.ts` and Preview share it. A base name is `nova_`, the purpose and the owner's id, or the container's fixed name; each parent element is one namespace, and the `nova_operations` groups of one authored scope (the form root, or one repeat), that is the scope's own group and the group in its selected-cases item, share one namespace with everything nested in them, so adding or removing a condition, or changing the menu's case selection, never renames a node; `nova_subcases` is its own namespace and holds no authored name; a base an authored sibling, a Connect block id or an earlier allocation holds takes `_<n>` for the smallest free `n` from 1. Nova refuses no authored name for being one of its own, because each is a name CommCare HQ's form builder takes for a question; the cost is that a generated node's HQ export column moves to the suffixed path when an author adds such a question. Two rules of the builder's parser shape the body. A parent's controls name its data children in the same relative order, and data-only children may sit anywhere between them: one control out of order makes the builder rebuild the parent with every data-only child last, which moves case blocks, and Core applies case blocks in document order. Each control sits inside its data parent's control. So the root `nova_operations` control is the first child of `<h:body>`, a repeat's follows its authored controls, each `nova_condition_` and `nova_keyed_` control sits inside its `nova_operations` control, no Save to Case block and no Hidden Value has a control, and setvalues are written in data-tree order. The groups carry no label, no appearance and no bind, and HQ's Web Apps client, Android and Core lay out no box and no screen for any of them (Vellum `parser.js::parseControlTree`, `parseControlElement`).
 
-The Save to Case facts the emitter follows, each kept by two saves in the form builder (Vellum `saveToCase.js`): The plugin loads only under the `save_to_case` plan privilege. No block carries a bind on its own node. `relevant` on `<block>/case` is used only on a block that creates. An update-only block has at least one property row. No row carries `type` or `constraint`, and only `@date_modified` is typed. Children of `<case>` are written `create`, `update`, `close`, `index`, with the case namespace as the default namespace and no prefix. A create outside a repeat carries its id as an `xforms-ready` setvalue and one inside a repeat as a bind. Every `<index>` child carries `case_type` and `relationship`. So an update's or close's condition is its `nova_condition_` group's `relevant`, a guard's one row is `update/case_type`, and every app with a block is gated on that privilege (`surface/entries/questions.json`, gate `privilege/save_to_case`).
+The Save to Case facts the emitter follows, each kept by two saves in the form builder (Vellum `saveToCase.js`): The plugin loads only under the `save_to_case` plan privilege, which publish asks the person to confirm. No block carries a bind on its own node. `relevant` on `<block>/case` is used only on a block that creates. An update-only block has at least one property row. No row carries `type` or `constraint`, and only `@date_modified` is typed. Children of `<case>` are written `create`, `update`, `close`, `index`, with the case namespace as the default namespace and no prefix. A create outside a repeat carries its id as an `xforms-ready` setvalue and one inside a repeat as a bind. Every `<index>` child carries `case_type` and `relationship`. So an update's or close's condition is its `nova_condition_` group's `relevant`, a guard's one row is `update/case_type`, and every app with a block is gated on that privilege (`surface/entries/questions.json`, gate `privilege/save_to_case`).
 
 Inside `<case>`, child order is canonical and pinned against current Vellum/Core sources and fixtures: `<create>` (with `case_type`, `case_name`, `owner_id`), `<update>`, `<close>`, then `<index>`. Registration `external_id` is deliberately in `<update>`, never `<create>`, per CCHQ's exact `open_case_external_id.xml` fixture; child create and existing-case writes use the same scalar update leaf. Every non-create block carries a materially present update. When it has no authored update child, Nova emits an idempotent `case_type` assignment to the already-declared type: Core therefore takes the clean update-before-index missing-case path, and HQ classifies pure close/index blocks with an actual update sort key. An empty `<update/>` is sufficient for Core but NOT for this HQ ordering proof — HQ's parser treats it as absent when another action exists. Generated singular create ids alone use Vellum's `xforms-ready` setvalue. An `idFrom` answer is NOT emitted raw: the shared versioned contract derives `nova-case-v1:<UUIDv5(app,form,operation,type)>:<exact-key>`. The fixed namespace and JSON tuple serialization are pinned by TypeScript/XPath vectors; operation display-id renames and reorders do not affect it. A live calculate bind carries a keyed id, so the submitted id reflects the final answer. The form builder writes a create's id as a bind only inside a repeat, so a root create keyed by an answer sits in a one-row repeat no worker sees, `nova_keyed_<operation id>`, counted by `nova_count_nova_keyed_<operation id>` (`calculate="1"`), inside `nova_operations`; its guards stand outside the repeat. The source field must be scalar text/single-select/hidden-string; multi-select is an array in Nova but a space-token string on device and has no safe implicit key serialization. The calculation accepts 1–205 UTF-16 code units, performs no trim/case-fold/Unicode normalization, and returns blank outside that range so Core/HQ reject the whole transaction rather than exceed HQ's 255-character case-id column or merge every blank row. Repeated duplicate keys intentionally address the same case, as does a retry of the same app/form/operation/type/key; the app/form/operation/type namespace separates every other ordinary collision, including type edits and two operations sharing one field. The order gate rejects a later non-create that can target that merged case when both definitions share a repeated execution ancestor: Core executes `C1,U1,C2,U2`, while HQ groups the concrete id and create-sorts `C1,C2,U1,U2`. A provably distinct target and independent root sibling repeats remain legal. Those deterministic identities are type-stable: a known authored-create retype is rejected statically, and every data-dependent retype gets a retype guard that rejects a `nova-case-v1:` target. A guard is an update-only Save to Case block after its operation's block, `nova_guard_<operation id>_type`, `_retype` or `_text`, at most one of each kind. It writes `update/case_type` to the type the case then holds, and its `@case_id` is `if(OK, ID, '')`: a blank id refuses the whole submission on Core and on HQ. Because HQ sorts one case's create blocks before non-create blocks, a deterministic-key create must still precede all non-create operations whose runtime target could be that existing case; the shared order checker rejects the unsafe inverse. Targets otherwise come from earlier-create identity, the loaded session case, or a typed expression. One block reads another's id and leaves through `current()`, at the form root as in a repeat row (`xform/formPath.ts::relativeXPath`), never by an absolute path: the form builder reads an absolute path into a case block as an unknown question. It does not follow a `current()` path, so a person who renames an operation's block in the form builder leaves these reads naming the old block; a Nova publish replaces the form. An `id-of` nested anywhere in a runtime target/link expression is rejected: only the first-class `op` target can address a fresh create without incorrectly filtering it through the pre-submission casedb. Owner expressions use explicit Nova vocabulary: `acting-user` emits `/data/meta/userID`, `unowned` emits the fixed `-` sentinel, and a create with no owner expression defaults to the acting user. An authored operation's fixed-text scalar calculates pass through JavaRosa `replace(..., '^[\x00-\x20]+|[\x00-\x20]+$', '')`, matching Java `String.trim()` while preserving internal text; a basic action's name and external id, and a source-lowered block's, read the question's `nova_trimmed_` node instead. No leaf of a case block carries a `constraint`: a runtime evaluates one only for a question being answered. An authored operation's values are capped by its `nova_guard_<operation id>_text` block, a calculate, at 255 Java/JS UTF-16 code units; names and explicit owners must also remain nonblank, while `external_id` may be the real empty string. Failure rolls the whole submission back. This pins the shared `caseScalarText.ts` contract for wire, Preview, and storage. Every operation-carried case type uses Core's identifier grammar and 255-character cap; every link identifier is XML-safe and at most the HQ index column's 255 characters.
 
-Location owners add two exact leaves to that vocabulary. `fixed-location` lowers its app-scoped place UUID as a literal. `owner-location-at-level` lowers to `instance('locations')/locations/location[@type='<destination-level-code>'][@<nearest-case-owning-ancestor-code>_id = <owner-case-expression>]/@id` and pulls both `locations` and `casedb`. Either leaf must occupy the complete owner expression; the validator refuses name, rename, and nested carriers and proves the destination level owns cases before this boundary can print it. The export boundary rejects `fixed-location` for `.ccz`, HQ JSON, and HQ upload because its Nova UUID is not translated to the target domain's location identity. Reverse hops carry level codes and the case's runtime owner identity, so they export. The expander requests `location_fixture_restore: "both_fixtures"`; HQ produces the per-worker fixture from its own location rows. Target level codes, privileges and unambiguous destinations remain deployment preconditions owned by `lib/deployment`.
+Location owners add two exact leaves to that vocabulary. `fixed-location` lowers its app-scoped place UUID as a literal. `owner-location-at-level` lowers to `instance('locations')/locations/location[@type='<destination-level-code>'][@<nearest-case-owning-ancestor-code>_id = <owner-case-expression>]/@id` and pulls both `locations` and `casedb`. Either leaf must occupy the complete owner expression; the validator refuses name, rename, and nested carriers and proves the destination level owns cases before this boundary can print it. The export boundary rejects `fixed-location` for `.ccz`, HQ JSON, and HQ upload because its Nova UUID is not translated to the target domain's location identity. Reverse hops carry level codes and the case's runtime owner identity, so they export. Every app carries `location_fixture_restore: project_default`, and for an app that reads places publish asks the person to confirm that the project space sends its flat location list; HQ produces the per-worker fixture from its own location rows. Target level codes, privileges and unambiguous destinations remain deployment preconditions owned by `lib/deployment`.
 
 Location compatibility evidence uses the real HQ `FlatLocationSerializer.get_xml_nodes`, including its native index schema and lineage attributes, and Core's actual restore parser, indexed fixture storage, form initialization and case submission. The native proofs are `proof/native/test_location_emission.py` and `proof/native/core/LocationOwnerRuntimeTest.java`. The same schema- and validator-admitted app corpus drives local CCZ and HQ-regenerated forms. Native cases cover immediate and multi-rung hops, branch identity and an omitted intermediate place. The Postgres companion uses organization service writes and verifies exact owner destinations and atomic refusal of ambiguity. HQ's own location models hold the places in the check's database; worker session data is supplied explicitly; these checks do not claim to execute HQ's footprint SQL or a remote restore. Nova emits no copy of this per-worker fixture. Its XForm instance declaration is automatic through the owner AST accumulator, and the fixture never belongs in the app's suite.
 
@@ -885,7 +908,10 @@ a wrapper so named has no namespace where the receiver reads one, so Connect
 answers 500 for every submission of the form. A deliver form holds a deliver
 unit or a task, never both (`CONNECT_DELIVER_FORM_HOLDS_TASK`): Connect checks
 the delivery before it completes a task, so a form holding both has its own
-visit turned away while the task is assigned.
+visit turned away while the task is assigned. A Connect app's forms reach
+Connect only through CommCare HQ's data forwarding, which needs the Data
+Forwarding plan feature and a forwarder set up in the project space. No API key
+reads either, so publish asks the person to confirm both (`lib/deployment`).
 
 ### Case-list emission
 
@@ -1359,8 +1385,9 @@ partial emission.
 
 Module/form navigation display conditions use `suite/displayConditions.ts`.
 Module conditions emit to `<menu relevant>` and HQ `module_filter`; their
-secondary instances are child `<instance>` elements on that menu, requiring the
-fixed HQ build 2.54. Form conditions emit to the menu's `<command relevant>` and
+secondary instances are child `<instance>` elements on that menu, which
+CommCare reads from 2.54, below the 2.57 every app Nova publishes or compiles
+requires (`versionFloor.ts::COMMCARE_VERSION_FLOOR`). Form conditions emit to the menu's `<command relevant>` and
 HQ `form_filter`; direct self properties structurally anchor through the
 selected `commcaresession/session/data/<projected-own-case-id>` in local suite
 XML. In HQ JSON a read of `case_id`, `case_type`, `owner_id` or `status` is
@@ -1439,12 +1466,14 @@ BUILD id is what keeps it on that build instead of falling through to
 
 The HQ import file is always a ZIP
 (`multimedia/hqJsonExportArchive.ts::buildHqJsonExportArchive`): the app's
-JSON, `README.txt`, `lookup-tables.xlsx` where the app reads lookup tables and
-`multimedia.zip` where it has media. The README is rendered from a pure derived
+JSON, `README.txt`, `lookup-tables.xlsx` where the app reads lookup tables,
+`multimedia.zip` where it has media, and the logo's file as `logo<ext>` where
+the app has a logo. The README is rendered from a pure derived
 guide, `lib/publish/manualImportGuide.ts`, whose steps are each present only
 when they apply: the lookup tables first, so the app finds its data when HQ
-builds it, then the import, the CommCare version to check, the media and the
-capabilities the project space needs. It names capabilities, never HQ flag
+builds it, then the import, the CommCare version to check, the media, the
+capabilities the project space needs, the plan features, the logo, the flat
+location list and Connect forwarding. It names capabilities, never HQ flag
 names. The file carries derived ids and no runtime URL, and a person who
 imports it makes a create that carries forms, so its form ids are HQ's and its
 menu ids and every `xmlns` are Nova's.
@@ -1495,8 +1524,10 @@ the target's own part beside them.** HQ's update is an overlay merge
 app's value, and an absent one is retained. So target-owned settings and
 state — `cloudcare_enabled`, `case_sharing`, `secure_submissions`, the
 build/release metadata, and the rest of HQ's app Settings page — are never
-emitted by `hqShells.ts::applicationShell`, and `logo_refs` is emitted only
-when the app has a Nova-authored logo. `cc-show-saved` and
+emitted by `hqShells.ts::applicationShell`. Publish writes no `logo_refs`,
+and an update takes out only an entry whose only key is `path`
+(`targetLogoRefs.ts::withoutPathOnlyLogoRefs`), which HQ's own uploader never
+stores. `cc-show-saved` and
 `cc-show-incomplete` are app content (`appSettings`), written as a key-level
 overlay, and they are the only two profile settings Nova owns on HQ. The
 fifteen other explicit settings, constants at today's device behavior, are

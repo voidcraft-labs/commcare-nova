@@ -17,16 +17,30 @@ import {
 	deploymentDisplaysAsReached,
 } from "@/lib/deployment";
 import type { DeploymentView } from "@/lib/deployment/actions";
+import type { ProjectSpaceConfirmationChecks } from "@/lib/deployment/confirmations";
 import {
 	activeRemoteApp,
 	type NextPublishAction,
 	nextPublishAction,
 } from "@/lib/deployment/resources";
+import type {
+	DeploymentConfirmation,
+	DeploymentConfirmationKey,
+	DeploymentConfirmationKind,
+	DeploymentConfirmationNeeded,
+} from "@/lib/deployment/types";
 import {
 	type AppDeploymentNoticeEntry,
 	type DeploymentNoticeEntry,
 	orderNoticeEntries,
 } from "@/lib/notices/migrationNotice";
+import {
+	CONNECT_FORWARDER,
+	FLAT_LOCATION_FIXTURE,
+	isPlanFeatureId,
+	PLAN_FEATURE_IDS,
+	PLAN_FEATURES,
+} from "@/lib/publish/planFeatures";
 
 /**
  * What each rung means, in the author's words. One home for the ladder,
@@ -298,4 +312,206 @@ export function publishingCardNoticeEntries(
 	return orderNoticeEntries(kept.map((item) => item.entry)).filter(
 		(entry): entry is DeploymentNoticeEntry => entry.kind === "deployment",
 	);
+}
+
+// ── What a publish asks a person to confirm ───────────────────────────────
+
+/**
+ * One thing the Publish dialog asks a person to confirm about the selected
+ * project space: the words to ask it in, and the key that names it back.
+ */
+export interface ConfirmationRequest {
+	readonly key: DeploymentConfirmationKey;
+	readonly kind: DeploymentConfirmationKind;
+	readonly label: string;
+	/** The current plans that include it; empty for a setting no plan decides. */
+	readonly plans: string;
+	readonly consequence: string;
+	readonly reasons: readonly string[];
+}
+
+/** The key a caller names back for one need, or null for one Nova no longer knows. */
+function requestKey(
+	kind: DeploymentConfirmationKind,
+	subject: string,
+): DeploymentConfirmationKey | null {
+	switch (kind) {
+		case "plan-feature":
+			return isPlanFeatureId(subject) ? { kind, subject } : null;
+		case "flat-location-fixture":
+		case "connect-forwarder":
+			return { kind };
+	}
+}
+
+/** Whether two keys name the same thing. */
+export function sameConfirmationKey(
+	a: DeploymentConfirmationKey,
+	b: DeploymentConfirmationKey,
+): boolean {
+	return (
+		a.kind === b.kind &&
+		(a.kind !== "plan-feature" ||
+			(b.kind === "plan-feature" && a.subject === b.subject))
+	);
+}
+
+/** Every surface's order: the plan features as `PLAN_FEATURES` lists them, then the flat location list, then the Connect forwarder. */
+function requestOrder(key: DeploymentConfirmationKey): number {
+	switch (key.kind) {
+		case "plan-feature":
+			return PLAN_FEATURE_IDS.indexOf(key.subject);
+		case "flat-location-fixture":
+			return PLAN_FEATURE_IDS.length;
+		case "connect-forwarder":
+			return PLAN_FEATURE_IDS.length + 1;
+	}
+}
+
+/**
+ * What the Publish dialog asks a person to confirm before a publish to the
+ * selected project space: every need the pre-publish check reports with no
+ * confirmation on record there, and every need a refusal just named, each
+ * once. A refusal is the newer word, so its wording wins where both name a
+ * need. Nothing confirmed on record is asked again.
+ */
+export function confirmationRequests(
+	checks: ProjectSpaceConfirmationChecks | null,
+	refused: readonly DeploymentConfirmationNeeded[],
+): readonly ConfirmationRequest[] {
+	const requests: ConfirmationRequest[] = [];
+	const add = (
+		kind: DeploymentConfirmationKind,
+		subject: string,
+		need: Omit<ConfirmationRequest, "key" | "kind">,
+	) => {
+		const key = requestKey(kind, subject);
+		if (key === null) return;
+		if (requests.some((request) => sameConfirmationKey(request.key, key))) {
+			return;
+		}
+		requests.push({ key, kind, ...need });
+	};
+	for (const need of refused) add(need.kind, need.subject, need);
+	if (checks !== null) {
+		for (const feature of checks.plan_features) {
+			if (feature.state === "needs_confirmation") {
+				add("plan-feature", feature.id, feature);
+			}
+		}
+		if (checks.flat_location_fixture?.state === "needs_confirmation") {
+			add("flat-location-fixture", "flat-location-fixture", {
+				...checks.flat_location_fixture,
+				plans: "",
+			});
+		}
+		if (checks.connect_forwarder?.state === "needs_confirmation") {
+			add("connect-forwarder", "connect-forwarder", {
+				...checks.connect_forwarder,
+				plans: "",
+			});
+		}
+	}
+	return requests.sort((a, b) => requestOrder(a.key) - requestOrder(b.key));
+}
+
+/**
+ * The pre-publish check's rows once a publish there has landed. The check
+ * was read before the publish, so a row it reported as needing confirmation
+ * may now be answered by what the publish stored; each such row reads as
+ * the deployment holds it, with who confirmed it and when, so a republish
+ * from the same dialog asks only what is still unanswered.
+ */
+export function withLandedConfirmations(
+	checks: ProjectSpaceConfirmationChecks,
+	live: readonly DeploymentConfirmation[],
+): ProjectSpaceConfirmationChecks {
+	const answer = <Row extends { readonly state: string }>(
+		row: Row,
+		kind: DeploymentConfirmationKind,
+		subject: string,
+	): Row => {
+		const held = live.find(
+			(confirmation) =>
+				confirmation.kind === kind && confirmation.subject === subject,
+		);
+		return held === undefined
+			? row
+			: {
+					...row,
+					state: "confirmed",
+					confirmed_by: held.confirmedByName,
+					confirmed_at: held.confirmedAt,
+				};
+	};
+	return {
+		plan_features: checks.plan_features.map((feature) =>
+			answer(feature, "plan-feature", feature.id),
+		),
+		flat_location_fixture:
+			checks.flat_location_fixture === null
+				? null
+				: answer(
+						checks.flat_location_fixture,
+						"flat-location-fixture",
+						"flat-location-fixture",
+					),
+		connect_forwarder:
+			checks.connect_forwarder === null
+				? null
+				: answer(
+						checks.connect_forwarder,
+						"connect-forwarder",
+						"connect-forwarder",
+					),
+	};
+}
+
+/** Whether every request has been ticked, so a publish can go ahead. */
+export function everyConfirmationGiven(
+	requests: readonly ConfirmationRequest[],
+	given: readonly DeploymentConfirmationKey[],
+): boolean {
+	return requests.every((request) =>
+		given.some((key) => sameConfirmationKey(key, request.key)),
+	);
+}
+
+/** One confirmation on record, as the deployment card lists it. */
+export interface LiveConfirmationRow {
+	readonly key: DeploymentConfirmationKey;
+	/** What the dialog row that asked for it was called. */
+	readonly label: string;
+	/** The member's display name, or "A former member". */
+	readonly confirmedBy: string;
+	readonly confirmedAt: string;
+}
+
+/**
+ * What a person confirmed about this card's project space and has not
+ * withdrawn, in every surface's order. A plan feature Nova no longer knows
+ * is left out: nothing asks for it, so there is nothing to withdraw.
+ */
+export function liveConfirmationRows(
+	confirmations: readonly DeploymentConfirmation[],
+): readonly LiveConfirmationRow[] {
+	return confirmations
+		.flatMap((confirmation): LiveConfirmationRow[] => {
+			const key = requestKey(confirmation.kind, confirmation.subject);
+			if (key === null) return [];
+			return [
+				{
+					key,
+					label:
+						key.kind === "plan-feature"
+							? PLAN_FEATURES[key.subject].label
+							: key.kind === "flat-location-fixture"
+								? FLAT_LOCATION_FIXTURE.label
+								: CONNECT_FORWARDER.label,
+					confirmedBy: confirmation.confirmedByName,
+					confirmedAt: confirmation.confirmedAt,
+				},
+			];
+		})
+		.sort((a, b) => requestOrder(a.key) - requestOrder(b.key));
 }

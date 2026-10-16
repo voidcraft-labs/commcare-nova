@@ -39,3 +39,21 @@ away each delivery of the new ID until an opportunity manager adds it to a
 payment unit, and CommCare HQ doesn't send those deliveries again. Connect reads
 a changed learn module ID as a second module, and a task already assigned under
 an old ID is never completed by the form.
+
+## Publishing a Connect app
+
+A Connect app's forms reach CommCare Connect only through CommCare HQ: the
+project space forwards each form to Connect once a worker submits it. That
+needs two things on the project space, and no API key can read either, so the
+Publish dialog asks you to confirm both:
+
+- **Data Forwarding**, a feature of the Pro, Advanced and Enterprise plans.
+  Without it, CommCare HQ takes the app's forms and sends none of them to
+  Connect, so no learning or delivery is recorded there.
+- **A Connect forwarder.** A project space admin adds it on CommCare HQ's Data
+  Forwarding page, choosing **Forward Form Metadata to Commcare Connect** with
+  the connection CommCare Connect gives them.
+
+Nova keeps your answers with that project space until you withdraw them in
+**App setup → Publishing**. The CommCare HQ app file's guide names the same two
+things. See [Publishing to CommCare HQ](/docs/publishing#what-the-project-spaces-plan-includes).

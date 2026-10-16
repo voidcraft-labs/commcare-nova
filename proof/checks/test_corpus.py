@@ -22,6 +22,14 @@ update (so a privilege the content needs is off), a privilege the document
 names lost, and a process that never booted HQ silently reading a
 configuration with no privileges at all.
 
+The plan privileges Nova's publish asks a person to confirm are derived from
+the document (``planPrivileges`` in each verdict, D's and D′'s), and the
+oracle derives the same set from HQ's own model of the apps those publishes
+sent; on every corpus document the two are equal. The plausible failures: a
+Nova rule that misses content HQ gates (a publish lands where HQ fails the
+build or drops the content), and one that asks for a privilege no HQ reader
+needs (a publish waits on a confirmation nothing needs).
+
 A first publish is read in the layout its create's sidecar marks
 (``corpus._captured``, ``Export``): the two-import layout (``"layout": 2``)
 gives the shell as ``create`` and the import that fills it as ``content``,
@@ -128,6 +136,47 @@ def test_a_configuration_grants_the_privileges_hq_derives_from_what_nova_sends(h
         assert configurations.privileges_for(document.root, name) == expected, name
         assert list(export.configuration.privileges) == expected, name
         assert set(export.configuration.hq().privileges) == set(expected), name
+
+
+# The privileges Nova's publish asks a person to confirm (``lib/commcare/planPrivileges.ts::requiredPlanPrivileges``),
+# by their ``corehq/privileges.py`` constants. Web Apps is not among them: Nova reads it after a publish and confirms
+# nothing about it, and the lane grants it to every app (``configurations._needs_cloudcare``).
+PLAN_PRIVILEGES = frozenset(
+    {
+        "USERCASE",
+        "LOOKUP_TABLES",
+        "CHILD_CASES",
+        "FORM_LINK_WORKFLOW",
+        "VELLUM_SAVE_TO_CASE",
+        "LOCATIONS",
+        "DATA_FORWARDING",
+    }
+)
+
+
+def _nova_plan_privileges(document):
+    """The plan privileges Nova's publish asks to be confirmed for D and for D′, unioned: each verdict's
+    ``planPrivileges`` (``proof/corpus/publish.ts::NovaPublishVerdict``)."""
+    verdicts = [document.verdict]
+    if document.edit is not None:
+        verdicts.append(json.loads((document.edit.root / "verdict.json").read_text(encoding="utf-8")))
+    found = set()
+    for verdict in verdicts:
+        named = verdict.get("planPrivileges") if isinstance(verdict, dict) else None
+        if not isinstance(named, list):
+            pytest.fail(f"{document.root} holds a verdict with no planPrivileges list; emit the corpus again.")
+        found |= set(named)
+    return found
+
+
+@pytest.mark.parametrize("document", cases.document_params())
+def test_nova_asks_for_the_plan_privileges_hqs_own_model_of_the_app_needs(hq, document):
+    """Nova's derivation from the document, over D's create and D′'s update, names exactly the plan privileges the
+    lane's oracle derives from HQ's own model of what the minimum configuration's publishes sent. A Nova rule that
+    misses content HQ gates, or asks for a privilege no HQ reader needs, fails on the document that shows it."""
+    nova = _nova_plan_privileges(document)
+    assert nova <= PLAN_PRIVILEGES, sorted(nova - PLAN_PRIVILEGES)
+    assert sorted(nova) == sorted(set(configurations.content_privileges(document.root)) & PLAN_PRIVILEGES)
 
 
 def test_a_configuration_keeps_the_privileges_its_document_names(hq, copied):

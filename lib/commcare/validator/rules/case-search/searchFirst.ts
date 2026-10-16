@@ -33,10 +33,7 @@ import {
 	moduleParent,
 	type Uuid,
 } from "@/lib/domain";
-import {
-	formLinkProjectionContext,
-	parentSelectModuleUuid,
-} from "../../../formLinkProjection";
+import { parentSelectModuleUuid } from "../../../formLinkProjection";
 import { type ValidationError, validationError } from "../../errors";
 
 export function searchFirstRequiresCaseFirstModule(
@@ -113,11 +110,7 @@ export function searchFirstUniqueInstance(
 			),
 		);
 	}
-	const selectsFrom = parentSelectModuleUuid(
-		doc,
-		formLinkProjectionContext(doc),
-		moduleUuid,
-	);
+	const selectsFrom = parentSelectModuleUuid(doc, moduleUuid);
 	const selectsFromModule =
 		selectsFrom === undefined ? undefined : doc.modules[selectsFrom];
 	if (

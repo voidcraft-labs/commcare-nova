@@ -34,6 +34,8 @@ function shellSource(overrides: Partial<HqAppSource> = {}): HqAppSource {
 	return {
 		docType: "Application",
 		buildSpecVersion: "2.57.0",
+		cloudcareEnabled: true,
+		logoRefs: {},
 		profile: {},
 		langs: ["en"],
 		translations: { en: { en: "English" } },
@@ -98,5 +100,53 @@ describe("hqImportApplication", () => {
 		);
 		expect(application.auto_gps_capture).toBe(true);
 		expect(ownership.autoGpsCapture).toBe(true);
+	});
+	describe("logo_refs", () => {
+		const pathOnly = { path: "jr://file/commcare/abc.png" };
+		const uploaded = {
+			path: "jr://file/commcare/logo/data/hq_logo_android_home.png",
+			uid: "a1b2c3",
+			m_id: "e9f8d7c6b5a4",
+			url: "/hq/multimedia/file/CommCareImage/e9f8d7c6b5a4/logo.png",
+			updated: true,
+			original_path: "logo.png",
+			icon_class: "fa fa-picture-o",
+			media_type: "CommCareImage",
+			humanized_content_length: "4.2 KB",
+			image_size: "64 x 64",
+		};
+		const doc = buildDoc({ appName: "Visits" });
+
+		it("are sent on an update only to take out a path-only entry, keeping every uploader entry", () => {
+			const { application } = hqImportApplication(
+				update(
+					doc,
+					shellSource({
+						logoRefs: {
+							hq_logo_web_apps: pathOnly,
+							hq_logo_android_home: uploaded,
+						},
+					}),
+				),
+			);
+			expect(
+				(application as unknown as Record<string, unknown>).logo_refs,
+			).toEqual({ hq_logo_android_home: uploaded });
+			expect(Object.keys(application).at(-1)).toBe("_attachments");
+		});
+
+		it("are left out where the target holds no path-only entry, so HQ keeps its own", () => {
+			for (const logoRefs of [{}, { hq_logo_android_home: uploaded }]) {
+				const { application } = hqImportApplication(
+					update(doc, shellSource({ logoRefs })),
+				);
+				expect(Object.hasOwn(application, "logo_refs")).toBe(false);
+			}
+		});
+
+		it("are never on the shell a first publish creates", () => {
+			const { application } = hqImportApplication(shell(doc));
+			expect(Object.hasOwn(application, "logo_refs")).toBe(false);
+		});
 	});
 });

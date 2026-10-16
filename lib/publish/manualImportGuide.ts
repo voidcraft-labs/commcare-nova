@@ -191,6 +191,70 @@ function capabilitiesStep(
 	};
 }
 
+/**
+ * The plan features the app needs, which the import file cannot check: no
+ * API key reads a project space's plan, so the person looks for each one on
+ * the project space's subscription page.
+ */
+function planFeaturesStep(
+	planFeatures: ManualImportGuideInput["planFeatures"],
+): ManualImportStep {
+	return {
+		kind: "plan-features",
+		title: "Check the project space's plan",
+		lines: [
+			"This app uses features that come with some CommCare HQ plans and not others:",
+			"",
+			...planFeatures.map(
+				(feature) =>
+					`  - ${feature.label}: ${feature.plans}. ${feature.consequence}`,
+			),
+			"",
+			"It helps to check that the project space's plan includes each one, on its Current Subscription page in CommCare HQ.",
+		],
+	};
+}
+
+/** The app's logo travels beside the app file, never in it. */
+function logoStep(logo: { readonly fileName: string }): ManualImportStep {
+	return {
+		kind: "logo",
+		title: "Your app's logo",
+		lines: [
+			`The ZIP holds your logo as "${logo.fileName}"; it isn't part of the app file.`,
+			"To show it in apps built on CommCare HQ, you can add it in the imported app's settings there. That takes a plan with the Custom CommCare Logo Uploader (Advanced or Enterprise); on other plans, apps built on CommCare HQ carry no logo.",
+		],
+	};
+}
+
+/**
+ * Every app carries `project_default`, so phones and Web Apps take the flat
+ * location list by the project space's own setting, which nothing here can
+ * read.
+ */
+function flatLocationFixtureStep(): ManualImportStep {
+	return {
+		kind: "flat-location-fixture",
+		title: "The location list",
+		lines: [
+			"This app reads the places in your organization, on phones and in Web Apps, and its forms that do can't work without them.",
+			"It helps to check that the project space still sends its location list to workers. It does unless someone turned that off on its Location Fixture page. Phones and Web Apps both follow that setting.",
+		],
+	};
+}
+
+/** A Connect app's forms reach CommCare Connect only through HQ's data forwarding. */
+function connectForwardingStep(): ManualImportStep {
+	return {
+		kind: "connect-forwarding",
+		title: "Check that the app's forms reach CommCare Connect",
+		lines: [
+			"This app's forms reach CommCare Connect only through CommCare HQ's data forwarding.",
+			"It helps to check that the project space's plan includes Data Forwarding and that it has a forwarder set up as Forward Form Metadata to Commcare Connect.",
+		],
+	};
+}
+
 /** The steps that apply to this file, in the order a person takes them. */
 export function manualImportGuide(
 	input: ManualImportGuideInput,
@@ -205,6 +269,12 @@ export function manualImportGuide(
 		...(input.capabilities.length > 0
 			? [capabilitiesStep(input.capabilities)]
 			: []),
+		...(input.planFeatures.length > 0
+			? [planFeaturesStep(input.planFeatures)]
+			: []),
+		...(input.logo === null ? [] : [logoStep(input.logo)]),
+		...(input.readsLocations ? [flatLocationFixtureStep()] : []),
+		...(input.sendsToConnect ? [connectForwardingStep()] : []),
 	];
 }
 

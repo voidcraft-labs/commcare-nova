@@ -25,6 +25,7 @@ import {
 	type DeploymentTargetKey,
 	readDeploymentsForApp,
 	readReachedDeploymentTargets,
+	withdrawDeploymentConfirmation,
 } from "./store";
 import {
 	type DeploymentResource,
@@ -32,6 +33,7 @@ import {
 	deploymentAppIdSchema,
 	deploymentTargetSchema,
 	provisionWorkersSchema,
+	withdrawDeploymentConfirmationSchema,
 } from "./types";
 import type {
 	ProvisionedWorker,
@@ -286,6 +288,54 @@ export async function readDeploymentsAction(
 		};
 	} catch (error) {
 		return failure(error, "read", resolved.scope);
+	}
+}
+
+/**
+ * Withdraw what a person confirmed about a project space, so the next
+ * publish there asks again. The confirmation's row is kept with who
+ * withdrew it and when. An edit: it changes what the next publish does.
+ */
+export async function withdrawDeploymentConfirmationAction(
+	input: unknown,
+): Promise<DeploymentActionResult<DeploymentView>> {
+	const parsed = withdrawDeploymentConfirmationSchema.safeParse(input);
+	if (!parsed.success) {
+		return {
+			success: false,
+			code: "invalid_input",
+			message:
+				"That request to withdraw a confirmation wasn't in a shape Nova understands.",
+		};
+	}
+	const resolved = await resolveScope(parsed.data.appId, "edit");
+	if (!resolved.ok) return resolved.result;
+	try {
+		const target = { server: parsed.data.server, domain: parsed.data.domain };
+		const deployment = await withdrawDeploymentConfirmation(
+			resolved.scope,
+			target,
+			parsed.data.confirmation,
+		);
+		const { doc, locations } = await committedDocWithLocations(resolved.scope);
+		return {
+			success: true,
+			data: {
+				deployment,
+				artifact: await setupArtifactFor(
+					resolved.scope,
+					deployment,
+					doc,
+					locations,
+				),
+				leftBehind: leftBehindResources(
+					deployment,
+					await currentResourceIdentities(resolved.scope, doc),
+				),
+			},
+		};
+	} catch (error) {
+		return failure(error, "withdraw confirmation", resolved.scope);
 	}
 }
 

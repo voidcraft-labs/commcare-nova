@@ -31,6 +31,7 @@ import { PublishButton } from "@/components/ui/PublishButton";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { CommCareServer } from "@/lib/deployment";
+import type { ProjectSpaceConfirmationChecks } from "@/lib/deployment/confirmations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	decodeExportAdvisories,
@@ -359,10 +360,12 @@ export const PublishPanel = memo(function PublishPanel() {
 						message: "The compatibility check was canceled",
 					};
 				}
-				const body = (await response.json().catch(() => null)) as {
-					project_space_compatibility?: ProjectSpaceCompatibilityReport;
-					error?: string;
-				} | null;
+				const body = (await response.json().catch(() => null)) as
+					| ({
+							project_space_compatibility?: ProjectSpaceCompatibilityReport;
+							error?: string;
+					  } & Partial<ProjectSpaceConfirmationChecks>)
+					| null;
 				if (!response.ok || !body?.project_space_compatibility) {
 					return {
 						ok: false,
@@ -371,7 +374,17 @@ export const PublishPanel = memo(function PublishPanel() {
 							"Nova couldn't check whether this project space can run the app. Try again in this window",
 					};
 				}
-				return { ok: true, report: body.project_space_compatibility };
+				return {
+					ok: true,
+					report: body.project_space_compatibility,
+					/* What a publish there will ask the person to confirm, so the
+					 * dialog shows the rows before the first press. */
+					confirmations: {
+						plan_features: body.plan_features ?? [],
+						flat_location_fixture: body.flat_location_fixture ?? null,
+						connect_forwarder: body.connect_forwarder ?? null,
+					},
+				};
 			} catch (error) {
 				if (
 					signal.aborted ||

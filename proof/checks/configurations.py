@@ -45,6 +45,9 @@ from pathlib import Path
 from proof.hq.configuration import DEFAULT_COMMCARE_VERSION as CORPUS_COMMCARE_VERSION
 
 VELLUM_NS = "http://commcarehq.org/xforms/vellum"
+# CommCare Connect's namespace, which every block of a Connect form is in
+# (``commcare_connect/opportunity/app_xml.py::XMLNS``).
+CONNECT_NS = "http://commcareconnect.com/data/v1/learn"
 XFORMS_NS = "http://www.w3.org/2002/xforms"
 
 
@@ -104,22 +107,53 @@ def _vellum_attribute_values(content, name):
     ]
 
 
+# The attributes of a form source whose value is an XPath HQ evaluates: each bind's, each ``setvalue``'s and each
+# ``output``'s (the label text's, in the form's translations or its body).
+_XPATH_ATTRIBUTES = {
+    f"{{{XFORMS_NS}}}bind": ("calculate", "relevant", "constraint", "required"),
+    f"{{{XFORMS_NS}}}setvalue": ("value",),
+    f"{{{XFORMS_NS}}}output": ("value",),
+}
+
+
+def _usercase_reads(content):
+    """Every XPath the app hands HQ that a form reads with: each form's display condition, each XPath of its source
+    (``_XPATH_ATTRIBUTES``), and each of its links' conditions and datums (``models/forms.py::FormLink``,
+    ``FormDatum``)."""
+    for form in _forms(content):
+        condition = getattr(form, "form_filter", None)
+        if condition:
+            yield condition
+        for link in getattr(form, "form_links", None) or []:
+            if link.xpath:
+                yield link.xpath
+            for datum in link.datums or []:
+                if datum.xpath:
+                    yield datum.xpath
+    for root in _parsed_sources(content):
+        for tag, attributes in _XPATH_ATTRIBUTES.items():
+            for element in root.iter(tag):
+                for attribute in attributes:
+                    value = element.get(attribute)
+                    if value:
+                        yield value
+
+
 def _needs_usercase(content):
     """``helpers/validators.py::ApplicationValidator._check_subscription`` fails the build
     when ``any(m.uses_usercase() for m in app.get_modules())`` and the space lacks the
-    privilege; ``suite_xml/sections/menus.py::MenuContributor._get_commands`` raises
-    ``UsercaseXPathValidationError`` for a form display condition that reads the user
-    case (``util.py::xpath_references_usercase``) there."""
+    privilege, and ``callcenter/sync_usercase.py::_iter_sync_usercase_helpers`` makes a
+    worker's record only under it, so every read of the record is blank without it. A form
+    reads the record where an XPath it hands HQ references the user case
+    (``util.py::xpath_references_usercase``, HQ's own test, which
+    ``suite_xml/sections/menus.py::MenuContributor._get_commands`` applies to a form display
+    condition): a bind, a ``setvalue`` or an ``output`` of its source, its display condition,
+    or a link's condition or datum, which HQ receives as a read of the ``commcare-user`` case."""
     from corehq.apps.app_manager.util import xpath_references_usercase
 
     if any(module.uses_usercase() for module in _modules(content)):
         return True
-    return any(
-        xpath_references_usercase(condition)
-        for form in _forms(content)
-        for condition in [getattr(form, "form_filter", None)]
-        if condition
-    )
+    return any(xpath_references_usercase(xpath) for xpath in _usercase_reads(content))
 
 
 def _needs_lookup_tables(content):
@@ -183,6 +217,18 @@ def _needs_locations(content):
         element.get("src") == "jr://fixture/locations"
         for root in _parsed_sources(content)
         for element in root.iter(f"{{{XFORMS_NS}}}instance")
+    )
+
+
+def _needs_data_forwarding(content):
+    """``corehq/motech/repeaters/models.py::domain_can_forward`` registers a repeat record
+    for a submission only where the project space has Data Forwarding (or Zapier
+    integration, which no app needs), so a form that holds a block in CommCare Connect's
+    namespace reaches Connect, through the project space's Connect forwarder, only with it."""
+    return any(
+        isinstance(element.tag, str) and element.tag.startswith(f"{{{CONNECT_NS}}}")
+        for root in _parsed_sources(content)
+        for element in root.iter()
     )
 
 
@@ -346,6 +392,11 @@ PRIVILEGE_RULES: tuple[PrivilegeRule, ...] = (
         "corehq/apps/app_manager/views/modules.py::_get_shared_module_view_context",
         _one("GEOCODER", _needs_geocoder),
     ),
+    PrivilegeRule(
+        "privilege/data_forwarding",
+        "corehq/motech/repeaters/models.py::domain_can_forward",
+        _one("DATA_FORWARDING", _needs_data_forwarding),
+    ),
 )
 
 
@@ -448,6 +499,12 @@ def _content_privileges(root: Path) -> tuple[str, ...]:
         sources.append(source)
         lookup_push = lookup_push or pushed
     return tuple(required_privileges(sources, lookup_push=lookup_push))
+
+
+def content_privileges(document_root) -> list[str]:
+    """The privilege constants the content of the document at ``document_root`` needs, as ``privileges_for`` adds
+    them to every configuration, without the ones its ``configurations.json`` names."""
+    return list(_content_privileges(Path(document_root).resolve()))
 
 
 def privileges_for(document_root, configuration_name) -> list[str]:

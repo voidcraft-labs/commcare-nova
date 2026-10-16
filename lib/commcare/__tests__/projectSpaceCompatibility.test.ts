@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	type Automation,
 	automationMessageText,
+	type Column,
 	type Module,
 	plainColumn,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, prop, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import {
 	decodeProjectSpaceCompatibilityReport,
@@ -17,13 +19,14 @@ import {
 	requiredProjectSpaceCapabilities,
 } from "../projectSpaceCompatibility";
 
-// The requirement detector explicitly accepts this partial document boundary.
-// These tests project authored feature facts; target support is supplied by probes.
+// These tests project authored feature facts over a whole document; target
+// support is supplied by probes.
 type CompatibilityInput = Parameters<
 	typeof projectSpaceCompatibilityProbePlan
 >[0];
 function doc(overrides: Partial<CompatibilityInput> = {}): CompatibilityInput {
 	return {
+		...buildDoc(),
 		connectType: null,
 		modules: {},
 		forms: {},
@@ -39,6 +42,8 @@ function module(overrides: Partial<Module> = {}): Module {
 		id: "patients",
 		name: "Patients",
 		caseType: "patient",
+		/* A case list alone has cases, so its list and search reach HQ. */
+		caseListOnly: true,
 		caseListConfig: {
 			columns: [],
 			listColumnOrder: [],
@@ -113,7 +118,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		);
 	});
 
-	it("does not require advanced Search for an app-defined query", () => {
+	it("requires advanced Search for a field Nova matches by its own filter, which HQ's editor offers only under it", () => {
 		const patient = module({
 			caseSearchConfig: {},
 			caseListConfig: {
@@ -138,7 +143,11 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 
 		expect(plan.capabilities[0]?.featureFlags.map((flag) => flag.id)).toEqual([
 			"case-search-base",
+			"advanced-case-search",
 		]);
+		expect(plan.capabilities[0]?.capability.reasons).toContain(
+			"A Search field is matched by a rule Nova writes.",
+		);
 	});
 
 	it("checks only base Search for an ordinary exact input", () => {
@@ -306,7 +315,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		).not.toContain("registration-after-empty-search");
 	});
 
-	it("keeps the two attachment delivery capabilities distinct", () => {
+	describe("a captured file's link", () => {
 		const capture = (
 			mode: "url" | "attachment",
 			uuid: ReturnType<typeof testUuid>,
@@ -319,19 +328,63 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		});
 		const urlUuid = testUuid("field-photo-url");
 		const attachmentUuid = testUuid("field-photo-attachment");
-		const plan = projectSpaceCompatibilityProbePlan(
-			doc({
-				fields: {
-					[urlUuid]: capture("url", urlUuid),
-					[attachmentUuid]: capture("attachment", attachmentUuid),
-				},
-			}),
-		);
+		const fields = {
+			[urlUuid]: capture("url", urlUuid),
+			[attachmentUuid]: capture("attachment", attachmentUuid),
+		};
+		const columnUuid = testUuid("column-photo");
+		const capabilityIds = (columns: Module["caseListConfig"] = undefined) => {
+			const patient = module(
+				columns === undefined ? {} : { caseListConfig: columns },
+			);
+			return projectSpaceCompatibilityProbePlan(
+				doc({ fields, modules: { [patient.uuid]: patient } }),
+			).capabilities.map((item) => item.capability.id);
+		};
+		const listOf = (columns: Column[]) => ({
+			columns,
+			listColumnOrder: columns.map((column) => column.uuid),
+			detailColumnOrder: columns.map((column) => column.uuid),
+			searchInputs: [],
+		});
 
-		expect(plan.capabilities.map((item) => item.capability.id)).toEqual([
-			"case-attachments",
-			"attachment-links",
-		]);
+		it("asks nothing where no screen shows it", () => {
+			expect(capabilityIds()).toEqual(["case-attachments"]);
+		});
+
+		it("asks for links to captured files where a column shows it", () => {
+			expect(
+				capabilityIds(listOf([plainColumn(columnUuid, "photo", "Photo")])),
+			).toEqual(["case-attachments", "attachment-links"]);
+		});
+
+		it("asks for links to captured files where a calculated column reads it", () => {
+			expect(
+				capabilityIds(
+					listOf([
+						{
+							uuid: columnUuid,
+							kind: "calculated",
+							header: "Photo",
+							expression: term(prop("patient", "photo")),
+						},
+					]),
+				),
+			).toEqual(["case-attachments", "attachment-links"]);
+		});
+
+		it("asks nothing for a column hidden from both screens", () => {
+			expect(
+				capabilityIds(
+					listOf([
+						plainColumn(columnUuid, "photo", "Photo", {
+							visibleInList: false,
+							visibleInDetail: false,
+						}),
+					]),
+				),
+			).toEqual(["case-attachments"]);
+		});
 	});
 });
 

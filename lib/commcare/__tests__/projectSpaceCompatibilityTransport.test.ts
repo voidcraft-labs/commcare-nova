@@ -245,3 +245,89 @@ it("reads the flag for an app whose plan holds nothing, and makes no request wit
 		expect(paths).toEqual([]);
 	});
 });
+
+/*
+ * A project space the connected account has left: HQ's unfiltered list
+ * answers and does not hold it (`api/resources/v0_5.py::UserDomainsResource`
+ * lists only a member's spaces), so no flag's answer means anything there.
+ */
+async function withoutTheTarget(
+	run: (paths: (string | undefined)[]) => Promise<void>,
+) {
+	const paths: (string | undefined)[] = [];
+	const elsewhere = JSON.stringify({
+		meta: { total_count: 1 },
+		objects: [{ domain_name: "elsewhere", project_name: "Elsewhere" }],
+	});
+	await withSocketHttpPeer(
+		"india.commcarehq.org",
+		(request, response) => {
+			paths.push(request.url);
+			request.resume();
+			if (request.url === DOMAINS) {
+				response.writeHead(200, { "content-type": "application/json" });
+				response.end(elsewhere);
+			} else {
+				response.writeHead(500);
+				response.end("Unexpected path");
+			}
+		},
+		() => run(paths),
+	);
+}
+
+it("reads a project space the unfiltered list leaves out as not-a-member, and asks nothing more", async () => {
+	await withoutTheTarget(async (paths) => {
+		const result = await probeHqProjectSpaceCompatibility(
+			CREDS,
+			"clinic",
+			plan,
+			{ readEmptyCaseListText: true },
+		);
+		expect(result.capabilities).toEqual([
+			{
+				capability: plan.capabilities[0]?.capability,
+				state: "unverified",
+				issue: "not-a-member",
+			},
+		]);
+		expect(result.report.status).toBe("blocked");
+		expect(result.report.issue).toBe("not-a-member");
+		expect(result.report.message).toBe(
+			"Nova couldn't check “clinic” because the connected CommCare HQ account is no longer a member of it. Once that account joins the project space again, or you connect a different account in Settings, publishing can continue.",
+		);
+		expect(result.emptyCaseListText).toBeNull();
+		expect(paths).toEqual([DOMAINS]);
+	});
+});
+
+it("stops an app whose plan holds nothing the same way once the publish reads the empty-list text flag", async () => {
+	const empty: HqProjectSpaceCompatibilityProbePlan = {
+		capabilities: [],
+		advisories: [],
+	};
+	await withoutTheTarget(async (paths) => {
+		const result = await probeHqProjectSpaceCompatibility(
+			CREDS,
+			"clinic",
+			empty,
+			{ readEmptyCaseListText: true },
+		);
+		expect(result.report).toMatchObject({
+			status: "blocked",
+			issue: "not-a-member",
+			blockers: [],
+		});
+		expect(result.emptyCaseListText).toBeNull();
+		expect(paths).toEqual([DOMAINS]);
+	});
+	await withoutTheTarget(async (paths) => {
+		const result = await probeHqProjectSpaceCompatibility(
+			CREDS,
+			"clinic",
+			empty,
+		);
+		expect(result.report.status).toBe("not_needed");
+		expect(paths).toEqual([]);
+	});
+});

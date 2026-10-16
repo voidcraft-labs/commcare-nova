@@ -46,17 +46,57 @@ above the form, with a link across to Publishing for the full picture.
 
 Before anything leaves Nova, it checks what would stop the publish working:
 that your API key can reach the project space you picked, that the app itself
-has nothing outstanding, that the project space supports the app features that
-need destination support, and that nothing Nova publishes there has changed in
-CommCare HQ since its last publish. If any required support is missing, or
-Nova cannot confirm it, nothing is sent. The result names the capability and
-the next step. A change made in CommCare HQ is yours to decide on; see
+has nothing outstanding, that you have confirmed what the project space's plan
+and settings give the app, that the project space supports the app features
+that need destination support, that the app already there is set to CommCare
+2.57 or later, and that nothing Nova publishes there has changed in CommCare HQ
+since its last publish. If any required support is missing, or Nova cannot
+confirm it, nothing is sent. The result names the capability and the next step.
+A change made in CommCare HQ is yours to decide on; see
 [Changes made in CommCare HQ](#changes-made-in-commcare-hq).
 
 If Nova cannot confirm the complete list of project spaces your key can reach,
 it reports the connection problem instead of showing an incomplete list. A
 status check that cannot read reliable build or release information keeps the
 last confirmed status.
+
+#### What the project space's plan includes
+
+Some of what an app uses comes with some CommCare HQ plans and not others:
+worker records, lookup tables, child cases, links to other forms, Save to Case,
+locations, and Data Forwarding for a CommCare Connect app. No API key can read a
+project space's plan, so Nova asks you. The Publish dialog lists each one your
+app needs, with the plans that include it, the forms that need it, and what
+goes wrong without it. Tick **This project space has it** for each one, and
+publishing can go ahead. [Project-space compatibility](/docs/project-space-compatibility#plan-features)
+lists them all.
+
+Two project-space settings are asked about the same way, because no plan
+decides them and no API reads them:
+
+- **The flat location list**, for an app that reads the places in your
+  organization. Phones and Web Apps both take that list by the project space's
+  own setting, which sends it unless someone turned it off on its Location
+  Fixture page.
+- **A Connect forwarder**, for a CommCare Connect app. Its forms reach CommCare
+  Connect only through a forwarder set up on CommCare HQ's Data Forwarding page.
+
+Nova keeps your answer with that project space, so the next publish there
+doesn't ask again. A publish that stops for another reason keeps nothing, and
+the dialog keeps your ticks until one goes through. Nova can't see a later
+change to the plan either: if the project space loses something you confirmed,
+choose **Withdraw** beside it on the project space's card in **App setup →
+Publishing**, and the next publish asks again.
+
+#### The CommCare version
+
+Each app on CommCare HQ is set to a CommCare version, and Nova's apps need 2.57
+or later. Where the app already on the project space is set lower, the publish
+stops before it sends anything and names the version. You can raise it in that
+app's settings in CommCare HQ and publish again. Phones on an older CommCare
+can no longer install or update the app after that. Saving that settings page
+can also set the app's other settings there, so the next publish may show you
+what changed before it sends anything.
 
 Nova also reports useful guidance that does not stop the publish. For example,
 the project space may be able to run the app while large Search results open
@@ -78,6 +118,12 @@ app in. The empty app holds nothing that reads a table or a place, and CommCare
 HQ makes no version of it. If the publish stops anywhere between making the
 empty app and filling it, the empty app stays on the project space, and your
 next publish there fills it rather than making a second one.
+
+CommCare HQ sets a new app's CommCare version itself, so Nova checks the empty
+app's version before it puts a table or a place there. If it is below 2.57, the
+publish stops with nothing of yours on the project space but that empty app.
+Once you raise its version in CommCare HQ, the next publish fills it, and the
+raise isn't a change Nova asks you about first.
 
 **Lookup tables.** If your app reads any [lookup tables](/docs/project-data),
 Nova puts them there and replaces their rows with the rows in Nova. Tables your
@@ -171,6 +217,13 @@ If a publish is interrupted just after CommCare HQ makes the empty app and
 before Nova records it, Nova doesn't know that app, and the next publish makes
 another. That leaves an extra empty app named for your app, which you can
 delete in CommCare HQ.
+
+**Your app's logo isn't sent with the app.** CommCare HQ shows a logo in apps
+built there, and in Web Apps, only once it is added with its own uploader, in
+the app's settings. After a publish that has a new logo, Nova offers it to
+download, with a link to the app, so you can add it there. That takes a plan
+with the Custom CommCare Logo Uploader (Advanced or Enterprise); on other plans,
+apps built on CommCare HQ carry no logo, and Web Apps shows its own icon.
 
 Media goes after the app's content. A version made in CommCare HQ between the
 two installs and shows no images until the media lands, so make the version
@@ -406,12 +459,13 @@ and when, even where you no longer reach the app.
 ## A note on Web Apps
 
 CommCare HQ sets an app's **Web App** setting when the app is created, from
-whether your project had Web Apps at that moment. So an app published before the
-feature was turned on starts with it off, and will not appear in Web Apps even
-once it is released.
+whether the project space's plan included Web Apps at that moment, and Nova
+never changes it. Each publish reads it back, and where it is off, the result
+says so and the project space's setup notes keep saying so until a publish
+reads it on.
 
-If that happens, open the app's Settings on CommCare HQ and tick **Web App**.
-You do not need to publish again.
+Once the plan includes Web Apps, open the app's Settings on CommCare HQ and
+tick **Web App**. You do not need to publish again.
 
 ## Sharing deep links
 

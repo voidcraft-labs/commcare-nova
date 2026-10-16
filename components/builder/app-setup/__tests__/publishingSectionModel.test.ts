@@ -6,14 +6,23 @@ import type {
 	DeploymentState,
 } from "@/lib/deployment";
 import type { DeploymentView } from "@/lib/deployment/actions";
+import type { DeploymentConfirmation } from "@/lib/deployment/types";
 import { asUuid } from "@/lib/domain/uuid";
 import type { AppDeploymentNoticeEntry } from "@/lib/notices/migrationNotice";
+import {
+	CONNECT_FORWARDER,
+	FLAT_LOCATION_FIXTURE,
+	PLAN_FEATURES,
+} from "@/lib/publish/planFeatures";
 import {
 	applyRecordUpsert,
 	beginRecordsLoad,
 	compactTargetRows,
+	confirmationRequests,
 	deploymentViewKey,
+	everyConfirmationGiven,
 	INITIAL_PUBLISHING_RECORDS,
+	liveConfirmationRows,
 	mayBePublished,
 	preseededDomainSelection,
 	publishAgainDomain,
@@ -21,6 +30,7 @@ import {
 	publishingCardNoticeEntries,
 	resolveRecordsLoad,
 	upsertDeploymentViews,
+	withLandedConfirmations,
 } from "../publishingSectionModel";
 
 const NO_PHASES: DeploymentPhaseOutcomes = {
@@ -39,6 +49,7 @@ function view(overrides: {
 	resumePhase?: DeploymentRecord["resumePhase"];
 	phases?: Partial<DeploymentPhaseOutcomes>;
 	active?: readonly DeploymentResource[];
+	confirmations?: readonly DeploymentConfirmation[];
 }): DeploymentView {
 	const record: DeploymentRecord = {
 		id: "dep-1",
@@ -62,7 +73,7 @@ function view(overrides: {
 			deployment: record,
 			active: overrides.active ?? [],
 			superseded: [],
-			confirmations: [],
+			confirmations: overrides.confirmations ?? [],
 		},
 		artifact: {
 			server: record.server,
@@ -488,5 +499,196 @@ describe("mayBePublished", () => {
 				}),
 			),
 		).toBe(true);
+	});
+});
+
+describe("what a publish asks a person to confirm", () => {
+	const LOOKUP = {
+		...PLAN_FEATURES["lookup-tables"],
+		reasons: ["The app reads data from a lookup table."],
+	};
+	const WORKER = {
+		...PLAN_FEATURES["worker-records"],
+		reasons: ["Intake reads worker information."],
+	};
+	const FIXTURE = {
+		label: FLAT_LOCATION_FIXTURE.label,
+		consequence: FLAT_LOCATION_FIXTURE.consequence,
+		reasons: ["Intake sets a case's owner from a place in your organization."],
+	};
+
+	it("asks for each need the check reports with nothing on record, and not for one confirmed there", () => {
+		const requests = confirmationRequests(
+			{
+				plan_features: [
+					{ ...WORKER, state: "needs_confirmation" },
+					{
+						...LOOKUP,
+						state: "confirmed",
+						confirmed_by: "Ada",
+						confirmed_at: "2026-10-01T00:00:00Z",
+					},
+				],
+				flat_location_fixture: { ...FIXTURE, state: "needs_confirmation" },
+				connect_forwarder: null,
+			},
+			[],
+		);
+		expect(requests.map((request) => request.key)).toStrictEqual([
+			{ kind: "plan-feature", subject: "worker-records" },
+			{ kind: "flat-location-fixture" },
+		]);
+		expect(requests[1]).toMatchObject({ plans: "", reasons: FIXTURE.reasons });
+	});
+
+	it("adds what a refusal named, once, in every surface's order", () => {
+		const requests = confirmationRequests(
+			{
+				plan_features: [{ ...WORKER, state: "needs_confirmation" }],
+				flat_location_fixture: null,
+				connect_forwarder: null,
+			},
+			[
+				{
+					kind: "connect-forwarder",
+					subject: "connect-forwarder",
+					label: CONNECT_FORWARDER.label,
+					plans: "",
+					consequence: CONNECT_FORWARDER.consequence,
+					reasons: ["Lesson sends a learn module to CommCare Connect."],
+				},
+				{ kind: "plan-feature", subject: "lookup-tables", ...LOOKUP },
+				{ kind: "plan-feature", subject: "worker-records", ...WORKER },
+			],
+		);
+		expect(requests.map((request) => request.label)).toStrictEqual([
+			WORKER.label,
+			LOOKUP.label,
+			CONNECT_FORWARDER.label,
+		]);
+	});
+
+	it("holds the publish until every request is ticked", () => {
+		const requests = confirmationRequests(null, [
+			{ kind: "plan-feature", subject: "worker-records", ...WORKER },
+			{
+				kind: "flat-location-fixture",
+				subject: "flat-location-fixture",
+				plans: "",
+				...FIXTURE,
+			},
+		]);
+		expect(
+			everyConfirmationGiven(requests, [
+				{ kind: "plan-feature", subject: "worker-records" },
+			]),
+		).toBe(false);
+		expect(
+			everyConfirmationGiven(requests, [
+				{ kind: "flat-location-fixture" },
+				{ kind: "plan-feature", subject: "worker-records" },
+			]),
+		).toBe(true);
+		expect(everyConfirmationGiven([], [])).toBe(true);
+	});
+
+	it("asks nothing again on a republish from the same dialog once the landed publish stored what was ticked", () => {
+		const checked = {
+			plan_features: [
+				{ ...WORKER, state: "needs_confirmation" as const },
+				{ ...LOOKUP, state: "needs_confirmation" as const },
+			],
+			flat_location_fixture: {
+				...FIXTURE,
+				state: "needs_confirmation" as const,
+			},
+			connect_forwarder: null,
+		};
+		const live: DeploymentConfirmation[] = [
+			{
+				kind: "plan-feature",
+				subject: "worker-records",
+				confirmedByName: "Ada",
+				confirmedAt: "2026-10-16T00:00:00Z",
+			},
+			{
+				kind: "flat-location-fixture",
+				subject: "flat-location-fixture",
+				confirmedByName: "Ada",
+				confirmedAt: "2026-10-16T00:00:00Z",
+			},
+		];
+		const landed = withLandedConfirmations(checked, live);
+		expect(landed.plan_features[0]).toMatchObject({
+			state: "confirmed",
+			confirmed_by: "Ada",
+			confirmed_at: "2026-10-16T00:00:00Z",
+		});
+		expect(landed.flat_location_fixture?.state).toBe("confirmed");
+		/* What the landed publish did not store is still asked. */
+		expect(
+			confirmationRequests(landed, []).map((request) => request.key),
+		).toStrictEqual([{ kind: "plan-feature", subject: "lookup-tables" }]);
+		expect(everyConfirmationGiven(confirmationRequests(landed, []), [])).toBe(
+			false,
+		);
+		const all = withLandedConfirmations(checked, [
+			...live,
+			{
+				kind: "plan-feature",
+				subject: "lookup-tables",
+				confirmedByName: "Ada",
+				confirmedAt: "2026-10-16T00:00:00Z",
+			},
+		]);
+		expect(everyConfirmationGiven(confirmationRequests(all, []), [])).toBe(
+			true,
+		);
+	});
+});
+
+describe("the confirmations a card lists", () => {
+	const confirmed = (
+		kind: DeploymentConfirmation["kind"],
+		subject: string,
+	): DeploymentConfirmation => ({
+		kind,
+		subject,
+		confirmedByName: "Ada",
+		confirmedAt: "2026-10-01T00:00:00Z",
+	});
+
+	it("names each by the row that asked for it, in every surface's order", () => {
+		expect(
+			liveConfirmationRows([
+				confirmed("connect-forwarder", "connect-forwarder"),
+				confirmed("plan-feature", "data-forwarding"),
+				confirmed("flat-location-fixture", "flat-location-fixture"),
+			]).map((row) => row.label),
+		).toStrictEqual([
+			PLAN_FEATURES["data-forwarding"].label,
+			FLAT_LOCATION_FIXTURE.label,
+			CONNECT_FORWARDER.label,
+		]);
+	});
+
+	it("leaves out a plan feature Nova no longer knows, which nothing asks for", () => {
+		expect(
+			liveConfirmationRows([confirmed("plan-feature", "retired-feature")]),
+		).toStrictEqual([]);
+	});
+
+	it("drops a withdrawn confirmation once the withdrawal's record is folded in", () => {
+		// Withdrawing answers with the record as it now stands; the one upsert
+		// both surfaces apply replaces the card's record, so the row goes.
+		const before = view({
+			confirmations: [confirmed("plan-feature", "worker-records")],
+		});
+		const after = view({ confirmations: [] });
+		const held = upsertDeploymentViews([before], after);
+		expect(held).toHaveLength(1);
+		expect(
+			liveConfirmationRows(held[0].deployment.confirmations),
+		).toStrictEqual([]);
 	});
 });

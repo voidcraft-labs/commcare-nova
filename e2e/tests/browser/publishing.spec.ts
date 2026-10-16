@@ -9,12 +9,22 @@ import {
 	HQ_CHANGED_MESSAGE,
 } from "@/lib/deployment/remoteChanges";
 import { buildSetupArtifact } from "@/lib/deployment/setupArtifact";
-import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
+import {
+	type DeploymentConfirmationNeeded,
+	NO_DEPLOYMENT_PHASE_OUTCOMES,
+} from "@/lib/deployment/types";
 import {
 	encodeManualImportGuide,
 	MANUAL_IMPORT_GUIDE_HEADER,
 	manualImportGuide,
 } from "@/lib/publish/manualImportGuide";
+import {
+	CONNECT_FORWARDER,
+	FLAT_LOCATION_FIXTURE,
+	LOGO_UPLOAD_STEP_TEXT,
+	PLAN_FEATURES,
+	webAppsOffText,
+} from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
 	PROJECT_SPACE_CAPABILITIES,
@@ -130,6 +140,7 @@ const refusal = {
 			},
 		],
 		remoteChanges: [],
+		confirmationsNeeded: [],
 	},
 	preview_project_space: null,
 } satisfies PublishResponseBody;
@@ -193,6 +204,7 @@ test("native publish lists what changed in CommCare HQ, publishes over each tick
 			},
 			resourceConflicts: [],
 			remoteChanges: [...remoteChanges],
+			confirmationsNeeded: [],
 		},
 		preview_project_space: null,
 	} satisfies PublishResponseBody;
@@ -649,6 +661,7 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 			domain: "alpha",
 			hqAppId: null,
 			locations: [],
+			targetWebAppsEnabled: null,
 		}),
 		leftBehind: [],
 	};
@@ -890,4 +903,305 @@ test("native import file download without a guide header still lands", async ({
 		page.getByText("CommCare HQ app file downloaded", { exact: true }),
 	).toBeVisible();
 	await expect(page.locator("ol > li")).toHaveCount(0);
+});
+
+/** A deployment on alpha, as a landed publish answers with it. */
+function landedView(
+	confirmations: DeploymentView["deployment"]["confirmations"],
+): DeploymentView {
+	return {
+		deployment: {
+			deployment: {
+				id: "deployment",
+				appId: "native-publishing",
+				projectId: "native-project",
+				server: "production",
+				domain: "alpha",
+				state: "uploaded",
+				resumePhase: null,
+				phases: NO_DEPLOYMENT_PHASE_OUTCOMES,
+				createdBy: "native-user",
+				createdAt: "2026-10-01T00:00:00Z",
+				updatedAt: "2026-10-01T00:00:00Z",
+				lastObservedAt: null,
+				offeredLogoContentHash: null,
+				targetEmptyCaseListText: null,
+				targetWebAppsEnabled: true,
+			},
+			active: [],
+			superseded: [],
+			confirmations,
+		},
+		artifact: buildSetupArtifact({
+			doc: endpointWireFixture("multiple"),
+			server: "production",
+			domain: "alpha",
+			hqAppId: null,
+			locations: [],
+			targetWebAppsEnabled: null,
+		}),
+		leftBehind: [],
+	};
+}
+
+test("native publish asks for each plan feature and project-space setting before the first press, holds Upload until each is ticked, and lands with the Web Apps line and the logo step", async ({
+	page,
+}) => {
+	const sent: Record<string, unknown>[] = [];
+	await open(page);
+	/* Registered after open's, so it is the answer the next check reads. */
+	await page.route("**/publishing/compatibility?*", (route) =>
+		route.fulfill({
+			json: {
+				ok: true,
+				report: report("alpha"),
+				confirmations: {
+					plan_features: [
+						{
+							...PLAN_FEATURES["worker-records"],
+							reasons: ["Visit reads worker information."],
+							state: "needs_confirmation",
+						},
+					],
+					flat_location_fixture: {
+						label: FLAT_LOCATION_FIXTURE.label,
+						consequence: FLAT_LOCATION_FIXTURE.consequence,
+						reasons: [
+							"Visit sets a case's owner from a place in your organization.",
+						],
+						state: "needs_confirmation",
+					},
+					connect_forwarder: {
+						label: CONNECT_FORWARDER.label,
+						consequence: CONNECT_FORWARDER.consequence,
+						reasons: ["Visit sends a deliver unit to CommCare Connect."],
+						state: "needs_confirmation",
+					},
+				},
+			},
+		}),
+	);
+	await page.route("**/api/commcare/upload", (route) => {
+		sent.push(route.request().postDataJSON());
+		return route.fulfill({
+			json: {
+				success: true,
+				hq_app_action: "created",
+				url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+				warnings: [],
+				deployment: null,
+				preview_project_space: "alpha",
+				web_apps_enabled: false,
+				logo_step: {
+					assetId: "asset-logo",
+					fileName: "logo.png",
+					changed: true,
+				},
+			} satisfies PublishResponseBody,
+		});
+	});
+	await page.route("**/api/media/asset-logo", (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: "image/png",
+			body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+		}),
+	);
+	await page.getByRole("button", { name: "Check again", exact: true }).click();
+	const upload = page.getByRole("button", { name: "Upload", exact: true });
+	await expect(
+		page.getByText("Visit reads worker information.", { exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByText(FLAT_LOCATION_FIXTURE.question("alpha"), { exact: true }),
+	).toBeVisible();
+	await expect(upload).toBeDisabled();
+	await page
+		.getByRole("checkbox", {
+			name: "This project space has it Worker records (user cases)",
+		})
+		.check();
+	await page
+		.getByRole("checkbox", { name: "It still does The flat location list" })
+		.check();
+	await expect(upload).toBeDisabled();
+	await page
+		.getByRole("checkbox", { name: "It does A Connect forwarder" })
+		.check();
+	await expect(upload).toBeEnabled();
+	await upload.click();
+	await expect(
+		page.getByText(webAppsOffText("alpha"), { exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByText(LOGO_UPLOAD_STEP_TEXT, { exact: true }),
+	).toBeVisible();
+	expect(sent).toHaveLength(1);
+	expect(sent[0].confirm).toEqual([
+		{ kind: "plan-feature", subject: "worker-records" },
+		{ kind: "flat-location-fixture" },
+		{ kind: "connect-forwarder" },
+	]);
+	const download = page.waitForEvent("download");
+	await page
+		.getByRole("link", { name: "Download logo.png", exact: true })
+		.click();
+	expect((await download).suggestedFilename()).toBe("logo.png");
+});
+
+test("native publish answers a confirmation refusal with the same rows, and Withdraw on the record makes the next publish ask again", async ({
+	page,
+}) => {
+	const sent: Record<string, unknown>[] = [];
+	const withdrawn: Record<string, unknown>[] = [];
+	const lookupTables: DeploymentConfirmationNeeded = {
+		kind: "plan-feature",
+		subject: "lookup-tables",
+		label: PLAN_FEATURES["lookup-tables"].label,
+		plans: PLAN_FEATURES["lookup-tables"].plans,
+		consequence: PLAN_FEATURES["lookup-tables"].consequence,
+		reasons: ["The app reads data from a lookup table."],
+	};
+	await page.route("**/api/commcare/upload", (route) => {
+		sent.push(route.request().postDataJSON());
+		return route.fulfill({
+			json:
+				sent.length === 1
+					? ({
+							success: false,
+							refusal: {
+								phase: "preflight",
+								failure: {
+									code: "hq_confirmation_needed",
+									message:
+										"“alpha” needs a few things Nova can't check from here. Once you confirm that the project space has each one below, publishing can continue.",
+									details: [],
+								},
+								resourceConflicts: [],
+								remoteChanges: [],
+								confirmationsNeeded: [lookupTables],
+							},
+							preview_project_space: null,
+						} satisfies PublishResponseBody)
+					: ({
+							success: true,
+							hq_app_action: "created",
+							url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+							warnings: [],
+							deployment: landedView([
+								{
+									kind: "plan-feature",
+									subject: "lookup-tables",
+									confirmedByName: "Ada",
+									confirmedAt: "2026-10-01T12:00:00Z",
+								},
+							]).deployment,
+							setup_artifact: landedView([]).artifact,
+							preview_project_space: "alpha",
+							web_apps_enabled: true,
+							logo_step: null,
+						} satisfies PublishResponseBody),
+		});
+	});
+	await page.route("**/publishing/withdraw", (route) => {
+		withdrawn.push(route.request().postDataJSON());
+		return route.fulfill({
+			json: { success: true, data: landedView([]) },
+		});
+	});
+	await open(page);
+	const upload = page.getByRole("button", { name: "Upload", exact: true });
+	await upload.click();
+	const confirm = page.getByRole("checkbox", {
+		name: "This project space has it Lookup Tables",
+	});
+	await expect(confirm).toBeVisible();
+	await expect(upload).toBeDisabled();
+	await confirm.check();
+	await upload.click();
+	expect(sent[0]).toMatchObject({ confirm: [] });
+	expect(sent[1]).toMatchObject({
+		confirm: [{ kind: "plan-feature", subject: "lookup-tables" }],
+	});
+	await expect(
+		page.getByText(webAppsOffText("alpha"), { exact: true }),
+	).toHaveCount(0);
+	await page
+		.getByRole("button", { name: "Withdraw Lookup Tables", exact: true })
+		.click();
+	await expect(
+		page.getByRole("button", { name: "Withdraw Lookup Tables", exact: true }),
+	).toHaveCount(0);
+	expect(withdrawn).toEqual([
+		{
+			appId: "native-publishing",
+			server: "production",
+			domain: "alpha",
+			confirmation: { kind: "plan-feature", subject: "lookup-tables" },
+		},
+	]);
+	/* With the confirmation withdrawn, the check lists the feature again. */
+	await page.route("**/publishing/compatibility?*", (route) =>
+		route.fulfill({
+			json: {
+				ok: true,
+				report: report("alpha"),
+				confirmations: {
+					plan_features: [
+						{
+							...lookupTables,
+							id: "lookup-tables",
+							state: "needs_confirmation",
+						},
+					],
+					flat_location_fixture: null,
+					connect_forwarder: null,
+				},
+			},
+		}),
+	);
+	await page.getByRole("button", { name: "Done", exact: true }).click();
+	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await expect(
+		page.getByRole("checkbox", {
+			name: "This project space has it Lookup Tables",
+		}),
+	).not.toBeChecked();
+	await expect(upload).toBeDisabled();
+});
+
+test("native publish below the CommCare version floor links to the app whose settings raise it", async ({
+	page,
+}) => {
+	const message =
+		"The app on “alpha” is set to CommCare 2.53.0, and Nova's apps need 2.57 or later. You can raise the CommCare version in that app's settings in CommCare HQ, then publish again. Phones on an older CommCare can no longer install or update the app after that. Saving that page can also set the app's other settings there, so Nova may show you what changed before it publishes.";
+	await page.route("**/api/commcare/upload", (route) =>
+		route.fulfill({
+			json: {
+				success: false,
+				refusal: {
+					phase: "preflight",
+					failure: {
+						code: "hq_app_version_below_floor",
+						message,
+						details: [],
+					},
+					resourceConflicts: [],
+					remoteChanges: [],
+					confirmationsNeeded: [],
+				},
+				url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+				preview_project_space: null,
+			} satisfies PublishResponseBody,
+		}),
+	);
+	await open(page);
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect(page.getByText(message, { exact: true })).toBeVisible();
+	await expect(
+		page.getByRole("link", { name: "Open the app in CommCare HQ" }),
+	).toHaveAttribute(
+		"href",
+		"https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+	);
 });

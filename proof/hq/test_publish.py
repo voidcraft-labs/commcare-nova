@@ -287,13 +287,13 @@ def test_a_media_upload_maps_each_file_the_app_references_into_that_app_with_its
 # The publish sequence (part 01, A3): a shell create, then the update that fills it -----------------------------
 
 # ``lib/commcare/expander.ts::APP_SHELL_KEYS``, the keys of the empty shell a first publish creates, in its order:
-# no ``add_ons``, which the update's overlay writes, and ``auto_gps_capture`` only for a Connect app.
+# no ``add_ons``, which the update's overlay writes, no ``build_spec``, which HQ takes from its own default build,
+# and ``auto_gps_capture`` only for a Connect app.
 APP_SHELL_KEYS = (
     "doc_type",
     "application_version",
     "name",
     "langs",
-    "build_spec",
     "translations",
     "auto_gps_capture",
     "modules",

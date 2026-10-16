@@ -24,9 +24,11 @@ import {
 	uploadLookupTableWorkbook,
 } from "@/lib/commcare/hq/lookupTables";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
+import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
+import { compareToVersionFloor } from "@/lib/commcare/versionFloor";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
@@ -40,6 +42,10 @@ import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
+import {
+	confirmationChecks,
+	type ProjectSpaceConfirmationChecks,
+} from "./confirmations";
 import { publishedEntryPoints } from "./entryPointManifest";
 import type { PublishedEntryPointManifest } from "./entryPointTypes";
 import { DeploymentError } from "./errors";
@@ -56,8 +62,10 @@ import {
 	CREATED_APP_IS_EMPTY,
 	hqAppSourceReadFailure,
 	type PreflightCheck,
+	publishConfirmationNeeds,
 	remoteAppMissingFailure,
 	runDeploymentPreflight,
+	versionBelowFloorFailure,
 } from "./preflight";
 import {
 	APP_PREVIEW_NOTE,
@@ -97,6 +105,7 @@ import type {
 	AppBaselineWrite,
 	AppOwnership,
 	DeploymentAttemptRefusal,
+	DeploymentConfirmationKey,
 	DeploymentFailure,
 	DeploymentRemoteChange,
 	DeploymentResource,
@@ -172,12 +181,33 @@ export type PublishOutcome =
 			 * app, or over a baseline the cutover recorded. Null otherwise.
 			 */
 			readonly appPreviewNote: string | null;
+			/**
+			 * Whether Web Apps offers the app on CommCare HQ, as this publish
+			 * read it: HQ's `cloudcare_enabled` from the read after the import,
+			 * or from the last read before it where that read failed. Nova never
+			 * writes the setting, so this is said, never asked.
+			 */
+			readonly webAppsEnabled: boolean;
+			/**
+			 * The app's logo, which a publish never sends, offered for a person
+			 * to add in CommCare HQ. `changed` is true when it is not the logo
+			 * this deployment last offered. Null for an app with no logo.
+			 */
+			readonly logoStep: PublishLogoStep | null;
 	  })
 	| (PublishOutcomeShared & {
 			readonly landed: false;
 			readonly refusal: DeploymentAttemptRefusal;
 			readonly deployment: DeploymentWithResources | null;
 	  });
+
+/** The logo a landed publish offers for a person to add in CommCare HQ. */
+export interface PublishLogoStep {
+	readonly assetId: string;
+	/** `logo<ext>`, the name the download is offered under. */
+	readonly fileName: string;
+	readonly changed: boolean;
+}
 
 export interface PublishInput {
 	readonly scope: DeploymentScope;
@@ -203,6 +233,13 @@ export interface PublishInput {
 	 * never written over without being named here.
 	 */
 	readonly discardRemoteChanges?: readonly RemoteChangeDiscard[];
+	/**
+	 * What a person confirmed about the project space for this publish,
+	 * each named after an `hq_confirmation_needed` refusal asked for it.
+	 * Stored only once a preflight passes, so a caller sends them again
+	 * until one does. Absent means none.
+	 */
+	readonly confirm?: readonly DeploymentConfirmationKey[];
 	/**
 	 * Called once, after every blocking preflight edge has passed and just
 	 * before anything is sent. A caller that reports progress hooks in here
@@ -251,6 +288,13 @@ export async function setupArtifactFor(
 		/* Links into the app's pages only where its content is there: a
 		 * shell holds nothing, and a gone app holds nothing at all. */
 		hqAppId: publishedRemoteApp(deployment)?.remoteId ?? null,
+		/* What a publish read of the app's Web Apps setting speaks only for
+		 * the app that holds its content: never for an empty shell, nor for
+		 * an app CommCare HQ reports gone. */
+		targetWebAppsEnabled:
+			publishedRemoteApp(deployment) === null
+				? null
+				: deployment.deployment.targetWebAppsEnabled,
 		locations: locations ?? (await artifactLocations(scope)),
 		lookupTables: await artifactLookupTables(scope, deployment, doc),
 		pushedPlaces: pushedPlacesOf(deployment),
@@ -436,6 +480,29 @@ export async function artifactLocations(
 }
 
 /**
+ * What a publish to a project space would ask a person to confirm, with
+ * each item's state from the confirmations the deployment there holds
+ * (none where the app has no deployment there).
+ *
+ * The pre-publish check reads this so the dialog and MCP show the rows
+ * before the first press instead of after a refusal. It asks CommCare HQ
+ * nothing, and reads the needs through the helper the `plan-features` edge
+ * reads (`preflight.ts::publishConfirmationNeeds`). Each row is about one
+ * project space, so with none chosen there is nothing to ask and the app's
+ * organization is not read.
+ */
+export async function projectSpaceConfirmations(
+	scope: DeploymentScope,
+	doc: BlueprintDoc,
+	target: DeploymentTargetKey | null,
+): Promise<ProjectSpaceConfirmationChecks> {
+	if (target === null) return confirmationChecks([], []);
+	const { needed } = await publishConfirmationNeeds(scope, doc, target);
+	const deployment = await readDeployment(scope, target);
+	return confirmationChecks(needed, deployment?.confirmations ?? []);
+}
+
+/**
  * Publish an app to a CommCare HQ project space.
  *
  * Every externally visible step happens after the blocking preflight
@@ -484,6 +551,8 @@ export async function publishAppToHq(
 		inPlaceUpdate,
 		adoptResourceIds: input.adoptResourceIds ?? [],
 		discardRemoteChanges: input.discardRemoteChanges ?? [],
+		confirmations: existing?.confirmations ?? [],
+		confirm: input.confirm ?? [],
 		access: {
 			appId: input.scope.appId,
 			projectId: input.scope.projectId,
@@ -525,6 +594,9 @@ export async function publishAppToHq(
 			/* Empty unless the refusal was `hq_changed`, in which case these
 			 * are the changes a person may name back to publish over. */
 			remoteChanges: preflight.remoteChanges ?? [],
+			/* Empty unless the refusal was `hq_confirmation_needed`. Nothing a
+			 * person confirmed is stored by a refused attempt. */
+			confirmationsNeeded: preflight.confirmationsNeeded ?? [],
 		};
 		const deployment =
 			existing === null
@@ -553,6 +625,7 @@ export async function publishAppToHq(
 							domain: input.domain,
 							hqAppId: null,
 							locations: await artifactLocations(input.scope),
+							targetWebAppsEnabled: null,
 						})
 					: await setupArtifactFor(input.scope, deployment, input.doc),
 			warnings: [],
@@ -568,14 +641,25 @@ export async function publishAppToHq(
 		};
 	}
 
-	// Reachability is proved, so the record may exist now: creation and the
-	// passed preflight land in one transaction.
+	/* What the landed publish says about the logo, worked out before any
+	 * write: once HQ has imported the app, nothing may fail between the
+	 * import and the record of it, or the next publish would not know the
+	 * app it made. Only that record writes the offered hash, so the one read
+	 * at the start is the one it replaces. */
+	const logoStep = logoStepFor(
+		preflight.ready.prepared,
+		existing?.deployment.offeredLogoContentHash ?? null,
+	);
+
+	// Reachability is proved, so the record may exist now: creation, the
+	// passed preflight and what the person confirmed for it land in one
+	// transaction.
 	let deployment = await foldDeploymentAttempt(
 		input.scope,
 		target,
 		"preflight",
 		preflight.outcome,
-		{ ensure: true },
+		{ ensure: true, confirmations: preflight.ready.confirmations },
 	);
 
 	const {
@@ -615,7 +699,13 @@ export async function publishAppToHq(
 			});
 			return {
 				landed: false,
-				refusal: { phase, failure, resourceConflicts: [], remoteChanges: [] },
+				refusal: {
+					phase,
+					failure,
+					resourceConflicts: [],
+					remoteChanges: [],
+					confirmationsNeeded: [],
+				},
 				deployment,
 				checks: preflight.checks,
 				artifact: await setupArtifactFor(
@@ -718,6 +808,23 @@ export async function publishAppToHq(
 				return refused("resources", hqAppSourceReadFailure(read, domain, true));
 			}
 			if (createBaseline.normalized === null) {
+				return refused(
+					"resources",
+					hqAppSourceReadFailure(MALFORMED_SOURCE, domain, true),
+				);
+			}
+			/* HQ's default CommCare version for a new app can be known only
+			 * once the app exists, so the floor reads the read after the
+			 * create, before any lookup table, place or content is written.
+			 * The mapping is kept: the next publish fills this same app. */
+			const floor = compareToVersionFloor(read.source.buildSpecVersion);
+			if (floor === "below") {
+				return refused(
+					"resources",
+					versionBelowFloorFailure(domain, read.source.buildSpecVersion, true),
+				);
+			}
+			if (floor === "unreadable") {
 				return refused(
 					"resources",
 					hqAppSourceReadFailure(MALFORMED_SOURCE, domain, true),
@@ -857,7 +964,7 @@ export async function publishAppToHq(
 					prepared,
 					target,
 					compatibility: preflight.projectSpaceCompatibility,
-					update: { appId, source: read.source },
+					update: { appId, source: fillSource(read.source, shell) },
 					identity,
 				});
 				comparedOwnership = builtOverSecondRead.ownership;
@@ -888,7 +995,7 @@ export async function publishAppToHq(
 				prepared,
 				target,
 				compatibility: preflight.projectSpaceCompatibility,
-				update: { appId, source },
+				update: { appId, source: fillSource(source, shell) },
 				identity,
 			});
 		const result = await importApp(creds, domain, input.appName, hqJson, appId);
@@ -914,14 +1021,24 @@ export async function publishAppToHq(
 		// A failed read lands the app all the same, with an `unread`
 		// baseline that makes the next publish ask before writing over it.
 		const appDiscard = confirmedChanges.find((change) => change.kind === "app");
+		const readBack = await readHqAppSource(creds, domain, result.appId);
 		const pushBaseline = appBaselineFor({
 			origin: "push",
 			remoteAppId: result.appId,
-			read: await readHqAppSource(creds, domain, result.appId),
+			read: readBack,
 			ownership,
 			discard:
 				appDiscard === undefined ? null : { digest: appDiscard.observedDigest },
 		});
+		/* Web Apps as the publish left the app. No body Nova sends names
+		 * `cloudcare_enabled`, so where the read back failed, the last read
+		 * before the import holds what the import left. */
+		const webAppsEnabled =
+			pushBaseline.normalized !== null &&
+			!("success" in readBack) &&
+			readBack.kind === "source"
+				? readBack.source.cloudcareEnabled
+				: source.cloudcareEnabled;
 
 		// ── Record what it gave back, before anything else can fail ─────
 		// The mapping, its baseline and the `uploaded` state land in one
@@ -937,6 +1054,8 @@ export async function publishAppToHq(
 			remoteRevision: result.version,
 			uploadedAt: new Date().toISOString(),
 			baseline: pushBaseline.write,
+			targetWebAppsEnabled: webAppsEnabled,
+			offeredLogoContentHash: logoStep?.contentHash ?? null,
 			/* A failed read leaves the column as an earlier publish wrote it,
 			 * and never blocks: the flag only decides a `.ccz`'s empty-list text. */
 			...(targetEmptyCaseListText !== null && { targetEmptyCaseListText }),
@@ -982,13 +1101,18 @@ export async function publishAppToHq(
 			});
 			warnings.push(APP_READ_BACK_FAILED_WARNING);
 		}
-		if (prepared.assets.size > 0) {
+		/* The logo is never in the bulk upload: HQ maps no app-level media
+		 * from it (`hqmedia/models.py::ApplicationMediaMixin.all_media`). An
+		 * image the logo shares with another carrier still goes, for that
+		 * carrier. */
+		const bulkAssets = bulkUploadAssets(prepared.doc, prepared.assets);
+		if (bulkAssets.size > 0) {
 			warnings.push(
 				...(await uploadMediaBytes(
 					creds,
 					domain,
 					result.appId,
-					prepared,
+					{ assets: bulkAssets, doc: prepared.doc },
 					input.scope.appId,
 				)),
 			);
@@ -999,6 +1123,15 @@ export async function publishAppToHq(
 			refusal: null,
 			hqAppAction,
 			deployment,
+			webAppsEnabled,
+			logoStep:
+				logoStep === null
+					? null
+					: {
+							assetId: logoStep.assetId,
+							fileName: logoStep.fileName,
+							changed: logoStep.changed,
+						},
 			/* Only a write over the app can replace a form HQ may have checked,
 			 * so a discard of a table or place alone carries no statement. */
 			appPreviewNote:
@@ -1064,6 +1197,7 @@ async function remoteAppGoneOutcome(
 			failure,
 			resourceConflicts: [],
 			remoteChanges: [],
+			confirmationsNeeded: [],
 		},
 		deployment: observed.view,
 		checks: context.checks,
@@ -1076,6 +1210,46 @@ async function remoteAppGoneOutcome(
 		warnings: [],
 		projectSpaceCompatibility: context.projectSpaceCompatibility,
 		hqAppUrl: null,
+	};
+}
+
+/**
+ * The source an update is built over. While the app is the empty shell of
+ * a first publish (its baseline's origin is `create`), its profile settings
+ * are the ones HQ's settings page wrote when someone saved it to raise the
+ * CommCare version, chosen by nobody, so the fill takes none of them and the
+ * profile overlay writes Nova's own values for every setting it seeds.
+ */
+function fillSource(source: HqAppSource, shell: boolean): HqAppSource {
+	if (!shell) return source;
+	return { ...source, profile: { ...source.profile, properties: {} } };
+}
+
+/**
+ * The logo step a landed publish offers, keyed by the logo's content hash,
+ * which a Project move's asset id remap leaves unchanged. Null for an app
+ * with no logo.
+ */
+function logoStepFor(
+	prepared: {
+		readonly assets: Parameters<typeof assetWirePaths>[0];
+		readonly doc: BlueprintDoc;
+	},
+	offeredContentHash: string | null,
+): (PublishLogoStep & { readonly contentHash: string }) | null {
+	const logo = prepared.doc.logo;
+	if (logo === undefined) return null;
+	const asset = prepared.assets.get(logo);
+	if (asset === undefined) {
+		throw new Error(
+			`The app's logo ${logo} is not among the assets this publish resolved, so Nova cannot offer it.`,
+		);
+	}
+	return {
+		assetId: logo,
+		fileName: `logo${asset.extension}`,
+		changed: asset.contentHash !== offeredContentHash,
+		contentHash: asset.contentHash,
 	};
 }
 

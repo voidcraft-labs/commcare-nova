@@ -139,9 +139,9 @@ describe("admitted XForm media references", () => {
 				expect(hq.modules[0].forms[0].media_image).toEqual(
 					enabled ? { en: ref("alias") } : {},
 				);
-				expect(hq.logo_refs).toEqual(
-					enabled ? { hq_logo_web_apps: { path: ref("icon") } } : undefined,
-				);
+				// The logo reaches HQ through its own uploader, so no mode
+				// writes `logo_refs`.
+				expect(Object.hasOwn(hq, "logo_refs")).toBe(false);
 				// No mode writes a map: HQ's media upload maps each file by the
 				// path the content references. Those paths are the prepared
 				// assets', and the archive bundles exactly them.

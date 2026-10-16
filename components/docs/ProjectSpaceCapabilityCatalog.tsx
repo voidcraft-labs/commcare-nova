@@ -1,5 +1,14 @@
-/** Public docs projection of the semantic project-space compatibility catalog. */
+/**
+ * Public docs projection of the semantic project-space compatibility
+ * catalog, and of the plan features and project-space settings a publish
+ * asks a person to confirm because no API key reads them.
+ */
 
+import {
+	CONNECT_FORWARDER,
+	FLAT_LOCATION_FIXTURE,
+	PLAN_FEATURES,
+} from "@/lib/publish/planFeatures";
 import {
 	PROJECT_SPACE_ADVISORIES,
 	PROJECT_SPACE_CAPABILITIES,
@@ -48,6 +57,55 @@ export function ProjectSpaceCapabilityCatalog() {
 					behavior automatically when the project space supports it.
 				</p>
 			</section>
+		</div>
+	);
+}
+
+/**
+ * The plan features and project-space settings a publish asks about, each
+ * with what goes wrong without it, from the same definitions the Publish
+ * window reads.
+ */
+export function PlanFeatureCatalog() {
+	const settings = [FLAT_LOCATION_FIXTURE, CONNECT_FORWARDER];
+	return (
+		<div className="not-prose my-6 space-y-4">
+			{Object.values(PLAN_FEATURES).map((feature) => (
+				<section
+					key={feature.id}
+					id={`plan-${feature.id}`}
+					className="scroll-mt-24 rounded-xl border border-fd-border bg-fd-card p-5"
+				>
+					<h3 className="m-0 text-lg font-semibold text-fd-foreground">
+						{feature.label}
+					</h3>
+					<p className="mt-2 text-sm font-medium text-fd-muted-foreground">
+						Included in the {feature.plans} plans
+					</p>
+					<p className="mt-2 text-sm leading-relaxed text-fd-muted-foreground">
+						{feature.consequence}
+					</p>
+				</section>
+			))}
+			{settings.map((setting) => (
+				<section
+					key={setting.label}
+					className="scroll-mt-24 rounded-xl border border-fd-border bg-fd-card p-5"
+				>
+					<h3 className="m-0 text-lg font-semibold text-fd-foreground">
+						{setting.label}
+					</h3>
+					<p className="mt-2 text-sm font-medium text-fd-muted-foreground">
+						A project-space setting no plan decides
+					</p>
+					<p className="mt-2 text-sm leading-relaxed text-fd-muted-foreground">
+						{setting.consequence}
+					</p>
+					<p className="mt-2 text-sm leading-relaxed text-fd-muted-foreground">
+						{setting.whereMissing}
+					</p>
+				</section>
+			))}
 		</div>
 	);
 }

@@ -453,11 +453,10 @@ ALSO_GRANTED: set[str] = set()
 def also_granted(slug: str):
     """For the block, the project space's plan also grants the privilege ``slug``.
 
-    A configuration grants what a document's content needs to build and be edited
+    A configuration grants what a document's content needs to build, be edited and run
     (``proof.checks.configurations``). A privilege that decides something else about the project space, which a
     part of the lane states of it, is granted here for that part alone and recorded as every privilege read is:
-    HQ forwards a form to Connect only where the project space can forward data (``DATA_FORWARDING``,
-    ``motech/repeaters/models.py::domain_can_forward``), which the project space of a Connect opportunity can.
+    App Preview's Log In As (``LOGIN_AS``, ``proof.webapps.session``).
     """
     held = slug in ALSO_GRANTED
     ALSO_GRANTED.add(slug)
@@ -466,6 +465,30 @@ def also_granted(slug: str):
     finally:
         if not held:
             ALSO_GRANTED.discard(slug)
+
+
+# Privileges the project space's plan does not grant, whatever its configuration grants, while ``withheld`` holds
+# them.
+WITHHELD: set[str] = set()
+
+
+@contextmanager
+def withheld(slug: str):
+    """For the block, the project space's plan does not grant the privilege ``slug``, though its configuration does.
+
+    The counterpart of ``also_granted``: a part of the lane that states what HQ does without a privilege a
+    document's content needs takes it away here for that part alone, and each read of it is recorded as every
+    privilege read is. HQ's receiver takes a Connect app's form and registers no repeat record where the project
+    space cannot forward data (``DATA_FORWARDING``, ``motech/repeaters/models.py::domain_can_forward``,
+    ``proof/connect/test_forwarding.py``).
+    """
+    held = slug in WITHHELD
+    WITHHELD.add(slug)
+    try:
+        yield
+    finally:
+        if not held:
+            WITHHELD.discard(slug)
 
 
 # Project spaces beside the configuration's that a part of the lane makes, by name, with the privilege slugs each
@@ -512,7 +535,7 @@ def privileges(configuration: Configuration, record: SeamRecord):
                 f"HQ asked whether the project space {domain!r} has the privilege "
                 f"{slug!r}; the check's configuration describes {configuration.domain!r} only."
             )
-        verdict = slug in granted or slug in ALSO_GRANTED
+        verdict = (slug in granted or slug in ALSO_GRANTED) and slug not in WITHHELD
         record.privileges.append(PrivilegeRead(slug, symbol_by_slug.get(slug), domain, via, verdict))
         return verdict
 
@@ -527,9 +550,10 @@ def privileges(configuration: Configuration, record: SeamRecord):
         # Every privilege the project space's plan grants, as the page frame's
         # context processor (util/context_processors.py::js_privileges) lists
         # them for the page's JavaScript (hqwebapp/js/privileges.js).
-        for slug in sorted(granted):
+        held = sorted(slug for slug in granted if slug not in WITHHELD)
+        for slug in held:
             record.privileges.append(PrivilegeRead(slug, granted[slug], configuration.domain, "get_privileges", True))
-        return set(granted)
+        return set(held)
 
     with (
         rebound(accounting_utils.domain_has_privilege, domain_has_privilege),

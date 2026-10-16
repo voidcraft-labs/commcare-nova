@@ -29,6 +29,7 @@ import {
 	type HqAppShell,
 } from "@/lib/commcare/expander";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import { withoutPathOnlyLogoRefs } from "@/lib/commcare/targetLogoRefs";
 import {
 	type DerivedProfileTargetState,
 	projectApplicationForTarget,
@@ -51,9 +52,10 @@ export interface HqImportApplicationUpdate {
 	readonly appId: string;
 	/**
 	 * The app's source, the publish's last read before the import. HQ
-	 * replaces `translations`, `add_ons` and `profile` whole when an import
-	 * carries one, so the overlays write Nova's part of each over this read's
-	 * value and carry the rest.
+	 * replaces `translations`, `add_ons`, `profile` and `logo_refs` whole
+	 * when an import carries one, so the overlays write Nova's part of each
+	 * over this read's value and carry the rest, and `logo_refs` is sent only
+	 * to take out an entry HQ's own uploader never writes.
 	 */
 	readonly source: HqAppSource;
 }
@@ -127,9 +129,23 @@ export function hqImportApplication(
 		attachmentTarget: prepared.attachmentTarget,
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
 	});
-	return projectApplicationForTarget(
+	const projected = projectApplicationForTarget(
 		generated,
 		update.source,
 		derivedProfileTargetState(input),
 	);
+	/* Publish writes no logo. The key goes out only where the target holds a
+	 * path-only entry, which HQ's linked-app pull cannot read, and then
+	 * carries every other entry as HQ holds it. */
+	const logoRefs = withoutPathOnlyLogoRefs(update.source.logoRefs);
+	if (logoRefs === null) return projected;
+	const { _attachments: attachments, ...rest } = projected.application;
+	return {
+		application: {
+			...rest,
+			logo_refs: logoRefs,
+			_attachments: attachments,
+		} as HqApplication,
+		ownership: projected.ownership,
+	};
 }

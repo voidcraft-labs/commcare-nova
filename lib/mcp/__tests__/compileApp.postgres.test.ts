@@ -98,6 +98,7 @@ async function publish(server: "india" | "production", domain: string) {
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: AT,
+		targetWebAppsEnabled: true,
 		baseline: {
 			origin: "unread",
 			remoteAppId: hqAppId(server, domain),
@@ -952,14 +953,13 @@ it("resolves attachment writes from persisted deployments on the selected server
 			} else {
 				expect(update.update).not.toHaveProperty("photo_url");
 				expect(photoBinds(xform)).toEqual([]);
-				expect(parts[0]).toMatchObject({
-					kind: "nova_project_space_compatibility",
-				});
-				expect(parts[1]).toEqual({
+				/* A link no case list shows asks the project space for nothing,
+				 * so the advisories are the file's only notes. */
+				expect(parts[0]).toEqual({
 					kind: "nova_export_advisories",
 					export_advisories: result._meta?.["nova/exportAdvisories"],
 				});
-				expect(parts[1].export_advisories).toEqual([
+				expect(parts[0].export_advisories).toEqual([
 					{
 						id: "attachment_links_without_target",
 						title: "Attachment links are empty in this file",
