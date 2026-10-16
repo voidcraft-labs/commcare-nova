@@ -16,14 +16,19 @@ import { asUuid } from "@/lib/domain";
 import { MODULE_BUILTIN_ICON_REFS } from "@/lib/domain/builtinIcons";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import type { ReportLine } from "../report";
-import { runScan } from "../run";
+import { runMigrate, runScan } from "../run";
 import {
 	carriersOf,
 	migratedFixtureDocument,
 	readFixtureCarriers,
+	readFixtureProject,
 	readFixtureSchemas,
 } from "./fixtures/preStep";
-import { fixtureApp, seedFixtureApp } from "./fixtures/seed";
+import {
+	fixtureApp,
+	seedFixtureApp,
+	seedFixtureProject,
+} from "./fixtures/seed";
 
 const h = setupAppStateTestDb("hq_cutover_scan_", { authSchema: "migrated" });
 
@@ -254,6 +259,115 @@ describe("the advisory scan", () => {
 			await reader.destroy();
 		}
 	}, 30_000);
+
+	it("judges an app against its Project's tag renames, and stops on a rename that finds no free tag", async () => {
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		await h.seedProjectMember(OWNER, OTHER_PROJECT, "owner");
+		const fixture = "hand-lookup-tag-collision";
+		const project = readFixtureProject(fixture);
+		const lookup = project.lookup as {
+			definitions: { id: string; tag: string }[];
+		};
+		const [casedb, ledgerdb] = lookup.definitions;
+		if (casedb === undefined || ledgerdb === undefined) {
+			throw new Error("The fixture holds no reserved tables.");
+		}
+		// PROJECT holds the two reserved tables alone, so both are renamed;
+		// OTHER_PROJECT holds every tag the casedb table's rename could take.
+		await seedFixtureProject(
+			h.db(),
+			PROJECT,
+			{
+				...project,
+				lookup: { ...lookup, definitions: [casedb, ledgerdb] },
+			} as never,
+			OWNER,
+		);
+		await seedFixtureProject(h.db(), OTHER_PROJECT, project, OWNER);
+		for (const [appId, projectId] of [
+			["app-renamed", PROJECT],
+			["app-collided", OTHER_PROJECT],
+		] as const) {
+			await seedFixtureApp(
+				h.db(),
+				fixtureApp(fixture, { appId, projectId, owner: OWNER }),
+			);
+			for (const table of [casedb, ledgerdb]) {
+				await sql`
+					INSERT INTO lookup_table_references (project_id, table_id, app_id)
+					VALUES (${projectId}, ${table.id}::uuid, ${appId})
+				`.execute(h.db());
+			}
+		}
+		const deployment = await sql<{ id: string }>`
+			INSERT INTO app_deployments (app_id, project_id, server, domain, state, phases, created_by)
+			VALUES ('app-renamed', ${PROJECT}, 'production', 'field-ops', 'uploaded', '{}'::jsonb, ${OWNER})
+			RETURNING id::text AS id
+		`.execute(h.db());
+		const deploymentId = deployment.rows[0]?.id ?? "";
+		await sql`
+			INSERT INTO app_deployment_resources (deployment_id, kind, nova_resource_id, remote_id, ownership, pushed_revision, pushed_at, pushed_identity)
+			VALUES (${deploymentId}::uuid, 'app', 'app-renamed', 'hq-app', 'nova-created', 1, now(), NULL),
+				(${deploymentId}::uuid, 'lookup-table', ${casedb.id}, 'hq-clinics', 'nova-created', NULL, now(), ${casedb.tag})
+		`.execute(h.db());
+		const tagsBefore = await sql<{ tag: string }>`
+			SELECT tag FROM lookup_tables ORDER BY project_id, id
+		`.execute(h.db());
+
+		for (const result of [
+			await runScan(h.db()),
+			await runMigrate(h.db(), { mode: "dry-run", withoutHq: true }),
+		]) {
+			const lines = result.report.all();
+			const blockers = section(lines, "blocker");
+			// The renamed Project's app meets no reserved tag; the other's table
+			// is its Project's blocker and not its app's gate finding.
+			expect(blockers).toEqual([
+				expect.objectContaining({
+					code: "lookup-tag-rename-collision",
+					projectId: OTHER_PROJECT,
+					tableId: casedb.id,
+					apps: ["app-collided"],
+				}),
+			]);
+			expect(section(lines, "lookup-tags")[0]).toMatchObject({
+				projects: [
+					{
+						projectId: OTHER_PROJECT,
+						tables: [
+							{ tableId: ledgerdb.id, apps: ["app-collided"], mappings: [] },
+						],
+					},
+					{
+						projectId: PROJECT,
+						tables: [
+							{ tableId: ledgerdb.id, apps: ["app-renamed"], mappings: [] },
+							{
+								tableId: casedb.id,
+								apps: ["app-renamed"],
+								mappings: [deploymentId],
+							},
+						],
+					},
+				].map((entry) => ({
+					...entry,
+					tables: [...entry.tables].sort((a, b) =>
+						a.tableId < b.tableId ? -1 : 1,
+					),
+				})),
+			});
+			// Tags are authored text: the report prints none.
+			const text = result.report.text();
+			for (const tag of [casedb.tag, ledgerdb.tag, "clinic_case_db_codes"]) {
+				expect(text).not.toContain(tag);
+			}
+			expect(result.exitCode).toBe(1);
+		}
+		const tagsAfter = await sql<{ tag: string }>`
+			SELECT tag FROM lookup_tables ORDER BY project_id, id
+		`.execute(h.db());
+		expect(tagsAfter.rows).toEqual(tagsBefore.rows);
+	}, 60_000);
 
 	it("stops on a menu step hidden-from-menu takes off the menu while a form link opens it", async () => {
 		await h.seedProjectMember(OWNER, PROJECT, "owner");

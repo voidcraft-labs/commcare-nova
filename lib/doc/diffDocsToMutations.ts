@@ -273,7 +273,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 // ── Media key partitions ─────────────────────────────────────────────
 //
 // Media slots ride dedicated clear-safe mutation kinds, never the generic
-// update patch. A field's four message-media slots key off
+// update patch. A field's two message-media slots key off
 // `<slot>_media`; module/form menu media is `icon` + `audioLabel`; the
 // app logo is `logo`. These keys are stripped from every generic
 // `update*` patch and diffed through their own kinds.

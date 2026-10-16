@@ -97,10 +97,13 @@ A tag change has a consequence outside this package worth knowing here:
 CommCare HQ addresses a lookup table BY ITS TAG, so a rename makes a NEW table
 on every project space the app was published to and leaves the old one where it
 is. Nova never deletes a remote resource, so it reports the old tag instead
-(`lib/deployment/CLAUDE.md`). A tag is capped at 32 characters here, one past
-what a CommCare HQ data sheet can be named for, so the export boundary refuses
-the 32-character case by name rather than the emitter meeting a sheet it cannot
-name.
+(`lib/deployment/CLAUDE.md`). A tag holds at most 32 characters
+(`LOOKUP_MAX_TAG_LENGTH`), the length HQ's upload stores: a 32-character tag
+pushes, and Nova refuses a longer one itself, because HQ answers it with a
+server error and not a refusal. A tag containing `casedb` or `ledgerdb`,
+case-sensitively, is refused too (`reservedInstanceTagCause`), because Core
+picks an instance's storage by substring (commcare-core
+`CommCareInstanceInitializer.generateRoot`).
 
 ## Reference edges and schema governance
 
@@ -150,7 +153,9 @@ remain allowed while referenced and do not rewrite edges.
 
 Table-tag admission reserves the runtime instance names in `constants.ts`,
 including the case-insensitive `selected_cases` family with optional case-type
-suffixes and repeated `parent_` prefixes, plus `search_selected_cases`. Column
+suffixes and repeated `parent_` prefixes, plus `search_selected_cases`, and
+refuses any tag that contains `ledgerdb` or `casedb` as written, whose refusal
+names the word and its split spelling (`case_db`, `ledger_db`). Column
 wire names do not share this restriction. Existing table identities are never
 renamed automatically; the compiler refuses a referenced historical collision
 with the table named so an authorized caller can explicitly change its tag.

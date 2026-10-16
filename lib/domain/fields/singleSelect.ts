@@ -15,7 +15,6 @@ import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
 	inputFieldBaseSchema,
-	mediaSchema,
 	proseTemplateSchema,
 	xpathExpressionSchema,
 } from "./base";
@@ -26,7 +25,6 @@ export const singleSelectFieldSchema = inputFieldBaseSchema.extend({
 	optionsSource: selectOptionsSourceSchema,
 	validate: xpathExpressionSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
-	validate_msg_media: mediaSchema.optional(),
 	default_value: xpathExpressionSchema.optional(),
 });
 

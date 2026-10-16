@@ -23,6 +23,81 @@ import type { DeploymentResource, DeploymentResourceOwnership } from "./types";
 export interface RemoteLookupTable {
 	readonly id: string;
 	readonly tag: string;
+	/** False when the table's rows go only to the workers who own them. */
+	readonly isGlobal: boolean;
+	/** Each field's property names, keyed by field name. */
+	readonly fieldProperties: Readonly<Record<string, readonly string[]>>;
+	/** The row attributes the table's definition names. */
+	readonly itemAttributes: readonly string[];
+}
+
+/**
+ * What HQ's copy of a table holds that Nova's push would remove.
+ *
+ * The workbook writes every table global, with no field property and no
+ * row attribute, and the push replaces the table it names, so a push over
+ * any of these takes it away. "not-global" covers every table whose row
+ * owners take effect: HQ's restore sends a table that is not global only
+ * to the workers who own its rows
+ * (`fixtures/fixturegenerators.py::ItemListsProvider.__call__`), and owners
+ * on a global table have no effect.
+ */
+export type UnsupportedLookupContent =
+	| "field-properties"
+	| "row-attributes"
+	| "not-global";
+
+/**
+ * In this order: "field-properties" when any field has a property,
+ * "row-attributes" when `itemAttributes` is not empty, "not-global" when
+ * `isGlobal` is false. Empty when the push keeps everything the definition
+ * read shows.
+ */
+export function unsupportedLookupContent(
+	table: RemoteLookupTable,
+): readonly UnsupportedLookupContent[] {
+	const holds: UnsupportedLookupContent[] = [];
+	if (
+		Object.values(table.fieldProperties).some(
+			(properties) => properties.length > 0,
+		)
+	)
+		holds.push("field-properties");
+	if (table.itemAttributes.length > 0) holds.push("row-attributes");
+	if (!table.isGlobal) holds.push("not-global");
+	return holds;
+}
+
+const UNSUPPORTED_LOOKUP_CONTENT_WORDS: Readonly<
+	Record<UnsupportedLookupContent, string>
+> = {
+	"field-properties": "field properties",
+	"row-attributes": "row attributes",
+	"not-global": "rows limited to certain users",
+};
+
+/**
+ * What a table holds, in words, joined as "A", "A and B" or "A, B and C":
+ * "field properties and rows limited to certain users".
+ */
+export function describeUnsupportedLookupContent(
+	holds: readonly UnsupportedLookupContent[],
+): string {
+	const words = holds.map((held) => UNSUPPORTED_LOOKUP_CONTENT_WORDS[held]);
+	const last = words.at(-1) ?? "";
+	return words.length <= 1
+		? last
+		: `${words.slice(0, -1).join(", ")} and ${last}`;
+}
+
+/** A planned table whose tag HQ holds with content the push would remove. */
+export interface LookupTableUnsupported {
+	readonly tableId: LookupTableId;
+	readonly tag: string;
+	/** CommCare HQ's id for the table under the tag. */
+	readonly remoteId: string;
+	/** Never empty. */
+	readonly holds: readonly UnsupportedLookupContent[];
 }
 
 /** One of Nova's tables, as the workbook will present it. */
@@ -63,7 +138,11 @@ export interface PlannedLookupPush {
 
 export type LookupResourcePlan =
 	| { readonly ok: true; readonly pushes: readonly PlannedLookupPush[] }
-	| { readonly ok: false; readonly conflicts: readonly LookupTableConflict[] };
+	| { readonly ok: false; readonly conflicts: readonly LookupTableConflict[] }
+	| {
+			readonly ok: false;
+			readonly unsupported: readonly LookupTableUnsupported[];
+	  };
 
 export interface PlanLookupResourcePushInput {
 	/** Every table the app references, from the validated generation. */
@@ -88,6 +167,11 @@ export interface PlanLookupResourcePushInput {
  * a plan that pushed the unambiguous tables and skipped the rest would
  * leave the project space holding an app's data half-updated with no state
  * that describes it.
+ *
+ * A tag HQ holds with content the push would remove refuses first, whoever
+ * owns the table: adopting cannot keep that content, and the one way out,
+ * a new export tag, settles a name clash on the same table too, so asking
+ * for an adoption first would only lead here.
  */
 export function planLookupResourcePush(
 	input: PlanLookupResourcePushInput,
@@ -95,6 +179,25 @@ export function planLookupResourcePush(
 	const remoteByTag = new Map(
 		input.hqTables.map((table) => [table.tag, table] as const),
 	);
+
+	const unsupported = input.tables.flatMap(
+		(table): LookupTableUnsupported[] => {
+			const remote = remoteByTag.get(table.tag);
+			if (remote === undefined) return [];
+			const holds = unsupportedLookupContent(remote);
+			return holds.length === 0
+				? []
+				: [
+						{
+							tableId: table.tableId,
+							tag: table.tag,
+							remoteId: remote.id,
+							holds,
+						},
+					];
+		},
+	);
+	if (unsupported.length > 0) return { ok: false, unsupported };
 	const mappingByTableId = new Map(
 		input.mappings
 			.filter((resource) => resource.kind === "lookup-table")

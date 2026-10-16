@@ -8,18 +8,25 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	ACCEPTED_EXTENSIONS,
+	ACCEPTED_FORMATS,
 	ALL_MIME_TYPES,
+	AUDIO_MIME_TYPES,
 	assetKindForExtension,
 	assetKindForFilename,
 	assetKindForMimeType,
 	EXTENSION_FOR_MIME_TYPE,
 	extensionOf,
 	gcsObjectKeyFor,
+	IMAGE_MIME_TYPES,
+	isModelReadableImageMimeType,
+	MODEL_READABLE_IMAGE_MIME_TYPES,
 	mediaSchema,
 	mimeTypeForExtension,
 	mimeTypeForFilename,
 	normalizeMimeType,
 	resolveUploadMimeType,
+	VIDEO_MIME_TYPES,
 } from "../multimedia";
 
 describe("assetKindForMimeType", () => {
@@ -143,11 +150,22 @@ describe("normalizeMimeType", () => {
 		);
 	});
 
-	it("rejects the audio formats outside Nova's declared upload policy", () => {
-		expect(normalizeMimeType("audio/mp4")).toBeUndefined();
-		expect(normalizeMimeType("audio/ogg")).toBeUndefined();
-		expect(normalizeMimeType("audio/x-m4a")).toBeUndefined();
-		expect(normalizeMimeType("audio/ogg; codecs=opus")).toBeUndefined();
+	it("reads a browser's or a sniff's other spellings of a format as its canonical MIME", () => {
+		expect(normalizeMimeType("audio/x-m4a")).toBe("audio/mp4");
+		expect(normalizeMimeType("audio/m4a")).toBe("audio/mp4");
+		expect(normalizeMimeType("audio/x-flac")).toBe("audio/flac");
+		expect(normalizeMimeType("audio/opus")).toBe("audio/ogg");
+		expect(normalizeMimeType("audio/vorbis")).toBe("audio/ogg");
+		expect(normalizeMimeType("application/ogg")).toBe("audio/ogg");
+		expect(normalizeMimeType("audio/ogg; codecs=opus")).toBe("audio/ogg");
+		expect(normalizeMimeType("image/x-ms-bmp")).toBe("image/bmp");
+		expect(normalizeMimeType("image/x-bmp")).toBe("image/bmp");
+	});
+
+	it("still refuses a format no platform plays everywhere", () => {
+		expect(normalizeMimeType("video/matroska")).toBeUndefined();
+		expect(normalizeMimeType("video/ogg")).toBeUndefined();
+		expect(normalizeMimeType("audio/aac")).toBeUndefined();
 	});
 
 	it("maps animated PNG (image/apng) to image/png", () => {
@@ -200,6 +218,12 @@ describe("mimeTypeForExtension / assetKindForExtension", () => {
 		[".mp3", "audio", "audio/mpeg"],
 		[".wav", "audio", "audio/wav"],
 		[".mp4", "video", "video/mp4"],
+		[".bmp", "image", "image/bmp"],
+		[".m4a", "audio", "audio/mp4"],
+		[".flac", "audio", "audio/flac"],
+		[".ogg", "audio", "audio/ogg"],
+		[".opus", "audio", "audio/ogg"],
+		[".webm", "video", "video/webm"],
 		[".pdf", "pdf", "application/pdf"],
 		[".txt", "text", "text/plain"],
 		[".md", "text", "text/markdown"],
@@ -275,5 +299,90 @@ describe("untrusted MIME lookup keys", () => {
 			expect(mimeTypeForExtension(value)).toBeUndefined();
 		}
 		expect(resolveUploadMimeType("constructor", "photo.png")).toBe("image/png");
+	});
+});
+
+describe("ACCEPTED_FORMATS, the one registry", () => {
+	it("holds one entry for each canonical MIME, documents included", () => {
+		const mimes = ACCEPTED_FORMATS.map((format) => format.mime);
+		expect(new Set(mimes).size).toBe(mimes.length);
+		expect(ALL_MIME_TYPES).toEqual(mimes);
+		expect(mimes).toContain("application/pdf");
+	});
+
+	it("derives the kind partitions and every lookup from its entries", () => {
+		for (const format of ACCEPTED_FORMATS) {
+			expect(assetKindForMimeType(format.mime)).toBe(format.kind);
+			expect(EXTENSION_FOR_MIME_TYPE[format.mime]).toBe(format.extension);
+			expect(format.declaredExtensions).toContain(format.extension);
+			for (const extension of format.declaredExtensions) {
+				expect(ACCEPTED_EXTENSIONS).toContain(extension);
+			}
+		}
+		expect(IMAGE_MIME_TYPES).toEqual([
+			"image/png",
+			"image/jpeg",
+			"image/gif",
+			"image/webp",
+			"image/bmp",
+		]);
+		expect(AUDIO_MIME_TYPES).toEqual([
+			"audio/mpeg",
+			"audio/wav",
+			"audio/mp4",
+			"audio/flac",
+			"audio/ogg",
+		]);
+		expect(VIDEO_MIME_TYPES).toEqual(["video/mp4", "video/webm"]);
+	});
+
+	it("resolves every alias and declared extension only through its own entry", () => {
+		const aliasOwners = new Map<string, string>();
+		const extensionOwners = new Map<string, string>();
+		for (const format of ACCEPTED_FORMATS) {
+			for (const alias of format.aliases) {
+				expect(aliasOwners.has(alias), alias).toBe(false);
+				aliasOwners.set(alias, format.mime);
+				expect(normalizeMimeType(alias)).toBe(format.mime);
+			}
+			for (const extension of format.declaredExtensions) {
+				expect(extensionOwners.has(extension), extension).toBe(false);
+				extensionOwners.set(extension, format.mime);
+				expect(mimeTypeForExtension(extension)).toBe(format.mime);
+			}
+		}
+		for (const key of ["constructor", "__proto__", "hasOwnProperty"]) {
+			expect(normalizeMimeType(key)).toBeUndefined();
+			expect(mimeTypeForExtension(key)).toBeUndefined();
+			expect(assetKindForMimeType(key)).toBeUndefined();
+		}
+	});
+
+	it("names the fifteen surface items of the formats it admits, and none for a document", () => {
+		const keys = ACCEPTED_FORMATS.flatMap((format) => format.surfaceKeys);
+		expect(keys).toHaveLength(15);
+		expect(new Set(keys).size).toBe(15);
+		for (const format of ACCEPTED_FORMATS) {
+			if (
+				format.kind !== "image" &&
+				format.kind !== "audio" &&
+				format.kind !== "video"
+			) {
+				expect(format.surfaceKeys).toEqual([]);
+			}
+		}
+	});
+});
+
+describe("the model-readable image subset", () => {
+	it("is exactly PNG, JPEG, GIF and WebP", () => {
+		expect([...MODEL_READABLE_IMAGE_MIME_TYPES]).toEqual([
+			"image/png",
+			"image/jpeg",
+			"image/gif",
+			"image/webp",
+		]);
+		expect(isModelReadableImageMimeType("image/bmp")).toBe(false);
+		expect(isModelReadableImageMimeType("image/png")).toBe(true);
 	});
 });

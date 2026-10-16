@@ -254,14 +254,47 @@ describe("checkPredicate — comparison operators", () => {
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
-	// Exercises the `time` arm of `ORDERED_TYPES`. Without this, a
-	// regression that special-cased `time` (e.g. dropped it from the
-	// ordered set or mistyped a typed-literal builder) would not fail any
-	// existing test — the `date` and `datetime` arms are independently
-	// covered.
-	it("accepts lt on time with a typed timeLiteral", () => {
+	// A time of day has no order on a device: Core compares an ordering as
+	// numbers and a time is NaN. The refusal has its own code, and the date
+	// beside it is accepted.
+	it("refuses lt on time with a typed timeLiteral under time-ordering", () => {
 		const p = lt(prop("patient", "appointment_time"), timeLiteral("12:00:00"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].code).toBe("time-ordering");
+			expect(result.errors[0].path).toEqual([]);
+			expect(result.errors[0].message).toMatch(/A date can be compared/);
+		}
+		expect(
+			checkPredicate(lt(prop("patient", "dob"), dateLiteral("2000-01-01")), ctx)
+				.ok,
+		).toBe(true);
+	});
+
+	it("refuses a time on the right side of an ordering under time-ordering", () => {
+		const p = gt(literal(null), prop("patient", "appointment_time"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.errors[0].code).toBe("time-ordering");
+	});
+
+	it("still accepts eq on a time", () => {
+		const p = eq(prop("patient", "appointment_time"), timeLiteral("12:00:00"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("refuses an ordering on two text values under ordered-values, naming no time", () => {
+		const p = gt(prop("patient", "case_name"), literal("M"));
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].code).toBe("ordered-values");
+			expect(result.errors[0].message).toBe(
+				"Operator 'gt' requires ordered types (int, decimal, date, datetime); got 'text' and 'text'. Strings are not ordered.",
+			);
+		}
 	});
 
 	it("rejects an unknown property reference", () => {
@@ -1106,7 +1139,7 @@ describe("checkPredicate — sentinel predicates", () => {
 // `left` with optional lower / upper bounds and per-bound inclusivity
 // flags. The type checker enforces three rules:
 //   1. `left` must resolve to an ordered type (int / decimal / date /
-//      datetime / time) — the same `ORDERED_TYPES` set comparison
+//      datetime) — the same `ORDERED_TYPES` set comparison
 //      operators reuse for the `gt` / `gte` / `lt` / `lte` family.
 //   2. Each provided bound (`lower` / `upper`) must resolve to a type
 //      compatible with `left` — same `typesCompatible` widenings
@@ -1241,15 +1274,40 @@ describe("checkPredicate — between operator rules", () => {
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
-	it("accepts between directly on a time property with timeLiteral bounds", () => {
-		// Time is in `ORDERED_TYPES` alongside date/datetime. timeLiteral
-		// carries `data_type: "time"` so the comparator resolves the
-		// bounds as time rather than the generic JS-string fallback.
+	it("refuses between anchored on a time property under time-ordering", () => {
 		const p = between(prop("patient", "appointment_time"), {
 			lower: timeLiteral("09:00:00"),
 			upper: timeLiteral("17:00:00"),
 		});
-		expect(checkPredicate(p, ctx).ok).toBe(true);
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].code).toBe("time-ordering");
+		}
+		expect(
+			checkPredicate(
+				between(prop("patient", "dob"), {
+					lower: dateLiteral("2000-01-01"),
+					upper: dateLiteral("2001-01-01"),
+				}),
+				ctx,
+			).ok,
+		).toBe(true);
+	});
+
+	it("refuses between on text under ordered-values, naming no time", () => {
+		const result = checkPredicate(
+			between(prop("patient", "case_name"), { lower: literal("a") }),
+			ctx,
+		);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].code).toBe("ordered-values");
+			expect(result.errors[0].message).toBe(
+				"Operator 'between' requires an ordered left operand (int, decimal, date, datetime); got 'text'. Strings are not ordered.",
+			);
+		}
 	});
 
 	it("propagates errors through wrapper recursion (between inside and)", () => {

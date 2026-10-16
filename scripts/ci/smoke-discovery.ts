@@ -11,10 +11,16 @@ if (!manifest || !directory)
 	throw new Error("Usage: smoke-discovery.ts manifest directory");
 const report = readDiscoveryReport(manifest);
 const lane = process.env.SMOKE_LANE;
+/** The projects the browser lane runs: Chromium's, and WebKit's for media playback. */
+const BROWSER_LANE_PROJECTS: ReadonlySet<string> = new Set([
+	"browser",
+	"browser-webkit",
+]);
 if (
 	lane &&
 	report.attempts.some(
-		(test) => (test.projectId === "browser") !== (lane === "browser"),
+		(test) =>
+			BROWSER_LANE_PROJECTS.has(test.projectId) !== (lane === "browser"),
 	)
 )
 	throw new Error(
@@ -24,7 +30,11 @@ const tests = report.attempts.length ? discoveredTests(report) : [];
 discoveredSmokeScenarios(report);
 for (const lane of ["browser", "app"] as const) {
 	const selected = tests.filter(
-		(test) => test.selector.startsWith("[browser]") === (lane === "browser"),
+		(test) =>
+			[...BROWSER_LANE_PROJECTS].some((project) =>
+				test.selector.startsWith(`[${project}]`),
+			) ===
+			(lane === "browser"),
 	);
 	if (selected.length)
 		writeFileSync(

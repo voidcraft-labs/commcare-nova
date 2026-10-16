@@ -6,18 +6,18 @@
  * lookup table. Over Nova's first publish (A), a person keeps the district
  * table in HQ (`hqSide`, `proof/observe/hqside.py`): a property on its `name`
  * field, an attribute and owners on every row, uploaded through HQ's lookup
- * upload, and a description from HQ's table editor. Nova's next push uploads
- * its own workbook for the tag with `replace`, which sees another table
- * (`fixtures/upload/run_upload.py::table_key`), deletes it and makes it
- * again: the table and its rows get new ids, and the property, the
- * attributes, the owners and the description are gone (defect 5, table
- * content).
+ * upload, and a description from HQ's table editor. Nova's push uploads its
+ * own workbook for the tag with `replace`, which HQ reads as another table
+ * (`fixtures/upload/run_upload.py::table_key`) and would make again, so the
+ * property, the attributes, the owners and the description would be gone.
+ * Nova's preflight reads the property and the attribute from HQ's definition
+ * list and stops the republish before it sends anything
+ * (`hq_table_content_unsupported`, defect 5), so no B exists and HQ's table
+ * stays as the person left it (`proof/checks/test_hq_side.py`).
  *
  * The table has a document of its own, apart from the other saves a person
  * makes in HQ (`./hqSideState.ts`), because its republish is the one Nova
- * stops once defect 5 is fixed, and the other saves' symptoms need a
- * republish that lands. Until then the republish goes through after the
- * discard a person would confirm (`republish: "discards"`).
+ * stops, and the other saves' symptoms need a republish that lands.
  *
  * Fixed values: the form holds the note the worker enters (`./echo.ts`), over
  * a restore holding the district table as HQ serves it, which the form's
@@ -137,7 +137,8 @@ export function hqSideLookup() {
 				},
 				description: "The districts the health team visits",
 			},
-			republish: "discards",
+			republish: "stops",
+			stopCode: "hq_table_content_unsupported",
 		},
 	});
 }

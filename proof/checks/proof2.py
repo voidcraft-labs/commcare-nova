@@ -51,14 +51,15 @@ def parsed_build(outcome, rules=None):
 
 
 def build_equivalence(document, observed, rules=None):
-    """Every difference between ``build(A)`` and the build of B aligned to A.
+    """Every difference between ``build(A)`` and the build of B aligned to A: none where HQ refused B or Nova
+    stopped it before it sent anything.
 
     ``rules`` are the spelling rules applied (the registered set when None);
     the observation compares the raw builds (``()``) to decide whether B's
     sessions run, and the judge compares after the registered rules.
     """
     if observed.a is None or observed.b is None or observed.b_aligned is None:
-        refused = {refusal.state for refusal in observed.refusals}
+        refused = {refusal.state for refusal in observed.refusals} | observed.stopped
         missing = [name for name, held in (("A", observed.a), ("B", observed.b)) if held is None] or ["B-aligned"]
         if any(name in refused for name in missing):
             return []

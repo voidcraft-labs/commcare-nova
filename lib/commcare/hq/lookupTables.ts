@@ -319,6 +319,17 @@ export async function readHqLookupTableRows(
 	return { totalCount, rows };
 }
 
+/**
+ * Whether a `Content-Type` header names a media type other than JSON. An
+ * answer with no `Content-Type` names none, so its body is read for a
+ * verdict and an unreadable one stays an answer that may have landed.
+ */
+function namesNonJsonMediaType(header: string | null): boolean {
+	if (header === null) return false;
+	const mediaType = header.split(";", 1)[0]?.trim().toLowerCase();
+	return mediaType !== "application/json";
+}
+
 /** What CommCare HQ said about a workbook it accepted. */
 export interface FixtureUploadResult {
 	readonly success: true;
@@ -381,7 +392,23 @@ export interface FixtureUploadRefusal extends CommCareApiError {
 	 * nothing and meet its own tables as a stranger's next publish.
 	 */
 	readonly mayHaveLanded: boolean;
+	/**
+	 * True when CommCare HQ answered with its "Upgrade Required" page: the
+	 * project space's plan has no Lookup Tables, so the plan check in front
+	 * of the view (`fixtures/dispatcher.py::require_can_edit_fixtures`
+	 * through `accounting/decorators.py::requires_privilege_with_fallback`)
+	 * turned the upload away before anything was written. False on every
+	 * other refusal.
+	 */
+	readonly upgradeRequired: boolean;
 }
+
+/**
+ * The status this adapter reports for the plan page. HQ sends that page as
+ * 200, so the status is Nova's own choice for the arm; it is not 402, which
+ * the deployment reads as HQ's "took only part" verdict.
+ */
+export const FIXTURE_UPLOAD_UPGRADE_REQUIRED_STATUS = 426;
 
 /**
  * Replace the project space's copy of every table in the workbook.
@@ -409,7 +436,12 @@ export async function uploadLookupTableWorkbook(
 	options: { readonly replace: boolean },
 ): Promise<FixtureUploadResult | FixtureUploadRefusal> {
 	if (!isValidDomainSlug(domain))
-		return { ...INVALID_DOMAIN_SLUG, message: "", mayHaveLanded: false };
+		return {
+			...INVALID_DOMAIN_SLUG,
+			message: "",
+			mayHaveLanded: false,
+			upgradeRequired: false,
+		};
 
 	const form = new FormData();
 	/* First, so the workbook's own bytes start past the WAF's body
@@ -442,7 +474,13 @@ export async function uploadLookupTableWorkbook(
 			});
 			/* The request went out and no answer came back, so what CommCare HQ
 			 * did with the workbook is unknown. */
-			return { success: false, status: 503, message: "", mayHaveLanded: true };
+			return {
+				success: false,
+				status: 503,
+				message: "",
+				mayHaveLanded: true,
+				upgradeRequired: false,
+			};
 		}
 		if (!res.ok) {
 			/* No verdict body, so no sentence to keep. Whether anything landed
@@ -459,6 +497,25 @@ export async function uploadLookupTableWorkbook(
 				...refusal,
 				message: "",
 				mayHaveLanded: writeMayHaveLanded(res.status, refusal.edgeRefusal),
+				upgradeRequired: false,
+			};
+		}
+		/* The upload view answers JSON on every path, its verdict in the
+		 * body's `code` (`fixtures/views.py::upload_fixture_api` returns a
+		 * `JsonResponse`). The one OK answer that is not JSON is the plan
+		 * page the privilege check serves before the view runs, so nothing
+		 * was written. */
+		if (namesNonJsonMediaType(res.headers.get("content-type"))) {
+			await res.body?.cancel();
+			log.warn("[commcare] lookup table upload needs a plan upgrade", {
+				domain,
+			});
+			return {
+				success: false,
+				status: FIXTURE_UPLOAD_UPGRADE_REQUIRED_STATUS,
+				message: "",
+				mayHaveLanded: false,
+				upgradeRequired: true,
 			};
 		}
 		let body: unknown;
@@ -475,6 +532,7 @@ export async function uploadLookupTableWorkbook(
 				status: signal.aborted ? 503 : 502,
 				message: "",
 				mayHaveLanded: true,
+				upgradeRequired: false,
 			};
 		}
 		if (
@@ -488,13 +546,15 @@ export async function uploadLookupTableWorkbook(
 				undefined,
 				{ domain },
 			);
-			// Only HQ's explicit pre-write format refusal proves nothing landed.
-			// An unknown verdict cannot authorize dropping the ownership evidence.
+			// Only HQ's explicit pre-write format refusal and its plan page prove
+			// nothing landed. An unknown verdict cannot authorize dropping the
+			// ownership evidence.
 			return {
 				success: false,
 				status: 502,
 				message: "",
 				mayHaveLanded: true,
+				upgradeRequired: false,
 			};
 		}
 		const message = typeof body.message === "string" ? body.message : "";
@@ -513,6 +573,7 @@ export async function uploadLookupTableWorkbook(
 				status: typeof body.code === "number" ? body.code : 502,
 				message,
 				mayHaveLanded: body.code === FIXTURE_UPLOAD_PARTIAL_CODE,
+				upgradeRequired: false,
 			};
 		}
 		return { success: true, message };

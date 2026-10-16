@@ -13,11 +13,9 @@
 //   - CommCare Web Apps renders it as a real question
 //     (`entries.js::DocumentEntry`), accepting
 //     `.pdf,.xlsx,.docx,.html,.txt,.rtf,.msg`.
-//   - CommCare Android has no handling for it at all —
-//     `CONTROL_DOCUMENT_UPLOAD` appears nowhere in that client, so
-//     `WidgetFactory::createWidgetFromPrompt` falls through to
-//     `StringWidget`. A worker types free text into a `binary` node and
-//     that string submits.
+//   - CommCare Android draws it with its own document widget
+//     (`DocumentWidget`, a Choose Document button), which the lane's
+//     Android reader holds (`proof/android/predicates.py`).
 
 import tablerFileUpload from "@iconify-icons/tabler/file-upload";
 import { z } from "zod";
@@ -49,6 +47,6 @@ export const fileFieldMetadata: FieldKindMetadata<"file"> = {
 	isContainer: false,
 	carriesValidation: false,
 	saDocs:
-		"File attachment, the worker attaches a PDF, Word, Excel, HTML, RTF, text, or Outlook message file from their device. Web Apps only: on Android this renders as a plain text box.",
+		"File attachment: the worker attaches a document from their device. Web Apps takes a PDF, Word, Excel, HTML, RTF, text, or Outlook message file; the Android app opens its own document chooser.",
 	convertTargets: ["image", "audio", "video", "signature"],
 };

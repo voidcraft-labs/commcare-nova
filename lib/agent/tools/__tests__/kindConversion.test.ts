@@ -11,10 +11,9 @@
  *     consumed there, never double-applied by the patch stage;
  *   - a seedless select conversion is refused with a message naming the
  *     same-call fix, persisting nothing;
- *   - text → hidden works when the same call provides the `calculate`
- *     (or the source carries a `default_value`), and is otherwise
- *     rejected by the commit gate's `HIDDEN_NO_VALUE` — with nothing
- *     persisted either way on failure;
+ *   - text → hidden works with the same call's `calculate`, with the
+ *     source's carried `default_value`, or with neither, a hidden value
+ *     that stays blank;
  *   - the demotions (barcode → text, single_select → text) carry the
  *     survivable slots and drop the rest.
  */
@@ -262,7 +261,7 @@ describe("editField — convert to hidden", () => {
 		expect(after).not.toHaveProperty("hint");
 	});
 
-	it("gate-rejects text → hidden with neither calculate nor default_value, persisting nothing", async () => {
+	it("lands text → hidden with neither calculate nor default_value as a blank hidden value", async () => {
 		const doc = makeDoc({
 			id: "full_name",
 			kind: "text",
@@ -273,12 +272,14 @@ describe("editField — convert to hidden", () => {
 			...address(doc, "full_name"),
 			updates: { kind: "hidden" },
 		});
-		if (!("error" in result.result)) throw new Error("expected error");
-		// The commit gate's HIDDEN_NO_VALUE finding carries the fix.
-		expect(result.result.error).toMatch(/calculate|default_value/);
-		expect(h.recordMutationStages).not.toHaveBeenCalled();
-		expect(h.currentDoc()).toEqual(doc);
-		expect(h.currentDoc()).toEqual(doc);
+		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		const after = h.currentDoc().fields[soleField(doc, "full_name").uuid];
+		expect(after?.kind).toBe("hidden");
+		expect(after).not.toHaveProperty("calculate");
+		expect(after).not.toHaveProperty("default_value");
+		// It writes no case property, so there is nothing to say it saves.
+		expect(result.result).not.toHaveProperty("note");
 	});
 
 	it("lands text → hidden on a source default_value alone", async () => {

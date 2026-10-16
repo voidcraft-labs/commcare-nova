@@ -104,20 +104,16 @@ export const nullableIconSlot = <
 		.describe(description);
 
 /**
- * The four field-message slots a `Media` bundle can attach to. Mirrors
- * the `*_media` keys on the field schema bases (`label_media` /
- * `hint_media` / `help_media` / `validate_msg_media`) — the SA names the
- * slot by its message role (`label` / `hint` / `help` / `validate_msg`),
- * and the tool maps it to the `<slot>_media` key. `required` is
- * deliberately absent: CommCare's runtime parses no `jr:requiredMsg`, so
+ * The two field-message slots a `Media` bundle can attach to: the ones a
+ * CommCare runtime draws media for. Mirrors the `*_media` keys on the
+ * field schema bases (`label_media` / `help_media`) — the SA names the
+ * slot by its message role (`label` / `help`), and the tool maps it to the
+ * `<slot>_media` key. A hint, a validation message and a group's or
+ * repeat's label carry text alone (`lib/domain/fields/base.ts`). `required`
+ * is deliberately absent: CommCare's runtime parses no `jr:requiredMsg`, so
  * there is no `required_msg_media` slot to target.
  */
-export const FIELD_MEDIA_SLOTS = [
-	"label",
-	"hint",
-	"help",
-	"validate_msg",
-] as const;
+export const FIELD_MEDIA_SLOTS = ["label", "help"] as const;
 export type FieldMediaSlot = (typeof FIELD_MEDIA_SLOTS)[number];
 
 /** The `<slot>_media` field key a `FieldMediaSlot` maps to. */

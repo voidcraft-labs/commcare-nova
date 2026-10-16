@@ -61,6 +61,32 @@ export function writerPreloadsFromLoadedCase(
 }
 
 /**
+ * What a Hidden Value with no value saves, for a field that writes a case
+ * property: the one sentence the builder shows under the field's Value
+ * control and the SA and MCP tools return when a call leaves the field that
+ * way. Where the form preloads the property into the field, the case's value
+ * carries through; otherwise the field opens blank and each submission saves
+ * the property blank. Undefined for any other field: a visible field, a
+ * hidden field holding a calculation or a starting value, or one that writes
+ * no case property.
+ */
+export function hiddenWriterBlankNote(
+	field: Field,
+	module: Pick<Module, "caseType" | "caseListConfig">,
+	form: Pick<Form, "type">,
+): string | undefined {
+	if (field.kind !== "hidden") return undefined;
+	if (field.calculate !== undefined || field.default_value !== undefined) {
+		return undefined;
+	}
+	const write = fieldCaseWrite(field);
+	if (write === undefined) return undefined;
+	return writerPreloadsFromLoadedCase(field, module, form)
+		? "Opens with this case's current value and carries it through unchanged."
+		: `Has no value yet, so each submission saves ${write.property} blank.`;
+}
+
+/**
  * `writerPreloadsFromLoadedCase` over the inspector's nullable context. With
  * no context nothing is known about the form the field sits in, so nothing
  * is claimed to preload.

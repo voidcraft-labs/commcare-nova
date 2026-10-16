@@ -303,6 +303,7 @@ export async function runMigrate(
 		fleet.build,
 		fleet.holders,
 		pacer.spaceReads(),
+		baselines.unsupportedTables,
 	);
 	deploymentLines(report, fleet.build);
 	baselineLines(report, baselines);

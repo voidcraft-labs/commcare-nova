@@ -140,13 +140,16 @@ import {
 	validOnDeviceGeopointCenter,
 } from "./geopoint";
 import {
+	blankComparandGuard,
+	needsBlankComparandGuard,
+} from "./runtimeCsqlDateSafety";
+import {
 	classifySubcaseCountBound,
 	invalidNonnegativeWholeNumberXPath,
 } from "./runtimeCsqlNumericSafety";
 import { collectRuntimeCsqlStringExpressionInputNames } from "./runtimeCsqlQuoteSafety";
 import { formatNumeric, quoteLiteral } from "./stringQuoting";
 import {
-	CSQL_UNREPRESENTABLE_RUNTIME_STRING,
 	emitCsqlPropertyRefSegment,
 	emitCsqlPropertyRefText,
 	emitSearchInputXPath,
@@ -384,10 +387,11 @@ function emitPresenceGatedClause(
  *      Restructures into the flat quote cascade (see
  *      `buildQuoteCascade`) so the delimiter choice reads top-down
  *      instead of nesting a second `concat(...)` inside the first.
- *   3. **General** — the `concat(...)` of all segments, wrapped in the
- *      fail-closed guards: quote obligations replace the whole clause
- *      with the invalid sentinel, typed obligations (numeric shape,
- *      geopoint) replace it with `'match-none()'`.
+ *   3. **General** — the `concat(...)` of all segments, wrapped in one
+ *      fail-closed guard: while any obligation holds (a value mixing both
+ *      quote marks, a malformed number or geopoint, a blank comparand),
+ *      the whole clause is `'match-none()'`, the one fail-closed value in
+ *      HQ's CSQL vocabulary.
  *
  * The wrap layer is the single merge point for adjacent constant
  * segments; per-arm emitters produce raw segment lists without
@@ -410,22 +414,10 @@ function wrapClause(segments: readonly CsqlSegment[]): CsqlEmissionResult {
 	const { query, runtimeRejections } = buildConcatExpression(merged);
 	if (runtimeRejections.length === 0) return { wrapper: query };
 
-	const quoteCondition = runtimeRejections
-		.filter(({ kind }) => kind === "quote")
+	const condition = runtimeRejections
 		.map(({ condition }) => `(${condition})`)
 		.join(" or ");
-	const typedCondition = runtimeRejections
-		.filter(({ kind }) => kind !== "quote")
-		.map(({ condition }) => `(${condition})`)
-		.join(" or ");
-	const typedSafeQuery =
-		typedCondition === ""
-			? query
-			: `if(${typedCondition}, 'match-none()', ${query})`;
-	const wrapper =
-		quoteCondition === ""
-			? typedSafeQuery
-			: `if(${quoteCondition}, '${CSQL_UNREPRESENTABLE_RUNTIME_STRING}', ${typedSafeQuery})`;
+	const wrapper = `if(${condition}, 'match-none()', ${query})`;
 	return { wrapper, runtimeRejections };
 }
 
@@ -445,14 +437,15 @@ function renderCsqlStringExpression(args: readonly string[]): string {
  * delimiter-chosen string value into the flat quote cascade:
  *
  *   `if(contains(v, '"'),
- *       if(contains(v, "'"), '<sentinel>', concat("…'", v, "'…")),
+ *       if(contains(v, "'"), 'match-none()', concat("…'", v, "'…")),
  *       concat('…"', v, '"…'))`
  *
  * Reading top-down: a value with no double quote takes CCHQ's
  * documented double-quoted scalar form; a value with a double quote
  * flips to single-quote delimiters; a value with both is
  * unrepresentable (`eulxml/xpath/lexrules.py::t_LITERAL` admits no
- * escape) and the whole clause becomes the invalid sentinel. The
+ * escape) and the whole clause becomes `'match-none()'`, so no runtime
+ * byte reaches the CSQL grammar and the search finds nothing. The
  * emitted CSQL bytes for a valid value are identical to the general
  * path's — only the on-device expression shape changes, from a
  * delimiter-`if` nested inside a `concat(...)` argument to one flat
@@ -495,7 +488,7 @@ function buildQuoteCascade(
 		value,
 		...quoteConstantSegmentForXPath(`'${suffix}`),
 	]);
-	const wrapper = `if(contains(${value}, '"'), if(contains(${value}, "'"), '${CSQL_UNREPRESENTABLE_RUNTIME_STRING}', ${singleArm}), ${doubleArm})`;
+	const wrapper = `if(contains(${value}, '"'), if(contains(${value}, "'"), 'match-none()', ${singleArm}), ${doubleArm})`;
 	const runtimeRejections: RuntimeCsqlRejection[] = [
 		{
 			condition: seg.rejectWhen,
@@ -517,8 +510,8 @@ function buildQuoteCascade(
  * one branch of an on-device `if`, while its quote guards must keep travelling
  * outward so the clause's outermost wrapper can reject the complete query. If
  * we consumed the guards inside that branch, a dangerous value could produce
- * the invalid sentinel only as a nested `not(...)` / OR operand rather than as
- * the whole `_xpath_query` value.
+ * `match-none()` only as a nested `not(...)` / OR operand, where it would
+ * broaden the search, rather than as the whole `_xpath_query` value.
  *
  * The rendered query is the shortest correct expression: a constant-only
  * segment list renders as a bare XPath string literal, anything else as
@@ -751,7 +744,14 @@ function emitComparisonSegments(
 		? emitSubcaseCountBoundSegments(p.right, typeContext)
 		: emitOperandSegments(p.right, "value", typeContext);
 	const op = COMPARISON_OPS[p.kind];
-	return [...leftSegs, { kind: "constant", text: ` ${op} ` }, ...rightSegs];
+	return [
+		...leftSegs,
+		{ kind: "constant", text: ` ${op} ` },
+		...rightSegs,
+		...(needsBlankComparandGuard(p.left, p.kind)
+			? blankComparandGuard([rightSegs])
+			: []),
+	];
 }
 
 function isSubcaseCountAnchor(expression: ValueExpression): boolean {
@@ -1044,6 +1044,11 @@ function emitBetweenSegments(
 				? emitSubcaseCountBoundSegments(p.upper)
 				: emitOperandSegments(p.upper, "value", typeContext)
 			: undefined;
+	// A range is two orderings, so a blank runtime bound is guarded on any
+	// property (`runtimeCsqlDateSafety.ts`).
+	const guard = needsBlankComparandGuard(p.left, "gte")
+		? blankComparandGuard([lowerSegs ?? [], upperSegs ?? []])
+		: [];
 	if (lowerSegs !== undefined && upperSegs !== undefined) {
 		// Wrap the conjunction in parens unconditionally so a parent
 		// `or` cannot re-associate the chain. Wrapping at every
@@ -1060,13 +1065,24 @@ function emitBetweenSegments(
 			{ kind: "constant", text: ` ${upperOp} ` },
 			...upperSegs,
 			{ kind: "constant", text: ")" },
+			...guard,
 		];
 	}
 	if (lowerSegs !== undefined) {
-		return [...left, { kind: "constant", text: ` ${lowerOp} ` }, ...lowerSegs];
+		return [
+			...left,
+			{ kind: "constant", text: ` ${lowerOp} ` },
+			...lowerSegs,
+			...guard,
+		];
 	}
 	if (upperSegs !== undefined) {
-		return [...left, { kind: "constant", text: ` ${upperOp} ` }, ...upperSegs];
+		return [
+			...left,
+			{ kind: "constant", text: ` ${upperOp} ` },
+			...upperSegs,
+			...guard,
+		];
 	}
 	// Schema's `.refine()` rejects the both-bounds-absent shape;
 	// keep the branch defensive in case a pre-validated AST reaches

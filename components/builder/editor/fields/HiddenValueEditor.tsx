@@ -10,17 +10,17 @@
  * switch, or a clear is one undo entry and one gate evaluation, and the
  * document can never hold both slots at once.
  *
- * Keep in step always holds an authored calculation, never the inert
- * placeholder (see the model's header for why). So choosing it with nothing
- * to carry is a local state, not a write: the control shows Keep in step
- * with the editor open and commits only the calculation someone types;
+ * Keep in step always holds an authored calculation. So choosing it with
+ * nothing to carry is a local state, not a write: the control shows Keep in
+ * step with the editor open and commits only the calculation someone types;
  * closing the editor empty leaves the field as it was. A hidden field that
- * holds only the placeholder (a fresh insertion, a conversion that carried
- * nothing) shows Keep in step at rest for the same reason, because most
- * hidden values track other answers, so the person types straight into the
- * mode they most likely want while the document holds the harmless set-once
- * placeholder until they do. The one exception is a preloaded writer, where
- * set once is a real fact worth showing.
+ * holds neither slot (a fresh insertion, a conversion that carried nothing)
+ * shows Keep in step at rest, because most hidden values track other
+ * answers, so the person types straight into the mode they most likely want.
+ * The one exception is a preloaded writer, where set once is a real fact
+ * worth showing. Under the switch, a field with no value that writes a case
+ * property says what each submission saves (`hiddenWriterBlankNote`) while
+ * no other value is being chosen.
  *
  * On a one-case followup form where the field writes the loaded case's own
  * type, set once shows the preloaded-value row instead of an editor: the
@@ -56,6 +56,7 @@ import {
 import {
 	type CommitOutcome,
 	type HiddenField,
+	hiddenWriterBlankNote,
 	writerPreloadsInContext,
 } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
@@ -70,7 +71,6 @@ import {
 	hiddenValueModeHint,
 	hiddenValueModeSwitch,
 	hiddenValueSavePatch,
-	isInertHiddenValue,
 } from "./hiddenValueModel";
 import { PreloadedValueRow } from "./PreloadedValueRow";
 
@@ -83,11 +83,16 @@ export function HiddenValueEditor({
 	autoFocus,
 }: FieldEditorComponentProps<HiddenField, "calculate">) {
 	const storedMode = activeHiddenValueMode(field);
-	const preloads = writerPreloadsInContext(field, useSelectedFormContext());
+	const formContext = useSelectedFormContext();
+	const preloads = writerPreloadsInContext(field, formContext);
+	const blankNote =
+		formContext === null
+			? undefined
+			: hiddenWriterBlankNote(field, formContext.module, formContext.form);
 	/* Whether the control shows keep in step over a set-once document. An
 	 * explicit choice is remembered per field (the instance is reused across
 	 * selections) and opens the editor; with no choice made, a field holding
-	 * only the inert placeholder shows keep in step at rest, except a
+	 * neither slot shows keep in step at rest, except a
 	 * preloaded writer, where set once is the truth worth showing (the
 	 * case's value carries through). */
 	const [awaitingChoice, setAwaitingChoice] = useState<{
@@ -98,7 +103,7 @@ export function HiddenValueEditor({
 		awaitingChoice?.uuid === field.uuid ? awaitingChoice.awaiting : undefined;
 	const awaitingCalculation =
 		storedMode === "default_value" &&
-		(chosen ?? (isInertHiddenValue(field.default_value) && !preloads));
+		(chosen ?? (field.default_value === undefined && !preloads));
 	const mode: HiddenValueMode = awaitingCalculation ? "calculate" : storedMode;
 	const expression = mode === storedMode ? field[storedMode] : undefined;
 	const projection = useXPathProjection(expression);
@@ -165,15 +170,10 @@ export function HiddenValueEditor({
 		[dispatch, field],
 	);
 
-	/* The inert placeholder a builder-born field carries is not an authored
-	 * expression, so the preloaded row treats it as nothing stored. */
+	/* The preloaded row shows any stored default. */
 	const showsPreloadedRow = mode === "default_value" && preloads;
 	const stored =
-		showsPreloadedRow &&
-		expression !== undefined &&
-		!isInertHiddenValue(expression)
-			? projection
-			: undefined;
+		showsPreloadedRow && expression !== undefined ? projection : undefined;
 
 	return (
 		<div className="space-y-2">
@@ -199,7 +199,14 @@ export function HiddenValueEditor({
 					onChange={switchMode}
 				/>
 			</div>
-			<InspectorHint>{hiddenValueModeHint(mode, preloads)}</InspectorHint>
+			<InspectorHint>
+				{hiddenValueModeHint(
+					mode,
+					preloads,
+					blankNote,
+					editing || chosen === true,
+				)}
+			</InspectorHint>
 			{showsPreloadedRow ? (
 				<PreloadedValueRow
 					keyName="default_value"

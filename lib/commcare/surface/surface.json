@@ -1714,11 +1714,10 @@
 			"authored": true,
 			"hq": "refused: build_filter_from_ast raises \"'search-value-mixes-quote-marks' is not a valid standalone function\"",
 			"kind": "nova-fail-closed",
-			"novaWrites": "the whole CSQL string `search-value-mixes-quote-marks()`, for a free-text input whose value holds both quote marks",
+			"novaWrites": "exports before step 2 wrote the whole CSQL string `search-value-mixes-quote-marks()`, for a free-text input whose value holds both quote marks",
 			"source": [
 				"commcare-core/src/main/java/org/commcare/session/RemoteQuerySessionManager.java::RemoteQuerySessionManager.getRawQueryParams",
 				"commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast",
-				"commcare-nova/lib/commcare/predicate/termEmitter.ts::CSQL_UNREPRESENTABLE_RUNTIME_STRING",
 				"formplayer/src/main/java/org/commcare/formplayer/services/MenuSessionRunnerService.java::MenuSessionRunnerService.doQuery"
 			],
 			"webApps": "sent only on a default search: doQuery runs a search the person starts only when its prompts validate, and a default search whatever their errors (isDefaultSearch || screen.getErrors().isEmpty()), its hidden values evaluated over the prompts' answers (getRawQueryParams); HQ then refuses it"

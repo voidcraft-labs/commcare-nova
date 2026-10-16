@@ -12,10 +12,11 @@ seed → create(D) [shell, lookup upload, content] → media(D) → HQ-side save
   → A's restore for proof 3 (in a fork) → the intent hook at A
   → sensitivity: build(A | each gate HQ read, flipped), each in a fork
   b:         restore@A → republish(D) → media(D) → build(B | saved(build(A))) → admit → identities
+             (a republish Nova stopped sends nothing: the record holds the stop, and no B is observed)
                 → mark@B → the intent hook at B → proof4.observe_b → restore@B
   b_aligned: (at mark@B) B aligned to A → build(B-aligned | saved(build(A)))
                 → proof 3's sessions (local archive and A; B where the raw builds differ)
-             (at mark@A where HQ refused B: the local archive's and A's sessions alone)
+             (at mark@A where HQ refused B or Nova stopped it: the local archive's and A's sessions alone)
   b_edit:    restore@A → update(D′) → media(D′) → build(B-edit | saved(build(A))) → admit → identities
                 → mark@B-edit → the intent hook at B-edit → proof4.observe_b → restore@B-edit
 local: Core's admission of local.ccz, local-again.ccz and edit/local.ccz → the intent and manifest local hooks
@@ -235,7 +236,11 @@ def input_files(document):
     for name in sorted(document.exports):
         part = {
             "a": {**shared, **_first_publish(root, f"export/{name}"), **privileges},
-            "b": _request(root, f"export/{name}", "republish"),
+            "b": (
+                {"outcome.json": f"export/{name}/outcome.json"}
+                if document.exports[name].republish_stopped is not None
+                else _request(root, f"export/{name}", "republish")
+            ),
         }
         if edited and (root / f"edit/export/{name}/update.json").exists():
             part["b_edit"] = {
@@ -848,14 +853,20 @@ class _Unit:
         media = None if refusal is not None else self.upload_media(ops, captured)
         return _publish_record(refusal, lookups, media)
 
-    def observe_b(self, part, captured, name):
+    def observe_b(self, part, captured, name, stopped=None):
         """B (``captured`` the republish) or B-edit (the update) over A, as the ``b`` or ``b_edit`` record.
 
         Both take the same steps (publish, build, then the hooks and proof 4
         from the mark right after the build), so a B-edit with B's inputs is
-        observed as B is. The unit is left at that mark (``mark_b``).
+        observed as B is. The unit is left at that mark (``mark_b``). A
+        republish Nova stopped (``stopped``, its failure code) sent nothing, so
+        no B is observed: the record holds the stop, as a refused B holds no
+        state.
         """
         ops = self.ops(part)
+        if captured is None:
+            self.b_built = self.mark_b = None
+            return ops.recorded({"kind": "b", "stopped": stopped})
         record = {"kind": "b", "publish": self.publish_over_a(ops, captured, name)}
         self.b_built = self.mark_b = None
         if record["publish"]["refused"] is None:
@@ -875,9 +886,11 @@ class _Unit:
     def recreate_b(self, b_record, captured):
         """B as the ``b`` record's operations made it (republish, its media, build), for a ``b_aligned`` the store
         lacks."""
+        self.b_built = self.mark_b = None
+        if captured is None:
+            return
         ops = self.ops("recreate")
         refused = self.publish_over_a(ops, captured, "B")["refused"]
-        self.b_built = self.mark_b = None
         if refused is None and b_record.get("state") is not None:
             built, _, _ = _build(self.unit, ops, self.core_runner, self.app_id, "B", self.saved_a, keep=False)
             held = _built_from(b_record["state"], self.blobs, "B")
@@ -1124,7 +1137,7 @@ def observe_configuration(
                 state.recreate_a(records.a)
         if state.app_id is not None:
             if "b" in wanted:
-                settled("b", lambda: state.observe_b("b", export.republish, "B"))
+                settled("b", lambda: state.observe_b("b", export.republish, "B", export.republish_stopped))
             elif "b_aligned" in wanted:
                 with guard.observing(document, name, "b", hooks):
                     state.recreate_b(records.b, export.republish)

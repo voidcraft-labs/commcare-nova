@@ -76,6 +76,41 @@ beforeEach(() => {
 });
 
 describe("resolveAttachments", () => {
+	it("sends a BMP as a placeholder, never as an image the model is handed", async () => {
+		vi.mocked(loadAssetsByIds).mockResolvedValue([
+			asset({
+				id: IMAGE,
+				kind: "image",
+				mimeType: "image/bmp",
+				extension: ".bmp",
+				originalFilename: "map.bmp",
+				gcsObjectKey: "projects/shared-project/map.bmp",
+			}),
+		]);
+		const [resolved] = await resolveAttachments(
+			[
+				userMsg(
+					"u",
+					ref({
+						assetId: IMAGE,
+						kind: "image",
+						filename: "map.bmp",
+						mimeType: "image/bmp",
+					}),
+				),
+			],
+			"shared-project",
+			condenser,
+		);
+		expect(resolved.parts.slice(1)).toEqual([
+			{
+				type: "text",
+				text: "<<Attachment map.bmp is a BMP image, which the assistant can't read yet. A PNG or JPEG of it works.>>",
+			},
+		]);
+		expect(downloadAssetBytes).not.toHaveBeenCalled();
+	});
+
 	it("propagates stopped or unauthorized embedded preparation instead of continuing with a placeholder", async () => {
 		const stopped = new Error("This run no longer owns its conversation.");
 		const prepare = vi.fn(async () => {

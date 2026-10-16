@@ -19,9 +19,8 @@
  *     travel together so the IDE / UI can deep-link to the carrier.
  *   - `bundleKeyLabel(bundleKey)` — names which message-slot a
  *     `field_media_bundle` reference attaches to, in the user's
- *     vocabulary ("label" / "hint" / "help text" / "validation
- *     message"). Avoids leaking the snake_case schema key into the
- *     error sentence.
+ *     vocabulary ("label" / "help text"). Avoids leaking the
+ *     snake_case schema key into the error sentence.
  *   - `navigabilityDetailsFor(location)` — extra `details` keys the
  *     `ValidationLocation` shape can't carry. For image-map mapping
  *     refs, surfaces `columnUuid` + `rowIndex` so the UI can deep-link
@@ -42,9 +41,7 @@ import type { ValidationError, ValidationLocation } from "../../errors";
  */
 const FIELD_BUNDLE_LABELS: Record<FieldMediaBundleKey, string> = {
 	label_media: "label",
-	hint_media: "hint",
 	help_media: "help-text",
-	validate_msg_media: "validation-message",
 };
 
 /**

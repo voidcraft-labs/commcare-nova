@@ -192,6 +192,12 @@ export interface SearchInputEditorProps {
 export const SEARCH_INPUT_CHECK_SEED_MESSAGE =
 	"Check this answer and try again";
 
+/** What a free-text answer holding both quote marks does on Android: the
+ *  search it sends finds nothing (`lib/commcare/predicate/csqlEmitter.ts`,
+ *  the quote cascade's closed arm). */
+const FREE_TEXT_QUOTE_MARKS_HINT =
+	"On Android, an answer that holds both ' and \" finds nothing.";
+
 /** Where a simple row's property lives: this case, the parent case,
  *  or a non-canonical relation walk authored elsewhere (chat, MCP). */
 type BindingScope = "self" | "parent" | "custom";
@@ -780,9 +786,11 @@ function VisibleSearchInputEditor({
 				<FieldRow
 					label="Field type"
 					hint={
-						pendingChoiceType === null
-							? undefined
-							: "Choose the table the choices come from to finish this change"
+						pendingChoiceType !== null
+							? "Choose the table the choices come from to finish this change"
+							: value.type === "text"
+								? FREE_TEXT_QUOTE_MARKS_HINT
+								: undefined
 					}
 				>
 					<TypePicker

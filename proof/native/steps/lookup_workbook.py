@@ -2,8 +2,9 @@
 
 HQ's workbook reader (``fixtures/upload/workbook.py::get_workbook`` with its
 ``iter_tables``, ``iter_rows``, ``get_key`` and ``ownership``) reads Nova's
-three workbooks: the corpus (``lookup.xlsx``), a 50-column table
-(``columns.xlsx``) and the padding counterexample (``padding.xlsx``). What it
+four workbooks: the corpus (``lookup.xlsx``), a 50-column table
+(``columns.xlsx``), a table whose tag holds 32 characters
+(``long-tag.xlsx``) and the padding counterexample (``padding.xlsx``). What it
 read is returned for the test to compare with the producer's
 ``expected.json`` and the fixture XML Nova emits. HQ then regenerates the two
 lookup forms (``lookup-app.hq.xml``, ``lookup-reversed.hq.xml``).
@@ -41,8 +42,9 @@ def lookups(session):
     with native_check(DOMAIN):
         corpus = _read(exports / "lookup.xlsx")
         wide = _read(exports / "columns.xlsx")
+        long_tag = _read(exports / "long-tag.xlsx")
         padding = _read(exports / "padding.xlsx")
         for name in ["lookup-app", "lookup-reversed"]:
             app = import_source((exports / f"{name}.json").read_bytes(), DOMAIN)
             (exports / f"{name}.hq.xml").write_bytes(regenerate_form(app.get_module(0).get_form(0), DOMAIN))
-    return {"corpus": corpus, "wide": wide, "padding": padding}
+    return {"corpus": corpus, "wide": wide, "longTag": long_tag, "padding": padding}

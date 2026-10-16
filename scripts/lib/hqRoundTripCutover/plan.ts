@@ -23,6 +23,7 @@ import { type Kysely, sql, type Transaction } from "kysely";
 import { buildCaseTypeMap } from "@/lib/case-store/store";
 import { formLinkProjectionContext } from "@/lib/commcare/formLinkProjection";
 import { isCommCareServer } from "@/lib/commcare/servers";
+import type { ValidationError } from "@/lib/commcare/validator/errors";
 import { sourceBlockCaseWrites } from "@/lib/commcare/xform/sourceCaseWrites";
 import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
 import type { PersistedEntityRowText } from "@/lib/db/persistedJson";
@@ -30,6 +31,10 @@ import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import type { AppDatabase } from "@/lib/db/pg";
 import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
 import { plannedPlacesFor } from "@/lib/deployment/locationResourcePlan";
+import {
+	type RemoteLookupTable,
+	unsupportedLookupContent,
+} from "@/lib/deployment/lookupResourcePlan";
 import { deploymentDisplaysAsReached } from "@/lib/deployment/stateMachine";
 import {
 	deploymentPhaseSchema,
@@ -71,6 +76,7 @@ import {
 	type PublishedMenus,
 	unreadDeploymentClass,
 } from "./hqRead";
+import { planProjectLookupTags } from "./lookupTags";
 import type { IdentityRow, MatchResult, UnpairedEntity } from "./matching";
 import { readProjectMediaManifest } from "./mediaManifest";
 import {
@@ -90,6 +96,10 @@ import {
 	readPublishedDocument,
 } from "./publishedDocument";
 import { questionPaths } from "./questionPaths";
+import {
+	type InertDefaultWrite,
+	inertDefaultCounts,
+} from "./steps/hiddenInertDefault";
 import { isRecord, rawText } from "./steps/relativePaths";
 import {
 	type DeploymentOutcome,
@@ -146,6 +156,22 @@ export interface TagRename {
 	readonly tableId: string;
 	readonly fromTag: string;
 	readonly toTag: string;
+}
+
+/**
+ * What a mapped HQ table holds that a publish would remove, as a
+ * `lookup-table-content-unsupported` line stores it: the content
+ * `lib/deployment/lookupResourcePlan.ts::unsupportedLookupContent` reads from
+ * the definition list, with a table that is not global named by its rows
+ * limited to their owners (`owned-rows`). Empty where the next publish keeps
+ * everything the list shows.
+ */
+export function unsupportedTableContent(
+	table: RemoteLookupTable,
+): readonly ("field-properties" | "row-attributes" | "owned-rows")[] {
+	return unsupportedLookupContent(table).map((held) =>
+		held === "not-global" ? "owned-rows" : held,
+	);
 }
 
 /** One `app_deployment_identities` row the matcher produced. */
@@ -276,6 +302,17 @@ export interface SourceProject {
 	/** The Project's lookup definitions, every table of it. */
 	readonly lookupContext: LookupValidationContext;
 	readonly members: readonly MemberCredential[];
+	/** The apps that reference each table (`lookup_table_references`), by table uuid, sorted. */
+	readonly lookupReferences: ReadonlyMap<string, readonly string[]>;
+	/** Each live `lookup-table` mapping of a deployment of the Project, in deployment and table order. */
+	readonly lookupMappings: readonly SourceLookupMapping[];
+}
+
+/** One live `lookup-table` mapping, by the Nova table it maps and the tag it was pushed under. */
+export interface SourceLookupMapping {
+	readonly deploymentId: string;
+	readonly tableId: string;
+	readonly pushedIdentity: string | null;
 }
 
 /** The open private work the cutover abandons. */
@@ -482,6 +519,54 @@ async function readMembers(
 	return byProject;
 }
 
+/** The apps that reference each of the Project's tables, by table uuid. */
+async function readProjectLookupReferences(
+	tx: Transaction<AppDatabase>,
+	projectId: string,
+): Promise<ReadonlyMap<string, readonly string[]>> {
+	const rows = await tx
+		.selectFrom("lookup_table_references")
+		.select(["table_id", "app_id"])
+		.where("project_id", "=", projectId)
+		.orderBy("table_id")
+		.orderBy("app_id")
+		.execute();
+	const byTable = new Map<string, string[]>();
+	for (const row of rows) {
+		const list = byTable.get(row.table_id) ?? [];
+		list.push(row.app_id);
+		byTable.set(row.table_id, list);
+	}
+	return byTable;
+}
+
+/** Each live `lookup-table` mapping of a deployment of the Project's apps. */
+async function readProjectLookupMappings(
+	tx: Transaction<AppDatabase>,
+	projectId: string,
+): Promise<readonly SourceLookupMapping[]> {
+	const rows = await sql<{
+		deployment_id: string;
+		table_id: string;
+		pushed_identity: string | null;
+	}>`
+		SELECT resource.deployment_id::text AS deployment_id,
+			resource.nova_resource_id AS table_id, resource.pushed_identity
+		FROM app_deployment_resources AS resource
+		JOIN app_deployments AS deployment ON deployment.id = resource.deployment_id
+		JOIN apps ON apps.id = deployment.app_id
+		WHERE apps.project_id = ${projectId}
+			AND resource.kind = 'lookup-table'
+			AND resource.superseded_at IS NULL
+		ORDER BY resource.deployment_id, resource.nova_resource_id
+	`.execute(tx);
+	return rows.rows.map((row) => ({
+		deploymentId: row.deployment_id,
+		tableId: row.table_id,
+		pushedIdentity: row.pushed_identity,
+	}));
+}
+
 async function readProjectLookupContext(
 	tx: Transaction<AppDatabase>,
 	projectId: string,
@@ -617,6 +702,8 @@ export async function readFleetSource(
 			projectId,
 			lookupContext: await readProjectLookupContext(tx, projectId),
 			members: members.get(projectId) ?? [],
+			lookupReferences: await readProjectLookupReferences(tx, projectId),
+			lookupMappings: await readProjectLookupMappings(tx, projectId),
 		});
 	}
 
@@ -715,6 +802,8 @@ export interface AppPlanDetail {
 	readonly stepChanges: readonly { stepId: string; changes: number }[];
 	/** Each no-write reason's count of entries for this app. */
 	readonly behaviorEntries: Readonly<Record<string, number>>;
+	/** Step `hidden-inert-default`'s removals, split by what each field writes. */
+	readonly inertDefaults: Readonly<Record<InertDefaultWrite, number>>;
 	readonly deploymentsWithoutMapping: number;
 }
 
@@ -974,6 +1063,7 @@ function judgeTarget(
 	stepBlockers: readonly StepBlocker[],
 	lookupContext: LookupValidationContext,
 	media: Awaited<ReturnType<typeof readProjectMediaManifest>> | null,
+	unrenamedTables: ReadonlySet<string> = new Set(),
 ): { blockers: CutoverBlocker[]; doc: BlueprintDoc | undefined } {
 	const parsed = blueprintDocSchema.safeParse(
 		rawDocumentAssembly(app.appId, target),
@@ -995,21 +1085,28 @@ function judgeTarget(
 	}
 	const doc = hydratePersistedBlueprint(parsed.data);
 	const blockers: CutoverBlocker[] = [];
+	/* A table the plan could not rename is its Project's own blocker, so its
+	 * reserved tag is not counted again on each app that references it. */
+	const counted = (finding: ValidationError) =>
+		!(
+			finding.code === "LOOKUP_TAG_RESERVED_BY_RUNTIME" &&
+			finding.details?.tableId !== undefined &&
+			unrenamedTables.has(finding.details.tableId)
+		);
 	const verdict = mutationCommitVerdict(doc, [], lookupContext);
-	if (!verdict.ok) {
+	const gateFindings = verdict.ok ? [] : verdict.findings.filter(counted);
+	if (gateFindings.length > 0) {
 		blockers.push({
 			code: "target-gate",
-			count: verdict.findings.length,
-			findingCodes: distinctSorted(
-				verdict.findings.map((finding) => finding.code),
-			),
+			count: gateFindings.length,
+			findingCodes: distinctSorted(gateFindings.map((finding) => finding.code)),
 		});
 	}
 	const notExportable = exportReadinessFindings(
 		doc,
 		lookupContext,
 		media ?? new Map(),
-	);
+	).filter(counted);
 	if (notExportable.length > 0) {
 		blockers.push({
 			code: "target-export-readiness",
@@ -1047,6 +1144,9 @@ export async function buildCutoverPlan(
 	const deploymentDetails: DeploymentPlanDetail[] = [];
 	const lookupContexts = new Map<string, LookupValidationContext>();
 	const appPlans = new Map<string, AppPlan>();
+	const lookupTagRenames: TagRename[] = [];
+	const projectBlockers: ProjectBlocker[] = [];
+	const renamedTablesByApp = new Map<string, DocumentChange[]>();
 
 	// The published documents are read on the plan's transaction, one after
 	// another; the HQ reads then run together, paced per project space, and
@@ -1129,10 +1229,47 @@ export async function buildCutoverPlan(
 		const projectApps = source.apps.filter(
 			(app) => app.projectId === project.projectId,
 		);
-		// No tag rename is planned yet, so the context the gate judges against
-		// is the Project's definitions as they stand.
-		const lookupContext = project.lookupContext;
+		// The Project's tag renames come first: every app is judged against the
+		// definitions the writer leaves, each renamed table under its new tag.
+		const tagPlan = planProjectLookupTags(project.lookupContext);
+		const lookupContext = tagPlan.context;
 		lookupContexts.set(project.projectId, lookupContext);
+		const unrenamedTables = new Set(
+			tagPlan.blockers.map((blocker) => blocker.tableId),
+		);
+		const tableNames = new Map(
+			project.lookupContext.kind === "available"
+				? project.lookupContext.definitions.map(
+						(table) => [table.id as string, table.name] as const,
+					)
+				: [],
+		);
+		for (const rename of tagPlan.renames) {
+			lookupTagRenames.push({ projectId: project.projectId, ...rename });
+			for (const appId of project.lookupReferences.get(rename.tableId) ?? []) {
+				const list = renamedTablesByApp.get(appId) ?? [];
+				list.push({
+					reason: "lookup-tag-renamed",
+					entity: {
+						type: "lookupTable",
+						uuid: asUuid(rename.tableId),
+						nameAtMigration: tableNames.get(rename.tableId) ?? rename.fromTag,
+					},
+					detail: { from: rename.fromTag, to: rename.toTag },
+				});
+				renamedTablesByApp.set(appId, list);
+			}
+		}
+		for (const blocker of tagPlan.blockers) {
+			projectBlockers.push({
+				projectId: project.projectId,
+				tableId: blocker.tableId,
+				code: blocker.code,
+				referencingAppIds: [
+					...(project.lookupReferences.get(blocker.tableId) ?? []),
+				],
+			});
+		}
 		const lookupColumnTypes = lookupColumnTypesOf(lookupContext);
 
 		const transformed = [];
@@ -1178,6 +1315,7 @@ export async function buildCutoverPlan(
 				result.blockers,
 				lookupContext,
 				media,
+				unrenamedTables,
 			);
 			const withoutPushedRevision = app.deployments.filter(
 				(deployment) => deployment.pushedRevision === null,
@@ -1219,6 +1357,7 @@ export async function buildCutoverPlan(
 					changes: step.changes.length,
 				})),
 				behaviorEntries,
+				inertDefaults: inertDefaultCounts(app.raw),
 				deploymentsWithoutMapping: app.deploymentsWithoutMapping,
 			});
 			appPlans.set(app.appId, {
@@ -1230,6 +1369,7 @@ export async function buildCutoverPlan(
 				blockers,
 				changes: [
 					...result.changes,
+					...(renamedTablesByApp.get(app.appId) ?? []),
 					...behavior,
 					...cczNeedsProjectSpace({
 						appName: result.target.appName,
@@ -1287,8 +1427,8 @@ export async function buildCutoverPlan(
 	const unsigned = {
 		format: PLAN_FORMAT,
 		apps,
-		lookupTagRenames: [],
-		projectBlockers: [],
+		lookupTagRenames,
+		projectBlockers,
 	} satisfies Omit<CutoverPlan, "digest">;
 	return {
 		plan: { ...unsigned, digest: cutoverPlanDigest(unsigned) },
@@ -1348,6 +1488,7 @@ export async function blockerDetails(
 	exportReadiness: { code: string; where: string; message: string }[];
 	caseSchemas: string[];
 	content: ContentBlockerPlace[];
+	lookupTags: LookupTagDetail[];
 }> {
 	const app = source.apps.find((candidate) => candidate.appId === appId);
 	const target = build.targets.get(appId);
@@ -1368,6 +1509,7 @@ export async function blockerDetails(
 			exportReadiness: [],
 			caseSchemas: [],
 			content: contentBlockerPlaces(target.raw, undefined, stepBlockers),
+			lookupTags: lookupTagDetails(source, build, app),
 		};
 	}
 	const doc = hydratePersistedBlueprint(parsed.data);
@@ -1403,7 +1545,61 @@ export async function blockerDetails(
 			})
 			.sort(),
 		content: contentBlockerPlaces(target.raw, doc, stepBlockers),
+		lookupTags: lookupTagDetails(source, build, app),
 	};
+}
+
+/**
+ * A table one app references that the cutover renames, or cannot rename,
+ * with its tags: authored text that `--debug-details` prints for that app
+ * alone.
+ */
+export interface LookupTagDetail {
+	readonly tableId: string;
+	readonly fromTag: string;
+	/** Null where the plan could not rename it. */
+	readonly toTag: string | null;
+	readonly blocker: ProjectBlocker["code"] | null;
+}
+
+function lookupTagDetails(
+	source: FleetSource,
+	build: CutoverPlanBuild,
+	app: SourceApp,
+): LookupTagDetail[] {
+	const project = source.projects.get(app.projectId);
+	if (project === undefined) return [];
+	const references = (tableId: string) =>
+		project.lookupReferences.get(tableId)?.includes(app.appId) === true;
+	const storedTag = (tableId: string) =>
+		project.lookupContext.kind === "available"
+			? (project.lookupContext.definitions.find((table) => table.id === tableId)
+					?.tag ?? "")
+			: "";
+	return [
+		...build.plan.lookupTagRenames
+			.filter(
+				(rename) =>
+					rename.projectId === app.projectId && references(rename.tableId),
+			)
+			.map((rename) => ({
+				tableId: rename.tableId,
+				fromTag: rename.fromTag,
+				toTag: rename.toTag,
+				blocker: null,
+			})),
+		...build.plan.projectBlockers
+			.filter(
+				(blocker) =>
+					blocker.projectId === app.projectId && references(blocker.tableId),
+			)
+			.map((blocker) => ({
+				tableId: blocker.tableId,
+				fromTag: storedTag(blocker.tableId),
+				toTag: null,
+				blocker: blocker.code,
+			})),
+	];
 }
 
 /** Everything one run reads before it decides, from one snapshot. */

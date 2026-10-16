@@ -229,6 +229,9 @@ it("transmits actual workbook bytes and explicit replacement policy in an authen
 					return {
 						statusCode: 200,
 						data: JSON.stringify({ code: 200, message: "Table(s) uploaded." }),
+						responseOptions: {
+							headers: { "content-type": "application/json" },
+						},
 					};
 				});
 			expect(
@@ -262,6 +265,7 @@ it("distinguishes format rejection from partial acceptance and treats unrecogniz
 				status: 405,
 				message: "Please fix the formatting",
 				mayHaveLanded: false,
+				upgradeRequired: false,
 			},
 		},
 		{
@@ -271,6 +275,7 @@ it("distinguishes format rejection from partial acceptance and treats unrecogniz
 				status: 402,
 				message: "Some rows were skipped",
 				mayHaveLanded: true,
+				upgradeRequired: false,
 			},
 		},
 		...[{ code: 999 }, null, [], {}, { code: "200" }].map((data) => ({
@@ -280,6 +285,7 @@ it("distinguishes format rejection from partial acceptance and treats unrecogniz
 				status: 502,
 				message: "",
 				mayHaveLanded: true,
+				upgradeRequired: false,
 			},
 		})),
 	];
@@ -288,7 +294,9 @@ it("distinguishes format rejection from partial acceptance and treats unrecogniz
 			peer
 				.get(HOST)
 				.intercept({ path: UPLOAD, method: "POST" })
-				.reply(200, JSON.stringify(data));
+				.reply(200, JSON.stringify(data), {
+					headers: { "content-type": "application/json" },
+				});
 		for (const { expected } of cases)
 			expect(
 				await uploadLookupTableWorkbook(CREDS, DOMAIN, bytes, {
@@ -315,10 +323,14 @@ it("preserves uncertainty after transport failure, server failure or gateway tim
 			.get(HOST)
 			.intercept({ path: UPLOAD, method: "POST" })
 			.replyWithError(new Error("connection lost"));
+		/* A body that claims JSON and does not parse says nothing about what
+		 * HQ did with the workbook. */
 		peer
 			.get(HOST)
 			.intercept({ path: UPLOAD, method: "POST" })
-			.reply(200, "<html>Sign in</html>");
+			.reply(200, "{ not json", {
+				headers: { "content-type": "application/json" },
+			});
 		for (const status of [403, 500, 504])
 			expect(
 				await uploadLookupTableWorkbook(CREDS, DOMAIN, bytes, {
@@ -330,13 +342,20 @@ it("preserves uncertainty after transport failure, server failure or gateway tim
 				edgeRefusal: status === 504,
 				message: "",
 				mayHaveLanded: status !== 403,
+				upgradeRequired: false,
 			});
 		for (const status of [503, 502])
 			expect(
 				await uploadLookupTableWorkbook(CREDS, DOMAIN, bytes, {
 					replace: true,
 				}),
-			).toEqual({ success: false, status, message: "", mayHaveLanded: true });
+			).toEqual({
+				success: false,
+				status,
+				message: "",
+				mayHaveLanded: true,
+				upgradeRequired: false,
+			});
 	});
 });
 
@@ -355,6 +374,7 @@ it("rejects unroutable domains before either HTTP operation", async () => {
 			status: 400,
 			message: "",
 			mayHaveLanded: false,
+			upgradeRequired: false,
 		});
 		expect(peer.getCallHistory()?.calls()).toEqual([]);
 	});
@@ -378,6 +398,7 @@ it("refuses an upload redirect without resending workbook bytes to another desti
 			edgeRefusal: false,
 			message: "",
 			mayHaveLanded: true,
+			upgradeRequired: false,
 		});
 		expect(
 			peer
@@ -560,4 +581,81 @@ it("refuses a failed page and any row shape HQ does not serve", async () => {
 			).toMatchObject({ success: false, status: 502 });
 		});
 	}
+});
+
+/*
+ * HQ's own answers to the workbook upload, retained by the lane under
+ * `proof/hq-reads/lookup-upload/` from its upload view: `workbook`, the
+ * answer to `targeted-hq-side-lookup`'s first-publish workbook; and the two
+ * requests that carry no workbook, `not-a-workbook` and `no-file`, which the
+ * view refuses before it writes anything.
+ */
+const LOOKUP_UPLOAD = path.join(process.cwd(), "proof/hq-reads/lookup-upload");
+
+it.each([
+	["workbook.json", { success: true }],
+	[
+		"not-a-workbook.json",
+		{
+			success: false,
+			status: 405,
+			mayHaveLanded: false,
+			upgradeRequired: false,
+		},
+	],
+	[
+		"no-file.json",
+		{
+			success: false,
+			status: 405,
+			mayHaveLanded: false,
+			upgradeRequired: false,
+		},
+	],
+] as const)(
+	"reads HQ's retained upload answer %s by the verdict in its body",
+	async (name, expected) => {
+		const answer = JSON.parse(
+			readFileSync(path.join(LOOKUP_UPLOAD, name), "utf8"),
+		) as {
+			readonly status: number;
+			readonly headers: Record<string, string>;
+			readonly body: string;
+		};
+		const verdict = await withHttpPeer(async (peer) => {
+			peer
+				.get(HOST)
+				.intercept({ path: UPLOAD, method: "POST" })
+				.reply(answer.status, answer.body, { headers: answer.headers });
+			return uploadLookupTableWorkbook(CREDS, DOMAIN, workbook(), {
+				replace: true,
+			});
+		});
+		expect(verdict).toMatchObject(expected);
+		/* HQ's own sentence is what the person reads, whichever way it went. */
+		expect((verdict as { message: string }).message).toBe(
+			(JSON.parse(answer.body) as { message: string }).message,
+		);
+	},
+);
+
+it("reads an OK answer that is not JSON as HQ's plan page, which wrote nothing", async () => {
+	const verdict = await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: UPLOAD, method: "POST" })
+			.reply(200, "<html><title>Upgrade Required</title></html>", {
+				headers: { "content-type": "text/html; charset=utf-8" },
+			});
+		return uploadLookupTableWorkbook(CREDS, DOMAIN, workbook(), {
+			replace: true,
+		});
+	});
+	expect(verdict).toEqual({
+		success: false,
+		status: 426,
+		message: "",
+		mayHaveLanded: false,
+		upgradeRequired: true,
+	});
 });

@@ -1102,13 +1102,8 @@
 		"surfaceKeys": ["mug:DataBindOnly"],
 		"valueClass": "hidden-value-without-value-source",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `hidden`; widen: Nova requires a value source (`HIDDEN_NO_VALUE`)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "Nova requires a value source (`HIDDEN_NO_VALUE`)"
-			}
-		],
+		"dispositionCell": "**HELD**: `hidden`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7793,7 +7788,7 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit (Nova emits `hint_media` today; inert on both runtimes)",
+			"cell": "omit",
 			"markers": ["omit"]
 		},
 		"gates": []
@@ -7972,7 +7967,7 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit (Nova emits `validate_msg_media` today: defect 16)",
+			"cell": "omit",
 			"markers": ["omit"]
 		},
 		"gates": []
@@ -8160,7 +8155,7 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit (Nova emits container `label_media` today; no runtime reads it)",
+			"cell": "omit",
 			"markers": ["omit"]
 		},
 		"gates": []
@@ -8651,7 +8646,7 @@
 		"surfaceKeys": ["xform:model/itext/translation/text/value@form"],
 		"valueClass": "protected-message-forms",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Core XFormParser.parseTextHandle registers arbitrary nonempty form names under id;form, FormDef.initEvalContext appends the requested output form, and XPathJsonPropertyFunc decodes ASCII JSON literal pieces. Vellum loadXML/contributeToModelXML preserve their names; the technical label preserves the base group. Classification requires matching locale/mode/JSON payloads across every translation and the owning recorded expression, never a prefix exemption.",
+		"dispositionCell": "**HELD**: Core XFormParser.parseTextHandle registers arbitrary nonempty form names under id;form, FormDef.initEvalContext appends the requested output form, and XPathJsonPropertyFunc decodes ASCII JSON literal pieces. Vellum loadXML/contributeToModelXML preserve their names; the technical label preserves the base group. Classification requires matching locale/mode/JSON payloads across every translation and the owning recorded expression, never a prefix exemption. Nova writes no `__nova_mode;<medium>` form, since a validation message carries no media, so the classifier takes a message that holds all four media modes or none, the same in every translation: a retained control keeps the four.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

@@ -23,10 +23,18 @@
 //
 // `authority="local"` is mandatory: commcare-core `BasicInstaller::install`
 // returns false for a remote-authority resource (the remote branch is an
-// unimplemented `// TODO: Implement local cache code`), so a media file
-// referenced but not bundled locally fails to install. The compiler
+// unimplemented `// TODO: Implement local cache code`). The compiler
 // writes each asset's bytes into the CCZ at its wire path; this descriptor
-// points the runtime at them.
+// points the runtime at them. Whether a referenced file is in the archive
+// matters on one runtime alone: an archive install on Core and on Formplayer does not notice a missing
+// media file (commcare-core `ArchiveFileReference.doesBinaryExist` answers
+// true; formplayer `FormplayerArchiveFileRoot.derive` hands every path an
+// `ArchiveFileReference`), while Android unzips the archive and copies each
+// file (commcare-android `InstallArchiveActivity`,
+// `FileSystemInstaller.install`), so a missing file fails the install there.
+// The bundling proof is therefore the media-suite oracle's own
+// `bundledPaths` join (`lib/commcare/validator/mediaSuiteOracle.ts`), not
+// an install on Core.
 
 import type { Element } from "domhandler";
 import { el, text } from "@/lib/commcare/elementBuilders";

@@ -15,6 +15,15 @@ failures:
 - a refusal HQ answers as a refused submission (a ``date_modified`` that is
   not a date) escaping as an exception, or an index to a case the same
   submission creates refused.
+
+It also holds what HQ does with an ``owner_id`` in an update block, which
+``lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES`` states: HQ's wire
+accepts it and moves the case to the new owner (``CaseUpdateAction`` reads
+``owner_id`` as a known property, ``casexml/apps/case/xml/parser.py``, and
+``form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy._update_known_properties``
+writes it onto the case), so Nova reserves it by its own rule. The plausible
+failure: an update HQ reads as a dynamic property, which would leave the
+owner as it was.
 """
 
 from __future__ import annotations
@@ -99,3 +108,23 @@ def test_a_date_modified_that_is_not_a_date_is_refused(hq, core_runner):
     assert isinstance(refused.refusal, PhoneDateValueError)
     assert str(refused.refusal) == "'not a date'"
     assert refused.touched == {}
+
+
+def test_an_owner_id_in_an_update_block_moves_the_case_to_the_new_owner(hq, core_runner):
+    with hq_check(CONFIGURATION) as (state, _):
+        created = operations.process_case_blocks(state, _submission(_person()))
+        case = created.touched["c-new"].case
+        assert created.refusal is None and case.owner_id == "u-1"
+        moved = operations.process_case_blocks(
+            state,
+            _submission(_case("c-new", "<update><owner_id>u-2</owner_id><visits>2</visits></update>")),
+            cases=[case],
+        )
+
+    assert moved.refusal is None
+    updated = moved.touched["c-new"]
+    assert not updated.is_creation
+    assert updated.case.owner_id == "u-2"
+    # Read as the case's owner, not as a property the case carries beside it.
+    assert "owner_id" not in updated.case.case_json
+    assert updated.case.case_json["visits"] == "2"

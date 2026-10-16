@@ -80,6 +80,7 @@ import {
 	BASELINE_UNKNOWN_SENTENCE,
 	type CommCareServer,
 	deploymentServerLabel,
+	LOOKUP_ADOPTION_NOTE,
 } from "@/lib/deployment";
 import {
 	type DeploymentView,
@@ -2079,6 +2080,11 @@ function ResourceConflictChoice({
 					</li>
 				))}
 			</ul>
+			{kinds.has("lookup-table") && (
+				<p className="mt-1 text-[12px] leading-relaxed text-nova-text-secondary">
+					{LOOKUP_ADOPTION_NOTE}
+				</p>
+			)}
 			<p className="mt-1 text-[12px] leading-relaxed text-nova-text-secondary">
 				Leave one unticked and it stays untouched on{" "}
 				{domain || "the project space"}.

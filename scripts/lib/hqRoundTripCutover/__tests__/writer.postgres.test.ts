@@ -15,9 +15,12 @@ import {
 	setupAppStateTestDb,
 } from "@/lib/db/__tests__/appStateTestDb";
 import { loadAppInTransaction } from "@/lib/db/canonicalCommitKernel";
+import { listReferencingAppIds } from "@/lib/db/mediaAssets";
 import type { AppDatabase } from "@/lib/db/pg";
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
+import { isReservedInstanceTag } from "@/lib/lookup/constants";
 import {
 	DEPLOYMENT_NOTICE_REASONS,
 	DOCUMENT_NOTICE_REASONS,
@@ -65,14 +68,16 @@ function useHarness(prefix: string, caseStoreMigrationsBefore?: string): void {
 const OWNER = "owner-cutover";
 const PROJECT = "project-cutover";
 
-/** Every fixture whose document the writer takes as it is: none built to stop it. */
+/**
+ * Every fixture whose document the writer takes as it is: none built to stop
+ * it. A Project that holds a table the cutover cannot rename stops the run
+ * (`lookup-tag-rename-collision`), so its fixture is seeded apart, below.
+ */
 const writableFixtures = readFixtureManifest()
 	.fixtures.filter((fixture) =>
 		fixture.blockers.every(
 			(code) =>
 				code === "app-mapping-without-pushed-revision" ||
-				code === "lookup-tag-rename-collision" ||
-				code === "lookup-tag-unparsable" ||
 				code === "target-parse",
 		),
 	)
@@ -429,11 +434,9 @@ describe("the fleet transaction over the frozen fixtures", () => {
 			}
 		});
 		// Each fixture's app holds the notice of each identifier, form content,
-		// search, navigation and case-list step its fixture witnessed, and each
-		// search, menu and case-list line that writes nothing, all of which
-		// read the document alone. A menu's condition becomes never only
-		// through step time-ordering, so no fixture here witnesses
-		// hidden-from-menu-set yet.
+		// search, navigation, case-list, media, hidden value and time step its
+		// fixture witnessed, and each search, menu and case-list line that
+		// writes nothing, all of which read the document alone.
 		const notices = await sql<{
 			app_id: string;
 			entries: { kind: string; reason: string }[];
@@ -463,6 +466,11 @@ describe("the fleet transaction over the frozen fixtures", () => {
 			"case-list-search-matches-hidden-fields",
 			"hidden-order-column-not-in-sort-menu",
 			"record-id-column-now-shows",
+			"media-slot-removed",
+			"hidden-value-saves-blank",
+			"time-comparison-never-true",
+			"search-term-matches-nothing",
+			"hidden-from-menu-set",
 		]);
 		const manifest = readFixtureManifest();
 		for (const [index, id] of writableFixtures.entries()) {
@@ -518,6 +526,17 @@ describe("the fleet transaction over the frozen fixtures", () => {
 			["Notes code", { direction: "asc", priority: 2 }],
 			["Notes", undefined],
 		]);
+		// Step `time-ordering` makes the menu's and the form's time comparisons
+		// never, and step `hidden-from-menu` then takes both off the menu.
+		const checks = appOf("hand-hidden-from-menu");
+		const menu = checks.modules[asUuid("00000000-0000-4000-8000-000000000c01")];
+		const check = checks.forms[asUuid("00000000-0000-4000-8000-000000000c02")];
+		expect([
+			menu?.hiddenFromMenu,
+			menu?.displayCondition,
+			check?.hiddenFromMenu,
+			check?.displayCondition,
+		]).toEqual([true, undefined, true, undefined]);
 		// Step `option-values` renames the second holder of a value.
 		const options = appOf("hand-option-values");
 		const consent = options.fields["00000000-0000-4000-8000-000000000201"];
@@ -572,6 +591,74 @@ describe("the fleet transaction over the frozen fixtures", () => {
 			const again = await runMigrate(h.db(), { mode });
 			expect(again.outcome).toEqual({ outcome: "already-applied" });
 		}
+	}, 60_000);
+
+	it("keeps every file a removed media slot named, drops its references, and leaves it free to delete", async () => {
+		const id = "hand-media-slots";
+		const appId = "app-00-media-slots";
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		await seedFixtureProject(h.db(), PROJECT, readFixtureProject(id), OWNER);
+		await seedFixtureApp(
+			h.db(),
+			fixtureApp(id, { appId, projectId: PROJECT, owner: OWNER }),
+		);
+		// The question's label media stays; the group's label image, the hint's
+		// image and the validation message's image leave with their slots.
+		const kept = [
+			"fd0deaf7-9d40-536b-a89b-a681ed04cd67",
+			"e23c31ab-5db2-5aaf-abe3-20dd0a9e69bb",
+			"02259d92-ba68-5a5e-aa5c-823843a06be2",
+		];
+		const removed = [
+			"6cf4831a-8764-5fde-a495-ed5835d425ea",
+			"ca5a2a1e-4522-59e2-a5ec-d30417b5d12e",
+			"9599f19b-623f-59bf-ad0a-95554e861d4b",
+		];
+		// The projection the app held before the cutover: every file it named.
+		await h
+			.db()
+			.insertInto("media_asset_refs")
+			.values(
+				[...kept, ...removed].map((assetId) => ({
+					project_id: PROJECT,
+					app_id: appId,
+					asset_id: asMediaAssetId(assetId),
+				})),
+			)
+			.execute();
+		const assets = async () =>
+			(
+				await sql<{ id: string }>`
+					SELECT id FROM media_assets WHERE project_id = ${PROJECT} ORDER BY id
+				`.execute(h.db())
+			).rows.map((row) => row.id);
+		const before = await assets();
+		expect(before).toEqual(expect.arrayContaining([...kept, ...removed]));
+
+		const dryRun = await runMigrate(h.db(), { mode: "dry-run" });
+		expect(dryRun.outcome).toEqual({ outcome: "ok" });
+		const digest = dryRun.report.all().find((line) => line.section === "fleet")
+			?.planDigest as string;
+		await runMigrate(h.db(), { mode: "rehearse" });
+		const execute = await runMigrate(h.db(), {
+			mode: "execute",
+			expectPlanDigest: digest,
+		});
+		expect(execute.outcome).toEqual({ outcome: "ok" });
+
+		expect(await assets()).toEqual(before);
+		const refs = await sql<{ asset_id: string }>`
+			SELECT asset_id FROM media_asset_refs WHERE app_id = ${appId} ORDER BY asset_id
+		`.execute(h.db());
+		expect(refs.rows.map((row) => row.asset_id)).toEqual([...kept].sort());
+		// The deletion guard reads the referencing apps from the projection: a
+		// removed slot's file no app now uses is free to delete, a kept one is not.
+		for (const assetId of removed) {
+			expect(await listReferencingAppIds(asMediaAssetId(assetId))).toEqual([]);
+		}
+		expect(await listReferencingAppIds(asMediaAssetId(kept[0] ?? ""))).toEqual([
+			appId,
+		]);
 	}, 60_000);
 
 	it("writes each planned notice and a key-readers row for each key the run sent", async () => {
@@ -906,4 +993,142 @@ describe("the fleet transaction over the frozen fixtures", () => {
 		},
 		60_000,
 	);
+});
+
+describe("the lookup tag rename", () => {
+	useHarness("hq_cutover_tags_");
+
+	it("renames each reserved tag the plan maps, advancing the definition revision and keeping every reference", async () => {
+		const fixture = "hand-lookup-tag-collision";
+		const appId = "app-tags";
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		/* The fixture's Project less the tables that take every form of the
+		 * casedb table's rename, so both of its reserved tags can be renamed. */
+		const project = readFixtureProject(fixture);
+		const lookup = project.lookup as {
+			definitions: { id: string; tag: string }[];
+		};
+		const kept = lookup.definitions.filter(
+			(table) => !table.tag.startsWith("clinic_case_db"),
+		);
+		await seedFixtureProject(
+			h.db(),
+			PROJECT,
+			{ ...project, lookup: { ...lookup, definitions: kept } } as never,
+			OWNER,
+		);
+		await seedFixtureApp(
+			h.db(),
+			fixtureApp(fixture, { appId, projectId: PROJECT, owner: OWNER }),
+		);
+		for (const table of kept) {
+			await sql`
+				INSERT INTO lookup_table_references (project_id, table_id, app_id)
+				VALUES (${PROJECT}, ${table.id}::uuid, ${appId})
+			`.execute(h.db());
+		}
+		const revisionBefore = await sql<{ revision: string }>`
+			SELECT revision::text AS revision FROM lookup_project_state WHERE project_id = ${PROJECT}
+		`.execute(h.db());
+
+		const planned = await plannedWithBaselines(h.db());
+		expect(planned.build.plan.projectBlockers).toEqual([]);
+		expect(planned.build.plan.apps.flatMap((app) => app.blockers)).toEqual([]);
+		const renames = planned.build.plan.lookupTagRenames;
+		expect(
+			renames.map(({ fromTag, toTag }) => [fromTag, toTag]).sort(),
+		).toEqual([
+			["clinic_casedb_codes", "clinic_case_db_codes"],
+			["stock_ledgerdb_codes", "stock_ledger_db_codes"],
+		]);
+		await runFleetTransaction(h.db(), { mode: "execute", ...planned });
+
+		const tables = await sql<{
+			id: string;
+			tag: string;
+			definition_revision: string;
+			updated_by: string;
+		}>`
+			SELECT id::text AS id, tag, definition_revision::text AS definition_revision, updated_by
+			FROM lookup_tables WHERE project_id = ${PROJECT} ORDER BY id
+		`.execute(h.db());
+		const state = await sql<{ revision: string }>`
+			SELECT revision::text AS revision FROM lookup_project_state WHERE project_id = ${PROJECT}
+		`.execute(h.db());
+		const revision = state.rows[0]?.revision ?? "";
+		expect(BigInt(revision)).toBeGreaterThan(
+			BigInt(revisionBefore.rows[0]?.revision ?? "0"),
+		);
+		// The writer's renames are the plan's map, row for row.
+		for (const rename of renames) {
+			expect(tables.rows.find((table) => table.id === rename.tableId)).toEqual({
+				id: rename.tableId,
+				tag: rename.toTag,
+				definition_revision: revision,
+				updated_by: "system:hq-round-trip-emission",
+			});
+		}
+		expect(tables.rows.some((table) => isReservedInstanceTag(table.tag))).toBe(
+			false,
+		);
+		const references = await sql<{ table_id: string }>`
+			SELECT table_id::text AS table_id FROM lookup_table_references
+			WHERE project_id = ${PROJECT} AND app_id = ${appId} ORDER BY table_id
+		`.execute(h.db());
+		expect(references.rows.map((row) => row.table_id)).toEqual(
+			kept.map((table) => table.id).sort(),
+		);
+		const notice = await sql<{ entries: unknown }>`
+			SELECT entries FROM app_migration_notices WHERE app_id = ${appId}
+		`.execute(h.db());
+		const renamed = (
+			(notice.rows[0]?.entries ?? []) as {
+				reason: string;
+				entity: { uuid?: string };
+				detail?: Record<string, string>;
+			}[]
+		).filter((entry) => entry.reason === "lookup-tag-renamed");
+		expect(
+			renamed.map((entry) => [entry.entity.uuid, entry.detail]).sort(),
+		).toEqual(
+			renames
+				.map((rename) => [
+					rename.tableId,
+					{ from: rename.fromTag, to: rename.toTag },
+				])
+				.sort(),
+		);
+	}, 60_000);
+
+	it("stops before writing where a reserved tag finds no free name", async () => {
+		const fixture = "hand-lookup-tag-collision";
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		await seedFixtureProject(
+			h.db(),
+			PROJECT,
+			readFixtureProject(fixture),
+			OWNER,
+		);
+		await seedFixtureApp(
+			h.db(),
+			fixtureApp(fixture, {
+				appId: "app-tags",
+				projectId: PROJECT,
+				owner: OWNER,
+			}),
+		);
+		const planned = await plannedWithBaselines(h.db());
+		expect(
+			planned.build.plan.projectBlockers.map((blocker) => blocker.code),
+		).toEqual(["lookup-tag-rename-collision"]);
+		// The table is the Project's blocker, not the app's gate finding.
+		expect(planned.build.plan.apps.flatMap((app) => app.blockers)).toEqual([]);
+		const image = await databaseImage(h.db());
+		await expect(
+			runFleetTransaction(h.db(), { mode: "execute", ...planned }),
+		).rejects.toMatchObject({
+			code: "blocker",
+		} satisfies Partial<CutoverStoppedError>);
+		expect(await databaseImage(h.db())).toBe(image);
+	}, 60_000);
 });

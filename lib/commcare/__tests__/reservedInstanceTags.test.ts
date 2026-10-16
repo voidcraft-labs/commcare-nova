@@ -6,6 +6,7 @@ import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
 import { lookupTagSchema, parseLookupRevision } from "@/lib/lookup/schema";
 import { expandDoc } from "../expander";
@@ -91,6 +92,50 @@ describe("lookup and runtime instance names", () => {
 					),
 				).toBe(true);
 			}
+		},
+	);
+	it.each([
+		["clinic_casedb_codes", "casedb"],
+		["stock_ledgerdb_codes", "ledgerdb"],
+		["casedb_ledgerdb", "ledgerdb"],
+	] as const)(
+		"refuses a referenced table whose tag %s contains %s, naming the word",
+		(tag, word) => {
+			const { doc, context } = scenario(tag);
+			const findings = runValidation(doc, context);
+			expect(new Set(findings.map((finding) => finding.code))).toEqual(
+				new Set(["LOOKUP_TAG_RESERVED_BY_RUNTIME"]),
+			);
+			const [finding] = findings;
+			expect(finding.message).toBe(
+				`The lookup table regions uses the export tag ${tag}, which contains ${word}, and CommCare reads any tag containing ${word} as its own data. Rename the export tag in Project data, then try again.`,
+			);
+			expect(finding.details).toMatchObject({ tag, reservedWord: word });
+			expect(userFacingError(finding)).toBe(
+				`The export tag for "regions" contains ${word}, which CommCare reads as its own data. You can rename the export tag in Project data, then try again.`,
+			);
+		},
+	);
+	it("keeps the whole-name sentence for a reserved name, with no reserved word", () => {
+		const { doc, context } = scenario("casedb");
+		const [finding] = runValidation(doc, context);
+		expect(finding.message).toBe(
+			"The lookup table regions uses the export tag casedb, which CommCare reserves for its own data. Rename the export tag in Project data, then try again.",
+		);
+		expect(finding.details?.reservedWord).toBeUndefined();
+		expect(userFacingError(finding)).toBe(
+			'The export tag for "regions" is reserved by CommCare. You can rename the export tag in Project data, then try again.',
+		);
+	});
+	it.each([
+		"clinic_CaseDB_codes",
+		"stock_LedgerDB_codes",
+		"clinic_case_db_codes",
+	])(
+		"admits a referenced table tagged %s, which the runtime reads as its table",
+		(tag) => {
+			const { doc, context } = scenario(tag);
+			expect(runValidation(doc, context)).toEqual([]);
 		},
 	);
 	it("keeps valid fixture and selected-case declarations separate in an admitted form", () => {

@@ -59,8 +59,12 @@ A table has columns and rows. Each column carries three things:
 - **A type of value**: Text, Whole number, Decimal number, Date, Time, or Date
   and time.
 
-Table export tags cannot use names reserved for the app's own data. Nova names
-a conflict when you create or rename a table. If an older table has a conflicting
+Table export tags cannot use names reserved for the app's own data. A tag also
+can't contain `casedb` or `ledgerdb` anywhere, written in those letters, because
+CommCare reads a table named that way as its own case or stock data and the
+table's choices never appear. You can write `case_db` or `ledger_db` instead; a
+different case, such as `CaseDB`, works too. A tag holds at most 32 characters.
+Nova names a conflict when you create or rename a table. If an older table has a conflicting
 tag, exporting an app that uses it pauses until an admin changes that tag. The
 table's rows and its references in Nova keep their identities.
 
@@ -205,14 +209,29 @@ If a cell contains a character CommCare cannot preserve, Nova stops the export
 and names the table and column. You can remove the character or retype the
 affected values in Project data, then try again. Nova keeps your stored values unchanged.
 
-Two things worth knowing before you rename an export tag. CommCare HQ finds a
+One thing worth knowing before you rename an export tag: CommCare HQ finds a
 table by that tag, so renaming makes a **new** table there and leaves the old
-one where it is, and a tag longer than 31 characters is one CommCare HQ has no
-way to address, so Nova asks you to shorten it before publishing.
+one where it is.
 
 If the project space already has a table with the same tag and Nova did not make
 it, publishing stops and asks you which of them are yours rather than writing
 over somebody else's data. [Publishing](/docs/publishing) has the details.
+
+Nova's upload writes each table whole, so it keeps only what Nova itself holds
+of a table:
+
+- **A table that holds field properties, row attributes or rows limited to
+  certain users in CommCare HQ** stops the publish before anything is sent,
+  whoever made it, because publishing over it would remove them. Giving your
+  table a new export tag lets Nova publish its own table and leave that one as
+  it is.
+- **A description or indexed fields** that a table has in CommCare HQ are
+  removed when Nova publishes over it. CommCare HQ doesn't show either to Nova,
+  and an upload can't carry a description, so Nova says so when you choose to
+  take a table over or to publish over a change made there.
+- **Owners on rows of a table every worker sees** have no effect in CommCare HQ,
+  since every worker receives every row of such a table. Nova's upload removes
+  them and keeps the table and its rows.
 
 ## Who can do what
 

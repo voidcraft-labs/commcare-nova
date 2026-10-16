@@ -1,16 +1,19 @@
-"""What a worker sees in Web Apps of the media slots Nova offers (defect 16).
+"""What a worker sees in Web Apps of the media slots no runtime shows (defect 16).
 
-``targeted-media-slots``: a survey whose group's label names an image, and
-whose one question inside it names an image, a sound and a video on its
-label, an image on its hint and the same image on its validation message.
-Formplayer hands the client the group's label image and the question's label
-media, and neither the hint's image nor the message's
+``targeted-media-slots``: a survey whose one question, inside a group, names
+an image, a sound and a video on its label. No Nova document can hold a
+hint's, a validation message's or a group's label media since defect 16 took
+those slots out of the model, so the release here is of the form as Nova
+emitted it before then (``proof/formplayer/media_slots/``, written over the
+published app by ``proof.formplayer.apps.with_the_media_slots``): the group's
+label names an image, and the question's hint and validation message name one
+image. Formplayer hands the client the group's label image and the question's
+label media, and neither the hint's image nor the message's
 (``proof/formplayer/test_media_slots.py``). This is what the client does with
-what it is handed, on HQ's release of Nova's export: Formplayer's own walk of
-the build replayed in the browser (``proof.webapps.observe.replay``), the
-question answered through its text box with the walk's answers, the page
-read once more after the first, which the constraint refuses, so the client
-shows its message.
+what it is handed: Formplayer's own walk of the build replayed in the browser
+(``proof.webapps.observe.replay``), the question answered through its text
+box with the walk's answers, the page read once more after the first, which
+the constraint refuses, so the client shows its message.
 
 Contract: the browser lays out the question's label image, sound and video
 (``form_entry/multimedia.html``), and nothing in the group's header
@@ -25,6 +28,7 @@ from __future__ import annotations
 
 import json
 
+from proof.formplayer import apps
 from proof.webapps import hq as webapps_hq
 from proof.webapps import observe, steps
 from proof.webapps.session import Session
@@ -45,7 +49,7 @@ def test_web_apps_shows_a_questions_label_media_and_no_group_hint_or_message_med
     from proof.formplayer.walk import Walk
 
     with webapps_hq.project(webapps_documents[DOCUMENT]) as project:
-        with project.released(formplayer_runner) as release:
+        with project.released(formplayer_runner, change=apps.with_the_media_slots(project)) as release:
             walk = Walk.of(release)
             (run,) = [each for each in walk.run()["runs"] if any("answers" in step for step in each["steps"])]
             session = Session(release, editor_driver)

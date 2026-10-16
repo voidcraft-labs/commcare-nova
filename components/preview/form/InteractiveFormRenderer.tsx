@@ -227,22 +227,6 @@ const InteractiveField = memo(function InteractiveField({
 				<span id={transparentSectionId} className="sr-only">
 					{runtimeMessage(language, "sectionPosition", { position })}
 				</span>
-				{/* A label-less group is transparent in preview, but its
-				    `label_media` is authored content: without this it vanishes on
-				    the edit→preview flip (edit renders it in the GroupBracket
-				    "Untitled group" header). Render it depth-padded to the group's
-				    column, above the inline children, keeping the group otherwise
-				    transparent. */}
-				{field.label_media && (
-					<div
-						style={{
-							paddingLeft: depthPadding(depth),
-							paddingRight: depthPadding(depth),
-						}}
-					>
-						<MediaDisplay media={field.label_media} interactive />
-					</div>
-				)}
 				<InteractiveFormRenderer
 					parentEntityId={field.uuid}
 					prefix={path}
@@ -428,12 +412,6 @@ const InteractiveField = memo(function InteractiveField({
 						/>
 					</div>
 				)}
-				{/* Hint media: sits with the hint, above the input. `hint_media`
-				    is only on input-capable kinds, so guard the access. */}
-				<MediaDisplay
-					media={"hint_media" in field ? field.hint_media : undefined}
-					interactive
-				/>
 				{/* Help text + help media: shown inline in the builder preview
 				    (CommCare hides help behind a "?"); both slots are input-kind
 				    only, so guard the access. */}

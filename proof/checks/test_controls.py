@@ -53,7 +53,9 @@ def _documents():
 
 @pytest.mark.parametrize("document", _documents())
 def test_a_control_reads_what_its_documents_checks_derive_and_holds_no_document(document, tmp_path):
-    retained = controls.retain(document, ["proof1"], tmp_path)
+    # Under a name of its own: the control the document's id names may hold pre-fix bytes an entry keeps showing
+    # on, which ``retain`` refuses to replace.
+    retained = controls.retain(document, ["proof1"], tmp_path, name=f"{document.id}-retained")
     control = corpus.Document(id=document.id, source="control", root=retained, kind="control")
     assert not (retained / "document.json").exists() and not (retained / "edit" / "document.json").exists()
     assert control.wire_modules == document.wire_modules
@@ -80,7 +82,7 @@ def test_a_control_reads_what_its_documents_checks_derive_and_holds_no_document(
 @pytest.mark.parametrize("document", _documents()[:1])
 def test_a_control_keeps_the_edit_and_each_local_archive_only_for_a_check_that_reads_it(document, tmp_path):
     def files(checks):
-        retained = controls.retain(document, checks, tmp_path / "-".join(checks))
+        retained = controls.retain(document, checks, tmp_path / "-".join(checks), name=f"{document.id}-retained")
         assert not (retained / "inputs.json").exists() and not list(retained.rglob("outcome.json"))
         return retained, {path.relative_to(retained).as_posix() for path in retained.rglob("*") if path.is_file()}
 

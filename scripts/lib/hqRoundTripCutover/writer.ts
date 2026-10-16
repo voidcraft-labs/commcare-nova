@@ -77,8 +77,16 @@ import {
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { IconRef } from "@/lib/domain/builtinIcons";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import { isMediaKind } from "@/lib/domain/multimedia";
+import { isReservedInstanceTag } from "@/lib/lookup/constants";
+import {
+	advanceLookupProjectRevision,
+	lockLookupProjectState,
+	notifyCommittedLookupMutation,
+	updateLockedLookupTable,
+} from "@/lib/lookup/writerTransaction";
 import {
 	partitionAssetRefs,
 	resolveBuiltinManifestEntries,
@@ -112,6 +120,7 @@ import {
 	type DeploymentNotice,
 	type NoticeEntity,
 	noticeEntityNames,
+	tableContentNotices,
 } from "./notice";
 import { rawDocumentDigest, readRawDocument } from "./oldShape";
 import {
@@ -126,6 +135,7 @@ import {
 	readAppCarriers,
 	readAppPlaces,
 	readPrivateWorkCensus,
+	unsupportedTableContent,
 } from "./plan";
 
 /** The numbered steps of the fleet transaction, in order. */
@@ -136,6 +146,7 @@ export const WRITER_STEPS = [
 	"archive-events",
 	"clear-streams",
 	"private-work",
+	"lookup-tags",
 	"apps",
 	"ledger",
 	"notices",
@@ -671,6 +682,21 @@ export interface TransientBaselineRead {
 	readonly deploymentIds: readonly string[];
 }
 
+/**
+ * A mapped HQ table that holds what a publish would remove, by its ids:
+ * the next publish of each deployment that maps it stops until the table
+ * gets a new export tag.
+ */
+export interface UnsupportedTableRead {
+	readonly projectId: string;
+	readonly server: string;
+	readonly domain: string;
+	readonly remoteId: string;
+	readonly tableId: string;
+	readonly deploymentIds: readonly string[];
+	readonly holds: readonly string[];
+}
+
 /** Everything the baseline step read, for the writer and the report. */
 export interface CutoverBaselines {
 	/** By deployment id; a deployment HQ reported deleted has none. */
@@ -689,6 +715,8 @@ export interface CutoverBaselines {
 	}[];
 	/** Empty unless a read was still transient and the run is not told to treat it as unreadable. */
 	readonly transient: readonly TransientBaselineRead[];
+	/** Each mapped table whose definition holds what a publish would remove. */
+	readonly unsupportedTables: readonly UnsupportedTableRead[];
 }
 
 /** One read's outcome with whose key it came back to. */
@@ -1125,6 +1153,8 @@ export async function readCutoverBaselines(
 
 	const resources: CutoverResourceBaseline[] = [];
 	const unreadByDeployment = new Map<string, NoticeEntity[]>();
+	const contentByDeployment = new Map<string, DeploymentNotice[]>();
+	const unsupportedTables = new Map<string, UnsupportedTableRead>();
 	const keyUses: CutoverBaselines["keyUses"][number][] = [];
 	const transient: TransientBaselineRead[] = [];
 	for (const key of [...spaces.keys()].sort()) {
@@ -1215,6 +1245,44 @@ export async function readCutoverBaselines(
 					const table = tables.value.find(
 						(candidate) => candidate.id === mapping.remoteId,
 					);
+					const holds =
+						table === undefined ? [] : unsupportedTableContent(table);
+					if (holds.length > 0) {
+						const key = JSON.stringify([
+							space.server,
+							space.domain,
+							mapping.remoteId,
+						]);
+						const read = unsupportedTables.get(key);
+						unsupportedTables.set(key, {
+							projectId: space.projectId,
+							server: space.server,
+							domain: space.domain,
+							remoteId: mapping.remoteId,
+							tableId: mapping.novaResourceId,
+							deploymentIds: [
+								...new Set([
+									...(read?.deploymentIds ?? []),
+									mapping.deploymentId,
+								]),
+							].sort(),
+							holds,
+						});
+						const lines = contentByDeployment.get(mapping.deploymentId) ?? [];
+						lines.push({
+							reason: "lookup-table-content-unsupported",
+							entities: [
+								resourceNoticeEntity(
+									mapping,
+									entry.app,
+									build,
+									loaded.places.get(entry.app.appId) ?? [],
+								),
+							],
+							detail: { holds: holds.join(",") },
+						});
+						contentByDeployment.set(mapping.deploymentId, lines);
+					}
 					const rows = rowReads.get(mapping.remoteId);
 					if (table === undefined || rows === undefined) baseline = null;
 					else if (rows.kind === "value") {
@@ -1286,14 +1354,29 @@ export async function readCutoverBaselines(
 
 	const notices = new Map<string, readonly DeploymentNotice[]>();
 	for (const { deployment } of planned) {
-		const lines = baselineNotices({
-			outcome: deployment.outcome,
-			app: apps.get(deployment.deploymentId)?.origin ?? null,
-			unreadResources: unreadByDeployment.get(deployment.deploymentId) ?? [],
-		});
+		const lines = [
+			...baselineNotices({
+				outcome: deployment.outcome,
+				app: apps.get(deployment.deploymentId)?.origin ?? null,
+				unreadResources: unreadByDeployment.get(deployment.deploymentId) ?? [],
+			}),
+			...tableContentNotices(
+				deployment.outcome,
+				contentByDeployment.get(deployment.deploymentId) ?? [],
+			),
+		];
 		if (lines.length > 0) notices.set(deployment.deploymentId, lines);
 	}
-	return { apps, resources, notices, keyUses, transient };
+	return {
+		apps,
+		resources,
+		notices,
+		keyUses,
+		transient,
+		unsupportedTables: [...unsupportedTables.keys()]
+			.sort()
+			.map((key) => unsupportedTables.get(key) as UnsupportedTableRead),
+	};
 }
 
 function compareText(a: string, b: string): number {
@@ -1346,6 +1429,52 @@ function resourceNoticeEntity(
 		uuid: mapping.novaResourceId,
 		name: place?.name ?? mapping.pushedIdentity ?? "",
 	};
+}
+
+/**
+ * Step 7: each tag the plan renames, as the plan holds it and nothing
+ * computed here, through the lookup writer's own statements: one Project at a
+ * time, its state locked, its revision advanced once, each renamed table's
+ * definition revision moved to it, and its builders told to refetch once the
+ * transaction commits. A table whose tag is no longer the plan's old tag is a
+ * Project that moved since the plan, so the run rolls back.
+ */
+async function renameLookupTags(
+	tx: Transaction<AppDatabase>,
+	renames: CutoverPlanBuild["plan"]["lookupTagRenames"],
+): Promise<void> {
+	const byProject = new Map<string, (typeof renames)[number][]>();
+	for (const rename of renames) {
+		const list = byProject.get(rename.projectId) ?? [];
+		list.push(rename);
+		byProject.set(rename.projectId, list);
+	}
+	for (const [projectId, projectRenames] of byProject) {
+		await lockLookupProjectState(tx, projectId);
+		const projectRevision = await advanceLookupProjectRevision(tx, projectId);
+		for (const rename of projectRenames) {
+			const tableId = lookupTableIdSchema.parse(rename.tableId);
+			const held = await tx
+				.selectFrom("lookup_tables")
+				.select("tag")
+				.where("project_id", "=", projectId)
+				.where("id", "=", tableId)
+				.forUpdate()
+				.executeTakeFirst();
+			if (held?.tag !== rename.fromTag) {
+				fail(
+					`lookup table ${rename.tableId} of Project ${projectId} no longer holds the tag the plan renames`,
+				);
+			}
+			await updateLockedLookupTable(tx, projectId, tableId, {
+				tag: rename.toTag,
+				definition_revision: projectRevision,
+				updated_by: MARKER_ACTOR_ID,
+				updated_at: new Date(),
+			});
+		}
+		await notifyCommittedLookupMutation(tx, projectId, projectRevision);
+	}
 }
 
 /** Step 10: the notice rows and the key-readers record. */
@@ -1460,6 +1589,10 @@ async function checkPostconditions(
 	baselines: CutoverBaselines,
 	before: BeforeImages,
 ): Promise<void> {
+	const tags = await tx.selectFrom("lookup_tables").select("tag").execute();
+	if (tags.some((row) => isReservedInstanceTag(row.tag))) {
+		fail("a lookup table still holds a tag CommCare reads as its own data");
+	}
 	for (const app of build.plan.apps) {
 		const target = build.targets.get(app.appId);
 		if (target?.doc === undefined) fail(`app ${app.appId} has no target`);
@@ -1709,6 +1842,9 @@ export async function runFleetTransaction(
 			});
 			const sessionsEnded = await timed("private-work", () =>
 				abandonPrivateWork(tx),
+			);
+			await timed("lookup-tags", () =>
+				renameLookupTags(tx, build.plan.lookupTagRenames),
 			);
 			await timed("apps", async () => {
 				for (const app of build.plan.apps) {

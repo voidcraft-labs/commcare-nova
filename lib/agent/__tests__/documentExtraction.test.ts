@@ -31,6 +31,7 @@ import {
 	MAX_EXTRACT_FIGURES,
 	planFigureAttachments,
 } from "@/lib/agent/documentExtraction";
+import { bmp1Bit } from "@/lib/media/__tests__/bmpFixtures";
 
 // ── Real image fixtures (admission sniffs bytes, so magic must be genuine) ──
 
@@ -437,6 +438,18 @@ describe("createFigureCollector", () => {
 				altText: null,
 			},
 		]);
+	});
+
+	it("omits a BMP, an image the upload gate accepts and the model can't read", async () => {
+		const collector = createFigureCollector();
+		const bmp = bmp1Bit();
+		await collector.collect(fakeImage(bmp, { contentType: "image/bmp" }).image);
+		expect(
+			collector.figures.map((f) => ({
+				omit: f.omit,
+				held: f.bytes.length > 0,
+			})),
+		).toEqual([{ omit: "unsupported-format", held: false }]);
 	});
 
 	it("omits mislabeled bytes, animated GIFs, unreadable images, and oversized figures without holding their bytes", async () => {

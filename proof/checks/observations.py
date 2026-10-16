@@ -77,6 +77,9 @@ class Republish:
     b_aligned: BuildOutcome | None = None
     alignment: Alignment | None = None
     refusals: list = field(default_factory=list)
+    # The states whose publish Nova stopped before it sent anything (``proof.observe.unit``'s ``stopped`` record),
+    # by name: no such state exists, and nothing was sent to make it.
+    stopped: set = field(default_factory=set)
     # HQ's result of each lookup workbook upload, by the state its publish made (before the import).
     lookup_uploads: dict = field(default_factory=dict)
     # What HQ's processing of each media upload reported, by the state its publish made (after the import;
@@ -139,6 +142,8 @@ def republish_view(records, name) -> Republish:
     view.a = _state(held.a, "A", records.blobs)
     _publish(held.b, "publish", "B", view.refusals, view.lookup_uploads, view.media_uploads)
     view.b = _state(held.b, "B", records.blobs)
+    if (held.b or {}).get("stopped") is not None:
+        view.stopped.add("B")
     aligned = held.b_aligned or {}
     if aligned.get("aligned") is not None:
         view.b_aligned = outcome_from_record(aligned["aligned"], records.blobs, "B-aligned")

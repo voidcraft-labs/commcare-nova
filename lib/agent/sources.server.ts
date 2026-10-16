@@ -3,7 +3,11 @@ import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import { prepareEmbeddedSourceDocument } from "@/lib/agent/sourceDocuments";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
-import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
+import {
+	EXTRACTOR_VERSION,
+	imageFormatNoun,
+	isModelReadableImageMimeType,
+} from "@/lib/domain/multimedia";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import {
 	MAX_IMAGE_BYTES,
@@ -95,6 +99,14 @@ export function productionSourceMaterialDeps(
 			);
 		},
 		async loadImage(asset) {
+			// An image the model can't read (a BMP) is never sent under its own
+			// MIME: the source is unavailable to the assistant, as one outside
+			// the Project is.
+			if (!isModelReadableImageMimeType(asset.mimeType)) {
+				throw new SourceMaterialError(
+					`The attachment "${asset.originalFilename}" is ${imageFormatNoun(asset.mimeType)}, which the assistant can't read yet. A PNG or JPEG of it works.`,
+				);
+			}
 			const bytes = await downloadAssetBytes(
 				asset.gcsObjectKey,
 				MAX_IMAGE_BYTES,

@@ -259,6 +259,8 @@ case.
 In Preview, barcode search fields accept typed codes and camera scans when your
 browser supports scanning. A scan replaces the current answer; cancelling keeps it.
 
+On Android, an answer that holds both `'` and `"` finds nothing.
+
 ### Hints, required fields, and checks
 
 Each search field can carry a **Hint**, a short line under its label that
@@ -465,6 +467,12 @@ datetime values later that day. Choose **Between dates** when people should
 enter both a start and an end; Nova changes the field to one paired **Date
 range** control automatically. Date ranges do not offer a one-date starting
 value, because that would leave the other end undefined.
+
+A date can be compared with before or after, or searched between two dates. A
+time of day can't: CommCare compares these as numbers and a time is not one, so
+the comparison would never be true. The conditions in **Cases available** and
+in a search field's match rule offer before, after and between for a number or
+a date, and not for a time of day.
 
 Under **Cases available**, open **More availability settings** to decide what
 happens to **Cases assigned to the person using the app**. Choose **Show in

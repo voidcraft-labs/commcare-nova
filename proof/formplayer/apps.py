@@ -12,7 +12,9 @@ HQ's own answers. A state a person's save leaves is made by HQ's own pages
 and views (``saved_page``, ``saved_profile``), never written by hand; a form
 source no Nova export holds, which a test writes by hand to show what a
 reader does with it, is written as the spelling rules' tests write one
-(``form_written``).
+(``form_written``): ``with_the_media_slots`` writes the form Nova emitted
+before defect 16 took media off a hint, a validation message and a group's or
+repeat's label.
 
 ``build_id`` names an archive HQ does not hold (Nova's local export) by its
 content, and ``core_sessions`` runs Core's sessions over a build, as proof 3
@@ -164,6 +166,20 @@ def form_written(holder, write):
         stored.update(operations.held_app(holder.unit, holder.app_id).to_json())
 
     return change
+
+
+# The forms Nova emitted before defect 16, by document id (``<id>.form.xml``).
+MEDIA_SLOTS = Path(__file__).parent / "media_slots"
+
+
+def with_the_media_slots(holder):
+    """A ``change`` (``form_written``) that writes, over the published app's one form, the form as Nova emitted it
+    before defect 16 took the media slots no runtime shows out of the model, kept as
+    ``media_slots/<document id>.form.xml``. Each kept form differs from the form Nova emits now by the image values
+    of a hint, a validation message and, on ``targeted-media-slots``, a group's label, so the question's own label
+    media stays Nova's export. ``holder`` is a ``Published`` or a ``proof.webapps.hq.Project``."""
+    kept = (MEDIA_SLOTS / f"{holder.document.id}.form.xml").read_text(encoding="utf-8")
+    return form_written(holder, {"0.0": lambda _source: kept})
 
 
 @contextmanager

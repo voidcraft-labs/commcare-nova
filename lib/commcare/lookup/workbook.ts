@@ -71,24 +71,6 @@ export const TYPES_SHEET = "types";
 export const MAX_HQ_FIXTURE_WORKBOOK_ROWS = 500_000;
 
 /**
- * How long a data sheet's name may be, which is how long a pushable tag
- * may be.
- *
- * CommCare HQ finds each table's rows by the sheet NAMED FOR ITS TAG
- * (`upload/workbook.py::_FixtureWorkbook.get_data_sheet` →
- * `get_worksheet(tag)`), and a spreadsheet sheet name cannot exceed 31
- * characters. CommCare HQ's own exporter silently truncates past that
- * (`couchexport/writers.py::Excel2007ExportWriter.max_table_name_size`
- * = 31, applied through `ExportWriter.open`'s `UniqueHeaderGenerator`),
- * so its own download does not round-trip through its own upload — while
- * its `LookupTable.tag` column takes 32. Nova's tag cap is the same 32,
- * so exactly one authorable tag length is unpushable, and the export
- * boundary refuses it by name rather than letting CommCare HQ answer
- * "worksheet not found".
- */
-export const MAX_HQ_FIXTURE_SHEET_NAME_LENGTH = 31;
-
-/**
  * A table as CommCare HQ will hold it, and how big it is.
  *
  * Row counts include the header row of each sheet, because that is what
@@ -197,15 +179,10 @@ export function buildLookupWorkbook(
 		const sheetRows = dataSheetRows(table, rows);
 		totalWorkbookRows += sheetRows.length;
 		/* The sheet name IS the tag: `_run_upload` looks each table's data
-		 * sheet up by it (`get_data_sheet(tabledef.table_id)`). The export
-		 * boundary refuses a tag too long to be one before it ever calls
-		 * this builder, so reaching here is a compiler bug rather than an
-		 * authoring state. */
-		if (table.tag.length > MAX_HQ_FIXTURE_SHEET_NAME_LENGTH) {
-			throw new Error(
-				`buildLookupWorkbook: the tag '${table.tag}' is ${table.tag.length} characters, and a data sheet's name cannot exceed ${MAX_HQ_FIXTURE_SHEET_NAME_LENGTH}. The export boundary must reject an unpushable tag before the workbook is built.`,
-			);
-		}
+		 * sheet up by it (`get_data_sheet(tabledef.table_id)`), read as a plain
+		 * title with no length check
+		 * (`util/workbook_json/excel.py::WorkbookJSONReader.get_worksheet`), so
+		 * a tag of Nova's full 32 characters names its sheet as written. */
 		if (table.tag.toLowerCase() === TYPES_SHEET) {
 			throw new Error(
 				`buildLookupWorkbook: the tag '${table.tag}' is the name of the mandatory types sheet, so its rows have nowhere to go. The export boundary must reject a tag reserved by CommCare HQ before the workbook is built.`,

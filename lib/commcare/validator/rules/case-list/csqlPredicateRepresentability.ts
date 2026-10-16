@@ -129,6 +129,7 @@ function buildError(
 		{ moduleUuid: args.moduleUuid, moduleName: args.mod.name },
 		{
 			reason: issue.reason,
+			...issue.details,
 			path,
 			slot: args.slot,
 			surface: args.input === undefined ? "filter" : "advanced-input",

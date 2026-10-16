@@ -70,6 +70,7 @@ import {
 	assetKindForFilename,
 	assetKindForMimeType,
 	isDocumentKind,
+	mimeTypeForFilename,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
 import {
@@ -83,7 +84,7 @@ import {
 	AssetPreviewDialog,
 	type AssetPreviewTarget,
 } from "./AssetPreviewDialog";
-import { ASSET_KIND_META } from "./assetKindMeta";
+import { ASSET_KIND_META, kindFormats } from "./assetKindMeta";
 import { ExtractionStatusBadge } from "./ExtractionStatusBadge";
 import {
 	deleteMediaAsset,
@@ -158,6 +159,15 @@ interface MediaPickerDialogBaseProps {
 	 * reserved `nova-icon:<slug>` ref, resolved to shared bytes at emit.
 	 */
 	iconLibrary?: IconSlotKind | "all";
+	/**
+	 * Why a format this picker's kinds include can't be used here, by its
+	 * canonical MIME type, or `undefined` where it can. The chat composer
+	 * passes it for an image the assistant can't read (a BMP): the Upload tab
+	 * leaves the format out of its file filter and refuses it with this
+	 * sentence, and the Library shows a file of it as unavailable with it.
+	 * Omitted everywhere else: every format of a kind is usable.
+	 */
+	unavailableReason?: (mimeType: string) => string | undefined;
 	/** Explicit Project write capability for standalone surfaces that do not
 	 *  mount BuilderSessionProvider. Inside the builder, omit this and the live
 	 *  session capability is authoritative. */
@@ -193,6 +203,7 @@ export function MediaPickerDialog({
 	attachedAssetIds,
 	onAssetDeleted,
 	iconLibrary,
+	unavailableReason,
 	canManageFiles,
 	selectionAuthority,
 }: MediaPickerDialogProps) {
@@ -249,6 +260,7 @@ export function MediaPickerDialog({
 					attachedAssetIds={attachedAssetIds}
 					onAssetDeleted={onAssetDeleted}
 					iconLibrary={iconLibrary}
+					unavailableReason={unavailableReason}
 				/>
 			</DialogContent>
 		</Dialog>
@@ -269,6 +281,7 @@ function PickerBody({
 	attachedAssetIds,
 	onAssetDeleted,
 	iconLibrary,
+	unavailableReason,
 }: {
 	manage: boolean;
 	standaloneCanManageFiles?: boolean;
@@ -281,6 +294,7 @@ function PickerBody({
 	attachedAssetIds?: readonly string[];
 	onAssetDeleted?: (assetId: string) => void;
 	iconLibrary?: IconSlotKind | "all";
+	unavailableReason?: (mimeType: string) => string | undefined;
 }) {
 	const scopeEpoch = useProjectScopeEpoch();
 	const projectToast = useProjectToast();
@@ -389,7 +403,8 @@ function PickerBody({
 	}, [assets, onAssetsLoaded]);
 
 	const commit = (asset: MediaAssetView) => {
-		if (!maySelect()) return;
+		if (!maySelect() || unavailableReason?.(asset.mimeType) !== undefined)
+			return;
 		onPick({ kind: "uploaded", asset });
 	};
 
@@ -570,6 +585,7 @@ function PickerBody({
 					>
 						<UploadTab
 							kinds={kinds}
+							unavailableReason={unavailableReason}
 							onUploaded={onUploaded}
 							onUploadStart={onUploadStart}
 							maySelect={maySelect}
@@ -613,6 +629,7 @@ function PickerBody({
 						filter={multiKind ? filter : null}
 						kinds={kinds}
 						onFilterChange={setFilter}
+						unavailableReason={canSelect ? unavailableReason : undefined}
 					/>
 				</TabsContent>
 			</Tabs>
@@ -646,10 +663,14 @@ function PickerBody({
 
 /**
  * Human "a/an image, audio, or video" phrase + the combined `accept`
- * MIME list, both derived from the allowed kinds so the upload-tab copy
- * and the wrong-kind rejection name exactly what the slot takes.
+ * list, both derived from the allowed kinds so the upload-tab copy
+ * and the wrong-kind rejection name exactly what the slot takes. A format
+ * `unavailableReason` names is left out of `accept`.
  */
-function describeKinds(kinds: readonly AssetKind[]): {
+function describeKinds(
+	kinds: readonly AssetKind[],
+	unavailableReason?: (mimeType: string) => string | undefined,
+): {
 	nounPhrase: string;
 	accept: string;
 } {
@@ -659,7 +680,13 @@ function describeKinds(kinds: readonly AssetKind[]): {
 	 * below still said "PDF" and "DOCX". Sentence case governs sentences;
 	 * it does not lowercase a proper noun. */
 	const labels = kinds.map((k) => ASSET_KIND_META[k].label);
-	const accept = kinds.map((k) => ASSET_KIND_META[k].accept).join(",");
+	const accept = kinds
+		.map(
+			(k) =>
+				kindFormats(k, (mime) => unavailableReason?.(mime) !== undefined)
+					.accept,
+		)
+		.join(",");
 	// "image" → "an image"; "image"/"audio" → "an image or audio";
 	// "image"/"audio"/"video" → "an image, audio, or video".
 	const article = /^[aeiou]/.test(labels[0] ?? "") ? "an" : "a";
@@ -676,6 +703,7 @@ function describeKinds(kinds: readonly AssetKind[]): {
 
 function UploadTab({
 	kinds,
+	unavailableReason,
 	onUploaded,
 	onUploadStart,
 	maySelect,
@@ -683,6 +711,7 @@ function UploadTab({
 	appId,
 }: {
 	kinds: readonly AssetKind[];
+	unavailableReason?: (mimeType: string) => string | undefined;
 	onUploaded: (asset: MediaAssetView, selectAfterUpload: boolean) => void;
 	/** Delegate a validated file to the caller's staged flow instead of
 	 *  uploading inline: see `MediaPickerDialogProps.onUploadStart`. */
@@ -697,7 +726,12 @@ function UploadTab({
 	const [dragging, setDragging] = useState(false);
 	const [kindError, setKindError] = useState<string | null>(null);
 	const { upload, status } = useMediaUpload(appId, canManageFiles);
-	const { nounPhrase, accept } = useMemo(() => describeKinds(kinds), [kinds]);
+	const { nounPhrase, accept } = useMemo(
+		() => describeKinds(kinds, unavailableReason),
+		[kinds, unavailableReason],
+	);
+	const formatsOf = (kind: AssetKind) =>
+		kindFormats(kind, (mime) => unavailableReason?.(mime) !== undefined);
 
 	const handleFile = async (file: File | undefined) => {
 		if (!file) return;
@@ -719,13 +753,18 @@ function UploadTab({
 		// is rejected here.
 		if (!kind || !kinds.some((k) => k === kind)) {
 			const supported = kinds
-				.map(
-					(k) => `${ASSET_KIND_META[k].label} (${ASSET_KIND_META[k].extLabel})`,
-				)
+				.map((k) => `${ASSET_KIND_META[k].label} (${formatsOf(k).extLabel})`)
 				.join(", ");
 			setKindError(
 				`That file can't be used here. Choose ${nounPhrase}: ${supported}.`,
 			);
+			return;
+		}
+		const format = dropped ?? mimeTypeForFilename(file.name);
+		const unavailable =
+			format === undefined ? undefined : unavailableReason?.(format);
+		if (unavailable !== undefined) {
+			setKindError(unavailable);
 			return;
 		}
 		setKindError(null);
@@ -834,7 +873,7 @@ function UploadTab({
 				</h3>
 				<div className="flex flex-wrap gap-2">
 					{kinds.map((kind) => {
-						const meta = ASSET_KIND_META[kind];
+						const meta = { ...ASSET_KIND_META[kind], ...formatsOf(kind) };
 						return (
 							<div
 								key={kind}
@@ -876,6 +915,7 @@ function LibraryTab({
 	filter,
 	kinds,
 	onFilterChange,
+	unavailableReason,
 }: {
 	canManageFiles: boolean;
 	assets: MediaAssetView[];
@@ -900,6 +940,8 @@ function LibraryTab({
 	filter: LibraryFilter | null;
 	kinds: readonly AssetKind[];
 	onFilterChange: (filter: LibraryFilter) => void;
+	/** Why a file can't be chosen here; such a file still previews. */
+	unavailableReason?: (mimeType: string) => string | undefined;
 }) {
 	const searchId = useId();
 	const normalizedQuery = query.trim();
@@ -1029,6 +1071,7 @@ function LibraryTab({
 							extractedTitle && extractedTitle !== fileName
 								? extractedTitle
 								: undefined;
+						const unavailable = unavailableReason?.(asset.mimeType);
 						return (
 							<li key={asset.id} className="group">
 								{/* The thumbnail + its hover affordances form their own
@@ -1045,17 +1088,27 @@ function LibraryTab({
 														{docTitle}
 													</span>
 												)}
+												{unavailable && (
+													<span className="mt-1 block font-normal text-nova-text-secondary">
+														{unavailable}
+													</span>
+												)}
 											</span>
 										}
 									>
 										<Button
 											type="button"
 											variant="outline"
-											onClick={() => onPick(asset)}
+											aria-disabled={unavailable !== undefined}
+											onClick={() => {
+												if (unavailable === undefined) onPick(asset);
+											}}
 											aria-label={
-												docTitle
-													? `${primaryAction} ${docTitle}, file ${fileName}`
-													: `${primaryAction} ${fileName}`
+												unavailable
+													? `${fileName}: ${unavailable}`
+													: docTitle
+														? `${primaryAction} ${docTitle}, file ${fileName}`
+														: `${primaryAction} ${fileName}`
 											}
 											className="block aspect-square h-auto w-full overflow-hidden rounded-lg p-0 not-disabled:hover:border-nova-violet"
 										>
@@ -1128,6 +1181,11 @@ function LibraryTab({
 									{docTitle && (
 										<p className="truncate text-xs leading-tight text-nova-text-muted">
 											{docTitle}
+										</p>
+									)}
+									{unavailable && (
+										<p className="text-xs leading-tight text-nova-text-muted">
+											{unavailable}
 										</p>
 									)}
 								</div>

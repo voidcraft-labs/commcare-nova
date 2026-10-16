@@ -26,7 +26,7 @@ import { z } from "zod";
 import { createNovaOpenAI } from "@/lib/agent/openaiProvider";
 import {
 	type DocumentKind,
-	IMAGE_MIME_TYPES,
+	MODEL_READABLE_IMAGE_MIME_TYPES,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
@@ -369,15 +369,16 @@ function preflightOfficeArchive(buffer: Buffer, kind: "docx" | "xlsx"): void {
 // or decorative. `EXTRACT_SYSTEM` § Figures teaches the model both namespaces
 // and forbids reconciling them.
 
-/** Image formats the summarizer reads natively as image parts, derived from
- *  the upload gate's image family (`IMAGE_MIME_TYPES`) so the two surfaces
- *  can't drift on what the model sees. The provider documents its vision
- *  input set as PNG, JPEG, WEBP, and NON-ANIMATED GIF; animation is checked
- *  separately at collection (`isAnimatedGif`). Anything else a docx embeds
- *  (EMF/WMF vector drawings, TIFF, BMP) keeps its in-text marker and is
- *  reported as present-but-not-read. */
+/** Image formats the summarizer reads natively as image parts: the domain's
+ *  model-readable subset (`MODEL_READABLE_IMAGE_MIME_TYPES`), so the chat and
+ *  extraction can't drift on what the model sees. The provider documents its
+ *  vision input set as PNG, JPEG, WEBP, and NON-ANIMATED GIF; animation is
+ *  checked separately at collection (`isAnimatedGif`). Anything else a docx
+ *  embeds (EMF/WMF vector drawings, TIFF, BMP, which the upload gate accepts
+ *  for an app's media) keeps its in-text marker and is reported as
+ *  present-but-not-read. */
 const MODEL_READABLE_FIGURE_TYPES: ReadonlySet<string> = new Set(
-	IMAGE_MIME_TYPES,
+	MODEL_READABLE_IMAGE_MIME_TYPES,
 );
 
 /** Attachment caps. Per-figure and whole-document byte bounds keep the

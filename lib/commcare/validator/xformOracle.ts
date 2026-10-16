@@ -1009,11 +1009,11 @@ const JR_ITEXT_REF_PATTERN = /^jr:itext\('([^']+)'\)$/;
  *
  * Both surfaces share one check because the emit-time invariant is uniform: a
  * `jr:itext('X')` reference — body ref or `jr:constraintMsg` — must exist iff its
- * `<text id="X">` entry does. A media-only `validate_msg_media` whose
- * registration gate ever drifts from the bind-attribute gate would emit a
- * dangling `jr:constraintMsg` ref — caught here as a generator bug rather than
- * shipped as a silently-degraded constraint message (the bare `jr:itext('X')`
- * string surfacing to the user instead of the intended text).
+ * `<text id="X">` entry does. A validation message whose registration gate
+ * ever drifts from the bind-attribute gate would emit a dangling
+ * `jr:constraintMsg` ref — caught here as a generator bug rather than shipped
+ * as a silently-degraded constraint message (the bare `jr:itext('X')` string
+ * surfacing to the user instead of the intended text).
  */
 function checkItextReferences(
 	model: XFormModel,

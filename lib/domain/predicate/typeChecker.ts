@@ -238,6 +238,7 @@ export type CheckErrorCode =
 	| "case-status-value"
 	| "incompatible-values"
 	| "ordered-values"
+	| "time-ordering"
 	| "location-value"
 	| "match-value"
 	| "match-value-empty"
@@ -313,14 +314,25 @@ export type ResolvedType = CasePropertyDataType | typeof ANY_TYPE;
  * surprise authors. Forcing the author to pick a different operator (a
  * fuzzy match, a starts-with comparison, etc.) is preferable to
  * silently emitting a lexicographic compare.
+ *
+ * A time of day is excluded too. Core turns both sides of an ordering
+ * into numbers, and a string holding a `:` is NaN, so the comparison is
+ * never true on a device (commcare-core `XPathCmpExpr.evalRaw`,
+ * `FunctionUtils.toNumeric`); HQ's range query tries a number and then a
+ * date or datetime and raises on a time of day
+ * (`corehq/apps/case_search/xpath_functions/comparison.py::_case_property_range_query`).
+ * The checker names that refusal with its own code, `time-ordering`.
  */
 export const ORDERED_TYPES: ReadonlySet<ResolvedType> = new Set<ResolvedType>([
 	"int",
 	"decimal",
 	"date",
 	"datetime",
-	"time",
 ]);
+
+/** The refusal of an ordering on a time of day, in every Predicate slot. */
+const TIME_ORDERING_MESSAGE =
+	"A time of day can't be compared with before or after. CommCare compares these as numbers and a time is not one, so the comparison would never be true. A date can be compared this way.";
 
 // Match-mode allow-lists.
 //
@@ -610,13 +622,21 @@ function checkComparison(
 		// `gt(prop, literal(null))` is meaningless but treated as "type
 		// is compatible, evaluator handles the null-coercion at runtime"
 		// rather than a type-checker rejection.
+		if (leftType === "time" || rightType === "time") {
+			errors.push({
+				path,
+				code: "time-ordering",
+				message: TIME_ORDERING_MESSAGE,
+			});
+			return;
+		}
 		const leftOrdered = leftType === ANY_TYPE || ORDERED_TYPES.has(leftType);
 		const rightOrdered = rightType === ANY_TYPE || ORDERED_TYPES.has(rightType);
 		if (!leftOrdered || !rightOrdered) {
 			errors.push({
 				path,
 				code: "ordered-values",
-				message: `Operator '${kind}' requires ordered types (int, decimal, date, datetime, time); got '${describe(leftType)}' and '${describe(rightType)}'. Strings are not ordered.`,
+				message: `Operator '${kind}' requires ordered types (int, decimal, date, datetime); got '${describe(leftType)}' and '${describe(rightType)}'. Strings are not ordered.`,
 			});
 			return;
 		}
@@ -1052,11 +1072,19 @@ function checkBetween(
 	// the check because `between(prop, null, null)` is meaningless but
 	// `_any` itself never reaches `left` (the schema requires a value-
 	// expression, not a literal-only slot).
+	if (leftType === "time") {
+		errors.push({
+			path,
+			code: "time-ordering",
+			message: TIME_ORDERING_MESSAGE,
+		});
+		return;
+	}
 	if (leftType !== ANY_TYPE && !ORDERED_TYPES.has(leftType)) {
 		errors.push({
 			path,
 			code: "ordered-values",
-			message: `Operator 'between' requires an ordered left operand (int, decimal, date, datetime, time); got '${describe(leftType)}'. Strings are not ordered.`,
+			message: `Operator 'between' requires an ordered left operand (int, decimal, date, datetime); got '${describe(leftType)}'. Strings are not ordered.`,
 		});
 		return;
 	}

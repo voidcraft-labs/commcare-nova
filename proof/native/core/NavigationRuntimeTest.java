@@ -190,9 +190,12 @@ public class NavigationRuntimeTest {
     @Test public void evaluatesSearchPayloadsForNativeHqConsumption() throws Exception {
         List<String> output = new ArrayList<>();
         for (String scenario : new String[]{"legacy", "date-add", "datetime-add", "day-range"}) {
-            for (boolean supplied : new boolean[]{false, true}) {
+            // A day range orders each bound, so a present and blank answer is guarded: the whole clause is
+            // match-none(), where HQ's range query would raise on the blank comparand.
+            for (String state : scenario.equals("day-range") ? new String[]{"false", "true", "blank"} : new String[]{"false", "true"}) {
+                boolean supplied = !state.equals("false");
                 Map<String, String> inputs = new LinkedHashMap<>();
-                if (supplied) for (String name : scenario.equals("day-range") ? new String[]{"visit_date", "last_seen", "date_opened"} : new String[]{"base_date"}) inputs.put(name, "2024-02-29");
+                if (supplied) for (String name : scenario.equals("day-range") ? new String[]{"visit_date", "last_seen", "date_opened"} : new String[]{"base_date"}) inputs.put(name, state.equals("blank") ? "" : "2024-02-29");
                 RuntimeData data = new RuntimeData("worker", "", inputs);
                 Entry entry = suite("search-" + scenario).getEntry("search_command.m0");
                 assertNotNull(entry);
@@ -205,16 +208,17 @@ public class NavigationRuntimeTest {
                 for (QueryData value : query.getHiddenQueryValues()) if ("_xpath_query".equals(value.getKey())) for (String text : value.getValues(context)) queries.add(text);
                 assertEquals(scenario.equals("legacy") ? 0 : scenario.equals("day-range") ? 3 : 1, queries.size());
                 if (!supplied) for (String text : queries) assertEquals("match-all()", text);
+                else if (state.equals("blank")) for (String text : queries) assertEquals("match-none()", text);
                 else if (scenario.equals("date-add")) assertEquals(Collections.singletonList("visit_date = date-add(\"2024-02-29\", 'days', 7)"), queries);
                 else if (scenario.equals("datetime-add")) assertEquals(Collections.singletonList("last_seen = datetime-add(datetime(\"2024-02-29\"), 'hours', 1)"), queries);
                 else if (scenario.equals("day-range")) assertEquals(Arrays.asList(
                     "visit_date >= date(\"2024-02-29\") and visit_date < date-add(date(\"2024-02-29\"), 'days', 1)",
                     "last_seen >= datetime(\"2024-02-29\") and last_seen < datetime(date-add(date(\"2024-02-29\"), 'days', 1))",
                     "date_opened >= datetime(\"2024-02-29\") and date_opened < datetime(date-add(date(\"2024-02-29\"), 'days', 1))"), queries);
-                for (String text : queries) output.add(scenario + "\t" + supplied + "\t" + text);
+                for (String text : queries) output.add(scenario + "\t" + state + "\t" + text);
             }
         }
-        assertEquals(10, output.size());
+        assertEquals(13, output.size());
         Files.write(NativeProof.familyDirectory("navigation").resolve("nova-search-payloads.tsv"), output, StandardCharsets.UTF_8);
     }
 }

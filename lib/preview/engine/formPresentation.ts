@@ -42,7 +42,7 @@ export type FormPresentationNode =
 			readonly label?: string;
 			readonly hint?: string;
 			readonly help?: string;
-			readonly media?: { label?: Media; hint?: Media; help?: Media };
+			readonly media?: { label?: Media; help?: Media };
 			readonly repeatMode?: "user_controlled" | "count_bound" | "query_bound";
 			readonly repeatCount?: number;
 			readonly controls?: { add: boolean };
@@ -254,9 +254,6 @@ export function projectFormPresentation(
 			const media = {
 				...("label_media" in field && field.label_media
 					? { label: field.label_media }
-					: {}),
-				...("hint_media" in field && field.hint_media
-					? { hint: field.hint_media }
 					: {}),
 				...("help_media" in field && field.help_media
 					? { help: field.help_media }

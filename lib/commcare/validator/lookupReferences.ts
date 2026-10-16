@@ -7,7 +7,7 @@ import {
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
-import { isReservedInstanceTag } from "@/lib/lookup/constants";
+import { reservedInstanceTagCause } from "@/lib/lookup/constants";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
 	type ValidationError,
@@ -122,16 +122,22 @@ export function validateLookupReferences(
 			errors.push(tableNotAvailableFinding(occurrence));
 			continue;
 		}
-		if (isReservedInstanceTag(table.tag)) {
+		const reserved = reservedInstanceTagCause(table.tag);
+		if (reserved !== null) {
 			errors.push(
 				validationError(
 					"LOOKUP_TAG_RESERVED_BY_RUNTIME",
 					occurrence.location.scope,
-					`The lookup table ${table.name} uses the export tag ${table.tag}, which CommCare reserves for its own data. Rename the export tag in Project data, then try again.`,
+					reserved.kind === "name"
+						? `The lookup table ${table.name} uses the export tag ${table.tag}, which CommCare reserves for its own data. Rename the export tag in Project data, then try again.`
+						: `The lookup table ${table.name} uses the export tag ${table.tag}, which contains ${reserved.word}, and CommCare reads any tag containing ${reserved.word} as its own data. Rename the export tag in Project data, then try again.`,
 					occurrenceLocation(occurrence),
 					occurrenceDetails(occurrence, {
 						tag: table.tag,
 						tableName: table.name,
+						...(reserved.kind === "contains"
+							? { reservedWord: reserved.word }
+							: {}),
 					}),
 				),
 			);

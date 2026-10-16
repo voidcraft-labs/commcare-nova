@@ -3,7 +3,9 @@
 Contract: HQ's lookup workbook reader reads Nova's corpus workbook as the
 tables Nova wrote (``expected.json``: tags, columns and row values, global,
 sorted, keyless and ownerless), as many sheet rows as Nova wrote, and the
-same values Nova's fixture XML carries; reads a 50-column table whole; and
+same values Nova's fixture XML carries; reads a 50-column table whole; reads
+a table whose tag, and so whose sheet name, holds Nova's full 32 characters
+(``lib/lookup/constants.ts::LOOKUP_MAX_TAG_LENGTH``) under that tag; and
 strips exactly the padding code points Nova's ``hqWouldTrimLookupText``
 predicts, which is why Nova's HQ export guards that text. HQ also regenerates
 the two lookup forms, which ``LookupRuntimeTest`` runs in Core on both
@@ -48,6 +50,12 @@ def test_hq_reads_novas_workbooks_as_nova_wrote_them(native):
     assert wide["columns"] == [f"c{i}" for i in range(50)]
     (wide_row,) = wide["values"]
     assert wide_row == [f"v{i}" for i in range(50)]
+
+    # A 32-character tag names its data sheet as written, and HQ's reader takes the table under it.
+    (long_tag,) = result["longTag"]["tables"]
+    assert len(expected["longTag"]) == 32
+    assert long_tag["tag"] == expected["longTag"]
+    assert long_tag["values"] == [["north"], ["south"]]
 
     # The upstream coercion behind Nova's HQ-only export guard.
     (padding,) = result["padding"]["tables"]

@@ -208,12 +208,6 @@ export const FieldRow = memo(function FieldRow({
 						/>
 					</TextEditable>
 				)}
-				{/* Hint media: sits with the hint, above the input. `hint_media`
-				    is only on input-capable kinds, so guard the access. */}
-				<MediaDisplay
-					media={"hint_media" in q ? q.hint_media : undefined}
-					interactive={false}
-				/>
 				{/* Help text + help media. Nova's preview shows help inline
 				    (CommCare hides it behind a "?"); both slots are input-kind
 				    only, so guard the access. */}

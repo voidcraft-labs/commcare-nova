@@ -22,7 +22,7 @@ describe("admitted XForm media references", () => {
 	for (const mediaOnly of [false, true])
 		for (const enabled of [false, true])
 			it(`${mediaOnly ? "media-only" : "text and media"} optional content, emission ${enabled ? "on" : "off"}`, () => {
-				const { doc, assets } = mediaWireFixture(mediaOnly);
+				const { doc, assets } = mediaWireFixture(mediaOnly, true);
 				const options = enabled ? { assets } : {};
 				const hq = expandDoc(doc, options);
 				const zip = new AdmZip(
@@ -76,12 +76,11 @@ describe("admitted XForm media references", () => {
 						] as const)
 							expectedLabel.set(slot, ref(key));
 					expect(itext.get("answer-label")).toEqual(expectedLabel);
-					for (const [slot, key] of [
-						["hint", "option"],
-						["help", "audio"],
-						["constraintMsg", "icon"],
-					] as const) {
-						const present = !mediaOnly || enabled;
+					// A hint and a validation message carry text alone; the help
+					// message carries its audio.
+					for (const slot of ["hint", "help", "constraintMsg"] as const) {
+						const present =
+							slot === "help" ? !mediaOnly || enabled : !mediaOnly;
 						const reference =
 							slot === "constraintMsg"
 								? bound.attributes["jr:constraintMsg"]
@@ -110,15 +109,17 @@ describe("admitted XForm media references", () => {
 										? "Some help"
 										: "Use ok",
 						);
-						expect(values?.get(key === "audio" ? "audio" : "image")).toBe(
-							enabled ? ref(key) : undefined,
+						expect(values?.get("audio")).toBe(
+							slot === "help" && enabled ? ref("audio") : undefined,
 						);
+						expect(values?.get("image")).toBeUndefined();
+						expect(values?.get("video")).toBeUndefined();
 					}
 					const select = onlyXml(descendants(root, "select1"));
 					const items = xmlChildren(select, "item");
 					expect(
 						items.map((item) => onlyXml(xmlChildren(item, "value")).text),
-					).toEqual(["one", "two"]);
+					).toEqual(["one", "two", "three", "four", "five", "six"]);
 					const optionRef = onlyXml(xmlChildren(items[0], "label")).attributes
 						.ref;
 					expect(optionRef).toBe("jr:itext('choice-opt0-label')");
@@ -132,6 +133,19 @@ describe("admitted XForm media references", () => {
 						enabled ? ref("video") : undefined,
 					);
 					expect(itext.get("choice-opt1-label")?.get("image")).toBeUndefined();
+					// One file of each format defect 11's first half accepts, each in
+					// a slot of its kind.
+					for (const [option, slot, key] of [
+						[2, "image", "bmp"],
+						[2, "audio", "m4a"],
+						[2, "video", "webm"],
+						[3, "audio", "flac"],
+						[4, "audio", "oggVorbis"],
+						[5, "audio", "oggOpus"],
+					] as const)
+						expect(itext.get(`choice-opt${option}-label`)?.get(slot)).toBe(
+							enabled ? ref(key) : undefined,
+						);
 				}
 				expect(hq.modules[0].media_image).toEqual(
 					enabled ? { en: ref("icon") } : {},

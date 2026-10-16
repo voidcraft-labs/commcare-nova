@@ -8,6 +8,7 @@
  */
 
 import { type Diagnostic, linter } from "@codemirror/lint";
+import { TIME_ORDERING_MESSAGE } from "@/lib/commcare/validator/timeOrdering";
 import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
 import {
 	caseRefAcceptMap,
@@ -79,6 +80,14 @@ export interface XPathLintContext {
 	 * `buildSessionLintContext` is the one producer of `"session"`.
 	 */
 	scope?: "form" | "session";
+	/**
+	 * The orderings on a time of day in an expression's text, as spans of
+	 * that text: the validator's own reading
+	 * (`lib/commcare/validator/timeOrdering.ts::findTimeOrderingComparisons`)
+	 * over the document the context was built from. Absent where no document
+	 * backs the context.
+	 */
+	timeOrderings?: (text: string) => ReadonlyArray<{ from: number; to: number }>;
 }
 
 /**
@@ -131,7 +140,7 @@ export function xpathDiagnostics(
 		ctx?.formType === "registration" && ctx.scope !== "session",
 		ctx?.scope ?? "form",
 	);
-	return errors.map((err) => {
+	const diagnostics = errors.map((err): Diagnostic => {
 		const from = err.position ?? 0;
 		/* A reference-bearing error underlines the reference it names; any
 		 * other error marks the character it starts at. */
@@ -143,6 +152,19 @@ export function xpathDiagnostics(
 		);
 		return { from, to, severity: "error", message: err.message };
 	});
+	/* An ordering on a time reads only an expression that otherwise
+	 * validates: its operands must resolve to say what they are. */
+	if (diagnostics.length > 0 || ctx?.timeOrderings === undefined) {
+		return diagnostics;
+	}
+	return ctx.timeOrderings(expr).map(
+		({ from, to }): Diagnostic => ({
+			from,
+			to: Math.min(to, expr.length),
+			severity: "error",
+			message: TIME_ORDERING_MESSAGE,
+		}),
+	);
 }
 
 /** Create a CodeMirror lint extension that validates against the live context. */

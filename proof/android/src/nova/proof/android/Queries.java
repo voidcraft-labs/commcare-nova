@@ -23,6 +23,7 @@ import org.json.JSONObject;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowLooper;
+import org.robolectric.shadows.ShadowToast;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -51,7 +52,10 @@ import javax.xml.transform.stream.StreamResult;
  * First, where the request names an answer ({@code queryAnswer}), on a screen of its own: what the screen sends
  * once every free-text prompt holds that answer and the worker presses Search
  * (QueryRequestActivity.makeQueryRequest), the errors Core's query manager holds for the prompts at that moment,
- * and what the screen shows when the server answers 400, as HQ answers a query it refuses.
+ * and what the screen shows when the server answers 400, as HQ answers a query it refuses; or, where the request
+ * asks for it ({@code queryFindsNothing}), when the server answers 200 with no case, as HQ answers a search that
+ * finds nothing: the toast the screen shows (QueryRequestActivity.processSuccess, {@code query.response.empty})
+ * and what each prompt then holds.
  *
  * Each prompt the screen shows as a list of choices (a spinner, or a group of checkboxes) is read with its
  * items in the order the screen lists them ({@code items}), which is the order Core gives the prompt's itemset
@@ -65,6 +69,8 @@ import javax.xml.transform.stream.StreamResult;
 final class Queries {
     /** Set by the reader for the request it is answering; null where the request names none. */
     static String answer;
+    /** Set by the reader: true where the request asks the probe's search to be answered with no case. */
+    static boolean findsNothing;
     private static final java.util.Set<String> probed = new java.util.HashSet<>();
     private static final java.util.Set<String> typedIn = new java.util.HashSet<>();
 
@@ -196,17 +202,52 @@ final class Queries {
         found.put("answer", answer);
         found.put("RemoteQuerySessionManager.getErrors", strings(manager.getErrors()));
         found.put("RemoteQuerySessionManager.getRawQueryParams", params(manager.getRawQueryParams(false)));
-        if (!Device.served()) {
+        if (Device.served()) {
+            int held = steps();
+            press(activity);
+            // A device served by HQ shows HQ's own answer.
+            found.put("afterServerAnswers", shown(activity));
+            back(held);
+        } else if (findsNothing) {
+            // With no server, the test requester answers as HQ answers a search that finds nothing: 200, and
+            // HQ's search root holding no case.
+            File results = File.createTempFile("search-results", ".xml");
+            Files.write(results.toPath(), "<results id=\"case\"/>".getBytes(StandardCharsets.UTF_8));
+            String root = CommCareApplication.instance().getArchiveFileRoot().addArchiveFile(results.getParent());
+            ModernHttpRequesterMock.setResponseCodes(new Integer[]{200});
+            ModernHttpRequesterMock.setExpectedUrls(new String[0]);
+            ModernHttpRequesterMock.setRequestPayloads(new String[]{"jr://archive/" + root + "/"
+                    + results.getName()});
+            int held = steps();
+            int toasts = ShadowToast.shownToastCount();
+            press(activity);
+            JSONObject after = shown(activity);
+            after.put("toast", ShadowToast.shownToastCount() > toasts
+                    ? String.valueOf(ShadowToast.getTextOfLatestToast()) : JSONObject.NULL);
+            JSONObject prompts = new JSONObject();
+            for (Map.Entry<String, View> box : new TreeMap<>(boxes(activity)).entrySet()) {
+                if (box.getValue() instanceof EditText) {
+                    EditText text = (EditText)box.getValue();
+                    JSONObject prompt = new JSONObject();
+                    prompt.put("text", String.valueOf(text.getText()));
+                    prompt.put("enabled", text.isEnabled());
+                    prompt.put("focusable", text.isFocusable());
+                    prompts.put(box.getKey(), prompt);
+                }
+            }
+            after.put("prompts", prompts);
+            found.put("afterServerFindsNothing", after);
+            back(held);
+        } else {
+            // With no server, the test requester refuses the query as HQ refuses one it cannot read.
             ModernHttpRequesterMock.setResponseCodes(new Integer[]{400});
             ModernHttpRequesterMock.setExpectedUrls(new String[0]);
             ModernHttpRequesterMock.setRequestPayloads(new String[0]);
+            int held = steps();
+            press(activity);
+            found.put("afterServerAnswers400", shown(activity));
+            back(held);
         }
-        int held = steps();
-        press(activity);
-        // With no server, the test requester refuses the query as HQ refuses one it cannot read; a device served
-        // by HQ shows HQ's own answer.
-        found.put(Device.served() ? "afterServerAnswers" : "afterServerAnswers400", shown(activity));
-        back(held);
         return found;
     }
 

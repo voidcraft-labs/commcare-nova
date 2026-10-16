@@ -2013,13 +2013,11 @@ test("the inspector says what a case-bound field does when a one-case form opens
 		defaultRow.locator('.cm-content[contenteditable="true"]'),
 	).toHaveCount(0);
 	await expect(removeExpression).toBeVisible();
-	// Removing the dead expression leaves the writer set once with the
-	// placeholder: the case's value carries through, and a preloaded writer
-	// rests on set once rather than an empty keep in step.
+	// Removing the dead expression leaves the writer holding neither slot:
+	// the case's value carries through, and a preloaded writer rests on set
+	// once rather than an empty keep in step.
 	await removeExpression.click();
-	await expect(saved).toContainText(
-		'"default_value":{"parts":[{"kind":"text","text":"\'\'"}]}',
-	);
+	await expect(saved).not.toContainText('"default_value"');
 	await expect(saved).not.toContainText('"calculate"');
 	await expect(setOnce).toHaveAttribute("aria-pressed", "true");
 	await expect(removeExpression).toHaveCount(0);
@@ -2034,9 +2032,9 @@ test("the inspector says what a case-bound field does when a one-case form opens
 		inspector.locator('[data-field-id="calculate"] .cm-content'),
 	).toContainText("today()");
 
-	// A hidden field that saves nowhere, born as every hidden field is: set
-	// once with the inert placeholder in the document, shown as keep in step
-	// at rest because that is the mode a typed calculation lands in. Saving
+	// A hidden field that saves nowhere, born as every hidden field is:
+	// holding neither slot, shown as keep in step at rest because that is the
+	// mode a typed calculation lands in. Saving
 	// one is the write that moves the field into keep in step; after that the
 	// expression rides along on every mode switch, each switch is one undo
 	// step, and the body's data-field-id follows the active slot.
@@ -2044,9 +2042,7 @@ test("the inspector says what a case-bound field does when a one-case form opens
 		.getByRole("button", { name: "Select scratch", exact: true })
 		.click();
 	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
-	await expect(saved).toContainText(
-		'"default_value":{"parts":[{"kind":"text","text":"\'\'"}]}',
-	);
+	await expect(saved).not.toContainText('"default_value"');
 	await expect(saved).not.toContainText('"calculate"');
 	await inspector
 		.locator('[data-field-id="calculate"]')
@@ -2092,12 +2088,12 @@ test("the inspector says what a case-bound field does when a one-case form opens
 	);
 	await expect(saved).not.toContainText('"default_value"');
 
-	// Emptying a calculation has one honest spelling in the document: set
-	// once with the inert placeholder, never an empty calculation. The
-	// control keeps resting on keep in step for a field that saves nowhere.
-	// Choosing keep in step with nothing to carry writes nothing: the editor
-	// opens for the calculation, and leaving it empty leaves the document
-	// alone; choosing set once shows the placeholder the document holds.
+	// Emptying a calculation has one honest spelling in the document: neither
+	// slot, never an empty calculation. The control keeps resting on keep in
+	// step for a field that saves nowhere. Choosing keep in step with nothing
+	// to carry writes nothing: the editor opens for the calculation, and
+	// leaving it empty leaves the document alone; choosing set once shows the
+	// an empty starting value, since the document holds none.
 	await inspector
 		.locator('[data-field-id="calculate"]')
 		.getByRole("button")
@@ -2106,9 +2102,7 @@ test("the inspector says what a case-bound field does when a one-case form opens
 	await code.press("ControlOrMeta+A");
 	await code.press("Backspace");
 	await code.press("ControlOrMeta+Enter");
-	await expect(saved).toContainText(
-		'"default_value":{"parts":[{"kind":"text","text":"\'\'"}]}',
-	);
+	await expect(saved).not.toContainText('"default_value"');
 	await expect(saved).not.toContainText('"calculate"');
 	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
 	await expect(
@@ -2131,7 +2125,8 @@ test("the inspector says what a case-bound field does when a one-case form opens
 	await expect(setOnce).toHaveAttribute("aria-pressed", "true");
 	await expect(
 		inspector.locator('[data-field-id="default_value"] .cm-content'),
-	).toContainText("''");
+	).toHaveText("");
+	await expect(saved).not.toContainText('"default_value"');
 	await expect(saved).not.toContainText('"calculate"');
 });
 

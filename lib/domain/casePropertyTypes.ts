@@ -105,16 +105,16 @@ export const NUMERIC_DATA_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Totally-ordered data types — admit `lt` / `lte` / `gt` / `gte`
- * comparisons and `between` ranges. Numeric + temporal members of
- * the case-property type universe.
+ * Ordered data types — admit `lt` / `lte` / `gt` / `gte` comparisons and
+ * `between` ranges: numbers, dates and dates with times, the type
+ * checker's `ORDERED_TYPES`. A time of day is not one: CommCare compares
+ * before and after as numbers, and a time is not a number.
  */
 export const ORDERED_DATA_TYPES: ReadonlySet<string> = new Set([
 	"int",
 	"decimal",
 	"date",
 	"datetime",
-	"time",
 ]);
 
 // ── Per-shape predicates ──────────────────────────────────────────
@@ -180,7 +180,7 @@ export function isTextShaped(p: PropertyDataTypeCarrier): boolean {
 
 /**
  * `true` when the property's effective data type admits ordered
- * comparison — numeric or temporal.
+ * comparison: a number, a date, or a date and time.
  */
 export function isOrdered(p: PropertyDataTypeCarrier): boolean {
 	return ORDERED_DATA_TYPES.has(effectiveDataType(p));

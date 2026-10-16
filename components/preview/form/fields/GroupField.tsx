@@ -29,7 +29,6 @@ import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback, useId } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
-import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import type { GroupField as GroupFieldEntity } from "@/lib/domain";
 import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
@@ -117,8 +116,6 @@ export function GroupField({
 						collapsed ? "rounded-lg" : "rounded-t-lg border-b-0"
 					}`}
 				>
-					{/* Group label media: banner above the header row. */}
-					<MediaDisplay media={field.label_media} interactive />
 					<div className={CONTAINER_HEADER_STYLES.row}>
 						<button
 							type="button"

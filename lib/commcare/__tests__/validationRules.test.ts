@@ -445,13 +445,13 @@ describe("strict field shape and semantic backstops", () => {
 			findings(doc, [code]);
 		},
 	);
-	it("rejects a hidden field without any value", () => {
+	it("admits a hidden field with neither a calculate nor a default", () => {
 		findings(
 			candidate(hidden(), (d) => {
 				const field = d.fields[q];
 				if (field.kind === "hidden") delete field.calculate;
 			}),
-			["HIDDEN_NO_VALUE"],
+			[],
 		);
 	});
 	it("admits a hidden field with only a default and rejects one carrying both value sources at the default", () => {

@@ -11,7 +11,7 @@ import { runValidation } from "../../../runner";
 describe("media reference admission across carriers", () => {
 	for (const state of ["missing", "pending", "wrong kind"] as const)
 		it(`reports every ${state} reference at its actual authoring location`, () => {
-			const { doc, assets } = mediaWireFixture();
+			const { doc, assets } = mediaWireFixture(false, true);
 			const records = mediaRecords(assets);
 			const moduleUuid = doc.moduleOrder[0],
 				formUuid = doc.formOrder[moduleUuid][0];
@@ -24,12 +24,16 @@ describe("media reference admission across carriers", () => {
 				["field", "label_media", "answer", "", "label", "image"],
 				["field", "label_media", "answer", "", "audio", "audio"],
 				["field", "label_media", "answer", "", "video", "video"],
-				["field", "hint_media", "answer", "", "option", "image"],
 				["field", "help_media", "answer", "", "audio", "audio"],
-				["field", "validate_msg_media", "answer", "", "icon", "image"],
 				["field", "options", "choice", "", "option", "image"],
 				["field", "options", "choice", "", "audio", "audio"],
 				["field", "options", "choice", "", "video", "video"],
+				["field", "options", "choice", "", "bmp", "image"],
+				["field", "options", "choice", "", "m4a", "audio"],
+				["field", "options", "choice", "", "webm", "video"],
+				["field", "options", "choice", "", "flac", "audio"],
+				["field", "options", "choice", "", "oggVorbis", "audio"],
+				["field", "options", "choice", "", "oggOpus", "audio"],
 				["module", "", "", "0", "label", "image"],
 				["module", "", "", "1", "option", "image"],
 				["module", "", "", "2", "icon", "image"],
@@ -67,7 +71,7 @@ describe("media reference admission across carriers", () => {
 						? "MEDIA_ASSET_NOT_READY"
 						: "MEDIA_KIND_MISMATCH";
 			expect(findings.map((finding) => finding.code)).toEqual(
-				Array(17).fill(code),
+				Array(21).fill(code),
 			);
 			const column = doc.modules[moduleUuid].caseListConfig?.columns[1];
 			if (!column) throw new Error("Missing image-map column");
@@ -102,12 +106,12 @@ describe("media reference admission across carriers", () => {
 			);
 		});
 	it("skips external media admission only when no manifest was supplied", () => {
-		const { doc } = mediaWireFixture();
+		const { doc } = mediaWireFixture(false, true);
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
 				mediaAssets: new Map(),
 			}),
-		).toHaveLength(17);
+		).toHaveLength(21);
 	});
 });

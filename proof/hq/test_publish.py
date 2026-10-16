@@ -36,10 +36,11 @@ a corpus document's own capture (``proof/hq/conftest.py::DOCUMENTS``):
   (a soft delete and an id it never held) and their two neighbours (a linked
   app, an update naming no ``doc_type``) answer as Nova reads them; HQ's API
   limiter refuses a second import within a second before it runs; and an
-  update writes none of the fields HQ excludes. The plausible failures: a
-  shell HQ could build (a build would hold HQ-minted ids), an update that
-  leaves another app than it describes, and a reading of "gone" HQ does not
-  give.
+  update writes none of the fields HQ excludes, and writes ``case_sharing``
+  and ``cloudcare_enabled``, which it does not exclude. The plausible
+  failures: a shell HQ could build (a build would hold HQ-minted ids), an
+  update that leaves another app than it describes, and a reading of "gone"
+  HQ does not give.
 - No multimedia map (A4): an import with no map draws no warning under
   ``CAUTIOUS_MULTIMEDIA`` and the media upload maps every file, and a build
   made before the upload names no medium and installs, where one made from
@@ -514,6 +515,32 @@ def test_an_update_writes_no_excluded_field(hq, core_runner, documents):
         assert (
             after["build_spec"]["version"] == before["build_spec"]["version"] == export.configuration.commcare_version
         )
+
+
+def test_an_update_carrying_case_sharing_and_web_apps_writes_both(hq, core_runner, documents):
+    """``case_sharing`` and ``cloudcare_enabled`` are app content: neither is among the fields HQ's update excludes
+    (``Application._update_excluded_fields``), so an update that carries the opposite of each stored value writes
+    both, as ``lib/commcare/hqShells.ts::applicationShell`` and ``lib/commcare/types.ts::HqApplication`` state.
+    Nova sends neither yet."""
+    export = documents["navigation-base"].exports["minimum"]
+    with hq_check(export.configuration.hq()) as (state, _):
+        from proof.observe import publish
+
+        app_id, refusal, _ = publish.create(state, export)
+        assert refusal is None, refusal
+        before = operations.held_app(state, app_id)
+        body = _app_file(export.content.upload())
+        assert "case_sharing" not in body and "cloudcare_enabled" not in body
+        flipped = {
+            **body,
+            "case_sharing": not before.case_sharing,
+            "cloudcare_enabled": not before.cloudcare_enabled,
+        }
+        updated = operations.apply_upload(state, nova_shaped_upload(flipped, before.name, app_id=app_id))
+        assert updated.status == 200, updated.response
+        after = operations.held_app(state, app_id)
+    assert after.case_sharing is (not before.case_sharing)
+    assert after.cloudcare_enabled is (not before.cloudcare_enabled)
 
 
 # No multimedia_map (part 01, A4): the media upload alone maps an app's media ----------------------------------
@@ -1026,23 +1053,32 @@ def test_an_update_keeps_a_forms_validation_verdict_for_seven_days(hq, core_runn
 def test_a_capture_is_applied_only_over_the_lookup_tables_it_read(hq, core_runner, documents):
     """A captured update names the lookup tables its publish read before it decided what to send
     (``assumedResources``), and the HQ side holds them to HQ's own table and row resources first
-    (``operations.hold_assumed_resources``). ``targeted-hq-side-lookup``'s republish read the district table as a
-    person kept it in HQ: over Nova's own push alone HQ holds another definition, and the hold refuses naming the
-    table; once the person's save is made through HQ's own upload and table editor, it holds."""
+    (``operations.hold_assumed_resources``). ``lookup-app``'s republish read the regions table as Nova's own push
+    left it: over that push the hold holds, and once a person keeps the table in HQ with a field property, an
+    attribute and owners (``targeted-hq-side-lookup``'s save, made on regions through HQ's own upload and table
+    editor), HQ holds another definition and the hold refuses naming the table. (``targeted-hq-side-lookup``'s own
+    republish stops before it sends anything, so it captures no update to hold.)"""
     from proof.hq import redis as hq_redis
     from proof.observe import hqside, publish
 
-    document = documents["targeted-hq-side-lookup"]
+    document = documents["lookup-app"]
     export = document.exports["minimum"]
     assumed = export.republish.meta["assumedResources"]
-    assert [table["tag"] for table in assumed["lookupTables"]] == ["district"]
+    assert [table["tag"] for table in assumed["lookupTables"]] == ["regions"]
+    kept = documents["targeted-hq-side-lookup"].hq_side["lookupTable"]
+    kept = {
+        **kept,
+        "tag": "regions",
+        "fieldProperty": {**kept["fieldProperty"], "field": "label"},
+        "rowAttribute": {**kept["rowAttribute"], "values": ["upland", "coastal", "upland"]},
+    }
     with hq_check(export.configuration.hq()) as (state, _), hq_redis.shared(None), state.committing():
         app_id, refusal, lookups = publish.create(state, export)
         assert refusal is None and lookups["errors"] == [], (refusal, lookups)
-        with pytest.raises(operations.CapturedResourcesNotHeld, match="the definition of district"):
-            operations.hold_assumed_resources(state, assumed, "captured republish")
-        hqside.lookup_table(state, document.hq_side["lookupTable"])
         operations.hold_assumed_resources(state, assumed, "captured republish")
+        hqside.lookup_table(state, kept)
+        with pytest.raises(operations.CapturedResourcesNotHeld, match="the definition of regions"):
+            operations.hold_assumed_resources(state, assumed, "captured republish")
 
 
 def _unbuilt_download(state, app_id):

@@ -6701,5 +6701,237 @@
 		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/resultCode",
 		"kind": "changed",
 		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d5-reserved-substrings-evaluate",
+		"defect": 5,
+		"part": "reserved substrings",
+		"check": "intent",
+		"artifact": "evaluate:table-rows-*",
+		"path": "/values/*/value",
+		"values": {
+			"before": "2",
+			"after": "0"
+		},
+		"control": "targeted-lookup-reserved-tags"
+	},
+	{
+		"id": "d5-reserved-substrings-form-instance-source-ledgerdb",
+		"defect": 5,
+		"part": "reserved substrings",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/instance-source:ledgerdb",
+		"control": "targeted-lookup-reserved-tags"
+	},
+	{
+		"id": "d5-table-content-table-id",
+		"defect": 5,
+		"part": "table content",
+		"check": "proof1",
+		"artifact": "project",
+		"path": "/lookup_tables/*/id",
+		"kind": "changed",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d5-table-content-description",
+		"defect": 5,
+		"part": "table content",
+		"check": "proof1",
+		"artifact": "project",
+		"path": "/lookup_tables/*/description",
+		"kind": "changed",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d5-table-content-field-properties",
+		"defect": 5,
+		"part": "table content",
+		"check": "proof1",
+		"artifact": "project",
+		"path": "/lookup_tables/*/fields/*/properties/*",
+		"kind": "removed",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d5-table-content-row-attributes",
+		"defect": 5,
+		"part": "table content",
+		"check": "proof1",
+		"artifact": "project",
+		"path": "/lookup_tables/*/item_attributes/*",
+		"kind": "removed",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d5-table-content-row-ids",
+		"defect": 5,
+		"part": "table content",
+		"check": "proof1",
+		"artifact": "project",
+		"path": "/lookup_tables/*/rows/*/id",
+		"kind": "changed",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d5-table-content-row-attribute-values",
+		"defect": 5,
+		"part": "table content",
+		"check": "proof1",
+		"artifact": "project",
+		"path": "/lookup_tables/*/rows/*/item_attributes/*",
+		"kind": "removed",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d5-table-content-row-owners",
+		"defect": 5,
+		"part": "table content",
+		"check": "proof1",
+		"artifact": "project",
+		"path": "/lookup_tables/*/rows/*/owners/*",
+		"kind": "removed",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d6-csql-suite-csql-metadata-date-opened-non-date-value",
+		"defect": 6,
+		"part": "CSQL",
+		"check": "manifest",
+		"artifact": "*.ccz/suite.xml",
+		"path": "/csql-metadata:date_opened/refused/non-date-value",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d6-csql-suite-csql-op-untyped-right-side",
+		"defect": 6,
+		"part": "CSQL",
+		"check": "manifest",
+		"artifact": "*.ccz/suite.xml",
+		"path": "/csql-op:>/refused/untyped-right-side",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d6-csql-app-csql-metadata-date-opened-non-date-value",
+		"defect": 6,
+		"part": "CSQL",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/csql-metadata:date_opened/refused/non-date-value",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d6-csql-app-csql-op-untyped-right-side",
+		"defect": 6,
+		"part": "CSQL",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/csql-op:>/refused/untyped-right-side",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d6-core-evaluate",
+		"defect": 6,
+		"part": "Core",
+		"check": "intent",
+		"artifact": "evaluate:start-before-end-*",
+		"path": "/values/*/value",
+		"values": {
+			"before": "start before end",
+			"after": "start not before end"
+		},
+		"control": "targeted-time-ordering"
+	},
+	{
+		"id": "d6-core-suite-xpath-expr-xpathcmpexpr-time-operand",
+		"defect": 6,
+		"part": "Core",
+		"check": "manifest",
+		"artifact": "*.ccz/suite.xml",
+		"path": "/xpath-expr:XPathCmpExpr/refused/time-operand",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d6-core-suite-xpath-token-gt-time-operand",
+		"defect": 6,
+		"part": "Core",
+		"check": "manifest",
+		"artifact": "*.ccz/suite.xml",
+		"path": "/xpath-token:GT/refused/time-operand",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d6-core-form-xpath-expr-xpathcmpexpr-time-operand",
+		"defect": 6,
+		"part": "Core",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/xpath-expr:XPathCmpExpr/refused/time-operand",
+		"control": "targeted-time-ordering"
+	},
+	{
+		"id": "d6-core-form-xpath-token-lt-time-operand",
+		"defect": 6,
+		"part": "Core",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/xpath-token:LT/refused/time-operand",
+		"control": "targeted-time-ordering"
+	},
+	{
+		"id": "d48-mixed-quote-suite-csql-fn-search-value-mixes-quote-marks",
+		"defect": 48,
+		"part": "mixed-quote search answer",
+		"check": "manifest",
+		"artifact": "*.ccz/suite.xml",
+		"path": "/csql-fn:search-value-mixes-quote-marks/refused",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d48-mixed-quote-app-csql-fn-search-value-mixes-quote-marks",
+		"defect": 48,
+		"part": "mixed-quote search answer",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/csql-fn:search-value-mixes-quote-marks/refused",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d6-csql-compile-time-ordering",
+		"defect": 6,
+		"part": "CSQL",
+		"check": "intent",
+		"artifact": "csql@A",
+		"path": "/*/raised/CaseFilterError/apps~1case_search~1xpath_functions~1comparison.py::_case_property_range_query",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d6-csql-compile-date-opened-blank",
+		"defect": 6,
+		"part": "CSQL",
+		"check": "intent",
+		"artifact": "csql@A",
+		"path": "/*/raised/CaseFilterError/apps~1case_search~1xpath_functions~1comparison.py::_create_system_datetime_query",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d6-csql-formplayer-a-app-aware-remote-search-400-is-not-a-correct",
+		"defect": 6,
+		"part": "CSQL",
+		"check": "proof3",
+		"artifact": "formplayer@A",
+		"path": "/hq/app_aware_remote_search/400/is-not-a-correctly-formatted-date-or-datetime",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d48-android-proof3-a-query-withanswer-sent-unquotable-search-error",
+		"defect": 48,
+		"part": "a search answer holding both quote marks",
+		"check": "proof3",
+		"artifact": "android@A",
+		"path": "/walks/*/steps/*/query/withAnswer/sent-unquotable-search",
+		"kind": "error",
+		"control": "targeted-search-hq-compile"
 	}
 ]

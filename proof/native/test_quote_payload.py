@@ -6,11 +6,11 @@ and HQ's CSQL compiler turns each one into the complete filter the sample
 means (the literal value preserved through single quotes, double quotes,
 injection attempts, newlines and non-ASCII text, with its negation and OR
 structure), except where the value mixes both quote marks: there Core's
-query is Nova's refusal sentinel ``search-value-mixes-quote-marks()``, and
-HQ refuses it. An unanswered or cleared input matches everything, and an
-explicitly empty one matches an unset property. The plausible failures: a
-quoting HQ reads as a different value or as query syntax, and an unsafe
-query HQ accepts.
+query is ``match-none()``, which no runtime byte reaches, and HQ compiles it
+to the filter that matches no case. An unanswered or cleared input matches
+everything, and an explicitly empty one matches an unset property. The
+plausible failures: a quoting HQ reads as a different value or as query
+syntax, and an unsafe query that matches more than nothing.
 """
 
 import json
@@ -93,7 +93,7 @@ def _expected(value, suffix):
     ]
 
 
-def test_hq_compiles_or_refuses_every_quoted_query_core_builds(native):
+def test_hq_compiles_every_quoted_query_core_builds(native):
     payloads = native.core_artifact("quote", "nova-quote-payloads.jsonl", "CsqlQuoteRuntimeTest")
     records = [json.loads(line) for line in payloads.read_text().splitlines()]
     assert [(row["carrier"], row["sample"], row["input"], row["suffix"]) for row in records] == [
@@ -101,7 +101,6 @@ def test_hq_compiles_or_refuses_every_quoted_query_core_builds(native):
     ]
     results = []
     with native_check(DOMAIN) as (state, _):
-        from corehq.apps.case_search.exceptions import CaseFilterError
         from django.core.serializers.json import DjangoJSONEncoder
 
         from proof.hq.operations import compile_domain_filter
@@ -109,26 +108,22 @@ def test_hq_compiles_or_refuses_every_quoted_query_core_builds(native):
         for row in records:
             expected = _expected(row["input"], row["suffix"])
             assert len(row["queries"]) == 6
-            refused = []
+            nothing = []
             for i, query in enumerate(row["queries"]):
-                invalid = row["sample"] == "both" or (row["sample"] == "computed-both" and i == 5)
-                if invalid:
-                    assert query == "search-value-mixes-quote-marks()", (row["sample"], i, query)
-                    try:
-                        compile_domain_filter(state, query)
-                    except CaseFilterError:
-                        refused.append(i)
-                    else:
-                        raise AssertionError("Unsafe complete query was accepted")
+                actual = json.loads(json.dumps(compile_domain_filter(state, query), cls=DjangoJSONEncoder))
+                unquotable = row["sample"] == "both" or (row["sample"] == "computed-both" and i == 5)
+                if unquotable:
+                    assert query == "match-none()", (row["sample"], i, query)
+                    assert actual == {"match_none": {}}, (row["sample"], i, query, actual)
+                    nothing.append(i)
                 else:
-                    actual = json.loads(json.dumps(compile_domain_filter(state, query), cls=DjangoJSONEncoder))
                     assert actual == expected[i], (row["sample"], i, query, actual, expected[i])
             results.append(
                 {
                     "carrier": row["carrier"],
                     "sample": row["sample"],
                     "queries": row["queries"],
-                    "rejectedQueryIndexes": refused,
+                    "matchNoneQueryIndexes": nothing,
                 }
             )
     write_evidence(
@@ -138,8 +133,8 @@ def test_hq_compiles_or_refuses_every_quoted_query_core_builds(native):
             "hqCommit": hq_commit(),
             "payloadsSha256": sha256(payloads.read_bytes()),
             "records": results,
-            "limits": "All 144 Core-evaluated queries are compiled or refused by native HQ. Complete expected filters "
-            "preserve supplied literal values and negation/OR structure. No Elasticsearch request or search results "
-            "are claimed.",
+            "limits": "All 144 Core-evaluated queries are compiled by native HQ, those for a value holding both quote "
+            "marks to the filter that matches no case. Complete expected filters preserve supplied literal values and "
+            "negation/OR structure. No Elasticsearch request or search results are claimed.",
         },
     )

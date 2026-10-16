@@ -59,6 +59,79 @@ const audio = await (await import("music-metadata")).parseBuffer(wav, {
 });
 assert.equal(audio.format.sampleRate, 8000);
 
+// One tiny real file per other lazily loaded parser the upload gate reads
+// (lib/media/validate.ts): Ogg (Opus), FLAC, MP4 (an M4A) and Matroska (a
+// WebM). Each loads its parser from the standalone package, so a parser left
+// out of the image fails the build rather than every upload of its format.
+for (const [mimeType, base64, container, codec] of [
+	[
+		"audio/ogg",
+		"T2dnUwACAAAAAAAAAAAAAAAAAAAAAAIotXIBE09wdXNIZWFkAQE4AYC7AAAAAABPZ2dTAAAAAAAA" +
+			"AAAAAAAAAAABAAAASZW+VAEuT3B1c1RhZ3MGAAAAZmZtcGVnAQAAABQAAABlbmNvZGVyPUxhdmMg" +
+			"bGlib3B1c09nZ1MABPgEAAAAAAAAAAAAAAIAAACeJqiLAg0MCINtgtAc/epJ/gE/wAgGbtUwGTFw" +
+			"ZrmUGA==",
+		"Ogg",
+		"Opus",
+	],
+	[
+		"audio/flac",
+		"ZkxhQ4AAACICQAJAAAB5AAB5AfQA8AAAAKAcSe8y/XiQP2vOn1ogJbGH//hkCACfN04AAAVrCjIN" +
+			"xQ+2D80OBQqU5ZmAvAhrL26gzU7nIVY/DwBO8+ZBECQSMVD91WU1GIxiRPVL39iMQgiGyeq6nQ7U" +
+			"jCIIyJKr91nRmMQhkS49d+qcShkMbNPS0XF3EozGITI6HXuurIQRjMmvVS15WQB6ew==",
+		"FLAC",
+		"FLAC",
+	],
+	[
+		"audio/mp4",
+		"AAAAHGZ0eXBNNEEgAAACAE00QSBpc29taXNvMgAAAAhmcmVlAAABvm1kYXQBFDKs1FYpVFVX9azn" +
+			"iNJgi6kIQgOmvuv4rs3cXzv4L2Xm7u39VRIOUu/bSB+9l4HGvd352XgbJ6m/U+zdG6u+d/dWqDEu" +
+			"pfz1Cg2F3yMtcu0y2WDMU3ZMxjdrL7MabhOV6tWYcmAaw5Am7jKds0oWtKl1NURTVOV8k4G86q9C" +
+			"mVF2y7ZFP3H7jxHqFV1V2wp+4/ceI/Gmq6q6q6fE/cfuP3YVXVXVXK0n7j9x+49TKrqrqrurE/cf" +
+			"uPJfUyq6q5Wk/cfuP3Ydl9V1VytPVjX3H7sJL6mVXVXR6a+6vuw7vDsvququj01419x+7CS+q+q6" +
+			"q6PTXifuwk4BIDKJDDLRVVW9ypaXIiRCEIQHNDfNzzQZXX87jTmhvm55oMrr+c2caYw1z9t9FYtD" +
+			"nz827LufzuNOaM0LfNzzQZdz7uRpxrNC3zc80E25919pxpzQ3Dz80E27K6/ncacabhb5oJoMu593" +
+			"I041mhbh55oJtz7r63GnNDcPPzQTQZXX3XGnGs0LcPPNBl3ZXX87jTmhuHn5oJoMrr7rjTjWaFuH" +
+			"nmgm3ZXcmdxpzQ3Dz80E27K6+7kacazQt8AAAALebW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD" +
+			"6AAAAB4AAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAA" +
+			"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAi10cmFrAAAAXHRraGQAAAADAAAAAAAAAAAA" +
+			"AAABAAAAAAAAAB4AAAAAAAAAAAAAAAEBAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAA" +
+			"AABAAAAAAAAAAAAAAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAAeAAAEAAABAAAAAAGlbWRp" +
+			"YQAAACBtZGhkAAAAAAAAAAAAAAAAAAAfQAAABPBVxAAAAAAALWhkbHIAAAAAAAAAAHNvdW4AAAAA" +
+			"AAAAAAAAAABTb3VuZEhhbmRsZXIAAAABUG1pbmYAAAAQc21oZAAAAAAAAAAAAAAAJGRpbmYAAAAc" +
+			"ZHJlZgAAAAAAAAABAAAADHVybCAAAAABAAABFHN0YmwAAABqc3RzZAAAAAAAAAABAAAAWm1wNGEA" +
+			"AAAAAAAAAQAAAAAAAAAAAAEAEAAAAAAfQAAAAAAANmVzZHMAAAAAA4CAgCUAAQAEgICAF0AVAAAA" +
+			"AABWoQAAVqEFgICABRWIVuUABoCAgAECAAAAIHN0dHMAAAAAAAAAAgAAAAEAAAQAAAAAAQAAAPAA" +
+			"AAAcc3RzYwAAAAAAAAABAAAAAQAAAAIAAAABAAAAHHN0c3oAAAAAAAAAAAAAAAIAAAD5AAAAvQAA" +
+			"ABRzdGNvAAAAAAAAAAEAAAAsAAAAGnNncGQBAAAAcm9sbAAAAAIAAAAB//8AAAAcc2JncAAAAABy" +
+			"b2xsAAAAAQAAAAIAAAABAAAAPXVkdGEAAAA1bWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFw" +
+			"cGwAAAAAAAAAAAAAAAAIaWxzdA==",
+		"M4A/isom/iso2",
+		"MPEG-4/AAC",
+	],
+	[
+		"video/webm",
+		"GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAHFEU2bdLpNu4tT" +
+			"q4QVSalmU6yBoU27i1OrhBZUrmtTrIHGTbuMU6uEElTDZ1OsggETTbuMU6uEHFO7a1OsggGv7AEA" +
+			"AAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+			"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmoCrXsYMPQkBNgIRMYXZm" +
+			"V0GETGF2ZkSJiECPQAAAAAAAFlSua8iuAQAAAAAAAD/XgQFzxYgAAAAAAAAAAZyBACK1nIN1bmSI" +
+			"gQCGhVZfVlA4g4EBI+ODhDuaygDgkLCBELqBEJqBAlWwhFW5gQESVMNn0HNzzWPAi2PFiAAAAAAA" +
+			"AAABZ8iYRaOHRU5DT0RFUkSHi0xhdmMgbGlidnB4Z8ihRaOIRFVSQVRJT05Eh5MwMDowMDowMS4w" +
+			"MDAwMDAwMDAAH0O2dcLngQCjvYEAAIDwAgCdASoQABAAAEcIhYWImYSIAgICdaoD+AP6Ag1N7gD+" +
+			"/W7z/+Rv4+dG/8jj//xKnuOJ4//8RoAcU7trkbuPs4EAt4r3gQHxggFo8IED",
+		"EBML/webm",
+		undefined,
+	],
+]) {
+	const bytes = Buffer.from(base64, "base64");
+	const parsed = await (await import("music-metadata")).parseBuffer(bytes, {
+		mimeType,
+		size: bytes.length,
+	});
+	assert.equal(parsed.format.container, container, mimeType);
+	assert.equal(parsed.format.codec, codec, mimeType);
+}
+
 // Run the actual generated instrumentation against its traced native SDK. The
 // transport remains entirely local; this check sends no event to Sentry.
 const runtimeRequire = createRequire(resolve("server.js"));

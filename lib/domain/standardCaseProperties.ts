@@ -262,3 +262,18 @@ export function isWritableStandardCaseProperty(
 export function isCalendarCaseProperty(name: string): boolean {
 	return name === "date_opened" || name === "last_modified";
 }
+
+/**
+ * The case properties CommCare's search answers with its system datetime
+ * query, whatever the operator: `date_opened`, `closed_on` and
+ * `last_modified` are the `is_datetime` entries of
+ * `corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY`, which
+ * `corehq/apps/case_search/xpath_functions/comparison.py::property_comparison_query`
+ * hands to `_create_system_datetime_query`, and that query raises on `''`
+ * or on a value that is not a date or a date and time.
+ */
+export const SYSTEM_DATETIME_CASE_PROPERTIES: ReadonlySet<string> = new Set([
+	"date_opened",
+	"closed_on",
+	"last_modified",
+]);

@@ -36,6 +36,7 @@ import {
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	RESERVED_SEARCH_INPUT_NAMES_SENTENCE,
+	SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE,
 	SEARCH_INPUT_LOOKUP_ORDER_SENTENCE,
 	searchInputUpdateInputSchema,
 	stampSearchInputUuid,
@@ -48,7 +49,7 @@ export const updateSearchInputInputSchema = moduleAddressSchema
 			"Uuid of the existing search input to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
 		searchInput: searchInputUpdateInputSchema.describe(
-			"Replacement search-input body (full shape, `simple` or `advanced`). The uuid carries over — never supply one.",
+			`Replacement search-input body (full shape, \`simple\` or \`advanced\`). The uuid carries over — never supply one. ${SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE}`,
 		),
 	})
 	.strict();

@@ -102,16 +102,16 @@
 		"reason": "The control retains the document from before step 2 rewrote its question ids: a question of its form is bound to a node the form does not hold (UnresolvedResourceException), so Formplayer cannot install the app and the walk ends at its first request."
 	},
 	{
-		"document": "targeted-lookup-reserved-tags",
+		"control": "targeted-lookup-reserved-tags",
 		"reader": "formplayer",
 		"cause": "notification:make-sure-the-lookup-table-is-available-and-that-its-contents-are-accessible-to-the-current-user",
-		"reason": "Formplayer answers the form's opening with Core's refusal to read the lookup table the form names, whose tag holds a reserved substring, which is the document's witness of defect 5, so no reader opens the form."
+		"reason": "The control retains the tags from before step 2 refused them: Core reads a tag that contains casedb or ledgerdb as its own data, so the form cannot read its lookup table and Formplayer does not open it."
 	},
 	{
-		"document": "targeted-search-hq-compile",
+		"control": "targeted-search-hq-compile",
 		"reader": "formplayer",
 		"cause": "notification:value-is-not-a-correctly-formatted-date-or-datetime",
-		"reason": "HQ's case search view refuses the query's own date comparison, which is the document's witness of defect 6, and Formplayer answers with that in place of the results, on every state."
+		"reason": "The control retains the time ordering HQ's case search view refuses: HQ compiles neither a time of day nor a blank value against date_opened (case_search/xpath_functions/comparison.py::_case_property_range_query, _create_system_datetime_query; defect 6), and Formplayer answers with that in place of the results, on every state."
 	},
 	{
 		"control": "targeted-search-related-lookups",

@@ -268,11 +268,11 @@ function referencedLookupData(
  *
  * Some checks of that boundary are private to `boundaryValidation.ts` and
  * are not run here: `organizationExportFindings` (a case owner fixed to one
- * place), `lookupHqSheetNameFindings` and `lookupHqReservedTagFindings` (a
- * referenced table's tag) and `lookupWorkbookBudgetFindings` (the workbook's
- * row total). The generator never authors a fixed-place owner. An edit that
- * newly references a Project table has that table's rows and text checked
- * here, but not its tag or the workbook total.
+ * place), `lookupHqReservedTagFindings` (a referenced table's tag) and
+ * `lookupWorkbookBudgetFindings` (the workbook's row total). The generator
+ * never authors a fixed-place owner. An edit that newly references a Project
+ * table has that table's rows and text checked here, but not its tag or the
+ * workbook total.
  */
 export function publishFindings(
 	doc: BlueprintDoc,

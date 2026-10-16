@@ -11,7 +11,6 @@ import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
 	inputFieldBaseSchema,
-	mediaSchema,
 	proseTemplateSchema,
 	xpathExpressionSchema,
 } from "./base";
@@ -20,7 +19,6 @@ export const barcodeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("barcode"),
 	validate: xpathExpressionSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
-	validate_msg_media: mediaSchema.optional(),
 	default_value: xpathExpressionSchema.optional(),
 });
 

@@ -72,6 +72,13 @@
  *                                 ones over. Never resolved by guessing:
  *                                 a shared name is not evidence of
  *                                 ownership.
+ *   7a. `hq_table_content_unsupported`: a lookup table under one of
+ *                                 this app's export tags holds in CommCare
+ *                                 HQ what Nova's push would remove. Nothing
+ *                                 was sent, and neither `adopt_resources`
+ *                                 nor `discard_hq_changes` resolves it: the
+ *                                 message names each table, and a new export
+ *                                 tag in Project data is the way out.
  *   8. `hq_organization_mismatch`: the app's places do not fit the levels
  *                                 the project space defines, so CommCare
  *                                 HQ would refuse them. Nothing was sent,
@@ -141,6 +148,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { resolveUploadTarget } from "@/lib/db/settings";
+import { LOOKUP_ADOPTION_NOTE } from "@/lib/deployment/remoteChanges";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import {
 	currentResourceIdentities,
@@ -198,6 +206,8 @@ export const UPLOAD_ERROR_TAGS = {
 	remote_app_missing: "remote_app_missing",
 	/** The target already holds a same-named resource Nova didn't make. */
 	hq_resource_conflict: "hq_resource_conflict",
+	/** A lookup table HQ holds under this app's tag has content Nova's push would remove. */
+	hq_table_content_unsupported: "hq_table_content_unsupported",
 	/** The app's organization does not fit the target's levels. */
 	hq_organization_mismatch: "hq_organization_mismatch",
 	/** Required target support is missing or could not be verified. */
@@ -276,6 +286,11 @@ function makeConflictError(
 						hq_name: conflict.identity,
 						hq_id: conflict.remoteId,
 					})),
+					...(conflicts.some(
+						(conflict) => conflict.kind === "lookup-table",
+					) && {
+						adoption_note: LOOKUP_ADOPTION_NOTE,
+					}),
 				}),
 			},
 		],
@@ -739,6 +754,18 @@ export function registerUploadAppToHq(
 									},
 								],
 							};
+						}
+						/* A table HQ holds with content Nova's push would remove.
+						 * Its own tag because neither an adoption nor a discard
+						 * resolves it, and nothing was sent: the way out is a new
+						 * export tag in Project data. The details name each table
+						 * and what it holds. */
+						if (failure.code === "hq_table_content_unsupported") {
+							return makeGateError(
+								UPLOAD_ERROR_TAGS.hq_table_content_unsupported,
+								[failure.message, ...failure.details].join(" "),
+								appId,
+							);
 						}
 						/* The organization does not fit the target's levels. Its
 						 * own tag because no ownership decision resolves it and

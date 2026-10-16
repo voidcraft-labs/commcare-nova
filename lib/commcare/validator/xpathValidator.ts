@@ -90,7 +90,8 @@ export interface XPathError {
 		| "INVALID_CASE_REF"
 		| "INVALID_SEARCH_REF"
 		| "PROSE_EDITOR_ROUND_TRIP_LOSS"
-		| "TYPE_ERROR";
+		| "TYPE_ERROR"
+		| "XPATH_TIME_ORDERING";
 	message: string;
 	position?: number;
 	/**

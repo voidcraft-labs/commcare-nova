@@ -13,9 +13,10 @@
  *
  * The bytes pass through the SAME validation pipeline the HTTP confirm
  * route runs (`validateMediaBytes` — extension whitelist, size cap,
- * magic-bytes sniff, library re-parse, sha256). The rejection contract is
- * therefore identical: the accepted set excludes `.m4a` / `.ogg` (HQ
- * can't ingest them). The `claimedContentHash` is omitted — the bytes
+ * magic-bytes sniff, body checks, sha256). The rejection contract is
+ * therefore identical: the accepted set is the registry's
+ * (`lib/domain/multimedia.ts::ACCEPTED_FORMATS`), each format in the variant
+ * every CommCare platform plays. The `claimedContentHash` is omitted — the bytes
  * never left the server's memory, so there's nothing to tamper with
  * between a claim and the store (validate.ts documents the MCP path skips
  * it).
@@ -152,7 +153,7 @@ export function registerUploadMediaAsset(
 		"upload_media_asset",
 		{
 			description:
-				"Upload a media file (image, audio, or video) from inline base64 bytes, returning the asset id the attach/set media tools reference. Media is Project-scoped: pass project_id to upload into a shared Project's library (use the Project of the app that will reference it); omit it for your personal Project. Audio must be .mp3 or .wav and video .mp4. CommCare HQ can't ingest .m4a or .ogg. Images: .png/.jpg/.gif/.webp. The file is validated (format, size, integrity) before it's stored; a re-upload of an identical file returns the existing asset.",
+				"Upload a media file (image, audio, or video) from inline base64 bytes, returning the asset id the attach/set media tools reference. Media is Project-scoped: pass project_id to upload into a shared Project's library (use the Project of the app that will reference it); omit it for your personal Project. Images: .png, .jpg, .gif, .webp or .bmp. Audio: .mp3, .wav, .m4a (AAC), .flac or .ogg (Vorbis or Opus). Video: .mp4 or .webm (VP8, or VP9 in 8-bit 4:2:0 color). The file is validated (format, encoding, size, integrity) before it's stored; a re-upload of an identical file returns the existing asset.",
 			inputSchema: uploadMediaAssetInputSchema,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {

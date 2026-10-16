@@ -363,6 +363,20 @@ export function baselineNotices(
 	return notices;
 }
 
+/**
+ * `lookup-table-content-unsupported`: one line per mapped table whose
+ * definition holds what the next publish would remove, for a class whose
+ * next publish reaches the lookup push. That publish stops before it sends
+ * anything until the table gets a new export tag (part 02 of step 2's plan,
+ * defect 5).
+ */
+export function tableContentNotices(
+	outcome: DeploymentOutcome,
+	lines: readonly DeploymentNotice[],
+): DeploymentNotice[] {
+	return PUBLISHABLE.has(outcome) ? [...lines] : [];
+}
+
 /** Two lists of one deployment's lines as one, in the enum's order. */
 export function mergeDeploymentNotices(
 	first: readonly DeploymentNotice[],

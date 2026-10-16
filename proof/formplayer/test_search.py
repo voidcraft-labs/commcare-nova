@@ -7,11 +7,13 @@ Contract: Formplayer queries only while the screen holds no error
 (``MenuSessionRunnerService.doQuery``), so the answer Nova's validation
 refuses never reaches HQ: Formplayer answers the search screen again with
 the validation's message on that prompt, and sends HQ nothing. Plausible
-failures: a search sent anyway (HQ would get Nova's fail-closed CSQL
-function), or a harness whose search never sends at all, which the accepted
-answer (one quote mark) rules out: it is sent, HQ's own search view takes
-it whole (its reading of the request and its compile of the query), and
-HQ's compiler compiles the string that holds the answer.
+failures: a search sent anyway (HQ would get Nova's fail-closed
+``match-none()``), or a harness whose search never sends at all, which the
+accepted answer (one quote mark) rules out: it is sent, HQ's own search view
+answers it whole (its reading of the request, its compile of the query and
+its results), and HQ's compiler compiles every string of the request, the
+one that holds the answer and the document's default filter on
+``date_opened`` (defect 6).
 
 Finding 54, on the same document. HQ's Case List save writes a search
 description of no text for the page's language, and HQ's build then writes a
@@ -98,19 +100,17 @@ def test_formplayer_keeps_a_mixed_quote_answer_from_hq_and_sends_a_one_mark_answ
         assert sent_for_refused == []
         # The accepted counterpart: the search is sent, HQ receives the answer inside the CSQL, and compiles it.
         assert len(sent) == 1
-        # HQ's own search view read the request and compiled the whole query, and refused it for this document's
-        # own date comparison (defect 6, which the register holds as ``formplayer@A``); Formplayer then leaves the
-        # search screen (no validation message holds it there).
-        assert answered == [("app_aware_remote_search", 400)], answered
+        # HQ's own search view read the request, compiled the whole query and answered it (the document's default
+        # filter compares ``date_opened`` with a date turned into a date and time, which HQ's compiler takes;
+        # defect 6), and Formplayer shows the results.
+        assert answered == [("app_aware_remote_search", 200)], answered
         assert screen_kind(accepted) != "query", accepted
         assert sent[0].values("owner_id") == ()
         assert any(ONE_MARK in query for query in queries)
-        assert not any("search-value-mixes-quote-marks" in query for query in queries)
-        # HQ's own compiler takes the string that holds the answer (the search's two other strings are this
-        # document's own symptoms, defect 6's, which the intent check reports).
-        assert [result for query, result in zip(queries, compiled, strict=True) if ONE_MARK in query] == [
-            {"compiled": True}
-        ]
+        assert "date_opened >= datetime('2026-01-01')" in queries, queries
+        assert not any("search-value-mixes-quote-marks" in query or "match-none()" in query for query in queries)
+        # HQ's own compiler takes every string of the request.
+        assert compiled == [{"compiled": True}] * len(queries), compiled
 
 
 def _stored_maps(published):

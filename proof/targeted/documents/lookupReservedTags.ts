@@ -1,13 +1,19 @@
 /**
- * Defect 5, reserved substrings: a lookup-backed select over a table whose tag
- * contains `casedb`, and one over a table whose tag contains `ledgerdb`.
+ * Defect 5, reserved substrings and the 32-character tag: a lookup-backed
+ * select over a table whose tag splits `casedb` and holds Nova's full 32
+ * characters, and one over a table whose tag splits `ledgerdb`.
  *
- * Nova admits both tags: `lib/lookup/constants.ts::isReservedInstanceTag`
- * compares whole names. Every runtime resolves an instance by the first of
- * three substrings its source holds (`commcare-core
- * core/process/CommCareInstanceInitializer.java::generateRoot`: `ledgerdb`,
- * then `casedb`, then `fixture`), so each select reads the ledger or case
- * database, not its table, and offers nothing.
+ * Every runtime resolves an instance by the first of three substrings its
+ * source holds (commcare-core
+ * `core/process/CommCareInstanceInitializer.java::generateRoot`: `ledgerdb`,
+ * then `casedb`, then `fixture`), so a tag holding either word would read the
+ * ledger or case database and offer nothing. Nova refuses such a tag
+ * (`lib/lookup/constants.ts::reservedInstanceTagCause`), and these tags split
+ * each word as the cutover's rename does (`case_db`, `ledger_db`), so each
+ * select reads its table. The first tag is padded to `LOOKUP_MAX_TAG_LENGTH`, so
+ * Nova's real push of a 32-character tag goes through HQ's upload, HQ's
+ * restore serves it, and Core's sessions read it on both paths. The control
+ * of the same name keeps the tags from before step 2 refused them.
  *
  * Fixed values: each table holds two rows, and the restore holds both tables
  * as HQ's restore serves them, so a select that reads its table counts two
@@ -27,8 +33,8 @@ import { restoreXml } from "../restore";
 const ID = "targeted-lookup-reserved-tags";
 const uuid = (name: string) => targetedUuid(ID, name);
 
-const CLINICS = "clinic_casedb_codes";
-const STOCK = "stock_ledgerdb_codes";
+const CLINICS = "clinic_case_db_codes_0123456789a";
+const STOCK = "stock_ledger_db_codes";
 
 export function lookupReservedTags() {
 	const clinics = wireTable(CLINICS, [

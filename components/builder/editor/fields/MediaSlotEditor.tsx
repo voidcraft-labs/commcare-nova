@@ -1,7 +1,7 @@
 // components/builder/editor/fields/MediaSlotEditor.tsx
 //
-// Field-editor adapter for a `Media` slot (`label_media` / `hint_media`
-// / `help_media` / `validate_msg_media`). Renders the same labeled-item
+// Field-editor adapter for a `Media` slot (`label_media` / `help_media`).
+// Renders the same labeled-item
 // shape every other addable property uses: a quiet section header with the
 // control beneath it (cf. `XPathEditor` / `RequiredEditor`), including a
 // property-level delete in the header. Media has no "type then blur"

@@ -551,6 +551,8 @@ def _retarget_subject():
         if len(kept) < 2 or not added:
             continue
         for name in sorted(document.edit.exports):
+            if document.exports[name].republish is None:
+                continue  # Nova stopped this republish before it sent anything.
             republished = _form_ids(document.exports[name].republish, document.wire_modules)
             updated = _form_ids(document.edit.exports[name].update, document.edit_wire_modules)
             for form in added:

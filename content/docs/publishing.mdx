@@ -132,6 +132,16 @@ app does not read are left alone.
 If Nova cannot reliably read the tables already on your project space, it
 stops before sending data. Check your CommCare HQ connection, then publish again.
 
+A publish stops before it sends anything when a lookup table with the same tag
+in CommCare HQ holds something Nova can't keep yet: field properties, row
+attributes or rows limited to certain users. Giving your table a new export tag
+in Project data lets Nova publish its own and leave CommCare HQ's as it is.
+
+Where the project space's plan doesn't include Lookup Tables, CommCare HQ takes
+none of your app's lookup tables and Nova stops before it sends the app's
+content. A first publish leaves an empty app there. Once the plan includes
+Lookup Tables, publishing again sends the tables and fills the app in.
+
 **Places.** If your app has an [organization](/docs/organization), Nova creates
 and updates its places there, working down from the top so each one can name the
 place above it. It sends every place that is not archived, along with whatever

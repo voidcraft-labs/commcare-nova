@@ -1149,38 +1149,18 @@ describe("Builder mutation commands", () => {
 				expect(opt.uuid).toBeTruthy();
 			}
 		});
-		it("births text → hidden set once with the inert default, never an inert calculation", () => {
-			// HIDDEN_NO_VALUE would reject a bare convert; the gesture seeds
-			// the same `''` default a picker-inserted hidden is born with (in
-			// the SAME gated batch, after the kind swap), so every offered
-			// target lands and the user replaces the expression in the
-			// inspector. The seed must be a default and not a calculation: a
-			// converted field keeps its case writer, and an inert calculation
-			// on a writer to the loaded case would write nothing over the
-			// case's value on every submission. It must NOT carry both: a
-			// hidden field holds exactly one value source.
+		it("births text → hidden holding neither value slot", () => {
+			// A conversion that carries nothing lands the way a
+			// picker-inserted hidden is born: a valid hidden value that stays
+			// blank, with no calculation or default seeded on its behalf.
 			const { mutations, store } = setup(bp);
-			mutations.convertField(Q_A, "hidden");
+			const outcome = mutations.convertField(Q_A, "hidden");
+			expect(outcome.ok).toBe(true);
 			const converted = store.getState().fields[Q_A];
 			expect(converted?.kind).toBe("hidden");
-			expect(
-				converted && "default_value" in converted
-					? converted.default_value
-					: undefined,
-			).toEqual({
-				parts: [
-					{
-						kind: "text",
-						text: "''",
-					},
-				],
-			});
-			expect(
-				converted && "calculate" in converted ? converted.calculate : undefined,
-			).toBeUndefined();
-			expect(
-				converted && "label" in converted ? converted.label : undefined,
-			).toBeUndefined();
+			expect(converted).not.toHaveProperty("default_value");
+			expect(converted).not.toHaveProperty("calculate");
+			expect(converted).not.toHaveProperty("label");
 		});
 		it("keeps a carried starting value as the converted hidden field's only source", () => {
 			// A text field with a default converts into a set-once hidden

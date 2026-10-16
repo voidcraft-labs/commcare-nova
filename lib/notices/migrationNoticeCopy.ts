@@ -18,6 +18,10 @@ import {
 	RESERVED_CONNECT_BLOCK_IDS,
 } from "@/lib/domain/questionId";
 import {
+	type ReservedInstanceTagWord,
+	reservedInstanceTagCause,
+} from "@/lib/lookup/constants";
+import {
 	isPlanFeatureId,
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,
@@ -95,6 +99,19 @@ function joinedNames(names: readonly string[]): string {
 function possessive(space: string): string {
 	return space.endsWith("s") ? `${space}'` : `${space}'s`;
 }
+
+/** What CommCare reads a tag holding each reserved word as. */
+const RESERVED_WORD_DATA: Readonly<Record<ReservedInstanceTagWord, string>> = {
+	casedb: "case data",
+	ledgerdb: "ledger data",
+};
+
+/** What a table in CommCare HQ holds that Nova can't keep, by `detail.holds` id. */
+const UNSUPPORTED_TABLE_CONTENT: Readonly<Record<string, string>> = {
+	"field-properties": "field properties",
+	"row-attributes": "row attributes",
+	"owned-rows": "rows limited to certain users",
+};
 
 /** The CommCare version Nova's apps need, as a person reads it. */
 const COMMCARE_VERSION_FLOOR_TEXT = "2.57";
@@ -211,7 +228,48 @@ function itemNoun(entity: NoticeEntityRef): string {
 	return entity.type === "form" ? "this form" : "this module";
 }
 
+/** The message a removed media slot belonged to, by `detail.slot`. */
+const REMOVED_MEDIA_SLOT: Readonly<Record<string, string>> = {
+	hint: "hint",
+	"validation-message": "validation message",
+	"group-title": "group title",
+	"repeat-title": "repeat title",
+};
+
+/** "image", "audio" or "video", as `detail.media` names a removed file's kind. */
+function removedMediaKind(media: string | undefined): string {
+	return media === "image" || media === "audio" || media === "video"
+		? media
+		: "media";
+}
+
 export const MIGRATION_NOTICE_COPY = {
+	/* The entity is the field, by its ID; `detail.form` names its form,
+	 * `detail.slot` the message the media sat on (`hint`, `validation-message`,
+	 * `group-title` or `repeat-title`) and `detail.media` its kind. */
+	"media-slot-removed": (entry: DocumentNoticeEntry, ctx) => {
+		const named = entry.detail?.slot ?? "";
+		const slot = Object.hasOwn(REMOVED_MEDIA_SLOT, named)
+			? REMOVED_MEDIA_SLOT[named]
+			: "message";
+		return noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				`: the ${removedMediaKind(entry.detail?.media)} on its ${slot} was removed. No CommCare app shows media there, so workers see no change. The file is still in your media library.`,
+			),
+		]);
+	},
+	/* The entity is the hidden field, by its ID; `detail.form` names its form
+	 * and `detail.property` the case property it writes. */
+	"hidden-value-saves-blank": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			...formLead(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				` has no value, so each submission saves ${entry.detail?.property ?? "its case property"} blank. This is unchanged; Nova now says so where you set it.`,
+			),
+		]),
 	/* The entity is the module whose search button changed text;
 	 * `detail.from` is the text it read before in the default language. */
 	"search-button-text-changed": (entry: DocumentNoticeEntry, ctx) => {
@@ -424,6 +482,36 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* The entity is the comparison's carrier: a field (with `detail.form`), a
+	 * form, a menu, or the app for a case property's rule (with
+	 * `detail.caseType` and `detail.property`). `detail.comparison` is the
+	 * comparison as it read. */
+	"time-comparison-never-true": (entry: DocumentNoticeEntry, ctx) => {
+		const property = entry.detail?.property;
+		const comparison = entry.detail?.comparison;
+		return noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				`${property === undefined ? "" : `, the rule of ${property}`}: ${
+					comparison === undefined ? "a comparison" : `“${comparison}”`
+				} compares a time of day with before or after, which is never true on a device. It now reads as never true everywhere, Preview included.`,
+			),
+		]);
+	},
+	/* The entity is the menu whose search held the term; `detail.term` is the
+	 * term as it read. */
+	"search-term-matches-nothing": (entry: DocumentNoticeEntry, ctx) => {
+		const term = entry.detail?.term;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				`: ${
+					term === undefined ? "a search term" : `“${term}”`
+				} is a check CommCare's search can't run. It now matches nothing, where the search failed before.`,
+			),
+		]);
+	},
 	/* The entity is the module or the form now off the menu. */
 	"hidden-from-menu-set": (entry: DocumentNoticeEntry, ctx) =>
 		noticeLine([
@@ -543,6 +631,21 @@ export const MIGRATION_NOTICE_COPY = {
 		return noticeLine([
 			text(
 				`This app now states whether workers see saved forms and incomplete forms on their home screen${values}. Android reads both settings, and Web Apps reads the incomplete forms one. Nova kept each list on wherever a project space of this app shows it today. They are yours to change in App settings.`,
+			),
+		]);
+	},
+	/* The entity is the lookup table; `detail.from` and `detail.to` its old
+	 * and new export tag. The word is the one the old tag holds. */
+	"lookup-tag-renamed": (entry: DocumentNoticeEntry, ctx) => {
+		const from = entry.detail?.from ?? "";
+		const to = entry.detail?.to ?? "";
+		const cause = reservedInstanceTagCause(from);
+		const word = cause?.kind === "contains" ? cause.word : "casedb";
+		return noticeLine([
+			text("The lookup table "),
+			entityPart(entry.entity, ctx),
+			text(
+				` now has the export tag ${to} in place of ${from}. CommCare treats a tag holding "${word}" as its own ${RESERVED_WORD_DATA[word]}, so this app couldn't read the table. Where this app is published, the next publish adds the table under the new tag and leaves the old one in CommCare HQ, since Nova can't rename or remove a table there.`,
 			),
 		]);
 	},
@@ -914,6 +1017,23 @@ export const MIGRATION_NOTICE_COPY = {
 				`After the next publish to ${projectSpace(entry)}, each app update resets three of a worker's own settings: fuzzy search, automatic updates and text to speech.`,
 			),
 		]),
+	/* `entities` names the table; `detail.holds` the comma-joined subset of
+	 * `field-properties`, `row-attributes` and `owned-rows` the run read,
+	 * each named in today's words; a kind Nova no longer knows is left out. */
+	"lookup-table-content-unsupported": (entry: DeploymentNoticeEntry, ctx) => {
+		const holds = detailIds(entry.detail?.holds).flatMap((held) =>
+			Object.hasOwn(UNSUPPORTED_TABLE_CONTENT, held)
+				? [UNSUPPORTED_TABLE_CONTENT[held] as string]
+				: [],
+		);
+		return noticeLine([
+			text("The table "),
+			...entityList(entry.entities ?? [], ctx),
+			text(
+				` on ${projectSpace(entry)} holds ${joinedNames(holds)}, which Nova can't keep. The next publish there stops before it sends anything. Giving the table a new export tag in Project data lets Nova publish its own table and leave that one as it is.`,
+			),
+		]);
+	},
 } satisfies {
 	readonly [R in MigrationNoticeReason]: (
 		entry: Extract<MigrationNoticeEntry, { reason: R }>,

@@ -893,8 +893,9 @@ def _with_app_file(captured, app_json):
 
 
 def _submitting_subject(core_runner):
-    """The cheapest document with a local archive whose sessions on it submit a form, its configuration and records
-    (under that configuration)."""
+    """The cheapest document with a local archive whose sessions on it submit a form and whose republish was sent,
+    its configuration and records (under that configuration). A republish Nova stopped before it sent anything has
+    no request body to rewrite into one HQ refuses."""
     from proof.checks import sharding
 
     estimate = sharding.estimate(sharding.load_timings())
@@ -904,6 +905,8 @@ def _submitting_subject(core_runner):
     )
     for document in documents:
         for name in sorted(document.exports):
+            if document.exports[name].republish is None:
+                continue
             records = _observed_without_hooks(document, core_runner, [name])
             recorded = observations.sessions_record(records, name) or {}
             processed = (recorded.get("local") or {}).get("processed")

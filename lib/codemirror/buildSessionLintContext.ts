@@ -19,7 +19,7 @@
 
 import type { BlueprintDocState } from "@/lib/doc/store";
 import type { Form, Uuid } from "@/lib/domain";
-import { formReachableCaseTypes } from "./buildLintContext";
+import { formReachableCaseTypes, formTimeOrderings } from "./buildLintContext";
 import type { XPathLintContext } from "./xpath-lint";
 
 /**
@@ -40,5 +40,6 @@ export function buildSessionLintContext(
 		userProperties: Object.values(state.userProperties ?? {}),
 		formType: form.type,
 		scope: "session",
+		timeOrderings: formTimeOrderings(state, formUuid),
 	};
 }

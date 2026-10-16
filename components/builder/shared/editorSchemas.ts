@@ -463,7 +463,7 @@ export function predicateUnavailableReason(
 			case "gt":
 			case "gte":
 			case "between":
-				return "Add a number, date, or time data-table column first";
+				return "Add a number or date data-table column first";
 			case "when-input-present":
 				return ctx.knownInputs.length === 0
 					? "Add a search field first"
@@ -494,7 +494,7 @@ export function predicateUnavailableReason(
 		case "gt":
 		case "gte":
 		case "between":
-			return "Add number, date, or time case information first";
+			return "Add number or date case information first";
 		case "multi-select-contains":
 			return "Add case information with multiple choices first";
 		case "within-distance":

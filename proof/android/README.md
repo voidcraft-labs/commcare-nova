@@ -162,7 +162,9 @@ The requests (`Reader.java`):
     check boxes'), in the screen's order, which is the order Core gives the
     prompt's itemset (sorted where it holds a sort), what
     it sends, and what it sends and shows for an answer holding both quote
-    marks when the server answers 400; and, on a screen of its own, what it
+    marks when the server answers 400, or, where the request asks for it
+    (`queryFindsNothing`), when the server answers 200 with no case: the
+    toast and what each prompt then holds; and, on a screen of its own, what it
     would send once a worker has typed the answer table's search answers
     (`searchPrompts` of `proof/core/answers.json`) into its prompts through
     the screen's own views (a text box typed into, a spinner set, a check box
@@ -471,7 +473,9 @@ every CI run, on the runner's own Python); neither is a `test_*.py`.
   refused and the session cleared (defect 20); a form's title names its
   completed save and not its header (finding 46); a search answer holding
   both quote marks is sent and the server's refusal shown as Android's own
-  text (finding 48); a fuzzy search matches a column's sort key (finding 51);
+  text, and where the suite writes `match-none()` for it, as Nova writes it now,
+  the screen sends that, shows "Query response had no results" and keeps the
+  answer (finding 48); a fuzzy search matches a column's sort key (finding 51);
   a question's hint, a group's label and a validation message that name an
   image lay out the same screen as without it (the message typed into
   breaking its constraint, and shown as its text), while a question label's

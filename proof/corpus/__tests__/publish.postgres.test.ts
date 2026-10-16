@@ -1202,10 +1202,11 @@ it("carries the target's own values a person saved while the table was pushed, f
 	});
 });
 
-it("captures the table a person kept in HQ as the name clash Nova refuses, and sends what Nova sends once it is taken over", async () => {
+it("captures the table a person kept in HQ as the stop Nova makes before sending anything, which taking it over does not resolve", async () => {
 	const document = await seedSearchLookupMedia();
 	const saves = {
-		republish: "discards",
+		republish: "stops",
+		stopCode: "hq_table_content_unsupported",
 		lookupTable: {
 			tag: "facilities",
 			fieldProperty: { field: "name", property: "lang", value: "en" },
@@ -1218,14 +1219,12 @@ it("captures the table a person kept in HQ as the name clash Nova refuses, and s
 			description: "The facilities the team visits",
 		},
 	} satisfies HqSideSaves;
-	const { update, confirmed } = confirmedUpdate(
-		await capturePublish({
-			create: document,
-			updates: [{ name: "update", document }],
-			configuration: EVERYTHING,
-			hqSide: saves,
-		}),
-	);
+	const capture = await capturePublish({
+		create: document,
+		updates: [{ name: "update", document }],
+		configuration: EVERYTHING,
+		hqSide: saves,
+	});
 
 	const model = projectSpace({
 		appId: PLACEHOLDER_APP_ID,
@@ -1233,61 +1232,233 @@ it("captures the table a person kept in HQ as the name clash Nova refuses, and s
 		caseSearchEnabled: EVERYTHING.caseSearchEnabled,
 	});
 	const log: PeerRequest[] = [];
-	const { refused, landed } = await withHttpPeer(async (peer) => {
+	const { refused, adopting, kept, after, sentAfter } = await withHttpPeer(
+		async (peer) => {
+			servedBy(peer, model, log);
+			expect((await publish()).hqAppAction).toBe("created");
+			model.applyHqSide(saves);
+			const kept = model.snapshot().tables;
+			const before = log.length;
+			const refused = await attempt();
+			if (refused.landed)
+				throw new Error("Nova pushed over the kept table without asking.");
+			const adopting = await attempt({
+				adoptResourceIds: [document.lookup?.definitions[0]?.id ?? ""],
+			});
+			return {
+				refused,
+				adopting,
+				kept,
+				after: model.snapshot().tables,
+				sentAfter: log.slice(before),
+			};
+		},
+	);
+
+	// The capture stops where Nova stops, with the same code, and sends no B.
+	if (capture.status !== "sent") throw new Error("The capture was refused.");
+	expect(capture.updates.update).toMatchObject({
+		status: "stopped",
+		code: "hq_table_content_unsupported",
+	});
+	// Nova reads the property and the attribute from HQ's definition list and
+	// stops before any write, with no discard and no adoption offered.
+	expect(refused.refusal.failure).toEqual({
+		code: "hq_table_content_unsupported",
+		message:
+			"Nova can't keep everything CommCare HQ holds in this app's lookup tables yet, so it stopped before sending anything: publishing over them would remove it. You can give a table a new export tag in Project data, and Nova then publishes its own table and leaves CommCare HQ's as it is.",
+		details: [
+			"The table Facilities holds field properties and row attributes in CommCare HQ.",
+		],
+	});
+	expect(refused.refusal.remoteChanges).toEqual([]);
+	expect(refused.refusal.resourceConflicts).toEqual([]);
+	// Taking the table over keeps none of it, so the same stop answers.
+	if (adopting.landed) throw new Error("Taking the table over pushed it.");
+	expect(adopting.refusal.failure).toEqual(refused.refusal.failure);
+	expect(sentAfter.every((request) => request.method === "GET")).toBe(true);
+	// HQ's table is what the person left: the same id, rows and content.
+	expect(after).toEqual(kept);
+});
+
+it("warns that HQ made a table again when its push over an unchanged definition leaves the tag under a new id", async () => {
+	await seedSearchLookupMedia();
+	const model = projectSpace({
+		appId: PLACEHOLDER_APP_ID,
+		flags: EVERYTHING.flags,
+		caseSearchEnabled: EVERYTHING.caseSearchEnabled,
+	});
+	const log: PeerRequest[] = [];
+	const { landed, before, after } = await withHttpPeer(async (peer) => {
 		servedBy(peer, model, log);
 		expect((await publish()).hqAppAction).toBe("created");
-		model.applyHqSide(saves);
-		const refused = await attempt();
-		if (refused.landed)
-			throw new Error("Nova pushed over the kept table without asking.");
-		const before = log.length;
-		const landed = await attempt({
-			adoptResourceIds: refused.refusal.resourceConflicts.map(
-				(conflict) => conflict.novaResourceId,
-			),
-		});
-		return { refused, landed: { outcome: landed, log: log.slice(before) } };
-	});
-
-	// HQ's upload of the kept table made it again under a new id, so Nova
-	// reads a table it cannot account for: a name clash, never a drift change.
-	expect(refused.refusal.failure.code).toBe("hq_resource_conflict");
-	expect(confirmed.stops).toEqual([
-		{
-			code: "hq_resource_conflict",
-			remoteChanges: [],
-			conflicts: refused.refusal.resourceConflicts.map((conflict) => ({
-				tableId: conflict.novaResourceId,
-				tag: conflict.identity,
-				remoteId: conflict.remoteId,
+		// A description given in HQ's table editor, which no API-key read shows
+		// and which is part of HQ's table key, so the push makes it again.
+		const held = model.snapshot();
+		model.restore({
+			...held,
+			tables: held.tables.map((table) => ({
+				...table,
+				description: "Kept in HQ",
 			})),
-		},
-	]);
-	expect(confirmed.adopted).toEqual(
-		refused.refusal.resourceConflicts.map(
-			(conflict) => conflict.novaResourceId,
-		),
+		});
+		const before = model.snapshot().tables.map((table) => table.id);
+		const landed = await publish();
+		return {
+			landed,
+			before,
+			after: model.snapshot().tables.map((table) => table.id),
+		};
+	});
+	expect(after).not.toEqual(before);
+	expect(landed.warnings).toContain(
+		"CommCare HQ made the table Facilities again during this publish. If it had a description or indexed fields there, they are gone: Nova can't read or keep either yet.",
 	);
-	expect(landed.outcome.landed).toBe(true);
-	// The capture assumed the table as the person kept it, which the HQ side
-	// holds to HQ's own before it applies the update.
-	expect(update.assumedResources?.lookupTables).toEqual([
-		{
-			tag: "facilities",
-			table: {
-				is_global: true,
-				fields: [
-					{ field_name: "code", properties: [] },
-					{ field_name: "name", properties: ["lang"] },
-				],
-				item_attributes: ["zone"],
+});
+
+it("puts the note on a discard that replaces a table HQ still holds, and none on a deleted or renamed one", async () => {
+	await seedSearchLookupMedia();
+	const model = projectSpace({
+		appId: PLACEHOLDER_APP_ID,
+		flags: EVERYTHING.flags,
+		caseSearchEnabled: EVERYTHING.caseSearchEnabled,
+	});
+	const log: PeerRequest[] = [];
+	const note =
+		"If it has a description or indexed fields in CommCare HQ, publishing removes them: CommCare HQ doesn't show those to Nova, and a lookup upload can't carry a description.";
+	const notes = await withHttpPeer(async (peer) => {
+		servedBy(peer, model, log);
+		expect((await publish()).hqAppAction).toBe("created");
+		const published = model.snapshot();
+		const stopWith = async (
+			tables: (held: (typeof published.tables)[number]) => unknown,
+		) => {
+			model.restore({
+				...published,
+				tables: published.tables.flatMap(
+					(table) => tables(table) as (typeof published.tables)[number][],
+				),
+			});
+			const outcome = await attempt();
+			if (outcome.landed) throw new Error("Nova published over the change.");
+			expect(outcome.refusal.failure.code).toBe("hq_changed");
+			return outcome.refusal.remoteChanges
+				.filter((change) => change.kind === "lookup-table")
+				.map((change) => ({
+					parts: change.parts.length,
+					baselineKnown: change.baselineKnown,
+					note: change.note,
+				}));
+		};
+		const definition = await stopWith((table) => [
+			{
+				...table,
+				fields: [...table.fields, { name: "added_in_hq", properties: [] }],
 			},
-		},
+		]);
+		const deleted = await stopWith(() => []);
+		const renamed = await stopWith((table) => [
+			{ ...table, tag: "facilities_renamed_in_hq" },
+		]);
+		// A live mapping with no baseline row: Nova can't tell what changed.
+		model.restore(published);
+		await h.db().deleteFrom("project_space_resource_baselines").execute();
+		const unknown = await stopWith((table) => [table]);
+		return { definition, deleted, renamed, unknown };
+	});
+	expect(notes.definition).toEqual([{ parts: 1, baselineKnown: true, note }]);
+	expect(notes.unknown).toEqual([{ parts: 0, baselineKnown: false, note }]);
+	expect(notes.deleted).toEqual([
+		{ parts: 1, baselineKnown: true, note: null },
 	]);
-	const [workbook] = await formsTo(landed.log, "/fixtures/fixapi/");
-	if (workbook === undefined || update.lookup === undefined) {
-		throw new Error("Neither publish pushed the table after taking it over.");
-	}
-	await expectSameWorkbook(update.lookup, workbook);
-	expect(ordered(lines(landed.log))).toEqual(ordered(update.sequence));
+	expect(notes.renamed).toEqual([
+		{ parts: 1, baselineKnown: true, note: null },
+	]);
+});
+
+/** HQ's "Upgrade Required" answer to the push, as the lane retained it from HQ's own upload view. */
+const PLAN_PAGE = JSON.parse(
+	readFileSync(
+		"proof/views/retained/lookup-upload-without-privilege.json",
+		"utf8",
+	),
+) as { status: number; contentType: string; holds: string };
+
+/** The peer, with its workbook upload answered by HQ's plan page and nothing written. */
+function withoutLookupTables(model: TargetPeer): void {
+	const answer = model.answer.bind(model);
+	model.answer = async (request) =>
+		request.method === "POST" &&
+		new URL(request.path, HOST).pathname.endsWith("/fixtures/fixapi/")
+			? {
+					status: PLAN_PAGE.status,
+					contentType: PLAN_PAGE.contentType,
+					body: `<html><title>${PLAN_PAGE.holds}</title></html>`,
+				}
+			: answer(request);
+}
+
+it("stops on HQ's plan page after the empty app on a first publish, keeping the app's mapping and recording no table", async () => {
+	await seedSearchLookupMedia();
+	const model = projectSpace({
+		appId: PLACEHOLDER_APP_ID,
+		flags: EVERYTHING.flags,
+		caseSearchEnabled: EVERYTHING.caseSearchEnabled,
+	});
+	withoutLookupTables(model);
+	const log: PeerRequest[] = [];
+	const outcome = await withHttpPeer(async (peer) => {
+		servedBy(peer, model, log);
+		return attempt();
+	});
+	if (outcome.landed) throw new Error("The publish landed without the plan.");
+	expect(outcome.refusal.failure).toEqual({
+		code: "hq_rejected_resource_push",
+		message: `The plan for “${DOMAIN}” doesn't include Lookup Tables, so CommCare HQ took none of this app's lookup tables and Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Nothing else on the project space changed. Once the plan includes Lookup Tables, publishing again sends the tables and fills the app in.`,
+		details: [],
+	});
+	const active = outcome.deployment?.active ?? [];
+	expect(active.map((resource) => resource.kind)).toEqual(["app"]);
+	const pushed = log.findIndex((request) =>
+		new URL(request.path, HOST).pathname.endsWith("/fixtures/fixapi/"),
+	);
+	expect(pushed).toBeGreaterThan(-1);
+	expect(log.slice(pushed + 1)).toEqual([]);
+});
+
+it("stops on HQ's plan page over an app that was there, with nothing changed and no request after the push", async () => {
+	await seedSearchLookupMedia();
+	const model = projectSpace({
+		appId: PLACEHOLDER_APP_ID,
+		flags: EVERYTHING.flags,
+		caseSearchEnabled: EVERYTHING.caseSearchEnabled,
+	});
+	const log: PeerRequest[] = [];
+	const { outcome, held, after, sent } = await withHttpPeer(async (peer) => {
+		servedBy(peer, model, log);
+		expect((await publish()).hqAppAction).toBe("created");
+		await editInEachKey();
+		withoutLookupTables(model);
+		const held = model.snapshot();
+		const start = log.length;
+		const outcome = await attempt();
+		return {
+			outcome,
+			held,
+			after: model.snapshot(),
+			sent: log.slice(start),
+		};
+	});
+	if (outcome.landed) throw new Error("The publish landed without the plan.");
+	expect(outcome.refusal.failure).toEqual({
+		code: "hq_rejected_resource_push",
+		message: `The plan for “${DOMAIN}” doesn't include Lookup Tables, so CommCare HQ took none of this app's lookup tables and Nova stopped before sending the app's content. Nothing on the project space changed. Once the plan includes Lookup Tables, publishing again sends the tables and then the app's content.`,
+		details: [],
+	});
+	const pushed = sent.findIndex((request) =>
+		new URL(request.path, HOST).pathname.endsWith("/fixtures/fixapi/"),
+	);
+	expect(pushed).toBeGreaterThan(-1);
+	expect(sent.slice(pushed + 1)).toEqual([]);
+	expect(after).toEqual(held);
 });

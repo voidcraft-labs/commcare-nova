@@ -14,11 +14,14 @@
  *   3. Format check — a magic-bytes sniff (file-type) for everything that
  *      carries a container signature; a UTF-8 check for text, which has
  *      none
- *   4. Body re-parse for image (sharp) + audio/video (music-metadata).
- *      pdf/docx/xlsx are validated by the sniff ALONE — the server never
- *      parses an untrusted office/PDF body (that's a real parser-CVE
- *      surface); the preview parses them client-side, on the owner's own
- *      file, instead
+ *   4. Body checks, dispatched on the sniffed MIME: image (sharp, or
+ *      Nova's own header reader for BMP, `bmp.ts`) and audio/video
+ *      (music-metadata, plus `webm.ts` for a VP9 profile), each holding
+ *      the format to the variant every CommCare platform plays
+ *      (`lib/domain/multimedia.ts::ACCEPTED_FORMATS`). pdf/docx/xlsx are
+ *      validated by the sniff ALONE — the server never parses an untrusted
+ *      office/PDF body (that's a real parser-CVE surface); the preview
+ *      parses them client-side, on the owner's own file, instead
  *   5. SHA-256 computed from the validated bytes
  *
  * Trust nothing the client says about the bytes; verify everything.
@@ -36,42 +39,29 @@ import { fileTypeFromBuffer } from "file-type";
 import { type IAudioMetadata, parseBuffer } from "music-metadata";
 import sharp from "sharp";
 import {
+	ACCEPTED_EXTENSIONS,
 	ALL_MIME_TYPES,
 	ASSET_SIZE_CAPS_BYTES,
 	type AssetKind,
 	type AssetMimeType,
+	acceptedFormatFor,
 	assetKindForExtension,
 	assetKindForMimeType,
 	EXTENSION_FOR_MIME_TYPE,
+	mimeTypeForExtension,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import { readBmp } from "./bmp";
+import { readVp9Profile } from "./webm";
 
 /**
- * Extensions the upload pre-screen accepts. The post-sniff
- * authoritative extension comes from `EXTENSION_FOR_MIME_TYPE`;
- * this list exists to reject obvious off-list filenames before
- * spending a magic-bytes sniff on them.
- *
- * SVG is deliberately absent — it's a script container with active
- * content surface, and the CommCare renderer doesn't display it
- * usefully on the wire side either way.
+ * Extensions the upload pre-screen accepts: every accepted format's declared
+ * extensions (`lib/domain/multimedia.ts::ACCEPTED_EXTENSIONS`). The post-sniff
+ * authoritative extension comes from `EXTENSION_FOR_MIME_TYPE`; the list
+ * exists to reject obvious off-list filenames before spending a magic-bytes
+ * sniff on them.
  */
-export const ACCEPTED_EXTENSIONS = [
-	".png",
-	".jpg",
-	".jpeg",
-	".gif",
-	".webp",
-	".mp3",
-	".mp4",
-	".wav",
-	".pdf",
-	".txt",
-	".md",
-	".docx",
-	".xlsx",
-] as const;
-export type AcceptedExtension = (typeof ACCEPTED_EXTENSIONS)[number];
+export type { AcceptedExtension } from "@/lib/domain/multimedia";
 
 /**
  * Discriminated result of the validation pipeline. Callers branch
@@ -107,7 +97,10 @@ export type ValidationFailureReason =
 	| "image-parse-failed"
 	| "media-parse-failed"
 	| "text-not-utf8"
-	| "claimed-size-mismatch";
+	| "claimed-size-mismatch"
+	| "container-brand-not-accepted"
+	| "codec-not-accepted"
+	| "bmp-variant-not-accepted";
 
 /**
  * Validate a byte payload + metadata claims.
@@ -240,6 +233,22 @@ export async function validateMediaBytes(args: {
 				message: `\`${args.originalFilename}\` looks like a \`${sniffed.mime}\` file, which isn't an accepted type. Accepted: ${ALL_MIME_TYPES.join(", ")}.`,
 			};
 		}
+		// An `.m4a` HQ would file as video: the sniff reads an MP4 whose
+		// `ftyp` brand is not `M4A ` or `M4B ` (`isom`, `mp42`, `mp41`,
+		// `dash`) as `video/mp4`, and so does HQ's bulk upload, which types
+		// each file by its bytes, so an audio slot would never receive it.
+		// It gets its own refusal before the claim and extension checks,
+		// which would only say the file was renamed.
+		if (
+			normalizedSniff === "video/mp4" &&
+			mimeTypeForExtension(declaredExt) === "audio/mp4"
+		) {
+			return {
+				ok: false,
+				reason: "container-brand-not-accepted",
+				message: M4A_BRAND_MESSAGE,
+			};
+		}
 		// Cross-check the sniff against the claimed MIME WHEN the browser
 		// sent a usable one. A missing/unusable claim (the extension named
 		// the kind) has nothing to cross-check — the sniff plus the
@@ -254,14 +263,14 @@ export async function validateMediaBytes(args: {
 		sniffedMime = normalizedSniff;
 		canonicalExtension = EXTENSION_FOR_MIME_TYPE[sniffedMime];
 		// The pre-screen extension and the post-sniff canonical extension
-		// can legitimately differ for one pair: `.jpg` and `.jpeg` both map
-		// to `image/jpeg`. Accept the family match; reject the rest — which
-		// also catches a renamed file whose real format (the sniff) doesn't
-		// match its extension (a PNG renamed `.docx`).
-		const sameJpegFamily =
-			canonicalExtension === ".jpg" &&
-			(declaredExt === ".jpg" || declaredExt === ".jpeg");
-		if (!sameJpegFamily && declaredExt !== canonicalExtension) {
+		// can legitimately differ within one format's family: `.jpeg` beside
+		// `.jpg`, `.opus` beside `.ogg` (each format's `declaredExtensions`).
+		// Accept the family match; reject the rest — which also catches a
+		// renamed file whose real format (the sniff) doesn't match its
+		// extension (a PNG renamed `.docx`).
+		const declaredFamily: readonly string[] =
+			acceptedFormatFor(sniffedMime)?.declaredExtensions ?? [];
+		if (!declaredFamily.includes(declaredExt)) {
 			return {
 				ok: false,
 				reason: "extension-mime-mismatch",
@@ -269,13 +278,33 @@ export async function validateMediaBytes(args: {
 			};
 		}
 
-		// Stage 4: body re-parse — image (sharp) + audio/video
-		// (music-metadata) only. pdf/docx/xlsx are validated by the sniff
-		// ALONE: the server deliberately doesn't parse an untrusted office /
-		// PDF body (a real parser memory-safety + prototype-pollution
-		// surface). The preview parses them client-side, on the owner's own
-		// file, where any parser bug is confined to their own browser.
-		if (claimedKind === "image") {
+		// Stage 4: body checks, dispatched on the sniffed MIME — image
+		// (sharp, or `bmp.ts` for a BMP, which sharp cannot read) and
+		// audio/video (music-metadata, one parse shared with the duration
+		// read, plus `webm.ts` for a VP9 profile). pdf/docx/xlsx are
+		// validated by the sniff ALONE: the server deliberately doesn't parse
+		// an untrusted office / PDF body (a real parser memory-safety +
+		// prototype-pollution surface). The preview parses them client-side,
+		// on the owner's own file, where any parser bug is confined to their
+		// own browser.
+		if (sniffedMime === "image/bmp") {
+			const reading = readBmp(bytes);
+			if (reading.kind === "variant") {
+				return {
+					ok: false,
+					reason: "bmp-variant-not-accepted",
+					message: BMP_VARIANT_MESSAGE,
+				};
+			}
+			if (reading.kind === "malformed") {
+				return {
+					ok: false,
+					reason: "image-parse-failed",
+					message: `Couldn't read \`${args.originalFilename}\` as a BMP image: ${reading.detail}. The file may be truncated or malformed. Try re-exporting from the source.`,
+				};
+			}
+			dimensions = { width: reading.width, height: reading.height };
+		} else if (claimedKind === "image") {
 			try {
 				const meta = await sharp(bytes).metadata();
 				if (!meta.width || !meta.height) {
@@ -295,8 +324,9 @@ export async function validateMediaBytes(args: {
 				};
 			}
 		} else if (claimedKind === "audio" || claimedKind === "video") {
+			let metadata: IAudioMetadata;
 			try {
-				durationMs = await probeDurationMs(bytes, sniffedMime);
+				metadata = await parseMediaContainer(bytes, sniffedMime);
 			} catch (err) {
 				const detail = err instanceof Error ? err.message : String(err);
 				return {
@@ -305,6 +335,14 @@ export async function validateMediaBytes(args: {
 					message: `Couldn't parse \`${args.originalFilename}\` as a \`${sniffedMime}\` ${claimedKind} stream (${detail}). The file may be truncated or in an unsupported codec.`,
 				};
 			}
+			const refusal = encodingRefusal(
+				bytes,
+				sniffedMime,
+				metadata,
+				args.originalFilename,
+			);
+			if (refusal !== undefined) return { ok: false, ...refusal };
+			durationMs = durationMsOf(metadata);
 		}
 	}
 
@@ -379,31 +417,27 @@ type ParseOutcome =
 	| { kind: "timed-out" };
 
 /**
- * Read an audio/video container's duration (ms) by parsing it in-process
- * with music-metadata — no subprocess, no temp file, no native binary.
- * The in-process parser is deliberate: a bundled demuxer binary doesn't
- * survive the Alpine + Next-standalone deploy (it isn't traced into the
- * runtime image and may not be musl-linked), and a native demuxer carries
- * a memory-safety CVE surface on untrusted input that a JS parser avoids.
+ * Parse an audio/video container in-process with music-metadata — no
+ * subprocess, no temp file, no native binary — for the encoding checks and
+ * the duration read, which share this one parse. The in-process parser is
+ * deliberate: a bundled demuxer binary doesn't survive the Alpine +
+ * Next-standalone deploy (it isn't traced into the runtime image and may not
+ * be musl-linked), and a native demuxer carries a memory-safety CVE surface
+ * on untrusted input that a JS parser avoids.
  *
- * The parse reads container STRUCTURE (atoms / frame headers), not the
- * encoded payload: a malformed container throws — which the caller maps
- * to a clean rejection — but a structurally-valid file whose stream bytes
- * are otherwise arbitrary still passes. That is the structural-not-
- * semantic guarantee: the format is verified, the payload isn't decoded;
- * proving the media actually decodes would need a full decode pass we
- * deliberately don't run on the upload path.
- *
- * Duration is BEST-EFFORT and may be absent: a video-only mp4 (no audio
- * track) parses cleanly but exposes no duration. A missing duration is
- * therefore NOT a rejection — only a throw is. The value, when present,
- * is stored as informational metadata that no validation gate reads.
+ * The parse reads container STRUCTURE (atoms / pages / EBML elements) and
+ * each track's codec id, not the encoded payload or the AAC object type: a
+ * malformed container throws — which the caller maps to a clean rejection —
+ * but a structurally-valid file whose stream bytes are otherwise arbitrary
+ * still passes. That is the structural-not-semantic guarantee: the format and
+ * the codec a track names are verified, the payload isn't decoded; proving
+ * the media actually decodes would need a full decode pass we deliberately
+ * don't run on the upload path.
  */
-
-async function probeDurationMs(
+async function parseMediaContainer(
 	bytes: Buffer,
 	sniffedMime: AssetMimeType,
-): Promise<number | undefined> {
+): Promise<IAudioMetadata> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let settleGuard: ((outcome: ParseOutcome) => void) | undefined;
 	const guard = new Promise<ParseOutcome>((resolve) => {
@@ -418,7 +452,7 @@ async function probeDurationMs(
 		// We don't force `duration: true` (a full-file scan): the size
 		// cap already bounds magnitude, and reading less of an untrusted
 		// file is the safer default — header-derivable duration covers
-		// the common case, and a missing one is acceptable (see above).
+		// the common case, and a missing one is acceptable (`durationMsOf`).
 		const outcome = await Promise.race([
 			parseBuffer(
 				bytes,
@@ -432,17 +466,199 @@ async function probeDurationMs(
 				`took longer than ${MEDIA_PARSE_TIMEOUT_MS / 1000}s to read, the container may be malformed or use a format we can't parse`,
 			);
 		}
-		const seconds = outcome.metadata.format.duration;
-		if (seconds === undefined || !Number.isFinite(seconds)) return undefined;
-		// The asset schema types `durationMs` as a POSITIVE int. A
-		// degenerate 0-duration container — or a sub-millisecond clip that
-		// rounds to 0 — is stored as absent rather than a schema-violating 0.
-		const ms = Math.round(seconds * 1000);
-		return ms > 0 ? ms : undefined;
+		return outcome.metadata;
 	} finally {
 		if (timer) clearTimeout(timer);
 		// Settle the guard so it can't outlive the call once the race is
 		// decided. A no-op if the timer already resolved it.
 		settleGuard?.({ kind: "timed-out" });
 	}
+}
+
+/**
+ * A parsed container's duration in ms. BEST-EFFORT and may be absent: a
+ * video-only mp4 (no audio track) parses cleanly but exposes no duration. A
+ * missing duration is therefore NOT a rejection. The value, when present, is
+ * stored as informational metadata that no validation gate reads.
+ */
+function durationMsOf(metadata: IAudioMetadata): number | undefined {
+	const seconds = metadata.format.duration;
+	if (seconds === undefined || !Number.isFinite(seconds)) return undefined;
+	// The asset schema types `durationMs` as a POSITIVE int. A degenerate
+	// 0-duration container — or a sub-millisecond clip that rounds to 0 — is
+	// stored as absent rather than a schema-violating 0.
+	const ms = Math.round(seconds * 1000);
+	return ms > 0 ? ms : undefined;
+}
+
+const M4A_BRAND_MESSAGE =
+	"This M4A is one CommCare HQ would file as video, so an audio slot would never receive it. Exporting it again as M4A (AAC) audio fixes that.";
+const BMP_VARIANT_MESSAGE =
+	"This BMP is saved in a way some CommCare apps can't show. Saving it again as a PNG fixes that.";
+
+/** The refusal of a file whose audio or video some CommCare apps can't play. */
+function codecRefusal(
+	codec: string,
+	accepted: string,
+): { reason: ValidationFailureReason; message: string } {
+	return {
+		reason: "codec-not-accepted",
+		message: `This file's audio or video is encoded in a way some CommCare apps can't play (${codec}). Exporting it again as ${accepted} fixes that.`,
+	};
+}
+
+/**
+ * Why a parsed audio or video file is encoded in a variant some CommCare
+ * platform does not play, or `undefined` when it is one every platform
+ * played (`lib/commcare/surface/media-formats.json`, `executions`). The
+ * container and codec spellings are music-metadata's, as version 12.0.0
+ * reports them: `FLAC`; `M4A/isom/iso2` or `M4B/isom/iso2` with `MPEG-4/AAC`
+ * or `ALAC`; `Ogg` with `Vorbis I`, `Opus`, `Speex 1.2.1` or `FLAC`;
+ * `EBML/webm` with `VP8`, `VP9`, `AV1`, `VORBIS`, `OPUS`. MP3, WAV and MP4
+ * have no check here: step 2 checks no MP4 codec and no WAV encoding.
+ */
+function encodingRefusal(
+	bytes: Buffer,
+	mime: AssetMimeType,
+	metadata: IAudioMetadata,
+	filename: string,
+): { reason: ValidationFailureReason; message: string } | undefined {
+	const { container = "", codec = "" } = metadata.format;
+	const tracks = metadata.format.trackInfo;
+	switch (mime) {
+		case "audio/mp4": {
+			// The `ftyp` major brand, read from the bytes themselves: HQ files an
+			// MP4 as audio only for `M4A ` or `M4B `.
+			const brand =
+				bytes.toString("latin1", 4, 8) === "ftyp"
+					? bytes.toString("latin1", 8, 12)
+					: "";
+			if (brand !== "M4A " && brand !== "M4B ") {
+				return {
+					reason: "container-brand-not-accepted",
+					message: M4A_BRAND_MESSAGE,
+				};
+			}
+			// music-metadata gives a track `audio` only when its sample entry
+			// carries a sample rate, so a video, chapter or text track has none.
+			const audio = tracks.filter((track) => track.audio !== undefined);
+			if (audio.length === 0) {
+				return {
+					reason: "codec-not-accepted",
+					message:
+						"This M4A holds no audio track Nova can find. Exporting it again as M4A (AAC) audio fixes that.",
+				};
+			}
+			if (tracks.length !== 1) {
+				return {
+					reason: "codec-not-accepted",
+					message:
+						"This M4A holds more than its one audio track. Exporting it again as audio only fixes that.",
+				};
+			}
+			const trackCodec = audio[0]?.codecName ?? codec;
+			if (trackCodec !== "MPEG-4/AAC") {
+				return codecRefusal(
+					trackCodec === "ALAC" ? "Apple Lossless" : trackCodec || "unnamed",
+					"M4A with AAC audio",
+				);
+			}
+			return undefined;
+		}
+		case "audio/flac":
+			return container === "FLAC"
+				? undefined
+				: codecRefusal(container || "unnamed", "a FLAC file");
+		case "audio/ogg": {
+			if (
+				container === "Ogg" &&
+				(codec.startsWith("Vorbis") || codec === "Opus")
+			) {
+				return undefined;
+			}
+			if (codec === "FLAC") {
+				return codecRefusal(
+					"FLAC inside Ogg",
+					"a FLAC file, or Ogg with Vorbis or Opus audio",
+				);
+			}
+			return codecRefusal(
+				codec.startsWith("Speex") ? "Speex" : codec || "unnamed",
+				"Ogg with Vorbis or Opus audio",
+			);
+		}
+		case "video/webm":
+			return webmRefusal(bytes, container, tracks, filename);
+		default:
+			return undefined;
+	}
+}
+
+/** Why a WebM file is one some CommCare platform does not play, or `undefined`. */
+function webmRefusal(
+	bytes: Buffer,
+	container: string,
+	tracks: IAudioMetadata["format"]["trackInfo"],
+	filename: string,
+): { reason: ValidationFailureReason; message: string } | undefined {
+	if (container !== "EBML/webm") {
+		return codecRefusal(container || "unnamed", "a WebM file");
+	}
+	const video = tracks.filter((track) => track.video !== undefined);
+	const audio = tracks.filter((track) => track.audio !== undefined);
+	// A subtitle, button or metadata track is one no reader decoded during
+	// planning, so the WebM it rides in is not one every platform played.
+	const other = tracks.find(
+		(track) => track.video === undefined && track.audio === undefined,
+	);
+	if (video.length === 0) {
+		return {
+			reason: "codec-not-accepted",
+			message:
+				"This WebM holds sound and no picture. CommCare HQ files every WebM as video, so it could never fill an audio slot. Exporting it again as Ogg audio (Vorbis or Opus) fixes that.",
+		};
+	}
+	if (video.length > 1) {
+		return {
+			reason: "codec-not-accepted",
+			message:
+				"This WebM holds more than one video track, and CommCare apps play one. Exporting it again with a single video track fixes that.",
+		};
+	}
+	if (other !== undefined) {
+		return {
+			reason: "codec-not-accepted",
+			message: `This WebM holds a track that is neither video nor sound (${other.codecName || "unnamed"}). Exporting it again with only its video and its Vorbis or Opus audio fixes that.`,
+		};
+	}
+	for (const track of audio) {
+		if (track.codecName !== "VORBIS" && track.codecName !== "OPUS") {
+			return codecRefusal(
+				track.codecName || "unnamed",
+				"WebM with Vorbis or Opus audio, or with none",
+			);
+		}
+	}
+	const videoCodec = video[0]?.codecName ?? "";
+	if (videoCodec === "VP8") return undefined;
+	if (videoCodec !== "VP9") {
+		return codecRefusal(
+			videoCodec || "unnamed",
+			"WebM with VP8 video, or VP9 in 8-bit 4:2:0 color",
+		);
+	}
+	const profile = readVp9Profile(bytes);
+	if (profile.kind === "unreadable") {
+		return {
+			reason: "media-parse-failed",
+			message: `Couldn't read the VP9 video of \`${filename}\`: ${profile.detail}. Exporting it again as WebM with VP8 video, or VP9 in 8-bit 4:2:0 color, fixes that.`,
+		};
+	}
+	if (profile.profile !== 0) {
+		return codecRefusal(
+			"VP9 in 4:4:4 or 10-bit color",
+			"VP8, or VP9 in 8-bit 4:2:0 color (ffmpeg's -pix_fmt yuv420p)",
+		);
+	}
+	return undefined;
 }

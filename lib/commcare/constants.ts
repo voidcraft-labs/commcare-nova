@@ -4,9 +4,11 @@ import { captureFieldKinds } from "@/lib/domain";
 import { MAX_SUBMITTED_CAPTURE_COUNT } from "@/lib/domain/captureFormats";
 
 /**
- * Case property names that HQ rejects in update_case / case_preload blocks.
- * Matches commcare-hq/corehq/apps/app_manager/static/app_manager/json/case-reserved-words.json
- * (38 entries), plus `owner_id` which HQ also rejects in update blocks.
+ * Case property names Nova refuses in update_case / case_preload blocks: the
+ * 38 entries of commcare-hq/corehq/apps/app_manager/static/app_manager/json/case-reserved-words.json,
+ * which HQ rejects there, plus `owner_id`, which HQ's wire accepts in an
+ * update block and Nova reserves by its own rule: a case's owner is authored
+ * as the owner of a case write, never as a property.
  * CCHQ's alternate standard-property spellings are rejected by the domain
  * schema and deliberately do not survive as a live compatibility table here.
  */
@@ -48,7 +50,7 @@ export const RESERVED_CASE_PROPERTIES: ReadonlySet<string> = new Set([
 	"version",
 	"xform_id",
 	"xform_ids",
-	// Additional — HQ rejects these in update blocks
+	// Nova's own rule: a case's owner is authored as the owner of a case write.
 	"owner_id",
 ]);
 

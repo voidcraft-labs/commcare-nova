@@ -33,8 +33,6 @@ const FORMULA_BAD_REF =
 	'A formula on "visit_score" in "Follow-up" points to a field that isn\'t here. Check for a typo, or a field that was renamed or removed.';
 const FIELD_ID_TAKEN =
 	'Another field is already named "age". Give this one a different ID, or rename that one first.';
-const HIDDEN_NO_VALUE =
-	'"visit_score" in "Follow-up" is hidden but has no value, so it\'ll always stay blank. Give it a default or a calculated value.';
 // Mirrors lib/commcare/connectSlugs.ts::connectIdError's over-length branch,
 // recomputed live so the character count tracks the draft: the way the real
 // form-settings Connect ID field validates while you type. The CommCare
@@ -140,7 +138,7 @@ export default function RejectionTestPage() {
 							type="button"
 							className="px-3 py-1.5 text-xs rounded-md border border-white/[0.08] hover:border-nova-violet/40 cursor-pointer"
 							onClick={() =>
-								setCalloutMessage((m) => (m ? null : HIDDEN_NO_VALUE))
+								setCalloutMessage((m) => (m ? null : FIELD_ID_TAKEN))
 							}
 						>
 							Toggle callout
@@ -199,7 +197,7 @@ export default function RejectionTestPage() {
 							className="px-3 py-1.5 text-xs rounded-md border border-white/[0.08] hover:border-nova-violet/40 cursor-pointer"
 							onClick={() =>
 								showToast("error", "Change not applied", undefined, {
-									lines: [HIDDEN_NO_VALUE, CONNECT_NO_FORMS, FORMULA_BAD_REF],
+									lines: [FIELD_ID_TAKEN, CONNECT_NO_FORMS, FORMULA_BAD_REF],
 								})
 							}
 						>

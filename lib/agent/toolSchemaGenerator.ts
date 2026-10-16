@@ -70,6 +70,7 @@ import {
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldRegistry,
+	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
 	hiddenFieldCarriesBothValueSources,
 	isCaptureFieldKind,
 	lookupOptionsSourceSchema,
@@ -392,10 +393,9 @@ function gateRepeatSlot(
 }
 
 /**
- * A hidden field carries exactly ONE value source. JavaRosa seeds every
- * `default_value` at `xforms-ready` and then re-evaluates every `calculate`,
- * so a default beside a calculate is overwritten before anyone could read
- * it. Refuse the pair at the tool boundary, on the `default_value` path,
+ * A hidden field carries at most ONE value source: Nova doesn't yet write a
+ * Hidden Value's default beside its calculate
+ * (`HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). Refuse the pair at the tool boundary, on the `default_value` path,
  * so the model learns the fix in the rejection: keep the one that matches
  * what the value should do and leave the other out (or, on an edit, pass
  * it as null). `editField` normalizes the cross-call case, where the field
@@ -414,9 +414,7 @@ function gateHiddenValueSources(
 		code: "custom",
 		path: ["default_value"],
 		message:
-			"A hidden field carries exactly one value source. You passed both " +
-			"`calculate` and `default_value`, and the calculate re-evaluates " +
-			"after the default is seeded, so the default could never be seen. " +
+			`${HIDDEN_VALUE_ONE_SOURCE_SENTENCE} ` +
 			"Keep `calculate` for a value that tracks other fields, or " +
 			"`default_value` for a value fixed when the form opens, and leave " +
 			"the other out.",

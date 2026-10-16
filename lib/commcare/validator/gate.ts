@@ -98,12 +98,11 @@ export type ValidityClass =
  *     referenced assets' external byte sizes/status, fires only from the
  *     media-validation boundary entry point, and can never gate a commit.
  *     That is route 1 above.
- *   - LOOKUP_TAG_TOO_LONG_FOR_HQ and LOOKUP_TAG_RESERVED_BY_HQ are
- *     `environment` by route 2, which is a different call from the one
- *     above rather than another instance of it. A tag's length and the
- *     `types` collision are Project data Nova can read whenever it likes,
- *     so nothing HIDES them from a commit. They are boundary-only because
- *     each is true of exactly two export modes: making them soundness
+ *   - LOOKUP_TAG_RESERVED_BY_HQ is `environment` by route 2, which is a
+ *     different call from the one above rather than another instance of
+ *     it. The `types` collision is Project data Nova can read whenever it
+ *     likes, so nothing HIDES it from a commit. It is boundary-only because
+ *     it is true of exactly two export modes: making it soundness
  *     would forbid a tag that works in every CCZ, letting one target's
  *     spreadsheet format narrow Nova's own vocabulary. Same reasoning for
  *     LOOKUP_HQ_PUSH_TOO_LARGE, whose budget is CommCare HQ's and nobody
@@ -361,7 +360,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// A field still writing to a case type absent from the catalog — reachable
 	// when a peer concurrently retires the type the field was declared against.
 	CASE_WRITE_UNKNOWN_TYPE: "soundness",
-	HIDDEN_NO_VALUE: "soundness",
 	// Schema-legal (both slots are optional so history hydrates) but
 	// contradictory; `rules/field.ts::hiddenValueBothSources` has the why.
 	HIDDEN_VALUE_BOTH_SOURCES: "soundness",
@@ -373,7 +371,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	REPEAT_COUNT_TYPE: "soundness",
 	EMPTY_REPEAT_COUNT: "soundness",
 	EMPTY_IDS_QUERY: "soundness",
-	FIXTURE_REFERENCE_NOT_MODELED: "soundness",
 	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: "soundness",
 	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: "soundness",
 	LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE: "soundness",
@@ -528,7 +525,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// HQ regeneration cannot preserve these proven nested selection shapes.
 	// Local package export remains supported; this is target-specific.
 	HQ_NESTED_SELECTION_UNREPRESENTABLE: "environment",
-	LOOKUP_TAG_TOO_LONG_FOR_HQ: "environment",
 	LOOKUP_TAG_RESERVED_BY_HQ: "environment",
 	// ── XPath deep validation ────────────────────────────────────────
 	XPATH_SYNTAX: "soundness",
@@ -543,6 +539,8 @@ export const VALIDITY_CLASS_BY_CODE = {
 	XPATH_FUNCTION_UNAVAILABLE: "soundness",
 	XPATH_FUNCTION_SIGNATURE_UNAVAILABLE: "soundness",
 	XPATH_FUNCTION_CONTEXT_UNAVAILABLE: "soundness",
+	// Core orders by number and a time of day is NaN: never true.
+	XPATH_TIME_ORDERING: "soundness",
 	UNKNOWN_FUNCTION: "soundness",
 	WRONG_ARITY: "soundness",
 	INVALID_REF: "soundness",

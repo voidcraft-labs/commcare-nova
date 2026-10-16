@@ -111,12 +111,7 @@ export function DateField({
 	const showError = state.touched && !state.valid;
 	const stored = state.value;
 	const errorSlot = showError && state.errorMessage && (
-		<ValidationError
-			message={state.errorMessage}
-			media={
-				"validate_msg_media" in field ? field.validate_msg_media : undefined
-			}
-		/>
+		<ValidationError message={state.errorMessage} />
 	);
 
 	if (field.kind === "date") {

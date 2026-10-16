@@ -312,6 +312,22 @@ class Captured:
 _BESIDE = (("lookups", "the lookup workbook"), ("media", "the media upload"))
 
 
+def republish_stop(directory: Path) -> str | None:
+    """The failure code of the republish Nova stopped before it sent anything in this export directory, or None:
+    ``outcome.json`` records the stop (``{"republish": {"status": "stopped", "code": ...}}``), and the capture then
+    writes no republish request."""
+    outcome = directory / "outcome.json"
+    if not outcome.exists():
+        return None
+    republish = _read_json(outcome).get("republish")
+    if not isinstance(republish, dict) or republish.get("status") != "stopped":
+        return None
+    code = republish.get("code")
+    if not isinstance(code, str):
+        raise CorpusLayoutError(f"{outcome} records a stopped republish with no failure code.")
+    return code
+
+
 def _captured(directory: Path, name: str):
     """The captured request ``<name>`` in ``directory``. Its sidecar's layout marker is read here: no key is the
     legacy layout, ``"layout": 2`` the two-import layout, and any other value is refused by name."""
@@ -358,6 +374,9 @@ class Export:
     republish: Captured | None
     update: Captured | None
     content: Captured | None = None
+    # The failure code of a republish Nova stopped before it sent anything (``outcome.json``'s ``stopped``), which
+    # then has no captured request: ``republish`` is None.
+    republish_stopped: str | None = None
 
     @property
     def two_imports(self):
@@ -475,13 +494,15 @@ class Document:
         found = {}
         for child in sorted(p for p in directory.iterdir() if p.is_dir()):
             create, content = _first_publish(child)
+            stopped = republish_stop(child)
             found[child.name] = Export(
                 configuration=self._configuration(child.name, child, self.root / "verdict.json"),
                 directory=child,
                 create=create,
-                republish=_captured(child, "republish"),
+                republish=None if stopped is not None else _captured(child, "republish"),
                 update=None,
                 content=content,
+                republish_stopped=stopped,
             )
         return found
 

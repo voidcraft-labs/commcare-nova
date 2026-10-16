@@ -98,6 +98,10 @@ const fieldName = (e: ValidationError): string =>
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
 
+/** A sentence's subject placed later in a sentence. */
+const lowerFirst = (subject: string): string =>
+	subject.charAt(0).toLowerCase() + subject.slice(1);
+
 const QUESTION_ID_PROBLEMS: ReadonlySet<string> = new Set<QuestionIdProblem>([
 	"leading-underscore",
 	"not-letter-first",
@@ -734,6 +738,14 @@ const USER_MESSAGE_BY_CODE: Record<
 				return `${subject} shifts a date by months or years without a whole number. Use a fixed whole number or convert one search answer to Number.`;
 			case "subcase-count-needs-nonnegative-whole-number":
 				return `${subject} compares a child-case count with an unsupported value. Use a whole number that is zero or greater.`;
+			case "system-datetime-value": {
+				const label = standardCasePropertyDisplayLabel(
+					det(e, "property", "date_opened"),
+				);
+				return e.details?.shape === "is-blank"
+					? `CommCare's search can't ask whether ${q(label)} is blank. Every case has one. Remove that check from ${lowerFirst(subject)}.`
+					: `${q(label)} is compared with a date and time. Give it a date and time in ${lowerFirst(subject)}, or remove that check.`;
+			}
 			default:
 				return `${subject} uses a condition that isn't available here. Choose one piece of case information to search, then compare it with a fixed value or a search answer.`;
 		}
@@ -976,10 +988,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${e.details?.optionPosition ? `Choice ${e.details.optionPosition}` : "A choice"} on ${q(fieldName(e))} in ${q(formName(e))} has no label in any language and no image, audio or video, so workers would see an empty choice. Give it a label, or attach media to it.`,
 	CASE_WRITE_UNKNOWN_TYPE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} saves to the ${q(det(e, "caseType", "case type"))} case type, but no case type by that name exists. Add that case type, or point the field at one that does.`,
-	HIDDEN_NO_VALUE: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} is hidden but has no value, so it'll always stay blank. Give it a default or a calculated value.`,
 	HIDDEN_VALUE_BOTH_SOURCES: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} has both a calculated value and a default, and the calculation always wins, so the default never shows. Remove the default, or drop the calculation if you wanted a fixed value.`,
+		`${q(fieldName(e))} in ${q(formName(e))} has both a calculated value and a default. A hidden value takes a calculation or a starting value, and Nova doesn't yet write both on one field. Remove the default, or drop the calculation if you wanted a fixed value.`,
 	REQUIRED_ON_HIDDEN: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is hidden, so it can't be required, no one can fill it in. Turn off required, or make the field visible.`,
 	CALCULATE_ON_VISIBLE_INPUT: (e) =>
@@ -1000,8 +1010,6 @@ const USER_MESSAGE_BY_CODE: Record<
 			? `${q(fieldName(e))} in ${q(formName(e))} has an ID that won't work. Use letters, numbers, and underscores, starting with a letter.`
 			: `${q(fieldName(e))} in ${q(formName(e))} needs another ID. ${sentence}`;
 	},
-	FIXTURE_REFERENCE_NOT_MODELED: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} pulls from a data source Nova doesn't support. For a fixed set of choices, add them as options on the field instead.`,
 	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} filters lookup choices with information that isn't available while choices are being built. Use lookup columns, fixed values, current-user/session values, or an eligible earlier answer.`,
 	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: (e) =>
@@ -1059,6 +1067,15 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 	TYPE_ERROR: (e) =>
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses text where it needs a number, so the result might come out wrong. Check the values it's working with.`,
+	XPATH_TIME_ORDERING: (e) => {
+		const where =
+			e.location.formName === undefined
+				? `The ${det(e, "slot", "condition")} rule of ${q(det(e, "property", "a case property"))}`
+				: e.location.fieldId === undefined
+					? `A formula in ${q(formName(e))}`
+					: `A formula on ${q(fieldName(e))} in ${q(formName(e))}`;
+		return `${where} compares a time of day with before or after. CommCare compares these as numbers and a time is not one, so it would never be true. Compare a date instead, or check a time with equals.`;
+	},
 
 	// ── Lookup references ────────────────────────────────────────────
 	LOOKUP_CONTEXT_UNAVAILABLE: () =>
@@ -1066,7 +1083,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	LOOKUP_TABLE_NOT_AVAILABLE: () =>
 		"This setting uses a lookup table that isn't available in this Project. Choose an available table, or clear the setting.",
 	LOOKUP_TAG_RESERVED_BY_RUNTIME: (e) =>
-		`The export tag for ${q(det(e, "tableName", "this data table"))} is reserved by CommCare. You can rename the export tag in Project data, then try again.`,
+		e.details?.reservedWord !== undefined
+			? `The export tag for ${q(det(e, "tableName", "this data table"))} contains ${e.details.reservedWord}, which CommCare reads as its own data. You can rename the export tag in Project data, then try again.`
+			: `The export tag for ${q(det(e, "tableName", "this data table"))} is reserved by CommCare. You can rename the export tag in Project data, then try again.`,
 	LOOKUP_COLUMN_NOT_AVAILABLE: () =>
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
@@ -1102,8 +1121,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		}
 		return `CommCare HQ can't yet find the cases for ${child} from several cases selected in ${parent}. You can set ${parent} to select one case. ${keeps}`;
 	},
-	LOOKUP_TAG_TOO_LONG_FOR_HQ: (e) =>
-		`CommCare HQ addresses a lookup table by its export tag, and ${det(e, "tag", "one referenced table")} is too long for it. Shorten the tag to ${det(e, "tagAllowed", "31")} characters or fewer in Project data, then try again.`,
 	LOOKUP_TAG_RESERVED_BY_HQ: (e) =>
 		`CommCare HQ keeps the name ${det(e, "tag", "types")} for its own list of the tables in an upload, so a table cannot be exported under it. Rename that table's export tag in Project data, then try again.`,
 

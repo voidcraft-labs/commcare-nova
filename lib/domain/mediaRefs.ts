@@ -68,15 +68,12 @@ const MEDIA_BUNDLE_KEYS: ReadonlyArray<MediaSlotKind> = [
 
 /**
  * Which field-level Media bundle a reference came from. Mirrors the
- * field schema keys (`label_media`, `hint_media`, `help_media`,
- * `validate_msg_media`). The set is closed by `inputFieldBaseSchema`;
+ * field schema keys (`label_media`, `help_media`): the two message slots
+ * a CommCare runtime draws media for. A hint, a validation message and a
+ * group's or repeat's label carry no media (`fields/base.ts`), and
  * `required_msg_media` is deliberately absent.
  */
-export type FieldMediaBundleKey =
-	| "label_media"
-	| "hint_media"
-	| "help_media"
-	| "validate_msg_media";
+export type FieldMediaBundleKey = "label_media" | "help_media";
 
 /**
  * Where a media reference lives in the blueprint. The discriminator
@@ -346,17 +343,16 @@ function* walkFormFieldRefs(
 
 /**
  * Per-field media-bundle slot walk. Each `Field` arm independently
- * declares which of the four bundle keys it carries — `label_media`
- * is on every visible-input arm and on container arms via
- * `fieldBaseSchema` / `containerFieldBase`; the other three sit on
- * per-kind schemas. The reads below use per-key `in`-narrowing so
+ * declares which of the two bundle keys it carries — `label_media`
+ * is on every visible non-container arm via `fieldBaseSchema`, and
+ * `help_media` on the input arms. The reads below use per-key `in`-narrowing so
  * TypeScript types `field[<key>]` directly off the schema arms — no
  * `as` cast — and a future schema rename that drops a bundle key
  * from every arm fails to compile here.
  *
  * Unrolled rather than looped over `FieldMediaBundleKey` because a
  * looped version requires an indexed-access type the discriminated
- * `Field` union doesn't admit without a cast (the four keys have no
+ * `Field` union doesn't admit without a cast (the two keys have no
  * single common parent arm).
  */
 function* walkFieldMediaSlots(
@@ -374,28 +370,10 @@ function* walkFieldMediaSlots(
 			ctx,
 		);
 	}
-	if ("hint_media" in field) {
-		yield* yieldBundleSlots(
-			field.hint_media,
-			"hint_media",
-			fieldUuid,
-			fieldId,
-			ctx,
-		);
-	}
 	if ("help_media" in field) {
 		yield* yieldBundleSlots(
 			field.help_media,
 			"help_media",
-			fieldUuid,
-			fieldId,
-			ctx,
-		);
-	}
-	if ("validate_msg_media" in field) {
-		yield* yieldBundleSlots(
-			field.validate_msg_media,
-			"validate_msg_media",
 			fieldUuid,
 			fieldId,
 			ctx,
@@ -666,11 +644,7 @@ function remapFieldMedia(
 	remap: (id: MediaAssetId) => MediaAssetId,
 ): void {
 	if ("label_media" in field) remapMediaBundle(field.label_media, remap);
-	if ("hint_media" in field) remapMediaBundle(field.hint_media, remap);
 	if ("help_media" in field) remapMediaBundle(field.help_media, remap);
-	if ("validate_msg_media" in field) {
-		remapMediaBundle(field.validate_msg_media, remap);
-	}
 	if (
 		(field.kind === "single_select" || field.kind === "multi_select") &&
 		field.optionsSource.kind === "inline"
@@ -758,12 +732,8 @@ function bundleSlotLabel(bundleKey: FieldMediaBundleKey): string {
 	switch (bundleKey) {
 		case "label_media":
 			return "label";
-		case "hint_media":
-			return "hint";
 		case "help_media":
 			return "help";
-		case "validate_msg_media":
-			return "validation message";
 	}
 }
 

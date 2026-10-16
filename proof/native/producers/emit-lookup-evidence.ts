@@ -51,6 +51,26 @@ writeFileSync(
 		new Map([[manyColumns.id, [manyRow]]]),
 	).bytes,
 );
+/* A tag of Nova's full 32 characters, the most its tag rule admits: HQ's
+ * reader finds the data sheet by that title with no length check. */
+const longTag = wireTable("clinic_case_db_codes_0123456789a", [
+	{ name: "value", type: "text" },
+]);
+writeFileSync(
+	resolve(output, "long-tag.xlsx"),
+	buildLookupWorkbook(
+		lookupWireNaming([longTag]),
+		new Map([
+			[
+				longTag.id,
+				[
+					wireRow(longTag, "north", { value: "north" }),
+					wireRow(longTag, "south", { value: "south" }),
+				],
+			],
+		]),
+	).bytes,
+);
 const counterexample = wireTable("padding", [{ name: "value", type: "text" }]);
 const stripCharacters = Array.from(
 	{ length: 0x110000 },
@@ -82,6 +102,7 @@ writeFileSync(
 			totalWorkbookRows: workbook.totalWorkbookRows,
 			stripCharacters,
 			padding: padded.map((row) => Object.values(row.values)[0]),
+			longTag: longTag.tag,
 			sourceHashes: Object.fromEntries(
 				[
 					"lib/commcare/lookup/__tests__/lookupWireCorpus.ts",

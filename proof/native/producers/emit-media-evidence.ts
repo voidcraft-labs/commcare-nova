@@ -25,7 +25,9 @@ const write = (path: string, bytes: string | Uint8Array) => {
 };
 for (const mediaOnly of [false, true])
 	for (const enabled of [false, true]) {
-		const { doc, assets } = mediaWireFixture(mediaOnly);
+		// The family's scenario holds one file of each format defect 11's first
+		// half accepts, each in a slot of its kind, beside the corpus's media.
+		const { doc, assets } = mediaWireFixture(mediaOnly, true);
 		const name = `media-${mediaOnly ? "only" : "rich"}-${enabled ? "on" : "off"}`;
 		const options = enabled ? { assets } : {};
 		const hq = expandDoc(doc, options);
@@ -55,15 +57,31 @@ for (const mediaOnly of [false, true])
 			}
 		}
 	}
-const { assets } = mediaWireFixture();
+const { assets } = mediaWireFixture(false, true);
 write(
 	"media-paths.properties",
 	Object.entries(mediaIds)
 		.map(([key, id]) => `${key}=jr://file/${assets.get(id)?.wirePath}`)
 		.join("\n"),
 );
+// The kind Nova gives each uploaded file, which HQ's upload must class alike.
+write(
+	"media-kinds.json",
+	JSON.stringify(
+		Object.fromEntries(
+			[...assets.values()].map((asset) => [asset.wirePath, asset.kind]),
+		),
+	),
+);
 const paths = [
 	"lib/commcare/__tests__/mediaWireFixtures.ts",
+	"lib/media/__tests__/bmpFixtures.ts",
+	"lib/media/__tests__/fixtures/tiny-video.mp4",
+	"lib/media/__tests__/fixtures/tone.m4a",
+	"lib/media/__tests__/fixtures/tone.flac",
+	"lib/media/__tests__/fixtures/tone-vorbis.ogg",
+	"lib/media/__tests__/fixtures/tone-opus.ogg",
+	"lib/media/__tests__/fixtures/pattern-vp8.webm",
 	"lib/commcare/compiler.ts",
 	"lib/commcare/expander.ts",
 	"lib/commcare/multimedia/bundle.ts",

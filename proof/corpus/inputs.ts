@@ -41,7 +41,9 @@
  *   shell's create under `create.` and the content import under `content.`,
  *   which names the workbook and the media, and the privileges name both
  *   (`privileges.create.`, `privileges.content.`).
- * - `b`: the republish's request and the workbook and media upload it names.
+ * - `b`: the republish's request and the workbook and media upload it names,
+ *   or `outcome.json` alone for a republish Nova stopped before it sent
+ *   anything.
  * - `b_edit`: D′'s update request and the workbook and media upload it
  *   names, with `edit/document.json` and `edit/verdict.json`.
  * - `local`: each local archive (`local.ccz`, `local-again.ccz`,
@@ -139,6 +141,23 @@ async function file(root: string, path: string): Promise<InputFile> {
 		path,
 		digest: `sha256:${sha256(await readFile(join(root, path)))}`,
 	};
+}
+
+/**
+ * Whether Nova stopped this export's republish before it sent anything:
+ * `outcome.json` records the stop, and the capture writes no republish
+ * request. Its part is then the outcome alone.
+ */
+async function republishStopped(
+	root: string,
+	directory: string,
+): Promise<boolean> {
+	const outcome = join(root, directory, "outcome.json");
+	if (!existsSync(outcome)) return false;
+	const held = JSON.parse(await readFile(outcome, "utf8")) as {
+		republish?: { status?: string };
+	};
+	return held.republish?.status === "stopped";
 }
 
 /**
@@ -245,7 +264,9 @@ export async function documentInputs(
 				...(await firstPublish(root, exported)),
 				...privileges,
 			},
-			b: await request(root, exported, "republish"),
+			b: (await republishStopped(root, exported))
+				? { "outcome.json": await file(root, `${exported}/outcome.json`) }
+				: await request(root, exported, "republish"),
 			...(edited && existsSync(join(root, update, "update.json"))
 				? {
 						b_edit: {

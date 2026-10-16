@@ -245,7 +245,7 @@ describe("toolSchemaGenerator", () => {
 			["default_value"],
 		]);
 		expect(added.error.issues[0]?.message).toContain(
-			"exactly one value source",
+			"Nova doesn't yet write both on one field",
 		);
 
 		const edited = generated.editFieldUpdatesSchema.safeParse({

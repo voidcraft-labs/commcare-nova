@@ -7,6 +7,7 @@ import {
 	APP_PREVIEW_NOTE,
 	BASELINE_UNKNOWN_SENTENCE,
 	HQ_CHANGED_MESSAGE,
+	LOOKUP_ADOPTION_NOTE,
 } from "@/lib/deployment/remoteChanges";
 import { buildSetupArtifact } from "@/lib/deployment/setupArtifact";
 import {
@@ -1204,4 +1205,44 @@ test("native publish below the CommCare version floor links to the app whose set
 		"href",
 		"https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
 	);
+});
+test("native publish says what taking a table over does, and shows a table HQ holds content in as a stop with nothing to tick", async ({
+	page,
+}) => {
+	const message =
+		"Nova can't keep everything CommCare HQ holds in this app's lookup tables yet, so it stopped before sending anything: publishing over them would remove it. You can give a table a new export tag in Project data, and Nova then publishes its own table and leaves CommCare HQ's as it is.";
+	const line =
+		"The table Clinics holds field properties and rows limited to certain users in CommCare HQ.";
+	const answers: PublishResponseBody[] = [
+		refusal,
+		{
+			success: false,
+			refusal: {
+				phase: "preflight",
+				failure: {
+					code: "hq_table_content_unsupported",
+					message,
+					details: [line],
+				},
+				resourceConflicts: [],
+				remoteChanges: [],
+				confirmationsNeeded: [],
+			},
+			preview_project_space: null,
+		},
+	];
+	await page.route("**/api/commcare/upload", (route) =>
+		route.fulfill({ json: answers.shift() }),
+	);
+	await open(page);
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect(
+		page.getByText(LOOKUP_ADOPTION_NOTE, { exact: true }),
+	).toBeVisible();
+	await page.getByRole("checkbox", { name: "Clinics (clinics)" }).check();
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect(page.getByText(message, { exact: true })).toBeVisible();
+	await expect(page.getByText(line, { exact: true })).toBeVisible();
+	// Neither an adoption nor a discard keeps the content, so nothing is offered.
+	await expect(page.getByRole("checkbox")).toHaveCount(0);
 });

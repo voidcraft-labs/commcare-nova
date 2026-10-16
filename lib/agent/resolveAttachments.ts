@@ -43,7 +43,9 @@ import {
 	ASSET_SIZE_CAPS_BYTES,
 	asMediaAssetId,
 	type DocumentKind,
+	imageFormatNoun,
 	isDocumentKind,
+	isModelReadableImageMimeType,
 	type MediaAssetId,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
@@ -148,6 +150,14 @@ async function resolveRef(
 	if (asset.status !== "ready") {
 		return textPart(
 			`<<Attachment ${ref.filename} is still being prepared — it isn't ready to read yet. Try again once its upload finishes.>>`,
+		);
+	}
+
+	// An image the model can't read (a BMP, which the upload gate accepts for
+	// an app's media) reaches it as a placeholder, never under its own MIME.
+	if (asset.kind === "image" && !isModelReadableImageMimeType(asset.mimeType)) {
+		return textPart(
+			`<<Attachment ${ref.filename} is ${imageFormatNoun(asset.mimeType)}, which the assistant can't read yet. A PNG or JPEG of it works.>>`,
 		);
 	}
 

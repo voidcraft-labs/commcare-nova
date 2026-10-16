@@ -90,8 +90,8 @@ Screen readers announce question and section positions within their current
 container. Hidden calculations and questions that do not currently apply are
 skipped, including inside each repeated entry.
 
-Repeating sections with only hidden calculations and no title or media stay out
-of the running form. Their calculations still run, and any configured record
+Repeating sections with only hidden calculations and no title stay out of the
+running form. Their calculations still run, and any configured record
 changes happen when you submit. Titles, media and visible questions remain
 available, and entries that workers add keep their Add and Remove controls.
 
@@ -265,7 +265,7 @@ questions closes any optional editor you had just opened.
 **Show when** affects the question's data as well as its visibility. When its
 condition is false, the answer is omitted from submission and can read as blank
 in other expressions. A **Hidden** field can carry a calculated or starting
-value without displaying a question.
+value without displaying a question. With neither, it stays blank.
 
 A starting value can read another answer in the form. Renaming that question in
 Nova keeps the starting value reading it; renaming it in CommCare HQ's form
@@ -273,6 +273,11 @@ builder leaves the starting value reading the old name.
 
 Each choice you write for a select question has a label, or an image, audio or
 video, so a worker never sees an empty choice.
+
+The images, audio and video you upload to an app can be PNG, JPEG, GIF, WebP or
+BMP images, MP3, WAV, M4A, FLAC or Ogg audio, and MP4 or WebM video. Nova checks
+each file as you add it and says so when it is saved in a way some CommCare apps
+can't play.
 
 ## XPath that will run in CommCare
 
@@ -302,7 +307,8 @@ identity when a table tag changes. Raw XPath can use the stable `casedb` and
 `commcaresession` instances, but it cannot name a lookup table by its mutable
 wire tag.
 
-A hidden value has one expression and a choice of when it runs. **Keep in
+A hidden value has one expression and a choice of when it runs, or no
+expression at all. **Keep in
 step** recalculates whenever a value it uses changes, and every time the form
 opens, including when a worker resumes a saved form. **Set once** runs when the
 form first opens and never again, which suits a timestamp or a fixed value.
@@ -312,7 +318,10 @@ never overrides it. When a hidden calculation saves to a date-and-time property,
 Nova preserves its clock time in Preview and export. Choose a date property when
 you only need the calendar day. A value that records an approval should have its
 own property so later edits do not replace that event with the record's general
-last-modified time.
+last-modified time. A hidden value with no expression that saves to a case
+property says under it what happens: it carries the case's current value through
+unchanged where the form opens that case, and saves the property blank
+otherwise.
 
 A form's [After submit](/docs/form-links) links decide where the app goes once
 the form is submitted, and their conditions run after the form has closed.

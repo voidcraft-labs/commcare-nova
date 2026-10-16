@@ -1103,9 +1103,8 @@ function readOptions(
 }
 
 /**
- * Read a field's `Media` slot (`label_media` / `hint_media` /
- * `help_media` / `validate_msg_media`) regardless of which kind
- * declares it — same untyped-lookup rationale as `readFieldString` /
+ * Read a field's `Media` slot (`label_media` / `help_media`) regardless
+ * of which kind declares it — same untyped-lookup rationale as `readFieldString` /
  * `readOptions`. Returns `undefined` for kinds that don't carry the
  * slot (so the caller emits no media for it).
  */
@@ -1194,38 +1193,31 @@ function buildFieldParts(
 	const help = carrier.help as ProseTemplate | undefined;
 	const validateMsg = carrier.validate_msg as ProseTemplate | undefined;
 
-	// Per-message media slots. Each registers `<value form="...">` siblings
-	// on its itext entry (via `addItext`), and `hint`/`help` body refs emit
-	// when the slot would actually produce an entry. This is the body-ref-
-	// iff-entry invariant: an optional ref must be predicated on the SAME
-	// condition `addItext` uses to register the entry, not just on raw
-	// media-slot presence — otherwise media-OFF (no manifest) with a media-
-	// only slot set would emit a body ref against a non-registered entry,
-	// silently failing for `<hint>`/`<help>` (oracle catches) AND for
-	// `jr:constraintMsg` (oracle's `ref`-attribute scan misses, so the
-	// dangle ships and detonates at JavaRosa parse on the device).
-	const labelMedia = readFieldMedia(field, "label_media");
-	const hintMedia = readFieldMedia(field, "hint_media");
+	// Per-message media slots: a visible non-container field's label and an
+	// input's help, the two a CommCare runtime draws media for. Each registers
+	// `<value form="...">` siblings on its itext entry (via `addItext`). A
+	// hint, a validation message and a group's or repeat's label carry text
+	// alone, so none passes media. The `hint`/`help` body refs emit when the
+	// slot would actually produce an entry. This is the body-ref-iff-entry
+	// invariant: an optional ref must be predicated on the SAME condition
+	// `addItext` uses to register the entry, not just on raw media-slot
+	// presence — otherwise media-OFF (no manifest) with a media-only help set
+	// would emit a body ref against a non-registered entry.
+	const labelMedia = isContainer(field)
+		? undefined
+		: readFieldMedia(field, "label_media");
 	const helpMedia = readFieldMedia(field, "help_media");
-	const validateMsgMedia = readFieldMedia(field, "validate_msg_media");
 	const canValidate = fieldKindCarriesValidation(field.kind);
 	const hasLabel =
 		field.kind !== "hidden" &&
 		addItext(`${itextKey}-label`, label, labelMedia).registered;
 	const hasHint =
-		field.kind !== "hidden" &&
-		addItext(`${itextKey}-hint`, hint, hintMedia).registered;
+		field.kind !== "hidden" && addItext(`${itextKey}-hint`, hint).registered;
 	const hasHelp =
 		field.kind !== "hidden" &&
 		addItext(`${itextKey}-help`, help, helpMedia).registered;
 	const validationMessage = canValidate
-		? addItext(
-				`${itextKey}-constraintMsg`,
-				validateMsg,
-				validateMsgMedia,
-				false,
-				true,
-			)
+		? addItext(`${itextKey}-constraintMsg`, validateMsg, undefined, false, true)
 		: { registered: false };
 	const hasValidationMessage = validationMessage.registered;
 

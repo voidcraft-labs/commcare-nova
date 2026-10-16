@@ -12,7 +12,8 @@ export function smokeMatrix(jobs, workers, timings) {
 	for (const [name, duration] of Object.entries(timings)) {
 		if (!Number.isFinite(duration) || duration <= 0)
 			throw new Error(`Invalid smoke duration: ${name}`);
-		if (name.startsWith("[browser]")) browser += duration;
+		if (name.startsWith("[browser]") || name.startsWith("[browser-webkit]"))
+			browser += duration;
 		else if (name.startsWith("[authed]") || name.startsWith("[public]"))
 			app += duration;
 	}

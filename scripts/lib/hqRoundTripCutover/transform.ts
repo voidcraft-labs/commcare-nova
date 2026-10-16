@@ -26,8 +26,10 @@ import { datePatternsStep } from "./steps/datePatterns";
 import { emptyFormsStep } from "./steps/emptyForms";
 import { entryPointIdsStep } from "./steps/entryPointIds";
 import { hiddenFromMenuStep } from "./steps/hiddenFromMenu";
+import { hiddenInertDefaultStep } from "./steps/hiddenInertDefault";
 import { idMappingKeysStep } from "./steps/idMappingKeys";
 import { languageWireCodesStep } from "./steps/languageWireCodes";
+import { mediaSlotsStep } from "./steps/mediaSlots";
 import { optionLabelsStep } from "./steps/optionLabels";
 import { optionValuesStep } from "./steps/optionValues";
 import { postSubmitStep } from "./steps/postSubmit";
@@ -37,6 +39,7 @@ import { searchButtonLabelStep } from "./steps/searchButtonLabel";
 import { sortPropertyOwnershipStep } from "./steps/sortPropertyOwnership";
 import { tileCellsStep } from "./steps/tileCells";
 import { tileHiddenCalculatedSortStep } from "./steps/tileHiddenCalculatedSort";
+import { timeOrderingStep } from "./steps/timeOrdering";
 import { unsuppliedSessionReadsStep } from "./steps/unsuppliedSessionReads";
 
 /** How the plan classed one deployment of the app (`plan.ts`). */
@@ -104,6 +107,8 @@ export interface CutoverStep {
 /** Every registered step, in the one order they run in. */
 export const CUTOVER_STEPS: readonly CutoverStep[] = [
 	languageWireCodesStep,
+	mediaSlotsStep,
+	hiddenInertDefaultStep,
 	searchButtonLabelStep,
 	questionIdsStep,
 	caseOperationIdsStep,
@@ -115,6 +120,7 @@ export const CUTOVER_STEPS: readonly CutoverStep[] = [
 	emptyFormsStep,
 	unsuppliedSessionReadsStep,
 	reservedSearchInputsStep,
+	timeOrderingStep,
 	hiddenFromMenuStep,
 	postSubmitStep,
 	idMappingKeysStep,

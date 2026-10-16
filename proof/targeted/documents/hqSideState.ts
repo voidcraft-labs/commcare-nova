@@ -46,8 +46,9 @@
  * discard (`republish: "proceeds"`).
  *
  * A lookup table a person keeps in HQ has a document of its own
- * (`./hqSideLookup.ts`), since that republish is the one Nova stops once
- * defect 5 is fixed, and these symptoms need a republish that lands.
+ * (`./hqSideLookup.ts`), since that republish is the one Nova stops
+ * (`hq_table_content_unsupported`, defect 5), and these symptoms need a
+ * republish that lands.
  *
  * The configurations grant `BUILD_PROFILES`, which HQ's language profiles
  * page requires (`requires_privilege`).

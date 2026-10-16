@@ -234,7 +234,6 @@ export type ValidationErrorCode =
 	| "SELECT_OPTION_VALUE_DUPLICATE"
 	| "SELECT_OPTION_LABEL_EMPTY"
 	| "CASE_WRITE_UNKNOWN_TYPE"
-	| "HIDDEN_NO_VALUE"
 	| "HIDDEN_VALUE_BOTH_SOURCES"
 	| "REQUIRED_ON_HIDDEN"
 	| "CALCULATE_ON_VISIBLE_INPUT"
@@ -244,7 +243,6 @@ export type ValidationErrorCode =
 	| "REPEAT_COUNT_TYPE"
 	| "EMPTY_REPEAT_COUNT"
 	| "EMPTY_IDS_QUERY"
-	| "FIXTURE_REFERENCE_NOT_MODELED"
 	| "LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED"
 	| "LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER"
 	| "LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE"
@@ -447,11 +445,10 @@ export type ValidationErrorCode =
 	| "LOOKUP_SELECT_SOURCE_LABEL_BLANK"
 	// What each carrier can hold: fixture bytes a downloadable app embeds,
 	// rows CommCare HQ's importer takes in one workbook, and the sheet name
-	// its importer addresses a table by.
+	// its importer keeps for its own list of tables.
 	| "LOOKUP_FIXTURE_EXPORT_TOO_LARGE"
 	| "LOOKUP_HQ_PUSH_TOO_LARGE"
 	| "HQ_NESTED_SELECTION_UNREPRESENTABLE"
-	| "LOOKUP_TAG_TOO_LONG_FOR_HQ"
 	| "LOOKUP_TAG_RESERVED_BY_HQ"
 	// Aggregate export-budget guard (not a per-ref rule): the media-ON
 	// compile / HQ-upload paths load every referenced ready asset into
@@ -471,6 +468,7 @@ export type ValidationErrorCode =
 	| "XPATH_FUNCTION_UNAVAILABLE"
 	| "XPATH_FUNCTION_SIGNATURE_UNAVAILABLE"
 	| "XPATH_FUNCTION_CONTEXT_UNAVAILABLE"
+	| "XPATH_TIME_ORDERING"
 	| "UNKNOWN_FUNCTION"
 	| "WRONG_ARITY"
 	| "INVALID_REF"

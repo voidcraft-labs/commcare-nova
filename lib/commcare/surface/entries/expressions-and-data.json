@@ -3742,13 +3742,8 @@
 		],
 		"valueClass": "bmp",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: widen: add BMP (needs a non-`sharp` body parser)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "add BMP (needs a non-`sharp` body parser)"
-			}
-		],
+		"dispositionCell": "**HELD**: `lib/media` image asset, in the two headers every reader decodes",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3847,15 +3842,11 @@
 		],
 		"valueClass": "mp3-m4a-flac-pcm-wav",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD** (MP3, WAV; narrow: PCM 8- or 16-bit only, Nova checks no WAV encoding today) and **HELD** widen (M4A with a brand check, FLAC): audio asset",
+		"dispositionCell": "**HELD** (MP3, WAV, M4A with a brand check, FLAC; narrow: PCM 8- or 16-bit only, Nova checks no WAV encoding today): audio asset",
 		"slotChanges": [
 			{
 				"direction": "narrow",
 				"text": "PCM 8- or 16-bit only, Nova checks no WAV encoding today"
-			},
-			{
-				"direction": "widen",
-				"text": "M4A with a brand check, FLAC"
 			}
 		],
 		"platforms": {
@@ -3921,13 +3912,8 @@
 		],
 		"valueClass": "ogg-vorbis-opus",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: widen: add Ogg Vorbis and Opus to the audio set",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "add Ogg Vorbis and Opus to the audio set"
-			}
-		],
+		"dispositionCell": "**HELD**: `lib/media` audio asset",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (Safari since 18.4, per MDN's container guide, Ogg note; MDN's audio codec table still lists Safari as unsupported) / RUNS",
@@ -4057,15 +4043,11 @@
 		],
 		"valueClass": "mp4-h264-baseline-main-webm",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD** (MP4; narrow: Nova checks no codec today) and **HELD** widen (WebM): video asset",
+		"dispositionCell": "**HELD** (MP4, WebM; narrow: Nova checks no MP4 codec today): video asset",
 		"slotChanges": [
 			{
 				"direction": "narrow",
-				"text": "Nova checks no codec today"
-			},
-			{
-				"direction": "widen",
-				"text": "WebM"
+				"text": "Nova checks no MP4 codec today"
 			}
 		],
 		"platforms": {

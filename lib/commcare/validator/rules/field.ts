@@ -22,6 +22,7 @@ import {
 	fieldKindCarriesValidation,
 	filledProse,
 	formConnectIds,
+	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
 	hiddenFieldCarriesBothValueSources,
 	makeTranslationUnitId,
 	mintSelectOptionPlaceholder,
@@ -221,35 +222,16 @@ function selectOptionValueInvalid(
 	return errors;
 }
 
-function hiddenNoValue(field: Field, ctx: FieldContext): ValidationError[] {
-	if (field.kind !== "hidden") return [];
-	if (field.calculate || field.default_value) return [];
-	return [
-		validationError(
-			"HIDDEN_NO_VALUE",
-			"field",
-			`Field "${field.id}" in "${ctx.formName}" is a hidden field but has no calculate expression or default_value. Hidden fields are invisible to users, so without a computed or default value they'll always be blank. Add a calculate expression or a default_value.`,
-			{
-				moduleUuid: ctx.moduleUuid,
-				moduleName: ctx.moduleName,
-				formUuid: ctx.formUuid,
-				formName: ctx.formName,
-				fieldUuid: field.uuid,
-				fieldId: field.id,
-			},
-		),
-	];
-}
-
 /**
- * A hidden field holding both a `calculate` and a `default_value`. JavaRosa
- * runs the `xforms-ready` seeds first and then re-evaluates every calculate
- * (`FormDef::initialize`), so the default is overwritten before anyone could
- * read it: schema-legal, and a contradiction. Together with `hiddenNoValue`
- * this partitions the hidden state space (neither, both, exactly one); the
- * recognizer is shared with the tool-boundary refinement so the two cannot
- * drift. The finding lands on the field, not on one slot, because the
- * message leaves the choice of which slot to keep with the author.
+ * A hidden field holding both a `calculate` and a `default_value`:
+ * schema-legal, and a pair Nova doesn't yet write. JavaRosa runs the
+ * `xforms-ready` seeds first and then re-evaluates every calculate
+ * (`FormDef::initialize`), so the calculate's value is the one the field
+ * ends with, while a later load-time setvalue can still read the default
+ * before that. A field with neither is valid: it stays blank. The recognizer
+ * is shared with the tool-boundary refinement so the two cannot drift. The
+ * finding lands on the field, not on one slot, because the message leaves
+ * the choice of which slot to keep with the author.
  */
 function hiddenValueBothSources(
 	field: Field,
@@ -260,7 +242,7 @@ function hiddenValueBothSources(
 		validationError(
 			"HIDDEN_VALUE_BOTH_SOURCES",
 			"field",
-			`Field "${field.id}" in "${ctx.formName}" is a hidden field with both a calculate and a default_value. The form evaluates every calculate after it seeds defaults, so the default is overwritten before anyone could read it and only the calculate ever takes effect. Keep the one that matches what the value should do: a calculate for a value that tracks other fields, a default_value for a value fixed at form load. Clear the other.`,
+			`Field "${field.id}" in "${ctx.formName}" is a hidden field with both a calculate and a default_value. ${HIDDEN_VALUE_ONE_SOURCE_SENTENCE} Keep the one that matches what the value should do: a calculate for a value that tracks other fields, a default_value for a value fixed at form load. Clear the other.`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,
@@ -632,7 +614,6 @@ const FIELD_RULES = [
 	selectOptionValueInvalid,
 	selectOptionValueDuplicate,
 	selectOptionLabelEmpty,
-	hiddenNoValue,
 	hiddenValueBothSources,
 	requiredOnHidden,
 	calculateOnVisibleInput,

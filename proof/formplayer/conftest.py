@@ -30,12 +30,15 @@ DOCUMENTS = (
     "targeted-form-link-hidden-target",
     "targeted-hidden-from-menu",
     "targeted-invalid-question-ids",
+    "targeted-lookup-reserved-tags",
     "targeted-media-slots",
     "targeted-multi-select-destinations",
     "targeted-save-to-case-read",
     "targeted-search-hq-compile",
     "targeted-validated-barcode-secret",
 )
+# Every retained control (``proof/controls/``) a test of this package reads, by id, and no other.
+CONTROLS = ("targeted-lookup-reserved-tags",)
 
 
 class _Named(dict):
@@ -60,6 +63,21 @@ def formplayer_documents():
             " Formplayer's own tests read. Name documents the corpus holds."
         )
     return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
+
+
+@pytest.fixture(scope="session")
+def formplayer_controls():
+    """The retained controls ``CONTROLS`` names, by id; a test of a control ``proof/controls/`` lacks fails."""
+    from proof.checks import corpus
+
+    found = {control.id: control for control in corpus.load_controls() if control.id in CONTROLS}
+    missing = sorted(set(CONTROLS) - set(found))
+    if missing:
+        pytest.fail(
+            f"proof/controls holds no {missing}, which proof/formplayer/conftest.py::CONTROLS names as the controls"
+            " Formplayer's own tests read. Name controls proof/controls holds."
+        )
+    return found
 
 
 @pytest.fixture

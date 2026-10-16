@@ -29,6 +29,32 @@ export const HQ_CHANGED_DURING_PUSH_MESSAGE =
 export const BASELINE_UNKNOWN_SENTENCE =
 	"Nova couldn't confirm what its last publish left here, so it can't tell whether anything changed.";
 
+/**
+ * The note on a lookup table change whose discard replaces a table HQ still
+ * holds under that tag and id: a change to its definition or rows, or one
+ * whose baseline Nova could not read. HQ's table key holds a description
+ * and each field's indexed flag (`fixtures/upload/run_upload.py::table_key`),
+ * which no API-key read returns and no workbook carries a description of,
+ * so the push makes such a table again without them.
+ */
+export const LOOKUP_DISCARD_NOTE =
+	"If it has a description or indexed fields in CommCare HQ, publishing removes them: CommCare HQ doesn't show those to Nova, and a lookup upload can't carry a description.";
+
+/**
+ * What taking over a lookup table means, said where a person confirms it:
+ * the push replaces the table's rows, and HQ makes the table again without
+ * a description or indexed fields it held.
+ */
+export const LOOKUP_ADOPTION_NOTE = `Taking over this table replaces its rows with this app's each time you publish. ${LOOKUP_DISCARD_NOTE}`;
+
+/**
+ * The warning when a table Nova pushed with a definition equal to its
+ * baseline came back under a new id: HQ made it again.
+ */
+export function lookupTableMadeAgainWarning(name: string): string {
+	return `CommCare HQ made the table ${name} again during this publish. If it had a description or indexed fields there, they are gone: Nova can't read or keep either yet.`;
+}
+
 /** The warning when the read after the app's import failed. */
 export const APP_READ_BACK_FAILED_WARNING =
 	"Nova published the app but couldn't read it back, so the next publish will ask before it writes over what's there.";

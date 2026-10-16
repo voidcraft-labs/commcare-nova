@@ -10,6 +10,7 @@ export {
 	APP_PREVIEW_NOTE,
 	BASELINE_UNKNOWN_SENTENCE,
 	HQ_CHANGED_DURING_PUSH_MESSAGE,
+	LOOKUP_ADOPTION_NOTE,
 } from "./remoteChanges";
 export {
 	leftBehindResources,

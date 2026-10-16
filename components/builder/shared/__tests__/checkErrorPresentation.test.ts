@@ -44,6 +44,16 @@ describe("PredicateCardEditor — user-facing diagnostics", () => {
 			{ code: "case-status-value", path: ["right"] },
 			"Use open or closed for built-in case status",
 		],
+		[
+			"unordered value",
+			{ code: "ordered-values", path: ["left"] },
+			"Use numbers or dates for this comparison",
+		],
+		[
+			"time of day ordering",
+			{ code: "time-ordering", path: ["left"] },
+			"A time of day can't be compared with before or after. A date can be compared this way.",
+		],
 	] as const)(
 		"presents a next action for %s errors",
 		(_label, finding, copy) => {

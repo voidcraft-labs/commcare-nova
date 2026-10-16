@@ -674,8 +674,10 @@ describe("prepareExportBoundary", () => {
 	);
 
 	it.each(["hq-json", "hq-upload"] as const)(
-		"refuses a %s export whose tag is too long to name a data sheet",
+		"builds a %s export whose tag holds the full 32 characters",
 		async (mode) => {
+			/* HQ's upload reads a data sheet by its title with no length check and
+			 * stores a 32-character tag, so Nova's own cap is the only one. */
 			const tag = "a".repeat(32);
 			vi.mocked(getLookupFixtureData).mockResolvedValue({
 				...carrierFixtureSnapshot(),
@@ -690,17 +692,14 @@ describe("prepareExportBoundary", () => {
 				attachmentTarget: null,
 			});
 
-			expect(result.ok).toBe(false);
-			if (result.ok) throw new Error("expected sheet-name rejection");
-			const finding = result.violations.find(
-				(candidate) => candidate.code === "LOOKUP_TAG_TOO_LONG_FOR_HQ",
-			);
-			expect(finding?.details).toMatchObject({
+			if (!result.ok) {
+				throw new Error(
+					`expected a 32-character tag to export: ${result.violations.map((finding) => finding.code).join(", ")}`,
+				);
+			}
+			expect(result.prepared.lookupWorkbook?.tables.map((t) => t.tag)).toEqual([
 				tag,
-				tagLength: "32",
-				tagAllowed: "31",
-			});
-			expect(resolveMediaManifest).not.toHaveBeenCalled();
+			]);
 		},
 	);
 

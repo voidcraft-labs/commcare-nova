@@ -5,7 +5,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
 import java.util.*;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import org.javarosa.core.model.FormDef;
+import org.javarosa.core.model.SelectChoice;
 import org.javarosa.core.test.FormParseInit;
 import org.javarosa.xform.util.XFormUtils;
 import org.junit.Test;
@@ -16,6 +19,7 @@ import org.commcare.util.mocks.MockUserDataSandbox;
 import org.commcare.suite.model.*;
 import org.commcare.xml.SuiteParser;
 import org.commcare.resources.model.*;
+import org.commcare.modern.reference.ArchiveFileRoot;
 import org.commcare.modern.reference.JavaFileReference;
 import org.javarosa.core.model.User;
 import org.javarosa.core.model.FormIndex;
@@ -121,16 +125,21 @@ public class MediaRuntimeTest {
                     assertEquals(enabled ? refs.getProperty("audio") : null, prompt.getHelpMultimedia("audio"));
                     assertEquals(!only || enabled, prompt.hasHelp());
                     if (!only) { assertEquals("A hint", prompt.getHintText()); assertEquals("Some help", prompt.getHelpText()); assertEquals("Use ok", prompt.getConstraintText()); }
-                    if (enabled) assertEquals(refs.getProperty("icon"), prompt.getConstraintText("image", null));
                     assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED, controller.answerQuestion(new StringData("wrong")));
                     assertEquals(FormEntryController.ANSWER_OK, controller.answerQuestion(new StringData("ok")));
                 } else {
-                    assertEquals(2, prompt.getSelectChoices().size());
+                    assertEquals(6, prompt.getSelectChoices().size());
                     assertEquals("One", prompt.getSelectChoiceText(prompt.getSelectChoices().get(0)));
                     assertEquals(enabled ? refs.getProperty("option") : null, prompt.getSpecialFormSelectChoiceText(prompt.getSelectChoices().get(0), "image"));
                     assertEquals(enabled ? refs.getProperty("audio") : null, prompt.getSpecialFormSelectChoiceText(prompt.getSelectChoices().get(0), "audio"));
                     assertEquals(enabled ? refs.getProperty("video") : null, prompt.getSpecialFormSelectChoiceText(prompt.getSelectChoices().get(0), "video"));
                     assertNull(prompt.getSpecialFormSelectChoiceText(prompt.getSelectChoices().get(1), "image"));
+                    // One file of each format defect 11's first half accepts, each in a slot of its kind.
+                    String[][] formats = {{"2", "image", "bmp"}, {"2", "audio", "m4a"}, {"2", "video", "webm"}, {"3", "audio", "flac"}, {"4", "audio", "oggVorbis"}, {"5", "audio", "oggOpus"}};
+                    for (String[] format : formats) {
+                        SelectChoice choice = prompt.getSelectChoices().get(Integer.parseInt(format[0]));
+                        assertEquals(String.join(" ", format), enabled ? refs.getProperty(format[2]) : null, prompt.getSpecialFormSelectChoiceText(choice, format[1]));
+                    }
                 }
             }
             assertEquals(2, questions);
@@ -164,17 +173,47 @@ public class MediaRuntimeTest {
         try (InputStream input = new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))) { new SuiteParser(input, table, "media", null).parse(); }
         return table;
     }
-    @Test public void actualMediaResourcesInstallOnlyWhenLocalBytesExist() throws Exception {
+    /** The file-system install, Android's shape: a media resource installs from a file that exists, never from one that doesn't. */
+    @Test public void fileSystemMediaResourcesInstallOnlyWhenLocalBytesExist() throws Exception {
         String directory = NativeProof.familyDirectory("media").toString();
         for (String scenario : SCENARIOS) {
             ResourceTable table = mediaTable(new String(resource(scenario + ".media-suite.xml"), StandardCharsets.UTF_8));
-            Vector<Resource> resources = table.getResourcesForParent("media"); assertEquals(scenario.endsWith("-on") ? 5 : 0, resources.size());
+            Vector<Resource> resources = table.getResourcesForParent("media"); assertEquals(scenario.endsWith("-on") ? 11 : 0, resources.size());
             for (Resource entry : resources) {
                 assertEquals(1, entry.getLocations().size()); ResourceLocation location = entry.getLocations().firstElement();
                 Path file = Path.of(directory, location.getLocation()).normalize();
                 assertTrue(entry.getInstaller().install(entry, location, new JavaFileReference(file.getParent().toString(), file.getFileName().toString()), table, null, false, null));
                 Path missing = file.resolveSibling("missing-" + file.getFileName());
                 assertFalse(entry.getInstaller().install(entry, location, new JavaFileReference(missing.getParent().toString(), missing.getFileName().toString()), table, null, false, null));
+            }
+        }
+    }
+    /**
+     * The archive install, Core's and Formplayer's shape: Nova's local archive registered with Core's
+     * ArchiveFileRoot. Every media resource installs from its archive reference, and so does a reference to a
+     * file the archive does not hold (ArchiveFileReference.doesBinaryExist answers true), which records that an
+     * archive install is not the bundling proof. The proof is the archive itself: it holds an entry at each
+     * location's path whose SHA-256 is the hash the path names.
+     */
+    @Test public void archiveMediaResourcesInstallWhetherTheArchiveHoldsTheFileOrNot() throws Exception {
+        String directory = NativeProof.familyDirectory("media").toString();
+        ArchiveFileRoot root = new ArchiveFileRoot();
+        for (String scenario : SCENARIOS) {
+            ResourceTable table = mediaTable(new String(resource(scenario + ".media-suite.xml"), StandardCharsets.UTF_8));
+            Vector<Resource> resources = table.getResourcesForParent("media"); assertEquals(scenario.endsWith("-on") ? 11 : 0, resources.size());
+            try (ZipFile archive = new ZipFile(Path.of(directory, scenario + ".ccz").toFile())) {
+                String guid = root.addArchiveFile(archive);
+                for (Resource entry : resources) {
+                    assertEquals(1, entry.getLocations().size()); ResourceLocation location = entry.getLocations().firstElement();
+                    String path = location.getLocation().startsWith("./") ? location.getLocation().substring(2) : location.getLocation();
+                    int slash = path.lastIndexOf('/');
+                    String name = path.substring(slash + 1), missing = path.substring(0, slash + 1) + "missing-" + name;
+                    assertTrue(path, entry.getInstaller().install(entry, location, root.derive("jr://archive/" + guid + "/" + path), table, null, false, null));
+                    assertTrue(missing, entry.getInstaller().install(entry, location, root.derive("jr://archive/" + guid + "/" + missing), table, null, false, null));
+                    ZipEntry held = archive.getEntry(path); assertNotNull(path, held);
+                    byte[] bytes; try (InputStream stream = archive.getInputStream(held)) { bytes = stream.readAllBytes(); }
+                    assertEquals(path, name.substring(0, name.indexOf('.')), HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)));
+                }
             }
         }
     }

@@ -426,7 +426,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: attachFieldMediaTool.description,
 		schema: attachFieldMediaTool.inputSchema,
 		prompt:
-			"Use attachFieldMedia with two attachments in one call: under moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222, set fieldUuid 33333333-3333-4333-8333-333333333333 label image to asset 55555555-5555-4555-8555-555555555555, and fieldUuid 44444444-4444-4444-8444-444444444444 hint audio to asset 66666666-6666-4666-8666-666666666666.",
+			"Use attachFieldMedia with two attachments in one call: under moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222, set fieldUuid 33333333-3333-4333-8333-333333333333 label image to asset 55555555-5555-4555-8555-555555555555, and fieldUuid 44444444-4444-4444-8444-444444444444 help audio to asset 66666666-6666-4666-8666-666666666666.",
 	},
 	{
 		name: "attachOptionMedia",

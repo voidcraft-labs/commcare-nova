@@ -2,10 +2,10 @@
 //
 // Per-kind presentation metadata shared across the media UI, the
 // icon, the human label, the `accept` string for the native file
-// input, and a human-readable `extLabel` (the extensions to SHOW the
-// user, e.g. "PNG, JPG"). The `accept` is derived from the domain MIME
-// partitions so the picker's filter can't drift from what the validator
-// accepts; `extLabel` is the user-facing spelling of the same set.
+// input, and a human-readable `extLabel` (the formats to SHOW the
+// user, e.g. "PNG, JPEG"). Both `accept` and `extLabel` derive from the
+// domain registry (`ACCEPTED_FORMATS`) so the picker's filter can't drift
+// from what the validator accepts.
 
 import type { IconifyIcon } from "@iconify/types";
 import tablerFileText from "@iconify-icons/tabler/file-text";
@@ -15,72 +15,57 @@ import tablerFileTypeXls from "@iconify-icons/tabler/file-type-xls";
 import tablerMusic from "@iconify-icons/tabler/music";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import tablerVideo from "@iconify-icons/tabler/video";
-import {
-	type AssetKind,
-	AUDIO_MIME_TYPES,
-	DOCX_MIME_TYPES,
-	IMAGE_MIME_TYPES,
-	PDF_MIME_TYPES,
-	TEXT_MIME_TYPES,
-	VIDEO_MIME_TYPES,
-	XLSX_MIME_TYPES,
-} from "@/lib/domain/multimedia";
+import { ACCEPTED_FORMATS, type AssetKind } from "@/lib/domain/multimedia";
 
 export interface AssetKindMeta {
 	readonly icon: IconifyIcon;
 	/** Capitalized singular label, e.g. "Image". */
 	readonly label: string;
-	/** `accept` attribute for the file input: the kind's MIME list. */
+	/** `accept` attribute for the file input: the kind's MIME types and extensions. */
 	readonly accept: string;
-	/** User-facing extension list, e.g. "PNG, JPG, GIF, WebP". */
+	/** User-facing format list, e.g. "PNG, JPEG, GIF, WebP, BMP". */
 	readonly extLabel: string;
 }
 
-export const ASSET_KIND_META: Record<AssetKind, AssetKindMeta> = {
-	image: {
-		icon: tablerPhoto,
-		label: "Image",
-		accept: IMAGE_MIME_TYPES.join(","),
-		extLabel: "PNG, JPG, GIF, WebP",
-	},
-	audio: {
-		icon: tablerMusic,
-		label: "Audio",
-		accept: AUDIO_MIME_TYPES.join(","),
-		extLabel: "MP3, WAV",
-	},
-	video: {
-		icon: tablerVideo,
-		label: "Video",
-		accept: VIDEO_MIME_TYPES.join(","),
-		extLabel: "MP4",
-	},
-	// Documents include file extensions in `accept` alongside the MIME
-	// types: browsers send unreliable `Content-Type` for office files and
-	// `.md` (often empty or `application/octet-stream`), so the extension
-	// is what makes the OS file picker show them.
-	pdf: {
-		icon: tablerFileTypePdf,
-		label: "PDF",
-		accept: [...PDF_MIME_TYPES, ".pdf"].join(","),
-		extLabel: "PDF",
-	},
-	text: {
-		icon: tablerFileText,
-		label: "Text",
-		accept: [...TEXT_MIME_TYPES, ".txt", ".md"].join(","),
-		extLabel: "TXT, MD",
-	},
-	docx: {
-		icon: tablerFileTypeDocx,
-		label: "Word",
-		accept: [...DOCX_MIME_TYPES, ".docx"].join(","),
-		extLabel: "DOCX",
-	},
-	xlsx: {
-		icon: tablerFileTypeXls,
-		label: "Excel",
-		accept: [...XLSX_MIME_TYPES, ".xlsx"].join(","),
-		extLabel: "XLSX",
-	},
+/**
+ * The `accept` string and the format list of one kind's accepted formats,
+ * leaving out each format `excluded` names by its canonical MIME. `accept`
+ * holds each format's MIME types and its declared extensions: browsers report
+ * `.m4a`, `.flac`, `.opus`, `.ogg`, `.md` and office files inconsistently (an
+ * empty type or `application/octet-stream`), so the extension is what makes
+ * the OS file picker show them.
+ */
+export function kindFormats(
+	kind: AssetKind,
+	excluded: (mimeType: string) => boolean = () => false,
+): { readonly accept: string; readonly extLabel: string } {
+	const formats = ACCEPTED_FORMATS.filter(
+		(format) => format.kind === kind && !excluded(format.mime),
+	);
+	return {
+		accept: formats
+			.flatMap((format) => [format.mime, ...format.declaredExtensions])
+			.join(","),
+		extLabel: formats.map((format) => format.label).join(", "),
+	};
+}
+
+const KIND_PRESENTATION: Record<
+	AssetKind,
+	{ readonly icon: IconifyIcon; readonly label: string }
+> = {
+	image: { icon: tablerPhoto, label: "Image" },
+	audio: { icon: tablerMusic, label: "Audio" },
+	video: { icon: tablerVideo, label: "Video" },
+	pdf: { icon: tablerFileTypePdf, label: "PDF" },
+	text: { icon: tablerFileText, label: "Text" },
+	docx: { icon: tablerFileTypeDocx, label: "Word" },
+	xlsx: { icon: tablerFileTypeXls, label: "Excel" },
 };
+
+export const ASSET_KIND_META = Object.fromEntries(
+	(Object.keys(KIND_PRESENTATION) as AssetKind[]).map((kind) => [
+		kind,
+		{ ...KIND_PRESENTATION[kind], ...kindFormats(kind) },
+	]),
+) as Record<AssetKind, AssetKindMeta>;

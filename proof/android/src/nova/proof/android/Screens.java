@@ -128,6 +128,7 @@ final class Screens {
         found.put("home", Home.read());
         Lists.searches = request.optJSONArray("searches");
         Queries.answer = request.has("queryAnswer") ? request.getString("queryAnswer") : null;
+        Queries.findsNothing = request.optBoolean("queryFindsNothing");
         Answers.table = request.optJSONObject("answers");
         Forms.views = request.optBoolean("views");
         Forms.typeRefused = request.optBoolean("typeRefused");
