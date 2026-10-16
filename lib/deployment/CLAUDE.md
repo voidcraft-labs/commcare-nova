@@ -862,9 +862,13 @@ the app.
   for, over `store.ts::readReachedDeploymentTargets`: for a `.ccz`, the one
   published project space it signs workers in to, with that deployment's
   ids, or the refusal that lists the published spaces; for the HQ import
-  file, only where its attachment links resolve. Its read deliberately does
-  NOT swallow a fault the way `previewSpace.ts` does: degrading to "no
-  target" would silently drop a case write from the exported app.
+  file, only where its attachment links resolve. For a `.ccz` the target also
+  carries `earlierHqApps`, the count of the deployment's superseded `app`
+  mappings, which the compiler adds to the version it writes on the profile, both suite resources and `<suite>`: the file made
+  after a deleted HQ app is made afresh is newer though the document did not
+  change. Its read deliberately does NOT swallow a fault the way
+  `previewSpace.ts` does: degrading to "no target" would silently drop a case
+  write from the exported app.
 
 Both are resolution, never authority. A PUBLISH consults neither: an upload
 IS the act of putting the app on a project space, so `preflight.ts` passes

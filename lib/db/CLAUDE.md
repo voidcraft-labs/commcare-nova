@@ -228,7 +228,13 @@ The `unified-authoring` cutover repairs incomplete historical SQL projections by
 starting from the unchanged canonical document, preserving old rows and refusing
 live holders.
 The `hq-round-trip-emission` horizon starts each app from its transformed
-document, the other route of the two the contract offers. A reader that folds at
+document, the other route of the two the contract offers. The schema it lands
+with drops keys a strict parse refuses and requires slots no earlier document
+holds. So no earlier document parses under it, a `blueprint-migration` batch has
+no source it can load, and a history row that carries a dropped key or installs a
+parent without its required slot does not replay. A suffix rewrite would rewrite
+every mutation kind whose payload changes, the immutable baselines and every
+recorded snapshot digest, so this horizon does not take it. A reader that folds at
 a sequence behind an app's greatest fold baseline answers from the current saved
 app instead. The rule lives once, in
 `lib/agent/change-set/baseLoader.ts::greatestFoldBaselineSeq`, read by the build

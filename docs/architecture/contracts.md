@@ -189,10 +189,12 @@ runtime: `caseListColumnRuns`, a runtime evaluates its value, and
 revealing it never opens a repair flow.
 
 **Nova is not CommCare HQ.** HQ, CommCare Core, Formplayer, and CommCare Android
-establish only what the target wire and runtime accept, reject, or execute. Their
-authoring models and UI are not Nova requirements, and "HQ does it this way" is
-never a design argument. Nova emits one wire flavor: the maximal subset Web Apps
-supports, faithfully.
+establish only what the target wire and runtime accept, reject, or execute. Two
+further HQ facts bind Nova: every app Nova emits is one HQ's current editors can
+produce and keep, and reading an app changes nothing HQ's servers or existing data
+depend on. HQ's authoring models and UI still set nothing about how Nova
+authors, and "HQ does it this way" is never a design argument. Nova emits one
+wire flavor: the maximal subset Web Apps supports, faithfully.
 
 ---
 
