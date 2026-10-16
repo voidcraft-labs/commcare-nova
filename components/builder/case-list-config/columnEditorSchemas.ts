@@ -74,6 +74,10 @@ export interface ColumnEditContext {
 	readonly userProperties?: readonly UserProperty[];
 	/** Whether this module currently has an effective Search path. */
 	readonly searchIsEffective?: boolean;
+	/** Whether the list orders by the column's mapping table: an ID mapping's
+	 * or an image map's field carries an order rule and keeps the mapping
+	 * position as its key (`caseListOrdersByMapping`). */
+	readonly ordersByMapping?: boolean;
 }
 
 /**

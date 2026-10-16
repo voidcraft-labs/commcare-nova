@@ -35,6 +35,18 @@ export function MappingEmptyNotice({ children }: { children: ReactNode }) {
 	);
 }
 
+/** The line under a mapping table the list orders by: the column carries an
+ *  order rule and keeps the mapping position as its key, so the list orders
+ *  by the table's entry order on every runtime and in Preview
+ *  (`lib/domain/caseListOrder.ts::caseListOrdersByMapping`). */
+export function MappingOrderNote() {
+	return (
+		<p className="text-[13px] leading-5 text-nova-text-muted">
+			This list orders by the table's own order
+		</p>
+	);
+}
+
 /** Full-width dashed Add CTA: the same shape as every other Add
  *  affordance in the inspector. */
 export function AddMappingButton({ onClick }: { onClick: () => void }) {
@@ -91,8 +103,8 @@ export interface MappingRowShellProps {
  * One mapping entry's card. Its visible hierarchy is the semantic
  * stored-value → shown-result pair; the row index lives only in the
  * accessible group and action names. Order is significant in both
- * mapping kinds (first match wins), so the move controls remain in a
- * quiet footer.
+ * mapping kinds (first match wins, and the list orders the column by it),
+ * so the move controls remain in a quiet footer.
  */
 export function MappingRowShell({
 	index,

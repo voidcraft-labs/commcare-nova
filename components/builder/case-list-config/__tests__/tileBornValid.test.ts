@@ -19,6 +19,7 @@ import {
 	type Column,
 	emptyCaseListConfig,
 	plainColumn,
+	tileCell,
 	tileGroupHeaderRowChoices,
 	type Uuid,
 } from "@/lib/domain";
@@ -143,7 +144,7 @@ describe("turning the tile on", () => {
 			verdict.nextDoc.modules[moduleUuid]?.caseListConfig?.columns.map(
 				(entry) => entry.tile,
 			),
-		).toEqual([{ x: 0, y: 0, width: 12, height: 1 }, undefined]);
+		).toEqual([tileCell(0, 0, 12, 1), undefined]);
 	});
 
 	it("stays accepted at a full grid of single squares", () => {
@@ -168,7 +169,7 @@ describe("joining Results while it is a tile", () => {
 	function tiledDoc() {
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", {
-				tile: { x: 0, y: 0, width: 12, height: 1 },
+				tile: tileCell(0, 0, 12, 1),
 			}),
 		]);
 		const enabled = accepts(doc, [
@@ -205,14 +206,14 @@ describe("joining Results while it is a tile", () => {
 		// a cell the tile no longer draws.
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", {
-				tile: { x: 0, y: 0, width: 12, height: 1 },
+				tile: tileCell(0, 0, 12, 1),
 			}),
 			column("age", "Age", {
 				visibleInList: false,
-				tile: { x: 0, y: 1, width: 12, height: 1 },
+				tile: tileCell(0, 1, 12, 1),
 			}),
 			column("village", "Village", {
-				tile: { x: 0, y: 1, width: 12, height: 1 },
+				tile: tileCell(0, 1, 12, 1),
 			}),
 		]);
 		const enabled = accepts(doc, [
@@ -261,7 +262,7 @@ describe("joining Results while it is a tile", () => {
 			doc.modules[moduleUuid]?.caseListConfig ?? emptyCaseListConfig(),
 		).placed.map((entry) => entry.cell);
 		const place = nextFreeTilePlacement(occupied);
-		expect(place).toEqual({ x: 0, y: 1, width: 12, height: 1 });
+		expect(place).toEqual(tileCell(0, 1, 12, 1));
 		if (place === null) return;
 		const verdict = accepts(doc, [
 			{
@@ -305,18 +306,18 @@ describe("turning the tile off", () => {
 		const config = disabled.nextDoc.modules[moduleUuid]?.caseListConfig;
 		expect(config?.tile).toBeUndefined();
 		expect(config?.columns.map((entry) => entry.tile)).toEqual([
-			{ x: 0, y: 0, width: 12, height: 1 },
-			{ x: 0, y: 1, width: 12, height: 1 },
+			tileCell(0, 0, 12, 1),
+			tileCell(0, 1, 12, 1),
 		]);
 	});
 
 	it("lets the same drawing come straight back on", () => {
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", {
-				tile: { x: 0, y: 0, width: 6, height: 2 },
+				tile: tileCell(0, 0, 6, 2),
 			}),
 			column("village", "Village", {
-				tile: { x: 6, y: 0, width: 6, height: 1 },
+				tile: tileCell(6, 0, 6, 1),
 			}),
 		]);
 		const plan = planTileLayoutEnable({
@@ -334,10 +335,7 @@ describe("turning the tile off", () => {
 			verdict.nextDoc.modules[moduleUuid]?.caseListConfig?.columns.map(
 				(entry) => entry.tile,
 			),
-		).toEqual([
-			{ x: 0, y: 0, width: 6, height: 2 },
-			{ x: 6, y: 0, width: 6, height: 1 },
-		]);
+		).toEqual([tileCell(0, 0, 6, 2), tileCell(6, 0, 6, 1)]);
 	});
 });
 
@@ -347,10 +345,10 @@ describe("grouping the tile", () => {
 	function bandedDoc() {
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", {
-				tile: { x: 0, y: 0, width: 12, height: 1 },
+				tile: tileCell(0, 0, 12, 1),
 			}),
 			column("village", "Village", {
-				tile: { x: 0, y: 1, width: 12, height: 1 },
+				tile: tileCell(0, 1, 12, 1),
 			}),
 		]);
 		const enabled = accepts(doc, [
@@ -428,8 +426,8 @@ describe("grouping the tile", () => {
 		const config = disabled.nextDoc.modules[moduleUuid]?.caseListConfig;
 		expect(config?.tile).toBeUndefined();
 		expect(config?.columns.map((entry) => entry.tile)).toEqual([
-			{ x: 0, y: 0, width: 12, height: 1 },
-			{ x: 0, y: 1, width: 12, height: 1 },
+			tileCell(0, 0, 12, 1),
+			tileCell(0, 1, 12, 1),
 		]);
 
 		// And coming back on is an ungrouped tile, not the old grouping

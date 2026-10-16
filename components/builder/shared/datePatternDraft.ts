@@ -15,13 +15,26 @@ export function insertDatePiece(
 	};
 }
 
-export function datePatternProblem(pattern: string): string | null {
+/**
+ * The problem a custom date style draft has, or `null` when it can be saved.
+ * A case-list date column (`concrete`) also refuses a straight apostrophe,
+ * which CommCare HQ's date column cannot store
+ * (`CASE_LIST_DATE_PATTERN_APOSTROPHE`); a `format-date` expression
+ * (`expression`) is printed by Nova itself and takes any character.
+ */
+export function datePatternProblem(
+	pattern: string,
+	patternVocabulary: "expression" | "concrete",
+): string | null {
 	if (pattern.length === 0) {
 		return "Enter a custom style or choose a date piece";
 	}
 	const parsed = parseCommCareDatePattern(pattern);
-	if (parsed.kind === "parsed") return null;
-	return unsupportedPatternMessage(parsed);
+	if (parsed.kind !== "parsed") return unsupportedPatternMessage(parsed);
+	if (patternVocabulary === "concrete" && pattern.includes("'")) {
+		return "A date style can't hold a straight apostrophe ('). You can use a curved one (’).";
+	}
+	return null;
 }
 
 function unsupportedPatternMessage(

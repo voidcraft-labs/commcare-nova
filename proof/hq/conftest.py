@@ -11,7 +11,9 @@ package's tests read (``DOCUMENTS``, through ``documents``).
 is what a stored outcome of the package is keyed by
 (``proof.store.queue.PACKAGE_DATA``), as the other packages name theirs.
 The tests read the corpus's own emission (the capture's two imports and the
-HQ import file), never a control, which holds the legacy layout.
+HQ import file); a control, which may hold the legacy layout, is read only by
+``test_fuzzy_sort_keys.py``, which publishes it as the lane publishes any
+control (``proof.observe.publish.create``).
 """
 
 from __future__ import annotations
@@ -26,8 +28,9 @@ import pytest
 from proof.conftest import timed  # noqa: F401  (HQ's tests time their operations with it)
 
 # Every corpus document a test of this package reads, by id, and no other: the seven whose branches
-# ``test_branches.py`` holds, the four the publish, import file and retained read tests publish, and the two more
-# the drift groups of ``test_retained_reads.py`` publish.
+# ``test_branches.py`` holds, the four the publish, import file and retained read tests publish, the two more
+# the drift groups of ``test_retained_reads.py`` publish, and the two whose lists ``test_fuzzy_sort_keys.py``
+# searches (``test_date_pattern_characters.py`` publishes ``case-list-inline``, named above).
 DOCUMENTS = (
     "lookup-app",
     "media-rich",
@@ -42,6 +45,8 @@ DOCUMENTS = (
     "targeted-hq-side-lookup",
     "search-registration-link",
     "targeted-hq-side-state",
+    "case-operation-query",
+    "targeted-shared-property-sort",
 )
 
 
@@ -76,6 +81,25 @@ def documents():
             " tests read. Name documents the corpus holds."
         )
     return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
+
+
+# The retained controls a test of this package reads (``test_fuzzy_sort_keys.py``).
+CONTROLS = ("case-operation-query", "targeted-shared-property-sort")
+
+
+@pytest.fixture(scope="session")
+def hq_controls():
+    """The retained controls ``CONTROLS`` names, by id; a test of a control ``proof/controls/`` lacks fails."""
+    from proof.checks import corpus
+
+    found = {control.id: control for control in corpus.load_controls() if control.id in CONTROLS}
+    missing = sorted(set(CONTROLS) - set(found))
+    if missing:
+        pytest.fail(
+            f"proof/controls holds no {missing}, which proof/hq/conftest.py::CONTROLS names as the controls"
+            " the HQ tests read. Retain them."
+        )
+    return found
 
 
 HQ_ROOT = Path(os.environ.get("PROOF_HQ", "/opt/hq"))

@@ -213,13 +213,19 @@ test("case-store calculations and calculated ordering share portable reads in or
 		calculated: [column],
 		sort: [
 			{
+				kind: "expression" as const,
 				expression,
+				comparator: "text" as const,
 				direction: "asc" as const,
+				blanks: "first" as const,
 				portableCaseDates: true as const,
 			},
 			{
+				kind: "expression" as const,
 				expression: term(prop("visit", "case_name")),
+				comparator: "text" as const,
 				direction: "asc" as const,
+				blanks: "first" as const,
 			},
 		],
 	};
@@ -251,7 +257,15 @@ test("case-store calculations and calculated ordering share portable reads in or
 	expect(filtered.map((row) => row.case_id)).toEqual([CHILD]);
 	const storedSort = await store.query({
 		...args,
-		sort: [{ expression: opened, direction: "asc" }],
+		sort: [
+			{
+				kind: "expression",
+				expression: opened,
+				comparator: "text",
+				direction: "asc",
+				blanks: "first",
+			},
+		],
 	});
 	expect(storedSort.map((row) => row.case_id)).toEqual([SECOND, CHILD]);
 });

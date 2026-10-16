@@ -3,7 +3,7 @@
 // Grouping, on the tile canvas: show the cases that share a connection
 // together, under one heading drawn from the first of them.
 //
-// Two things this surface has to say out loud, because neither is
+// Three things this surface has to say out loud, because none is
 // visible from the arrangement:
 //
 //   1. **A group is one choice.** Web Apps keeps only the group's first
@@ -20,6 +20,10 @@
 //      consequence instead (`docs/architecture/contracts.md`
 //      § What the commit gate may read). Measured, measured zero, and
 //      not-yet-known stay three different sentences.
+//   3. **On Android, a form left unfinished for a case with no such
+//      connection can't be opened again.** It is CommCare's own reader of
+//      the saved session, the same for an app made in CommCare HQ
+//      (`tileModel.ts::groupingReopenNotice` holds the sentence and why).
 //
 // The heading depth offers only depths that cut the tile cleanly —
 // `tileGroupHeaderRowChoices`, the same arithmetic the validator refuses
@@ -51,6 +55,7 @@ import {
 } from "@/lib/domain";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/predicate/types";
 import { useMissingConnectionCount } from "@/lib/preview/hooks/useCaseDataBinding";
+import { groupingReopenNotice } from "./tileModel";
 
 /** What a new grouping starts as: the connection nearly every case list
  *  means, and the shallowest heading its tile can carry. */
@@ -138,6 +143,9 @@ export function TileGroupingSection({
 							identifier={grouping.identifier}
 						/>
 					</div>
+					<p className="text-[13px] leading-relaxed text-nova-text-muted">
+						{groupingReopenNotice(grouping)}
+					</p>
 				</div>
 			)}
 		</div>

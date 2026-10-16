@@ -233,6 +233,7 @@ async function results(name = "") {
 		caseType: "patient",
 		caseTypes: doc.caseTypes ?? [],
 		caseListConfig: doc.modules[MODULE_UUID].caseListConfig,
+		moduleUuid: MODULE_UUID,
 		inputValues: { name },
 	});
 	if (result.kind !== "rows" && result.kind !== "empty")

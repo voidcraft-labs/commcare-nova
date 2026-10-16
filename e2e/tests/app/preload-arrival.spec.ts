@@ -1,10 +1,29 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { caseWorkspaceCaseRows } from "../../lib/caseWorkspaceSeed";
 
 test("Preview opened from Edit waits for its raw preload before showing defaults", {
 	tag: "@seed:workspace",
 }, async ({ page, scenario }) => {
 	page.setDefaultTimeout(15_000);
 	const seed = seedFor(scenario, "workspace");
+	/* With no case in hand, Preview binds the form to the first case a read
+	 * with no order plan returns: the lowest case id. The seed keeps each
+	 * inserted id at its row's index, and that row's visit started on its
+	 * last visit date, which is the date the preloaded default shows. */
+	const caseIds = seed.caseWorkspace.caseIds;
+	const boundCaseId = caseIds.toSorted()[0];
+	const boundProperties =
+		caseWorkspaceCaseRows()[caseIds.indexOf(boundCaseId ?? "")]?.properties;
+	const lastVisit =
+		typeof boundProperties === "object"
+			? boundProperties.last_visit
+			: undefined;
+	if (typeof lastVisit !== "string")
+		throw new Error("The workspace seed holds no case for Preview to bind");
+	const preloadedDate = new Date(`${lastVisit}T00:00:00Z`).toLocaleDateString(
+		"en-US",
+		{ dateStyle: "long", timeZone: "UTC" },
+	);
 	const release = Promise.withResolvers<void>();
 	let arrived = false;
 	let delivered = false;
@@ -41,7 +60,7 @@ test("Preview opened from Edit waits for its raw preload before showing defaults
 		).toBeDisabled();
 		release.resolve();
 		await expect.poll(() => delivered).toBe(true);
-		await expect(date).toHaveText(/June 21, 2026/);
+		await expect(date).toContainText(preloadedDate);
 		const original = await date.elementHandle();
 		if (!original) throw new Error("Missing date control");
 		await date.click();

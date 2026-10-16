@@ -56,7 +56,10 @@ import {
 } from "@/lib/commcare/validator/gate";
 import { validateLookupReferences } from "@/lib/commcare/validator/lookupReferences";
 import { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
-import { MODULE_RULES } from "@/lib/commcare/validator/rules/module";
+import {
+	CASE_LIST_ORDER_RULES,
+	MODULE_RULES,
+} from "@/lib/commcare/validator/rules/module";
 import {
 	type CasePropertyRenamePlan,
 	type CasePropertyRenamePlanIssue,
@@ -84,9 +87,12 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import type { MutationResult } from "@/lib/doc/types";
+import { offeredChoiceRefusal } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
+	type Column,
 	MODULE_REFERENCE_SLOTS,
+	orderedColumns,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -389,6 +395,83 @@ export function caseWorkspaceBoundaryVerdicts(
 	}
 	perModule.set(moduleUuid, verdicts);
 	return verdicts;
+}
+
+/**
+ * Why Default order's Add menu withholds a choice, or `undefined` when the
+ * list may take it.
+ *
+ * `column` is the choice's column carrying the rule it would take: a stored
+ * column, replaced in place, or a new one, appended to `columns`,
+ * `listColumnOrder` and `detailColumnOrder`, where
+ * `lib/doc/caseListColumnMutations.ts::columnSnapshotBatchMutations` puts it.
+ * Default order commits a new rule after every rule the list holds and
+ * numbers each rule by its place, so the list is built the same way before
+ * the gate's own order rules (`CASE_LIST_ORDER_RULES`) run over it. Those
+ * rules read one module's list against the app's case types, which the
+ * choice leaves as they are, so they run over the current document with the
+ * candidate module, cheaply enough for every choice of a menu.
+ *
+ * The line is the finding's builder line (`offeredChoiceRefusal`), which is
+ * also what a refused commit of the same choice says.
+ */
+export function caseListOrderChoiceRefusal(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	column: Column,
+): string | undefined {
+	const mod = doc.modules[moduleUuid];
+	const config = mod?.caseListConfig;
+	if (mod === undefined || config === undefined || column.sort === undefined) {
+		return undefined;
+	}
+	const stored = config.columns.some(
+		(candidate) => candidate.uuid === column.uuid,
+	);
+	const rulesBefore = orderedColumns(config, "list")
+		.filter(
+			(candidate) =>
+				candidate.sort !== undefined && candidate.uuid !== column.uuid,
+		)
+		.map((candidate, index) => ({ candidate, index }))
+		.sort(
+			(a, b) =>
+				(a.candidate.sort?.priority ?? 0) - (b.candidate.sort?.priority ?? 0) ||
+				a.index - b.index,
+		);
+	const priorityByUuid = new Map<Uuid, number>(
+		rulesBefore.map(({ candidate }, priority) => [candidate.uuid, priority]),
+	);
+	priorityByUuid.set(column.uuid, rulesBefore.length);
+	const placed = stored
+		? config.columns.map((candidate) =>
+				candidate.uuid === column.uuid ? column : candidate,
+			)
+		: [...config.columns, column];
+	const columns = placed.map((candidate): Column => {
+		const priority = priorityByUuid.get(candidate.uuid);
+		if (candidate.sort === undefined || priority === undefined) {
+			return candidate;
+		}
+		return { ...candidate, sort: { ...candidate.sort, priority } } as Column;
+	});
+	const candidateModule = {
+		...mod,
+		caseListConfig: {
+			...config,
+			columns,
+			listColumnOrder: stored
+				? config.listColumnOrder
+				: [...config.listColumnOrder, column.uuid],
+			detailColumnOrder: stored
+				? config.detailColumnOrder
+				: [...config.detailColumnOrder, column.uuid],
+		},
+	};
+	const findings = CASE_LIST_ORDER_RULES.flatMap((rule) =>
+		rule(candidateModule, moduleUuid, doc),
+	);
+	return findings.length === 0 ? undefined : offeredChoiceRefusal(findings);
 }
 
 /**

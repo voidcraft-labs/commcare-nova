@@ -906,3 +906,56 @@ test("native hidden Search creation persists its computed value and keeps visibl
 		page.getByRole("button", { name: /Search field 2 type:/ }),
 	).toHaveCount(0);
 });
+
+test("native Value labels refuses a saved value CommCare HQ's ID mapping can't hold and adds no entry", async ({
+	page,
+}) => {
+	await page.goto(peer.origin);
+	await page
+		.locator('[data-case-column-select="00000000-0000-7000-8000-000000006001"]')
+		.first()
+		.click();
+	await page
+		.getByRole("button", { name: "Display as: Text", exact: true })
+		.click();
+	await page.getByRole("menuitem", { name: /^Value labels/ }).click();
+	await page.getByRole("button", { name: "Add value", exact: true }).click();
+	await page
+		.getByRole("textbox", { name: "Value 1 saved value", exact: true })
+		.fill("a'b");
+	await expect(
+		page.getByText(`Saved values can't hold &, <, >, " or '.`, {
+			exact: true,
+		}),
+	).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: "Save value", exact: true }),
+	).toBeDisabled();
+	const saved = (await savedModule(page)).caseListConfig.columns.find(
+		(c: { uuid: string }) => c.uuid === "00000000-0000-7000-8000-000000006001",
+	);
+	expect(saved).toMatchObject({ kind: "id-mapping", mapping: [] });
+});
+
+test("native default order withholds Record ID from a tile list with the reason a commit would give", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=selection`);
+	const before = (await savedModule(page)).caseListConfig;
+	await page
+		.getByRole("button", { name: "Set default order", exact: true })
+		.press("Enter");
+	await page
+		.getByRole("combobox", { name: "Add to default order", exact: true })
+		.click();
+	const recordId = page.getByRole("option", { name: /^Record ID/ });
+	await expect(recordId).toHaveAttribute("aria-disabled", "true");
+	await expect(recordId).toContainText(
+		"tile list can't order by Record ID unless Record ID is on the tile. You can show it in Results and place it on the tile.",
+	);
+	// The choice keeps its place and its reason; choosing it commits nothing.
+	await recordId.click({ force: true });
+	await expect(recordId).toBeVisible();
+	expect((await savedModule(page)).caseListConfig).toEqual(before);
+	await page.keyboard.press("Escape");
+});

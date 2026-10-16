@@ -39,6 +39,7 @@ import {
 } from "@/lib/domain/propertyDisplay";
 import { useCanEdit } from "@/lib/session/hooks";
 import { LIST_ROW_CLS } from "@/lib/styles";
+import { hiddenFromResultsLine } from "../tile/tileModel";
 import { columnLabel } from "./ColumnInventory";
 import { AddGhostButton, AuthoredDragPreviewLabel } from "./canvasChrome";
 
@@ -300,6 +301,7 @@ export function AddInformationControl({
 	onCreate,
 	onCreateCalculated,
 	createDisabledReason,
+	tiled = false,
 }: {
 	readonly surface: DisplaySurface;
 	readonly columns: readonly Column[];
@@ -313,6 +315,9 @@ export function AddInformationControl({
 	readonly onCreate: (property: CaseProperty) => void;
 	readonly onCreateCalculated: () => void;
 	readonly createDisabledReason: string | undefined;
+	/** Whether the list is laid out as a tile, which decides what a column
+	 *  hidden from Results means for the list's search. */
+	readonly tiled?: boolean;
 }) {
 	const canEdit = useCanEdit();
 	const projectProse = useProseProjection();
@@ -392,11 +397,14 @@ export function AddInformationControl({
 					: property === undefined
 						? undefined
 						: propertyTypeLabel(property);
+			/* A column offered back to Results is hidden from it, so its line
+			 * says what that means for the list's search where that is news. */
 			const placement =
 				surface === "list"
-					? column.visibleInDetail !== false
-						? "Also shown in Details"
-						: "Saved label and format"
+					? (hiddenFromResultsLine(column, tiled) ??
+						(column.visibleInDetail !== false
+							? "Also shown in Details"
+							: "Saved label and format"))
 					: column.visibleInList !== false
 						? "Also shown in Results"
 						: "Saved label and format";
@@ -455,6 +463,7 @@ export function AddInformationControl({
 		propertyByName,
 		repeatableProperties,
 		surface,
+		tiled,
 	]);
 	const hasChoices =
 		columns.length > 0 ||

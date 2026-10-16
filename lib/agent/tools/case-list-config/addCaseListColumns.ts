@@ -37,6 +37,7 @@ import {
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	CALCULATED_SEARCH_EXPRESSION_GUIDANCE,
+	CASE_LIST_ORDER_GUIDANCE,
 	columnInputSchema,
 	newUuid,
 	stampColumnUuid,
@@ -48,7 +49,7 @@ export const addCaseListColumnsInputSchema = moduleAddressSchema
 			.array(columnInputSchema)
 			.min(1)
 			.describe(
-				`The columns to append, in display order. Supply columnUuid when another item in this call references the column; otherwise Nova mints it. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE}`,
+				`The columns to append, in display order. Supply columnUuid when another item in this call references the column; otherwise Nova mints it. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE} ${CASE_LIST_ORDER_GUIDANCE}`,
 			),
 	})
 	.strict();

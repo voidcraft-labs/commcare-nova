@@ -127,9 +127,10 @@ type LoadingState<T extends { kind: string }> =
  *
  * Optional `caseListConfig` threads through to the Server Action so
  * calc-arm columns surface materialized values on each row's
- * `calculated[uuid]` slot. Per-column sort directives order the rows
- * the same way CCHQ would; the optional `filter` narrows the
- * population. Hooks bound to the running-app case list pass it; hooks
+ * `calculated[uuid]` slot, and the rows come in the order of the list's
+ * order plan (`lib/preview/engine/caseListOrder.ts`), which the server
+ * builds from the module `moduleUuid` names with this live list, its keys
+ * read in `language`; the optional `filter` narrows the population. Hooks bound to the running-app case list pass it; hooks
  * loading raw rows for non-list-view consumers (case-loading form
  * lookups) leave it undefined and get the unchanged shape.
  *
@@ -164,6 +165,10 @@ export function useCases(args: {
 	 * shows that one case. */
 	caseIds?: readonly string[];
 	caseListConfig?: CaseListConfig;
+	/** The module whose list `caseListConfig` is; passed with it. */
+	moduleUuid?: string;
+	/** The language Preview is showing; passed with `caseListConfig`. */
+	language?: string;
 	inputValues?: SearchInputValues;
 	excludedOwnerIdsExpression?: ValueExpression;
 	/** A different-type parent selected by the containing menu. The server
@@ -196,6 +201,8 @@ export function useCases(args: {
 		caseType,
 		caseIds,
 		caseListConfig,
+		moduleUuid,
+		language,
 		inputValues,
 		excludedOwnerIdsExpression,
 		parentCase,
@@ -230,6 +237,8 @@ export function useCases(args: {
 		() => [
 			requestIdentity,
 			caseListConfig,
+			moduleUuid,
+			language,
 			inputValues,
 			excludedOwnerIdsExpression,
 			parentCase,
@@ -239,6 +248,8 @@ export function useCases(args: {
 		[
 			requestIdentity,
 			caseListConfig,
+			moduleUuid,
+			language,
 			inputValues,
 			excludedOwnerIdsExpression,
 			parentCase,
@@ -270,6 +281,8 @@ export function useCases(args: {
 								caseType,
 								...(caseIds === undefined ? {} : { caseIds }),
 								caseListConfig,
+								...(moduleUuid === undefined ? {} : { moduleUuid }),
+								...(language === undefined ? {} : { language }),
 								caseTypes,
 								inputValues: inputValues
 									? searchInputValuesToWire(inputValues)

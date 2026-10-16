@@ -1603,9 +1603,10 @@ The wire facts that shape the emitter:
   `views.js::buildCellLayout` computes one `borderInTile` / `shadingInTile` over
   the whole tile; if any cell asks for either, every cell changes layout mode.
   Nova's renderer reproduces that rather than reading the flags per cell.
-- **Absent text size means inherit, not medium.** An absent `font-size` produces
-  an empty `font-size: ;` declaration the browser discards. The `medium` default
-  exists only in HQ's authoring UI.
+- **Every placed cell states its text size.** HQ's Case List save writes
+  `medium` into a cell that holds no size, so an absent size is a state the app
+  cannot keep: a cell is born `left`, `top` and `medium` (`tileCell()`), and
+  the emitter writes `horz-align`, `vert-align` and `font-size` on every cell.
 Emitted bytes are asserted against HQ's own fixtures —
 `suite-case-tiles.xml` for the `<style>`/`<grid>` shape,
 `case-tile-case-detail.xml` for `show-border` / `show-shading`, and

@@ -105,6 +105,104 @@ const REAL_ENTRIES = {
 		},
 		detail: { form: "Intake", datum: "case_id_new" },
 	},
+	"id-mapping-entry-removed": {
+		kind: "document",
+		reason: "id-mapping-entry-removed",
+		entity: {
+			type: "caseListColumn",
+			uuid: "01992000-0000-7000-8000-0000000000c9",
+			nameAtMigration: "Zone",
+		},
+		detail: { menu: "Households", value: "a'b" },
+	},
+	"date-pattern-apostrophe-replaced": {
+		kind: "document",
+		reason: "date-pattern-apostrophe-replaced",
+		entity: {
+			type: "caseListColumn",
+			uuid: "01992000-0000-7000-8000-0000000000c9",
+			nameAtMigration: "Zone",
+		},
+		detail: { menu: "Households" },
+	},
+	"tile-order-rule-removed": {
+		kind: "document",
+		reason: "tile-order-rule-removed",
+		entity: {
+			type: "caseListColumn",
+			uuid: "01992000-0000-7000-8000-0000000000c9",
+			nameAtMigration: "Zone",
+		},
+		detail: { menu: "Households", shape: "calculated" },
+	},
+	"order-rule-removed-same-property": {
+		kind: "document",
+		reason: "order-rule-removed-same-property",
+		entity: {
+			type: "caseListColumn",
+			uuid: "01992000-0000-7000-8000-0000000000c9",
+			nameAtMigration: "Zone",
+		},
+		detail: { menu: "Households", kept: "Score" },
+	},
+	"order-rule-moved-to-first-column": {
+		kind: "document",
+		reason: "order-rule-moved-to-first-column",
+		entity: {
+			type: "caseListColumn",
+			uuid: "01992000-0000-7000-8000-0000000000c9",
+			nameAtMigration: "Zone",
+		},
+		detail: { menu: "Households", to: "Zone name" },
+	},
+	"tile-cell-defaults-set": {
+		kind: "document",
+		reason: "tile-cell-defaults-set",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a1",
+			nameAtMigration: "Households",
+		},
+	},
+	"case-list-order-changes": {
+		kind: "document",
+		reason: "case-list-order-changes",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a1",
+			nameAtMigration: "Households",
+		},
+		detail: { cause: "id-mapping", column: "Zone name", kind: "id-mapping" },
+	},
+	"case-list-search-matches-hidden-fields": {
+		kind: "document",
+		reason: "case-list-search-matches-hidden-fields",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a1",
+			nameAtMigration: "Households",
+		},
+	},
+	"hidden-order-column-not-in-sort-menu": {
+		kind: "document",
+		reason: "hidden-order-column-not-in-sort-menu",
+		entity: {
+			type: "caseListColumn",
+			uuid: "01992000-0000-7000-8000-0000000000c9",
+			nameAtMigration: "Zone",
+		},
+		detail: { menu: "Households" },
+	},
+	"record-id-column-now-shows": {
+		kind: "document",
+		reason: "record-id-column-now-shows",
+		entity: {
+			type: "caseListColumn",
+			uuid: "01992000-0000-7000-8000-0000000000c9",
+			nameAtMigration: "Zone",
+		},
+		detail: { menu: "Households", kind: "plain" },
+	},
 	"option-label-filled": {
 		kind: "document",
 		reason: "option-label-filled",

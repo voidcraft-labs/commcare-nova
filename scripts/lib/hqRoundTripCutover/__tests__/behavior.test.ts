@@ -13,6 +13,7 @@ import { parseXml } from "@/lib/commcare/xmlParse";
 import {
 	asUuid,
 	type BlueprintDoc,
+	type Column,
 	type Form,
 	type Module,
 	type Uuid,
@@ -21,11 +22,15 @@ import { DOCUMENT_NOTICE_REASONS } from "@/lib/notices/migrationNotice";
 import {
 	BEHAVIOR_SELECTIONS,
 	behaviorChanges,
+	caseListOrderChanges,
+	caseListSearchMatchesHiddenFields,
 	caseNameNowChecked,
 	closeMovesToSaveToCase,
 	followUpNowTouchesCase,
+	hiddenOrderColumnNotInSortMenu,
 	linkedFollowUpNowWritesCase,
 	localArchiveChanges,
+	recordIdColumnNowShows,
 	validationNowEnforced,
 } from "../behavior";
 import {
@@ -368,6 +373,10 @@ describe("the no-write lines", () => {
 			"follow-up-now-touches-case",
 			"linked-follow-up-now-writes-case",
 			"close-moves-to-save-to-case",
+			"case-list-order-changes",
+			"case-list-search-matches-hidden-fields",
+			"hidden-order-column-not-in-sort-menu",
+			"record-id-column-now-shows",
 			"local-archive-changes",
 			"case-name-now-checked",
 		]);
@@ -387,5 +396,292 @@ describe("the no-write lines", () => {
 		const before = structuredClone(doc);
 		behaviorChanges(doc);
 		expect(doc).toEqual(before);
+	});
+});
+
+// ── Pull request 11: case lists ─────────────────────────────────────
+
+/** The one menu of navigation-base, whose list holds one plain Name column. */
+const PATIENTS = asUuid("17a69048-be0c-59d4-a7a2-9bda805659b8");
+const NAME_COLUMN = asUuid("56aac6e0-30dd-5cf4-aa85-c23ed492bfd0");
+const columnUuid = (n: number) =>
+	asUuid(`00000000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`);
+
+/**
+ * navigation-base with `columns` added to its list. Each goes first on
+ * Results when `first` is set, and last otherwise, and last on Details.
+ */
+function withColumns(
+	columns: readonly Column[],
+	options: { first?: boolean; tile?: boolean } = {},
+): BlueprintDoc {
+	return produce(migratedFixtureDocument("navigation-base"), (draft) => {
+		const config = draft.modules[PATIENTS]?.caseListConfig;
+		if (config === undefined) throw new Error("navigation-base has no list.");
+		for (const column of columns) {
+			config.columns.push(column as never);
+			if (options.first) config.listColumnOrder.unshift(column.uuid);
+			else config.listColumnOrder.push(column.uuid);
+			config.detailColumnOrder.push(column.uuid);
+		}
+		if (options.tile) config.tile = {} as never;
+	});
+}
+
+function columnEntity(uuid: Uuid, name: string) {
+	return { type: "caseListColumn", uuid, nameAtMigration: name };
+}
+
+const PATIENTS_ENTITY = {
+	type: "module",
+	uuid: PATIENTS,
+	nameAtMigration: "Patients",
+};
+
+describe("case-list-order-changes", () => {
+	it("names the ID mapping and the select's labels each list orders by first", () => {
+		const doc = migratedFixtureDocument("targeted-label-sort");
+		const menuNamed = (name: string) => {
+			const module = Object.values(doc.modules).find(
+				(candidate) => candidate.name === name,
+			);
+			if (module === undefined) throw new Error(`No menu ${name}.`);
+			return { type: "module", uuid: module.uuid, nameAtMigration: name };
+		};
+		expect(caseListOrderChanges.select(doc)).toEqual([
+			{
+				reason: "case-list-order-changes",
+				entity: menuNamed("Households by zone"),
+				detail: { cause: "id-mapping", column: "Zone", kind: "id-mapping" },
+			},
+			{
+				reason: "case-list-order-changes",
+				entity: menuNamed("Households by level"),
+				detail: { cause: "option-label", column: "Level", kind: "plain" },
+			},
+		]);
+	});
+
+	it("names a list with no order rule, and adds the date sentence where its first column is a date", () => {
+		expect(
+			caseListOrderChanges.select(migratedFixtureDocument("navigation-base")),
+		).toEqual([
+			{
+				reason: "case-list-order-changes",
+				entity: PATIENTS_ENTITY,
+				detail: { cause: "unsorted", kind: "plain" },
+			},
+		]);
+		const dated = withColumns(
+			[
+				{
+					uuid: columnUuid(0xe101),
+					kind: "date",
+					field: "date_opened",
+					header: "Opened",
+					pattern: "%Y-%m-%d",
+				},
+			],
+			{ first: true },
+		);
+		expect(caseListOrderChanges.select(dated)).toEqual([
+			{
+				reason: "case-list-order-changes",
+				entity: PATIENTS_ENTITY,
+				detail: { cause: "unsorted", kind: "date" },
+			},
+		]);
+	});
+
+	it("names a shown interval column and, in an app with media, a shown image map that takes the first rule", () => {
+		const interval = withColumns([
+			{
+				uuid: columnUuid(0xe102),
+				kind: "interval",
+				field: "date_opened",
+				header: "Since",
+				threshold: 7,
+				unit: "days",
+				display: "always",
+				text: "Overdue",
+				sort: { direction: "asc", priority: 0 },
+			},
+		]);
+		expect(caseListOrderChanges.select(interval)).toEqual([
+			{
+				reason: "case-list-order-changes",
+				entity: PATIENTS_ENTITY,
+				detail: { cause: "interval", column: "Since", kind: "interval" },
+			},
+		]);
+		const imageMap = (assetIds: readonly string[]) =>
+			withColumns([
+				{
+					uuid: columnUuid(0xe103),
+					kind: "image-map",
+					field: "notes",
+					header: "Badge",
+					mapping: assetIds.map((assetId, index) => ({
+						value: `v${index}`,
+						assetId,
+					})),
+					sort: { direction: "desc", priority: 0 },
+				} as Column,
+			]);
+		expect(caseListOrderChanges.select(imageMap(["asset-one"]))).toEqual([
+			{
+				reason: "case-list-order-changes",
+				entity: PATIENTS_ENTITY,
+				detail: { cause: "image-map", column: "Badge", kind: "image-map" },
+			},
+		]);
+		// An app with no media orders its empty map the same everywhere.
+		expect(caseListOrderChanges.select(imageMap([]))).toEqual([]);
+	});
+
+	it("names no list whose first rule lands on a plain column, a hidden column or a carrier", () => {
+		const sortedName = produce(
+			migratedFixtureDocument("navigation-base"),
+			(draft) => {
+				const name = draft.modules[PATIENTS]?.caseListConfig?.columns.find(
+					(column) => column.uuid === NAME_COLUMN,
+				);
+				if (name === undefined) throw new Error("No Name column.");
+				name.sort = { direction: "asc", priority: 0 };
+			},
+		);
+		expect(caseListOrderChanges.select(sortedName)).toEqual([]);
+		const hiddenMapping = withColumns([
+			{
+				uuid: columnUuid(0xe104),
+				kind: "id-mapping",
+				field: "notes",
+				header: "Code",
+				mapping: [{ value: "a", label: "A" }],
+				visibleInList: false,
+				sort: { direction: "asc", priority: 0 },
+			},
+		]);
+		expect(caseListOrderChanges.select(hiddenMapping)).toEqual([]);
+		const carrier = withColumns(
+			[
+				{
+					uuid: columnUuid(0xe105),
+					kind: "id-mapping",
+					field: "notes",
+					header: "Code",
+					mapping: [{ value: "a", label: "A" }],
+					visibleInList: false,
+					sort: { direction: "asc", priority: 0 },
+				},
+			],
+			{ tile: true },
+		);
+		expect(caseListOrderChanges.select(carrier)).toEqual([]);
+	});
+});
+
+describe("case-list-search-matches-hidden-fields and hidden-order-column-not-in-sort-menu", () => {
+	const hidden = (sorted: boolean): Column => ({
+		uuid: columnUuid(0xe201),
+		kind: "plain",
+		field: "notes",
+		header: "Notes",
+		visibleInList: false,
+		...(sorted && { sort: { direction: "asc" as const, priority: 0 } }),
+	});
+
+	it("names a row list's hidden column for search, and a hidden column with an order rule for the Sort menu", () => {
+		const doc = migratedFixtureDocument("hand-case-list-order");
+		expect(caseListSearchMatchesHiddenFields.select(doc)).toEqual([
+			{
+				reason: "case-list-search-matches-hidden-fields",
+				entity: PATIENTS_ENTITY,
+			},
+		]);
+		expect(hiddenOrderColumnNotInSortMenu.select(doc)).toEqual([
+			{
+				reason: "hidden-order-column-not-in-sort-menu",
+				entity: columnEntity(columnUuid(0xe01), "Notes"),
+				detail: { menu: "Patients" },
+			},
+		]);
+	});
+
+	it("names no tile list for search, and still names its hidden order column", () => {
+		const doc = withColumns([hidden(true)], { tile: true });
+		expect(caseListSearchMatchesHiddenFields.select(doc)).toEqual([]);
+		expect(hiddenOrderColumnNotInSortMenu.select(doc)).toEqual([
+			{
+				reason: "hidden-order-column-not-in-sort-menu",
+				entity: columnEntity(columnUuid(0xe201), "Notes"),
+				detail: { menu: "Patients" },
+			},
+		]);
+	});
+
+	it("names no Sort menu change for a hidden column with no order rule, nor any line for a list with none hidden", () => {
+		expect(
+			hiddenOrderColumnNotInSortMenu.select(withColumns([hidden(false)])),
+		).toEqual([]);
+		const shown = migratedFixtureDocument("navigation-base");
+		expect(caseListSearchMatchesHiddenFields.select(shown)).toEqual([]);
+		expect(hiddenOrderColumnNotInSortMenu.select(shown)).toEqual([]);
+	});
+});
+
+describe("record-id-column-now-shows", () => {
+	const overCaseId = (
+		n: number,
+		column: Partial<Column> & Pick<Column, "kind">,
+	): Column =>
+		({
+			uuid: columnUuid(n),
+			field: "case_id",
+			header: `Record ${n.toString(16)}`,
+			...column,
+		}) as Column;
+
+	it("names a plain, a phone and an image-map column over case_id that reach a screen, each with its kind", () => {
+		const doc = withColumns([
+			overCaseId(0xe301, { kind: "plain" }),
+			overCaseId(0xe302, { kind: "phone" }),
+			overCaseId(0xe303, {
+				kind: "image-map",
+				mapping: [],
+				visibleInList: false,
+			} as Partial<Column> & Pick<Column, "kind">),
+		]);
+		expect(recordIdColumnNowShows.select(doc)).toEqual(
+			[
+				[0xe301, "plain"],
+				[0xe302, "phone"],
+				[0xe303, "image-map"],
+			].map(([n, kind]) => ({
+				reason: "record-id-column-now-shows",
+				entity: columnEntity(
+					columnUuid(n as number),
+					`Record ${(n as number).toString(16)}`,
+				),
+				detail: { menu: "Patients", kind },
+			})),
+		);
+	});
+
+	it("names no ID mapping or link over case_id, and no column hidden from both screens", () => {
+		const doc = withColumns([
+			overCaseId(0xe304, {
+				kind: "id-mapping",
+				mapping: [{ value: "a", label: "A" }],
+			} as Partial<Column> & Pick<Column, "kind">),
+			overCaseId(0xe305, { kind: "link", linkText: "Open" } as Partial<Column> &
+				Pick<Column, "kind">),
+			overCaseId(0xe306, {
+				kind: "plain",
+				visibleInList: false,
+				visibleInDetail: false,
+			}),
+		]);
+		expect(recordIdColumnNowShows.select(doc)).toEqual([]);
 	});
 });

@@ -77,9 +77,9 @@
  * - what else the selection datum holds (its filter, owner exclusion, kept
  *   tile, opening on Search, and the inline search of a module that opens
  *   on Search) reaches the same forms, not those nested under it; within
- *   the inline search, a search input's name, a subtitle and a calculated
- *   column's need for related cases reach them, and a label, a title, or a
- *   column leaving the list or the detail does not;
+ *   the inline search, a search input's name and a calculated column's
+ *   need for related cases reach them, and a label, a title, a subtitle, or
+ *   a column leaving the list or the detail does not;
  * - what only its own case datum holds (its detail screen, its tile
  *   grouping) reaches its case-loading forms, not its registration form;
  * - the instances its filter and owner exclusion reach reach every form of
@@ -141,6 +141,7 @@ import {
 	effectiveCaseSearchConfig,
 	type FormType,
 	proseText,
+	tileCell,
 	type Uuid,
 } from "@/lib/domain";
 import { type MediaSlotKind, walkAssetRefs } from "@/lib/domain/mediaRefs";
@@ -694,7 +695,15 @@ describe("the footprint's derivations", () => {
 				kind: "term",
 				term: { kind: "session-user-property", userPropertyUuid: property },
 			},
-			tile: { x: 0, y: 2, width: 4, height: 1 },
+			tile: {
+				x: 0,
+				y: 2,
+				width: 4,
+				height: 1,
+				horizontalAlign: "left",
+				verticalAlign: "top",
+				fontSize: "medium",
+			},
 		}) as const;
 	/** A calculated column on `module`'s case list that shows the worker's flag. */
 	const addFlagColumn =
@@ -1295,13 +1304,13 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formsOf(doc, "Followup"),
 		},
 		{
-			name: "a search screen subtitle reaches the forms of a module that opens on Search",
+			name: "a search screen subtitle reaches none of the forms of a module that opens on Search",
 			document: "search-inline",
 			batch: patchSearch("Followup", {
 				searchScreenSubtitle: "Look up a patient",
 			}),
-			reaches: (doc) => formsOf(doc, "Followup"),
-			leaves: () => [],
+			reaches: () => [],
+			leaves: (doc) => formsOf(doc, "Followup"),
 		},
 		{
 			name: "a search screen title reaches none of the forms of a module that opens on Search",
@@ -1337,7 +1346,14 @@ describe("the footprint's derivations", () => {
 							...content,
 							expression: {
 								kind: "term",
-								term: { kind: "prop", caseType: "patient", property: "weight" },
+								// A property no other order rule reads: one over `weight`
+								// would order by the value the hidden `weight` column's
+								// rule does, which the gate refuses.
+								term: {
+									kind: "prop",
+									caseType: "patient",
+									property: "website",
+								},
 							},
 						},
 					},
@@ -1454,13 +1470,7 @@ describe("the footprint's derivations", () => {
 						kind: "updateColumn",
 						moduleUuid: moduleNamed(doc, "Visits"),
 						uuid: column.uuid,
-						tilePatch: {
-							...column.tile,
-							x: column.tile?.x ?? 0,
-							y: 3,
-							width: 2,
-							height: 1,
-						},
+						tilePatch: tileCell(column.tile?.x ?? 0, 3, 2, 1, column.tile),
 					})),
 			batch: (doc) => [
 				{
@@ -1485,7 +1495,15 @@ describe("the footprint's derivations", () => {
 						kind: "updateColumn",
 						moduleUuid: moduleNamed(doc, "Visits"),
 						uuid: first.uuid,
-						tilePatch: { x: 0, y: 0, width: 3, height: 1 },
+						tilePatch: {
+							x: 0,
+							y: 0,
+							width: 3,
+							height: 1,
+							horizontalAlign: "left",
+							verticalAlign: "top",
+							fontSize: "medium",
+						},
 					},
 				];
 			},

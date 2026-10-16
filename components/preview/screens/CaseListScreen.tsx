@@ -162,6 +162,7 @@ import {
 	useCaseData,
 	useCases,
 } from "@/lib/preview/hooks/useCaseDataBinding";
+import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
@@ -907,6 +908,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		caseType: step === "search" ? undefined : caseType?.name,
 		...(registeredCaseIds === undefined ? {} : { caseIds: registeredCaseIds }),
 		caseListConfig: config,
+		...(moduleUuid === undefined ? {} : { moduleUuid }),
+		language: language.language,
 		/* The registered case is the whole population (the wire's frame keys
 		 * the search to its id), so the answers no longer narrow it. */
 		inputValues:
@@ -1054,6 +1057,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const visibleColumns = listOrderedColumns.filter(
 		(col) => col.visibleInList ?? true,
 	);
+	/* The quick filter matches what a device's search matches: every field's
+	 * text, the hidden fields and the order plan's carriers included. */
+	const orderPlan = useCaseListOrderPlan(moduleUuid, config);
 	/* A tile carries the columns the short detail emits: the visible ones
 	 * PLUS any hidden column that still orders the list. The hidden one holds
 	 * NO square (the wire gives it no `<style>`, so the device draws an empty
@@ -1176,9 +1182,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							row,
 							filterText,
 							columnDisplayContext,
+							orderPlan,
 						),
 					),
-		[loadedRows, visibleColumns, filterText, columnDisplayContext],
+		[loadedRows, visibleColumns, filterText, columnDisplayContext, orderPlan],
 	);
 	/* The same narrowing, applied inside each group. A group whose members all
 	 * fail the filter disappears; the ones that survive keep drawing their
@@ -1200,11 +1207,18 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 								row,
 								filterText,
 								columnDisplayContext,
+								orderPlan,
 							),
 						);
 			return rows.length === 0 ? [] : [{ key: group.key, header, rows }];
 		});
-	}, [groupedResult, visibleColumns, filterText, columnDisplayContext]);
+	}, [
+		groupedResult,
+		visibleColumns,
+		filterText,
+		columnDisplayContext,
+		orderPlan,
+	]);
 	const caseCount = (count: number) =>
 		message(count === 1 ? "caseCountOne" : "caseCountMany", {
 			count: count.toLocaleString(),

@@ -251,11 +251,12 @@ export type TileVerticalAlign = (typeof TILE_VERTICAL_ALIGNS)[number];
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_persistent_case_context_detail`
  * emits `large`).
  *
- * Absent is a real, distinct state: the renderer emits an empty
- * `font-size: ;` declaration the browser discards, so the cell
- * INHERITS the list's size. There is no `medium` default at runtime —
- * that default exists only in HQ's authoring UI — so Nova's own
- * renderer must inherit too rather than substituting a size.
+ * Every cell states its size (`tileCellSchema`): HQ's Case List save writes
+ * `medium` into a cell that holds none, so an absent size is a state an app
+ * cannot keep. A tile's text does not follow the list's own size on either
+ * runtime: Android reads `medium` as 17 against an unstyled cell's 18
+ * (`views/EntityViewTile.java::getView`), and Web Apps reads it as 16px
+ * against the list's 12px (`views.js::buildCellLayout`).
  */
 export const TILE_FONT_SIZES = ["small", "medium", "large"] as const;
 export type TileFontSize = (typeof TILE_FONT_SIZES)[number];
@@ -273,38 +274,66 @@ export type TileFontSize = (typeof TILE_FONT_SIZES)[number];
  * `lib/commcare/validator/rules/case-list/caseTileLayout.ts`, where
  * one rule owns every geometry message.
  *
- * The five presentation slots are all optional; each maps 1:1 onto a
- * `<style>` attribute and is omitted from the wire when absent.
+ * Alignment and size are required on every cell. HQ's Case List save
+ * writes `horizontal_align`, `vertical_align` and `font_size` into a cell
+ * that holds none (`static/app_manager/js/details/bootstrap5/column.js`,
+ * defaults `left`, `start`, `medium`), so a cell without them changes on
+ * the first save. `tileCell()` fills `left`, `top` and `medium` when a
+ * caller gives none. `showBorder` and `showShading` stay optional and stay
+ * off the wire when unset.
  */
 export const tileCellSchema = z.strictObject({
 	x: persistableJsonNonnegativeIntegerSchema,
 	y: persistableJsonNonnegativeIntegerSchema,
 	width: persistableJsonPositiveIntegerSchema,
 	height: persistableJsonPositiveIntegerSchema,
-	horizontalAlign: z.enum(TILE_HORIZONTAL_ALIGNS).optional(),
-	verticalAlign: z.enum(TILE_VERTICAL_ALIGNS).optional(),
-	fontSize: z.enum(TILE_FONT_SIZES).optional(),
+	horizontalAlign: z.enum(TILE_HORIZONTAL_ALIGNS),
+	verticalAlign: z.enum(TILE_VERTICAL_ALIGNS),
+	fontSize: z.enum(TILE_FONT_SIZES),
 	showBorder: z.boolean().optional(),
 	showShading: z.boolean().optional(),
 });
 export type TileCell = z.infer<typeof tileCellSchema>;
 
-/** Constructs a tile cell. Optional presentation slots are omitted
- *  when absent so a constructed cell round-trips equal to a stored
- *  one under the schema's strip-mode parse. */
+/** The alignment and size a cell takes when its maker states none: HQ's own
+ *  defaults, which its first Case List save would write. */
+export const TILE_CELL_DEFAULTS = {
+	horizontalAlign: "left",
+	verticalAlign: "top",
+	fontSize: "medium",
+} as const satisfies Pick<
+	TileCell,
+	"horizontalAlign" | "verticalAlign" | "fontSize"
+>;
+
+/** The presentation a caller may state for a cell; any of the three
+ *  required slots left out takes `TILE_CELL_DEFAULTS`. */
+export type TileCellPresentation = Partial<
+	Omit<TileCell, "x" | "y" | "width" | "height">
+>;
+
+/** Constructs a tile cell. Alignment and size fill from
+ *  `TILE_CELL_DEFAULTS` where the caller gives none; the optional
+ *  border and shading slots are omitted when absent so a constructed cell
+ *  round-trips equal to a stored one under the schema's strip-mode parse. */
 export function tileCell(
 	x: number,
 	y: number,
 	width: number,
 	height: number,
-	presentation: Omit<TileCell, "x" | "y" | "width" | "height"> = {},
+	presentation: TileCellPresentation = {},
 ): TileCell {
-	const out: TileCell = { x, y, width, height };
-	if (presentation.horizontalAlign !== undefined)
-		out.horizontalAlign = presentation.horizontalAlign;
-	if (presentation.verticalAlign !== undefined)
-		out.verticalAlign = presentation.verticalAlign;
-	if (presentation.fontSize !== undefined) out.fontSize = presentation.fontSize;
+	const out: TileCell = {
+		x,
+		y,
+		width,
+		height,
+		horizontalAlign:
+			presentation.horizontalAlign ?? TILE_CELL_DEFAULTS.horizontalAlign,
+		verticalAlign:
+			presentation.verticalAlign ?? TILE_CELL_DEFAULTS.verticalAlign,
+		fontSize: presentation.fontSize ?? TILE_CELL_DEFAULTS.fontSize,
+	};
 	if (presentation.showBorder !== undefined)
 		out.showBorder = presentation.showBorder;
 	if (presentation.showShading !== undefined)
@@ -353,15 +382,15 @@ export function tileCellsOverlap(a: TileCell, b: TileCell): boolean {
  *     nothing until it is on.
  *   - **The column is shown in Results.** A column hidden from Results
  *     holds no square, even when it kept a placement from before it was
- *     hidden. It still reaches the wire when it drives Default order —
- *     as CommCare's own zero-width carrier — and that carrier must stay
- *     cell-less: a complete `<grid>` makes it a tile field by
- *     `DetailField::isCaseTileField`, at which point it claims a real
- *     `grid-area`, enlarges the extent
- *     `Detail.java::getMaxWidthHeight` computes across ALL fields, and
- *     joins the tile-wide border/shading switch — while its content
- *     renders inside a `d-none` wrapper. An invisible column would move
- *     the layout.
+ *     hidden. It is no field of a tile's short detail at all
+ *     (`lib/domain/caseListOrder.ts`, rule 1): an order rule on it rides as
+ *     a sort row with no stored column, for which CommCare appends its own
+ *     zero-width carrier (`util.py::create_temp_sort_column`), and no save
+ *     can give that carrier a cell. A stored hidden column would take one
+ *     from HQ's Case List save (`column.js::serialize`), and a complete
+ *     `<grid>` makes a field a tile field by `DetailField::isCaseTileField`,
+ *     where it claims a real `grid-area` and enlarges the extent
+ *     `Detail.java::getMaxWidthHeight` computes across ALL fields.
  *
  * This is also what makes the validator's overlap rule sound: that rule
  * walks only Results-visible columns, which is correct precisely because
@@ -502,26 +531,46 @@ const phoneColumnSchema = columnBase.extend({
  * ID-mapping column — renders a lookup table from property value
  * to display label (e.g. region code → human-readable region
  * name). The mapping is authored explicitly; values not in the
- * table render no mapped text.
+ * table render no mapped text. The entry order is the order the list
+ * sorts the column by (`lib/domain/caseListOrder.ts`, the
+ * `mapping-position` key), which is CommCare HQ's `enum` sort.
  */
 const idMappingEntrySchema = z.strictObject({
 	// Nonempty whitespace-free token. A blank new-row control is local
 	// component state and is never a persisted mapping entry. The wire
-	// emits the entry as `selected(field, '<value>')`; CommCare's
-	// `selected()` is the XPath 1.0 space-tokenized membership
-	// predicate (it splits the property value on whitespace and
-	// checks set membership), so a `value` carrying whitespace
-	// would never match any case row — silent runtime failure.
-	// Reject blank/whitespace at the schema layer where the final row is
-	// constructed.
+	// emits the entry as `selected(field, '<value>')`. CommCare's
+	// `selected()` trims the value and looks for it whole among the
+	// property's space-separated tokens
+	// (`commcare-core/.../xpath/expr/XPathSelectedFunc.multiSelected`), so
+	// a value holding a space matches only a property holding that same
+	// run of tokens, which no single select or saved token does. The
+	// characters HQ's ID mapping cannot hold are a validator rule
+	// (`CASE_LIST_ID_MAPPING_KEY_CHARACTERS`), not a schema check.
 	value: z
 		.string()
-		.regex(
-			/^\S+$/,
-			"ID-mapping value must be a single whitespace-free token, the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would silently fall through to the raw property value.",
-		),
+		.regex(/^\S+$/, "A mapping value is one word with no spaces."),
 	label: z.string(),
 });
+
+/** The characters CommCare HQ's ID mapping cannot hold in a key: its build
+ *  writes a key unescaped inside an XPath string literal, and its mapping
+ *  dialog refuses one as bad XML (`CASE_LIST_ID_MAPPING_KEY_CHARACTERS`). */
+const ID_MAPPING_KEY_FORBIDDEN: ReadonlySet<string> = new Set([
+	"&",
+	"<",
+	">",
+	'"',
+	"'",
+]);
+
+/** Whether an ID-mapping value holds a character HQ's mapping cannot store. */
+export function idMappingValueHoldsForbiddenCharacter(value: string): boolean {
+	for (const character of value) {
+		if (ID_MAPPING_KEY_FORBIDDEN.has(character)) return true;
+	}
+	return false;
+}
+
 const idMappingColumnSchema = columnBase.extend({
 	kind: z.literal("id-mapping"),
 	field: authoredCasePropertyNameSchema,
@@ -549,21 +598,18 @@ const idMappingColumnSchema = columnBase.extend({
 /**
  * Single image-map entry — pairs a case-property value with the image
  * `MediaAssetId` shown for that value. The image-map analogue of
- * `idMappingEntrySchema`: same whitespace-free `value` token (matched
- * on the wire via XPath's space-tokenized `selected()` predicate), but
- * the cell renders the mapped IMAGE instead of a text label.
+ * `idMappingEntrySchema`: the same one-word `value` (matched on the wire
+ * by `selected()`, which looks for the trimmed value whole among the
+ * property's tokens), but the cell renders the mapped IMAGE instead of a
+ * text label. The entry order is the order the list sorts the column by
+ * (`lib/domain/caseListOrder.ts`, the `mapping-position` key).
  */
 const imageMapEntrySchema = z.strictObject({
-	// Same whitespace-free constraint + rationale as the id-mapping
-	// entry's `value`: the wire emits `selected(field, '<value>')`,
-	// which splits on whitespace before testing membership, so a value
-	// carrying whitespace would never match any case row.
+	// Same one-word constraint and rationale as the id-mapping entry's
+	// `value`.
 	value: z
 		.string()
-		.regex(
-			/^\S+$/,
-			"Image-map value must be a single whitespace-free token, the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would render no image.",
-		),
+		.regex(/^\S+$/, "A mapping value is one word with no spaces."),
 	assetId: mediaAssetIdSchema,
 });
 const imageMapColumnSchema = columnBase.extend({
@@ -681,19 +727,52 @@ export type Column = z.infer<typeof columnSchema>;
 export type ColumnKind = Column["kind"];
 
 /**
- * Whether a valid saved column contributes to the emitted/running app.
+ * Whether a runtime evaluates the column's value: every column of a list
+ * with no tile layout, since each is a field of the short detail on both
+ * export paths, a column hidden from Results included as HQ's `invisible`
+ * field (`lib/domain/caseListOrder.ts`, rule 1); in a tile list, a column
+ * shown on Results or on Details, since a column hidden from both is no
+ * field there and its order rule rides as a sort row with no stored column.
  *
- * Admission must never consult this projection: fully hidden, unsorted
- * definitions are legitimate reversible authoring state and are validated as
- * completely as visible definitions. Only compiler/preview/reference walks use
- * this predicate to decide which already-valid definitions execute.
+ * Admission never consults this projection: a column hidden from both
+ * screens is legitimate reversible authoring state and is validated as
+ * completely as a visible one. The compiler's instance and search walks
+ * and Preview read it to decide which already-valid definitions execute.
  */
-export function caseListColumnIsEmitted(column: Column): boolean {
-	return (
-		column.visibleInList !== false ||
-		column.visibleInDetail !== false ||
-		column.sort !== undefined
-	);
+export function caseListColumnRuns(
+	column: Column,
+	config: Pick<CaseListConfig, "tile">,
+): boolean {
+	if (config.tile === undefined) return true;
+	return column.visibleInList !== false || column.visibleInDetail !== false;
+}
+
+/**
+ * Whether the column's header, labels or images reach a screen: it is
+ * shown on Results or on Details. A column hidden from both has no header
+ * unit and no media of its own on the wire, whatever order rule it
+ * carries: a hidden field's header is empty on every path
+ * (`detail_screen.py::Invisible.header`). Read by the translation inventory
+ * and the media walks.
+ */
+export function caseListColumnTextShows(column: Column): boolean {
+	return column.visibleInList !== false || column.visibleInDetail !== false;
+}
+
+/**
+ * Whether an image map is written as its image column: in an export that
+ * carries a media manifest, and, for a map with no entries, in every export,
+ * since a map with no entries names no file and so reads no manifest. A map
+ * with entries in an export with no manifest is a plain column over the raw
+ * value, which no production export writes. Both emitters and the order
+ * plan read this one predicate, so an export never decides the column by
+ * whether a manifest was passed.
+ */
+export function imageMapShowsImages(
+	column: Extract<Column, { kind: "image-map" }>,
+	mediaOn: boolean,
+): boolean {
+	return mediaOn || column.mapping.length === 0;
 }
 
 /** Single id-mapping entry — value-to-label pair surfaced by the

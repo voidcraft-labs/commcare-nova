@@ -1,24 +1,23 @@
 """The empty-list message a worker reads in Web Apps, in an app without English, before and after HQ's save.
 
-Finding 41: Nova writes no empty-list text, so HQ's model default holds
-English alone. Under ``USH_EMPTY_CASE_LIST_TEXT`` HQ's module settings page,
-saved without a change, stores an empty text for the page's language, and in
-an app with no English that blank is what HQ's app strings carry for the
-list. ``targeted-empty-list-no-english`` is written in Spanish alone.
+Finding 41: HQ's model default for a list's empty-list text holds English
+alone, and under ``USH_EMPTY_CASE_LIST_TEXT`` HQ's module settings page,
+saved without a change, stores an empty text for the page's language, so in
+an app with no English the save left a blank where HQ's app strings carry the
+list's message. Nova now writes the text, "List is empty.", under every app
+language on every menu's list, so the save has nothing to add.
+``targeted-empty-list-no-english`` is written in Spanish alone.
 
 Contract, on the client run against Formplayer, for a list a search has
-left empty:
+left empty, on Nova's export and after the module settings save alike: the
+stored text is ``{es: "List is empty."}``, Formplayer hands the client
+"List is empty.", and the client's message box shows it.
 
-- Nova's export: HQ's default reaches the worker, "List is empty.";
-- after the module settings save: Formplayer hands the client a
-  non-breaking space, and the client shows a message box holding only that,
-  so the worker reads nothing.
-
-Plausible failures: a save that stored no blank (the stored texts are
-checked on both sides), a client that falls back to its own text for a
-blank one (the worker would read the same message both times, and the
-finding would be no harm in Web Apps), or a list that was never empty (the
-row is there before the search and gone after it).
+Plausible failures: a save that stored a blank after all (the stored texts
+are checked on both sides), a client that falls back to its own text
+whatever it is handed (Formplayer's text is checked beside the box), or a
+list that was never empty (the row is there before the search and gone
+after it).
 """
 
 from __future__ import annotations
@@ -32,7 +31,7 @@ from proof.webapps.session import Session
 DOCUMENT = "targeted-empty-list-no-english"
 # The configuration that holds USH_EMPTY_CASE_LIST_TEXT, under which the page offers and saves the text.
 CONFIGURATION = "maximum"
-NBSP = "\u00a0"
+TEXT = "List is empty."
 PATH = [
     *steps.open_app("Clientes"),
     *steps.choose("Clientes"),
@@ -42,7 +41,7 @@ PATH = [
 ]
 
 
-def test_the_module_settings_save_blanks_the_empty_list_message_a_worker_reads_without_english(
+def test_a_worker_reads_the_empty_list_message_without_english_before_and_after_the_module_settings_save(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     document = webapps_documents[DOCUMENT]
@@ -71,9 +70,8 @@ def test_the_module_settings_save_blanks_the_empty_list_message_a_worker_reads_w
         for side in (nova, saved):
             assert side["langs"] == ["es"] and side["pageErrors"] == []
             assert side["rowsBefore"] == ["row-targeted-amina"] and side["rowsAfter"] == []
-        assert nova["stored"] == {"en": "List is empty."}
-        assert saved["stored"] == {"en": "List is empty.", "es": ""}
-        assert nova["formplayer"] == "List is empty." and saved["formplayer"] == NBSP
-        # The message box is laid out both times; after the save it holds a non-breaking space and nothing else.
-        assert nova["message"] == {"html": "List is empty.", "text": "List is empty.", "visible": True}
-        assert saved["message"] == {"html": "&nbsp;", "text": NBSP, "visible": True}
+        for side in (nova, saved):
+            assert side["stored"] == {"es": TEXT}
+            assert side["formplayer"] == TEXT
+            # The message box is laid out, holding the text.
+            assert side["message"] == {"html": TEXT, "text": TEXT, "visible": True}

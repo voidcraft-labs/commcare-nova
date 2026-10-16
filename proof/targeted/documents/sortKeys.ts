@@ -4,30 +4,29 @@
  *
  * HQ attaches a sort element to the first column with its field
  * (`app_manager/util.py::get_sort_and_sort_only_columns`), so HQ's build
- * keeps the sort key on the shown column and none on the hidden one, while
- * Nova's local archive keeps it on the hidden column it sorts
- * (`lib/commcare/suite/case-list/sortKeys.ts`). The rows come in one order
- * on both installs, but each keeps a sort key on another column, and a fuzzy
- * list search matches a field's text against its sort key alone
+ * keeps the sort key on the shown column and none on the hidden one. Nova's
+ * local archive once kept it on the hidden column it sorts, and a fuzzy list
+ * search matches a field's text against its sort key alone
  * (`commcare-core util/EntitySortUtil.sortEntities`,
  * `cases/entity/Entity.getSortFieldPieces`), so the two installs fuzzily
- * match different columns. Only the fuzz sample shows this otherwise.
+ * matched different columns. Both paths now read one order plan
+ * (`lib/domain/caseListOrder.ts::caseListOrderPlan`), which joins the rule
+ * to the first column with its field as HQ does; the document is a witness
+ * that the keys sit on one field on both.
  *
  * Fixed values: Amina's phone is 100 and Baraka's 200, so the list, sorted by
  * phone, shows Amina first.
  *
- * The second menu is the one shape where the moved key changes what a search
- * finds: its list shows an image map over `code` and orders by a hidden plain
- * column over `code`. HQ gives the rule to the image map, the first column
- * with that field, whose sort key is the mapping position, and leaves the
- * hidden field no key; Nova's local archive leaves the image map no key and
- * orders by the hidden field's stored value. The rows come in one order on
- * both (the mapping's order is the values' order), so a near miss of a code
- * finds its case on the local archive alone. Amina's code is `alpha`,
- * Baraka's `bravo`, and Chausiku has none, so the second list, sorted by
- * code with blanks first (Core's order for an ascending sort that names no
- * `blanks`, `xml/DetailFieldParser.parseBlanksPreference`), shows Chausiku,
- * Amina, then Baraka.
+ * The second menu is the one shape where a moved key changes what a search
+ * finds: its list shows an image map over `code` beside a hidden plain
+ * column over `code`. An order rule on the hidden column would go to the
+ * image map on HQ's build, whose key is the mapping position, while the
+ * hidden column orders by the stored value, so Nova refuses it
+ * (`CASE_LIST_SORT_PROPERTY_AMBIGUOUS`) and the rule is on the image map, as
+ * the cutover's `sort-property-ownership` step moves it. Amina's code is
+ * `alpha`, the mapping's first entry, Baraka's `bravo`, its second, and
+ * Chausiku has none, a blank key, so the second list, in mapping order with
+ * blanks first, shows Chausiku, Amina, then Baraka.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -99,13 +98,18 @@ export function sharedPropertySort() {
 				caseType: "client",
 				caseListConfig: caseListOf([
 					plainColumn(uuid("codes-name"), "case_name", "Name"),
-					imageMapColumn(uuid("codes-image"), "code", "Code", [
-						imageMapEntry("alpha", mediaIds.label),
-						imageMapEntry("bravo", mediaIds.label),
-					]),
+					imageMapColumn(
+						uuid("codes-image"),
+						"code",
+						"Code",
+						[
+							imageMapEntry("alpha", mediaIds.label),
+							imageMapEntry("bravo", mediaIds.label),
+						],
+						{ sort: ASCENDING },
+					),
 					plainColumn(uuid("codes-sort"), "code", "Code order", {
 						visibleInList: false,
-						sort: ASCENDING,
 					}),
 				]),
 				forms: [

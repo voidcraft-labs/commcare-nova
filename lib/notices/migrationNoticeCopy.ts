@@ -103,6 +103,23 @@ function formBeside(form: string | undefined): NoticeLinePart[] {
 	return form === undefined ? [] : [text(`${form}, `)];
 }
 
+/** "Households, " where the entry names its menu, else nothing. */
+function menuBeside(menu: string | undefined): NoticeLinePart[] {
+	return menu === undefined ? [] : [text(`${menu}, `)];
+}
+
+/**
+ * A line that opens with its menu: "Households: <rest>" where the entry
+ * names its menu, else the rest alone, opening with a capital.
+ */
+function menuLead(
+	menu: string | undefined,
+	rest: string,
+	restCapitalized: string,
+): NoticeLinePart[] {
+	return [text(menu === undefined ? restCapitalized : `${menu}: ${rest}`)];
+}
+
 /** The noun a renamed field takes, from `detail.kind`. */
 function containerNoun(
 	kind: string | undefined,
@@ -314,6 +331,80 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* The entity is the ID mapping column; `detail.menu` names its menu and
+	 * `detail.value` the saved value whose entry went. */
+	"id-mapping-entry-removed": (entry: DocumentNoticeEntry, ctx) => {
+		const value = entry.detail?.value;
+		return noticeLine([
+			...menuBeside(entry.detail?.menu),
+			entityPart(entry.entity, ctx),
+			text(
+				`: the mapping for ${value ?? "a saved value"} is gone. CommCare HQ's ID mapping can't hold that value, so cases with it now show nothing in this column.`,
+			),
+		]);
+	},
+	/* The entity is the date column; `detail.menu` names its menu. */
+	"date-pattern-apostrophe-replaced": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			...menuBeside(entry.detail?.menu),
+			entityPart(entry.entity, ctx),
+			text(
+				": the date format's straight apostrophe is now a curved one (’). CommCare HQ's date column can't hold a straight one, and an app holding one could not be installed from CommCare HQ.",
+			),
+		]),
+	/* The entity is the column hidden from Results whose rule went;
+	 * `detail.menu` names its menu and `detail.shape` is `calculated` or
+	 * `case_id`. */
+	"tile-order-rule-removed": (entry: DocumentNoticeEntry, ctx) => {
+		const shape = entry.detail?.shape;
+		const why =
+			shape === "calculated"
+				? " A tile list can't order by a calculation that isn't on the tile."
+				: shape === "case_id"
+					? " A tile list can't order by Record ID unless the column is on the tile."
+					: " A tile list can't order by that column while it isn't on the tile.";
+		return noticeLine([
+			...menuLead(entry.detail?.menu, "the list", "The list"),
+			text(" no longer orders by "),
+			entityPart(entry.entity, ctx),
+			text(`.${why}`),
+		]);
+	},
+	/* The entity is the column whose rule was removed; `detail.menu` names
+	 * its menu and `detail.kept` the column whose rule stayed. */
+	"order-rule-removed-same-property": (entry: DocumentNoticeEntry, ctx) => {
+		const kept = entry.detail?.kept;
+		return noticeLine([
+			...menuLead(entry.detail?.menu, "removed", "Removed"),
+			text(" the order rule on "),
+			entityPart(entry.entity, ctx),
+			text(
+				`. It ordered by the same value as the rule on ${kept ?? "another column"}, and a list keeps one for each value. Apps installed from CommCare HQ followed the removed rule, so their order may change.`,
+			),
+		]);
+	},
+	/* The entity is the column the rule moved from; `detail.menu` names its
+	 * menu and `detail.to` the first column with that value, which holds the
+	 * rule now. */
+	"order-rule-moved-to-first-column": (entry: DocumentNoticeEntry, ctx) => {
+		const to = entry.detail?.to;
+		return noticeLine([
+			...menuLead(entry.detail?.menu, "the", "The"),
+			text(" order rule on "),
+			entityPart(entry.entity, ctx),
+			text(
+				` moved to ${to ?? "the first column with that value"}. CommCare gives an order rule to the first column with that value. Downloaded apps and Preview now order as apps installed from CommCare HQ do.`,
+			),
+		]);
+	},
+	/* The entity is the menu whose tile list holds a filled cell. */
+	"tile-cell-defaults-set": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				": each tile cell now states its size and alignment. On Android, tile text is slightly smaller and an image sits at the start of its cell, not its centre. In Web Apps, tile text is larger: it no longer follows the list's size. In a right-to-left language, text that followed the reading direction now aligns left.",
+			),
+		]),
 	/* `detail.saved` and `detail.incomplete`: the app's two settings after the
 	 * cutover, each "on" or "off". */
 	"android-form-lists-setting-stored": (entry: DocumentNoticeEntry) => {
@@ -371,6 +462,93 @@ export const MIGRATION_NOTICE_COPY = {
 			entityPart(entry.entity, ctx),
 			text(
 				": its close is now written as a case change in the form. CommCare HQ shows no close on its Case Management tab, and the next publish asks about one more plan feature.",
+			),
+		]),
+	/* The entity is the menu; `detail.cause` is the first of `id-mapping`,
+	 * `image-map`, `interval`, `option-label` and `unsorted` that holds for
+	 * the field the list's first rule lands on, `detail.column` names that
+	 * field for the first four, and `detail.kind` is its column kind. */
+	"case-list-order-changes": (entry: DocumentNoticeEntry, ctx) => {
+		const menu = entityPart(entry.entity, ctx);
+		const column = entry.detail?.column ?? "its first column";
+		switch (entry.detail?.cause) {
+			case "id-mapping":
+				return noticeLine([
+					menu,
+					text(
+						`: the list now orders ${column} by the order of its mapping table. Apps installed from CommCare HQ ordered it by label, and downloaded apps and Preview by the stored value. Where fuzzy search is on, a near miss of a label no longer finds its case in apps installed from CommCare HQ.`,
+					),
+				]);
+			case "image-map":
+				return noticeLine([
+					menu,
+					text(
+						`: downloaded apps and Preview now order ${column} by the order of its image table, as apps installed from CommCare HQ already do.`,
+					),
+				]);
+			case "interval":
+				return noticeLine([
+					menu,
+					text(
+						`: downloaded apps and Preview now order ${column} by the text it shows, not by its date, as apps installed from CommCare HQ already do.`,
+					),
+				]);
+			case "option-label":
+				return noticeLine([
+					menu,
+					text(
+						`: downloaded apps and Preview now order ${column} by its labels, not by the stored values, as apps installed from CommCare HQ already do.`,
+					),
+				]);
+			default:
+				return noticeLine([
+					menu,
+					text(
+						`: with no order rule, Preview now lists cases by the first column, as devices do.${
+							entry.detail?.kind === "date"
+								? " Downloaded apps now order that column by date, not by the text it shows."
+								: ""
+						}`,
+					),
+				]);
+		}
+	},
+	/* The entity is the menu whose list has no tile layout and holds a
+	 * column hidden from Results. */
+	"case-list-search-matches-hidden-fields": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				": the list's search now also matches the fields hidden from Results.",
+			),
+		]),
+	/* The entity is the column hidden from Results that carries an order
+	 * rule; `detail.menu` names its menu. */
+	"hidden-order-column-not-in-sort-menu": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			...menuLead(
+				entry.detail?.menu,
+				"Android's Sort menu",
+				"Android's Sort menu",
+			),
+			text(" no longer offers "),
+			entityPart(entry.entity, ctx),
+			text(
+				" in a downloaded app, because the column is hidden. The list's own order still follows it.",
+			),
+		]),
+	/* The entity is the column over `case_id`; `detail.menu` names its menu
+	 * and `detail.kind` is `plain`, `phone` or `image-map`. */
+	"record-id-column-now-shows": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			...menuBeside(entry.detail?.menu),
+			entityPart(entry.entity, ctx),
+			text(
+				`: this column was blank in apps installed from CommCare HQ. After the next publish it shows ${
+					entry.detail?.kind === "image-map"
+						? "the image mapped to each case's ID"
+						: "each case's ID"
+				}.`,
 			),
 		]),
 	"local-archive-changes": () =>

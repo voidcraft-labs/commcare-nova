@@ -33,7 +33,7 @@ import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
-import { buildCaseTypeMap } from "../../store";
+import { buildCaseTypeMap, type SortKey } from "../../store";
 import { PostgresCaseStore } from "../store";
 
 const APP_ID = "app-grouped";
@@ -148,8 +148,14 @@ async function seed(store: PostgresCaseStore): Promise<{
 	return { north, south };
 }
 
-const byName = [
-	{ direction: "asc" as const, expression: term(prop("visit", "case_name")) },
+const byName: SortKey[] = [
+	{
+		kind: "expression",
+		expression: term(prop("visit", "case_name")),
+		comparator: "text",
+		direction: "asc",
+		blanks: "first",
+	},
 ];
 
 describe("PostgresCaseStore.queryGrouped", () => {

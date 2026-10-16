@@ -99,8 +99,8 @@ export interface TileCellProjection {
 	readonly gridArea: string;
 	readonly horizontalAlign: ResolvedTileAlign;
 	readonly verticalAlign: ResolvedTileAlign;
-	/** Absent means "inherit the list's size", not "medium". */
-	readonly fontSize?: TileFontSize;
+	/** The cell's own size; a tile's text never follows the list's. */
+	readonly fontSize: TileFontSize;
 	readonly mode: TileCellLayoutMode;
 	readonly showBorder: boolean;
 	readonly showShading: boolean;
@@ -124,11 +124,11 @@ export interface TileGridProjection {
  * physical spelling CommCare's allow-list carries.
  */
 const HORIZONTAL_ALIGN: Readonly<
-	Record<NonNullable<TileCell["horizontalAlign"]>, ResolvedTileAlign>
+	Record<TileCell["horizontalAlign"], ResolvedTileAlign>
 > = { left: "start", center: "center", right: "end" };
 
 const VERTICAL_ALIGN: Readonly<
-	Record<NonNullable<TileCell["verticalAlign"]>, ResolvedTileAlign>
+	Record<TileCell["verticalAlign"], ResolvedTileAlign>
 > = { top: "start", middle: "center", bottom: "end" };
 
 /**
@@ -170,15 +170,9 @@ export function projectTileGrid(
 				columnUuid: uuid,
 				gridY: cell.y,
 				gridArea: tileCellGridArea(cell),
-				horizontalAlign:
-					cell.horizontalAlign === undefined
-						? "start"
-						: HORIZONTAL_ALIGN[cell.horizontalAlign],
-				verticalAlign:
-					cell.verticalAlign === undefined
-						? "start"
-						: VERTICAL_ALIGN[cell.verticalAlign],
-				...(cell.fontSize !== undefined && { fontSize: cell.fontSize }),
+				horizontalAlign: HORIZONTAL_ALIGN[cell.horizontalAlign],
+				verticalAlign: VERTICAL_ALIGN[cell.verticalAlign],
+				fontSize: cell.fontSize,
 				mode,
 				showBorder,
 				showShading,

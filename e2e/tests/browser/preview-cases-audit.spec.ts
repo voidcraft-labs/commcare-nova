@@ -293,3 +293,50 @@ test("Worker case navigation follows Spanish and preserves the open record when 
 		}
 	}
 });
+
+test("Preview's quick filter finds a case by a column hidden from Results and by a tile's order carrier", async ({
+	page,
+}) => {
+	const boundary = resolve("e2e/lib/preview-cases-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-hidden-search-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+		},
+	);
+	try {
+		/* Neither value is on screen: the row list hides `field_4` from
+		 * Results, and the tile carries `field_5` only to order the list. A
+		 * device's search matches both, so Preview's filter does too. */
+		for (const [layout, hiddenValue] of [
+			["rows", "Fourth value"],
+			["tile", "Fifth value"],
+		] as const) {
+			await page.goto(`${peer.origin}/?layout=${layout}`);
+			try {
+				const cases = page
+					.getByRole("list", { name: "Cases", exact: true })
+					.getByRole("listitem");
+				await expect(cases).toHaveCount(1);
+				await expect(page.getByText(hiddenValue)).toHaveCount(0);
+				const filter = page.getByRole("textbox", {
+					name: "Filter results",
+					exact: true,
+				});
+				await filter.fill(hiddenValue.toLocaleLowerCase());
+				await expect(cases).toHaveCount(1);
+				await filter.fill("nothing here");
+				await expect(cases).toHaveCount(0);
+			} finally {
+				if (!page.isClosed())
+					await page.evaluate(() => window.previewHiddenSearch?.dispose());
+			}
+		}
+	} finally {
+		await peer.close();
+	}
+});

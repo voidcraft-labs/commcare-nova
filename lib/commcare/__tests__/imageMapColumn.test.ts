@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { imageMapColumn, plainColumn, proseText } from "@/lib/domain";
 import { mediaIds, mediaWireFixture } from "./mediaWireFixtures";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
@@ -91,4 +94,79 @@ describe("image mapping at both export boundaries", () => {
 			// Executable matching, first-match order, punctuation and no-match behavior
 			// are independently exercised by native Core over local + actual HQ suites.
 		});
+});
+
+describe("an image map with no entries", () => {
+	/** A media-free app whose list is a Name column and an image map with no
+	 *  entries, as the builder's Value images column is born. */
+	function emptyImageMapDoc() {
+		return buildDoc({
+			appName: "Zones",
+			modules: [
+				{
+					name: "Households",
+					caseType: "household",
+					caseListOnly: true,
+					caseListConfig: resolveCaseListConfig({
+						columns: [
+							plainColumn(testUuid("empty-map-name"), "case_name", "Name"),
+							imageMapColumn(testUuid("empty-map-zone"), "zone", "Zone", []),
+						],
+						searchInputs: [],
+					}),
+				},
+			],
+			caseTypes: [
+				{
+					name: "household",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "zone", label: proseText("Zone") },
+					],
+				},
+			],
+		});
+	}
+
+	function caseDetail(suite: XmlEvidence, id: string): XmlEvidence {
+		const detail = descend(suite).find(
+			(node) => node.name === "detail" && node.attributes.id === id,
+		);
+		if (detail === undefined) throw new Error(`Missing detail ${id}`);
+		return detail;
+	}
+
+	it("is the same image column with no manifest and with an empty one", () => {
+		const doc = emptyImageMapDoc();
+		const exports = [{}, { assets: new Map() }].map((options) => {
+			const hq = expandDoc(doc, options);
+			const zip = new AdmZip(
+				compileCcz(hq, doc.appName, doc, {
+					...options,
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
+			);
+			return {
+				details: hq.modules[0].case_details,
+				suite: readXmlEvidence(zip.readAsText("suite.xml")),
+			};
+		});
+		const [manual, upload] = exports;
+		expect(manual.details).toEqual(upload.details);
+		for (const detail of [manual.details.short, manual.details.long]) {
+			expect(detail.columns[1]).toMatchObject({
+				field: "zone",
+				format: "enum-image",
+				enum: [],
+			});
+		}
+		for (const id of ["m0_case_short", "m0_case_long"]) {
+			const detail = caseDetail(manual.suite, id);
+			expect(detail).toEqual(caseDetail(upload.suite, id));
+			const image = descend(detail).find(
+				(node) => node.name === "template" && node.attributes.form === "image",
+			);
+			expect(image?.attributes.width).toBe("13%");
+		}
+	});
 });

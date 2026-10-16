@@ -58,6 +58,12 @@ const ENTRY_POINT_ENTITY = {
 	nameAtMigration: "intake",
 } as const;
 
+const COLUMN_ENTITY = {
+	type: "caseListColumn",
+	uuid: "01992000-0000-7000-8000-0000000000c9",
+	nameAtMigration: "Zone",
+} as const;
+
 const LOOKUP_ENTITY = {
 	type: "lookupTable",
 	uuid: "01992000-0000-7000-8000-0000000000c1",
@@ -167,6 +173,56 @@ const ENTRIES: Record<
 		"session-read-removed",
 		FIELD_ENTITY,
 		{ form: "Intake", datum: "case_id_new" },
+	),
+	"id-mapping-entry-removed": documentEntries(
+		"id-mapping-entry-removed",
+		COLUMN_ENTITY,
+		{ menu: "Households", value: "a'b" },
+	),
+	"date-pattern-apostrophe-replaced": documentEntries(
+		"date-pattern-apostrophe-replaced",
+		COLUMN_ENTITY,
+		{ menu: "Households" },
+	),
+	"tile-order-rule-removed": documentEntries(
+		"tile-order-rule-removed",
+		COLUMN_ENTITY,
+		{ menu: "Households", shape: "case_id" },
+	),
+	"order-rule-removed-same-property": documentEntries(
+		"order-rule-removed-same-property",
+		COLUMN_ENTITY,
+		{ menu: "Households", kept: "Score" },
+	),
+	"order-rule-moved-to-first-column": documentEntries(
+		"order-rule-moved-to-first-column",
+		COLUMN_ENTITY,
+		{ menu: "Households", to: "Zone name" },
+	),
+	"tile-cell-defaults-set": documentEntries(
+		"tile-cell-defaults-set",
+		MODULE_ENTITY,
+		{},
+	),
+	"case-list-order-changes": documentEntries(
+		"case-list-order-changes",
+		MODULE_ENTITY,
+		{ cause: "unsorted", kind: "date" },
+	),
+	"case-list-search-matches-hidden-fields": documentEntries(
+		"case-list-search-matches-hidden-fields",
+		MODULE_ENTITY,
+		{},
+	),
+	"hidden-order-column-not-in-sort-menu": documentEntries(
+		"hidden-order-column-not-in-sort-menu",
+		COLUMN_ENTITY,
+		{ menu: "Households" },
+	),
+	"record-id-column-now-shows": documentEntries(
+		"record-id-column-now-shows",
+		COLUMN_ENTITY,
+		{ menu: "Households", kind: "image-map" },
 	),
 	"option-label-filled": {
 		withDetail: {
@@ -684,6 +740,147 @@ describe("the form-list, validation and download lines", () => {
 			).text,
 		).toBe(
 			"After the next publish to field-ops, each app update resets three of a worker's own settings: fuzzy search, automatic updates and text to speech.",
+		);
+	});
+});
+
+describe("the case list lines", () => {
+	const document = (reason: string, entity: unknown, detail?: object) =>
+		parsed({ kind: "document", reason, entity, ...(detail && { detail }) });
+	const column = (name: string) => ({
+		...COLUMN_ENTITY,
+		nameAtMigration: name,
+	});
+	const menu = { ...MODULE_ENTITY, nameAtMigration: "Households" };
+	const say = (raw: MigrationNoticeEntry) => renderNoticeEntry(raw, REMOVED);
+
+	it("name the menu and the column each rewritten order rule, mapping and pattern belongs to", () => {
+		const removed = say(
+			document("id-mapping-entry-removed", column("Zone"), {
+				menu: "Households",
+				value: "a'b",
+			}),
+		);
+		expect(removed.text).toBe(
+			"Households, Zone: the mapping for a'b is gone. CommCare HQ's ID mapping can't hold that value, so cases with it now show nothing in this column.",
+		);
+		expect(
+			removed.parts.filter((part) => part.kind === "entity").map((p) => p.text),
+		).toEqual(["Zone"]);
+		expect(
+			say(
+				document("date-pattern-apostrophe-replaced", column("Visited"), {
+					menu: "Households",
+				}),
+			).text,
+		).toBe(
+			"Households, Visited: the date format's straight apostrophe is now a curved one (’). CommCare HQ's date column can't hold a straight one, and an app holding one could not be installed from CommCare HQ.",
+		);
+		expect(
+			say(
+				document("order-rule-removed-same-property", column("Score copy"), {
+					menu: "Households",
+					kept: "Score",
+				}),
+			).text,
+		).toBe(
+			"Households: removed the order rule on Score copy. It ordered by the same value as the rule on Score, and a list keeps one for each value. Apps installed from CommCare HQ followed the removed rule, so their order may change.",
+		);
+		expect(
+			say(
+				document("order-rule-moved-to-first-column", column("Zone"), {
+					menu: "Households",
+					to: "Zone name",
+				}),
+			).text,
+		).toBe(
+			"Households: the order rule on Zone moved to Zone name. CommCare gives an order rule to the first column with that value. Downloaded apps and Preview now order as apps installed from CommCare HQ do.",
+		);
+	});
+
+	it("choose the tile order sentence by the shape the rule had", () => {
+		expect(
+			say(
+				document("tile-order-rule-removed", column("Risk score"), {
+					menu: "Households",
+					shape: "calculated",
+				}),
+			).text,
+		).toBe(
+			"Households: the list no longer orders by Risk score. A tile list can't order by a calculation that isn't on the tile.",
+		);
+		expect(
+			say(
+				document("tile-order-rule-removed", column("Record ID"), {
+					menu: "Households",
+					shape: "case_id",
+				}),
+			).text,
+		).toBe(
+			"Households: the list no longer orders by Record ID. A tile list can't order by Record ID unless the column is on the tile.",
+		);
+	});
+
+	it("say what a filled tile cell changes on each runtime", () => {
+		expect(say(document("tile-cell-defaults-set", menu)).text).toBe(
+			"Households: each tile cell now states its size and alignment. On Android, tile text is slightly smaller and an image sits at the start of its cell, not its centre. In Web Apps, tile text is larger: it no longer follows the list's size. In a right-to-left language, text that followed the reading direction now aligns left.",
+		);
+	});
+
+	it("choose the order change sentence by its cause, naming the column for the first four", () => {
+		const changes = (detail: object) =>
+			say(document("case-list-order-changes", menu, detail)).text;
+		expect(changes({ cause: "id-mapping", column: "Zone name" })).toBe(
+			"Households: the list now orders Zone name by the order of its mapping table. Apps installed from CommCare HQ ordered it by label, and downloaded apps and Preview by the stored value. Where fuzzy search is on, a near miss of a label no longer finds its case in apps installed from CommCare HQ.",
+		);
+		expect(changes({ cause: "image-map", column: "Zone image" })).toBe(
+			"Households: downloaded apps and Preview now order Zone image by the order of its image table, as apps installed from CommCare HQ already do.",
+		);
+		expect(changes({ cause: "interval", column: "Seen" })).toBe(
+			"Households: downloaded apps and Preview now order Seen by the text it shows, not by its date, as apps installed from CommCare HQ already do.",
+		);
+		expect(changes({ cause: "option-label", column: "Level label" })).toBe(
+			"Households: downloaded apps and Preview now order Level label by its labels, not by the stored values, as apps installed from CommCare HQ already do.",
+		);
+		expect(changes({ cause: "unsorted", kind: "plain" })).toBe(
+			"Households: with no order rule, Preview now lists cases by the first column, as devices do.",
+		);
+		expect(changes({ cause: "unsorted", kind: "date" })).toBe(
+			"Households: with no order rule, Preview now lists cases by the first column, as devices do. Downloaded apps now order that column by date, not by the text it shows.",
+		);
+	});
+
+	it("say what a hidden field means for the list's search and for Android's Sort menu", () => {
+		expect(
+			say(document("case-list-search-matches-hidden-fields", menu)).text,
+		).toBe(
+			"Households: the list's search now also matches the fields hidden from Results.",
+		);
+		expect(
+			say(
+				document("hidden-order-column-not-in-sort-menu", column("Rank"), {
+					menu: "Households",
+				}),
+			).text,
+		).toBe(
+			"Households: Android's Sort menu no longer offers Rank in a downloaded app, because the column is hidden. The list's own order still follows it.",
+		);
+	});
+
+	it("say what a Record ID column shows after the next publish, by its kind", () => {
+		const shows = (kind: string) =>
+			say(
+				document("record-id-column-now-shows", column("Record ID"), {
+					menu: "Households",
+					kind,
+				}),
+			).text;
+		expect(shows("plain")).toBe(
+			"Households, Record ID: this column was blank in apps installed from CommCare HQ. After the next publish it shows each case's ID.",
+		);
+		expect(shows("phone")).toBe(shows("plain"));
+		expect(shows("image-map")).toBe(
+			"Households, Record ID: this column was blank in apps installed from CommCare HQ. After the next publish it shows the image mapped to each case's ID.",
 		);
 	});
 });

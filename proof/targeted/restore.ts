@@ -18,7 +18,7 @@ import type { ChildNode } from "domhandler";
 import { el, text } from "@/lib/commcare/elementBuilders";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 
-/** The user Core's template restore registers, and whom every case below belongs to. */
+/** The user Core's template restore registers, and whom every case below belongs to unless it names another owner. */
 export const RESTORE_USER_ID = "test_uuid";
 const CASE_XMLNS = "http://commcarehq.org/case/transaction/v2";
 
@@ -26,6 +26,8 @@ export interface RestoreCase {
 	readonly id: string;
 	readonly type: string;
 	readonly name: string;
+	/** The case's owner, where it is not the restore's user. */
+	readonly owner?: string;
 	/** Custom properties, in the order the case's update writes them. */
 	readonly properties?: Readonly<Record<string, string>>;
 }
@@ -41,7 +43,7 @@ function caseBlock(entry: RestoreCase): ChildNode {
 	const create = el("create", {}, [
 		el("case_type", {}, [text(entry.type)]),
 		el("case_name", {}, [text(entry.name)]),
-		el("owner_id", {}, [text(RESTORE_USER_ID)]),
+		el("owner_id", {}, [text(entry.owner ?? RESTORE_USER_ID)]),
 	]);
 	const children: ChildNode[] = [create];
 	const properties = Object.entries(entry.properties ?? {});

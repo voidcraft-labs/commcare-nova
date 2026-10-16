@@ -34,6 +34,7 @@ DOCUMENTS = (
     "targeted-hidden-column",
     "targeted-media-slots",
     "targeted-survey-menu",
+    "targeted-tile-hidden-order",
 )
 # Every retained control (``proof/controls/``) a test of this package reads, by id, and no other.
 CONTROLS = ("case-operation-query",)

@@ -33,7 +33,7 @@ import type {
 	Expression,
 	SqlBool,
 } from "kysely";
-import { expressionBuilder } from "kysely";
+import { expressionBuilder, sql } from "kysely";
 import type { CaseType } from "@/lib/domain/blueprint";
 import {
 	COMMCARE_DATE_FORMAT_TOKENS,
@@ -223,6 +223,31 @@ export function compileExpression(
 	}
 }
 
+/**
+ * A `ValueExpression` as the text a device reads for it, for a case list's
+ * order. Every value reads as `compileExpression` gives it, but a multi
+ * select: Nova stores its tokens as a JSON array, and a device reads them
+ * joined by one space, so the order compares that text, blank when no token
+ * is selected. A stored value that is not an array reads as its own text.
+ */
+export function compileDeviceTextExpression(
+	expr: ValueExpression,
+	ctx: ExpressionCompileContext,
+): AliasableExpression<unknown> {
+	const compiled = compileExpression(expr, ctx);
+	if (
+		checkExpression(expr, expressionTypeContext(ctx), [], []) !== "multi_select"
+	)
+		return compiled;
+	return sql<unknown>`(case jsonb_typeof(${compiled})
+		when 'array' then (
+			select string_agg(tokens.token, ' ' order by tokens.position)
+			from jsonb_array_elements_text(${compiled}) with ordinality as tokens(token, position)
+		)
+		else ${compiled} #>> '{}'
+	end)`;
+}
+
 /** Module-scoped expression builder. */
 const eb = expressionBuilder<Database, keyof Database>();
 
@@ -233,7 +258,7 @@ const eb = expressionBuilder<Database, keyof Database>();
  * into yesterday. Non-preview callers have the same explicit UTC fallback
  * as format-date.
  */
-function compileToday(
+export function compileToday(
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
@@ -325,9 +350,11 @@ function branchAlias(ctx: ExpressionCompileContext, name: string): string {
  *
  * `btrim` accepts a value pasted with harmless surrounding whitespace. The
  * `timestamp` cast in the pinned arm still lets Postgres reject impossible
- * calendar dates rather than normalizing them silently.
+ * calendar dates rather than normalizing them silently. Exported for the
+ * interval-text sort key (`compileIntervalText.ts`), which reads a stored
+ * date in the viewer's zone the same way.
  */
-function compilePinnedInstant(
+export function compilePinnedInstant(
 	inner: AliasableExpression<unknown>,
 	zone: string,
 ): AliasableExpression<unknown> {

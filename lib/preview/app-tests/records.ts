@@ -1,6 +1,7 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import { noMatchesFormOf } from "@/lib/domain";
 import { readCases } from "../engine/caseDataBindingHelpers";
+import { previewCaseStoreOrder } from "../engine/caseListOrder";
 import { evaluateSearch } from "../engine/evaluateForm";
 import { previewSessionValues } from "../engine/identity";
 import { previewCaseStoreBindings } from "../engine/runtimeBindings";
@@ -76,6 +77,14 @@ export async function appTestRecords(
 						: undefined,
 					caseTypeSchemas: context.caseTypeSchemas,
 					caseListConfig: mod.caseListConfig,
+					...(mod.caseListConfig !== undefined && {
+						order: previewCaseStoreOrder(
+							{ ...mod, caseType: mod.caseType },
+							context.doc,
+							mod.caseListConfig,
+							context.language,
+						),
+					}),
 					parentCase: caseContext.parentCase
 						? {
 								caseType: caseContext.parentCase.caseType,

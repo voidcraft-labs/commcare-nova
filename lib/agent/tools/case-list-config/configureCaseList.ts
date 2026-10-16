@@ -50,6 +50,7 @@ import {
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	CALCULATED_SEARCH_EXPRESSION_GUIDANCE,
+	CASE_LIST_ORDER_GUIDANCE,
 	columnInputSchema,
 	newUuid,
 	searchInputDefInputSchema,
@@ -68,7 +69,7 @@ export const configureCaseListInputSchema = z
 			.min(1)
 			.optional()
 			.describe(
-				`Columns to add, in their initial Results and Details order. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE}`,
+				`Columns to add, in their initial Results and Details order. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE} ${CASE_LIST_ORDER_GUIDANCE}`,
 			),
 		searchInputs: z
 			.array(searchInputDefInputSchema)

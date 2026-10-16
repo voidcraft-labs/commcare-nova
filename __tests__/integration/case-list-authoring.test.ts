@@ -18,8 +18,9 @@ import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixtu
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
+import { moduleCaseListOrderPlan } from "@/lib/commcare/suite/case-list/orderPlanOptions";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
-import { buildSortDirectives } from "@/lib/commcare/suite/case-list/sortKeys";
+import { planSortNodes } from "@/lib/commcare/suite/case-list/sortKeys";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -267,13 +268,15 @@ describe("wire emission", () => {
 		expect(result.xml).toContain('<variable name="calculated_property">');
 		// Sort priority ordering — `age` carries priority 0 → order=1
 		// (descending integer). `case_name` carries priority 1 →
-		// order=2 (ascending plain).
+		// order=2 (ascending plain). The other fields' `<sort>` blocks
+		// are the keys they keep with no rule, and carry no `order`.
 		const sorts = findAll(
 			(node) => node.name === "sort",
 			parseDocument(result.xml, { xmlMode: true }).children,
 		);
 		expect(
 			sorts
+				.filter((sort) => sort.attribs.order !== undefined)
 				.map((sort) => ({
 					...sort.attribs,
 					order: sort.attribs.order,
@@ -283,11 +286,18 @@ describe("wire emission", () => {
 				}))
 				.sort((a, b) => Number(a.order) - Number(b.order)),
 		).toEqual([
-			{ type: "int", order: "1", direction: "descending", xpath: ["age"] },
+			{
+				type: "int",
+				order: "1",
+				direction: "descending",
+				blanks: "last",
+				xpath: ["age"],
+			},
 			{
 				type: "string",
 				order: "2",
 				direction: "ascending",
+				blanks: "first",
 				xpath: ["case_name"],
 			},
 		]);
@@ -365,12 +375,15 @@ describe("wire emission", () => {
 		const shortResult = emitShortDetail({ module: mod, moduleIndex: 0, doc });
 		const longResult = emitLongDetail({ module: mod, moduleIndex: 0, doc });
 
-		// Short detail — list-only filtered out; detail-only column
-		// (`region`) absent from the short XML; shared + list-only
-		// (`age`) present.
+		// Short detail — shared + list-only (`age`) shown; the
+		// detail-only column (`region`) is a hidden field: an empty
+		// header and a zero-width template over the raw property, which
+		// the list's search still matches.
 		expect(shortResult.xml).toContain('<xpath function="case_name"/>');
 		expect(shortResult.xml).toContain('<xpath function="age"/>');
-		expect(shortResult.xml).not.toContain('<xpath function="region"/>');
+		expect(shortResult.xml).toContain(
+			'<field><header width="0"><text/></header><template width="0"><text><xpath function="region"/></text></template></field>',
+		);
 
 		// Long detail — detail-only present; list-only (`age`)
 		// absent.
@@ -411,8 +424,9 @@ describe("wire emission", () => {
 
 // =================================================================
 // 4. Calc-column comparator safety — unresolved and null-shaped
-//    values defensively fall back to `plain`, while expressions Core
-//    cannot evaluate on-device fail closed at the wire boundary.
+//    values defensively fall back to the text comparator, while
+//    expressions Core cannot evaluate on-device fail closed at the
+//    wire boundary.
 // =================================================================
 
 describe("calc-column comparator-type fallback", () => {
@@ -456,25 +470,25 @@ describe("calc-column comparator-type fallback", () => {
 		return { mod, doc };
 	}
 
-	it("falls back to plain when checkExpression returns undefined (unresolvable property)", () => {
+	it("falls back to text when checkExpression returns undefined (unresolvable property)", () => {
 		// Resolution failure — `prop("patient", "ghost")` is not a
 		// declared property and not a CCHQ standard property; the
 		// type checker returns `undefined`.
 		const { mod, doc } = buildCalcModule(term(prop("patient", "ghost")));
-		const directives = buildSortDirectives(mod, doc);
-		const dir = directives.get(calcUuid);
+		const directives = planSortNodes(moduleCaseListOrderPlan(mod, doc, true));
+		const dir = directives.byUuid.get(calcUuid);
 		if (!dir) throw new Error("missing directive on calc column");
-		expect(dir.type).toBe("plain");
+		expect(dir.type).toBe("text");
 	});
 
-	it("falls back to plain when checkExpression returns ANY_TYPE (null literal)", () => {
+	it("falls back to text when checkExpression returns ANY_TYPE (null literal)", () => {
 		// `null` literal — the type checker returns `ANY_TYPE`, the
 		// permissive sentinel that compares against every type.
 		const { mod, doc } = buildCalcModule(term(literal(null)));
-		const directives = buildSortDirectives(mod, doc);
-		const dir = directives.get(calcUuid);
+		const directives = planSortNodes(moduleCaseListOrderPlan(mod, doc, true));
+		const dir = directives.byUuid.get(calcUuid);
 		if (!dir) throw new Error("missing directive on calc column");
-		expect(dir.type).toBe("plain");
+		expect(dir.type).toBe("text");
 	});
 });
 

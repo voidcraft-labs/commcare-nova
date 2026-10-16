@@ -66,6 +66,7 @@
 import {
 	type BlueprintDoc,
 	type CaseType,
+	type Column,
 	effectiveCaseSearchConfig,
 	type Module,
 	searchInputRuntimeValueType,
@@ -195,6 +196,43 @@ export function formatPath(path: CheckPath): string {
 	return path
 		.map((seg) => (typeof seg === "number" ? `[${seg}]` : seg))
 		.join(".");
+}
+
+// ── Column handles ───────────────────────────────────────────────
+
+/**
+ * The handle a finding's message gives a column: `"<header>" (column #<n>)`,
+ * where `index` is 0-based in whichever order the rule counts. A column with
+ * no header is named by its property, and a calculated one with neither by
+ * its position alone.
+ */
+export function describeColumn(column: Column, index: number): string {
+	const header = column.header.trim();
+	if (header.length > 0) return `"${header}" (column #${index + 1})`;
+	if (column.kind !== "calculated" && column.field.trim().length > 0) {
+		return `"${column.field}" (column #${index + 1})`;
+	}
+	return `column #${index + 1}`;
+}
+
+/** `describeColumn` where it begins a sentence. */
+export function describeColumnAtSentenceStart(
+	column: Column,
+	index: number,
+): string {
+	const description = describeColumn(column, index);
+	return description.charAt(0).toUpperCase() + description.slice(1);
+}
+
+/**
+ * The label a finding's details carry for a column the builder names in its
+ * own line: the header, or where it has none "a calculation" for a
+ * calculated column and the property name for any other.
+ */
+export function caseListColumnLabel(column: Column): string {
+	const header = column.header.trim();
+	if (header.length > 0) return header;
+	return column.kind === "calculated" ? "a calculation" : column.field;
 }
 
 // ── Property resolution helpers ──────────────────────────────────

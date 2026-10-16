@@ -65,6 +65,7 @@ import {
 	questionIdProblemSentence,
 	sourceWritePropertySentence,
 } from "@/lib/domain/questionId";
+import { standardCasePropertyDisplayLabel } from "@/lib/domain/standardCaseProperties";
 
 // ── Interpolation helpers ──────────────────────────────────────────
 //
@@ -497,6 +498,21 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
 		`Two items in ${q(modName(e))}'s Default order use the same position. Move one of them or remove it from the order.`,
+	CASE_LIST_SORT_PROPERTY_AMBIGUOUS: (e) =>
+		det(e, "shape", "") === "first-column-differs"
+			? `In ${q(modName(e))}, CommCare gives this order rule to the first column with the same value, which is ${q(det(e, "firstLabel", "another column"))}, and that column orders differently. You can put the order rule on that column, or move this column ahead of it.`
+			: `${q(modName(e))} already orders by the same value on ${q(det(e, "otherLabel", "another column"))}. CommCare keeps one order rule for each value, so the list needs only that one.`,
+	CASE_TILE_HIDDEN_CALCULATED_SORT: (e) => {
+		if (det(e, "shape", "") === "case_id") {
+			const recordId = standardCasePropertyDisplayLabel("case_id");
+			return `${q(modName(e))}'s tile list can't order by ${recordId} unless ${recordId} is on the tile. You can show it in Results and place it on the tile.`;
+		}
+		return `${q(modName(e))}'s tile list can't order by a calculation that isn't on the tile. You can place that column on the tile, or order by a case property.`;
+	},
+	CASE_LIST_ID_MAPPING_KEY_CHARACTERS: (e) =>
+		`${q(modName(e))} has a value label for ${q(det(e, "value", "a saved value"))}, and a saved value there can't hold &, <, >, " or '. You can change the value or remove its label.`,
+	CASE_LIST_DATE_PATTERN_APOSTROPHE: (e) =>
+		`A date style in ${q(modName(e))} holds a straight apostrophe ('), and CommCare HQ's date column has no way to store one. You can use a curved one (’).`,
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: (e) =>
 		`An item on ${q(modName(e))}'s tile runs off the edge of the layout. Move it back inside, or make it narrower or shorter.`,
 	CASE_LIST_TILE_CELLS_OVERLAP: (e) =>

@@ -1,43 +1,39 @@
-"""How Web Apps lays out a custom tile's cells, for Nova's export and for the app a Case List save leaves.
+"""How Web Apps lays out a custom tile, for Nova's export and for the app a Case List save leaves.
 
-Nova leaves a tile cell without an alignment or a font size where the
-author set none. HQ's Case List page, saved without a change, writes
-``left``, ``start`` and ``medium`` into every cell, and HQ's build carries
-all three into the suite (finding 42, and defect 14's tile part). Formplayer
-hands the client each as the suite holds it (for the vertical alignment,
-the rule ``tile-vertical-align-start``'s test). What a worker sees is then the Web
-Apps client's: it writes a style element for the tile's grid
-(``menus/views.js::buildCellLayout``, ``getValidFieldAlignment``), and the
-browser lays the cells out from it under HQ's stylesheets.
+- **Finding 42 and defect 14's tile part** (``targeted-custom-tile``). HQ's
+  Case List page writes ``left``, ``start`` and ``medium`` into every tile
+  cell that holds none, and HQ's build carries all three into the suite.
+  Nova now writes all three into every cell, so the save changes none.
+  Contract: over the released build of Nova's export and the released build
+  after HQ's own Case List page saved the same app, the client run in the
+  lane's Chromium against Formplayer gives every cell the same layout:
+  ``text-align`` and ``justify-self`` ``left``, ``align-self`` ``start``,
+  and the browser's medium (16px), from the style element the client
+  writes (``menus/views.js::buildCellLayout``, ``getValidFieldAlignment``)
+  under HQ's stylesheets. Plausible failures: a client that drops the style
+  (every cell would compute to the stylesheet's own size, 12px), a page
+  with no stylesheet, a save that never reached the stored app (the saved
+  release's columns are checked), or a second release that ran the first's
+  install (the two build ids differ).
 
-Contract: over the released build of Nova's export and the released build
-after HQ's own Case List page saved the same app, the client run in the
-lane's Chromium against Formplayer gives each cell
-
-- the same vertical alignment: an absent one and ``start`` both compute to
-  ``align-self: start``, so the register's two vertical-alignment entries
-  are an equivalence a real client now shows;
-- a different horizontal alignment: ``start`` for an absent one, ``left``
-  for the saved app's, which a browser renders alike in a left-to-right
-  language and apart in a right-to-left one, the harm finding 42 states;
-- a different font size: an absent one leaves the cell at the size HQ's
-  stylesheet gives a tile (12px), and ``medium`` is the browser's medium
-  (16px), so the save makes every tile's text a third larger;
-- the same grid area and text.
-
-Plausible failures: a client that drops the style (every cell would compute
-alike), a page with no stylesheet (an absent size would compute to the
-browser's own default, which is also 16px, and the size difference would
-vanish: the first run of this test, before the page had HQ's stylesheets,
-read exactly that), a save that never reached the stored app (the saved
-release's columns are checked), or a second release that ran the first's
-install (the two build ids differ, and so do the styles Formplayer answered
-with).
+- **The corrected tile clause** (``targeted-tile-hidden-order``). A tile
+  list's order rules on two columns hidden from Results, neither of which
+  is on the tile, are sort rows with no stored column, for which HQ's build
+  appends a zero-width field it does not style. Contract, over the released
+  build with the document's cases, ranked by hand so the first rule's order
+  is the reverse of the names': the rows follow the first rule, each row
+  lays out the two placed cells and no other, and a search for a value only
+  the first hidden column holds finds its case alone. Plausible failures: a
+  carrier the client draws as a cell, a list ordered by the names (the
+  default), and a search that never reads the carrier.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from proof.editors import pages
+from proof.observe import casedata
 from proof.webapps import hq as webapps_hq
 from proof.webapps import static, steps
 from proof.webapps.session import Session
@@ -51,7 +47,7 @@ def _tile_columns(release):
     return release.doc["modules"][0]["case_details"]["short"]["columns"]
 
 
-def test_web_apps_lays_a_tile_out_with_the_same_vertical_alignment_and_another_horizontal_one_and_size_after_the_save(
+def test_web_apps_lays_a_tile_out_alike_before_and_after_the_save(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     # Under both tile flags the Case List save keeps a custom tile (defect 12), so the saved app still shows one.
@@ -81,25 +77,88 @@ def test_web_apps_lays_a_tile_out_with_the_same_vertical_alignment_and_another_h
 
         # The two releases are two apps to Formplayer, and the save reached the stored app and the suite.
         assert nova["build"] != saved["build"]
-        assert nova["stored"] == [[None, None, None]] * 3 and saved["stored"] == [["left", "start", "medium"]] * 3
-        assert nova["formplayer"] == [[None, None, None]] * 3
-        assert saved["formplayer"] == [["left", "start", "medium"]] * 3
-        assert nova["pageErrors"] == [] and saved["pageErrors"] == []
+        for side in (nova, saved):
+            assert side["stored"] == [["left", "start", "medium"]] * 3
+            assert side["formplayer"] == [["left", "start", "medium"]] * 3
+            assert side["pageErrors"] == []
         # Both pages were laid out under HQ's own stylesheets, the Web Apps one among them.
         assert nova["stylesheets"] == saved["stylesheets"]
         assert any("formplayer-webapp" in path for path in nova["stylesheets"])
 
         assert nova["list"]["tiles"] is True and len(nova["list"]["cells"]) == 3
-        cells = {
-            name: [[cell[key] for key in LAID_OUT] for cell in side["list"]["cells"]] for name, side in observed.items()
-        }
-        # Absent: start, start, start, at the stylesheet's size. Saved: left, left, start, at the browser's medium.
-        assert cells["nova"] == [["start", "start", "start", "12px"]] * 3
-        assert cells["saved"] == [["left", "left", "start", "16px"]] * 3
-        # Everything else of the list is the same.
+        # Every cell left, left, start, at the browser's medium, before the save and after it.
         for side in (nova, saved):
-            for cell in side["list"]["cells"]:
-                for key in LAID_OUT:
-                    cell.pop(key)
+            assert [[cell[key] for key in LAID_OUT] for cell in side["list"]["cells"]] == [
+                ["left", "left", "start", "16px"]
+            ] * 3
+        # And the whole list is the same.
         assert nova["list"] == saved["list"]
         assert [row["id"] for row in nova["list"]["rows"]] == ["row-visit-2", "row-visit-3", "row-visit-1"]
+
+
+HIDDEN_ORDER = "targeted-tile-hidden-order"
+# The first rule's values, set by hand so its order (Chausiku, Baraka, Amina) is the reverse of the names'; the
+# served worker owns every case, so the second rule, the owner, ties throughout.
+RANKS = {"targeted-amina-visit": "zulu", "targeted-baraka-visit": "mike", "targeted-chausiku-visit": "alpha"}
+PLACED = {
+    "row-targeted-amina-visit": ["Amina", "Riverside"],
+    "row-targeted-baraka-visit": ["Baraka", "Hilltop"],
+    "row-targeted-chausiku-visit": ["Chausiku", "Lakeside"],
+}
+
+
+def _ranked(database):
+    """The cases with ``rank`` set as ``RANKS`` says."""
+    return replace(
+        database,
+        cases=tuple(
+            replace(
+                case,
+                properties=tuple(
+                    (name, RANKS[case.case_id] if name == "rank" else value) for name, value in case.properties
+                ),
+            )
+            for case in database.cases
+        ),
+    )
+
+
+def _placed(row):
+    """The texts of a tile row's cells the browser lays out."""
+    return [cell["text"] for cell in row["cells"] if not cell["hidden"]]
+
+
+def test_web_apps_lays_out_a_tiles_placed_cells_alone_and_orders_and_searches_by_a_hidden_order_rule(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents[HIDDEN_ORDER]
+    database = _ranked(casedata.database_of_restore((document.root / "restore.xml").read_bytes()))
+    # Under both tile flags HQ's build keeps the custom tile (defect 12).
+    with webapps_hq.project(document, "maximum") as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run(
+                [
+                    *steps.open_app("Visit tile order"),
+                    *steps.choose("Visits"),
+                    *steps.choose("Record visit"),
+                    steps.SCREEN,
+                    *steps.search_list("zulu"),
+                    steps.SCREEN,
+                ]
+            )
+    listed, searched = (screen["list"] for screen in run.screens)
+    evidence("tile-hidden-order", {"listed": listed, "zulu": searched})
+    assert run.page_errors == []
+    assert listed["tiles"] is True
+    # The first rule orders the rows.
+    assert [row["id"] for row in listed["rows"]] == [
+        "row-targeted-chausiku-visit",
+        "row-targeted-baraka-visit",
+        "row-targeted-amina-visit",
+    ]
+    # Each row lays out its two placed cells and no other.
+    for row in listed["rows"]:
+        assert _placed(row) == PLACED[row["id"]], row
+    # Only the first hidden column holds zulu, and the search finds Amina's row alone.
+    assert [row["id"] for row in searched["rows"]] == ["row-targeted-amina-visit"]
+    assert _placed(searched["rows"][0]) == PLACED["row-targeted-amina-visit"]

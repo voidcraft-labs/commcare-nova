@@ -11,7 +11,7 @@ import type { CorpusDocument } from "../corpus/documents";
 import { attributeDisplayCondition } from "./documents/attributeDisplayCondition";
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
-import { caseIdColumn } from "./documents/caseIdColumn";
+import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
 import {
 	closeConditions,
 	closeConditionUnparsable,
@@ -20,7 +20,7 @@ import {
 	connectDeliverRename,
 	connectLearnRename,
 } from "./documents/connectApps";
-import { customTile } from "./documents/customTile";
+import { customTile, tileHiddenOrder } from "./documents/customTile";
 import { datetimeOrdering } from "./documents/datetimeOrdering";
 import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
@@ -33,7 +33,7 @@ import {
 	surveyMenu,
 } from "./documents/formShapes";
 import { gpsQuestion } from "./documents/gpsQuestion";
-import { hiddenColumn } from "./documents/hiddenColumn";
+import { hiddenCalculatedColumn, hiddenColumn } from "./documents/hiddenColumn";
 import { hqSideLookup } from "./documents/hqSideLookup";
 import { hqSideState } from "./documents/hqSideState";
 import { labelSort } from "./documents/labelSort";
@@ -106,6 +106,9 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	attributeDisplayCondition,
 	gpsQuestion,
 	blankLabels,
+	attributeColumns,
+	hiddenCalculatedColumn,
+	tileHiddenOrder,
 ];
 
 /** Every targeted document, in a fixed order. */

@@ -113,6 +113,37 @@ export function inertLookupWireNaming(): LookupWireNaming {
 }
 
 /**
+ * Naming for a caller with no definitions snapshot that compares printed
+ * expressions and reads nothing else from them: the case list order plan's
+ * join texts on the validator, cutover and Preview paths. Every table and
+ * column is named by its own id (`t_<id>`, `c_<id>`, hyphens as
+ * underscores, so each name is an XML name), so two expressions print alike
+ * under it exactly when they print alike under any real naming. Unlike
+ * `inertLookupWireNaming`, which gives every table one name, two different
+ * lookup columns never print as one.
+ */
+export function identityLookupWireNaming(): LookupWireNaming {
+	const tableFor = (tableId: LookupTableId): LookupTableWireNaming => {
+		const tag = `t_${tableId.replaceAll("-", "_")}`;
+		return {
+			tableId,
+			tag,
+			xformInstanceId: tag,
+			fixtureId: lookupFixtureId(tag),
+			listElementName: `${tag}_list`,
+			rowElementName: tag,
+			columns: [],
+			wireNameFor: (columnId) => `c_${columnId.replaceAll("-", "_")}`,
+		};
+	};
+	return {
+		tables: [],
+		tableFor,
+		maybeTableFor: (tableId) => tableFor(tableId),
+	};
+}
+
+/**
  * Derive the resolver from the exact validated definitions. Accepts both the
  * boundary's `lookupSnapshot.definitions` and a validator context's
  * `definitions` — they are the same array object on the compile path.

@@ -2,8 +2,10 @@
 //
 // The case list's own filter box: the same quick narrowing CommCare
 // gives every case list: type a few letters and the rows narrow to
-// the ones containing them, case-insensitively, across every visible
-// column; each typed word has to match somewhere in the row. It runs
+// the ones containing them, case-insensitively, across every field of
+// the list; each typed word has to match somewhere in the row. A device
+// matches every field's text, so the box also matches each field hidden
+// from Results and each carrier of the list's order plan. It runs
 // entirely client-side over the rows already on screen: the
 // authored search fields query the case store, this narrows what
 // came back. (CommCare's engine implements the same contract in
@@ -17,30 +19,49 @@ import tablerX from "@iconify-icons/tabler/x";
 import { useId, useRef } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
-import type { Column } from "@/lib/domain";
+import type { CaseListOrderPlan, Column } from "@/lib/domain";
 import {
 	type ColumnDisplayContext,
 	projectColumnDisplay,
 } from "@/lib/preview/columnDisplay";
+import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useWorkerMessage } from "./WorkerText";
 
 /**
  * Does this row survive the filter text? Every whitespace-separated
- * term must appear (case-insensitively) somewhere in some visible
- * column's rendered text. Empty / all-space filter keeps every row.
+ * term must appear (case-insensitively) somewhere in the row: in a
+ * shown column's rendered text, and with the list's order plan, in each
+ * hidden field's text (the raw property value, or a hidden calculated
+ * column's value) and each carrier's raw value. That is what a device's
+ * search matches (commcare-core `util/EntitySortUtil.sortEntities`): a
+ * hidden field's template holds the raw value, and so does the field HQ
+ * appends for a carrier. Empty / all-space filter keeps every row.
  */
 export function rowMatchesFilterText(
 	columns: readonly Column[],
 	row: CaseRowWithCalculated,
 	filterText: string,
 	context: ColumnDisplayContext,
+	plan?: CaseListOrderPlan,
 ): boolean {
 	const terms = filterText.toLocaleLowerCase().split(/\s+/).filter(Boolean);
 	if (terms.length === 0) return true;
-	const displayedColumns = columns.map((column) =>
-		projectColumnDisplay(column, row, context).text.toLocaleLowerCase(),
-	);
+	const displayedColumns = [
+		...columns.map((column) => projectColumnDisplay(column, row, context).text),
+		...(plan?.fields ?? []).flatMap((field) => {
+			if (!field.hidden) return [];
+			const { column } = field;
+			return [
+				column.kind === "calculated"
+					? projectColumnDisplay(column, row, context).text
+					: caseRowDisplayValue(row, column.field),
+			];
+		}),
+		...(plan?.carriers ?? []).map((carrier) =>
+			caseRowDisplayValue(row, carrier.property),
+		),
+	].map((text) => text.toLocaleLowerCase());
 	return terms.every((term) =>
 		displayedColumns.some((displayed) => displayed.includes(term)),
 	);

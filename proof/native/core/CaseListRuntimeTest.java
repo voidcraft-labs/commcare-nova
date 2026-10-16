@@ -67,7 +67,7 @@ public class CaseListRuntimeTest {
   for(String scenario:new String[]{"local","remote","inline"}) for(boolean hq:new boolean[]{false,true}) for(boolean tied:new boolean[]{false,true}) {
    Suite suite=suite(scenario,hq);Entry entry=suite.getEntry(command(scenario));EvaluationContext context=new Data(tied).context(entry);Detail detail=suite.getDetail(selection(entry).getShortDetail());
    List<Entity<TreeReference>> entities=new ArrayList<>();NodeEntityFactory factory=new NodeEntityFactory(detail,context);for(TreeReference ref:context.expandReference(selection(entry).getNodeset()))entities.add(factory.getEntity(ref));
-   assertEquals(9,detail.getFields().length);
+   assertEquals(10,detail.getFields().length);
    for(Entity<TreeReference> entity:entities)assertEquals(scenario+" hq="+hq,entity.getFieldString(7),entity.getSortField(7));
    List<Integer> indices=new ArrayList<>();for(int i=0;i<detail.getFields().length;i++)if(detail.getFields()[i].getSortOrder()>0)indices.add(i);indices.sort(Comparator.comparingInt(i->detail.getFields()[i].getSortOrder()));
    entities.sort(new EntitySorter(detail.getFields(),false,indices.stream().mapToInt(i->i).toArray(),args->{throw new AssertionError(Arrays.toString(args));}));

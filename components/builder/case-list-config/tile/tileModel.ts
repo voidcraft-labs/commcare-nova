@@ -8,21 +8,27 @@
 // the canvas.
 //
 // One rule the surrounding UI reads off this file: **the tile lays out
-// exactly the fields Results shows.** A column hidden from Results
-// still reaches the wire when it drives the default order, but it goes
-// as CommCare's reserved zero-width carrier and draws nothing, so it
-// needs no square; a hidden column with no ordering role reaches the
-// short detail not at all. Either way its stored cell is inert, kept so
-// that showing the column again restores the place the author drew.
-// `tileShowsColumn` is the one place that decision lives.
+// exactly the fields Results shows.** A column hidden from Results needs
+// no square whether or not it drives the default order. An ordering one
+// still reaches the wire, as a sort row with no stored column, for which
+// CommCare appends its reserved zero-width carrier, which draws nothing;
+// a calculated one, or one over `case_id`, has no such spelling and the
+// gate refuses it (`CASE_TILE_HIDDEN_CALCULATED_SORT`). A hidden column
+// with no ordering role reaches the short detail not at all, so the
+// list's search matches a hidden column only through that carrier.
+// Either way its stored cell is inert, kept so that showing the column
+// again restores the place the author drew. `tileShowsColumn` is the one
+// place that decision lives.
 
 import {
 	type CaseListConfig,
+	type CaseTileGrouping,
 	type Column,
 	orderedColumns,
 	TILE_GRID_COLUMNS,
 	TILE_GRID_ROWS,
 	type TileCell,
+	tileCell,
 	tileCellBottomEdge,
 	tileCellRightEdge,
 	tileCellsOverlap,
@@ -69,6 +75,51 @@ export type TilePlacementVerdict =
  */
 export function tileShowsColumn(column: Column): boolean {
 	return column.visibleInList !== false;
+}
+
+/** What a column hidden from Results is, in a list with no tile: still a
+ *  field of the list, so its search matches the column's value. */
+export const HIDDEN_FROM_RESULTS_LINE =
+	"Hidden from Results. The list's search still matches it.";
+
+/** What a column hidden from Results with no order rule is, in a tile
+ *  list: no field of the tile, so its search can't match the value yet. */
+export const NOT_ON_TILE_LINE =
+	"Not on the tile. The list's search doesn't match it yet.";
+
+/**
+ * The line that says what hiding a column from Results means for the
+ * list's search, or `undefined` for a column on Results and for an
+ * ordering column in a tile list, whose search matches it through its
+ * carrier like any shown field.
+ */
+export function hiddenFromResultsLine(
+	column: Column,
+	tiled: boolean,
+): string | undefined {
+	if (column.visibleInList !== false) return undefined;
+	if (!tiled) return HIDDEN_FROM_RESULTS_LINE;
+	return column.sort === undefined ? NOT_ON_TILE_LINE : undefined;
+}
+
+/**
+ * The line under a tile's grouping that says what a worker meets on
+ * Android, naming the connection it groups by, or `null` where the list
+ * groups nothing. HQ's build gives every form that loads a case in a
+ * grouped list a datum of the case's connected case ids; for a case with
+ * no such connection its value is empty, and CommCare's reader of a form
+ * left incomplete splits the saved session on spaces and reads one token
+ * past the end of it
+ * (`commcare-core/src/main/java/org/commcare/session/SessionDescriptorUtil.java::loadSessionFromDescriptor`,
+ * as `commcare-android/app/src/org/commcare/models/AndroidSessionWrapper.java::loadFromStateDescription`
+ * calls it). An app made in CommCare HQ with grouped tiles stops the same
+ * way.
+ */
+export function groupingReopenNotice(
+	grouping: CaseTileGrouping | undefined,
+): string | null {
+	if (grouping === undefined) return null;
+	return `On Android, a form left unfinished for a case with no ${grouping.identifier} connection can't be opened again: CommCare stops when the worker picks it from incomplete forms. Apps built in CommCare HQ with grouped tiles do the same.`;
 }
 
 /**
@@ -174,12 +225,12 @@ export function evaluateTilePlacement(args: {
 		};
 	}
 
-	const cell: TileCell = {
-		x: candidate.x,
-		y: candidate.y,
-		width: candidate.width,
-		height: candidate.height,
-	};
+	const cell = tileCell(
+		candidate.x,
+		candidate.y,
+		candidate.width,
+		candidate.height,
+	);
 	const right = tileCellRightEdge(cell);
 	if (right > TILE_GRID_COLUMNS) {
 		return {
@@ -207,6 +258,20 @@ export function evaluateTilePlacement(args: {
 }
 
 /**
+ * A cell at a new geometry. The presentation slots a cell already carries
+ * travel with it; a column with no cell yet takes `tileCell()`'s.
+ */
+function withGeometry(
+	base: TileCell | undefined,
+	geometry: TileGeometry,
+): TileCell {
+	const { x, y, width, height } = geometry;
+	return base === undefined
+		? tileCell(x, y, width, height)
+		: { ...base, x, y, width, height };
+}
+
+/**
  * Move or resize one member to an absolute geometry, keeping every
  * presentation slot the cell already carries. Presentation is not a
  * placement decision, so no gesture on the grid may drop it.
@@ -230,7 +295,7 @@ export function planTilePlacement(
 		others: placed.filter((entry) => entry.uuid !== uuid),
 	});
 	if (!verdict.ok) return verdict;
-	return { ok: true, cell: { ...target.cell, ...verdict.cell } };
+	return { ok: true, cell: withGeometry(target.cell, verdict.cell) };
 }
 
 /**
@@ -256,7 +321,7 @@ export function planColumnTilePlacement(args: {
 		),
 	});
 	if (!verdict.ok) return verdict;
-	return { ok: true, cell: { ...column.tile, ...verdict.cell } };
+	return { ok: true, cell: withGeometry(column.tile, verdict.cell) };
 }
 
 /** Shift one member by whole squares. */
@@ -371,7 +436,7 @@ export function firstFreeTilePlacement(
 	if (width < 1 || height < 1) return null;
 	for (let y = 0; y + height <= TILE_GRID_ROWS; y++) {
 		for (let x = 0; x + width <= TILE_GRID_COLUMNS; x++) {
-			const candidate: TileCell = { x, y, width, height };
+			const candidate = tileCell(x, y, width, height);
 			if (occupied.some((cell) => tileCellsOverlap(cell, candidate))) continue;
 			return candidate;
 		}
@@ -432,7 +497,8 @@ export function placementForJoiningTile(
 		saved === undefined
 			? null
 			: firstFreeTilePlacement(occupied, saved.width, saved.height);
-	return atSavedSize ?? nextFreeTilePlacement(occupied);
+	if (atSavedSize !== null) return withGeometry(saved, atSavedSize);
+	return nextFreeTilePlacement(occupied);
 }
 
 // ── Findings ──────────────────────────────────────────────────────

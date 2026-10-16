@@ -1,12 +1,15 @@
 "use client";
 
+import { useCallback } from "react";
+import type { Column } from "@/lib/domain";
 import {
 	type CaseWorkspaceBoundaryVerdicts,
+	caseListOrderChoiceRefusal,
 	caseWorkspaceBoundaryVerdicts,
 } from "../commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
 import type { Uuid } from "../types";
-import { useBlueprintDocEq } from "./useBlueprintDoc";
+import { useBlueprintDoc, useBlueprintDocEq } from "./useBlueprintDoc";
 
 const CLEAN_VERDICTS: CaseWorkspaceBoundaryVerdicts = {
 	filterBroken: false,
@@ -46,6 +49,28 @@ export function useCaseWorkspaceBoundaryVerdicts(
 						LOOKUP_CONTEXT_UNAVAILABLE,
 					),
 		equalVerdicts,
+	);
+}
+
+/**
+ * Why Default order's Add menu withholds a choice
+ * (`caseListOrderChoiceRefusal`), over the current document. A closed menu
+ * subscribes to nothing: the document is read only while `enabled`, and the
+ * answer is `undefined` otherwise.
+ */
+export function useCaseListOrderChoiceRefusal(
+	moduleUuid: Uuid | undefined,
+	enabled: boolean,
+): (column: Column) => string | undefined {
+	const doc = useBlueprintDoc((current) =>
+		enabled && moduleUuid !== undefined ? current : undefined,
+	);
+	return useCallback(
+		(column: Column) =>
+			doc === undefined || moduleUuid === undefined
+				? undefined
+				: caseListOrderChoiceRefusal(doc, moduleUuid, column),
+		[doc, moduleUuid],
 	);
 }
 

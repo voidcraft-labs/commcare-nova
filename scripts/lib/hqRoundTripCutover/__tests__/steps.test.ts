@@ -1606,3 +1606,540 @@ describe("the content blockers", () => {
 		expect(blockerCodes("navigation-base", doc)).toEqual([]);
 	});
 });
+
+// ── Pull request 11: case lists ─────────────────────────────────────
+
+/** The writable list of one menu of a fixture copy. */
+function listOf(
+	document: RawDocument,
+	moduleUuid: string,
+): {
+	columns: Record<string, Json>[];
+	listColumnOrder: string[];
+	detailColumnOrder: string[];
+	tile?: Json;
+} {
+	const config = writable(document).modules[moduleUuid]?.caseListConfig;
+	if (config === undefined || config === null) {
+		throw new Error(`Menu ${moduleUuid} has no list.`);
+	}
+	return config as never;
+}
+
+function columnOf(
+	document: RawDocument,
+	moduleUuid: string,
+	columnUuid: string,
+): Record<string, Json> {
+	const column = listOf(document, moduleUuid).columns.find(
+		(candidate) => candidate.uuid === columnUuid,
+	);
+	if (column === undefined) throw new Error(`No column ${columnUuid}.`);
+	return column;
+}
+
+/** Add a column last on Results and on Details. */
+function addColumn(
+	document: RawDocument,
+	moduleUuid: string,
+	column: Record<string, Json>,
+): void {
+	const list = listOf(document, moduleUuid);
+	list.columns.push(column);
+	list.listColumnOrder.push(column.uuid as string);
+	list.detailColumnOrder.push(column.uuid as string);
+}
+
+/** Every step but one. */
+function without(stepId: string) {
+	return CUTOVER_STEPS.filter((step) => step.id !== stepId);
+}
+
+const PATIENTS_MENU = "17a69048-be0c-59d4-a7a2-9bda805659b8";
+const VISITS_TILE_MENU = "bef89ddc-ad95-56a8-ae3c-244a80822eec";
+
+describe("step id-mapping-keys", () => {
+	const ID = "hand-id-mapping-keys";
+	const COLUMN = uuid(0x601);
+	const unit = (value: string) =>
+		makeTranslationUnitId("column", COLUMN, "mapping", value);
+
+	it("removes each entry whose value holds one of the five characters, with its translations, and keeps the others", () => {
+		const doc = fixtureCopy(ID);
+		const column = columnOf(doc, PATIENTS_MENU, COLUMN);
+		column.mapping = [
+			{ value: "a&b", label: "Both" },
+			{ value: "plain", label: "Plain" },
+			{ value: "<x>", label: "Angled" },
+			{ value: 'say"so', label: "Quoted" },
+			{ value: "it's", label: "Apostrophe" },
+		];
+		const translation = (value: string) => ({
+			sourceFingerprint: "fixture",
+			value,
+		});
+		writable(doc).localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
+			translations: {
+				spa: {
+					[unit("a&b")]: translation("Ambos"),
+					[unit("plain")]: translation("Simple"),
+					[unit("it's")]: translation("Apóstrofo"),
+				},
+			},
+		};
+		const result = transformDocument(
+			doc,
+			contextFor(ID),
+			CUTOVER_STEPS.filter((step) => step.id === "id-mapping-keys"),
+		);
+		expect(columnOf(result.target, PATIENTS_MENU, COLUMN).mapping).toEqual([
+			{ value: "plain", label: "Plain" },
+		]);
+		expect(
+			Object.keys(
+				(
+					writable(result.target).localization as {
+						translations: { spa: Record<string, Json> };
+					}
+				).translations.spa,
+			),
+		).toEqual([unit("plain")]);
+		expect(stepChanges(result, "id-mapping-keys")).toEqual(
+			["a&b", "<x>", 'say"so', "it's"].map((value) => ({
+				reason: "id-mapping-entry-removed",
+				entity: {
+					type: "caseListColumn",
+					uuid: COLUMN,
+					nameAtMigration: "Notes",
+				},
+				detail: { menu: "Patients", value },
+			})),
+		);
+	});
+
+	it("leaves a document the gate admits, which it refuses where the step does not run", () => {
+		const result = transformDocument(fixtureCopy(ID), contextFor(ID));
+		expect(columnOf(result.target, PATIENTS_MENU, COLUMN).mapping).toEqual([
+			{ value: "plain", label: "Plain" },
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+		expect(
+			gateCodes(
+				ID,
+				transformDocument(
+					fixtureCopy(ID),
+					contextFor(ID),
+					without("id-mapping-keys"),
+				).target,
+			),
+		).toEqual(["CASE_LIST_ID_MAPPING_KEY_CHARACTERS"]);
+	});
+});
+
+describe("step date-patterns", () => {
+	const ID = "hand-date-patterns";
+	const ONE = uuid(0x701);
+	const TWO = uuid(0x7001);
+	const NONE = uuid(0x7002);
+	const UNTYPED = uuid(0x7003);
+
+	function withPatterns(): RawDocument {
+		const doc = fixtureCopy(ID);
+		addColumn(doc, PATIENTS_MENU, {
+			uuid: TWO,
+			kind: "date",
+			field: "date_opened",
+			header: "Opened twice",
+			pattern: "'%d '%y",
+		});
+		addColumn(doc, PATIENTS_MENU, {
+			uuid: NONE,
+			kind: "date",
+			field: "date_opened",
+			header: "Opened plainly",
+			pattern: "%Y-%m-%d",
+		});
+		const [patient] = writable(doc).caseTypes as { properties: Json[] }[];
+		patient?.properties.push({
+			name: "visit_day",
+			label: { parts: [{ kind: "text", text: "Visit day" }] },
+		});
+		addColumn(doc, PATIENTS_MENU, {
+			uuid: UNTYPED,
+			kind: "date",
+			field: "visit_day",
+			header: "Visit day",
+			pattern: "%d %b '%y",
+		});
+		return doc;
+	}
+
+	it("curves each straight apostrophe of every date pattern and moves nothing else", () => {
+		const source = withPatterns();
+		const result = transformDocument(
+			source,
+			contextFor(ID),
+			CUTOVER_STEPS.filter((step) => step.id === "date-patterns"),
+		);
+		const expected = copyRawDocument(source);
+		for (const [column, pattern] of [
+			[ONE, "%d %b ’%y"],
+			[TWO, "’%d ’%y"],
+			[UNTYPED, "%d %b ’%y"],
+		] as const) {
+			columnOf(expected, PATIENTS_MENU, column).pattern = pattern;
+		}
+		expect(result.target).toEqual(expected);
+		expect(columnOf(result.target, PATIENTS_MENU, NONE).pattern).toBe(
+			"%Y-%m-%d",
+		);
+		expect(stepChanges(result, "date-patterns")).toEqual(
+			[
+				[ONE, "Opened"],
+				[TWO, "Opened twice"],
+				[UNTYPED, "Visit day"],
+			].map(([column, name]) => ({
+				reason: "date-pattern-apostrophe-replaced",
+				entity: { type: "caseListColumn", uuid: column, nameAtMigration: name },
+				detail: { menu: "Patients" },
+			})),
+		);
+	});
+
+	it("leaves a document the gate admits, which it refuses where the step does not run", () => {
+		const result = transformDocument(fixtureCopy(ID), contextFor(ID));
+		expect(gateCodes(ID, result.target)).toEqual([]);
+		expect(
+			gateCodes(
+				ID,
+				transformDocument(
+					fixtureCopy(ID),
+					contextFor(ID),
+					without("date-patterns"),
+				).target,
+			),
+		).toEqual(["CASE_LIST_DATE_PATTERN_APOSTROPHE"]);
+	});
+});
+
+describe("step tile-hidden-calculated-sort", () => {
+	const ID = "hand-tile-hidden-calculated-sort";
+	const CALCULATED = uuid(0x801);
+	const RECORD = uuid(0x8001);
+	const OWNER = uuid(0x8002);
+	const STATUS = uuid(0x8003);
+	const VILLAGE = uuid(0x8004);
+
+	function withHiddenRules(): RawDocument {
+		const doc = fixtureCopy(ID);
+		addColumn(doc, VISITS_TILE_MENU, {
+			uuid: RECORD,
+			kind: "plain",
+			field: "case_id",
+			header: "Record",
+			visibleInList: false,
+			sort: { direction: "desc", priority: 1 },
+		});
+		addColumn(doc, VISITS_TILE_MENU, {
+			uuid: OWNER,
+			kind: "plain",
+			field: "owner_id",
+			header: "Owner",
+			visibleInList: false,
+			sort: { direction: "asc", priority: 2 },
+		});
+		addColumn(doc, VISITS_TILE_MENU, {
+			uuid: STATUS,
+			kind: "plain",
+			field: "status",
+			header: "Status",
+			visibleInList: false,
+			sort: { direction: "desc", priority: 3 },
+		});
+		addColumn(doc, VISITS_TILE_MENU, {
+			uuid: VILLAGE,
+			kind: "plain",
+			field: "village",
+			header: "Village order",
+			visibleInList: false,
+			sort: { direction: "asc", priority: 4 },
+		});
+		return doc;
+	}
+
+	it("removes a hidden calculated and a hidden case_id order rule in a tile list, keeps each column, and keeps hidden owner_id, status and authored-property rules", () => {
+		const result = transformDocument(withHiddenRules(), contextFor(ID));
+		const list = listOf(result.target, VISITS_TILE_MENU);
+		expect(list.columns.map((column) => column.uuid)).toEqual(
+			listOf(withHiddenRules(), VISITS_TILE_MENU).columns.map(
+				(column) => column.uuid,
+			),
+		);
+		expect(columnOf(result.target, VISITS_TILE_MENU, CALCULATED).sort).toBe(
+			undefined,
+		);
+		expect(columnOf(result.target, VISITS_TILE_MENU, RECORD).sort).toBe(
+			undefined,
+		);
+		expect(columnOf(result.target, VISITS_TILE_MENU, OWNER).sort).toEqual({
+			direction: "asc",
+			priority: 2,
+		});
+		expect(columnOf(result.target, VISITS_TILE_MENU, STATUS).sort).toEqual({
+			direction: "desc",
+			priority: 3,
+		});
+		expect(columnOf(result.target, VISITS_TILE_MENU, VILLAGE).sort).toEqual({
+			direction: "asc",
+			priority: 4,
+		});
+		expect(stepChanges(result, "tile-hidden-calculated-sort")).toEqual([
+			{
+				reason: "tile-order-rule-removed",
+				entity: {
+					type: "caseListColumn",
+					uuid: CALCULATED,
+					nameAtMigration: "Order",
+				},
+				detail: { menu: "Visits", shape: "calculated" },
+			},
+			{
+				reason: "tile-order-rule-removed",
+				entity: {
+					type: "caseListColumn",
+					uuid: RECORD,
+					nameAtMigration: "Record",
+				},
+				detail: { menu: "Visits", shape: "case_id" },
+			},
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("is refused by the gate where the step does not run", () => {
+		expect(
+			gateCodes(
+				ID,
+				transformDocument(
+					withHiddenRules(),
+					contextFor(ID),
+					without("tile-hidden-calculated-sort"),
+				).target,
+			),
+		).toEqual(["CASE_TILE_HIDDEN_CALCULATED_SORT"]);
+	});
+
+	it("leaves a list with no tile layout as it is", () => {
+		const doc = withHiddenRules();
+		delete listOf(doc, VISITS_TILE_MENU).tile;
+		const result = transformDocument(
+			doc,
+			contextFor(ID),
+			CUTOVER_STEPS.filter((step) => step.id === "tile-hidden-calculated-sort"),
+		);
+		expect(stepChanges(result, "tile-hidden-calculated-sort")).toEqual([]);
+		expect(columnOf(result.target, VISITS_TILE_MENU, CALCULATED).sort).toEqual({
+			direction: "asc",
+			priority: 0,
+		});
+		expect(columnOf(result.target, VISITS_TILE_MENU, RECORD).sort).toEqual({
+			direction: "desc",
+			priority: 1,
+		});
+	});
+});
+
+describe("step sort-property-ownership", () => {
+	const ID = "hand-sort-property-ownership";
+	const NAME = "56aac6e0-30dd-5cf4-aa85-c23ed492bfd0";
+	const NAME_AGAIN = uuid(0x901);
+	const NOTES_CODE = uuid(0x902);
+	const NOTES = uuid(0x903);
+
+	function sorts(document: RawDocument): Record<string, Json | undefined> {
+		return Object.fromEntries(
+			listOf(document, PATIENTS_MENU).columns.map((column) => [
+				column.uuid as string,
+				column.sort,
+			]),
+		);
+	}
+
+	it("removes the later of two rules over one value, then moves a rule to the first column with its value, in that order", () => {
+		const result = transformDocument(fixtureCopy(ID), contextFor(ID));
+		expect(sorts(result.target)).toEqual({
+			[NAME]: { direction: "asc", priority: 0 },
+			[NAME_AGAIN]: undefined,
+			[NOTES_CODE]: { direction: "asc", priority: 2 },
+			[NOTES]: undefined,
+		});
+		expect(stepChanges(result, "sort-property-ownership")).toEqual([
+			{
+				reason: "order-rule-removed-same-property",
+				entity: {
+					type: "caseListColumn",
+					uuid: NAME_AGAIN,
+					nameAtMigration: "Name again",
+				},
+				detail: { menu: "Patients", kept: "Name" },
+			},
+			{
+				reason: "order-rule-moved-to-first-column",
+				entity: {
+					type: "caseListColumn",
+					uuid: NOTES,
+					nameAtMigration: "Notes",
+				},
+				detail: { menu: "Patients", first: "Notes code" },
+			},
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("moves an ID mapping's rule to a plain column over its property that comes first", () => {
+		const doc = fixtureCopy(ID);
+		const list = listOf(doc, PATIENTS_MENU);
+		list.listColumnOrder = list.listColumnOrder.filter(
+			(column) => column !== NOTES_CODE,
+		);
+		list.listColumnOrder.push(NOTES_CODE);
+		columnOf(doc, PATIENTS_MENU, NOTES_CODE).sort = {
+			direction: "desc",
+			priority: 2,
+		};
+		delete columnOf(doc, PATIENTS_MENU, NOTES).sort;
+		const result = transformDocument(doc, contextFor(ID));
+		expect(sorts(result.target)[NOTES]).toEqual({
+			direction: "desc",
+			priority: 2,
+		});
+		expect(sorts(result.target)[NOTES_CODE]).toBe(undefined);
+		expect(stepChanges(result, "sort-property-ownership")).toContainEqual({
+			reason: "order-rule-moved-to-first-column",
+			entity: {
+				type: "caseListColumn",
+				uuid: NOTES_CODE,
+				nameAtMigration: "Notes code",
+			},
+			detail: { menu: "Patients", first: "Notes" },
+		});
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("leaves a hidden column's rule after a shown column over its property, which orders alike", () => {
+		const doc = fixtureCopy(ID);
+		for (const column of [NAME_AGAIN, NOTES_CODE, NOTES]) {
+			const list = listOf(doc, PATIENTS_MENU);
+			list.columns = list.columns.filter(
+				(candidate) => candidate.uuid !== column,
+			);
+			list.listColumnOrder = list.listColumnOrder.filter(
+				(uuid) => uuid !== column,
+			);
+			list.detailColumnOrder = list.detailColumnOrder.filter(
+				(uuid) => uuid !== column,
+			);
+		}
+		delete columnOf(doc, PATIENTS_MENU, NAME).sort;
+		addColumn(doc, PATIENTS_MENU, {
+			uuid: uuid(0x9001),
+			kind: "plain",
+			field: "case_name",
+			header: "Hidden name",
+			visibleInList: false,
+			sort: { direction: "asc", priority: 0 },
+		});
+		const result = transformDocument(doc, contextFor(ID));
+		expect(stepChanges(result, "sort-property-ownership")).toEqual([]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("is refused by the gate where the step does not run", () => {
+		expect(
+			gateCodes(
+				ID,
+				transformDocument(
+					fixtureCopy(ID),
+					contextFor(ID),
+					without("sort-property-ownership"),
+				).target,
+			),
+		).toEqual(["CASE_LIST_SORT_PROPERTY_AMBIGUOUS"]);
+	});
+});
+
+describe("step tile-cells", () => {
+	const ID = "targeted-custom-tile";
+	const NAME = "318190ef-08d8-5ce3-ab07-f22d8b9bbf5f";
+
+	function cells(document: RawDocument): Json[] {
+		return listOf(document, VISITS_TILE_MENU).columns.map(
+			(column) => column.tile,
+		);
+	}
+
+	it("fills each slot a cell lacks, keeps a slot a cell states, and names the tile list once", () => {
+		const doc = fixtureCopy(ID);
+		(
+			columnOf(doc, VISITS_TILE_MENU, NAME).tile as Record<string, Json>
+		).fontSize = "large";
+		const result = transformDocument(doc, contextFor(ID));
+		expect(cells(result.target)).toEqual([
+			{
+				x: 0,
+				y: 0,
+				width: 6,
+				height: 1,
+				fontSize: "large",
+				horizontalAlign: "left",
+				verticalAlign: "top",
+			},
+			{
+				x: 6,
+				y: 0,
+				width: 6,
+				height: 1,
+				horizontalAlign: "left",
+				verticalAlign: "top",
+				fontSize: "medium",
+			},
+			{
+				x: 0,
+				y: 1,
+				width: 12,
+				height: 1,
+				horizontalAlign: "left",
+				verticalAlign: "top",
+				fontSize: "medium",
+			},
+		]);
+		expect(stepChanges(result, "tile-cells")).toEqual([
+			{
+				reason: "tile-cell-defaults-set",
+				entity: {
+					type: "module",
+					uuid: VISITS_TILE_MENU,
+					nameAtMigration: "Visits",
+				},
+			},
+		]);
+	});
+
+	it("fills the cells a list keeps with its tile layout switched off, and names nothing", () => {
+		const doc = fixtureCopy(ID);
+		delete listOf(doc, VISITS_TILE_MENU).tile;
+		const result = transformDocument(doc, contextFor(ID));
+		expect(stepChanges(result, "tile-cells")).toEqual([]);
+		for (const cell of cells(result.target)) {
+			expect(cell).toMatchObject({
+				horizontalAlign: "left",
+				verticalAlign: "top",
+				fontSize: "medium",
+			});
+		}
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+});

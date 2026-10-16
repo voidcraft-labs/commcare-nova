@@ -17,8 +17,9 @@
 - ``DOCUMENTS`` names every corpus document a test of this package reads,
   which is what a stored outcome of the package is keyed by
   (``proof.store.queue.PACKAGE_DATA``): the equivalence test's sample
-  (``test_view_equivalence.py::CORPUS_SAMPLE``) and ``navigation-base``, whose
-  page saves ``test_retained_reads.py`` retains. ``corpus_document`` is the
+  (``test_view_equivalence.py::CORPUS_SAMPLE``), ``navigation-base``, whose
+  page saves ``test_retained_reads.py`` retains, and ``targeted-label-sort``,
+  whose ID mapping ``test_mapping_keys.py`` opens. ``corpus_document`` is the
   package's one corpus read, refusing a document ``DOCUMENTS`` does not name.
 - ``first_draw`` is the first value a page seeded with a seed draws
   (``driver/steps/page/seed.js``), computed apart from the page.
@@ -54,7 +55,8 @@ ADVANCED_APP = "suite/suite-advanced.json"
 TWO_LANGUAGE_APP = "yesno.json"
 
 # Every corpus document a test of this package reads, by id, and no other: test_view_equivalence.py's
-# CORPUS_SAMPLE and the document test_retained_reads.py saves each page of.
+# CORPUS_SAMPLE, the document test_retained_reads.py saves each page of, and the list whose mapping
+# test_mapping_keys.py opens.
 DOCUMENTS = (
     "case-operation-scalar",
     "case-worker-followup",
@@ -63,6 +65,7 @@ DOCUMENTS = (
     "localization-bilingual",
     "case-extension-multiple-repeat",
     "navigation-base",
+    "targeted-label-sort",
 )
 
 _TIMINGS: dict[str, list[float]] = {}

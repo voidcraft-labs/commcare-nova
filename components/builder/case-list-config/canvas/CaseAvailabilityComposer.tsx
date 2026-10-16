@@ -81,6 +81,9 @@ export interface CaseAvailabilityComposerProps {
 	readonly userProperties?: readonly UserProperty[];
 	readonly currentCaseType: string;
 	readonly appId: string;
+	/** The module whose list this is: the match count's sample follows its
+	 * order. */
+	readonly moduleUuid: string;
 	readonly dependencyReview?:
 		| {
 				readonly kind: "cases-available";
@@ -109,6 +112,7 @@ export function CaseAvailabilityComposer({
 	userProperties = [],
 	currentCaseType,
 	appId,
+	moduleUuid,
 	dependencyReview,
 	onReturnToSearchField,
 }: CaseAvailabilityComposerProps) {
@@ -304,6 +308,7 @@ export function CaseAvailabilityComposer({
 				{(config.filter !== undefined || hasAssignedCaseRule) && (
 					<MatchCount
 						appId={appId}
+						moduleUuid={moduleUuid}
 						config={config}
 						currentCaseType={currentCaseType}
 						filterValid={!filterBroken && !excludedOwnerIdsBroken}
@@ -394,12 +399,14 @@ interface ScopedCountState {
 /** Quiet aggregate feedback over the complete composed predicate. */
 function MatchCount({
 	appId,
+	moduleUuid,
 	config,
 	currentCaseType,
 	filterValid,
 	excludedOwnerIdsExpression,
 }: {
 	readonly appId: string;
+	readonly moduleUuid: string;
 	readonly config: CaseListConfig;
 	readonly currentCaseType: string;
 	readonly filterValid: boolean;
@@ -459,6 +466,7 @@ function MatchCount({
 			caseType: currentCaseType,
 			blueprint,
 			caseListConfig: config,
+			moduleUuid,
 			excludedOwnerIdsExpression,
 			limit: 1,
 			viewerTimeZone: viewerTimeZone(),
@@ -491,6 +499,7 @@ function MatchCount({
 		currentCaseType,
 		excludedOwnerIdsExpression,
 		filterValid,
+		moduleUuid,
 		retryKey,
 		scopeEpoch,
 		docApi.getState,

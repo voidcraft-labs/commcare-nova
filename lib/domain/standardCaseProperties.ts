@@ -146,6 +146,24 @@ export const CASE_NODE_ATTRIBUTE_PROPERTIES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The attribute-backed properties a case list column can read: the members
+ * of `CASE_NODE_ATTRIBUTE_PROPERTIES` that are standard case list
+ * properties (`case_type` is an attribute too, but no column reads it).
+ * Every column over one is an expression column on CommCare HQ's wire,
+ * `field: "@<name>"` with `useXpathExpression: true`: HQ reads a property
+ * column's `field` as a child element (`detail_screen.py::
+ * PropertyXpathGenerator.xpath`), its `CASE_PROPERTY_MAP` has no entry for
+ * `case_id`, and its Case List page refuses `@` in a property column
+ * (`helpers/validators.py::ModuleDetailValidatorMixin.
+ * _validate_detail_screen_field`). Read by the case list order plan and
+ * `lib/commcare/suite/case-list/orderPlanOptions.ts::hqExpressionFieldText`.
+ */
+export const ATTRIBUTE_BACKED_COLUMN_PROPERTIES: ReadonlySet<StandardCaseListProperty> =
+	new Set(
+		[...CASE_NODE_ATTRIBUTE_PROPERTIES].filter(isStandardCaseListProperty),
+	);
+
+/**
  * Standard case values backed by first-class case-row columns rather than the
  * authored JSON property document. These values survive a case-type change as
  * row metadata and must never enter a JSON-property conversion/parking plan.

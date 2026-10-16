@@ -198,7 +198,14 @@ function summarizeCaseList(mod: Module): string | undefined {
 			column.visibleInList === false && column.visibleInDetail === false,
 	);
 	if (dormant.length > 0) {
-		lines.push("      saved_off_screen:");
+		// A list with no tile layout keeps every column a field, so its search
+		// matches these; a tile list keeps them off the tile and its search does
+		// not (`lib/domain/caseListOrder.ts`, rule 1).
+		lines.push(
+			config.tile === undefined
+				? "      saved_off_screen (the list's search matches these):"
+				: "      saved_off_screen:",
+		);
 		for (const col of dormant) {
 			lines.push(`        - ${formatColumn(col, "")}`);
 		}
@@ -207,9 +214,10 @@ function summarizeCaseList(mod: Module): string | undefined {
 		.filter((column) => column.sort !== undefined)
 		// Priority decides the order; Results position breaks a tie, which is what
 		// the author sees when two carriers share a priority — so the walk starts
-		// in the Results sequence and leans on `sort` being stable. The wire
-		// (`suite/case-list/sortKeys.ts`) ties the same way, and a tied pair the
-		// SA reads here has to match what it emits.
+		// in the Results sequence and leans on `sort` being stable. The order
+		// plan every export and Preview read
+		// (`lib/domain/caseListOrder.ts::caseListOrderPlan`) ties the same way,
+		// and a tied pair the SA reads here has to match what it emits.
 		.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
 	if (sortedColumns.length > 0) {
 		lines.push("      default_order:");
@@ -232,7 +240,9 @@ function summarizeCaseList(mod: Module): string | undefined {
 }
 
 /**
- * The ` @ x,y WxH` suffix for a column that DRAWS a square, or `""`.
+ * The ` @ x,y WxH <horizontal> <vertical> <size>` suffix for a column that
+ * DRAWS a square, or `""`. Every cell states its alignment and size, so the
+ * three always follow the rectangle.
  *
  * `tileCellFor` decides, exactly as the three emission paths do, so the SA is
  * never told a field occupies a square the wire leaves empty. A placement
@@ -249,7 +259,7 @@ function tilePlace(col: Column, layout: CaseTileLayout | undefined): string {
 	const cell = tileCellFor(col, layout);
 	return cell === undefined
 		? ""
-		: ` @ ${cell.x},${cell.y} ${cell.width}x${cell.height}`;
+		: ` @ ${cell.x},${cell.y} ${cell.width}x${cell.height} ${cell.horizontalAlign} ${cell.verticalAlign} ${cell.fontSize}`;
 }
 
 /** One-line column summary — uuid + kind + header + per-kind hint, plus the

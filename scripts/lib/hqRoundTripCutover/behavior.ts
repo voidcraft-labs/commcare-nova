@@ -6,8 +6,11 @@
  * changes the document.
  */
 
+import { moduleCaseListOrderPlan } from "@/lib/commcare/suite/case-list/orderPlanOptions";
 import {
 	type BlueprintDoc,
+	type Column,
+	caseListColumnTextShows,
 	caseScalarTextGuardIsChecked,
 	caseSelectionCardinality,
 	closeConditionPlacement,
@@ -17,6 +20,7 @@ import {
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
+import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { DocumentChange } from "./transform";
 
 /** One no-write reason's selection over the migrated document. */
@@ -260,12 +264,201 @@ export const caseNameNowChecked: BehaviorSelection = {
 	},
 };
 
+/** One menu of the document with its list. */
+interface MenuList {
+	readonly module: Module;
+	readonly columns: readonly Column[];
+	readonly tiled: boolean;
+}
+
+/** Every menu that holds a list, in menu order. */
+function menuLists(doc: BlueprintDoc): MenuList[] {
+	return doc.moduleOrder.flatMap((moduleUuid) => {
+		const module = doc.modules[moduleUuid];
+		const config = module?.caseListConfig;
+		return module === undefined || config === undefined
+			? []
+			: [{ module, columns: config.columns, tiled: config.tile !== undefined }];
+	});
+}
+
+function menuEntity(module: Module): DocumentChange["entity"] {
+	return { type: "module", uuid: module.uuid, nameAtMigration: module.name };
+}
+
+/** A column's name: its header, or "a calculation", or its property. */
+function columnName(column: Column): string {
+	const header = column.header.trim();
+	if (header.length > 0) return header;
+	return column.kind === "calculated" ? "a calculation" : column.field;
+}
+
+function columnEntity(column: Column): DocumentChange["entity"] {
+	return {
+		type: "caseListColumn",
+		uuid: column.uuid,
+		nameAtMigration: columnName(column),
+	};
+}
+
+/**
+ * `case-list-order-changes`: each list whose order changes on some install
+ * with no stored change, one line per list. The cause is the first that
+ * holds of the field that takes the list's first rule, which in a list with
+ * no authored rule is the field the implicit rule lands on
+ * (`lib/domain/caseListOrder.ts`, rules 5 and 7), read from the plan every
+ * reader builds, with media on:
+ *
+ *   - `id-mapping`: a shown ID mapping, now ordered by its table's order on
+ *     every install;
+ *   - `image-map`: a shown image map in an app with media, now ordered by
+ *     its table's order in a downloaded app and Preview;
+ *   - `interval`: a shown interval column, now ordered by the text it shows
+ *     there;
+ *   - `option-label`: a shown plain column over a select with options, now
+ *     ordered by its labels there;
+ *   - `unsorted`: anything else, in a list with no authored rule, which
+ *     Preview now orders by the first column, and a downloaded app by date
+ *     where that field is a date column.
+ *
+ * Each line names the menu, with the field's column kind in `detail.kind`;
+ * the first four also name the column in `detail.column`. A list whose first rule lands on any other field, or on a
+ * carrier, orders the same on every install before and after, and gets no
+ * line.
+ */
+export const caseListOrderChanges: BehaviorSelection = {
+	reason: "case-list-order-changes",
+	select(target) {
+		const mediaOn = collectAssetRefs(target).size > 0;
+		return menuLists(target).flatMap(({ module }): DocumentChange[] => {
+			const plan = moduleCaseListOrderPlan(module, target, true);
+			const field = plan.fields.find(
+				(candidate) => candidate.rule?.order === 1,
+			);
+			if (field === undefined) return [];
+			const { column } = field;
+			const cause = field.hidden
+				? undefined
+				: column.kind === "id-mapping"
+					? "id-mapping"
+					: column.kind === "image-map" && mediaOn
+						? "image-map"
+						: column.kind === "interval"
+							? "interval"
+							: field.key?.kind === "option-label"
+								? "option-label"
+								: undefined;
+			if (cause !== undefined) {
+				return [
+					{
+						reason: "case-list-order-changes",
+						entity: menuEntity(module),
+						detail: { cause, column: columnName(column), kind: column.kind },
+					},
+				];
+			}
+			if (field.rule?.implicit !== true) return [];
+			return [
+				{
+					reason: "case-list-order-changes",
+					entity: menuEntity(module),
+					detail: { cause: "unsorted", kind: column.kind },
+				},
+			];
+		});
+	},
+};
+
+/**
+ * `case-list-search-matches-hidden-fields`: each list with no tile layout
+ * that holds a column hidden from Results. Such a column is a field of the
+ * list on every path, so the list's search now matches it. Named by the
+ * menu. A tile list's hidden column is no field, and its search does not.
+ */
+export const caseListSearchMatchesHiddenFields: BehaviorSelection = {
+	reason: "case-list-search-matches-hidden-fields",
+	select(target) {
+		return menuLists(target).flatMap(
+			({ module, columns, tiled }): DocumentChange[] =>
+				!tiled && columns.some((column) => column.visibleInList === false)
+					? [
+							{
+								reason: "case-list-search-matches-hidden-fields",
+								entity: menuEntity(module),
+							},
+						]
+					: [],
+		);
+	},
+};
+
+/**
+ * `hidden-order-column-not-in-sort-menu`: each column hidden from Results
+ * that carries an order rule, in any list. Android's Sort menu no longer
+ * offers it in a downloaded app; the list's own order still follows it.
+ * Named by the column, with the menu's name.
+ */
+export const hiddenOrderColumnNotInSortMenu: BehaviorSelection = {
+	reason: "hidden-order-column-not-in-sort-menu",
+	select(target) {
+		return menuLists(target).flatMap(({ module, columns }) =>
+			columns
+				.filter(
+					(column) =>
+						column.visibleInList === false && column.sort !== undefined,
+				)
+				.map(
+					(column): DocumentChange => ({
+						reason: "hidden-order-column-not-in-sort-menu",
+						entity: columnEntity(column),
+						detail: { menu: module.name },
+					}),
+				),
+		);
+	},
+};
+
+/**
+ * `record-id-column-now-shows`: each plain, phone or image-map column over
+ * `case_id` that reaches a screen (`caseListColumnTextShows`). Each was
+ * blank in an app installed from CommCare HQ, and from the next publish
+ * shows the case's ID, or the image mapped to it. An ID mapping and a link
+ * over `case_id` already showed. Named by the column, with the menu's name
+ * and `detail.kind`.
+ */
+export const recordIdColumnNowShows: BehaviorSelection = {
+	reason: "record-id-column-now-shows",
+	select(target) {
+		return menuLists(target).flatMap(({ module, columns }) =>
+			columns.flatMap((column): DocumentChange[] =>
+				(column.kind === "plain" ||
+					column.kind === "phone" ||
+					column.kind === "image-map") &&
+				column.field === "case_id" &&
+				caseListColumnTextShows(column)
+					? [
+							{
+								reason: "record-id-column-now-shows",
+								entity: columnEntity(column),
+								detail: { menu: module.name, kind: column.kind },
+							},
+						]
+					: [],
+			),
+		);
+	},
+};
+
 /** Every no-write document reason's selection, in the enum's order. */
 export const BEHAVIOR_SELECTIONS: readonly BehaviorSelection[] = [
 	validationNowEnforced,
 	followUpNowTouchesCase,
 	linkedFollowUpNowWritesCase,
 	closeMovesToSaveToCase,
+	caseListOrderChanges,
+	caseListSearchMatchesHiddenFields,
+	hiddenOrderColumnNotInSortMenu,
+	recordIdColumnNowShows,
 	localArchiveChanges,
 	caseNameNowChecked,
 ];

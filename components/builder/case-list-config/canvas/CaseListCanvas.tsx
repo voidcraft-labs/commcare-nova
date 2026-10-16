@@ -255,6 +255,7 @@ export function CaseListCanvas({
 								onCreate={onAddColumn}
 								onCreateCalculated={onAddCalculated}
 								createDisabledReason={addColumnDisabledReason}
+								tiled={config.tile !== undefined}
 							/>
 						</div>
 					</section>
@@ -287,6 +288,7 @@ export function CaseListCanvas({
 							userProperties={userProperties}
 							currentCaseType={caseType?.name ?? ""}
 							appId={appId}
+							moduleUuid={moduleUuid}
 							dependencyReview={dependencyReview}
 							onReturnToSearchField={onReturnToSearchField}
 						/>
@@ -309,6 +311,7 @@ export function CaseListCanvas({
 
 						<div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-nova-surface/20">
 							<CaseOrderingComposer
+								moduleUuid={moduleUuid}
 								config={config}
 								value={config.columns}
 								caseType={caseType}

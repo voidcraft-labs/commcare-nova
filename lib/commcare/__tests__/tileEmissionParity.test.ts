@@ -64,8 +64,16 @@ describe("delivered case tiles", () => {
 								? { "show-border": "true", "show-shading": "true" }
 								: {}),
 						},
-						{ "horz-align": "center", "vert-align": "center" },
-						{ "horz-align": "right", "vert-align": "end" },
+						{
+							"horz-align": "center",
+							"vert-align": "center",
+							"font-size": "medium",
+						},
+						{
+							"horz-align": "right",
+							"vert-align": "end",
+							"font-size": "medium",
+						},
 					]);
 					expect(
 						styles.map(
@@ -106,6 +114,7 @@ describe("delivered case tiles", () => {
 						type: "string",
 						order: "1",
 						direction: "ascending",
+						blanks: "first",
 					});
 					expect(
 						onlyXml(xmlChildren(onlyXml(xmlChildren(sort, "text")), "xpath"))
@@ -230,7 +239,7 @@ describe("delivered case tiles", () => {
 								height: 1,
 								horizontal: "center",
 								vertical: "center",
-								font: null,
+								font: "medium",
 								border: null,
 								shading: null,
 							},
@@ -241,26 +250,33 @@ describe("delivered case tiles", () => {
 								height: 1,
 								horizontal: "right",
 								vertical: "end",
-								font: null,
+								font: "medium",
 								border: null,
 								shading: null,
 							},
-							unplaced,
 						]
 					: [unplaced, unplaced, unplaced, unplaced],
 			);
 
-			expect(wire.short.columns).toHaveLength(4);
+			// A tile's hidden order column is no stored column: its rule is a
+			// sort row with none, for which HQ appends its own carrier field.
+			// A list with no tile stores it as an `invisible` column.
+			expect(wire.short.columns).toHaveLength(tiled ? 3 : 4);
 			expect(wire.long.columns).toHaveLength(3);
-			expect(wire.short.columns[3]).toMatchObject({
-				format: "invisible",
-				grid_x: null,
-				grid_y: null,
-				width: null,
-				height: null,
-				show_border: null,
-				show_shading: null,
-			});
+			if (!tiled)
+				expect(wire.short.columns[3]).toMatchObject({
+					field: "rank",
+					format: "invisible",
+					useXpathExpression: false,
+				});
+			expect(
+				wire.short.sort_elements.map((element) => [
+					element.field,
+					element.type,
+					element.direction,
+					element.blanks,
+				]),
+			).toEqual([["rank", "plain", "ascending", "first"]]);
 			expect(wire.short.case_tile_group).toEqual(
 				grouped
 					? {
@@ -275,7 +291,7 @@ describe("delivered case tiles", () => {
 	);
 
 	it.each(["tile", "grouped-one", "grouped-two"] as const)(
-		"%s preview uses only the visible grid while retaining the sort carrier",
+		"%s preview carries only the placed columns, with no field for the hidden order column",
 		(scenario) => {
 			const doc = tileFixture(scenario);
 			const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
@@ -284,11 +300,13 @@ describe("delivered case tiles", () => {
 				orderedColumns(config, "list"),
 				config.tile,
 			);
+			expect(columns.map((column) => column.column.uuid)).toEqual(
+				config.columns.slice(0, 3).map((column) => column.uuid),
+			);
 			expect(columns.map((column) => column.valueHidden)).toEqual([
 				false,
 				false,
 				false,
-				true,
 			]);
 			const grid = projectTileGrid(columns.map((column) => column.column));
 			expect(grid.cells.map((cell) => cell.columnUuid)).toEqual(

@@ -19,12 +19,12 @@
 
 import {
 	type BlueprintDoc,
-	type Column,
 	type Module,
 	orderedColumns,
 	type Uuid,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
+import { describeColumn } from "./shared";
 
 export function sortPriorityUniqueness(
 	mod: Module,
@@ -74,19 +74,4 @@ export function sortPriorityUniqueness(
 	}
 
 	return errors;
-}
-
-/**
- * Compose a short author-facing handle for a column referenced from
- * an error message. Calculated columns have no `field`, so the
- * `header` is the most informative slot when present; non-calculated
- * columns fall back to `field` when `header` is empty.
- */
-function describeColumn(column: Column, index: number): string {
-	const header = column.header.trim();
-	if (header.length > 0) return `"${header}" (column #${index + 1})`;
-	if (column.kind !== "calculated" && column.field.trim().length > 0) {
-		return `"${column.field}" (column #${index + 1})`;
-	}
-	return `column #${index + 1}`;
 }

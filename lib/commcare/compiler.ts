@@ -115,7 +115,7 @@ import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
-	caseListColumnIsEmitted,
+	caseListColumnRuns,
 	defaultPostSubmit,
 	effectiveCaseSearchConfig,
 	makeTranslationUnitId,
@@ -470,7 +470,8 @@ export function compileCcz(
 			mod.caseListConfig?.columns
 				.filter(
 					(c): c is Extract<typeof c, { kind: "calculated" }> =>
-						c.kind === "calculated" && caseListColumnIsEmitted(c),
+						c.kind === "calculated" &&
+						caseListColumnRuns(c, mod.caseListConfig ?? {}),
 				)
 				.map((c) => c.expression) ?? [];
 

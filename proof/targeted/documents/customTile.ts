@@ -6,10 +6,13 @@
  * `CASE_LIST_TILE` nor `CASE_LIST_TILE_CUSTOM`
  * (`lib/commcare/projectSpaceCompatibility.ts`), so a project space with
  * `CASE_LIST_TILE` alone is a target Nova publishes to, and a Case List save
- * there drops the custom tile. Under both flags the save keeps the tile and
- * writes HQ's defaults into each cell Nova leaves without an alignment or a
- * size, which HQ's build carries into the suite's `<style>`
- * (`suite_xml/sections/details.py`; the harness's findings, defect 42).
+ * there drops the custom tile, with every cell's alignment and size. Under
+ * both flags the save keeps the tile and writes HQ's defaults (`left`,
+ * `start`, `medium`) into each cell that holds none, which HQ's build
+ * carries into the suite's `<style>` (`suite_xml/sections/details.py`; the
+ * harness's findings, defect 42). Every cell now states all three
+ * (`lib/domain/modules.ts::tileCell`, which fills `left`, `top` and
+ * `medium`), so that save changes no cell.
  *
  * Fixed values: Amina's visit shows her name, her village and her last
  * visit in the tile's three cells.
@@ -134,5 +137,163 @@ export function customTile() {
 		},
 		files: { "restore.xml": restore },
 		singleFlags: ["CASE_LIST_TILE"],
+	});
+}
+
+const HIDDEN_ORDER_ID = "targeted-tile-hidden-order";
+const hiddenOrderUuid = (name: string) => targetedUuid(HIDDEN_ORDER_ID, name);
+
+/**
+ * Defect 14, tiles: the corrected tile clause. A tile list ordered by two
+ * columns hidden from Results, neither of which is on the tile.
+ *
+ * A column of a tile's short detail is a field HQ's Case List save gives a
+ * cell (`static/app_manager/js/details/bootstrap5/column.js`, `serialize`),
+ * so a hidden column stored there would gain one on the first save. Nova
+ * writes each hidden order rule as a sort row with no stored column instead,
+ * for which HQ appends a zero-width field of its own
+ * (`app_manager/util.py::create_temp_sort_column`) that no save can give a
+ * cell and HQ's build styles not at all; over `owner_id` the row is the bare
+ * name, which HQ's field reads as `@owner_id`
+ * (`detail_screen.py::CASE_PROPERTY_MAP`). The local suite appends the same
+ * fields (`lib/domain/caseListOrder.ts`, rules 4 and 5). Each appended field
+ * holds the raw value, so the list's search matches it.
+ *
+ * Fixed values: Amina and Baraka tie on `rank` (`high`) and differ in owner,
+ * so the second rule, the owner descending, puts Baraka (`owner-b`) before
+ * Amina (`owner-a`); Chausiku's rank, `low`, comes after both. A search for
+ * `low`, which only the first hidden column holds, finds Chausiku.
+ */
+export function tileHiddenOrder() {
+	const followup = hiddenOrderUuid("followup");
+	const doc = buildDoc({
+		appId: HIDDEN_ORDER_ID,
+		appName: "Visit tile order",
+		caseTypes: [
+			{
+				name: "visit",
+				properties: ["case_name", "village", "rank"].map((name) => ({
+					name,
+					label: proseText(name),
+					data_type: "text" as const,
+				})),
+			},
+		],
+		modules: [
+			{
+				uuid: hiddenOrderUuid("module"),
+				name: "Visits",
+				caseType: "visit",
+				caseListConfig: caseListOf(
+					[
+						plainColumn(hiddenOrderUuid("name"), "case_name", "Name", {
+							tile: tileCell(0, 0, 6, 1),
+						}),
+						plainColumn(hiddenOrderUuid("village"), "village", "Village", {
+							tile: tileCell(6, 0, 6, 1),
+						}),
+						plainColumn(hiddenOrderUuid("rank"), "rank", "Rank", {
+							visibleInList: false,
+							sort: { direction: "asc", priority: 0 },
+						}),
+						plainColumn(hiddenOrderUuid("owner"), "owner_id", "Owner", {
+							visibleInList: false,
+							sort: { direction: "desc", priority: 1 },
+						}),
+					],
+					{ tile: {} },
+				),
+				forms: [
+					{
+						uuid: followup,
+						name: "Record visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								uuid: hiddenOrderUuid("notes"),
+								id: "notes",
+								label: proseText("Notes"),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const restore = restoreXml({
+		cases: [
+			{
+				id: "targeted-amina-visit",
+				type: "visit",
+				name: "Amina",
+				owner: "owner-a",
+				properties: { village: "Riverside", rank: "high" },
+			},
+			{
+				id: "targeted-baraka-visit",
+				type: "visit",
+				name: "Baraka",
+				owner: "owner-b",
+				properties: { village: "Hilltop", rank: "high" },
+			},
+			{
+				id: "targeted-chausiku-visit",
+				type: "visit",
+				name: "Chausiku",
+				owner: "owner-c",
+				properties: { village: "Lakeside", rank: "low" },
+			},
+		],
+	});
+	return targetedDocument({
+		id: HIDDEN_ORDER_ID,
+		rows: ["14, tiles (the corrected tile clause)"],
+		doc,
+		expected: {
+			intent: [
+				{
+					id: "rows-follow-both-rules",
+					export: "local",
+					form: followup,
+					restore: "restore.xml",
+					request: {
+						session: { command: "m0-f0" },
+						caseList: {},
+					},
+					expect: [
+						{
+							pointer: "/caseList/rows/0/caseId",
+							value: "targeted-baraka-visit",
+						},
+						{
+							pointer: "/caseList/rows/1/caseId",
+							value: "targeted-amina-visit",
+						},
+						{
+							pointer: "/caseList/rows/2/caseId",
+							value: "targeted-chausiku-visit",
+						},
+					],
+				},
+				{
+					id: "search-finds-carrier-value",
+					export: "local",
+					form: followup,
+					restore: "restore.xml",
+					request: {
+						session: { command: "m0-f0" },
+						caseList: { searchText: "low" },
+					},
+					expect: [
+						{
+							pointer: "/caseList/rows/0/caseId",
+							value: "targeted-chausiku-visit",
+						},
+					],
+				},
+			],
+		},
+		files: { "restore.xml": restore },
 	});
 }

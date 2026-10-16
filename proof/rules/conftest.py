@@ -43,7 +43,7 @@ from __future__ import annotations
 import copy
 import tempfile
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -65,12 +65,8 @@ DOCUMENTS = (
     "case-list-inline",
     "case-operation-sequence",
     "expander-conditional-required-generates-required-xpath-ae4797f7-0",
-    "expander-expanddoc-hq-json-projection-sort-elements-1e1c54c0-0",
-    "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0",
     "nested-menu-parent",
-    "search-browse",
     "standard-case-reads",
-    "targeted-custom-tile",
     "targeted-sync-on-form-entry",
     "tile-boxed",
 )
@@ -321,19 +317,6 @@ def trace_differences(first, second, *, rules=()):
     )
     found += proof3.compare_case_processing("-", "case_blocks", first.processed, second.processed, labels=labels)
     return found
-
-
-def with_blank_case(database, case_type, properties):
-    """``database`` with one more case of ``case_type`` holding each of ``properties`` blank."""
-    template = next(case for case in database.cases if case.case_type == case_type)
-    blank = replace(
-        template,
-        case_id=f"{template.case_id}-blank",
-        name=f"{template.name} blank",
-        properties=tuple((name, "" if name in properties else value) for name, value in template.properties)
-        + tuple((name, "") for name in properties if name not in dict(template.properties)),
-    )
-    return replace(database, cases=(*database.cases, blank))
 
 
 # The other readers, run -----------------------------------------------------------------------------------------

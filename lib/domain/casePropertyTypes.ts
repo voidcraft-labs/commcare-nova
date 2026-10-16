@@ -150,7 +150,7 @@ type PropertyDataTypeCarrier = { readonly data_type?: CasePropertyDataType };
  * or the literal `"text"` fallback), so widening the signature to
  * `string` would surrender narrowing at call sites for no
  * structural gain. Callers that need a `string`-typed value (e.g.
- * `applicableSortTypes(string | undefined)`, JSX template strings
+ * `comparatorForDataType(dataType | undefined)`, JSX template strings
  * rendering the type label) accept the narrower type by structural
  * assignment without changes.
  */

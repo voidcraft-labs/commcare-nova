@@ -118,7 +118,9 @@ describe("case-list read projections", () => {
 		const summary = summarizeBlueprint(expectAdmittedDoc(doc));
 		const results = summary.indexOf("      results:");
 		const details = summary.indexOf("      details:");
-		const saved = summary.indexOf("      saved_off_screen:");
+		const saved = summary.indexOf(
+			"      saved_off_screen (the list's search matches these):",
+		);
 
 		expect(results).toBeGreaterThan(-1);
 		expect(details).toBeGreaterThan(results);
@@ -172,14 +174,32 @@ describe("case-list read projections", () => {
 		expect(
 			result.data.case_list_config?.columns.map((column) => column.tile),
 		).toEqual([
-			{ x: 0, y: 0, width: 12, height: 1, fontSize: "large" },
-			{ x: 0, y: 1, width: 6, height: 2 },
+			{
+				x: 0,
+				y: 0,
+				width: 12,
+				height: 1,
+				horizontalAlign: "left",
+				verticalAlign: "top",
+				fontSize: "large",
+			},
+			{
+				x: 0,
+				y: 1,
+				width: 6,
+				height: 2,
+				horizontalAlign: "left",
+				verticalAlign: "top",
+				fontSize: "medium",
+			},
 		]);
 
 		const summary = summarizeBlueprint(expectAdmittedDoc(doc));
 		expect(summary).toContain("layout: tile (kept above every form)");
-		expect(summary).toContain("@ 0,0 12x1");
-		expect(summary).toContain("@ 0,1 6x2");
+		// Every cell states its alignment and size, so the three follow the
+		// rectangle.
+		expect(summary).toContain("@ 0,0 12x1 left top large");
+		expect(summary).toContain("@ 0,1 6x2 left top medium");
 	});
 
 	it("projects grouping metadata and its worker-facing explanation", async () => {
@@ -248,10 +268,12 @@ describe("case-list read projections", () => {
 							plainColumn(A, "case_name", "Patient", {
 								tile: tileCell(0, 0, 4, 1),
 							}),
-							// Hidden from Results but still ordering the list: it rides
-							// the detail as the zero-width carrier and holds no square.
+							// Hidden from both screens but still ordering the list: it
+							// rides as a sort row with no stored column and holds no
+							// square.
 							plainColumn(B, "phone", "Phone", {
 								visibleInList: false,
+								visibleInDetail: false,
 								sort: { direction: "asc" as const, priority: 0 },
 								tile: tileCell(4, 0, 8, 2),
 							}),
@@ -285,5 +307,13 @@ describe("case-list read projections", () => {
 		const untiled = summarizeBlueprint(expectAdmittedDoc(withCells(undefined)));
 		expect(untiled).not.toContain("layout: tile");
 		expect(untiled).not.toContain(" @ ");
+
+		// A list with no tile keeps every column a field, so its search matches
+		// the off-screen ones; a tile list's search does not.
+		expect(untiled).toContain(
+			"      saved_off_screen (the list's search matches these):",
+		);
+		expect(tiled).toContain("      saved_off_screen:\n");
+		expect(tiled).not.toContain("the list's search matches these");
 	});
 });

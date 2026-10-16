@@ -46,6 +46,7 @@ import { isDeepStrictEqual } from "node:util";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import {
+	type AliasableExpression,
 	type Insertable,
 	type InsertObject,
 	type Kysely,
@@ -93,9 +94,12 @@ import {
 	SchemaNotSyncedError,
 } from "../errors";
 import type { SampleCaseGenerator } from "../sample/generator";
+import type { ExpressionCompileContext } from "../sql";
 import {
 	buildRestoreScope,
+	compileDeviceTextExpression,
 	compileExpression,
+	compileIntervalText,
 	compilePredicate,
 	compileRelationPath,
 	expressionContextFor,
@@ -139,6 +143,7 @@ import type {
 	RestoreScope,
 	SchemaChangeKind,
 	SelectedParentCases,
+	SortKey,
 } from "../store";
 import { CasePropertyRenameStorageConflictError } from "../store";
 import type {
@@ -461,6 +466,118 @@ function automationDateCriterionClause(criterion: {
  * has to remember.
  */
 const GROUP_KEY_ALIAS = "__nova_group_key";
+
+/** A whole number or decimal, as the numeric comparators read one. */
+const SORT_NUMBER_PATTERN = "^-?[0-9]+(\\.[0-9]+)?$";
+
+/**
+ * The index of the first of `values` that `deviceText` holds as a token, as
+ * text, `''` when none: Core's `selected(s1, s2)` is
+ * `(" " + s1 + " ").contains(" " + s2.trim() + " ")`
+ * (commcare-core `xpath/expr/XPathSelectedFunc`), a blank value reading as
+ * `""`. `strpos` compares exactly, with no pattern characters to escape.
+ */
+function compileMappingPosition(
+	deviceText: AliasableExpression<unknown>,
+	values: readonly string[],
+): RawBuilder<unknown> {
+	const padded = sql<string>`(' ' || coalesce((${deviceText})::text, '') || ' ')`;
+	return values.reduceRight<RawBuilder<unknown>>(
+		(elseArm, value, index) =>
+			sql<unknown>`(case when strpos(${padded}, ${` ${value} `}::text) > 0 then ${String(index)}::text else ${elseArm} end)`,
+		sql<unknown>`''::text`,
+	);
+}
+
+/**
+ * One sort key as `ORDER BY` terms, in order, each with its direction. The
+ * value is the text a device reads (`compileDeviceTextExpression`: a multi
+ * select's tokens joined by one space):
+ *
+ *   1. the blanks term, `(<value> is null or (<value>)::text = '')`, which
+ *      puts a blank or missing value first or last as the key says, whatever
+ *      the direction (Core places a blank by `blanks` alone,
+ *      `cases/entity/EntitySorter.getCmp`);
+ *   2. for `text`, the value lowercased with Unicode case mapping and then
+ *      compared by code point, a missing value as `""` (Core compares
+ *      `toLowerCase()` strings), so `"10"` sorts before `"2"` as on a
+ *      device; `pg_c_utf8` is Postgres's built-in Unicode collation, which
+ *      needs no ICU;
+ *   3. for `integer` and `decimal`, whether the trimmed text is no number,
+ *      then the number, truncated toward zero for `integer`, and under
+ *      `integer` whether the untruncated number is at least zero, which puts
+ *      `-0.5` before `0` ascending as Core's negative zero sorts.
+ *
+ * Every term but the blanks term takes the key's direction.
+ */
+function compileSortKey(
+	key: SortKey,
+	exprCtx: ExpressionCompileContext,
+	caseType: string,
+): {
+	readonly expression: RawBuilder<unknown>;
+	readonly direction: "asc" | "desc";
+}[] {
+	const value =
+		key.kind === "mapping-position"
+			? compileMappingPosition(
+					compileDeviceTextExpression(key.expression, exprCtx),
+					key.values,
+				)
+			: key.kind === "interval-text"
+				? compileIntervalText(
+						{
+							caseType,
+							property: key.property,
+							display: key.display,
+							thresholdDays: key.thresholdDays,
+							divisorDays: key.divisorDays,
+							text: key.text,
+						},
+						exprCtx,
+					)
+				: compileDeviceTextExpression(key.expression, {
+						...exprCtx,
+						...(key.portableCaseDates
+							? { portableCaseDates: true as const }
+							: {}),
+					});
+	const blanks = {
+		expression: sql<unknown>`((${value}) is null or (${value})::text = '')`,
+		direction: key.blanks === "first" ? ("desc" as const) : ("asc" as const),
+	};
+	const comparator = key.kind === "expression" ? key.comparator : "text";
+	if (comparator === "text") {
+		return [
+			blanks,
+			{
+				expression: sql<unknown>`lower(coalesce((${value})::text, '') collate "pg_c_utf8") collate "C"`,
+				direction: key.direction,
+			},
+		];
+	}
+	const trimmed = sql<string>`btrim((${value})::text)`;
+	// A missing value is no number, exactly as a blank one is, so the two tie
+	// on every term after the blanks term and keep the read's tie-break.
+	const isNumber = sql<boolean>`coalesce(${trimmed} ~ ${SORT_NUMBER_PATTERN}, false)`;
+	const number = sql<unknown>`(case when ${isNumber} then (${trimmed})::numeric end)`;
+	const terms = [
+		blanks,
+		{ expression: sql<unknown>`(not ${isNumber})`, direction: key.direction },
+		{
+			expression:
+				comparator === "integer" ? sql<unknown>`trunc(${number})` : number,
+			direction: key.direction,
+		},
+	];
+	if (comparator === "integer") {
+		terms.push({
+			expression: sql<unknown>`(${number} >= 0)`,
+			direction: key.direction,
+		});
+	}
+	return terms;
+}
 const ROW_ORDINAL_ALIAS = "__nova_row_ordinal";
 const GROUP_FIRST_ALIAS = "__nova_group_first";
 const GROUP_ORDINAL_ALIAS = "__nova_group_ordinal";
@@ -949,13 +1066,9 @@ export class PostgresCaseStore implements CaseStore {
 		// `count.where`).
 		if (args.sort !== undefined) {
 			for (const key of args.sort) {
-				const expr = compileExpression(key.expression, {
-					...exprCtx,
-					...(key.portableCaseDates
-						? { portableCaseDates: true as const }
-						: {}),
-				});
-				qb = qb.orderBy(expr, key.direction);
+				for (const part of compileSortKey(key, exprCtx, args.caseType)) {
+					qb = qb.orderBy(part.expression, part.direction);
+				}
 			}
 		} else {
 			// The durable default ordering fact: creation time, then the
@@ -1244,9 +1357,11 @@ export class PostgresCaseStore implements CaseStore {
 		const orderBy =
 			args.sort === undefined || args.sort.length === 0
 				? [sql`c.opened_on asc`, sql`c.case_id asc`]
-				: args.sort.map(
-						(key) =>
-							sql`${compileExpression(key.expression, { ...exprCtx, ...(key.portableCaseDates ? { portableCaseDates: true as const } : {}) })} ${key.direction === "desc" ? sql`desc` : sql`asc`}`,
+				: args.sort.flatMap((key) =>
+						compileSortKey(key, exprCtx, args.caseType).map(
+							(part) =>
+								sql`${part.expression} ${part.direction === "desc" ? sql`desc` : sql`asc`}`,
+						),
 					);
 		const rowOrdinal = sql<number>`row_number() over (order by ${sql.join(orderBy, sql`, `)})`;
 

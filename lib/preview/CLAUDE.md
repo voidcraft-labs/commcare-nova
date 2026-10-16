@@ -912,6 +912,41 @@ schema-valid but unauthored property, standard scalar, child type, or child
 bucket. The accepted child array retains form order, so durable
 `authoredChildIndex` receipts and post-submit child routing do not change.
 
+## Results order and the quick filter
+
+The Results list reads its order from the case list's order plan
+(`lib/domain/caseListOrder.ts::caseListOrderPlan`), the statement the HQ JSON
+and the local suite read too. `engine/caseListOrder.ts::previewCaseStoreOrder`
+builds it with `mediaOn: true` (the plan of every production export) and no
+lookup naming, over the live `caseListConfig` and the committed blueprint's
+catalog, with option labels and an interval's text in the language Preview
+shows. `loadCasesAction` takes `moduleUuid` and `language` as selectors and
+resolves the module in the committed blueprint; the app test runtime reads the
+same order. `caseDataBindingHelpers.ts::buildCaseStoreSortKeys` turns each rule
+into the case store's keys in `order` (a multi select's labels are two: the
+labels, then the raw value), then the case id for paging. An unsorted list is
+the plan's implicit rule on its first shown column; a read with no list to
+order (the selection check by `caseIds`) sorts by the case id alone. The
+availability filter's sample (`loadFilterPreviewAction`, which takes
+`moduleUuid` too) is the list's first rows in that same order. The case
+store compares text lowercased by code point, a number only where its trimmed
+text is a plain decimal, and places blanks by the rule's `blanks` whatever its
+direction (`lib/case-store/postgres/store.ts`).
+
+The quick filter (`components/preview/shared/listFilter.tsx::rowMatchesFilterText`)
+matches what a device's search matches, all from the plan: each shown column's
+text, each hidden field's text (the raw property, or a hidden calculated
+column's value), and each carrier's raw value, in a tile list too.
+
+Where Preview orders differently from a device: an `option-label` key over a
+multi select orders by known labels in catalog order and then the raw value,
+where a device also appends tokens outside the catalog; text compares by
+code point, where Core compares by UTF-16 code unit (they differ only above the
+Basic Multilingual Plane); rows that tie on every rule come in case id order,
+where a device keeps the order its storage holds them in; and a number written
+in a form the plain decimal pattern does not match (an exponent, a leading `+`,
+a bare `.5`) is no number in Preview.
+
 ## Case tiles in the running app
 
 A `caseListConfig.tile` turns each Results row into a grid. `caseTileLayout.ts`
@@ -923,17 +958,15 @@ a number.
 
 Four things the rest of the preview has to know:
 
-- **A tile carries more columns than it shows, and the extra ones hold no
-  square.** `tileResultsColumns` selects the set the short detail emits: every
-  Results-visible column PLUS every hidden column that still owns a Default-order
-  rule. That carrier renders no value (Web Apps' `widthHint === 0` arm puts it in
-  a `d-none` wrapper) and it is NOT a cell: `columns.ts::tileStyleChildren`
-  refuses a `<style>` for a hidden column, so the device gives it no `grid-area`
-  and `grid.scss::.box` gives its wrapper no size. `tileResultsColumns` therefore
-  STRIPS the stored placement off a hidden carrier — the cell stays on the
-  document so unhiding restores the drawing, but leaving it attached here would
-  let an invisible column widen the grid's extent and flip the tile-wide
-  border/shading switch in the preview and nowhere else.
+- **A tile's fields are the columns it shows.** `tileResultsColumns` selects
+  the order plan's fields (`lib/domain/caseListOrder.ts`, rule 1): in a tile
+  list, every Results-visible column, each with the cell `tileCellFor` gives it.
+  A column hidden from Results is no field of a tile's short detail; an order
+  rule on it rides as a sort row with no stored column, for which the device
+  appends a zero-width carrier with no `<style>` and no square, so Preview draws
+  nothing for it and it neither widens the grid's extent nor flips the tile-wide
+  border/shading switch. Every cell states its size and alignment
+  (`tileCellSchema`), so `planTileCell` never inherits the list's size.
 - **The grid never reflows.** A tile is the device's own phone-first layout, so
   compact widths change the row's gutters and nothing else; the list holds an
   18rem floor and scrolls horizontally below it rather than crushing 12 columns,

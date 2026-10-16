@@ -171,25 +171,23 @@ export interface DetailColumn {
 }
 
 /**
- * One `<sort>` directive on a case-list short detail. CCHQ's
- * `SortElement` (`commcare-hq/corehq/apps/app_manager/models.py::SortElement`)
- * carries `field` for property-rooted sorts and `sort_calculation`
- * for calculated-column sorts (the latter takes precedence when both
- * are set per the docstring on `SortElement`). `direction` is the
- * long-form `ascending` / `descending` token; `type` is the wire
- * comparator (`string` / `int` / `double` / `index`).
+ * One sort row of a case-list short detail, CCHQ's `SortElement`
+ * (`models/case_list.py::SortElement`). Nova writes the Case List page's own
+ * spelling (`static/app_manager/js/details/bootstrap5/sort_rows.js`), so the
+ * page's save changes none: `field` a property name or
+ * `_cc_calculated_<position>`; `type` the page's word (`plain`, `date`,
+ * `int`, `double`); `direction` the long-form `ascending` / `descending`;
+ * `blanks` `first` ascending and `last` descending; `display` the first
+ * language's wire code with empty text; `sort_calculation` empty, since the
+ * save empties it unless the project has `SORT_CALCULATION_IN_CASE_LIST`.
+ * The oracle (`validator/hqJsonOracle.ts`) refuses the former spellings.
  */
 export interface SortElement {
 	field: string;
 	type: string;
 	direction: string;
-	/** `first` / `last` — empty string means the runtime default. */
 	blanks: string;
-	/** Per-language display label dict. Empty when no override. */
 	display: LocalizedString | Record<string, never>;
-	/** XPath expression used when the sort key is a calculated column.
-	 *  Per CCHQ's `SortElement` docstring, when present this takes
-	 *  precedence over `field` (the legacy slot). */
 	sort_calculation: string;
 }
 
@@ -202,6 +200,14 @@ export interface DetailBase {
 	multi_select?: boolean;
 	max_select_value?: number;
 	sort_elements: SortElement[];
+	/**
+	 * The empty list's text, per app language. Nova writes "List is empty."
+	 * under every wire code on every menu's short detail, the text HQ's
+	 * build already gives each language; HQ's model default holds `en`
+	 * alone, which its module settings save fills with an empty text for the
+	 * page's language.
+	 */
+	no_items_text?: LocalizedString;
 	tabs: unknown[];
 	/** Always-on filter applied to the case list nodeset, before user
 	 *  search. The bare on-device XPath wire string lands here per

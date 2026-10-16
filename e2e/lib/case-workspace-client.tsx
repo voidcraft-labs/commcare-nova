@@ -144,9 +144,11 @@ config.listColumnOrder = [columnUuid];
 config.detailColumnOrder = [columnUuid];
 if (scenario === "column-identity") {
 	config.columns.push(
+		// No order rule: the first column already orders by `dob`, and a list
+		// keeps one rule for each value.
 		plainColumn(otherColumnUuid, "dob", "Other birthday", {
-			...slots,
-			sort: { direction: "asc", priority: 1 },
+			visibleInList: slots.visibleInList,
+			visibleInDetail: slots.visibleInDetail,
 			tile: tileCell(0, 2, 6, 1),
 		}),
 	);

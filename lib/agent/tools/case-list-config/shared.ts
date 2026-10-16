@@ -51,6 +51,7 @@ import {
 	caseTileGroupingSchema,
 	caseTileLayoutSchema,
 	columnSchema,
+	columnSortSchema,
 	hiddenSearchInputSchema,
 	SEARCH_INPUT_TYPES,
 	type SearchInputDef,
@@ -62,6 +63,8 @@ import {
 	simpleSelectSearchInputSchema,
 	TILE_GRID_COLUMNS,
 	TILE_GRID_ROWS,
+	type TileCell,
+	tileCell,
 	tileCellSchema,
 	type Uuid,
 	uuidSchema,
@@ -137,30 +140,110 @@ const newColumnIdentity = {
 			"Stable UUID for this new column. Supply it when another item in the call references the column; otherwise Nova mints it.",
 		),
 };
-const plainColumnInputArm = plainColumnArm
-	.omit(columnToolOwnedSlots)
-	.extend(newColumnIdentity);
-const dateColumnInputArm = dateColumnArm
-	.omit(columnToolOwnedSlots)
-	.extend(newColumnIdentity);
-const phoneColumnInputArm = phoneColumnArm
-	.omit(columnToolOwnedSlots)
-	.extend(newColumnIdentity);
+
+/* What every arm says of being hidden from Results, said once and attached to
+ * each arm's own `visibleInList`. The rule for every kind's order rule is said
+ * once a schema, in `CASE_LIST_ORDER_GUIDANCE`, because a text on a slot every
+ * arm holds is paid once an arm; each arm's `sort` says only what that kind
+ * orders by. */
+const VISIBLE_IN_LIST_DESCRIPTION =
+	"Leave it out to show the column on Results; false hides it there. The list's search still matches a hidden column. In a list with a case tile a hidden column is not on the tile, and the search matches it only where it carries sort.";
+
+/**
+ * A column arm's `sort` slot carrying that arm's own description. Each arm
+ * builds a fresh optional around the shared `columnSortSchema` rather than
+ * describing the domain arm's `sort`: a description on that one shared
+ * optional is a clone of it, which emits as a reference to the shared
+ * optional wrapped around a reference to the sort, and the provider keeps only
+ * the inner reference.
+ */
+const columnSortInput = (description: string) =>
+	columnSortSchema.optional().describe(description);
+
+/**
+ * A column arm's tile cell as an input: the domain cell with its three
+ * presentation slots optional, since `tileCellFromInput` fills each one the
+ * input leaves out. It carries no description, as the domain slot carries
+ * none.
+ */
+const columnTileInputSchema = tileCellSchema
+	.extend({
+		horizontalAlign: tileCellSchema.shape.horizontalAlign.optional(),
+		verticalAlign: tileCellSchema.shape.verticalAlign.optional(),
+		fontSize: tileCellSchema.shape.fontSize.optional(),
+	})
+	.optional();
+
+/** The slots every arm takes beside its own: identity, Results visibility, and
+ *  a tile cell whose presentation the input may leave out. */
+const columnInputSlots = {
+	...newColumnIdentity,
+	visibleInList: plainColumnArm.shape.visibleInList.describe(
+		VISIBLE_IN_LIST_DESCRIPTION,
+	),
+	tile: columnTileInputSchema,
+};
+
+const plainColumnInputArm = plainColumnArm.omit(columnToolOwnedSlots).extend({
+	...columnInputSlots,
+	sort: columnSortInput(
+		"This column's order rule. A plain column orders by the saved value, as a number for a number property and as text otherwise; shown on Results over a choice property with options, by the option label it shows.",
+	),
+});
+const dateColumnInputArm = dateColumnArm.omit(columnToolOwnedSlots).extend({
+	...columnInputSlots,
+	sort: columnSortInput(
+		"This column's order rule. A date column orders by the saved date, whatever pattern shows it.",
+	),
+	pattern: dateColumnArm.shape.pattern.describe(
+		"How the date is shown, as a CommCare date pattern such as %Y-%m-%d or %B %e, %Y. It can't hold a straight apostrophe ('); a curved one (’) works.",
+	),
+});
+const phoneColumnInputArm = phoneColumnArm.omit(columnToolOwnedSlots).extend({
+	...columnInputSlots,
+	sort: columnSortInput(
+		"This column's order rule. A phone column orders by the saved value.",
+	),
+});
 const idMappingColumnInputArm = idMappingColumnArm
 	.omit(columnToolOwnedSlots)
-	.extend(newColumnIdentity);
+	.extend({
+		...columnInputSlots,
+		sort: columnSortInput(
+			"This column's order rule. Shown on Results, an ID mapping orders by the order of its mapping entries, never by label: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
+		),
+		mapping: idMappingColumnArm.shape.mapping.describe(
+			"The value-to-label table, one entry for each saved value. A value is one word with no spaces and can't hold &, <, >, \" or '. Entry order matters: it is the order the list sorts this column by.",
+		),
+	});
 const imageMapColumnInputArm = imageMapColumnArm
 	.omit(columnToolOwnedSlots)
-	.extend(newColumnIdentity);
+	.extend({
+		...columnInputSlots,
+		sort: columnSortInput(
+			"This column's order rule. Shown on Results, an image map orders by the order of its mapping entries: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
+		),
+		mapping: imageMapColumnArm.shape.mapping.describe(
+			"The value-to-image table, one entry for each saved value. A value is one word with no spaces. Entry order matters: it is the order the list sorts this column by.",
+		),
+	});
 const intervalColumnInputArm = intervalColumnArm
 	.omit(columnToolOwnedSlots)
-	.extend(newColumnIdentity);
+	.extend({
+		...columnInputSlots,
+		sort: columnSortInput(
+			"This column's order rule. Shown on Results, an interval column orders by the text it shows, compared as text, so 10 comes before 2.",
+		),
+	});
 /* `linkText` is described here rather than left to the prompt: it is the
  * one column slot whose two CommCare limits decide whether an author
  * wants the kind at all, and a slot's own description travels with the
  * tool schema on every call. */
 const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
-	...newColumnIdentity,
+	...columnInputSlots,
+	sort: columnSortInput(
+		"This column's order rule. A link column orders by the saved value, never by its link text.",
+	),
 	linkText: linkColumnArm.shape.linkText.describe(
 		'Link label shared by every row and app language, such as "View photo". Use a link column for a saved URL. CommCare Web Apps opens it as a link; Android shows the address as text.',
 	),
@@ -168,12 +251,26 @@ const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
 const calculatedColumnInputArm = calculatedColumnArm
 	.omit(columnToolOwnedSlots)
 	.extend({
-		...newColumnIdentity,
+		...columnInputSlots,
+		sort: columnSortInput(
+			"This column's order rule. A calculated column orders by its result, as a number where the expression gives a number and as text otherwise.",
+		),
 		expression: valueExpressionInputSchema,
 	});
 
 export const CALCULATED_SEARCH_EXPRESSION_GUIDANCE =
 	"When the module uses Search, a calculated column can use the current case or show one parent property by itself. Do not wrap the parent property in another calculation.";
+
+/**
+ * How a list orders, said once a schema: appended after
+ * `CALCULATED_SEARCH_EXPRESSION_GUIDANCE` wherever that is, and on
+ * `updateModule`'s `case_list_columns`, which holds the same arms. It states
+ * the order plan (`lib/domain/caseListOrder.ts::caseListOrderPlan`) and the
+ * rules that refuse an order rule (`CASE_LIST_SORT_PROPERTY_AMBIGUOUS`,
+ * `CASE_TILE_HIDDEN_CALCULATED_SORT`).
+ */
+export const CASE_LIST_ORDER_GUIDANCE =
+	"Order: each column's sort is one rule, and the rule with the lowest priority decides first; the next breaks ties. Cases with no value come first when ascending and last when descending. A list keeps one rule for each value: a second rule over the same property, or over the same calculation, is refused. Where two columns read one property and order differently (a plain column and an ID mapping, say), the rule goes on whichever comes first in Results. With no rule at all, a list orders by its first column shown on Results, ascending. A column hidden from Results can carry a rule, and then orders by the saved value whatever its kind (a calculated column by its result); in a list with a case tile that holds for any column but a calculated one and one over case_id.";
 
 export const columnInputSchema = z.discriminatedUnion("kind", [
 	plainColumnInputArm,
@@ -232,7 +329,9 @@ export type ColumnUpdateInput = z.infer<typeof columnUpdateInputSchema>;
 
 /**
  * One field's rectangle on the tile grid — the domain `TileCell` with
- * SA-facing descriptions layered on.
+ * SA-facing descriptions layered on. The domain requires alignment and size
+ * on every cell; here the three are optional, and `tileCellFromInput` gives
+ * each one the input leaves out its default, the value its description names.
  *
  * Grid BOUNDS are deliberately not restated as schema maxima. A cell can leave
  * the grid two ways (origin or span), overlap is a second geometry failure, and
@@ -253,15 +352,21 @@ export const tileCellInputSchema = tileCellSchema.extend({
 	height: tileCellSchema.shape.height.describe(
 		"How many rows the field spans. No two fields may cover the same square.",
 	),
-	horizontalAlign: tileCellSchema.shape.horizontalAlign.describe(
-		"Where the text sits across the field's own rectangle. Leave it out unless the field should sit somewhere other than the start of its rectangle.",
-	),
-	verticalAlign: tileCellSchema.shape.verticalAlign.describe(
-		"Where the text sits down the field's own rectangle. Leave it out unless the field should sit somewhere other than the top.",
-	),
-	fontSize: tileCellSchema.shape.fontSize.describe(
-		"Text size for this field. Leave it out and the field reads at the same size as the rest of the list — there is no default size that gets filled in, so only set it where a field should stand out or recede.",
-	),
+	horizontalAlign: tileCellSchema.shape.horizontalAlign
+		.optional()
+		.describe(
+			"Where the content sits across the field's own rectangle: left, center or right. Leave it out for left.",
+		),
+	verticalAlign: tileCellSchema.shape.verticalAlign
+		.optional()
+		.describe(
+			"Where the content sits down the field's own rectangle: top, middle or bottom. Leave it out for top.",
+		),
+	fontSize: tileCellSchema.shape.fontSize
+		.optional()
+		.describe(
+			"Text size for this field: small, medium or large. Leave it out for medium. A tile's text has its own three sizes and never follows the rest of the list, so set small or large only where a field should recede or stand out.",
+		),
 	showBorder: tileCellSchema.shape.showBorder.describe(
 		"Draw a box around this field. Turning it on for ANY field puts the WHOLE tile into boxed layout, which re-spaces every other field on the tile too — so decide it for the tile, not for one field.",
 	),
@@ -290,7 +395,7 @@ export const caseTileLayoutInputSchema = caseTileLayoutSchema.extend({
 		})
 		.optional()
 		.describe(
-			"Show the cases that share a connection together, under one heading. Leave it out for an ordinary tile list, one tile per case. Two consequences worth telling the user about: choosing a group opens its FIRST case (the rows beneath the heading cannot be chosen), and every case with no such connection lands together in one group. The list also pages by group, so a page holds whole groups and however many cases they carry.",
+			"Show the cases that share a connection together, under one heading. Leave it out for an ordinary tile list, one tile per case. Three consequences worth telling the user about: choosing a group opens its FIRST case (the rows beneath the heading cannot be chosen); every case with no such connection lands together in one group; and on Android a form left unfinished for a case with no such connection can't be opened again, because CommCare stops when the worker picks it from incomplete forms. The list also pages by group, so a page holds whole groups and however many cases they carry.",
 		),
 });
 
@@ -514,7 +619,18 @@ export function stampColumnUuid(
 	uuid: Uuid,
 ): Column {
 	const { columnUuid: _declaredUuid, ...body } = column as ColumnInput;
-	return { ...body, uuid } as Column;
+	return {
+		...body,
+		...(body.tile !== undefined && { tile: tileCellFromInput(body.tile) }),
+		uuid,
+	} as Column;
+}
+
+/** The cell an input places: its rectangle, with each presentation slot the
+ *  input states and `tileCell()`'s default for each one it leaves out. */
+export function tileCellFromInput(cell: TileCellInput): TileCell {
+	const { x, y, width, height, ...presentation } = cell;
+	return tileCell(x, y, width, height, presentation);
 }
 
 /**
@@ -585,6 +701,8 @@ export const tilePlacementInputSchema = z.strictObject({
 });
 
 export type TilePlacementInput = z.infer<typeof tilePlacementInputSchema>;
+/** A cell as a tool input states it: alignment and size may be left out. */
+export type TileCellInput = z.infer<typeof tileCellInputSchema>;
 
 // ── Uuid-keyed array helpers ────────────────────────────────────────
 //

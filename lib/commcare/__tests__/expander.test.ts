@@ -599,6 +599,71 @@ describe("expandDoc", () => {
 	});
 });
 
+describe("the empty-list text", () => {
+	it("writes it under every wire code of an app with no English, on each menu's short detail only", () => {
+		const doc = buildDoc({
+			appName: "Clinica",
+			modules: [
+				{
+					name: "Pacientes",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Nombre" },
+					]),
+					forms: [
+						{
+							name: "Visita",
+							type: "followup",
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notas") }),
+							],
+						},
+					],
+				},
+				{
+					name: "Encuestas",
+					forms: [
+						{
+							name: "Encuesta",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notas") }),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Nombre") }],
+				},
+			],
+		});
+		doc.localization = {
+			...doc.localization,
+			sourceLanguage: "spa",
+			defaultLanguage: "spa",
+			languageOrder: ["spa", "fra"],
+			wireCodes: { spa: "es", fra: "fr" },
+			translations: { fra: {} },
+		};
+		// Admitted as every document here is, and projected without the
+		// expander capture, so the proof corpus gains no document from it.
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const hq = projectUncheckedDoc(doc);
+		expect(hq.langs).toEqual(["es", "fr"]);
+		for (const module of hq.modules) {
+			expect(module.case_details.short.no_items_text).toEqual({
+				es: "List is empty.",
+				fr: "List is empty.",
+			});
+			expect(module.case_details.long.no_items_text).toBeUndefined();
+		}
+	});
+});
+
 describe("case_name in case list columns", () => {
 	const doc = buildDoc({
 		appName: "CL",
@@ -2618,11 +2683,18 @@ describe("case detail (long) view", () => {
 		const hq = expandDoc(doc);
 		const shortCols = hq.modules[0].case_details.short.columns;
 		const longCols = hq.modules[0].case_details.long.columns;
-		// Results persists only the field people see. Details-only fields do not
-		// become zero-width technical rows unless they carry a Results sort rule.
-		expect(shortCols.length).toBe(1);
-		expect(shortCols[0].field).toBe("case_name");
-		expect(shortCols[0].format).toBe("plain");
+		// Every Results column is a field: the two hidden ones are HQ's
+		// `invisible` columns over the raw property, which the list's search
+		// still matches. The first field is shown, so the list writes no sort
+		// element and HQ's build adds its default on that field.
+		expect(
+			shortCols.map((c) => [c.field, c.format, c.useXpathExpression]),
+		).toEqual([
+			["case_name", "plain", false],
+			["age", "invisible", false],
+			["dob", "invisible", false],
+		]);
+		expect(hq.modules[0].case_details.short.sort_elements).toEqual([]);
 		// Details keeps all three columns, in its independent display order, with
 		// normal `plain` format because `visibleInDetail` is unset.
 		expect(longCols.length).toBe(3);
@@ -4015,8 +4087,9 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 	});
 
 	it("projects id-mapping columns with `enum` format and per-language label entries", () => {
-		// ID-mapping rows lower to CCHQ's translatable enum-variable format.
-		// The display expression keeps raw ids separate from localized labels.
+		// An ID mapping is HQ's `enum` over the property: HQ builds the
+		// `selected` chain the local suite writes, and sorts by the mapping
+		// position. Each entry is keyed by its value.
 		const doc = buildHqProjectionDoc(
 			resolveCaseListConfig({
 				columns: [
@@ -4031,14 +4104,12 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			}),
 		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
-		expect(shortCols[0].format).toBe("translatable-enum");
-		expect(shortCols[0].useXpathExpression).toBe(true);
-		expect(shortCols[0].field).toContain(
-			"if(selected(region, 'N'), $nova_text_0000000000, '')",
-		);
+		expect(shortCols[0].format).toBe("enum");
+		expect(shortCols[0].useXpathExpression).toBe(false);
+		expect(shortCols[0].field).toBe("region");
 		expect(shortCols[0].enum).toEqual([
-			{ key: "nova_text_0000000000", value: { en: "North" } },
-			{ key: "nova_text_0000000001", value: { en: "South" } },
+			{ key: "N", value: { en: "North" } },
+			{ key: "S", value: { en: "South" } },
 		]);
 	});
 
@@ -4158,9 +4229,9 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 	});
 
 	it("omits a Details-only field from Results while preserving it on Details", () => {
-		// A field with no Results behavior should not persist as a zero-width
-		// technical row. Off-screen fields remain only when Default order needs
-		// their sort carrier.
+		// A column hidden from Results is HQ's `invisible` field. Because it
+		// comes before the first shown field, the list writes the implicit
+		// rule HQ's default element would have been for that shown field.
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
@@ -4174,8 +4245,21 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			searchInputs: [],
 		});
 		const details = expandDoc(doc).modules[0].case_details;
-		expect(details.short.columns.map((column) => column.field)).toEqual([
-			"case_name",
+		expect(
+			details.short.columns.map((column) => [column.field, column.format]),
+		).toEqual([
+			["phone", "invisible"],
+			["case_name", "plain"],
+		]);
+		expect(details.short.sort_elements).toEqual([
+			{
+				field: "case_name",
+				type: "plain",
+				direction: "ascending",
+				blanks: "first",
+				display: { en: "" },
+				sort_calculation: "",
+			},
 		]);
 		expect(details.long.columns[0].format).toBe("plain");
 		expect(details.long.columns[0].field).toBe("phone");
@@ -4210,9 +4294,13 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		expect(sortElements[0].field).toBe("age");
 		expect(sortElements[0].direction).toBe("descending");
 		expect(sortElements[0].type).toBe("int");
+		expect(sortElements[0].blanks).toBe("last");
+		expect(sortElements[0].display).toEqual({ en: "" });
 		expect(sortElements[1].field).toBe("case_name");
 		expect(sortElements[1].direction).toBe("ascending");
-		expect(sortElements[1].type).toBe("string");
+		expect(sortElements[1].type).toBe("plain");
+		expect(sortElements[1].blanks).toBe("first");
+		expect(sortElements[1].display).toEqual({ en: "" });
 	});
 
 	it("routes calc-column sort through `sort_calculation` with field=`_cc_calculated_<index>`", () => {
@@ -4241,7 +4329,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const sortElements =
 			expandDoc(doc).modules[0].case_details.short.sort_elements;
 		expect(sortElements).toHaveLength(1);
-		expect(sortElements[0].sort_calculation).toBe("age");
+		expect(sortElements[0].sort_calculation).toBe("");
 		expect(sortElements[0].field).toBe("_cc_calculated_0");
 		expect(sortElements[0].direction).toBe("ascending");
 	});
@@ -4278,10 +4366,10 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		// Field-key uniqueness — both directives survive CCHQ's
 		// `sort_elements_by_field[field] = element` overwrite.
 		expect(sortElements[0].field).toBe("_cc_calculated_0");
-		expect(sortElements[0].sort_calculation).toBe("age");
+		expect(sortElements[0].sort_calculation).toBe("");
 		expect(sortElements[0].direction).toBe("ascending");
 		expect(sortElements[1].field).toBe("_cc_calculated_1");
-		expect(sortElements[1].sort_calculation).toBe("visit_count");
+		expect(sortElements[1].sort_calculation).toBe("");
 		expect(sortElements[1].direction).toBe("descending");
 	});
 
@@ -4292,9 +4380,8 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		// join it (CCHQ's `get_sort_and_sort_only_columns` joins by
 		// exact `column.field` string) and the visible column would
 		// lose its `<sort>` on the HQ-regenerated suite. The sort
-		// element must use the positional `_cc_calculated_{index}` key
-		// and carry the RAW property in `sort_calculation` — the same
-		// sort source Nova's direct suite emits.
+		// element must use the positional `_cc_calculated_{index}` key; HQ
+		// then sorts by the label the column shows, as the local suite does.
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
@@ -4318,8 +4405,8 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const sortElements = details.short.sort_elements;
 		expect(sortElements).toHaveLength(1);
 		expect(sortElements[0].field).toBe("_cc_calculated_1");
-		expect(sortElements[0].sort_calculation).toBe("tags");
-		expect(sortElements[0].type).toBe("string");
+		expect(sortElements[0].sort_calculation).toBe("");
+		expect(sortElements[0].type).toBe("plain");
 	});
 
 	it("routes an interval column's sort through the positional calc join on the raw property", () => {
@@ -4345,19 +4432,18 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const sortElements = details.short.sort_elements;
 		expect(sortElements).toHaveLength(1);
 		expect(sortElements[0].field).toBe("_cc_calculated_0");
-		// Sorts by the raw date property (ISO-string comparator), not by
-		// the rendered interval count.
-		expect(sortElements[0].sort_calculation).toBe("last_visit");
-		expect(sortElements[0].type).toBe("string");
+		// HQ's build orders a shown interval column by the text it shows,
+		// and the local suite and Preview do too.
+		expect(sortElements[0].sort_calculation).toBe("");
+		expect(sortElements[0].type).toBe("plain");
 		expect(sortElements[0].direction).toBe("descending");
+		expect(sortElements[0].blanks).toBe("last");
 	});
 
 	it("keeps the positional calc join aligned for an off-Results sort carrier", () => {
-		// A select-typed column hidden from Results but carrying Default
-		// order persists as an `invisible` short column; the projection
-		// keeps `useXpathExpression`, so the sort element must still join
-		// positionally (CCHQ's `Invisible` format class inherits the base
-		// sort path and honors `sort_calculation`).
+		// A select-typed column hidden from Results is HQ's `invisible`
+		// column over the raw property, with no label expression, so its
+		// order rule is a sort row over the property name.
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
@@ -4372,13 +4458,12 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		});
 		const details = expandDoc(doc).modules[0].case_details;
 		expect(details.short.columns[0].format).toBe("invisible");
-		expect(details.short.columns[0].useXpathExpression).toBe(true);
+		expect(details.short.columns[0].useXpathExpression).toBe(false);
 		expect(details.short.columns[0].field).toBe("tags");
-		expect(details.short.columns[0].field).not.toContain("$nova_text_");
 		expect(details.short.columns[0].enum).toEqual([]);
 		const sortElements = details.short.sort_elements;
-		expect(sortElements[0].field).toBe("_cc_calculated_0");
-		expect(sortElements[0].sort_calculation).toBe("tags");
+		expect(sortElements[0].field).toBe("tags");
+		expect(sortElements[0].sort_calculation).toBe("");
 	});
 
 	it("leaves sort_elements empty when no column carries a sort directive", () => {
@@ -4609,7 +4694,16 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 				),
 			).modules[0];
 
-			expect(module.search_config.include_all_related_cases).toBe(false);
+			// A column hidden from both screens is still a field of the short
+			// detail, evaluated for every row, so the search carries the
+			// supporting cases it reads.
+			expect(module.search_config.include_all_related_cases).toBe(true);
+			expect(module.case_details.short.columns[0]).toMatchObject({
+				field:
+					"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
+				format: "invisible",
+				useXpathExpression: true,
+			});
 		});
 
 		it("joins a hidden parent-property sort to the typed calculation", () => {
@@ -4644,8 +4738,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			});
 			expect(module.case_details.short.sort_elements[0]).toMatchObject({
 				field: "_cc_calculated_0",
-				sort_calculation:
-					"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
+				sort_calculation: "",
 			});
 		});
 	});

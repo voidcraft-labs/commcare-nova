@@ -36,6 +36,17 @@ const REGISTER_NAME_CHECKED = {
 	},
 	detail: { question: "name" },
 };
+/** Its one list holds no order rule, so Preview now orders it by its first column. */
+const PATIENTS_ORDER_CHANGES = {
+	kind: "document",
+	reason: "case-list-order-changes",
+	entity: {
+		type: "module",
+		uuid: "17a69048-be0c-59d4-a7a2-9bda805659b8",
+		nameAtMigration: "Patients",
+	},
+	detail: { cause: "unsorted", kind: "plain" },
+};
 
 async function seedApp(appId: string): Promise<void> {
 	await seedFixtureApp(
@@ -181,14 +192,16 @@ describe("private work across the cutover", () => {
 		const notices = await sql<{ app_id: string; entries: unknown }>`
 			SELECT app_id, entries FROM app_migration_notices ORDER BY app_id
 		`.execute(h.db());
-		// Every app is told what a downloaded file now needs and that its
-		// registration's case name is now checked. No app here is
+		// Every app is told how its unsorted list now orders, what a
+		// downloaded file now needs and that its registration's case name is
+		// now checked. No app here is
 		// published anywhere, so the live ones are also told a CCZ needs a
 		// project space; the deleted one is not.
 		expect(notices.rows).toEqual([
 			{
 				app_id: "app-a-working",
 				entries: [
+					PATIENTS_ORDER_CHANGES,
 					{
 						kind: "document",
 						reason: "local-archive-changes",
@@ -210,6 +223,7 @@ describe("private work across the cutover", () => {
 			{
 				app_id: "app-b-idle",
 				entries: [
+					PATIENTS_ORDER_CHANGES,
 					{
 						kind: "document",
 						reason: "local-archive-changes",
@@ -226,6 +240,7 @@ describe("private work across the cutover", () => {
 			{
 				app_id: "app-c-deleted",
 				entries: [
+					PATIENTS_ORDER_CHANGES,
 					{
 						kind: "document",
 						reason: "local-archive-changes",

@@ -487,6 +487,18 @@ held with "Sorry, this response is required!", a 256-character one with
 name with surrounding spaces is accepted, sent as the trimmed name in the
 case block, and held under it in the case the device made.
 
+`test_case_lists.py` reads the corpus the same way, serving the cases each
+document's own restore fixes (`proof.observe.casedata.database_of_restore`),
+and installs both HQ's download of the release and the document's local
+archive naming the app HQ holds (`proof.observe.served.local_archive`). Each
+list the walk opens is also searched for the test's own terms (`observe.app`'s
+`searches`), with fuzzy search as installed, on and off. On both archives a
+search of `targeted-hidden-column` for a value only its hidden column holds
+finds that case alone; and `targeted-tile-hidden-order`, its ranks set by
+hand, lists its tiles in the first hidden order rule's order, lays out each
+tile's placed cells and no other, offers those columns alone in its Sort
+menu, and finds a case by a value only the hidden order column holds.
+
 Each test carries `@pytest.mark.reader("android")` and takes the `hq` fixture,
 so the pull request lane deselects it and the nightly runs it.
 

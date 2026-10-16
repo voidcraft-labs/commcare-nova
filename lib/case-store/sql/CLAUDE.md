@@ -51,6 +51,42 @@ own coercion behavior and are not proven equivalent by this date-read change.
 Calendar-only branches and
 custom datetime values retain their existing shapes.
 
+## Case-list sort keys
+
+A Results read orders by the case list's order plan
+(`lib/domain/caseListOrder.ts`), each rule one `SortKey` of `lib/case-store/store.ts`.
+Most keys are a `ValueExpression` this compiler already compiles (a property,
+a calculation, a select's label `switch`, a link's markdown `concat`), read as the text a device reads
+(`compileExpression.ts::compileDeviceTextExpression`): a multi select's stored
+JSON array is its tokens joined by one space, blank when none is selected. The
+comparator is applied where a key becomes
+`ORDER BY`, in `lib/case-store/postgres/store.ts::query` and `queryGrouped`, as
+typed-builder expressions: text is the value lowercased with Unicode case
+mapping and compared by code point (`lower(coalesce(... ::text, '') collate
+"pg_c_utf8") collate "C"`, Postgres 17 and later, no ICU), as Core compares
+`toLowerCase()` strings; integer and decimal read a number only where the
+trimmed text is a plain decimal (`^-?[0-9]+(\.[0-9]+)?$`), truncated toward zero
+for integer, with anything else sorting after every number ascending. A leading
+blanks term puts a blank and a missing property first or last as the rule says,
+whatever its direction, because Postgres puts `NULL` last ascending and Core
+places blanks by the rule's `blanks`.
+
+A mapping's position is a key of its own (`mapping-position`): the device
+orders an ID mapping or an image map by `selected()`, which finds an entry as
+one space-separated token of the value, so `store.ts::compileMappingPosition`
+tests each entry with `strpos` over the padded device text.
+
+The other key that is no `ValueExpression` is an interval column's shown text: a
+date difference, which `arith` refuses. `compileIntervalText.ts` is its own
+compiler entry, built from typed-builder calls, spelling the branches the
+device evaluates and `formatIntervalForPreview` shows. It reads the stored
+value as text and guards it before any cast: a value is a date only where it
+has the shape Core's `date()` reads (`year-month-day`, alone or before `T`)
+and `pg_input_is_valid` (Postgres 16 and later) reads it as an instant, so
+malformed text and the words Postgres reads as instants and a device does not
+(`infinity`, `epoch`, `today`, ...) yield their raw text and never fail the
+query; its calendar day is the viewer's (`compilePinnedInstant`).
+
 ## Numeric expressions
 
 Numeric and boolean literals carry their SQL type explicitly, so expressions such as

@@ -1277,11 +1277,25 @@ question in an app that is not a Connect app, so the local archive writes
 the bare `pollsensor` HQ's build writes for it (finding 34). With
 `targeted-survey-menu`, `targeted-attribute-display-condition` witnesses the
 two form-list settings at both values: the first turns saved forms off and
-incomplete forms on, the second the reverse. Two more show a finding each, with its entries and its control:
-`targeted-datetime-ordering` (finding 56: a survey form that orders two
-date and time answers an hour apart, and a follow-up form that orders two
-case properties held as text) and `targeted-case-id-column` (finding 57: a
-list showing `case_id`, with a hidden order rule over `owner_id`). Five
+incomplete forms on, the second the reverse. `targeted-datetime-ordering`
+(finding 56: a survey form that orders two date and time answers an hour
+apart, and a follow-up form that orders two case properties held as text)
+shows its finding, with its entries and its control. `targeted-case-id-column`
+(finding 57: a list showing `case_id`, with a hidden order rule over
+`owner_id`) is a witness of the fix, its entries held on its control, and
+`targeted-attribute-columns` keeps every column over `case_id`, `owner_id`
+and `status` Nova writes in every run: an expression column over the
+attribute, a hidden `case_id` column whose rule HQ joins to the shown one,
+and a shown link over `status` whose sort row HQ carries in a field of its
+own. Two more pass with no entry and no control:
+`targeted-hidden-calculated-column` (defect 16: a calculated column hidden
+from both screens that reads a lookup table, so the entry declares the table
+and the list's search finds a case by the looked-up label) and
+`targeted-tile-hidden-order` (the corrected tile clause: a tile ordered by
+two columns hidden from Results, each a sort row with no stored column, one
+over `owner_id`). `targeted-label-sort`'s third menu (defect 10) is a list
+with no order rule over every column kind that keeps a sort key, its first
+column hidden, ordered by its first shown column on both paths. Five
 documents left the corpus when Nova's validator began refusing what they
 showed, and each control keeps it: `targeted-reserved-question-names`
 (finding 70), `targeted-form-root-read` (finding 71: a calculation and a
@@ -1295,9 +1309,11 @@ control; the Connect proofs write each such name by hand
 `targeted-invalid-connect-ids` and `targeted-reserved-node-names` hold what
 Nova writes in place of the ids and names it refuses (defect 15, finding
 43), and each control keeps the refused ones. `targeted-shared-property-sort` holds two menus: a shown and a hidden
-column over one property, and a list whose hidden column carries the order
-rule beside a shown image map over the same property, the one shape where a
-sort key on another field changes what a fuzzy search finds (finding 51).
+column over one property, and a list whose image map carries the order rule
+beside a hidden column over the same property, the one shape where a sort
+key on another field would change what a fuzzy search finds (finding 51);
+its control holds the rule on the hidden column, which Nova now refuses
+(`CASE_LIST_SORT_PROPERTY_AMBIGUOUS`).
 `targeted-blank-labels` passes with no entry and no control: a question whose
 label is blank in every language and carries no media, one with label media
 and no text, and a choice with media and no text, which two saves in HQ's
@@ -1670,10 +1686,9 @@ What its own tests observe on HQ's releases of real Nova exports, served by HQ's
 | --- | --- | --- |
 | A form link whose target is hidden (finding 58) | Core's session opens the hidden form, or asks for a command of the hidden menu; Formplayer stops at the menu that holds the hidden form, or at the app's first screen | `test_end_of_form.py` |
 | A search answer holding both quote marks (finding 48) | Formplayer answers the search screen again with the validation's message and sends HQ nothing; an answer with one mark is sent inside the CSQL, HQ's own search view reads it (and refuses the query for the document's own date comparison, defect 6), and HQ's compiler takes the string that holds the answer | `test_search.py` |
-| The saved app's empty search description (finding 54) | Formplayer hands Web Apps `""` for Nova's export and a non-breaking space for the saved app | the rule `search-description-empty` (`proof/rules/test_search_description_empty.py`) |
+| The empty search description (finding 54) | Nova's export stores the blank description the Case List save writes, the save changes neither map, and Formplayer hands Web Apps a non-breaking space for HQ's build of Nova's export, for the saved app and for Nova's local archive | `test_search.py` |
 | `cc-autosync-freq` absent (an app published before Nova wrote it), Nova's `freq-never`, or as HQ's App Settings save keeps it (finding 40) | Formplayer asks HQ for one restore on the first visit and none on return after eight days in all three; with `freq-daily`, which HQ's settings view saves for a person's change, it asks again on return | `test_settings.py` |
 | `cc-fuzzy-search-enabled` absent, Nova's `no`, or as the same save keeps it (finding 40) | a search one letter off a case's name finds nothing in all three; with `yes`, a person's change, it finds the case | `test_settings.py` |
-| A custom tile's vertical alignment (finding 42) | Formplayer hands the client no alignment for Nova's export and `start` for the saved app, and nothing else of the list differs | the rule `tile-vertical-align-start` (`proof/rules/test_tile_vertical_align_start.py`) |
 | The case blocks Nova's generated groups hold (defect 13): every block inside `nova_operations`, a conditional one inside its `nova_condition_` group, guards as update-only blocks, a keyed root create in a one-row repeat, reads between blocks through `current()` | with every condition true and with every condition false, Formplayer submits for each form the case blocks Core's own session submits, each where Core's holds it, and HQ's case processing of the two leaves the same cases; a failing text guard blanks its block's `case_id` and Formplayer refuses the submission, sending HQ nothing | `test_case_blocks.py` |
 
 ### The editor driver
@@ -1931,14 +1946,13 @@ the client itself:
 
 | Claim | Observed | Test |
 | --- | --- | --- |
-| A tile cell's vertical alignment, absent or the `start` the Case List save writes (finding 42) | `align-self: start` for both | `test_tiles.py` |
-| Its horizontal alignment, absent or `left` (finding 42) | `start` for Nova's export, `left` for the saved app, alike left to right and apart right to left | `test_tiles.py` |
-| Its font size, absent or the `medium` the save writes (defect 14) | 12px under HQ's stylesheet for Nova's export, 16px for the saved app | `test_tiles.py` |
-| The empty search description the Case List save writes (finding 54) | no description element for `""` or for a non-breaking space, on a search opened from a list, one the menu opens and an inline one; a description with text is shown | `test_search.py` |
+| A tile cell's alignment and font size, which Nova writes as the Case List save does (finding 42, defect 14) | `text-align` and `justify-self` `left`, `align-self: start` and 16px for every cell, before the save and after it | `test_tiles.py` |
+| A tile's order rules on columns hidden from Results, neither on the tile (the corrected tile clause) | the rows follow the rules, each row lays out its placed cells alone, and a search for a value only a hidden column holds finds its case | `test_tiles.py` |
+| The empty search description, which Nova writes as the Case List save does (finding 54) | no description element for the non-breaking space Formplayer hands for Nova's export and for the saved app, on a search opened from a list, one the menu opens and an inline one; a description with text is shown | `test_search.py` |
 | List-first turned search-first by the Case List save (defect 21) | the menu opens the list for Nova's export and the search for the saved app | `test_search.py` |
-| A column hidden from a list (defect 16) | a list search for its value finds no case; a shown value finds the case | `test_search.py` |
-| A sort-only column | no header and no cell for the column Formplayer hands with a width hint of 0 | `test_search.py` |
-| The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export; after the module settings save a message box holding only a non-breaking space | `test_empty_list.py` |
+| A column hidden from a list (defect 16) | a list search for its value finds the case that holds it, and the list shows no header and no cell for the column | `test_search.py` |
+| A sort-only column, and a column hidden from Results | no header and no cell for either column Formplayer hands with a width hint of 0 | `test_search.py` |
+| The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export and after the module settings save | `test_empty_list.py` |
 | The logo Nova sends (`logo_refs.hq_logo_web_apps`) | the app's tile shows HQ's own URL for the mapped file, and HQ serves Nova's bytes there; without one, the client's own image | `test_app_list.py` |
 | `cc-show-incomplete`, as the app's incomplete forms setting stores it, and after the App Settings save (defect 7, finding 62) | the Incomplete Forms tile shows where the app turns incomplete forms on (`targeted-survey-menu`) and not where it leaves them off (`media-only`), and each is as it was after a save that changes nothing, the stored value unchanged; an app that stores no value (the create of the control `case-operation-query`) still loses the tile at the save | `test_app_list.py` |
 | Every question a worker answers with a gesture (`targeted-capture-widgets`) | an image, a sound, a video and a document question each answered with the file Formplayer's walk uploaded, chosen through the widget's file input, a signature drawn on its pad and a location dragged on its map to within a pixel of the answer table's place, which the walk then gives as the client gave it; the form as left shows each file's name, the drawn pad and the place; HQ's receiver is handed the five files with the walk's submission and with the client's | `test_widgets.py` |
@@ -2613,7 +2627,7 @@ gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its cont
 | 7 | HQ's profile sets `cc-show-saved` and `cc-show-incomplete` to `no`; Nova's `.ccz` profile omits both, which Android reads as yes, and holds no `checkoff` feature, so Android hides Saved and keeps no sent form; HQ's App Settings save stores `cc-show-incomplete` `no`, and the Web Apps client's Incomplete Forms tile goes (finding 62). Fixed in step 2: the app holds both settings (`appSettings`), and both paths write them, with `<checkoff active="true"/>` in every local profile | proof 3 across the two paths (the profile in the trace, Android's readers, home buttons and send); proof 4 (the Web Apps client after the App Settings save) | fixed; still shown by the controls `case-operation-query` and `case-capture-followup`, and for finding 62 `targeted-custom-tile` and `targeted-invalid-question-ids` |
 | 8 | a barcode or secret answer that breaks its authored validation is accepted (`FormEntryController.answerQuestion`). Fixed in step 2: the emitter writes the validation on every kind the validator admits it on | intent (Core) | fixed; still shown by the control `targeted-validated-barcode-secret` |
 | 9 | two `.ccz` exports of one document carry different profile `uniqueid`s, both at version 1, and Nova's profile declares no required CommCare version where HQ's does. Fixed in step 2: the `uniqueid` is derived from the app's id and its project space, the versions are the document's sequence, and the profile requires CommCare 2.57 | proof 1, local path; proof 3 across the two paths | fixed; still shown by the controls `case-operation-query` and, on a device's installs and update, `case-capture-followup` |
-| 10 | a list sorted by an ID-mapping or a select column is sorted by the label it shows on HQ's build and by the raw value in Nova's `.ccz`, so its rows come in another order on each path; so do an interval column with text and an image-map column (correction 3); the sort HQ places on the first of two columns that share a property orders the rows alike unless that column is one of these, and moves only the sort key (defect 51). An unsorted list differs only where HQ sorts its first column by a date or an image map (correction 10). Rows are compared by the case each selects, so a reorder is its order alone, and a sort key only one build gives a column is defect 51's | proof 3 across the two paths, over a case database holding "10" and "2" | `targeted-label-sort`; documents whose lists hold those columns |
+| 10 | a list sorted by an ID-mapping or a select column was sorted by the label it shows on HQ's build and by the raw value in Nova's `.ccz`, so its rows came in another order on each path; so did an interval column with text and an image-map column (correction 3), and an unsorted list differed where HQ sorts its first column by a date or an image map (correction 10). Fixed in step 2: every path reads one order plan (`lib/domain/caseListOrder.ts::caseListOrderPlan`): an ID mapping is HQ's `enum`, ordered by its mapping position, an unsorted list is ordered by its first shown column, and each field keeps the sort key HQ's build gives it (defect 51). Rows are compared by the case each selects, so a reorder is its order alone | proof 3 across the two paths, over a case database holding "10" and "2"; Core's order under each comparator, which Preview is held to, by `proof/native/core/CaseListOrderRuntimeTest.java` | fixed; still shown by the controls `targeted-label-sort` and `expander-expanddoc-hq-json-projection-sort-elements-5899296f-0`; `targeted-label-sort` holds the fix |
 | 12, related lookups | HQ's compiler raises without `CASE_SEARCH_RELATED_LOOKUPS` (`filter_dsl.py::_require_related_lookups_flag`) | intent (HQ), under the minimum configuration | `targeted-search-related-lookups` |
 | 12, custom tile | a Case List save under `CASE_LIST_TILE` alone drops the custom tile | proof 4 under that configuration, then 2 | `targeted-custom-tile` |
 | 12, single-date prompt | a Case List save without `CASE_SEARCH_ADVANCED` drops the date input | proof 4 under the minimum, then 2 | a search with a single-date input |
@@ -2631,10 +2645,10 @@ gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its cont
 | 14, multi-select destinations | the form settings save refuses them, and HQ's build refuses the mismatch | proof 4; the bar | `targeted-multi-select-destinations` |
 | 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | `targeted-search-button-label`, a lookup prompt, `targeted-search-default-filter-name`, `targeted-search-hq-compile` |
 | 14, survey menus | the module's case type is `''` where the document holds one | intent (HQ) | `targeted-survey-menu` |
-| 14, tiles | the save writes a font size and places unplaced columns, changing the suite, and aligns every custom-tile cell (defect 42) | proof 4, then 2 | a tile without sizes or positions; `targeted-custom-tile` |
+| 14, tiles | the save wrote a font size and an alignment into every custom-tile cell (defect 42) and placed a hidden column that carries an order rule, changing the suite. Fixed in step 2: every cell states its alignment and size as the save writes them, and a tile's hidden order rule is a sort row with no stored column | proof 4, then 2 | fixed; still shown by the controls `tile-grouped-browse`, `tile-persistent` and `targeted-custom-tile`; `targeted-tile-hidden-order` holds the tile's hidden order |
 | 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name. Fixed in step 2: the `name` is the form's name in the default language, which the save writes | proof 4, then 3 | fixed; still shown by the controls `case-operation-query`, `targeted-form-links-hidden-and-fallback`, `case-extension-registration` and `targeted-custom-tile-after-59` |
 | 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). What Connect does with a Connect id renamed under an opportunity that holds it is Connect's own, the same for an id renamed in HQ's form builder ("Connect in the unit"). Fixed in step 2: a question id and a Connect id start with a letter, hold letters, digits and underscores, never start with `XML`, and are none of the names CommCare keeps (`lib/domain/questionId.ts`), and a deep link ID is a `slugify` fixed point (`lib/domain/entryPoints.ts::ENTRY_POINT_ID_PATTERN`, held to HQ's own function by `proof/hq/test_endpoint_ids.py`) | proof 4; the bar | fixed; still shown by the controls `targeted-invalid-question-ids` and `targeted-invalid-question-ids-after-9`; `targeted-invalid-question-ids` and `targeted-invalid-connect-ids` hold the replacements |
-| 16, hidden columns | a case list search no longer matches a hidden column's values, because Nova drops the column (`EntitySortUtil.sortEntities`) | intent (Core) | `targeted-hidden-column` |
+| 16, hidden columns | a case list search did not match a hidden column's values, because Nova dropped the column (`EntitySortUtil.sortEntities`). Fixed in step 2: in a list with no case tile a column hidden from Results is HQ's `invisible` column on both paths | intent (Core) | fixed; still shown by the control `targeted-hidden-column`; `targeted-hidden-calculated-column` holds a hidden calculated column |
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`) | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | a module that offers search; `targeted-sync-on-form-entry` |
 | 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps` |
 | 23 | a Vellum save drops the Save to Case attachment | proof 4, then 3 | an attachment-mode capture |
@@ -2645,7 +2659,7 @@ gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its cont
 | 27 | Vellum reports "Repeat Count is required." for a user repeat in a labelled group | proof 4 | `targeted-labelled-group-repeat` |
 | 30 | Core serializes a second `nova_count_<repeat>` node holding a hidden value's count, truncated where the count is fractional | intent (Core), over the submission; manifest (a count from a hidden value that is not an integer) | `targeted-repeat-count-copy` |
 | 56, datetime ordering | an ordering comparison over a date and time is false on a device wherever an operand is held as text, and orders by calendar day where both are typed, while Preview orders by instant | intent (Core), on the local export and on A | `targeted-datetime-ordering` |
-| 57, `case_id` column | a case list column over `case_id` is blank on HQ's build (`detail_screen.py::CASE_PROPERTY_MAP` has no entry for it, and the case database holds the id only as an attribute), and a hidden sort column over `case_id`, `owner_id` or `status` makes HQ's Case List page refuse to save | manifest; proof 3 across the two paths; proof 4 | `targeted-case-id-column` |
+| 57, `case_id` column | a case list column over `case_id` was blank on HQ's build (`detail_screen.py::CASE_PROPERTY_MAP` has no entry for it, and the case database holds the id only as an attribute), and a hidden sort column over `case_id`, `owner_id` or `status` made HQ's Case List page refuse to save. Fixed in step 2: every column over the three is an expression column over the attribute | manifest; proof 3 across the two paths; proof 4 | fixed; still shown by the control `targeted-case-id-column`; `targeted-attribute-columns` holds every column over the three |
 | 70, reserved question names | HQ's form builder warns about a question named `case`, `registration` or `script` (Vellum `src/mugs/baseSpecs.js`, `RESERVED_NAMES`), and a root question named `case` in a form that saves a case stops HQ's build ("You cannot use the Case Management UI if you already have a case block in your form.", `xform.py::XForm._create_casexml`). Fixed in step 2: Nova refuses the three names in any case for every question and Connect block | the bar; proof 4 | fixed; still shown by the control `targeted-reserved-question-names` |
 | 71, the form's root | HQ's form builder reports "Unknown question: #form" on a calculation or a repeat's count that reads the form's root (`/data`), which Nova admitted. Fixed in step 2: Nova refuses a read of the form's root alone (`INVALID_REF`) | proof 4 | fixed; still shown by the control `targeted-form-root-read` |
 
@@ -2865,18 +2879,6 @@ runs it.
 
 The rules whose readers reach past HQ's build and Core:
 
-- **`search-description-empty`** (finding 54): the Case List save writes a
-  search description of no text. HQ's build gives the search a
-  `<description>` for it, Formplayer hands the client a non-breaking space
-  where it handed nothing, the client shows no description for either and
-  the same screens throughout, and a device's search screen is the same; a
-  description that holds text is shown, and the rule leaves it.
-- **`tile-vertical-align-start`** (finding 42): the Case List save writes a
-  vertical alignment of `start` into every tile cell. HQ's build writes the
-  attribute, Formplayer hands the client `start` where it handed none, the
-  client computes `align-self: start` for both, and Android's tile lays a
-  text cell and an image cell out the same; `center` moves the cell, and
-  the rule leaves it.
 - **`runtime-url-app-id`** (`runtime_url_app_id`): in a runtime URL (the
   suite's search and case fixture URLs, the profile's `PostURL` and
   `ota-restore-url`, and each request a reader sends to them) the release's
@@ -3526,7 +3528,7 @@ This is detail regeneration, not a full HQ build.
 `TileSuiteRuntimeTest` (sixteen cases) parses the whole local suite or HQ's
 regenerated details through Core's `SuiteParser` with resource installation
 off, and inspects `Detail` and `DetailField` values, maximum grid dimensions,
-hidden sorting, explicit and inherited style, and group header depth; local
+hidden sorting, each cell's explicit style, and group header depth; local
 suites also resolve the form and browse entries and the entity and computed
 datums of persistent details and group companion data.
 `TileGroupingRuntimeTest` completes case selection in three grouped variants
@@ -3674,7 +3676,7 @@ paths and checks the Connect namespace in the submission.
 
 | Family | HQ | Core |
 | --- | --- | --- |
-| `case-list` | Suite contributors and authored app strings regenerate the eight case list scenarios for the Core class; no HQ check (the bar builds them, and no structural equivalence is claimed). | `CaseListRuntimeTest`: typed sort and ties, formatted templates, long-detail order and nodesets on both paths. |
+| `case-list` | Suite contributors and authored app strings regenerate the eight case list scenarios for the Core class; no HQ check (the bar builds them, and no structural equivalence is claimed). | `CaseListRuntimeTest`: typed sort and ties, formatted templates, long-detail order and nodesets on both paths. `CaseListOrderRuntimeTest` reads no product of the family: Core's order of a checked-in control's rows (`core/resources/case-list-order/orders.json`) under each comparator, direction and blanks placement, which Preview's case store is held to as well. |
 | `container` | Each group and repeat scenario's form regenerated for the Core class; no HQ check (the bar builds them). | `ContainerRuntimeTest`: group relevance, repeat entry, live counts, per-row values, case effects, a default read from each of four placements and a registration form's default and calculation that read its own new case id on both paths; initialization snapshots, row insertion and field-list timing on the local forms; private wire counterexamples for count types. |
 | `endpoint` | `<endpoint>` and reached `<remote-request>` elements equal Nova's, with `SESSION_ENDPOINTS` on. | `EndpointRuntimeTest`: argument binding, refusing missing and unexpected keys. |
 | `expander` | HQ regenerates the suites and app strings the Core class reads; no HQ check (the bar publishes and builds every admitted expander document, and Core admits each build and CCZ). | `ExpanderRuntimeTest`: a case list column over eleven options shows `Tag 10` for `tag_10` on both paths, so HQ's enum key replacement keeps double-digit option keys apart. |

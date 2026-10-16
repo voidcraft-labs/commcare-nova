@@ -20,11 +20,13 @@
 //     the same authored content via the same kind → format
 //     dispatch.
 //
-//   - `case_details.short.sort_elements` — per-column sort directive
-//     mapping. Reuses `buildSortDirectives` from the suite-XML
-//     emitter so the priority + tie-break rule binds at one source;
-//     the only divergence is the wire shape (a SortElement struct
-//     here vs. a `<sort>` XML element there).
+//   - `case_details.short.columns` and `sort_elements` — the fields and
+//     order rules of the case list order plan
+//     (`lib/domain/caseListOrder.ts::caseListOrderPlan`), which the local
+//     suite and Preview read too, so no reader decides a list's order on
+//     its own. Every column of a list with no tile layout is a field; a
+//     column hidden from Results is HQ's `invisible` column, which the
+//     list's search still matches.
 //
 //   - `case_details.short.filter` — the always-on
 //     `caseListConfig.filter` plus owner availability from
@@ -42,7 +44,12 @@
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type {
 	BlueprintDoc,
+	CaseListComparator,
 	CaseListConfig,
+	CaseListOrderPlan,
+	CaseListOrderRule,
+	CaseListShortField,
+	CaseListSortKey,
 	CaseProperty,
 	CaseTileLayout,
 	Column,
@@ -51,10 +58,13 @@ import type {
 	SearchInputDef,
 } from "@/lib/domain";
 import {
+	caseListOrderPlan,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
+	casePropertyShowsOptionLabels,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
+	imageMapShowsImages,
 	makeTranslationUnitId,
 	type OrdinaryCaseSearchConfig,
 	orderedColumns,
@@ -68,7 +78,6 @@ import {
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
-import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
 import { caseSearchConfigShell, detailColumn, detailPair } from "../hqShells";
 import {
 	type CommCareLocalization,
@@ -80,28 +89,21 @@ import {
 	requireAssetRef,
 } from "../multimedia/assetWirePath";
 import { emitCaseListFilter } from "../predicate/caseListFilterEmitter";
-import {
-	idMappingDisplayXpath,
-	imageMapEnumKey,
-	intervalColumnDisplayXpath,
-	linkColumnDisplayXpath,
-	plainSelectDisplayXpath,
-} from "../suite/case-list/columns";
+import { imageMapEnumKey } from "../suite/case-list/columns";
 import {
 	emitExcludedOwnerFilterExpression,
 	emitNormalizedExcludedOwnerIdsExpression,
 } from "../suite/case-list/nodesetFilter";
 import {
-	buildSortDirectives,
-	SORT_DIRECTION_WIRE_MAP,
-	SORT_TYPE_WIRE_MAP,
-} from "../suite/case-list/sortKeys";
+	caseListOrderOptions,
+	columnReadsCaseAttribute,
+	hqEnumPlaceholder,
+	hqExpressionFieldText,
+} from "../suite/case-list/orderPlanOptions";
+import { SORT_DIRECTION_WIRE_MAP } from "../suite/case-list/sortKeys";
 import { TILE_VERTICAL_ALIGN_WIRE } from "../suite/case-list/tileStyle";
 import { compileForPlatform } from "../suite/case-search/compileForPlatform";
-import {
-	classifyRelatedCaseSearchExpression,
-	searchNeedsSupportingCases,
-} from "../suite/case-search/relatedCaseProjection";
+import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
 import {
 	type RuntimeCsqlPromptValidation,
 	searchPromptRelationContext,
@@ -128,214 +130,176 @@ import { moduleTypeContext } from "../validator/rules/case-list/shared";
 // `DetailColumn` projection
 // ============================================================
 
-/**
- * CCHQ's XPathEnum builder discovers enum variables with substring matching
- * before it prefixes them with `$k`. Fixed-width decimal indices make every
- * legal JavaScript array index prefix-free, so key 1 can never corrupt key 10.
- */
-function hqEnumPlaceholder(index: number): string {
-	return `nova_text_${index.toString(10).padStart(10, "0")}`;
+/** What every column projection of one module reads. */
+interface ColumnProjectionContext {
+	readonly mod: Module;
+	readonly doc: BlueprintDoc;
+	readonly localization: CommCareLocalization;
+	readonly assets?: AssetManifest;
+	/** Whether the export carries a media manifest
+	 *  (`imageMapShowsImages`). */
+	readonly mediaOn: boolean;
+	readonly caseProperties: readonly CaseProperty[];
+	readonly typeContext: TypeContext;
+	readonly lookupNaming?: LookupWireNaming;
 }
 
 /**
- * Per-kind dispatch table — translates a Nova `Column` to its
- * CCHQ `DetailColumn` slot overrides. Each handler returns ONLY
- * the slots that differ from `detailColumn()`'s plain baseline;
- * unset slots inherit the baseline's CCHQ-default values. Keeps
- * the dispatch site readable and the per-kind shape declarative.
+ * Per-kind dispatch — translates a Nova `Column` to its CCHQ `DetailColumn`
+ * on one screen. Each arm overrides only the slots that differ from
+ * `detailColumn()`'s plain baseline.
  *
- * Calc columns route through CCHQ's `useXpathExpression` branch:
- * `format: "calculate"`, `useXpathExpression: true`, and `field`
- * carries the inline lowered XPath rather than a property name
- * (CCHQ's `detail_screen.py::FormattedDetailColumn.xpath` reads
- * `column.field` directly as the XPath when this flag is set).
- * Effective Search has one narrower exception: a whole-expression parent
- * property becomes a context-relative calculated XPath. CCHQ copies the same
- * expression into its Search detail; `current()/../case` follows the containing
- * casedb or Search roster without naming either instance, and every canonical
- * relation case-type qualifier remains explicit. Larger related calculations
- * are rejected by the validator before this projection runs.
+ * Every expression arm takes its `field` from
+ * `orderPlanOptions.ts::hqExpressionFieldText`, the function the order
+ * plan's join text comes from, with the screen it is writing, so a stored
+ * short column's `field` is the plan's join text itself. CCHQ uses an
+ * expression column's `field` verbatim as the XPath
+ * (`detail_screen.py::FormattedDetailColumn.xpath`).
  *
- * The `id-mapping` arm produces CCHQ's `translatable-enum` format with the
- * `(key, {lang: label})` per-entry shape projected from Nova's complete
- * language inventory.
- *
- * The `interval` arm uses CCHQ's supported calculated-expression format for
- * both display modes. Its stock `time-ago` model cannot store Nova's overdue
- * threshold/text and its stock `late-flag` hard-codes `*`; the calculate arm
- * preserves the exact expression shared with suite.xml.
+ *   - `calculated`: `format: "calculate"`, its expression. Effective Search
+ *     writes a whole-expression parent property as a context-relative
+ *     calculated XPath that CCHQ copies into its Search detail.
+ *   - A column over `case_id`, `owner_id` or `status` is an expression
+ *     column of its kind's format, `field: "@<name>"` (finding 57): HQ reads
+ *     a property column's `field` as a child element, and its
+ *     `CASE_PROPERTY_MAP` has no entry for `case_id`.
+ *   - `plain` over a select with options: `translatable-enum`, the label
+ *     expression with one enum variable per option.
+ *   - `id-mapping`: CCHQ's `enum` over the property, one entry per mapping
+ *     row keyed by its value, so HQ's build shows the `selected` chain the
+ *     local suite writes and sorts by the mapping position
+ *     (`detail_screen.py::Enum`).
+ *   - `image-map`: `enum-image` wherever `imageMapShowsImages` holds, the
+ *     plain column otherwise.
+ *   - `link`: `markdown` over the link expression.
+ *   - `interval`: `translatable-enum` over the same expression the suite
+ *     writes; CCHQ's stock `time-ago` cannot store Nova's threshold text and
+ *     its `late-flag` hard-codes `*`.
  */
 function projectColumnToDetail(
 	column: Column,
-	doc: BlueprintDoc,
-	localization: CommCareLocalization,
-	assets?: AssetManifest,
-	caseType?: string,
-	caseProperties: readonly CaseProperty[] = [],
-	typeContext?: TypeContext,
-	lookupNaming?: LookupWireNaming,
-	projectSearchRelatedCases = false,
+	ctx: ColumnProjectionContext,
+	screen: "results" | "details",
 ): WireDetailColumn {
+	const { doc, localization, mod } = ctx;
 	const headerRecord = localization.textMap(
 		makeTranslationUnitId("column", column.uuid, "header"),
 	);
+	const expressionField = () =>
+		hqExpressionFieldText(
+			column,
+			mod,
+			doc,
+			screen,
+			ctx.lookupNaming,
+			ctx.typeContext,
+		);
 
 	if (column.kind === "calculated") {
-		if (projectSearchRelatedCases) {
-			const relatedProjection = classifyRelatedCaseSearchExpression(
-				column.expression,
-				{
-					...(typeContext ?? {}),
-					...(caseType === undefined ? {} : { currentCaseType: caseType }),
-				},
-			);
-			if (relatedProjection.kind === "ancestor-property") {
-				return {
-					...detailColumn(relatedProjection.hqExpression, headerRecord),
-					format: "calculate",
-					useXpathExpression: true,
-				};
-			}
-		}
-		const calcXpath = emitOnDeviceExpression(
-			column.expression,
-			undefined,
-			typeContext ?? {},
-			undefined,
-			lookupNaming === undefined
-				? {}
-				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
-		);
 		return {
-			...detailColumn(calcXpath, headerRecord),
+			...detailColumn(expressionField(), headerRecord),
 			format: "calculate",
 			useXpathExpression: true,
 		};
 	}
 
-	const base: WireDetailColumn = detailColumn(column.field, headerRecord);
+	const attribute = columnReadsCaseAttribute(column);
+	const base: WireDetailColumn = attribute
+		? {
+				...detailColumn(emitCasePropertyWirePath(column.field), headerRecord),
+				useXpathExpression: true,
+			}
+		: detailColumn(column.field, headerRecord);
 
 	switch (column.kind) {
 		case "plain": {
-			const property = caseProperties.find(
+			const property = ctx.caseProperties.find(
 				(candidate) => candidate.name === column.field,
 			);
-			if (
-				property?.data_type === "single_select" ||
-				property?.data_type === "multi_select"
-			) {
-				const options = property.options ?? [];
-				return {
-					...base,
-					field: plainSelectDisplayXpath(
-						emitCasePropertyWirePath(column.field),
-						property,
-						doc,
-						(_option, index) => `$${hqEnumPlaceholder(index)}`,
-					),
-					format: "translatable-enum",
-					useXpathExpression: true,
-					enum: options.map((option, index) => ({
-						key: hqEnumPlaceholder(index),
-						value: localization.proseTextMap(
-							casePropertyOptionTranslationUnitId(
-								caseType ?? "",
-								property.name,
-								option.value,
-								casePropertyOptionOccurrence(options, index),
-							),
-						),
-					})),
-				};
+			if (property === undefined || !casePropertyShowsOptionLabels(property)) {
+				return base;
 			}
-			// Baseline already carries `format: "plain"` — no overrides
-			// needed beyond the shared `(field, header)` shape.
-			return base;
-		}
-		case "date":
+			const options = property.options ?? [];
 			return {
 				...base,
-				format: "date",
-				date_format: column.pattern,
-			};
-		case "phone":
-			return {
-				...base,
-				format: "phone",
-			};
-		case "id-mapping": {
-			const enumEntries = column.mapping.map((entry, index) => ({
-				key: hqEnumPlaceholder(index),
-				value: localization.textMap(
-					makeTranslationUnitId("column", column.uuid, "mapping", entry.value),
-				),
-			}));
-			return {
-				...base,
-				field: idMappingDisplayXpath(
-					emitCasePropertyWirePath(column.field),
-					column.mapping.map((entry, index) => ({
-						...entry,
-						labelExpression: `$${hqEnumPlaceholder(index)}`,
-					})),
-				),
+				field: expressionField(),
 				format: "translatable-enum",
 				useXpathExpression: true,
-				enum: enumEntries,
+				enum: options.map((option, index) => ({
+					key: hqEnumPlaceholder(index),
+					value: localization.proseTextMap(
+						casePropertyOptionTranslationUnitId(
+							mod.caseType ?? "",
+							property.name,
+							option.value,
+							casePropertyOptionOccurrence(options, index),
+						),
+					),
+				})),
 			};
 		}
+		case "date":
+			return { ...base, format: "date", date_format: column.pattern };
+		case "phone":
+			return { ...base, format: "phone" };
+		case "id-mapping":
+			// HQ keys each entry by its value and builds the display
+			// `replace(join(' ', if(selected(<xpath>, '<key>'), $k<key>, ''), …),
+			// '\s+', ' ')` and the sort `if(selected(<xpath>, '<key>'), 0, …'')`
+			// itself (`suite_xml/xml_models.py::XPathEnum.build`).
+			return {
+				...base,
+				format: "enum",
+				enum: column.mapping.map((entry) => ({
+					key: entry.value,
+					value: localization.textMap(
+						makeTranslationUnitId(
+							"column",
+							column.uuid,
+							"mapping",
+							entry.value,
+						),
+					),
+				})),
+			};
 		case "image-map": {
 			// `enum-image` shares the id-mapping `enum` shape, but each
 			// entry's value is the IMAGE path (`{lang: jr://...}`), not a
-			// text label — verified against
-			// `commcare-hq/.../detail_screen.py::EnumImage` (`template_form
-			// = 'image'`). Media-off (no manifest) has no paths to emit, so
-			// the column degrades to the plain `base` (raw property value).
-			if (!assets) return base;
-			const enumEntries = column.mapping.map((entry) => ({
-				key: imageMapEnumKey(entry.value),
-				value: repeatForLanguages(
-					localization.languages,
-					requireAssetRef(
-						entry.assetId,
-						assets,
-						"projectColumnToDetail image-map",
-					),
-				),
-			}));
+			// text label (`detail_screen.py::EnumImage`, `template_form =
+			// 'image'`). A map with no entries names no path, so it is the
+			// image column with a manifest and without one.
+			if (!imageMapShowsImages(column, ctx.mediaOn)) return base;
 			return {
 				...base,
 				format: "enum-image",
-				enum: enumEntries,
+				enum: column.mapping.map((entry) => ({
+					key: imageMapEnumKey(entry.value),
+					value: repeatForLanguages(
+						localization.languages,
+						requireAssetRef(
+							entry.assetId,
+							ctx.assets ?? new Map(),
+							"projectColumnToDetail image-map",
+						),
+					),
+				})),
 			};
 		}
 		case "link":
-			// `markdown` + `useXpathExpression` is the whole projection: HQ
-			// wraps the expression as `$calculated_property` and renders the
-			// result through `Markdown.template_form`
-			// (`detail_screen.py::FormattedDetailColumn.template`). No `enum`
-			// entries, because the label rides inside the expression — see
-			// `linkColumnSchema` for why the wire leaves nowhere else to put
-			// it. The expression is the SAME one the suite emitter uses, so
-			// importing this app and downloading it produce the same cell.
+			// `markdown` + `useXpathExpression`: HQ wraps the expression as
+			// `$calculated_property` and renders the result through
+			// `Markdown.template_form`. The label rides inside the expression;
+			// see `linkColumnSchema` for why the wire has nowhere else for it.
 			return {
 				...base,
-				field: linkColumnDisplayXpath(
-					emitCasePropertyWirePath(column.field),
-					column.linkText,
-				),
+				field: expressionField(),
 				format: "markdown",
 				useXpathExpression: true,
 			};
 		case "interval":
-			// CCHQ's stock `time-ago` format stores only the divisor and
-			// `late-flag` hard-codes `*`; neither can preserve Nova's authored
-			// threshold + text. The supported calculate arm carries the exact
-			// same XPath as Nova's suite emitter, so upload cannot change what
-			// the author saw in Preview.
 			return {
 				...base,
-				field: intervalColumnDisplayXpath(column, `$${hqEnumPlaceholder(0)}`),
+				field: expressionField(),
 				format: "translatable-enum",
 				useXpathExpression: true,
 				enum: [
@@ -351,50 +315,51 @@ function projectColumnToDetail(
 }
 
 /**
- * Results-only visibility projection. CCHQ's `"invisible"` format is a
- * zero-width column on a short detail, so it safely keeps off-screen sort
- * carriers at their positional indices. The same format does NOT hide a
- * normal long-detail column; Details removal is therefore represented by
- * omitting that column from the long array altogether.
+ * One field of the short detail, from the order plan. A shown field is its
+ * kind's projection on Results. A hidden field is HQ's `invisible` column,
+ * built from the `detailColumn` shell and never from the shown projection:
+ * the raw property for a column that is not calculated, `@<name>` for an
+ * attribute-backed one, the expression for a calculated one. Every other
+ * slot is the shell's own, `date_format` among them, which no reader of an
+ * `invisible` column reads.
+ *
+ * A hidden field's header is never read by HQ's build
+ * (`detail_screen.py::Invisible.header` writes an empty text unless the
+ * joined sort element has display text, `models/case_list.py::SortElement.
+ * has_display_values`, and Nova's never has). Where the column is shown on
+ * Details it is the header's text map; where it is hidden from both screens
+ * it has no header unit, and the stored header stands under every wire code.
+ * The Case List save keeps both spellings.
+ *
+ * Throws where the stored `field` is not the plan's join text: HQ joins an
+ * order rule by that text alone, so the two must be one string.
  */
 function projectColumnForShortDetail(
-	column: Column,
-	doc: BlueprintDoc,
-	localization: CommCareLocalization,
-	assets?: AssetManifest,
-	caseType?: string,
-	caseProperties: readonly CaseProperty[] = [],
-	typeContext?: TypeContext,
-	lookupNaming?: LookupWireNaming,
-	projectSearchRelatedCases = false,
+	field: CaseListShortField,
+	ctx: ColumnProjectionContext,
 ): WireDetailColumn {
-	const projected = projectColumnToDetail(
-		column,
-		doc,
-		localization,
-		assets,
-		caseType,
-		caseProperties,
-		typeContext,
-		lookupNaming,
-		projectSearchRelatedCases,
-	);
-	const visible = column.visibleInList ?? true;
-	if (visible) return projected;
-	// Search-only / detail-only columns stay at their positional index so sort
-	// joins remain stable. CCHQ's final Invisible formatter does not register
-	// translatable-enum variables, however, so a hidden enum expression must
-	// become an enum-free calculation of the raw case property. Authored
-	// calculated columns retain their real expression.
-	return {
-		...projected,
-		field:
-			column.kind === "calculated"
-				? projected.field
-				: emitCasePropertyWirePath(column.field),
-		format: "invisible" satisfies DetailColumnFormat,
-		enum: [],
-	};
+	const { column } = field;
+	const projected: WireDetailColumn = field.hidden
+		? {
+				...detailColumn(
+					field.joinText,
+					column.visibleInDetail !== false
+						? ctx.localization.textMap(
+								makeTranslationUnitId("column", column.uuid, "header"),
+							)
+						: repeatForLanguages(ctx.localization.languages, column.header),
+				),
+				format: "invisible" satisfies DetailColumnFormat,
+				useXpathExpression:
+					column.kind === "calculated" || columnReadsCaseAttribute(column),
+			}
+		: projectColumnToDetail(column, ctx, "results");
+	if (projected.field !== field.joinText) {
+		throw new Error(
+			`projectColumnForShortDetail: the short column ${column.uuid} writes the field ${JSON.stringify(projected.field)}, but the order plan joins it by ${JSON.stringify(field.joinText)}. HQ joins an order rule by that text alone, so the projection and caseListOrderPlan must print one string.`,
+		);
+	}
+	return projected;
 }
 
 // ============================================================
@@ -402,143 +367,89 @@ function projectColumnForShortDetail(
 // ============================================================
 
 /**
- * Translate the per-module `ResolvedSortDirective` map (built by the
- * suite-XML emitter's `buildSortDirectives`) into CCHQ's `SortElement[]`.
+ * The short detail's `sort_elements`, from the order plan: one element per
+ * rule the plan marks `written`, in `order`, fields and carriers together,
+ * in the Case List page's own spelling, so the page's save changes none
+ * (`static/app_manager/js/details/bootstrap5/sort_rows.js`,
+ * `views/modules.py::_update_sort_elements`).
  *
- * Reusing `buildSortDirectives` keeps the priority + tie-break rule
- * binding at one source — CCHQ's persistent document carries the
- * same sort sequence the suite-XML emits. The output array is
- * sorted by 1-based `order` ascending, matching the CCHQ wire shape
- * (CCHQ's `Detail.sort_elements` is an ordered list; `SortElement.order`
- * is not stored — the array position IS the order).
+ *   - `field`: the property name of a property element, or
+ *     `_cc_calculated_<position>` of the field the rule is AUTHORED on, which
+ *     HQ then gives to the first field with that field's text
+ *     (`util.py::get_sort_and_sort_only_columns`).
+ *   - `type`: the page's word. `plain` for the implicit rule; `int` or
+ *     `double` for an integer or decimal comparator; `date` for a raw value
+ *     compared as text over a date, datetime or time property; `plain`
+ *     otherwise. HQ's build writes `string` for `date` and `plain` alike
+ *     (`detail_screen.py::FormattedDetailColumn.sort_node`).
+ *   - `blanks`: `first` ascending, `last` descending.
+ *   - `display`: the first language's wire code with empty text, which the
+ *     save adds where it is missing.
+ *   - `sort_calculation`: always empty; the save empties it unless the
+ *     project has `SORT_CALCULATION_IN_CASE_LIST`.
  *
- * CCHQ's `get_sort_and_sort_only_columns` at
- * `commcare-hq/.../app_manager/util.py` joins a `SortElement` to its
- * display column two ways: exact `SortElement.field` ==
- * `DetailColumn.field` string match, or — for `useXpathExpression`
- * columns — the positional key shape `_cc_calculated_{columnIndex}`
- * (`commcare-hq/.../app_manager/const.py::CALCULATED_SORT_FIELD_RX`
- * = `^_cc_calculated_(\\d+)$`, an index into the short-detail
- * columns array). A sort element that joins neither way falls into
- * the sort-ONLY path: CCHQ regenerates the suite with the sort on a
- * detached hidden column and the visible column loses its sort.
- *
- * The caller therefore passes the actually-projected short columns,
- * and the join shape is decided by the emitted
- * `useXpathExpression` flag rather than by the Nova column kind:
- * any column whose wire `field` carries an inline display
- * expression (calculated columns, select-typed plain columns with
- * an option catalog, interval columns) joins positionally, with the
- * sort source in `sort_calculation` — CCHQ passes that string
- * verbatim as the suite `<sort>` xpath
- * (`detail_screen.py::FormattedDetailColumn.sort_node`). Property-
- * rooted directives carry the raw property reference there, which
- * is exactly the sort source Nova's direct suite emits
- * (`sortKeys.ts::propertySortXpath`): rows sort by raw value, not
- * by the derived display label. Plain-field columns keep the bare
- * property-name join.
+ * An unsorted list whose first field is shown writes `[]`, and HQ's build
+ * adds its default element for field 0
+ * (`suite_xml/sections/details.py::get_default_sort_elements`).
  */
 function projectSortElements(
-	mod: Module,
-	doc: BlueprintDoc,
-	sourceColumns: readonly Column[],
-	wireColumns: readonly WireDetailColumn[],
-	lookupNaming?: LookupWireNaming,
+	plan: CaseListOrderPlan,
+	firstLanguage: string,
+	caseProperties: readonly CaseProperty[],
 ): SortElement[] {
-	const directives = buildSortDirectives(mod, doc, lookupNaming);
-	if (directives.size === 0) return [];
+	const dataTypeOf = (name: string) =>
+		caseProperties.find((property) => property.name === name)?.data_type;
+	const written: {
+		readonly rule: CaseListOrderRule;
+		readonly key?: CaseListSortKey;
+		readonly comparator: CaseListComparator;
+	}[] = [
+		...plan.fields.flatMap((field) =>
+			field.rule === undefined
+				? []
+				: [{ rule: field.rule, key: field.key, comparator: field.comparator }],
+		),
+		...plan.carriers.map((carrier) => ({
+			rule: carrier.rule,
+			key: {
+				kind: "property" as const,
+				property: carrier.property,
+			},
+			comparator: carrier.comparator,
+		})),
+	].filter((entry) => entry.rule.written);
+	return written
+		.sort((a, b) => a.rule.order - b.rule.order)
+		.map(({ rule, key, comparator }) => ({
+			field:
+				rule.element.kind === "property"
+					? rule.element.property
+					: `_cc_calculated_${rule.element.position}`,
+			type: sortElementType(rule, key, comparator, dataTypeOf),
+			direction: SORT_DIRECTION_WIRE_MAP[rule.direction],
+			blanks: rule.blanks,
+			display: { [firstLanguage]: "" },
+			sort_calculation: "",
+		}));
+}
 
-	// uuid → position in the short columns array. CCHQ's
-	// `CALCULATED_SORT_FIELD_RX` uses `int(match.group(1))` as a
-	// positional lookup into `detail_columns[column_index]`, so the
-	// index must be the column's position in the full emitted short
-	// sequence (Results order, including invisible sort carriers).
-	const columnIndexByUuid = new Map<string, number>();
-	for (let i = 0; i < sourceColumns.length; i++) {
-		columnIndexByUuid.set(sourceColumns[i].uuid, i);
+/** The Case List page's `type` word for one written rule. */
+function sortElementType(
+	rule: CaseListOrderRule,
+	key: CaseListSortKey | undefined,
+	comparator: CaseListComparator,
+	dataTypeOf: (name: string) => CaseProperty["data_type"],
+): "plain" | "date" | "int" | "double" {
+	if (rule.implicit) return "plain";
+	if (comparator === "integer") return "int";
+	if (comparator === "decimal") return "double";
+	if (key?.kind === "property") {
+		const dataType = dataTypeOf(key.property);
+		if (dataType === "date" || dataType === "datetime" || dataType === "time") {
+			return "date";
+		}
 	}
-
-	// `buildSortDirectives` keys by uuid; the directive `order` is
-	// already the 1-based priority + tie-break position. Collect
-	// `[uuid, directive]` pairs, sort by `order`, then translate.
-	const ordered = [...directives.entries()].sort(
-		([, a], [, b]) => a.order - b.order,
-	);
-	return ordered.map(([uuid, directive]) => {
-		const type = SORT_TYPE_WIRE_MAP[directive.type];
-		const direction = SORT_DIRECTION_WIRE_MAP[directive.direction];
-		const columnIndex = columnIndexByUuid.get(uuid);
-		// `buildSortDirectives` only returns directives for columns with a
-		// `sort` slot, and `hqShortSourceColumns` keeps every such column,
-		// so the lookup never misses at runtime; the throw is a
-		// compiler-bug backstop.
-		if (columnIndex === undefined) {
-			throw new Error(
-				"projectSortElements: sort directive references a column UUID that is not in the HQ short-detail source: `buildSortDirectives` should only surface directives for columns in this list.",
-			);
-		}
-		if (directive.kind === "property") {
-			const sourceColumn = sourceColumns[columnIndex];
-			if (sourceColumn.kind === "calculated") {
-				throw new Error(
-					"projectSortElements: property sort directive resolved to a calculated column in the HQ short-detail source.",
-				);
-			}
-			if (wireColumns[columnIndex]?.useXpathExpression === true) {
-				// The projected column's `field` is an inline display
-				// expression, so a property-name sort element can't join it.
-				// Join positionally and sort by the raw property.
-				return {
-					field: `_cc_calculated_${columnIndex}`,
-					type,
-					direction,
-					blanks: "",
-					display: {},
-					sort_calculation: emitCasePropertyWirePath(sourceColumn.field),
-				};
-			}
-			return {
-				// CCHQ joins SortElement.field to DetailColumn.field by exact
-				// string. HQ JSON stores the domain/CCHQ field token here (not the
-				// direct-suite XPath's `@status` attribute spelling).
-				field: sourceColumn.field,
-				type,
-				direction,
-				blanks: "",
-				display: {},
-				sort_calculation: "",
-			};
-		}
-		const projectedColumn = wireColumns[columnIndex];
-		if (
-			projectedColumn !== undefined &&
-			projectedColumn.useXpathExpression !== true
-		) {
-			return {
-				field: projectedColumn.field,
-				type,
-				direction,
-				blanks: "",
-				display: {},
-				sort_calculation: "",
-			};
-		}
-		return {
-			field: `_cc_calculated_${columnIndex}`,
-			type,
-			direction,
-			blanks: "",
-			display: {},
-			// Sort the exact calculated expression stored on the projected HQ
-			// column. It normally equals `directive.calcXpath`; effective Search's
-			// admitted parent-property arm is intentionally context-relative so the
-			// copied Search detail does not retain a casedb-root sort expression.
-			sort_calculation:
-				projectedColumn?.useXpathExpression === true
-					? projectedColumn.field
-					: directive.calcXpath,
-		};
-	});
+	return "plain";
 }
 
 // ============================================================
@@ -830,7 +741,7 @@ function buildSearchConfigDocument(
 	// `hqShells.ts`. Mutate the shell with authored overrides so the
 	// CCHQ-default baseline lives in one file (any future CCHQ
 	// upstream default change is a one-edit fix).
-	const config = caseSearchConfigShell();
+	const config = caseSearchConfigShell(localization.languages);
 
 	if (caseSearchConfig !== undefined) {
 		// Use Nova's shared friendly default so a fresh search never inherits
@@ -974,54 +885,41 @@ export function projectCaseListForHq(
 	const localization = commCareLocalization(doc);
 	const caseListConfig = mod.caseListConfig;
 	const caseSearchConfig = effectiveCaseSearchConfig(mod);
-	const projectSearchRelatedCases = caseSearchConfig !== undefined;
 	const typeContext = moduleTypeContext(mod, doc);
 	const caseProperties =
 		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
 			?.properties ?? [];
-	// CCHQ models short (Results) and long (Details) as independent ordered
-	// arrays, and so does Nova: each surface reads its OWN sequence rather than
-	// the storage array. Calculated-sort positional indices bind only to the
-	// short array and therefore use Results order.
-	const shortSourceColumns = hqShortSourceColumns(
-		caseListConfig === undefined ? [] : orderedColumns(caseListConfig, "list"),
-	);
+	const ctx: ColumnProjectionContext = {
+		mod,
+		doc,
+		localization,
+		...(assets !== undefined && { assets }),
+		mediaOn: assets !== undefined,
+		caseProperties,
+		typeContext,
+		...(lookupNaming !== undefined && { lookupNaming }),
+	};
+	// The short detail's fields and order are the order plan's
+	// (`lib/domain/caseListOrder.ts`); the long detail reads its own Details
+	// sequence. CCHQ models the two as independent ordered arrays, and a
+	// positional sort element indexes the short one.
+	const plan =
+		caseListConfig === undefined
+			? { fields: [], carriers: [], authored: [] }
+			: caseListOrderPlan(
+					caseListConfig,
+					caseProperties,
+					caseListOrderOptions(mod, doc, ctx.mediaOn, lookupNaming),
+				);
 	const longSourceColumns = (
 		caseListConfig === undefined ? [] : orderedColumns(caseListConfig, "detail")
 	).filter((column) => column.visibleInDetail !== false);
 
-	const shortColumns = shortSourceColumns.map((c) =>
-		projectColumnForShortDetail(
-			c,
-			doc,
-			localization,
-			assets,
-			mod.caseType,
-			caseProperties,
-			typeContext,
-			lookupNaming,
-			projectSearchRelatedCases,
-		),
+	const shortColumns = plan.fields.map((field) =>
+		projectColumnForShortDetail(field, ctx),
 	);
-	const longColumns = longSourceColumns.map((c) =>
-		projectColumnToDetail(
-			c,
-			doc,
-			localization,
-			assets,
-			mod.caseType,
-			caseProperties,
-			typeContext,
-			lookupNaming,
-			projectSearchRelatedCases,
-		),
-	);
-	const sortElements = projectSortElements(
-		mod,
-		doc,
-		shortSourceColumns,
-		shortColumns,
-		lookupNaming,
+	const longColumns = longSourceColumns.map((column) =>
+		projectColumnToDetail(column, ctx, "details"),
 	);
 	const filter = projectCaseListFilter(
 		caseListConfig?.filter,
@@ -1039,17 +937,17 @@ export function projectCaseListForHq(
 	// comes from the raw config because disabling Search must not widen the
 	// ordinary case list.
 	const pair = detailPair(shortColumns, longColumns);
-	pair.short.sort_elements = sortElements;
+	pair.short.sort_elements = projectSortElements(
+		plan,
+		localization.languages[0] ?? "en",
+		caseProperties,
+	);
 	pair.short.filter = filter;
 	if (caseListConfig?.selection?.kind === "multiple") {
 		pair.short.multi_select = true;
 		pair.short.max_select_value = caseListConfig.selection.maximum;
 	}
-	applyTileLayoutToShortDetail(
-		pair.short,
-		caseListConfig?.tile,
-		shortSourceColumns,
-	);
+	applyTileLayoutToShortDetail(pair.short, caseListConfig?.tile, plan.fields);
 
 	const searchConfig = buildSearchConfigDocument(
 		caseSearchConfig,
@@ -1086,11 +984,16 @@ export function projectCaseListForHq(
  * none: CCHQ's own emitter builds a `<style>` when ANY of the four is
  * non-null, so a partial set produces a `<grid>` missing an attribute,
  * and `GridParser::parse` reads each through an unguarded
- * `Integer.parseInt`.
+ * `Integer.parseInt`. Every placed cell also states `horizontal_align`,
+ * `vertical_align` and `font_size`, because HQ's Case List save writes all
+ * three into a cell that holds none (`column.js`, defaults `left`, `start`,
+ * `medium`), so a cell without them changes on the first save.
  *
- * `shortSourceColumns` is the Results-ordered source list the caller
- * already built, in the exact order it projected `detail.columns`, so
- * the two zip positionally.
+ * `fields` are the order plan's short fields, in the exact order the caller
+ * projected `detail.columns`, so the two zip positionally. In a tile list a
+ * column hidden from Results is no field (`caseListOrder.ts`, rule 1): its
+ * order rule is a sort row with no stored column, so no save can give it a
+ * cell, and every stored column of a tile's short detail is placed.
  *
  * Grouping rides the same short detail and reaches the search-results
  * screen through the same deep copy. CCHQ emits the `<group>` for every
@@ -1102,7 +1005,7 @@ export function projectCaseListForHq(
 function applyTileLayoutToShortDetail(
 	shortDetail: Detail,
 	tile: CaseTileLayout | undefined,
-	shortSourceColumns: readonly Column[],
+	fields: readonly CaseListShortField[],
 ): void {
 	if (tile === undefined) return;
 	shortDetail.case_tile_template = "custom";
@@ -1114,44 +1017,20 @@ function applyTileLayoutToShortDetail(
 			header_rows: tile.grouping.headerRows,
 		};
 	}
-	// `hqShortSourceColumns` deliberately keeps a column hidden from Results
-	// that owns a `sort`, because CCHQ needs the field in order to sort by it —
-	// it rides as `format: "invisible"`, CCHQ's own `HideShortColumn` shape.
-	// Writing its PLACEMENT is the thing that would break: CCHQ's regeneration
-	// builds a `Style` when any coordinate is non-null
-	// (`suite_xml/features/case_tiles.py::CaseTileHelper.build_case_tile_detail`),
-	// `detail_screen.py::Invisible` inherits the field that carries it, and
-	// `Detail.java::getMaxWidthHeight` sums every field's extent with no width
-	// filter — so an invisible column would widen the UPLOADED tile past what
-	// the local `.ccz` and the preview draw. `tileCellFor` is the one place
-	// that decision lives.
-	for (const [index, source] of shortSourceColumns.entries()) {
-		const cell = tileCellFor(source, tile);
+	for (const [index, field] of fields.entries()) {
+		const cell = tileCellFor(field.column, tile);
 		const target = shortDetail.columns[index];
 		if (cell === undefined || target === undefined) continue;
 		target.grid_x = cell.x;
 		target.grid_y = cell.y;
 		target.width = cell.width;
 		target.height = cell.height;
-		if (cell.horizontalAlign !== undefined) {
-			target.horizontal_align = cell.horizontalAlign;
-		}
-		if (cell.verticalAlign !== undefined) {
-			target.vertical_align = TILE_VERTICAL_ALIGN_WIRE[cell.verticalAlign];
-		}
-		if (cell.fontSize !== undefined) target.font_size = cell.fontSize;
+		target.horizontal_align = cell.horizontalAlign;
+		target.vertical_align = TILE_VERTICAL_ALIGN_WIRE[cell.verticalAlign];
+		target.font_size = cell.fontSize;
 		if (cell.showBorder !== undefined) target.show_border = cell.showBorder;
 		if (cell.showShading !== undefined) target.show_shading = cell.showShading;
 	}
-}
-
-/** Results columns CCHQ must persist: visible fields plus the rare off-screen
- * sort carriers required to retain Default order. Useless hidden definitions
- * stay out of HQ JSON just as they stay out of the direct suite. */
-function hqShortSourceColumns(columns: readonly Column[]): Column[] {
-	return columns.filter(
-		(column) => column.visibleInList !== false || column.sort !== undefined,
-	);
 }
 
 // Re-export the per-column projection so tests can pin per-kind

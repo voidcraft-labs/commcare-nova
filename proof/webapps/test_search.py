@@ -1,10 +1,10 @@
 """What Web Apps shows of a search and of a case list's hidden columns, over Nova's exports.
 
-- **Finding 54, the empty search description the Case List save writes**
-  (``case-list-browse``). The register holds the difference as an
-  equivalence that only Web Apps' client settles. Contract: Formplayer
-  hands the client ``""`` for Nova's export and a non-breaking space for the
-  app after HQ's own Case List page saved it, and the client shows no
+- **Finding 54, the empty search description** (``case-list-browse``). HQ's
+  Case List save writes a search description of no text for the page's
+  language, and Nova's export now stores the same. Contract: Formplayer
+  hands the client a non-breaking space for Nova's export and for the app
+  after HQ's own Case List page saved it, and the client shows no
   description element for either, where it shows one, with the text, for a
   search that has a description (the accepted counterpart, which shows the
   reading would see one). Plausible failures: a client that renders the
@@ -18,18 +18,19 @@
 
 - **Defect 16, a column hidden from a list and the list's search**
   (``targeted-hidden-column``, with the cases the document's restore
-  fixes, made by HQ's receiver). Nova
-  leaves a column hidden from Results out of the list it uploads. Contract:
-  in Web Apps on HQ's build a search of the list for that column's value
-  finds no case, and a search for a shown value finds the case, so the harm
-  the register states for Core reaches a worker in Web Apps. The plausible
-  failure is a search that finds nothing at all, which the shown value
-  rules out.
+  fixes, made by HQ's receiver). A column hidden from Results is a field of
+  the list Nova uploads, HQ's ``invisible`` column. Contract: in Web Apps on
+  HQ's build a search of the list for that column's value finds the case
+  that holds it and no other, and the list still shows no header and no
+  cell for the column. The plausible failures are a search that finds every
+  case whatever it is asked, which the one row rules out, and a hidden
+  column the client draws.
 
-- **A sort-only column** (``case-list-browse``'s ``Hidden order``).
-  Contract: Formplayer hands the client the column with an empty header and
-  a width hint of 0, and the client shows neither a header nor a cell for
-  it. The plausible failure is a client that shows an empty ninth column.
+- **A sort-only column** (``case-list-browse``'s ``Hidden order``, and its
+  calculated column hidden from Results). Contract: Formplayer hands the
+  client each with an empty header and a width hint of 0, and the client
+  shows neither a header nor a cell for them. The plausible failure is a
+  client that shows an empty column.
 """
 
 from __future__ import annotations
@@ -85,9 +86,9 @@ def test_web_apps_shows_no_description_for_an_empty_one_or_a_non_breaking_space_
         assert [side["pageErrors"] for side in observed.values()] == [[], [], []]
 
         # What each app stores, and what Formplayer hands the client for it.
-        assert nova["stored"] == {"description": {}, "auto_launch": False}
+        assert nova["stored"] == {"description": {"en": ""}, "auto_launch": False}
         assert saved["stored"] == {"description": {"en": ""}, "auto_launch": True}
-        assert nova["formplayer"] == [""] and saved["formplayer"] == [NBSP]
+        assert nova["formplayer"] == [NBSP] and saved["formplayer"] == [NBSP]
         assert described["formplayer"] == [DESCRIPTION]
 
         # The client shows no description for either, and shows the one that has text.
@@ -123,14 +124,14 @@ def test_web_apps_shows_no_description_on_an_inline_search_before_or_after_the_c
         evidence("inline-search-description", observed)
         nova, saved = observed["nova"], observed["saved"]
         assert nova["pageErrors"] == [] and saved["pageErrors"] == []
-        assert nova["stored"] == {} and saved["stored"] == {"en": ""}
-        assert nova["formplayer"] == [""] and saved["formplayer"] == [NBSP]
+        assert nova["stored"] == {"en": ""} and saved["stored"] == {"en": ""}
+        assert nova["formplayer"] == [NBSP] and saved["formplayer"] == [NBSP]
         assert nova["search"] is not None and nova["search"]["prompts"]
         assert nova["search"]["description"] is None and saved["search"]["description"] is None
         assert nova["search"]["prompts"] == saved["search"]["prompts"]
 
 
-def test_a_list_search_in_web_apps_misses_a_hidden_columns_value_and_finds_a_shown_one(
+def test_a_list_search_in_web_apps_finds_a_hidden_columns_value_and_shows_no_column_for_it(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     document = webapps_documents["targeted-hidden-column"]
@@ -145,19 +146,18 @@ def test_a_list_search_in_web_apps_misses_a_hidden_columns_value_and_finds_a_sho
                     steps.SCREEN,
                     *steps.search_list("Riverside"),
                     steps.SCREEN,
-                    *steps.search_list("Amina"),
-                    steps.SCREEN,
                 ]
             )
-    listed, by_village, by_name = (screen["list"] for screen in run.screens)
-    evidence("hidden-column", {"listed": listed, "Riverside": by_village, "Amina": by_name})
+    listed, by_village = (screen["list"] for screen in run.screens)
+    evidence("hidden-column", {"listed": listed, "Riverside": by_village})
     assert run.page_errors == []
-    assert [header["text"] for header in listed["headers"]] == ["Name"]
     assert [row["id"] for row in listed["rows"]] == ["row-targeted-amina", "row-targeted-baraka"]
-    # Amina lives in Riverside, and the list no longer holds her village: the search finds no one.
-    assert by_village["rows"] == [] and by_village["empty"] is not None
-    # The accepted counterpart: a shown value finds her.
-    assert [row["id"] for row in by_name["rows"]] == ["row-targeted-amina"] and by_name["empty"] is None
+    # Amina lives in Riverside, which only the hidden column holds: the search finds her alone.
+    assert [row["id"] for row in by_village["rows"]] == ["row-targeted-amina"] and by_village["empty"] is None
+    # The hidden column draws nothing: one header, Name, and one cell a row, before the search and after it.
+    for shown in (listed, by_village):
+        assert [header["text"] for header in shown["headers"]] == ["Name"]
+        assert all(len(row["cells"]) == 1 for row in shown["rows"])
 
 
 def test_web_apps_shows_no_header_and_no_cell_for_a_sort_only_column(
@@ -169,10 +169,11 @@ def test_web_apps_shows_no_header_and_no_cell_for_a_sort_only_column(
     handed = run.answered("navigate_menu")[-1].json()
     shown = run.screens[0]["list"]
     evidence("sort-only-column", {"headers": handed["headers"], "widthHints": handed["widthHints"], "shown": shown})
-    # Formplayer hands the client nine columns, the last with no header and no width.
-    assert len(handed["headers"]) == 9 and handed["headers"][-1] == "" and handed["widthHints"][-1] == 0
-    assert all(hint > 0 for hint in handed["widthHints"][:-1])
-    assert all(len(entity["data"]) == 9 for entity in handed["entities"])
+    # Formplayer hands the client ten columns, the last two (the hidden order column and the calculated column
+    # hidden from Results) with no header and no width.
+    assert len(handed["headers"]) == 10 and handed["headers"][-2:] == ["", ""] and handed["widthHints"][-2:] == [0, 0]
+    assert all(hint > 0 for hint in handed["widthHints"][:-2])
+    assert all(len(entity["data"]) == 10 for entity in handed["entities"])
     # The client shows the eight that have one, in order, and eight cells a row.
-    assert [header["text"] for header in shown["headers"]] == handed["headers"][:-1]
+    assert [header["text"] for header in shown["headers"]] == handed["headers"][:-2]
     assert shown["rows"] and all(len(row["cells"]) == 8 for row in shown["rows"])
