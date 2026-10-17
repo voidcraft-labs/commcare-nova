@@ -1,7 +1,8 @@
-/** Pure: the two URL shapes and the profile's server properties. */
+/** Pure: the two URL shapes, the profile's server properties and its uniqueid. */
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
 	profileServerProperties,
+	profileUniqueId,
 	type RuntimeTarget,
 	runtimeUrls,
 } from "../runtimeTarget";
@@ -84,5 +85,34 @@ describe("runtime target", () => {
 		);
 		/* The account domain is a name, not a URL: HQ joins and lower-cases it. */
 		expect(properties.cc_user_domain).toBe("field ops.commcarehq.org");
+	});
+});
+
+describe("profileUniqueId", () => {
+	const target: RuntimeTarget = {
+		server: "production",
+		domain: "field-ops",
+		appId: "hq-app-1",
+	};
+
+	it("is one literal value for one app, server and domain", () => {
+		// A change of the namespace or of the name's shape changes every
+		// archive's identity on a phone, so it fails here.
+		expect(profileUniqueId("app-1", target)).toBe(
+			"907e064a-4242-5e3e-80b2-e7526998eec6",
+		);
+	});
+
+	it("differs by app, server and domain, and not by the HQ app the target names", () => {
+		const id = profileUniqueId("app-1", target);
+		expect(profileUniqueId("app-2", target)).not.toBe(id);
+		expect(profileUniqueId("app-1", { ...target, server: "india" })).not.toBe(
+			id,
+		);
+		expect(profileUniqueId("app-1", { ...target, domain: "other" })).not.toBe(
+			id,
+		);
+		expect(profileUniqueId("app-1", { ...target, appId: "hq-app-2" })).toBe(id);
+		expect(["app-1", target.appId]).not.toContain(id);
 	});
 });

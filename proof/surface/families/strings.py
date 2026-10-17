@@ -40,6 +40,15 @@ Keys:
   reader cannot name, so ``ui-string:*`` is every read whose id is not in the
   code at all, such as Core's reads of ids an app's suite names), with
   ``pattern: true``, its readers and where each read is.
+
+- ``app-string-id:<pattern>``: each id pattern HQ registers for a string its
+  build generates, one item per entry of ``id_strings.REGEXES`` in HQ's loaded
+  module (``@pattern(...)``), with ``*`` for the format's ``%s`` (any text) and
+  ``#`` for its ``%d`` (digits), and ``regex``, the pattern as HQ compiled it.
+  The pattern is recovered from the parse tree of HQ's own regular expression
+  (``re``'s parser), never from its text: a literal character, ``.*`` and
+  ``[0-9]+`` are all the tree may hold, and any other construct, or a literal
+  ``*`` or ``#``, is refused.
 """
 
 from __future__ import annotations
@@ -57,7 +66,46 @@ HISTORICAL = "historical-translations-by-version"
 
 
 def extract(sources: Sources) -> list[Item]:
-    return ui_strings(sources)
+    return [*ui_strings(sources), *app_string_ids(sources)]
+
+
+def app_string_ids(sources: Sources) -> list[Item]:
+    """One item per id pattern HQ's ``id_strings`` registers, read from its compiled pattern."""
+    from corehq.apps.app_manager import id_strings
+
+    where = f"{sources.relative(inspect.getsourcefile(id_strings))}::REGEXES"
+    if not id_strings.REGEXES:
+        raise SurfaceError(f"The surface extractor found no id pattern in {where}.")
+    return [item(f"app-string-id:{name(id_pattern(regex, where))}", where, regex=regex) for regex in id_strings.REGEXES]
+
+
+def id_pattern(regex: str, where: str) -> str:
+    """``regex`` as a surface pattern: each literal character itself, ``.*`` as ``*`` and ``[0-9]+`` as ``#``,
+    read from ``re``'s own parse tree of it."""
+    from re import _constants as constants
+    from re import _parser as parser
+
+    spellings = (
+        ((0, constants.MAXREPEAT, [(constants.ANY, None)]), "*"),
+        ((1, constants.MAXREPEAT, [(constants.IN, [(constants.RANGE, (ord("0"), ord("9")))])]), "#"),
+    )
+    pattern = ""
+    for operation, argument in parser.parse(regex):
+        repeated = None
+        if operation == constants.MAX_REPEAT:
+            low, high, body = argument
+            repeated = next((spelled for form, spelled in spellings if form == (low, high, list(body))), None)
+        if operation == constants.LITERAL and chr(argument) not in "*#":
+            pattern += chr(argument)
+        elif repeated is not None:
+            pattern += repeated
+        else:
+            raise SurfaceError(
+                f"The id pattern {regex!r} in {where} holds {operation} {argument!r}, which is not a literal "
+                "character, `.*` or `[0-9]+`. The app-string-id family spells only those three; a new construct "
+                "needs its own spelling in proof/surface/families/strings.py and in lib/commcare/appStringKeys.ts."
+            )
+    return pattern
 
 
 def ui_strings(

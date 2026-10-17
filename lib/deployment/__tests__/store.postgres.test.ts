@@ -1347,8 +1347,79 @@ describe("the empty app and HQ reporting it gone", () => {
 		);
 
 		expect(await readReachedDeploymentTargets(scope)).toEqual([
-			{ server: "production", domain: "acme", hqAppId: "hq-app" },
+			{
+				server: "production",
+				domain: "acme",
+				hqAppId: "hq-app",
+				emptyCaseListText: false,
+				earlierHqApps: 0,
+			},
 		]);
+	});
+
+	it("counts the HQ apps a deployment held before this one, and no superseded table", async () => {
+		const scope = await seed();
+		await publish(scope, "hq-1", 7);
+		const table = "01992000-0000-7000-8000-0000000000d7";
+		for (const [remoteId, pushedIdentity] of [
+			["hq-districts", "districts"],
+			["hq-areas", "areas"],
+		])
+			await recordPushedResources(
+				scope,
+				TARGET,
+				[
+					{
+						kind: "lookup-table",
+						novaResourceId: table,
+						remoteId,
+						ownership: "nova-created",
+						pushedIdentity,
+						adoptedBy: null,
+						pushedRevision: null,
+						remoteRevision: null,
+					},
+				],
+				{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
+			);
+		const reached = async () => (await readReachedDeploymentTargets(scope))[0];
+		expect(await reached()).toMatchObject({
+			hqAppId: "hq-1",
+			earlierHqApps: 0,
+		});
+		await publish(scope, "hq-2", 7);
+		expect(await reached()).toMatchObject({
+			hqAppId: "hq-2",
+			earlierHqApps: 1,
+		});
+	});
+
+	it("writes the empty-list text flag with the upload, and keeps it where the publish read none", async () => {
+		const scope = await seed();
+		await create(scope);
+		const upload = (targetEmptyCaseListText?: boolean) =>
+			recordRemoteResource(scope, TARGET, {
+				kind: "app",
+				novaResourceId: scope.appId,
+				remoteId: "hq-1",
+				ownership: "nova-created",
+				pushedRevision: 7,
+				uploadedAt: AT,
+				remoteRevision: null,
+				baseline: unreadBaseline("hq-1"),
+				...(targetEmptyCaseListText !== undefined && {
+					targetEmptyCaseListText,
+				}),
+			});
+		expect((await upload()).deployment.targetEmptyCaseListText).toBeNull();
+		expect((await upload(true)).deployment.targetEmptyCaseListText).toBe(true);
+		expect((await upload()).deployment.targetEmptyCaseListText).toBe(true);
+		expect((await upload(false)).deployment.targetEmptyCaseListText).toBe(
+			false,
+		);
+		expect((await readReachedDeploymentTargets(scope))[0]).toMatchObject({
+			emptyCaseListText: false,
+		});
 	});
 
 	it("reads a target's identity overrides, and none for a target with no deployment", async () => {

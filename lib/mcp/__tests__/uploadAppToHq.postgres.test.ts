@@ -73,6 +73,11 @@ const HOST = "https://india.commcarehq.org";
 const IMPORT = "/a/clinic/apps/api/import_app/";
 const sourcePath = (appId = "working-app") => `/a/clinic/apps/source/${appId}/`;
 const SOURCE = sourcePath();
+/* Every publish's preflight reads whether the project space holds
+ * `USH_EMPTY_CASE_LIST_TEXT`, starting from the project spaces the key can
+ * see. A peer that leaves the read unanswered gives no answer, which changes
+ * no verdict. */
+const PROJECT_SPACES = `GET ${HOST}/api/user_domains/v1/?limit=100`;
 function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
@@ -282,10 +287,12 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 			});
 		});
 		expect(requests(peer)).toEqual([
+			PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
+			PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
@@ -337,7 +344,32 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 		expect(Object.values(applications[1]._attachments)).toEqual([
 			expect.stringContaining("<note/>"),
 		]);
-		expect(applications[2].profile).toEqual(profile);
+		/* The target's own values stay, the derived key the advisory no
+		 * longer justifies goes, and the settings every app states are
+		 * written where the target holds none. */
+		expect(applications[2].profile).toEqual({
+			...profile,
+			properties: {
+				...profile.properties,
+				"cc-fuzzy-search-enabled": "no",
+				"cc-gps-auto-capture-accuracy": "10",
+				"cc-content-valid": "no",
+				"cc-autoup-freq": "freq-never",
+				"cc-enable-tts": "no",
+				"cc-autosync-freq": "freq-never",
+				"cc-days-form-retain": "-1",
+				"cc-inflation-target-density": "none",
+				"cc-label-required-questions-with-asterisk": "no",
+				"cc-login-duration-seconds": "86400",
+				"cc-maps-default-layer": "normal",
+				"cc-resize-images": "none",
+				logenabled: "Enabled",
+				"unsent-number-limit": "5",
+				"unsent-time-limit": "5",
+				"cc-show-saved": "no",
+				"cc-show-incomplete": "no",
+			},
+		});
 		expect(vi.mocked(decrypt).mock.calls).toEqual([
 			["ciphertext"],
 			["ciphertext"],
@@ -368,11 +400,14 @@ it("refuses an unreadable update source without replacing the last published app
 			});
 		});
 		expect(requests(peer)).toEqual([
+			PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
+			PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
+			PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
@@ -419,12 +454,15 @@ it.each(["source-missing", "source-deleted", "update-missing"] as const)(
 				]);
 			});
 			expect(requests(peer)).toEqual([
+				PROJECT_SPACES,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
+				PROJECT_SPACES,
 				`GET ${HOST}${SOURCE}`,
 				...(answer === "update-missing" ? [`POST ${HOST}${IMPORT}`] : []),
+				PROJECT_SPACES,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${sourcePath("replacement-app")}`,
 				`POST ${HOST}${IMPORT}`,
@@ -457,7 +495,9 @@ it("retains a refused shell create as resumable, then records the retry as one u
 			expect((await state())?.active).toHaveLength(1);
 		});
 		expect(requests(peer)).toEqual([
+			PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
+			PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
@@ -687,6 +727,7 @@ it("requires explicit adoption of the named table, then ships its real workbook 
 		expect(requests(peer)).toEqual([
 			`GET ${HOST}${TABLES}`,
 			`GET ${HOST}${TABLES}`,
+			PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
@@ -796,6 +837,7 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 			]);
 			expect(requests(peer)).toEqual([
 				`GET ${HOST}${TABLES}`,
+				PROJECT_SPACES,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${WORKBOOK}`,
@@ -810,6 +852,7 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 		});
 		expect(requests(peer)).toEqual([
 			`GET ${HOST}${TABLES}`,
+			PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
@@ -817,6 +860,7 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 			`GET ${HOST}${rowsPath()}`,
 			`GET ${HOST}${TABLES}`,
 			`GET ${HOST}${rowsPath()}`,
+			PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
 			`GET ${HOST}${TABLES}`,
@@ -985,6 +1029,7 @@ it.each([
 				expect((await state())?.active).toHaveLength(1);
 			});
 			expect(requests(peer)).toEqual([
+				PROJECT_SPACES,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${IMPORT}`,
@@ -1116,7 +1161,11 @@ it.each([
 					const file = uploads[0].get("app_file");
 					if (!(file instanceof Blob)) throw new Error("Expected app JSON");
 					const application = JSON.parse(await file.text());
-					expect(application.profile).toBeUndefined();
+					// The advisory is missing, so the profile carries the
+					// settings every app states and no derived key.
+					expect(application.profile.properties).not.toHaveProperty(
+						"cc-index-case-search-results",
+					);
 					expect(application.modules[0].search_config).toMatchObject({
 						properties: [],
 						auto_launch: false,
@@ -1127,6 +1176,7 @@ it.each([
 			});
 			expect(requests(peer)).toEqual([
 				...paths.map((path) => `GET ${HOST}${path}`),
+				`GET ${HOST}/api/user_domains/v1/?limit=100&feature_flag=empty_case_list_text`,
 				...(ready
 					? [
 							`POST ${HOST}${IMPORT}`,
@@ -1791,7 +1841,7 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 			);
 		});
 		expect(await snapshot()).toEqual(before);
-		expect(requests(peer)).toHaveLength(7);
+		expect(requests(peer)).toHaveLength(8);
 	});
 });
 
@@ -1985,12 +2035,16 @@ it("lists a change to the app in CommCare HQ, refuses a discard of a state it ha
 			]);
 		});
 		expect(requests(peer)).toEqual([
+			PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
+			PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
+			PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
+			PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,

@@ -81,6 +81,19 @@ describe("admitMutationBatch", () => {
 		expect(admitted[0]).not.toBe(admitted[1]);
 	});
 
+	it.each([
+		["no key", {}, "schema-parse"],
+		["an unknown key", { showArchivedForms: true }, "schema-strip"],
+	])(
+		"refuses app settings that name %s at the envelope",
+		(_label, settings, reason) => {
+			const error = canonicalityError(() =>
+				admitMutationBatch([{ kind: "setAppSettings", settings }]),
+			);
+			expect(error.details).toMatchObject({ mutationIndex: 0, reason });
+		},
+	);
+
 	it("rejects null for repeat_mode because the stored discriminator is required", () => {
 		const error = canonicalityError(() =>
 			admitMutationBatch([

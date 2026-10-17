@@ -20,6 +20,35 @@ const REAL_ENTRIES = {
 		reason: "ccz-needs-project-space",
 		entity: { type: "app", nameAtMigration: "Clinic visits" },
 	},
+	"android-form-lists-setting-stored": {
+		kind: "document",
+		reason: "android-form-lists-setting-stored",
+		entity: { type: "app", nameAtMigration: "Clinic visits" },
+		detail: { saved: "off", incomplete: "on" },
+	},
+	"validation-now-enforced": {
+		kind: "document",
+		reason: "validation-now-enforced",
+		entity: {
+			type: "field",
+			uuid: "01992000-0000-7000-8000-0000000000e1",
+			nameAtMigration: "card_number",
+		},
+		detail: { form: "Intake", kind: "barcode" },
+	},
+	"local-archive-changes": {
+		kind: "document",
+		reason: "local-archive-changes",
+		entity: { type: "app", nameAtMigration: "Clinic visits" },
+	},
+	"setting-changes-at-next-publish": {
+		...deploymentEntry("setting-changes-at-next-publish"),
+		detail: { setting: "incomplete", readers: "android-and-webapps" },
+	},
+	"settings-unknown-unreadable": deploymentEntry("settings-unknown-unreadable"),
+	"worker-settings-reset-at-next-publish": deploymentEntry(
+		"worker-settings-reset-at-next-publish",
+	),
 	"deep-links-need-republish": deploymentEntry("deep-links-need-republish"),
 	"hq-app-deleted": deploymentEntry("hq-app-deleted"),
 	"hq-app-not-nova-made": deploymentEntry("hq-app-not-nova-made"),

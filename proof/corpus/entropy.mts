@@ -2,21 +2,22 @@
  * Seeded entropy for the corpus's exports, so one emission's bytes are a
  * function of its inputs alone.
  *
- * The identities Nova's exports still draw come from `node:crypto`: a
- * `.ccz` profile's `uniqueid` (`lib/commcare/compiler.ts`, `randomUUID`),
- * and `crypto.randomUUID` wherever `lib/doc` mints one. A publish draws no
- * id: its module and form `unique_id`s and form `xmlns` are derived from the
- * document (`lib/commcare/wireIdentity.ts`). Inside an export operation
- * (`seeded`), this module answers those draws from an HMAC-SHA256
- * DRBG (NIST SP 800-90A, HMAC_DRBG without reseeding) whose seed is
- * sha256(corpus seed, operation ordinal, configuration name). A seeded draw
- * is a draw the real generator could have made, so what an export sends is
- * one Nova could send; it is only reproducible.
+ * No export Nova makes draws an identity. A publish derives its module and
+ * form ids and each form's `xmlns` from the document, and a `.ccz`
+ * profile's `uniqueid` is derived from the app's id and its project space.
+ * Inside an export operation (`seeded`), this module still answers every
+ * draw from an HMAC-SHA256 DRBG (NIST SP 800-90A, HMAC_DRBG without
+ * reseeding) whose seed is sha256(corpus seed, operation ordinal,
+ * configuration name), so a change that draws inside an export again writes
+ * bytes that are a function of the emission's inputs.
  *
  * The seed names no document on purpose: two documents with the same
- * content export the same bytes. The ordinals (`OPERATION_ORDINALS`) keep
- * apart what Nova keeps apart: a publish draws no id, and a document's two
- * local exports draw different profile `uniqueid`s (defect 9). Each update
+ * content export the same bytes. The ordinals (`OPERATION_ORDINALS`) give
+ * each export of a document a stream of its own, which is what keeps a
+ * regression visible: a change that mints an identity per export again
+ * draws another value in each, so a document's two local exports differ in
+ * it and proof 1 reports the difference. Two exports under one ordinal would
+ * draw the same value, and no check would see it. Each update
  * is captured once, in a stream of its own: the republish of D at its
  * ordinal and each update to D′ at another (`./publish.ts::capturePublish`).
  * An update that changes nothing Nova sends equals the republish because
@@ -37,8 +38,8 @@
  * draw is real entropy.
  *
  * `PROOF_ENTROPY=real` installs nothing: every draw is real, as it is in
- * Nova. The emission runs that way only to show that seeding changes nothing
- * but the minted values.
+ * Nova. The emission runs that way only to show that seeding changes
+ * nothing.
  *
  * `PROOF_ENTROPY_TRACE=<directory>` also records, per process, every draw
  * (inside an operation or not) and every clock or `Math.random` read inside
@@ -80,7 +81,11 @@ export const OPERATION_ORDINALS = {
 /** Node's `randomInt` reads 48 bits per attempt, and refuses a range wider than this. */
 const RAND_MAX = 0xffff_ffff_ffff;
 
-/** The configuration name a local archive's operation is seeded with: it is built for no project space's flags. */
+/**
+ * The configuration name every local archive's operation is seeded with,
+ * whichever project space it is compiled for: a local export draws nothing,
+ * so its stream need not follow its target.
+ */
 export const LOCAL_CONFIGURATION = "local";
 
 /** HMAC_DRBG over SHA-256 (NIST SP 800-90A section 10.1.2), instantiated once, never reseeded. */

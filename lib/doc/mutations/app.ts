@@ -10,7 +10,8 @@ import {
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 
 /**
- * App-level mutations: name, connect mode, case-type catalog, logo. The
+ * App-level mutations: name, connect mode, case-type catalog, logo, app
+ * settings. The
  * scalar setters are single-field assignments with no cascading side
  * effects. The granular catalog kinds (`declareCaseType` / `retireCaseType`
  * / `addCaseProperty` / `setCaseProperty` / `removeCaseProperty` /
@@ -31,6 +32,7 @@ export function applyAppMutation(
 				| "setAppName"
 				| "setConnectType"
 				| "setAppLogo"
+				| "setAppSettings"
 				| "relabelSourceLanguage"
 				| "addLanguage"
 				| "removeLanguage"
@@ -61,6 +63,17 @@ export function applyAppMutation(
 			// property. An asset id sets it verbatim.
 			if (mut.logo === null) delete draft.logo;
 			else draft.logo = mut.logo;
+			return;
+		case "setAppSettings":
+			// Each named key replaces its value; a key the patch leaves out
+			// keeps the document's.
+			if (mut.settings.showSavedForms !== undefined) {
+				draft.appSettings.showSavedForms = mut.settings.showSavedForms;
+			}
+			if (mut.settings.showIncompleteForms !== undefined) {
+				draft.appSettings.showIncompleteForms =
+					mut.settings.showIncompleteForms;
+			}
 			return;
 		case "relabelSourceLanguage": {
 			const current = effectiveAppLocalization(draft.localization);

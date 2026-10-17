@@ -104,7 +104,6 @@ from proof.rules import (  # noqa: E402
     preload_condition,
     profile_custom_properties,
     profile_features_users,
-    profile_required_minimal,
     profile_unread_properties,
     required_condition,
     runtime_url_app_id,
@@ -166,7 +165,6 @@ RULES: tuple[SpellingRule, ...] = (
     # A built profile.
     profile_unread_properties.RULE,
     # A session trace.
-    profile_required_minimal.RULE,
     case_block_position.RULE,
     # The address of a request a reader sent HQ.
     runtime_url_app_id.RULE,

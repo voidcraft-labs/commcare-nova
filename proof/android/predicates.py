@@ -30,9 +30,18 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from xml.etree import ElementTree
 
 from proof.android.client import AndroidReader, AndroidReaderUnavailable, unavailable
-from proof.android.selfcheck import CONTROLS, differing, edited, leaves, variant, with_property
+from proof.android.selfcheck import (
+    CONTROLS,
+    PROFILE_NAMESPACE,
+    differing,
+    edited,
+    leaves,
+    variant,
+    with_property,
+)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 ANSWERS = Path(__file__).resolve().parents[1] / "core" / "answers.json"
@@ -48,6 +57,7 @@ SYNC_ON_ENTRY = CONTROLS / "targeted-sync-on-form-entry" / "local.ccz"
 SYNC_ON_ENTRY_RESTORE = FIXTURES / "targeted-sync-on-form-entry.restore.xml"
 SEARCH_COMPILE = CONTROLS / "targeted-search-hq-compile" / "local.ccz"
 CONNECT_DELIVER = CONTROLS / "targeted-connect-deliver-rename" / "local.ccz"
+VALIDATED = CONTROLS / "targeted-validated-barcode-secret" / "local.ccz"
 # The edit's pre-fix archive of the control, which holds two suffixed language codes (defect 1's).
 SUFFIXED_LANGUAGES = CONTROLS / "targeted-hq-side-state" / "edit" / "local.ccz"
 # The settings Android's own settings screen lets a worker change, of those the reader records.
@@ -86,6 +96,138 @@ SAME = (
 
 PROFILE_VERSION_1 = '<profile xmlns="http://cihi.commcarehq.org/jad" version="1"'
 PROFILE_VERSION_2 = '<profile xmlns="http://cihi.commcarehq.org/jad" version="2"'
+
+# The fifteen settings every Nova app states, at the value a device reads where a profile names none, each with the
+# force HQ's own settings give it (lib/commcare/appProfileSettings.ts::appProfileProperties; part 04, finding 40),
+# and the reader that answers from it.
+NOVA_SETTINGS = (
+    ("cc-fuzzy-search-enabled", "no", True, "MainConfigurablePreferences.isFuzzySearchEnabled"),
+    ("cc-gps-auto-capture-accuracy", "10", True, "HiddenPreferences.getGpsAutoCaptureAccuracy"),
+    ("cc-content-valid", "no", True, "CommCareApp.areMMResourcesValidated"),
+    ("cc-autoup-freq", "freq-never", True, "UpdateHelper.getAutoUpdateFrequency"),
+    ("cc-enable-tts", "no", True, "MainConfigurablePreferences.isTTSEnabled"),
+    ("cc-autosync-freq", "freq-never", True, "PendingCalcs.getPendingSyncStatus"),
+    ("cc-days-form-retain", "-1", True, "PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays"),
+    ("cc-inflation-target-density", "none", True, "HiddenPreferences.isSmartInflationEnabled"),
+    (
+        "cc-label-required-questions-with-asterisk",
+        "no",
+        True,
+        "HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk",
+    ),
+    ("cc-login-duration-seconds", "86400", True, "HiddenPreferences.getLoginDuration"),
+    ("cc-maps-default-layer", "normal", False, "HiddenPreferences.getMapsDefaultLayer"),
+    ("cc-resize-images", "none", True, "HiddenPreferences.getResizeMethod"),
+    ("logenabled", "Enabled", True, "HiddenPreferences.getLogsEnabled"),
+    ("unsent-number-limit", "5", True, "SyncDetailCalculations.unsentFormNumberLimitExceeded"),
+    ("unsent-time-limit", "5", True, "SyncDetailCalculations.unsentFormTimeLimitExceeded"),
+)
+# A project space's four server properties as Nova's profile writes them (runtimeTarget.ts::profileServerProperties).
+SERVER = "https://www.commcarehq.org"
+
+
+def server_properties(domain: str, app_id: str) -> tuple:
+    return (
+        ("ota-restore-url", f"{SERVER}/a/{domain}/phone/restore/{app_id}/"),
+        ("PostURL", f"{SERVER}/a/{domain}/receiver/{app_id}/"),
+        ("key_server", f"{SERVER}/a/{domain}/phone/keys/"),
+        ("cc_user_domain", f"{domain}.commcarehq.org"),
+    )
+
+
+def with_settings(archive: Path, target: Path, settings, *, version: str | None = None) -> Path:
+    """The archive with each setting of ``settings`` (``(key, value, force)``) written into its profile, and, with
+    ``version``, the profile at that version (its suite resource with it, so the device stages it as the next)."""
+    replacements = []
+    if version is not None:
+        replacements += [
+            (PROFILE_VERSION_1, PROFILE_VERSION_1.replace('version="1"', f'version="{version}"')),
+            ('<resource id="suite" version="1"', f'<resource id="suite" version="{version}"'),
+        ]
+    written = "".join(
+        f'<property key="{key}" value="{value}"' + (' force="true"' if force else "") + "/>"
+        for key, value, force in settings
+    )
+    replacements.append(("<features>", written + "<features>"))
+    return edited(archive, target, "profile.ccpr", replacements)
+
+
+def planned(
+    archive: Path,
+    target: Path,
+    sequence: int,
+    *,
+    unique_id: str,
+    version: int | None = None,
+    server: tuple = (),
+    form_text: tuple | None = None,
+) -> Path:
+    """The pre-fix archive with step 2's profile and versions written in (part 04, the local profile from step 2):
+    the profile's ``uniqueid``, its ``version`` and both suite resources' at the archive's version (``version``,
+    the sequence where none is given), the required version, ``cc-content-version`` and ``cc-app-version`` at the
+    sequence, the server properties ``server`` names; ``<suite version>`` at the archive's version and every form
+    and locale resource at the sequence; each form's data node at the sequence; and, with ``form_text``, the first
+    form's text ``(old, new)`` changed."""
+    archive_version = str(version if version is not None else sequence)
+    ElementTree.register_namespace("", PROFILE_NAMESPACE)
+    with zipfile.ZipFile(archive) as zipped:
+        entries = {name: zipped.read(name) for name in zipped.namelist()}
+    profile = ElementTree.fromstring(entries["profile.ccpr"])
+    profile.attrib.update(
+        {
+            "version": archive_version,
+            "uniqueid": unique_id,
+            "requiredMajor": "2",
+            "requiredMinor": "57",
+            "requiredMinimal": "0",
+        }
+    )
+    for element in profile.iter(f"{{{PROFILE_NAMESPACE}}}property"):
+        if element.get("key") in ("cc-content-version", "cc-app-version"):
+            element.set("value", str(sequence))
+    for position, (key, value) in enumerate(server):
+        element = ElementTree.Element(f"{{{PROFILE_NAMESPACE}}}property", {"key": key, "value": value, "force": "true"})
+        profile.insert(3 + position, element)
+    for resource in profile.iter(f"{{{PROFILE_NAMESPACE}}}resource"):
+        resource.set("version", archive_version)
+    suite = ElementTree.fromstring(entries["suite.xml"])
+    suite.set("version", archive_version)
+    for kind in ("xform", "locale"):
+        for resource in suite.iterfind(f"{kind}/resource"):
+            resource.set("version", str(sequence))
+    edits = {
+        "profile.ccpr": ElementTree.tostring(profile, encoding="utf-8"),
+        "suite.xml": ElementTree.tostring(suite, encoding="utf-8"),
+    }
+    for name in sorted(entries):
+        if name.startswith("modules-") and name.endswith(".xml"):
+            text = entries[name].decode("utf-8")
+            data = ' uiVersion="1" version="1" '
+            assert text.count(data) == 1, f"{archive}'s {name} holds no data node at version 1"
+            text = text.replace(data, f' uiVersion="1" version="{sequence}" ')
+            if form_text is not None and name == "modules-0/forms-0.xml":
+                assert form_text[0] in text, f"{archive}'s {name} does not hold {form_text[0]!r}"
+                text = text.replace(form_text[0], form_text[1])
+            edits[name] = text.encode("utf-8")
+    return variant(archive, target, edits)
+
+
+def given(answer) -> dict:
+    """Each question a walk answered, by its reference: what the form took and what it refused."""
+    found = {}
+
+    def visit(value):
+        if isinstance(value, dict):
+            if "reference" in value and "given" in value:
+                found[value["reference"]] = {"given": value["given"], "refused": value.get("refused", [])}
+            for inner in value.values():
+                visit(inner)
+        elif isinstance(value, list):
+            for inner in value:
+                visit(inner)
+
+    visit(answer)
+    return found
 
 
 def with_entries(archive: Path, target: Path, entries: dict) -> Path:
@@ -338,6 +480,205 @@ class Predicates(unittest.TestCase):
             self.assertIs(results[label]["before"]["readers"]["MainConfigurablePreferences.isTTSEnabled"], True)
         self.assertIs(results["forced"]["after"]["readers"]["MainConfigurablePreferences.isTTSEnabled"], False)
         self.assertIs(results["offered"]["after"]["readers"]["MainConfigurablePreferences.isTTSEnabled"], True)
+        # Nova's seventeen at a higher version: the three settings a worker can also set and Nova forces read Nova's
+        # values again, and the map layer, which Nova writes without force, keeps the worker's.
+        chosen = {
+            "cc-fuzzy-search-enabled": "yes",
+            "cc-enable-tts": "yes",
+            "cc-autoup-freq": "freq-daily",
+            "cc-maps-default-layer": "satellite",
+        }
+        seventeen = [
+            *((key, value, force) for key, value, force, _ in NOVA_SETTINGS),
+            ("cc-show-saved", "no", True),
+            ("cc-show-incomplete", "yes", True),
+        ]
+        update = with_settings(SURVEY, self.work / "update-seventeen.ccz", seventeen, version="2")
+        answer = self.reader.request("update", archive=str(SURVEY), update=str(update), preferences=chosen)
+        self.assertEqual((answer["staged"], answer["updated"]), ("UpdateStaged", "Installed"))
+        before, after = answer["before"]["readers"], answer["after"]["readers"]
+        self.assertEqual(
+            {
+                name: (before[name], after[name])
+                for name in (
+                    "MainConfigurablePreferences.isFuzzySearchEnabled",
+                    "MainConfigurablePreferences.isTTSEnabled",
+                    "UpdateHelper.getAutoUpdateFrequency",
+                    "HiddenPreferences.getMapsDefaultLayer",
+                )
+            },
+            {
+                "MainConfigurablePreferences.isFuzzySearchEnabled": (True, False),
+                "MainConfigurablePreferences.isTTSEnabled": (True, False),
+                "UpdateHelper.getAutoUpdateFrequency": ("freq-daily", "freq-never"),
+                "HiddenPreferences.getMapsDefaultLayer": ("SATELLITE", "SATELLITE"),
+            },
+        )
+
+    def test_novas_fifteen_settings_read_as_no_setting_does(self):
+        """Finding 40. Contract: every Nova app states fifteen settings at the value a device reads where a profile
+        names none, so the archive with them gives the same answer as the archive without them from each of their
+        readers; only the stored values differ. Failure it catches: a constant that moves its reader, which would
+        change what every device does from install."""
+        stated = with_settings(
+            SURVEY, self.work / "fifteen.ccz", [(key, value, force) for key, value, force, _ in NOVA_SETTINGS]
+        )
+        present = self.reader.request("profile", archive=str(stated))
+        self.assertEqual(present["install"], "Installed")
+        for key, _, _, reader in NOVA_SETTINGS:
+            with self.subTest(key=key):
+                self.assertEqual(present["profile"]["readers"][reader], self.plain["profile"]["readers"][reader])
+        moved = {path for path in differing(self.plain, present) if not path.startswith("/profile/stored/")}
+        self.assertEqual(moved, set())
+
+    def test_a_newer_export_updates_the_installed_app_and_an_equal_one_does_not(self):
+        """Defect 9. Contract: Android's update from a file compares versions alone, so an export at a higher
+        sequence with a form changed stages and installs and the changed form opens, and one at the same sequence
+        with the form changed answers ``UpToDate`` and keeps the old form; the profile's version is what makes a
+        download newer. Failure it catches: an update that reads anything else, so a later download a phone
+        cannot take, or one it takes though it is not newer."""
+        unique = "58454579-0000-4000-8000-000000000001"
+        changed = ("Head of household", "Head of the household")
+        at_7 = planned(SURVEY, self.work / "seq-7.ccz", 7, unique_id=unique)
+        at_8 = planned(SURVEY, self.work / "seq-8.ccz", 8, unique_id=unique, form_text=changed)
+        again_7 = planned(SURVEY, self.work / "seq-7-changed.ccz", 7, unique_id=unique, form_text=changed)
+        newer = self.reader.request("update", archive=str(at_7), update=str(at_8), incomplete="m0-f0")
+        self.assertEqual((newer["staged"], newer["updated"]), ("UpdateStaged", "Installed"))
+        self.assertEqual(newer["after"]["app"]["versionNumber"], 8)
+        self.assertIn(changed[1], json.dumps(newer["reopened"]))
+        equal = self.reader.request("update", archive=str(at_7), update=str(again_7), incomplete="m0-f0")
+        self.assertEqual(equal["staged"], "UpToDate")
+        self.assertEqual(equal["after"]["app"]["versionNumber"], 7)
+        self.assertNotIn(changed[1], json.dumps(equal["reopened"]))
+
+    def test_an_update_from_a_file_takes_a_file_made_for_another_project_space(self):
+        """Defect 9, the page's sentence on Offline Update (written from the reading of
+        ``AndroidResourceManager.checkAndPrepareUpgradeResources`` and ``ProfileAndroidInstaller.upgrade``, not
+        yet run). Contract: Android's update from a file compares versions alone, so the archive made for project
+        space A at sequence 7, updated to the one made for project space B at sequence 8, stages and installs, and
+        the app then holds B's ``uniqueid`` and B's address for a completed form: the install takes the new
+        profile's forced server properties. That is why the files for two project spaces must not be one app to
+        the install screen, which would send a worker to an update. Failure it catches: an update that refuses a
+        file of another ``uniqueid``, which would make the page's sentence false."""
+        space_a = planned(
+            SURVEY,
+            self.work / "space-a.ccz",
+            7,
+            unique_id="58454579-0000-4000-8000-00000000000a",
+            server=server_properties("space-a", "hq-app-a"),
+        )
+        space_b = planned(
+            SURVEY,
+            self.work / "space-b.ccz",
+            8,
+            unique_id="58454579-0000-4000-8000-00000000000b",
+            server=server_properties("space-b", "hq-app-b"),
+        )
+        answer = self.reader.request("update", archive=str(space_a), update=str(space_b))
+        self.assertEqual((answer["staged"], answer["updated"]), ("UpdateStaged", "Installed"))
+        self.assertEqual(answer["after"]["app"]["uniqueId"], "58454579-0000-4000-8000-00000000000b")
+        self.assertEqual(
+            answer["after"]["readers"]["FormSubmissionHelper.getFormPostURL"],
+            f"{SERVER}/a/space-b/receiver/hq-app-b/",
+        )
+
+    def test_a_file_for_a_remade_hq_app_updates_a_phone_at_an_unchanged_sequence(self):
+        """Defect 9, a remade HQ app (written from the reading of ``Resource.isNewer``, not yet run). Contract: the
+        archive whose profile and suite resources carry the archive's version, the sequence plus the HQ apps the
+        deployment held before, updates a phone on the archive made for the deleted HQ app at the same sequence,
+        and the phone then posts to the new HQ app; the same file with its profile at the sequence alone answers
+        ``UpToDate`` and keeps the deleted app's address. Failure it catches: a version at the sequence alone,
+        which would leave every phone on a deleted app until the document next changes."""
+        unique = "58454579-0000-4000-8000-000000000002"
+        first = planned(
+            SURVEY, self.work / "h1.ccz", 7, unique_id=unique, server=server_properties("space", "hq-app-1")
+        )
+        remade = planned(
+            SURVEY, self.work / "h2.ccz", 7, unique_id=unique, version=8, server=server_properties("space", "hq-app-2")
+        )
+        unchanged = planned(
+            SURVEY, self.work / "h2-at-7.ccz", 7, unique_id=unique, server=server_properties("space", "hq-app-2")
+        )
+        answer = self.reader.request("update", archive=str(first), update=str(remade))
+        self.assertEqual((answer["staged"], answer["updated"]), ("UpdateStaged", "Installed"))
+        self.assertEqual(answer["after"]["app"]["versionNumber"], 8)
+        self.assertEqual(answer["after"]["app"]["uniqueId"], unique)
+        self.assertEqual(
+            answer["after"]["readers"]["FormSubmissionHelper.getFormPostURL"], f"{SERVER}/a/space/receiver/hq-app-2/"
+        )
+        held = self.reader.request("update", archive=str(first), update=str(unchanged))
+        self.assertEqual(held["staged"], "UpToDate")
+        self.assertEqual(
+            held["after"]["readers"]["FormSubmissionHelper.getFormPostURL"], f"{SERVER}/a/space/receiver/hq-app-1/"
+        )
+
+    def test_a_barcode_and_a_secret_refuse_an_answer_their_validation_fails(self):
+        """Defect 8. Contract: a barcode's and a secret's own widgets take an answer as any question's do, so on the
+        control's archive, which drops their validation, each takes ``abc``; with the constraint, its message and
+        the alert written into the form as Nova writes them for a text question, each refuses ``abc`` as a
+        constraint and takes ``abcdef``. Failure it catches: a widget that checks no constraint, so the
+        validation Nova now writes would mean nothing on a device."""
+        answers = {"dataTypes": {"barcode": ["abc", "abcdef"]}, "controls": {"secret": ["abc", "abcdef"]}}
+        constraint = 'constraint="string-length(.) = 6" jr:constraintMsg="jr:itext(&apos;{0}-constraintMsg&apos;)"'
+        replacements = []
+        for name, kind, control in (("code", "barcode", "input"), ("pin", "xsd:string", "secret")):
+            replacements += [
+                (
+                    f'<bind nodeset="/data/{name}" type="{kind}"/>',
+                    f'<bind nodeset="/data/{name}" type="{kind}" {constraint.format(name)}/>',
+                ),
+                (
+                    f'<{control} ref="/data/{name}"><label ref="jr:itext(&apos;{name}-label&apos;)"/></{control}>',
+                    f'<{control} ref="/data/{name}"><label ref="jr:itext(&apos;{name}-label&apos;)"/>'
+                    f'<alert ref="jr:itext(&apos;{name}-constraintMsg&apos;)"/></{control}>',
+                ),
+            ]
+        replacements.append(
+            (
+                "</translation>",
+                '<text id="code-constraintMsg"><value>Enter six characters</value></text>'
+                '<text id="pin-constraintMsg"><value>Enter six characters</value></text></translation>',
+            )
+        )
+        validated = edited(VALIDATED, self.work / "validated.ccz", "modules-0/forms-0.xml", replacements)
+        for label, archive, expected in (
+            ("control", VALIDATED, {"given": "abc", "refused": []}),
+            ("validated", validated, {"given": "abcdef", "refused": ["abc: constraint"]}),
+        ):
+            answer = self.reader.request("app", archive=str(archive), commands=["m0-f0"], answers=answers)
+            self.assertEqual(answer["install"], "Installed", label)
+            held = given(answer)
+            for reference in ("/data/code", "/data/pin"):
+                with self.subTest(archive=label, question=reference):
+                    self.assertEqual(held[reference], expected)
+
+    def test_automatic_capture_stops_at_the_accuracy_the_profile_names(self):
+        """Finding 34 and finding 40's ``cc-gps-auto-capture-accuracy``. Contract: a form whose poll of the location
+        sensor writes into its meta block stops polling at the first fix at least as fine as the profile's
+        accuracy: at Nova's ``10`` an 8 metre fix ends the poll, and with ``5``, HQ's page's value, written into
+        the profile the poll goes on and a later 4 metre fix replaces the first. Failure it catches: an accuracy
+        Android does not read, so Nova's constant would change how long a device polls."""
+        form = [
+            ("<orx:drift/></orx:meta>", "<orx:drift/><cc:location/></orx:meta>"),
+            (
+                "</itext></model>",
+                '</itext><orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>'
+                '<bind nodeset="/data/meta/location" type="geopoint"/></model>',
+            ),
+        ]
+        located = edited(CONNECT_DELIVER, self.work / "located.ccz", "modules-0/forms-0.xml", form)
+        tightened = with_settings(located, self.work / "located-5.ccz", [("cc-gps-auto-capture-accuracy", "5", True)])
+        fixes = [[12.9716, 77.5946, 920.0, 8.0], [12.9716, 77.5946, 920.0, 4.0]]
+        found = {}
+        for label, archive in (("10", located), ("5", tightened)):
+            answer = self.reader.request(
+                "location", archive=str(archive), command="m0-f0", node="/data/meta/location", fixes=fixes
+            )
+            self.assertEqual((answer["install"], answer["loaded"]), ("Installed", True), label)
+            found[label] = [(reading["polling"], reading["node"]) for reading in answer["fixes"]]
+        eight, four = "12.9716 77.5946 920.0 8.0", "12.9716 77.5946 920.0 4.0"
+        self.assertEqual(found["10"], [(False, eight), (False, eight)])
+        self.assertEqual(found["5"], [(True, eight), (False, four)])
 
     def test_an_incomplete_form_reopens_only_while_its_xmlns_is_the_apps(self):
         """Defect 1. Contract: Android finds an incomplete form's definition by the ``xmlns`` its record holds

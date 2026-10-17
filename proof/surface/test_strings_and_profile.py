@@ -28,6 +28,17 @@ Contracts and the failures they catch:
   ``create_profile`` adds, HQ's renderer given the force the item records
   writes the item's ``force`` back (``"true"``, or no attribute), never
   Python's ``True``.
+- Every child of ``<features>`` HQ's own renderer writes for an app with no
+  feature setting, with ``is_odk`` true and false, is ``users`` or a
+  ``profile-feature`` item, and every item is written, each with the
+  ``active`` its parts give under that ``is_odk``. A family that read
+  ``checkoff`` as one constant, or took ``users`` (a setting's) as one, fails;
+  a feature planted under a condition is not read, and one planted outside
+  every block is.
+- Every id pattern HQ's loaded ``id_strings.REGEXES`` holds is an
+  ``app-string-id`` item whose regex is HQ's, and a key spelled from the
+  item's pattern is one HQ's own regex matches; a pattern holding a construct
+  the family does not spell is refused, not misread.
 - ``MAX_FIXTURE_ROWS`` holds the value HQ's loaded constant has, read by the
   workbook reader, and a planted value in a temporary copy is the item's.
 """
@@ -35,14 +46,17 @@ Contracts and the failures they catch:
 from __future__ import annotations
 
 import dataclasses
+import re
 from types import SimpleNamespace
 from urllib.parse import unquote
 
+import pytest
 from lxml import etree
 
 from proof.surface.families.data import _constant_item
-from proof.surface.families.profile import TEMPLATE, template_properties
-from proof.surface.families.strings import ui_strings
+from proof.surface.families.profile import TEMPLATE, template_features, template_properties
+from proof.surface.families.strings import id_pattern, ui_strings
+from proof.surface.model import SurfaceError
 
 ANDROID_CATALOG = "app/assets/locales/android_translatable_strings.txt"
 WIDE_CORE = (
@@ -214,6 +228,93 @@ def test_a_planted_profile_property_is_read(plant, sources, items):
     assert planted["planted-property"]["when"] == ["if planted_flag"]
     assert planted["planted-property"]["value"] == "{{ planted }}"
     assert "profile-property:planted-property" not in items
+
+
+def _profile_app() -> SimpleNamespace:
+    return SimpleNamespace(
+        version=3,
+        build_spec=SimpleNamespace(major_release="2", minor_release="57", patch_release="0"),
+        ota_restore_url="o",
+        post_url="p",
+        key_server_url="k",
+        persistent_menu=False,
+        show_breadcrumbs=True,
+        enable_relative_suite_path=True,
+        suite_loc="s",
+        suite_url="u",
+    )
+
+
+def _taken(when: list[str], context: dict) -> bool:
+    """Whether a part written under ``when`` (``if <name>``, or ``if <name> / else``) is the one HQ's renderer
+    takes under ``context``."""
+    for block in when:
+        branches = block.split(" / ")
+        condition = branches[0].removeprefix("if ").strip()
+        assert branches[0].startswith("if ") and condition.isidentifier() and branches[1:] in ([], ["else"]), block
+        if bool(context.get(condition)) == (branches[-1] == "else"):
+            return False
+    return True
+
+
+def test_constant_profile_features_are_what_hqs_renderer_writes(items, hq):
+    from django.template.loader import render_to_string
+
+    features = {key.split(":", 1)[1]: facts for key, facts in items.items() if key.startswith("profile-feature:")}
+    assert {"checkoff", "reminders", "package"} <= set(features)
+    assert "users" not in features
+    for is_odk in (True, False):
+        context = {
+            "app": _profile_app(),
+            "app_profile": {"properties": {}, "features": {}},
+            "locale": "en",
+            "is_odk": is_odk,
+        }
+        rendered = etree.fromstring(render_to_string("app_manager/profile.xml", context).encode("utf-8"))
+        written = {child.tag: child.get("active") for child in rendered.find("features")}
+        assert set(written) == {"users", *features}, is_odk
+        for feature, facts in features.items():
+            (only,) = facts["written"]
+            active = "".join(part["value"] for part in only["active"] if _taken(part["when"], context))
+            assert written[feature] == active, (feature, is_odk)
+    assert [part["value"] for part in features["checkoff"]["written"][0]["active"]] == ["true", "false"]
+
+
+def test_a_planted_profile_feature_under_a_condition_is_not_one_every_app_gets(plant, sources, items):
+    anchor = '        <package active="false"/>\n'
+    root = plant(
+        sources.hq,
+        [TEMPLATE],
+        {
+            TEMPLATE: (
+                anchor,
+                anchor + '        {% if planted_flag %}<planted-under-a-flag active="true"/>{% endif %}\n'
+                '        <planted-for-every-app active="false"/>\n',
+            )
+        },
+    )
+    planted = dict(template_features(dataclasses.replace(sources, hq=root), root / TEMPLATE))
+    assert "planted-under-a-flag" not in planted
+    assert planted["planted-for-every-app"]["active"] == [{"value": "false", "when": []}]
+    assert set(planted) - {"planted-for-every-app"} == {
+        key.split(":", 1)[1] for key in items if key.startswith("profile-feature:")
+    }
+
+
+def test_every_id_pattern_hq_registers_is_an_item_its_regex_reads_alike(items, hq):
+    from corehq.apps.app_manager import id_strings
+
+    patterns = {key.split(":", 1)[1]: facts for key, facts in items.items() if key.startswith("app-string-id:")}
+    assert sorted(facts["regex"] for facts in patterns.values()) == sorted(id_strings.REGEXES)
+    assert {"homescreen.title", "modules.m#", "forms.m#f#.submit_label", "android.package.name.*"} <= set(patterns)
+    for pattern, facts in patterns.items():
+        key = pattern.replace("*", "any text").replace("#", "12")
+        assert re.fullmatch(facts["regex"], key), pattern
+        if "#" in pattern:
+            assert not re.fullmatch(facts["regex"], pattern.replace("*", "any text").replace("#", "x")), pattern
+    for refused in (r"m\d+_select_text", r"m[0-9]*_x", r"a\*", r"(modules)\.m[0-9]+"):
+        with pytest.raises(SurfaceError):
+            id_pattern(refused, "planted")
 
 
 def test_upload_constants_hold_hqs_values(items, plant, sources, hq):

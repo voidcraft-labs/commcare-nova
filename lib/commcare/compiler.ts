@@ -1,8 +1,11 @@
+import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import {
 	profileServerProperties,
+	profileUniqueId,
 	type RuntimeTarget,
 } from "@/lib/commcare/runtimeTarget";
 import { buildEntryPointSuite } from "./entryPointSuite";
+import { COMMCARE_VERSION_FLOOR } from "./versionFloor";
 import { assertXml } from "./xmlParse";
 // lib/commcare/compiler.ts
 //
@@ -12,7 +15,7 @@ import { assertXml } from "./xmlParse";
 // `expandDoc`) and the source `BlueprintDoc`, and produces a .ccz ZIP
 // archive ready for CommCare Mobile. The archive contains:
 //
-//   - profile.ccpr                : app profile (name + suite descriptors + logo)
+//   - profile.ccpr                : app profile (identity, versions, settings, suite descriptors, logo)
 //   - suite.xml                   : menus, commands, case details, entries, locales
 //   - media_suite.xml             : media resource descriptor (empty when no media)
 //   - commcare/<hash>.<ext>       : one bundled file per referenced media asset
@@ -37,7 +40,6 @@ import { assertXml } from "./xmlParse";
 // only literal — `serializeXml` does not emit XML declarations, so
 // the compiler prepends one before each rendered tree.
 
-import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
 import type { Element } from "domhandler";
 import type { FormActions, HqApplication } from "@/lib/commcare";
@@ -94,6 +96,10 @@ import {
 	emitModuleDisplayCondition,
 } from "@/lib/commcare/suite/displayConditions";
 import {
+	FORM_SUBMIT_LABEL,
+	formSubmitLabelLocaleId,
+} from "@/lib/commcare/suite/formStrings";
+import {
 	USERCASE_MISSING_LOCALE_ID,
 	USERCASE_MISSING_MESSAGE,
 } from "@/lib/commcare/usercaseWire";
@@ -104,6 +110,7 @@ import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import { stripVellumAttributes } from "@/lib/commcare/xform/deviceForm";
+import { setFormVersion } from "@/lib/commcare/xform/formVersion";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
@@ -143,13 +150,27 @@ export interface CompileOptions {
 	 */
 	lookup?: PreparedLookupWire;
 	/**
-	 * The blueprint's `mutation_seq` at compile time, stamped into the
-	 * profile.ccpr `cc-content-version` so each archive names the exact
-	 * document version it was built from. Absent = the default `"1"` (tests +
-	 * callers that don't thread a live seq). Does NOT touch the per-compile
-	 * `uniqueid`, which HQ uses for version dedup.
+	 * The blueprint's `mutation_seq` at compile time: the sequence. It is
+	 * `cc-content-version`, `cc-app-version`, every form and locale
+	 * resource's version and every form's data `version`, so a later
+	 * download is newer in every resource the document changed. Absent reads
+	 * 1, for a caller that holds no app row.
 	 */
 	compiledAtSeq?: number;
+	/**
+	 * How many HQ apps the target's deployment held before the one it holds
+	 * now. The archive's version, which the profile, its two suite resources
+	 * and `<suite>` carry, is the sequence plus this, so a file made after the
+	 * target's HQ app was made afresh is newer to a phone at an unchanged
+	 * sequence. Absent reads 0.
+	 */
+	earlierHqApps?: number;
+	/**
+	 * The target project space holds `USH_EMPTY_CASE_LIST_TEXT`, so every
+	 * short detail carries the empty-list text, as HQ's build there does.
+	 * Absent reads false.
+	 */
+	emptyCaseListText?: boolean;
 }
 
 /** The entry's new-case datum for `caseType` (`case_id_new_<type>_0`). */
@@ -254,6 +275,9 @@ export function compileCcz(
 	const lookupNaming = opts.lookup?.naming;
 	const userPropertySlugs = userPropertySlugsByUuid(doc);
 	const localization = commCareLocalization(authoredDoc);
+	const sequence = opts.compiledAtSeq ?? 1;
+	const archiveVersion = sequence + (opts.earlierHqApps ?? 0);
+	const emptyCaseListText = opts.emptyCaseListText === true;
 
 	// Output file map — each entry becomes a zip entry at the end.
 	const files: Record<string, string> = {};
@@ -273,13 +297,16 @@ export function compileCcz(
 		mediaBundle.cczEntries.map((entry) => entry.path),
 	);
 
-	files["profile.ccpr"] = generateProfile(
+	files["profile.ccpr"] = generateProfile({
+		doc: authoredDoc,
 		appName,
-		opts.runtimeTarget,
-		buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
-		opts.compiledAtSeq,
-		derivedProfileProperties(doc),
-	);
+		runtimeTarget: opts.runtimeTarget,
+		firstLanguage: localization.languages[0],
+		sequence,
+		archiveVersion,
+		logoProperty: buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
+		derivedProperties: derivedProfileProperties(doc),
+	});
 	assertXml(files["profile.ccpr"]);
 	files["media_suite.xml"] = mediaBundle.mediaSuiteXml;
 
@@ -546,6 +573,7 @@ export function compileCcz(
 				...(assets && { assets }),
 				...(lookupNaming && { lookupNaming }),
 				...(registerAction !== undefined && { registerAction }),
+				emptyCaseListText,
 				...(remoteRequestEmission !== undefined && {
 					searchAction: {
 						autoLaunch: remoteRequestEmission.wire.autoLaunch,
@@ -585,6 +613,7 @@ export function compileCcz(
 					moduleIndex: mIdx,
 					doc,
 					target: "search",
+					emptyCaseListText,
 					...(assets && { assets }),
 					...(lookupNaming && { lookupNaming }),
 				});
@@ -647,6 +676,10 @@ export function compileCcz(
 				formUuid,
 				"name",
 			);
+			// HQ's build writes every form's submit label, "Submit" where none
+			// is set, which Nova never sets. Nova's own system copy, so every
+			// language takes it verbatim.
+			appStrings[formSubmitLabelLocaleId(mIdx, fIdx)] = FORM_SUBMIT_LABEL;
 
 			// Build-time injection. The emitter produces a clean XForm (no case
 			// blocks, no meta — those are CCHQ render-time artifacts the HQ-upload
@@ -661,7 +694,11 @@ export function compileCcz(
 			// is passed through rather than gating the call: a form whose only
 			// write is to the worker's own record has no case type and still
 			// needs its block, and gating here would emit the suite datum and
-			// the assertion for a write the form never makes.
+			// the assertion for a write the form never makes. A Connect app's
+			// meta block captures the worker's location, as HQ's build does from
+			// the `auto_gps_capture` `expandDoc` writes under the same condition,
+			// and the form's data node carries the sequence as its version, as
+			// HQ's build stamps its own form version (`FormBase.add_stuff_to_xform`).
 			let xform = attachments[`${uniqueId}.xml`];
 			if (xform) {
 				xform = addCaseBlocks(
@@ -675,7 +712,14 @@ export function compileCcz(
 				);
 			}
 			if (xform) {
-				xform = stripVellumAttributes(addMetaBlock(xform));
+				xform = setFormVersion(
+					stripVellumAttributes(
+						addMetaBlock(xform, {
+							captureLocation: authoredDoc.connectType !== null,
+						}),
+					),
+					sequence,
+				);
 			}
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
@@ -836,7 +880,7 @@ export function compileCcz(
 			// path and version once at render time.
 			suiteResources.push(
 				el("xform", {}, [
-					el("resource", { id: filePath, version: "1" }, [
+					el("resource", { id: filePath, version: String(sequence) }, [
 						el("location", { authority: "local" }, [text(`./${filePath}`)]),
 					]),
 				]),
@@ -997,7 +1041,7 @@ export function compileCcz(
 
 	const localeResources: Element[] = langDirs.map(([, dir]) =>
 		el("locale", { language: dir }, [
-			el("resource", { id: `app_strings_${dir}`, version: "1" }, [
+			el("resource", { id: `app_strings_${dir}`, version: String(sequence) }, [
 				el("location", { authority: "local" }, [
 					text(`./${dir}/app_strings.txt`),
 				]),
@@ -1023,7 +1067,7 @@ export function compileCcz(
 		(fixture) => fixture.element,
 	);
 	const entryPointSuite = buildEntryPointSuite(doc, linkContext);
-	const suiteRoot = el("suite", { version: "1" }, [
+	const suiteRoot = el("suite", { version: String(archiveVersion) }, [
 		...suiteResources,
 		...localeResources,
 		...suiteDetails,
@@ -1137,50 +1181,57 @@ export function compileCcz(
 }
 
 /**
- * Generate the top-level profile.ccpr XML. The `uniqueid` is a fresh
- * UUID every compile — HQ treats each .ccz as a new app version, so
- * stable identity across compiles isn't required (and would defeat
- * HQ's version deduplication).
+ * Generate the top-level profile.ccpr XML, in this order:
+ *
+ * - `<profile>`: `uniqueid` is Nova's own id for the app on the target's
+ *   project space (`profileUniqueId`), so every archive of one app for one
+ *   project space is one app on a phone; `version` is the archive's
+ *   version; `requiredMajor`, `requiredMinor` and `requiredMinimal` state
+ *   the version floor, the oldest CommCare the content needs, in HQ's own
+ *   spelling.
+ * - `CommCare App Name`, then `cc-content-version` and `cc-app-version`,
+ *   both the sequence.
+ * - The four server properties (`profileServerProperties`), each forced,
+ *   so a worker signs in, syncs and sends forms to the project space the
+ *   archive is made for.
+ * - `cur_locale`, the first language's wire code, unforced, as HQ writes
+ *   it, so the app starts in its first language.
+ * - The seventeen settings (`appProfileSettings.ts`), each with HQ's own
+ *   `force`.
+ * - The derived properties, each forced as HQ's custom-property template
+ *   writes them, and the logo's web-apps banner where the app has a logo.
+ * - `<features>`: `<checkoff active="true"/>`, as HQ's `profile.ccpr` has
+ *   it, with which Android keeps a sent form as saved and offers the Saved
+ *   button where `cc-show-saved` allows it; then `<users active="true"/>`.
+ * - The suite and the media suite, each at the archive's version.
  *
  * Constructed via `domhandler` element tree + single `serializeXml`
  * pass. The `<?xml version="1.0"?>` declaration is prepended as a
- * literal (the serializer doesn't emit declarations).
- *
- * The `appName` flows raw through the `name` attribute and the
- * `CommCare App Name` property value; the serializer XML-escapes both
- * once at render time (`&` / `<` / `>` / `"` / `'`).
- *
- * `runtimeTarget` gives the four server properties (`profileServerProperties`),
- * each `force="true"` after `cc-app-version`, so a worker signs in, syncs and
- * sends forms to the project space the archive is made for.
- *
- * `logoProperty`, when present, is the web-apps banner
- * `<property key="brand-banner-web-apps" value="jr://file/..." force="true"/>`
- * built from `doc.logo`; it's appended to the property list. Absent =
- * no logo property (media off, or no logo set).
- *
- * `compiledAtSeq`, when present, is the blueprint's `mutation_seq` at
- * compile time; it's stamped into `cc-content-version` so the archive
- * names the exact document version it was built from. Absent (tests +
- * callers with no live seq) falls back to `"1"`.
- *
- * `derivedProperties` contains only Nova-owned profile optimizations. Each is
- * emitted with `force="true"`, matching CommCare HQ's custom-property profile
- * template. An empty record preserves the historical profile byte shape.
+ * literal (the serializer doesn't emit declarations). The `appName` flows
+ * raw through the `name` attribute and the `CommCare App Name` property
+ * value; the serializer XML-escapes both once at render time.
  */
-function generateProfile(
-	appName: string,
-	runtimeTarget: RuntimeTarget,
-	logoProperty?: Element,
-	compiledAtSeq?: number,
-	derivedProperties: Readonly<Record<string, string>> = {},
-): string {
+function generateProfile(input: {
+	readonly doc: BlueprintDoc;
+	readonly appName: string;
+	readonly runtimeTarget: RuntimeTarget;
+	readonly firstLanguage: string | undefined;
+	readonly sequence: number;
+	readonly archiveVersion: number;
+	readonly logoProperty?: Element;
+	readonly derivedProperties: Readonly<Record<string, string>>;
+}): string {
+	const { appName, runtimeTarget } = input;
+	const archiveVersion = String(input.archiveVersion);
 	const profileEl = el(
 		"profile",
 		{
 			xmlns: "http://cihi.commcarehq.org/jad",
-			version: "1",
-			uniqueid: randomUUID(),
+			version: archiveVersion,
+			uniqueid: profileUniqueId(input.doc.appId, runtimeTarget),
+			requiredMajor: String(COMMCARE_VERSION_FLOOR.major),
+			requiredMinor: String(COMMCARE_VERSION_FLOOR.minor),
+			requiredMinimal: "0",
 			name: appName,
 			update: "http://localhost/update",
 		},
@@ -1188,21 +1239,40 @@ function generateProfile(
 			el("property", { key: "CommCare App Name", value: appName }),
 			el("property", {
 				key: "cc-content-version",
-				value: String(compiledAtSeq ?? 1),
+				value: String(input.sequence),
 			}),
-			el("property", { key: "cc-app-version", value: "1" }),
+			el("property", { key: "cc-app-version", value: String(input.sequence) }),
 			...profileServerProperties(runtimeTarget).map(({ key, value }) =>
 				el("property", { key, value, force: "true" }),
 			),
-			...Object.entries(derivedProperties).map(([key, value]) =>
+			...(input.firstLanguage === undefined
+				? []
+				: [
+						el("property", {
+							key: "cur_locale",
+							value: input.firstLanguage,
+							force: "false",
+						}),
+					]),
+			...appProfileProperties(input.doc).map(({ key, value, force }) =>
+				el("property", { key, value, ...(force && { force: "true" }) }),
+			),
+			...Object.entries(input.derivedProperties).map(([key, value]) =>
 				el("property", { key, value, force: "true" }),
 			),
-			...(logoProperty ? [logoProperty] : []),
-			el("features", {}, [el("users", { active: "true" })]),
+			...(input.logoProperty ? [input.logoProperty] : []),
+			el("features", {}, [
+				el("checkoff", { active: "true" }),
+				el("users", { active: "true" }),
+			]),
 			el("suite", {}, [
 				el(
 					"resource",
-					{ id: "suite", version: "1", descriptor: "Suite Definition" },
+					{
+						id: "suite",
+						version: archiveVersion,
+						descriptor: "Suite Definition",
+					},
 					[el("location", { authority: "local" }, [text("./suite.xml")])],
 				),
 			]),
@@ -1211,7 +1281,7 @@ function generateProfile(
 					"resource",
 					{
 						id: "media-suite",
-						version: "1",
+						version: archiveVersion,
 						descriptor: "Media Suite Definition",
 					},
 					[el("location", { authority: "local" }, [text("./media_suite.xml")])],

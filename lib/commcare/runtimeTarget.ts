@@ -1,3 +1,4 @@
+import { v5 as uuidv5 } from "uuid";
 import { COMMCARE_SERVERS, type CommCareServer } from "./servers";
 
 /**
@@ -74,4 +75,29 @@ export function profileServerProperties(
 			value: `${target.domain}.commcarehq.org`.toLowerCase(),
 		},
 	];
+}
+
+/**
+ * The namespace every `.ccz` profile's `uniqueid` is derived under. Changing
+ * it changes the id every archive carries, which a phone reads as another app.
+ */
+export const CCZ_PROFILE_NAMESPACE = "58454579-0d28-460b-bda8-89ee46ecec4d";
+
+/**
+ * The `uniqueid` of a `.ccz` profile: Nova's own id for one app on one
+ * project space, derived at every compile and stored nowhere.
+ *
+ * Android's install screen refuses a profile whose `uniqueid` an installed
+ * app holds (`ProfileAndroidInstaller.checkDuplicate`), so every archive of
+ * one app for one project space is one app on a phone, the archives for two
+ * project spaces are two, and none of them is HQ's build, which carries HQ's
+ * own app id (`Application.create_profile`). It reads neither the HQ app id
+ * nor the Project, so an app that moves Project, and a project space whose
+ * HQ app is made afresh, keep the id their phones hold.
+ */
+export function profileUniqueId(appId: string, target: RuntimeTarget): string {
+	return uuidv5(
+		JSON.stringify([appId, target.server, target.domain]),
+		CCZ_PROFILE_NAMESPACE,
+	);
 }

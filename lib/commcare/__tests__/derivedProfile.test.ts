@@ -81,10 +81,8 @@ describe("derived CommCare profile", () => {
 			expect(derivedProfileProperties(doc)).toEqual({
 				"cc-index-case-search-results": "yes",
 			});
-			expect(expandDoc(doc).profile).toEqual({
-				custom_properties: {
-					"cc-index-case-search-results": "yes",
-				},
+			expect(expandDoc(doc).profile?.custom_properties).toEqual({
+				"cc-index-case-search-results": "yes",
 			});
 			expect(
 				profileProperties(search).filter(
@@ -103,7 +101,7 @@ describe("derived CommCare profile", () => {
 			const hq = expandDoc(doc);
 
 			expect(derivedProfileProperties(doc)).toEqual({});
-			expect(Object.hasOwn(hq, "profile")).toBe(false);
+			expect(Object.hasOwn(hq.profile ?? {}, "custom_properties")).toBe(false);
 			expect(profileProperties(search).map((p) => p.key)).not.toContain(
 				"cc-index-case-search-results",
 			);

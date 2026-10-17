@@ -125,6 +125,7 @@ function baseDoc(field = selectField()): BlueprintDoc {
 		appId: "lookup-carrier-test",
 		appName: "Lookup carrier test",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
 			[MODULE]: { uuid: MODULE, id: "visits", name: "Visits" },

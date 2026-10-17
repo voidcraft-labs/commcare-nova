@@ -75,6 +75,7 @@ function makeDoc(
 		appId: "test-app",
 		appName: "Test App",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
 			[MODULE_UUID]: {
@@ -914,6 +915,7 @@ describe("EngineController", () => {
 				appId: "test-app",
 				appName: "Test App",
 				connectType: null,
+				appSettings: { showSavedForms: false, showIncompleteForms: false },
 				caseTypes: [patientCaseType, noteCaseType],
 				modules: {
 					[moduleUuid]: {
@@ -1927,6 +1929,7 @@ describe("EngineController", () => {
 				appId: "test-app",
 				appName: "Test App",
 				connectType: null,
+				appSettings: { showSavedForms: false, showIncompleteForms: false },
 				caseTypes: [patientCaseType],
 				modules: {
 					[moduleUuid]: {

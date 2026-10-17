@@ -43,7 +43,8 @@ families are read and what each item records):
 ``families/registries.py``
     ``setting:<type>.<id>``, ``add-on:<slug>``, ``instance-scheme:<scheme>``, ``instance-ignored:<src>``
 ``families/profile.py``
-    ``profile-property:<key>``
+    ``profile-property:<key>``, ``profile-feature:<name>`` (a child of the profile template's ``<features>`` HQ
+    writes for every app)
 ``families/data.py``
     ``csql-fn:<name>``, ``csql-metadata:<key>``, ``csql-op:<operator>``, ``csql-unit:<unit>``,
     ``lookup-model:<Model>.<field>``, ``lookup-workbook:<word>``, ``lookup-code:<path>::<qualname>``,
@@ -81,7 +82,8 @@ families are read and what each item records):
 ``families/strings.py``
     ``ui-string:<id>``, ``ui-string:<pattern>`` (a read whose id the code names only in part, ``*`` for the
     unnamed part: ``ui-string:android.package.name.*``, and ``ui-string:*`` for reads of ids the code does
-    not hold)
+    not hold), ``app-string-id:<pattern>`` (an id pattern HQ registers for a string its build generates,
+    ``id_strings.REGEXES``; ``*`` any text, ``#`` digits)
 
 ``families/authored.py``
     ``csql-fn:search-value-mixes-quote-marks``, ``profile-property:<key>`` for each key Nova's local profile

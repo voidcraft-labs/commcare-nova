@@ -436,8 +436,8 @@ jobs:
       #
       # Seeded and unseeded runs observe the same things up to the values the
       # seeding chooses (minted ids, CSRF tokens, clock readings): every
-      # difference set must be equal once those are masked, and defect 9 must
-      # still show in both.
+      # difference set must be equal once those are masked, and no identity
+      # difference shows in either.
       - name: Seeding changes nothing observed
         if: ${{ needs.weekly-unseeded.result == 'success' }}
         run: |

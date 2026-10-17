@@ -56,6 +56,8 @@ const SOURCE_BODY = {
 	build_spec: { version: "2.60.0" },
 	profile: { properties: { "cc-show-saved": "yes" } },
 	langs: ["en"],
+	translations: {},
+	add_ons: {},
 	_attachments: {
 		"read-1.xml":
 			'<h:html xmlns:h="http://www.w3.org/1999/xhtml"><h:head><model><instance><data><name/></data></instance></model></h:head></h:html>',

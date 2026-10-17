@@ -33,6 +33,7 @@ export const dateFieldMetadata: FieldKindMetadata<"date"> = {
 	label: "Date",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: true,
 	saDocs: "Date-only picker.",
 	convertTargets: ["time", "datetime"],
 };

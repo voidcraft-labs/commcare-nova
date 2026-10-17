@@ -58,6 +58,16 @@ The plausible failures each test here catches:
 - HQ's builds read lookup tables from a restore that does not serve them;
 - a search's own query keys (``case_type``, ``_xpath_query``) in one class
   with its prompts' keys, so a register entry for one absorbs the other;
+- a submission's form version compared as it is across the two export paths,
+  where HQ's is its own form version and the local archive's the document's
+  sequence (the two agree only by coincidence), or mapped where a submission
+  carries a version its own form does not declare, so a version that
+  differs within one path would pass;
+- a value a person saved only in HQ (Auto Capture Location, a profile
+  setting) reported as a defect of the local archive, which cannot hold it,
+  or the statement taken where HQ's side does not hold the value or the
+  local archive holds it too, or claimed of a reader whose comparison did
+  not run;
 - profile properties compared where no runtime running both builds reads
   them (a target's URLs), or left out where one does; the compared set, and
   which runtime reads each, must be the manifest's.
@@ -1464,3 +1474,104 @@ def test_a_refusal_the_bar_reports_is_not_reported_again_and_any_other_names_its
     assert [(d.path, d.kind) for d in proof3.behavioral_equivalence("d", observed, None, Blobs(), has_local=False)] == [
         ("/no-local-archive", "refused")
     ]
+
+
+# A form's version, and a value saved only in HQ -------------------------------------------------------------------
+
+
+def _versioned(version, namespace):
+    """A trace whose one run submits the form ``namespace`` at ``version``."""
+    submission = f'<data xmlns="{namespace}" version="{version}"><q>seen</q></data>'
+    return _trace([], runs=[{"script": [], "trace": [{"screen": "form", "submission": submission}]}])
+
+
+def test_a_submissions_version_is_read_as_its_own_forms_on_each_path_and_any_other_is_compared(
+    without_spelling_rules,
+):
+    from proof.checks.proof4 import trace_versions
+
+    xmlns = {"urn:local": "urn:hq"}
+    hq_built = trace_versions(_versioned("3", "urn:hq"), {"urn:hq": "3"})
+
+    def compared(local):
+        found = proof3.compare_traces(
+            "d",
+            "trace@local.ccz",
+            hq_built,
+            trace_versions(local, {"urn:local": "7"}),
+            runtimes=proof3.RUNTIMES["local.ccz"],
+            xmlns=xmlns,
+        )
+        return [d.path for d in found if "@version" in d.path]
+
+    # HQ's form version and the document's sequence, each its own form's: the same outcome.
+    assert compared(_versioned("7", "urn:local")) == []
+    # A version the local archive's form does not declare is a version that differs within one path.
+    assert compared(_versioned("9", "urn:local")) == ["/runs/*/trace/*/submission/data/@version"]
+    # Each form's declared version is read from its data node, by its namespace.
+    form = b'<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model>'
+    form += b'<instance><data xmlns="urn:local" version="7"/></instance></model></h:head></h:html>'
+    assert proof3.declared_versions({"modules-0/forms-0.xml": form, "suite.xml": b"<suite/>"}) == {"urn:local": "7"}
+
+
+STATED = {"appAttributes": {"auto_gps_capture": True}, "profileProperties": {"cc-autoup-freq": "freq-daily"}}
+EVERY_READER = {"trace@local.ccz", "formplayer@local.ccz", "android@local.ccz"}
+
+
+def _stated_differences():
+    """Each difference a location and an update frequency saved only in HQ make between HQ's side and the local
+    archive's, as each reader's comparison reports it."""
+    found = []
+    for artifact, paths in proof3.LOCATION_PATHS.items():
+        found += [Difference("proof3", "d", artifact, path, path, "removed", "here", None) for path in paths]
+    value = "/profile/properties/cc-autoup-freq/value"
+    found.append(Difference("proof3", "d", "trace@local.ccz", value, value, "changed", "freq-daily", "freq-never"))
+    for reader in proof3.SETTING_READERS["cc-autoup-freq"]:
+        path = f"/profile/readers/{reader}"
+        found.append(Difference("proof3", "d", "android@local.ccz", path, path, "changed", "freq-daily", "freq-never"))
+    return found
+
+
+def test_a_value_saved_only_in_hq_is_held_both_ways_on_each_reader_that_ran():
+    other = Difference("proof3", "d", "trace@local.ccz", "/locale", "/locale", "changed", "en", None)
+    assert proof3.stated_hq_side_values("d", STATED, [*_stated_differences(), other], EVERY_READER) == [other]
+    # A document that saves nothing in HQ keeps every difference.
+    assert proof3.stated_hq_side_values("d", None, _stated_differences(), EVERY_READER) == _stated_differences()
+
+    # The location missing from HQ's side, or held by the local archive too: no difference, which is reported.
+    held = [d for d in _stated_differences() if d.path != "/walks/*/steps/*/form/deviceGave"]
+    found = proof3.stated_hq_side_values("d", STATED, held, EVERY_READER)
+    assert [(d.artifact, d.path) for d in found] == [
+        ("android@local.ccz", "/stated-hq-side/auto_gps_capture/walks/*/steps/*/form/deviceGave")
+    ]
+    # The local archive's side holding a location HQ's lacks is another shape, kept, and the statement unmet.
+    flipped = [
+        Difference("proof3", "d", d.artifact, d.path, d.at, "added", None, "here")
+        if d.path == "/runs/*/trace/*/submission/data/meta[*]/location[*]"
+        else d
+        for d in _stated_differences()
+    ]
+    found = proof3.stated_hq_side_values("d", STATED, flipped, EVERY_READER)
+    assert sorted((d.artifact, d.path, d.kind) for d in found) == [
+        ("trace@local.ccz", "/runs/*/trace/*/submission/data/meta[*]/location[*]", "added"),
+        (
+            "trace@local.ccz",
+            "/stated-hq-side/auto_gps_capture/runs/*/trace/*/submission/data/meta[*]/location[*]",
+            "removed",
+        ),
+    ]
+    # Nova's constant in HQ's trace in place of the saved value is not the statement.
+    wrong = [
+        Difference("proof3", "d", d.artifact, d.path, d.at, d.kind, "freq-never", "freq-never")
+        if d.path == "/profile/properties/cc-autoup-freq/value"
+        else d
+        for d in _stated_differences()
+    ]
+    found = proof3.stated_hq_side_values("d", STATED, wrong, EVERY_READER)
+    assert sorted(d.path for d in found) == [
+        "/profile/properties/cc-autoup-freq/value",
+        "/stated-hq-side/cc-autoup-freq/profile/properties/cc-autoup-freq/value",
+    ]
+    # A reader whose comparison did not run makes no claim.
+    without_android = [d for d in _stated_differences() if d.artifact != "android@local.ccz"]
+    assert proof3.stated_hq_side_values("d", STATED, without_android, EVERY_READER - {"android@local.ccz"}) == []

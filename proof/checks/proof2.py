@@ -22,6 +22,13 @@ the refusal (``import@<state>``) and proof 2 reports nothing more (decision
 12: one class per symptom); a state missing for any other reason is a
 refusal naming it (``build`` ``/no-<state>``).
 
+On a document whose ``hq-side.json`` saves add-ons (``addOns``, what a person
+turns on or off in HQ's add-ons section over A), what HQ's app, menu and form
+pages offer of each saved add-on is compared too, A's against B's
+(``add_ons@B``, ``offered_add_ons``, from the intent observation's
+``addOnsOffered``): Nova's next publish writes only the add-ons its app needs
+over the map HQ holds, so a page offers each saved add-on at B as at A.
+
 The comparison itself is the observation's (``proof.observe.builds``), which
 makes it with no rule to decide whether B's sessions run; this module makes
 it after the registered rules and judges the records.
@@ -66,11 +73,63 @@ def build_differences(document, before, after, alignment, *, rules=None):
     return builds.build_differences(document, before, after, alignment, rules=RULES if rules is None else rules)
 
 
+def _offered(record):
+    """What HQ's pages offered of each add-on at one state (the intent observation's ``addOnsOffered``), or None
+    where HQ holds no such state."""
+    if not (record or {}).get("state"):
+        return None
+    observed = ((record.get("hooks") or {}).get("intent") or {}).get("addOnsOffered")
+    if observed is None:
+        raise AssertionError(
+            "A state's intent observation holds no addOnsOffered, what HQ's pages offer of each add-on"
+            " (proof/observe/intent.py::add_ons); it was made without it."
+        )
+    return observed
+
+
+def offered_add_ons(document, saved, a, b) -> list:
+    """Each add-on a person saved (``saved``, by slug) that a page offers at A and not at B, or the other way:
+    ``add_ons@B``, ``/<page>/<slug>`` for the app's page and ``/<page>/*/<slug>`` for a menu's or a form's (its
+    position in ``at``)."""
+    found = []
+    pages = [("app", None)]
+    pages += [("modules", position) for position in sorted(set(a.get("modules") or {}) | set(b.get("modules") or {}))]
+    pages += [("forms", position) for position in sorted(set(a.get("forms") or {}) | set(b.get("forms") or {}))]
+    for page, position in pages:
+        before = a.get(page) if position is None else (a.get(page) or {}).get(position)
+        after = b.get(page) if position is None else (b.get(page) or {}).get(position)
+        for slug in sorted(saved):
+            offered_a = (before or {}).get(slug)
+            offered_b = (after or {}).get(slug)
+            if offered_a != offered_b:
+                place = f"/{page}" if position is None else f"/{page}/{position}"
+                path = f"/{page}" if position is None else f"/{page}/*"
+                found.append(
+                    Difference(
+                        "proof2",
+                        document,
+                        "add_ons@B",
+                        f"{path}/{slug}",
+                        f"{place}/{slug}",
+                        "changed",
+                        offered_a,
+                        offered_b,
+                    )
+                )
+    return found
+
+
 def document_build_equivalence(document, records):
     """Proof 2's differences on one document: each configuration it is exported under, judged from its records."""
     from proof.checks import observations
 
     found = []
+    saved = (document.hq_side or {}).get("addOns") or {}
     for name in sorted(document.exports):
         found += build_equivalence(document.id, observations.republish_view(records, name))
+        if saved:
+            held = records.configurations[name]
+            a, b = _offered(held.a), _offered(held.b)
+            if a is not None and b is not None:
+                found += offered_add_ons(document.id, saved, a, b)
     return found + observations.soft_assertion_differences(records, "proof2")

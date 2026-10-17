@@ -14,6 +14,7 @@ export { asUuid } from "@/lib/domain";
 import { z } from "zod";
 import {
 	appLanguageIdentitySchema,
+	appSettingsSchema,
 	authoredCasePropertyNameSchema,
 	automationAlertCriterionSchema,
 	automationCaseUpdateCriterionSchema,
@@ -994,6 +995,18 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("setAppLogo"),
 			logo: mediaAssetIdSchema.nullable(),
+		}),
+		// A dedicated kind because the settings object is app-level and
+		// exclusive. `settings` names only the keys it changes, so a switch
+		// that sets one never writes over a peer's change to the other.
+		z.object({
+			kind: z.literal("setAppSettings"),
+			settings: appSettingsSchema
+				.partial()
+				.strict()
+				.refine((patch) => Object.keys(patch).length > 0, {
+					error: "Change at least one app setting.",
+				}),
 		}),
 		// App language identity and translation overlays. The canonical source
 		// strings remain on their owning Blueprint entities; these commands edit

@@ -45,7 +45,9 @@
  * - `b_edit`: D′'s update request and the workbook and media upload it
  *   names, with `edit/document.json` and `edit/verdict.json`.
  * - `local`: each local archive (`local.ccz`, `local-again.ccz`,
- *   `edit/local.ccz`).
+ *   `edit/local.ccz`, and `local-empty-list-text.ccz` where a configuration
+ *   the document runs under holds the flag that archive was compiled for,
+ *   `EMPTY_LIST_TEXT_ARCHIVE`).
  * - `judge`: what only the judges read: `edit/batch.json` and a targeted
  *   document's `expected.json`.
  * - `importFile`: the HQ import file (`import-file.zip`), by its entries as a
@@ -62,6 +64,28 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import AdmZip from "adm-zip";
 import { TWO_IMPORT_LAYOUT } from "./publish";
+
+/**
+ * The flag a local archive's bytes depend on: under `USH_EMPTY_CASE_LIST_TEXT`
+ * every short detail carries the empty-list text, as HQ's build in that
+ * project space does (`lib/commcare/compiler.ts::CompileOptions.emptyCaseListText`).
+ */
+export const EMPTY_LIST_TEXT_FLAG = "USH_EMPTY_CASE_LIST_TEXT";
+
+/**
+ * The local archive of D compiled for a project space that holds
+ * `EMPTY_LIST_TEXT_FLAG`, the archive of each configuration that holds it;
+ * `local.ccz` is every other configuration's.
+ */
+export const EMPTY_LIST_TEXT_ARCHIVE = "local-empty-list-text.ccz";
+
+/** Each local archive a document may carry, by its role in `local`. */
+export const LOCAL_ROLES = [
+	["local", "local.ccz"],
+	["local-again", "local-again.ccz"],
+	["edit-local", "edit/local.ccz"],
+	["local-empty-list-text", EMPTY_LIST_TEXT_ARCHIVE],
+] as const;
 
 /** One input file: where it is under the document's directory, and its digest. */
 export interface InputFile {
@@ -234,11 +258,7 @@ export async function documentInputs(
 		};
 	}
 	const local: Record<string, InputFile> = {};
-	for (const [role, path] of [
-		["local", "local.ccz"],
-		["local-again", "local-again.ccz"],
-		["edit-local", "edit/local.ccz"],
-	] as const) {
+	for (const [role, path] of LOCAL_ROLES) {
 		if (!existsSync(join(root, path))) continue;
 		local[role] = {
 			path,

@@ -166,7 +166,9 @@ function authoredApp(id: string): PersistableDoc {
 	return blueprintDocSchema.parse(toPersistableDoc(doc));
 }
 
-async function save(doc: PersistableDoc) {
+/** Saves `doc` as its birth wrote it. An app born before
+ * `apps.app_settings` existed holds no settings (`schema: "earlier"`). */
+async function save(doc: PersistableDoc, schema: "earlier" | "latest") {
 	const db = database.db as Kysely<AppDatabase>;
 	await db.transaction().execute(async (tx) => {
 		await sql`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower, case_types, localization, mutation_seq, run_id)
@@ -174,6 +176,11 @@ async function save(doc: PersistableDoc) {
 				${JSON.stringify(doc.caseTypes)}::jsonb, ${JSON.stringify(doc.localization)}::jsonb, 1, 'genesis')`.execute(
 			tx,
 		);
+		if (schema === "latest") {
+			await sql`UPDATE apps SET app_settings = ${JSON.stringify(doc.appSettings)}::jsonb WHERE id = ${doc.appId}`.execute(
+				tx,
+			);
+		}
 		await tx
 			.insertInto("blueprint_entities")
 			.values(
@@ -203,7 +210,7 @@ async function snapshot(appId: string) {
 it("upgrades the installed schema, preserves old history and records complete multilingual app births", async () => {
 	const db = database.db as Kysely<AppDatabase>;
 	const old = authoredApp("old-app");
-	await save(old);
+	await save(old, "earlier");
 	const originalBaseline = await db
 		.selectFrom("app_change_fold_baselines")
 		.selectAll()
@@ -221,6 +228,14 @@ it("upgrades the installed schema, preserves old history and records complete mu
 		provider: { getMigrations: async () => caseStoreMigrations },
 	}).migrateToLatest();
 	if (result.error) throw result.error;
+	// The app was saved before `apps.app_settings` existed, so the column is
+	// NULL and the projection leaves the root out until the HQ round trip's
+	// cutover writes it, as its `app-settings` step does here.
+	const { appSettings, ...withoutAppSettings } = old;
+	expect(await snapshot(old.appId)).toEqual(withoutAppSettings);
+	await sql`UPDATE apps SET app_settings = ${JSON.stringify(appSettings)}::jsonb WHERE id = ${old.appId}`.execute(
+		db,
+	);
 	expect(await snapshot(old.appId)).toEqual(old);
 	expect(
 		await db.selectFrom("app_change_fold_baselines").selectAll().execute(),
@@ -374,7 +389,7 @@ it("upgrades the installed schema, preserves old history and records complete mu
 			.executeTakeFirstOrThrow(),
 	).toEqual({ authoring_version: 0 });
 	const fresh = authoredApp("new-app");
-	await save(fresh);
+	await save(fresh, "latest");
 	expect(await snapshot(fresh.appId)).toEqual(fresh);
 	const baseline = await db
 		.selectFrom("app_change_fold_baselines")

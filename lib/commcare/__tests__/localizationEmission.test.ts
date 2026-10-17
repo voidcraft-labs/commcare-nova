@@ -87,7 +87,7 @@ describe("localized emitted artifacts", () => {
 				expect(serializedRecord(text, "lang.current")).toBe(language);
 				for (const code of languages)
 					expect(serializedRecord(text, code)).toBe(
-						hq.translations[language][code],
+						hq.translations?.[language]?.[code],
 					);
 				const ids = translations
 					.find((t) => t.attribs.lang === language)
@@ -131,8 +131,8 @@ describe("localized emitted artifacts", () => {
 			zho: "Patients",
 			"cmn-hant": "Patients",
 		});
-		expect(mandarin.translations.zho["homescreen.title"]).toBe("健康应用");
-		expect(mandarin.translations["cmn-hant"]["homescreen.title"]).toBe(
+		expect(mandarin.translations?.zho?.["homescreen.title"]).toBe("健康应用");
+		expect(mandarin.translations?.["cmn-hant"]?.["homescreen.title"]).toBe(
 			"健康應用",
 		);
 	});
@@ -199,9 +199,20 @@ describe("localized emitted artifacts", () => {
 			}),
 		).toThrow(/literal sequence \\n/);
 	});
-	it("emits source fallback for a stale translated title", () => {
-		const hq = expandDoc(localizationWireFixture("stale"));
-		expect(hq.translations.es["homescreen.title"]).toBe("Health app");
+	it("leaves a stale translated title to HQ's build, and the archive's strings at the app's name", () => {
+		const doc = localizationWireFixture("stale");
+		const hq = expandDoc(doc);
+		// A language whose name falls back to the app's name stores neither
+		// app-name key: HQ's build writes both at the app's name itself.
+		for (const key of ["homescreen.title", "app.display.name"])
+			expect(Object.hasOwn(hq.translations?.es ?? {}, key)).toBe(false);
+		const zip = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
+		for (const key of ["homescreen.title", "app.display.name"])
+			expect(serializedRecord(zip.readAsText("es/app_strings.txt"), key)).toBe(
+				"Health app",
+			);
 	});
 	it("projects complete per-language Search child messages", () => {
 		const hq = expandDoc(localizationWireFixture("prompts"));

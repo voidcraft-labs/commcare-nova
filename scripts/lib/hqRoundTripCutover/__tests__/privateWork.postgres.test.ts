@@ -33,8 +33,48 @@ async function seedApp(appId: string): Promise<void> {
 	);
 }
 
-/** Begin MCP work on an app and stage one unsaved rename in its candidate. */
+/**
+ * Set or clear a seeded app's stored settings, in its row and its fold
+ * baseline, with the triggers held as the seed holds them. A pre-step app
+ * holds none, and this tree cannot load such an app, so the work the
+ * pre-step revision staged is staged here over the app with settings, which
+ * the test clears again before the cutover reads it.
+ */
+async function storeSettings(
+	appId: string,
+	text: string | null,
+): Promise<void> {
+	await h
+		.db()
+		.transaction()
+		.execute(async (tx) => {
+			await sql`SET LOCAL session_replication_role = replica`.execute(tx);
+			await sql`
+				UPDATE apps SET app_settings = ${text}::jsonb WHERE id = ${appId}
+			`.execute(tx);
+			await sql`
+				UPDATE app_change_fold_baselines
+				SET snapshot = CASE WHEN ${text}::jsonb IS NULL THEN snapshot - 'appSettings'
+						ELSE snapshot || jsonb_build_object('appSettings', ${text}::jsonb) END
+				WHERE app_id = ${appId} AND seq = 1
+			`.execute(tx);
+			await sql`
+				UPDATE app_change_fold_baselines
+				SET snapshot_digest = nova_app_change_fold_snapshot_digest(snapshot)
+				WHERE app_id = ${appId} AND seq = 1
+			`.execute(tx);
+		});
+}
+
+/**
+ * Begin MCP work on an app and stage one unsaved rename in its candidate,
+ * over the app with settings (`storeSettings`).
+ */
 async function stageUnsavedWork(appId: string): Promise<string> {
+	await storeSettings(
+		appId,
+		JSON.stringify({ showSavedForms: false, showIncompleteForms: true }),
+	);
 	const begun = await beginWork({
 		actorUserId: OWNER,
 		projectId: PROJECT,
@@ -77,6 +117,8 @@ describe("private work across the cutover", () => {
 			pendingChanges: 1,
 			savedRevision: 1,
 		});
+		await storeSettings("app-a-working", null);
+		await storeSettings("app-c-deleted", null);
 
 		await execute();
 
@@ -128,12 +170,18 @@ describe("private work across the cutover", () => {
 		const notices = await sql<{ app_id: string; entries: unknown }>`
 			SELECT app_id, entries FROM app_migration_notices ORDER BY app_id
 		`.execute(h.db());
-		// No app here is published anywhere, so the live ones are also told a
-		// CCZ needs a project space; the deleted one is not.
+		// Every app is told what a downloaded file now needs. No app here is
+		// published anywhere, so the live ones are also told a CCZ needs a
+		// project space; the deleted one is not.
 		expect(notices.rows).toEqual([
 			{
 				app_id: "app-a-working",
 				entries: [
+					{
+						kind: "document",
+						reason: "local-archive-changes",
+						entity: { type: "app", nameAtMigration: expect.any(String) },
+					},
 					{
 						kind: "document",
 						reason: "ccz-needs-project-space",
@@ -151,6 +199,11 @@ describe("private work across the cutover", () => {
 				entries: [
 					{
 						kind: "document",
+						reason: "local-archive-changes",
+						entity: { type: "app", nameAtMigration: expect.any(String) },
+					},
+					{
+						kind: "document",
 						reason: "ccz-needs-project-space",
 						entity: { type: "app", nameAtMigration: expect.any(String) },
 					},
@@ -159,6 +212,11 @@ describe("private work across the cutover", () => {
 			{
 				app_id: "app-c-deleted",
 				entries: [
+					{
+						kind: "document",
+						reason: "local-archive-changes",
+						entity: { type: "app", nameAtMigration: expect.any(String) },
+					},
 					{
 						kind: "document",
 						reason: "unsaved-assistant-work-discarded",

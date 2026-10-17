@@ -742,6 +742,54 @@ def test_the_ui_strings_an_app_overrides_are_used_and_its_own_text_is_not(manife
     assert not [use for use in overridden.uses if use.key == "ui-string:my.own"]
 
 
+def test_a_value_the_upload_carries_back_from_the_target_is_not_novas_use(manifest):
+    """A UI translation and an add-on an upload holds at the value the document's ``hq-side.json`` says a person
+    saved in HQ is the target's own, which Nova's publish carries back (``without_carried``); the same key at
+    another value, or one nobody saved, is the upload's use."""
+    saved = {"uiTranslations": {"en": {"home.start": "Begin a visit"}}, "addOns": {"menu_mode": True}}
+    assert "ui-string:home.start" in manifest.items
+
+    def uses(translation, menu_mode, carried=saved):
+        found = manifest_usage.Uses()
+        doc = {
+            "doc_type": "Application",
+            "translations": {"en": {"home.start": translation, "app.display.name": "Clinic"}},
+            "add_ons": {"menu_mode": menu_mode, "submenus": True},
+        }
+        manifest_usage.app_json_uses(doc, manifest, "app.json", found, carried=carried)
+        return {use.key for use in found.uses}
+
+    carried = uses("Begin a visit", True)
+    assert "ui-string:home.start" not in carried and "add-on:menu_mode" not in carried
+    assert {"ui-string:app.display.name", "add-on:submenus"} <= carried
+    assert "ui-string:home.start" in uses("Begin", True)
+    assert "add-on:menu_mode" in uses("Begin a visit", True, None)
+
+
+def test_a_feature_is_hqs_setting_or_the_one_its_template_writes_for_every_app(manifest):
+    """In a profile, a feature HQ's settings hold is its setting, one HQ's profile template writes for every app is
+    that item (``profile-feature:<name>``), held with the parser's own key, and one neither holds keeps the setting
+    spelling, which no item holds; in an app JSON a feature stays its setting, which HQ's template would write a
+    second time beside its own."""
+    assert "setting:features.checkoff" not in manifest.items and "profile-feature:checkoff" in manifest.items
+    profile = (
+        b'<profile xmlns="http://cihi.commcarehq.org/jad" version="7" uniqueid="u" name="Clinic"><features>'
+        b'<checkoff active="true"/><users active="true"/><planted active="true"/></features></profile>'
+    )
+    found = manifest_usage.Uses()
+    manifest_usage.runtime_xml_uses(profile, "ProfileParser", manifest, "local.ccz/profile.ccpr", found)
+    keys = {use.key: use for use in found.uses}
+    assert {"profile-feature:checkoff", "setting:features.users", "setting:features.planted"} <= set(keys)
+    assert "setting:features.checkoff" not in keys
+    for key in ("profile-feature:checkoff", "parser:ProfileParser/checkoff"):
+        assert manifest_usage.standing(manifest, keys[key])[0] == manifest_usage.HELD, key
+    assert manifest_usage.standing(manifest, keys["setting:features.planted"])[0] == manifest_usage.UNNAMED
+    stored = manifest_usage.Uses()
+    doc = {"doc_type": "Application", "profile": {"features": {"checkoff": "true"}}}
+    manifest_usage.app_json_uses(doc, manifest, "app.json", stored)
+    assert "setting:features.checkoff" in {use.key for use in stored.uses}
+
+
 def test_a_use_no_entry_names_is_one_difference_per_artifact_and_key(manifest):
     # A key only allowing entries name, so every use of it is held.
     named = next(

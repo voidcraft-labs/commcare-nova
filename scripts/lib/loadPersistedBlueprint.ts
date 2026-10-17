@@ -28,6 +28,11 @@ async function loadPersistedBlueprint(
 				"localization_text",
 			),
 		)
+		.select(
+			sql<string | null>`${sql.ref("apps.app_settings")}::text`.as(
+				"app_settings_text",
+			),
+		)
 		.where("id", "=", appId);
 	if (lockApp) rootQuery = rootQuery.forShare();
 	const root = await rootQuery.executeTakeFirst();

@@ -30,6 +30,7 @@ export const geopointFieldMetadata: FieldKindMetadata<"geopoint"> = {
 	label: "Location",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: false,
 	saDocs: "GPS coordinate capture.",
 	convertTargets: [],
 };

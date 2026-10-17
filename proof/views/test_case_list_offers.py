@@ -16,8 +16,11 @@ Each of three documents is published as Nova publishes it, under its own
 minimum configuration and under its maximum, which holds the flag. HQ stores
 the value either way; HQ's own module page, loaded in Chromium with its own
 JavaScript, holds the control for it only under the flag. The same page's
-display condition control, which no flag gates, is held under both, so a
-page that offered nothing would not pass.
+settings form, which every module page holds whatever the flags and the
+app's add-ons, is held under both, so a page that offered nothing would not
+pass. (The display condition control is no such sentinel: HQ's page offers
+it only where the app holds the display conditions add-on, which Nova's
+upload writes only for an app that holds a display condition.)
 """
 
 from __future__ import annotations
@@ -29,9 +32,9 @@ from proof.hq import operations
 from proof.views.conftest import offered
 
 FLAG = "CASE_SEARCH_ADVANCED"
-# What every module page offers whatever the flags are (``module_filter.html``, under the display conditions
-# add-on, which Nova's upload turns on).
-ALWAYS = '[name="module_filter"], #module-filter'
+# What every module page offers whatever the flags and the add-ons are: its settings form
+# (``proof/editors/pages.py::MODULE_SETTINGS``, whose Save bar the page's readiness waits on).
+ALWAYS = "#module-settings-form"
 CONTROLS = {
     "a multi-select case list": (
         "search-multiple",

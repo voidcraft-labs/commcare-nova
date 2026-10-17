@@ -1091,6 +1091,7 @@ export function mutationTargetsInvalid(
 			case "setAppName":
 			case "setConnectType":
 			case "setAppLogo":
+			case "setAppSettings":
 				break;
 			case "relabelSourceLanguage": {
 				if (languages.size !== 1) return true;

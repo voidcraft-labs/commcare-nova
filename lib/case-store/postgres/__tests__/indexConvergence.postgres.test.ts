@@ -125,6 +125,7 @@ describe("durable case-schema index convergence", () => {
 				SET app_name = ${desired.appName},
 				    app_name_lower = ${desired.appName.toLowerCase()},
 				    case_types = ${JSON.stringify(desired.caseTypes)}::jsonb,
+				    app_settings = ${JSON.stringify(desired.appSettings)}::jsonb,
 				    module_count = ${desired.moduleOrder.length},
 				    form_count = 0,
 				    mutation_seq = 2

@@ -77,6 +77,7 @@ function fixture(fields: Field[], fieldOrder: Record<string, Uuid[]>) {
 			appId: APP_ID,
 			appName: "Attachment migration",
 			connectType: null,
+			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: null,
 			modules: {
 				[MODULE_UUID]: { uuid: MODULE_UUID, id: "module", name: "Module" },

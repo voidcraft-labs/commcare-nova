@@ -15,6 +15,7 @@ export function buildFixture(): BlueprintDoc {
 		appId: "search-test",
 		appName: "Search Test",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
 			[MOD]: { uuid: MOD, id: "registration", name: "Patient Registration" },

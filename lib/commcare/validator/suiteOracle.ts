@@ -387,9 +387,40 @@ function checkDetails(
 		for (const group of children.filter((c) => c.name === "group")) {
 			errors.push(...checkDetailGroup(group, detailId, loc));
 		}
+
+		// A short detail's select button text and empty-list text each name
+		// one locale id; C2-6 holds that every language's table defines it.
+		for (const block of children.filter(
+			(c) => c.name === "select_text" || c.name === "no_items_text",
+		)) {
+			if (detailTextLocaleId(block) === undefined) {
+				errors.push(
+					validationError(
+						"SUITE_DETAIL_TEXT_INVALID",
+						"app",
+						`The suite has a <${block.name}> in <detail id="${detailId}"> that holds no <text> naming a locale id. CommCare reads it as the detail's ${block.name === "select_text" ? "select button" : "empty-list"} text, which HQ's build always gives a locale. This is a bug in the suite generator.`,
+						loc,
+					),
+				);
+			}
+		}
 	}
 
 	return errors;
+}
+
+/** The locale id a `<select_text>` or `<no_items_text>` block's one `<text>` names. */
+function detailTextLocaleId(block: Element): string | undefined {
+	const texts = getChildren(block).filter(
+		(child): child is Element => isTag(child) && child.name === "text",
+	);
+	if (texts.length !== 1) return undefined;
+	const locales = getChildren(texts[0]).filter(
+		(child): child is Element => isTag(child) && child.name === "locale",
+	);
+	if (locales.length !== 1) return undefined;
+	const id = getAttributeValue(locales[0], "id");
+	return id === undefined || id === "" ? undefined : id;
 }
 
 /**

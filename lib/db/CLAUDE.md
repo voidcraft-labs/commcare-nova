@@ -135,10 +135,14 @@ which the schema keeps non-blank, so projections read it directly.
 `apps.localization` stores the optional app-level translation overlay as one
 root scalar. `NULL` is the canonical legacy English-only spelling; no migration
 rewrites old apps or materializes an explicit one-language shell.
+`apps.app_settings` is a root column holding the document's `appSettings`
+object. The DDL leaves it nullable, and every row holds an object: genesis
+writes it, a `NULL` fails the strict parse, and
+`nova_current_app_change_fold_snapshot` projects it.
 
 **Persisted Blueprint JSON enters JavaScript as exact text.** `pg`'s default
 JSONB decoder is never allowed to parse `apps.case_types`, `apps.localization`,
-`blueprint_entities.data`, replayable `app_changes.mutations`, or
+`apps.app_settings`, `blueprint_entities.data`, replayable `app_changes.mutations`, or
 `app_change_fold_baselines.snapshot`: every ordinary reader selects each carrier
 as `::text` and enters through `persistedJson.ts` before strict
 schema/assembler admission. That parser builds null-prototype objects,

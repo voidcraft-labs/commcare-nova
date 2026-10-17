@@ -61,11 +61,33 @@ On every corpus document the checks are structural:
 - **HQ, the profile**: the profile HQ built requires the CommCare version the
   configuration publishes at (``requiredMajor``, ``requiredMinor``,
   ``requiredMinimal``, from the app's build spec), carries the document's
-  app name, and sets each setting of HQ's settings file as HQ does for an app
-  that states none, since a Nova document states no app settings
-  (``Application.create_profile``: a setting the app does not set is
-  written only where its ``commcare_default`` differs from its ``default``,
-  with the default); ``profile.ccpr@<state>``.
+  app name, and sets the seventeen settings a Nova app states: the fifteen
+  constants ``NOVA_PROFILE_CONSTANTS`` (fixed here by hand, never read from
+  Nova's emitter) and the document's saved and incomplete form lists
+  (``cc-show-saved``, ``cc-show-incomplete``, ``yes`` or ``no``), where a
+  person's save in HQ (``hq-side.json``'s ``profileProperties``) stated
+  another value for one, that value; and every other setting of HQ's
+  settings file as HQ does for an app that sets it not
+  (``Application.create_profile``: written only where its
+  ``commcare_default`` differs from its ``default``, with the default);
+  ``profile.ccpr@<state>`` (``profile_settings``). A control retained before
+  the document stated the two settings holds no settings in its intent, and
+  is read as an app that states none: every setting as HQ writes it then.
+- **The local profile**: each local archive's profile sets the same
+  seventeen at the document's values (``<archive>/profile.ccpr``), and every
+  version it carries is the document's sequence (``local_archive_versions``):
+  the profile's ``version``, ``cc-content-version`` and ``cc-app-version``,
+  both suite resources it names and ``<suite version>``, every form and
+  locale resource and every form's data ``version``; every media resource is
+  ``1``. The profile's and the suite's versions are the archive's version,
+  the sequence plus the HQ apps the target's deployment held before its
+  current one, and no corpus target holds one. A control retained before the
+  intent carried the sequence gets no claim.
+- **HQ, the add-ons in use**: each add-on HQ's own predicate says the stored
+  app uses (``add_ons.py::_ADD_ONS``, each ``used_in_module`` and
+  ``used_in_form``, the observation's ``addOnsInUse``) is one the stored
+  ``add_ons`` holds ``true`` (``add_ons_in_use``, ``add_ons@<state>``,
+  ``/in-use/*``).
 - **HQ, each search's CSQL**: every CSQL string build(A)'s searches send in
   proof 3's sessions (each request's ``_xpath_query``), compiled by HQ's case
   search compiler in a case search's context under the configuration's flags
@@ -135,7 +157,16 @@ from lxml import etree
 from proof.checks import observations
 from proof.checks.corpus import CorpusLayoutError
 from proof.checks.differences import Difference, pointer_token
-from proof.observe.intent import DEFAULT_CONFIGURATION, expectations, form_file, form_position
+from proof.observe.intent import (
+    DEFAULT_CONFIGURATION,
+    expectations,
+    form_file,
+    form_files,
+    form_position,
+)
+from proof.observe.intent import (
+    FORM_FILE as FORM_POSITION,
+)
 from proof.observe.outcome import outcome_from_record
 
 CASE_XMLNS = "http://commcarehq.org/case/transaction/v2"
@@ -180,6 +211,44 @@ class Intent:
 
     app_name: str
     modules: list  # [(case type or "", [FormIntent])] in wire order
+    # The saved and incomplete form lists the document shows, {"showSavedForms", "showIncompleteForms"}; None on a
+    # control retained before the document stated them, read as an app that states no setting.
+    settings: dict | None = None
+    # The document's sequence, the mutation sequence its local archives were compiled at; None on a control
+    # retained before the intent carried it, which makes no claim of the archives' versions.
+    sequence: int | None = None
+
+
+# The fifteen settings every Nova app states at the value a device reads where a profile names none
+# (lib/commcare/appProfileSettings.ts::appProfileProperties, part 04, finding 40), fixed here by hand.
+NOVA_PROFILE_CONSTANTS = {
+    "cc-fuzzy-search-enabled": "no",
+    "cc-gps-auto-capture-accuracy": "10",
+    "cc-content-valid": "no",
+    "cc-autoup-freq": "freq-never",
+    "cc-enable-tts": "no",
+    "cc-autosync-freq": "freq-never",
+    "cc-days-form-retain": "-1",
+    "cc-inflation-target-density": "none",
+    "cc-label-required-questions-with-asterisk": "no",
+    "cc-login-duration-seconds": "86400",
+    "cc-maps-default-layer": "normal",
+    "cc-resize-images": "none",
+    "logenabled": "Enabled",
+    "unsent-number-limit": "5",
+    "unsent-time-limit": "5",
+}
+
+
+def stated_settings(intent: Intent) -> dict | None:
+    """The seventeen profile settings the document states, by key, or None where its intent states none."""
+    if intent.settings is None:
+        return None
+    lists = {
+        "cc-show-saved": intent.settings["showSavedForms"],
+        "cc-show-incomplete": intent.settings["showIncompleteForms"],
+    }
+    return {**NOVA_PROFILE_CONSTANTS, **{key: "yes" if shown else "no" for key, shown in lists.items()}}
 
 
 def _field_paths(doc, form_uuid):
@@ -235,7 +304,18 @@ def document_intent(document_json) -> Intent:
             owner = modules.get(module_of.get(form_uuid)) or module
             intents.append(_form_intent(doc, form_uuid, form, owner.get("caseType"), multiple))
         placed.append((case_type, intents))
-    return Intent(app_name=doc.get("appName") or "", modules=placed)
+    settings = doc.get("appSettings")
+    sequence = document_json.get("compiledAtSeq")
+    return Intent(
+        app_name=doc.get("appName") or "",
+        modules=placed,
+        settings=(
+            {key: bool(settings[key]) for key in ("showSavedForms", "showIncompleteForms")}
+            if isinstance(settings, dict)
+            else None
+        ),
+        sequence=sequence if isinstance(sequence, int) else None,
+    )
 
 
 def intent_json(intent: Intent) -> dict:
@@ -257,6 +337,8 @@ def intent_json(intent: Intent) -> dict:
     return {
         "appName": intent.app_name,
         "modules": [[case_type, [form_json(form) for form in forms]] for case_type, forms in intent.modules],
+        **({"settings": intent.settings} if intent.settings is not None else {}),
+        **({"sequence": intent.sequence} if intent.sequence is not None else {}),
     }
 
 
@@ -279,6 +361,8 @@ def intent_from_json(value) -> Intent:
     return Intent(
         app_name=value["appName"],
         modules=[(case_type, [form_of(form) for form in forms]) for case_type, forms in value["modules"]],
+        settings=value.get("settings"),
+        sequence=value.get("sequence"),
     )
 
 
@@ -458,6 +542,8 @@ class HeldState:
     data_dictionary: dict = field(default_factory=dict)
     # Core's parse of each form HQ built, by its file: its nodes, or {"refused": <what Core raised>}.
     shapes: dict = field(default_factory=dict)
+    # HQ's own verdict, per add-on, of whether the stored app uses it (``proof.observe.intent.add_ons``).
+    add_ons_in_use: dict = field(default_factory=dict)
 
     def nodes(self, name, artifact):
         return _nodes(self.shapes, name, artifact)
@@ -494,6 +580,11 @@ def held_state(record, name, blobs):
             f"The record of {name} holds no intent observation (proof/observe/intent.py::observe), so HQ's data"
             " dictionary and Core's parse of its build are unread; it was made without it."
         )
+    if "addOnsInUse" not in observed:
+        raise ObservationMissing(
+            f"The intent observation of {name} holds no addOnsInUse, HQ's verdict of the add-ons the stored app uses"
+            " (proof/observe/intent.py::add_ons), so the add-ons check is unread; it was made without it."
+        )
     shapes = {
         file: shape if isinstance(shape, dict) else blobs.get_json(shape) for file, shape in observed["forms"].items()
     }
@@ -504,6 +595,7 @@ def held_state(record, name, blobs):
         outcome_from_record(state["build"], blobs, name),
         observed["dataDictionary"],
         shapes,
+        observed["addOnsInUse"],
     )
 
 
@@ -631,13 +723,28 @@ def _version_parts(version):
     return (parts + ["0", "0", "0"])[:3]
 
 
-def profile_settings(document, intent: Intent, state, configuration, manifest_items) -> list:
-    """The profile HQ built: the configuration's version, the document's name, and HQ's settings for none."""
+def _properties(root):
+    """Each ``<property>`` of a profile, its key to its value."""
+    return {
+        element.get("key"): element.get("value")
+        for element in root.iter()
+        if isinstance(element.tag, str) and etree.QName(element).localname == "property"
+    }
+
+
+def _parsed(content):
+    return etree.fromstring(content, etree.XMLParser(resolve_entities=False, no_network=True))
+
+
+def profile_settings(document, intent: Intent, state, configuration, manifest_items, saved=None) -> list:
+    """The profile HQ built: the configuration's version, the document's name, the seventeen settings it states
+    (``stated_settings``, a value a person saved in HQ, ``saved``, in place of the document's), and HQ's settings
+    for none beside them; an intent that states no setting is held to HQ's settings for none throughout."""
     artifact = f"profile.ccpr@{state.name}"
     built = (state.build.files or {}).get("profile.ccpr")
     if built is None:
         return []  # the bar reports a build that wrote no profile
-    root = etree.fromstring(built, etree.XMLParser(resolve_entities=False, no_network=True))
+    root = _parsed(built)
     found = []
     major, minor, minimal = _version_parts(configuration.commcare_version)
     for attribute, expected in (
@@ -650,16 +757,18 @@ def profile_settings(document, intent: Intent, state, configuration, manifest_it
         if observed != expected:
             path = f"/profile/@{attribute}"
             found.append(_difference(document, artifact, path, path, "changed", expected, observed))
-    properties = {
-        element.get("key"): element.get("value")
-        for element in root.iter()
-        if isinstance(element.tag, str) and etree.QName(element).localname == "property"
+    properties = _properties(root)
+    stated = stated_settings(intent)
+    settings = {
+        key[len("setting:properties.") :]: item
+        for key, item in manifest_items.items()
+        if key.startswith("setting:properties.")
     }
-    for key, item in sorted(manifest_items.items()):
-        if not key.startswith("setting:properties."):
-            continue
-        name = key[len("setting:properties.") :]
-        expected = _unstated_setting(item)
+    for name in sorted(set(settings) | set(stated or {})):
+        if stated is None or name not in stated:
+            expected = _unstated_setting(settings[name])
+        else:
+            expected = (saved or {}).get(name, stated[name])
         observed = properties.get(name)
         if observed != expected:
             path = f"/profile/property[@key={name}]/@value"
@@ -673,6 +782,89 @@ def _unstated_setting(item):
         default = item.get("default")
         return default if default else None
     return None
+
+
+def _archive_files(path):
+    import zipfile
+
+    with zipfile.ZipFile(path) as archive:
+        return {name: archive.read(name) for name in archive.namelist()}
+
+
+def local_profile_settings(document, intent: Intent, files, prefix) -> list:
+    """A local archive's profile (``files``: its entries) sets the seventeen settings the document states, each at
+    its value; an intent that states none makes no claim."""
+    stated = stated_settings(intent)
+    if stated is None or "profile.ccpr" not in files:
+        return []  # the bar reports an archive without a profile
+    properties = _properties(_parsed(files["profile.ccpr"]))
+    artifact = f"{prefix}/profile.ccpr"
+    found = []
+    for name, expected in sorted(stated.items()):
+        observed = properties.get(name)
+        if observed != expected:
+            path = f"/profile/property[@key={name}]/@value"
+            found.append(_difference(document, artifact, path, path, "changed", expected, observed))
+    return found
+
+
+def local_archive_versions(document, intent: Intent, files, prefix) -> list:
+    """Every version a local archive (``files``: its entries) carries is the document's sequence, and every media
+    resource's is ``1``; an intent that carries no sequence makes no claim."""
+    if intent.sequence is None:
+        return []
+    sequence = str(intent.sequence)
+    found = []
+
+    def held(artifact, path, at, observed, expected=sequence):
+        if observed != expected:
+            found.append(_difference(document, artifact, path, at, "changed", expected, observed))
+
+    if "profile.ccpr" in files:
+        artifact = f"{prefix}/profile.ccpr"
+        profile = _parsed(files["profile.ccpr"])
+        held(artifact, "/profile/@version", "/profile/@version", profile.get("version"))
+        properties = _properties(profile)
+        for key in ("cc-content-version", "cc-app-version"):
+            path = f"/profile/property[@key={key}]/@value"
+            held(artifact, path, path, properties.get(key))
+        for resource in profile.iter("{*}resource"):
+            at = f"/profile/suite/resource[@id={resource.get('id')}]/@version"
+            held(artifact, "/profile/suite/resource[@id=*]/@version", at, resource.get("version"))
+    if "suite.xml" in files:
+        artifact = f"{prefix}/suite.xml"
+        suite = _parsed(files["suite.xml"])
+        held(artifact, "/suite/@version", "/suite/@version", suite.get("version"))
+        for kind in ("xform", "locale"):
+            for resource in suite.iterfind(f"{{*}}{kind}/{{*}}resource"):
+                at = f"/suite/{kind}/resource[@id={resource.get('id')}]/@version"
+                held(artifact, f"/suite/{kind}/resource[@id=*]/@version", at, resource.get("version"))
+    if "media_suite.xml" in files:
+        artifact = f"{prefix}/media_suite.xml"
+        for resource in _parsed(files["media_suite.xml"]).iter("{*}resource"):
+            at = f"/suite/media/resource[@id={resource.get('id')}]/@version"
+            held(artifact, "/suite/media/resource[@id=*]/@version", at, resource.get("version"), "1")
+    for name in form_files(files):
+        m, f = (int(part) for part in FORM_POSITION.fullmatch(name).groups())
+        artifact = f"{prefix}/form:{m}.{f}"
+        root = _parsed(files[name])
+        data = next(iter(root.iterfind("{*}head/{*}model/{*}instance/*")), None)
+        observed = None if data is None else data.get("version")
+        held(artifact, "/html/head/model/instance/data/@version", "/html/head/model/instance/data/@version", observed)
+    return found
+
+
+def add_ons_in_use(document, state) -> list:
+    """Each add-on HQ's own predicate says the stored app uses is one its ``add_ons`` holds on."""
+    stored = state.doc.get("add_ons") or {}
+    found = []
+    for slug, used in sorted(state.add_ons_in_use.items()):
+        if used and stored.get(slug) is not True:
+            at = f"/in-use/{pointer_token(slug)}"
+            found.append(
+                _difference(document, f"add_ons@{state.name}", "/in-use/*", at, "changed", True, stored.get(slug))
+            )
+    return found
 
 
 # Core --------------------------------------------------------------------------
@@ -785,15 +977,24 @@ def search_compiles(document, records, name) -> list:
     return found
 
 
-def state_differences(document, intent, state, configuration, manifest_items) -> list:
+def state_differences(document, intent, state, configuration, manifest_items, saved=None) -> list:
     found = module_case_types(document, intent, state)
     found += learned_properties(document, intent, state)
     found += data_dictionary(document, intent, state, configuration.privileges)
+    found += add_ons_in_use(document, state)
     if state.build.files is not None:
         found += attachment_paths(document, intent, state)
-        found += profile_settings(document, intent, state, configuration, manifest_items)
+        found += profile_settings(document, intent, state, configuration, manifest_items, saved)
         found += core_build(document, intent, state)
     return found
+
+
+def local_differences(document, intent, path, prefix) -> list:
+    """What a local archive holds against the document: its profile's settings and every version it carries."""
+    files = _archive_files(path)
+    return local_profile_settings(document.id, intent, files, prefix) + local_archive_versions(
+        document.id, intent, files, prefix
+    )
 
 
 def _deduplicated(differences):
@@ -821,6 +1022,8 @@ def intent_differences(document, records, manifest_items) -> list:
     the operations the intent observation ran."""
     blobs = records.blobs
     intent = intent_of(document)
+    # A setting a person saved in HQ over A (``hq-side.json``), which HQ's builds of A, B and B-edit hold.
+    saved = (document.hq_side or {}).get("profileProperties") or {}
     found = []
     for name in sorted(document.exports):
         held = _configuration_records(document, records, name)
@@ -828,12 +1031,15 @@ def intent_differences(document, records, manifest_items) -> list:
         for part, state_name in (("a", "A"), ("b", "B")):
             state = held_state(held.part(part), state_name, blobs)
             if state is not None:
-                found += state_differences(document.id, intent, state, configuration, manifest_items)
+                found += state_differences(document.id, intent, state, configuration, manifest_items, saved)
         found += search_compiles(document, records, name)
     archives = archive_shapes(local_observation(document, records), blobs)
     for prefix in ("local.ccz", "local-again.ccz"):
         if prefix in archives:
             found += core_local(document.id, intent, archives[prefix], prefix)
+    for prefix, path in document.local_archives.items():
+        if prefix != "edit/local.ccz":
+            found += local_differences(document, intent, path, prefix)
     if document.edit is not None:
         edited = intent_of(document, edit=True)
         for name in sorted(document.edit.exports):
@@ -841,9 +1047,11 @@ def intent_differences(document, records, manifest_items) -> list:
             state = held_state(held.part("b_edit"), "B-edit", blobs)
             if state is not None:
                 configuration = JudgedConfiguration.of(name, held.a)
-                found += state_differences(document.id, edited, state, configuration, manifest_items)
+                found += state_differences(document.id, edited, state, configuration, manifest_items, saved)
         if "edit/local.ccz" in archives:
             found += core_local(document.id, edited, archives["edit/local.ccz"], "edit/local.ccz")
+        if document.edit.local_ccz is not None:
+            found += local_differences(document, edited, document.edit.local_ccz, "edit/local.ccz")
     if document.expected is not None:
         found += value_differences(document, records)
     found += observations.soft_assertion_differences(records, "intent")

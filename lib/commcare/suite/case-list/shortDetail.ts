@@ -87,6 +87,12 @@ import type { Predicate } from "@/lib/domain/predicate/types";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { emitCaseListFilter } from "../../predicate";
 import { buildColumnField } from "./columns";
+import {
+	EMPTY_CASE_LIST_TEXT,
+	emptyCaseListTextLocaleId,
+	SELECT_TEXT,
+	selectTextLocaleId,
+} from "./detailTexts";
 import { buildSortDirectives } from "./sortKeys";
 import { buildTileGroupElement } from "./tileGroup";
 import type {
@@ -193,6 +199,12 @@ export function buildShortDetail(args: {
 	readonly caseSource?: "casedb" | "results:inline";
 	readonly assets?: AssetManifest;
 	readonly lookupNaming?: LookupWireNaming;
+	/**
+	 * The target project space holds `USH_EMPTY_CASE_LIST_TEXT`, so the
+	 * detail carries the empty-list text, as HQ's build of the same app
+	 * there does.
+	 */
+	readonly emptyCaseListText?: boolean;
 }): {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
@@ -213,6 +225,7 @@ export function buildShortDetail(args: {
 	// its host); the emitter ignores the arg defensively.
 	const searchAction = target === "case" ? args.searchAction : undefined;
 	const registerAction = target === "case" ? args.registerAction : undefined;
+	const texts = detailTexts(moduleIndex, args.emptyCaseListText === true);
 
 	// Early-exit shape: no caseListConfig OR no case type. The
 	// resulting detail still carries a title — CCHQ's
@@ -227,11 +240,12 @@ export function buildShortDetail(args: {
 				searchAction,
 				registerAction,
 				undefined,
+				texts.elements,
 				moduleIndex,
 				relationContext,
 				args.lookupNaming,
 			),
-			strings: {},
+			strings: { ...texts.strings },
 			translationUnits: {},
 		};
 	}
@@ -257,7 +271,7 @@ export function buildShortDetail(args: {
 	};
 
 	const fields: Element[] = [];
-	const strings: Record<string, string> = {};
+	const strings: Record<string, string> = { ...texts.strings };
 	const translationUnits: Record<string, TranslationUnitId> = {};
 
 	// Walk every column in the config's exact Results UUID permutation, not
@@ -293,6 +307,7 @@ export function buildShortDetail(args: {
 			searchAction,
 			registerAction,
 			config.tile?.grouping,
+			texts.elements,
 			moduleIndex,
 			relationContext,
 			args.lookupNaming,
@@ -319,6 +334,39 @@ export function emitShortDetail(args: {
 }
 
 /**
+ * The texts HQ's build gives a short detail, with their app strings: the
+ * select button's on every short detail, the empty list's where the target
+ * holds `USH_EMPTY_CASE_LIST_TEXT`. Nova's own system copy, so every
+ * language takes it verbatim.
+ */
+function detailTexts(
+	moduleIndex: number,
+	emptyCaseListText: boolean,
+): {
+	readonly elements: readonly Element[];
+	readonly strings: Readonly<Record<string, string>>;
+} {
+	const selectId = selectTextLocaleId(moduleIndex);
+	const emptyId = emptyCaseListTextLocaleId(moduleIndex);
+	return {
+		elements: [
+			el("select_text", {}, [el("text", {}, [el("locale", { id: selectId })])]),
+			...(emptyCaseListText
+				? [
+						el("no_items_text", {}, [
+							el("text", {}, [el("locale", { id: emptyId })]),
+						]),
+					]
+				: []),
+		],
+		strings: {
+			[selectId]: SELECT_TEXT,
+			...(emptyCaseListText && { [emptyId]: EMPTY_CASE_LIST_TEXT }),
+		},
+	};
+}
+
+/**
  * Build the surrounding `<detail>` Element. The title routes through
  * the compiler-registered `cchq.case` locale; the field Elements slot in between
  * the title and the optional `<action>`.
@@ -328,6 +376,10 @@ export function emitShortDetail(args: {
  * `<field>` block. The action mounts only on the case target;
  * search-target details never carry an action child, so the caller
  * passes `searchAction: undefined` for the search target.
+ *
+ * `texts` (`detailTexts`) close the detail, where HQ's built suites hold
+ * them: HQ assigns both after it builds the detail's fields, actions and
+ * tile group (`DetailContributor.build_detail`).
  */
 function buildDetailShell(
 	detailId: string,
@@ -335,6 +387,7 @@ function buildDetailShell(
 	searchAction: SearchActionContext | undefined,
 	registerAction: RegisterActionContext | undefined,
 	grouping: CaseTileGrouping | undefined,
+	texts: readonly Element[],
 	moduleIndex: number,
 	relationContext: {
 		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
@@ -364,6 +417,7 @@ function buildDetailShell(
 		);
 	}
 	if (grouping !== undefined) children.push(buildTileGroupElement(grouping));
+	children.push(...texts);
 	return el("detail", { id: detailId }, children);
 }
 

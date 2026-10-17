@@ -5,15 +5,16 @@
  *
  * Contract (`../entropy.mts`): an operation's draws are a function of the
  * corpus seed, its ordinal and its configuration alone, through every
- * entry point Nova reaches (`randomBytes`, the compiler's `randomUUID`,
- * `lib/doc`'s `crypto.randomUUID`, and the `getRandomValues` and
+ * entry point Nova reaches (`randomBytes`, `lib/doc`'s `crypto.randomUUID`,
+ * and the `getRandomValues` and
  * `randomFillSync` other modules use), and through their callback forms. The plausible failures: one generator shared by
  * operations that interleave across awaits, so a draw's value depends on
  * scheduling; an entry point left unpatched, so its draws stay random; a
  * patched entry point that writes outside the range it was asked to fill or
  * accepts what Node refuses; seeding that leaks outside an operation, so
  * draws the corpus never asked to seed repeat; two exports sharing an
- * ordinal, so two exports Nova keeps apart draw one value; and a census
+ * ordinal, so a change that mints per export again would draw one value in
+ * both and no check would see it; and a census
  * (`PROOF_ENTROPY_TRACE`) that cannot say where a read came from when the
  * code on the stack lowered `Error.stackTraceLimit`.
  */

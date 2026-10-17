@@ -86,6 +86,7 @@ export const hiddenFieldMetadata: FieldKindMetadata<"hidden"> = {
 	label: "Hidden",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: false,
 	saDocs:
 		"Value the user never sees. Set by a calculate expression or a default value.",
 	convertTargets: [],

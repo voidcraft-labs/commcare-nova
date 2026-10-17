@@ -53,11 +53,11 @@ its own views (`app_import_api.py::_handle_import_app` and
   derives its menu ids, form ids and `xmlns` from the document, so A, B and
   B-edit carry the same ones for every menu and form D and D′ share. What a
   person saves over it is part of A where the document carries it
-  (`hq-side.json`): UI
-  translations, app settings, build profiles, and a lookup table kept with a
-  field property, row attributes, owners and a description, each saved
-  through the HQ view a person's page or upload reaches, before A is built
-  (`proof/observe/hqside.py`);
+  (`hq-side.json`): UI translations, app settings, add-ons, the app's
+  CommCare settings (its profile), build profiles, and a lookup table kept
+  with a field property, row attributes, owners and a description, each
+  saved through the HQ view a person's page or upload reaches, before A is
+  built (`proof/observe/hqside.py`);
 - **B** is what Nova's next publish of D leaves over A;
 - **B-edit** is what Nova's publish of D′ leaves over A, where D′ is D after
   the document's edit batch.
@@ -65,14 +65,20 @@ its own views (`app_import_api.py::_handle_import_app` and
 Nova's publish compares what HQ holds with what its last publish left there
 before it writes anything, and stops when a person changed it (`hq_changed`,
 `lib/deployment/remoteChanges.ts`) or when a table under Nova's tag is one it
-cannot account for (`hq_resource_conflict`). Over a document whose
-`hq-side.json` a person saved, the capture meets that stop with Nova's own
-comparison, records it in the update's sidecar, and sends the update again
-with what a person who saw it confirms: each table in conflict taken over and
-each change written over at the digest the stop showed. So B and B-edit land
-over a person's saves only through that confirmation. Over any other
-document a stop ends the emission and names the document: Nova's own push
-must never read as a change.
+cannot account for (`hq_resource_conflict`). A document whose
+`hq-side.json` a person saved states what Nova's next publish over those
+saves does (`republish`): it `proceeds`, because Nova owns none of the values
+the saves change and its overlays carry them back; it `discards`, going
+through only after the confirmation a person who saw the stop would give; or
+it `stops`, refused by Nova with the failure code the document names
+(`stopCode`), and leaves no B. The capture discards only where preflight
+answers `hq_changed`: it records the stop in the update's sidecar and sends
+the update again with each table in conflict taken over and each change
+written over at the digest the stop showed. A capture whose outcome differs
+from the statement, or whose stop carries another code, fails the emission
+and names the document and the changed parts. Over any other document a
+stop ends the emission and names the document: Nova's own push must never
+read as a change.
 
 HQ builds each state (`validate_app()`, `create_all_files()` and
 `create_all_files(build_profile_id)` for every build profile). B and B-edit
@@ -82,7 +88,13 @@ own `set_form_versions` decides each form's version. Beside them, Nova's local
 D′, each compiled for the configuration's project space as every archive Nova
 serves is, naming a placeholder app id that the HQ side replaces with A's id in
 the archive's runtime URLs before any reader takes it
-(`proof/hq/operations.py::with_runtime_app_id`).
+(`proof/hq/operations.py::with_runtime_app_id`). An archive writes the
+empty-list text exactly where the project space's `USH_EMPTY_CASE_LIST_TEXT`
+is on, as HQ's build does, so each configuration's A is read beside the
+archive compiled with that configuration's flag ("The layout on disk").
+The two exports of D are one archive, byte for byte: a `.ccz` profile's
+`uniqueid` is derived from the app's id and its project space, and its
+versions from the document's sequence.
 
 ### The bar
 
@@ -114,6 +126,20 @@ module's case type, the case properties HQ learns each form writes
 each attachment path, the profile's required version and settings, and on
 Core's side each case a form creates, each property it writes and each
 validation Core holds at its node, in HQ's builds and in the local archives.
+HQ's built profile and the local profile are held to the settings Nova
+states, fixed by hand in the judge: the fifteen constant settings and the
+document's two form-list settings (`appSettings`), and, where the document's
+`hq-side.json` saves a setting, HQ's built profile to the saved value
+(`profile_settings`). The local archive's versions are held to the
+document's sequence: the profile's `version`, `cc-content-version` and
+`cc-app-version`, both suite resources, `<suite>`, every form and locale
+resource and each form's data node `version`, with every media resource at
+`1` (`local_archive_versions`). A control retained without the settings is
+read as stating HQ's settings for none, and one retained without the
+sequence makes no version claim. HQ's own in-use verdict for every add-on
+(`add_ons.py::_ADD_ONS`, each slug's `used_in_module` and `used_in_form`)
+over each stored state is held to the stored `add_ons`: a slug HQ sees in
+use that the app does not hold `true` is reported (`add_ons_in_use`).
 On a targeted document the value-level checks run too: each expectation in its
 `expected.json` names an export, a form, a request Core's `evaluate` runs
 there (answers, constraint checks, expressions, instances, a session and a
@@ -300,13 +326,19 @@ and holds each to the effects as written.
    scripted sessions, derived once on `build(A)` (every menu command, every
    reachable form with the first case of each list), replay over the
    document's case database on Nova's local archive always, and on B's aligned
-   build wherever proof 2 still finds a difference. The traces are compared,
-   a case list's rows by the case each selects, a submission's version
-   between A's and B's builds under proof 2's version clause, and so is HQ's case
-   processing of every submission, read as HQ applies it (case by case, each
-   case's blocks where the form holds them, a block with an empty case id by
-   the action HQ applies it at), and each language's app strings as Core
-   reads them (over the default file's). Formplayer's sessions are compared
+   build wherever proof 2 still finds a difference. Each configuration's A is
+   compared with that configuration's own local archive ("The layout on
+   disk"). The traces are compared, a case list's rows by the case each
+   selects, a submission's version between A's and B's builds under proof 2's
+   version clause, and across the two paths as each path's own counter: HQ's
+   form version on HQ's build and the document's sequence in the local
+   archive, so the local archive's form version is read as the one `build(A)`
+   carries for the same suite entry, as its form `xmlns` is, wherever it is
+   the version that archive's own form declares. HQ's case processing of
+   every submission is compared too, read as HQ applies it (case by case,
+   each case's blocks where the form holds them, a block with an empty case id
+   by the action HQ applies it at), and so is each language's app strings as
+   Core reads them (over the default file's). Formplayer's sessions are compared
    the same way, each state served to it by HQ's own views ("Served
    states"): Nova's local archive against A always, and B's aligned build
    against A wherever proof 2 still finds a difference, with the Web Apps
@@ -348,7 +380,10 @@ and holds each to the effects as written.
    the footprint where the footprint reaches the app or holds every module.
    The footprint (`proof/corpus/footprint.ts`) is the entities the batch's
    mutations touch, every entity the reference index says reads one of them,
-   and every entity whose wire Nova derives from what the batch edits.
+   and every entity whose wire Nova derives from what the batch edits. A local
+   form is compared without its data node's `version`, which is the
+   document's sequence and so moves with every edit; the intent check
+   `local_archive_versions` holds it.
 
 A few of the reports a check makes are no part of Nova's export: a reader
 makes the same report of an app made in HQ's own pages, and nothing Nova can
@@ -459,7 +494,7 @@ named here, rather than by every document's checks:
 | What | Held by | What it shows |
 | --- | --- | --- |
 | Defect 3's unknown-question clause | `targeted-save-to-case-read`, proof 4 | Vellum warns "Unknown question" on a read of a property only a Save to Case block writes, and not on the same read of a property an ordinary field writes |
-| Defect 4's add-ons | `proof/views/test_add_ons.py` | an add-on a person turned on in HQ is offered by HQ's module page, and gone from it after Nova's next publish |
+| Defect 4's add-ons | `proof/views/test_add_ons.py` | an add-on a person turned on in HQ (Menu Mode, over `targeted-hq-side-state`) is offered by HQ's module page after their save, and still offered after Nova's next publish |
 | Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py`, and `proof/views/__tests__/lookupUploadAnswer.test.ts` for Nova's side | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table; handed an answer of that status and type, Nova's own client reports an upload that may have landed |
 | Defect 5's 32-character tag | `proof/views/test_lookup_upload.py` | HQ's upload takes a 32-character tag and answers a 33-character one with a 500 (a database error; it checks no length) |
 | Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, and its Case List page holds the control for each only under the flag |
@@ -1045,17 +1080,15 @@ node --conditions=react-server --import ./proof/corpus/entropy.mts \
 CI emits it once, in the `proof-corpus` job; a local run emits it inside the image
 unless `PROOF_CORPUS` names one. Every file but `timings.json` is the same,
 byte for byte, on every run at one seed, on every machine: the entropy preload
-answers every identity Nova's exports still draw (the `.ccz` profile's
-`uniqueid`, `lib/doc`'s `crypto.randomUUID`) from a generator seeded by the
+answers every random draw made inside an export from a generator seeded by the
 corpus seed, the operation's ordinal and the configuration
 (`proof/corpus/entropy.mts`). The seed names no document, so two documents
-with the same content export the same bytes. A publish draws no id: it derives
-its menu ids, form ids and `xmlns` from the document, as a local archive
-derives its `xmlns`, so A and B carry the same ones. The ordinals keep apart
-what Nova keeps apart, so the two local exports draw different profile
-`uniqueid`s (defect 9), and they keep a regression visible: a change that
-mints an id per publish again draws another value at each ordinal, and proof 1
-reports it. `PROOF_ENTROPY=real` leaves every draw real,
+with the same content export the same bytes. No export draws an id on either
+path: a publish derives its ids from the document, and a `.ccz` profile's
+`uniqueid` is derived from the app's id and its project space. The ordinals
+keep a regression visible: a change that mints an id per export again draws
+another value at each ordinal, and proof 1 reports it. `PROOF_ENTROPY=real`
+leaves every draw real,
 which the weekly audit compares against.
 
 ### The layout on disk
@@ -1093,13 +1126,23 @@ reads it. Per document, under its id:
 - `import-file.zip`: the HQ import file for D, built by the function
   `/api/compile/json` calls, which `proof/hq/test_import_file.py` imports
   through HQ's own import page (`Document.import_file`);
-- `local.ccz`, `local-again.ccz`;
+- `local.ccz`, `local-again.ccz`, one archive written twice, compiled
+  without the empty-list text; proof 1 reads the two as its local pair. A
+  document with a configuration that holds `USH_EMPTY_CASE_LIST_TEXT` also
+  holds the archive compiled with that flag's text, the same export of D for
+  that project space, so each configuration has its own local archive. Each
+  is an input of the document under the `local` role of `inputs.json`, the
+  bar admits each, the manifest classifies each, and Core's sessions,
+  Formplayer and the devices take the archive of the configuration they
+  observe. A control retained before the archive per configuration holds one
+  `local.ccz`, which proof 3 compares with every configuration's A;
 - `edit/`: the edit batch with its footprint (`batch.json`), D′
   (`document.json`), its verdict, its `update` capture per configuration and
   its `local.ccz`;
 - `expected.json` and the restores it reads, on a targeted document;
 - `hq-side.json`, where the document carries what a person saves in HQ over
-  A before Nova's next publish;
+  A before Nova's next publish, and what that publish then does
+  (`republish`, with `stopCode` where it `stops`);
 - `inputs.json`: the digest of every file a check reads, by the part of the
   document's HQ tree that reads it.
 
@@ -1207,10 +1250,24 @@ module settings save (finding 41), and whose second menu lists no case, so
 the lane's own walk of each state shows the client that message too and
 proof 4's records hold it (`webapps@module settings@*`).
 `targeted-hq-side-state` and `targeted-hq-side-lookup` carry what a person
-saves in HQ over A: the first a UI translation, location capture and a build
-profile, whose republish lands; the second a lookup table and its
-`lookupTable` save, which defect 5's table entries need on a republish of
-its own. Five more show a finding each, with its entries and its control:
+saves in HQ over A: the first a UI translation, location capture, the
+add-ons section saved with Menu Mode on (every add-on as the section posts
+it, the rest off), a CommCare setting
+(`cc-autoup-freq` at `freq-daily`) and a build profile, whose republish
+proceeds with no discard, since Nova owns none of what they change; the
+second a lookup table and its `lookupTable` save, which defect 5's table
+entries need on a republish of its own, whose republish discards.
+`targeted-attribute-display-condition` holds defect 2's fix where a session
+reaches it: one case-first menu with two follow-up forms, shown when the
+selected case's `status` is `open` and when its `owner_id` is `handover`,
+which the lane's case is not, so Core's sessions on both paths list the
+first form alone and its `expected.json` holds the two reads true and false.
+`targeted-gps-question` is a survey menu whose one form holds one GPS
+question in an app that is not a Connect app, so the local archive writes
+the bare `pollsensor` HQ's build writes for it (finding 34). With
+`targeted-survey-menu`, `targeted-attribute-display-condition` witnesses the
+two form-list settings at both values: the first turns saved forms off and
+incomplete forms on, the second the reverse. Five more show a finding each, with its entries and its control:
 `targeted-datetime-ordering` (finding 56: a survey form that orders two
 date and time answers an hour apart, and a follow-up form that orders two
 case properties held as text), `targeted-case-id-column` (finding 57: a
@@ -1298,7 +1355,7 @@ seed → lookup upload → create(D) → media → HQ-side saves → build(A) �
                → the local archive served over HQ's state, and B aligned where the raw builds differ
   b_edit:    restore@A → update(D′) → media → build(B-edit) → admit → identities
                mark@B-edit → intent hook at B-edit → proof 4 over B-edit → restore@B-edit
-local: Core's admission of local.ccz, local-again.ccz and edit/local.ccz → the intent and manifest local hooks
+local: Core's admission of local.ccz, local-again.ccz, each configuration's own archive and edit/local.ccz → the intent and manifest local hooks
 ```
 
 The HQ-side saves are what a person saves in HQ over A, where the document
@@ -1592,8 +1649,8 @@ What its own tests observe on HQ's releases of real Nova exports, served by HQ's
 | A form link whose target is hidden (finding 58) | Core's session opens the hidden form, or asks for a command of the hidden menu; Formplayer stops at the menu that holds the hidden form, or at the app's first screen | `test_end_of_form.py` |
 | A search answer holding both quote marks (finding 48) | Formplayer answers the search screen again with the validation's message and sends HQ nothing; an answer with one mark is sent inside the CSQL, HQ's own search view reads it (and refuses the query for the document's own date comparison, defect 6), and HQ's compiler takes the string that holds the answer | `test_search.py` |
 | The saved app's empty search description (finding 54) | Formplayer hands Web Apps `""` for Nova's export and a non-breaking space for the saved app | the rule `search-description-empty` (`proof/rules/test_search_description_empty.py`) |
-| `cc-autosync-freq` absent or the `freq-never` HQ's App Settings save writes (finding 40) | Formplayer asks HQ for no restore after eight days in either; with `freq-daily`, which HQ's settings view saves for a person's change, it asks for one | `test_settings.py` |
-| `cc-fuzzy-search-enabled` absent or the `yes` the same save writes (finding 40) | a search one letter off a case's name finds nothing when absent and the case after the save | `test_settings.py` |
+| `cc-autosync-freq` absent (an app published before Nova wrote it), Nova's `freq-never`, or as HQ's App Settings save keeps it (finding 40) | Formplayer asks HQ for one restore on the first visit and none on return after eight days in all three; with `freq-daily`, which HQ's settings view saves for a person's change, it asks again on return | `test_settings.py` |
+| `cc-fuzzy-search-enabled` absent, Nova's `no`, or as the same save keeps it (finding 40) | a search one letter off a case's name finds nothing in all three; with `yes`, a person's change, it finds the case | `test_settings.py` |
 | A custom tile's vertical alignment (finding 42) | Formplayer hands the client no alignment for Nova's export and `start` for the saved app, and nothing else of the list differs | the rule `tile-vertical-align-start` (`proof/rules/test_tile_vertical_align_start.py`) |
 
 ### The editor driver
@@ -1860,7 +1917,7 @@ the client itself:
 | A sort-only column | no header and no cell for the column Formplayer hands with a width hint of 0 | `test_search.py` |
 | The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export; after the module settings save a message box holding only a non-breaking space | `test_empty_list.py` |
 | The logo Nova sends (`logo_refs.hq_logo_web_apps`) | the app's tile shows HQ's own URL for the mapped file, and HQ serves Nova's bytes there; without one, the client's own image | `test_app_list.py` |
-| `cc-show-incomplete` after the App Settings save (finding 62) | the Incomplete Forms tile shows for Nova's export and is gone after the save | `test_app_list.py` |
+| `cc-show-incomplete`, as the app's incomplete forms setting stores it, and after the App Settings save (defect 7, finding 62) | the Incomplete Forms tile shows where the app turns incomplete forms on (`targeted-survey-menu`) and not where it leaves them off (`media-only`), and each is as it was after a save that changes nothing, the stored value unchanged; an app that stores no value (the create of the control `case-operation-query`) still loses the tile at the save | `test_app_list.py` |
 | Every question a worker answers with a gesture (`targeted-capture-widgets`) | an image, a sound, a video and a document question each answered with the file Formplayer's walk uploaded, chosen through the widget's file input, a signature drawn on its pad and a location dragged on its map to within a pixel of the answer table's place, which the walk then gives as the client gave it; the form as left shows each file's name, the drawn pad and the place; HQ's receiver is handed the five files with the walk's submission and with the client's | `test_widgets.py` |
 | An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; HQ's receiver processes one submission each time, and the client shows the message it answered | `test_links.py` |
 
@@ -2067,7 +2124,9 @@ worker's own settings (`installs`, `update`): Nova's two local exports (the
 updated device given the input the lane gives Core over them, below, so
 its worker signs in and leaves forms to reopen), and HQ's builds of A then
 B; and in proof 4, a device on the state a save was
-made over is updated to the saved app where the save changed the profile.
+made over is updated to the saved app where the save changed the profile,
+and to the state's own next build (its archive with the profile's
+`version` raised by one).
 
 **The network** (`proof/android/peer.py`, `proof/android/hq.py`). The
 app's own HTTP client goes through a loopback proxy the reader answers: an
@@ -2101,7 +2160,8 @@ profile's `ota-restore-url`, `PostURL`, `key_server` and `cc_user_domain`
 name that space, and its runtime URLs name A's id, which the HQ side writes in
 (`proof/hq/operations.py::with_runtime_app_id`). So its device signs in,
 syncs, searches and sends each form at the addresses the archive names, and
-HQ's views answer them. A device on A installs HQ's release, whose id is not
+HQ's views answer them. Each configuration's device installs that
+configuration's own archive ("The layout on disk"). A device on A installs HQ's release, whose id is not
 the working app's an archive names, and the two ids read as one in a runtime
 URL (the spelling rule `runtime_url_app_id`).
 
@@ -2135,12 +2195,21 @@ records, called from proofs 1, 3 and 4, each difference under an
   same one at the same place: a symptom both show is the phone's.
 - **Proof 4**: what a device shows of the app each editor save left against
   the state it was saved over (`android@<editor>@<state>@<configuration>`),
-  and each of the worker's own settings an update to that app replaced
-  (`/update/workerSettings/<setting>`).
+  and each of the worker's own settings the update to that app replaced
+  that the update to the state's own next build did not
+  (`/update/workerSettings/<setting>`, `settings_replaced`). A forced setting
+  replaces a worker's own at every update, on HQ's builds and on Nova's
+  archives alike, so a reset both updates make is not one the save made.
 - **Proof 1**: the two installs and the update of the local path against
   HQ's (`android@local.ccz`: each install's status, where the update
   stopped, and, where both installed one, whether it is the same app at no
-  lower a version); and, of each path alone, each form a worker left
+  lower a version). Nova's two local exports of one revision are one
+  archive, so the second install is refused as a duplicate, as HQ's is, and
+  the update answers `UpToDate`, which is the same outcome as HQ's install
+  of its newer build where the two archives carry one `uniqueid` and one
+  version: both leave the device on the app's current content. The update's
+  record names each archive's `uniqueid` and `version` for that reading.
+  And, of each path alone, each form a worker left
   incomplete before the update that the device no longer opens after it
   (`/update/reopened/*`, under `android@local.ccz` and `android@B`), or
   whose session, as Android itself stored it, home cannot read
@@ -2393,7 +2462,9 @@ sensitivity read A and B alone, and the unit observes no B-edit for a control
 without one), and each local archive only where a check that opens it names
 it (`local.ccz` for the bar, the intent and manifest checks and proofs 1, 3
 and 5; `local-again.ccz` for those but proofs 3 and 5; `edit/local.ccz` for
-the bar, the intent and manifest checks and proof 5). Since a control keeps the bytes the export sent before the
+the bar, the intent and manifest checks and proof 5; the archive compiled
+with the empty-list text, as `local.ccz` is kept, wherever a check that opens
+it names the control). Since a control keeps the bytes the export sent before the
 fix (the upload bodies, the archives) and the values the checks compare
 against, it keeps showing the symptom after the emitter that made it is
 fixed. It keeps no `document.json`, whose `doc` is Nova's persistable shape,
@@ -2499,13 +2570,13 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 1, ids and `xmlns` | every module and form `unique_id` and form `xmlns` differs between A and B, so HQ gives every form a new version. Fixed in step 2: every publish derives them from the document | proof 1 | fixed; still shown by the controls `case-operation-query` and, on a device's reopen of B's saved form, `case-capture-followup` |
 | 1, local path | two `.ccz` exports carry different form `xmlns`. Fixed in step 2: an archive derives each form's `xmlns` from the document | proof 1, local path | fixed; still shown by the control `case-operation-query` |
 | 1, language codes | adding a language whose code collides with an existing one, or removing one of a colliding pair, renames the existing language's code, and a build profile a person saved in HQ naming the old code then fails `create_all_files(profile)` ("Form does not contain any translations for any of the build languages", `xform.py::XForm.exclude_languages`). Fixed in step 2: the document stores each language's code from the mutation that adds it (`localization.wireCodes`) | proof 1 over the edit; the bar on B-edit, over A's build profile | fixed; still shown by the control `targeted-hq-side-state` |
-| 4, translations | a UI translation saved in HQ (`views/apps.py::edit_app_ui_translations`) is gone from `app_strings.txt` after the next publish, whose import replaces the app's translations with Nova's (`_merge_source_into_app`) | proof 2 | `targeted-hq-side-state` |
-| 4, `auto_gps_capture` | the setting saved in HQ (`views/apps.py::edit_app_attr`) is set back by the next import, so each form's meta loses its location and its poll of the location sensor (`xform.py::XForm._add_meta_2`) and its submission the location | proof 2; proof 3 between A's and B's builds | `targeted-hq-side-state` |
+| 4, translations | a UI translation saved in HQ (`views/apps.py::edit_app_ui_translations`) is gone from `app_strings.txt` after the next publish, whose import replaces the app's translations with Nova's (`_merge_source_into_app`). Fixed in step 2: an update carries every key HQ holds that Nova does not write back as HQ held it at the publish's last read (`lib/commcare/targetOverlay.ts`) | proof 2 | fixed; still shown by the control `targeted-hq-side-state` |
+| 4, `auto_gps_capture` | the setting saved in HQ (`views/apps.py::edit_app_attr`) is set back by the next import, so each form's meta loses its location and its poll of the location sensor (`xform.py::XForm._add_meta_2`) and its submission the location. Fixed in step 2: an update carries the key only for a Connect app, and HQ keeps what it holds where the key is left out | proof 2; proof 3 between A's and B's builds | fixed; still shown by the control `targeted-hq-side-state` |
 | 5, table content | Nova's next push uploads its workbook for a table a person keeps in HQ (a field property, row attributes, owners and a description) with `replace`; HQ's upload sees another table (`run_upload.py::table_key`), deletes it and makes it again, so the table and its rows get new ids and lose the property, the attributes, the owners and the description | proof 1 (the project's lookup tables) | `targeted-hq-side-lookup` (its control, `targeted-hq-side-state`, keeps the table from before the two documents were split) |
-| 2 | `validate_app` fails with "Expecting 'QNAME', got 'AT'" (`helpers/validators.py`, the form's `validate_for_build`) | the bar | a form display condition on the loaded case's status, id, type or owner |
+| 2 | `validate_app` fails with "Expecting 'QNAME', got 'AT'" (`helpers/validators.py`, the form's `validate_for_build`). Fixed in step 2: the HQ JSON prints a display condition's read of the case's status, id, type or owner as the expanded read of the selected case | the bar | fixed; still shown by the control `expander-display-condition-hq-projection-projects-typed-c7fa4700-0`; `targeted-attribute-display-condition` holds the fix |
 | 3 | the case properties HQ learns each form writes (`FormBase.get_all_case_updates`) and the data dictionary rows its save writes (`refresh_data_dictionary_from_app`) lack the properties Nova's Save to Case blocks write, and a Vellum save rewrites `case_references_data.save` | intent (HQ); proof 4 | a form with case operations, under a configuration with `save_to_case`, which HQ's refresh requires |
 | 3, unknown question | HQ's form builder warns "Unknown question: #case/<property>" where a form reads a property only a Save to Case block writes, and not where an ordinary field writes it | proof 4 (Vellum's report) | `targeted-save-to-case-read` |
-| 4, add-ons | an add-on a person turned on in HQ (`views/apps.py::edit_add_ons`) is gone after Nova's next publish, whose upload writes its own ten, and HQ's module page no longer offers the section | `proof/views/test_add_ons.py` (HQ's page in Chromium) | `search-multiple` |
+| 4, add-ons | an add-on a person turned on in HQ (`views/apps.py::edit_add_ons`) is gone after Nova's next publish, whose upload writes its own ten, and HQ's module page no longer offers the section. Fixed in step 2: Nova writes only the add-ons its app needs, each `true`, over the map HQ holds | `proof/views/test_add_ons.py` (HQ's page in Chromium); proof 2 (`add_ons@<state>`); intent (`add_ons_in_use`) | fixed; `targeted-hq-side-state`, where Menu Mode stays offered after Nova's next publish |
 | 5, the upload's answers | without the Lookup Tables privilege HQ's upload API answers Nova's push with its "Upgrade Required" page, status 200, and writes nothing; it takes a 32-character tag and fails with a 500 on a 33-character one | `proof/views/test_lookup_upload.py` (HQ's view, to Nova's captured request) | `lookup-app` |
 | 12, what no editor offers | HQ's Case List page holds the control for an inline search, a multi-select list and an excluded search input only under `CASE_SEARCH_ADVANCED`, which Nova's publish does not ask for | `proof/views/test_case_list_offers.py` (HQ's page in Chromium) | `case-list-inline`, `search-multiple`, an expander search document |
 | 14, `both_fixtures` | a device restores the flat location fixture by the app's own choice, and Web Apps by the project space's setting, so with that setting off the same app has its places on Android and none in Web Apps, where its form moves no case (finding 69) | `proof/views/test_location_fixture.py` (HQ's restore view, as a device and as Formplayer ask it) | `location-direct` |
@@ -2513,9 +2584,9 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 5, reserved substrings | a select over a table whose tag contains `casedb` reads the case database, and one containing `ledgerdb` the ledger database, not the table (`CommCareInstanceInitializer.generateRoot` tests `ledgerdb`, then `casedb`, before `fixture`) | intent (Core); manifest (the instance source Core gives the table) | `targeted-lookup-reserved-tags` |
 | 6, CSQL | HQ's compiler raises `CaseFilterError` for an ordering against a time of day, and for `''` or a number compared with `date_opened`, `closed_on` or `last_modified` | intent (HQ): each CSQL string a run sends, compiled by HQ (`build_filter_from_xpath`); manifest: each search's CSQL, read by HQ's CSQL parser, falls in those comparisons' REFUSED classes | `targeted-search-hq-compile` |
 | 6, Core | `'14:30' < '15:00'` is false on the device while the document orders it | intent (Core); manifest | `targeted-time-ordering` |
-| 7 | HQ's profile sets `cc-show-saved` and `cc-show-incomplete` to `no`; Nova's `.ccz` profile omits both, which Android reads as yes | proof 3 across the two paths (the profile in the trace) | any document |
-| 8 | a barcode or secret answer that breaks its authored validation is accepted (`FormEntryController.answerQuestion`) | intent (Core) | `targeted-validated-barcode-secret` |
-| 9 | two `.ccz` exports of one document carry different profile `uniqueid`s, both at version 1, and Nova's profile declares no required CommCare version where HQ's does | proof 1, local path; proof 3 across the two paths | any document, exported twice |
+| 7 | HQ's profile sets `cc-show-saved` and `cc-show-incomplete` to `no`; Nova's `.ccz` profile omits both, which Android reads as yes, and holds no `checkoff` feature, so Android hides Saved and keeps no sent form; HQ's App Settings save stores `cc-show-incomplete` `no`, and the Web Apps client's Incomplete Forms tile goes (finding 62). Fixed in step 2: the app holds both settings (`appSettings`), and both paths write them, with `<checkoff active="true"/>` in every local profile | proof 3 across the two paths (the profile in the trace, Android's readers, home buttons and send); proof 4 (the Web Apps client after the App Settings save) | fixed; still shown by the controls `case-operation-query` and `case-capture-followup`, and for finding 62 `targeted-custom-tile` and `targeted-invalid-question-ids` |
+| 8 | a barcode or secret answer that breaks its authored validation is accepted (`FormEntryController.answerQuestion`). Fixed in step 2: the emitter writes the validation on every kind the validator admits it on | intent (Core) | fixed; still shown by the control `targeted-validated-barcode-secret` |
+| 9 | two `.ccz` exports of one document carry different profile `uniqueid`s, both at version 1, and Nova's profile declares no required CommCare version where HQ's does. Fixed in step 2: the `uniqueid` is derived from the app's id and its project space, the versions are the document's sequence, and the profile requires CommCare 2.57 | proof 1, local path; proof 3 across the two paths | fixed; still shown by the controls `case-operation-query` and, on a device's installs and update, `case-capture-followup` |
 | 10 | a list sorted by an ID-mapping or a select column is sorted by the label it shows on HQ's build and by the raw value in Nova's `.ccz`, so its rows come in another order on each path; so do an interval column with text and an image-map column (correction 3); the sort HQ places on the first of two columns that share a property orders the rows alike unless that column is one of these, and moves only the sort key (defect 51). An unsorted list differs only where HQ sorts its first column by a date or an image map (correction 10). Rows are compared by the case each selects, so a reorder is its order alone, and a sort key only one build gives a column is defect 51's | proof 3 across the two paths, over a case database holding "10" and "2" | `targeted-label-sort`; documents whose lists hold those columns |
 | 12, related lookups | HQ's compiler raises without `CASE_SEARCH_RELATED_LOOKUPS` (`filter_dsl.py::_require_related_lookups_flag`) | intent (HQ), under the minimum configuration | `targeted-search-related-lookups` |
 | 12, custom tile | a Case List save under `CASE_LIST_TILE` alone drops the custom tile | proof 4 under that configuration, then 2 | `targeted-custom-tile` |
@@ -2801,11 +2872,21 @@ The rules whose readers reach past HQ's build and Core:
   request a reader sent HQ, which `proof/checks/served.py` hands it for each
   submission in Formplayer's trace and `proof/checks/android.py` for each
   address the device's answer holds; `proof/rules/__init__.py::ARTIFACT_READERS`
-  names Formplayer and the device as its readers. With `profile-required-minimal`
-  and `case-block-position` it is one of the three rules that compare the two
-  export paths; every other rule judges HQ's stored app, HQ's builds and HQ's
-  forms against each other, and `connect-work-area-empty` a form's data as
-  Connect reads it.
+  names Formplayer and the device as its readers. With `case-block-position`
+  it is one of the two rules that compare the two export paths; every other
+  rule judges HQ's stored app, HQ's builds and HQ's forms against each other,
+  and `connect-work-area-empty` a form's data as Connect reads it.
+
+`profile-unread-properties` reads the stored app as well as HQ's built
+profiles. HQ's App Settings save, even one that changes nothing, still adds
+six settings Nova does not write to an app that stores Nova's seventeen:
+`log_prop_daily`, `loose_media`, `purge-freq`, `restore-tolerance` and
+`user_reg_server`, which no runtime reads, and `log_prop_weekly` at
+`log_short`, which HQ's build writes alike when the key is absent. The rule
+removes the five from `profile.properties` of `app.json`, and
+`log_prop_weekly` only where it is `log_short`; its test holds HQ's builds
+before and after the save to the same `log_prop_weekly` and Core's sessions
+over the other five to each other.
 
 To add a rule: write `proof/rules/<rule>.py` and its test, list its `RULE` in
 `RULES` where its artifact's rules apply, name each reader beyond HQ's build
@@ -2813,8 +2894,8 @@ and Core with its test, and add any document its test reads to `DOCUMENTS`.
 Two spellings are a rule only where every reader reads them alike in every
 state it can be in: the ten profile settings HQ's settings save writes at
 their readers' defaults read alike on a device that never held another
-value, and apart on one an earlier profile gave another, so they are
-entries and a defect (finding 40), not a rule. When an emitter starts
+value, and apart on one an earlier profile gave another, so they were a
+defect (finding 40), not a rule, and Nova now writes each of them itself. When an emitter starts
 writing the editor's spelling, the rule that erased Nova's former spelling
 goes in the same change.
 
@@ -2934,8 +3015,8 @@ reused is only what a key names whole, and the reuse is audited:
   no current run reads leaves the store once a week. Three more fresh runs,
   each with every reader, hold a 24-document sample: a baseline, one with
   Nova's emission and HQ unseeded, compared with the baseline (equal once
-  every drawn id and clock reading is read as one value, with defect 9 still
-  showing), and one with HQ's speed seams off, compared with it
+  every drawn id and clock reading is read as one value, with no identity
+  difference), and one with HQ's speed seams off, compared with it
   (equal). The sample turns each week: the run's ISO year and week is its
   seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
   takes the next 24 of the corpus's documents ranked by the sha256 of their

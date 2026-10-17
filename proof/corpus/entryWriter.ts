@@ -20,10 +20,21 @@
  * overlay keys each body writes. Beside the exports the directory holds the
  * HQ import file (`import-file.zip`).
  *
+ * D's local archive is compiled once for each configuration the document
+ * runs under, with what that project space holds (`./publish.ts::localCcz`):
+ * `local.ccz` for a configuration without `USH_EMPTY_CASE_LIST_TEXT`, and
+ * `local-empty-list-text.ccz` (`./inputs.ts::EMPTY_LIST_TEXT_ARCHIVE`), the
+ * same export of D for a project space that holds the flag, where any
+ * configuration holds it. `local-again.ccz`, the second export proof 1
+ * compares with `local.ccz`, and `edit/local.ccz` are compiled as
+ * `local.ccz` is.
+ *
  * Every export is one seeded operation (`./entropy.mts`) of the corpus
  * seed: each update is captured once, in a stream of its own, the first
  * publish, the republish of D and the update to D′ each at its ordinal
- * (`./publish.ts::capturePublish`), and the three local archives at theirs.
+ * (`./publish.ts::capturePublish`), and the local archives at theirs; the
+ * archive compiled for the flag's project space is `local.ccz`'s export for
+ * another project space, under `local.ccz`'s own operation.
  */
 
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -54,7 +65,11 @@ import {
 	OPERATION_ORDINALS,
 } from "./entropy.mts";
 import { type Footprint, wireLanguages, wireLayout } from "./footprint";
-import { writeDocumentInputs } from "./inputs";
+import {
+	EMPTY_LIST_TEXT_ARCHIVE,
+	EMPTY_LIST_TEXT_FLAG,
+	writeDocumentInputs,
+} from "./inputs";
 import {
 	type CapturedRequest,
 	type CompatibilityOutcome,
@@ -441,7 +456,9 @@ export async function writeEntry(
 			(step): step is Extract<typeof step, { status: "stopped" }> =>
 				step.status === "stopped",
 		);
-		if (stopped !== undefined) {
+		/* `capturePublish` returns a stop only where `hq-side.json` states it,
+		 * with the code it names, or where a confirmed publish stopped again. */
+		if (stopped !== undefined && document.hqSide?.republish !== "stops") {
 			throw new Error(
 				`Nova's publish of corpus document ${document.id} under its ${name} configuration stopped with ${stopped.code} after a person confirmed every change and table it listed (${JSON.stringify(stopped)}). A confirmed publish proceeds; look at what the confirmation names against what the stop listed.`,
 			);
@@ -493,6 +510,18 @@ export async function writeEntry(
 		join(root, "local-again.ccz"),
 		await localCcz(publish, PROOF_DOMAIN, local(OPERATION_ORDINALS.localAgain)),
 	);
+	if (
+		named.some(([, configuration]) =>
+			configuration.flags.includes(EMPTY_LIST_TEXT_FLAG),
+		)
+	) {
+		await writeFile(
+			join(root, EMPTY_LIST_TEXT_ARCHIVE),
+			await localCcz(publish, PROOF_DOMAIN, local(OPERATION_ORDINALS.local), {
+				emptyCaseListText: true,
+			}),
+		);
+	}
 	await writeFile(
 		join(root, "import-file.zip"),
 		await importFile(publish, PROOF_DOMAIN),

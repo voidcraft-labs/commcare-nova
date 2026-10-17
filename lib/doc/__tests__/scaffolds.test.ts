@@ -40,6 +40,7 @@ function emptyDoc(): BlueprintDoc {
 		appId: "test",
 		appName: "App",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},
 		forms: {},

@@ -119,6 +119,7 @@ describe("POST /api/commcare/project-space-compatibility", () => {
 				[{ capability, state: "missing" }],
 				[{ advisory, state: "available" }],
 			),
+			emptyCaseListText: null,
 		});
 
 		const response = await POST(

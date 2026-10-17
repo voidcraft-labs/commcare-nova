@@ -31,7 +31,10 @@ Contracts (``proof.observe.served``, ``proof.formplayer.hq``, ``proof.checks.ser
   kind; a refused submission is its status and nothing that follows from
   it; a generated id's number and a build's version are no difference; the
   client's own home tiles are read by their kind; the translations of the
-  screen after a submit are read by their keys, as a response's are.
+  screen after a submit are read by their keys, as a response's are; and a
+  form's version across the two export paths is each path's own form's,
+  read as one on every document a walk holds where each carries its own,
+  and compared where one does not.
 - **A submission's address is a request's** (the comparator, on records
   alone): a submission sent under the release's id and one sent under the
   working app's are one address under the spelling rule
@@ -325,6 +328,35 @@ def test_a_generated_ids_number_and_a_builds_version_are_no_difference_and_a_for
         ("/runs/*/steps/*/response/instanceXml/output/data/@version", "changed")
     ]
     assert _compared(before, after, versions=({"http://form": "2"}, {"http://form": "4"})) == []
+
+
+def test_a_local_forms_version_is_read_as_its_own_on_every_document_and_one_it_does_not_declare_is_compared():
+    """Across the two export paths each form's version is its own path's (HQ's form version, the document's
+    sequence): read as one where each document a step holds carries its own form's declared version (the output
+    a step hands back, a submission, the screen after a submit), and compared where a version differs within one
+    path."""
+
+    def walked(namespace, version):
+        instance = f"<data xmlns='{namespace}' version='{version}'><q>1</q></data>"
+        return _trace(
+            {
+                "request": {"selections": ["0"]},
+                "asked": [],
+                "response": {"tree": [], "instanceXml": {"output": instance}},
+                "submissions": [{"path": "/r", "instance": instance, "files": 0}],
+                "submit": {"nextScreen": {"instanceXml": {"output": instance}}},
+            }
+        )
+
+    hq_built = walked("http://hq", "3")
+    xmlns = {"http://local": "http://hq"}
+    declared = ({"http://hq": "3"}, {"http://hq": "7"})
+    assert _compared(hq_built, walked("http://local", "7"), xmlns=xmlns, versions=declared) == []
+    assert _paths(_compared(hq_built, walked("http://local", "9"), xmlns=xmlns, versions=declared)) == [
+        ("/runs/*/steps/*/response/instanceXml/output/data/@version", "changed"),
+        ("/runs/*/steps/*/submissions/*/instance/data/@version", "changed"),
+        ("/runs/*/steps/*/submit/nextScreen/instanceXml/output/data/@version", "changed"),
+    ]
 
 
 def test_the_clients_own_home_tiles_are_read_by_their_kind_and_a_lists_rows_by_their_case():

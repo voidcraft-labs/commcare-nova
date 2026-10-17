@@ -38,7 +38,6 @@ from proof.connect.conftest import (
     NEXT_DAY_CLOCK,
     TASK_NAMED_TASK,
     WRITTEN,
-    WRITTEN_NEAR,
 )
 
 HQ_URL = "https://www.commcarehq.org"
@@ -265,43 +264,44 @@ def test_a_local_archives_submission_names_the_app_and_connect_writes_what_it_wr
 # Finding 34: location ----------------------------------------------------------------------------------------------
 
 
-def test_only_hqs_build_carries_a_location_to_connect(world):
-    """HQ's build holds the meta's location node, so the fix a device's GPS gave the form's sensor poll reaches
-    Connect as the visit's location; Nova's local archive holds none, so on a device with the same fix the form
-    has nowhere to write it and Connect is given null. Core, which has no GPS, writes none on either."""
+def test_a_devices_fix_reaches_connect_from_either_path(world):
+    """HQ's build and Nova's local archive each hold the meta's location node and the poll that fills it, so the
+    fix a device's GPS gave the form's sensor poll reaches Connect as the visit's location from either path. Core,
+    which has no GPS, writes none on either."""
     submissions = world.deliver.submissions
-    assert submissions["hq"].payload["metadata"]["location"] is None
-    assert submissions["hq+fix"].payload["metadata"]["location"] == WRITTEN
-    assert submissions["local+fix"].payload["metadata"]["location"] is None
+    for name in ("hq+fix", "local+fix"):
+        assert submissions[name].payload["metadata"]["location"] == WRITTEN, name
+    for name in ("hq", "local"):
+        assert submissions[name].payload["metadata"]["location"] is None, name
 
 
-def test_gps_verification_flags_every_delivery_that_carries_no_location(world):
-    """With the opportunity's GPS verification on, Connect flags a delivery with no location "GPS data is
-    missing" and leaves it pending where it would have approved it: the local archive's always, and HQ's
-    build's only while the device has no fix. With verification off neither is flagged (the delivery test)."""
+def test_gps_verification_approves_a_delivery_with_a_fix_from_either_path(world):
+    """With the opportunity's GPS verification on, Connect approves and pays a delivery that carries a location,
+    from HQ's build or from Nova's local archive alike, and flags one with no location "GPS data is missing",
+    leaving it pending with nothing accrued, from either path alike. With verification off neither is flagged
+    (the delivery test)."""
     gps_on = {"do": "flags", "gps": True}
-    for name, submission in (("gps-local", "local+fix"), ("gps-hq-no-fix", "hq")):
-        posts, state = world.delivered(name, gps_on, world.post(world.deliver, submission))
+    for submission in ("hq+fix", "local+fix"):
+        posts, state = world.delivered(f"gps-{submission}", gps_on, world.post(world.deliver, submission))
+        answered(posts[0])
+        (visit,) = state["visits"]
+        assert (visit["status"], visit["flags"], visit["location"]) == ("approved", None, WRITTEN), submission
+        assert state["access"]["paymentAccrued"] == PAY, submission
+    for submission in ("hq", "local"):
+        posts, state = world.delivered(f"gps-{submission}-no-fix", gps_on, world.post(world.deliver, submission))
         answered(posts[0])
         (visit,) = state["visits"]
         assert (visit["status"], visit["flags"], visit["location"]) == (
             "pending",
             [["gps", "GPS data is missing"]],
             None,
-        )
-        assert state["access"]["paymentAccrued"] == 0
-    posts, state = world.delivered("gps-hq-fix", gps_on, world.post(world.deliver, "hq+fix"))
-    answered(posts[0])
-    (visit,) = state["visits"]
-    assert (visit["status"], visit["flags"], visit["location"]) == ("approved", None, WRITTEN)
-    assert state["access"]["paymentAccrued"] == PAY
+        ), submission
+        assert state["access"]["paymentAccrued"] == 0, submission
 
 
-def test_the_distance_check_passes_over_a_delivery_that_carries_no_location(world):
-    """With the opportunity checking visits within 100 m of another, Connect flags HQ's build's second visit
-    about four metres from the first and passes one made far away. A local archive's delivery escapes the check
-    on both sides: made at the first visit's place it is not flagged, and a later visit at its place is not
-    flagged against it."""
+def test_the_distance_check_holds_a_local_archives_delivery_as_hqs(world):
+    """With the opportunity checking visits within 100 m of another, Connect flags a second visit about four
+    metres from the first, whichever path made either visit, and passes one made far away."""
     within = {"do": "flags", "location": 100}
     deliver = world.deliver
 
@@ -314,16 +314,17 @@ def test_the_distance_check_passes_over_a_delivery_that_carries_no_location(worl
         (later,) = [visit for visit in state["visits"] if visit["visitDate"].startswith(NEXT_DAY_CLOCK[:10])]
         return later
 
-    near = second("distance-hq-near", "hq+fix", "hq@next+near")
-    assert near["status"] == "pending" and flags(near) == ["location"]
-    assert near["flags"][0][1].startswith("Visit location is 4.") and near["flags"][0][1].endswith(
-        "m from another visit"
-    )
+    for name, first, then in (
+        ("distance-hq-near", "hq+fix", "hq@next+near"),
+        ("distance-local-later", "hq+fix", "local@next+near"),
+        ("distance-local-first", "local+fix", "hq@next+near"),
+    ):
+        near = second(name, first, then)
+        assert near["status"] == "pending" and flags(near) == ["location"], name
+        assert near["flags"][0][1].startswith("Visit location is 4.") and near["flags"][0][1].endswith(
+            "m from another visit"
+        ), name
     assert second("distance-hq-far", "hq+fix", "hq@next+far")["flags"] is None
-    checked = second("distance-local-checked", "hq+fix", "local@next+near")
-    assert (checked["status"], checked["flags"], checked["location"]) == ("approved", None, None)
-    other = second("distance-local-other", "local+fix", "hq@next+near")
-    assert (other["status"], other["flags"], other["location"]) == ("approved", None, WRITTEN_NEAR)
 
 
 # Finding 55: the work area id HQ's form designer writes ------------------------------------------------------------

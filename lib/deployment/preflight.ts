@@ -215,6 +215,14 @@ export type PreflightResult =
 				readonly appBaseline: AppBaseline | null;
 				/** The HQ-side changes a person named back to publish over. */
 				readonly confirmedChanges: readonly DeploymentRemoteChange[];
+				/**
+				 * Whether the project space holds `USH_EMPTY_CASE_LIST_TEXT`, read
+				 * by every publish whatever the app holds; `null` where the read
+				 * failed. The publish stores a definite answer with the
+				 * deployment, and a `.ccz` made for it writes the empty-list text
+				 * exactly where HQ's build there does.
+				 */
+				readonly targetEmptyCaseListText: boolean | null;
 			};
 			readonly projectSpaceCompatibility: ProjectSpaceCompatibilityReport;
 	  }
@@ -929,10 +937,13 @@ export async function runDeploymentPreflight(
 	const compatibilityPlan = projectSpaceCompatibilityProbePlan(
 		boundary.prepared.doc,
 	);
+	/* The empty-list text flag rides the same project-space read. Its answer
+	 * changes no verdict here; the publish only stores it. */
 	const compatibilityProbes = await probeHqProjectSpaceCompatibility(
 		creds,
 		domain,
 		compatibilityPlan,
+		{ readEmptyCaseListText: true },
 	);
 	const projectSpaceCompatibility = compatibilityProbes.report;
 	const unavailableAdvisories = projectSpaceCompatibility.advisories.filter(
@@ -1149,6 +1160,7 @@ export async function runDeploymentPreflight(
 			targetApp,
 			appBaseline,
 			confirmedChanges: verdict.confirmed,
+			targetEmptyCaseListText: compatibilityProbes.emptyCaseListText,
 		},
 		projectSpaceCompatibility,
 	};

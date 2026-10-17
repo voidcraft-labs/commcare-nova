@@ -33,7 +33,12 @@ What is compared is Nova's emitted wire, never what HQ makes of it:
   ``<unique_id>.xml`` HQ reads as the form's source
   (``app_manager/models/forms.py::FormSource``), as ``form:<m>.<f>``;
 - each form's XForm in D's local archive against D''s
-  (``local:form:<m>.<f>``, ``modules-<m>/forms-<f>.xml``);
+  (``local:form:<m>.<f>``, ``modules-<m>/forms-<f>.xml``), without its data
+  node's ``version`` (the version clause, ``Record.of_local_form``): every
+  form of a local archive carries the document's sequence there, and D''s
+  archive is compiled at the next sequence, so a form the edit does not
+  touch differs from D's by that one attribute, which the intent check holds
+  to the sequence (``proof.checks.intent.local_archive_versions``);
 - each entity's part of the local archive's suite and app strings
   (``local:suite.xml``, ``local:app_strings:<lang>``, ``suite_comparison``): a
   form's entry; a module's menu with every remote request and view entry it
@@ -273,6 +278,18 @@ class Record:
             return cls("unreadable", str(error), None)
         return cls("xml", root, digest(canonical_xml(root)))
 
+    @classmethod
+    def of_local_form(cls, artifact, source):
+        """A local archive's form, as ``of_xml`` reads it, without its data node's ``version``: the document's
+        sequence, which every form of the archive carries and the next archive raises (the version clause)."""
+        record = cls.of_xml(artifact, source)
+        if record.kind != "xml":
+            return record
+        data = next(iter(record.value.iterfind("{*}head/{*}model/{*}instance/*")), None)
+        if data is not None and "version" in data.attrib:
+            del data.attrib["version"]
+        return cls("xml", record.value, digest(canonical_xml(record.value)))
+
 
 # The emitted wire, by Nova entity ------------------------------------------
 
@@ -413,7 +430,7 @@ def _local_side(sources, alignment, *, mapped, artifact_positions, placed_forms)
             source = renamespace_xform(source, target)
         position = artifact_positions.get(entity, (m, f))
         side.positions[entity] = (m, f)
-        side.records[entity] = {"local": Record.of_xml(f"local:form:{position[0]}.{position[1]}", source)}
+        side.records[entity] = {"local": Record.of_local_form(f"local:form:{position[0]}.{position[1]}", source)}
     return side
 
 

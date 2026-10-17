@@ -17,6 +17,15 @@ a build error (``proof/hq/test_build.py``). The plausible failures: a seam
 that answers validation itself or re-signs HQ's request (the wrong key would
 then pass), a report taken from anything but Formplayer's answer, and a
 comparison that passes because nothing was asked.
+
+Defect 8: a barcode question's and a secret question's validation, which
+Nova now writes as it writes a text question's, is Formplayer's to enforce on
+HQ's build: on ``targeted-validated-barcode-secret``, whose two questions
+each ask for exactly six characters, a three-character answer is a
+``validation-error`` carrying the question's message and a six-character one
+is accepted, on both. The plausible failure: a validation the build drops or
+Formplayer does not check, so a worker in Web Apps sends what the author
+refused.
 """
 
 from __future__ import annotations
@@ -26,6 +35,8 @@ import pytest
 from proof.formplayer.client import AUTH_KEY, VALIDATE_FORM, FormplayerRunnerError
 
 DOCUMENT = "case-operation-query"
+VALIDATED = "targeted-validated-barcode-secret"
+MESSAGES = ("A code has six characters.", "A PIN has six characters.")
 
 
 def _sent(document):
@@ -84,3 +95,23 @@ def test_a_form_formplayer_cannot_parse_is_reported_failed_by_its_own_message(hq
 def test_formplayer_refuses_a_validation_request_hq_did_not_sign(hq, formplayer_runner):
     unsigned = formplayer_runner.http(VALIDATE_FORM, b"<h:html/>", headers=(("Content-Type", "application/xml"),))
     assert unsigned.response.status in (401, 403), unsigned.response.status
+
+
+def test_formplayer_refuses_a_wrong_barcode_and_secret(hq, core_runner, formplayer_runner, formplayer_documents):
+    from proof.formplayer import apps
+    from proof.formplayer.walk import screen_kind
+
+    with apps.published(formplayer_documents[VALIDATED], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served, served.run("validated"):
+            web = apps.web(formplayer_runner, served)
+            web.navigate(["0"])
+            form = web.navigate(["0", "0"])
+            assert screen_kind(form) == "form", form
+            questions = [node for node in form["tree"] if node["type"] == "question"]
+            assert len(questions) == 2, questions
+            # Each question's own message, as the document states it (validatedBarcodeSecret.ts).
+            for question, message in zip(questions, MESSAGES, strict=True):
+                short = web.answer(form["session_id"], question["ix"], "abc")
+                assert short["status"] == "validation-error", short
+                assert message in str(short), short
+                assert web.answer(form["session_id"], question["ix"], "abcdef")["status"] == "accepted"

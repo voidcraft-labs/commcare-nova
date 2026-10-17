@@ -20,6 +20,7 @@ import {
 } from "@/lib/doc/mutationAdmission";
 import type {
 	AppLocalization,
+	AppSettings,
 	ConnectType,
 	MediaAssetId,
 	PersistableDoc,
@@ -50,6 +51,9 @@ export interface PersistedBlueprintRootText {
 	readonly connect_type: ConnectType | null;
 	readonly case_types_text: string | null;
 	readonly localization_text?: string | null;
+	/** `apps.app_settings` as text. A NULL leaves the required root out, so
+	 * the strict schema refuses the document. */
+	readonly app_settings_text: string | null;
 	readonly logo: MediaAssetId | null;
 }
 
@@ -508,6 +512,13 @@ export function assemblePersistedBlueprintJsonText(
 							root.localization_text,
 							`apps.localization for app ${appId}`,
 						) as AppLocalization),
+			app_settings:
+				root.app_settings_text === null
+					? null
+					: (parsePersistedJsonText(
+							root.app_settings_text,
+							`apps.app_settings for app ${appId}`,
+						) as AppSettings),
 			logo: root.logo,
 		},
 		rows.map((row) => parseEntityRow(row, appId)),

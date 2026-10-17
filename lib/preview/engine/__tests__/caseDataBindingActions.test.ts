@@ -3143,6 +3143,7 @@ describe("loadFilterPreviewAction", () => {
 				appId: 42,
 				appName: "Test app",
 				connectType: null,
+				appSettings: { showSavedForms: false, showIncompleteForms: false },
 				caseTypes: [],
 				modules: {},
 				forms: {},

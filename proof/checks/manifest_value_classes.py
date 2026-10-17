@@ -1175,11 +1175,28 @@ def other_upload_mediatype(use, manifest):
 # Setvalues ----------------------------------------------------------------------
 
 
-def _setvalue(use):
-    """The setvalue element a use sits on (``jr-action:setvalue``, or its ``@event``), with its form."""
+def authored_pollsensor(use, manifest):
+    """``questions/authored-orx-pollsensor``: an ``<orx:pollsensor>`` in a form's source, which Vellum drops
+    (HQ's build writes its own from ``auto_gps_capture`` and the form's ``geopoint`` binds,
+    ``xform.py::XForm._add_meta_2``). HQ's build appends its own to what it builds and never to the source, so
+    every ``pollsensor`` a source holds is authored, wherever it sits and whatever it carries: a use on one is in
+    the class. In a local archive the element is the one HQ's build writes, which
+    ``questions/hq-generated-pollsensor`` holds before this entry is asked (``manifest_usage.standing``)."""
     form, element = _form_element(use)
-    if form is None or _local(element) != "setvalue":
+    if form is None:
+        return None
+    return _local(element) == "pollsensor"
+
+
+def _setvalue(use):
+    """The setvalue element a use sits on (``jr-action:setvalue``, or its ``@event``), with its form: ``(form,
+    None)`` for a use on another element of a form (an event a ``pollsensor`` carries, which names the same
+    ``jr-event`` as a setvalue's), and ``(None, None)`` outside a form."""
+    form, element = _form_element(use)
+    if form is None:
         return None, None
+    if _local(element) != "setvalue":
+        return form, None
     return form, element
 
 
@@ -1303,6 +1320,8 @@ def default_event_mismatching_placement(use, manifest):
     form, setvalue = _setvalue(use)
     if form is None:
         return None
+    if setvalue is None:
+        return False  # an event on another element of the form, no setvalue
     target = _target(form, setvalue)
     if target is None:
         return None if _model_level(form, setvalue) else False
@@ -1321,6 +1340,8 @@ def form_level_setvalue(use, manifest):
     form, setvalue = _setvalue(use)
     if form is None:
         return None
+    if setvalue is None:
+        return False  # an event on another element of the form, no setvalue
     if not _model_level(form, setvalue):
         return False  # an action nested in a control is that row's
     target = _target(form, setvalue)
@@ -1345,6 +1366,8 @@ def savetocase_blank_create_id(use, manifest):
     form, setvalue = _setvalue(use)
     if form is None:
         return None
+    if setvalue is None:
+        return False  # an event on another element of the form, no setvalue
     target = _target(form, setvalue)
     if target is None:
         return None if _model_level(form, setvalue) else False
@@ -2425,11 +2448,112 @@ def _reads_form(tree, context):
     return False
 
 
+def _quoted(text):
+    """``text`` without the one pair of like quotes around it, as Vellum's ``parseBindElement`` strips a case
+    type's (``/^(['"])(.*)\\1$/``); ``text`` itself where it is no such literal."""
+    if len(text) >= 2 and text[0] in "'\"" and text[-1] == text[0]:
+        return text[1:-1]
+    return text
+
+
+def _property_name(text):
+    """Whether a bind's last step names a case property Vellum reads (``[\\w-]+``)."""
+    return bool(text) and all(character.isalnum() or character in "_-" for character in text)
+
+
+def vellum_case_references(xform):
+    """What Vellum computes for a form's ``case_references_data.save`` from its SaveToCase blocks
+    (``logic.js::LogicManager.caseReferences``, ``saveToCase.js::parseDataNode``, ``parseBindElement``,
+    ``handleMugParseFinish`` and ``getCaseSaveData``), by each block's data path, ``doc_type`` aside:
+
+    1. one entry per data element carrying ``vellum:role="SaveToCase"``, in document order;
+    2. ``case_type`` from the ``create/case_type`` bind: its text without its quotes where it is one quoted
+       literal, ``""`` where it holds another non-empty expression, else the element's ``vellum:case_type``;
+    3. ``create`` and ``close`` where the block's ``case`` holds a ``create`` or a ``close``;
+    4. each bind of ``<block>/case/create/<name>`` or ``<block>/case/update/<name>``, in document order, its
+       ``case_type``, ``case_name`` and ``owner_id`` create binds read apart;
+    5. ``properties``: for a block that creates, the create binds' names then the update binds', each once,
+       then ``case_type`` where the type is set or an expression, ``case_name`` and ``owner_id`` where their
+       binds hold a ``calculate``; for any other block, the update binds' names, each once.
+    """
+    found = {}
+    binds = list(xform.model.iterfind(f"{{{XFORMS}}}bind")) if xform.model is not None else []
+    for node in xform.save_to_case:
+        path = xform.paths[node]
+        case = node.find(f"{{{CASE}}}case")
+        creates = case is not None and case.find(f"{{{CASE}}}create") is not None
+        closes = case is not None and case.find(f"{{{CASE}}}close") is not None
+        case_type = node.get(f"{{{VELLUM}}}case_type") or ""
+        type_expression = False
+        named = {"create": [], "update": []}
+        case_name = owner_id = None
+        for bind in binds:
+            nodeset = (bind.get("nodeset") or "").strip()
+            for action, names in named.items():
+                prefix = f"{path}/case/{action}/"
+                name = nodeset[len(prefix) :] if nodeset.startswith(prefix) else ""
+                if not _property_name(name):
+                    continue
+                calculate = bind.get("calculate")
+                if action == "create" and name == "case_type":
+                    text = calculate or ""
+                    stripped = _quoted(text)
+                    if stripped and stripped == text:
+                        type_expression, case_type = True, ""
+                    elif stripped:
+                        case_type = stripped
+                elif action == "create" and name == "case_name":
+                    case_name = calculate
+                elif action == "create" and name == "owner_id":
+                    owner_id = calculate
+                else:
+                    names.append(name)
+        if creates:
+            properties = list(dict.fromkeys(named["create"] + named["update"]))
+            if case_type or type_expression:
+                properties.append("case_type")
+            if case_name:
+                properties.append("case_name")
+            if owner_id:
+                properties.append("owner_id")
+        else:
+            properties = list(dict.fromkeys(named["update"]))
+        found[path] = {
+            "case_type": case_type,
+            "properties": [name for name in properties if name],
+            "create": creates,
+            "close": closes,
+        }
+    return found
+
+
+def setting_outside_choices(use, manifest):
+    """``application-and-settings/profile-properties-or-features-dependencies-value-outside-its``: a stored
+    setting whose value is none of the setting's own choices (the ``values`` of its ``setting:properties.<key>``
+    item, ``commcare-profile-settings.yml``), which HQ's settings page marks an error
+    (``commcare_settings.js``, ``widgets.select.valueIsLegal``). The number ``10`` HQ's own save stores for the
+    GPS accuracy is the row before's (``within-choices-or-numeric-10``), so it is no use of this class. A custom
+    property is no setting the page shows; a feature, and a use outside an app JSON, the export leaves open."""
+    at = _json(use)
+    if at is None or not use.key.startswith("setting:properties."):
+        return None
+    if "/custom_properties/" in use.where:
+        return False
+    name = use.key.removeprefix("setting:properties.")
+    choices = (manifest.items.get(use.key) or {}).get("values")
+    if not choices:
+        return None
+    value = (((at.app.doc.get("profile") or {}).get("properties")) or {}).get(name)
+    if name == "cc-gps-auto-capture-accuracy" and value == 10 and not isinstance(value, bool):
+        return False
+    return value not in [str(choice) for choice in choices]
+
+
 def save_differing_from_vellum(use, manifest):
     """``forms-and-case-writes/case-references-data-save-differing-from-that-computation``:
     ``case_references_data.save`` other than what Vellum computes from the form's SaveToCase blocks
-    (``saveToCase.js::getCaseSaveData``). A form with no SaveToCase block computes none, so a non-empty save
-    there differs; one with blocks needs Vellum's computation (None)."""
+    (``vellum_case_references``), compared key by key with each reference's ``doc_type`` aside: a difference is
+    in the class, equality is not."""
     at, form = _form(use)
     if form is None:
         return None
@@ -2437,9 +2561,15 @@ def save_differing_from_vellum(use, manifest):
     xform = at.app.xform(form)
     if xform is None:
         return None
-    if not xform.save_to_case:
-        return bool(save)
-    return None
+    if not isinstance(save, dict):
+        return True
+    stored = {
+        key: {name: value for name, value in reference.items() if name != "doc_type"}
+        if isinstance(reference, dict)
+        else reference
+        for key, reference in save.items()
+    }
+    return stored != vellum_case_references(xform)
 
 
 def own_case_condition_not_offered_or_quoted(use, manifest):
@@ -3869,14 +3999,24 @@ def android_verified_path_without_entry(use, manifest):
     """``expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install``: a media reference
     with no file on a slot Android's install verification checks, in an app that turns that verification on
     (``profile.properties.cc-content-valid`` = ``no``, "Validate Multimedia",
-    ``commcare-profile-settings.yml``). Whether a reference has its file is the media's, which the export does
-    not carry: with the verification off no reference is in the class, and with it on the export does not
-    say."""
+    ``commcare-profile-settings.yml``). With the verification off no reference is in the class. With it on,
+    whether a reference has its file is decided from the media the export carries beside the app, Nova's local
+    archive (``proof.observe.manifest.media_facts``, read as ``_media`` reads it): a reference whose file the
+    archive holds at its path is not in the class, and one whose file it lacks is; without the observation's
+    readings the export does not say."""
     at = _json(use)
     if at is None:
         return None
     properties = ((at.app.doc.get("profile") or {}).get("properties")) or {}
-    return None if properties.get("cc-content-valid") == "no" else False
+    if properties.get("cc-content-valid") != "no":
+        return False
+    readings = at.app.readings
+    if readings is None:
+        return None
+    item = at.nearest("HQMediaMapItem")
+    references = at.app.doc.get("multimedia_map") or {}
+    paths = [path for path, value in references.items() if item is None or value is item]
+    return any(not path.startswith(MEDIA_PREFIX) or path[len(MEDIA_PREFIX) :] not in readings.media for path in paths)
 
 
 # Media ----------------------------------------------------------------------------
@@ -5119,6 +5259,8 @@ def second_default(use, manifest):
     form, setvalue = _setvalue(use)
     if form is None:
         return None
+    if setvalue is None:
+        return False  # an event on another element of the form, no setvalue
     target = _target(form, setvalue)
     if target is None:
         return None if _model_level(form, setvalue) else False
@@ -5609,6 +5751,7 @@ VARIANTS = {
 VALUE_CLASSES = {
     # Questions
     "questions/other-h-head-children-whose-local-name-or-a-descendant-s-core-or": head_child,
+    "questions/authored-orx-pollsensor": authored_pollsensor,
     "questions/type-on-a-savetocase-property-leaf-a-create-update-or-index": savetocase_leaf_type,
     "questions/a-select-whose-bind-type-is-neither-a-choice-type-nor-a-string": non_choice_type_on_select,
     "questions/secret-with-a-numeric-bind-type": numeric_type_on_secret,
@@ -5674,6 +5817,7 @@ VALUE_CLASSES = {
     "application-and-settings/a-non-empty-langs-code-outside-that-grammar-or-repeated": invalid_or_repeated_code,
     "application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare": path_not_from_uploader,
     "application-and-settings/profile-custom-properties-any-other-entry-incl-formplayer-keys": custom_property_other,
+    "application-and-settings/profile-properties-or-features-dependencies-value-outside-its": setting_outside_choices,
     "application-and-settings/profile-features-sense-true-or-profile-properties-cc-entry-mode": (
         sense_or_review_entry_mode
     ),

@@ -71,6 +71,7 @@ const DOC: PersistableDoc = admittedControllerDoc({
 	appId: "test-app",
 	appName: "Test",
 	connectType: null,
+	appSettings: { showSavedForms: false, showIncompleteForms: false },
 	caseTypes: null,
 	modules: {
 		[MODULE_UUID]: {

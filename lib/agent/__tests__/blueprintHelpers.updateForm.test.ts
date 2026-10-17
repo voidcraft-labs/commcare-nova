@@ -25,6 +25,7 @@ function docWithEveryHelperClearableSlot(): BlueprintDoc {
 		appId: "update-form-wire",
 		appName: "Update form wire",
 		connectType: "learn",
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [{ name: "patient", properties: [] }],
 		modules: {
 			[MODULE_UUID]: {

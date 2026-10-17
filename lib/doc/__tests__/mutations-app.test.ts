@@ -6,6 +6,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
+import { createBlueprintDocStore } from "@/lib/doc/store";
 import {
 	type BlueprintDoc,
 	type Mutation,
@@ -103,6 +104,43 @@ describe("app metadata commits", () => {
 			commit(changed, [{ kind: "retireCaseType", caseType: "patient" }])
 				.caseTypes,
 		).toBeNull();
+	});
+});
+describe("app settings commits", () => {
+	it("changes the one named setting, keeps the other, and undo restores", () => {
+		const before = fixture();
+		expect(before.appSettings).toEqual({
+			showSavedForms: false,
+			showIncompleteForms: false,
+		});
+		const next = commit(before, [
+			{ kind: "setAppSettings", settings: { showIncompleteForms: true } },
+		]);
+		expect(next.appSettings).toEqual({
+			showSavedForms: false,
+			showIncompleteForms: true,
+		});
+		expect(before.appSettings.showIncompleteForms).toBe(false);
+
+		const store = createBlueprintDocStore();
+		store.getState().load(toPersistableDoc(next));
+		store.getState().startTracking();
+		const verdict = mutationCommitVerdict(
+			store.getState(),
+			[{ kind: "setAppSettings", settings: { showSavedForms: true } }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error("The settings edit must be admitted.");
+		store.getState().applyMany(verdict.mutations);
+		expect(store.getState().appSettings).toEqual({
+			showSavedForms: true,
+			showIncompleteForms: true,
+		});
+		store.getState().undo();
+		expect(store.getState().appSettings).toEqual({
+			showSavedForms: false,
+			showIncompleteForms: true,
+		});
 	});
 });
 // Complete Connect-mode transitions are owned by connectTargetState.test.ts;

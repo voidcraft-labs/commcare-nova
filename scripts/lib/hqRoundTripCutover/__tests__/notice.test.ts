@@ -4,8 +4,6 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { assemblePersistedBlueprintJsonText } from "@/lib/db/persistedJson";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { entryPointInventory } from "@/lib/domain/entryPoints";
 import { migrationNoticeEntrySchema } from "@/lib/notices/migrationNotice";
 import {
@@ -18,17 +16,27 @@ import {
 } from "../notice";
 import { readRawDocument } from "../oldShape";
 import type { AppPlan, DeploymentPlan } from "../plan";
-import { readFixtureCarriers } from "./fixtures/preStep";
+import {
+	migratedFixtureDocument,
+	readFixtureCarriers,
+} from "./fixtures/preStep";
 
-function documentOf(id: string) {
-	const carriers = readFixtureCarriers(id);
-	return hydratePersistedBlueprint(
-		assemblePersistedBlueprintJsonText(id, carriers.root, carriers.rows),
-	);
-}
+const withEntryPoints = migratedFixtureDocument(
+	"targeted-invalid-question-ids",
+);
+const withoutEntryPoints = migratedFixtureDocument("navigation-base");
 
-const withEntryPoints = documentOf("targeted-invalid-question-ids");
-const withoutEntryPoints = documentOf("navigation-base");
+/**
+ * A read profile under which no settings line is due: both lists shown and
+ * each worker preference held, so a test of another line sees it alone.
+ */
+const SETTLED_PROFILE = {
+	"cc-show-saved": "yes",
+	"cc-show-incomplete": "yes",
+	"cc-fuzzy-search-enabled": "no",
+	"cc-autoup-freq": "freq-never",
+	"cc-enable-tts": "no",
+} as const;
 
 function deployment(patch: Partial<DeploymentPlan> = {}): DeploymentPlan {
 	return {
@@ -67,9 +75,12 @@ describe("deployment notice reasons", () => {
 	it("tells every deployment that has a next publish that new links wait for it", () => {
 		expect(entryPointInventory(withEntryPoints).length).toBeGreaterThan(0);
 		for (const outcome of ["read-in-full", "no-form-ids"] as const) {
-			expect(deploymentNoticeReasons(outcome, withEntryPoints)).toEqual([
-				"deep-links-need-republish",
-			]);
+			expect(
+				deploymentNotices(
+					{ outcome, profileProperties: SETTLED_PROFILE },
+					withEntryPoints,
+				).map((notice) => notice.reason),
+			).toEqual(["deep-links-need-republish"]);
 		}
 	});
 
@@ -77,9 +88,11 @@ describe("deployment notice reasons", () => {
 		expect(deploymentNoticeReasons("unreadable", withEntryPoints)).toEqual([
 			"ids-change-once-unreadable",
 			"deep-links-need-republish",
+			"settings-unknown-unreadable",
 		]);
 		expect(deploymentNoticeReasons("unreadable", withoutEntryPoints)).toEqual([
 			"ids-change-once-unreadable",
+			"settings-unknown-unreadable",
 		]);
 	});
 
@@ -98,9 +111,12 @@ describe("deployment notice reasons", () => {
 
 	it("says nothing about links in an app with no entry point", () => {
 		expect(entryPointInventory(withoutEntryPoints)).toEqual([]);
-		expect(deploymentNoticeReasons("read-in-full", withoutEntryPoints)).toEqual(
-			[],
-		);
+		expect(
+			deploymentNotices(
+				{ outcome: "read-in-full", profileProperties: SETTLED_PROFILE },
+				withoutEntryPoints,
+			),
+		).toEqual([]);
 	});
 
 	it("names each entity left unpaired, and each form whose stored id no read gave", () => {
@@ -118,6 +134,7 @@ describe("deployment notice reasons", () => {
 					outcome: "no-form-ids",
 					unpaired: [menu],
 					formIdsUnknown: [form.uuid],
+					profileProperties: SETTLED_PROFILE,
 				},
 				withoutEntryPoints,
 			),
@@ -130,7 +147,12 @@ describe("deployment notice reasons", () => {
 	it("names no form under form-ids-change-once where every stored id was read", () => {
 		expect(
 			deploymentNotices(
-				{ outcome: "read-in-full", unpaired: [], formIdsUnknown: [] },
+				{
+					outcome: "read-in-full",
+					unpaired: [],
+					formIdsUnknown: [],
+					profileProperties: SETTLED_PROFILE,
+				},
 				withoutEntryPoints,
 			),
 		).toEqual([]);
@@ -361,6 +383,204 @@ describe("the drift lines a deployment's baselines give", () => {
 		expect(asks?.kind === "deployment" && asks.entities).toEqual([
 			{ type: "lookupTable", uuid: table.uuid, nameAtMigration: "Clinics" },
 			{ type: "location", uuid: place.uuid, nameAtMigration: "District 4" },
+		]);
+		for (const entry of entries) {
+			expect(migrationNoticeEntrySchema.safeParse(entry).success).toBe(true);
+		}
+	});
+});
+
+describe("the settings lines a deployment's profile gives", () => {
+	const settled = (
+		patch: Readonly<Record<string, unknown>>,
+	): Readonly<Record<string, unknown>> => ({ ...SETTLED_PROFILE, ...patch });
+	const withSettings = (
+		showSavedForms: boolean,
+		showIncompleteForms: boolean,
+	) => ({
+		...withoutEntryPoints,
+		appSettings: { showSavedForms, showIncompleteForms },
+	});
+	const settingLines = (
+		profileProperties: Readonly<Record<string, unknown>>,
+		target = withSettings(true, true),
+	) =>
+		deploymentNotices(
+			{ outcome: "read-in-full", profileProperties },
+			target,
+		).filter((notice) => notice.reason === "setting-changes-at-next-publish");
+
+	it("names saved forms on Android where the project space does not hold yes", () => {
+		for (const value of [undefined, "no", ""]) {
+			const profile =
+				value === undefined
+					? Object.fromEntries(
+							Object.entries(SETTLED_PROFILE).filter(
+								([key]) => key !== "cc-show-saved",
+							),
+						)
+					: settled({ "cc-show-saved": value });
+			expect(settingLines(profile)).toEqual([
+				{
+					reason: "setting-changes-at-next-publish",
+					detail: { setting: "saved", readers: "android" },
+				},
+			]);
+		}
+		expect(settingLines(settled({}))).toEqual([]);
+	});
+
+	it("names Android alone for a project space that holds no incomplete forms value, since Web Apps shows the tile there", () => {
+		const profile = Object.fromEntries(
+			Object.entries(SETTLED_PROFILE).filter(
+				([key]) => key !== "cc-show-incomplete",
+			),
+		);
+		expect(settingLines(profile)).toEqual([
+			{
+				reason: "setting-changes-at-next-publish",
+				detail: { setting: "incomplete", readers: "android" },
+			},
+		]);
+	});
+
+	it("names Android and Web Apps for a project space that holds no, beside one that holds yes", () => {
+		const hides = settled({ "cc-show-incomplete": "no" });
+		const shows = settled({ "cc-show-incomplete": "yes" });
+		const target = migratedFixtureDocument("navigation-base", [
+			{
+				deploymentId: "00000000-0000-7000-8000-00000000d001",
+				outcome: "read-in-full",
+				profileProperties: hides,
+			},
+			{
+				deploymentId: "00000000-0000-7000-8000-00000000d002",
+				outcome: "no-form-ids",
+				profileProperties: shows,
+			},
+		]);
+		expect(target.appSettings).toEqual({
+			showSavedForms: true,
+			showIncompleteForms: true,
+		});
+		expect(settingLines(hides, target)).toEqual([
+			{
+				reason: "setting-changes-at-next-publish",
+				detail: { setting: "incomplete", readers: "android-and-webapps" },
+			},
+		]);
+		expect(settingLines(shows, target)).toEqual([]);
+	});
+
+	it("never writes a line that turns a list off", () => {
+		for (const value of ["yes", "no", undefined]) {
+			const profile =
+				value === undefined
+					? {}
+					: { "cc-show-saved": value, "cc-show-incomplete": value };
+			expect(settingLines(profile, withSettings(false, false))).toEqual([]);
+		}
+	});
+
+	it("tells an unreadable project space only that its settings are unknown", () => {
+		const reasons = (outcome: DeploymentPlan["outcome"]) =>
+			deploymentNotices({ outcome }, withSettings(true, true)).map(
+				(notice) => notice.reason,
+			);
+		expect(reasons("unreadable")).toEqual([
+			"ids-change-once-unreadable",
+			"settings-unknown-unreadable",
+		]);
+		for (const outcome of ["read-in-full", "no-form-ids"] as const) {
+			expect(
+				deploymentNotices(
+					{ outcome, profileProperties: SETTLED_PROFILE },
+					withSettings(true, true),
+				),
+			).toEqual([]);
+		}
+		expect(reasons("deleted")).toEqual(["hq-app-deleted"]);
+		expect(reasons("unsupported")).toEqual(["hq-app-not-nova-made"]);
+	});
+
+	it("tells a read project space that lacks one of the three worker preferences that updates reset them", () => {
+		const reset = (
+			outcome: DeploymentPlan["outcome"],
+			profileProperties: Readonly<Record<string, unknown>> | null,
+		) =>
+			deploymentNotices(
+				{ outcome, profileProperties },
+				withSettings(false, false),
+			).some(
+				(notice) => notice.reason === "worker-settings-reset-at-next-publish",
+			);
+		for (const key of [
+			"cc-fuzzy-search-enabled",
+			"cc-autoup-freq",
+			"cc-enable-tts",
+		]) {
+			for (const value of [null, ""]) {
+				expect(reset("read-in-full", settled({ [key]: value })), key).toBe(
+					true,
+				);
+			}
+			const without = Object.fromEntries(
+				Object.entries(SETTLED_PROFILE).filter(([held]) => held !== key),
+			);
+			expect(reset("no-form-ids", without), key).toBe(true);
+		}
+		expect(reset("read-in-full", SETTLED_PROFILE)).toBe(false);
+		expect(
+			reset("read-in-full", settled({ "cc-autoup-freq": "freq-daily" })),
+		).toBe(false);
+		expect(reset("unreadable", null)).toBe(false);
+	});
+
+	it("stores each setting line with its detail, after the lines the enum puts first", () => {
+		const entries = appNoticeEntries(
+			app({
+				deployments: [
+					deployment({
+						outcome: "read-in-full",
+						notices: deploymentNotices(
+							{ outcome: "read-in-full", profileProperties: {} },
+							withSettings(true, true),
+						),
+					}),
+				],
+			}),
+			"Clinic",
+		);
+		expect(entries).toEqual([
+			{
+				kind: "deployment",
+				reason: "setting-changes-at-next-publish",
+				deployment: {
+					deploymentId: "00000000-0000-7000-8000-00000000d001",
+					server: "production",
+					domain: "field-ops",
+				},
+				detail: { setting: "saved", readers: "android" },
+			},
+			{
+				kind: "deployment",
+				reason: "setting-changes-at-next-publish",
+				deployment: {
+					deploymentId: "00000000-0000-7000-8000-00000000d001",
+					server: "production",
+					domain: "field-ops",
+				},
+				detail: { setting: "incomplete", readers: "android" },
+			},
+			{
+				kind: "deployment",
+				reason: "worker-settings-reset-at-next-publish",
+				deployment: {
+					deploymentId: "00000000-0000-7000-8000-00000000d001",
+					server: "production",
+					domain: "field-ops",
+				},
+			},
 		]);
 		for (const entry of entries) {
 			expect(migrationNoticeEntrySchema.safeParse(entry).success).toBe(true);

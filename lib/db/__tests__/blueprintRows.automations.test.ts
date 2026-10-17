@@ -43,6 +43,7 @@ describe("automation entity-row persistence", () => {
 			appId: "automation-row-app",
 			appName: "Referral",
 			connectType: null,
+			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: null,
 			modules: {},
 			forms: {},

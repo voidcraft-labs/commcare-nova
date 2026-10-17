@@ -172,6 +172,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		appId: "test-app",
 		appName: "Clinic Intake",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [
 			{
 				name: "patient",

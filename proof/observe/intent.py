@@ -18,7 +18,14 @@ At each state of a unit (A, B and B-edit, ``observe``, called by
   (``core_raised``);
 - ``evaluations`` (a targeted document only): each expectation whose export
   is this state under this configuration, its request run through Core's
-  ``evaluate`` over the form HQ built (``evaluation``).
+  ``evaluate`` over the form HQ built (``evaluation``);
+- ``addOnsInUse`` and ``addOnsOffered`` (``add_ons``): HQ's own verdict, per
+  add-on, of whether the stored app uses it (``add_ons.py::_ADD_ONS``, each
+  entry's ``used_in_module`` and ``used_in_form`` over every menu and form),
+  and what HQ's app page, each menu's page and each form's page offer of each
+  add-on (``add_ons.py::get_dict`` under that page's own request, as
+  ``views/view_generic.py`` asks it), the menus by position (``<m>``) and the
+  forms by theirs (``<m>.<f>``).
 
 HQ's compile of each CSQL string a search sends is observed with proof 3's
 sessions, which send them (``proof.observe.sessions.search_compiles``).
@@ -295,12 +302,48 @@ def _form_file(wire_modules, entry):
 # The hooks the unit calls -----------------------------------------------------------------
 
 
+def add_ons(unit, app_id):
+    """HQ's own verdict of the add-ons the stored app uses, and what its pages offer of each: ``(in use,
+    offered)``, the latter ``{"app": {slug: bool}, "modules": {"<m>": ...}, "forms": {"<m>.<f>": ...}}``."""
+    from corehq.apps.app_manager import add_ons as hq_add_ons
+    from django.urls import reverse
+
+    from proof.hq import operations
+    from proof.hq import requests as hq_requests
+
+    app = operations.held_app(unit, app_id)
+    forms = [(m, f, form) for m, module in enumerate(app.modules) for f, form in enumerate(module.get_forms())]
+    in_use = {
+        slug: any(bool(add_on.used_in_module(module)) for module in app.modules)
+        or any(bool(add_on.used_in_form(form)) for _, _, form in forms)
+        for slug, add_on in sorted(hq_add_ons._ADD_ONS.items())
+    }
+
+    def offered(view, args, module=None, form=None):
+        # Each page reads the app afresh, as its view does: get_dict's init_app fills an empty map in place.
+        held = operations.held_app(unit, app_id)
+        page_module = None if module is None else held.modules[module]
+        page_form = None if form is None else list(page_module.get_forms())[form]
+        request = hq_requests.get(unit, reverse(view, args=[unit.domain, app_id, *args]))
+        return hq_add_ons.get_dict(request, held, page_module, page_form)
+
+    shown = {
+        "app": offered("view_app", []),
+        "modules": {str(m): offered("view_module", [module.unique_id], m) for m, module in enumerate(app.modules)},
+        "forms": {f"{m}.{f}": offered("view_form", [form.unique_id], m, f) for m, f, form in forms},
+    }
+    return in_use, shown
+
+
 def observe(ctx) -> dict:
-    """The intent observation at one state: HQ's data dictionary, Core's parse of each form HQ built, and a
-    targeted document's expectations run there (``ctx``: ``proof.observe.unit.HookContext``)."""
+    """The intent observation at one state: HQ's data dictionary, Core's parse of each form HQ built, a targeted
+    document's expectations run there, and HQ's verdict and pages' offers of each add-on (``ctx``:
+    ``proof.observe.unit.HookContext``)."""
     with ctx.unit.operation("intent-data-dictionary", b""):
         rows = data_dictionary_rows(ctx.unit.domain)
-    record = {"dataDictionary": rows, "forms": {}}
+    with ctx.unit.operation("intent-add-ons", b""):
+        in_use, offered = add_ons(ctx.unit, ctx.app_id)
+    record = {"dataDictionary": rows, "forms": {}, "addOnsInUse": in_use, "addOnsOffered": offered}
     files = ctx.build.files
     if files is not None:
         record["forms"] = _shapes(ctx.core_runner, files, ctx.blobs, {})

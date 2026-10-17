@@ -50,6 +50,7 @@ export function buildSimpleBlueprint(
 		appId,
 		appName: `${appId}-test-app`,
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes,
 		modules: {},
 		forms: {},

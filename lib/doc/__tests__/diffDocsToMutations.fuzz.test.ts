@@ -1145,4 +1145,15 @@ describe("diffDocsToMutations — explicit cases", () => {
 		);
 		assertRoundTrip(prev, next);
 	});
+
+	it("diffs two documents that differ only in app settings to one setAppSettings", () => {
+		const prev = richDoc();
+		const next = produce(prev, (draft) => {
+			draft.appSettings.showIncompleteForms = true;
+		});
+		expect(diffDocsToMutations(prev, next)).toEqual([
+			{ kind: "setAppSettings", settings: { showIncompleteForms: true } },
+		]);
+		assertRoundTrip(prev, next);
+	});
 });

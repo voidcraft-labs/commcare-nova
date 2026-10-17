@@ -20,7 +20,18 @@ HQ's URLconf and answered by the view it names, decorators and all.
   in its order), with a property on one field and an attribute and those three owners on every row, and
   uploaded through HQ's lookup upload without ``replace``, as HQ's upload page sends it by default
   (``fixtures/upload/run_upload.py::_run_upload``); then HQ's table editor gives it a description
-  (``fixtures/views.py::update_tables``, the PUT the editor sends).
+  (``fixtures/views.py::update_tables``, the PUT the editor sends);
+- ``addOns``: the add-ons section as the person saves it, posted as the section posts its switches (``on`` or
+  empty, by slug) to ``views/apps.py::edit_add_ons``, which stores each slug it lists and no other. The section
+  posts every slug HQ lists (``app_manager/js/add_ons.js``, ``EditAddOns``), and ``edit_add_ons`` fills an empty
+  map with every slug before it stores the posted ones (``add_ons.get_dict``, ``add_ons.init_app``), so a save
+  naming fewer is not what a person's page sends and is refused (``HqSideSaveRefused``);
+- ``profileProperties``: each setting the person changes on the app settings page, posted as that page posts it
+  (``{"properties": {...}}``) to ``views/settings.py::edit_commcare_profile``, which stores each beside the
+  settings A holds (and, under ``CUSTOM_PROPERTIES``, resets ``custom_properties`` to ``{}``).
+
+``hq-side.json`` also states what Nova's next publish over the saves does (``republish``, with ``stopCode`` where
+it stops), which the capture holds at emission (``proof/corpus/publish.ts``); neither is a save.
 
 A save HQ refuses stops the observation (``HqSideSaveRefused``): the harness makes these saves, so a refusal is a
 harness that no longer saves as a person does, not something of Nova's to judge. ``save`` returns what the unit
@@ -266,18 +277,42 @@ def lookup_table(unit, spec):
     return [{"view": "_run_upload", "messages": [str(message) for message in uploaded.messages]}, described]
 
 
+def add_ons(unit, app_id, switches):
+    """Every add-on switched on or off as the add-ons section saves it: ``on``, or empty for off."""
+    from corehq.apps.app_manager.add_ons import _ADD_ONS
+
+    if set(switches) != set(_ADD_ONS):
+        raise HqSideSaveRefused(
+            f"hq-side.json's addOns names {sorted(switches)}, and HQ's add-ons section posts every add-on HQ lists,"
+            f" {sorted(_ADD_ONS)} (app_manager/js/add_ons.js, EditAddOns). State each at the value the section"
+            " shows, with the person's switches changed."
+        )
+    body, content_type = _form([(slug, "on" if on else "") for slug, on in sorted(switches.items())])
+    return [_answer(unit, "POST", "edit_add_ons", [unit.domain, app_id], body, content_type, "add-ons")]
+
+
+def profile_properties(unit, app_id, properties):
+    """Each setting saved as the app settings page saves it."""
+    body, content_type = _json_body({"properties": dict(sorted(properties.items()))})
+    return [_answer(unit, "POST", "edit_commcare_profile", [unit.domain, app_id], body, content_type, "app settings")]
+
+
 SAVES = (
     ("uiTranslations", lambda unit, app_id, value: ui_translations(unit, app_id, value)),
     ("appAttributes", lambda unit, app_id, value: app_attributes(unit, app_id, value)),
     ("buildProfiles", lambda unit, app_id, value: build_profiles(unit, app_id, value)),
     ("lookupTable", lambda unit, app_id, value: lookup_table(unit, value)),
+    ("addOns", lambda unit, app_id, value: add_ons(unit, app_id, value)),
+    ("profileProperties", lambda unit, app_id, value: profile_properties(unit, app_id, value)),
 )
+# What ``hq-side.json`` states beside the saves: what Nova's next publish over them does.
+STATEMENTS = ("republish", "stopCode")
 
 
 def save(unit, ops, app_id, saves):
     """Every save ``saves`` (``hq-side.json``) names, each an operation of ``ops`` keyed by what it saves, in
     ``SAVES``' order; what HQ answered each, by its kind."""
-    unknown = sorted(set(saves) - {kind for kind, _ in SAVES})
+    unknown = sorted(set(saves) - {kind for kind, _ in SAVES} - set(STATEMENTS))
     if unknown:
         raise ValueError(
             f"hq-side.json names {unknown}, which the harness does not save; it saves {[kind for kind, _ in SAVES]}."

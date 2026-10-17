@@ -795,6 +795,8 @@ minutes.
 
 The App Settings panel carries a conditional **data-sources row** (`appSettings/AppDataSourcesSection.tsx`): when the app reads case properties no form in it writes (`lib/doc/unwrittenProperties.ts`, via `useUnwrittenPropertyCards`), the row states the count and opens `UnwrittenPropertiesDialog` — an informational list (property, case type, where it's read), deliberately neutral chrome with no semantic color and no action, because a no-writer read is a normal state (viewer apps, staged sample data), not a defect. At zero the row renders nothing.
 
+The App Settings panel carries a **saved and incomplete forms** section (`appSettings/AppSavedFormsSection.tsx`): two switches, each reading the document through `useAppSettings` and committing `setAppSettings` with the one key it changes, so a stale editor never writes over a peer's change to the other. The section holds no state of its own, so the reducer is its state model.
+
 `media/mediaLibrary.ts` owns one immutable app/Project/search scope, page
 requests, retries, loaded rows, and cancellation. `media/mediaUpload.ts` owns
 one upload controller and checks live write authority before starting and

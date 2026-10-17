@@ -69,6 +69,8 @@ describe("readHqAppSource", () => {
 			);
 			expect(source.profile).toEqual(body.profile);
 			expect(source.langs).toEqual(body.langs);
+			expect(source.translations).toEqual(body.translations);
+			expect(source.addOns).toEqual(body.add_ons);
 			expect(source.raw).toEqual(body);
 			expect(source.modules.length).toBeGreaterThan(0);
 			const attachments = body._attachments as Record<string, string>;
@@ -170,6 +172,18 @@ describe("readHqAppSource", () => {
 			"no profile",
 			(body: Record<string, unknown>) => {
 				delete body.profile;
+			},
+		],
+		[
+			"no translations",
+			(body: Record<string, unknown>) => {
+				delete body.translations;
+			},
+		],
+		[
+			"no add_ons",
+			(body: Record<string, unknown>) => {
+				delete body.add_ons;
 			},
 		],
 		[

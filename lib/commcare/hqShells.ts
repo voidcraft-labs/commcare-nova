@@ -241,6 +241,13 @@ export function applicationShell(
 		autoGpsCapture?: boolean;
 		langs?: string[];
 		translations?: Record<string, Record<string, string>>;
+		/** The needed add-on slugs, each written `true`; none writes no `add_ons`. */
+		addOns?: readonly string[];
+		/** The profile settings, written into `profile.properties` as `{ key: value }`. */
+		profileProperties?: readonly {
+			readonly key: string;
+			readonly value: string;
+		}[];
 		profileCustomProperties?: Readonly<Record<string, string>>;
 	},
 ): HqApplication {
@@ -251,19 +258,33 @@ export function applicationShell(
 	 * retained. So target-owned settings and state — `cloudcare_enabled`,
 	 * `case_sharing`, `secure_submissions`, the build/release
 	 * metadata, and the rest of HQ's app Settings page attributes — are
-	 * deliberately NOT emitted. `profile` is the narrow exception: this shell
-	 * may carry only the custom properties derived in `derivedProfile.ts`; the
-	 * update path replaces that partial bag with its safe overlay onto the
-	 * current target profile before import. Every other omitted field was
-	 * previously sent at exactly HQ's
-	 * own schema default, so create behaves identically (couch `wrap`
-	 * supplies the same default, and `_create_app_from_doc` sets
+	 * deliberately NOT emitted. Three keys carry Nova's values beside the
+	 * target's own, `translations`, `add_ons` and `profile`; the update path
+	 * projects each onto the target's current value before import
+	 * (`targetOverlay.ts`). `auto_gps_capture` is written only `true`, for a
+	 * Connect app: an absent key keeps the Auto Capture Location a person
+	 * turned on in HQ. Every other omitted field was previously sent at
+	 * exactly HQ's own schema default, so create behaves identically (couch
+	 * `wrap` supplies the same default, and `_create_app_from_doc` sets
 	 * `cloudcare_enabled` itself from the domain's Web Apps privilege),
-	 * while an in-place update now leaves the project's HQ-side
-	 * configuration standing instead of resetting it on every republish.
-	 * `logo_refs` follows the same rule in `expander.ts`: assigned only
-	 * when the app has a Nova-authored logo, because an empty one would
-	 * remove a logo uploaded on CommCare HQ. */
+	 * while an in-place update leaves the project's HQ-side configuration
+	 * standing instead of resetting it on every republish. `logo_refs`
+	 * follows the same rule in `expander.ts`: assigned only when the app has
+	 * a Nova-authored logo, because an empty one would remove a logo
+	 * uploaded on CommCare HQ. */
+	const properties = options?.profileProperties ?? [];
+	const customProperties = options?.profileCustomProperties ?? {};
+	const profile = {
+		...(properties.length > 0 && {
+			properties: Object.fromEntries(
+				properties.map(({ key, value }) => [key, value]),
+			),
+		}),
+		...(Object.keys(customProperties).length > 0 && {
+			custom_properties: { ...customProperties },
+		}),
+	};
+	const addOns = options?.addOns ?? [];
 	return {
 		doc_type: "Application",
 		application_version: "2.0",
@@ -278,25 +299,11 @@ export function applicationShell(
 			build_number: null,
 		},
 		translations: options?.translations ?? {},
-		auto_gps_capture: options?.autoGpsCapture ?? false,
-		...(options?.profileCustomProperties &&
-			Object.keys(options.profileCustomProperties).length > 0 && {
-				profile: {
-					custom_properties: { ...options.profileCustomProperties },
-				},
-			}),
-		add_ons: {
-			advanced_itemsets: true,
-			calc_xpaths: true,
-			case_detail_overwrite: true,
-			case_list_menu_item: true,
-			conditional_enum: true,
-			conditional_form_actions: true,
-			display_conditions: true,
-			enum_image: true,
-			subcases: true,
-			register_from_case_list: true,
-		},
+		...(options?.autoGpsCapture === true && { auto_gps_capture: true }),
+		...(Object.keys(profile).length > 0 && { profile }),
+		...(addOns.length > 0 && {
+			add_ons: Object.fromEntries(addOns.map((slug) => [slug, true])),
+		}),
 		// `_attachments` last, so the serialized JSON keeps a stable,
 		// deterministic property order with the form XML at the end.
 		modules,

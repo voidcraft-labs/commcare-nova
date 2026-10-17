@@ -71,6 +71,7 @@ function setup() {
 		appId: "app-1",
 		appName: "Hooks Test",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
 			[MOD_UUID]: {

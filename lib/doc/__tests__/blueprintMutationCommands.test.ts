@@ -369,6 +369,7 @@ describe("Builder mutation commands", () => {
 			appId: "t",
 			appName: "Test",
 			connectType: null,
+			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: [
 				{
 					name: "patient",

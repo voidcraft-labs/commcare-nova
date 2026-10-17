@@ -1,15 +1,5 @@
 [
 	{
-		"id": "d2-display-condition-validate-form-filter-xpath",
-		"defect": 2,
-		"part": "form display condition on the loaded case",
-		"check": "bar",
-		"artifact": "validate_app@*",
-		"path": "/modules/*/forms/*/form filter has xpath error",
-		"document": "expander-display-condition-hq-projection-projects-typed-c7fa4700-0",
-		"control": "expander-display-condition-hq-projection-projects-typed-c7fa4700-0"
-	},
-	{
 		"id": "d3-case-references-app-case-references-data-save",
 		"defect": 3,
 		"part": "case references save",
@@ -38,61 +28,6 @@
 		"path": "/*/*",
 		"document": "case-operation-relevance",
 		"control": "case-operation-query"
-	},
-	{
-		"id": "d4-translations-app-strings-home-start",
-		"defect": 4,
-		"part": "translations",
-		"check": "proof2",
-		"artifact": "app_strings:*",
-		"path": "/home.start",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state",
-		"kind": "removed"
-	},
-	{
-		"id": "d4-auto-gps-capture-form-bind",
-		"defect": 4,
-		"part": "auto_gps_capture",
-		"check": "proof2",
-		"artifact": "form:*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/meta/location]",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state",
-		"kind": "removed"
-	},
-	{
-		"id": "d4-auto-gps-capture-form-meta",
-		"defect": 4,
-		"part": "auto_gps_capture",
-		"check": "proof2",
-		"artifact": "form:*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/meta[*]/location[*]",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state",
-		"kind": "removed"
-	},
-	{
-		"id": "d4-auto-gps-capture-form-pollsensor",
-		"defect": 4,
-		"part": "auto_gps_capture",
-		"check": "proof2",
-		"artifact": "form:*",
-		"path": "/html/head[*]/model[*]/pollsensor[*]",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state",
-		"kind": "removed"
-	},
-	{
-		"id": "d4-auto-gps-capture-trace-location",
-		"defect": 4,
-		"part": "auto_gps_capture",
-		"check": "proof3",
-		"artifact": "trace@B",
-		"path": "/runs/*/trace/*/submission/data/meta[*]/location[*]",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state",
-		"kind": "removed"
 	},
 	{
 		"id": "d5-reserved-substrings-evaluate",
@@ -288,90 +223,6 @@
 		"path": "/xpath-token:LT/refused/time-operand",
 		"document": "targeted-time-ordering",
 		"control": "targeted-time-ordering"
-	},
-	{
-		"id": "d7-show-saved-incomplete-trace-profile-cc-show-incomplete",
-		"defect": 7,
-		"part": "saved and incomplete forms",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/profile/properties/cc-show-incomplete",
-		"document": "targeted-survey-menu",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d7-show-saved-incomplete-trace-profile-cc-show-saved",
-		"defect": 7,
-		"part": "saved and incomplete forms",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/profile/properties/cc-show-saved",
-		"document": "targeted-survey-menu",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d8-validation-core-constraints",
-		"defect": 8,
-		"part": "barcode and secret validation",
-		"check": "intent",
-		"artifact": "core:*form:*",
-		"path": "/constraints/*",
-		"document": "targeted-validated-barcode-secret",
-		"control": "targeted-validated-barcode-secret"
-	},
-	{
-		"id": "d8-validation-evaluate-constraints-result",
-		"defect": 8,
-		"part": "barcode and secret validation",
-		"check": "intent",
-		"artifact": "evaluate:six-characters-*",
-		"path": "/constraints/*/result",
-		"values": {
-			"before": "constraint",
-			"after": "ok"
-		},
-		"document": "targeted-validated-barcode-secret",
-		"control": "targeted-validated-barcode-secret"
-	},
-	{
-		"id": "d9-form-version-trace-version",
-		"defect": 9,
-		"part": "form version",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission/data/@version",
-		"document": "case-list-inline",
-		"control": "targeted-hq-side-state"
-	},
-	{
-		"id": "d9-required-version-trace-requiredversion-requiredmajor",
-		"defect": 9,
-		"part": "required version",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/profile/requiredVersion/requiredMajor",
-		"document": "targeted-survey-menu",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d9-required-version-trace-requiredversion-requiredminor",
-		"defect": 9,
-		"part": "required version",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/profile/requiredVersion/requiredMinor",
-		"document": "targeted-survey-menu",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d9-uniqueid-ccz-uniqueid",
-		"defect": 9,
-		"part": "uniqueid",
-		"check": "proof1",
-		"artifact": "local.ccz",
-		"path": "/uniqueid",
-		"document": "targeted-multi-select-destinations",
-		"control": "case-operation-query"
 	},
 	{
 		"id": "d10-row-order-trace-rows-caseid",
@@ -4795,16 +4646,6 @@
 		"control": "case-extension-registration"
 	},
 	{
-		"id": "d34-connect-location-trace-meta-location",
-		"defect": 34,
-		"part": "Connect location capture",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission/data/meta[*]/location[*]",
-		"document": "targeted-invalid-connect-ids",
-		"control": "targeted-hq-side-state"
-	},
-	{
 		"id": "d35-hidden-select-text-trace-rows-fields",
 		"defect": 35,
 		"part": "hidden select column text",
@@ -4863,276 +4704,6 @@
 		"path": "/runs/*/trace/*/templateWidths/*",
 		"document": "case-list-inline",
 		"control": "case-list-inline"
-	},
-	{
-		"id": "d39-locale-trace-locale",
-		"defect": 39,
-		"part": "local profile locale",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/locale",
-		"document": "targeted-survey-menu",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-app-profile",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "app.json@app settings@*",
-		"path": "/profile/properties",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-profile-property-key-cc-autoup-freq",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-autoup-freq]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-profile-property-key-cc-content-valid",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-content-valid]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-profile-property-key-cc-enable-tts",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-enable-tts]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-profile-property-key-cc-fuzzy-search-enabled",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-fuzzy-search-enabled]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-property-key-cc-gps-auto-capture-accuracy",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-gps-auto-capture-accuracy]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-profile-property-key-cc-autoup-freq",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-autoup-freq]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-profile-property-key-cc-content-valid",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-content-valid]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-profile-property-key-cc-enable-tts",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-enable-tts]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-profile-property-key-cc-fuzzy-search-enabled",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-fuzzy-search-enabled]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-property-key-cc-gps-auto-capture-accuracy",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-gps-auto-capture-accuracy]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-profile-property-key-cc-autoup-freq",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-autoup-freq]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-profile-property-key-cc-content-valid",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-content-valid]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-profile-property-key-cc-enable-tts",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-enable-tts]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-profile-property-key-cc-fuzzy-search-enabled",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-fuzzy-search-enabled]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-property-key-cc-gps-auto-capture-accuracy",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-gps-auto-capture-accuracy]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-profile-property-key-cc-autoup-freq",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-autoup-freq]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-profile-property-key-cc-content-valid",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-content-valid]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-profile-property-key-cc-enable-tts",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-enable-tts]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-profile-property-key-cc-fuzzy-search-enabled",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-fuzzy-search-enabled]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-property-key-cc-gps-auto-capture-accuracy",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-gps-auto-capture-accuracy]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-profile-cc-autoup-freq",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-autoup-freq",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-profile-cc-content-valid",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-content-valid",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-profile-cc-enable-tts",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-enable-tts",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-profile-cc-fuzzy-search-enabled",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-fuzzy-search-enabled",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-profile-cc-gps-auto-capture-accuracy",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-gps-auto-capture-accuracy",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
 	},
 	{
 		"id": "d41-empty-list-text-app-no-items-text",
@@ -5433,506 +5004,6 @@
 		"control": "targeted-reserved-node-names"
 	},
 	{
-		"id": "d40-app-settings-media-profile-ccpr-cc-autosync-freq",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-autosync-freq]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-cc-autosync-freq",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-autosync-freq]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-cc-autosync-freq",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-autosync-freq]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-cc-autosync-freq",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-autosync-freq]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-cc-autosync-freq",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-autosync-freq",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-ccpr-cc-days-form-retain",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-days-form-retain]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-cc-days-form-retain",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-days-form-retain]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-cc-days-form-retain",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-days-form-retain]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-cc-days-form-retain",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-days-form-retain]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-cc-days-form-retain",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-days-form-retain",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-ccpr-cc-inflation-target-density",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-inflation-target-density]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-cc-inflation-target-density",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-inflation-target-density]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-cc-inflation-target-density",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-inflation-target-density]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-cc-inflation-target-density",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-inflation-target-density]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-cc-inflation-target-density",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-inflation-target-density",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-ccpr-cc-label-required-questions-with-asterisk",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-cc-label-required-questions-with-asterisk",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-cc-label-required-questions-with-asterisk",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-cc-label-required-questions-with-asterisk",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-cc-label-required-questions-with-asterisk",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-label-required-questions-with-asterisk",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-ccpr-cc-login-duration-seconds",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-login-duration-seconds]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-cc-login-duration-seconds",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-login-duration-seconds]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-cc-login-duration-seconds",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-login-duration-seconds]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-cc-login-duration-seconds",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-login-duration-seconds]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-cc-login-duration-seconds",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-login-duration-seconds",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-ccpr-cc-maps-default-layer",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-maps-default-layer]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-cc-maps-default-layer",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-maps-default-layer]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-cc-maps-default-layer",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-maps-default-layer]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-cc-maps-default-layer",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-maps-default-layer]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-cc-maps-default-layer",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-maps-default-layer",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-ccpr-cc-resize-images",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-resize-images]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-cc-resize-images",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-resize-images]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-cc-resize-images",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=cc-resize-images]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-cc-resize-images",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=cc-resize-images]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-cc-resize-images",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/cc-resize-images",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-ccpr-logenabled",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=logenabled]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-logenabled",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=logenabled]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-logenabled",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=logenabled]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-logenabled",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=logenabled]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-logenabled",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/logenabled",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-ccpr-unsent-number-limit",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=unsent-number-limit]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-unsent-number-limit",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=unsent-number-limit]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-unsent-number-limit",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=unsent-number-limit]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-unsent-number-limit",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=unsent-number-limit]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-unsent-number-limit",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/unsent-number-limit",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-ccpr-unsent-time-limit",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=unsent-time-limit]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-media-profile-xml-unsent-time-limit",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "media_profile.xml@app settings@*",
-		"path": "/profile/property[@key=unsent-time-limit]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-ccpr-unsent-time-limit",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.ccpr@app settings@*",
-		"path": "/profile/property[@key=unsent-time-limit]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-profile-xml-unsent-time-limit",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "profile.xml@app settings@*",
-		"path": "/profile/property[@key=unsent-time-limit]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d40-app-settings-trace-unsent-time-limit",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "trace@app settings@*",
-		"path": "/profile/properties/unsent-time-limit",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
 		"id": "d53-zero-input-sentinel-trace-params",
 		"defect": 53,
 		"part": "zero-input search sentinel",
@@ -6206,26 +5277,6 @@
 		"control": "targeted-search-related-lookups"
 	},
 	{
-		"id": "d4-auto-gps-capture-formplayer-b-data-meta-location",
-		"defect": 4,
-		"part": "auto_gps_capture",
-		"check": "proof3",
-		"artifact": "formplayer@B",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state"
-	},
-	{
-		"id": "d4-auto-gps-capture-formplayer-b-data-meta-location-2",
-		"defect": 4,
-		"part": "auto_gps_capture",
-		"check": "proof3",
-		"artifact": "formplayer@B",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state"
-	},
-	{
 		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-asked",
 		"defect": 20,
 		"part": "sync on form entry (the session)",
@@ -6234,26 +5285,6 @@
 		"path": "/runs/*/steps/*/asked/*",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry"
-	},
-	{
-		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-alttext",
-		"defect": 65,
-		"part": "texts the local archive leaves out",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/details/*/altText/*",
-		"document": "case-list-browse",
-		"control": "case-list-browse"
-	},
-	{
-		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-alttext-2",
-		"defect": 65,
-		"part": "texts the local archive leaves out",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/entities/*/altText/*",
-		"document": "case-list-inline",
-		"control": "case-list-inline"
 	},
 	{
 		"id": "d35-hidden-select-column-text-formplayer-local-ccz-data",
@@ -6316,38 +5347,6 @@
 		"control": "case-extension-query"
 	},
 	{
-		"id": "d9-form-version-formplayer-local-ccz-output-data-version",
-		"defect": 9,
-		"part": "form version",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/@version",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state"
-	},
-	{
-		"id": "d9-form-version-formplayer-local-ccz-submissions-data-version",
-		"defect": 9,
-		"part": "form version",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/@version",
-		"kind": "changed",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state-after-59"
-	},
-	{
-		"id": "d9-form-version-formplayer-local-ccz-submit-nextscreen-output-data-version",
-		"defect": 9,
-		"part": "form version",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submit/nextScreen/instanceXml/output/data/@version",
-		"kind": "changed",
-		"document": "targeted-form-link-hidden-target",
-		"control": "targeted-form-link-hidden-target-after-59"
-	},
-	{
 		"id": "d33-trimmed-case-names-and-exter-formplayer-local-ccz-update-external-id-text",
 		"defect": 33,
 		"part": "trimmed case names and external ids",
@@ -6388,16 +5387,6 @@
 		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]/update[*]/order()",
 		"document": "workforce-case-operation-sequence",
 		"control": "workforce-case-operation-sequence"
-	},
-	{
-		"id": "d34-connect-location-capture-formplayer-local-ccz-data-meta-location",
-		"defect": 34,
-		"part": "Connect location capture",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state"
 	},
 	{
 		"id": "d37-new-case-order-formplayer-local-ccz-output-data-order",
@@ -6507,16 +5496,6 @@
 		"control": "targeted-sync-on-form-entry"
 	},
 	{
-		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-response-noitemstext",
-		"defect": 65,
-		"part": "texts the local archive leaves out",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/noItemsText",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
 		"id": "d36-hidden-sort-column-offered-formplayer-local-ccz-persistentcasetile-headers",
 		"defect": 36,
 		"part": "hidden sort column offered",
@@ -6525,16 +5504,6 @@
 		"path": "/runs/*/steps/*/response/persistentCaseTile/headers/*",
 		"document": "tile-persistent",
 		"control": "tile-persistent"
-	},
-	{
-		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-response-selecttext",
-		"defect": 65,
-		"part": "texts the local archive leaves out",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/selectText",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
 	},
 	{
 		"id": "d51-sort-keys-formplayer-local-ccz-response-sortindices",
@@ -6556,49 +5525,6 @@
 		"kind": "removed",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile-after-59"
-	},
-	{
-		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-response-translations",
-		"defect": 65,
-		"part": "texts the local archive leaves out",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/translations/*",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-submit-nextscreen-noitemstext",
-		"defect": 65,
-		"part": "texts the local archive leaves out",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submit/nextScreen/noItemsText",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-after-59"
-	},
-	{
-		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-submit-nextscreen-selecttext",
-		"defect": 65,
-		"part": "texts the local archive leaves out",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submit/nextScreen/selectText",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-after-59"
-	},
-	{
-		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-submit-nextscreen-translations",
-		"defect": 65,
-		"part": "texts the local archive leaves out",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submit/nextScreen/translations/*",
-		"kind": "removed",
-		"document": "targeted-form-link-hidden-target",
-		"control": "targeted-form-link-hidden-target-after-59"
 	},
 	{
 		"id": "d12-custom-tile-formplayer-case-list-response-maxheight",
@@ -7272,26 +6198,6 @@
 		"control": "tile-grouped-search"
 	},
 	{
-		"id": "d62-incomplete-forms-tile-webapps-app-settings-home-tiles-incomplete",
-		"defect": 62,
-		"part": "Incomplete Forms tile",
-		"check": "proof4",
-		"artifact": "webapps@app settings@*",
-		"path": "/home/tiles/incomplete",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d62-incomplete-forms-tile-webapps-app-settings-screens-tiles-incomplete",
-		"defect": 62,
-		"part": "Incomplete Forms tile",
-		"check": "proof4",
-		"artifact": "webapps@app settings@*",
-		"path": "/runs/*/screens/*/tiles/incomplete",
-		"document": "targeted-invalid-question-ids",
-		"control": "targeted-invalid-question-ids"
-	},
-	{
 		"id": "d21-list-first-turned-search-fir-webapps-case-list-screens-kind",
 		"defect": 21,
 		"part": "list-first turned search-first",
@@ -7505,39 +6411,6 @@
 		"control": "container-nested-query"
 	},
 	{
-		"id": "d34-connect-location-capture-connect-local-ccz-visits-flags-gps",
-		"defect": 34,
-		"part": "Connect location capture",
-		"check": "proof3",
-		"artifact": "connect@local.ccz",
-		"path": "/runs/*/state/visits/*/flags/gps",
-		"kind": "added",
-		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename"
-	},
-	{
-		"id": "d34-connect-location-capture-connect-local-ccz-visits-location",
-		"defect": 34,
-		"part": "Connect location capture",
-		"check": "proof3",
-		"artifact": "connect@local.ccz",
-		"path": "/runs/*/state/visits/*/location",
-		"kind": "changed",
-		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename"
-	},
-	{
-		"id": "d34-connect-location-capture-formplayer-local-ccz-submissions-data-meta-location",
-		"defect": 34,
-		"part": "Connect location capture",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]",
-		"kind": "removed",
-		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename-after-59"
-	},
-	{
 		"id": "d60-connect-key-names-connect-a-refused-500-keyerror",
 		"defect": 60,
 		"part": "Connect block named like a Connect key",
@@ -7560,28 +6433,6 @@
 		"control": "targeted-connect-deliver-rename"
 	},
 	{
-		"id": "d9-android-proof1-local-ccz-installs-changed",
-		"defect": 9,
-		"part": "uniqueid (two exports install as two apps)",
-		"check": "proof1",
-		"artifact": "android@local.ccz",
-		"path": "/installs/*",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d9-android-proof1-local-ccz-update-changed",
-		"defect": 9,
-		"part": "uniqueid (no update to the next export)",
-		"check": "proof1",
-		"artifact": "android@local.ccz",
-		"path": "/update",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
 		"id": "d48-android-proof3-a-query-withanswer-sent-unquotable-search-error",
 		"defect": 48,
 		"part": "a search answer holding both quote marks",
@@ -7591,28 +6442,6 @@
 		"kind": "error",
 		"document": "targeted-search-hq-compile",
 		"control": "targeted-search-hq-compile"
-	},
-	{
-		"id": "d4-android-proof3-b-form-deviceasked-removed",
-		"defect": 4,
-		"part": "auto_gps_capture (the location permission)",
-		"check": "proof3",
-		"artifact": "android@B",
-		"path": "/walks/*/steps/*/form/deviceAsked",
-		"kind": "removed",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state"
-	},
-	{
-		"id": "d7-android-proof3-local-ccz-home-gethiddenbuttons-incomplete-removed",
-		"defect": 7,
-		"part": "saved and incomplete forms",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/home/StandardHomeActivityUIController.getHiddenButtons/incomplete",
-		"kind": "removed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
 	},
 	{
 		"id": "d14-android-proof3-local-ccz-install-changed",
@@ -7645,48 +6474,49 @@
 		}
 	},
 	{
-		"id": "d39-android-proof3-local-ccz-locale-localization-getcurrentlocale-changed",
-		"defect": 39,
-		"part": "local profile locale",
-		"check": "proof3",
+		"id": "d15-android-proof1-local-ccz-installs-changed",
+		"defect": 15,
+		"part": "question ids (HQ's build does not install)",
+		"check": "proof1",
 		"artifact": "android@local.ccz",
-		"path": "/profile/locale/Localization.getCurrentLocale",
+		"path": "/installs/*",
 		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
+		"document": "targeted-invalid-question-ids",
+		"control": "targeted-invalid-question-ids-after-9",
+		"values": {
+			"before": "InvalidResource",
+			"after": "Installed"
+		}
 	},
 	{
-		"id": "d7-android-proof3-local-ccz-readers-hiddenpreferences-isincompleteformsenabled-changed",
-		"defect": 7,
-		"part": "saved and incomplete forms",
-		"check": "proof3",
+		"id": "d15-android-proof1-local-ccz-installs-changed-2",
+		"defect": 15,
+		"part": "question ids (HQ's build does not install)",
+		"check": "proof1",
 		"artifact": "android@local.ccz",
-		"path": "/profile/readers/HiddenPreferences.isIncompleteFormsEnabled",
+		"path": "/installs/*",
 		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
+		"document": "targeted-invalid-question-ids",
+		"control": "targeted-invalid-question-ids-after-9",
+		"values": {
+			"before": "InvalidResource",
+			"after": "DuplicateApp"
+		}
 	},
 	{
-		"id": "d7-android-proof3-local-ccz-readers-hiddenpreferences-issavedformsenabled-changed",
-		"defect": 7,
-		"part": "saved and incomplete forms",
-		"check": "proof3",
+		"id": "d15-android-proof1-local-ccz-update-changed",
+		"defect": 15,
+		"part": "question ids (HQ's build does not install)",
+		"check": "proof1",
 		"artifact": "android@local.ccz",
-		"path": "/profile/readers/HiddenPreferences.isSavedFormsEnabled",
+		"path": "/update",
 		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d7-android-proof3-local-ccz-form-saved-aftersend-changed",
-		"defect": 7,
-		"part": "saved and incomplete forms (a sent form the device keeps)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/form/saved/afterSend/*",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
+		"document": "targeted-invalid-question-ids",
+		"control": "targeted-invalid-question-ids-after-9",
+		"values": {
+			"before": "not installed: InvalidResource",
+			"after": "UpToDate"
+		}
 	},
 	{
 		"id": "d20-android-proof3-local-ccz-ter-menuactivity-home-session-refresh-required-formentryactivity-changed",
@@ -7698,17 +6528,6 @@
 		"kind": "changed",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry"
-	},
-	{
-		"id": "d34-android-proof3-local-ccz-form-deviceasked-removed",
-		"defect": 34,
-		"part": "Connect location capture (the location permission)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/form/deviceAsked",
-		"kind": "removed",
-		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename"
 	},
 	{
 		"id": "d14-android-proof3-local-ccz-form-saved-cases-changed",
@@ -7882,72 +6701,6 @@
 		"kind": "removed",
 		"document": "search-automatic",
 		"control": "search-automatic"
-	},
-	{
-		"id": "d40-android-proof4-app-settings-readers-commcareapp-aremmresourcesvalidated-changed",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "android@app settings@*",
-		"path": "/profile/readers/CommCareApp.areMMResourcesValidated",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d40-android-proof4-app-settings-readers-hiddenpreferences-getgpsautocaptureaccuracy-changed",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "android@app settings@*",
-		"path": "/profile/readers/HiddenPreferences.getGpsAutoCaptureAccuracy",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d40-android-proof4-app-settings-readers-mainconfigurablepreferences-isfuzzysearchenabled-changed",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults",
-		"check": "proof4",
-		"artifact": "android@app settings@*",
-		"path": "/profile/readers/MainConfigurablePreferences.isFuzzySearchEnabled",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d40-android-proof4-app-settings-update-workersettings-cc-autoup-freq-changed",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults (forced at an update)",
-		"check": "proof4",
-		"artifact": "android@app settings@*",
-		"path": "/update/workerSettings/cc-autoup-freq",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d40-android-proof4-app-settings-update-workersettings-cc-enable-tts-changed",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults (forced at an update)",
-		"check": "proof4",
-		"artifact": "android@app settings@*",
-		"path": "/update/workerSettings/cc-enable-tts",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d40-android-proof4-app-settings-list-searches-asinstalled-changed",
-		"defect": 40,
-		"part": "app settings save writes HQ's defaults (fuzzy search)",
-		"check": "proof4",
-		"artifact": "android@app settings@*",
-		"path": "/walks/*/steps/*/list/searches/asInstalled/*",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
 	},
 	{
 		"id": "d14-android-proof4-case-list-list-actions-changed",
@@ -8740,50 +7493,6 @@
 		"kind": "changed",
 		"document": "targeted-supply-point-read",
 		"control": "targeted-supply-point-read"
-	},
-	{
-		"id": "d34-android-proof3-local-ccz-form-devicegave-removed",
-		"defect": 34,
-		"part": "Connect location capture (the location fix)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/form/deviceGave",
-		"kind": "removed",
-		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename"
-	},
-	{
-		"id": "d34-android-proof3-local-ccz-form-saved-records-metalocation-removed",
-		"defect": 34,
-		"part": "Connect location capture (the location the saved form holds)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
-		"kind": "removed",
-		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename"
-	},
-	{
-		"id": "d4-android-proof3-b-form-devicegave-removed",
-		"defect": 4,
-		"part": "auto_gps_capture (the location fix)",
-		"check": "proof3",
-		"artifact": "android@B",
-		"path": "/walks/*/steps/*/form/deviceGave",
-		"kind": "removed",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state"
-	},
-	{
-		"id": "d4-android-proof3-b-form-saved-records-metalocation-removed",
-		"defect": 4,
-		"part": "auto_gps_capture (the location the saved form holds)",
-		"check": "proof3",
-		"artifact": "android@B",
-		"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
-		"kind": "removed",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state"
 	},
 	{
 		"id": "d53-android-proof3-local-ccz-query-typed-getrawqueryparams-removed",

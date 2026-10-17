@@ -211,6 +211,7 @@ export function canonicalTestBlueprint(
 		appId,
 		appName: APP_GENESIS_FALLBACK_NAME,
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},
 		forms: {},
@@ -392,6 +393,10 @@ export function setupAppStateTestDb(
 							persistable?.localization === undefined
 								? null
 								: JSON.stringify(persistable.localization),
+						app_settings:
+							persistable === null
+								? null
+								: JSON.stringify(persistable.appSettings),
 						logo: persistable?.logo ?? null,
 						module_count:
 							opts.module_count ?? persistable?.moduleOrder.length ?? 0,

@@ -19,6 +19,7 @@ import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -195,5 +196,36 @@ describe("commitGuardedBatch — seq recompute", () => {
 			.execute();
 		expect(rows.map((r) => Number(r.seq))).toEqual([1, 2]);
 		expect(await readSeq(appId)).toBe(2);
+	});
+});
+
+describe("commitGuardedBatch — app settings", () => {
+	it("writes apps.app_settings and reads the row back as the same document", async () => {
+		const doc = minDoc();
+		const appId = await h.seedAppWithBlueprint(doc, {
+			projectId: PROJECT,
+			owner: OWNER,
+		});
+
+		await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			mutations: [
+				{ kind: "setAppSettings", settings: { showIncompleteForms: true } },
+			],
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+
+		const expected = { showSavedForms: false, showIncompleteForms: true };
+		expect((await h.readAppRow(appId))?.app_settings).toEqual(expected);
+		const { loadApp } = await import("../apps");
+		const reloaded = await loadApp(appId);
+		expect(reloaded?.blueprint).toEqual({
+			...toPersistableDoc(doc),
+			appId,
+			appSettings: expected,
+		});
 	});
 });

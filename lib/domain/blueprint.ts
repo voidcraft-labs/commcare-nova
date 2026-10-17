@@ -88,6 +88,28 @@ export const CONNECT_TYPE_LABELS: Readonly<Record<ConnectType, string>> = {
  */
 export const APP_GENESIS_FALLBACK_NAME = "Untitled";
 
+/**
+ * The app's settings for what a worker's home screen offers: whether workers
+ * can look back at the forms they have sent (`showSavedForms`, the Android
+ * home screen) and pick up a form they started and left unfinished
+ * (`showIncompleteForms`, on Android and in Web Apps).
+ *
+ * Both keys are written on every export, so the object is a required root
+ * with one representation of each state. `setAppSettings` patches it.
+ */
+export const appSettingsSchema = z.strictObject({
+	showSavedForms: z.boolean(),
+	showIncompleteForms: z.boolean(),
+});
+export type AppSettings = z.infer<typeof appSettingsSchema>;
+
+/** What a new app holds: neither list, since a list is a screen on the
+ *  worker's home and an app holds only what its author chose. */
+export const NEW_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
+	showSavedForms: false,
+	showIncompleteForms: false,
+});
+
 const blueprintDocObjectSchema = z.strictObject({
 	appId: z.string(),
 	appName: z.string(),
@@ -99,6 +121,8 @@ const blueprintDocObjectSchema = z.strictObject({
 	 * owning entities rather than being duplicated here.
 	 */
 	localization: appLocalizationSchema.optional(),
+	/** What the worker's home screen offers (`appSettingsSchema`). */
+	appSettings: appSettingsSchema,
 
 	modules: ownRecordSchema(uuidSchema, moduleSchema),
 	forms: ownRecordSchema(uuidSchema, formSchema),

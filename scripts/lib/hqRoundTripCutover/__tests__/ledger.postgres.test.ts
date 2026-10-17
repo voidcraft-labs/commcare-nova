@@ -31,7 +31,7 @@ import { asUuid } from "@/lib/domain";
 import type { DeploymentReads } from "../hqRead";
 import type { BuildPlanOptions } from "../plan";
 import { runMigrate } from "../run";
-import { LEGACY_DIRECTORY } from "./fixtures/preStep";
+import { LEGACY_DIRECTORY, migratedFixtureDocument } from "./fixtures/preStep";
 import {
 	retainedCutoverRead,
 	retainedFormIds,
@@ -155,6 +155,7 @@ describe("the ledger writes", () => {
 		// Its only deployment no longer holds the app, so a CCZ needs a publish.
 		expect(await noticeReasons(appId)).toEqual([
 			"hq-app-deleted",
+			"local-archive-changes",
 			"ccz-needs-project-space",
 		]);
 	}, 60_000);
@@ -172,7 +173,10 @@ describe("the ledger writes", () => {
 			SELECT 1 FROM app_deployment_identities WHERE deployment_id = ${deployment}::uuid
 		`.execute(h.db());
 		expect(identities.rows).toEqual([]);
-		expect(await noticeReasons(appId)).toEqual(["hq-app-not-nova-made"]);
+		expect(await noticeReasons(appId)).toEqual([
+			"hq-app-not-nova-made",
+			"local-archive-changes",
+		]);
 	}, 60_000);
 
 	/** The ids the first publish after the cutover sends: the rows read the way a publish reads them, emitted. */
@@ -254,7 +258,7 @@ describe("the ledger writes", () => {
 	it("writes no row for a menu whose HQ id is another entity's derived id, and names that menu", async () => {
 		const appId = "app-id-collision";
 		const deployment = await seedApp("navigation-base", appId);
-		const { doc } = await firstPublishIds(appId);
+		const doc = migratedFixtureDocument("navigation-base");
 		const menu = doc.moduleOrder[0];
 		const taken = derivedUniqueId(doc.formOrder[menu][0]);
 		const source = await retainedSource(

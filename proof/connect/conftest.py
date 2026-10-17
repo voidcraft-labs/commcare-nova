@@ -34,7 +34,7 @@ XForm._add_meta_2``, ``orx:pollsensor``), and only Android runs that action
 (``org/commcare/android/javarosa/PollSensorAction.java``). So a submission
 "with a fix" here is the form a device's walk saved and sent HQ, with the fix
 the device's GPS gave the app (``proof.android.observe``, its ``fix``), on
-HQ's release or on Nova's local archive, which holds no node.
+HQ's release or on Nova's local archive, which holds the node as HQ's build does.
 
 ``DOCUMENTS`` names every corpus document these tests read, which keys the
 package's outcome in the evidence store (``proof.store.queue.PACKAGE_DATA``).
@@ -73,12 +73,11 @@ CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
 # The day after the lane's own (``proof.core.client.DEFAULT_CLOCK``), for a worker's second visit.
 NEXT_DAY_CLOCK = "2026-01-16T10:30:00.000Z"
 # Three places a device's GPS puts it (latitude, longitude, altitude, accuracy): one place, a place about four
-# metres from it, and a place more than a hundred kilometres away; and each as the device writes it.
+# metres from it, and a place more than a hundred kilometres away; and the first as the device writes it.
 FIX = (12.9716, 77.5946, 920.0, 5.0)
 FIX_NEAR = (12.97164, 77.5946, 920.0, 5.0)
 FIX_FAR = (13.9716, 77.5946, 920.0, 5.0)
 WRITTEN = "12.9716 77.5946 920.0 5.0"
-WRITTEN_NEAR = "12.97164 77.5946 920.0 5.0"
 
 
 @pytest.fixture(scope="session")

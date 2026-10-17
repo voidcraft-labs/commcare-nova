@@ -1158,7 +1158,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`profile.properties['cc-autoup-freq']`",
+			"cell": "`freq-never`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1246,7 +1246,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`-1`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1271,7 +1271,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`Enabled`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1352,7 +1352,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`freq-never`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1436,7 +1436,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`no`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1461,7 +1461,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`5`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1486,7 +1486,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`5`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1511,7 +1511,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property; HQ always emits `no` when unset, so Nova's `.ccz` must emit it too (today absent ⇒ Android `yes`)",
+			"cell": "`appSettings.showSavedForms` as `yes` or `no` on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); a publish always writes Nova's value (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1537,7 +1537,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property; same `.ccz` parity fix",
+			"cell": "`appSettings.showIncompleteForms` as `yes` or `no` on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); a publish always writes Nova's value (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1562,7 +1562,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`none`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1587,7 +1587,7 @@
 			}
 		},
 		"emission": {
-			"cell": "always explicit (Formplayer's and Android's absent default `no` differs from the yaml default `yes`)",
+			"cell": "`no`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1636,7 +1636,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`86400`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1661,7 +1661,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`none`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1686,7 +1686,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`10`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1711,7 +1711,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`normal`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1736,7 +1736,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`no`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -1763,7 +1763,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "`no`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
 			"markers": []
 		},
 		"gates": []
@@ -2652,6 +2652,37 @@
 		"gates": []
 	},
 	{
+		"id": "application-and-settings/profile-feature-checkoff",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "the profile's `<checkoff>` feature",
+		"surfaceKeys": [
+			"profile-feature:checkoff",
+			"parser:ProfileParser/checkoff"
+		],
+		"origin": "export-use",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived by HQ's build (`templates/app_manager/profile.xml` writes `true` under `is_odk`, which `Application.create_profile` passes for `profile.ccpr`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored",
+				"note": "`ProfileParser` stores it and no Formplayer code queries it"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "with it active a sent form stays on the phone as saved (`FormSubmissionHelper`), and the home screen offers Saved where `cc-show-saved` also allows it (`StandardHomeActivityUIController.getHiddenButtons`)"
+			}
+		},
+		"emission": {
+			"cell": "nothing in the app JSON (HQ's template writes it); the local `.ccz` profile writes `<checkoff active=\"true\"/>` as HQ's `profile.ccpr` does (`compiler.ts::generateProfile`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "application-and-settings/local-archive-profile-properties",
 		"area": "application-and-settings",
 		"section": "Settings and profile",
@@ -2669,7 +2700,7 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "local `.ccz` profile only (`compiler.ts::generateProfile`: the app's name, `1`, the document's mutation sequence)",
+			"cell": "local `.ccz` profile only (`compiler.ts::generateProfile`: the app's name, and the document's mutation sequence for both versions)",
 			"markers": []
 		},
 		"gates": []

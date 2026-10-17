@@ -130,6 +130,7 @@ import type {
 } from "../../predicate/termEmitter";
 import { escapeRegex } from "../../xml";
 import { lowerXPathForJavaRosa } from "../../xpath";
+import { keyAsVariable } from "./keyVariable";
 import { buildSortBlock, type ResolvedSortDirective } from "./sortKeys";
 import { buildTileStyleBlock } from "./tileStyle";
 import type {
@@ -312,8 +313,25 @@ function detailHeaderLocaleId(
 	field: string,
 	position: number,
 ): string {
+	return `${detailColumnLocaleBase(target, detailKind, moduleIndex, field, position)}.header`;
+}
+
+/**
+ * The stem every locale id of one property-rooted column shares,
+ * `m<N>.<detail>.case_<field>_<position>`: the header appends `.header`,
+ * an id-mapping value `.enum.<variable>` and an image-map key's alt text
+ * `.alt_text.<variable>` (`id_strings.py::detail_column_header_locale`,
+ * `detail_column_enum_variable`, `detail_column_alt_text_variable`).
+ */
+function detailColumnLocaleBase(
+	target: DetailTarget,
+	detailKind: DetailKind,
+	moduleIndex: number,
+	field: string,
+	position: number,
+): string {
 	const localeType = DETAIL_LOCALE_TYPE[target][detailKind];
-	return `m${moduleIndex}.${localeType}.case_${field}_${position}.header`;
+	return `m${moduleIndex}.${localeType}.case_${field}_${position}`;
 }
 
 /**
@@ -785,6 +803,80 @@ function imageMapDisplayXpath(
 	}, `''`);
 }
 
+/**
+ * The HQ JSON key of one image-map entry, `selected(., <value>)`: HQ's
+ * `EnumImage` reads a key holding punctuation as an expression and
+ * interpolates `.` to the column's property, so this keeps Nova's token
+ * matching with the authored value quoted as data. The HQ JSON column's
+ * `enum` and the local suite's alt-text variable names both read it, so
+ * the two paths name each key alike.
+ */
+export function imageMapEnumKey(value: string): string {
+	return `selected(., ${quoteLiteral(value, "case-list-filter")})`;
+}
+
+/**
+ * The `<alt_text>` HQ's build gives an image-map field at CommCare 2.54 or
+ * later (`detail_screen.py::EnumImage.alt_text`, `feature_support.py::
+ * supports_alt_text`), as the field's last child (`xml_models.py::Field.ORDER`).
+ *
+ * An enum over the same keys as the field's template, in its XPath shape:
+ * `if(selected(<field>, <value>), $<variable>, <the next key's branch>)`
+ * with `''` last. Each variable is named as HQ names it over the HQ JSON's
+ * key, `imageMapEnumKey` (named by `keyVariable.ts`), and reads the locale id
+ * `id_strings.py::detail_column_alt_text_variable` gives for that column and
+ * key, whose string is blank in every language: Nova sets no alt text, and
+ * HQ's `clean_trans` of an empty label is blank too. Absent for every other
+ * kind, and for an image map without media, which both paths emit as a
+ * plain column.
+ */
+function imageMapAltText(
+	column: Exclude<Column, { kind: "calculated" }>,
+	position: number,
+	ctx: CaseListEmitContext,
+):
+	| { readonly element: Element; readonly strings: Record<string, string> }
+	| undefined {
+	if (column.kind !== "image-map" || !ctx.assets) return undefined;
+	const field = emitCasePropertyWirePath(column.field);
+	const idBase = detailColumnLocaleBase(
+		ctx.target,
+		ctx.detailKind,
+		ctx.moduleIndex,
+		column.field,
+		position,
+	);
+	const keys = column.mapping.map((entry) => {
+		const value = quoteLiteral(entry.value, "case-list-filter");
+		const name = keyAsVariable(imageMapEnumKey(entry.value));
+		return {
+			condition: `selected(${field}, ${value})`,
+			name,
+			localeId: `${idBase}.alt_text.${name}`,
+		};
+	});
+	const xpath = keys.reduceRight(
+		(elseArm, key) => `if(${key.condition}, $${key.name}, ${elseArm})`,
+		"''",
+	);
+	return {
+		element: el("alt_text", {}, [
+			el("text", {}, [
+				el(
+					"xpath",
+					{ function: xpath },
+					keys.map((key) =>
+						el("variable", { name: key.name }, [
+							el("locale", { id: key.localeId }),
+						]),
+					),
+				),
+			]),
+		]),
+		strings: Object.fromEntries(keys.map((key) => [key.localeId, ""])),
+	};
+}
+
 // ============================================================
 // Per-Column dispatcher
 // ============================================================
@@ -806,16 +898,14 @@ function propertyDisplayProjection(
 		strings: {},
 		translationUnits: {},
 	});
-	const valueLocaleId = (index: number): string => {
-		const header = detailHeaderLocaleId(
+	const valueLocaleId = (index: number): string =>
+		`${detailColumnLocaleBase(
 			ctx.target,
 			ctx.detailKind,
 			ctx.moduleIndex,
 			column.field,
 			position,
-		);
-		return `${header.slice(0, -".header".length)}.enum.knova_text_${index}`;
-	};
+		)}.enum.knova_text_${index}`;
 	const variable = (
 		index: number,
 		source: string,
@@ -1125,10 +1215,16 @@ export function buildColumnField(args: {
 	];
 	const sortEl = resolveSortElement(column, ctx);
 	if (sortEl !== undefined) fieldChildren.push(sortEl);
+	const altText = imageMapAltText(column, position, ctx);
+	if (altText !== undefined) fieldChildren.push(altText.element);
 
 	return {
 		element: el("field", {}, fieldChildren),
-		strings: { [headerLocaleId]: column.header, ...display.strings },
+		strings: {
+			[headerLocaleId]: column.header,
+			...display.strings,
+			...altText?.strings,
+		},
 		translationUnits: {
 			[headerLocaleId]: makeTranslationUnitId("column", column.uuid, "header"),
 			...display.translationUnits,

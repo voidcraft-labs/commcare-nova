@@ -103,6 +103,7 @@ function makeDoc(): BlueprintDoc {
 		appId: "test-app",
 		appName: "Clinic",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: { [MOD]: mod },
 		forms: { [F1]: reg, [F2]: followup },

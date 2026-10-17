@@ -15,6 +15,7 @@
 import { sql, type Transaction } from "kysely";
 import { COMMCARE_VERSION_FLOOR } from "@/lib/commcare/versionFloor";
 import type { AppDatabase } from "@/lib/db/pg";
+import type { DeploymentNoticeReason } from "@/lib/notices/migrationNotice";
 import type { HolderCensus } from "./holders";
 import type { MatchResult } from "./matching";
 import type { CutoverBlockerCode, CutoverPlanBuild, FleetSource } from "./plan";
@@ -189,6 +190,7 @@ export function planSections(
 		endingSessions: source.privateWork.endingSessions,
 	});
 	deploymentsLine(report, source, build, spaceReads);
+	if (report.mode !== "scan") settingsLine(report, build);
 	const blockers = new Map<
 		CutoverBlockerCode,
 		{ count: number; apps: string[] }
@@ -227,6 +229,34 @@ export function planSections(
 			apps: blocker.referencingAppIds,
 		});
 	}
+}
+
+/**
+ * The `settings` line, for a run that read HQ: the apps whose stored
+ * `appSettings` hides a form list, the deployments whose built value of
+ * either list changes at their next publish, and the deployments whose
+ * workers' own sync, update and speech preferences that publish resets. The
+ * scan reads no source, so it has nothing to count here and prints no line.
+ */
+function settingsLine(report: CutoverReport, build: CutoverPlanBuild): void {
+	const deployments = build.plan.apps.flatMap((app) => app.deployments);
+	const holding = (reason: DeploymentNoticeReason) =>
+		deployments.filter((deployment) =>
+			deployment.notices.some((notice) => notice.reason === reason),
+		).length;
+	report.line("settings", {
+		appsHidingAFormList: build.plan.apps.filter((app) => {
+			const settings = build.targets.get(app.appId)?.doc?.appSettings;
+			return (
+				settings !== undefined &&
+				(!settings.showSavedForms || !settings.showIncompleteForms)
+			);
+		}).length,
+		deploymentsWhoseSettingChanges: holding("setting-changes-at-next-publish"),
+		deploymentsWhoseWorkerSettingsReset: holding(
+			"worker-settings-reset-at-next-publish",
+		),
+	});
 }
 
 /** What one run sent to a project space, from its pacer. */

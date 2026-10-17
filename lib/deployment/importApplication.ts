@@ -10,10 +10,11 @@
  * target's ids. The proof harness calls it with the same inputs, so the body
  * it applies to HQ is assembled by this code rather than a copy of it.
  *
- * Beside the body it returns the body's ownership descriptor, the overlay
- * keys it writes, which the drift baseline recorded after this import
- * keeps. It is derived from the bytes Nova sends, so it never names a key
- * the body does not hold, and this is its one producer.
+ * Beside the body it returns the ownership descriptor the drift baseline
+ * recorded after this import keeps: what Nova owns inside the keys HQ holds
+ * beside Nova's own. The overlay (`targetOverlay.ts`) computes it from what
+ * Nova set, never from the body's bytes, which carry the target's values
+ * too, and this is its one producer.
  *
  * Pure: it reads no store and sends nothing. The source read stays with the
  * caller because it is a request to HQ that can fail on its own terms, and
@@ -21,7 +22,6 @@
  */
 
 import type { HqApplication } from "@/lib/commcare";
-import { appOwnershipOf } from "@/lib/commcare/appOwnership";
 import { hasEffectiveSearch } from "@/lib/commcare/derivedProfile";
 import {
 	expandAppShell,
@@ -31,8 +31,9 @@ import {
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import {
 	type DerivedProfileTargetState,
-	projectUpdatedAppProfileForTarget,
-} from "@/lib/commcare/targetProfile";
+	projectApplicationForTarget,
+	shellOwnership,
+} from "@/lib/commcare/targetOverlay";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
@@ -49,9 +50,10 @@ export interface HqImportApplicationResult<Body> {
 export interface HqImportApplicationUpdate {
 	readonly appId: string;
 	/**
-	 * The app's source, the publish's last read before the import. HQ replaces
-	 * the whole profile when an import carries one, so an update may only
-	 * change Nova's own derived key on top of this read's bag.
+	 * The app's source, the publish's last read before the import. HQ
+	 * replaces `translations`, `add_ons` and `profile` whole when an import
+	 * carries one, so the overlays write Nova's part of each over this read's
+	 * value and carry the rest.
 	 */
 	readonly source: HqAppSource;
 }
@@ -75,7 +77,7 @@ export interface HqImportApplicationInput {
  * How the derived Search profile key meets this target. An app without an
  * effective Search does not need it; otherwise the large-Search advisory
  * decides, and anything short of a definite answer is `unverified`, which
- * leaves a target's current profile alone on an update.
+ * leaves a target's current custom properties alone on an update.
  */
 function derivedProfileTargetState(
 	input: HqImportApplicationInput,
@@ -109,7 +111,7 @@ export function hqImportApplication(
 	 * names the target, an asset or a lookup table. */
 	if (update === null) {
 		const shell = expandAppShell(prepared.doc);
-		return { application: shell, ownership: appOwnershipOf(shell) };
+		return { application: shell, ownership: shellOwnership(shell) };
 	}
 	/* The naming has to travel with the app, not just with the data. A
 	 * lookup-backed select compiles to an `instance(...)` reference whichever
@@ -125,10 +127,9 @@ export function hqImportApplication(
 		attachmentTarget: prepared.attachmentTarget,
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
 	});
-	const { application } = projectUpdatedAppProfileForTarget(
+	return projectApplicationForTarget(
 		generated,
-		update.source.profile,
+		update.source,
 		derivedProfileTargetState(input),
 	);
-	return { application, ownership: appOwnershipOf(application) };
 }

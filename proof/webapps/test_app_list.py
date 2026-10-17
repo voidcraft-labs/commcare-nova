@@ -17,16 +17,20 @@ Formplayer's can show either.
   HQ serving nothing at that URL. The accepted counterpart of "no logo" is
   an app without one (``targeted-survey-menu``): the client's own flower,
   and no image asked of HQ.
-- **Incomplete Forms** (``targeted-survey-menu``). The client hides the
-  tile only when every listed app's stored profile says
-  ``cc-show-incomplete`` is ``no`` (``apps/controller.js::listApps``).
-  Nova stores no such property, so the tile shows. HQ's App Settings page,
-  saved without a change, stores every setting at its page value
-  (finding 40), ``cc-show-incomplete: no`` among them, and the tile is gone:
-  a save that changes nothing takes a screen away from a worker in Web
-  Apps. Plausible failures: a save that never reached the stored app (the
-  stored property is checked on both sides), or a client reading the built
-  profile instead (the tile would then be the same on both).
+- **Incomplete Forms** (defect 7 and finding 62). The client hides the tile
+  only when every listed app's stored profile says ``cc-show-incomplete`` is
+  ``no`` (``apps/controller.js::listApps``). Nova stores the app's own
+  setting: ``targeted-survey-menu`` shows incomplete forms, so it stores
+  ``yes`` and the tile shows; ``media-only`` keeps the new app's default,
+  off, so it stores ``no`` and the tile is absent. HQ's App Settings page,
+  saved without a change, keeps each stored value, so each tile stays as it
+  was. Plausible failures: a setting that never reached the stored app (the
+  stored property is checked on every side), a client reading the built
+  profile instead, and a save that writes its own value over the app's. The
+  pre-fix behaviour stays held on the control's capture: an app as Nova
+  published it before step 2, which stores no value
+  (``proof/controls/case-operation-query``'s create), shows the tile, and
+  the same save stores ``no`` and takes it away.
 """
 
 from __future__ import annotations
@@ -91,12 +95,12 @@ def test_web_apps_shows_the_logo_nova_sends_on_the_apps_tile_and_its_own_flower_
     assert none["asked"] == []
 
 
-def test_the_app_settings_save_takes_incomplete_forms_off_web_apps_home_screen(
-    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
-):
-    with webapps_hq.project(webapps_documents["targeted-survey-menu"]) as project:
-        observed = {}
-        for name, saves in (("nova", ()), ("saved", ((pages.APP_SETTINGS, None),))):
+def _incomplete_forms(document, formplayer_runner, editor_driver):
+    """The stored ``cc-show-incomplete`` and the home screen's tiles of ``document``'s app as Nova published it, and
+    after HQ's App Settings page saved it without a change."""
+    observed = {}
+    with webapps_hq.project(document) as project:
+        for name, saves in (("published", ()), ("saved", ((pages.APP_SETTINGS, None),))):
             with project.released(formplayer_runner, saves=saves, driver=editor_driver, label=name) as release:
                 run = Session(release, editor_driver).run([steps.SCREEN])
                 observed[name] = {
@@ -104,10 +108,21 @@ def test_the_app_settings_save_takes_incomplete_forms_off_web_apps_home_screen(
                     "tiles": _kinds(run.screens[0]),
                     "pageErrors": run.page_errors,
                 }
-        evidence("incomplete-forms", observed)
-        assert observed["nova"] == {
-            "stored": None,
-            "tiles": ["default", "incomplete", "sync", "settings"],
-            "pageErrors": [],
-        }
-        assert observed["saved"] == {"stored": "no", "tiles": ["default", "sync", "settings"], "pageErrors": []}
+    return observed
+
+
+def test_the_incomplete_forms_tile_follows_the_apps_setting_and_survives_a_settings_save(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, webapps_controls, evidence
+):
+    shown = ["default", "incomplete", "sync", "settings"]
+    hidden = ["default", "sync", "settings"]
+    on = _incomplete_forms(webapps_documents["targeted-survey-menu"], formplayer_runner, editor_driver)
+    off = _incomplete_forms(webapps_documents["media-only"], formplayer_runner, editor_driver)
+    before = _incomplete_forms(webapps_controls["case-operation-query"], formplayer_runner, editor_driver)
+    evidence("incomplete-forms", {"on": on, "off": off, "control": before})
+    for name in ("published", "saved"):
+        assert on[name] == {"stored": "yes", "tiles": shown, "pageErrors": []}, name
+        assert off[name]["stored"] == "no" and off[name]["tiles"] == hidden, name
+    # The app as Nova published it before step 2 stores no value, so the tile shows, and the save takes it away.
+    assert before["published"] == {"stored": None, "tiles": shown, "pageErrors": []}
+    assert before["saved"] == {"stored": "no", "tiles": hidden, "pageErrors": []}

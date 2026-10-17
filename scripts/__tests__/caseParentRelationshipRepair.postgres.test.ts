@@ -26,6 +26,7 @@ const blueprint: PersistableDoc = {
 	appId: APP_ID,
 	appName: "Relationship repair",
 	connectType: null,
+	appSettings: { showSavedForms: false, showIncompleteForms: false },
 	caseTypes: [
 		{ name: "household", properties: [] },
 		{
@@ -304,7 +305,10 @@ describe("case parent relationship scan-then-migrate", () => {
 	}) => {
 		await db
 			.updateTable("apps")
-			.set({ case_types: JSON.stringify(blueprint.caseTypes) })
+			.set({
+				case_types: JSON.stringify(blueprint.caseTypes),
+				app_settings: JSON.stringify(blueprint.appSettings),
+			})
 			.where("id", "=", APP_ID)
 			.executeTakeFirstOrThrow();
 		await db

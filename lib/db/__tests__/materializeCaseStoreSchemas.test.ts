@@ -16,6 +16,7 @@ const blueprint: PersistableDoc = {
 	appId: "app",
 	appName: "Materialize",
 	connectType: null,
+	appSettings: { showSavedForms: false, showIncompleteForms: false },
 	caseTypes: ["a", "b", "c"].map((name) => ({ name, properties: [] })),
 	modules: {},
 	forms: {},

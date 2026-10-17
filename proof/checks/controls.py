@@ -14,9 +14,10 @@ under another name) is the corpus layout
   ``footprintParts``, without the mutations Nova's planner wrote, whose shape
   is Nova's), where a check that reads B-edit or the edit's footprint names
   the control (``EDIT_READERS``);
-- each local archive (``local.ccz``, ``local-again.ccz``, ``edit/local.ccz``),
-  where a check that reads that archive names the control
-  (``ARCHIVE_READERS``);
+- each local archive (``local.ccz``, ``local-again.ccz``, ``edit/local.ccz``,
+  and ``local-empty-list-text.ccz``, the archive compiled for a configuration
+  that holds the empty-list text flag, kept as ``local.ccz`` is), where a
+  check that reads that archive names the control (``ARCHIVE_READERS``);
 - a targeted document's ``expected.json`` and every other file of its own
   (the restores its expectations name);
 - in place of ``document.json`` and ``edit/document.json``, whose ``doc`` is
@@ -64,11 +65,13 @@ EDIT = "edit/"
 # The checks that read each local archive: the bar admits each, the intent check parses each one's forms (and runs
 # a targeted document's local expectations on local.ccz), and the manifest check reads each one's use of the
 # surface; proof 1 compares the two exports of D, proof 3 runs local.ccz, and proof 5 compares local.ccz with
-# edit/local.ccz.
+# edit/local.ccz. The archive compiled for a configuration holding the empty-list text flag is local.ccz's export
+# for that configuration's project space, which proof 3 runs under it, so it is kept as local.ccz is.
 ARCHIVE_READERS = {
     "local.ccz": frozenset({"bar", "intent", "manifest", "proof1", "proof3", "proof5"}),
     "local-again.ccz": frozenset({"bar", "intent", "manifest", "proof1"}),
     "edit/local.ccz": frozenset({"bar", "intent", "manifest", "proof5"}),
+    corpus.EMPTY_LIST_TEXT_ARCHIVE: frozenset({"bar", "intent", "manifest", "proof1", "proof3", "proof5"}),
 }
 # What a control never keeps: the input manifest, each export's outcome, and D's and D''s documents.
 NOT_KEPT = frozenset({"inputs.json", "document.json", "edit/document.json"})

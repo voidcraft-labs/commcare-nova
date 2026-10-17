@@ -71,6 +71,7 @@ function docWith(...fields: Field[]): PersistableDoc {
 		appId: "app",
 		appName: "App",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
 			[MODULE_UUID]: { uuid: MODULE_UUID, id: "module", name: "Module" },

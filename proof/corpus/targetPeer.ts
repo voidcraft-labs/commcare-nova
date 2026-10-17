@@ -20,8 +20,9 @@
  *   and with `feature_flag=<slug>` the target domain only when that flag is
  *   on for it (`get_object_list` also counts a flag on for the requesting
  *   user, which no configuration sets). The peer knows the slugs of the
- *   flags Nova's probe checks, the only flags Nova asks about, and answers
- *   any other slug with the 400 HQ gives a slug it does not register.
+ *   flags Nova's probe checks and of `USH_EMPTY_CASE_LIST_TEXT`, which
+ *   every publish reads, the only flags Nova asks about, and answers any
+ *   other slug with the 400 HQ gives a slug it does not register.
  * - `GET /a/<domain>/phone/search/` (`ota/views.py::search`): with
  *   `SYNC_SEARCH_CASE_CLAIM` off, the outer `required_decorator()` raises
  *   Django's 404; with it on and case search off, `app_aware_search` answers
@@ -46,7 +47,8 @@
  * - `GET /a/<domain>/apps/source/<app id>/` (`app_manager/views/apps.py::app_source`):
  *   the source the peer holds for the app, 404 before a create. A create
  *   makes it hold the shell's source (`shellSource`), and an update the
- *   source HQ serves after it (`sourceAfterUpdate`).
+ *   source HQ serves after it (`sourceAfterUpdate`): every key the body
+ *   carries replaced, and every key it leaves out kept.
  * - `POST /a/<domain>/apps/api/import_app/`
  *   (`app_manager/views/app_import_api.py::_handle_import_app`): recorded,
  *   and answered as HQ answers a create (201) or an update (200) of the one
@@ -140,11 +142,16 @@ interface Answer {
 	readonly body: string;
 }
 
-/** The symbol of each flag Nova's probe checks, by the slug its gate entry holds. */
+/**
+ * The symbol of each flag Nova's publish reads, by the slug its gate entry
+ * holds: those its probe checks, and `USH_EMPTY_CASE_LIST_TEXT`, which every
+ * publish reads for the empty-list text a `.ccz` writes.
+ */
 const SYMBOL_BY_SLUG: ReadonlyMap<string, string> = new Map(
-	Object.values(HQ_PRIVATE_FEATURE_FLAG_SYMBOLS).map(
-		(symbol) => [domainFeatureFlag(symbol).slug, symbol] as const,
-	),
+	[
+		...Object.values(HQ_PRIVATE_FEATURE_FLAG_SYMBOLS),
+		"USH_EMPTY_CASE_LIST_TEXT",
+	].map((symbol) => [domainFeatureFlag(symbol).slug, symbol] as const),
 );
 
 function json(status: number, body: unknown): Answer {
@@ -157,13 +164,18 @@ function json(status: number, body: unknown): Answer {
 
 /**
  * The keys HQ serves for an app created without them, each with the value
- * its source read gives such an app. A shell holds none of them: they arrive
- * with the update.
+ * its source read gives such an app (`models/applications.py::Application`:
+ * an empty `DictProperty`, `auto_gps_capture`'s default `false`). A shell
+ * holds none of the first four, which arrive with the update; it holds
+ * `translations`, and `auto_gps_capture` only for a Connect app.
  */
 const HQ_DEFAULTS_FOR_A_SHELL: Readonly<Record<string, unknown>> = {
 	profile: {},
 	multimedia_map: {},
 	logo_refs: {},
+	add_ons: {},
+	translations: {},
+	auto_gps_capture: false,
 };
 
 /**
@@ -262,23 +274,27 @@ export function withFields(
 }
 
 /**
- * The source HQ serves for an app after it applied `application` as an
- * update: the body as sent, with HQ's own CommCare version (an update keeps
- * the app's `build_spec`: `models/applications.py::_merge_source_into_app`),
+ * The source HQ serves for an app holding `current` after it applied
+ * `application` as an update: each key the body carries replaces HQ's and
+ * each key it leaves out keeps HQ's (`models/applications.py::_merge_source_into_app`),
+ * with HQ's own CommCare version (an update keeps the app's `build_spec`),
  * and the fields `changed` names, which the capture's caller says hold
  * other values in this project space (`PublishInput.source`).
  */
 export function sourceAfterUpdate(
+	current: Readonly<Record<string, unknown>>,
 	application: Readonly<Record<string, unknown>>,
 	commcareVersion: string,
 	changed: Readonly<Record<string, unknown>> = {},
 ): Record<string, unknown> {
-	return withFields(application, {
-		doc_type: "Application",
-		"build_spec.version": commcareVersion,
-		profile: application.profile ?? {},
-		...changed,
-	});
+	return withFields(
+		{ ...structuredClone(current), ...structuredClone(application) },
+		{
+			doc_type: "Application",
+			"build_spec.version": commcareVersion,
+			...changed,
+		},
+	);
 }
 
 /** A table's definition as `run_upload.py::table_key` compares two of them. */
@@ -424,6 +440,16 @@ export class TargetPeer {
 	 * - `appAttributes`: each attribute set on the app (`views/apps.py::edit_app_attr`);
 	 * - `buildProfiles`: none of the peer's state, since an update never
 	 *   writes `build_profiles` and the drift comparison ignores it;
+	 * - `addOns`: each slug set on or off over the app's map
+	 *   (`views/apps.py::edit_add_ons` stores each slug HQ lists that the
+	 *   save posts, and no other). The save posts every slug HQ lists, as
+	 *   the section does (`proof/observe/hqside.py::add_ons` refuses
+	 *   another), so HQ's fill of an empty map before it stores them
+	 *   (`add_ons.py::init_app`) leaves no slug the save does not name;
+	 * - `profileProperties`: each setting set over the app's
+	 *   `profile.properties`, and `custom_properties` reset to `{}` where the
+	 *   project space holds `CUSTOM_PROPERTIES`
+	 *   (`views/settings.py::edit_commcare_profile`);
 	 * - `lookupTable`: the table under its tag uploaded again with a property
 	 *   on one field and an attribute on every row, which
 	 *   `run_upload.py::_run_upload` reads as another table and makes under a
@@ -459,6 +485,31 @@ export class TargetPeer {
 		}
 		if (saves.appAttributes !== undefined) {
 			next = { ...next, ...structuredClone(saves.appAttributes) };
+		}
+		if (saves.addOns !== undefined) {
+			next = {
+				...next,
+				add_ons: {
+					...((next.add_ons ?? {}) as Record<string, boolean>),
+					...saves.addOns,
+				},
+			};
+		}
+		if (saves.profileProperties !== undefined) {
+			const profile = (next.profile ?? {}) as Record<string, unknown>;
+			next = {
+				...next,
+				profile: {
+					...profile,
+					properties: {
+						...((profile.properties ?? {}) as Record<string, string>),
+						...saves.profileProperties,
+					},
+					...(this.state.flags.has("CUSTOM_PROPERTIES") && {
+						custom_properties: {},
+					}),
+				},
+			};
 		}
 		this.holding = { ...this.holding, source: next };
 		const kept = saves.lookupTable;
@@ -675,6 +726,7 @@ export class TargetPeer {
 			this.holding = {
 				...this.holding,
 				source: sourceAfterUpdate(
+					this.holding.source,
 					JSON.parse(await app.text()),
 					this.state.commcareVersion,
 					this.state.sourceChanges,

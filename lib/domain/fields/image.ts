@@ -41,6 +41,7 @@ export const imageFieldMetadata: FieldKindMetadata<"image"> = {
 	label: "Image",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: false,
 	saDocs:
 		'Photo attachment, the worker attaches a JPG, JPEG, or PNG from their device. Those three are the whole accepted set; GIF and WebP are rejected at pick time. Web Apps has no camera, so say "attach a photo", never "take a photo".',
 	convertTargets: ["audio", "video", "signature", "file"],

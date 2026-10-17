@@ -548,6 +548,7 @@ describe("new-app Project handoff", () => {
 			appId: "app-1",
 			appName: "",
 			connectType: null,
+			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: null,
 			modules: {},
 			forms: {},

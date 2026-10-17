@@ -96,7 +96,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-from proof.checks.corpus import DERIVED
+from proof.checks.corpus import DERIVED, EMPTY_LIST_TEXT_ARCHIVE
 from proof.observe.alignment import align_positions, aligned_app
 from proof.observe.outcome import BuildOutcome, outcome_from_record, outcome_record
 from proof.observe.record import (
@@ -110,7 +110,12 @@ from proof.observe.record import (
     part_key,
 )
 
-LOCAL_ROLES = (("local", "local.ccz"), ("local-again", "local-again.ccz"), ("edit-local", "edit/local.ccz"))
+LOCAL_ROLES = (
+    ("local", "local.ccz"),
+    ("local-again", "local-again.ccz"),
+    ("edit-local", "edit/local.ccz"),
+    ("local-empty-list-text", EMPTY_LIST_TEXT_ARCHIVE),
+)
 # A corpus document's input manifest (``proof/corpus/inputs.ts``), which a control does not keep.
 INPUTS = "inputs.json"
 # What a person saves in HQ over A before Nova's next publish, where the document carries it (proof.observe.hqside).
@@ -345,9 +350,11 @@ def part_keys(inputs, name, databases, hooks=None):
     proof 4 replays over (``databases``: ``case_databases``), so a B-edit
     whose update sends B's bytes over B's cases has B's key. Nothing else of
     D′ is read over B-edit but what a hook declares. ``b_aligned`` is keyed
-    under ``b`` with the local archive proof 3's sessions replay on
-    (``inputs.json``'s ``local`` role) and the local export a device installs
-    after it (``local-again``); its cases and B's lookups are
+    under ``b`` with the local archives proof 3's sessions replay on
+    (``inputs.json``'s ``local`` role, and its ``local-empty-list-text``
+    role where the document carries the archive a configuration holding the
+    flag replays on, ``Document.local_ccz_for``) and the local export a
+    device installs after it (``local-again``); its cases and B's lookups are
     ``b``'s. Each state's part also reads what each hook declares for that
     state (``hooks``: ``hook_inputs``).
     """
@@ -362,10 +369,15 @@ def part_keys(inputs, name, databases, hooks=None):
                 "b", a, {"inputs": requests, "caseDatabase": databases[part], "hooks": hooks.get(state, {})}
             )
     if "b" in keys:
+        flagged = inputs["local"].get("local-empty-list-text")
         keys["b_aligned"] = part_key(
             "b_aligned",
             keys["b"],
-            {"localArchive": inputs["local"].get("local"), "localAgain": inputs["local"].get("local-again")},
+            {
+                "localArchive": inputs["local"].get("local"),
+                "localAgain": inputs["local"].get("local-again"),
+                **({"localEmptyListText": flagged} if flagged is not None else {}),
+            },
         )
     return keys
 
@@ -944,6 +956,7 @@ class _Unit:
                 connect=self.connect,
                 sessions=record.get("sessions"),
                 b_record=b_record,
+                configuration=self.export.configuration.name,
             )
             if found is not None:
                 record["served"] = found
@@ -1174,16 +1187,10 @@ def read_stack_values(core_runner, path):
 
 
 def local_archives(document):
-    """Each local archive the document carries, by its name in the document: ``{name: Path}``."""
-    found = {}
-    for name, path in (
-        ("local.ccz", document.local_ccz),
-        ("local-again.ccz", document.local_again_ccz),
-        ("edit/local.ccz", document.edit.local_ccz if document.edit else None),
-    ):
-        if path is not None:
-            found[name] = path
-    return found
+    """Each local archive the document carries, by its name in the document: ``{name: Path}``
+    (``Document.local_archives``: the archive compiled for a project space holding the empty-list text flag
+    among them, where the document carries it)."""
+    return dict(document.local_archives)
 
 
 def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timings=None, hooks=None, held_only=False):

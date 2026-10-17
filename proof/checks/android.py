@@ -649,8 +649,8 @@ def behavior(document: str, record: dict, *, device: str = ANDROID, rules=()) ->
 # Proof 4 ------------------------------------------------------------------------------------------------------
 
 
-def settings_replaced(update: dict | None) -> list[tuple[str, object, object]]:
-    """Each of the worker's own settings an update replaced: ``(setting, the worker's value, the value after)``."""
+def _replaced(update: dict | None) -> list[tuple[str, object, object]]:
+    """Each of the worker's own settings an installed update replaced: ``(setting, the worker's value, after)``."""
     if not update or update.get("updated") != INSTALLED:
         return []
     before = ((update.get("before") or {}).get("stored")) or {}
@@ -660,6 +660,18 @@ def settings_replaced(update: dict | None) -> list[tuple[str, object, object]]:
         for name in update.get("workerSettings") or []
         if before.get(name) != after.get(name)
     ]
+
+
+def settings_replaced(update: dict | None, next_build: dict | None = None) -> list[tuple[str, object, object]]:
+    """Each of the worker's own settings the update to a saved app replaced that the update to the state's own
+    next build (``next_build``: the state's archive with its profile's version raised by one) did not replace with
+    the same value: ``(setting, the worker's value, the value after)``.
+
+    A forced setting replaces a worker's own at every update, on HQ's builds and Nova's archives alike, whatever
+    the profile it updates from, so a reset the state's own next build makes too is no difference the save made.
+    """
+    own = {name: after for name, _, after in _replaced(next_build)}
+    return [(name, mine, after) for name, mine, after in _replaced(update) if name not in own or own[name] != after]
 
 
 def editability(document: str, record: dict, *, device: str = ANDROID) -> list:
@@ -688,7 +700,7 @@ def editability(document: str, record: dict, *, device: str = ANDROID) -> list:
                             found.append(
                                 Difference("proof4", document, artifact, path, path, "error", None, update.get(status))
                             )
-                    for setting, own, after in settings_replaced(update):
+                    for setting, own, after in settings_replaced(update, save.get("nextBuild")):
                         path = f"/update/workerSettings/{pointer_token(setting)}"
                         found.append(Difference("proof4", document, artifact, path, path, "changed", own, after))
     return found
@@ -697,16 +709,42 @@ def editability(document: str, record: dict, *, device: str = ANDROID) -> list:
 # Proof 1 ------------------------------------------------------------------------------------------------------
 
 
+# Android's answer to an update from a file that is not newer (``ResourceManager.updateNotNewer``).
+UP_TO_DATE = "UpToDate"
+
+
+def same_revision(update: dict) -> bool:
+    """Whether an update was offered the export it started from again: the two archives the record names
+    (``proof.android.observe.update``) carry one profile ``uniqueid`` and one ``version``."""
+    archives = update.get("archives") or {}
+    before, after = archives.get("before"), archives.get("after")
+    return (
+        isinstance(before, dict)
+        and isinstance(after, dict)
+        and before.get("uniqueid") is not None
+        and before.get("version") is not None
+        and before.get("uniqueid") == after.get("uniqueid")
+        and before.get("version") == after.get("version")
+    )
+
+
 def identity_summary(installs: dict | None, update: dict | None) -> dict:
     """Two exports of one app as a device meets them: installed in turn (each install's status), and one
     updated to the other (``update``: where the update stopped, else ``Installed``; ``updated``, where it was
-    installed, whether it is the same app and whether its version went down)."""
+    installed, whether it is the same app and whether its version went down).
+
+    An update that answers ``UpToDate`` from one export to another of the same revision (``same_revision``: one
+    ``uniqueid``, one version) is read as ``Installed``: either way the device is left on the app's current
+    content, which is what proof 1 holds across the next publish, where HQ's republish is a newer build and
+    Nova's two exports of one revision are one version, which a device does not take again by design."""
     found = {}
     if installs is not None:
         found["installs"] = [step.get("install") for step in installs.get("installs") or []]
     if update is not None and update.get("install") == INSTALLED:
         staged, updated = update.get("staged"), update.get("updated")
         found["update"] = staged if staged != "UpdateStaged" else updated
+        if staged == UP_TO_DATE and same_revision(update):
+            found["update"] = INSTALLED
         if updated == INSTALLED:
             before = ((update.get("before") or {}).get("app")) or {}
             after = ((update.get("after") or {}).get("app")) or {}
@@ -881,7 +919,8 @@ def _editor(view, section) -> str:
 
 
 def _saves(proof4: dict, blobs, key: str = "android") -> list:
-    """Each editor save of a proof 4 record a device read, as ``{label, editor, over, app, update}``: ``over``
+    """Each editor save of a proof 4 record a device read, as ``{label, editor, over, app, update, nextBuild}``
+    (``nextBuild``: the update of a device on the state it was saved over to that state's own next build): ``over``
     the label of the save it was made over (None: the state the record is of). A save whose app was not served
     (its build and what the client reads are the state's it was saved over) is not one a device reads apart."""
     found = []
@@ -897,6 +936,7 @@ def _saves(proof4: dict, blobs, key: str = "android") -> list:
                 "over": over,
                 "app": _answer(served[key], blobs),
                 "update": _answer(served.get("androidUpdate"), blobs) if key == "android" else None,
+                "nextBuild": _answer(served.get("androidNextBuild"), blobs) if key == "android" else None,
             }
         )
         return True

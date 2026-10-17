@@ -4128,7 +4128,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`constraint` (Nova drops it on `barcode`/`secret` today, an emitter bug)",
+			"cell": "`constraint` on every kind that carries validation, `barcode` and `secret` among them (`fieldKindCarriesValidation`)",
 			"markers": []
 		},
 		"gates": []
@@ -4764,6 +4764,42 @@
 		},
 		"emission": {
 			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/hq-generated-pollsensor",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "the `<orx:pollsensor>` HQ's build writes",
+		"surfaceKeys": [
+			"jr-action:pollsensor",
+			"jr-extension:PollSensorExtensionParser",
+			"jr-event:xforms-ready",
+			"xform:pollsensor",
+			"xform:pollsensor@event",
+			"xform:pollsensor@ref"
+		],
+		"valueClass": "hq-build-pollsensor",
+		"origin": "export-use",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived by HQ at build (`xform.py::XForm._add_meta_2` calls `_add_pollsensor` from `auto_gps_capture` and the form's `geopoint` binds)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored",
+				"note": "Core registers no `pollsensor` handler and skips a model child outside the XForms namespace, `XFormParser.parseModel`"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "`PollSensorExtensionParser` starts a location poll when the form opens and, with a `ref`, writes the fix there"
+			}
+		},
+		"emission": {
+			"cell": "nothing in the app JSON (HQ's build injects it); the local `.ccz` writes it as HQ's build does (`xform/metaBlock.ts::addMetaBlock`)",
 			"markers": []
 		},
 		"gates": []

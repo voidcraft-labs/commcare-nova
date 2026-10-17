@@ -1,4 +1,4 @@
-"""What a person saves in HQ over A reaches HQ through HQ's own views, and Nova's next publish over it loses it.
+"""What a person saves in HQ over A reaches HQ through HQ's own views, and what Nova's next publish over it does.
 
 Contract (``proof.observe.hqside``): each save a document's ``hq-side.json``
 names is made as HQ's page or upload makes it and lands in what HQ holds,
@@ -7,14 +7,19 @@ what Nova's next push of its lookup workbook does to the table a person
 keeps. The plausible failures: a save the harness makes that HQ's view
 refuses or reads otherwise (so A would not hold what a person leaves there,
 and every symptom observed over it would be the harness's), a refusal the
-harness swallows, and an identity record that misses the table HQ makes
-again (so proof 1 could not see defect 5).
+harness swallows, an identity record that misses the table HQ makes again
+(so proof 1 could not see defect 5), and a publish that writes over a value
+the target owns (defect 4): Nova's next publish carries back the UI
+translation, keeps Auto Capture Location, which it leaves out of the body of
+an app that is not a Connect app, and keeps the add-ons and the setting a
+person saved, which Nova's own part of ``add_ons`` and ``profile`` leaves to
+the target.
 
 ``targeted-hq-side-state`` and ``targeted-hq-side-lookup`` are each published as Nova's first publish leaves
 them (a workbook where the document has lookup tables, then the create), their saves made over it, and their next
-publish applied over that: the first holds the UI translation, location capture and build profile saves, the second
-the lookup table a person keeps. A project space without ``BUILD_PROFILES`` is the refusal: HQ's language profiles
-page refuses the save, and the harness says so rather than going on.
+publish applied over that: the first holds the UI translation, location capture, build profile, add-ons and app
+settings saves, the second the lookup table a person keeps. A project space without ``BUILD_PROFILES`` is the
+refusal: HQ's language profiles page refuses the save, and the harness says so rather than going on.
 """
 
 from __future__ import annotations
@@ -60,7 +65,7 @@ def _ops(unit):
     return lambda label, digest: unit.operation(label, digest)
 
 
-def test_a_persons_saves_land_in_hq_and_novas_next_publish_loses_them(hq, core_runner):
+def test_a_persons_saves_land_in_hq_and_novas_next_publish_keeps_them(hq, core_runner):
     from proof.hq import operations
     from proof.observe import hqside, publish
 
@@ -70,19 +75,30 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_loses_them(hq, core_r
     with hq_check(export.configuration.hq()) as (unit, _):
         app_id = _created(unit, export)
         held = hqside.save(unit, _ops(unit), app_id, saves)
-        assert sorted(held) == sorted(saves)
+        assert sorted(held) == sorted(set(saves) - set(hqside.STATEMENTS))
+        assert saves["republish"] == "proceeds"
 
-        app = operations.held_app(unit, app_id)
-        assert app.translations["en"]["home.start"] == saves["uiTranslations"]["en"]["home.start"]
-        assert app.auto_gps_capture is True
-        assert {key: list(profile.langs) for key, profile in app.build_profiles.items()} == {"mandarin-only": ["zho"]}
+        def kept(app):
+            return {
+                "home.start": app.translations["en"].get("home.start"),
+                "auto_gps_capture": app.auto_gps_capture,
+                "add_ons": {slug: app.add_ons.get(slug) for slug in saves["addOns"]},
+                "properties": {key: app.profile["properties"].get(key) for key in saves["profileProperties"]},
+                "build_profiles": {key: list(profile.langs) for key, profile in app.build_profiles.items()},
+            }
+
+        saved = {
+            "home.start": saves["uiTranslations"]["en"]["home.start"],
+            "auto_gps_capture": True,
+            "add_ons": saves["addOns"],
+            "properties": saves["profileProperties"],
+            "build_profiles": {"mandarin-only": ["zho"]},
+        }
+        assert kept(operations.held_app(unit, app_id)) == saved
 
         refusal, lookups = publish.update(unit, app_id, export.republish, "B")
         assert _landed(refusal, lookups), (refusal, lookups)
-        app = operations.held_app(unit, app_id)
-        assert "home.start" not in app.translations["en"]
-        assert app.auto_gps_capture is False
-        assert list(app.build_profiles) == ["mandarin-only"]
+        assert kept(operations.held_app(unit, app_id)) == saved
 
 
 def test_a_table_a_person_keeps_is_made_again_by_novas_next_push(hq, core_runner):
@@ -95,7 +111,8 @@ def test_a_table_a_person_keeps_is_made_again_by_novas_next_push(hq, core_runner
     with hq_check(export.configuration.hq()) as (unit, _):
         app_id = _created(unit, export)
         held = hqside.save(unit, _ops(unit), app_id, saves)
-        assert sorted(held) == sorted(saves)
+        assert sorted(held) == sorted(set(saves) - set(hqside.STATEMENTS))
+        assert saves["republish"] == "discards"
 
         kept = saves["lookupTable"]
         a = {"project": project_identity(unit.domain)}

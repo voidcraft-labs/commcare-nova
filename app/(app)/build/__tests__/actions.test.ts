@@ -37,6 +37,7 @@ function canonicalReceipt(appId: string) {
 		appId,
 		appName: "",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},
 		forms: {},

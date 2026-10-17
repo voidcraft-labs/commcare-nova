@@ -27,6 +27,7 @@ import * as threadSelectedSources from "./20261009020000_thread_selected_sources
 import * as hqRoundTripFoldHorizon from "./20261015000000_hq_round_trip_fold_horizon";
 import * as appMigrationNotices from "./20261015010000_app_migration_notices";
 import * as hqRoundTripDeploymentLedger from "./20261015020000_hq_round_trip_deployment_ledger";
+import * as appSettings from "./20261015030000_app_settings";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -206,6 +207,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261015000000_hq_round_trip_fold_horizon": hqRoundTripFoldHorizon,
 	"20261015010000_app_migration_notices": appMigrationNotices,
 	"20261015020000_hq_round_trip_deployment_ledger": hqRoundTripDeploymentLedger,
+	"20261015030000_app_settings": appSettings,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

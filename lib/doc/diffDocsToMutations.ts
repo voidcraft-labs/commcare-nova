@@ -26,8 +26,8 @@ import type {
  * The emission order is dictated by the reducer's semantics, not by the
  * mutation union's declaration order:
  *
- *   1. App-level scalars (`setAppName` / `setConnectType` / `setAppLogo`).
- *      No entity side effects, so they can lead.
+ *   1. App-level scalars (`setAppName` / `setConnectType` / `setAppLogo` /
+ *      `setAppSettings`). No entity side effects, so they can lead.
  *   2. Module + form ADDS and module relocations — parents and final sibling
  *      anchors before dependents. Added entities land before removes so an
  *      evacuation can move a survivor into a freshly-added module/form.
@@ -115,6 +115,7 @@ import {
 	updateUserTypeMutations,
 } from "@/lib/doc/userMutations";
 import type {
+	AppSettings,
 	Automation,
 	CaseListConfig,
 	CaseType,
@@ -430,6 +431,25 @@ function menuMediaChanged(
 	return false;
 }
 
+// ── App settings diff ────────────────────────────────────────────────
+//
+// `setAppSettings` names only the keys it changes, so the diff carries each
+// key whose value moved and nothing else.
+
+function appSettingsPatch(
+	prev: AppSettings,
+	next: AppSettings,
+): Partial<AppSettings> | undefined {
+	const patch: Partial<AppSettings> = {};
+	if (prev.showSavedForms !== next.showSavedForms) {
+		patch.showSavedForms = next.showSavedForms;
+	}
+	if (prev.showIncompleteForms !== next.showIncompleteForms) {
+		patch.showIncompleteForms = next.showIncompleteForms;
+	}
+	return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
 // ── Parent reverse index ─────────────────────────────────────────────
 //
 // `BlueprintDoc.fieldParent` materializes child → parent, but the diff's
@@ -515,6 +535,10 @@ export function diffDocsToMutations(
 	}
 	if (prev.logo !== next.logo) {
 		appLevel.push({ kind: "setAppLogo", logo: next.logo ?? null });
+	}
+	const settingsPatch = appSettingsPatch(prev.appSettings, next.appSettings);
+	if (settingsPatch !== undefined) {
+		appLevel.push({ kind: "setAppSettings", settings: settingsPatch });
 	}
 	collections.push(...diffUserCollections(prev, next));
 	collections.push(...diffOrganizationCollections(prev, next));

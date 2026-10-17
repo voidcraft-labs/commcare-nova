@@ -36,6 +36,9 @@ export const migrationNoticeCutoverSchema = z.enum(MIGRATION_NOTICE_CUTOVERS);
  * A reason joins the list at its place in that order, never at the end.
  */
 export const DOCUMENT_NOTICE_REASONS = [
+	"android-form-lists-setting-stored",
+	"validation-now-enforced",
+	"local-archive-changes",
 	"unsaved-assistant-work-discarded",
 	"ccz-needs-project-space",
 ] as const;
@@ -54,6 +57,9 @@ export const DEPLOYMENT_NOTICE_REASONS = [
 	"deep-links-need-republish",
 	"next-publish-overwrites-hq-edits",
 	"next-publish-asks-before-overwriting",
+	"setting-changes-at-next-publish",
+	"settings-unknown-unreadable",
+	"worker-settings-reset-at-next-publish",
 ] as const;
 export type DeploymentNoticeReason = (typeof DEPLOYMENT_NOTICE_REASONS)[number];
 

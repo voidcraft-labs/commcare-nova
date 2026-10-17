@@ -511,6 +511,20 @@ proof harness's publish capture (`proof/corpus/publish.ts`) both call, so the
 bodies the harness applies to HQ are the ones Nova sends. Change what a
 publish sends there.
 
+`hqImportApplication` projects `profile`, `translations` and `add_ons` on the
+publish's last read of the app's source before the import: the `target-app`
+read, the read after the shell create on a first publish, or the second read
+where this publish pushed a table or a place. The drift check compares Nova's
+part of the three keys, and nothing of them while the baseline's origin is
+`create`. The overlays carry the rest, the target's own, from that read, the
+same whether a comparison passed, none ran, or a person chose to publish over
+what CommCare HQ held. A save in CommCare HQ after that read meets the body as
+it was built: a key the body carries is replaced whole, with the target's part
+as the read held it, and a key the body leaves out keeps what HQ holds. Every
+publish also reads whether the target writes an empty-list text and stores
+the answer as `app_deployments.target_empty_case_list_text` with the
+`uploaded` fold; a read that fails leaves the column as it was.
+
 A refused publish answers **200 with the refusal and whatever record the
 target has**, not a 4xx: the request succeeded and the answer names where
 to retry from. A refused FIRST publish carries `deployment: null` — there

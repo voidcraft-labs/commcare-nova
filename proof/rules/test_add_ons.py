@@ -6,11 +6,14 @@ reading an add-on (so the add-ons save, which writes every switch the page
 shows, would change the build), and the rule erasing anything beside
 ``add_ons``.
 
-A corpus document is published with its ``add_ons`` as Nova writes them, as
-HQ's add-ons save writes them (every slug the page shows, those Nova leaves
-out ``false``, ``advanced_itemsets`` off), with every switch inverted, and
-with none: HQ's builds are the same, and the rule erases the stored
-differences; a changed app name is left.
+A corpus document is published with its ``add_ons`` as Nova writes them
+(only the slugs it needs, each ``true``), as HQ's add-ons save writes them
+(every slug the page shows, those Nova leaves out ``false``,
+``advanced_itemsets`` off), with every switch inverted, and with none: HQ's
+builds are the same, and the rule erases the stored differences; a changed
+app name is left. The document is ``nested-menu-parent``, a parent menu with
+a child menu, which needs two add-ons, so Nova's stored map has switches to
+vary.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from __future__ import annotations
 from proof.rules.add_ons import RULE
 from proof.rules.conftest import assert_same_build, assert_spelled, edited, published, shown, stored_differences
 
-DOCUMENT = "arithmetic"
+DOCUMENT = "nested-menu-parent"
 SHOWN_SLUGS = ("menu_mode", "submenus", "empty_case_lists")
 
 

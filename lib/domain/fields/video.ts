@@ -37,6 +37,7 @@ export const videoFieldMetadata: FieldKindMetadata<"video"> = {
 	label: "Video",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: false,
 	saDocs:
 		"Video attachment, the worker attaches an existing MP4, MPG, MPEG, MPG4, MPEG4, M4V, 3GP, 3GPP, 3GP2, or 3G2 file. Web Apps has no camera, so never describe this as recording video.",
 	convertTargets: ["image", "audio", "signature", "file"],

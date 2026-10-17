@@ -33,6 +33,7 @@ export const intFieldMetadata: FieldKindMetadata<"int"> = {
 	label: "Number",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: true,
 	saDocs: "Whole-number input (age, count, quantity).",
 	convertTargets: ["decimal"],
 };

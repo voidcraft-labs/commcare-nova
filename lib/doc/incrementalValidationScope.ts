@@ -235,9 +235,11 @@ export function incrementalValidationScope(
 				scope.formUuids.add(mutation.formUuid);
 				break;
 
-			/* App-owned scalar presentation has no module/form dependency. */
+			/* App-owned scalar presentation has no module/form dependency, and
+			 * no rule reads the app settings. */
 			case "setAppName":
 			case "setAppLogo":
+			case "setAppSettings":
 				break;
 
 			default:

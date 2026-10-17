@@ -67,10 +67,14 @@
  * those links alone.
  *
  * Beside the modules and forms, `app` says whether the batch reaches
- * app-level state no module or form owns: the app's name and logo, the
- * case-type catalog, an app-owned translation, the language catalog and
- * the Connect type, the app's media map, and the profile properties Nova
- * derives from the whole document. The media map
+ * app-level state no module or form owns: the app's name and logo, its
+ * saved and incomplete form lists, the case-type catalog, an app-owned
+ * translation, the language catalog and the Connect type, the app's media
+ * map, the profile properties Nova derives from the whole document, and
+ * the add-ons the app needs. Nova writes only the add-ons the emitted app
+ * needs (`lib/commcare/addOns.ts::addOnsNeededBy`, over each side's
+ * expansion), so a batch that changes which those are reaches the app's own
+ * record from wherever the use sits. The media map
  * lists every asset the document references, so a batch that changes which
  * assets those are (`collectAssetRefs` on D and D′) reaches it wherever the
  * reference sits: a question's, form's or menu's media, or an entity removed
@@ -89,8 +93,10 @@
 
 import { isDeepStrictEqual } from "node:util";
 import { produce } from "immer";
+import { addOnsNeededBy } from "@/lib/commcare/addOns";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import { emissionPlan } from "@/lib/commcare/emissionPlan";
+import { expandDoc } from "@/lib/commcare/expander";
 import {
 	caseListSessionDatums,
 	commonPrefixById,
@@ -212,9 +218,10 @@ export interface Footprint {
 	readonly appWide: boolean;
 	/**
 	 * Whether the batch reaches app-level state no module or form owns: the
-	 * app's name, logo, case-type catalog, language catalog, Connect type or
-	 * an app-owned translation, the assets its media map lists, or the
-	 * profile properties Nova derives.
+	 * app's name, logo, its saved and incomplete form lists
+	 * (`setAppSettings`), case-type catalog, language catalog, Connect type
+	 * or an app-owned translation, the assets its media map lists, the
+	 * profile properties Nova derives, or the add-ons the app needs.
 	 */
 	readonly app: boolean;
 	/** Every entity in the footprint: modules, forms, fields and the other carriers. */
@@ -236,6 +243,7 @@ const APP_WIDE_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
 const APP_LEVEL_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
 	"setAppName",
 	"setAppLogo",
+	"setAppSettings",
 	"declareCaseType",
 	"retireCaseType",
 	"addCaseProperty",
@@ -1087,13 +1095,17 @@ export function batchFootprint(
 	}
 	// The app's media map lists every referenced asset, so a batch that
 	// attaches, replaces or drops the last reference to one changes it; the
-	// derived profile properties follow the whole document.
+	// derived profile properties follow the whole document; and the app
+	// writes only the add-ons its emitted content needs
+	// (`lib/commcare/addOns.ts::addOnsNeededBy`), so a batch whose content
+	// needs another set changes the app's own record.
 	if (
 		!sameMembers(collectAssetRefs(d), collectAssetRefs(dPrime)) ||
 		!isDeepStrictEqual(
 			derivedProfileProperties(d),
 			derivedProfileProperties(dPrime),
-		)
+		) ||
+		!isDeepStrictEqual(addOnsOf(d, lookup), addOnsOf(dPrime, lookup))
 	) {
 		app = true;
 	}
@@ -1170,6 +1182,21 @@ export function batchFootprint(
 		modules: [...modules].sort(),
 		forms: [...forms].sort(),
 	};
+}
+
+/** The add-ons the app `doc` emits needs, over the Project lookup data it is published with. */
+function addOnsOf(
+	doc: BlueprintDoc,
+	lookup: LookupFixtureDataSnapshot | undefined,
+): readonly string[] {
+	return addOnsNeededBy(
+		expandDoc(
+			doc,
+			lookup === undefined
+				? {}
+				: { lookupNaming: lookupWireNaming(lookup.definitions) },
+		),
+	);
 }
 
 function sameMembers(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {

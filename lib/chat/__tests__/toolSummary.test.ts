@@ -146,6 +146,24 @@ describe("updateApp transcript row", () => {
 		expect(toolAction(part)).toBe("Updated app settings");
 		expect(toolLocation(part)).toBe("Client Registration");
 	});
+
+	it("reads a settings-only call as updated settings, naming each change", () => {
+		const part = donePart("updateApp", {
+			formLists: { saved: true, incomplete: false },
+		});
+		expect(toolAction(part)).toBe("Updated app settings");
+		expect(toolLocation(part)).toBe("Saved forms on · Incomplete forms off");
+	});
+
+	it("keeps the rename and puts the name first when a call also changes a setting", () => {
+		const part = donePart("updateApp", {
+			subject: "Village Health",
+			nameChange: "renamed",
+			formLists: { incomplete: false },
+		});
+		expect(toolAction(part)).toBe("Renamed the app");
+		expect(toolLocation(part)).toBe("Village Health · Incomplete forms off");
+	});
 });
 
 describe("configureConnect transcript row", () => {

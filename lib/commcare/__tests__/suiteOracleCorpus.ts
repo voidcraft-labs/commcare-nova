@@ -172,6 +172,34 @@ export const suiteOracleCases: readonly SuiteOracleCase[] = [
 		"SUITE_DETAIL_GROUP_INVALID",
 	]),
 	fixture(
+		"detail-select-text-names-an-undefined-locale",
+		detailWire(
+			'<select_text><text><locale id="m0_select_text"/></text></select_text>',
+		),
+		["SUITE_MISSING_LOCALE"],
+		true,
+		"static-join",
+	),
+	fixture(
+		"detail-select-text-no-locale",
+		detailWire("<select_text><text>Continue</text></select_text>"),
+		["SUITE_DETAIL_TEXT_INVALID"],
+		true,
+		"nova-contract",
+	),
+	// Core's `DetailParser.parse` asks for a child of `<select_text>`
+	// (`getNextTagInBlock`), so an empty one is refused on both sides.
+	fixture("detail-select-text-empty", detailWire("<select_text/>"), [
+		"SUITE_DETAIL_TEXT_INVALID",
+	]),
+	fixture(
+		"detail-no-items-text-plain-text",
+		detailWire("<no_items_text><text>Empty</text></no_items_text>"),
+		["SUITE_DETAIL_TEXT_INVALID"],
+		true,
+		"nova-contract",
+	),
+	fixture(
 		"detail-style-no-grid",
 		detailWire(fieldWire().replace("<header>", "<style/><header>")),
 		["SUITE_FIELD_STYLE_INVALID"],

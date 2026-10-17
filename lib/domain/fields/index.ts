@@ -423,6 +423,16 @@ export function isContainer(f: Field): f is ContainerField {
 }
 
 /**
+ * Whether a kind carries a validation: exactly the kinds whose schema declares
+ * `validate`. The validator admits `validate` by it and the XForm emitter
+ * writes the constraint, its message and the control's alert by it, so a
+ * validation the gate accepts is always the one a device enforces.
+ */
+export function fieldKindCarriesValidation(kind: FieldKind): boolean {
+	return fieldRegistry[kind].carriesValidation;
+}
+
+/**
  * Whether a raw kind name (a persisted row's `kind` before the document
  * parses, a mutation's declared kind) names a container. Unknown names are
  * not containers.

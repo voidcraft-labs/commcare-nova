@@ -124,8 +124,13 @@ describe("delivered case tiles", () => {
 							]
 						: [],
 				);
+				// HQ assigns the tile group with the tile's fields, and the select
+				// text after both (`DetailContributor.build_detail`).
 				if (short && grouped)
-					expect(detail.children.at(-1)?.name).toBe("group");
+					expect(detail.children.slice(-2).map((child) => child.name)).toEqual([
+						"group",
+						"select_text",
+					]);
 			}
 			const entries = xmlChildren(suite, "entry");
 			expect(

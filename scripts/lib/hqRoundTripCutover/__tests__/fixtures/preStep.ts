@@ -12,9 +12,16 @@ import type {
 	PersistedBlueprintRootText,
 	PersistedEntityRowText,
 } from "@/lib/db/persistedJson";
-import type { PersistableDoc } from "@/lib/domain";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	type PersistableDoc,
+} from "@/lib/domain";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
+import { rawDocumentAssembly, readRawDocument } from "../../oldShape";
 import type { QuestionPathMenu } from "../../questionPaths";
+import { type StepDeployment, transformDocument } from "../../transform";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "../../../../..");
 
@@ -77,7 +84,11 @@ export interface FixtureHistory {
 	}[];
 }
 
-/** The carriers the writer stores for a persistable document. */
+/**
+ * The carriers a pre-step writer stores for a persistable document. A
+ * pre-step row holds no `app_settings`, which step `app-settings` writes, so
+ * the column is NULL whatever the document holds.
+ */
 export function carriersOf(doc: PersistableDoc): FixtureCarriers {
 	const scalars = blueprintScalars(doc);
 	return {
@@ -90,6 +101,7 @@ export function carriersOf(doc: PersistableDoc): FixtureCarriers {
 				scalars.localization === undefined
 					? null
 					: JSON.stringify(scalars.localization),
+			app_settings_text: null,
 			logo: scalars.logo as PersistedBlueprintRootText["logo"],
 		},
 		rows: decomposeBlueprint(doc)
@@ -117,6 +129,30 @@ export function readFixtureCarriers(
 	...under: string[]
 ): FixtureCarriers {
 	return readJson(PRE_STEP_DIRECTORY, id, ...under, "carriers.json");
+}
+
+/**
+ * A fixture as the cutover leaves it: every registered step run over its
+ * frozen carriers with the given deployments (none by default), parsed and
+ * hydrated. A frozen fixture lacks the slots the stack makes required, so a
+ * test that needs a document of the current schema reads it here.
+ */
+export function migratedFixtureDocument(
+	id: string,
+	deployments: readonly StepDeployment[] = [],
+): BlueprintDoc {
+	const { target } = transformDocument(
+		readRawDocument(id, readFixtureCarriers(id)),
+		{
+			appId: id,
+			projectId: "fixture-project",
+			lookupColumnTypes: new Map(),
+			deployments,
+		},
+	);
+	return hydratePersistedBlueprint(
+		blueprintDocSchema.parse(rawDocumentAssembly(id, target)),
+	);
 }
 
 export function readFixtureProject(id: string): FixtureProject {

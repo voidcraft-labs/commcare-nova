@@ -23,8 +23,9 @@ Every local `.ccz` (the compile route, MCP `compile_app`, the proof harness's
 capture of a download) is assembled by
 `lib/export/localArchive.ts::compileLocalArchive` from a `ccz`-mode prepared
 export and the one published project space the archive is made for
-(`compileLocalArchive(prepared, runtimeTarget, identity)`, the target and that
-deployment's ids required), so no archive is compiled without one; change what
+(`compileLocalArchive(prepared, runtimeTarget, identity, deployment)`, the
+target, that deployment's ids and the reached target's `emptyCaseListText` and
+`earlierHqApps` required), so no archive is compiled without one; change what
 an archive holds there.
 
 The boundary structurally extracts the complete lookup target set and reads

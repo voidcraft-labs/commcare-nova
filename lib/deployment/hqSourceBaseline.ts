@@ -13,8 +13,9 @@
  * `remoteChanges.ts`; this module returns typed parts.
  */
 
-import { ownedProfile } from "@/lib/commcare/appOwnership";
+import { translationKeyOwner } from "@/lib/commcare/appStringKeys";
 import type { SchemaDefaultReader } from "@/lib/commcare/surface/schemaDefaults";
+import { ownedProfilePart } from "@/lib/commcare/targetOverlay";
 import {
 	canonicalJsonDigest,
 	canonicalJsonText,
@@ -160,7 +161,35 @@ interface Projection {
 	readonly text: JsonObject;
 }
 
-function project(normalized: unknown, ownership: AppOwnership): Projection {
+/**
+ * Nova's part of `translations`: per language, every key the target does not
+ * own (`appStringKeys.ts`), a generated key or a language's name. A language
+ * left with no such key is left out.
+ */
+function ownedTranslations(
+	translations: unknown,
+	codes: ReadonlySet<string>,
+): JsonObject {
+	if (!isObject(translations)) return {};
+	const owned: JsonObject = {};
+	for (const [language, entry] of Object.entries(translations)) {
+		if (!isObject(entry)) {
+			owned[language] = entry;
+			continue;
+		}
+		const keys = Object.keys(entry).filter(
+			(key) => translationKeyOwner(key, codes) !== "target",
+		);
+		if (keys.length > 0) owned[language] = pick(entry, keys);
+	}
+	return owned;
+}
+
+function project(
+	normalized: unknown,
+	ownership: AppOwnership,
+	codes: ReadonlySet<string> = new Set(langsOf(normalized)),
+): Projection {
 	const source = isObject(normalized) ? normalized : {};
 	const name: JsonObject = {};
 	copyKey(name, source, "name");
@@ -170,12 +199,14 @@ function project(normalized: unknown, ownership: AppOwnership): Projection {
 	copyKey(settings, source, "application_version");
 	copyKey(settings, source, "location_fixture_restore");
 	settings.add_ons = pick(source.add_ons, ownership.addOns);
-	settings.profile = ownedProfile(source.profile, ownership);
+	settings.profile = ownedProfilePart(source.profile, ownership);
 	if (ownership.autoGpsCapture) copyKey(settings, source, "auto_gps_capture");
 	const text: JsonObject = {};
-	/* The body replaces `translations` whole, so every key in it is one
-	 * Nova writes. */
-	copyKey(text, source, "translations");
+	/* The body carries the target's own keys back, so only Nova's part of
+	 * `translations` is compared, and a key a person saved in HQ is none. */
+	if (Object.hasOwn(source, "translations")) {
+		text.translations = ownedTranslations(source.translations, codes);
+	}
 	return {
 		modules: Array.isArray(source.modules) ? source.modules : [],
 		attachments: isObject(source._attachments) ? source._attachments : {},
@@ -369,8 +400,14 @@ export function diffHqAppSource(input: {
 	readonly schemaDefault: SchemaDefaultReader;
 }): readonly AppChangePart[] {
 	const reader = input.schemaDefault;
-	const before = project(input.baseline, input.ownership);
-	const after = project(input.current, input.ownership);
+	/* One set of language codes for both reads, so a key is classed alike on
+	 * each side and a changed list of languages is the `languages` part. */
+	const codes = new Set([
+		...langsOf(input.baseline),
+		...langsOf(input.current),
+	]);
+	const before = project(input.baseline, input.ownership, codes);
+	const after = project(input.current, input.ownership, codes);
 	const langs = langsOf(input.current);
 	const parts: AppChangePart[] = [];
 

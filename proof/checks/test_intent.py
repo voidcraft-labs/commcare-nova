@@ -18,7 +18,17 @@ reads its expected value from Nova's emitter, which would agree with the
 defect; a check that expects what HQ never keeps for any app (a data
 dictionary row for a child case's write, which HQ's refresh never reads), so
 no fix could clear it; and a comparator that reads the wrong side or the
-wrong file, so it passes whatever HQ built. Expected values come from the
+wrong file, so it passes whatever HQ built. Since step 2 a Nova document states the seventeen
+profile settings (fifteen constants and its saved and incomplete form lists),
+which HQ's built profile and each local profile hold, a setting a person
+saved in HQ in place of Nova's in HQ's; every version a local archive
+carries is the document's sequence; and each add-on HQ's own predicate says
+the stored app uses is one it holds on. The plausible failures there: a
+judge that reads the settings from Nova's emitter, a local archive whose
+forms or profile carry another version than the sequence, and a slug HQ
+says is in use that the stored app leaves off, so HQ's pages would hide what
+the app uses; a control retained before the intent carried the settings or
+the sequence is judged as before. Expected values come from the
 document alone; each reader below is pinned against an independent one (HQ's
 own build, save and refresh of an app for the HQ-side comparators, Core's own
 parse for case blocks and constraints), and each refusal is paired with an
@@ -1082,3 +1092,180 @@ def test_the_observation_at_b_edit_is_bs_where_their_inputs_agree(hq, core_runne
         f"{document.id}'s B holds no authored note in HQ's data dictionary, so that comparison is empty."
     )
     assert canonical(observed[0]) == canonical(observed[1])
+
+
+def test_the_settings_and_the_sequence_are_read_from_the_document_and_kept_by_a_control():
+    document = _document()
+    document["doc"]["appSettings"] = {"showSavedForms": True, "showIncompleteForms": False}
+    document["compiledAtSeq"] = 7
+    read = intent.document_intent(document)
+    assert (read.settings, read.sequence) == ({"showSavedForms": True, "showIncompleteForms": False}, 7)
+    assert intent.intent_from_json(json.loads(json.dumps(intent.intent_json(read)))) == read
+    stated = intent.stated_settings(read)
+    assert len(stated) == 17 and (stated["cc-show-saved"], stated["cc-show-incomplete"]) == ("yes", "no")
+    assert {key: stated[key] for key in intent.NOVA_PROFILE_CONSTANTS} == intent.NOVA_PROFILE_CONSTANTS
+    # A control retained before the intent carried them states no setting and makes no claim of the versions.
+    older = intent.intent_json(read)
+    del older["settings"], older["sequence"]
+    held = intent.intent_from_json(older)
+    assert (held.settings, held.sequence, intent.stated_settings(held)) == (None, None, None)
+    assert intent.document_intent(_document()).settings is None
+
+
+def _profile(properties, **attributes):
+    """A profile.ccpr holding ``properties`` (key to value), its root carrying ``attributes``."""
+    root = etree.Element("profile", **attributes)
+    for key, value in properties.items():
+        etree.SubElement(root, "property", key=key, value=value)
+    return etree.tostring(root)
+
+
+def _built(properties):
+    """HQ's state A whose build holds a profile setting ``properties``."""
+    from types import SimpleNamespace
+
+    attributes = {"requiredMajor": "2", "requiredMinor": "57", "requiredMinimal": "0", "name": "Clinic"}
+    files = {"profile.ccpr": _profile(properties, **attributes)}
+    return intent.HeldState("A", {}, {}, SimpleNamespace(files=files))
+
+
+def test_hqs_built_profile_is_held_to_the_seventeen_settings_the_document_states():
+    items = load_manifest().items
+    configuration = intent.JudgedConfiguration("minimum", "2.57.0", frozenset())
+    stated = intent.Intent(
+        app_name="Clinic", modules=[], settings={"showSavedForms": False, "showIncompleteForms": True}
+    )
+    unstated = {
+        key[len("setting:properties.") :]: intent._unstated_setting(item)
+        for key, item in items.items()
+        if key.startswith("setting:properties.")
+    }
+    held = {name: value for name, value in unstated.items() if value is not None}
+    held.update(intent.stated_settings(stated))
+    assert intent.profile_settings("doc", stated, _built(held), configuration, items) == []
+    # One constant written at HQ's page default, and the incomplete list hidden: two differences.
+    otherwise = {**held, "cc-fuzzy-search-enabled": "yes", "cc-show-incomplete": "no"}
+    assert _found(intent.profile_settings("doc", stated, _built(otherwise), configuration, items)) == [
+        (
+            "profile.ccpr@A",
+            f"/profile/property[@key={key}]/@value",
+            f"/profile/property[@key={key}]/@value",
+            "changed",
+            expected,
+            observed,
+        )
+        for key, expected, observed in (("cc-fuzzy-search-enabled", "no", "yes"), ("cc-show-incomplete", "yes", "no"))
+    ]
+    # A setting a person saved in HQ is held at the saved value, and Nova's constant there is a difference.
+    saved = {"cc-autoup-freq": "freq-daily"}
+    assert intent.profile_settings("doc", stated, _built({**held, **saved}), configuration, items, saved) == []
+    assert _found(intent.profile_settings("doc", stated, _built(held), configuration, items, saved)) == [
+        (
+            "profile.ccpr@A",
+            "/profile/property[@key=cc-autoup-freq]/@value",
+            "/profile/property[@key=cc-autoup-freq]/@value",
+            "changed",
+            "freq-daily",
+            "freq-never",
+        )
+    ]
+    # An intent that states no setting (a control retained before) is held to HQ's settings for none.
+    older = intent.Intent(app_name="Clinic", modules=[])
+    plain = {name: value for name, value in unstated.items() if value is not None}
+    assert intent.profile_settings("doc", older, _built(plain), configuration, items) == []
+
+
+def _local_archive(sequence, *, form_version=None, media_version="1", cc_app_version=None, incomplete="yes"):
+    """A local archive's entries as Nova compiles them at ``sequence``, with one value planted where named."""
+    version = str(sequence)
+    profile = etree.Element("profile", version=version, uniqueid="u")
+    for key, value in (
+        ("cc-content-version", version),
+        ("cc-app-version", cc_app_version or version),
+        *intent.NOVA_PROFILE_CONSTANTS.items(),
+        ("cc-show-saved", "no"),
+        ("cc-show-incomplete", incomplete),
+    ):
+        etree.SubElement(profile, "property", key=key, value=value)
+    suites = etree.SubElement(profile, "suite")
+    for name in ("suite", "media-suite"):
+        etree.SubElement(suites, "resource", id=name, version=version)
+    suite = etree.Element("suite", version=version)
+    for kind, identifier in (("xform", "modules-0/forms-0.xml"), ("locale", "app_strings_en")):
+        etree.SubElement(etree.SubElement(suite, kind), "resource", id=identifier, version=version)
+    media = etree.Element("suite")
+    etree.SubElement(etree.SubElement(media, "media"), "resource", id="m", version=media_version)
+    form = (
+        '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model>'
+        f'<instance><data xmlns="urn:f" version="{form_version or version}"/></instance></model></h:head></h:html>'
+    )
+    return {
+        "profile.ccpr": etree.tostring(profile),
+        "suite.xml": etree.tostring(suite),
+        "media_suite.xml": etree.tostring(media),
+        "modules-0/forms-0.xml": form.encode(),
+    }
+
+
+def test_every_version_a_local_archive_carries_is_the_documents_sequence():
+    stated = intent.Intent(
+        app_name="Clinic", modules=[], settings={"showSavedForms": False, "showIncompleteForms": True}, sequence=7
+    )
+    assert intent.local_archive_versions("doc", stated, _local_archive(7), "local.ccz") == []
+    assert intent.local_profile_settings("doc", stated, _local_archive(7), "local.ccz") == []
+    planted = {
+        "form": (_local_archive(7, form_version="1"), "local.ccz/form:0.0", "/html/head/model/instance/data/@version"),
+        "media": (
+            _local_archive(7, media_version="7"),
+            "local.ccz/media_suite.xml",
+            "/suite/media/resource[@id=*]/@version",
+        ),
+        "app": (
+            _local_archive(7, cc_app_version="1"),
+            "local.ccz/profile.ccpr",
+            "/profile/property[@key=cc-app-version]/@value",
+        ),
+        "archive": (_local_archive(8), None, None),
+    }
+    for name, (files, artifact, path) in planted.items():
+        found = intent.local_archive_versions("doc", stated, files, "local.ccz")
+        if artifact is None:
+            assert found, name  # an archive compiled at another sequence differs everywhere
+        else:
+            assert [(d.artifact, d.path) for d in found] == [(artifact, path)], name
+    hidden = _local_archive(7, incomplete="no")
+    assert _found(intent.local_profile_settings("doc", stated, hidden, "local.ccz")) == [
+        (
+            "local.ccz/profile.ccpr",
+            "/profile/property[@key=cc-show-incomplete]/@value",
+            "/profile/property[@key=cc-show-incomplete]/@value",
+            "changed",
+            "yes",
+            "no",
+        )
+    ]
+    # A control retained before the intent carried the sequence and the settings: no claim.
+    older = intent.Intent(app_name="Clinic", modules=[])
+    assert intent.local_archive_versions("doc", older, _local_archive(8), "local.ccz") == []
+    assert intent.local_profile_settings("doc", older, hidden, "local.ccz") == []
+
+
+def test_an_add_on_hq_says_the_stored_app_uses_is_one_it_holds_on():
+    from types import SimpleNamespace
+
+    def state(stored, in_use):
+        return intent.HeldState("B", {"add_ons": stored}, {}, SimpleNamespace(files=None), add_ons_in_use=in_use)
+
+    in_use = {"display_conditions": True, "submenus": True, "menu_mode": False}
+    assert intent.add_ons_in_use("doc", state({"display_conditions": True, "submenus": True}, in_use)) == []
+    # A slug HQ sees no use of, on or off, is no difference: a person's own, or one the overlay keeps on.
+    assert (
+        intent.add_ons_in_use("doc", state({"display_conditions": True, "submenus": True, "menu_mode": True}, in_use))
+        == []
+    )
+    assert _found(intent.add_ons_in_use("doc", state({"display_conditions": False, "submenus": True}, in_use))) == [
+        ("add_ons@B", "/in-use/*", "/in-use/display_conditions", "changed", True, False)
+    ]
+    assert _found(intent.add_ons_in_use("doc", state({"display_conditions": True}, in_use))) == [
+        ("add_ons@B", "/in-use/*", "/in-use/submenus", "changed", True, None)
+    ]

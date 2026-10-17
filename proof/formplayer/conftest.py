@@ -27,6 +27,7 @@ DOCUMENTS = (
     "targeted-media-slots",
     "targeted-save-to-case-read",
     "targeted-search-hq-compile",
+    "targeted-validated-barcode-secret",
 )
 
 

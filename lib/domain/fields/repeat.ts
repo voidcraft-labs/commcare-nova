@@ -135,6 +135,7 @@ export const repeatFieldMetadata: FieldKindMetadata<"repeat"> = {
 	label: "Repeat",
 	isStructural: true,
 	isContainer: true,
+	carriesValidation: false,
 	saDocs:
 		'Repeats its child fields N times. Pick a `repeat_mode`: "user_controlled" for forms where the end user adds entries (e.g. household members). Set repeat_mode and nothing else; "count_bound" for a live count from an integer question or expression (set repeat_count); "query_bound" to iterate over case-database query results (set data_source.ids_query). Increasing a count_bound count adds rows; decreasing it keeps created rows and their answers and case operations in the submission. query_bound snapshots its query when the enclosing instance initializes; changing dependencies does not rebuild those rows. A new enclosing repeat instance initializes its own query snapshot.',
 	convertTargets: ["group"],

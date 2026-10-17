@@ -200,11 +200,10 @@ harness keeps, each with its reason.
   operation come from the unit's key and depth; the browser's clock is fixed
   and its randomness seeded from the run's spec. The store, its audits and
   every byte comparison rest on records being byte-identical run to run, and
-  the ordinals keep defect 9 visible and keep apart what a regression of
-  defect 1's fix would mint apart. Never read the wall clock or the
-  system's entropy inside an operation, and wait with `time.perf_counter` or a
-  C-level wait: `time.monotonic` is frozen there, so its timeouts never
-  arrive.
+  the ordinals keep apart what a regression would mint apart. Never read the
+  wall clock or the system's entropy inside an operation, and wait with
+  `time.perf_counter` or a C-level wait: `time.monotonic` is frozen there, so
+  its timeouts never arrive.
 - **The capture moves with publish.** A change to what `publishAppToHq` reads
   or sends changes `proof/corpus/publish.ts` in the same pull request, the
   peer answers a read only with what the HQ side then holds to HQ's own view,

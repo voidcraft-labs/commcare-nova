@@ -45,6 +45,7 @@ function fixture(): BlueprintDoc {
 		appId: "app",
 		appName: "App",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [
 			{
 				name: "patient",

@@ -26,6 +26,10 @@ export function appOverview(doc: BlueprintDoc) {
 		appId: doc.appId,
 		name: doc.appName,
 		...(doc.connectType && { connect: doc.connectType }),
+		settings: {
+			showSavedForms: doc.appSettings.showSavedForms,
+			showIncompleteForms: doc.appSettings.showIncompleteForms,
+		},
 		standardRecordProperties: Object.entries(
 			STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 		).map(([name, type]) => ({

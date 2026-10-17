@@ -72,6 +72,7 @@ function makeBlueprint(caseTypes: CaseType[] | null): PersistableDoc {
 		appId: APP_ID,
 		appName: "Materialize Test",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes,
 		modules: {},
 		forms: {},
