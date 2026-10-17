@@ -35,6 +35,7 @@ import { proseText } from "@/lib/domain/prose";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import { buildUrl } from "@/lib/routing/location";
+import { APP_NOTICES_SEED, appNoticesEntries } from "./appNoticesSeed";
 import {
 	buildCaseChangesBlueprint,
 	CASE_CHANGES_SEED,
@@ -73,13 +74,11 @@ import {
 	PREVIOUS_TASK_SEED,
 	previousTaskRoutes,
 } from "./previousTaskSeed";
-
 import {
 	buildReactProfileBlueprint,
 	reactProfileInitialRoute,
 	reactProfileRoute,
 } from "./reactProfileSeed";
-
 import {
 	buildSearchFirstBlueprint,
 	SEARCH_FIRST_SEED,
@@ -1439,6 +1438,38 @@ export async function createSmokeBuilders(
 				{ name: SEED.moveAppName, status: "complete" },
 			);
 			return { openAppId, moveDestinationProjectId, moveAppId };
+		},
+		"app-notices": async () => {
+			const { appId } = await createExplicitBlankApp(
+				SEED.userId,
+				seedProjectId,
+				randomUUID(),
+				{ name: APP_NOTICES_SEED.appName, status: "complete" },
+			);
+			/* Only a cutover writes these rows, as the migration role, so the
+			 * fixture writes them the same raw way. */
+			await pool.query(
+				`INSERT INTO app_migration_notices (app_id, cutover, entries)
+				 VALUES ($1, $2, $3::jsonb)`,
+				[
+					appId,
+					APP_NOTICES_SEED.cutover,
+					JSON.stringify(appNoticesEntries(randomUUID())),
+				],
+			);
+			await pool.query(
+				`INSERT INTO app_migration_notice_key_readers
+					(cutover, user_id, server, domain, first_used_at, last_used_at)
+				 VALUES ($1, $2, 'production', $3, $4, $5)`,
+				[
+					APP_NOTICES_SEED.cutover,
+					SEED.userId,
+					APP_NOTICES_SEED.domain,
+					APP_NOTICES_SEED.firstUsedAt,
+					APP_NOTICES_SEED.lastUsedAt,
+				],
+			);
+			return { appNotices: { appId, route: `/build/${appId}` } };
 		},
 		"member-role": async () => {
 			const receipt = await createExplicitBlankApp(

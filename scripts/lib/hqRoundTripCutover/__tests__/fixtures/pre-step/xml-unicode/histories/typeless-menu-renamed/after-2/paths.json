@@ -1,0 +1,31 @@
+[
+	{
+		"uuid": "eb0a6d34-9ab1-5db8-a9c0-3116d4f6a1a4",
+		"name": "Field surveys",
+		"caseType": null,
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "f8e6556e-9681-5e0a-a592-f1f43fa11cfe",
+				"name": "Interview",
+				"paths": [
+					"/data/answer",
+					"/data/meals",
+					"/data/address",
+					"/data/delivery_context",
+					"/data/space",
+					"/data/xml_whitespace",
+					"/data/unicode_spacing",
+					"/data/mixed_nbsp",
+					"/data/consumer_spacing",
+					"/data/edge_whitespace",
+					"/data/escaped_markup",
+					"/data/checked",
+					"/data/literal_checked",
+					"/data/reference_checked",
+					"/data/choose"
+				]
+			}
+		]
+	}
+]

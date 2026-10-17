@@ -1,0 +1,33 @@
+[
+	{
+		"uuid": "17a69048-be0c-59d4-a7a2-9bda805659b8",
+		"name": "Patients",
+		"caseType": "patient",
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "cd8766da-7326-51ee-aa0b-f8101304f9ea",
+				"name": "Visit",
+				"paths": ["/data/answer"]
+			},
+			{
+				"uuid": "cb8763b4-7126-5ec8-ac0b-fb361104f6c4",
+				"name": "Register",
+				"paths": ["/data/name", "/data/external"]
+			}
+		]
+	},
+	{
+		"uuid": "00000000-0000-4000-8000-000000000c01",
+		"name": "Checks",
+		"caseType": "patient",
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "00000000-0000-4000-8000-000000000c02",
+				"name": "Check",
+				"paths": ["/data/arrived"]
+			}
+		]
+	}
+]

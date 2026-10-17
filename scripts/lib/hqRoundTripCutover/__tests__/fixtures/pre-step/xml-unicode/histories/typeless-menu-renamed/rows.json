@@ -1,0 +1,7 @@
+[
+	{
+		"seq": 2,
+		"batchId": "history:typeless-menu-renamed:2",
+		"mutationsText": "[{\"kind\":\"renameModule\",\"newId\":\"Field surveys\",\"uuid\":\"eb0a6d34-9ab1-5db8-a9c0-3116d4f6a1a4\"}]"
+	}
+]

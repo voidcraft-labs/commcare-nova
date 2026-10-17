@@ -200,8 +200,25 @@ image must be supplied explicitly; the service image contains no Job
 bundles. Worker case schemas are valid derived storage even when absent from
 the authored case-type catalog; the retirement scanner includes those types.
 Archive completed Job definitions, execution evidence, and immutable image
-references before deleting obsolete Jobs. Do not delete them until a successful
-release no longer refreshes them. Historical schema migrations are immutable.
+references before deleting obsolete Jobs. The archive of a direct maintenance
+cutover is the private bucket `gs://commcare-nova-cutover-evidence`, one prefix
+per cutover. It has no lifecycle rule and nothing is deleted from it: it holds
+content-free reports, IAM policy reads and Job definitions, and its list of the
+member keys each run sent is the one record of a run that writes no row. It
+names members by user id, so the future whole-tenant deletion lifecycle must
+list it. Do not delete them until a successful release no longer refreshes
+them. Historical schema migrations are immutable.
+
+The HQ round-trip emission cutover runs through its own Job,
+`commcare-nova-hq-round-trip-cutover`, from the same maintenance image. Its
+stored arguments are the dry run, which writes nothing. `--prove-decrypt`,
+`--settle-holders`, `--rehearse` and `--execute --expect-plan-digest <digest>`
+are its only allowlisted overrides, the last two also with
+`--transient-as-unreadable`, and `--without-hq` is refused. It is the one Job
+that decrypts a member's stored CommCare HQ key, under a grant on that key
+which the operator makes for one run and revokes after it. Its runbook is
+`docs/plans/hq-round-trip/2-cutover-runbook.md`; the Job, the runbook and this
+paragraph are removed together once the cutover has run.
 
 ## Benchmarking
 

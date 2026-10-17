@@ -1,0 +1,15 @@
+[
+	{
+		"uuid": "a49f1f7a-bb19-510e-a49a-f8ac0d4ee8ea",
+		"name": "Patients",
+		"caseType": null,
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "428edace-f81a-575a-aaff-2db0880c6dde",
+				"name": "Visit",
+				"paths": ["/data/section/name"]
+			}
+		]
+	}
+]

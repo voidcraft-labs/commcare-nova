@@ -15,6 +15,10 @@ displayed === fold(confirmedDoc, [...sentPending, ...humanUncommitted()])
 reload can drop it). The client frame admits exactly `autosave | mcp | chat`;
 `blueprint-migration`, `fold-baseline`, and `project-move` are durable
 server-side change kinds that force reauthorization and a whole-app reload.
+The stream route reads an app's greatest fold baseline above a subscriber's
+cursor before it parses any suffix row, and answers `reload` without parsing a
+row behind it, so a cursor below a horizon never meets a row of an earlier
+dialect.
 A batch leaves `sentPending` only when its OWN echo frame returns. A solo editor
 receives its own batches back as echoes and reconciles exactly like a
 collaborator.

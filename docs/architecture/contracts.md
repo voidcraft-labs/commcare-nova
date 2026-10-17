@@ -31,12 +31,17 @@ still build a fresh database years later.
 
 **Direct maintenance cutover.** A persisted-shape change that the old and new
 revisions cannot both read is not forced through a rolling compatibility layer.
-Its advisory production scan runs first. The exceptional operator runbook then
+Its advisory production scan runs first. An advisory scan writes nothing, also
+when it reads an external system with a member's stored credential inside the
+migration Job; the migration itself records each credential it uses. The
+exceptional operator runbook then
 blocks ingress and every independent writer, drains in-flight work, proves the
 database quiescent, and reruns the blocking scan under the migration's locks.
 Only that frozen proof authorizes the one final-shape migration. The exact new
 image then deploys and proves it can read the shape before writers and ingress
-resume. A verified restore point, rollback decision, capacity proof, runbook,
+resume. A writer that the deploy's own prerequisite check requires enabled, and
+whose database authority holds nothing of the changed shape, resumes before the
+deploy. A verified restore point, rollback decision, capacity proof, runbook,
 and post-migration scan ship with the behavior. Failure after the first write
 leaves traffic paused; an old revision never resumes against the new shape.
 This is accepted downtime, not a staged rollout: there are no dual readers,

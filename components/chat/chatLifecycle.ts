@@ -514,7 +514,7 @@ export interface AppMaterializationActivation {
 	readonly projectId: string;
 	readonly role: string;
 	readonly canEdit: boolean;
-	readonly seq: 1;
+	readonly seq: number;
 	readonly batchId: string;
 	readonly changeSetId: string | null;
 	readonly snapshotDigest: string;
@@ -530,7 +530,9 @@ export interface AppMaterializationActivation {
  * `data-app-materialized` frame (design-slice genesis) and the blank-app
  * action's return value share this exact shape. Never activate multiplayer
  * from a partial event: identity, Project capability, exact sequence-1
- * blueprint, and its canonical digest are one authority. `starter` is
+ * blueprint, and its canonical digest are one authority. A design-slice
+ * receipt read back after a fold horizon follows the birth carries the saved
+ * app at its own later sequence, and multiplayer is seeded there. `starter` is
  * non-null only on the explicit-blank path, where the blueprint must be
  * exactly the canonical Survey/Form/Question starter; a design-slice
  * blueprint is the first meaningful workflow and only its validity and
@@ -560,7 +562,9 @@ export function parseAppMaterializationReceipt(
 	const parsedBlueprint = blueprintDocSchema.safeParse(data.blueprint);
 	if (
 		eventVersion !== 1 ||
-		seq !== 1 ||
+		typeof seq !== "number" ||
+		!Number.isSafeInteger(seq) ||
+		seq < 1 ||
 		typeof appId !== "string" ||
 		appId.trim().length === 0 ||
 		typeof projectId !== "string" ||
@@ -600,7 +604,7 @@ export function parseAppMaterializationReceipt(
 			projectId,
 			role,
 			canEdit,
-			seq: 1,
+			seq,
 			batchId,
 			changeSetId,
 			snapshotDigest,
@@ -625,6 +629,7 @@ export function parseAppMaterializationReceipt(
 		return null;
 	}
 	if (
+		seq !== 1 ||
 		blueprint.connectType !== null ||
 		blueprint.caseTypes !== null ||
 		blueprint.moduleOrder.length !== 1 ||

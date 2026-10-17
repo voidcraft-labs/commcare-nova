@@ -268,7 +268,9 @@ the token from the current read when setting or reviewing a translation.
 |---|---|
 | `list_apps` | List your apps with optional status filter, sort, and pagination. Each entry names the Nova Project the app lives in (`project_id` + `project_name`). |
 | `search_apps` | Fuzzy search by name. Case-insensitive, tolerates typos. Entries carry the same Project columns as `list_apps`. |
-| `get_app` | Get an overview of an app and its Nova Project: workflows, record model, languages, worker roles, organization and automations. Use scoped reads for content and settings. |
+| `get_app` | Get an overview of an app and its Nova Project: workflows, record model, languages, worker roles, organization and automations. Use scoped reads for content and settings. `notices` lists each update about the app you have not dismissed, such as what Nova changed when it changed how it writes apps for CommCare HQ: its `id`, a `summary` counting its lines by reason, and up to 50 `lines` (`truncated` is true when there are more), each with its `text` and, where it has one, the field or other part it names (`entity_uuid`) and the project space it is about (`deployment`). |
+
+| `dismiss_app_notice` | Dismiss one notice of an app (`app_id`, `notice_id`) for you alone. Any member of the app's Project can dismiss, a viewer included; other members keep seeing the notice until they dismiss it themselves. A `notice_id` that is not one of this app's notices returns `invalid_input`. |
 | `check_project_space_compatibility` | Check whether one explicitly selected CommCare HQ project space can run the app. Returns required app capabilities, blockers, non-blocking performance guidance, and next steps without changing the app or project space. |
 
 Database failures return a safe operational error. Correctable tool-input refusals keep their specific explanation so the agent can revise the request.

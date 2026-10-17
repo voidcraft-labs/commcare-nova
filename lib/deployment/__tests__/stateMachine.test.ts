@@ -51,6 +51,9 @@ function fresh(): DeploymentRecord {
 		createdAt: BEFORE,
 		updatedAt: BEFORE,
 		lastObservedAt: null,
+		offeredLogoContentHash: null,
+		targetEmptyCaseListText: null,
+		targetWebAppsEnabled: null,
 	};
 }
 // Authored lifecycle expectations, not projections of the implementation tables.

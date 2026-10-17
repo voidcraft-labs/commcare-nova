@@ -1,0 +1,15 @@
+[
+	{
+		"uuid": "c27630a5-d8b4-5811-adbd-89e32c632e95",
+		"name": "Followup",
+		"caseType": "patient",
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "8ab01b70-d077-51d4-a2dd-ed0ed02dae80",
+				"name": "Untitled Form",
+				"paths": ["/data/question1"]
+			}
+		]
+	}
+]

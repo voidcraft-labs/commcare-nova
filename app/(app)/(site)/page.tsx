@@ -3,6 +3,7 @@ import tablerMail from "@iconify-icons/tabler/mail";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import Link from "next/link";
 import { Suspense } from "react";
+import { KeyReaderNotice } from "@/components/notices/KeyReaderNotice";
 import { Button } from "@/components/shadcn/button";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
@@ -10,6 +11,8 @@ import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import { resolveProjectAccess } from "@/lib/db/appAccess";
 import { projectHasApps } from "@/lib/db/apps";
 import { userHasDesignsInProgress } from "@/lib/db/designInProgress";
+import { log } from "@/lib/logger";
+import { readKeyReaderNotices } from "@/lib/notices/store";
 import { listIncomingInvitations } from "@/lib/projects/membership";
 import { AppList } from "./app-list";
 import { Landing } from "./landing";
@@ -39,6 +42,10 @@ interface HomePageProps {
  *
  * The app/design existence probes run before the Suspense boundary so only a
  * genuinely empty Project bypasses the list and its resumable-design section.
+ *
+ * Beside the invitations banner, a person whose own saved CommCare HQ key an
+ * update sent to read their project spaces gets one line saying so
+ * (`KeyReaderNotice`), whichever Project is active.
  */
 export default async function HomePage({ searchParams }: HomePageProps) {
 	const session = await getSession();
@@ -49,9 +56,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		return <Landing signInError={errorParam} />;
 	}
 
-	const [activeProjectId, incoming] = await Promise.all([
+	const [activeProjectId, incoming, keyReaders] = await Promise.all([
 		resolveActiveProjectId(session),
 		listIncomingInvitations(session.user.email, new Date()),
+		loadKeyReaderNotices(session.user.id),
 	]);
 	const [hasApps, hasDesigns, activeAccess] = await Promise.all([
 		projectHasApps(activeProjectId),
@@ -72,6 +80,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 						<InvitationsBanner count={inviteCount} />
 					</div>
 				)}
+				{keyReaders.length > 0 && (
+					<div className="w-full max-w-md mb-8">
+						<KeyReaderNotice rows={keyReaders} />
+					</div>
+				)}
 				<GetStarted canCreateApp={canCreateApp} />
 			</main>
 		);
@@ -82,6 +95,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 			{inviteCount > 0 && (
 				<div className="mb-8">
 					<InvitationsBanner count={inviteCount} />
+				</div>
+			)}
+			{keyReaders.length > 0 && (
+				<div className="mb-8">
+					<KeyReaderNotice rows={keyReaders} />
 				</div>
 			)}
 			<Suspense fallback={<AppListFallback />}>
@@ -95,6 +113,20 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
 /** Banner shown when the user has Project invitations awaiting a response:
  *  the in-app discovery point (no invitation email is sent). */
+
+/** The home line is a courtesy beside the app list: a failed read logs and
+ * shows no line rather than failing the page. */
+async function loadKeyReaderNotices(
+	userId: string,
+): Promise<Awaited<ReturnType<typeof readKeyReaderNotices>>> {
+	try {
+		return await readKeyReaderNotices(userId);
+	} catch (err) {
+		log.error("[home] key-reader notice read failed", err);
+		return [];
+	}
+}
+
 function InvitationsBanner({ count }: { count: number }) {
 	return (
 		<Link

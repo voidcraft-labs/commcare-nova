@@ -1,0 +1,21 @@
+[
+	{
+		"uuid": "2208e8d5-5197-5241-a5c8-d08b0bf51d45",
+		"name": "Visits",
+		"caseType": null,
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "3423246b-52ec-592f-ac80-b915fadeb57b",
+				"name": "Counted visit",
+				"paths": [
+					"/data/first/size",
+					"/data/second/items/answer",
+					"/data/second/items/size",
+					"/data/second/items/direct/note",
+					"/data/second/items/computed/note"
+				]
+			}
+		]
+	}
+]

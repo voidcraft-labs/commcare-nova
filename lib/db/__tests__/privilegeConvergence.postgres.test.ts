@@ -812,6 +812,41 @@ describe("database privilege convergence", () => {
 					code: "42501",
 				});
 			}
+			/* Only a migration writes identity overrides and migration notices;
+			 * the confirmation and baseline ledgers are never deleted. Empty
+			 * tables still exercise the runtime grants. */
+			for (const statement of [
+				sql`INSERT INTO app_deployment_identities
+					(deployment_id, entity_kind, nova_entity_uuid, unique_id)
+					VALUES (gen_random_uuid(), 'form', gen_random_uuid(), 'form-id')`,
+				sql`INSERT INTO app_migration_notices (app_id, cutover, entries)
+					VALUES (${genesis.appId}, 'probe', '[{}]'::jsonb)`,
+				sql`INSERT INTO app_migration_notice_key_readers
+					(cutover, user_id, server, domain, first_used_at, last_used_at)
+					VALUES ('probe', ${probeUserId}, 'production', 'probe', now(), now())`,
+				sql`DELETE FROM app_deployment_confirmations`,
+				sql`DELETE FROM app_deployment_baselines`,
+				sql`DELETE FROM project_space_resource_baselines`,
+				sql`UPDATE app_migration_notice_dismissals SET user_id = user_id`,
+			]) {
+				await expect(statement.execute(runtime.db)).rejects.toMatchObject({
+					code: "42501",
+				});
+			}
+			for (const statement of [
+				sql`UPDATE app_deployment_confirmations SET withdrawn_at = now()
+					WHERE withdrawn_at IS NULL`,
+				sql`UPDATE app_deployment_baselines SET observed_by = observed_by`,
+				sql`UPDATE project_space_resource_baselines SET observed_by = observed_by`,
+			]) {
+				await expect(statement.execute(runtime.db)).resolves.toBeDefined();
+			}
+			/* A member's dismissal is the one notice row the runtime writes. */
+			await expect(
+				sql`INSERT INTO app_migration_notice_dismissals (user_id, surface, cutover)
+					VALUES (${probeUserId}, 'key-reader', 'probe')
+					ON CONFLICT DO NOTHING`.execute(runtime.db),
+			).resolves.toMatchObject({ numAffectedRows: BigInt(1) });
 			await expect(
 				sql`
 					SELECT nova_insert_app_change_genesis_fold_baseline(${missingProbeAppId})

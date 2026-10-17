@@ -31,11 +31,15 @@ const RECORD: DeploymentRecord = {
 	createdAt: "2026-08-06T00:00:00.000Z",
 	updatedAt: "2026-08-06T00:00:00.000Z",
 	lastObservedAt: null,
+	offeredLogoContentHash: null,
+	targetEmptyCaseListText: null,
+	targetWebAppsEnabled: null,
 };
 const VIEW: NonNullable<PublishResponseBody["deployment"]> = {
 	deployment: RECORD,
 	active: [],
 	superseded: [],
+	confirmations: [],
 };
 const ARTIFACT: NonNullable<PublishResponseBody["setup_artifact"]> = {
 	server: "production",

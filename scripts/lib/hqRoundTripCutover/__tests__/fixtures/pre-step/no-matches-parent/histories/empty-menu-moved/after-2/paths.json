@@ -1,0 +1,35 @@
+[
+	{
+		"uuid": "00000000-0000-4000-8000-0000000b0030",
+		"name": "Households",
+		"caseType": "household",
+		"lifted": false,
+		"forms": []
+	},
+	{
+		"uuid": "00000000-0000-4000-8000-0000000b0010",
+		"name": "Patients",
+		"caseType": "patient",
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "00000000-0000-4000-8000-0000000b0011",
+				"name": "Visit",
+				"paths": ["/data/note"]
+			}
+		]
+	},
+	{
+		"uuid": "f95f2f30-e25e-5339-91c4-3d0c04191427",
+		"name": "Register patient",
+		"caseType": "patient",
+		"lifted": true,
+		"forms": [
+			{
+				"uuid": "00000000-0000-4000-8000-0000000b0012",
+				"name": "Register patient",
+				"paths": ["/data/case_name"]
+			}
+		]
+	}
+]

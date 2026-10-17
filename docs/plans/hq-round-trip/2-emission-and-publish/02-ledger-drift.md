@@ -289,8 +289,7 @@ export interface DeploymentConfirmation {
   readonly kind: DeploymentConfirmationKind;
   /** A plain string here: `PlanFeatureId` does not exist until pull request 13. */
   readonly subject: string;
-  readonly confirmedBy: string;
-  /** `auth_user.name` by left join, or "A former member"; every projection shows this and never `confirmedBy`. */
+  /** `auth_user.name` by left join, or "A former member". The confirming user's id stays in the row and reaches no projection. */
   readonly confirmedByName: string;
   readonly confirmedAt: string;
 }

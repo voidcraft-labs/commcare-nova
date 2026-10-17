@@ -49,9 +49,13 @@ const view: DeploymentView = {
 			createdAt: "2026-09-06T00:00:00Z",
 			updatedAt: "2026-09-06T00:00:00Z",
 			lastObservedAt: null,
+			offeredLogoContentHash: null,
+			targetEmptyCaseListText: null,
+			targetWebAppsEnabled: null,
 		},
 		active: [],
 		superseded: [],
+		confirmations: [],
 	},
 	artifact: buildSetupArtifact({
 		doc,

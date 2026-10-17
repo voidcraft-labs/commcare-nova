@@ -36,6 +36,7 @@
  */
 
 import { type Selectable, sql, type Transaction } from "kysely";
+import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
 	buildCaseTypeMap,
@@ -859,26 +860,33 @@ export async function commitCanonicalBatch(
 			.where("app_id", "=", appId)
 			.where("batch_id", "=", batchId)
 			.executeTakeFirst();
-		const latchMutations =
-			latch === undefined
-				? undefined
-				: parsePersistedMutationBatchText(
-						latch.mutations_text,
-						`app_changes.mutations for app ${appId}, sequence ${latch.seq}`,
-					);
-		if (
-			latch !== undefined &&
-			!appChangeFingerprintMatches(
-				{
-					mutations: latchMutations,
-					actorUserId: latch.actor_id,
-					kind: latch.kind,
-					runId: latch.run_id,
-				},
-				{ mutations, actorUserId, kind, runId },
-			)
-		) {
-			throw new MutationBatchIdCollisionError();
+		if (latch !== undefined) {
+			const latchSeq = safePersistedSequence(
+				latch.seq,
+				`app_changes.seq for app ${appId}`,
+			);
+			const horizon = await greatestFoldBaselineSeq(tx, appId);
+			/* A batch committed behind a fold horizon is opaque history in an
+			 * earlier dialect that no current parser reads, so its id still
+			 * latches and a retry is compared by its attribution alone. */
+			const matches =
+				horizon !== null && latchSeq < horizon
+					? latch.actor_id === actorUserId &&
+						latch.kind === kind &&
+						latch.run_id === (runId ?? null)
+					: appChangeFingerprintMatches(
+							{
+								mutations: parsePersistedMutationBatchText(
+									latch.mutations_text,
+									`app_changes.mutations for app ${appId}, sequence ${latch.seq}`,
+								),
+								actorUserId: latch.actor_id,
+								kind: latch.kind,
+								runId: latch.run_id,
+							},
+							{ mutations, actorUserId, kind, runId },
+						);
+			if (!matches) throw new MutationBatchIdCollisionError();
 		}
 		// Reject a caller admitted against an older Project placement. Explicit
 		// rename Phase A shares this transaction, so no case/schema write can

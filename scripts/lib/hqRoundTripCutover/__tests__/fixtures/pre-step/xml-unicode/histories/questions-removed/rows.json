@@ -1,0 +1,7 @@
+[
+	{
+		"seq": 2,
+		"batchId": "history:questions-removed:2",
+		"mutationsText": "[{\"kind\":\"removeField\",\"uuid\":\"ce9cdbeb-fe0b-5a9f-a69f-0a09db7f46db\"},{\"kind\":\"removeField\",\"uuid\":\"d39ce3ca-fb0b-55e6-a79f-0b9ce07f4eba\"},{\"kind\":\"removeField\",\"uuid\":\"d49ce55d-fc0b-5779-a89f-0d2fe17f504d\"},{\"kind\":\"removeField\",\"uuid\":\"d19ce0a4-f90b-52c0-a99f-0ec2de7f4b94\"},{\"kind\":\"removeField\",\"uuid\":\"d29ce237-fa0b-5453-aa9f-1055df7f4d27\"}]"
+	}
+]

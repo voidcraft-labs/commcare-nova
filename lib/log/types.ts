@@ -272,7 +272,7 @@ export const mutationEventSchema = envelopeSchema.extend({
 export type MutationEvent = z.infer<typeof mutationEventSchema>;
 
 /**
- * A mutation event written before the canonical-identity fold horizon.
+ * A mutation event written before a fold horizon.
  *
  * `archived` is the exact former event JSONB value. No reducer, validator,
  * model message, or current tool schema consumes it; admin inspection may

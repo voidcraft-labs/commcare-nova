@@ -1,0 +1,39 @@
+{
+	"root": {
+		"app_name": "Reserved lookup tags",
+		"connect_type": null,
+		"case_types_text": null,
+		"localization_text": null,
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "5894e1e5-a263-56a1-aa32-7fa739231835",
+			"kind": "field",
+			"parent_uuid": "69177e67-a9c4-55ab-a3ae-044951d74117",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"5894e1e5-a263-56a1-aa32-7fa739231835\",\"id\":\"clinic\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Clinic\"}]},\"kind\":\"single_select\",\"optionsSource\":{\"kind\":\"lookup\",\"tableId\":\"d8dbbcf0-0f5e-7bb4-a5ac-36165523d8e0\",\"valueColumnId\":\"62d5a386-5297-7222-a2f0-59687640a116\",\"labelColumnId\":\"b093f8e4-8df9-7b40-a281-4e5ac6795f74\"}}"
+		},
+		{
+			"uuid": "69177e67-a9c4-55ab-a3ae-044951d74117",
+			"kind": "form",
+			"parent_uuid": "860843bd-cd97-5419-af0a-2d772453b7ad",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"69177e67-a9c4-55ab-a3ae-044951d74117\",\"id\":\"order\",\"name\":\"Order\",\"type\":\"survey\"}"
+		},
+		{
+			"uuid": "860843bd-cd97-5419-af0a-2d772453b7ad",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"860843bd-cd97-5419-af0a-2d772453b7ad\",\"id\":\"supplies\",\"name\":\"Supplies\"}"
+		},
+		{
+			"uuid": "c7f6eb06-4e01-5b9a-acbf-f29c749013f6",
+			"kind": "field",
+			"parent_uuid": "69177e67-a9c4-55ab-a3ae-044951d74117",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"c7f6eb06-4e01-5b9a-acbf-f29c749013f6\",\"id\":\"item\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Item\"}]},\"kind\":\"single_select\",\"optionsSource\":{\"kind\":\"lookup\",\"tableId\":\"3c0c6f97-ce38-7af3-aa88-1a15ab2b5a27\",\"valueColumnId\":\"70813dd3-2b92-76b7-aa7b-b26d343b7483\",\"labelColumnId\":\"f744d22d-daec-7001-afa9-7ccbb2cfa81d\"}}"
+		}
+	]
+}

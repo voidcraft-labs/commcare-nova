@@ -138,6 +138,63 @@ class JobExecutionTests(unittest.TestCase):
             with self.assertRaises(deploy.DeploymentPolicyError):
                 deploy._effective_execution_args(JOB, args)
 
+    def test_hq_round_trip_cutover_contract_is_a_never_retried_migration_identity_dry_run(self):
+        contract = deploy.JOB_TEMPLATE_CONTRACTS["commcare-nova-hq-round-trip-cutover"]
+        historical = deploy.JOB_TEMPLATE_CONTRACTS["commcare-nova-historical-repair"]
+        self.assertEqual(contract.service_account, "nova-migrate@commcare-nova.iam.gserviceaccount.com")
+        self.assertEqual(contract.command, ("node",))
+        self.assertEqual(contract.stored_args, ("hq-round-trip-cutover.cjs",))
+        self.assertEqual(contract.max_retries, 0)
+        def shape(job):
+            return (job.task_count, job.parallelism, job.timeout, job.cpu, job.memory, job.vpc)
+
+        self.assertEqual(shape(contract), shape(historical))
+        self.assertEqual(
+            dict(contract.environment),
+            {**dict(historical.environment), "GOOGLE_CLOUD_PROJECT": "commcare-nova"},
+        )
+
+    def test_hq_round_trip_cutover_admits_its_runbook_shapes_and_nothing_else(self):
+        cutover = "commcare-nova-hq-round-trip-cutover"
+        tool = "hq-round-trip-cutover.cjs"
+        digest = "0123456789abcdef" * 4
+        self.assertEqual(deploy._effective_execution_args(cutover, []), (tool,))
+        for args in (
+            [tool],
+            [tool, "--settle-holders"],
+            [tool, "--prove-decrypt"],
+            [tool, "--rehearse"],
+            [tool, "--rehearse", "--transient-as-unreadable"],
+            [tool, "--execute", "--expect-plan-digest", digest],
+            [tool, "--execute", "--expect-plan-digest", digest, "--transient-as-unreadable"],
+        ):
+            with self.subTest(args=args):
+                self.assertEqual(deploy._effective_execution_args(cutover, args), tuple(args))
+        for args in (
+            [tool, "--without-hq"],
+            [tool, "--rehearse", "--without-hq"],
+            [tool, "--execute", "--expect-plan-digest", digest, "--without-hq"],
+            [tool, "--prove-decrypt", "--transient-as-unreadable"],
+            [tool, "--prove-decrypt", "--rehearse"],
+            [tool, "--settle-holders", "--transient-as-unreadable"],
+            [tool, "--transient-as-unreadable"],
+            [tool, "--execute"],
+            [tool, "--execute", "--expect-plan-digest"],
+            [tool, "--execute", "--expect-plan-digest", digest.upper()],
+            [tool, "--execute", "--expect-plan-digest", digest[:-1]],
+            [tool, "--execute", "--expect-plan-digest", digest, "--transient-as-unreadable", "--rehearse"],
+            [tool, "--transient-as-unreadable", "--rehearse"],
+            [tool, "--debug-details"],
+            ["migrate.cjs"],
+            ["language-identity-repair.cjs", "--execute"],
+        ):
+            with self.subTest(args=args), self.assertRaises(deploy.DeploymentPolicyError):
+                deploy._effective_execution_args(cutover, args)
+        with self.assertRaises(deploy.DeploymentPolicyError):
+            deploy._effective_execution_args(
+                "commcare-nova-historical-repair", [tool, "--rehearse"],
+            )
+
 
 class MigrationAdmissionTests(unittest.TestCase):
     def admit(self, image=IMAGE):

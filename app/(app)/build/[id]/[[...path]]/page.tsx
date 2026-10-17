@@ -37,6 +37,10 @@
 import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
+import {
+	type BuilderNotices,
+	NO_BUILDER_NOTICES,
+} from "@/components/builder/notices/appNoticeModel";
 import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
 import {
 	deriveDesignBuildStage,
@@ -47,6 +51,7 @@ import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
 	AppAccessError,
+	resolveAppScopeInTransaction,
 	resolveAuthorizedAppSnapshot,
 	resolveProjectAccess,
 } from "@/lib/db/appAccess";
@@ -55,6 +60,7 @@ import {
 	loadMaterializedSessionForApp,
 } from "@/lib/db/designSessions";
 import { resolveGenerationTargetScope } from "@/lib/db/generationTargetScope";
+import { withAppTx } from "@/lib/db/pg";
 import {
 	type CommCareSettingsPublic,
 	getCommCareSettings,
@@ -69,6 +75,10 @@ import type { AppDoc } from "@/lib/db/types";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import { log } from "@/lib/logger";
+import {
+	readAppDeploymentNoticeEntriesInTransaction,
+	readAppNoticesInTransaction,
+} from "@/lib/notices/store";
 
 export default async function BuilderPage({
 	params,
@@ -177,15 +187,17 @@ export default async function BuilderPage({
 		}
 		return { threads, initialThread };
 	})();
+	const noticesPromise = loadBuilderNotices(id, session.user.id);
 	const materializedDesignPromise =
 		app.status === "error" || app.status === "generating"
 			? loadMaterializedSessionForApp(id)
 			: Promise.resolve(null);
-	const [threadHydration, previewProjectSpace, materializedDesign] =
+	const [threadHydration, previewProjectSpace, materializedDesign, notices] =
 		await Promise.all([
 			threadHydrationPromise,
 			previewProjectSpacePromise,
 			materializedDesignPromise,
+			noticesPromise,
 		]);
 	const { threads, initialThread } = threadHydration;
 
@@ -233,6 +245,7 @@ export default async function BuilderPage({
 			 * thread-activation decisions. */
 			initialBuildUnfinished={buildUnfinished}
 			initialProjectSpace={previewProjectSpace}
+			initialNotices={notices}
 			userId={session.user.id}
 		>
 			<BuilderLayout
@@ -260,6 +273,34 @@ export default async function BuilderPage({
 			/>
 		</BuilderProvider>
 	);
+}
+
+/**
+ * The app's migration notices for this member, read under a fresh `view`
+ * resolution in one transaction: the undismissed notices for the chip and
+ * the dialog, and every deployment entry for the Publishing cards. The
+ * builder is fully usable without them, so a read fault degrades to none
+ * rather than a 500; a member who lost access since the snapshot sees none.
+ * Started beside the other hydration reads and awaited with them.
+ */
+async function loadBuilderNotices(
+	appId: string,
+	userId: string,
+): Promise<BuilderNotices> {
+	try {
+		return await withAppTx(async (tx) => {
+			await resolveAppScopeInTransaction(tx, appId, userId, "view");
+			const notices = await readAppNoticesInTransaction(tx, { appId, userId });
+			const deploymentEntries =
+				await readAppDeploymentNoticeEntriesInTransaction(tx, { appId });
+			return { notices, deploymentEntries };
+		});
+	} catch (err) {
+		if (!(err instanceof AppAccessError)) {
+			log.error("[build-page] migration notice read failed", err, { appId });
+		}
+		return NO_BUILDER_NOTICES;
+	}
 }
 
 /**

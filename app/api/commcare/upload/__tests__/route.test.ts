@@ -92,9 +92,13 @@ function deploymentView(state: string, resumePhase: string | null = null) {
 			createdAt: "2026-08-06T00:00:00.000Z",
 			updatedAt: "2026-08-06T00:00:00.000Z",
 			lastObservedAt: null,
+			offeredLogoContentHash: null,
+			targetEmptyCaseListText: null,
+			targetWebAppsEnabled: null,
 		},
 		active: [],
 		superseded: [],
+		confirmations: [],
 	};
 }
 
@@ -245,6 +249,7 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 						remoteRevision: null,
 						remoteObservedAt: null,
 						supersededAt: "2026-08-07T00:00:00.000Z",
+						remoteMissingAt: null,
 					},
 				],
 			},

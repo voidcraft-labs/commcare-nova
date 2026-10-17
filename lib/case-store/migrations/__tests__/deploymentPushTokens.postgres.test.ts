@@ -7,6 +7,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import { caseStoreMigrations } from "..";
 import { up } from "../20260906000000_deployment_push_tokens";
+import { up as deploymentLedgerUp } from "../20261015020000_hq_round_trip_deployment_ledger";
 
 const database = setupPerTestDatabase({
 	databaseNamePrefix: "deployment_push_token_migration_",
@@ -126,5 +127,15 @@ describe("deployment push identity migration", () => {
 		const all = await mappings();
 		expect(all).toHaveLength(3);
 		expect(new Set(all.map(({ row }) => row.push_token)).size).toBe(3);
+	});
+
+	it("keeps the token when the deployment ledger writes the gone fact", async () => {
+		await seedExistingMappings();
+		await database.db.transaction().execute(up);
+		await database.db.transaction().execute(deploymentLedgerUp);
+		const before = await token();
+		await sql`UPDATE app_deployment_resources SET remote_missing_at = now()
+			WHERE remote_id = 'hq-current'`.execute(database.db);
+		expect(await token()).toBe(before);
 	});
 });

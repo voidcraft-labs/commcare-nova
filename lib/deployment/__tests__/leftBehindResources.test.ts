@@ -33,6 +33,7 @@ function resource(over: Partial<DeploymentResource>): DeploymentResource {
 		remoteRevision: null,
 		remoteObservedAt: null,
 		supersededAt: "2026-08-18T00:00:00.000Z",
+		remoteMissingAt: null,
 		...over,
 	};
 }
@@ -54,9 +55,13 @@ function view(
 			createdAt: "2026-08-18T00:00:00.000Z",
 			updatedAt: "2026-08-18T00:00:00.000Z",
 			lastObservedAt: null,
+			offeredLogoContentHash: null,
+			targetEmptyCaseListText: null,
+			targetWebAppsEnabled: null,
 		},
 		active: [],
 		superseded,
+		confirmations: [],
 	};
 }
 

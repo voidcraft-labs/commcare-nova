@@ -1,0 +1,20 @@
+[
+	{
+		"uuid": "8fb40f0c-3f3e-5608-a9b6-c7965eb64a9c",
+		"name": "Household surveys",
+		"caseType": "household",
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "1ac3ed1b-6f1c-5b3f-a8aa-85c19dd5042b",
+				"name": "Census",
+				"paths": ["/data/head"]
+			},
+			{
+				"uuid": "abc95333-4875-540f-a231-be45e0c5f9a3",
+				"name": "Water",
+				"paths": ["/data/source"]
+			}
+		]
+	}
+]

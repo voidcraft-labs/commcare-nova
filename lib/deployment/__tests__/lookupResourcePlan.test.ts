@@ -27,6 +27,7 @@ function mapping(ownership: DeploymentResourceOwnership): DeploymentResource {
 		remoteRevision: null,
 		remoteObservedAt: null,
 		supersededAt: null,
+		remoteMissingAt: null,
 	};
 }
 const districts = { tableId: DISTRICTS, tag: "districts" };

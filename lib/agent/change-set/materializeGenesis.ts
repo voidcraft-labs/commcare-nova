@@ -1,4 +1,8 @@
-import type { ChatRunHolderCapability } from "@/lib/db/apps";
+import type { Kysely } from "kysely";
+import {
+	type ChatRunHolderCapability,
+	loadAppInTransaction,
+} from "@/lib/db/apps";
 import { assertAuthoringSessionAuthorityInTransaction } from "@/lib/db/authoringSessions";
 /**
  * Design-slice materialization — the one transaction that turns a complete
@@ -46,7 +50,7 @@ import { type LockedSessionRow, lockSessionRow } from "@/lib/db/designSessions";
 import { designSessionReservation } from "@/lib/db/leaseView";
 import { drainPendingCaseSchemaIndexes } from "@/lib/db/materializeCaseStoreSchemas";
 import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
-import { getAppDb, withAppTx } from "@/lib/db/pg";
+import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import {
 	designSessionAuthorityCleared,
@@ -57,11 +61,14 @@ import {
 } from "@/lib/db/runHolderWrites";
 import { designSessionLeaseState } from "@/lib/db/runLiveness";
 import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
+import type { PersistableDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import {
 	emptyGenesisBase,
+	greatestFoldBaselineSeq,
 	loadCanonicalBlueprintAtSequence,
 } from "./baseLoader";
+import { canonicalJsonDigest } from "./digest";
 import {
 	ChangeSetIntegrityError,
 	ChangeSetScopeLostError,
@@ -308,6 +315,7 @@ export async function materializeAppFromGenesis(
 					appId: proposedAppId,
 					projectId: changeSet.baseProjectId,
 					role,
+					seq: 1,
 					batchId,
 					changeSetId: changeSet.id,
 					snapshotDigest: candidate.candidateDigest,
@@ -387,7 +395,8 @@ async function replayIfMaterialized(
 
 /** Read-only reconciliation for genesis after a post-COMMIT response race.
  * It reconstructs the ordinary activation receipt from the committed sidecar
- * and canonical sequence-1 fold; it never retries materialization. */
+ * and canonical sequence-1 fold, or from the saved app once a fold horizon
+ * follows the birth; it never retries materialization. */
 export async function readMaterializedGenesisReceipt(args: {
 	readonly changeSetId: string;
 	readonly actorUserId: string;
@@ -417,10 +426,9 @@ async function materializedReceipt(
 			`Change set ${changeSet.id} is committed but its committed-slice receipt is missing.`,
 		);
 	}
-	const folded = await loadCanonicalBlueprintAtSequence(db, {
+	const folded = await birthDocument(db, {
 		appId: stored.app_id,
-		seq: 1,
-		expectedDigest: stored.committed_snapshot_digest,
+		committedSnapshotDigest: stored.committed_snapshot_digest,
 	});
 	const role = await withAppTx((tx) =>
 		projectRoleForInTransaction(tx, actorUserId, folded.projectId),
@@ -435,11 +443,56 @@ async function materializedReceipt(
 		appId: stored.app_id,
 		projectId: folded.projectId,
 		role,
+		seq: folded.seq,
 		batchId: stored.batch_id,
 		changeSetId: changeSet.id,
-		snapshotDigest: stored.committed_snapshot_digest,
+		snapshotDigest: folded.digest,
 		blueprint: folded.snapshot,
 	});
+}
+
+/**
+ * The document a materialization receipt carries: the exact sequence-1 fold,
+ * proved against the checkpoint's digest. Behind a later fold horizon the
+ * birth sequence no longer replays and the recorded digest names no readable
+ * document, so the receipt carries the current saved app at its own sequence
+ * instead.
+ */
+async function birthDocument(
+	db: Kysely<AppDatabase>,
+	args: { readonly appId: string; readonly committedSnapshotDigest: string },
+): Promise<{
+	readonly seq: number;
+	readonly snapshot: PersistableDoc;
+	readonly digest: string;
+	readonly projectId: string;
+}> {
+	const horizon = await greatestFoldBaselineSeq(db, args.appId);
+	if (horizon !== null && horizon > 1) {
+		const app = await withAppTx((tx) => loadAppInTransaction(tx, args.appId));
+		if (app === null) {
+			throw new ChangeSetIntegrityError(
+				`Materialized app ${args.appId} has no saved row to answer from.`,
+			);
+		}
+		return {
+			seq: app.mutation_seq,
+			snapshot: app.blueprint,
+			digest: canonicalJsonDigest(app.blueprint),
+			projectId: app.project_id,
+		};
+	}
+	const folded = await loadCanonicalBlueprintAtSequence(db, {
+		appId: args.appId,
+		seq: 1,
+		expectedDigest: args.committedSnapshotDigest,
+	});
+	return {
+		seq: 1,
+		snapshot: folded.snapshot,
+		digest: args.committedSnapshotDigest,
+		projectId: folded.projectId,
+	};
 }
 
 function verifySessionForTransfer(
@@ -521,6 +574,8 @@ function buildReceipt(args: {
 	appId: string;
 	projectId: string;
 	role: string;
+	/** 1 at the birth; the saved app's sequence once a fold horizon follows it. */
+	seq: number;
 	batchId: string;
 	changeSetId: string;
 	snapshotDigest: string;
@@ -533,7 +588,7 @@ function buildReceipt(args: {
 		projectId: args.projectId,
 		role: args.role,
 		canEdit: roleAllowsApp(args.role, "edit"),
-		seq: 1,
+		seq: args.seq,
 		batchId: args.batchId,
 		changeSetId: args.changeSetId,
 		snapshotDigest: args.snapshotDigest,
@@ -679,6 +734,7 @@ export async function materializeSessionGenesis(args: {
 					appId,
 					projectId: args.expectedProjectId,
 					role,
+					seq: 1,
 					batchId,
 					changeSetId: workspace.id,
 					snapshotDigest: candidate.candidateDigest,

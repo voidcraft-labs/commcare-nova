@@ -1,0 +1,1435 @@
+{
+	"lookup": {
+		"projectId": "project-targeted-lookup",
+		"projectRevision": "1",
+		"definitions": [
+			{
+				"id": "d8dbbcf0-0f5e-7bb4-a5ac-36165523d8e0",
+				"name": "clinic_casedb_codes",
+				"tag": "clinic_casedb_codes",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "62d5a386-5297-7222-a2f0-59687640a116",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					},
+					{
+						"id": "b093f8e4-8df9-7b40-a281-4e5ac6795f74",
+						"wireName": "name",
+						"label": "name",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "3c0c6f97-ce38-7af3-aa88-1a15ab2b5a27",
+				"name": "stock_ledgerdb_codes",
+				"tag": "stock_ledgerdb_codes",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "70813dd3-2b92-76b7-aa7b-b26d343b7483",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					},
+					{
+						"id": "f744d22d-daec-7001-afa9-7ccbb2cfa81d",
+						"wireName": "name",
+						"label": "name",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100000",
+				"name": "clinic_case_db_codes",
+				"tag": "clinic_case_db_codes",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200000",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100001",
+				"name": "clinic_case_db_codes_2",
+				"tag": "clinic_case_db_codes_2",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200001",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100002",
+				"name": "clinic_case_db_codes_3",
+				"tag": "clinic_case_db_codes_3",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200002",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100003",
+				"name": "clinic_case_db_codes_4",
+				"tag": "clinic_case_db_codes_4",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200003",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100004",
+				"name": "clinic_case_db_codes_5",
+				"tag": "clinic_case_db_codes_5",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200004",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100005",
+				"name": "clinic_case_db_codes_6",
+				"tag": "clinic_case_db_codes_6",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200005",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100006",
+				"name": "clinic_case_db_codes_7",
+				"tag": "clinic_case_db_codes_7",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200006",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100007",
+				"name": "clinic_case_db_codes_8",
+				"tag": "clinic_case_db_codes_8",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200007",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100008",
+				"name": "clinic_case_db_codes_9",
+				"tag": "clinic_case_db_codes_9",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200008",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100009",
+				"name": "clinic_case_db_codes_10",
+				"tag": "clinic_case_db_codes_10",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200009",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010000a",
+				"name": "clinic_case_db_codes_11",
+				"tag": "clinic_case_db_codes_11",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020000a",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010000b",
+				"name": "clinic_case_db_codes_12",
+				"tag": "clinic_case_db_codes_12",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020000b",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010000c",
+				"name": "clinic_case_db_codes_13",
+				"tag": "clinic_case_db_codes_13",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020000c",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010000d",
+				"name": "clinic_case_db_codes_14",
+				"tag": "clinic_case_db_codes_14",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020000d",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010000e",
+				"name": "clinic_case_db_codes_15",
+				"tag": "clinic_case_db_codes_15",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020000e",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010000f",
+				"name": "clinic_case_db_codes_16",
+				"tag": "clinic_case_db_codes_16",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020000f",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100010",
+				"name": "clinic_case_db_codes_17",
+				"tag": "clinic_case_db_codes_17",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200010",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100011",
+				"name": "clinic_case_db_codes_18",
+				"tag": "clinic_case_db_codes_18",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200011",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100012",
+				"name": "clinic_case_db_codes_19",
+				"tag": "clinic_case_db_codes_19",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200012",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100013",
+				"name": "clinic_case_db_codes_20",
+				"tag": "clinic_case_db_codes_20",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200013",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100014",
+				"name": "clinic_case_db_codes_21",
+				"tag": "clinic_case_db_codes_21",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200014",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100015",
+				"name": "clinic_case_db_codes_22",
+				"tag": "clinic_case_db_codes_22",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200015",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100016",
+				"name": "clinic_case_db_codes_23",
+				"tag": "clinic_case_db_codes_23",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200016",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100017",
+				"name": "clinic_case_db_codes_24",
+				"tag": "clinic_case_db_codes_24",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200017",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100018",
+				"name": "clinic_case_db_codes_25",
+				"tag": "clinic_case_db_codes_25",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200018",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100019",
+				"name": "clinic_case_db_codes_26",
+				"tag": "clinic_case_db_codes_26",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200019",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010001a",
+				"name": "clinic_case_db_codes_27",
+				"tag": "clinic_case_db_codes_27",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020001a",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010001b",
+				"name": "clinic_case_db_codes_28",
+				"tag": "clinic_case_db_codes_28",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020001b",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010001c",
+				"name": "clinic_case_db_codes_29",
+				"tag": "clinic_case_db_codes_29",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020001c",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010001d",
+				"name": "clinic_case_db_codes_30",
+				"tag": "clinic_case_db_codes_30",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020001d",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010001e",
+				"name": "clinic_case_db_codes_31",
+				"tag": "clinic_case_db_codes_31",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020001e",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010001f",
+				"name": "clinic_case_db_codes_32",
+				"tag": "clinic_case_db_codes_32",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020001f",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100020",
+				"name": "clinic_case_db_codes_33",
+				"tag": "clinic_case_db_codes_33",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200020",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100021",
+				"name": "clinic_case_db_codes_34",
+				"tag": "clinic_case_db_codes_34",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200021",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100022",
+				"name": "clinic_case_db_codes_35",
+				"tag": "clinic_case_db_codes_35",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200022",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100023",
+				"name": "clinic_case_db_codes_36",
+				"tag": "clinic_case_db_codes_36",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200023",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100024",
+				"name": "clinic_case_db_codes_37",
+				"tag": "clinic_case_db_codes_37",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200024",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100025",
+				"name": "clinic_case_db_codes_38",
+				"tag": "clinic_case_db_codes_38",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200025",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100026",
+				"name": "clinic_case_db_codes_39",
+				"tag": "clinic_case_db_codes_39",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200026",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100027",
+				"name": "clinic_case_db_codes_40",
+				"tag": "clinic_case_db_codes_40",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200027",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100028",
+				"name": "clinic_case_db_codes_41",
+				"tag": "clinic_case_db_codes_41",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200028",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100029",
+				"name": "clinic_case_db_codes_42",
+				"tag": "clinic_case_db_codes_42",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200029",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010002a",
+				"name": "clinic_case_db_codes_43",
+				"tag": "clinic_case_db_codes_43",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020002a",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010002b",
+				"name": "clinic_case_db_codes_44",
+				"tag": "clinic_case_db_codes_44",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020002b",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010002c",
+				"name": "clinic_case_db_codes_45",
+				"tag": "clinic_case_db_codes_45",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020002c",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010002d",
+				"name": "clinic_case_db_codes_46",
+				"tag": "clinic_case_db_codes_46",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020002d",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010002e",
+				"name": "clinic_case_db_codes_47",
+				"tag": "clinic_case_db_codes_47",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020002e",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010002f",
+				"name": "clinic_case_db_codes_48",
+				"tag": "clinic_case_db_codes_48",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020002f",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100030",
+				"name": "clinic_case_db_codes_49",
+				"tag": "clinic_case_db_codes_49",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200030",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100031",
+				"name": "clinic_case_db_codes_50",
+				"tag": "clinic_case_db_codes_50",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200031",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100032",
+				"name": "clinic_case_db_codes_51",
+				"tag": "clinic_case_db_codes_51",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200032",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100033",
+				"name": "clinic_case_db_codes_52",
+				"tag": "clinic_case_db_codes_52",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200033",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100034",
+				"name": "clinic_case_db_codes_53",
+				"tag": "clinic_case_db_codes_53",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200034",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100035",
+				"name": "clinic_case_db_codes_54",
+				"tag": "clinic_case_db_codes_54",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200035",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100036",
+				"name": "clinic_case_db_codes_55",
+				"tag": "clinic_case_db_codes_55",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200036",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100037",
+				"name": "clinic_case_db_codes_56",
+				"tag": "clinic_case_db_codes_56",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200037",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100038",
+				"name": "clinic_case_db_codes_57",
+				"tag": "clinic_case_db_codes_57",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200038",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100039",
+				"name": "clinic_case_db_codes_58",
+				"tag": "clinic_case_db_codes_58",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200039",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010003a",
+				"name": "clinic_case_db_codes_59",
+				"tag": "clinic_case_db_codes_59",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020003a",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010003b",
+				"name": "clinic_case_db_codes_60",
+				"tag": "clinic_case_db_codes_60",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020003b",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010003c",
+				"name": "clinic_case_db_codes_61",
+				"tag": "clinic_case_db_codes_61",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020003c",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010003d",
+				"name": "clinic_case_db_codes_62",
+				"tag": "clinic_case_db_codes_62",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020003d",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010003e",
+				"name": "clinic_case_db_codes_63",
+				"tag": "clinic_case_db_codes_63",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020003e",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010003f",
+				"name": "clinic_case_db_codes_64",
+				"tag": "clinic_case_db_codes_64",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020003f",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100040",
+				"name": "clinic_case_db_codes_65",
+				"tag": "clinic_case_db_codes_65",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200040",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100041",
+				"name": "clinic_case_db_codes_66",
+				"tag": "clinic_case_db_codes_66",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200041",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100042",
+				"name": "clinic_case_db_codes_67",
+				"tag": "clinic_case_db_codes_67",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200042",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100043",
+				"name": "clinic_case_db_codes_68",
+				"tag": "clinic_case_db_codes_68",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200043",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100044",
+				"name": "clinic_case_db_codes_69",
+				"tag": "clinic_case_db_codes_69",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200044",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100045",
+				"name": "clinic_case_db_codes_70",
+				"tag": "clinic_case_db_codes_70",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200045",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100046",
+				"name": "clinic_case_db_codes_71",
+				"tag": "clinic_case_db_codes_71",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200046",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100047",
+				"name": "clinic_case_db_codes_72",
+				"tag": "clinic_case_db_codes_72",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200047",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100048",
+				"name": "clinic_case_db_codes_73",
+				"tag": "clinic_case_db_codes_73",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200048",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100049",
+				"name": "clinic_case_db_codes_74",
+				"tag": "clinic_case_db_codes_74",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200049",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010004a",
+				"name": "clinic_case_db_codes_75",
+				"tag": "clinic_case_db_codes_75",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020004a",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010004b",
+				"name": "clinic_case_db_codes_76",
+				"tag": "clinic_case_db_codes_76",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020004b",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010004c",
+				"name": "clinic_case_db_codes_77",
+				"tag": "clinic_case_db_codes_77",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020004c",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010004d",
+				"name": "clinic_case_db_codes_78",
+				"tag": "clinic_case_db_codes_78",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020004d",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010004e",
+				"name": "clinic_case_db_codes_79",
+				"tag": "clinic_case_db_codes_79",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020004e",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010004f",
+				"name": "clinic_case_db_codes_80",
+				"tag": "clinic_case_db_codes_80",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020004f",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100050",
+				"name": "clinic_case_db_codes_81",
+				"tag": "clinic_case_db_codes_81",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200050",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100051",
+				"name": "clinic_case_db_codes_82",
+				"tag": "clinic_case_db_codes_82",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200051",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100052",
+				"name": "clinic_case_db_codes_83",
+				"tag": "clinic_case_db_codes_83",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200052",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100053",
+				"name": "clinic_case_db_codes_84",
+				"tag": "clinic_case_db_codes_84",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200053",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100054",
+				"name": "clinic_case_db_codes_85",
+				"tag": "clinic_case_db_codes_85",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200054",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100055",
+				"name": "clinic_case_db_codes_86",
+				"tag": "clinic_case_db_codes_86",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200055",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100056",
+				"name": "clinic_case_db_codes_87",
+				"tag": "clinic_case_db_codes_87",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200056",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100057",
+				"name": "clinic_case_db_codes_88",
+				"tag": "clinic_case_db_codes_88",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200057",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100058",
+				"name": "clinic_case_db_codes_89",
+				"tag": "clinic_case_db_codes_89",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200058",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100059",
+				"name": "clinic_case_db_codes_90",
+				"tag": "clinic_case_db_codes_90",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200059",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010005a",
+				"name": "clinic_case_db_codes_91",
+				"tag": "clinic_case_db_codes_91",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020005a",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010005b",
+				"name": "clinic_case_db_codes_92",
+				"tag": "clinic_case_db_codes_92",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020005b",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010005c",
+				"name": "clinic_case_db_codes_93",
+				"tag": "clinic_case_db_codes_93",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020005c",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010005d",
+				"name": "clinic_case_db_codes_94",
+				"tag": "clinic_case_db_codes_94",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020005d",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010005e",
+				"name": "clinic_case_db_codes_95",
+				"tag": "clinic_case_db_codes_95",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020005e",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-00000010005f",
+				"name": "clinic_case_db_codes_96",
+				"tag": "clinic_case_db_codes_96",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-00000020005f",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100060",
+				"name": "clinic_case_db_codes_97",
+				"tag": "clinic_case_db_codes_97",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200060",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100061",
+				"name": "clinic_case_db_codes_98",
+				"tag": "clinic_case_db_codes_98",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200061",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			},
+			{
+				"id": "018f0000-0000-7000-8000-000000100062",
+				"name": "clinic_case_db_codes_99",
+				"tag": "clinic_case_db_codes_99",
+				"definitionRevision": "1",
+				"columns": [
+					{
+						"id": "018f0000-0000-7000-8000-000000200062",
+						"wireName": "code",
+						"label": "code",
+						"dataType": "text"
+					}
+				]
+			}
+		],
+		"rowsByTable": {}
+	}
+}

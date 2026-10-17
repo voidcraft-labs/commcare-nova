@@ -1,0 +1,437 @@
+{
+	"fixtures": [
+		{
+			"id": "case-operation-query",
+			"kind": "corpus",
+			"digest": "3c549b2c35c07a59d35b6748809af6c297ec02a08391945c87708f9a34557568",
+			"steps": [],
+			"blockers": [],
+			"reasons": ["data-paths-move-once", "next-publish-asks-more"]
+		},
+		{
+			"id": "case-operation-key",
+			"kind": "corpus",
+			"digest": "b23c43149a9aabaf12e85f582cbb2385768ce279bc6798a39230754cecb67af3",
+			"steps": [],
+			"blockers": [],
+			"reasons": []
+		},
+		{
+			"id": "targeted-custom-tile",
+			"kind": "corpus",
+			"digest": "b106534bc4c6f7a862937f39ab0a15c8f471dd8c8945b62f0c23ab10e1e93026",
+			"steps": ["tile-cells"],
+			"blockers": [],
+			"reasons": ["tile-cell-defaults-set"]
+		},
+		{
+			"id": "targeted-form-links-hidden-and-fallback",
+			"kind": "corpus",
+			"digest": "255d327c118042fbb3653e205763723df59c091758c2ef2d96720de7bc28e0e1",
+			"steps": [],
+			"blockers": [],
+			"reasons": []
+		},
+		{
+			"id": "no-matches-parent",
+			"kind": "corpus",
+			"digest": "1389d1cc01abc043dae8a71c0d9539047a09f64bc479cf70ccd18bfe744b2e54",
+			"steps": [],
+			"blockers": [],
+			"reasons": []
+		},
+		{
+			"id": "targeted-invalid-connect-ids",
+			"kind": "corpus",
+			"digest": "f6ec495dae3e8b5502bbac5a8c8f529b86fe9a297f9706b25de749c67e818433",
+			"steps": ["connect-ids"],
+			"blockers": [],
+			"reasons": ["connect-block-renamed"]
+		},
+		{
+			"id": "connect-deliver-default",
+			"kind": "corpus",
+			"digest": "da07718d1a8f770de2ce26623743a8d944104af6f6c07ff15e851003a2054985",
+			"steps": ["connect-task-forms"],
+			"blockers": [],
+			"reasons": ["connect-task-moved-to-own-form"]
+		},
+		{
+			"id": "targeted-invalid-question-ids",
+			"kind": "corpus",
+			"digest": "5ed345373e94b7060a2fb2161bc13b7172ad80d376563858cf91a1c16021b4b2",
+			"steps": ["question-ids", "entry-point-ids"],
+			"blockers": [],
+			"reasons": [
+				"question-renamed",
+				"entry-point-renamed",
+				"deep-links-need-republish"
+			]
+		},
+		{
+			"id": "targeted-search-hq-compile",
+			"kind": "corpus",
+			"digest": "18f4dea173c92e754f37a0dec8e18757c8681ed30c70ab88845aa67d4e29515e",
+			"steps": ["reserved-search-inputs"],
+			"blockers": [],
+			"reasons": ["search-input-removed"]
+		},
+		{
+			"id": "prompt-widgets",
+			"kind": "corpus",
+			"digest": "156f0024402ac4bc6cea38f44733dd5c524891c314bb03a7bda5c450297dccfb",
+			"steps": [],
+			"blockers": [],
+			"reasons": [
+				"lookup-choices-order-changes",
+				"lookup-table-content-unsupported"
+			]
+		},
+		{
+			"id": "targeted-search-button-label",
+			"kind": "corpus",
+			"digest": "1e1ddebe6ac446e120170b5d6e70e25cade0367b81a8fbcdfa3818f6f3aeb533",
+			"steps": ["search-button-label"],
+			"blockers": [],
+			"reasons": ["search-button-text-changed"]
+		},
+		{
+			"id": "localization-optional",
+			"kind": "corpus",
+			"digest": "19ef232ad0c0337dea535b50ef479af545d692c4d5e6b98cac5adc463c0a67e4",
+			"steps": ["language-wire-codes"],
+			"blockers": [],
+			"reasons": []
+		},
+		{
+			"id": "container-live-count-entry",
+			"kind": "corpus",
+			"digest": "b398b2e2cac81ea44cf7eff1fcf16886e5dedad65f491eef06921ef9a8423d2f",
+			"steps": [],
+			"blockers": [],
+			"reasons": []
+		},
+		{
+			"id": "xml-unicode",
+			"kind": "corpus",
+			"digest": "036a941caaaec8bb7254d44a54543715abbe947e52e921e4cae1725a9ef591f8",
+			"steps": [],
+			"blockers": [],
+			"reasons": []
+		},
+		{
+			"id": "navigation-base",
+			"kind": "corpus",
+			"digest": "43d6ab9924d43b08c0373e6f4c43929cb6c005fc43e1210f5daa7a4d5fb8c521",
+			"steps": ["app-settings"],
+			"blockers": ["app-mapping-without-pushed-revision"],
+			"reasons": [
+				"android-form-lists-setting-stored",
+				"local-archive-changes",
+				"case-name-now-checked",
+				"ccz-needs-project-space",
+				"form-ids-change-once",
+				"ids-change-once-unreadable",
+				"hq-app-deleted",
+				"hq-app-not-nova-made",
+				"next-publish-overwrites-hq-edits",
+				"next-publish-asks-before-overwriting",
+				"setting-changes-at-next-publish",
+				"settings-unknown-unreadable",
+				"worker-settings-reset-at-next-publish",
+				"commcare-version-below-floor"
+			]
+		},
+		{
+			"id": "case-choice-attendance",
+			"kind": "corpus",
+			"digest": "943383b2696b210bb8f4d88a3197a303a405c5edd164e14ae87e869be2d2e308",
+			"steps": [],
+			"blockers": [],
+			"reasons": []
+		},
+		{
+			"id": "targeted-label-sort",
+			"kind": "corpus",
+			"digest": "6004d6401104cf8dfc22cf66626b01b857dcfcd33942ea7ec6ab5762933dbc1d",
+			"steps": [],
+			"blockers": [],
+			"reasons": ["menu-id-changes-once"]
+		},
+		{
+			"id": "hand-media-slots",
+			"kind": "hand-built",
+			"digest": "61ad3be2005b39bb6f1629720c562cc1f9948e7bddbe18cd120209ab5cdb55db",
+			"steps": ["media-slots"],
+			"blockers": [],
+			"reasons": ["media-slot-removed"]
+		},
+		{
+			"id": "hand-hidden-inert-default",
+			"kind": "hand-built",
+			"digest": "0ca52d1589d8faaf02b5b27c99d4fac1380cb98a505089ce8028e140f8903869",
+			"steps": ["hidden-inert-default"],
+			"blockers": [],
+			"reasons": ["hidden-value-saves-blank"]
+		},
+		{
+			"id": "hand-case-operation-ids",
+			"kind": "hand-built",
+			"digest": "cea7d89f9324a81b0a0b7ed0472b1588e53aa75b9e8f02253f693dbc4f55d7f7",
+			"steps": ["case-operation-ids"],
+			"blockers": [],
+			"reasons": ["case-operation-renamed"]
+		},
+		{
+			"id": "hand-option-values",
+			"kind": "hand-built",
+			"digest": "21da52a766bf2768707c4e2c07a1ac075b6d1450b2cd97beda07af37f0d1b22b",
+			"steps": ["option-values"],
+			"blockers": [],
+			"reasons": ["option-value-split"]
+		},
+		{
+			"id": "hand-option-labels",
+			"kind": "hand-built",
+			"digest": "cba9b58931a353dd35366af04d69990ddb07343a8c9518a1c6d13146c8e202b8",
+			"steps": ["option-labels"],
+			"blockers": [],
+			"reasons": ["option-label-filled"]
+		},
+		{
+			"id": "hand-empty-forms",
+			"kind": "hand-built",
+			"digest": "ebf7805b84f081d62b164ac7d59ff2c6765aeacf03d29ee364ac37d75a126cb1",
+			"steps": ["empty-forms"],
+			"blockers": [],
+			"reasons": ["empty-form-label-added"]
+		},
+		{
+			"id": "hand-unsupplied-session-reads",
+			"kind": "hand-built",
+			"digest": "b840df6b2c9c33646580157192069c9652e010b57ae4f1c294bca651aaac7ece",
+			"steps": ["unsupplied-session-reads"],
+			"blockers": [],
+			"reasons": ["session-read-removed"]
+		},
+		{
+			"id": "hand-post-submit",
+			"kind": "hand-built",
+			"digest": "ef6af9ea1a622462fb69ac02d286e5fbefc9bf49165668c62923f7e19e038469",
+			"steps": ["post-submit"],
+			"blockers": [],
+			"reasons": ["after-submit-destination-moved"]
+		},
+		{
+			"id": "hand-id-mapping-keys",
+			"kind": "hand-built",
+			"digest": "4296bff40e5156be09f089a88dee69302d8be010ae43b933660ea23bb0d6901b",
+			"steps": ["id-mapping-keys"],
+			"blockers": [],
+			"reasons": ["id-mapping-entry-removed"]
+		},
+		{
+			"id": "hand-date-patterns",
+			"kind": "hand-built",
+			"digest": "b9ae41593cf71980b465d93326d71d42daccd3071c9abd124756b3fb038767dc",
+			"steps": ["date-patterns"],
+			"blockers": [],
+			"reasons": ["date-pattern-apostrophe-replaced"]
+		},
+		{
+			"id": "hand-tile-hidden-calculated-sort",
+			"kind": "hand-built",
+			"digest": "2dac01517c173fe4c8f10f0d268e49d316789077935571cdfea7a19360560f51",
+			"steps": ["tile-hidden-calculated-sort"],
+			"blockers": [],
+			"reasons": ["tile-order-rule-removed"]
+		},
+		{
+			"id": "hand-sort-property-ownership",
+			"kind": "hand-built",
+			"digest": "f4957ba2b96a119ea4b7d05390b76253075f2311f5d6fe2fe3f16587353f30c4",
+			"steps": ["sort-property-ownership"],
+			"blockers": [],
+			"reasons": [
+				"order-rule-removed-same-property",
+				"order-rule-moved-to-first-column"
+			]
+		},
+		{
+			"id": "hand-target-parse",
+			"kind": "hand-built",
+			"digest": "2ea6c3b8b445c870023244c1a6689a3eed779d4d60158b0b7aa16a6c1fcc6cf4",
+			"steps": [],
+			"blockers": ["target-parse"],
+			"reasons": []
+		},
+		{
+			"id": "hand-case-schema-change",
+			"kind": "hand-built",
+			"digest": "2ea6c3b8b445c870023244c1a6689a3eed779d4d60158b0b7aa16a6c1fcc6cf4",
+			"steps": [],
+			"blockers": ["case-schema-change"],
+			"reasons": []
+		},
+		{
+			"id": "hand-unresolved-relative-path",
+			"kind": "hand-built",
+			"digest": "06fbb78529f9ad2cd54379fe594c483b0ff6f80d09b27881fd31c3c993c99201",
+			"steps": [],
+			"blockers": ["unresolved-relative-path"],
+			"reasons": []
+		},
+		{
+			"id": "hand-link-identifier-reserved",
+			"kind": "hand-built",
+			"digest": "54e090b327fec368ed5346b04d999b81ade1dc2b2cb066dec659beb2b0849187",
+			"steps": [],
+			"blockers": ["link-identifier-reserved"],
+			"reasons": []
+		},
+		{
+			"id": "hand-reserved-property-write",
+			"kind": "hand-built",
+			"digest": "910502b87e4babd5bf7fcc9d9dff32cfe3125a11d6a9a5dc63e064ddcb29ce79",
+			"steps": [],
+			"blockers": ["reserved-property-write", "target-gate"],
+			"reasons": []
+		},
+		{
+			"id": "hand-form-root-read",
+			"kind": "hand-built",
+			"digest": "1e791bed59ecd72c1922540aff386dc100b5c4888d2f57884520771113c6d433",
+			"steps": [],
+			"blockers": ["form-root-read", "target-gate"],
+			"reasons": []
+		},
+		{
+			"id": "hand-foreign-media",
+			"kind": "hand-built",
+			"digest": "e5bd08b19cada2004a2a3346d93e920de0af6cff4923a1ee250967d79fc51c27",
+			"steps": [],
+			"blockers": ["target-export-readiness"],
+			"reasons": []
+		},
+		{
+			"id": "hand-time-ordering",
+			"kind": "hand-built",
+			"digest": "75bb43b13162eb57d213c186cd7dae0e7962b7d78615fd03a783345c0afbefd9",
+			"steps": ["time-ordering"],
+			"blockers": [],
+			"reasons": ["time-comparison-never-true"]
+		},
+		{
+			"id": "hand-time-ordering-form-logic",
+			"kind": "hand-built",
+			"digest": "dd5f13cc5417fa937400349ff1adc739749e290b3eca1207d2f17d05467e66ce",
+			"steps": ["time-ordering"],
+			"blockers": [],
+			"reasons": ["time-comparison-never-true"]
+		},
+		{
+			"id": "hand-hidden-from-menu",
+			"kind": "hand-built",
+			"digest": "dd739e018c15f23a4f124e66756cd1b6198f5b8114573d84e74cb7a4d30eec30",
+			"steps": ["hidden-from-menu"],
+			"blockers": [],
+			"reasons": ["hidden-from-menu-set"]
+		},
+		{
+			"id": "hand-hidden-menu-is-a-destination",
+			"kind": "hand-built",
+			"digest": "931b49c99edc80443d49254a7c2ce3a441a43953ed1f84d9855502a0c4e043cd",
+			"steps": [],
+			"blockers": ["hidden-menu-is-a-destination"],
+			"reasons": []
+		},
+		{
+			"id": "hand-search-term-matches-nothing",
+			"kind": "hand-built",
+			"digest": "237771fd8dbb4363317ce4cb94e4ce76d1ade86ad15c9efdf375dfcef8dbb6d9",
+			"steps": ["time-ordering"],
+			"blockers": [],
+			"reasons": ["search-term-matches-nothing"]
+		},
+		{
+			"id": "hand-validated-barcode-secret",
+			"kind": "hand-built",
+			"digest": "402dbd7b446293490f4dbadfb92a9f8a3fee0f274238c478dfb539c674b6a7c1",
+			"steps": [],
+			"blockers": [],
+			"reasons": ["validation-now-enforced"]
+		},
+		{
+			"id": "hand-linked-follow-up",
+			"kind": "hand-built",
+			"digest": "38b96880def0d3359b46b03b92c0dd6827e3535d8a1fb9bbe750b19dfe4a8270",
+			"steps": [],
+			"blockers": [],
+			"reasons": [
+				"follow-up-now-touches-case",
+				"linked-follow-up-now-writes-case"
+			]
+		},
+		{
+			"id": "hand-close-conditions",
+			"kind": "hand-built",
+			"digest": "a3f3b2e25b237a6a75a0cc55c28b7878eafda395148f4cb846164e9b946b85d2",
+			"steps": [],
+			"blockers": [],
+			"reasons": ["close-moves-to-save-to-case"]
+		},
+		{
+			"id": "hand-survey-menu",
+			"kind": "hand-built",
+			"digest": "e490ac416f185b8b31685c845305439796f8ca61e448628474ac71a38ada2c40",
+			"steps": [],
+			"blockers": [],
+			"reasons": ["survey-menu-takes-case-type"]
+		},
+		{
+			"id": "hand-case-list-order",
+			"kind": "hand-built",
+			"digest": "c48bac2c86dba2e5e037a674900a2f2a62456b9c76ec1ce286c9d380f77b7538",
+			"steps": [],
+			"blockers": [],
+			"reasons": [
+				"case-list-order-changes",
+				"case-list-search-matches-hidden-fields",
+				"hidden-order-column-not-in-sort-menu",
+				"record-id-column-now-shows"
+			]
+		},
+		{
+			"id": "hand-lookup-tag-collision",
+			"kind": "hand-built",
+			"digest": "79db768eff44abdb5925d02adf6cea71984432c61fbe57d4ef278316b9a80997",
+			"steps": [],
+			"blockers": ["lookup-tag-rename-collision", "lookup-tag-unparsable"],
+			"reasons": ["lookup-tag-renamed"]
+		},
+		{
+			"id": "hand-logo",
+			"kind": "hand-built",
+			"digest": "e5d354646521ec5149b095e5970286298fbdd5f06a0cb7835f0704bd6a01f4c1",
+			"steps": [],
+			"blockers": [],
+			"reasons": ["logo-upload-in-hq"]
+		},
+		{
+			"id": "hand-xpath-query-input",
+			"kind": "hand-built",
+			"digest": "628a884dbc0a1bc25bb569a5df82d0fcb98ad78c4a20f54db9b8b763cd3f8e9b",
+			"steps": ["reserved-search-inputs"],
+			"blockers": [],
+			"reasons": ["search-input-renamed", "search-input-removed"]
+		},
+		{
+			"id": "hand-open-workspace",
+			"kind": "hand-built",
+			"digest": "2ea6c3b8b445c870023244c1a6689a3eed779d4d60158b0b7aa16a6c1fcc6cf4",
+			"steps": [],
+			"blockers": [],
+			"reasons": ["unsaved-assistant-work-discarded"]
+		}
+	]
+}

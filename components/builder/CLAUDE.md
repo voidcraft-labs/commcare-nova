@@ -58,6 +58,20 @@ starting is the moment the word is drawn into the sphere it will leave by.
 `BuilderHeader` reads that off `phase === Idle` alone, so the collapse and the
 chat's centered-to-docked morph are one gesture on one tick.
 
+**The notice chip sits in the band beside `BuilderAccessStatus`.**
+`notices/AppNoticeChip.tsx` is a ghost `Button` holding a violet `Badge` that
+counts the migration notices this member has not dismissed ("1 update to
+review"); it shows with the toolbar, opens nothing by itself, and renders
+nothing once every notice is dismissed. The builder page loads the notices in
+the same request as the authorized snapshot and `BuilderProvider` holds them in
+`notices/AppNoticesContext.tsx`, together with every deployment entry the
+Publishing cards read, since a card's note outlives the dialog's dismissal.
+Grouping and ordering live in the pure `notices/appNoticeModel.ts`; each line
+comes from `lib/notices/migrationNoticeCopy.ts`. "Got it" in
+`AppNoticeDialog.tsx` dismisses for this member alone through
+`dismissAppNoticeAction`, and the context drops the notice locally, because
+serving code never writes one.
+
 ## Creation never navigates
 
 Both ways an app is born — the design build's `data-app-materialized` frame

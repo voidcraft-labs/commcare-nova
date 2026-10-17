@@ -1,0 +1,95 @@
+{
+	"root": {
+		"app_name": "Batch reviews",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"sample\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}}]}]",
+		"localization_text": null,
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "040caf79-0caf-5805-acc6-c0dfd4cdb009",
+			"kind": "field",
+			"parent_uuid": "6328425f-f277-5dc3-a39d-c38944b0deef",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"040caf79-0caf-5805-acc6-c0dfd4cdb009\",\"id\":\"note\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Note\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "0633bf9e-40ea-55f2-ae4e-54781b1caece",
+			"kind": "field",
+			"parent_uuid": "84afd5f8-3ab4-5ae4-a9ec-c24e94c487a8",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"0633bf9e-40ea-55f2-ae4e-54781b1caece\",\"id\":\"note\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Note\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "1749f35c-6375-5a08-a7ef-4b1e499c902c",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"1749f35c-6375-5a08-a7ef-4b1e499c902c\",\"id\":\"batches\",\"name\":\"Batches\",\"caseType\":\"sample\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"4aa08bcb-fec5-534f-a599-ee3d53b3fc1b\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"4aa08bcb-fec5-534f-a599-ee3d53b3fc1b\"],\"detailColumnOrder\":[\"4aa08bcb-fec5-534f-a599-ee3d53b3fc1b\"],\"searchInputs\":[],\"selection\":{\"kind\":\"multiple\",\"maximum\":5}}}"
+		},
+		{
+			"uuid": "32c5f391-6178-5c4d-a1da-ff57d47e34e1",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 3,
+			"data_text": "{\"uuid\":\"32c5f391-6178-5c4d-a1da-ff57d47e34e1\",\"id\":\"several_samples\",\"name\":\"Several samples\",\"parentModuleUuid\":\"a476cee3-04c0-58a7-afa3-f5d91687b913\",\"caseType\":\"sample\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"3c61d086-3294-5c3a-aaa2-61b4b820c056\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"3c61d086-3294-5c3a-aaa2-61b4b820c056\"],\"detailColumnOrder\":[\"3c61d086-3294-5c3a-aaa2-61b4b820c056\"],\"searchInputs\":[],\"selection\":{\"kind\":\"multiple\",\"maximum\":5}}}"
+		},
+		{
+			"uuid": "3bc79211-6359-5de5-a7b5-4be7424cbba1",
+			"kind": "field",
+			"parent_uuid": "71758067-5fb8-5433-aab4-e621619e2937",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"3bc79211-6359-5de5-a7b5-4be7424cbba1\",\"id\":\"note\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Note\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "6328425f-f277-5dc3-a39d-c38944b0deef",
+			"kind": "form",
+			"parent_uuid": "1749f35c-6375-5a08-a7ef-4b1e499c902c",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"6328425f-f277-5dc3-a39d-c38944b0deef\",\"id\":\"review_batches\",\"name\":\"Review batches\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "71758067-5fb8-5433-aab4-e621619e2937",
+			"kind": "form",
+			"parent_uuid": "847b6cea-ed53-566e-a02e-9314736e717a",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"71758067-5fb8-5433-aab4-e621619e2937\",\"id\":\"review_single-under-batches\",\"name\":\"Review single-under-batches\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "76468f4a-b34b-560e-a19a-39e0371c79da",
+			"kind": "form",
+			"parent_uuid": "32c5f391-6178-5c4d-a1da-ff57d47e34e1",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"76468f4a-b34b-560e-a19a-39e0371c79da\",\"id\":\"review_batch-under-samples\",\"name\":\"Review batch-under-samples\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "847b6cea-ed53-566e-a02e-9314736e717a",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"847b6cea-ed53-566e-a02e-9314736e717a\",\"id\":\"one_sample\",\"name\":\"One sample\",\"parentModuleUuid\":\"1749f35c-6375-5a08-a7ef-4b1e499c902c\",\"caseType\":\"sample\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"265c6f6b-4ff6-5a17-a8dc-e10d9f78cefb\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"265c6f6b-4ff6-5a17-a8dc-e10d9f78cefb\"],\"detailColumnOrder\":[\"265c6f6b-4ff6-5a17-a8dc-e10d9f78cefb\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "84afd5f8-3ab4-5ae4-a9ec-c24e94c487a8",
+			"kind": "form",
+			"parent_uuid": "a476cee3-04c0-58a7-afa3-f5d91687b913",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"84afd5f8-3ab4-5ae4-a9ec-c24e94c487a8\",\"id\":\"review_samples\",\"name\":\"Review samples\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "9fee2bd0-f029-5a2c-a2f4-c5ca293e7e60",
+			"kind": "field",
+			"parent_uuid": "76468f4a-b34b-560e-a19a-39e0371c79da",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"9fee2bd0-f029-5a2c-a2f4-c5ca293e7e60\",\"id\":\"note\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Note\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "a476cee3-04c0-58a7-afa3-f5d91687b913",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 2,
+			"data_text": "{\"uuid\":\"a476cee3-04c0-58a7-afa3-f5d91687b913\",\"id\":\"samples\",\"name\":\"Samples\",\"caseType\":\"sample\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"711eb61c-d10f-5608-a877-b3ba37eca18c\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"711eb61c-d10f-5608-a877-b3ba37eca18c\"],\"detailColumnOrder\":[\"711eb61c-d10f-5608-a877-b3ba37eca18c\"],\"searchInputs\":[]}}"
+		}
+	]
+}

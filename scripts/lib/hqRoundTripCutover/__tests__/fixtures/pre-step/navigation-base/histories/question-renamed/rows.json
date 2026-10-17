@@ -1,0 +1,7 @@
+[
+	{
+		"seq": 2,
+		"batchId": "history:question-renamed:2",
+		"mutationsText": "[{\"kind\":\"updateField\",\"patch\":{\"id\":\"reply\"},\"targetKind\":\"text\",\"uuid\":\"f8d4b97c-9f51-5998-aa67-295205b7246c\"}]"
+	}
+]

@@ -18,6 +18,7 @@ import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { prepareGenesisCandidate } from "@/lib/db/appGenesis";
+import { loadApp } from "@/lib/db/apps";
 import {
 	createAndClaimDesignSessionRun,
 	loadDesignSession,
@@ -33,6 +34,7 @@ import {
 import type { Mutation } from "@/lib/doc/types";
 import { builtinIconRef } from "@/lib/domain/builtinIcons";
 import { asUuid } from "@/lib/domain/uuid";
+import { log } from "@/lib/logger";
 import { applyAuthorizedLookupAuthoringBatch } from "@/lib/lookup/agentService";
 import {
 	emptyGenesisBase,
@@ -45,7 +47,10 @@ import {
 	ChangeSetScopeLostError,
 	ChangeSetWorkspaceRevisionStaleError,
 } from "../errors";
-import { materializeAppFromGenesis } from "../materializeGenesis";
+import {
+	materializeAppFromGenesis,
+	readMaterializedGenesisReceipt,
+} from "../materializeGenesis";
 import {
 	beginAppEditChangeSet,
 	beginGenesisChangeSet,
@@ -54,6 +59,7 @@ import {
 	stageChangeSetRequest,
 } from "../store";
 import { ChangeSetMutationWorkspace } from "../workspace";
+import { writeHqRoundTripHorizon } from "./foldHorizonFixture";
 
 /* Route `withSchemaContext` to a store bound to the per-test database —
  * production parity, just bypassing the singleton's Cloud SQL connector
@@ -581,6 +587,43 @@ describe("materializeAppFromGenesis", () => {
 			.where("id", "=", fixture.proposedAppId)
 			.execute();
 		expect(apps).toHaveLength(1);
+	});
+
+	it("reads the receipt from the saved app once a fold horizon follows the birth", async () => {
+		const fixture = await claimedGenesisFixture();
+		await persistPrivateMutation(
+			fixture.changeSetId,
+			exportReadyBatch(fixture.proposedAppId),
+		);
+		const first = await materializeAppFromGenesis(materializeArgs(fixture));
+		if (first.kind !== "materialized") throw new Error(first.kind);
+		const horizon = await writeHqRoundTripHorizon(
+			h.db(),
+			fixture.proposedAppId,
+			"After the cutover",
+		);
+
+		const receipt = await readMaterializedGenesisReceipt({
+			changeSetId: fixture.changeSetId,
+			actorUserId: ACTOR,
+		});
+		const saved = await loadApp(fixture.proposedAppId);
+		if (!saved) throw new Error("The materialized app is missing");
+		expect(saved.blueprint.appName).toBe("After the cutover");
+		expect(saved.mutation_seq).toBe(horizon);
+		expect(receipt).toMatchObject({
+			appId: fixture.proposedAppId,
+			projectId: PROJECT,
+			seq: horizon,
+			batchId: first.receipt.batchId,
+			blueprint: saved.blueprint,
+			snapshotDigest: canonicalJsonDigest(saved.blueprint),
+		});
+		const replay = await materializeAppFromGenesis(materializeArgs(fixture));
+		if (replay.kind !== "materialized") throw new Error(replay.kind);
+		expect(replay.receipt).toEqual(receipt);
+		expect(log.error).not.toHaveBeenCalled();
+		expect(log.critical).not.toHaveBeenCalled();
 	});
 
 	it("denies a lost-response replay after current Project membership is revoked", async () => {

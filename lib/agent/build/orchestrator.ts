@@ -8,7 +8,10 @@ import {
 	ReadProjectionError,
 } from "@/lib/agent/authoring/errors";
 import { WORK_TOOL_DEFINITIONS } from "@/lib/agent/authoring/lifecycleTools";
-import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
+import {
+	greatestFoldBaselineSeq,
+	loadCanonicalBlueprintAtSequence,
+} from "@/lib/agent/change-set/baseLoader";
 import { ChangeSetStagingRejectedError } from "@/lib/agent/change-set/errors";
 import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
 import { classifyError } from "@/lib/agent/errorClassifier";
@@ -47,7 +50,11 @@ import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 import { translateLanguage } from "@/lib/agent/translation/translateLanguage";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
-import { loadApp, refreshBuildLiveness } from "@/lib/db/apps";
+import {
+	loadApp,
+	loadAppInTransaction,
+	refreshBuildLiveness,
+} from "@/lib/db/apps";
 import { AppTestUnavailableError } from "@/lib/db/appTests";
 import {
 	loadDesignSession,
@@ -312,16 +319,25 @@ export async function runBuildOrchestration(
 				);
 				if (scope.projectId !== args.projectId)
 					throw new PlanConflictError("The app has moved to another Project.");
-				return loadCanonicalBlueprintAtSequence(tx, {
+				/* A finished build behind a fold horizon recorded a sequence whose
+				 * history no longer replays, so it answers from the saved app. */
+				const horizon = await greatestFoldBaselineSeq(tx, finished.appId);
+				if (horizon !== null && finished.appSeq < horizon) {
+					const app = await loadAppInTransaction(tx, finished.appId);
+					if (!app) throw new Error("The saved app is unavailable.");
+					return { seq: app.mutation_seq, snapshot: app.blueprint };
+				}
+				const folded = await loadCanonicalBlueprintAtSequence(tx, {
 					appId: finished.appId,
 					seq: finished.appSeq,
 					expectedDigest: null,
 				});
+				return { seq: finished.appSeq, snapshot: folded.snapshot };
 			});
 			return {
 				kind: "completed",
 				appId: head.state.appId,
-				finalSeq: head.state.appSeq,
+				finalSeq: saved.seq,
 				finalBlueprint: saved.snapshot,
 			};
 		}

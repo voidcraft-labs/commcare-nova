@@ -1,0 +1,10 @@
+{
+	"method": "POST",
+	"path": "/a/nova-proof/fixtures/fixapi/",
+	"contentType": "multipart/form-data; boundary=----nova-proof-capture",
+	"fields": [
+		"waf_padding",
+		"file-to-upload",
+		"replace"
+	]
+}

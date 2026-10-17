@@ -1087,6 +1087,63 @@ export async function commitAppProjectMove(
 	});
 }
 
+/**
+ * Copy the source Project's place baselines that a live `location` mapping of
+ * the moving app names into the destination Project, never moving them:
+ * another app of the source Project may share the place. On a conflict the
+ * newer read wins, through the same statement shape as the deployment store's
+ * baseline upsert, and a destination row keeps its own discard record unless
+ * the copied row holds one. No `lookup-table` row is copied, because an app
+ * that references lookup tables cannot move.
+ */
+async function copyPlaceBaselinesToProject(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly appId: string;
+		readonly fromProjectId: string;
+		readonly toProjectId: string;
+	},
+): Promise<void> {
+	await sql`
+		INSERT INTO project_space_resource_baselines AS existing (
+			project_id, server, domain, kind, remote_id, origin, canonical,
+			digest, observed_at, observed_by, observed_from_app_id,
+			discarded_digest, discarded_by, discarded_at
+		)
+		SELECT ${args.toProjectId}, baseline.server, baseline.domain,
+			baseline.kind, baseline.remote_id, baseline.origin, baseline.canonical,
+			baseline.digest, baseline.observed_at, baseline.observed_by,
+			baseline.observed_from_app_id, baseline.discarded_digest,
+			baseline.discarded_by, baseline.discarded_at
+		FROM project_space_resource_baselines AS baseline
+		WHERE baseline.project_id = ${args.fromProjectId}
+			AND baseline.kind = 'location'
+			AND EXISTS (
+				SELECT 1
+				FROM app_deployment_resources AS mapping
+				JOIN app_deployments AS deployment
+					ON deployment.id = mapping.deployment_id
+				WHERE deployment.app_id = ${args.appId}
+					AND deployment.server = baseline.server
+					AND deployment.domain = baseline.domain
+					AND mapping.kind = 'location'
+					AND mapping.superseded_at IS NULL
+					AND mapping.remote_id = baseline.remote_id
+			)
+		ON CONFLICT (project_id, server, domain, kind, remote_id) DO UPDATE SET
+			origin = EXCLUDED.origin,
+			canonical = EXCLUDED.canonical,
+			digest = EXCLUDED.digest,
+			observed_at = EXCLUDED.observed_at,
+			observed_by = EXCLUDED.observed_by,
+			observed_from_app_id = EXCLUDED.observed_from_app_id,
+			discarded_digest = COALESCE(EXCLUDED.discarded_digest, existing.discarded_digest),
+			discarded_by = COALESCE(EXCLUDED.discarded_by, existing.discarded_by),
+			discarded_at = COALESCE(EXCLUDED.discarded_at, existing.discarded_at)
+		WHERE existing.observed_at <= EXCLUDED.observed_at
+	`.execute(tx);
+}
+
 /** Package-private seam for callers that already own the transaction. */
 export async function commitAppProjectMoveInTransaction(
 	tx: Transaction<AppDatabase>,
@@ -1313,6 +1370,11 @@ export async function commitAppProjectMoveInTransaction(
 		.set({ project_id: args.toProjectId })
 		.where("app_id", "=", args.appId)
 		.execute();
+	await copyPlaceBaselinesToProject(tx, {
+		appId: args.appId,
+		fromProjectId: args.expectedFromProjectId,
+		toProjectId: args.toProjectId,
+	});
 	await tx.deleteFrom("presence").where("app_id", "=", args.appId).execute();
 	const seq = nextPersistedSequence(
 		fresh.mutation_seq,

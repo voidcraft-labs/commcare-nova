@@ -237,16 +237,49 @@ export function canonicalTestBlueprint(
  */
 export function setupAppStateTestDb(
 	prefix = "app_state_",
-	options: { authSchema?: "migrated"; poolMax?: number } = {},
+	options: {
+		authSchema?: "migrated";
+		poolMax?: number;
+		/** Start from the case-store migrations named before this one, the
+		 * database a deploy of the previous revision leaves, so the test applies
+		 * the rest itself. Needs `authSchema: "migrated"`. */
+		caseStoreMigrationsBefore?: string;
+	} = {},
 ): AppStateTestDb {
+	const before = options.caseStoreMigrationsBefore;
+	if (before !== undefined && options.authSchema !== "migrated") {
+		throw new Error(
+			'setupAppStateTestDb: caseStoreMigrationsBefore needs authSchema: "migrated", which owns the template it prepares.',
+		);
+	}
 	const handle = setupPerTestDatabase({
-		schema: "migrated",
+		...(before === undefined ? { schema: "migrated" as const } : {}),
 		databaseNamePrefix: prefix,
 		poolMax: options.poolMax,
 		...(options.authSchema === "migrated"
 			? {
 					establishLocalMigrationAuthority: true as const,
 					prepareTemplate: async (db: Kysely<unknown>, pool: Pool) => {
+						if (before !== undefined) {
+							const [{ Migrator }, { caseStoreMigrations }] = await Promise.all(
+								[
+									import("kysely/migration"),
+									import("@/lib/case-store/migrations"),
+								],
+							);
+							const result = await new Migrator({
+								db,
+								provider: {
+									getMigrations: async () =>
+										Object.fromEntries(
+											Object.entries(caseStoreMigrations).filter(
+												([name]) => name < before,
+											),
+										),
+								},
+							}).migrateToLatest();
+							if (result.error !== undefined) throw result.error;
+						}
 						const [
 							{ getMigrations },
 							{ authMigrateOptions },

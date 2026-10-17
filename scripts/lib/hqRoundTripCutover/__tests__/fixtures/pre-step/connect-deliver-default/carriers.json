@@ -1,0 +1,39 @@
+{
+	"root": {
+		"app_name": "deliver-default",
+		"connect_type": "deliver",
+		"case_types_text": null,
+		"localization_text": null,
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "a71751fe-cd84-59c2-ad13-71a8b3f9bcee",
+			"kind": "field",
+			"parent_uuid": "c908c5a3-5d53-556f-a21a-3cd50e8658b3",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"a71751fe-cd84-59c2-ad13-71a8b3f9bcee\",\"id\":\"feedback\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Feedback\"}]},\"kind\":\"text\",\"default_value\":{\"parts\":[{\"kind\":\"text\",\"text\":\"'Clinic & child'\"}]}}"
+		},
+		{
+			"uuid": "a8175391-ce84-5b55-ae13-733bb4f9be81",
+			"kind": "field",
+			"parent_uuid": "c908c5a3-5d53-556f-a21a-3cd50e8658b3",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"a8175391-ce84-5b55-ae13-733bb4f9be81\",\"id\":\"score\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Score\"}]},\"kind\":\"int\",\"default_value\":{\"parts\":[{\"kind\":\"text\",\"text\":\"42\"}]}}"
+		},
+		{
+			"uuid": "c908c5a3-5d53-556f-a21a-3cd50e8658b3",
+			"kind": "form",
+			"parent_uuid": "fe250245-35e0-5099-a17f-efd368120035",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"c908c5a3-5d53-556f-a21a-3cd50e8658b3\",\"id\":\"activity\",\"name\":\"Activity\",\"type\":\"survey\",\"connect\":{\"deliver_unit\":{\"id\":\"visit\",\"name\":\"Home & clinic <雪>\"},\"task\":{\"id\":\"task\",\"name\":\"Record & review\",\"description\":\"Ask <then> listen\"}}}"
+		},
+		{
+			"uuid": "fe250245-35e0-5099-a17f-efd368120035",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"fe250245-35e0-5099-a17f-efd368120035\",\"id\":\"work\",\"name\":\"Work\"}"
+		}
+	]
+}

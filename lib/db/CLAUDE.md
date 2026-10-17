@@ -30,6 +30,42 @@ supersession arises only from the recreate after an HQ-side deletion, plus
 rows from before in-place updates).
 `lib/deployment/CLAUDE.md` owns the lifecycle.
 
+**The deployment ledger has four more tables, each with its runtime privilege
+class** (`privilegeConvergence.ts`, DDL in
+`20261015020000_hq_round_trip_deployment_ledger.ts`).
+`app_deployment_identities` (the module and form ids a target holds that are
+not Nova's derivation) is runtime read-only: only a migration writes it, as the
+migration role, and a publish writes none. `app_deployment_confirmations` (what
+a person confirmed about one project space for one app: a plan feature, the
+flat location fixture, a Connect forwarder) is inserted on confirm and updated
+on withdrawal, never deleted. `app_deployment_baselines` (the app as CommCare
+HQ returned it when Nova last read it, gzip `bytea`) and
+`project_space_resource_baselines` (a lookup table or place as CommCare HQ
+returned it, keyed by Project, server, project space and HQ resource, so two
+apps whose live mappings name one HQ table or place share a row) are upserted
+only, serialized by the deployment row's lock. The three runtime-written tables
+are insert/update, never deleted or row-locked. The first three cascade with
+their deployment; `project_space_resource_baselines` has no deletion path at
+all, because no app is hard-deleted at runtime and Project deletion is
+disabled, so the future whole-tenant deletion lifecycle must list it.
+`app_deployment_resources.remote_missing_at` is the "CommCare HQ reports this
+app gone" fact, outside the push-token trigger's column list, so writing it
+rotates no push token.
+
+**Migration notices are written by migrations alone.** Three tables
+(`20261015010000_app_migration_notices.ts`) carry what a stored-shape cutover
+changed: `app_migration_notices` (one row per app and cutover, cascading with
+its app, reaching its Project through `apps.project_id` at read time, so a
+Project move touches nothing here), `app_migration_notice_key_readers`, and
+`app_migration_notice_dismissals`. The first two are runtime read-only; the
+dismissals are runtime append-only (`surface = 'app'` for one notice,
+`'key-reader'` for one cutover's home line, each per member). No serving code
+writes a notice or a key-readers row: only a migration does, as the migration
+role. Each key-readers row is one member, server and project space whose stored
+CommCare HQ key that migration sent, a key HQ refused included, keyed by the
+cutover and never by an app. `lib/notices/store.ts` is the one reader and
+dismissal writer.
+
 **Lock ordering is the concurrency discipline.** Every transaction that
 decides anything about a run locks its AUTHORITY ROW first (`SELECT … FOR
 UPDATE` via `lockAppRow`, or the `design_sessions` row for a pre-app target),
@@ -177,12 +213,24 @@ concurrent same-batch retry that races past the read is caught by the constraint
 and converges on the deduped result). A blueprint-shape migration converts every replayable app change; no runtime
 reader accepts an alternate stored dialect. Advancing the fold horizon is not a
 route a future migration can simply take: the admit routine
-`nova_admit_app_change_fold_baseline_insert` accepts exactly three identities —
+`nova_admit_app_change_fold_baseline_insert` accepts exactly four identities —
 the frozen `fold-baseline:canonical-identity-foundation` marker and the
-sequence-one `genesis:<app_id>`, and the paired
-`fold-baseline:unified-authoring` / `system:unified-authoring` operator cutover.
-The latter repairs incomplete historical SQL projections by starting from the
-unchanged canonical document, preserving old rows and refusing live holders.
+sequence-one `genesis:<app_id>`, the paired
+`fold-baseline:unified-authoring` / `system:unified-authoring` operator cutover,
+and the paired `fold-baseline:hq-round-trip-emission` /
+`system:hq-round-trip-emission` operator cutover, which starts each app from the
+document its transform yields.
+The `unified-authoring` cutover repairs incomplete historical SQL projections by
+starting from the unchanged canonical document, preserving old rows and refusing
+live holders.
+The `hq-round-trip-emission` horizon starts each app from its transformed
+document, the other route of the two the contract offers. A reader that folds at
+a sequence behind an app's greatest fold baseline answers from the current saved
+app instead. The rule lives once, in
+`lib/agent/change-set/baseLoader.ts::greatestFoldBaselineSeq`, read by the build
+orchestrator's finished branch, by
+`materializeGenesis.ts::readMaterializedGenesisReceipt`, and by the stream route,
+which answers `reload` without parsing a row behind the baseline.
 The operator must touch the locked root and all entity rows in the same
 transaction; snapshot, digest, Project and marker checks still apply. Runtime
 grants remain read-only. Adding another baseline identity needs new DDL.

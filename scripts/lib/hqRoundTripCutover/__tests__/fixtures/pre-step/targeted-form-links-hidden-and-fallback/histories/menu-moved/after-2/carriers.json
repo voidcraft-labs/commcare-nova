@@ -1,0 +1,102 @@
+{
+	"root": {
+		"app_name": "Pond care",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"site\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}}]},{\"name\":\"pond\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}}]},{\"name\":\"frog\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}}]}]",
+		"localization_text": null,
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "0047c4c5-8fc6-5c81-aeb9-e9b7a1047895",
+			"kind": "field",
+			"parent_uuid": "c0b41c37-f8a4-50bb-a924-02a5b62dae87",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"0047c4c5-8fc6-5c81-aeb9-e9b7a1047895\",\"id\":\"note\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Note\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "09eeade6-d20a-5d4a-ac8a-e5cc57d59f96",
+			"kind": "field",
+			"parent_uuid": "1e85184c-e2d7-5c38-a545-54c6d703387c",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"09eeade6-d20a-5d4a-ac8a-e5cc57d59f96\",\"id\":\"note\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Note\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "1e85184c-e2d7-5c38-a545-54c6d703387c",
+			"kind": "form",
+			"parent_uuid": "efba5862-250f-5406-a681-de6c14d8f7d2",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"1e85184c-e2d7-5c38-a545-54c6d703387c\",\"id\":\"review_frogs\",\"name\":\"Review Frogs\",\"type\":\"followup\",\"postSubmit\":\"previous\",\"formLinks\":[{\"uuid\":\"71905dd1-b97d-528d-a836-fc2ba5b98101\",\"condition\":{\"parts\":[{\"kind\":\"user-ref\",\"property\":\"username\"},{\"kind\":\"text\",\"text\":\" = 'alice'\"}]},\"target\":{\"type\":\"module\",\"moduleUuid\":\"baa64cd9-34b5-5fe5-a8af-4f5737e9aba9\"}},{\"uuid\":\"f7a79e29-81af-592d-a46a-50e7c72458f9\",\"condition\":{\"parts\":[{\"kind\":\"user-ref\",\"property\":\"username\"},{\"kind\":\"text\",\"text\":\" = 'bea'\"}]},\"target\":{\"type\":\"module\",\"moduleUuid\":\"6577c7a1-139d-5195-a500-fd2b58381a11\"}}]}"
+		},
+		{
+			"uuid": "1f80330b-af78-5997-ae47-0c55315ac63b",
+			"kind": "form",
+			"parent_uuid": "6577c7a1-139d-5195-a500-fd2b58381a11",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"1f80330b-af78-5997-ae47-0c55315ac63b\",\"id\":\"review_ponds\",\"name\":\"Review Ponds\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "2bff4240-5d3d-58cc-a76c-9c1a31c16370",
+			"kind": "form",
+			"parent_uuid": "baa64cd9-34b5-5fe5-a8af-4f5737e9aba9",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"2bff4240-5d3d-58cc-a76c-9c1a31c16370\",\"id\":\"register_sites\",\"name\":\"Register Sites\",\"type\":\"registration\"}"
+		},
+		{
+			"uuid": "3133c932-5772-565e-a1eb-36ac7bdb4042",
+			"kind": "field",
+			"parent_uuid": "4f187cf4-5ee1-55b8-abf9-d612f1b0a2c4",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"3133c932-5772-565e-a1eb-36ac7bdb4042\",\"id\":\"name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]},\"caseWrite\":{\"caseType\":\"pond\",\"property\":\"case_name\"},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "4f187cf4-5ee1-55b8-abf9-d612f1b0a2c4",
+			"kind": "form",
+			"parent_uuid": "6577c7a1-139d-5195-a500-fd2b58381a11",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"4f187cf4-5ee1-55b8-abf9-d612f1b0a2c4\",\"id\":\"register_ponds\",\"name\":\"Register Ponds\",\"type\":\"registration\"}"
+		},
+		{
+			"uuid": "4f20f83a-a939-54fe-a188-430812ccbaaa",
+			"kind": "field",
+			"parent_uuid": "2bff4240-5d3d-58cc-a76c-9c1a31c16370",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"4f20f83a-a939-54fe-a188-430812ccbaaa\",\"id\":\"name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]},\"caseWrite\":{\"caseType\":\"site\",\"property\":\"case_name\"},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "6577c7a1-139d-5195-a500-fd2b58381a11",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 2,
+			"data_text": "{\"uuid\":\"6577c7a1-139d-5195-a500-fd2b58381a11\",\"id\":\"ponds\",\"name\":\"Ponds\",\"parentModuleUuid\":\"baa64cd9-34b5-5fe5-a8af-4f5737e9aba9\",\"caseType\":\"pond\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"f42c990f-1e67-5a9b-ae8a-67a1a267133f\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"f42c990f-1e67-5a9b-ae8a-67a1a267133f\"],\"detailColumnOrder\":[\"f42c990f-1e67-5a9b-ae8a-67a1a267133f\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "b2f06575-b131-5479-ad86-008ba05d60e5",
+			"kind": "field",
+			"parent_uuid": "1f80330b-af78-5997-ae47-0c55315ac63b",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"b2f06575-b131-5479-ad86-008ba05d60e5\",\"id\":\"note\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Note\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "baa64cd9-34b5-5fe5-a8af-4f5737e9aba9",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"baa64cd9-34b5-5fe5-a8af-4f5737e9aba9\",\"id\":\"sites\",\"name\":\"Sites\",\"caseType\":\"site\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"0852a083-5dae-5ce7-a3b8-ecd91dc74bd3\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"0852a083-5dae-5ce7-a3b8-ecd91dc74bd3\"],\"detailColumnOrder\":[\"0852a083-5dae-5ce7-a3b8-ecd91dc74bd3\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "c0b41c37-f8a4-50bb-a924-02a5b62dae87",
+			"kind": "form",
+			"parent_uuid": "baa64cd9-34b5-5fe5-a8af-4f5737e9aba9",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"c0b41c37-f8a4-50bb-a924-02a5b62dae87\",\"id\":\"review_sites\",\"name\":\"Review Sites\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "efba5862-250f-5406-a681-de6c14d8f7d2",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"efba5862-250f-5406-a681-de6c14d8f7d2\",\"id\":\"frogs\",\"name\":\"Frogs\",\"caseType\":\"frog\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"f54da300-7e84-56dc-a8cc-f862e5388bf0\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"f54da300-7e84-56dc-a8cc-f862e5388bf0\"],\"detailColumnOrder\":[\"f54da300-7e84-56dc-a8cc-f862e5388bf0\"],\"searchInputs\":[],\"selection\":{\"kind\":\"multiple\",\"maximum\":5}}}"
+		}
+	]
+}
