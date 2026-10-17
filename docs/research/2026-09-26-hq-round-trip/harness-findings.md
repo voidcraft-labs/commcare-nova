@@ -1088,7 +1088,8 @@ control.
     two moments that Preview finds true is false on a device, or compares
     days where the author compared moments. Defect 6 covers a time of day
     only. Step 3's typed expression model lowers each operand by its type
-    (`docs/plans/hq-round-trip/3-expressions.md`, "Carried from step 2").
+    (`docs/plans/hq-round-trip/3-expressions.md`, "The baseline this plan
+    was written against").
     *Documents:* `targeted-datetime-ordering` (intent, `/values/*/value` on
     the local export and on A: two answers an hour apart in a survey form,
     and two case properties held as text in a follow-up form).

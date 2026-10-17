@@ -43,6 +43,38 @@ defects 11 (its second half), 18, 19 and 20.
 7. **Defect 19.** Inline search, multi-select case lists, entry points and the
    case list menu item carry their per-platform behavior, and Preview shows it.
 
+8. **Reads step 3 left to the platform declaration.** Each depends on what a
+   platform holds, so step 3 stores or refuses it and offers it nowhere:
+   - *A search input read in an inline-search module's ordinary forms.*
+     Formplayer keeps the inputs on the query step
+     (`QueryScreen.updateSession`) and Android sets only the results there
+     (`QueryRequestActivity`), so the read throws on Android (the inventory's
+     `search-input:*` rows in inline-search forms: RUNS on Web Apps,
+     UNAVAILABLE on Android). Step 3 refuses it outside the no-matches form
+     (`INVALID_SEARCH_REF`), which keeps its `#search/` read. This step admits
+     it where the app's declared platforms run it;
+     `search-input-read-in-form-expressions-of-an-inline-search-module` and
+     `search-input-results-read-in-the-search-results-detail` stay HELD-NEW
+     until then.
+   - *The `stringquery` and `fingerprintquery` session datums.* Each is in
+     `session/data` only when an Android list step carries its last query or
+     callout extra (commcare-core
+     `SessionInstanceBuilder.java::addUserQueryData`, `::getStringQuery`); Web
+     Apps never has it and Preview has no value. Step 3's `DatumRef` has no
+     kind for them, and text naming either is an unknown datum. This step adds
+     the kind for an app that declares Android, with what Preview shows for it;
+     `session-data-stringquery` and `session-data-fingerprintquery` stay
+     HELD-NEW until then.
+   - *Authoring the session context values `drift`, `window_width` and
+     `applanguage`.* Their values differ per platform. Step 3 stores and parses
+     all seven context values and offers `deviceid`, `appversion`, `username`
+     and `userid`, showing the other three read-only; this step offers them, in
+     form logic and in a search's runtime values, with each platform's value
+     and Preview's. `session-context-drift`, `-window-width`, `-applanguage`
+     and
+     `case-search/runtime-values-read-from-the-session-context-drift-window-width`
+     stay HELD-NEW until then.
+
 ## Cutover and migration
 
 One cutover. Each existing app is declared for the platforms its content other
