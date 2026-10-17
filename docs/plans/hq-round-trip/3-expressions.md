@@ -112,24 +112,37 @@ what it showed; the runs that decided the plan:
   only rewrite of canonical text is spacing Nova's canonical print now writes itself (parts 01, 04).
 - **Host emission of the whole corpus** at base and head for finding 72's mapped defaults and
   finding 73's catalog-seeded case data (part 08 §3.3, §4.4).
+- **Reader runs on GitHub's runners**, the second dispatches, with issue 768's fix beneath each
+  scratch change (part 08 §6.4). R2 (run 39064333759) held with every reader over the spellings
+  document: Formplayer, the Web Apps client and Android read every form spelling step 3 relies on,
+  and the lowering, as Core does. R3 and R4 (run 39064336028), over the 26 documents the select
+  default map and the catalog seeding move, with the six walk stops of findings 72 and 73 removed:
+  no opened form reaches a reader's own end, so the removal holds with every reader. The run showed
+  two things pull request 5 carries. The Formplayer walk sends a value the question already holds,
+  where the Web Apps client sends nothing, which five documents' new opening values expose; that is
+  a gap in the harness's walk model, which pull request 5 fixes in `proof/formplayer/walk.py`. And
+  one document shows a knock-on of defect 21 once its form opens, which pull request 5 registers
+  as two live entries under defect 21 on a new targeted document, `targeted-list-first-places`,
+  since the register refuses an entry on a fuzz document (part 08 §3.3). R1 (run 39064331941)
+  showed on its first shard every served reader reproducing finding 56's literal case-list half,
+  and nothing unregistered but the manifest classes pull request 1 registers.
 
 **Written and not yet run.** Each part states its design as the plan's and says in place where a
 run is outstanding; this list is every such place.
 
-- **The served readers on R1, R3 and R4** (part 08 §6.4): Formplayer, the Web Apps client, Android
-  and Connect over the two new targeted documents, and over the documents finding 72's and 73's
-  stops sat on with the stops removed. The first dispatches died in the Android runtime job (issue
-  768); the second, with its fix beneath each scratch change, pass that job. R2's (run 39064333759)
-  held with every reader over the spellings document: Formplayer, the Web Apps client and Android
-  read every form spelling step 3 relies on, and the lowering, as Core does. R1's and R3/R4's
-  verdicts are outstanding (part 08 §6.4); until they are in, the six walk stops' removal is proved
-  by the host emission and the gate's tests only.
-- **`targeted-datetime-equality` as planned** (the Hidden Value "Log visit", "Opened visits" as an
-  advanced Search input) first runs in R1's second dispatch, run 39064331941; until its verdict is
-  in, that its differences are exactly finding 75's two entries, and that no finding 74 stop meets
-  it, is predicted from the scratch version's run, not observed (part 08 §6.4).
+- **R1's second shard** (part 08 §6.4): in run 39064331941 it lost its hosted runner, with no log
+  and no artifact, so `targeted-datetime-equality`, the `targeted-datetime-ordering` document and
+  `navigation-conditions` were not observed with the served readers; the second attempt of the
+  failed jobs is running. Until its verdict is in, that `targeted-datetime-equality` as planned (the
+  Hidden Value "Log visit", "Opened visits" as an advanced Search input) shows exactly finding 75's
+  two entries and meets no finding 74 stop is predicted from the scratch version's run, not
+  observed.
 - **R5** runs at pull request 5's branch, over the new fuzz generator's documents,
-  `targeted-expression-renames` and `targeted-session-reads`.
+  `targeted-expression-renames`, `targeted-session-reads` and `targeted-list-first-places`, and,
+  with the walk model fixed, over the five documents of its gap (`fuzz-xform-20260930-0`, `-3`,
+  `-4`, `-9` and `fuzz-suite-20260930-5`), whose Android, Connect and B and B-edit observations
+  run 39064336028 did not reach, and `fuzz-suite-20260930-8`, where defect 21's two new entries
+  hold.
 - **HQ's search half of finding 75** cannot show in the lane (Elasticsearch answers a malformed term
   only at search time); the `csql` native family's `datetime-equality` scenario holds it, written
   with pull request 10.
@@ -262,7 +275,7 @@ is a decision; the part named gives its evidence.
     **Finding 73's authoring half**: a Hidden Value joins writer agreement, so it cannot write text
     into a property a typed question preloads (part 03 §3.5, §4).
 25. **The lane** gains a native family `expression` whose zoned classes run one test JVM per zone, a
-    `csql` family, eight targeted documents and an `expression` fuzz generator beside the existing
+    `csql` family, nine targeted documents and an `expression` fuzz generator beside the existing
     sample; fuzz draws are mapped, never drawn again, and `casedata.py` seeds from the effective
     catalog (part 08).
 26. **The stack is sized for CI** (below and part 08 §6): three pull requests that move nothing the
@@ -294,11 +307,16 @@ Part 08 holds this in full.
   then asserts every live defect is a later step's.
 - **The six walk stops of findings 72 and 73 leave** in pull request 5, the shape, with no control:
   each refusal is held by its validator's tests beside an accepted neighbour, and production meets
-  neither. `proof/walk-stops.json` goes from 29 to 23.
+  neither. `proof/walk-stops.json` goes from 29 to 23. In the same pull request the Formplayer walk
+  stops sending a value a question already holds, as the Web Apps client does, and defect 21's
+  knock-on on a list-first form with a location question, which an opened form showed, gets two
+  live entries on the new targeted document `targeted-list-first-places` and its control; they stay
+  live for step 5, which fixes defect 21.
 - **Finding 74's stop stays** (step 4's), and `targeted-datetime-ordering` stays admitted with its
   bytes of source.
-- **At the exit** `proof/known-defects.json` holds 280 entries and `proof/fixed-defects.json` 729;
-  `proof/controls/` goes from 105 directories to 107; no spelling rule is added or retired.
+- **At the exit** `proof/known-defects.json` holds 282 entries (the base's 282, less finding 56's
+  two, plus defect 21's two) and `proof/fixed-defects.json` 729; `proof/controls/` goes from 105
+  directories to 108; no spelling rule is added or retired.
 - **Defect 17 gets a witness, not an entry**: no lane check can observe a stranded reference, so
   `targeted-expression-renames` carries an edit for proof 5 and the rename is held by the gate's
   tests.
@@ -318,7 +336,7 @@ transform steps, lane cost and checks.
 | 2 | Cutover skeleton: frozen pre-step fixtures, the frozen printer, the emission normalizer, the base emitter | 09 |
 | 3 | Projection: the served schemas' pre-substitution, the catalog's three tool inputs removed | 02, 01 |
 | 4 | Wire tree for the record family and the scaffolding | 04 |
-| 5 | Shape: the union, both grammars, profiles, index and renames, session datum identity, the checker's core, finding 72, finding 73's stop, every corpus source on the union | 01, 02, 03, 04, 05, 07, 08 |
+| 5 | Shape: the union, both grammars, profiles, index and renames, session datum identity, the checker's core, finding 72, finding 73's stop, every corpus source on the union, the walk's model of a held answer, defect 21's two entries on `targeted-list-first-places` | 01, 02, 03, 04, 05, 07, 08 |
 | 6 | Checker: the remaining refusals, writer agreement, inference | 03 |
 | 7 | Preview: Core parity, two-valued predicates, a search's population and the claim, the entry's session map, the Preview target, protocol 8 | 07, 05, 04 |
 | 8 | Lowering: finding 56, its equality half, the day rule; nine register moves | 04, 03, 07, 08 |

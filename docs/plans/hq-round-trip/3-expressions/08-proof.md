@@ -19,9 +19,9 @@ holds the stack in full.
 Where production holds a shape this part proves, it says so in words, and no production count
 enters this part: the cutover's dry run counts each at the window (§3.6, part 09). The runs this
 part relies on are named in "Executed during planning": scratch branches cut from `main` and run on
-GitHub's runners (R1 to R4), host emissions of the whole corpus, and read-only probes. R2's served
-verdict is in (§6.4); what a served reader shows on R1, R3 and R4 is outstanding, and each place
-that depends on it says so in one marked sentence.
+GitHub's runners (R1 to R4), host emissions of the whole corpus, and read-only probes. R2's and R3
+and R4's served verdicts are in, and so is R1's first shard (§6.4); R1's second shard is
+outstanding, and each place that depends on it says so in one marked sentence.
 
 ## Decisions in brief
 
@@ -69,9 +69,11 @@ that depends on it says so in one marked sentence.
    `casedata.py` reading the effective catalog; `walk-stops.json` goes from 29 entries to 23. Each
    refusal is held by its validator's tests, refusal beside accepted neighbour. Production meets
    neither: it holds no literal choice default outside its options and no case row a typed preload
-   fails to cast. The removal is proved by the host emission and those tests (§3.3).
-   **Outstanding:** what each of the six walks reaches once its form opens, with every served
-   reader, which run 39064336028 shows (§6.4).
+   fails to cast. The removal is proved by the host emission, those tests and the served readers
+   of run 39064336028 (§3.3, §6.4): no opened form reaches a reader's own end, and what the run
+   showed past them is two things pull request 5 carries, a fix to the Formplayer walk's model of
+   an answer a question already holds, and two live entries under defect 21 with the targeted
+   document `targeted-list-first-places` that shows them.
 8. **Every source that builds a document speaks the union in pull request 5, the shape.** Fuzz draws
    are mapped after the draw and never drawn again, so the 24 fuzz ids and every other draw stay.
 9. **A new fuzz generator, `expression`, draws typed expressions over a drawn document** (eight
@@ -89,8 +91,9 @@ that depends on it says so in one marked sentence.
     text leaves unchanged); `targeted-expression-renames` carries an edit so proof 5 holds the
     reference index complete over every new reader, and the rename itself is held by part 02's
     gate tests.
-12. **Step 3 adds eight targeted documents** (§4.5), among them part 06's
-    `targeted-datetime-equality` for finding 75. Each has explicit identities and values fixed by
+12. **Step 3 adds nine targeted documents** (§4.5), among them part 06's
+    `targeted-datetime-equality` for finding 75 and `targeted-list-first-places` for defect 21's
+    entries of §3.3. Each has explicit identities and values fixed by
     hand, and each lands in the pull request whose feature it shows: `targeted-session-reads` in
     pull request 5, the shape, with session datum identity and the Core session-read scenarios of
     `FormLinkRuntimeTest`, `NestedMenuRuntimeTest` and `TileGroupingRuntimeTest` that read today's
@@ -106,10 +109,15 @@ that depends on it says so in one marked sentence.
     scratch change (R1 run 39064331941, R2 run 39064333759, R3 and R4 run 39064336028): the Android
     runtime job passes in all three. **The fix lands on `main` as its own small pull request before
     the stack is cut**; it is not one of the fifteen, and the person decides when it opens. R2's
-    second dispatch held with every reader (§6.4). **Outstanding:** the served readers' verdicts of
-    runs 39064331941 and 39064336028. R5 runs at pull request 5's branch over the eight
-    `fuzz-expression-20260930-*` documents, `targeted-expression-renames` and
-    `targeted-session-reads`. No reader run is required before the merge; the first night after it
+    second dispatch held with every reader. R3 and R4's showed no reader's own end past an opened
+    form, and two things pull request 5 carries: the walk's model of an answer a question already
+    holds, and two defect 21 entries (§3.3). R1's first shard showed every served reader
+    reproducing finding 56's literal case-list half and nothing unregistered but the manifest
+    classes §7 registers (§6.4). **Outstanding:** R1's second shard, which lost its hosted runner,
+    and with it `targeted-datetime-equality`'s served verdict. R5 runs at pull request 5's branch
+    over the eight `fuzz-expression-20260930-*` documents, `targeted-expression-renames`,
+    `targeted-session-reads` and `targeted-list-first-places`, and over the five documents of the
+    walk model's gap after its fix (§6.4). No reader run is required before the merge; the first night after it
     reads every document with every reader, which is why issue 768's fix is on `main` before the
     stack is cut: without it, that night ends in the Android reader runtime job.
 14. **The order is the stack's fifteen pull requests** (part 10 holds the table). Pull requests 1
@@ -127,12 +135,12 @@ At `5cf6e327`:
 
 | Thing | At the base | What step 3 owns |
 |---|---|---|
-| `proof/known-defects.json` | 282 live entries | finding 56's two: `d56-datetime-ordering-evaluate-answers`, `d56-datetime-ordering-evaluate-case-text`, both intent, both on document and control `targeted-datetime-ordering`; and the seven pull request 1 adds, finding 56's five on `targeted-datetime-operands` (three `intent`, two `manifest`) and finding 75's two on `targeted-datetime-equality` (§7) |
+| `proof/known-defects.json` | 282 live entries | finding 56's two: `d56-datetime-ordering-evaluate-answers`, `d56-datetime-ordering-evaluate-case-text`, both intent, both on document and control `targeted-datetime-ordering`; the seven pull request 1 adds, finding 56's five on `targeted-datetime-operands` (three `intent`, two `manifest`) and finding 75's two on `targeted-datetime-equality` (§7); and the two pull request 5 adds under defect 21, on `targeted-list-first-places`, which stay live for step 5 (§3.3) |
 | `proof/fixed-defects.json` | 720 entries on 85 controls | none |
-| `proof/controls/` | 105 directories | two, retained in pull request 1: `targeted-datetime-operands`, `targeted-datetime-equality` |
+| `proof/controls/` | 105 directories | three: `targeted-datetime-operands` and `targeted-datetime-equality`, retained in pull request 1, and `targeted-list-first-places`, retained in pull request 5 |
 | `proof/walk-stops.json` | 29 entries | six: finding 72's five (`fuzz-suite-20260930-5`, `fuzz-suite-20260930-8`, `fuzz-xform-20260930-0`, `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`, all `notification:value-could-not-be-loaded-into-question`) and finding 73's one (`expander-output-references-in-labels-lowers-several-typed-e72b42c4-0`, `notification:invalid-data-type-in-setvalue-event-targetting`), all removed in pull request 5, the shape (29 to 23); none added (§3.2) |
 | `proof/checks/registers.py::OPEN_DEFECTS` | `{20: 4, 21: 5, 23: 5, 24: 5, 25: 5, 26: 5, 27: 5, 28: 5, 30: 5, 56: 3}` | `56: 3`, and `75: 3`, which pull request 1 adds |
-| Corpus | 371 documents | every one, because the stored shape changes; plus eight targeted documents (§4.5) and eight fuzz documents (§4.3) |
+| Corpus | 371 documents | every one, because the stored shape changes; plus nine targeted documents (§4.5) and eight fuzz documents (§4.3) |
 
 Three neighbouring stops are not step 3's and stay: `targeted-datetime-ordering`'s
 `submit-refused:validation-error` (finding 74, step 4), `fuzz-suite-20260930-8`'s `search-refused`,
@@ -539,11 +547,53 @@ boundary instead:
   (new: an untyped property a date question writes takes date values).
 
 Both removals were applied on R3 and R4's scratch branch (`walk-stops.json` 29 entries to 23,
-formatting kept) and dispatched with every reader over the 26 documents they move (§6.4). Removing
-a stop that ended a walk lets the walk go on, and what it then reaches is unseen until a reader
-runs; what a reader shows past an opened form becomes a walk stop in pull request 5 (a reader's own
-end) or a finding. **Outstanding:** what each of the six opened walks reaches with every served
-reader, in run 39064336028.
+formatting kept) and dispatched with every reader over the 26 documents they move (run
+39064336028, §6.4). Removing a stop that ended a walk lets the walk go on; what a reader shows past
+an opened form becomes a walk stop in pull request 5 (a reader's own end) or a finding. The run
+showed neither. `fuzz-suite-20260930-8`, `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7` and
+finding 73's document open, submit and reach the end of every walk on Formplayer, the Web Apps
+client and Android, and the stopped forms of `fuzz-suite-20260930-5` and `fuzz-xform-20260930-0`
+open and submit on Formplayer. It showed two other things, both carried by pull request 5:
+
+- **The walk's model of an answer a question already holds.** On five documents
+  (`fuzz-xform-20260930-0`, `-3`, `-4`, `-9` and `fuzz-suite-20260930-5`, ten pieces) the Web Apps
+  client submits a padded text answer (`'  proof  '`) where Formplayer's walk submitted `'proof'`,
+  which `proof.webapps.observe.SubmittedOtherwise` reports. The walk always sends the table's first
+  value (`proof/formplayer/walk.py::_fill`), and `_reconcile` takes Formplayer to hand the earlier
+  text back trimmed on the next request, which the client then sends; but the client sends nothing
+  for a question whose widget already shows the value (`proof/editors/driver/steps/webapps/answer.js`
+  answers "unchanged"). The new opening values expose it: the catalog seeding puts `7`, the table's
+  first `int`, into a preloaded `saved_prop`, and the mapped default `'no'` equals the walk's first
+  answer. It is a gap in the harness's walk model, not a Nova or CommCare defect, so pull request 5
+  fixes the model: `_fill` and `_reconcile` send no value equal to what the question already holds,
+  as `answer.js` does, held by a new case in `proof/formplayer/test_walk.py` (a question that opens
+  holding the value the table would send is sent nothing, beside one that opens holding another
+  value, which is sent the table's). `walk.py` is in the observation partition, so the fix moves
+  every served key, which pull request 5 moves anyway (§4.6). R5 reads the five documents again
+  after the fix (§6.4).
+- **Defect 21 past an opened list-first form.** `fuzz-suite-20260930-8`'s proof 4 shows 24
+  differences no entry names, on `webapps@case list@B` and `webapps@case list@B-edit` in both
+  configurations: `/runs/*` added and `/runs/*/viewport` changed, three of each per artifact and
+  configuration. They are a knock-on of defect 21 (HQ's Case List save turns list-first into
+  search-first, `auto_launch` false to true): once the form opens, Formplayer's walk of the state
+  before the save has a run of a phone's own places, which only a location question gives
+  (`proof/observe/walks.py::runs_for`), and the walk after the save has none, so the client replays
+  a different set of runs. Pull request 5 registers them as two live entries under defect 21, part
+  "list-first turned search-first", beside its existing ones, which step 5 fixes:
+
+  | Entry | Check | Artifact | Path | Kind |
+  |---|---|---|---|---|
+  | `d21-list-first-turned-search-fir-webapps-case-list-runs` | `proof4` | `webapps@case list@*` | `/runs/*` | `added` |
+  | `d21-list-first-turned-search-fir-webapps-case-list-runs-viewport` | `proof4` | `webapps@case list@*` | `/runs/*/viewport` | `changed` |
+
+  The register refuses an entry whose document is a fuzz document (`proof/checks/registers.py`), and
+  no other corpus document shows the class, so both name the new targeted document
+  `targeted-list-first-places` (§4.5) as document and control: `targeted-list-first-web-apps`'s app
+  with a location question in the form behind its list. Its control is retained in pull request 5
+  (`python3 -m proof.checks.controls <corpus> targeted-list-first-places proof4`). The two entries
+  hold `fuzz-suite-20260930-8`'s differences too, since an entry without `values` names its class
+  on every document. They are served entries, so the pull request lane leaves them to the run with
+  every reader; R5 holds them on the document and its control before the stack is cut (§6.4).
 
 ### 3.4 Defect 17: a witness with its fix
 
@@ -568,9 +618,9 @@ new print") at the commit gate, the boundary where the defect lives.
 
 | Register | Base | Exit |
 |---|---|---|
-| Live entries | 282 | 280 (56's two leave; pull request 1 adds seven, 56's five and 75's two, and pull request 8 moves all nine; 289 live in between) |
+| Live entries | 282 | 282 (pull request 1 adds seven, 56's five and 75's two; pull request 5 adds defect 21's two of §3.3, which stay live for step 5; pull request 8 moves all nine of 56 and 75, the base's two among them; 289 live after pull request 1, 291 after pull request 5) |
 | Fixed entries | 720 | 729 |
-| Controls | 105 | 107 (`targeted-datetime-operands`, `targeted-datetime-equality`) |
+| Controls | 105 | 108 (`targeted-datetime-operands`, `targeted-datetime-equality`, `targeted-list-first-places`) |
 | Walk stops | 29 | 23 (pull request 5 removes six; pull request 1 adds none, §3.2), plus any stop a reader run shows on a new document or past an opened form (§3.3, §6.4) |
 | `OPEN_DEFECTS` | ten defects | nine, every one a later step's: its values are steps, not entry counts, so `75: 3` (two entries) enters in pull request 1 and leaves with `56: 3` in pull request 8 |
 | `identity-moves.json` | empty | empty: the cutover's one-time changes (§3.6) are held by its own tests, dry run and notice, and the lane never sees a document from before the cutover |
@@ -760,9 +810,10 @@ which no declaration names, now holds int values (`7`, `10`, `2`) where today it
 standard entry seeds on cases that hold none today (351 case types' `@external_id`, beside the 15's
 own changes), a value no Nova writer put there; that is why the flavor above is the one decided.
 The 11 fuzz documents are `fuzz-xform-20260930-0`, `-1`, `-2`, `-3`, `-4`, `-6`, `-7`, `-8`,
-`-9`, `-10` and `-11`. These are host results; the branch's dispatch with every reader is run
-39064336028 (§6.4). **Outstanding:** whether any check that reads the 15 changed databases with a
-served reader shows a difference, in run 39064336028.
+`-9`, `-10` and `-11`. These are host results. With every reader (run 39064336028, §6.4), finding
+73's document runs clean, the three `int` expander documents pass (11 of 11 items), and 7 of the
+11 fuzz documents pass; the other 4 (`fuzz-xform-20260930-0`, `-3`, `-4`, `-9`) are the walk
+model's gap of §3.3, which the seeded `saved_prop` exposes and pull request 5 fixes.
 
 Tests (`proof/checks/test_proof3_behavior.py`, pure): the existing
 `test_the_case_database_holds_what_the_documents_lists_select_in_orders_that_differ` gains the
@@ -777,7 +828,7 @@ calculate puts `x` among `p`'s values).
 Each is a `targetedDocument` spec in `proof/targeted/documents/`, listed in
 `proof/targeted/index.ts::TARGETED_DOCUMENTS`, with identities named from its id, values fixed by
 hand (`proof/targeted/expected.ts`), admission held by `proof/targeted/__tests__/targeted.test.ts`.
-None of the eight asks a date-and-time question, so none meets finding 74's stop (§3.2).
+None of the nine asks a date-and-time question, so none meets finding 74's stop (§3.2).
 
 | Document | Pull request | Shows | Expectations (Core `evaluate`, `local` and `A`) | Edit |
 |---|---|---|---|---|
@@ -785,6 +836,7 @@ None of the eight asks a date-and-time question, so none meets finding 74's stop
 | `targeted-datetime-equality` (`datetimeEquality.ts`, part 06 §3.13) | 1, lane mechanics | finding 75's device half: "Visits" (whose "Log visit" writes `seen` through a Hidden Value with `now()`) with `caseListConfig.filter` `eq` of the `datetime` property `seen` and a naive literal, "Other visits" with `neq` of the same, "Opened visits" with `date_opened` equality in an advanced Search input's predicate (refused in a case list filter from pull request 8, the lowering, `day-only-on-device`), over a fixed restore of three `visit` cases in HQ's stored spelling (`…T04:30:00.000000Z`, an hour later, and one without `seen`); rows `["75"]` | `equal-visits-listed-local` (Amina) and `other-visits-listed-local` (Baraka, then Chidi), case lists from `local`; "Opened visits" has none, since no device reads it | none |
 | `targeted-expression-renames` (`expressionRenames.ts`) | 5, the shape | defect 17's witness: relative reads inside a repeat (`../q`, `.`), a `current()/..` read in a query-bound repeat, an absolute `/data/` read, a casedb query reading a property in a predicate and a projection, a query with no `@case_type` whose property one case type declares (bound to it and stored, part 01 §1.3), a `cases` query used as one value through `@case_id` (admitted, part 03 §3.4), a static select's literal default and comparison (`choice`) | each read's value over a fixed restore and answers | D′, one batch: rename a field read relatively and by hashtag, `renameCaseProperties` of the queried property and of the untyped query's bound property, `updateOption` of the default's option value, and move a read field within its repeat |
 | `targeted-session-reads` (`sessionReads.ts`) | 5, the shape, with session datum identity (part 05 §1) and the Core session-read scenarios of §2.6; pull request 9 adds its batch form | one read of each `DatumRef` kind (`selected-case`, `new-case`, `new-child-case`, `worker-record`, `tile-group-parents`); from pull request 9, instances and session, a batch form's `count(instance('selected_cases')/results/value)` (part 05 §2.5), which lands with the other new instance reads, so by the exit the document reads every session datum kind and a batch form's selected cases | each value equals the id the session or the case block holds | D′: the read's source module gains a parent menu, which renames the entry's datum; the read reprints, and proof 5 holds it inside the footprint (`u:<module>`) |
+| `targeted-list-first-places` (`searchApps.ts`, `listFirstPlaces()` beside `listFirstWebApps()`) | 5, the shape, with its control | defect 21 past an opened list-first form (§3.3): the app of `targeted-list-first-web-apps` (a list-first menu that offers search, Web Apps on, the `CLOUDCARE` privilege, `SYNC_SEARCH_CASE_CLAIM`), whose follow-up form also asks a location question, so Formplayer's walk before HQ's Case List save has a run of a phone's own places and the walk after it none; rows `["21"]`; the document and control of the two entries §3.3 adds | the follow-up form's note holds the text the worker enters, as in `targeted-list-first-web-apps` (`./echo.ts`) | none |
 | `targeted-instance-reads` (`instanceReads.ts`) | 9, instances and session | a form-logic lookup read (`table-lookup` and a `table-rows` count), a form link condition reading `item-list:<tag>`, a flat `instance('locations')` read of a place's name and a location property, and a form link condition reading a place's name (part 05 §2.4: a form link may read places, which puts a `locations` declaration in the suite for `hierarchical_locations`, §5.2), with organization levels, places and the flat fixture confirmed (`projectSettings`) | each value from the document's lookup rows and places | none (a lookup rename is Project data, no `Mutation`: §5, proof 5) |
 | `targeted-inline-search-reads` (`inlineSearchReads.ts`) | 9 | `instance('results:inline')` reads in the forms of an inline-search module (kept in step 3, decided with the person, 2026-10-17; part 05 §2.8), and `#search/<name>` in the no-matches form | each value from a fixed search answer and results set | none |
 | `targeted-text-reads` (`textReads.ts`) | 9 (the reads' `toWire` rows and declarations, part 02 §9) | `jr:itext` of a label and of an option label, `jr:choice-name` on an inline select, in two languages | each value under `locale` | none |
@@ -944,7 +996,7 @@ store does not hold.
 | 2 | Cutover skeleton (part 09) | 10.2 min | 6 | no lane input of its own (`scripts/` only), but pull request 1's documents, controls and entries are not in main's store, so they are observed and every record judged again |
 | 3 | Projection | 10.2 min | 6 | the same: served tool schemas are no lane input, and pull request 1's records are not in main's store |
 | 4 | Wire tree for the record family and the scaffolding | 12.9 min | 14 | moves most documents' bytes (part 04 §5.1, §5.2): the first fresh lane |
-| 5 | Shape | 12.9 min | 14 | moves every key (`document.json` is an input of `a`); every observation change of this part rides it (§4.1, §4.4, §2.4, the stops) |
+| 5 | Shape | 12.9 min | 14 | moves every key (`document.json` is an input of `a`); every observation change of this part rides it (§4.1, §4.4, §2.4, the stops, the walk model of §3.3) |
 | 6 to 15 | Checker, Preview, Lowering, Instances and session, CSQL, Builder, Authoring, Cutover, Contracts and public docs, Removal | 12.9 min each | 14 each | whatever each changes, its base's fresh records are not in main's store, so every key is observed afresh on every push |
 
 Placing the wire tree at 4, below the shape, costs no extra fresh lane: either order has twelve
@@ -1027,7 +1079,7 @@ box-seconds).
 | R2 | `proof/plan-step3-spellings`: a scratch document `targeted-expression-spellings`, never merged, holding today's admissible text for step 3's form spellings: `../q` and `.` in a repeat, `current()/..`, `/data/` reads, a casedb projection, and Hidden Values whose calculate is the planning lowering's text (the guarded `instantDays` parse, 1.6 to 3.7 KB) | `targeted-expression-spellings,navigation-conditions` | Formplayer's, Web Apps' and Android's evaluation of the lowering in UTC. Settled without readers: proof 4 over two Vellum saves and the bar. Part 04 ships `instantMicros` (part 04 §3.1: the same structure, 1.4 % larger, 1.7 to 8.8 KB); R2's structural answers carry over to it, and the shipping bytes are held by pull request 8's own lane (proof 4 and the bar run without the served readers) and its reader dispatch (part 04 §6). No second R2 over `instantMicros` is made: R2 showed no editor or bar difference without readers and no served difference with them (run 39064333759), and a reader difference on the shipping bytes is pull request 8's to answer through its own reader dispatch, which carries `instantMicros` |
 | R3 | `proof/plan-step3-defaults-catalog` (with R4): the select-default map of §3.3 and the six stops' removal | the 26 documents of the dispatch list below | finding 72's five stops gone, and what each walk reaches once the form opens |
 | R4 | the same branch: `entryWriter.ts` writing `catalog` from `materializableCaseTypes` and `casedata.py` reading it (§4.4) | the same 26 | finding 73's stop gone and the walk's rest; the three `int` documents and the 11 fuzz documents show nothing new |
-| R5 (at pull request 5, the shape) | its branch | the eight `fuzz-expression-20260930-*`, `targeted-expression-renames` and `targeted-session-reads` | the new generator's stops and findings, and every served reader's values and walks on the two targeted documents, before the merge |
+| R5 (at pull request 5, the shape) | its branch | the eight `fuzz-expression-20260930-*`, `targeted-expression-renames`, `targeted-session-reads`, `targeted-list-first-places`, `fuzz-suite-20260930-5`, `fuzz-suite-20260930-8` and `fuzz-xform-20260930-0`, `-3`, `-4`, `-9` | the new generator's stops and findings; every served reader's values and walks on the three targeted documents; defect 21's two entries of §3.3 held on `targeted-list-first-places`, on its control and on `fuzz-suite-20260930-8`; and, with the walk model fixed (§3.3), the five documents of its gap with every reader, Android, Connect and the B and B-edit states among them, which run 39064336028 did not reach on them, and whether `fuzz-xform-20260930-0`'s module 1 form opens on any reader; all before the stack is cut |
 
 **The first dispatches with every reader.** R1 run 39058712962, R2 run 39058666752, R3 and R4 run
 39058667355, all started 2026-10-17 18:34 UTC. Each died in the job "Android reader runtime
@@ -1044,7 +1096,7 @@ and stops to the run with them), and R3 and R4's branch was read on the host:
 
 | Run | Without readers | What it showed |
 |---|---|---|
-| R1 | run 39061011794 | both documents admitted, emitted and their controls retained; every one of the branch's eight entries naming the four documents held on document and control; the one failure, `targeted-datetime-operands`'s manifest classes, which §7 registers; `csql@A` compiled all three equality queries; `targeted-datetime-equality`'s proof 4 (HQ's search `auto_launch` after a save) and sensitivity (the `sync_cases_on_form_entry` claim post) differences failed no check; all 30 of the branch's stops were left to the run with readers. That run held the scratch branch's version of `targeted-datetime-equality`, with a date-and-time question in "Log visit" and a third entry on a `date_opened` case list, `d75-date-opened-equality-case-list`. The plan's document has neither: "Log visit" writes its date and time through a Hidden Value and "Opened visits" is an advanced Search input. It first runs in R1's second dispatch, run 39064331941, whose verdict is outstanding, so the third entry is not registered and the absence of a finding 74 stop is predicted, not observed (§3.2, §7) |
+| R1 | run 39061011794 | both documents admitted, emitted and their controls retained; every one of the branch's eight entries naming the four documents held on document and control; the one failure, `targeted-datetime-operands`'s manifest classes, which §7 registers; `csql@A` compiled all three equality queries; `targeted-datetime-equality`'s proof 4 (HQ's search `auto_launch` after a save) and sensitivity (the `sync_cases_on_form_entry` claim post) differences failed no check; all 30 of the branch's stops were left to the run with readers. That run held the scratch branch's version of `targeted-datetime-equality`, with a date-and-time question in "Log visit" and a third entry on a `date_opened` case list, `d75-date-opened-equality-case-list`. The plan's document has neither: "Log visit" writes its date and time through a Hidden Value and "Opened visits" is an advanced Search input. It first runs in R1's second dispatch, run 39064331941, on the shard whose verdict is outstanding, so the third entry is not registered and the absence of a finding 74 stop is predicted, not observed (§3.2, §7) |
 | R2 | runs 39060796573 and 39061476968 | the first failed only its scratch document's own expectation `stamp-clock-local` (Core raised `XPathTypeMismatchException`: the request opened a registration form without its new-case datum `case_id_new_visit_0`); the second, with the request corrected, was clean: bar, intent, proof 4's two Vellum saves of every spelling and the lowering's text, every check. Vellum's save writes one space after each comma and either side of each binary operator and leaves the structure, which is the canonical print (part 01 §2.5). With every reader, run 39064333759 held (below) |
 | R3, R4 | none; the host emission only | §3.3 and §4.4: 16 fuzz documents' bytes move under the default map, 40 select defaults in 19 documents of which 20 in 12 are none of their options, 15 of 371 case databases change with `materializableCaseTypes`, `walk-stops.json` 29 to 23, and the dispatch list of 26 documents (the 21 fuzz documents the map or `saved_prop` moves, the four expander documents of §4.4 and `navigation-conditions`) |
 
@@ -1072,19 +1124,45 @@ needs it to give its verdict.
   `.` in a repeat, `current()/..`, `/data/` reads, a casedb projection) and the lowering's text in
   UTC as Core does on both paths, and proof 4's served saves keep them. What R2 settles for
   `instantMicros` is what the row above says.
-- **R1, run 39064331941. Outstanding:** the first run of `targeted-datetime-equality` as the plan
-  writes it (the Hidden Value "Log visit", "Opened visits" as an advanced Search input), so whether
-  its differences are the two entries pull request 1 registers and nothing else; the pre-fix values
-  Formplayer, the Web Apps client and Android give on `targeted-datetime-operands` and
-  `targeted-datetime-equality`, where each walk ends, and whether a served walk of "Opened visits"
-  meets HQ's search error before pull request 10.
-- **R3 and R4, run 39064336028. Outstanding:** what each of the six forms whose stop §3.3 removes
-  reaches once it opens, and whether the 15 changed case databases show anything new.
+- **R1, run 39064331941: its first shard held.** On `targeted-datetime-operands` and its control,
+  the intent check shows exactly the differences of finding 56's three `intent` entries, on document
+  and control. The only unregistered differences are the manifest classes pull request 1 registers
+  or decides (§7): `refused/time-operand` and `undecided/time-operand` in the `suite.xml` of
+  `local.ccz`, `local-again.ccz` and `local-empty-list-text.ccz`. Every served reader reproduces
+  finding 56's literal case-list half: "Seen before eleven" lists nothing on Formplayer, on the Web
+  Apps client in all three of its windows and on Android, where Nova's meaning lists two visits of
+  the lane's case data; Formplayer reproduces its `now()` half too. The property-against-property
+  half is right on the lane's derived case data, so only Core's intent check, over the document's
+  fixed restore, shows it. Every walk ends submitted or at an empty list, with no stop, and the
+  stop of `targeted-datetime-ordering`'s control (Formplayer, `submit-refused:validation-error` on
+  the "Visit instants" form, finding 74) holds. Proof 3 compares the readers with each other, and
+  all are wrong alike, so no register entry holds the readers' symptom; the `intent` entries hold
+  the finding, and the readers add coverage, not a gap. **Outstanding:** the run's second shard
+  lost its hosted runner (no log, no artifact, no gate failure), so `targeted-datetime-equality`
+  (its first run as the plan writes it, whether its differences are exactly the two entries pull
+  request 1 registers, its served pre-fix values, where its walks end, and whether a served walk
+  of "Opened visits" meets HQ's search error before pull request 10), the
+  `targeted-datetime-ordering` document and `navigation-conditions` await the second attempt of the
+  failed jobs.
+- **R3 and R4, run 39064336028: held but for two things pull request 5 carries.** The Android
+  reader runtime job passed (49 tests, OK), and no job failed on infrastructure. With the six stops
+  removed, no opened form reaches a reader's own end (§3.3): `fuzz-suite-20260930-8`,
+  `fuzz-xform-20260930-1`, `-7` and finding 73's document run clean on Formplayer, the Web Apps
+  client and Android, and the stopped forms of `fuzz-suite-20260930-5` and `fuzz-xform-20260930-0`
+  open and submit on Formplayer. The three `int` expander documents pass (11 of 11 items), and 7 of
+  the 11 fuzz documents whose case data changed pass (§4.4). The two things: on five documents the
+  Web Apps client's submission differs from Formplayer's walk, a gap in the walk's model that pull
+  request 5 fixes in `proof/formplayer/walk.py`; and on `fuzz-suite-20260930-8` proof 4 shows 24
+  differences on the B and B-edit states, a knock-on of defect 21 that pull request 5 registers in
+  two live entries on a new targeted document (both in §3.3). Not in hand: Android, Connect and the
+  B and B-edit states on the five documents of the walk's gap, and whether
+  `fuzz-xform-20260930-0`'s module 1 form opens on any reader; R5 reads them after the walk fix.
 
 What a run shows is written into the pull request that carries its change: a reader's end past an
 opened form becomes a walk stop in pull request 5, a served difference on a new document an entry
-in pull request 1, a defect a finding. R5 runs at pull request 5's branch, over the documents its
-row names. No reader run is required before the merge; the first night after it runs every reader
+in pull request 1, a known defect's symptom on a form a removed stop opens an entry under that
+defect in pull request 5, a gap in the harness's own model of a reader a fix to the harness, a new
+defect a finding. R5 runs at pull request 5's branch, over the documents its row names. No reader run is required before the merge; the first night after it runs every reader
 over every document either way.
 
 **After the merge.** The merge moves every key, so the next night is the whole lane with every
@@ -1157,9 +1235,12 @@ registers.
    cannot be registered (`proof/checks/registers.py`), so item 6's reader decides it: with the
    properties' type `datetime`, entry 4's uses become `refused/time-operand` too, and the two entries
    hold all six refused classes (three archives, two keys, two uses each). The `XPathCmpExpr` entry
-   shares its check and path with the fixed `d6-core-suite-xpath-expr-xpathcmpexpr-time-operand`
-   (artifact `*.ccz/suite.xml`, control `targeted-search-hq-compile`); the run's register notes such
-   pairs, and the document the live entry names tells them apart. There is no fixed suite `LT` entry.
+   shares its check, path and archives with the fixed `d6-core-suite-xpath-expr-xpathcmpexpr-time-operand`
+   (artifact `*.ccz/suite.xml`, control `targeted-search-hq-compile`), as eight live entries of the
+   base already share a class with a fixed one; the run's register notes such pairs, and the
+   document the live entry names tells them apart. There is no fixed suite `LT` entry. R1's dispatch
+   with every reader showed these classes and no other unregistered difference on the document
+   (run 39064331941, §6.4).
    These classes are finding 56's symptom in the manifest's words: Core reads a datetime held as
    text as NaN in an ordering (`FunctionUtils.toNumeric`), so pull request 8's lowering, whose sides
    are arithmetic, takes them off the document (§3.1).
@@ -1242,9 +1323,13 @@ Its own checks: the slice of §6.3 with the gate told the three datetime documen
   `NestedMenuRuntimeTest.java`, `TileGroupingRuntimeTest.java` and their producers
   `emit-form-link-evidence.ts`, `emit-nested-menu-evidence.ts`, `emit-tile-evidence.ts`),
   `proof/targeted/documents/expressionRenames.ts` and `sessionReads.ts` (the five `DatumRef`
-  reads and their edit), `proof/targeted/index.ts`, `proof/walk-stops.json` (six entries removed,
-  29 to 23), `proof/rules/conftest.py::DOCUMENTS` (only if a rule's reader test needs a new
-  document).
+  reads and their edit), `proof/targeted/documents/searchApps.ts` (`listFirstPlaces()`, new),
+  `proof/targeted/index.ts`, `proof/controls/targeted-list-first-places/` (new),
+  `proof/known-defects.json` (defect 21's two entries), `proof/formplayer/walk.py` (`_fill` and
+  `_reconcile`: no value sent that the question already holds) and `proof/formplayer/test_walk.py`,
+  `proof/timings.json` (the new document and control), `proof/walk-stops.json` (six entries
+  removed, 29 to 23), `proof/rules/conftest.py::DOCUMENTS` (only if a rule's reader test needs a
+  new document).
 - Pull request 7, Preview: `proof/native/core/CoreDateParityRuntimeTest.java` and its rows in
   `families.py` and the producer (part 07 §2.4).
 - Pull request 8, lowering: `proof/fixed-defects.json`, `proof/known-defects.json` (56's seven and
@@ -1353,8 +1438,23 @@ Its own checks: the slice of §6.3 with the gate told the three datetime documen
   fix for issue 768 (`ee852ae9`, written during planning) beneath each scratch change: the Android
   reader runtime job passes in all three. R2's run 39064333759 completed with success, read from its
   jobs, its gate log and its verdict file: four blocks over two documents, 303 items, no failure, no
-  difference, no stop (§6.4). **Outstanding:** the served readers' verdicts of runs 39064331941 and
-  39064336028.
+  difference, no stop (§6.4). R3 and R4's run 39064336028, read from its jobs, its gate log and its
+  pieces' records: the Android runtime job's "Ran 49 tests … OK", no infrastructure failure, the
+  ten `SubmittedOtherwise` pieces on five fuzz documents and the 24 unregistered proof 4
+  differences on `fuzz-suite-20260930-8` as its only failures (§3.3, §4.4). R1's
+  run 39064331941, attempt 1: its first shard's gate log and verdict (§6.4); its second shard lost
+  its hosted runner, with no log and no artifact, and the second attempt of the failed jobs was
+  started. **Outstanding:** that second attempt's verdict.
+- **Read for the run's two findings**, at `main`: `proof/formplayer/walk.py::_fill` and
+  `::_reconcile`, `proof/editors/driver/steps/webapps/answer.js` (each widget's "unchanged"),
+  `proof/observe/walks.py::window_of` and `::runs_for` (a phone's own run is one given a phone's
+  places), `proof/webapps/observe.py::shown` (the windows each run is replayed in),
+  `proof/checks/registers.py` (module docstring and loader: an entry never names a fuzz document)
+  and the 34 live entries of defect 21 in `proof/known-defects.json` (§3.3).
+- **A lane-mechanics observation in R1's run, unrelated to step 3**: the gate's "every block ran
+  exactly once" section reported `corpus:targeted-lookup-reserved-tags` collected by both shards
+  when only that document's control was queued. Observed on that run alone and not confirmed on
+  `main`; no part of this plan depends on it.
 - **The stack's cost model** (§6.2): arithmetic over §6.1's rows and `proof/README.md`, "Timings and
   what the lane is expected to take" (twenty jobs at once, the shards' late starts), and
   `proof/CLAUDE.md`, "Three lanes" (fourteen runners for a scheduled lane). Nothing was run for it.
