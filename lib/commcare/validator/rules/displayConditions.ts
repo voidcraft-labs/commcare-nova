@@ -35,10 +35,9 @@ import {
 } from "@/lib/domain";
 import {
 	checkPredicate,
-	isMatchNone,
+	displayConditionStartsWithNever,
 	type Predicate,
 	type PropertyRef,
-	simplifyForEmission,
 	type TypeContext,
 	walkPredicateExpressionNodes,
 	walkPredicateNodes,
@@ -198,13 +197,19 @@ function validateCarrier(
 	const loc = location(carrier);
 	const who = subject(carrier);
 
-	if (isMatchNone(simplifyForEmission(carrier.condition))) {
+	// `never`, or an `and` that starts with it, prints exactly what
+	// `hiddenFromMenu` prints, so the flag is the one spelling of "off the
+	// menu". A condition that happens to be false anywhere else is ordinary.
+	if (displayConditionStartsWithNever(carrier.condition)) {
+		const name =
+			carrier.kind === "module" ? carrier.mod.name : carrier.form.name;
 		errors.push(
 			validationError(
-				"DISPLAY_CONDITION_ALWAYS_FALSE",
+				"DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU",
 				carrier.kind,
-				`${who} has a display condition that is always false, so nobody could open it. Remove the item or change the condition.`,
+				`"${name}" has a display condition that starts with "never". To keep it off the menu, set hiddenFromMenu to true and keep the rest of the condition.`,
 				loc,
+				{ name },
 			),
 		);
 	}

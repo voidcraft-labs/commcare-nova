@@ -1,5 +1,5 @@
 """Fixtures for the Android reader's tests that read the corpus (``test_form_reads.py``, ``test_case_blocks.py``,
-``test_case_name_guard.py``, ``test_case_lists.py``).
+``test_case_name_guard.py``, ``test_case_lists.py``, ``test_navigation.py``).
 
 ``DOCUMENTS`` names every corpus document these tests read, which is what a
 stored outcome of this package is keyed by (``proof.store.queue.PACKAGE_DATA``),
@@ -24,7 +24,10 @@ DOCUMENTS = (
     "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0",
     "localization-bilingual",
     "navigation-base",
+    "targeted-form-link-hidden-target",
     "targeted-hidden-column",
+    "targeted-hidden-from-menu",
+    "targeted-multi-select-destinations",
     "targeted-tile-hidden-order",
 )
 

@@ -33,6 +33,7 @@ import {
 	useForm as useFormEntity,
 	useModule as useModuleEntity,
 } from "@/lib/doc/hooks/useEntity";
+import { useEffectivePostSubmit } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { Uuid } from "@/lib/doc/types";
 import {
@@ -40,7 +41,6 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseType,
 	caseSelectionCardinality,
-	defaultPostSubmit,
 	effectivePostSubmit,
 	type FormLink,
 	type FormType,
@@ -49,7 +49,6 @@ import {
 	materializableCaseTypes as materializableCaseTypesFromDoc,
 	menuFormUuidsOf,
 	moduleIsCaseFirst,
-	moduleOpensOnSearch,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
@@ -732,13 +731,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		});
 		attachmentEntryReady = hasAttachmentEntryWriteAuthority(entryKey);
 	}
-	const postSubmitDestination =
-		form === undefined
-			? undefined
-			: (form.postSubmit ??
-				defaultPostSubmit(form.type, {
-					searchFirst: mod !== undefined && moduleOpensOnSearch(mod),
-				}));
+	const postSubmitDestination = useEffectivePostSubmit(form?.uuid);
 	const mountedRef = useRef(true);
 	useEffect(() => {
 		mountedRef.current = true;
@@ -961,22 +954,37 @@ export function FormScreen({ screen }: FormScreenProps) {
 			submittedModuleUuid: Uuid | undefined,
 			submittedDoc: BlueprintDoc,
 		): void => {
+			/* Open a module with the selections its frame keeps: its own for
+			 * `module`, the parent's for `parentMenu`. */
+			const openModuleTask = (targetModuleUuid: Uuid): void => {
+				const selections = selectionsForModuleTask(
+					submittedDoc,
+					targetModuleUuid,
+					session.getState().previewMenuCaseSelections,
+				);
+				setPreviewMenuCaseSelection(
+					targetModuleUuid,
+					selections[targetModuleUuid],
+				);
+				navigate.openModule(targetModuleUuid);
+			};
 			switch (dest) {
 				case "module":
-					if (submittedModuleUuid) {
-						const selections = selectionsForModuleTask(
-							submittedDoc,
-							submittedModuleUuid,
-							session.getState().previewMenuCaseSelections,
-						);
-						setPreviewMenuCaseSelection(
-							submittedModuleUuid,
-							selections[submittedModuleUuid],
-						);
-						navigate.openModule(submittedModuleUuid);
-					}
+					if (submittedModuleUuid) openModuleTask(submittedModuleUuid);
 					return;
+				case "parentMenu": {
+					const parentUuid =
+						submittedModuleUuid === undefined
+							? undefined
+							: submittedDoc.modules[submittedModuleUuid]?.parentModuleUuid;
+					if (parentUuid !== undefined) openModuleTask(parentUuid);
+					else navigate.goHome();
+					return;
+				}
+				/* Preview has one home screen for both until it plays each
+				 * platform; Web Apps shows the app's first screen for both. */
 				case "app_home":
+				case "firstMenu":
 					navigate.goHome();
 					return;
 				case "previous":
@@ -1064,7 +1072,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			session.getState().setPreviewParentCaseRequest(undefined);
 			setPreviewCaseTarget(undefined);
 		};
-		/* Unless it explicitly returns to App home, a no-matches registration
+		/* Unless it explicitly returns to First menu, a no-matches registration
 		 * form returns to its module as the wire's
 		 * return frame does; the gate keeps such a form free of links, so
 		 * this is decided first. A host with menu forms lands on Results
@@ -1106,10 +1114,10 @@ export function FormScreen({ screen }: FormScreenProps) {
 				: undefined;
 		if (noMatchesRegistration !== undefined) {
 			retireCompletedTask();
-			// An explicitly authored App home destination is HQ's empty root
+			// An explicitly authored First menu destination is HQ's empty root
 			// frame. It discards the scalar registration return rather than feeding
 			// that scalar into a host that may require a multiple-case selection.
-			if (submittedForm && noMatchesPostSubmit(submittedForm) === "app_home") {
+			if (submittedForm && noMatchesPostSubmit(submittedForm) === "firstMenu") {
 				announceWrite();
 				setPreviewSearchState(noMatchesRegistration.moduleUuid, undefined);
 				setPreviewSelectedCase(undefined);
@@ -1118,7 +1126,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				settleAttempt({ kind: "idle" });
 				forgetCompletedPages();
 				dispatchPostSubmit(
-					"app_home",
+					"firstMenu",
 					noMatchesRegistration.moduleUuid,
 					submitted.doc,
 				);

@@ -94,6 +94,35 @@ export interface ComposedXPathQuery {
 }
 
 /**
+ * The `_xpath_query` value a search with no inputs and no composed clause
+ * sends. CCHQ builds no search for a module with neither prompts nor default
+ * properties (`app_manager/util.py::module_offers_search`), so Nova's
+ * zero-input, unfiltered Search carries one default property: `match-all()`,
+ * CCHQ's CSQL identity function, quoted so the datum's XPath evaluates to
+ * the query string. Both export paths send it, so a worker's request is the
+ * same on HQ's build and the local archive.
+ */
+export const ZERO_INPUT_SEARCH_SENTINEL = "'match-all()'";
+
+/**
+ * Every `_xpath_query` value the search request carries, in order: one per
+ * composed clause, or the zero-input sentinel when the search has no input
+ * and no clause. The local suite writes one `<data>` per value and the HQ
+ * JSON one `default_properties[]` row per value, so the two paths read this
+ * one decision.
+ */
+export function xpathQueryRequestValues(
+	caseListConfig: CaseListConfig,
+	emission: ComposedXPathQuery | undefined,
+): readonly string[] {
+	const clauses = emission?.clauseWrappers ?? [];
+	if (clauses.length > 0 || caseListConfig.searchInputs.length > 0) {
+		return clauses;
+	}
+	return [ZERO_INPUT_SEARCH_SENTINEL];
+}
+
+/**
  * Derive the one prompt assertion that mirrors the emitted wrapper's exact
  * runtime-representability guard. A computed output can combine multiple
  * individually safe prompt values into one string containing both quote

@@ -302,7 +302,6 @@ function caseSearchConfigPatchSchemaFor(
 			excludedOwnerIds: configSchema.shape.excludedOwnerIds.nullable(),
 			searchScreenTitle: configSchema.shape.searchScreenTitle.nullable(),
 			searchScreenSubtitle: configSchema.shape.searchScreenSubtitle.nullable(),
-			searchButtonLabel: configSchema.shape.searchButtonLabel.nullable(),
 			searchButtonDisplayCondition:
 				configSchema.shape.searchButtonDisplayCondition.nullable(),
 			searchFirst: configSchema.shape.searchFirst.nullable(),

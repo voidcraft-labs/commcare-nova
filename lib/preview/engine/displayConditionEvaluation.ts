@@ -11,6 +11,11 @@
 // local context resolves against the selected row's projection. This is not
 // Nova authoring text; the typed Predicate remains the only stored input.
 //
+// An item off the menu (`hiddenFromMenu`) is `hidden` before its condition is
+// read: no menu lists it on either runtime, and the condition applies only
+// once it is back on the menu. Every other condition is evaluated exactly as
+// stored (`displayConditionForEmission`), with no clause absorbed.
+//
 // Three-valued visibility: `shown` / `hidden` are evaluated results;
 // `pending` means the condition folds over lookup data the builder
 // session is still loading — the caller renders a placeholder, never
@@ -20,7 +25,7 @@
 
 import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import type { Predicate } from "@/lib/domain/predicate";
-import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
+import { displayConditionForEmission } from "@/lib/domain/predicate";
 import { toBoolean } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
@@ -45,6 +50,8 @@ export type NavigationItemVisibility = "shown" | "hidden" | "pending";
  */
 export function moduleDisplayVisibility(args: {
 	readonly condition: Predicate | undefined;
+	/** The module is off the menu: hidden whatever its condition says. */
+	readonly hiddenFromMenu?: boolean;
 	readonly session: PreviewSearchSessionValues;
 	readonly currentCaseType?: string;
 	readonly lookup: PreviewLookupStatus;
@@ -63,6 +70,8 @@ export function moduleDisplayVisibility(args: {
  */
 export function formDisplayVisibility(args: {
 	readonly condition: Predicate | undefined;
+	/** The form is off the menu: hidden whatever its condition says. */
+	readonly hiddenFromMenu?: boolean;
 	readonly session: PreviewSearchSessionValues;
 	readonly currentCaseType?: string;
 	readonly caseProjection?: ReadonlyMap<string, string>;
@@ -74,6 +83,7 @@ export function formDisplayVisibility(args: {
 function conditionVisibility(
 	args: {
 		readonly condition: Predicate | undefined;
+		readonly hiddenFromMenu?: boolean;
 		readonly session: PreviewSearchSessionValues;
 		readonly currentCaseType?: string;
 		readonly caseProjection?: ReadonlyMap<string, string>;
@@ -81,9 +91,11 @@ function conditionVisibility(
 	},
 	allowSelfProperty: boolean,
 ): NavigationItemVisibility {
-	// The shared "deeply always-true emits nothing" decision — an absent
-	// or vacuous condition is simply shown, matching the absent wire attr.
-	const effective = effectiveDisplayConditionForEmission(args.condition);
+	if (args.hiddenFromMenu === true) return "hidden";
+	// The emitters' own decision: an absent condition, or one whose root is
+	// always, is simply shown, matching the absent wire attribute. Every
+	// other condition is evaluated as stored.
+	const effective = displayConditionForEmission(args.condition);
 	if (effective === undefined) return "shown";
 	if (args.session.identityPending) return "pending";
 

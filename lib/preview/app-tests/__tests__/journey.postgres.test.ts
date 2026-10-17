@@ -1,4 +1,5 @@
 import { modelMessageSchema } from "ai";
+import { produce } from "immer";
 import { sql } from "kysely";
 import { expect, it } from "vitest";
 import { z } from "zod";
@@ -227,10 +228,10 @@ function sharedJourneyCalls(doc: import("@/lib/domain").BlueprintDoc) {
 }
 
 it.each([false, true])(
-	"admits registration only after an empty search, preserving its return behavior (app home: %s)",
+	"admits registration only after an empty search, preserving its return behavior (first menu: %s)",
 	async (home) => {
 		const doc = noMatchesDoc();
-		if (home) doc.forms[REGISTER_FORM].postSubmit = "app_home";
+		if (home) doc.forms[REGISTER_FORM].postSubmit = "firstMenu";
 		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 		await h.seedAppWithBlueprint(doc, {
 			id: scope.appId,
@@ -1288,6 +1289,9 @@ it.each([
 	},
 ] as const)(
 	"resolves the saved task independently of visited Details (chooser $chooser, return $destination, forms first $formsFirst, conditional fallback $conditionalFallback)",
+	// Each case builds an app through the shared tools and persists a whole
+	// worker journey, so give it the budget of the file's other journeys.
+	{ timeout: 15_000 },
 	async ({ chooser, destination, formsFirst, conditionalFallback }) => {
 		const doc = await createEvaluationApp(
 			[
@@ -1626,6 +1630,73 @@ it("reads informational Details without inventing a form or Continue action", as
 	});
 	expect(await step({ kind: "continue" })).toMatchObject({ completed: false });
 	expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
+	await step({ kind: "finish" });
+});
+
+it("cannot open a menu or a form that is off the menu from a menu", async () => {
+	const base = await createEvaluationApp(
+		[
+			{
+				name: "Surveys",
+				forms: [
+					{ name: "Shown", type: "survey" },
+					{ name: "Hidden", type: "survey" },
+				],
+			},
+			{ name: "Back office", forms: [{ name: "Inside", type: "survey" }] },
+		],
+		[],
+	);
+	const surveys = Object.values(base.modules).find(
+		(item) => item.name === "Surveys",
+	);
+	const backOffice = Object.values(base.modules).find(
+		(item) => item.name === "Back office",
+	);
+	if (!surveys || !backOffice) throw new Error("Missing menus");
+	const hiddenForm = base.formOrder[surveys.uuid][1];
+	const doc = produce(base, (draft) => {
+		draft.forms[hiddenForm].hiddenFromMenu = true;
+		draft.modules[backOffice.uuid].hiddenFromMenu = true;
+	});
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "hidden-start",
+		expectedBlueprintSeq: 0,
+		input: { purpose: "Items off the menu stay off it" },
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `hidden-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	expect(
+		await step({ kind: "menu", moduleUuid: backOffice.uuid }),
+	).toMatchObject({
+		completed: false,
+		error: "This menu is not available on the current screen.",
+	});
+	expect(await step({ kind: "menu", moduleUuid: surveys.uuid })).toMatchObject({
+		screen: "menu",
+		forms: [
+			{ uuid: base.formOrder[surveys.uuid][0], visibility: "shown" },
+			{ uuid: hiddenForm, visibility: "hidden" },
+		],
+	});
+	expect(await step({ kind: "form", formUuid: hiddenForm })).toMatchObject({
+		completed: false,
+		error: "This form is not available on the current menu.",
+	});
 	await step({ kind: "finish" });
 });
 

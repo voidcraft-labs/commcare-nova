@@ -67,9 +67,16 @@ export function inheritedModuleVisibility(
 	return result;
 }
 
+/** The reveal affordance's summary for an item that is off the menu, in
+ * place of its condition's summary: the flag hides it whatever the condition
+ * says. */
+export const OFF_THE_MENU_SUMMARY = "Off the menu";
+
 /** The one running-menu visibility projection used by tiles and direct-route
  * admission. Edit mode keeps authoring surfaces reachable; Preview evaluates
- * each module once and then applies structural ancestry. */
+ * each module once and then applies structural ancestry, so a module off the
+ * menu is hidden without its condition being read, and takes its child
+ * modules off the menu with it. */
 export function previewModuleVisibility(
 	doc: PreviewMenuSource,
 	args: {
@@ -87,6 +94,7 @@ export function previewModuleVisibility(
 					? ("shown" as const)
 					: moduleDisplayVisibility({
 							condition: mod.displayCondition,
+							hiddenFromMenu: mod.hiddenFromMenu === true,
 							session: args.session,
 							...(mod.caseType !== undefined && {
 								currentCaseType: mod.caseType,

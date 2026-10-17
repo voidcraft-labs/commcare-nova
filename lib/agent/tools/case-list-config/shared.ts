@@ -42,6 +42,7 @@
  */
 
 import { z } from "zod";
+import { RESERVED_SEARCH_INPUT_NAMES } from "@/lib/commcare/suite/case-search/reservedInputNames";
 import {
 	advancedDateRangeSearchInputSchema,
 	advancedScalarSearchInputSchema,
@@ -78,6 +79,22 @@ import {
 	type ValueExpression,
 	valueExpressionSchema,
 } from "@/lib/domain/predicate";
+
+/**
+ * The order a lookup-backed choice question lists its choices in. The option
+ * shape carries no description of its own, so the search-input tools state
+ * the default where they speak.
+ */
+export const SEARCH_INPUT_LOOKUP_ORDER_SENTENCE =
+	"A choice question backed by a lookup table lists its choices in the order of the text in options.sortColumnId; omit it to order them by the label column.";
+
+/**
+ * The names CommCare reads as part of a search request. The search-input
+ * tools end their descriptions with it: it names every reserved name, where
+ * the gate refuses fewer, so a model that avoids them all meets neither
+ * refusal.
+ */
+export const RESERVED_SEARCH_INPUT_NAMES_SENTENCE = `CommCare reads these names as part of the search request, never as a case property, so name no Search question or hidden value any of them: ${RESERVED_SEARCH_INPUT_NAMES.join(", ")}.`;
 
 /**
  * Statically canonical views of the authoring schemas.

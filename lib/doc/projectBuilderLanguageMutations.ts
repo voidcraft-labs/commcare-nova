@@ -160,7 +160,6 @@ export function projectBuilderLanguageMutations(
 					for (const [slot, unitSlot] of [
 						["searchScreenTitle", "search-title"],
 						["searchScreenSubtitle", "search-subtitle"],
-						["searchButtonLabel", "search-button"],
 					] as const) {
 						if (!hasOwn(searchPatch, slot)) continue;
 						const id = makeTranslationUnitId("module", mutation.uuid, unitSlot);

@@ -161,7 +161,7 @@ public class SearchRuntimeTest {
             assertEquals(expectedAnswers, manager.getUserAnswers());
             com.google.common.collect.Multimap<String, String> expected = com.google.common.collect.ArrayListMultimap.create();
             expected.put("case_type", "patient");
-            if (scenario.equals("automatic") && hq || scenario.equals("advanced")) expected.put("_xpath_query", "match-all()");
+            if (scenario.equals("automatic") || scenario.equals("advanced")) expected.put("_xpath_query", "match-all()");
             if (scenario.equals("remote-defaults")) {
                 expected.put("_xpath_query", "first_name = \"Ada\"");
                 expected.put("first_name", "Ada");

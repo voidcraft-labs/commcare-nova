@@ -44,10 +44,15 @@ import {
 	input,
 	literal,
 	prop,
+	sessionUser,
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
 import { assertAdmittedDoc } from "./admittedDoc";
+
+/** A Search action setting that, unlike the screen's title and subtitle,
+ * survives the module's last Search input. */
+const PEER_BUTTON_CONDITION = eq(sessionUser("role"), literal("peer"));
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -1426,7 +1431,7 @@ describe("case-search marker merges", () => {
 			moduleUuid,
 			{},
 			{
-				searchButtonLabel: "Search now",
+				searchScreenSubtitle: "Search now",
 			},
 		);
 		expect(titleBatch).toEqual([
@@ -1436,7 +1441,7 @@ describe("case-search marker merges", () => {
 		]);
 		expect(buttonBatch).toEqual([
 			expect.objectContaining({
-				caseSearchConfigPatch: { searchButtonLabel: "Search now" },
+				caseSearchConfigPatch: { searchScreenSubtitle: "Search now" },
 			}),
 		]);
 
@@ -1445,7 +1450,7 @@ describe("case-search marker merges", () => {
 		expect(titleThenButton).toEqual(buttonThenTitle);
 		expect(titleThenButton.modules[moduleUuid].caseSearchConfig).toEqual({
 			searchScreenTitle: "Find a patient",
-			searchButtonLabel: "Search now",
+			searchScreenSubtitle: "Search now",
 		});
 	});
 
@@ -1548,7 +1553,7 @@ describe("case-search marker merges", () => {
 		const peerEnabled = produce(ownerOnly, (draft) => {
 			draft.modules[moduleUuid].caseSearchConfig = {
 				searchScreenTitle: "Peer title",
-				searchButtonLabel: "Peer action",
+				searchScreenSubtitle: "Peer subtitle",
 				excludedOwnerIds: term(literal("owner-a")),
 			};
 		});
@@ -1556,7 +1561,7 @@ describe("case-search marker merges", () => {
 			apply(peerEnabled, reconciledBatch).modules[moduleUuid].caseSearchConfig,
 		).toEqual({
 			searchScreenTitle: "Peer title",
-			searchButtonLabel: "Peer action",
+			searchScreenSubtitle: "Peer subtitle",
 		});
 	});
 
@@ -1565,7 +1570,7 @@ describe("case-search marker merges", () => {
 		const withSettings = produce(doc, (draft) => {
 			draft.modules[moduleUuid].caseSearchConfig = {
 				searchScreenTitle: "Local title",
-				searchButtonLabel: "Local action",
+				searchScreenSubtitle: "Local subtitle",
 			};
 		});
 		const locallyAbsent = produce(withSettings, (draft) => {
@@ -1576,7 +1581,7 @@ describe("case-search marker merges", () => {
 			expect.objectContaining({
 				caseSearchConfigPatch: {
 					searchScreenTitle: null,
-					searchButtonLabel: null,
+					searchScreenSubtitle: null,
 				},
 			}),
 		);
@@ -1748,7 +1753,7 @@ describe("case-search marker merges", () => {
 		const peerEnabled = produce(markerless, (draft) => {
 			draft.modules[moduleUuid].caseSearchConfig = {
 				searchScreenTitle: "Find a client",
-				searchButtonLabel: "Look up",
+				searchScreenSubtitle: "Look up",
 				excludedOwnerIds: {
 					kind: "term",
 					term: { kind: "literal", value: "owner-b" },
@@ -1760,7 +1765,7 @@ describe("case-search marker merges", () => {
 		]);
 		expect(merged.modules[moduleUuid].caseSearchConfig).toEqual({
 			searchScreenTitle: "Find a client",
-			searchButtonLabel: "Look up",
+			searchScreenSubtitle: "Look up",
 			excludedOwnerIds: localOwner.excludedOwnerIds,
 		});
 	});
@@ -1860,7 +1865,7 @@ describe("case-search marker merges", () => {
 			if (config === undefined || "searchActionEnabled" in config) {
 				throw new Error("missing ordinary Search config");
 			}
-			config.searchButtonLabel = "Peer search";
+			config.searchButtonDisplayCondition = PEER_BUTTON_CONDITION;
 			config.excludedOwnerIds = {
 				kind: "term",
 				term: { kind: "literal", value: "owner-b" },
@@ -1869,7 +1874,7 @@ describe("case-search marker merges", () => {
 		const merged = apply(peerEdited, localBatch);
 		expect(merged.modules[moduleUuid].caseListConfig?.searchInputs).toEqual([]);
 		expect(merged.modules[moduleUuid].caseSearchConfig).toEqual({
-			searchButtonLabel: "Peer search",
+			searchButtonDisplayCondition: PEER_BUTTON_CONDITION,
 			excludedOwnerIds: {
 				kind: "term",
 				term: { kind: "literal", value: "owner-b" },
@@ -1885,7 +1890,9 @@ describe("case-search marker merges", () => {
 				kind: "updateModule",
 				uuid: moduleUuid,
 				patch: {},
-				caseSearchConfigPatch: { searchButtonLabel: "Find" },
+				caseSearchConfigPatch: {
+					searchButtonDisplayCondition: PEER_BUTTON_CONDITION,
+				},
 			},
 			{
 				kind: "addSearchInput",
@@ -1906,7 +1913,7 @@ describe("case-search marker merges", () => {
 		];
 		const merged = apply(doc, peerBatch, staleDisable);
 		expect(merged.modules[moduleUuid].caseSearchConfig).toEqual({
-			searchButtonLabel: "Find",
+			searchButtonDisplayCondition: PEER_BUTTON_CONDITION,
 		});
 		expect(
 			merged.modules[moduleUuid].caseListConfig?.searchInputs.map(

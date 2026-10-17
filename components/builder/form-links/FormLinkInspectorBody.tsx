@@ -23,7 +23,8 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
-import { useForm } from "@/lib/doc/hooks/useEntity";
+import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
+import { useFormLinkTargetVisibility } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useFormLinks } from "@/lib/doc/hooks/useFormLinks";
 import { useParseXPathForForm } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
@@ -31,7 +32,7 @@ import type { CommitOutcome, FormLink, FormLinkTarget } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
-import { pinsFallbackSentence } from "./afterSubmitCopy";
+import { hiddenTargetLine, pinsFallbackSentence } from "./afterSubmitCopy";
 import { LinkTargetPickerContent } from "./LinkTargetPicker";
 import { linkLead } from "./linkSentence";
 import { makeOtherwiseUnavailableReason, removalQuestion } from "./refusalCopy";
@@ -59,17 +60,25 @@ export function FormLinkInspectorBody({
 	const canEdit = useCanEdit();
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 	const [announcement, setAnnouncement] = useState("");
+	const visibility = useFormLinkTargetVisibility(formUuid, linkUuid);
 
 	const plan = view.plan;
 	const links = plan?.links ?? [];
 	const index = links.findIndex((candidate) => candidate.uuid === linkUuid);
 	const link = index < 0 ? undefined : links[index];
+	const targetModule = useModule(link?.target.moduleUuid);
 	if (plan === undefined || link === undefined || form === undefined)
 		return null;
 
 	const isOtherwise = plan.elseLink?.uuid === linkUuid;
 	const isLast = index === links.length - 1;
 	const lead = linkLead(link.target, sentence);
+	/* A form off the menu because its module is: Web Apps lands on the
+	 * app's first screen, not on the module that holds it. */
+	const hiddenLine = hiddenTargetLine(
+		visibility,
+		link.target.type === "form" && targetModule?.hiddenFromMenu === true,
+	);
 
 	const commit = (next: FormLink, said: string): CommitOutcome => {
 		const outcome = view.update(next, link);
@@ -149,6 +158,14 @@ export function FormLinkInspectorBody({
 							);
 						}}
 					/>
+					{hiddenLine !== undefined && (
+						<p
+							data-form-link-hidden-target
+							className="text-[13px] leading-relaxed text-nova-text-muted"
+						>
+							{hiddenLine}
+						</p>
+					)}
 				</Row>
 
 				<Row

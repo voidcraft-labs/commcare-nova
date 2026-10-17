@@ -28,9 +28,10 @@ const uuid = (name: string) => targetedUuid(ID, name);
 
 /**
  * False for the worker the lane's sessions run as, whose `role` is never
- * `supervisor` (`proof/observe/casedata.py::case_database`). Nova refuses a
- * condition no worker could ever meet (`DISPLAY_CONDITION_ALWAYS_FALSE`), so
- * what hides a target is always a condition over the worker or the case.
+ * `supervisor` (`proof/observe/casedata.py::case_database`). A target off the
+ * menu for every worker is `hiddenFromMenu` (`targeted-hidden-from-menu`), so
+ * what hides a target here is a condition over the worker, which another
+ * worker can meet.
  */
 function hidden() {
 	return eq(sessionUser("role"), literal("supervisor"));

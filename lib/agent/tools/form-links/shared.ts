@@ -21,6 +21,15 @@ import {
 	xpathExpressionSchema,
 } from "@/lib/domain";
 
+/**
+ * What each platform does when a link's target is hidden from the worker who
+ * submits, by a display condition false for that worker. The link tools end
+ * their descriptions with it, since a tool description stands under no one
+ * target as the builder's link editor line does.
+ */
+export const HIDDEN_TARGET_NOTE =
+	"When a target form's display condition is false for a worker, Android still opens it after submit, and Web Apps opens the module that holds it instead. When a target module's display condition is false for a worker, Android opens it with nothing in it, and Web Apps opens the app's first screen instead.";
+
 export {
 	formAddressSchema as linkAddressSchema,
 	resolveFormAddress as resolveLinkAddress,

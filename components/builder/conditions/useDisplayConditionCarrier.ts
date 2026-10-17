@@ -12,7 +12,9 @@
 import { useCallback, useMemo } from "react";
 import {
 	setFormDisplayConditionMutation,
+	setFormHiddenFromMenuMutation,
 	setModuleDisplayConditionMutation,
+	setModuleHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
 import {
 	type CommitOutcome,
@@ -53,6 +55,10 @@ export interface ResolvedDisplayCondition {
 	 * somewhere to put the refusal, beside the rule it is about.
 	 */
 	readonly commit: (next: Predicate | undefined) => CommitOutcome;
+	/** Whether the item is off the menu (`hiddenFromMenu`). */
+	readonly hiddenFromMenu: boolean;
+	/** Take the item off the menu, or put it back; the gate's verdict. */
+	readonly setHiddenFromMenu: (hidden: boolean) => CommitOutcome;
 	readonly caseTypes: readonly CaseType[];
 	/** The owning module's case type, or `""` when it declares none. */
 	readonly currentCaseType: string;
@@ -124,6 +130,15 @@ export function useDisplayConditionCarrier(
 		},
 		[mutations, targetKind, moduleUuid, formUuid],
 	);
+	const setHiddenFromMenu = useCallback(
+		(hidden: boolean): CommitOutcome =>
+			mutations.inline.commitMany([
+				formUuid === undefined
+					? setModuleHiddenFromMenuMutation(moduleUuid, hidden)
+					: setFormHiddenFromMenuMutation(formUuid, hidden),
+			]),
+		[mutations, moduleUuid, formUuid],
+	);
 
 	return useMemo(() => {
 		if (carrier === null || mod === undefined) return null;
@@ -134,8 +149,13 @@ export function useDisplayConditionCarrier(
 					? mod.displayCondition
 					: form?.displayCondition,
 			commit,
+			hiddenFromMenu:
+				(carrier.kind === "module"
+					? mod.hiddenFromMenu
+					: form?.hiddenFromMenu) === true,
+			setHiddenFromMenu,
 			caseTypes,
 			currentCaseType: mod.caseType ?? "",
 		};
-	}, [carrier, mod, form, commit, caseTypes]);
+	}, [carrier, mod, form, commit, setHiddenFromMenu, caseTypes]);
 }

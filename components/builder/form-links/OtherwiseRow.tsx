@@ -78,6 +78,7 @@ export function OtherwiseRow({
 			<div className="mt-3 flex flex-wrap items-center gap-2 pl-[26px]">
 				<div className="min-w-[14rem] flex-1">
 					<FallbackChooser
+						moduleUuid={moduleUuid}
 						formUuid={formUuid}
 						canEdit={canEdit}
 						ariaLabel={`Where the form goes when nothing above matches: ${sentence.lead}`}

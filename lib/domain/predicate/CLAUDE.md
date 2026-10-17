@@ -95,10 +95,16 @@ The AST family schemas carry registered ids (`z.globalRegistry.add`, end of `typ
 
 **`effectiveFilterForEmission`** (`simplify.ts`) wraps it for the common case: simplify a `caseListConfig.filter`, then fold an all-true result to `undefined` ("narrows nothing"). It is the SINGLE home of the "match-all ≡ no filter" decision — every consumer of the filter goes through it (the search `_xpath_query` composer, the case-list nodeset filter on suite XML + HQ JSON, the preview query, `compileForPlatform`'s skip-to-results decision, and the searchable-surface validator) — so "does this filter narrow anything?" (`=== undefined`) and "what do we emit?" can never disagree. A shallow `isMatchAll` at a decision site while emission simplifies deeply would let `and(match-all, match-all)` read as effective on one side and vanish on the other. (`match-none` is NOT folded — it narrows to the empty set, a real query.) Use the shallow `isMatchAll` / `isMatchNone` guards (builders.ts) only for a literal sentinel check.
 
-**`effectiveDisplayConditionForEmission`** is the navigation twin: deep-simplify
-a module/form display condition and fold an all-true result to no wire
-attribute. It intentionally retains `match-none`; the validator rejects that
-as an always-hidden navigation item before emission. Display-condition callers
+**`displayConditionForEmission`** is the navigation counterpart, and it does
+NOT simplify: a module/form display condition is held as written. It is absent
+for an absent condition or one whose root is `match-all`, and otherwise the
+stored condition exactly, so `x and never` prints `x and false()` and is an
+ordinary condition. Both emitters, the instance collection beside them and
+Preview's evaluation read it, so what is printed and what declares its
+instances agree. "Off the menu" is the separate `hiddenFromMenu` flag; a
+condition that is `match-none`, or an `and` whose first clause is
+`match-none`, would print the flag's spelling, so the validator refuses it
+(`displayConditionStartsWithNever`). Display-condition callers
 must not reuse filter context assumptions: module relevancy has no case row,
 and form relevancy has only the direct selected case when the module is
 case-first.

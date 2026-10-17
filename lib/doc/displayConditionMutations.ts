@@ -1,7 +1,8 @@
 // lib/doc/displayConditionMutations.ts
 //
 // The one place a module's or a form's navigation display condition is
-// written, including the removal.
+// written, including the removal, and the one place its `hiddenFromMenu`
+// flag is.
 //
 // Removal is the interesting half, and the reason is worth stating
 // exactly rather than approximately.
@@ -51,5 +52,34 @@ export function setFormDisplayConditionMutation(
 		kind: "updateForm",
 		uuid,
 		patch: { displayCondition: next ?? null },
+	};
+}
+
+/**
+ * Take a module off the menu, or put it back. The flag rides the ordinary
+ * module patch: `true` sets it, the durable `null` clears it. Turning a
+ * module off the menu moves its forms' and its child modules' forms'
+ * after-submit destinations the module no longer offers
+ * (`mutations/modules.ts::reconcilePostSubmitWithMenuShape`).
+ */
+export function setModuleHiddenFromMenuMutation(
+	uuid: Uuid,
+	hidden: boolean,
+): Mutation {
+	return updateModuleMutation(uuid, { hiddenFromMenu: hidden ? true : null });
+}
+
+/**
+ * Take a form off the menu, or put it back. The flag rides the ordinary
+ * form patch; no destination reads a form's own flag.
+ */
+export function setFormHiddenFromMenuMutation(
+	uuid: Uuid,
+	hidden: boolean,
+): Mutation {
+	return {
+		kind: "updateForm",
+		uuid,
+		patch: { hiddenFromMenu: hidden ? true : null },
 	};
 }

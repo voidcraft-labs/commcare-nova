@@ -35,8 +35,14 @@ and **End** jump to the ends).
 The **Otherwise** row is always last. It is where the form goes when nothing
 above it matched, and it can be any of:
 
-- **App home**: back to the main screen.
+- **App home**: back to the main screen. On Android that is the app's home
+  screen; in Web Apps it is the app's first screen, which lists its modules.
+- **First menu**: the app's first menu, which lists its modules. In Web Apps
+  this is the same screen as App home; on Android, App home opens the home
+  screen and First menu opens that list.
 - **This module**: open the module at its normal starting screen.
+- **Parent module**: for a form in a submenu, open the module above it, with
+  the case it selected still selected.
 - **Previous screen**: return to the preceding selection or task. When the
   form was chosen before its record, its record picker opens again for that
   same form. When the record was chosen before the form, the module menu opens
@@ -47,6 +53,26 @@ above it matched, and it can be any of:
 A form with links always has a real answer for the Otherwise row, even if you
 never chose one: the built-in destination is filled in for you, and you can
 change it.
+
+### Which destinations a form is offered
+
+The list only offers destinations the form's module can return to, so a
+choice you see is one CommCare can build:
+
+- **Previous screen** isn't offered in a module that selects several cases,
+  under a module that does, or in a module that opens on Search. The usual
+  destination there is **This module**, or **First menu** under a module that
+  selects several cases.
+- **This module** isn't offered under a module that selects several cases.
+- **Parent module** is offered only to a form in a submenu, and not while the
+  module above it selects several cases.
+- A form in a module that is off the menu isn't offered its own module or the
+  previous screen, and a form isn't offered the module above it while that
+  module is off the menu. Its forms go to **First menu** instead. See
+  [Display conditions](/docs/display-conditions) for what "off the menu" means.
+
+When a change to a module takes a destination away from one of its forms,
+Nova moves the form to the nearest one still offered and tells you.
 
 ## What a condition can read
 
@@ -95,9 +121,31 @@ changes:
 - A link whose destination needs a case this form cannot hand over. Carry the
   value by hand, or choose a destination this form can pass its case to.
 - A second Otherwise. Change the one you have instead.
+- A link to a module that is off the menu. It would open a menu with nothing
+  in it on Android and the app's first screen in Web Apps, so point the link at
+  a form inside the module, or show the module on the menu again.
+
+## When the destination isn't on the menu
+
+A link can point at a form someone can't see on their menu: a form that is off
+the menu, a form inside a module that is off the menu, or a form or module
+whose display condition is false for the person submitting. Android and Web
+Apps handle these differently:
+
+- **A form that is off the menu, or hidden by its display condition**: Android
+  opens it. Web Apps doesn't, and lands on the module that holds it, listing
+  its other forms.
+- **A form inside a module that is off the menu**: Android opens the form. Web
+  Apps lands on the app's first screen.
+- **A module hidden by its display condition**: Android opens it with nothing
+  in it, and Web Apps opens the app's first screen instead.
+
+The link's detail screen says this under a link whose destination some workers
+may not see. Preview follows Android here and opens the destination.
 
 ## On a device
 
 The installed app behaves the same way: the first true link wins, the
 Otherwise destination runs when none does, and a carried case opens the
-destination directly. What you see in Preview is what the app does.
+destination directly. Apart from a destination that isn't on the menu, what
+you see in Preview is what the app does.

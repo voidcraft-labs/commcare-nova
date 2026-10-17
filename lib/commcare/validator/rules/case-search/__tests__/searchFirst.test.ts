@@ -1,7 +1,8 @@
 /**
- * Tests for the four search-first refusals in `searchFirst.ts`, each
- * enforcing Nova entry shape plus actual HQ workflow and instance-name
- * refusals. Selected native HQ methods run in proof/native/test_search_validation.py.
+ * Tests for the three search-first refusals in `searchFirst.ts`, each
+ * enforcing Nova entry shape plus actual HQ instance-name refusals. A
+ * form's "previous" in a search-first module is `POST_SUBMIT_NOT_OFFERED`'s
+ * (`rules/form.ts`). Selected native HQ methods run in proof/native/test_search_validation.py.
  */
 
 import { describe, expect, it } from "vitest";
@@ -197,61 +198,6 @@ describe("searchFirstNoButtonDisplayCondition", () => {
 					literal("alice"),
 				),
 			},
-		});
-		expect(codes(doc, CODE)).toEqual([]);
-	});
-});
-
-describe("searchFirstNoPreviousWorkflow", () => {
-	const CODE = "SEARCH_FIRST_NO_PREVIOUS_WORKFLOW";
-
-	it("refuses an explicit previous on a case form of a search-first module", () => {
-		const doc = docWith({
-			forms: [
-				{
-					uuid: FOLLOWUP_FORM,
-					name: "Visit",
-					type: "followup",
-					postSubmit: "previous",
-					fields: [question()],
-				},
-			],
-		});
-		const hits = codes(doc, CODE);
-		expect(hits).toHaveLength(1);
-		expect(hits[0]).toContain('"Visit"');
-	});
-
-	it("admits the absent slot (the default is the module) and the other destinations", () => {
-		expect(codes(docWith({}), CODE)).toEqual([]);
-		for (const postSubmit of ["module", "app_home"] as const) {
-			const doc = docWith({
-				forms: [
-					{
-						uuid: FOLLOWUP_FORM,
-						name: "Visit",
-						type: "followup",
-						postSubmit,
-						fields: [question()],
-					},
-				],
-			});
-			expect(codes(doc, CODE)).toEqual([]);
-		}
-	});
-
-	it("admits previous when Search first is off", () => {
-		const doc = docWith({
-			caseSearchConfig: undefined,
-			forms: [
-				{
-					uuid: FOLLOWUP_FORM,
-					name: "Visit",
-					type: "followup",
-					postSubmit: "previous",
-					fields: [question()],
-				},
-			],
 		});
 		expect(codes(doc, CODE)).toEqual([]);
 	});

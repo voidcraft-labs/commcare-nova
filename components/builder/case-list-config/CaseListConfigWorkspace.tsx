@@ -425,9 +425,7 @@ const EMPTY_VERDICTS = {
 
 type SearchScreenSettingKey = "searchScreenTitle" | "searchScreenSubtitle";
 
-type SearchActionSettingKey =
-	| "searchButtonLabel"
-	| "searchButtonDisplayCondition";
+type SearchActionSettingKey = "searchButtonDisplayCondition";
 
 const SEARCH_SCREEN_SETTING_LABELS: Readonly<
 	Record<SearchScreenSettingKey, string>
@@ -439,7 +437,6 @@ const SEARCH_SCREEN_SETTING_LABELS: Readonly<
 const SEARCH_ACTION_SETTING_LABELS: Readonly<
 	Record<SearchActionSettingKey, string>
 > = {
-	searchButtonLabel: "custom Search action label",
 	searchButtonDisplayCondition: "Search availability condition",
 };
 

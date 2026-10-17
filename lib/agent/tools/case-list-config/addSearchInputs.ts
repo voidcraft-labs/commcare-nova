@@ -35,6 +35,8 @@ import {
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	newUuid,
+	RESERVED_SEARCH_INPUT_NAMES_SENTENCE,
+	SEARCH_INPUT_LOOKUP_ORDER_SENTENCE,
 	searchInputDefInputSchema,
 	stampSearchInputUuid,
 } from "./shared";
@@ -64,8 +66,7 @@ export interface AddSearchInputsSuccess extends MutationSuccess {
 export type AddSearchInputsResult = AddSearchInputsSuccess | { error: string };
 
 export const addSearchInputsTool = {
-	description:
-		"Add Search questions or hidden Search values. Visible questions support requiredness and validation over Search answers and worker values. Hidden values initialize from constants or worker values before answers or record selection.",
+	description: `Add Search questions or hidden Search values. Visible questions support requiredness and validation over Search answers and worker values. Hidden values initialize from constants or worker values before answers or record selection. ${SEARCH_INPUT_LOOKUP_ORDER_SENTENCE} ${RESERVED_SEARCH_INPUT_NAMES_SENTENCE}`,
 	inputSchema: addSearchInputsInputSchema,
 	async execute(
 		input: AddSearchInputsInput,

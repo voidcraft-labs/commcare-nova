@@ -1,8 +1,8 @@
 /**
  * The harness's fixed witnesses retain their actual exported inputs when
  * unrelated admitted documents or fixture counters change. A globally drawn
- * edit would silently cease adding the parent form, enabling the labeled
- * search, or leaving the republish byte-identical. The observations are all
+ * edit would silently cease adding the parent form or leaving the republish
+ * byte-identical. The observations are all
  * files Nova's production export writes for each witness, its emitted batch
  * and footprint, and the application in the captured import.
  *
@@ -22,7 +22,6 @@ import { storedDocument } from "../../corpus/documents";
 import { emitCorpus } from "../../corpus/emitCorpus";
 import { targetedUuid } from "../build";
 import { noMatchesReturnIdentity } from "../documents/noMatchesReturnIdentity";
-import { searchButtonLabel } from "../documents/searchApps";
 import {
 	parentFormPreviousFrame,
 	parentFormSelectionFrame,
@@ -33,7 +32,6 @@ const makers = [
 	parentFormSelectionFrame,
 	parentFormPreviousFrame,
 	wireEqualRepublish,
-	searchButtonLabel,
 	noMatchesReturnIdentity,
 ];
 
@@ -163,20 +161,6 @@ describe("the stable harness witnesses", () => {
 				"republish",
 			);
 			expect(app.modules[0].forms).toHaveLength(1);
-		}
-	});
-
-	it("enable the custom Search label on the edit's actual import", async () => {
-		const id = "targeted-search-button-label";
-		for (const configuration of ["minimum", "maximum"]) {
-			const app = await imported(
-				join(root, "alone", id, "edit/export", configuration),
-				"update",
-			);
-			expect(
-				app.modules[0].search_config.search_button_label,
-				configuration,
-			).toEqual({ en: "Search" });
 		}
 	});
 });

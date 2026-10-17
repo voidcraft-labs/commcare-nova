@@ -78,7 +78,8 @@ export type ValidationErrorCode =
 	| "FORM_DISPLAY_CONDITION_TYPE_ERROR"
 	| "DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE"
 	| "DISPLAY_CONDITION_NOT_ON_DEVICE"
-	| "DISPLAY_CONDITION_ALWAYS_FALSE"
+	| "DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU"
+	| "HIDDEN_MENU_NOT_A_DESTINATION"
 	// Case-list-config rules
 	| "CASE_LIST_COLUMN_UNKNOWN_FIELD"
 	| "CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH"
@@ -101,6 +102,8 @@ export type ValidationErrorCode =
 	| "CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_TYPE_ERROR"
 	| "CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_NOT_ON_DEVICE"
 	| "CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME"
+	| "CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER"
+	| "CASE_LIST_SEARCH_INPUT_NAME_RESERVED"
 	| "CASE_LIST_BARE_SEARCH_INPUT_REF"
 	| "CASE_LIST_DUPLICATE_SORT_PRIORITY"
 	| "CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE"
@@ -143,7 +146,6 @@ export type ValidationErrorCode =
 	| "CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE"
 	| "SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE"
 	| "SEARCH_FIRST_NO_BUTTON_DISPLAY_CONDITION"
-	| "SEARCH_FIRST_NO_PREVIOUS_WORKFLOW"
 	| "SEARCH_FIRST_UNIQUE_INSTANCE"
 	| "SEARCH_NO_MATCHES_DUPLICATE"
 	// Form-level
@@ -164,7 +166,7 @@ export type ValidationErrorCode =
 	| "CLOSE_CONDITION_INCOMPLETE"
 	| "CLOSE_CONDITION_FIELD_NOT_FOUND"
 	| "INVALID_POST_SUBMIT"
-	| "POST_SUBMIT_MODULE_CASE_LIST_ONLY"
+	| "POST_SUBMIT_NOT_OFFERED"
 	| "FORM_LINK_EMPTY"
 	| "FORM_LINK_TARGET_NOT_FOUND"
 	| "FORM_LINK_TARGET_NO_MATCHES_FORM"
@@ -365,6 +367,17 @@ export type ValidationErrorCode =
 	| "HQJSON_BAD_SORT_ELEMENT"
 	| "HQJSON_BAD_DETAIL_FIELD"
 	| "HQJSON_BAD_SEARCH_LABEL"
+	// Spellings HQ's editors do not write, which a save keeps or rewrites to
+	// an equivalent: a key no editor writes (`no_vellum`, `custom_variables`),
+	// a calculated column's `calculate` format where the Case List page writes
+	// `plain`, and an empty short detail where every new menu holds a `name`
+	// column. And two a save refuses or replaces: a search button label other
+	// than HQ's default, and a lookup prompt's itemset without its sort.
+	| "HQJSON_UNWRITTEN_KEY"
+	| "HQJSON_BAD_DETAIL_FORMAT"
+	| "HQJSON_EMPTY_SHORT_DETAIL"
+	| "HQJSON_BAD_SEARCH_BUTTON_LABEL"
+	| "HQJSON_BAD_SEARCH_ITEMSET"
 	// An action shape HQ's import accepts but no HQ editor writes: an external
 	// id on `open_case.external_id`. HQ's Case Management tab writes one as an
 	// ordinary `update_case.update` row, and Nova writes it that way too.

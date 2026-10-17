@@ -751,8 +751,9 @@
 			"schema:ShadowModule.module_filter"
 		],
 		"valueClass": "always-false-arm",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.displayCondition` always-false arm, holding `<rest>` as the condition that applies once the menu is back on (today refused: `DISPLAY_CONDITION_ALWAYS_FALSE`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.hiddenFromMenu`, with `displayCondition` holding `<rest>`, the condition that applies once the menu is back on",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -781,8 +782,9 @@
 			"schema:ShadowForm.form_filter"
 		],
 		"valueClass": "always-false-arm",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.displayCondition` always-false arm, holding `<rest>` as the condition that applies once the form is back on the menu (today refused: `DISPLAY_CONDITION_ALWAYS_FALSE`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.hiddenFromMenu`, with `displayCondition` holding `<rest>`, the condition that applies once the form is back on the menu",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3318,8 +3320,8 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit (Nova emits `null` today: unproducible)",
-			"markers": ["unproducible", "omit"]
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -5702,8 +5704,8 @@
 			}
 		},
 		"emission": {
-			"cell": "`plain` (Nova writes `calculate` today: unproducible)",
-			"markers": ["unproducible"]
+			"cell": "`plain`",
+			"markers": []
 		},
 		"gates": []
 	},

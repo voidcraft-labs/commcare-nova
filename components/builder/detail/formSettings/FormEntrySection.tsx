@@ -108,7 +108,7 @@ export function FormEntrySection({
 					{noMatches
 						? `From Results, after a search finds no matches. It opens with the search's answers, it is not on the menu, and after submit it opens ${
 								noMatchesAfterSubmitModel({
-									appHome: form.postSubmit === "app_home",
+									firstMenu: form.postSubmit === "firstMenu",
 									multiple: caseSelectionCardinality(mod) === "multiple",
 									hasMenuForms: hostKeepsMenuForms,
 								}).destination

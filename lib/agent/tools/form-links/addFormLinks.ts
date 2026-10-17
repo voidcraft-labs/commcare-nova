@@ -19,6 +19,7 @@ import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	formLinkInputSchema,
 	formName,
+	HIDDEN_TARGET_NOTE,
 	linkAddressSchema,
 	linkByUuid,
 	linkOrder,
@@ -85,8 +86,7 @@ const isFallbackPin = (mutation: Mutation, formUuid: Uuid): boolean =>
 	"postSubmit" in mutation.patch;
 
 export const addFormLinksTool = {
-	description:
-		"Add after-submit routes. The first matching condition wins; an unconditional route must be last. Conditions read saved records and worker values after the form closes, so they cannot use unsaved answers.",
+	description: `Add after-submit routes. The first matching condition wins; an unconditional route must be last. Conditions read saved records and worker values after the form closes, so they cannot use unsaved answers. ${HIDDEN_TARGET_NOTE}`,
 	inputSchema: addFormLinksInputSchema,
 	async execute(
 		input: AddFormLinksInput,

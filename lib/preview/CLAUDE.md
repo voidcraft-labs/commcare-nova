@@ -772,7 +772,21 @@ string-unpacks to `""`, numeric ordering yields NaN, no presence guards.
 Visibility is three-valued: a carrier-bearing condition without loaded data
 is `pending` (placeholder, never a guess); hidden items surface through the
 ghosted "Hidden items (N)" reveal with `summarizeFilter` summaries; edit
-mode never hides.
+mode never hides. A condition is evaluated as stored
+(`displayConditionForEmission`): nothing inside it is absorbed, so
+`x and never` still waits for `x`'s data.
+
+An item off the menu (`hiddenFromMenu`) is `hidden` before its condition is
+read, and a module off the menu takes its child modules off with it, as on
+both runtimes; its reveal summary reads "Off the menu" (`menuProjection.ts::
+OFF_THE_MENU_SUMMARY`). App Tests cannot open one from a menu. Preview plays one
+runtime per behavior until it plays each platform: after-submit routing opens a
+link's target whatever its visibility (Android), and an entry point opens a
+form off the menu only when it ignores display conditions (Web Apps), with
+`entryPointLaunch.ts::FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL` saying what each
+platform does otherwise. `firstMenu` resolves to the same home screen as
+`app_home` (Web Apps shows the app's first screen for both), and `parentMenu`
+to the parent module's screen with its selection kept.
 
 ## Value persistence across engine recreation
 
@@ -1210,9 +1224,9 @@ explicit form entry point at its exact active destination, never to a normal URL
 A bare module entry point keeps the actual module menu, with Cases as a separate
 choice; ordinary bare-module navigation follows the module-landing rule (`moduleLanding.ts`).
 
-An explicitly authored `postSubmit: "app_home"` on a no-matches registration
-returns to App home and retires that search/form/parent request, matching HQ's
-empty root frame. It never records the newly registered scalar case as a
+An explicitly authored `postSubmit: "firstMenu"` on a no-matches registration
+returns to the home screen and retires that search/form/parent request, matching
+HQ's empty root frame. It never records the newly registered scalar case as a
 completed-search result. With no explicit override it returns to Results showing
 the registered case (§ The completed-search context); admission excludes that
 implicit return for a multiple-selection host.

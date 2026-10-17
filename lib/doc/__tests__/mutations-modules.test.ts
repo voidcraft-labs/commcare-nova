@@ -11,7 +11,16 @@ import {
 	type Mutation,
 	mutationSchema,
 } from "@/lib/doc/types";
-import { plainColumn, proseText, type Uuid } from "@/lib/domain";
+import {
+	plainColumn,
+	proseText,
+	simpleSearchInputDef,
+	type Uuid,
+} from "@/lib/domain";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const M = (key: string) => testUuid(`modules-module-${key}`);
@@ -350,5 +359,117 @@ describe("case-list birth and independent screen sequences", () => {
 			Q("village"),
 			Q("name"),
 		]);
+	});
+});
+
+describe("a Search question's choice order", () => {
+	const TABLE = lookupTableIdSchema.parse(
+		"018f0000-0000-7000-8000-0000000000e1",
+	);
+	const VALUE = lookupColumnIdSchema.parse(
+		"018f0000-0000-7000-8000-0000000000e2",
+	);
+	const LABEL = lookupColumnIdSchema.parse(
+		"018f0000-0000-7000-8000-0000000000e3",
+	);
+	const OTHER = lookupColumnIdSchema.parse(
+		"018f0000-0000-7000-8000-0000000000e4",
+	);
+	const INPUT = Q("region-input");
+	function region(labelColumnId: typeof LABEL, sortColumnId?: typeof LABEL) {
+		return simpleSearchInputDef(INPUT, "region", "Region", "select", "region", {
+			options: {
+				kind: "lookup",
+				tableId: TABLE,
+				valueColumnId: VALUE,
+				labelColumnId,
+				...(sortColumnId === undefined ? {} : { sortColumnId }),
+			},
+		});
+	}
+	function viewer(): BlueprintDoc {
+		return buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "region", label: proseText("Region") }],
+				},
+			],
+			modules: [
+				{
+					uuid: M("a"),
+					name: "Patients",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: {
+						columns: [plainColumn(Q("name"), "case_name", "Name")],
+						searchInputs: [],
+					},
+				},
+			],
+		});
+	}
+	const options = (doc: BlueprintDoc) => {
+		const input = doc.modules[M("a")].caseListConfig?.searchInputs[0];
+		if (input === undefined || !("options" in input))
+			throw new Error("Expected the choice question");
+		return input.options;
+	};
+	const { uuid: _uuid, ...addedBody } = region(LABEL, LABEL);
+
+	it("stores a sort column equal to the label column as absent, on an add and on an update", () => {
+		const added = produce(viewer(), (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "addSearchInput",
+					moduleUuid: M("a"),
+					searchInput: region(LABEL, LABEL),
+				},
+			]);
+		});
+		expect(options(added)).not.toHaveProperty("sortColumnId");
+
+		const updated = produce(added, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "updateSearchInput",
+					moduleUuid: M("a"),
+					uuid: INPUT,
+					searchInput: addedBody,
+				},
+			]);
+		});
+		expect(options(updated)).not.toHaveProperty("sortColumnId");
+	});
+
+	it("keeps a distinct sort column, and drops it once the label column becomes it", () => {
+		const sorted = produce(viewer(), (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "addSearchInput",
+					moduleUuid: M("a"),
+					searchInput: region(LABEL, OTHER),
+				},
+			]);
+		});
+		expect(options(sorted).sortColumnId).toBe(OTHER);
+
+		const { uuid: _input, ...relabelled } = region(OTHER, OTHER);
+		const next = produce(sorted, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "updateSearchInput",
+					moduleUuid: M("a"),
+					uuid: INPUT,
+					searchInput: relabelled,
+				},
+			]);
+		});
+		expect(options(next)).toEqual({
+			kind: "lookup",
+			tableId: TABLE,
+			valueColumnId: VALUE,
+			labelColumnId: OTHER,
+		});
 	});
 });

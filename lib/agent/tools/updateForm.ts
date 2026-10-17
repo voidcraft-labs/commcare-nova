@@ -1,6 +1,9 @@
 /** Patch form metadata and navigation through the shared canonical workspace. */
 import { z } from "zod";
-import { setFormDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
+import {
+	setFormDisplayConditionMutation,
+	setFormHiddenFromMenuMutation,
+} from "@/lib/doc/displayConditionMutations";
 import { formRecordNameMutations } from "@/lib/doc/formRecordName";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { noMatchesFormEntryMutations } from "@/lib/doc/searchNoMatchesForm";
@@ -73,7 +76,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Post-submit destination: "app_home", "module" (its normal opening screen), or "previous" (the preceding selection or task shown by the resolved navigation result). null resets to the form-type default ("module" for a case form in a module that opens on Search, where "previous" is refused). For entry search-no-matches, only explicit app_home is supported; null restores return to Results, which requires single-case selection. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
+				'Post-submit destination: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (its normal opening screen), "parentMenu" (the parent module, with its selection kept), or "previous" (the preceding selection or task shown by the resolved navigation result). null resets to the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, it opens on Search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. For entry search-no-matches, only explicit firstMenu is supported; null restores return to Results, which requires single-case selection. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
 			),
 		connect: connectFormPatchSchema
 			.nullable()
@@ -85,7 +88,14 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Running-app visibility rule. A Predicate sets it, null removes it, omission keeps it.",
+				"Running-app visibility rule. A Predicate sets it, null removes it, omission keeps it. It applies while the item is on the menu; hiddenFromMenu takes it off whatever the condition, and a condition that starts with never is refused, since hiddenFromMenu is how that is said.",
+			),
+		hiddenFromMenu: z
+			.literal(true)
+			.nullable()
+			.optional()
+			.describe(
+				"true takes the form off the menu, null puts it back, omission keeps it. Off the menu, the form opens on Android from an after-submit link or an entry point, and in Web Apps only from an entry point that ignores display conditions.",
 			),
 		entry: formEntryInputSchema
 			.nullable()
@@ -101,6 +111,7 @@ export type UpdateFormResult =
 	| (MutationSuccess & {
 			close?: "conditional" | "unconditional";
 			display?: "conditional" | "always";
+			hiddenFromMenu?: boolean;
 			postSubmit?: string;
 			navigation?: ReturnType<typeof formNavigation>;
 			entry?: "menu" | "search-no-matches";
@@ -128,6 +139,7 @@ export const updateFormTool = {
 			post_submit,
 			connect,
 			displayCondition,
+			hiddenFromMenu,
 			entry,
 		} = input;
 		try {
@@ -180,17 +192,22 @@ export const updateFormTool = {
 				patch.postSubmit = post_submit as PostSubmitDestination;
 			}
 			if (entry != null) {
-				/* No-matches registration can return to Results or explicitly to App home. */
+				/* No-matches registration can return to Results or explicitly to the
+				 * app's first menu. */
 				const effectivePostSubmit =
 					post_submit === undefined ? existing.postSubmit : post_submit;
 				const carried = [
-					...(effectivePostSubmit != null && effectivePostSubmit !== "app_home"
+					...(effectivePostSubmit != null && effectivePostSubmit !== "firstMenu"
 						? ["post_submit"]
 						: []),
 					...(displayCondition != null ||
 					(displayCondition === undefined &&
 						existing.displayCondition !== undefined)
 						? ["displayCondition"]
+						: []),
+					...(hiddenFromMenu != null ||
+					(hiddenFromMenu === undefined && existing.hiddenFromMenu === true)
+						? ["hiddenFromMenu"]
 						: []),
 					...((existing.formLinks?.length ?? 0) > 0
 						? ["after-submit links"]
@@ -201,7 +218,7 @@ export const updateFormTool = {
 						kind: "mutate" as const,
 						mutations: [],
 						result: {
-							error: `Form "${existing.name}" cannot open after a search finds no matches while it carries ${carried.join(", ")}: that form can return to Results or App home and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, remove_form_link) in this call or before, then set entry.`,
+							error: `Form "${existing.name}" cannot open after a search finds no matches while it carries ${carried.join(", ")}: that form can return to Results or First menu and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, hiddenFromMenu: null, remove_form_link) in this call or before, then set entry.`,
 						},
 					};
 				}
@@ -299,6 +316,11 @@ export const updateFormTool = {
 								displayCondition ?? undefined,
 							),
 						]),
+				/* Omission keeps the flag; true takes the form off the menu and
+				 * null puts it back. */
+				...(hiddenFromMenu === undefined
+					? []
+					: [setFormHiddenFromMenuMutation(formUuid, hiddenFromMenu === true)]),
 				/* Setting the entry also opens the module on Search when it does
 				 * not already, in this same batch (`searchNoMatchesForm.ts`). */
 				...(entry === undefined
@@ -368,6 +390,9 @@ export const updateFormTool = {
 						display: formAfter.displayCondition
 							? ("conditional" as const)
 							: ("always" as const),
+					}),
+					...(hiddenFromMenu !== undefined && {
+						hiddenFromMenu: formAfter.hiddenFromMenu === true,
 					}),
 					...(post_submit !== undefined && {
 						postSubmit: formAfter.postSubmit ?? "form-type-default",

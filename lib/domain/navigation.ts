@@ -174,6 +174,18 @@ export function moduleDestination(
 	};
 }
 
+/** The parent module's screen, reached with its selection kept. A module
+ * with no parent has none, which the gate refuses as a destination. */
+export function parentMenuDestination(
+	doc: NavigationDoc,
+	moduleUuid: Uuid,
+): NavigationDestination {
+	const parentUuid = doc.modules[moduleUuid]?.parentModuleUuid;
+	return parentUuid === undefined
+		? { screen: "unavailable" }
+		: moduleDestination(doc, parentUuid);
+}
+
 /** Resolved destinations supplement configuration with its actual behavior.
  * Link conditions remain on the links; they are not repeated in this read. */
 export function formNavigation(
@@ -190,9 +202,14 @@ export function formNavigation(
 			? { screen: "results", moduleUuid, name: doc.modules[moduleUuid].name }
 			: destination === "module"
 				? moduleDestination(doc, moduleUuid)
-				: destination === "previous"
-					? (previousDestination ?? { screen: "unavailable" })
-					: { screen: "home" };
+				: destination === "parentMenu"
+					? parentMenuDestination(doc, moduleUuid)
+					: destination === "previous"
+						? (previousDestination ?? { screen: "unavailable" })
+						: // `app_home` and `firstMenu` share one home screen until
+							// Preview plays each platform: Web Apps shows the app's
+							// first screen for both.
+							{ screen: "home" };
 	return {
 		recordSelection:
 			form.entry?.kind === "search-no-matches"

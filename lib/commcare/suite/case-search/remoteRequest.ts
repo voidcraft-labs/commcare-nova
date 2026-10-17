@@ -14,12 +14,11 @@ import type { Element } from "domhandler";
 import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
+	CASE_SEARCH_BUTTON_LABEL,
 	type CaseListConfig,
-	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	type Module,
-	makeTranslationUnitId,
 	type OrdinaryCaseSearchConfig,
 	type WireStringSource,
 } from "@/lib/domain";
@@ -105,13 +104,6 @@ export function buildRemoteRequest(args: {
 
 	const moduleId = `m${moduleIndex}`;
 	const commandLocaleId = `case_search.${moduleId}`;
-	// Nova deliberately uses the short, friendly "Search" default on both
-	// preview and wire paths instead of inheriting CCHQ's longer chrome. The schema's
-	// `searchButtonLabel: z.string().min(1).optional()` guarantees the
-	// slot is either `undefined` or a non-empty string — no `=== ""`
-	// branch is needed here.
-	const commandLabel =
-		caseSearchConfig.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL;
 	const commandEl = el("command", { id: `search_command.${moduleId}` }, [
 		el("display", {}, [
 			el("text", {}, [el("locale", { id: commandLocaleId })]),
@@ -167,17 +159,15 @@ export function buildRemoteRequest(args: {
 		stackEl,
 	]);
 
+	// The button's text names no translation unit, so the compiler writes it
+	// as it stands into every language's strings: the one text HQ's Case List
+	// save keeps.
 	const strings: Record<string, string> = {
-		[commandLocaleId]: commandLabel,
+		[commandLocaleId]: CASE_SEARCH_BUTTON_LABEL,
 		...sessionEmission.strings,
 	};
 	const translationUnits: Record<string, WireStringSource> = {
 		...sessionEmission.translationUnits,
-		[commandLocaleId]: makeTranslationUnitId(
-			"module",
-			mod.uuid,
-			"search-button",
-		),
 		...searchScreenTranslationUnits(mod, moduleIndex, caseSearchConfig),
 	};
 

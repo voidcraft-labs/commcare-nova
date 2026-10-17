@@ -69,6 +69,13 @@ export interface DisplayConditionCopy {
 	readonly caseDataScope: CaseDataScope;
 	/** What "no condition" means, for the settings-panel summary. */
 	readonly alwaysSummary: string;
+	/** The "Show on the menu" switch's label. */
+	readonly menuSwitchLabel: string;
+	/** What the switch says while the item is on the menu. */
+	readonly onTheMenuNote: string;
+	/** What the switch says once the item is off the menu: what still
+	 *  opens it, per platform. */
+	readonly offTheMenuNote: string;
 	/** Settings-panel row copy. */
 	readonly settingTitle: string;
 	readonly settingDescription: string;
@@ -93,6 +100,21 @@ export interface DisplayConditionCopy {
  */
 export const DISPLAY_CONDITION_NOT_A_PERMISSION =
 	"A condition decides what a screen offers, not who may see the data behind it. The app still carries this item and everything it reads.";
+
+/** The switch that takes a module or a form off the menu. */
+export const MENU_SWITCH_LABEL = "Show on the menu";
+
+/** The condition row's heading: the condition applies while the item is on
+ *  the menu. */
+export const SHOWN_ON_THE_MENU_TITLE = "When shown on the menu";
+
+/** What still opens a form that is off the menu, per platform. */
+export const FORM_OFF_THE_MENU_NOTE =
+	"Off the menu. On Android this form opens from an after-submit link or an entry point. In Web Apps it opens only from an entry point that ignores display conditions.";
+
+/** What still opens the forms of a module that is off the menu. */
+export const MODULE_OFF_THE_MENU_NOTE =
+	"Off the menu, with every form in it. On Android its forms open from an after-submit link or an entry point. In Web Apps they open only from an entry point that ignores display conditions.";
 
 const NO_CASE_SCOPE_NOTE =
 	"No case has been chosen at that point, so the condition can use fixed values and information about the person signed in, not case information.";
@@ -126,7 +148,13 @@ export function displayConditionCopy(
 			ruleRootLabel: "this module's condition",
 			caseDataScope: "global",
 			alwaysSummary: `${name} always appears`,
-			settingTitle: "When this module appears",
+			menuSwitchLabel: MENU_SWITCH_LABEL,
+			onTheMenuNote:
+				parentName === undefined
+					? "Workers find this module on the home screen."
+					: `Workers find this module inside ${parentName}.`,
+			offTheMenuNote: MODULE_OFF_THE_MENU_NOTE,
+			settingTitle: SHOWN_ON_THE_MENU_TITLE,
 			settingDescription:
 				parentName === undefined
 					? "Keep this module off the home screen unless a condition matches"
@@ -153,7 +181,10 @@ export function displayConditionCopy(
 		sectionTitle: `Show ${name} when`,
 		ruleRootLabel: "this form's condition",
 		alwaysSummary: `${name} always appears`,
-		settingTitle: "When this form appears",
+		menuSwitchLabel: MENU_SWITCH_LABEL,
+		onTheMenuNote: `Workers find this form in ${moduleName}.`,
+		offTheMenuNote: FORM_OFF_THE_MENU_NOTE,
+		settingTitle: SHOWN_ON_THE_MENU_TITLE,
 		settingDescription:
 			"Keep this form out of the list unless a condition matches",
 		clearLabel: "Always show",

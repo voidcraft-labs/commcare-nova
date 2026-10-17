@@ -912,15 +912,68 @@ export function diffDocsToMutations(
 			}).caseTypes
 		: prev.caseTypes;
 	structural.push(...diffCatalog(fromCatalog, next.caseTypes));
-	const localizationBase =
+	/* One replay serves both the after-submit residual and the localization
+	 * diff: the residual is a tail of `updateForm` patches, so the
+	 * localization base is that replay with the tail applied on top. */
+	const replayed =
 		structural.length === 0
 			? prev
 			: produce(prev, (draft) => {
 					applyMutations(draft, admitMutationBatch(structural));
 				});
+	const residual = postSubmitResidual(replayed, next, structural);
+	structural.push(...residual);
+	const localizationBase =
+		residual.length === 0
+			? replayed
+			: produce(replayed, (draft) => {
+					applyMutations(draft, admitMutationBatch(residual));
+				});
 	structural.push(...diffLocalization(localizationBase, next));
 
 	return structural;
+}
+
+/** The mutation kinds whose reducers reconcile after-submit destinations
+ * (`mutations/modules.ts::reconcilePostSubmitWithMenuShape`). */
+const POST_SUBMIT_RECONCILING_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
+	"updateModule",
+	"setCaseListMeta",
+	"moveModule",
+	"moveForm",
+	"removeFormLink",
+]);
+
+/**
+ * A menu-shape write reconciles its forms' after-submit destinations as it
+ * replays, and the form patches in the batch can run before it (the
+ * `setCaseListMeta` and module-order kinds run late). So every form whose
+ * destination differs, in the batch's replay (`replayed`), from the target
+ * gets one final `updateForm`, which lands the target's slot exactly. A
+ * batch with no reconciling write leaves every slot as its own patches set
+ * it, so it needs no residual.
+ */
+function postSubmitResidual(
+	replayed: BlueprintDoc,
+	next: BlueprintDoc,
+	batch: readonly Mutation[],
+): Mutation[] {
+	if (
+		!batch.some((mutation) => POST_SUBMIT_RECONCILING_KINDS.has(mutation.kind))
+	)
+		return [];
+	const out: Mutation[] = [];
+	for (const [formUuid, form] of Object.entries(next.forms)) {
+		const replayedForm = replayed.forms[formUuid];
+		if (replayedForm === undefined) continue;
+		if (replayedForm.postSubmit === form.postSubmit) continue;
+		out.push({
+			kind: "updateForm",
+			uuid: asUuid(formUuid),
+			patch: { postSubmit: form.postSubmit ?? null },
+		});
+	}
+	return out;
 }
 
 export class LocalizationEndpointNotRepresentableError extends Error {

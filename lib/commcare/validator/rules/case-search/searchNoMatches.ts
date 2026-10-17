@@ -13,9 +13,11 @@
  *     validator admits only a registration form of the module's case type
  *     as a case-list form (`ModuleBaseValidator.validate_case_list_form`).
  *   - `SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION`: after submit is Results
- *     or explicit App home, and the form is never on a
- *     menu, so after-submit links, an after-submit choice, and a display
- *     condition have nowhere to act.
+ *     or explicit `firstMenu`, and the form is never on a menu, so
+ *     after-submit links, another after-submit choice, a display condition
+ *     and `hiddenFromMenu` have nowhere to act. HQ reads the form's
+ *     `default` workflow as a return to the case list, so `firstMenu`
+ *     (`root`) is the one explicit destination that leaves it.
  *   - `SEARCH_NO_MATCHES_DUPLICATE`: a module carries at most one
  *     `case_list_form`.
  *   - `FORM_LINK_TARGET_NO_MATCHES_FORM` (in `rules/form.ts`): an
@@ -73,30 +75,31 @@ export function searchNoMatchesEntry(
 	// to this form's scalar uuid() datum. Core cannot hydrate that as selected entities.
 	if (
 		caseSelectionCardinality(mod) === "multiple" &&
-		form.postSubmit !== "app_home"
+		form.postSubmit !== "firstMenu"
 	) {
 		errors.push(
 			validationError(
 				"SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN",
 				"form",
-				`Form "${form.name}" registers one case, but "${mod.name}" selects several cases. CommCare cannot carry that new case back into the collection search. Set this form's after-submit destination to App home, or change the module to one-case selection.`,
+				`Form "${form.name}" registers one case, but "${mod.name}" selects several cases. CommCare cannot carry that new case back into the collection search. Set this form's after-submit destination to First menu, or change the module to one-case selection.`,
 				loc,
 			),
 		);
 	}
 	const navigation = [
 		...((form.formLinks?.length ?? 0) > 0 ? ["after-submit links"] : []),
-		...(form.postSubmit !== undefined && form.postSubmit !== "app_home"
-			? ["an after-submit destination other than App home"]
+		...(form.postSubmit !== undefined && form.postSubmit !== "firstMenu"
+			? ["an after-submit destination other than First menu"]
 			: []),
 		...(form.displayCondition !== undefined ? ["a display condition"] : []),
+		...(form.hiddenFromMenu === true ? ["hiddenFromMenu"] : []),
 	];
 	if (navigation.length > 0) {
 		errors.push(
 			validationError(
 				"SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION",
 				"form",
-				`Form "${form.name}" opens after a search finds no matches, so after submit it can return to the module's search or App home and is never on a menu; it cannot carry ${navigation.join(", ")}. Remove them, or clear the form's entry.`,
+				`Form "${form.name}" opens after a search finds no matches, so after submit it can return to the module's search or First menu and is never on a menu; it cannot carry ${navigation.join(", ")}. Remove them, or clear the form's entry.`,
 				loc,
 			),
 		);

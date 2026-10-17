@@ -733,10 +733,10 @@ the same cases, use case-list filters and design the menu structure deliberately
 | Tool | What it does |
 |---|---|
 | `create_module` | Add one module to the private candidate. Omit `parentModuleUuid` for top-level, or name an existing top-level parent for a child. `case_type` declares a new record type when needed; record modules start with a Name column. The result returns its module and initial column identities. Add forms, selection and list refinements through their focused tools. |
-| `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs), set the case type before adding registration, follow-up, or close forms to a module created without one. |
+| `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs), set the case type before adding registration, follow-up, or close forms to a module created without one. Also sets its `displayCondition` and `hiddenFromMenu`: `true` takes the module and every form in it off the menu, `null` puts it back. A module that is off the menu can be no after-submit link's target and takes no entry point or case list entry point. |
 | `remove_module` | Delete a module by `moduleUuid`. A parent must have no child modules before it can be removed. |
 | `move_module` | Reorder or reparent a module without changing its identity. `after` is always required and names a sibling in the destination menu, or is `null` for first. Omit `parentModuleUuid` to reorder within the current menu, pass `null` to make the module top-level, or pass a top-level module UUID to place it inside that menu. |
-| `get_module` | Read one module by `moduleUuid`, including its `parent_module_uuid`, ordered `child_module_uuids`, form and field UUIDs, structured case-list config, display condition, and current icon and audio label. |
+| `get_module` | Read one module by `moduleUuid`, including its `parent_module_uuid`, ordered `child_module_uuids`, form and field UUIDs, structured case-list config, display condition, `hidden_from_menu` (for the module and for each form), and current icon and audio label. |
 
 ## Working on the case list
 
@@ -750,7 +750,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
 | `reorder_case_list_columns` | Reorder a surface by passing its complete `columnUuids` sequence. |
 | `set_case_list_filter` | Set or clear the optional filter predicate that narrows the list. |
-| `add_search_inputs` | Add one or more search inputs in one call: a simple property bind, an advanced predicate, or a hidden value carried with the search. Visible inputs may carry a `hint`, a `required` condition, and one `validation` check; `select` / `multi-select` inputs take their choices from a Project lookup table through `options`. Each may predeclare `searchInputUuid`; predicates reference inputs with `#search/name`. |
+| `add_search_inputs` | Add one or more search inputs in one call: a simple property bind, an advanced predicate, or a hidden value carried with the search. Visible inputs may carry a `hint`, a `required` condition, and one `validation` check; `select` / `multi-select` inputs take their choices from a Project lookup table through `options`, listed in the order of the text in `options.sortColumnId` (omit it to order them by the label column). Each may predeclare `searchInputUuid`; predicates reference inputs with `#search/name`. A name CommCare reads as part of the search request (such as `case_type`, `include_closed` or `_xpath_query`) is refused; the tool description lists them all. |
 | `update_search_input` | Replace a search input's body, addressed by `moduleUuid` and `searchInputUuid`. Accepts the same shapes as `add_search_inputs`. |
 | `remove_search_input` | Remove one search input by `moduleUuid` and `searchInputUuid`. |
 | `reorder_search_inputs` | Reorder search inputs by passing their complete `searchInputUuids` sequence. |
@@ -813,11 +813,11 @@ page holds whole groups and however many cases they carry.
 
 ## Working on case search
 
-Case search is the search experience that surrounds the case list: the screen title, helper text, and search button label the user sees, plus a few niche search-side filters most authors never reach for. These tools set those slots; the search inputs themselves live on the case list above. Each setting is independent: pass `null` on any slot to clear it.
+Case search is the search experience that surrounds the case list: the screen title and helper text the user sees, plus a few niche search-side filters most authors never reach for. The search button always reads "Search All Cases", in every language, so it has no setting. These tools set those slots; the search inputs themselves live on the case list above. Each setting is independent: pass `null` on any slot to clear it.
 
 | Tool | What it does |
 |---|---|
-| `set_case_search_display` | Set the search-screen title, subtitle, search button label, and the predicate that decides when to show the search button. |
+| `set_case_search_display` | Set the search-screen title, subtitle, and the predicate that decides when to show the search button. |
 | `set_case_search_advanced` | Set the advanced cluster: an expression naming owner ids whose cases are excluded from search results, and `searchFirst`, which opens the module on its Search screen with no browse list. |
 
 ## Working with deep links
@@ -834,7 +834,10 @@ and use lowercase letters, numbers, underscores, and hyphens. Renaming a
 destination preserves its external ID; changing that ID can break distributed
 links. The form-only `ignoreDisplayConditions: true` bypasses display
 conditions on entry, never Project or case access. On add, omission or `null`
-respects conditions.
+respects conditions. In Web Apps it is also what opens a form that is off the
+menu, or inside a module that is off the menu; Android opens such a form
+either way. A module that is off the menu takes no module or case-list entry
+point.
 
 Requirements derive from the destination's current case selections. Preserve
 all required parent selections and the order and maximum for multiple cases.
@@ -850,13 +853,24 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 | Tool | What it does |
 |---|---|
 | `create_form` | Add one empty form to `moduleUuid` and return its identity. Add questions with `add_fields`, then configure answer-dependent naming or closing rules with `update_form`. `entry: { kind: "search-no-matches" }` makes a registration form the one Results offers after a search finds nothing. To reuse Search answers, add fields with defaults that read `#search/<prompt name>`. |
-| `update_form` | Rename, set or clear `recordName` after its questions exist, refine one participant's CommCare Connect config after a mode exists, set close condition/post-submit destination, or set (or clear with `null`) the `entry` that offers a registration form after an empty search, addressed by `moduleUuid` and `formUuid`. |
+| `update_form` | Rename, set or clear `recordName` after its questions exist, refine one participant's CommCare Connect config after a mode exists, set close condition/post-submit destination, set its `displayCondition` and `hiddenFromMenu` (`true` takes the form off the menu, `null` puts it back), or set (or clear with `null`) the `entry` that offers a registration form after an empty search, addressed by `moduleUuid` and `formUuid`. |
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
 | `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, case operations with authored conditions and values, and its after-submit links in the order they are checked (each link's `uuid` is the `linkUuid` the link tools take). |
 
 ### Where a form goes after submit
 
-A form's `post_submit` says where people go once it is submitted. When the
+A form's `post_submit` says where people go once it is submitted: `app_home`,
+`firstMenu` (the app's first menu, which lists its modules; in Web Apps the same
+screen as `app_home`), `module`, `parentMenu` (the parent module, with its
+selection kept) or `previous`. Omitted, a registration or survey goes to
+`app_home`, and a followup or close form to the first its module offers of
+`previous`, `module`, `firstMenu`. A module offers `previous` unless it or its
+parent selects several cases, it opens on Search, or it is off the menu;
+`module` unless its parent selects several cases or it is off the menu; and
+`parentMenu` when its parent neither selects several cases nor is off the menu.
+A destination the module does not offer is refused, and a change to a module
+moves its forms' destinations to the nearest one it still offers. A no-matches
+registration form returns to Results unless `post_submit` is `firstMenu`. When the
 destination depends on data, give the form after-submit links: they are checked
 in order after the form closes and the first true condition is followed. An
 unconditional link is the otherwise and can only be last; with conditional links
@@ -866,7 +880,12 @@ datums run after the form has closed, so they read the module's case, worker,
 and session values, never the form's answers; save an answer to a case
 property first. A link that names `datums` must name every selection datum the
 target needs. Each link has an immutable identity: `get_form` returns it as the
-link's `uuid`, and the link tools take that value as `linkUuid`.
+link's `uuid`, and the link tools take that value as `linkUuid`. A link may not
+target a module that is off the menu. When a target form's display condition is
+false for a worker, Android still opens it after submit, and Web Apps opens the
+module that holds it instead; when a target module's display condition is false
+for a worker, Android opens it with nothing in it, and Web Apps opens the app's
+first screen instead.
 
 | Tool | What it does |
 |---|---|

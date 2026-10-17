@@ -133,7 +133,6 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"search-input-validation-message": "Search field check message",
 	"search-screen-title": "Search screen title",
 	"search-screen-subtitle": "Search screen subtitle",
-	"search-button-label": "Search button label",
 	"search-runtime-validation-message": "Search validation message",
 	"case-property-option-label": "Case property option label",
 };

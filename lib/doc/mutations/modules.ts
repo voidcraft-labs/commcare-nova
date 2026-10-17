@@ -6,14 +6,17 @@ import {
 } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
-	CASE_LOADING_FORM_TYPES,
 	type CaseListConfig,
 	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
+	defaultPostSubmitOf,
+	effectivePostSubmit,
 	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
-	moduleOpensOnSearch,
+	type PostSubmitDestination,
+	postSubmitDestinationsAdmitted,
 	type Uuid,
+	withCanonicalSearchInputOptions,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { cascadeDeleteForm } from "./helpers";
@@ -234,9 +237,12 @@ export function applyModuleMutation(
 			);
 			if (nextOrder === undefined) return;
 			const module = draft.modules[mut.uuid];
+			// The module's parent is a fact its forms' destinations read.
+			const before = postSubmitBefore(draft, draft.formOrder[mut.uuid] ?? []);
 			if (destinationParent === null) delete module.parentModuleUuid;
 			else module.parentModuleUuid = destinationParent;
 			draft.moduleOrder = nextOrder;
+			reconcilePostSubmitWithMenuShape(draft, before);
 			return;
 		}
 		case "renameModule": {
@@ -248,7 +254,10 @@ export function applyModuleMutation(
 		case "updateModule": {
 			const mod = draft.modules[mut.uuid];
 			if (!mod) return;
-			const openedOnSearch = moduleOpensOnSearch(mod);
+			const before = postSubmitBefore(
+				draft,
+				formsOfModuleAndChildren(draft, mut.uuid),
+			);
 			// Apply the patch key-by-key: a `null` (the wire representation of a
 			// clear — JSON drops `undefined`, so a cleared optional slot crosses
 			// the persistence wire as `null`) or `undefined` (an in-memory clear)
@@ -400,7 +409,7 @@ export function applyModuleMutation(
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
-			reconcilePostSubmitWithSearchFirst(draft, mut.uuid, openedOnSearch);
+			reconcilePostSubmitWithMenuShape(draft, before);
 			return;
 		}
 		case "setModuleMedia": {
@@ -529,7 +538,7 @@ export function applyModuleMutation(
 			}
 			config.searchInputs = spliceEntryAfter(
 				config.searchInputs,
-				structuredClone(mut.searchInput),
+				withCanonicalSearchInputOptions(structuredClone(mut.searchInput)),
 				mut.after,
 			);
 			return;
@@ -539,10 +548,10 @@ export function applyModuleMutation(
 			if (!config) return;
 			const idx = config.searchInputs.findIndex((s) => s.uuid === mut.uuid);
 			if (idx === -1) return;
-			config.searchInputs[idx] = {
+			config.searchInputs[idx] = withCanonicalSearchInputOptions({
 				...structuredClone(mut.searchInput),
 				uuid: mut.uuid,
-			};
+			});
 			return;
 		}
 		case "removeSearchInput": {
@@ -576,6 +585,12 @@ export function applyModuleMutation(
 			// searchInputs:[]}` with a peer's filter stranded on it.
 			const config = draft.modules[mut.uuid]?.caseListConfig;
 			if (!config) return;
+			// The selection mode rides this patch, and the module's forms and
+			// its child modules' forms read it.
+			const before = postSubmitBefore(
+				draft,
+				formsOfModuleAndChildren(draft, mut.uuid),
+			);
 			// Apply the patch key-by-key: a `null` (wire spelling of a clear —
 			// JSON drops `undefined`) DELETES the slot, any other value sets it.
 			const target = config as unknown as Record<string, unknown>;
@@ -583,7 +598,81 @@ export function applyModuleMutation(
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
+			reconcilePostSubmitWithMenuShape(draft, before);
 			return;
+		}
+	}
+}
+
+/** Each form's after-submit destination, as a reducer arm reads it before
+ * its own write: `before` for `reconcilePostSubmitWithMenuShape`. */
+export function postSubmitBefore(
+	draft: Draft<BlueprintDoc>,
+	formUuids: readonly Uuid[],
+): ReadonlyMap<Uuid, PostSubmitDestination> {
+	const before = new Map<Uuid, PostSubmitDestination>();
+	for (const formUuid of formUuids) {
+		const destination = effectivePostSubmit(draft, formUuid);
+		if (destination !== undefined) before.set(formUuid, destination);
+	}
+	return before;
+}
+
+/** The forms of a module and of each of its child modules: the forms whose
+ * offered destinations read the module's selection mode and its flag. */
+export function formsOfModuleAndChildren(
+	draft: Draft<BlueprintDoc>,
+	moduleUuid: Uuid,
+): Uuid[] {
+	return [moduleUuid, ...moduleChildren(draft, moduleUuid)].flatMap(
+		(uuid) => draft.formOrder[uuid] ?? [],
+	);
+}
+
+/** Where an explicit destination moves when its form may no longer hold it. */
+function nearestAdmitted(
+	stored: PostSubmitDestination,
+	admitted: readonly PostSubmitDestination[],
+): PostSubmitDestination {
+	if (stored === "previous" && admitted.includes("module")) return "module";
+	return "firstMenu";
+}
+
+/**
+ * Keep every form's after-submit destination one the form may hold, and
+ * meaning what it meant, when a write changes a fact its offered set or its
+ * default reads (`lib/domain/postSubmit.ts`): Search first, the selection
+ * mode, the module's `hiddenFromMenu`, the module's parent, the form's
+ * module, or whether the form holds links. So a change of menu shape never
+ * dead-ends at the gate. `before` maps each form to reconcile to its
+ * effective destination ahead of the write; after the write, for each:
+ *
+ *   - an explicit destination that left the admitted set moves to the
+ *     nearest admitted (`previous` to `module`, else `firstMenu`; `module`
+ *     and `parentMenu` to `firstMenu`);
+ *   - an absent slot whose destination left the admitted set stays absent
+ *     and takes the new default;
+ *   - an absent slot whose destination is still admitted while the default
+ *     now names another is pinned to it, so the author's destination holds;
+ *   - an explicit destination still admitted is kept.
+ */
+export function reconcilePostSubmitWithMenuShape(
+	draft: Draft<BlueprintDoc>,
+	before: ReadonlyMap<Uuid, PostSubmitDestination>,
+): void {
+	for (const [formUuid, destination] of before) {
+		const form = draft.forms[formUuid];
+		if (!form) continue;
+		const admitted = postSubmitDestinationsAdmitted(draft, formUuid);
+		if (form.postSubmit !== undefined) {
+			if (!admitted.includes(form.postSubmit)) {
+				form.postSubmit = nearestAdmitted(form.postSubmit, admitted);
+			}
+			continue;
+		}
+		if (!admitted.includes(destination)) continue;
+		if (defaultPostSubmitOf(draft, formUuid) !== destination) {
+			form.postSubmit = destination;
 		}
 	}
 }
@@ -603,41 +692,6 @@ export function applyModuleMutation(
  * a case list another member concurrently removed. It reads the config directly
  * and no-ops when absent; the guarded commit rejects that case as a conflict.
  */
-/**
- * Keep every case form's after-submit destination meaning what it meant
- * when the module's Search-first setting flips, whichever writer flipped it
- * (a settings edit, a wholesale config write, or final-input cleanup).
- *
- * The absent slot resolves to the module while Search first is on and to
- * the previous screen otherwise (`defaultPostSubmit`), so the same stored
- * document would change destination under the switch. Turning it on
- * rewrites an explicit `previous` to `module`: CommCare refuses the
- * previous-screen workflow on a case form of an inline-search module, and
- * the previous screen was the search itself. Turning it off pins `module`
- * where the slot was absent, so the destination the author saw in Preview
- * survives. Registration and survey forms default to the app home either
- * way and are left alone.
- */
-function reconcilePostSubmitWithSearchFirst(
-	draft: Draft<BlueprintDoc>,
-	moduleUuid: Uuid,
-	openedOnSearch: boolean,
-): void {
-	const mod = draft.modules[moduleUuid];
-	if (!mod) return;
-	const opensOnSearch = moduleOpensOnSearch(mod);
-	if (opensOnSearch === openedOnSearch) return;
-	for (const formUuid of draft.formOrder[moduleUuid] ?? []) {
-		const form = draft.forms[formUuid];
-		if (!form || !CASE_LOADING_FORM_TYPES.has(form.type)) continue;
-		if (opensOnSearch) {
-			if (form.postSubmit === "previous") form.postSubmit = "module";
-		} else if (form.postSubmit === undefined) {
-			form.postSubmit = "module";
-		}
-	}
-}
-
 function ensureCaseListConfig(
 	draft: Draft<BlueprintDoc>,
 	moduleUuid: string,

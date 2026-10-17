@@ -33,6 +33,7 @@ import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
 	moduleHasChildren,
+	OFF_THE_MENU_SUMMARY,
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
 	previewModuleVisibility,
@@ -104,12 +105,15 @@ export function HomeScreen() {
 						(localizedValues.get(
 							makeTranslationUnitId("module", mod.uuid, "name"),
 						) as string | undefined) ?? mod.name,
-					summary: summarizeFilter(mod.displayCondition, {
-						...(mod.caseType !== undefined && {
-							currentCaseType: mod.caseType,
-						}),
-						projectProse,
-					}),
+					summary:
+						mod.hiddenFromMenu === true
+							? OFF_THE_MENU_SUMMARY
+							: summarizeFilter(mod.displayCondition, {
+									...(mod.caseType !== undefined && {
+										currentCaseType: mod.caseType,
+									}),
+									projectProse,
+								}),
 				})),
 		[modules, moduleVisibility, projectProse, localizedValues],
 	);

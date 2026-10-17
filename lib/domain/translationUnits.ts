@@ -21,7 +21,6 @@ import {
 import { collectAssetRefs } from "./mediaRefs";
 import {
 	caseListColumnTextShows,
-	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	isSelectSearchInput,
@@ -56,7 +55,6 @@ export const translationUnitRoles = [
 	"search-input-validation-message",
 	"search-screen-title",
 	"search-screen-subtitle",
-	"search-button-label",
 	"search-runtime-validation-message",
 	"case-property-option-label",
 ] as const;
@@ -153,7 +151,6 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"form-entry-label",
 	"search-screen-title",
 	"search-screen-subtitle",
-	"search-button-label",
 	"search-input-label",
 	"search-input-required-message",
 	"search-input-validation-message",
@@ -767,17 +764,6 @@ export function collectTranslationUnits(
 					}),
 				);
 			}
-			out.push(
-				unit({
-					id: makeTranslationUnitId("module", moduleUuid, "search-button"),
-					valueKind: "text",
-					role: "search-button-label",
-					source: search.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL,
-					owner: searchOwner,
-					breadcrumb: [...moduleBreadcrumb, "Search", "button"],
-					context: { moduleName: module.name },
-				}),
-			);
 		}
 	}
 

@@ -39,6 +39,10 @@
  *   (`selectionNames`, `selectionDatum`, `inlineSearch`);
  * - what only its own case datum holds reaches its own case-loading forms
  *   (`detailConfirm`, `groupingConnection`);
+ * - the shape a case-loading form's after-submit default reads (opening on
+ *   Search, selecting several cases, being off the menu, and its parent
+ *   selecting several cases) reaches its own case-loading forms that store
+ *   no destination (`afterSubmitDefault`);
  * - the instances its expressions reach, which every entry of the module
  *   declares, reach its own forms (`ownEntryInstances`);
  * - the menu it is nested under reaches its forms and those of the modules
@@ -143,6 +147,7 @@ import {
 	locationTargetKey,
 	type Module,
 	moduleParent,
+	postSubmitModuleFacts,
 	projectedModulePreorder,
 	type SearchInputDef,
 	type TranslationUnitOwner,
@@ -615,13 +620,12 @@ function promptSettings(input: SearchInputDef): unknown {
  * (`caseSource`), puts the `<query>` before it
  * (`formLinkProjection.ts::withInlineSearchQueries` over `inlineSearchFor`
  * and `lib/commcare/suite/case-search/inlineSearch.ts::buildInlineSearch`),
- * makes each of the module's own entries claim the picked case
- * (`buildInlineClaimPost`), and sends a case-loading form back to the
- * module after submit by default (`lib/domain/postSubmit.ts::defaultPostSubmitOf`;
- * `defaultPostSubmit` gives any other type the app's home either way). The
- * settings are absent on a module that opens on its list, so turning
- * Search first on or off reaches the holders. The query's element and
- * declared instances read of the module:
+ * and makes each of the module's own entries claim the picked case
+ * (`buildInlineClaimPost`); what opening on Search does to a form's
+ * after-submit default is `afterSubmitDefault`'s. The settings are absent
+ * on a module that opens on its list, so turning Search first on or off
+ * reaches the holders. The query's element and declared instances read of
+ * the module:
  *
  * - its search inputs, as their prompts and query clauses write them
  *   (`promptSettings`; `compileForPlatform` also counts the visible ones
@@ -660,6 +664,49 @@ const inlineSearch: ModuleDerivation = {
 		};
 	},
 	holders: selectionForms,
+	framed: false,
+};
+
+/**
+ * The module's own case-loading forms that store no after-submit
+ * destination: each one's wire holds the default
+ * (`lib/domain/postSubmit.ts::defaultPostSubmitOf`) as its
+ * `post_form_workflow` and its stack after submit. A registration or survey
+ * form goes to the app's home whatever its module is, and a stored
+ * destination reaches its form through the form's own edit.
+ */
+const defaultDestinationForms: Holders = (side, moduleUuid) =>
+	formsOf(
+		side,
+		[moduleUuid],
+		(held, formUuid) =>
+			loadsCase(held, formUuid) &&
+			held.wire.forms[formUuid as Uuid]?.postSubmit === undefined,
+	);
+
+/**
+ * The module's shape as a case-loading form's after-submit default reads it
+ * (`lib/domain/postSubmit.ts::postSubmitModuleFacts`, which
+ * `defaultPostSubmit` takes): whether it opens on Search, selects several
+ * cases or is off the menu, and whether its parent selects several cases.
+ * The default is the first of `previous`, `module` and `firstMenu` the
+ * module offers, so a change to any of the four, on the module or on its
+ * parent, can move the destination its forms' wire holds. No frame carries
+ * a destination.
+ */
+const afterSubmitDefault: ModuleDerivation = {
+	settings: (side, _module, moduleUuid) => {
+		const facts = postSubmitModuleFacts(side.wire, moduleUuid);
+		return facts === undefined
+			? undefined
+			: {
+					searchFirst: facts.searchFirst,
+					multiSelect: facts.multiSelect,
+					parentMultiSelect: facts.parentMultiSelect,
+					offTheMenu: facts.offTheMenu,
+				};
+	},
+	holders: defaultDestinationForms,
 	framed: false,
 };
 
@@ -888,6 +935,7 @@ const MODULE_DERIVATIONS: readonly ModuleDerivation[] = [
 	selectionNames,
 	selectionDatum,
 	inlineSearch,
+	afterSubmitDefault,
 	detailConfirm,
 	groupingConnection,
 	ownEntryInstances,
@@ -1077,6 +1125,7 @@ export function batchFootprint(
 			applyMutations(draft, [mutation]);
 		});
 		for (const uuid of subjectsOf(mutation, state, next)) touched.add(uuid);
+		for (const uuid of movedDestinations(state, next)) touched.add(uuid);
 		for (const uuid of decidedEntities(mutation, d, dPrime)) {
 			decided.add(uuid);
 		}
@@ -1203,6 +1252,24 @@ function addOnsOf(
 
 function sameMembers(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 	return a.size === b.size && [...a].every((member) => b.has(member));
+}
+
+/**
+ * The forms whose stored after-submit destination a mutation rewrote
+ * without naming them: a module's arm moves a destination its new shape
+ * withholds, and pins an absent one whose default it moves while the form's
+ * links keep it admitted (`lib/doc/mutations/modules.ts::reconcilePostSubmitWithMenuShape`).
+ */
+function movedDestinations(
+	before: BlueprintDoc,
+	after: BlueprintDoc,
+): string[] {
+	return Object.keys(after.forms).filter(
+		(uuid) =>
+			before.forms[uuid as Uuid] !== undefined &&
+			before.forms[uuid as Uuid]?.postSubmit !==
+				after.forms[uuid as Uuid]?.postSubmit,
+	);
 }
 
 /**

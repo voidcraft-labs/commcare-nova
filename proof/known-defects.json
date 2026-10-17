@@ -303,36 +303,6 @@
 		"control": "case-operation-sequence"
 	},
 	{
-		"id": "d14-multi-select-validate-mismatch-multi-select",
-		"defect": 14,
-		"part": "multi-select destinations",
-		"check": "bar",
-		"artifact": "validate_app@*",
-		"path": "/modules/*/forms/*/mismatch multi select form links",
-		"document": "targeted-multi-select-destinations",
-		"control": "targeted-multi-select-destinations"
-	},
-	{
-		"id": "d14-multi-select-app-schema-form-post-form-workflow-not-offered",
-		"defect": 14,
-		"part": "multi-select destinations",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:Form.post_form_workflow/refused/not-offered",
-		"document": "case-extension-multiple",
-		"control": "case-capture-multiple"
-	},
-	{
-		"id": "d14-multi-select-editor-jsonobject-exceptions-badvalueerror",
-		"defect": 14,
-		"part": "multi-select destinations",
-		"check": "proof4",
-		"artifact": "editor:form settings@*",
-		"path": "/modules/*/forms/*/raised/edit_form_attr/jsonobject.exceptions.BadValueError",
-		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
-	},
-	{
 		"id": "d26-a-link-names-no-case-soft-assert-casedb-base-get-case-from-case-update",
 		"defect": 26,
 		"part": "a link's case value names no case",
@@ -353,126 +323,6 @@
 		"kind": "error",
 		"document": "expander-form-links-emission-forwards-literal-condition-47c96355-0",
 		"control": "expander-form-links-emission-forwards-literal-condition-47c96355-0"
-	},
-	{
-		"id": "d14-search-settings-suite-csql-key-include-closed",
-		"defect": 14,
-		"part": "search settings",
-		"check": "manifest",
-		"artifact": "*.ccz/suite.xml",
-		"path": "/csql-key:include_closed",
-		"document": "targeted-search-hq-compile",
-		"control": "targeted-search-hq-compile"
-	},
-	{
-		"id": "d14-search-settings-suite-promptkey-reserved-request-key",
-		"defect": 14,
-		"part": "search settings",
-		"check": "manifest",
-		"artifact": "*.ccz/suite.xml",
-		"path": "/parser:QueryPromptParser~1prompt@key/refused/reserved-request-key",
-		"document": "targeted-search-hq-compile",
-		"control": "targeted-search-hq-compile"
-	},
-	{
-		"id": "d14-search-settings-app-csql-key-include-closed",
-		"defect": 14,
-		"part": "search settings",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/csql-key:include_closed",
-		"document": "targeted-search-hq-compile",
-		"control": "targeted-search-hq-compile"
-	},
-	{
-		"id": "d14-search-settings-app-other-value",
-		"defect": 14,
-		"part": "search settings",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:CaseSearch.search_button_label/refused/other-value",
-		"document": "targeted-search-hq-compile",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-search-settings-app-reserved-request-key",
-		"defect": 14,
-		"part": "search settings",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:CaseSearchProperty.name/refused/reserved-request-key",
-		"document": "targeted-search-hq-compile",
-		"control": "targeted-search-hq-compile"
-	},
-	{
-		"id": "d14-search-button-label-app-search-config-search-button-label",
-		"defect": 14,
-		"part": "search settings",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/search_config/search_button_label/*",
-		"document": "targeted-search-button-label",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-search-button-label-strings-case-search-m",
-		"defect": 14,
-		"part": "search settings",
-		"check": "proof4",
-		"artifact": "app_strings:*@case list@*",
-		"path": "/case_search.m*",
-		"document": "targeted-search-button-label",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-search-lookup-prompt-editor-alerts-case-search-property",
-		"defect": 14,
-		"part": "search settings",
-		"check": "proof4",
-		"artifact": "editor:case list@*",
-		"path": "/modules/*/alerts/\u00d7 The case search property '*' is missing the following lookup table attributes: sort",
-		"document": "prompt-widgets",
-		"control": "prompt-widgets"
-	},
-	{
-		"id": "d14-search-lookup-prompt-editor-400-case-search-property",
-		"defect": 14,
-		"part": "search settings",
-		"check": "proof4",
-		"artifact": "editor:case list@*",
-		"path": "/modules/*/save/400/The case search property '*' is missing the following lookup table attributes: sort",
-		"document": "prompt-widgets",
-		"control": "prompt-widgets"
-	},
-	{
-		"id": "d14-search-lookup-prompt-editor-state-savebtn-bar-retry",
-		"defect": 14,
-		"part": "search settings",
-		"check": "proof4",
-		"artifact": "editor:case list@*",
-		"path": "/modules/*/state/savebtn-bar-retry",
-		"document": "prompt-widgets",
-		"control": "prompt-widgets"
-	},
-	{
-		"id": "d14-search-button-label-trace-actions",
-		"defect": 14,
-		"part": "search settings",
-		"check": "proof4",
-		"artifact": "trace@case list@*",
-		"path": "/runs/*/trace/*/actions/*",
-		"document": "targeted-search-button-label",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-survey-menus-app-case-type",
-		"defect": 14,
-		"part": "survey menus",
-		"check": "intent",
-		"artifact": "app.json@*",
-		"path": "/modules/*/case_type",
-		"document": "targeted-survey-menu",
-		"control": "targeted-survey-menu"
 	},
 	{
 		"id": "d20-sync-on-form-entry-suite-entry-post",
@@ -1961,28 +1811,6 @@
 		"control": "targeted-search-hq-compile"
 	},
 	{
-		"id": "d53-zero-input-sentinel-trace-params",
-		"defect": 53,
-		"part": "zero-input search sentinel",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/params/_xpath_query",
-		"document": "search-automatic",
-		"control": "search-automatic",
-		"kind": "removed"
-	},
-	{
-		"id": "d53-zero-input-sentinel-trace-request-params",
-		"defect": 53,
-		"part": "zero-input search sentinel",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/requests/*/params/_xpath_query",
-		"document": "search-automatic",
-		"control": "search-automatic",
-		"kind": "removed"
-	},
-	{
 		"id": "d26-form-links-app-form-links-other-module-target",
 		"defect": 26,
 		"part": "hidden links and navigation fallbacks",
@@ -2061,36 +1889,6 @@
 		"path": "/*/raised/XPathFunctionException/apps~1case_search~1filter_dsl.py::_require_related_lookups_flag",
 		"document": "targeted-search-related-lookups",
 		"control": "targeted-search-related-lookups"
-	},
-	{
-		"id": "d14-default-filter-name-editor-unsent",
-		"defect": 14,
-		"part": "search settings (an input named like a default filter)",
-		"check": "proof4",
-		"artifact": "editor:case *@*",
-		"path": "/modules/*/save/unsent/There are errors in your configuration. Search Properties and Default Search Filters can't have common properties. Please update following properties: _xpath_query",
-		"document": "targeted-search-default-filter-name",
-		"control": "targeted-search-default-filter-name"
-	},
-	{
-		"id": "d14-default-filter-name-app-search-property",
-		"defect": 14,
-		"part": "search settings (an input named like a default filter)",
-		"check": "manifest",
-		"artifact": "app.json",
-		"path": "/schema:CaseSearchProperty.name/refused/shared-by-filter-and-prompt",
-		"document": "targeted-search-default-filter-name",
-		"control": "targeted-search-default-filter-name"
-	},
-	{
-		"id": "d14-default-filter-name-app-default-property",
-		"defect": 14,
-		"part": "search settings (an input named like a default filter)",
-		"check": "manifest",
-		"artifact": "app.json",
-		"path": "/schema:DefaultCaseSearchProperty.property/refused/shared-by-filter-and-prompt",
-		"document": "targeted-search-default-filter-name",
-		"control": "targeted-search-default-filter-name"
 	},
 	{
 		"id": "d20-session-trace-step",
@@ -2345,16 +2143,6 @@
 		"path": "/runs/*/steps/*/response/tiles",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-search-settings-formplayer-case-list-response-title",
-		"defect": 14,
-		"part": "search settings",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/title",
-		"document": "case-list-match-none",
-		"control": "case-list-match-none"
 	},
 	{
 		"id": "d21-list-first-turned-search-fir-formplayer-case-list-response-type",
@@ -2810,16 +2598,6 @@
 		"control": "targeted-custom-tile-explicit-cells"
 	},
 	{
-		"id": "d14-search-settings-webapps-case-list-screens-title",
-		"defect": 14,
-		"part": "search settings",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/title",
-		"document": "case-list-match-none",
-		"control": "case-list-match-none"
-	},
-	{
 		"id": "d25-query-repeat-rewritten-into--webapps-vellum-alerts",
 		"defect": 25,
 		"part": "query repeat rewritten into model iteration",
@@ -2893,39 +2671,6 @@
 		"kind": "changed",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry"
-	},
-	{
-		"id": "d53-android-proof3-local-ccz-query-getrawqueryparams-removed",
-		"defect": 53,
-		"part": "zero-input search sentinel",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/RemoteQuerySessionManager.getRawQueryParams/*",
-		"kind": "removed",
-		"document": "search-automatic",
-		"control": "search-automatic"
-	},
-	{
-		"id": "d53-android-proof3-local-ccz-query-withanswer-getrawqueryparams-removed",
-		"defect": 53,
-		"part": "zero-input search sentinel",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/withAnswer/RemoteQuerySessionManager.getRawQueryParams/*",
-		"kind": "removed",
-		"document": "search-automatic",
-		"control": "search-automatic"
-	},
-	{
-		"id": "d14-android-proof4-case-list-list-actions-changed",
-		"defect": 14,
-		"part": "search settings",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/list/actions/*",
-		"kind": "changed",
-		"document": "case-list-match-none",
-		"control": "case-list-match-none"
 	},
 	{
 		"id": "d12-android-proof4-case-list-list-rowclass-changed",
@@ -3696,17 +3441,6 @@
 		"kind": "changed",
 		"document": "container-query-conditional",
 		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d53-android-proof3-local-ccz-query-typed-getrawqueryparams-removed",
-		"defect": 53,
-		"part": "zero-input search sentinel (a typed search)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/typed/RemoteQuerySessionManager.getRawQueryParams/*",
-		"kind": "removed",
-		"document": "search-automatic",
-		"control": "search-automatic"
 	},
 	{
 		"id": "d12-android-proof4-case-list-query-typed-getrawqueryparams-changed",

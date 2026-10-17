@@ -65,11 +65,6 @@ export function projectWorkerModule(
 	const search = effectiveCaseSearchConfig(mod);
 	const sourceSearch = effectiveCaseSearchConfig(canonical);
 	if (search) {
-		if (sourceSearch?.searchButtonLabel === undefined)
-			search.searchButtonLabel = fallback(
-				makeTranslationUnitId("module", uuid, "search-button"),
-				"search",
-			);
 		if (sourceSearch?.searchScreenTitle === undefined)
 			search.searchScreenTitle = fallback(
 				makeTranslationUnitId("module", uuid, "search-title"),

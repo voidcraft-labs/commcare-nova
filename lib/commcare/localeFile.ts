@@ -17,7 +17,6 @@ const LOCALE_FILE_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
 		"search-input-validation-message",
 		"search-screen-title",
 		"search-screen-subtitle",
-		"search-button-label",
 		"search-runtime-validation-message",
 		"case-property-option-label",
 	],

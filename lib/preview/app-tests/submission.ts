@@ -114,7 +114,7 @@ export async function submitAppTest(
 					deviceCases,
 					history: [],
 					screen:
-						registrationReturn === "app_home"
+						registrationReturn === "firstMenu"
 							? { kind: "home" as const }
 							: {
 									kind: "records" as const,
@@ -178,21 +178,45 @@ export async function submitAppTest(
 			case "unresolvable":
 				throw new AppTestActionError(next.route.reason);
 			case "post-submit":
-				if (next.route.destination === "app_home")
-					nextState = { ...nextState, screen: { kind: "home" }, history: [] };
-				else if (next.route.destination === "previous")
-					throw new AppTestActionError(
-						"The preceding task was not resolved from the saved entry.",
-					);
-				else
-					nextState = {
-						...nextState,
-						screen: enterAppTestMenu(
-							{ ...context, identity },
-							nextState,
-							screen.moduleUuid,
-						),
-					};
+				switch (next.route.destination) {
+					/* One home screen for both until Preview plays each platform:
+					 * Web Apps shows the app's first screen for both. */
+					case "app_home":
+					case "firstMenu":
+						nextState = { ...nextState, screen: { kind: "home" }, history: [] };
+						break;
+					case "previous":
+						throw new AppTestActionError(
+							"The preceding task was not resolved from the saved entry.",
+						);
+					case "parentMenu": {
+						const parentUuid =
+							context.doc.modules[screen.moduleUuid]?.parentModuleUuid;
+						if (parentUuid === undefined)
+							throw new AppTestActionError(
+								"The parent module this form returns to is not in the app.",
+							);
+						nextState = {
+							...nextState,
+							screen: enterAppTestMenu(
+								{ ...context, identity },
+								nextState,
+								parentUuid,
+							),
+						};
+						break;
+					}
+					case "module":
+						nextState = {
+							...nextState,
+							screen: enterAppTestMenu(
+								{ ...context, identity },
+								nextState,
+								screen.moduleUuid,
+							),
+						};
+						break;
+				}
 				break;
 			case "module":
 				nextState = {

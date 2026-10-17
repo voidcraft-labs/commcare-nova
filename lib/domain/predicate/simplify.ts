@@ -175,18 +175,37 @@ export function effectiveFilterForEmission(
 }
 
 /**
- * The display-condition counterpart to `effectiveFilterForEmission`.
- * An absent condition and a deeply simplified always-true condition both mean
- * "show unconditionally" and therefore emit no `relevant`/filter wire slot.
- * `match-none` remains observable so validation can reject the unreachable
- * navigation item before emission.
+ * The display condition a navigation item emits, held as written: absent
+ * for an absent condition or one whose root is `match-all`, and otherwise
+ * the stored condition exactly. Nothing inside it is rewritten, so
+ * `x and never` prints `x and false()` and `x or always` prints
+ * `x or true()`. Every reader of a display condition (both emitters, the
+ * instance collection beside them, and Preview's evaluation) reads this one
+ * function, so what is printed and what declares its instances agree. An
+ * item off the menu is the separate `hiddenFromMenu` flag, which the
+ * emitters print ahead of this condition.
  */
-export function effectiveDisplayConditionForEmission(
+export function displayConditionForEmission(
 	condition: Predicate | undefined,
 ): Predicate | undefined {
-	if (condition === undefined) return undefined;
-	const simplified = simplifyForEmission(condition);
-	return isMatchAll(simplified) ? undefined : simplified;
+	if (condition === undefined || isMatchAll(condition)) return undefined;
+	return condition;
+}
+
+/**
+ * Whether a display condition spells "off the menu" in the condition
+ * itself: `match-none`, or an `and` whose first clause is `match-none`.
+ * Either prints exactly what `hiddenFromMenu` prints, so the gate refuses
+ * it and the flag is the one spelling.
+ */
+export function displayConditionStartsWithNever(
+	condition: Predicate | undefined,
+): boolean {
+	if (condition === undefined) return false;
+	if (condition.kind === "match-none") return true;
+	return (
+		condition.kind === "and" && condition.clauses[0]?.kind === "match-none"
+	);
 }
 
 /**

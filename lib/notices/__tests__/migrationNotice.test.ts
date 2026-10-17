@@ -272,6 +272,80 @@ const REAL_ENTRIES = {
 		},
 		detail: { question: "Full name" },
 	},
+	"search-button-text-changed": {
+		kind: "document",
+		reason: "search-button-text-changed",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a1",
+			nameAtMigration: "Patients",
+		},
+		detail: { from: "Find a patient" },
+	},
+	"search-input-renamed": {
+		kind: "document",
+		reason: "search-input-renamed",
+		entity: {
+			type: "searchInput",
+			uuid: "01992000-0000-7000-8000-0000000000d2",
+			nameAtMigration: "_xpath_query_2",
+		},
+		detail: { menu: "Patients", from: "_xpath_query", to: "_xpath_query_2" },
+	},
+	"search-input-removed": {
+		kind: "document",
+		reason: "search-input-removed",
+		entity: {
+			type: "searchInput",
+			uuid: "01992000-0000-7000-8000-0000000000d3",
+			nameAtMigration: "include_closed",
+		},
+		detail: { menu: "Patients", expressions: "2" },
+	},
+	"hidden-from-menu-set": {
+		kind: "document",
+		reason: "hidden-from-menu-set",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a2",
+			nameAtMigration: "Archive",
+		},
+	},
+	"after-submit-destination-moved": {
+		kind: "document",
+		reason: "after-submit-destination-moved",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Visit",
+		},
+		detail: {
+			from: "previous",
+			to: "module",
+			cause: "multi-select-menu",
+			menu: "Batches",
+		},
+	},
+	"lookup-choices-order-changes": {
+		kind: "document",
+		reason: "lookup-choices-order-changes",
+		entity: {
+			type: "searchInput",
+			uuid: "01992000-0000-7000-8000-0000000000d1",
+			nameAtMigration: "Clinic",
+		},
+		detail: { menu: "Patients" },
+	},
+	"survey-menu-takes-case-type": {
+		kind: "document",
+		reason: "survey-menu-takes-case-type",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a3",
+			nameAtMigration: "Surveys",
+		},
+		detail: { caseType: "household" },
+	},
 	"setting-changes-at-next-publish": {
 		...deploymentEntry("setting-changes-at-next-publish"),
 		detail: { setting: "incomplete", readers: "android-and-webapps" },

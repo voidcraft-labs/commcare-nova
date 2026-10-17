@@ -201,7 +201,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 			{ en: "Child" },
 			"visit",
 			[],
-			detailPair([]),
+			detailPair([detailColumn("name", "Name")]),
 			["en"],
 		);
 		child.root_module_id = root.unique_id;
@@ -801,6 +801,69 @@ describe("HQ-JSON oracle — search configuration labels", () => {
 	});
 });
 
+describe("HQ-JSON oracle — the search button label", () => {
+	it("accepts HQ's default keyed en alone", () => {
+		const app = baselineApp();
+		expect(moduleOf(app).search_config.search_button_label).toEqual({
+			en: "Search All Cases",
+		});
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
+	it("flags another label, and the default under another language", () => {
+		const labels: Record<string, string>[] = [
+			{ en: "Search" },
+			{ en: "Search All Cases", es: "Search All Cases" },
+		];
+		for (const label of labels) {
+			const app = baselineApp();
+			moduleOf(app).search_config.search_button_label = label;
+			expect(codes(validateHqJson(app))).toEqual([
+				"HQJSON_BAD_SEARCH_BUTTON_LABEL",
+			]);
+		}
+	});
+});
+
+// ── spellings HQ's editors write ────────────────────────────────────
+
+describe("HQ-JSON oracle — the spellings HQ's editors write", () => {
+	it("flags a calculated column written calculate, beside the plain one", () => {
+		const column = {
+			...detailColumn("today()", "Today"),
+			useXpathExpression: true,
+		};
+		const plain = baselineApp();
+		moduleOf(plain).case_details.short.columns = [column];
+		expect(validateHqJson(plain)).toEqual([]);
+		const calculate = baselineApp();
+		moduleOf(calculate).case_details.short.columns = [
+			{ ...column, format: "calculate" as never },
+		];
+		expect(codes(validateHqJson(calculate))).toEqual([
+			"HQJSON_BAD_DETAIL_FORMAT",
+		]);
+	});
+
+	it("flags an empty short detail, beside an empty long one", () => {
+		const app = baselineApp();
+		moduleOf(app).case_details.long.columns = [];
+		expect(validateHqJson(app)).toEqual([]);
+		moduleOf(app).case_details.short.columns = [];
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_EMPTY_SHORT_DETAIL"]);
+	});
+
+	it("flags no_vellum on a form and custom_variables on a detail", () => {
+		const app = baselineApp();
+		Object.assign(moduleOf(app).forms[0], { no_vellum: false });
+		Object.assign(moduleOf(app).case_details.short, { custom_variables: null });
+		expect(codes(validateHqJson(app))).toEqual([
+			"HQJSON_UNWRITTEN_KEY",
+			"HQJSON_UNWRITTEN_KEY",
+		]);
+	});
+});
+
 // ── finite-number column slots ──────────────────────────────────────
 
 describe("HQ-JSON oracle — column finite-number slots", () => {
@@ -1136,6 +1199,7 @@ describe("HQ-JSON oracle — search prompt children", () => {
 				nodeset: "instance('item-list:regions')/regions_list/regions",
 				label: "label",
 				value: "value",
+				sort: "label",
 			},
 		});
 		expect(single?.exclude).toBeUndefined();
@@ -1150,5 +1214,34 @@ describe("HQ-JSON oracle — search prompt children", () => {
 		expect(multi?.exclude).toBeUndefined();
 		expect(validateHqJson(singleApp)).toEqual([]);
 		expect(validateHqJson(multiApp)).toEqual([]);
+
+		// A chosen sort column is written in place of the label column.
+		const sortedApp = expandDoc(
+			promptDoc([
+				simpleSearchInputDef(
+					SI_REGION,
+					"region",
+					"Region",
+					"select",
+					"region",
+					{
+						options: { ...options, sortColumnId: REGIONS_VALUE },
+					},
+				),
+			]),
+			{ lookupNaming: REGIONS_NAMING },
+			REGIONS_CONTEXT,
+		);
+		expect(propertiesOf(sortedApp)[0]?.itemset?.sort).toBe("value");
+		expect(validateHqJson(sortedApp)).toEqual([]);
+
+		// HQ's Case List save refuses an itemset without its sort.
+		const sortless = structuredClone(singleApp);
+		const [prompt] = propertiesOf(sortless);
+		if (prompt?.itemset === undefined) throw new Error("Expected an itemset");
+		prompt.itemset.sort = "";
+		expect(codes(validateHqJson(sortless))).toEqual([
+			"HQJSON_BAD_SEARCH_ITEMSET",
+		]);
 	});
 });

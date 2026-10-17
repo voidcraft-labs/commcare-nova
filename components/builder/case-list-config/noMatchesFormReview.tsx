@@ -65,7 +65,7 @@ export interface NoMatchesFormReview {
 	 *  decides where the registration returns (Results with the new case,
 	 *  or the module's Search). */
 	readonly hostKeepsMenuForms: boolean;
-	readonly appHomeAfterSubmit: boolean;
+	readonly firstMenuAfterSubmit: boolean;
 	/** The gate's refusals for the exact batch; empty when it would commit. */
 	readonly blockers: readonly string[];
 }
@@ -88,7 +88,7 @@ function planChoice(
 				doc,
 				moduleUuid,
 				module && caseSelectionCardinality(module) === "multiple"
-					? { postSubmit: "app_home" }
+					? { postSubmit: "firstMenu" }
 					: {},
 			);
 			return planned === null
@@ -161,20 +161,20 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 			);
 			const clearing = choice.kind === "clear";
 			const current = clearing ? noMatchesFormOf(doc, moduleUuid) : undefined;
-			let appHomeAfterSubmit =
-				doc.forms[planned.formUuid]?.postSubmit === "app_home";
+			let firstMenuAfterSubmit =
+				doc.forms[planned.formUuid]?.postSubmit === "firstMenu";
 			for (const mutation of planned.mutations) {
 				if (
 					mutation.kind === "addForm" &&
 					mutation.form.uuid === planned.formUuid
 				)
-					appHomeAfterSubmit = mutation.form.postSubmit === "app_home";
+					firstMenuAfterSubmit = mutation.form.postSubmit === "firstMenu";
 				if (
 					mutation.kind === "updateForm" &&
 					mutation.uuid === planned.formUuid &&
 					Object.hasOwn(mutation.patch, "postSubmit")
 				)
-					appHomeAfterSubmit = mutation.patch.postSubmit === "app_home";
+					firstMenuAfterSubmit = mutation.patch.postSubmit === "firstMenu";
 			}
 			return {
 				choice,
@@ -186,7 +186,7 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 						? 0
 						: searchAnswerDefaultsOf(doc, moduleUuid, current.uuid).length,
 				hostKeepsMenuForms: menuForms.length > 0,
-				appHomeAfterSubmit,
+				firstMenuAfterSubmit,
 				blockers,
 			};
 		},
@@ -350,8 +350,8 @@ export function NoMatchesFormReviewDialog({
 							<p className="rounded-xl border border-white/[0.07] bg-nova-surface/20 p-3">
 								“{review.formName}” leaves the menu. It opens only from Results
 								after a search finds nothing, and after submit it opens{" "}
-								{review.appHomeAfterSubmit
-									? "App home."
+								{review.firstMenuAfterSubmit
+									? "First menu."
 									: review.hostKeepsMenuForms
 										? "Results showing the case it registered."
 										: "Search, since the module has no other forms."}

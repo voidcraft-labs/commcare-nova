@@ -3,7 +3,10 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
 import { eq, literal, prop, sessionContext } from "@/lib/domain/predicate";
-import { prepareEntryPointLaunch } from "../entryPointLaunch";
+import {
+	FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL,
+	prepareEntryPointLaunch,
+} from "../entryPointLaunch";
 import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
 
 function launch(args: Parameters<typeof prepareEntryPointLaunch>[0]) {
@@ -113,6 +116,82 @@ describe("entry point Preview admission", () => {
 		const input = args();
 		input.database.rows = [row("b", "other")];
 		expect(launch(input).kind).toBe("refused");
+	});
+	it.each([
+		["the form", "form"],
+		["its module", "module"],
+	] as const)(
+		"opens a form off the menu (%s) only from an entry point that ignores display conditions",
+		(_label, carrier) => {
+			const hide = (input: ReturnType<typeof args>) => {
+				if (carrier === "form") input.doc.forms[F].hiddenFromMenu = true;
+				else input.doc.modules[M].hiddenFromMenu = true;
+			};
+			const plain = args();
+			hide(plain);
+			expect(launch(plain)).toEqual({
+				kind: "refused",
+				message: FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL,
+			});
+			const ignoring = args();
+			hide(ignoring);
+			ignoring.doc.forms[F].entryPoint = {
+				uuid: E,
+				id: "visit",
+				ignoreDisplayConditions: true,
+			};
+			expect(launch(ignoring).kind).toBe("ready");
+		},
+	);
+	it("refuses a form under a module off the menu with the off-the-menu copy", () => {
+		const doc = buildDoc({
+			appName: "Links",
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					uuid: "parent",
+					name: "Clinic",
+					forms: [
+						{
+							uuid: "intake",
+							name: "Intake",
+							type: "survey",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+				{
+					uuid: "module",
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: "form",
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "notes" })],
+						},
+					],
+				},
+			],
+		});
+		const P = testUuid("parent");
+		doc.modules[P].hiddenFromMenu = true;
+		doc.forms[F].entryPoint = { uuid: E, id: "visit" };
+		doc.modules[M].parentModuleUuid = P;
+		expect(launch(args(doc))).toEqual({
+			kind: "refused",
+			message: FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL,
+		});
+		doc.forms[F].entryPoint = {
+			uuid: E,
+			id: "visit",
+			ignoreDisplayConditions: true,
+		};
+		expect(launch(args(doc)).kind).toBe("ready");
 	});
 	it("enforces display conditions unless the form explicitly bypasses them", () => {
 		const input = args();

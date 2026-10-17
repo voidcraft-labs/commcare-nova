@@ -98,6 +98,7 @@ export function AfterSubmitSection({
 			)}
 
 			<FallbackChooser
+				moduleUuid={moduleUuid}
 				formUuid={formUuid}
 				canEdit={canEdit}
 				ariaLabel={

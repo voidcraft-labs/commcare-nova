@@ -33,7 +33,6 @@ describe("case-search-config author schema boundaries", () => {
 				moduleUuid: MODULE_UUID,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
-				searchButtonLabel: null,
 				searchButtonDisplayCondition: null,
 			},
 		],
@@ -135,7 +134,6 @@ describe("case-search-config author schema boundaries", () => {
 			moduleUuid: MODULE_UUID,
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: "Type to filter",
-			searchButtonLabel: "Search",
 			searchButtonDisplayCondition: { kind: "match-all" },
 		});
 		expect(result.success).toBe(true);
@@ -146,7 +144,6 @@ describe("case-search-config author schema boundaries", () => {
 			moduleUuid: MODULE_UUID,
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
-			searchButtonLabel: null,
 			searchButtonDisplayCondition: null,
 		});
 		expect(result.success).toBe(true);
@@ -161,7 +158,6 @@ describe("case-search-config author schema boundaries", () => {
 			moduleUuid: MODULE_UUID,
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
-			searchButtonLabel: null,
 			searchButtonDisplayCondition: null,
 			unknownSlotA: "stray",
 			unknownSlotB: "stray",

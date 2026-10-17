@@ -13,7 +13,8 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	and,
 	count,
-	effectiveDisplayConditionForEmission,
+	displayConditionForEmission,
+	displayConditionStartsWithNever,
 	effectiveFilterForEmission,
 	eq,
 	exists,
@@ -213,18 +214,35 @@ describe("effectiveFilterForEmission — folds the always-true result to undefin
 	});
 });
 
-describe("effectiveDisplayConditionForEmission", () => {
-	it("folds absent and deeply always-true conditions to no wire carrier", () => {
-		expect(effectiveDisplayConditionForEmission(undefined)).toBeUndefined();
-		expect(
-			effectiveDisplayConditionForEmission(or(matchAll(), a)),
-		).toBeUndefined();
+describe("displayConditionForEmission", () => {
+	it("emits nothing for an absent condition or a root always", () => {
+		expect(displayConditionForEmission(undefined)).toBeUndefined();
+		expect(displayConditionForEmission(matchAll())).toBeUndefined();
 	});
 
-	it("keeps a real condition and the always-false sentinel", () => {
-		expect(effectiveDisplayConditionForEmission(and(matchAll(), a))).toEqual(a);
-		expect(effectiveDisplayConditionForEmission(matchNone())).toEqual(
+	it("holds every other condition as written, with no clause absorbed", () => {
+		for (const condition of [
+			and(a, matchNone()),
+			and(a, matchAll()),
+			or(a, matchAll()),
+			and(matchAll(), a),
 			matchNone(),
-		);
+		]) {
+			expect(displayConditionForEmission(condition)).toBe(condition);
+		}
+	});
+});
+
+describe("displayConditionStartsWithNever", () => {
+	it("reads never, and an and whose first clause is never, as the hidden spelling", () => {
+		expect(displayConditionStartsWithNever(matchNone())).toBe(true);
+		expect(displayConditionStartsWithNever(and(matchNone(), a))).toBe(true);
+	});
+
+	it("leaves never in any other position as an ordinary condition", () => {
+		expect(displayConditionStartsWithNever(undefined)).toBe(false);
+		expect(displayConditionStartsWithNever(and(a, matchNone()))).toBe(false);
+		expect(displayConditionStartsWithNever(or(matchNone(), a))).toBe(false);
+		expect(displayConditionStartsWithNever(not(matchNone()))).toBe(false);
 	});
 });

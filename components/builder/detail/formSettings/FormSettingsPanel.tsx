@@ -31,8 +31,9 @@ interface FormSettingsPanelProps extends FormSettingsSectionProps {
  * `CloseConditionSection`, non-null `connectType` for `ConnectSection`,
  * registration forms with somewhere to be offered from for
  * `FormEntrySection`). A no-matches registration form has a restricted after-submit choice
- * and no display condition. Its native search return is scalar-only;
- * App home is the explicit destination for either selection cardinality.
+ * and no menu section: it is on no menu, so it takes neither "Show on the
+ * menu" nor a display condition. Its native search return is scalar-only;
+ * First menu is the explicit destination for either selection cardinality.
  */
 export function FormSettingsPanel({
 	moduleUuid,

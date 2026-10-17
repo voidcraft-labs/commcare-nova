@@ -46,6 +46,7 @@ import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
 	moduleHasChildren,
+	OFF_THE_MENU_SUMMARY,
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
 	previewModuleVisibility,
@@ -150,6 +151,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 						? ("shown" as const)
 						: formDisplayVisibility({
 								condition: form.displayCondition,
+								hiddenFromMenu: form.hiddenFromMenu === true,
 								session,
 								...(mod?.caseType ? { currentCaseType: mod.caseType } : {}),
 								caseProjection: selectedCaseProjection,
@@ -169,7 +171,10 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 						(localizedValues.get(
 							makeTranslationUnitId("form", form.uuid, "name"),
 						) as string | undefined) ?? form.name,
-					summary: summarizeFilter(form.displayCondition, { projectProse }),
+					summary:
+						form.hiddenFromMenu === true
+							? OFF_THE_MENU_SUMMARY
+							: summarizeFilter(form.displayCondition, { projectProse }),
 				})),
 		[forms, formVisibility, projectProse, localizedValues],
 	);
@@ -190,10 +195,15 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 						(localizedValues.get(
 							makeTranslationUnitId("module", child.uuid, "name"),
 						) as string | undefined) ?? child.name,
-					summary: summarizeFilter(child.displayCondition, {
-						...(child.caseType ? { currentCaseType: child.caseType } : {}),
-						projectProse,
-					}),
+					summary:
+						child.hiddenFromMenu === true
+							? OFF_THE_MENU_SUMMARY
+							: summarizeFilter(child.displayCondition, {
+									...(child.caseType
+										? { currentCaseType: child.caseType }
+										: {}),
+									projectProse,
+								}),
 				})),
 		[children, localizedValues, moduleVisibility, projectProse],
 	);

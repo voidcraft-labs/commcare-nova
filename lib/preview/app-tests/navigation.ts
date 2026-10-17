@@ -80,6 +80,7 @@ export function appTestForms(
 				form,
 				visibility: formDisplayVisibility({
 					condition: form.displayCondition,
+					hiddenFromMenu: form.hiddenFromMenu === true,
 					session: previewSessionValues(identity),
 					currentCaseType: mod.caseType,
 					caseProjection: properties

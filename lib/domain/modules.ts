@@ -42,10 +42,8 @@ import {
 	persistableJsonNonnegativeIntegerSchema,
 	persistableJsonPositiveIntegerSchema,
 } from "./jsonNumber";
-import {
-	type LookupOptionsSource,
-	lookupOptionsSourceSchema,
-} from "./lookupCarriers";
+import { lookupOptionsSourceSchema } from "./lookupCarriers";
+import { lookupColumnIdSchema } from "./lookupIds";
 import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
 import type {
 	Predicate,
@@ -1247,6 +1245,49 @@ export const simpleDateRangeSearchInputSchema = visibleSearchInputBase
 	})
 	.strict();
 
+/**
+ * The lookup choices of a Search question: a form select's source plus the
+ * column whose text orders the choices. Absent `sortColumnId` means the label
+ * column, and the reducer stores a sort column equal to the label column as
+ * absent, so one order has one spelling. The sort belongs to Search questions
+ * alone: HQ's Case List save refuses a lookup prompt without one
+ * (`views/modules.py::_update_search_properties`), and a form select writes
+ * none.
+ */
+export const searchInputLookupOptionsSchema = lookupOptionsSourceSchema
+	.extend({ sortColumnId: lookupColumnIdSchema.optional() })
+	.strict();
+export type SearchInputLookupOptions = z.infer<
+	typeof searchInputLookupOptionsSchema
+>;
+z.globalRegistry.add(searchInputLookupOptionsSchema, {
+	id: "SearchInputLookupOptions",
+});
+
+/** The column whose text orders a Search question's lookup choices. */
+export function searchInputLookupSortColumnId(
+	options: SearchInputLookupOptions,
+): SearchInputLookupOptions["labelColumnId"] {
+	return options.sortColumnId ?? options.labelColumnId;
+}
+
+/**
+ * The input with its one spelling of the choice order: a sort column equal
+ * to the label column is stored as absent. Every input the document writes
+ * passes through this, so a later label change that meets the sort column
+ * drops it too.
+ */
+export function withCanonicalSearchInputOptions<T extends SearchInputDef>(
+	input: T,
+): T {
+	if (!isSelectSearchInput(input)) return input;
+	const { sortColumnId, ...options } = input.options;
+	if (sortColumnId === undefined || sortColumnId !== options.labelColumnId) {
+		return input;
+	}
+	return { ...input, options };
+}
+
 /** The sole mode a choice widget admits: its value IS the exact token. */
 const selectSearchInputModeSchema = z.strictObject({
 	kind: z.literal("exact"),
@@ -1263,7 +1304,7 @@ export const simpleSelectSearchInputSchema = visibleSearchInputBase
 	.extend({
 		...simpleSearchInputSlots,
 		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
-		options: lookupOptionsSourceSchema,
+		options: searchInputLookupOptionsSchema,
 		default: valueExpressionSchema.optional(),
 		mode: selectSearchInputModeSchema.optional(),
 	})
@@ -1296,7 +1337,7 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
 	.extend({
 		kind: z.literal("advanced"),
 		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
-		options: lookupOptionsSourceSchema,
+		options: searchInputLookupOptionsSchema,
 		default: valueExpressionSchema.optional(),
 		predicate: predicateSchema,
 	})
@@ -1448,7 +1489,7 @@ export function searchInputRequiredMessage(
 /** The lookup options source of a choice input; absent on every other arm. */
 export function searchInputOptions(
 	input: SearchInputDef,
-): LookupOptionsSource | undefined {
+): SearchInputLookupOptions | undefined {
 	return isSelectSearchInput(input) ? input.options : undefined;
 }
 
@@ -1596,7 +1637,7 @@ interface SimpleDateRangeSearchInputSlots extends SearchInputVisibleSlots {
 interface SimpleSelectSearchInputSlots extends SearchInputCommonSlots {
 	readonly via?: RelationPath;
 	/** The lookup table and columns the prompt's choices come from. */
-	readonly options: LookupOptionsSource;
+	readonly options: SearchInputLookupOptions;
 	/** A choice widget admits only exact matching; omitted when absent. */
 	readonly mode?: Extract<SearchInputMode, { kind: "exact" }>;
 }
@@ -1735,7 +1776,9 @@ export function advancedSearchInputDef(
 	label: string,
 	type: SelectSearchInputType,
 	predicate: Predicate,
-	slots: SearchInputCommonSlots & { readonly options: LookupOptionsSource },
+	slots: SearchInputCommonSlots & {
+		readonly options: SearchInputLookupOptions;
+	},
 ): AdvancedSelectSearchInputDef;
 export function advancedSearchInputDef(
 	uuid: Uuid,
@@ -1743,7 +1786,9 @@ export function advancedSearchInputDef(
 	label: string,
 	type: SearchInputType,
 	predicate: Predicate,
-	slots?: SearchInputCommonSlots & { readonly options?: LookupOptionsSource },
+	slots?: SearchInputCommonSlots & {
+		readonly options?: SearchInputLookupOptions;
+	},
 ): AdvancedSearchInputDef;
 export function advancedSearchInputDef(
 	uuid: Uuid,
@@ -1752,7 +1797,7 @@ export function advancedSearchInputDef(
 	type: SearchInputType,
 	predicate: Predicate,
 	slots: SearchInputCommonSlots & {
-		readonly options?: LookupOptionsSource;
+		readonly options?: SearchInputLookupOptions;
 	} = {},
 ): AdvancedSearchInputDef {
 	const candidate: Record<string, unknown> = {
@@ -2521,7 +2566,7 @@ export function orderedColumns(
 // Search-action configuration plus one owner-availability slot:
 //
 //   - The display cluster — the search-screen labels (title /
-//     subtitle / button labels / empty state) and the optional
+//     subtitle / empty state) and the optional
 //     `searchButtonDisplayCondition` predicate that gates the search
 //     button.
 //   - `excludedOwnerIds` — a rare availability rule that evaluates to a
@@ -2532,7 +2577,13 @@ export function orderedColumns(
 //
 /** Friendly Nova defaults shared by authoring, flipbook, and both wire paths. */
 export const DEFAULT_CASE_SEARCH_TITLE = "Search";
-export const DEFAULT_CASE_SEARCH_BUTTON_LABEL = "Search";
+/**
+ * The text of every search button, in every language, on both wire paths and
+ * in Preview. It has no authored slot: HQ's Case List save keeps no other
+ * label (`views/modules.py::_gather_and_update_search_properties` builds a new
+ * `CaseSearch`, whose `search_button_label` default is this text).
+ */
+export const CASE_SEARCH_BUTTON_LABEL = "Search All Cases";
 
 // The runtime case-claim step (which fires when an author picks a
 // case from search results) runs unconditionally on the CCHQ
@@ -2561,8 +2612,9 @@ export const ordinaryCaseSearchConfigSchema = z.strictObject({
 	excludedOwnerIds: valueExpressionSchema.optional(),
 
 	// Display labels for the search screen. The runtime renders the
-	// subtitle through a markdown formatter; the others are plain
-	// text. `searchButtonDisplayCondition` controls whether the case
+	// subtitle through a markdown formatter; the title is plain text.
+	// The search button's text is `CASE_SEARCH_BUTTON_LABEL`, never
+	// authored. `searchButtonDisplayCondition` controls whether the case
 	// list's Search action is relevant. When the web wire auto-launches
 	// an input-free filtered search, an irrelevant action cannot launch;
 	// otherwise the same predicate simply hides the manual Search action.
@@ -2576,7 +2628,6 @@ export const ordinaryCaseSearchConfigSchema = z.strictObject({
 	// authored copy; clearing a control removes the override.
 	searchScreenTitle: z.string().min(1).optional(),
 	searchScreenSubtitle: z.string().min(1).optional(),
-	searchButtonLabel: z.string().min(1).optional(),
 	searchButtonDisplayCondition: predicateSchema.optional(),
 
 	// Search first: the module opens on the Search screen and Results
@@ -2622,7 +2673,6 @@ export function caseSearchConfigHasAuthoredSettings(
 		config.excludedOwnerIds !== undefined ||
 		config.searchScreenTitle !== undefined ||
 		config.searchScreenSubtitle !== undefined ||
-		config.searchButtonLabel !== undefined ||
 		config.searchButtonDisplayCondition !== undefined ||
 		config.searchFirst !== undefined
 	);
@@ -2671,7 +2721,6 @@ export function caseSearchConfigAfterFinalInputRemoval(
 	// Search first survives its last visible input: the module still opens
 	// on Search, which then runs on its own (`default_search`).
 	const hasSearchActionSetting =
-		action.searchButtonLabel !== undefined ||
 		action.searchButtonDisplayCondition !== undefined ||
 		action.searchFirst !== undefined;
 	if (hasCasesAvailableCondition || hasSearchActionSetting) return action;
@@ -2701,6 +2750,13 @@ export const moduleSchema = z.strictObject({
 	 * case row, so validator context rules admit only global/session terms.
 	 */
 	displayCondition: predicateSchema.optional(),
+	/**
+	 * Present when the module is off the menu: no menu lists it or any of
+	 * its forms, whatever `displayCondition` says. The condition keeps
+	 * applying once the module is back on the menu. A child module of a
+	 * module off the menu is not itself off the menu, but no menu reaches it.
+	 */
+	hiddenFromMenu: z.literal(true).optional(),
 	caseListConfig: caseListConfigSchema.optional(),
 	caseSearchConfig: caseSearchConfigSchema.optional(),
 	/** Image shown on the module's home-screen tile. */

@@ -133,7 +133,6 @@ describe("setCaseSearchAdvanced", () => {
 					caseSearchConfig: {
 						searchScreenTitle: "Find a patient",
 						searchScreenSubtitle: "Type to filter",
-						searchButtonLabel: "Search",
 						searchButtonDisplayCondition: matchAll(),
 					},
 				},
@@ -151,7 +150,6 @@ describe("setCaseSearchAdvanced", () => {
 		const search = ordinary(config);
 		expect(search.searchScreenTitle).toBe("Find a patient");
 		expect(search.searchScreenSubtitle).toBe("Type to filter");
-		expect(search.searchButtonLabel).toBe("Search");
 		expect(search.searchButtonDisplayCondition).toEqual(matchAll());
 		// Advanced cluster updated.
 		expect(search.excludedOwnerIds).toBeDefined();

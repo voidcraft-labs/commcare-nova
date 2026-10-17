@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import {
 	canonicalLookupReferenceSubpath,
 	collectLookupOptionsSourceCarriers,
@@ -622,6 +623,92 @@ describe("lookup reference extraction", () => {
 			'Field "choice"',
 			'Search field "Region"',
 			'Search field "regions"',
+		]);
+	});
+
+	it("reads a Search prompt's sort column as a column occurrence, and finds it missing when the table loses it", () => {
+		const moduleUuid = testUuid("module-sort");
+		const inputUuid = testUuid("search-select-sort");
+		const table = tableId("40");
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "region", label: "Region", data_type: "text" }],
+				},
+			],
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "Cases",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: {
+						columns: [
+							plainColumn(testUuid("sort-name-column"), "case_name", "Name"),
+						],
+						searchInputs: [
+							simpleSearchInputDef(
+								inputUuid,
+								"region",
+								"Region",
+								"select",
+								"region",
+								{
+									options: {
+										kind: "lookup",
+										tableId: table,
+										valueColumnId: columnId("401"),
+										labelColumnId: columnId("402"),
+										sortColumnId: columnId("403"),
+									},
+								},
+							),
+						],
+					},
+				},
+			],
+		});
+
+		assertAdmittedDoc(doc, lookupContext);
+		expect(
+			extractLookupReferenceOccurrences(
+				doc,
+				PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+			)
+				.filter((occurrence) => occurrence.carrierUuid === inputUuid)
+				.map((occurrence) => [occurrence.subpath, occurrence.columnId])
+				.sort(),
+		).toEqual([
+			["/k:labelColumnId", columnId("402")],
+			["/k:sortColumnId", columnId("403")],
+			["/k:valueColumnId", columnId("401")],
+		]);
+
+		if (lookupContext.kind !== "available") throw new Error("Fixture context");
+		const withoutSortColumn: LookupValidationContext = {
+			...lookupContext,
+			definitions: lookupContext.definitions.map((definition) =>
+				definition.id === table
+					? {
+							...definition,
+							columns: definition.columns.filter(
+								(column) => column.id !== columnId("403"),
+							),
+						}
+					: definition,
+			),
+		};
+		expect(
+			runValidation(doc, withoutSortColumn).map((finding) => [
+				finding.code,
+				finding.location.field,
+			]),
+		).toEqual([
+			[
+				"LOOKUP_COLUMN_NOT_AVAILABLE",
+				`caseListConfig.searchInputs[${inputUuid}].options`,
+			],
 		]);
 	});
 

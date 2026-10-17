@@ -8,18 +8,22 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { afterSubmitPlan } from "@/lib/doc/formLinkMutations";
+import { formLinkTargetVisibility } from "@/lib/doc/hooks/useFormLinkFacts";
 import {
 	type FormLink,
 	formLinkDestination,
 	projectXPath,
 	xpathPrintContext,
 } from "@/lib/domain";
+import { eq, literal, sessionUser } from "@/lib/domain/predicate";
 import {
 	afterSubmitSummary,
 	carriedAutomaticallyDetail,
+	destinationDetail,
 	destinationLabel,
 	destinationPhrase,
 	fallbackChangedAnnouncement,
+	hiddenTargetLine,
 	nothingNeededCopy,
 	pinsFallbackSentence,
 	stopElseLinkQuestion,
@@ -30,7 +34,15 @@ import {
 	linkSentence,
 	linkSentenceText,
 } from "../linkSentence";
-import { fixture, SOURCE, toCare, toNote, toVisit } from "./fixture";
+import {
+	CARE,
+	fixture,
+	SOURCE,
+	toCare,
+	toNote,
+	toVisit,
+	VISIT,
+} from "./fixture";
 
 const context: LinkSentenceContext = {
 	destinationOf: (target) =>
@@ -95,13 +107,25 @@ describe("linkSentence", () => {
 });
 
 describe("after-submit copy", () => {
-	it("spells the three destinations one way", () => {
+	it("spells the five destinations one way", () => {
 		expect(destinationPhrase("app_home")).toBe("to the app home");
+		expect(destinationPhrase("firstMenu")).toBe("to the app's first menu");
 		expect(destinationPhrase("module")).toBe("to this module's form list");
+		expect(destinationPhrase("parentMenu")).toBe("to the parent module");
 		expect(destinationPhrase("previous")).toBe("back to the previous screen");
 		expect(destinationLabel("app_home")).toBe("App home");
+		expect(destinationLabel("firstMenu")).toBe("First menu");
 		expect(destinationLabel("module")).toBe("This module");
+		expect(destinationLabel("parentMenu", "Mothers")).toBe(
+			"Parent module: Mothers",
+		);
 		expect(destinationLabel("previous")).toBe("Previous screen");
+		expect(destinationDetail("firstMenu")).toBe(
+			"Opens the app's first menu, which lists its modules. On Android, App home opens the app's home screen, and First menu opens that list.",
+		);
+		expect(destinationDetail("parentMenu")).toBe(
+			"Back to the parent module, with its selection kept",
+		);
 	});
 
 	it("summarises a form with no links from its default", () => {
@@ -173,5 +197,54 @@ describe("after-submit copy", () => {
 			"picks a case when they arrive",
 		);
 		expect(nothingNeededCopy("form")).toContain("opens straight away");
+	});
+});
+
+describe("the line under a link whose target some worker may not see", () => {
+	const supervisor = eq(sessionUser("role"), literal("supervisor"));
+	const linkTo = (target: FormLink["target"]): FormLink => ({
+		uuid: testUuid("lnk-hidden"),
+		target,
+	});
+
+	it("says nothing for a target nothing hides", () => {
+		const doc = fixture();
+		expect(
+			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toVisit))),
+		).toBeUndefined();
+		expect(
+			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toCare))),
+		).toBeUndefined();
+	});
+
+	it("says what each platform does for a target form or module whose display condition is false", () => {
+		const doc = fixture();
+		doc.forms[VISIT].displayCondition = supervisor;
+		doc.modules[CARE].displayCondition = supervisor;
+		expect(
+			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toVisit))),
+		).toBe(
+			"When this form's display condition is false for a worker, Android still opens it after submit, and Web Apps opens the module that holds it instead.",
+		);
+		expect(
+			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toCare))),
+		).toBe(
+			"When this module's display condition is false for a worker, Android opens it with nothing in it, and Web Apps opens the app's first screen instead.",
+		);
+	});
+
+	it("says what each platform does for a target form off the menu, and for one inside a module off the menu", () => {
+		const doc = fixture();
+		doc.forms[VISIT].hiddenFromMenu = true;
+		expect(
+			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toVisit))),
+		).toBe(
+			"This form is off the menu. Android still opens it after submit, and Web Apps opens the module that holds it instead.",
+		);
+		expect(
+			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toVisit)), true),
+		).toBe(
+			"This form's module is off the menu. Android still opens the form after submit, and Web Apps opens the app's first screen instead.",
+		);
 	});
 });

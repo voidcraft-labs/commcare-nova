@@ -43,7 +43,6 @@ describe("configureCaseList", () => {
 			filter: eq(prop("patient", "case_name"), literal("Ada")),
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: "Search by the name on the record.",
-			searchButtonLabel: "Find patient",
 			searchButtonDisplayCondition: null,
 			resultsColumnOrder: [PHONE_COLUMN, BASE_COLUMN],
 			detailsColumnOrder: [BASE_COLUMN, PHONE_COLUMN],
@@ -73,7 +72,6 @@ describe("configureCaseList", () => {
 		expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toMatchObject({
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: "Search by the name on the record.",
-			searchButtonLabel: "Find patient",
 		});
 		expect(result.mutations.map((mutation) => mutation.kind)).toEqual(
 			expect.arrayContaining([
@@ -129,7 +127,6 @@ describe("configureCaseList", () => {
 		const display = {
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: "Search by the name on the record.",
-			searchButtonLabel: "Find patient",
 			searchButtonDisplayCondition: null,
 		};
 		expect(

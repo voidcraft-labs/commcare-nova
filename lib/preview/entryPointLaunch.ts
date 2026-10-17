@@ -17,6 +17,23 @@ import type {
 } from "./entryPointLaunchTypes";
 import { previewMenuCaseContext } from "./menuProjection";
 
+/** What Preview says when a form off the menu is launched from an entry point
+ * that does not ignore display conditions. Preview plays Web Apps here; the
+ * copy says what each platform does. */
+export const FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL =
+	"This form is off the menu. On Android this entry point opens it. In Web Apps it opens only when the entry point ignores display conditions.";
+
+/** Whether `moduleUuid` or a module above it is off the menu: a module off
+ * the menu takes its child modules off with it, so no menu reaches either. */
+function moduleIsUnderOffTheMenu(doc: BlueprintDoc, moduleUuid: Uuid): boolean {
+	let current: Uuid | null | undefined = moduleUuid;
+	while (current) {
+		if (doc.modules[current]?.hiddenFromMenu === true) return true;
+		current = moduleParent(doc, current);
+	}
+	return false;
+}
+
 /** Pure admission over one authorized device snapshot. No selection can fall
  * through to ordinary Preview's first-case convenience behavior. */
 export function prepareEntryPointLaunch(args: {
@@ -119,12 +136,23 @@ export function prepareEntryPointLaunch(args: {
 		item.target.kind === "form" &&
 		item.entryPoint.ignoreDisplayConditions === true;
 	if (!bypass) {
+		/* A form off the menu, or inside a module off the menu or under one,
+		 * opens from an entry point only when it ignores display conditions:
+		 * Web Apps' behavior. Android opens it either way, which the copy
+		 * says. */
+		if (
+			item.target.kind === "form" &&
+			(args.doc.forms[item.target.formUuid]?.hiddenFromMenu === true ||
+				moduleIsUnderOffTheMenu(args.doc, item.target.moduleUuid))
+		)
+			return refuse(FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL);
 		let moduleUuid: Uuid | undefined | null = item.target.moduleUuid;
 		while (moduleUuid) {
 			const mod = args.doc.modules[moduleUuid];
 			if (
 				moduleDisplayVisibility({
 					condition: mod.displayCondition,
+					hiddenFromMenu: mod.hiddenFromMenu === true,
 					session: args.session,
 					currentCaseType: mod.caseType,
 					lookup: args.lookup,
@@ -149,6 +177,8 @@ export function prepareEntryPointLaunch(args: {
 			if (
 				formDisplayVisibility({
 					condition: args.doc.forms[item.target.formUuid].displayCondition,
+					hiddenFromMenu:
+						args.doc.forms[item.target.formUuid].hiddenFromMenu === true,
 					session: args.session,
 					currentCaseType: mod.caseType,
 					caseProjection,

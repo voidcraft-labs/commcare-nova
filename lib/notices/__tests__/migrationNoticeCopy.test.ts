@@ -64,6 +64,12 @@ const COLUMN_ENTITY = {
 	nameAtMigration: "Zone",
 } as const;
 
+const SEARCH_INPUT_ENTITY = {
+	type: "searchInput",
+	uuid: "01992000-0000-7000-8000-0000000000d1",
+	nameAtMigration: "Clinic",
+} as const;
+
 const LOOKUP_ENTITY = {
 	type: "lookupTable",
 	uuid: "01992000-0000-7000-8000-0000000000c1",
@@ -218,6 +224,41 @@ const ENTRIES: Record<
 		"hidden-order-column-not-in-sort-menu",
 		COLUMN_ENTITY,
 		{ menu: "Households" },
+	),
+	"search-button-text-changed": documentEntries(
+		"search-button-text-changed",
+		MODULE_ENTITY,
+		{ from: "Find a patient" },
+	),
+	"search-input-renamed": documentEntries(
+		"search-input-renamed",
+		SEARCH_INPUT_ENTITY,
+		{ menu: "Patients", from: "_xpath_query", to: "_xpath_query_2" },
+	),
+	"search-input-removed": documentEntries(
+		"search-input-removed",
+		SEARCH_INPUT_ENTITY,
+		{ menu: "Patients", expressions: "2" },
+	),
+	"hidden-from-menu-set": documentEntries(
+		"hidden-from-menu-set",
+		FORM_ENTITY,
+		{},
+	),
+	"after-submit-destination-moved": documentEntries(
+		"after-submit-destination-moved",
+		FORM_ENTITY,
+		{ from: "module", to: "firstMenu", cause: "off-the-menu", menu: "Archive" },
+	),
+	"lookup-choices-order-changes": documentEntries(
+		"lookup-choices-order-changes",
+		SEARCH_INPUT_ENTITY,
+		{ menu: "Patients" },
+	),
+	"survey-menu-takes-case-type": documentEntries(
+		"survey-menu-takes-case-type",
+		MODULE_ENTITY,
+		{ caseType: "household" },
 	),
 	"record-id-column-now-shows": documentEntries(
 		"record-id-column-now-shows",
@@ -881,6 +922,160 @@ describe("the case list lines", () => {
 		expect(shows("phone")).toBe(shows("plain"));
 		expect(shows("image-map")).toBe(
 			"Households, Record ID: this column was blank in apps installed from CommCare HQ. After the next publish it shows the image mapped to each case's ID.",
+		);
+	});
+});
+
+describe("the menu, navigation and search lines", () => {
+	const document = (
+		reason: MigrationNoticeReason,
+		entity: unknown,
+		detail?: Record<string, string>,
+	) =>
+		parsed({
+			kind: "document",
+			reason,
+			entity,
+			...(detail !== undefined && { detail }),
+		});
+	const say = (entry: MigrationNoticeEntry) =>
+		renderNoticeEntry(entry, REMOVED);
+	const patients = { ...MODULE_ENTITY, nameAtMigration: "Patients" };
+	const visit = { ...FORM_ENTITY, nameAtMigration: "Visit" };
+
+	it("says the search button now reads CommCare HQ's own text, and what it read before", () => {
+		expect(
+			say(
+				document("search-button-text-changed", patients, {
+					from: "Find a patient",
+				}),
+			).text,
+		).toBe(
+			"Patients: the search button now reads “Search All Cases”. It read “Find a patient” before. CommCare HQ always shows its own text there.",
+		);
+	});
+
+	it("names a renamed and a removed search input, and counts the expressions a removal emptied", () => {
+		expect(
+			say(
+				document(
+					"search-input-renamed",
+					{ ...SEARCH_INPUT_ENTITY, nameAtMigration: "_xpath_query_2" },
+					{ menu: "Patients", from: "_xpath_query", to: "_xpath_query_2" },
+				),
+			).text,
+		).toBe(
+			"Patients: the search input _xpath_query is now _xpath_query_2. CommCare reads the earlier name as part of the search itself.",
+		);
+		const removed = {
+			...SEARCH_INPUT_ENTITY,
+			nameAtMigration: "include_closed",
+		};
+		expect(
+			say(
+				document("search-input-removed", removed, {
+					menu: "Patients",
+					expressions: "2",
+				}),
+			).text,
+		).toBe(
+			"Patients: the search input include_closed was removed. CommCare reads that name as part of the search request, so it never searched a property. 2 expressions that read it now treat it as empty.",
+		);
+		expect(
+			say(
+				document("search-input-removed", removed, {
+					menu: "Patients",
+					expressions: "1",
+				}),
+			).text,
+		).toContain("1 expression that read it now treats it as empty.");
+		expect(
+			say(
+				document("search-input-removed", removed, {
+					menu: "Patients",
+					expressions: "0",
+				}),
+			).text,
+		).toBe(
+			"Patients: the search input include_closed was removed. CommCare reads that name as part of the search request, so it never searched a property.",
+		);
+	});
+
+	it("says a module or a form is now off the menu, naming which", () => {
+		expect(
+			say(
+				document("hidden-from-menu-set", {
+					...MODULE_ENTITY,
+					nameAtMigration: "Archive",
+				}),
+			).text,
+		).toBe(
+			"Archive: this module is now marked as not on the menu, because its display condition could never be true. Its settings show what can still open it.",
+		);
+		expect(say(document("hidden-from-menu-set", visit)).text).toBe(
+			"Visit: this form is now marked as not on the menu, because its display condition could never be true. Its settings show what can still open it.",
+		);
+	});
+
+	it("chooses the moved destination's sentence by its cause", () => {
+		expect(
+			say(
+				document("after-submit-destination-moved", visit, {
+					from: "previous",
+					to: "module",
+					cause: "multi-select-menu",
+					menu: "Batches",
+				}),
+			).text,
+		).toBe(
+			"Visit: after submitting, workers now go back to this module's case list. It was set to the previous screen, which CommCare HQ doesn't offer in a module that selects several cases.",
+		);
+		expect(
+			say(
+				document("after-submit-destination-moved", visit, {
+					from: "module",
+					to: "firstMenu",
+					cause: "multi-select-parent",
+					menu: "One sample",
+				}),
+			).text,
+		).toBe(
+			"Visit: after submitting, workers now go to the app's first menu (First menu in its settings). It was set to its module, which CommCare HQ doesn't offer in a module under one that selects several cases.",
+		);
+		expect(
+			say(
+				document("after-submit-destination-moved", visit, {
+					from: "previous",
+					to: "firstMenu",
+					cause: "off-the-menu",
+					menu: "Archive",
+				}),
+			).text,
+		).toBe(
+			"Visit: after submitting, workers now go to the app's first menu (First menu in its settings). It was set to the previous screen, and Archive is now off the menu, so there is no screen of it to go back to.",
+		);
+	});
+
+	it("says a lookup question's choices now follow their labels, and a survey module shows its case type", () => {
+		expect(
+			say(
+				document("lookup-choices-order-changes", SEARCH_INPUT_ENTITY, {
+					menu: "Patients",
+				}),
+			).text,
+		).toBe(
+			"Patients, Clinic: its choices are now listed by label, not in the table's row order.",
+		);
+		expect(
+			say(
+				document(
+					"survey-menu-takes-case-type",
+					{ ...MODULE_ENTITY, nameAtMigration: "Surveys" },
+					{ caseType: "household" },
+				),
+			).text,
+		).toBe(
+			"Surveys: CommCare HQ shows this module's case type, household, from the next publish.",
 		);
 	});
 });

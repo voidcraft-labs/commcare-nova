@@ -308,12 +308,12 @@ describe("no-matches registration form", () => {
 	});
 });
 
-describe("explicit no-matches App home", () => {
+describe("explicit no-matches First menu", () => {
 	it.each([false, true])(
 		"uses HQ root and an empty local create frame (multiple=%s)",
 		(multiple) => {
 			const doc = noMatchesDoc();
-			doc.forms[REGISTER_FORM].postSubmit = "app_home";
+			doc.forms[REGISTER_FORM].postSubmit = "firstMenu";
 			if (multiple)
 				doc.modules[HOST_MODULE].caseListConfig = {
 					...(doc.modules[HOST_MODULE].caseListConfig ?? caseListConfig([])),

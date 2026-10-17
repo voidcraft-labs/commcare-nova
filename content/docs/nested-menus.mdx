@@ -75,7 +75,9 @@ selected cases when the workflow opens.
 
 A child is available only when its parent and the child itself are available.
 Give each module the condition that belongs to it. Nova combines the path while
-someone navigates, without copying the parent's condition into the child.
+someone navigates, without copying the parent's condition into the child. A
+parent that is off the menu takes its child menus off with it: no menu reaches
+them, though each child keeps its own **Show on the menu** setting.
 
 A form belongs to one module. Nova does not place one form under several menus.
 When several modules should show the same case data in different ways, use
@@ -85,3 +87,8 @@ give each one its own form so its purpose stays clear.
 After-submit links can still open another module or form. Those links choose
 where to go after a form closes; they do not change the app's menu structure.
 See [After submit](./form-links.mdx) for that workflow.
+
+A form in a child menu can also go to **Parent module** after submit: the
+parent menu opens with the case it selected still selected, listing its own
+forms and its child menus. That destination isn't offered while the parent
+selects several cases, or while the parent is off the menu.

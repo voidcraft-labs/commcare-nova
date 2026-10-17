@@ -183,6 +183,37 @@ describe("searchNoMatchesEntry", () => {
 		expect(messages[0]).toContain("a display condition");
 	});
 
+	it("refuses taking the form off the menu, where an ordinary form may be", () => {
+		const doc = docWith();
+		doc.forms[VISIT].hiddenFromMenu = true;
+		doc.forms[REGISTER].hiddenFromMenu = true;
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(
+			errors.map((error) => [error.code, error.location.formUuid]),
+		).toEqual([["SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION", REGISTER]]);
+		expect(errors[0]?.message).toContain("hiddenFromMenu");
+	});
+
+	it("names App home as a destination it can't take", () => {
+		const doc = docWith({
+			forms: [
+				{
+					uuid: VISIT,
+					name: "Visit",
+					type: "followup",
+					fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+				},
+				registerForm({ postSubmit: "app_home" }),
+			],
+		});
+		const messages = codes(doc, "SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION");
+		expect(messages).toHaveLength(1);
+		expect(messages[0]).toContain(
+			"an after-submit destination other than First menu",
+		);
+	});
+
 	it("admits registration without a menu form when its case type has a parent", () => {
 		const households: ModuleSpec = {
 			uuid: OTHER_MODULE,
@@ -326,7 +357,7 @@ describe("INVALID_SEARCH_REF", () => {
 });
 
 describe("no-matches registration return cardinality", () => {
-	it("requires explicit App home for a multiple-selection host", () => {
+	it("requires explicit firstMenu for a multiple-selection host", () => {
 		const doc = docWith({
 			forms: [
 				{
@@ -346,7 +377,7 @@ describe("no-matches registration return cardinality", () => {
 			1,
 		);
 		const returningHome = structuredClone(doc);
-		returningHome.forms[REGISTER].postSubmit = "app_home";
+		returningHome.forms[REGISTER].postSubmit = "firstMenu";
 		expect(
 			codes(returningHome, "SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN"),
 		).toEqual([]);

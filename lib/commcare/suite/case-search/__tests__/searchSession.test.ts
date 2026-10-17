@@ -288,8 +288,10 @@ it.each([false, true])(
 		// short detail, evaluated for every row, order rule or not.
 		const query = buildSearchQuery(f.args);
 		expect([...query.instances]).toEqual(["casedb"]);
+		// No input and no clause: the zero-input sentinel, as HQ's build sends.
 		expect(queries(f.args)).toEqual([
 			{ key: "case_type", ref: "'patient'" },
+			{ key: "_xpath_query", ref: "'match-all()'" },
 			{ key: "x_commcare_include_all_related_cases", ref: "'true'" },
 		]);
 	},

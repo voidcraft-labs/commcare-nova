@@ -152,7 +152,7 @@ export function noMatchesWireFixture(
 		};
 	}
 	if (scenario === "home" || scenario === "multiple-home")
-		doc.forms[REGISTER_FORM].postSubmit = "app_home";
+		doc.forms[REGISTER_FORM].postSubmit = "firstMenu";
 	if (scenario === "multiple-home") {
 		const config = doc.modules[HOST_MODULE].caseListConfig;
 		if (!config) throw new Error("Missing search case list");

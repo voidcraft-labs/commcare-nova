@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { noMatchesAfterSubmitModel } from "../noMatchesAfterSubmit";
 
 describe("no-matches registration destinations", () => {
-	it("offers native Results return and App home for a scalar host", () => {
+	it("offers native Results return and First menu for a scalar host", () => {
 		const model = noMatchesAfterSubmitModel({
-			appHome: false,
+			firstMenu: false,
 			multiple: false,
 			hasMenuForms: true,
 		});
@@ -12,38 +12,40 @@ describe("no-matches registration destinations", () => {
 		expect(model.destination).toBe("Results showing the registered case");
 		expect(model.options.map((option) => option.value)).toEqual([
 			"return",
-			"app_home",
+			"firstMenu",
 		]);
 	});
 	it("names Search for the scalar form-only search flow", () => {
 		expect(
 			noMatchesAfterSubmitModel({
-				appHome: false,
+				firstMenu: false,
 				multiple: false,
 				hasMenuForms: false,
 			}).destination,
 		).toBe("Search");
 	});
-	it("offers only explicit App home on a multiple-case host", () => {
+	it("offers only explicit First menu on a multiple-case host", () => {
 		const model = noMatchesAfterSubmitModel({
-			appHome: true,
+			firstMenu: true,
 			multiple: true,
 			hasMenuForms: true,
 		});
-		expect(model.value).toBe("app_home");
-		expect(model.options).toEqual([{ value: "app_home", label: "App home" }]);
-		expect(model.destination).toBe("App home");
+		expect(model.value).toBe("firstMenu");
+		expect(model.options).toEqual([
+			{ value: "firstMenu", label: "First menu" },
+		]);
+		expect(model.destination).toBe("First menu");
 	});
-	it("reports App home accurately even when scalar return is available", () => {
+	it("reports First menu accurately even when scalar return is available", () => {
 		const model = noMatchesAfterSubmitModel({
-			appHome: true,
+			firstMenu: true,
 			multiple: false,
 			hasMenuForms: true,
 		});
-		expect(model.destination).toBe("App home");
+		expect(model.destination).toBe("First menu");
 		expect(model.options).toStrictEqual([
 			{ value: "return", label: "Results showing the registered case" },
-			{ value: "app_home", label: "App home" },
+			{ value: "firstMenu", label: "First menu" },
 		]);
 	});
 });

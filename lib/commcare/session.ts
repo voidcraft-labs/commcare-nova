@@ -36,7 +36,7 @@ import type {
 } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import {
-	effectiveDisplayConditionForEmission,
+	displayConditionForEmission,
 	predicateReadsCaseData,
 	substituteUnansweredSearchInputsInExpression,
 	substituteUnansweredSearchInputsInPredicate,
@@ -576,13 +576,14 @@ function accumulateCaseLoadingInstances(
 	}
 
 	// A form command's relevant expression is evaluated in the matching
-	// entry's instance scope. Deep all-true conditions vanish from the wire,
-	// so collect only the exact predicate that emission retains. A selected-
+	// entry's instance scope. Collect from exactly the condition the emitter
+	// prints (`displayConditionForEmission`, held as written); a form off the
+	// menu prints `false()` ahead of it, which reads no instance. A selected-
 	// case property structurally emits through BOTH casedb and
 	// commcaresession (the latter supplies session/data/case_id); the generic
 	// AST collector sees the property but cannot see that injected anchor.
 	const effectiveFormCondition =
-		effectiveDisplayConditionForEmission(formDisplayCondition);
+		displayConditionForEmission(formDisplayCondition);
 	if (effectiveFormCondition !== undefined) {
 		const ids = collectPredicateInstances(effectiveFormCondition, lookupNaming);
 		if (predicateReadsCaseData(effectiveFormCondition)) {
@@ -858,20 +859,24 @@ export function toStackChild(child: MatchedChild): StackChild {
 
 /**
  * Derive stack operations for simple post-submit destinations, mirroring
- * HQ's `workflow.py::EndOfFormNavigationWorkflow::_get_static_stack_frame`
- * for the three workflows Nova authors:
+ * HQ's `workflow.py::EndOfFormNavigationWorkflow::_get_static_stack_frame`:
  *
- * | Destination | Operation                                                      |
- * |-------------|----------------------------------------------------------------|
- * | `app_home`  | nothing (HQ `default`: no frame; the form frame pops to home)  |
- * | `module`    | `<create><command value="'m{idx}'"/></create>`                  |
- * | `previous`  | `<create>` carrying `previousFrame` (HQ `previous_screen`)      |
+ * | Destination  | HQ workflow       | Operation                                         |
+ * |--------------|-------------------|---------------------------------------------------|
+ * | `app_home`   | `default`         | nothing (no frame; the form frame pops to home)    |
+ * | `firstMenu`  | `root`            | one `<create/>` with no children                   |
+ * | `module`     | `module`          | `<create>` carrying `moduleFrame`                  |
+ * | `parentMenu` | `parent_module`   | `<create>` carrying `parentFrame`                  |
+ * | `previous`   | `previous_screen` | `<create>` carrying `previousFrame`                |
  *
  * `previousFrame` is the source entry's own frame children with the last
- * child and every trailing computed datum popped — derived by
+ * child and every trailing computed datum popped, derived by
  * `formLinkProjection.ts::previousFrameChildren`, never guessed here from
- * the form type. A childless `previous` frame (HQ drops a childless frame
- * unless the workflow is `root`, which Nova does not author) emits nothing.
+ * the form type. `parentFrame` is the parent module's frame with its
+ * selections (`formLinkProjection.ts::parentMenuDestinationFrameChildren`).
+ * HQ writes an empty frame for `root` alone (`allow_empty_frame`) and drops
+ * every other childless frame, so a childless `previous` or `parentMenu`
+ * emits nothing.
  */
 export function derivePostSubmitStack(
 	postSubmit: PostSubmitDestination,
@@ -880,21 +885,23 @@ export function derivePostSubmitStack(
 	moduleFrame: readonly MatchedChild[] = [
 		{ type: "command", id: `m${moduleIndex}` },
 	],
+	parentFrame: readonly MatchedChild[] = [],
 ): StackOperation[] {
+	const frame = (children: readonly MatchedChild[]): StackOperation[] =>
+		children.length === 0
+			? []
+			: [{ op: "create", children: children.map(toStackChild) }];
 	switch (postSubmit) {
 		case "app_home":
 			return [];
+		case "firstMenu":
+			return [{ op: "create", children: [] }];
 		case "module":
-			return [
-				{
-					op: "create",
-					children: moduleFrame.map(toStackChild),
-				},
-			];
+			return [{ op: "create", children: moduleFrame.map(toStackChild) }];
+		case "parentMenu":
+			return frame(parentFrame);
 		case "previous":
-			return previousFrame.length === 0
-				? []
-				: [{ op: "create", children: previousFrame.map(toStackChild) }];
+			return frame(previousFrame);
 	}
 }
 
@@ -921,6 +928,7 @@ export function deriveFormLinkStack(
 	sourceModuleIndex: number,
 	previousFrame: readonly MatchedChild[],
 	moduleFrame?: readonly MatchedChild[],
+	parentFrame?: readonly MatchedChild[],
 ): StackOperation[] {
 	const ops: StackOperation[] = projected.links.map((link) => ({
 		op: "create",
@@ -934,6 +942,7 @@ export function deriveFormLinkStack(
 			sourceModuleIndex,
 			previousFrame,
 			moduleFrame,
+			parentFrame,
 		)) {
 			ops.push({ ...op, ifClause: guard });
 		}
@@ -954,8 +963,6 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly formXmlns: string;
 	readonly formIndex: number;
 	readonly postSubmit: PostSubmitDestination;
-	/** Native root frame overrides the otherwise implicit case-list-form return. */
-	readonly resetToAppHome?: boolean;
 	/**
 	 * The form's projected after-submit links (`formLinkProjection.ts::
 	 * projectFormLinks`). Present, the stack is one exclusive `<create>` per
@@ -972,6 +979,12 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly previousFrame?: readonly MatchedChild[];
 	/** Parent-aware frame for the owning module. Flat modules omit it. */
 	readonly moduleFrame?: readonly MatchedChild[];
+	/**
+	 * The parent module's frame with its selections, read whenever
+	 * `postSubmit` (or the links' fallback) is `parentMenu`. Omitted, a
+	 * `parentMenu` destination emits no frame.
+	 */
+	readonly parentFrame?: readonly MatchedChild[];
 	/** Fully projected session, including root-menu alignment. */
 	readonly projectedSessionDatums?: readonly SessionDatum[];
 	/**
@@ -1026,6 +1039,7 @@ export function deriveEntryDefinition(
 		formLinks,
 		previousFrame = [],
 		moduleFrame,
+		parentFrame,
 		projectedSessionDatums,
 		caseListFilter,
 		searchButtonDisplayCondition,
@@ -1155,36 +1169,37 @@ export function deriveEntryDefinition(
 	// frame. `app_home` (HQ `default`) contributes no frame either way, so a
 	// form with no links and `app_home` emits no `<stack>` at all — CommCare
 	// pops the form frame and lands home.
-	const operations: StackOperation[] = args.resetToAppHome
-		? [{ op: "create", children: [] }]
-		: [
-				...(formLinks !== undefined
-					? deriveFormLinkStack(
-							formLinks,
-							postSubmit,
-							moduleIndex,
-							previousFrame,
-							moduleFrame,
-						)
-					: derivePostSubmitStack(
-							postSubmit,
-							moduleIndex,
-							previousFrame,
-							moduleFrame,
-						)),
-				// The compiler supplies this only for the implicit no-matches
-				// return. Explicit App home selects the root-reset branch above,
-				// matching HQ WorkflowHelper._get_stack_frames precedence.
-				...(args.returnFrame === undefined
-					? []
-					: [
-							{
-								op: "create" as const,
-								ifClause: args.returnFrame.ifClause,
-								children: args.returnFrame.children.map(toStackChild),
-							},
-						]),
-			];
+	const operations: StackOperation[] = [
+		...(formLinks !== undefined
+			? deriveFormLinkStack(
+					formLinks,
+					postSubmit,
+					moduleIndex,
+					previousFrame,
+					moduleFrame,
+					parentFrame,
+				)
+			: derivePostSubmitStack(
+					postSubmit,
+					moduleIndex,
+					previousFrame,
+					moduleFrame,
+					parentFrame,
+				)),
+		// The compiler supplies this only for the implicit no-matches return.
+		// A no-matches form's explicit `firstMenu` writes its one empty frame
+		// above and no return, matching HQ WorkflowHelper._get_stack_frames
+		// precedence.
+		...(args.returnFrame === undefined
+			? []
+			: [
+					{
+						op: "create" as const,
+						ifClause: args.returnFrame.ifClause,
+						children: args.returnFrame.children.map(toStackChild),
+					},
+				]),
+	];
 	for (const operation of operations) {
 		const expressions = [
 			...(operation.ifClause === undefined ? [] : [operation.ifClause]),
@@ -1594,7 +1609,9 @@ function sortInstancesById(
 
 const NOVA_TO_HQ: Record<PostSubmitDestination, string> = {
 	app_home: "default",
+	firstMenu: "root",
 	module: "module",
+	parentMenu: "parent_module",
 	previous: "previous_screen",
 };
 

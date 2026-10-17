@@ -35,6 +35,8 @@ import {
 } from "../shared/entityAddresses";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
+	RESERVED_SEARCH_INPUT_NAMES_SENTENCE,
+	SEARCH_INPUT_LOOKUP_ORDER_SENTENCE,
 	searchInputUpdateInputSchema,
 	stampSearchInputUuid,
 	uuidInputSchema,
@@ -66,8 +68,7 @@ export type UpdateSearchInputResult =
 	| { error: string };
 
 export const updateSearchInputTool = {
-	description:
-		"Replace a Search question or hidden value, preserving its identity.",
+	description: `Replace a Search question or hidden value, preserving its identity. ${SEARCH_INPUT_LOOKUP_ORDER_SENTENCE} ${RESERVED_SEARCH_INPUT_NAMES_SENTENCE}`,
 	inputSchema: updateSearchInputInputSchema,
 	async execute(
 		input: UpdateSearchInputInput,

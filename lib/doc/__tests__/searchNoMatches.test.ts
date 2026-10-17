@@ -648,7 +648,7 @@ describe("searchAnswerFields", () => {
 	});
 });
 
-it("creates a multiple-selection no-matches form only with explicit App home", () => {
+it("creates a multiple-selection no-matches form only with explicit First menu", () => {
 	const doc = fixture({ register: false, searchFirst: true });
 	const config = doc.modules[MODULE].caseListConfig;
 	if (!config) throw new Error("Missing case list");
@@ -659,7 +659,7 @@ it("creates a multiple-selection no-matches form only with explicit App home", (
 	assertAdmittedDoc(doc);
 	const implicit = noMatchesRegistrationFormMutations(doc, MODULE);
 	const explicit = noMatchesRegistrationFormMutations(doc, MODULE, {
-		postSubmit: "app_home",
+		postSubmit: "firstMenu",
 	});
 	if (!implicit || !explicit) throw new Error("Missing registration plan");
 	expect(

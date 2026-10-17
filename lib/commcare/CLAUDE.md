@@ -240,8 +240,10 @@ result body is retained or logged. Each visibility, flag, and runtime check owns
 its five-second deadline through response-body completion or cancellation.
 Only a Search field with a starting value adds the private child setting to the
 SAME public Case search capability, because HQ omits `<prompt default>` without
-it. HQ still emits and executes `_xpath_query` filters without that setting;
-the disabled path records telemetry but does not reject the query. Missing or
+it. A search's own filter (`_xpath_query`), the zero-input `match-all()`
+included, does not add it: HQ's Case List page offers and keeps a default
+filter for every project space. Both export paths send the zero-input filter.
+Missing or
 unverified required capabilities block before writes.
 The large-search performance check is advisory: it controls only whether Nova
 can add its derived Search optimization and never blocks publishing or removes
@@ -493,15 +495,26 @@ build overwrites the source's `1` with its own.
 ### `post_submit` defaults
 
 Controls post-submit navigation. The stored and machine-authored vocabulary is
-exactly `app_home`, `module`, or `previous`. `lib/commcare/session.ts` projects
-those values one-way to the different workflow spellings required on the wire;
-wire vocabulary never enters the domain. Form-type defaults when absent:
-registration/survey → `app_home`; followup/close → `previous`, except in a
-search-first module, where it is `module` (`lib/domain/forms.ts::defaultPostSubmit`
-takes the module fact; `lib/domain/postSubmit.ts::effectivePostSubmit` is the
-doc-level reader every consumer uses). HQ's build validator refuses `previous`
-on a case-requiring form of an inline-search module, so the default cannot be
-`previous` there. The SA only sets `post_submit` when overriding the default.
+exactly `app_home`, `firstMenu`, `module`, `parentMenu`, or `previous`
+(`lib/domain/forms.ts::POST_SUBMIT_DESTINATIONS`). `lib/commcare/session.ts`
+projects those values one-way to the different workflow spellings required on
+the wire; wire vocabulary never enters the domain. `firstMenu` is HQ's `root`,
+one `<create/>` with no children, and `parentMenu` is `parent_module`, the
+parent menu's frame (`formLinkProjection.ts::parentMenuDestinationFrameChildren`,
+as HQ's `workflow.py::_get_static_stack_frame` builds them). Form-type defaults
+when absent: registration/survey → `app_home`; followup/close → the first the
+menu offers of `previous`, `module`, `firstMenu`
+(`lib/domain/forms.ts::defaultPostSubmit` takes the menu facts `searchFirst`,
+`multiSelect`, `parentMultiSelect` and `offTheMenu`;
+`lib/domain/postSubmit.ts::effectivePostSubmit` is the doc-level reader every
+consumer uses). `postSubmitDestinationsOffered` is what HQ's form settings page
+offers for the menu's shape, narrowed by Nova's own conditions for a menu that
+is off the menu, and one rule, `POST_SUBMIT_NOT_OFFERED`, refuses a stored
+destination outside `postSubmitDestinationsAdmitted`. Everything HQ's build
+refuses is unoffered (`previous` where exactly one of the menu and its parent
+selects several cases, `previous` in a menu that opens on Search, `parentMenu`
+with no parent), so the one rule covers the editor and the build. The SA only
+sets `post_submit` when overriding the default.
 
 ### Ordinary nested menus
 
@@ -1023,7 +1036,7 @@ The clause composition runs through `suite/case-search/xpathQuery.ts::composeXPa
 
 The routing rule is `(input type, mode, via, name vs property)`-shaped: a non-date `exact` input (or `range`) on self-walk / absent `via` AND `name === property` rides on the bare prompt slot alone (CCHQ's runtime auto-match against the prompt key IS the authored comparison; the `daterange` widget handles the two-bound semantic internally for the current case). A simple `date` input in exact mode always routes through `_xpath_query`: Nova lowers it to a half-open whole-day interval, using date boundaries for date properties and UTC datetime boundaries for datetime properties (including indexed metadata), because bare exact equality would miss every non-midnight datetime. Every other combination — non-`exact` modes on any via, `exact` mode with a non-self via, OR `exact` mode with `name !== property` — also routes through `_xpath_query` and stamps `exclude="true()"` on the prompt. Simple-arm properties are structurally nonblank, so every stored input reaches one of these final wire paths.
 
-**Prompt children and the seven arms.** `suite/case-search/searchPrompts.ts::searchPromptWire` lowers one input to everything a `<prompt>` / `CaseSearchProperty` carries, and both wire paths read that one description. Children emit in `QueryPrompt`'s order — `<display><text/><hint><text/></hint></display>`, `<itemset nodeset><label ref/><value ref/></itemset>`, `<required test><text/></required>`, `<validation test><text/></validation>` — and attributes in `key appearance hidden input default exclude` order (native HQ regenerates complete prompt-bearing entries from the admitted `searchPromptFixture` corpus; `SearchPromptRuntimeTest.java` evaluates defaults, required/validation transitions and dynamic itemsets with Core's actual query manager). A lookup-backed `select` is `input="select1"` and `multi-select` is `input="select"` (Core's `QueryScreen::getSupportedPrompts`); the itemset nodeset is `instance('item-list:<tag>')/<list>/<row>[filter]` through `lookup/naming.ts`, the label/value refs are the columns' wire names, and the fixture id joins the remote-request's instance list. `required.when` and `validation.rule` lower through `emitCaseListFilter` with an unaddressable case anchor, so a bare `input(uuid)` prints as the absolute `instance('search-input:results')/input/field[@name='…']` path and `matches-pattern` prints as `regex(...)`; an always-required input carries the literal `true()`. Core keeps only the LAST `<validation>` it parses (`xml/QueryPromptParser.java`), so the authored rule and the compiler's CSQL quote guard share ONE element: `(authored) and (guard)`, messages joined by a space, each half keeping its own translation unit. A hidden input is `hidden="true"`, its value in `@default` (Core re-evaluates it at every query-screen construction and seeds it even under `default_search`), and `exclude="true()"`, so the value binds to the search-input instance without ever auto-matching a property. The three new locale ids are `search_property.<m>.<key>.hint`, `.required.text`, and `.validation.0.text`. Required and validation are enforced by Web Apps only — Android never runs prompt validation — so every surface says "checked in the browser app"; the on-device quote guard remains the injection defense there because the runtime validation that would carry it does not run.
+**Prompt children and the seven arms.** `suite/case-search/searchPrompts.ts::searchPromptWire` lowers one input to everything a `<prompt>` / `CaseSearchProperty` carries, and both wire paths read that one description. Children emit in `QueryPrompt`'s order — `<display><text/><hint><text/></hint></display>`, `<itemset nodeset><label ref/><value ref/><sort ref/></itemset>`, `<required test><text/></required>`, `<validation test><text/></validation>` — and attributes in `key appearance hidden input default exclude` order (native HQ regenerates complete prompt-bearing entries from the admitted `searchPromptFixture` corpus; `SearchPromptRuntimeTest.java` evaluates defaults, required/validation transitions and dynamic itemsets with Core's actual query manager). A lookup-backed `select` is `input="select1"` and `multi-select` is `input="select"` (Core's `QueryScreen::getSupportedPrompts`); the itemset nodeset is `instance('item-list:<tag>')/<list>/<row>[filter]` through `lookup/naming.ts`, the label/value refs are the columns' wire names, and the fixture id joins the remote-request's instance list. `required.when` and `validation.rule` lower through `emitCaseListFilter` with an unaddressable case anchor, so a bare `input(uuid)` prints as the absolute `instance('search-input:results')/input/field[@name='…']` path and `matches-pattern` prints as `regex(...)`; an always-required input carries the literal `true()`. Core keeps only the LAST `<validation>` it parses (`xml/QueryPromptParser.java`), so the authored rule and the compiler's CSQL quote guard share ONE element: `(authored) and (guard)`, messages joined by a space, each half keeping its own translation unit. A hidden input is `hidden="true"`, its value in `@default` (Core re-evaluates it at every query-screen construction and seeds it even under `default_search`), and `exclude="true()"`, so the value binds to the search-input instance without ever auto-matching a property. The three new locale ids are `search_property.<m>.<key>.hint`, `.required.text`, and `.validation.0.text`. Required and validation are enforced by Web Apps only — Android never runs prompt validation — so every surface says "checked in the browser app"; the on-device quote guard remains the injection defense there because the runtime validation that would carry it does not run.
 
 Validator rules anchoring the wire contract:
 - `searchInputViaModeCompatibility` — rejects `range` on a non-self via and `range` with `name !== property` on self-walk. A choice input admits `exact` only.
@@ -1039,9 +1052,20 @@ Validator rules anchoring the wire contract:
   `isCaseFirstModule` proves selection happens first; forms-first, related,
   presence/count, and Search shapes reject. Both conditions must be portable to
   Core's on-device evaluator (CSQL-only match modes, unsafe date arithmetic,
-  and invalid fixed geopoints reject), and a deeply
-  always-false condition is a soundness finding. Deeply always-true conditions
-  disappear through `effectiveDisplayConditionForEmission`.
+  and invalid fixed geopoints reject). A condition is held as written
+  (`lib/domain/predicate/simplify.ts::displayConditionForEmission`: absent, or
+  a root `match-all`, emits nothing; nothing inside is absorbed), and the
+  instance declarations beside it read that same condition. A condition that
+  is `never`, or an `and` that starts with it, would print exactly what
+  `hiddenFromMenu` prints, so it is `DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU`.
+  An item off the menu (`Module.hiddenFromMenu` / `Form.hiddenFromMenu`) writes
+  `false()`, or `false() and (<rest>)` with its condition as the rest, the
+  parentheses always written (`suite/displayConditions.ts`).
+- `hiddenFromMenu.ts` — `HIDDEN_MENU_NOT_A_DESTINATION`: a link whose target is
+  a module off the menu, and a module off the menu holding an entry point or a
+  case list entry point. Android opens such a module as a menu screen that
+  lists nothing and Web Apps lands on the app's first screen, so neither is a
+  destination. A link or an entry point to a form inside it is admitted.
 - `csqlPredicateRepresentability` — when case search is effective, rejects case-list filters and advanced-input predicates that CCHQ's server query language cannot represent faithfully (missing/direct query anchor, case-property reads on the comparison-value side, unsupported related counts, and self-relation envelopes). Fixed quote-output reachability follows emitted Core equality (null to empty text, boolean literals to text, numeric absolute tolerance below 1e-12), retaining both branches for unknown numeric/text coercion and stopping ordered switch selection at the first unknown comparison. Native `StaticQuoteRuntimeTest` retains the formerly admitted failed-search counterexample and executes current safe counterparts. A reversible comparison with its sole property/count anchor on the right is admitted because the CSQL emitter swaps the operands and inverts ordered operators before emission; strict-null portability stays in the module-wide rule above so it produces one repair across every wire slot.
 - `caseSearchConfigRequiresCaseType` — `<remote-request>` carries a mandatory `case_type` slot.
 - `ancestorExistsCannotNestSubcase` — runs after shared relation canonicalization and CSQL relation-read adaptation. A canonical `any-relation(parent)` whose selected case type proves one graph direction is first narrowed to that ancestor or child direction, preserving filters CCHQ can faithfully express. Recursive, custom-index, and otherwise ambiguous `any-relation` paths retain both arms and are ancestor-bearing because CSQL emits an ancestor arm. CCHQ rejects ancestor-exists with subcase-exists or subcase-count nested in the filter argument.
@@ -1162,7 +1186,9 @@ the types sheet carries the definition, CommCare HQ's JSON `lookup_table`
 resource is not on the write path at all. `lib/commcare/hq/lookupTables.ts`
 drives both endpoints; `lib/deployment` owns what may be written over.
 
-`compileForPlatform.ts` is the pure decision tree from authored content + `PlatformContext` to a three-flag `WireShape`. Author intent is unambiguous on every input — Android always emits list-first / inline-results; web with an effective Search action, an effective filter, and zero search inputs emits skip-to-results; an explicit zero-input action without that filter remains manual; web fallback is list-first. The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute. The HQ JSON projection supplies a match-all default property for the explicit zero-input/manual shape because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
+`compileForPlatform.ts` is the pure decision tree from authored content + `PlatformContext` to a three-flag `WireShape`. Author intent is unambiguous on every input — Android always emits list-first / inline-results; web with an effective Search action, an effective filter, and zero search inputs emits skip-to-results; an explicit zero-input action without that filter remains manual; web fallback is list-first. The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute. Both export paths send a match-all filter for the explicit zero-input/manual shape (`suite/case-search/xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`), because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
+
+Every search button reads `lib/domain/modules.ts::CASE_SEARCH_BUTTON_LABEL` ("Search All Cases") in every language, on both export paths and in Preview: HQ's Case List save keeps no other label, and the document holds none. A lookup-backed search input's `<sort ref>` is its `sortColumnId`, or its label column where none is set. `suite/case-search/reservedInputNames.ts::RESERVED_SEARCH_INPUT_NAMES` holds the sixteen names HQ's search request keeps for itself, and `RESERVED_SEARCH_INPUT_NAME_PREFIXES` the `indices.` prefix; `isReservedSearchInputName` tests a name against both, and a search input and a default filter may use none of them. A menu uploads its own case type, a survey-only menu's included, and `formLinkProjection.ts::moduleCaseTypeForActions` gates only what is built from the type. Four spellings are HQ's own and Nova writes them: no `no_vellum`, no `custom_variables`, a calculated column as `format: "plain"`, and one `name` column on a short list that holds none.
 
 ### Search-first inline shape
 
@@ -1225,12 +1251,11 @@ The shape is a different suite, not a flag on the remote-request one, and
   (`SUITE_STACK_QUERY_INVALID`) and scopes the session-query rules to
   non-stack queries.
 
-The four refusals mirror HQ's build validator (`helpers/validators.py`)
+The three refusals mirror HQ's build validator (`helpers/validators.py`)
 because every Nova-uploaded module carries a `search_config` shell, which is
 what its `non-unique instance name` checks key on: `SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE`
 (inline needs a case datum on every entry), `SEARCH_FIRST_NO_BUTTON_DISPLAY_CONDITION`
-(there is no action for `relevant` to gate), `SEARCH_FIRST_NO_PREVIOUS_WORKFLOW`
-(explicit `previous` on a case form; `workflow previous inline search`), and
+(there is no action for `relevant` to gate), and
 `SEARCH_FIRST_UNIQUE_INSTANCE` (no submenu under, and no parent-select from, a
 search-first module; a search-first CHILD of an ordinary parent-select source
 is fine). The setter tool refuses `searchFirst` on an owner-only config
@@ -1240,12 +1265,13 @@ because there is no search to open on.
 
 ### No-matches registration lowering
 
-Explicit `postSubmit: "app_home"` on a no-matches form emits HQ `root` and
-one empty local `<create/>`. HQ's `WorkflowHelper._get_stack_frames` uses a
+Explicit `postSubmit: "firstMenu"` on a no-matches form emits HQ `root` and
+one empty local `<create/>`, the ordinary `firstMenu` lowering: it is the one
+explicit destination a no-matches form may hold. HQ's `WorkflowHelper._get_stack_frames` uses a
 nonempty explicit end-of-form workflow instead of `CaseListFormWorkflow`, so
 this reset bypasses the implicit return to Results. The implicit return stays
 unchanged for single-case hosts. A multiple-selection host requires explicit
-App home: HQ's `WorkflowQueryMeta.clone_to_match` retains the target collection
+`firstMenu`: HQ's `WorkflowQueryMeta.clone_to_match` retains the target collection
 transport while using the registration's scalar new-case id; Core cannot load
 that scalar `uuid()` as a selected-entities instance. Admission reports
 `SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN`; never widen the instance allowlist
@@ -1501,9 +1527,6 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 - Sort field format regex, multimedia
 - Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
-
-Validation stubs that activate when features land:
-- `previous` + `multi_select`
 
 ### Named entry points
 

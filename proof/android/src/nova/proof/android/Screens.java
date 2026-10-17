@@ -214,8 +214,21 @@ final class Screens {
         boolean at(Intent started, JSONObject step, ShadowActivity home) throws Exception;
     }
 
-    private static JSONObject guarded(String name, String command, List<String> choices,
-                                      Deque<List<String>> pending, FormStep form) throws Exception {
+    /** One session on the device, whose screens end with it. */
+    interface Session {
+        JSONObject run() throws Exception;
+    }
+
+    static JSONObject guarded(String name, String command, List<String> choices,
+                              Deque<List<String>> pending, FormStep form) throws Exception {
+        return guarded(name, () -> walk(command, choices, pending, form));
+    }
+
+    /**
+     * {@code session} on a device that stands where HQ stands once the worker signed in: made again where an
+     * earlier session left it dirty, and told to HQ as a walk of its own (Peer.run).
+     */
+    static JSONObject guarded(String name, Session session) throws Exception {
         Device.settle();
         if (Device.dirty) {
             // The device made again, signed in again where HQ stands before any walk.
@@ -230,7 +243,7 @@ final class Screens {
         Sensors.forget();
         long began = System.nanoTime();
         try {
-            return walk(command, choices, pending, form);
+            return session.run();
         } catch (WalkNeverEnds reader) {
             // The reader's own failure, never the app's: no record holds it.
             throw reader;
@@ -302,6 +315,22 @@ final class Screens {
         ShadowLooper.idleMainLooper();
 
         found.put("steps", steps);
+        follow(home, shadow, command, choices, depth, pending, form, found);
+        return found;
+    }
+
+    /**
+     * Each screen home starts from where its session stands, read into {@code found}'s {@code steps}: the walk's
+     * own loop, after {@code walked} built home and started its session, and after an entry point's launch built
+     * home from the intent Android's dispatcher handed it (Nav). {@code choices} past {@code depth} are chosen
+     * at the menus and lists it meets; with no {@code command}, a walk from the app's first menu, a list with
+     * nothing left to choose is read and ends the walk, and each case and action it offers is added to
+     * {@code pending}.
+     */
+    static void follow(StandardHomeActivity home, ShadowActivity shadow, String command, List<String> choices,
+                       int depth, Deque<List<String>> pending, FormStep form, JSONObject found) throws Exception {
+        AndroidSessionWrapper wrapper = CommCareApplication.instance().getCurrentSessionWrapper();
+        JSONArray steps = found.getJSONArray("steps");
         int forms = 0;
         // The case the walk chose at its first list, which a list a form leads to is answered with where it
         // lists it.
@@ -416,7 +445,6 @@ final class Screens {
                 break;
             }
         }
-        return found;
     }
 
     /**

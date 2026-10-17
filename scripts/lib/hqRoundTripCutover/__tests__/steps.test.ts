@@ -22,6 +22,8 @@ import {
 } from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
 import { casePropertyOptionTranslationUnitId } from "@/lib/domain/translationUnits";
+import { migrationNoticeEntrySchema } from "@/lib/notices/migrationNotice";
+import { renderNoticeEntry } from "@/lib/notices/migrationNoticeCopy";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { lookupContextOf } from "@/proof/corpus/documents";
 import { legacyWireCodes } from "../legacyLanguageWireCodes";
@@ -2141,5 +2143,665 @@ describe("step tile-cells", () => {
 			});
 		}
 		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+});
+
+// ── Pull request 12: menus, navigation and search settings ──────────
+
+describe("step search-button-label", () => {
+	const ID = "targeted-search-button-label";
+	const MENU = "ccc35682-a556-5426-ac5a-74a8e3b814b2";
+	const GONE_MENU = uuid(0x1201);
+	const button = (menu: string) =>
+		makeTranslationUnitId("module", menu, "search-button");
+	const translation = (value: string) => ({
+		value,
+		sourceFingerprint: "fixture",
+		origin: "human",
+		review: "reviewed",
+		translatedFrom: "eng",
+	});
+
+	/** The witness in three languages, its button translated in two. */
+	function translated(defaultLanguage: string): RawDocument {
+		const doc = fixtureCopy(ID);
+		const nameUnit = makeTranslationUnitId("module", MENU, "name");
+		writable(doc).localization = {
+			sourceLanguage: "eng",
+			defaultLanguage,
+			languageOrder:
+				defaultLanguage === "eng"
+					? ["eng", "spa", "fra"]
+					: [defaultLanguage, "eng", "fra"],
+			translations: {
+				spa: {
+					[button(MENU)]: translation("Buscar un paciente"),
+					[button(GONE_MENU)]: translation("Buscar"),
+					[nameUnit]: translation("Pacientes"),
+				},
+				fra: { [button(MENU)]: translation("Chercher un patient") },
+			},
+		};
+		return doc;
+	}
+
+	function translations(document: RawDocument): Record<string, string[]> {
+		const localization = writable(document).localization as {
+			translations: Record<string, Record<string, Json>>;
+		};
+		return Object.fromEntries(
+			Object.entries(localization.translations).map(([language, entries]) => [
+				language,
+				Object.keys(entries),
+			]),
+		);
+	}
+
+	function searchConfig(document: RawDocument): JsonRecord {
+		return writable(document).modules[MENU]?.caseSearchConfig as JsonRecord;
+	}
+
+	it("deletes the stored label and every language's button text, whichever menu it names, and keeps the other translations", () => {
+		const doc = translated("eng");
+		(searchConfig(doc) as Record<string, Json>).searchButtonLabel =
+			"Find a patient";
+		const result = transformDocument(doc, contextFor(ID));
+		expect(searchConfig(result.target)).not.toHaveProperty("searchButtonLabel");
+		expect(translations(result.target)).toEqual({
+			spa: [makeTranslationUnitId("module", MENU, "name")],
+			fra: [],
+		});
+		expect(stepChanges(result, "search-button-label")).toEqual([
+			{
+				reason: "search-button-text-changed",
+				entity: { type: "module", uuid: MENU, nameAtMigration: "Patients" },
+				detail: { from: "Find a patient" },
+			},
+		]);
+		expect(
+			blueprintDocSchema.safeParse(rawDocumentAssembly(ID, result.target))
+				.success,
+		).toBe(true);
+	});
+
+	it("deletes a label beside no translation, and a translation beside no label, each on its own", () => {
+		const labelled = fixtureCopy(ID);
+		const alone = transformDocument(labelled, contextFor(ID)).target;
+		expect(searchConfig(alone)).not.toHaveProperty("searchButtonLabel");
+
+		const unlabelled = translated("eng");
+		delete (searchConfig(unlabelled) as Record<string, Json>).searchButtonLabel;
+		const result = transformDocument(unlabelled, contextFor(ID));
+		expect(translations(result.target).fra).toEqual([]);
+		expect(stepChanges(result, "search-button-label")).toEqual([
+			{
+				reason: "search-button-text-changed",
+				entity: { type: "module", uuid: MENU, nameAtMigration: "Patients" },
+				detail: { from: "Search" },
+			},
+		]);
+	});
+
+	it("gives the former text in the default language, where it is translated", () => {
+		const result = transformDocument(translated("spa"), contextFor(ID));
+		expect(stepChanges(result, "search-button-label")).toEqual([
+			{
+				reason: "search-button-text-changed",
+				entity: { type: "module", uuid: MENU, nameAtMigration: "Patients" },
+				detail: { from: "Buscar un paciente" },
+			},
+		]);
+	});
+
+	it("names no menu without a search", () => {
+		const result = transformDocument(
+			fixtureCopy("navigation-base"),
+			contextFor("navigation-base"),
+		);
+		expect(stepChanges(result, "search-button-label")).toEqual([]);
+	});
+});
+
+describe("step reserved-search-inputs", () => {
+	const ID = "hand-xpath-query-input";
+	const MENU = "1fefe8ae-743a-5a32-ac35-daf498a2c2be";
+	const VISIT = "15456004-1da7-58f0-a1da-1afa4dc338d4";
+	const INCLUDE = "bbb0148d-0ba6-5781-a4de-61fbf12d63bd";
+	const OWNER = "c70c116d-da4c-5ad9-aea7-3f4b9aa8cebd";
+	const QUERY = uuid(0xf01);
+	const CASE_TYPE = uuid(0x1211);
+	const CARRIED = uuid(0x1212);
+	const includeTerm = {
+		kind: "term",
+		term: { kind: "input", searchInputUuid: INCLUDE },
+	};
+
+	function config(document: RawDocument): Record<string, Json> {
+		const list = writable(document).modules[MENU]?.caseListConfig;
+		if (list === undefined || list === null) {
+			throw new Error("The witness lost its list.");
+		}
+		return list as never;
+	}
+
+	function inputs(document: RawDocument): JsonRecord[] {
+		return config(document).searchInputs as never;
+	}
+
+	it("removes an own-key reserved input, renames a remaining _xpath_query, and keeps the rest", () => {
+		const doc = fixtureCopy(ID);
+		inputs(doc).push({
+			uuid: CASE_TYPE,
+			kind: "advanced",
+			label: "Kind",
+			name: "case_type",
+			type: "text",
+			predicate: {
+				kind: "when-input-present",
+				input: { kind: "input", searchInputUuid: CASE_TYPE },
+				clause: {
+					kind: "eq",
+					left: {
+						kind: "term",
+						term: { kind: "prop", caseType: "patient", property: "case_name" },
+					},
+					right: {
+						kind: "term",
+						term: { kind: "input", searchInputUuid: CASE_TYPE },
+					},
+				},
+			},
+		});
+		const result = transformDocument(doc, contextFor(ID));
+		expect(
+			inputs(result.target).map((input) => [input.uuid, input.name]),
+		).toEqual([
+			[OWNER, "owner_id"],
+			[QUERY, "_xpath_query_2"],
+			[CASE_TYPE, "case_type"],
+		]);
+		expect(stepChanges(result, "reserved-search-inputs")).toEqual([
+			{
+				reason: "search-input-removed",
+				entity: {
+					type: "searchInput",
+					uuid: INCLUDE,
+					nameAtMigration: "include_closed",
+				},
+				detail: { menu: "Patients", expressions: "0" },
+			},
+			{
+				reason: "search-input-renamed",
+				entity: { type: "searchInput", uuid: QUERY, nameAtMigration: "Query" },
+				detail: {
+					menu: "Patients",
+					from: "_xpath_query",
+					to: "_xpath_query_2",
+				},
+			},
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("removes an own-key input named _xpath_query rather than renaming it", () => {
+		const doc = fixtureCopy(ID);
+		const query = inputs(doc).find((input) => input.uuid === QUERY) as Record<
+			string,
+			Json
+		>;
+		query.property = "_xpath_query";
+		const result = transformDocument(doc, contextFor(ID));
+		expect(inputs(result.target).map((input) => input.uuid)).toEqual([OWNER]);
+		expect(
+			stepChanges(result, "reserved-search-inputs").map((change) => [
+				change.reason,
+				change.entity.nameAtMigration,
+			]),
+		).toEqual([
+			["search-input-removed", "include_closed"],
+			["search-input-removed", "_xpath_query"],
+		]);
+	});
+
+	it("gives each expression that reads a removed input the unanswered reading, and counts them", () => {
+		const doc = fixtureCopy(ID);
+		config(doc).filter = {
+			kind: "when-input-present",
+			input: { kind: "input", searchInputUuid: INCLUDE },
+			clause: {
+				kind: "eq",
+				left: {
+					kind: "term",
+					term: {
+						kind: "prop",
+						caseType: "patient",
+						property: "include_closed",
+					},
+				},
+				right: includeTerm,
+			},
+		};
+		const owner = inputs(doc).find((input) => input.uuid === OWNER) as Record<
+			string,
+			Json
+		>;
+		owner.validation = {
+			rule: { kind: "not", clause: { kind: "is-blank", left: includeTerm } },
+			message: "Say whether to include closed cases.",
+		};
+		addField(doc, VISIT, {
+			uuid: CARRIED,
+			kind: "hidden",
+			id: "carried",
+			calculate: {
+				parts: [
+					{ kind: "text", text: "concat(" },
+					{ kind: "search-answer-ref", searchInputUuid: INCLUDE },
+					{ kind: "text", text: ", 'x')" },
+				],
+			},
+		});
+		const result = transformDocument(doc, contextFor(ID));
+		expect(config(result.target).filter).toEqual({ kind: "match-all" });
+		expect(
+			(
+				inputs(result.target).find(
+					(input) => input.uuid === OWNER,
+				) as never as {
+					validation: Json;
+				}
+			).validation,
+		).toEqual({
+			rule: {
+				kind: "not",
+				clause: {
+					kind: "is-blank",
+					left: { kind: "term", term: { kind: "literal", value: "" } },
+				},
+			},
+			message: "Say whether to include closed cases.",
+		});
+		expect(textOf(result.target, CARRIED, "calculate")).toBe("concat('', 'x')");
+		expect(
+			stepChanges(result, "reserved-search-inputs").find(
+				(change) => change.reason === "search-input-removed",
+			)?.detail?.expressions,
+		).toBe("3");
+	});
+
+	it("leaves a reserved name on an input that does not reach HQ as its own key", () => {
+		const doc = fixtureCopy(ID);
+		const include = inputs(doc).find(
+			(input) => input.uuid === INCLUDE,
+		) as Record<string, Json>;
+		include.mode = { kind: "starts-with" };
+		const result = transformDocument(doc, contextFor(ID));
+		expect(inputs(result.target).map((input) => input.uuid)).toContain(INCLUDE);
+	});
+});
+
+describe("step hidden-from-menu", () => {
+	const ID = "hand-hidden-from-menu";
+	const CHECKS = uuid(0xc01);
+	const CHECK = uuid(0xc02);
+	const NEVER = { kind: "match-none" };
+	const x = {
+		kind: "is-blank",
+		left: {
+			kind: "term",
+			term: { kind: "prop", caseType: "patient", property: "visit_time" },
+		},
+	};
+	const y = {
+		kind: "not",
+		clause: {
+			kind: "is-blank",
+			left: {
+				kind: "term",
+				term: { kind: "prop", caseType: "patient", property: "case_name" },
+			},
+		},
+	};
+
+	function withConditions(menu: Json, form: Json): RawDocument {
+		const doc = fixtureCopy(ID);
+		writable(doc).modules[CHECKS] = {
+			...writable(doc).modules[CHECKS],
+			displayCondition: menu,
+		} as JsonRecord;
+		writable(doc).forms[CHECK] = {
+			...writable(doc).forms[CHECK],
+			displayCondition: form,
+		} as JsonRecord;
+		return doc;
+	}
+
+	function carriers(document: RawDocument) {
+		const { displayCondition: menu, hiddenFromMenu: menuHidden } =
+			document.modules[CHECKS] ?? {};
+		const { displayCondition: form, hiddenFromMenu: formHidden } =
+			document.forms[CHECK] ?? {};
+		return { menu, menuHidden, form, formHidden };
+	}
+
+	it("marks a menu whose condition is never and a form whose condition is never and one more clause", () => {
+		const result = transformDocument(
+			withConditions(NEVER, { kind: "and", clauses: [NEVER, x] }),
+			contextFor(ID),
+		);
+		expect(carriers(result.target)).toEqual({
+			menu: undefined,
+			menuHidden: true,
+			form: x,
+			formHidden: true,
+		});
+		expect(stepChanges(result, "hidden-from-menu")).toEqual([
+			{
+				reason: "hidden-from-menu-set",
+				entity: { type: "module", uuid: CHECKS, nameAtMigration: "Checks" },
+			},
+			{
+				reason: "hidden-from-menu-set",
+				entity: { type: "form", uuid: CHECK, nameAtMigration: "Check" },
+			},
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("keeps the rest of never and x and y as their own and, and leaves x and never as written", () => {
+		const result = transformDocument(
+			withConditions(
+				{ kind: "and", clauses: [NEVER, x, y] },
+				{ kind: "and", clauses: [x, NEVER] },
+			),
+			contextFor(ID),
+		);
+		expect(carriers(result.target)).toEqual({
+			menu: { kind: "and", clauses: [x, y] },
+			menuHidden: true,
+			form: { kind: "and", clauses: [x, NEVER] },
+			formHidden: undefined,
+		});
+		expect(
+			stepChanges(result, "hidden-from-menu").map(
+				(change) => change.entity.type,
+			),
+		).toEqual(["module"]);
+	});
+
+	it("stops on a menu it marks that a form link targets, or that holds an entry point", () => {
+		const doc = withConditions(NEVER, x);
+		writable(doc).forms["cd8766da-7326-51ee-aa0b-f8101304f9ea"] = {
+			...writable(doc).forms["cd8766da-7326-51ee-aa0b-f8101304f9ea"],
+			formLinks: [
+				{ uuid: uuid(0x1221), target: { type: "module", moduleUuid: CHECKS } },
+			],
+		} as JsonRecord;
+		writable(doc).modules[CHECKS] = {
+			...writable(doc).modules[CHECKS],
+			entryPoint: { uuid: uuid(0x1222), id: "checks" },
+		} as JsonRecord;
+		const result = transformDocument(doc, contextFor(ID));
+		const menu = { type: "module", uuid: CHECKS, nameAtMigration: "Checks" };
+		expect(result.blockers).toEqual([
+			{
+				code: "hidden-menu-is-a-destination",
+				entity: menu,
+				detail: { pointer: "link", form: "Visit" },
+			},
+			{
+				code: "hidden-menu-is-a-destination",
+				entity: menu,
+				detail: { pointer: "entry-point" },
+			},
+		]);
+		expect(
+			contentBlockerPlaces(result.target, undefined, result.blockers).map(
+				(place) => [place.code, place.message],
+			),
+		).toEqual([
+			[
+				"hidden-menu-is-a-destination",
+				'"Checks" is now off the menu, because its display condition could never be true, and the after-submit link from "Visit" opens it. Point it at a form inside the module, or change the condition so it can be true.',
+			],
+			[
+				"hidden-menu-is-a-destination",
+				'"Checks" is now off the menu, because its display condition could never be true, and its entry point opens it. Point it at a form inside the module, or change the condition so it can be true.',
+			],
+		]);
+	});
+});
+
+describe("step post-submit", () => {
+	const ID = "hand-post-submit";
+	const BATCHES = "1749f35c-6375-5a08-a7ef-4b1e499c902c";
+	const SAMPLES = "a476cee3-04c0-58a7-afa3-f5d91687b913";
+	const REVIEW_BATCHES = "6328425f-f277-5dc3-a39d-c38944b0deef";
+	const UNDER_BATCHES = "71758067-5fb8-5433-aab4-e621619e2937";
+	const UNDER_SAMPLES = "76468f4a-b34b-560e-a19a-39e0371c79da";
+	const REVIEW_SAMPLES = "84afd5f8-3ab4-5ae4-a9ec-c24e94c487a8";
+
+	function form(document: RawDocument, formUuid: string): Record<string, Json> {
+		const found = writable(document).forms[formUuid];
+		if (found === undefined) throw new Error(`No form ${formUuid}.`);
+		return found as Record<string, Json>;
+	}
+
+	function destinations(document: RawDocument): Record<string, Json> {
+		return Object.fromEntries(
+			[REVIEW_BATCHES, UNDER_BATCHES, UNDER_SAMPLES, REVIEW_SAMPLES].map(
+				(formUuid) => [formUuid, form(document, formUuid).postSubmit ?? null],
+			),
+		);
+	}
+
+	const moved = (
+		formUuid: string,
+		name: string,
+		detail: Record<string, string>,
+	) => ({
+		reason: "after-submit-destination-moved",
+		entity: { type: "form", uuid: formUuid, nameAtMigration: name },
+		detail,
+	});
+
+	it("writes module for previous in a menu that selects several cases, and firstMenu under one, relying on the default", () => {
+		const result = transformDocument(fixtureCopy(ID), contextFor(ID));
+		expect(destinations(result.target)).toEqual({
+			[REVIEW_BATCHES]: "module",
+			[UNDER_BATCHES]: "firstMenu",
+			[UNDER_SAMPLES]: "module",
+			[REVIEW_SAMPLES]: null,
+		});
+		expect(stepChanges(result, "post-submit")).toEqual([
+			moved(REVIEW_BATCHES, "Review batches", {
+				from: "previous",
+				to: "module",
+				cause: "multi-select-menu",
+				menu: "Batches",
+			}),
+			moved(UNDER_BATCHES, "Review single-under-batches", {
+				from: "previous",
+				to: "firstMenu",
+				cause: "multi-select-parent",
+				menu: "One sample",
+			}),
+			moved(UNDER_SAMPLES, "Review batch-under-samples", {
+				from: "previous",
+				to: "module",
+				cause: "multi-select-menu",
+				menu: "Several samples",
+			}),
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("moves a stored previous and a stored module the same way, and keeps a stored module in a menu that selects several cases", () => {
+		const doc = fixtureCopy(ID);
+		form(doc, REVIEW_BATCHES).postSubmit = "previous";
+		form(doc, UNDER_BATCHES).postSubmit = "module";
+		form(doc, UNDER_SAMPLES).postSubmit = "module";
+		const result = transformDocument(doc, contextFor(ID));
+		expect(destinations(result.target)).toMatchObject({
+			[REVIEW_BATCHES]: "module",
+			[UNDER_BATCHES]: "firstMenu",
+			[UNDER_SAMPLES]: "module",
+		});
+		expect(
+			stepChanges(result, "post-submit").map((change) => change.detail),
+		).toEqual([
+			{
+				from: "previous",
+				to: "module",
+				cause: "multi-select-menu",
+				menu: "Batches",
+			},
+			{
+				from: "module",
+				to: "firstMenu",
+				cause: "multi-select-parent",
+				menu: "One sample",
+			},
+		]);
+	});
+
+	it("pins the default of a form with links where it now changes, and keeps a stored fallback, with no line", () => {
+		const doc = fixtureCopy(ID);
+		const link = (n: number) => [
+			{ uuid: uuid(n), target: { type: "module", moduleUuid: SAMPLES } },
+		];
+		form(doc, REVIEW_BATCHES).formLinks = link(0x1231);
+		form(doc, UNDER_SAMPLES).formLinks = link(0x1232);
+		form(doc, UNDER_SAMPLES).postSubmit = "previous";
+		const result = transformDocument(doc, contextFor(ID));
+		expect(destinations(result.target)).toMatchObject({
+			[REVIEW_BATCHES]: "previous",
+			[UNDER_SAMPLES]: "previous",
+		});
+		expect(
+			stepChanges(result, "post-submit").map((change) => change.entity.uuid),
+		).toEqual([UNDER_BATCHES]);
+	});
+
+	it("writes firstMenu for a form of a menu step hidden-from-menu takes off the menu, with or without links", () => {
+		const doc = fixtureCopy(ID);
+		writable(doc).modules[SAMPLES] = {
+			...writable(doc).modules[SAMPLES],
+			displayCondition: { kind: "match-none" },
+		} as JsonRecord;
+		form(doc, REVIEW_SAMPLES).formLinks = [
+			{ uuid: uuid(0x1233), target: { type: "module", moduleUuid: BATCHES } },
+		];
+		const result = transformDocument(doc, contextFor(ID));
+		expect(form(result.target, REVIEW_SAMPLES).postSubmit).toBe("firstMenu");
+		expect(stepChanges(result, "post-submit")).toContainEqual(
+			moved(REVIEW_SAMPLES, "Review samples", {
+				from: "previous",
+				to: "firstMenu",
+				cause: "off-the-menu",
+				menu: "Samples",
+			}),
+		);
+	});
+
+	it("writes firstMenu for a no-matches form that holds app_home, with no line", () => {
+		const id = "no-matches-parent";
+		const doc = fixtureCopy(id);
+		const noMatches = Object.entries(writable(doc).forms).find(
+			([, candidate]) =>
+				(candidate.entry as JsonRecord | undefined)?.kind ===
+				"search-no-matches",
+		);
+		if (noMatches === undefined) throw new Error("No no-matches form.");
+		(noMatches[1] as Record<string, Json>).postSubmit = "app_home";
+		const result = transformDocument(doc, contextFor(id));
+		expect(form(result.target, noMatches[0]).postSubmit).toBe("firstMenu");
+		expect(stepChanges(result, "post-submit")).toEqual([]);
+		expect(gateCodes(id, result.target)).toEqual([]);
+	});
+});
+
+describe("the lines pull request 12's steps write", () => {
+	/** Each change as its stored entry, rendered as a member reads it once the entity is gone. */
+	function rendered(changes: readonly DocumentChange[]): string[] {
+		return changes.map(
+			(change) =>
+				renderNoticeEntry(
+					migrationNoticeEntrySchema.parse({ kind: "document", ...change }),
+					{ nameOf: () => null },
+				).text,
+		);
+	}
+
+	function changesOf(
+		id: string,
+		document: RawDocument,
+		stepId: string,
+	): readonly DocumentChange[] {
+		return stepChanges(transformDocument(document, contextFor(id)), stepId);
+	}
+
+	it("render as the notice's copy", () => {
+		const labelled = fixtureCopy("targeted-search-button-label");
+		(
+			writable(labelled).modules["ccc35682-a556-5426-ac5a-74a8e3b814b2"]
+				?.caseSearchConfig as Record<string, Json>
+		).searchButtonLabel = "Find a patient";
+		expect(
+			rendered(
+				changesOf(
+					"targeted-search-button-label",
+					labelled,
+					"search-button-label",
+				),
+			),
+		).toEqual([
+			"Patients: the search button now reads “Search All Cases”. It read “Find a patient” before. CommCare HQ always shows its own text there.",
+		]);
+		expect(
+			rendered(
+				changesOf(
+					"hand-xpath-query-input",
+					fixtureCopy("hand-xpath-query-input"),
+					"reserved-search-inputs",
+				),
+			),
+		).toEqual([
+			"Patients: the search input include_closed was removed. CommCare reads that name as part of the search request, so it never searched a property.",
+			"Patients: the search input _xpath_query is now _xpath_query_2. CommCare reads the earlier name as part of the search itself.",
+		]);
+		const hidden = fixtureCopy("hand-hidden-from-menu");
+		writable(hidden).modules[uuid(0xc01)] = {
+			...writable(hidden).modules[uuid(0xc01)],
+			displayCondition: { kind: "match-none" },
+		} as JsonRecord;
+		writable(hidden).forms[uuid(0xc02)] = {
+			...writable(hidden).forms[uuid(0xc02)],
+			displayCondition: { kind: "match-none" },
+		} as JsonRecord;
+		expect(
+			rendered(changesOf("hand-hidden-from-menu", hidden, "hidden-from-menu")),
+		).toEqual([
+			"Checks: this module is now marked as not on the menu, because its display condition could never be true. Its settings show what can still open it.",
+			"Check: this form is now marked as not on the menu, because its display condition could never be true. Its settings show what can still open it.",
+		]);
+		expect(
+			rendered(changesOf("hand-hidden-from-menu", hidden, "post-submit")),
+		).toEqual([
+			"Check: after submitting, workers now go to the app's first menu (First menu in its settings). It was set to the previous screen, and Checks is now off the menu, so there is no screen of it to go back to.",
+		]);
+		expect(
+			rendered(
+				changesOf(
+					"hand-post-submit",
+					fixtureCopy("hand-post-submit"),
+					"post-submit",
+				),
+			),
+		).toEqual([
+			"Review batches: after submitting, workers now go back to this module's case list. It was set to the previous screen, which CommCare HQ doesn't offer in a module that selects several cases.",
+			"Review single-under-batches: after submitting, workers now go to the app's first menu (First menu in its settings). It was set to the previous screen, which CommCare HQ doesn't offer in a module under one that selects several cases.",
+			"Review batch-under-samples: after submitting, workers now go back to this module's case list. It was set to the previous screen, which CommCare HQ doesn't offer in a module that selects several cases.",
+		]);
 	});
 });

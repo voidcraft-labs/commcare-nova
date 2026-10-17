@@ -26,7 +26,9 @@
  * `display_condition` carries the module's typed condition — the read half of
  * the slot `updateModule` writes. Without it the SA would edit a module blind
  * to a rule governing whether the module appears at all, and would overwrite
- * one it had never been shown.
+ * one it had never been shown. `hidden_from_menu` beside it says whether the
+ * module is off the menu whatever its condition, and each form summary says
+ * the same of its form.
  */
 
 import type { z } from "zod";
@@ -75,6 +77,8 @@ export interface GetModuleFormSummary {
 	 * is offered on Results only after a search finds nothing.
 	 */
 	entry: { kind: "search-no-matches"; label?: string } | null;
+	/** True when the form is off the menu (`hiddenFromMenu`). */
+	hidden_from_menu: boolean;
 }
 
 /**
@@ -100,6 +104,8 @@ export type GetModuleResult =
 			icon: ModuleIconRef | null;
 			audio_label: MediaAssetId | null;
 			display_condition: Predicate | null;
+			/** True when the module is off the menu, with every form in it. */
+			hidden_from_menu: boolean;
 			case_list_config: CaseListConfig | null;
 			/** Visible case-list COLUMN uuids, in the order each screen renders them.
 			 *  A column's `field` is its case property and is a different identity. */
@@ -152,6 +158,7 @@ export const getModuleTool = {
 				icon: mod.icon ?? null,
 				audio_label: mod.audioLabel ?? null,
 				display_condition: mod.displayCondition ?? null,
+				hidden_from_menu: mod.hiddenFromMenu === true,
 				case_list_config: caseListConfig ?? null,
 				results_column_order: resultsColumns
 					.filter((column) => column.visibleInList !== false)
@@ -170,6 +177,7 @@ export const getModuleTool = {
 						icon: f?.icon ?? null,
 						audio_label: f?.audioLabel ?? null,
 						entry: f?.entry ?? null,
+						hidden_from_menu: f?.hiddenFromMenu === true,
 					};
 				}),
 			},

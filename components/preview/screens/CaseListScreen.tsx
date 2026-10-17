@@ -94,10 +94,10 @@ import { useWorkerModule } from "@/lib/doc/hooks/useWorkerModule";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
+	CASE_SEARCH_BUTTON_LABEL,
 	type CaseListConfig,
 	type CaseProperty,
 	type Column,
-	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	isNoMatchesForm,
@@ -399,6 +399,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				form,
 				visibility: formDisplayVisibility({
 					condition: form.displayCondition,
+					hiddenFromMenu: form.hiddenFromMenu === true,
 					session: searchSession,
 					...(caseType !== undefined && { currentCaseType: caseType.name }),
 					caseProjection: projection,
@@ -419,6 +420,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				form,
 				visibility: formDisplayVisibility({
 					condition: form.displayCondition,
+					hiddenFromMenu: form.hiddenFromMenu === true,
 					session: searchSession,
 					...(caseType !== undefined && { currentCaseType: caseType.name }),
 					lookup: lookupStatus,
@@ -1273,12 +1275,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				"search-subtitle",
 			),
 		) as string | undefined) ?? searchConfig?.searchScreenSubtitle;
-	const searchButtonLabel =
-		(localizedValues.get(
-			makeTranslationUnitId("module", moduleUuid ?? "missing", "search-button"),
-		) as string | undefined) ??
-		searchConfig?.searchButtonLabel ??
-		DEFAULT_CASE_SEARCH_BUTTON_LABEL;
 	const localizedSearchValidationMessages = useMemo(
 		() =>
 			new Map(
@@ -1869,7 +1865,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						value={searchRun.draft}
 						onChange={searchRun.changeDraft}
 						onSubmit={submitSearch}
-						submitLabel={searchButtonLabel}
+						submitLabel={CASE_SEARCH_BUTTON_LABEL}
 						localizeValidationMessage={localizeSearchValidationMessage}
 					/>
 				)}
@@ -2257,7 +2253,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
 					>
 						<Icon icon={tablerSearch} width="16" height="16" />
-						{searchButtonLabel}
+						{CASE_SEARCH_BUTTON_LABEL}
 					</Button>
 				)}
 			{state.kind === "rows" && loadedRows.length > 0 && (

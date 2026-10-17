@@ -399,7 +399,8 @@ function searchInputOptionsLocation(
 /**
  * A `select` / `multi-select` Search prompt's choice list: the same three
  * identities a select field's source carries (value column, label column, and
- * the row filter's table-column leaves), owned by the search input's uuid.
+ * the row filter's table-column leaves), plus the sort column when one is
+ * chosen, owned by the search input's uuid.
  */
 function extractSearchInputOptions(
 	doc: BlueprintDoc,
@@ -426,6 +427,15 @@ function extractSearchInputOptions(
 					location,
 				},
 			);
+			if (source.sortColumnId !== undefined) {
+				references.push({
+					carrierUuid: input.uuid,
+					subpath: ["sortColumnId"],
+					tableId: source.tableId,
+					columnId: source.sortColumnId,
+					location,
+				});
+			}
 			if (source.filter !== undefined) {
 				references.push(
 					...extractAstLookupReferences({

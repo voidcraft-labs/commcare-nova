@@ -128,6 +128,72 @@ const questionIdSentence = (
 	);
 };
 
+/** The after-submit picker's label for each stored destination. */
+function afterSubmitLabel(destination: string, parentName: string): string {
+	switch (destination) {
+		case "app_home":
+			return "App home";
+		case "firstMenu":
+			return "First menu";
+		case "module":
+			return "This module";
+		case "parentMenu":
+			return `Parent module: ${parentName}`;
+		default:
+			return "Previous screen";
+	}
+}
+
+/** How a withheld destination reads inside the reason's sentence. */
+function afterSubmitPhrase(destination: string): string {
+	switch (destination) {
+		case "module":
+			return "its module";
+		case "parentMenu":
+			return "the parent module";
+		default:
+			return "the previous screen";
+	}
+}
+
+/**
+ * `POST_SUBMIT_NOT_OFFERED`: the reason's sentence, then the destinations
+ * the form is offered as the picker labels them. The validator's message
+ * says the same with the tool's values.
+ */
+function postSubmitNotOfferedSentence(e: ValidationError): string {
+	const form = q(formName(e));
+	const module = q(modName(e));
+	const parentName = det(e, "parentName", "the parent module");
+	const phrase = afterSubmitPhrase(det(e, "destination", "previous"));
+	const offered = (e.details?.offered ?? "app_home,firstMenu")
+		.split(",")
+		.filter((value) => value.length > 0)
+		.map((value) => q(afterSubmitLabel(value, parentName)))
+		.join(", ");
+	const reason = (() => {
+		switch (e.details?.reason) {
+			case "menu-selects-several":
+				return `${form} goes to the previous screen after submit, but ${module} selects several cases, and CommCare has no previous screen to return to there.`;
+			case "parent-selects-several":
+				return `${form} goes to ${phrase} after submit, but ${module} sits under ${q(parentName)}, which selects several cases.`;
+			case "menu-opens-on-search":
+				return `${form} goes to the previous screen after submit, but ${module} opens on Search, and CommCare can't go back to the previous screen there.`;
+			case "menu-is-case-list-only":
+				return `${form} goes to its module after submit, but ${module} is a case list with no forms, so there is no form list to land on.`;
+			case "no-parent-menu":
+				return `${form} goes to the parent module after submit, but ${module} has no parent module.`;
+			case "menu-off-the-menu":
+				return `${form} goes to ${phrase} after submit, but ${module} is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead.`;
+			case "parent-off-the-menu":
+				return `${form} goes to the parent module after submit, but ${q(parentName)} is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
+			default:
+				return `${form} goes somewhere after submit that ${module} doesn't offer.`;
+		}
+	})();
+	return `${reason} Choose one of: ${offered}.`;
+}
+
 const ENTRY_POINT_ID_PROBLEMS: ReadonlySet<string> =
 	new Set<EntryPointIdProblem>(["characters", "edge", "doubled-hyphen"]);
 
@@ -480,9 +546,21 @@ const USER_MESSAGE_BY_CODE: Record<
 		}
 		return `The display condition for ${subject} uses an option that can't run in the app. Open it and choose a simpler comparison or calculation.`;
 	},
-	DISPLAY_CONDITION_ALWAYS_FALSE: (e) => {
-		const subject = e.scope === "module" ? q(modName(e)) : q(formName(e));
-		return `The display condition for ${subject} can never be true, so no one could open it. Change or remove the condition.`;
+	DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU: (e) => {
+		const subject = e.scope === "module" ? modName(e) : formName(e);
+		return `${q(det(e, "name", subject))} has a display condition that starts with "never". To keep it off the menu, turn off "Show on the menu" and keep the rest of the condition.`;
+	},
+	HIDDEN_MENU_NOT_A_DESTINATION: (e) => {
+		const arm = e.details?.arm;
+		const module =
+			arm === "link" ? det(e, "targetModuleName", "this module") : modName(e);
+		const what =
+			arm === "link"
+				? `the link from ${q(formName(e))}`
+				: arm === "case-list-entry-point"
+					? "its case list entry point"
+					: "its entry point";
+		return `${q(module)} is off the menu, so ${what} would open a menu with nothing in it on Android and the app's first screen in Web Apps. Point it at a form inside the module, or show the module on the menu again.`;
 	},
 
 	// ── Case-list config ─────────────────────────────────────────────
@@ -567,6 +645,10 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} uses a date calculation the device can't run. Use a whole date with seconds, minutes, hours, days, or weeks.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
 		`Two search fields in ${q(modName(e))} use the same name for conditions, ${q(det(e, "inputName", ""))}. Rename one under More settings.`,
+	CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} in ${q(modName(e))} has the name CommCare gives its own search filters, so it would never search a case. Rename it under More settings.`,
+	CASE_LIST_SEARCH_INPUT_NAME_RESERVED: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} in ${q(modName(e))} has a name CommCare reads as a search setting, so it would never search a case. Rename it under More settings.`,
 	CASE_LIST_BARE_SEARCH_INPUT_REF: (e) => {
 		const input = q(det(e, "inputName", "the search box"));
 		return det(e, "mode", "") === "forbids-input-ref"
@@ -676,8 +758,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} is set to open on Search, but its first screen isn't a case selection. Give it a case type and keep only forms that work on an existing case, or turn Search first off.`,
 	SEARCH_FIRST_NO_BUTTON_DISPLAY_CONDITION: (e) =>
 		`${q(modName(e))} opens on Search, so there's no Search button for its button condition to control. Clear the condition, or turn Search first off.`,
-	SEARCH_FIRST_NO_PREVIOUS_WORKFLOW: (e) =>
-		`${q(formName(e))} in ${q(modName(e))} goes back to the previous screen after submit, which CommCare can't do in a module that opens on Search. Send it to the module or to the app home instead.`,
 	SEARCH_FIRST_UNIQUE_INSTANCE: (e) =>
 		`${q(modName(e))} shares its search results with a module that opens on Search, and CommCare can't tell the two apart. Keep a search-first module without submenus, and don't select a parent case from one.`,
 	SEARCH_NO_MATCHES_DUPLICATE: (e) =>
@@ -687,9 +767,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION: (e) =>
 		`${q(formName(e))} opens when a search finds nothing, so it needs to register a new case. Make it a registration form, or make it a menu form again.`,
 	SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION: (e) =>
-		`${q(formName(e))} opens when a search finds nothing. It can return to Results or App home, but cannot have after-submit links or a display condition. Clear those settings, or make it a menu form again.`,
+		`${q(formName(e))} opens when a search finds nothing. It can return to Results or First menu, but can't have after-submit links, a display condition, or be taken off the menu. Clear those settings, or make it a menu form again.`,
 	SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN: (e) =>
-		`${q(formName(e))} registers one case, but ${q(modName(e))} selects several. Choose App home after submit, or change the module to one-case selection.`,
+		`${q(formName(e))} registers one case, but ${q(modName(e))} selects several. Choose First menu after submit, or change the module to one-case selection.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
 		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 
@@ -730,8 +810,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))}'s close condition points at a field that isn't in the form. Point it at one that is.`,
 	INVALID_POST_SUBMIT: (e) =>
 		`${q(formName(e))}'s After Submit setting isn't one of the options. Pick one.`,
-	POST_SUBMIT_MODULE_CASE_LIST_ONLY: (e) =>
-		`${q(formName(e))} is set to head back to its module after submitting, but that module has no form list to land on. Send people to "Previous Screen" or "App Home" instead.`,
+	POST_SUBMIT_NOT_OFFERED: (e) => postSubmitNotOfferedSentence(e),
 	FORM_LINK_EMPTY: (e) =>
 		`${q(formName(e))} has after-submit links turned on but none added. Add a link, or turn the setting off.`,
 	FORM_LINK_NO_FALLBACK: (e) =>

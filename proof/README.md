@@ -384,7 +384,9 @@ and holds each to the effects as written.
    part and app strings in the local archive, each suite element placed by
    Core's parse of the archive. A suite element no runtime reads (no menu,
    endpoint, datum or stack step reaches it) is its entity's where the other
-   archive names the same element and an entity at that position owns it;
+   archive names the same element and an entity at that position owns it,
+   and a module's where the other archive lacks it and that module alone (a
+   module the edit removed or added: its elements leave and arrive with it);
    any other is compared as one record with its own names read out, inside
    the footprint where the footprint reaches the app or holds every module.
    The footprint (`proof/corpus/footprint.ts`) is the entities the batch's
@@ -1246,14 +1248,23 @@ targeted document that carries uploaded media (`TargetedSpec.media`).
 with a gesture (an image, a sound, a video, a document, a signature and a
 location), which `proof/webapps/test_widgets.py` holds Formplayer's walk and
 the Web Apps client to answering as a worker does.
-`targeted-search-button-label` owns the three unchanged search-label defect
-classes; their retained `case-operation-query` control stays byte-identical.
 These documents join the emitted corpus without joining balanced edit
 assignment. `targeted-form-link-hidden-target` is the Formplayer runner's:
 three forms each link to one target, a shown form, a form and a menu whose
-display condition is false for the lane's worker (Nova refuses a condition
-no worker could meet), which `proof/formplayer/test_end_of_form.py` runs on
-Formplayer and on Core (finding 58). `targeted-empty-list-no-english` is the
+display condition is false for the lane's worker (a target off the menu for
+every worker is `targeted-hidden-from-menu`'s), which
+`proof/formplayer/test_end_of_form.py` runs on Formplayer and on Core, and
+`proof/android/test_navigation.py` on Android (finding 58).
+`targeted-hidden-from-menu` passes with no entry and no control: a menu and
+two forms off the menu (`hiddenFromMenu`), one keeping a display condition
+for when it is back on the menu, reached by after-submit links and by entry
+points with and without `ignoreDisplayConditions`, which
+`proof/formplayer/test_end_of_form.py`, `proof/webapps/test_links.py` and
+`proof/android/test_navigation.py` read on each runtime.
+`targeted-multi-select-destinations` holds one follow-up for each
+after-submit destination a menu offers (`module`, `firstMenu`, `parentMenu`
+and `previous`), in menus that select several cases and under them, which
+the same three tests read. `targeted-empty-list-no-english` is the
 Web Apps driver's: an app written in Spanish alone, whose empty-list message
 `proof/webapps/test_empty_list.py` reads in Web Apps before and after HQ's
 module settings save (finding 41), and whose second menu lists no case, so
@@ -1685,6 +1696,9 @@ What its own tests observe on HQ's releases of real Nova exports, served by HQ's
 | Claim | Observed | Test |
 | --- | --- | --- |
 | A form link whose target is hidden (finding 58) | Core's session opens the hidden form, or asks for a command of the hidden menu; Formplayer stops at the menu that holds the hidden form, or at the app's first screen | `test_end_of_form.py` |
+| Each after-submit destination (defect 14, multi-select destinations) | Formplayer lands `module` on the menu's case list, `firstMenu` on the app's first screen, and `parentMenu` and `previous` on the parent menu listing its forms and child menus, in menus that select several cases and under them | `test_end_of_form.py` |
+| A menu and forms off the menu (`hiddenFromMenu`) | the menus list neither; a link to a hidden form lands on the menu that holds it and a link into the hidden menu on the app's first screen; an entry point opens its hidden form only where it ignores display conditions, and otherwise lands where a link would | `test_end_of_form.py` |
+| A lookup prompt's choices (defect 14, search settings) | Formplayer hands the client both lookup prompts' choices in label order, where the table's row order differs | `test_search.py` |
 | A search answer holding both quote marks (finding 48) | Formplayer answers the search screen again with the validation's message and sends HQ nothing; an answer with one mark is sent inside the CSQL, HQ's own search view reads it (and refuses the query for the document's own date comparison, defect 6), and HQ's compiler takes the string that holds the answer | `test_search.py` |
 | The empty search description (finding 54) | Nova's export stores the blank description the Case List save writes, the save changes neither map, and Formplayer hands Web Apps a non-breaking space for HQ's build of Nova's export, for the saved app and for Nova's local archive | `test_search.py` |
 | `cc-autosync-freq` absent (an app published before Nova wrote it), Nova's `freq-never`, or as HQ's App Settings save keeps it (finding 40) | Formplayer asks HQ for one restore on the first visit and none on return after eight days in all three; with `freq-daily`, which HQ's settings view saves for a person's change, it asks again on return | `test_settings.py` |
@@ -1957,6 +1971,9 @@ the client itself:
 | `cc-show-incomplete`, as the app's incomplete forms setting stores it, and after the App Settings save (defect 7, finding 62) | the Incomplete Forms tile shows where the app turns incomplete forms on (`targeted-survey-menu`) and not where it leaves them off (`media-only`), and each is as it was after a save that changes nothing, the stored value unchanged; an app that stores no value (the create of the control `case-operation-query`) still loses the tile at the save | `test_app_list.py` |
 | Every question a worker answers with a gesture (`targeted-capture-widgets`) | an image, a sound, a video and a document question each answered with the file Formplayer's walk uploaded, chosen through the widget's file input, a signature drawn on its pad and a location dragged on its map to within a pixel of the answer table's place, which the walk then gives as the client gave it; the form as left shows each file's name, the drawn pad and the place; HQ's receiver is handed the five files with the walk's submission and with the client's | `test_widgets.py` |
 | An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; HQ's receiver processes one submission each time, and the client shows the message it answered | `test_links.py` |
+| Each after-submit destination, end to end (defect 14, multi-select destinations) | each follow-up opened as Formplayer's walk opened it and submitted with its own Submit button: `module` leaves the worker on the menu's case list, `firstMenu` on the app's first screen, `parentMenu` and `previous` on the parent menu; HQ receives each submission once | `test_links.py` |
+| A menu and forms off the menu (`hiddenFromMenu`), end to end | the menus list neither; a link to a hidden form leaves the worker on the menu that holds it and a link into the hidden menu on the app's first screen; an entry point opened by HQ's own link view opens its hidden form only where it ignores display conditions, with no error and no dialog | `test_links.py` |
+| A lookup prompt's choices (defect 14, search settings) | the client's drop-down lists both lookup prompts' choices in label order | `test_search.py` |
 | The groups Nova generates to hold a form's case blocks (defect 13): `nova_operations`, `nova_condition_` groups, the keyed repeat and its row | the client lays out no box for any of them, with every condition false as the form opens and with every condition true before Submit, while every group that holds a question is laid out; the form's visible text is its title, its questions' text and Submit | `test_generated_groups.py` |
 
 ### Served states
@@ -2642,9 +2659,9 @@ gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its cont
 | 13, blank translations | the save fills an explicitly empty translation from the default language, so a worker who chose that language is shown the default language's label, hint and help where they were shown nothing (Formplayer's form and the Web Apps client's screens, walked in each language). Fixed in step 2: Nova writes the same fill | proof 4, then 2 | fixed; still shown by the control `localization-optional` |
 | 14, non-writing follow-up | a Case Management save turns `update never` into `always` with a touch block, which HQ applies as an update: the touched case moves after the cases it ties with in HQ's next search, which sorts ties by index order, so a device lists and opens another case; and where a form link gives the form no case id, a device refuses to save it ("The case_id attribute of a <case> wasn't set"). Fixed in step 2: every registration, follow-up and close form writes `update_case` `always`, so a follow-up that writes nothing carries its touch block from Nova's own export and the save changes nothing. A case id a form link forwards that no form created is defect 26's | proof 4, then 3 | fixed; still shown by the controls `case-operation-query`, `targeted-form-links-hidden-and-fallback`, `search-registration-link`, `case-list-inline` and `expander-form-links-emission-emits-hq-form-links-with-3555b968-0` |
 | 14, close conditions | the save strips an answer's surrounding quotes, and clears a condition on a question its tab does not offer, after which HQ's build of the saved app fails (correction 6); an answer holding `'` builds unescaped, so Core refuses HQ's build or reads another condition. Fixed in step 2: a condition the tab cannot state is a Save to Case close in the form's source, `nova_close` in the group `nova_condition_close`, with `close_case` `never` (`lib/domain/closeCondition.ts::closeConditionPlacement`) | proof 4, then 2 and 3; the bar (Core's admission of HQ's build); proof 3 across the two paths | fixed; still shown by the controls `targeted-close-conditions`, `targeted-close-condition-unparsable` and, on Formplayer's submit of the local archive, `targeted-close-conditions-after-59`; the two documents hold the fix |
-| 14, multi-select destinations | the form settings save refuses them, and HQ's build refuses the mismatch | proof 4; the bar | `targeted-multi-select-destinations` |
-| 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | `targeted-search-button-label`, a lookup prompt, `targeted-search-default-filter-name`, `targeted-search-hq-compile` |
-| 14, survey menus | the module's case type is `''` where the document holds one | intent (HQ) | `targeted-survey-menu` |
+| 14, multi-select destinations | the form settings save refuses them, and HQ's build refuses the mismatch. Fixed in step 2: a form holds only a destination its menu offers (`POST_SUBMIT_NOT_OFFERED`), with `firstMenu` and `parentMenu` beside the three, and a follow-up in a menu that selects several cases defaults to `module` | proof 4; the bar | fixed; still shown by the controls `targeted-multi-select-destinations` and `case-capture-multiple`; `targeted-multi-select-destinations` holds every destination |
+| 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter. Fixed in step 2: every search button reads "Search All Cases", the label the save keeps; a lookup prompt's itemset holds a sort, the label column unless another is chosen; and Nova refuses an input named `_xpath_query` or, where it reaches HQ as its own key, a name HQ's search request reads | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | fixed; still shown by the controls `case-operation-query` and `case-list-match-none` (the label), `prompt-widgets` (the sort), `targeted-search-default-filter-name` and `targeted-search-hq-compile` (the names) |
+| 14, survey menus | the module's case type is `''` where the document holds one. Fixed in step 2: a menu uploads its own case type, and only what is built from the type follows whether the menu holds a case form | intent (HQ) | fixed; still shown by the control `targeted-survey-menu` |
 | 14, tiles | the save wrote a font size and an alignment into every custom-tile cell (defect 42) and placed a hidden column that carries an order rule, changing the suite. Fixed in step 2: every cell states its alignment and size as the save writes them, and a tile's hidden order rule is a sort row with no stored column | proof 4, then 2 | fixed; still shown by the controls `tile-grouped-browse`, `tile-persistent` and `targeted-custom-tile`; `targeted-tile-hidden-order` holds the tile's hidden order |
 | 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name. Fixed in step 2: the `name` is the form's name in the default language, which the save writes | proof 4, then 3 | fixed; still shown by the controls `case-operation-query`, `targeted-form-links-hidden-and-fallback`, `case-extension-registration` and `targeted-custom-tile-after-59` |
 | 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). What Connect does with a Connect id renamed under an opportunity that holds it is Connect's own, the same for an id renamed in HQ's form builder ("Connect in the unit"). Fixed in step 2: a question id and a Connect id start with a letter, hold letters, digits and underscores, never start with `XML`, and are none of the names CommCare keeps (`lib/domain/questionId.ts`), and a deep link ID is a `slugify` fixed point (`lib/domain/entryPoints.ts::ENTRY_POINT_ID_PATTERN`, held to HQ's own function by `proof/hq/test_endpoint_ids.py`) | proof 4; the bar | fixed; still shown by the controls `targeted-invalid-question-ids` and `targeted-invalid-question-ids-after-9`; `targeted-invalid-question-ids` and `targeted-invalid-connect-ids` hold the replacements |
@@ -3560,9 +3577,11 @@ decoded text and child order.
 - `search`: twelve admitted apps cover inline, browse and remote search;
   single, multiple and parent selection; automatic, hidden, advanced and
   defaulted prompts; and automatic and explicit registration links. Exactly
-  two differences are asserted present and set aside: HQ's explicit unfiltered
-  `match-all()` query, and Nova's ordinary collection-instance declaration
-  that no suite expression reads. `SearchRuntimeTest` (seven methods) parses
+  one difference is asserted present and set aside: Nova's ordinary
+  collection-instance declaration that no suite expression reads. A search
+  with no input and no filter sends the same `match-all()` `_xpath_query` on
+  both paths (finding 53), so it is compared whole, and each session sends
+  it. `SearchRuntimeTest` (seven methods) parses
   both paths: entity nodesets exclude related rows and wrong case types, the
   inline open-case filter and parent selection hold, and remote search keeps
   its different status behavior. Detail templates read a typed supporting
@@ -3577,13 +3596,18 @@ decoded text and child order.
   these apps and their paired counterexamples (see `searchFirst.ts`).
 - `prompt`: three admitted documents (widget metadata and lookup choices,
   numeric and quote guards, dependent computed values with location guards)
-  match without exception. `SearchPromptRuntimeTest` (four methods) runs both
+  match without exception. `SearchPromptRuntimeTest` (five methods) runs both
   suites through the query manager with the emitted lookup rows and
   source-language strings: required conditions, combined author and CSQL
   rules, visible and hidden defaults, labels and parameters, removal of
   unavailable selections, numeric and location guards, and quote obligations
   shared by two composed answers; the lookup value is checked in the CSQL
-  payload. The evidence is the prompt family's `search-emission.evidence.json`
+  payload. A lookup prompt's choices come in the order of their labels on
+  both paths, from the `<sort>` each itemset holds: over the emitted rows,
+  and over a table the prompt producer writes beside them
+  (`regions-order.fixture.xml`) whose labels order differently by UTF-16
+  code unit and by any locale, with a three-way tie kept in row order
+  (commcare-core `ItemsetBinding.sortChoices`). The evidence is the prompt family's `search-emission.evidence.json`
   and Core's JUnit report for the class.
 - `function`: two admitted apps. `CsqlFunctionRuntimeTest` feeds emitted
   lookup rows to date, datetime, numeric and date-arithmetic arguments, and

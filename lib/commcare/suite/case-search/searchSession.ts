@@ -42,6 +42,7 @@ import {
 import {
 	buildRuntimeCsqlPromptValidations,
 	composeXPathQueryEmission,
+	xpathQueryRequestValues,
 } from "./xpathQuery";
 
 /** Portable URL used only by unbound structural emission and fixture tests.
@@ -268,15 +269,18 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		typeContext,
 		args.lookupNaming,
 	);
-	if (xpathQueryEmission !== undefined) {
-		for (const wrapper of xpathQueryEmission.clauseWrappers) {
-			dataElements.push(
-				el("data", {
-					key: XPATH_QUERY_KEY,
-					ref: wrapper,
-				}),
-			);
-		}
+	// A search with no input and no clause sends the zero-input sentinel,
+	// as HQ's build of the same search does.
+	for (const value of xpathQueryRequestValues(
+		caseListConfig,
+		xpathQueryEmission,
+	)) {
+		dataElements.push(
+			el("data", {
+				key: XPATH_QUERY_KEY,
+				ref: value,
+			}),
+		);
 	}
 
 	// Authoring → wire vocabulary translation. Schema slot reads

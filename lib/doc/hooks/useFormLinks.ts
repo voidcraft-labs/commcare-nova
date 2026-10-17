@@ -21,11 +21,12 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import type {
-	CommitOutcome,
-	FormLink,
-	FormLinkTarget,
-	PostSubmitDestination,
+import {
+	type CommitOutcome,
+	type FormLink,
+	type FormLinkTarget,
+	type PostSubmitDestination,
+	postSubmitDestinationChoices,
 } from "@/lib/domain";
 import {
 	type AfterSubmitPlan,
@@ -75,6 +76,9 @@ export interface FormLinksView {
 	readonly links: readonly FormLink[];
 	/** What runs when nothing matched; `undefined` once the form is gone. */
 	readonly plan: AfterSubmitPlan | undefined;
+	/** The built-in destinations the fallback picker lists
+	 *  (`postSubmitDestinationChoices`). */
+	readonly destinationChoices: readonly PostSubmitDestination[];
 	/** The move verdict for every candidate position of one link. */
 	readonly moveVerdicts: (
 		uuid: Uuid,
@@ -125,6 +129,10 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 		[doc, formUuid],
 	);
 	const plan = useMemo(() => afterSubmitPlan(doc, formUuid), [doc, formUuid]);
+	const destinationChoices = useMemo(
+		() => postSubmitDestinationChoices(doc, formUuid),
+		[doc, formUuid],
+	);
 
 	const moveVerdicts = useCallback(
 		(uuid: Uuid) => formLinkMoveVerdicts(doc, formUuid, uuid),
@@ -270,6 +278,7 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 		() => ({
 			links,
 			plan,
+			destinationChoices,
 			moveVerdicts,
 			targetVerdict,
 			requiredDatums,
@@ -287,6 +296,7 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 		[
 			links,
 			plan,
+			destinationChoices,
 			moveVerdicts,
 			targetVerdict,
 			requiredDatums,

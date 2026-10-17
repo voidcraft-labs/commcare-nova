@@ -10,7 +10,6 @@ import {
 	type TranslationUnitId,
 } from "./localization";
 import {
-	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	type Module,
@@ -195,10 +194,6 @@ export function projectLocalizedModule(
 				effectiveSearch.searchScreenSubtitle,
 			);
 		}
-		search.searchButtonLabel = text(
-			makeTranslationUnitId("module", module.uuid, "search-button"),
-			effectiveSearch.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL,
-		);
 		localized.caseSearchConfig = search;
 	}
 	return localized;

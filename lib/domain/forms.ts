@@ -74,7 +74,9 @@ export function isCaseFirstModule(
 
 export const POST_SUBMIT_DESTINATIONS = [
 	"app_home",
+	"firstMenu",
 	"module",
+	"parentMenu",
 	"previous",
 ] as const;
 export type PostSubmitDestination = (typeof POST_SUBMIT_DESTINATIONS)[number];
@@ -104,27 +106,48 @@ export function isNoMatchesForm(form: Pick<Form, "entry">): boolean {
 
 /**
  * The one stored and machine-authored navigation vocabulary:
- *   "app_home" → App Home (main menu)
- *   "module"   → This Module (case list / form list)
- *   "previous" → Previous screen (the preceding selection or task)
- * Form-type-aware default for post_submit when the field is absent.
- * Case-loading forms (followup, close) return to the preceding task:
- * the same form's selector in forms-first modules, or the module menu with
- * its retained selection in case-first modules. Registration and survey go home.
- *
- * In a module that opens on Search (`searchFirst`), a case-loading form
- * returns to the module instead, so the worker searches again. CommCare
- * refuses to build "previous" for such a form (its build validator's
- * `workflow previous inline search`), so the default cannot be the one
- * value the module cannot carry; an explicit `previous` there is a
- * validator finding.
+ *   "app_home"   → App home (Android's home screen; in Web Apps the app's first screen)
+ *   "firstMenu"  → the app's first menu, which lists its modules
+ *   "module"     → this module's first screen (case list or form list)
+ *   "parentMenu" → the parent module's menu, with its selection kept
+ *   "previous"   → the screen before the form (the preceding selection or task)
+ */
+export interface PostSubmitMenuShape {
+	/** The module opens on its Search screen (`moduleOpensOnSearch`). */
+	readonly searchFirst?: boolean;
+	/** The module selects several cases. */
+	readonly multiSelect?: boolean;
+	/** The module's parent selects several cases. */
+	readonly parentMultiSelect?: boolean;
+	/** The module itself is off the menu (`hiddenFromMenu`). */
+	readonly offTheMenu?: boolean;
+}
+
+/**
+ * Form-type-aware default for `postSubmit` when the slot is absent.
+ * Registration and survey go home. A case-loading form (followup, close)
+ * takes the first destination its module offers of `previous`, `module`,
+ * `firstMenu` (`postSubmit.ts::postSubmitDestinationsOffered`): the screen
+ * before the form, unless the module opens on Search, selects several
+ * cases, sits under a parent that does, or is off the menu; then the
+ * module's first screen, unless its parent selects several cases or it is
+ * off the menu; and otherwise the app's first menu, which is always offered.
  */
 export function defaultPostSubmit(
 	formType: FormType,
-	options: { readonly searchFirst?: boolean } = {},
+	shape: PostSubmitMenuShape = {},
 ): PostSubmitDestination {
 	if (!CASE_LOADING_FORM_TYPES.has(formType)) return "app_home";
-	return options.searchFirst === true ? "module" : "previous";
+	const parentOrSelfWithholds =
+		shape.parentMultiSelect === true || shape.offTheMenu === true;
+	if (
+		!parentOrSelfWithholds &&
+		shape.multiSelect !== true &&
+		shape.searchFirst !== true
+	) {
+		return "previous";
+	}
+	return parentOrSelfWithholds ? "firstMenu" : "module";
 }
 
 const closeConditionSchema = z.strictObject({
@@ -507,14 +530,21 @@ export const formSchema = z.strictObject({
 	 * terms are meaningful for this form's navigation position.
 	 */
 	displayCondition: predicateSchema.optional(),
+	/**
+	 * Present when the form is off the menu: no menu lists it, whatever
+	 * `displayCondition` says. The condition keeps applying once the form
+	 * is back on the menu. A form off the menu still opens from an
+	 * after-submit link and from an entry point.
+	 */
+	hiddenFromMenu: z.literal(true).optional(),
 	closeCondition: closeConditionSchema.optional(),
 	connect: connectConfigSchema.optional(),
 	postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
 	/**
 	 * Present when the form is not a menu item. A no-matches form has a
 	 * fixed after-submit (Results showing the case it registered), so
-	 * Only explicit App home is allowed for `postSubmit`; `formLinks` and
-	 * `displayCondition` are refused on it
+	 * only an explicit `firstMenu` is allowed for `postSubmit`; `formLinks`,
+	 * `displayCondition` and `hiddenFromMenu` are refused on it
 	 * by the validator rather than the schema, which keeps the patch and
 	 * clear shapes ordinary.
 	 */

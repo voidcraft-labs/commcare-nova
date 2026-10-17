@@ -12,6 +12,7 @@
  * and never written into a stored entry. Client-safe.
  */
 
+import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain/modules";
 import {
 	isReservedName,
 	RESERVED_CONNECT_BLOCK_IDS,
@@ -168,7 +169,30 @@ const CONNECT_BLOCK_RENAME_CONSEQUENCE: Readonly<
 const FORM_ID_REPOINT =
 	"If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish.";
 
+/** "the previous screen" or "its module": where a moved destination went. */
+function formerDestination(from: string | undefined): string {
+	return from === "module" ? "its module" : "the previous screen";
+}
+
+/** "this module" or "this form", for the item a notice entry names. */
+function itemNoun(entity: NoticeEntityRef): string {
+	return entity.type === "form" ? "this form" : "this module";
+}
+
 export const MIGRATION_NOTICE_COPY = {
+	/* The entity is the module whose search button changed text;
+	 * `detail.from` is the text it read before in the default language. */
+	"search-button-text-changed": (entry: DocumentNoticeEntry, ctx) => {
+		const from = entry.detail?.from;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				`: the search button now reads “${CASE_SEARCH_BUTTON_LABEL}”.${
+					from === undefined ? "" : ` It read “${from}” before.`
+				} CommCare HQ always shows its own text there.`,
+			),
+		]);
+	},
 	/* The entity is the field, by its ID; `detail.form` names its form,
 	 * `detail.kind` its kind (`question`, `group`, `repeat` or `section`) and
 	 * `detail.from` the ID it had. */
@@ -331,6 +355,76 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* The entity is the Search question; `detail.menu` names its module, and
+	 * `detail.from` and `detail.to` are its names before and after. */
+	"search-input-renamed": (entry: DocumentNoticeEntry) => {
+		const from = entry.detail?.from;
+		const to = entry.detail?.to;
+		return noticeLine([
+			...menuLead(
+				entry.detail?.menu,
+				from === undefined || to === undefined
+					? "a search input has a new name."
+					: `the search input ${from} is now ${to}.`,
+				from === undefined || to === undefined
+					? "A search input has a new name."
+					: `The search input ${from} is now ${to}.`,
+			),
+			text(" CommCare reads the earlier name as part of the search itself."),
+		]);
+	},
+	/* The entity is the removed Search question, named by its own name;
+	 * `detail.menu` names its module and `detail.expressions` counts the
+	 * expressions that read it. */
+	"search-input-removed": (entry: DocumentNoticeEntry, ctx) => {
+		const count = Number(entry.detail?.expressions ?? "0");
+		const reads =
+			Number.isInteger(count) && count > 0
+				? count === 1
+					? " 1 expression that read it now treats it as empty."
+					: ` ${count} expressions that read it now treat it as empty.`
+				: "";
+		return noticeLine([
+			...menuLead(entry.detail?.menu, "the search input ", "The search input "),
+			entityPart(entry.entity, ctx),
+			text(
+				` was removed. CommCare reads that name as part of the search request, so it never searched a property.${reads}`,
+			),
+		]);
+	},
+	/* The entity is the module or the form now off the menu. */
+	"hidden-from-menu-set": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				`: ${itemNoun(entry.entity)} is now marked as not on the menu, because its display condition could never be true. Its settings show what can still open it.`,
+			),
+		]),
+	/* The entity is the form; `detail.from` is `previous` or `module`,
+	 * `detail.to` is `module` or `firstMenu`, `detail.cause` is
+	 * `multi-select-menu`, `multi-select-parent` or `off-the-menu`, and
+	 * `detail.menu` names the form's module. */
+	"after-submit-destination-moved": (entry: DocumentNoticeEntry, ctx) => {
+		const before = formerDestination(entry.detail?.from);
+		const menu = entry.detail?.menu ?? "its module";
+		const toFirstMenu =
+			": after submitting, workers now go to the app's first menu (First menu in its settings).";
+		const rest = (() => {
+			switch (entry.detail?.cause) {
+				case "multi-select-menu":
+					return ": after submitting, workers now go back to this module's case list. It was set to the previous screen, which CommCare HQ doesn't offer in a module that selects several cases.";
+				case "multi-select-parent":
+					return `${toFirstMenu} It was set to ${before}, which CommCare HQ doesn't offer in a module under one that selects several cases.`;
+				case "off-the-menu":
+					return `${toFirstMenu} It was set to ${before}, and ${menu} is now off the menu, so there is no screen of it to go back to.`;
+				default:
+					return entry.detail?.to === "module"
+						? ": after submitting, workers now go back to this module's case list."
+						: toFirstMenu;
+			}
+		})();
+		return noticeLine([entityPart(entry.entity, ctx), text(rest)]);
+	},
 	/* The entity is the ID mapping column; `detail.menu` names its menu and
 	 * `detail.value` the saved value whose entry went. */
 	"id-mapping-entry-removed": (entry: DocumentNoticeEntry, ctx) => {
@@ -464,6 +558,29 @@ export const MIGRATION_NOTICE_COPY = {
 				": its close is now written as a case change in the form. CommCare HQ shows no close on its Case Management tab, and the next publish asks about one more plan feature.",
 			),
 		]),
+	/* The entity is the lookup-backed Search question; `detail.menu` names
+	 * its module. */
+	"lookup-choices-order-changes": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			...menuBeside(entry.detail?.menu),
+			entityPart(entry.entity, ctx),
+			text(
+				": its choices are now listed by label, not in the table's row order.",
+			),
+		]),
+	/* The entity is the survey-only module; `detail.caseType` is its case
+	 * type. */
+	"survey-menu-takes-case-type": (entry: DocumentNoticeEntry, ctx) => {
+		const caseType = entry.detail?.caseType;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				caseType === undefined
+					? ": CommCare HQ shows this module's case type from the next publish."
+					: `: CommCare HQ shows this module's case type, ${caseType}, from the next publish.`,
+			),
+		]);
+	},
 	/* The entity is the menu; `detail.cause` is the first of `id-mapping`,
 	 * `image-map`, `interval`, `option-label` and `unsorted` that holds for
 	 * the field the list's first rule lands on, `detail.column` names that

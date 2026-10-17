@@ -50,7 +50,12 @@ import {
 	isNoMatchesForm,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
+	type PostSubmitDestination,
+	type PostSubmitNotOfferedReason,
 	type ProseTemplate,
+	postSubmitDestinationsAdmitted,
+	postSubmitDestinationsOffered,
+	postSubmitNotOfferedReason,
 	projectProseTemplate,
 	projectXPath,
 	readSlotValues,
@@ -65,6 +70,7 @@ import { searchNoMatchesEntry } from "./case-search/searchNoMatches";
 import { validateCaseOperations } from "./caseOperations";
 import { validateCaseOptionsSources } from "./caseOptionsSource";
 import { formDisplayCondition } from "./displayConditions";
+import { hiddenMenuLinkTargets } from "./hiddenFromMenu";
 import { validateLookupOptionsSources } from "./lookupOptionsSource";
 import {
 	formLinkSelectionCardinality,
@@ -378,48 +384,98 @@ function closeConditionValidation(
 	return errors;
 }
 
+/** How a withheld destination reads in a reason's sentence. */
+const DESTINATION_PHRASE: Readonly<
+	Record<PostSubmitDestination, string | undefined>
+> = {
+	app_home: undefined,
+	firstMenu: undefined,
+	module: "its module",
+	parentMenu: "the parent module",
+	previous: "the previous screen",
+};
+
+/** The sentence each reason gives, before the offered list. */
+function notOfferedSentence(
+	reason: PostSubmitNotOfferedReason,
+	formName: string,
+	moduleName: string,
+	parentName: string,
+	destination: PostSubmitDestination,
+): string {
+	const phrase = DESTINATION_PHRASE[destination] ?? destination;
+	switch (reason) {
+		case "menu-selects-several":
+			return `"${formName}" goes to the previous screen after submit, but "${moduleName}" selects several cases, and CommCare has no previous screen to return to there.`;
+		case "parent-selects-several":
+			return `"${formName}" goes to ${phrase} after submit, but "${moduleName}" sits under "${parentName}", which selects several cases.`;
+		case "menu-opens-on-search":
+			return `"${formName}" goes to the previous screen after submit, but "${moduleName}" opens on Search, and CommCare can't go back to the previous screen there.`;
+		case "menu-is-case-list-only":
+			return `"${formName}" goes to its module after submit, but "${moduleName}" is a case list with no forms, so there is no form list to land on.`;
+		case "no-parent-menu":
+			return `"${formName}" goes to the parent module after submit, but "${moduleName}" has no parent module.`;
+		case "menu-off-the-menu":
+			return `"${formName}" goes to ${phrase} after submit, but "${moduleName}" is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead.`;
+		case "parent-off-the-menu":
+			return `"${formName}" goes to the parent module after submit, but "${parentName}" is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
+	}
+}
+
 /**
- * Comprehensive post-submit navigation validation.
- *
- * Validates every post_submit destination against the form's context.
+ * Post-submit navigation validation. A stored destination outside the
+ * enum is a shape finding; a stored destination the form's module does not
+ * offer (`postSubmitDestinationsAdmitted`) is `POST_SUBMIT_NOT_OFFERED`,
+ * naming the first reason that withholds it. An absent slot is never
+ * refused, since its default is always offered. A no-matches form's one
+ * explicit destination is `searchNoMatchesEntry`'s to judge.
  */
 function postSubmitValidation(
+	doc: BlueprintDoc,
 	form: Form,
 	ctx: FormContext,
 	mod: Module,
 ): ValidationError[] {
 	if (!form.postSubmit) return [];
-	const errors: ValidationError[] = [];
 	const loc = baseLocation(ctx);
 	const dest = form.postSubmit;
 
 	const valid = (POST_SUBMIT_DESTINATIONS as readonly string[]).includes(dest);
 	if (!valid) {
-		errors.push(
+		return [
 			validationError(
 				"INVALID_POST_SUBMIT",
 				"form",
-				`"${ctx.formName}" has post_submit set to "${dest}", which isn't a recognized destination. Use one of: "app_home", "module", "previous".`,
+				`"${ctx.formName}" has post_submit set to "${dest}", which isn't a recognized destination. Use one of: ${POST_SUBMIT_DESTINATIONS.map((value) => `"${value}"`).join(", ")}.`,
 				loc,
 				{ value: String(dest) },
 			),
-		);
-		return errors;
+		];
 	}
+	if (isNoMatchesForm(form)) return [];
 
-	// module: invalid when module is display-only (no form list to return to).
-	if (dest === "module" && mod.caseListOnly) {
-		errors.push(
-			validationError(
-				"POST_SUBMIT_MODULE_CASE_LIST_ONLY",
-				"form",
-				`"${ctx.formName}" has post_submit set to "module", but "${ctx.moduleName}" is case-list-only and has no form list to return to. Use "previous" or "app_home" instead.`,
-				loc,
-			),
-		);
-	}
-
-	return errors;
+	const reason = postSubmitNotOfferedReason(doc, ctx.formUuid, dest);
+	if (reason === undefined) return [];
+	const parentUuid = mod.parentModuleUuid;
+	const parentName =
+		parentUuid === undefined ? "" : (doc.modules[parentUuid]?.name ?? "");
+	const offered = postSubmitDestinationsOffered(doc, ctx.formUuid);
+	return [
+		validationError(
+			"POST_SUBMIT_NOT_OFFERED",
+			"form",
+			`${notOfferedSentence(reason, ctx.formName, ctx.moduleName, parentName, dest)} Choose one of: ${offered.map((value) => `"${value}"`).join(", ")}.`,
+			loc,
+			{
+				reason,
+				destination: dest,
+				offered: offered.join(","),
+				// The two parent reasons name it, and the builder's "Parent
+				// module: <name>" label reads it wherever the module has one.
+				...(parentUuid !== undefined && { parentName }),
+			},
+		),
+	];
 }
 
 /**
@@ -629,7 +685,12 @@ function formLinkValidation(
 			validationError(
 				"FORM_LINK_NO_FALLBACK",
 				"form",
-				`"${ctx.formName}"'s form links all have conditions and the form sets no post_submit, so nothing says where people go when no condition matches. Set post_submit to "app_home", "module", or "previous", or end the list with an unconditional link.`,
+				`"${ctx.formName}"'s form links all have conditions and the form sets no post_submit, so nothing says where people go when no condition matches. Set post_submit to one of ${postSubmitDestinationsAdmitted(
+					doc,
+					ctx.formUuid,
+				)
+					.map((value) => `"${value}"`)
+					.join(", ")}, or end the list with an unconditional link.`,
 				loc,
 			),
 		);
@@ -1193,12 +1254,13 @@ export function runFormRules(
 	errors.push(...tooManyAttachments(doc, ctx));
 	errors.push(...casePropertyBadFormat(ctx, caseWriteInventory));
 	errors.push(...casePropertyTooLong(ctx, caseWriteInventory));
-	errors.push(...postSubmitValidation(form, ctx, mod));
+	errors.push(...postSubmitValidation(doc, form, ctx, mod));
 	errors.push(...searchNoMatchesEntry(doc, form, formUuid, moduleUuid));
 	errors.push(
 		...formLinkSelectionCardinality(doc, form, mod, ctx, caseWriteInventory),
 	);
 	errors.push(...formLinkValidation(doc, form, ctx));
+	errors.push(...hiddenMenuLinkTargets(doc, form, baseLocation(ctx)));
 	errors.push(...connectValidation(doc, form, ctx));
 	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
 	errors.push(

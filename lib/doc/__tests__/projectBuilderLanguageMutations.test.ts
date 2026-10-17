@@ -70,8 +70,6 @@ function spanishValue(unit: TranslationUnit) {
 			return "Buscar pacientes";
 		case makeTranslationUnitId("module", MODULE, "search-subtitle"):
 			return "Use cualquier dato conocido";
-		case makeTranslationUnitId("module", MODULE, "search-button"):
-			return "Buscar";
 		case makeTranslationUnitId(
 			"case-property-option",
 			"patient",

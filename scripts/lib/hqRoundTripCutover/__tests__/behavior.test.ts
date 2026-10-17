@@ -18,7 +18,11 @@ import {
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
-import { DOCUMENT_NOTICE_REASONS } from "@/lib/notices/migrationNotice";
+import {
+	DOCUMENT_NOTICE_REASONS,
+	migrationNoticeEntrySchema,
+} from "@/lib/notices/migrationNotice";
+import { renderNoticeEntry } from "@/lib/notices/migrationNoticeCopy";
 import {
 	BEHAVIOR_SELECTIONS,
 	behaviorChanges,
@@ -30,7 +34,9 @@ import {
 	hiddenOrderColumnNotInSortMenu,
 	linkedFollowUpNowWritesCase,
 	localArchiveChanges,
+	lookupChoicesOrderChanges,
 	recordIdColumnNowShows,
+	surveyMenuTakesCaseType,
 	validationNowEnforced,
 } from "../behavior";
 import {
@@ -373,6 +379,8 @@ describe("the no-write lines", () => {
 			"follow-up-now-touches-case",
 			"linked-follow-up-now-writes-case",
 			"close-moves-to-save-to-case",
+			"lookup-choices-order-changes",
+			"survey-menu-takes-case-type",
 			"case-list-order-changes",
 			"case-list-search-matches-hidden-fields",
 			"hidden-order-column-not-in-sort-menu",
@@ -683,5 +691,105 @@ describe("record-id-column-now-shows", () => {
 			}),
 		]);
 		expect(recordIdColumnNowShows.select(doc)).toEqual([]);
+	});
+});
+
+// ── Pull request 12: menus, navigation and search settings ──────────
+
+describe("lookup-choices-order-changes", () => {
+	it("names each Search question whose choices come from a lookup table, with its menu, and no other question", () => {
+		expect(
+			lookupChoicesOrderChanges.select(
+				migratedFixtureDocument("prompt-widgets"),
+			),
+		).toEqual(
+			[
+				["4045e1de-dd25-536a-a167-5e004cdcb70e", "Region"],
+				["db024357-3a8f-505b-a8b9-af097c74d9c7", "Regions"],
+			].map(([uuid, name]) => ({
+				reason: "lookup-choices-order-changes",
+				entity: { type: "searchInput", uuid, nameAtMigration: name },
+				detail: { menu: "Followup" },
+			})),
+		);
+		expect(
+			lookupChoicesOrderChanges.select(
+				migratedFixtureDocument("targeted-search-hq-compile"),
+			),
+		).toEqual([]);
+	});
+});
+
+describe("survey-menu-takes-case-type", () => {
+	const SURVEYS = asUuid("8fb40f0c-3f3e-5608-a9b6-c7965eb64a9c");
+
+	it("names the survey menu that has a case type, with the type", () => {
+		expect(
+			surveyMenuTakesCaseType.select(
+				migratedFixtureDocument("hand-survey-menu"),
+			),
+		).toEqual([
+			{
+				reason: "survey-menu-takes-case-type",
+				entity: {
+					type: "module",
+					uuid: SURVEYS,
+					nameAtMigration: "Household surveys",
+				},
+				detail: { caseType: "household" },
+			},
+		]);
+	});
+
+	it("names no survey menu without a case type, no bare case list and no menu with a case form", () => {
+		const doc = migratedFixtureDocument("hand-survey-menu");
+		const untyped = produce(doc, (draft) => {
+			const menu = draft.modules[SURVEYS];
+			if (menu !== undefined) delete (menu as { caseType?: string }).caseType;
+		});
+		expect(surveyMenuTakesCaseType.select(untyped)).toEqual([]);
+		const bareList = produce(doc, (draft) => {
+			const menu = draft.modules[SURVEYS];
+			if (menu !== undefined) menu.caseListOnly = true;
+			draft.formOrder[SURVEYS] = [];
+		});
+		expect(surveyMenuTakesCaseType.select(bareList)).toEqual([]);
+		expect(
+			surveyMenuTakesCaseType.select(
+				migratedFixtureDocument("navigation-base"),
+			),
+		).toEqual([]);
+	});
+});
+
+describe("the lines pull request 12's selections write", () => {
+	it("render as the notice's copy", () => {
+		const render = (changes: readonly { reason: string }[]) =>
+			changes.map(
+				(change) =>
+					renderNoticeEntry(
+						migrationNoticeEntrySchema.parse({ kind: "document", ...change }),
+						{ nameOf: () => null },
+					).text,
+			);
+		expect(
+			render(
+				lookupChoicesOrderChanges.select(
+					migratedFixtureDocument("prompt-widgets"),
+				),
+			),
+		).toEqual([
+			"Followup, Region: its choices are now listed by label, not in the table's row order.",
+			"Followup, Regions: its choices are now listed by label, not in the table's row order.",
+		]);
+		expect(
+			render(
+				surveyMenuTakesCaseType.select(
+					migratedFixtureDocument("hand-survey-menu"),
+				),
+			),
+		).toEqual([
+			"Household surveys: CommCare HQ shows this module's case type, household, from the next publish.",
+		]);
 	});
 });

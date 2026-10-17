@@ -53,6 +53,10 @@ import javax.xml.transform.stream.StreamResult;
  * (QueryRequestActivity.makeQueryRequest), the errors Core's query manager holds for the prompts at that moment,
  * and what the screen shows when the server answers 400, as HQ answers a query it refuses.
  *
+ * Each prompt the screen shows as a list of choices (a spinner, or a group of checkboxes) is read with its
+ * items in the order the screen lists them ({@code items}), which is the order Core gives the prompt's itemset
+ * (ItemsetBinding.getChoices, sorted where the itemset holds a sort).
+ *
  * Then the search itself, its prompts left as the screen opened them: the server is the project's own test
  * requester (ModernHttpRequesterMock), which answers with every case of the asked types the device holds, in
  * HQ's search response shape, as the Core runner answers a search (proof/core, CaseData.searchResults). The
@@ -101,6 +105,7 @@ final class Queries {
             shown.put(box.getKey(), box.getValue().getClass().getSimpleName());
         }
         query.put("prompts", shown);
+        query.put("items", items(activity));
         Multimap<String, String> params = manager.getRawQueryParams(false);
         query.put("RemoteQuerySessionManager.getRawQueryParams", params(params));
 
@@ -144,6 +149,32 @@ final class Queries {
     private static Hashtable<String, View> boxes(QueryRequestActivity activity) throws Exception {
         return (Hashtable<String, View>)Screens.field(Screens.field(activity, "mRequestUiController"),
                 "promptsBoxes");
+    }
+
+    /** Each prompt shown as a list of choices, by its key, with the text of each choice in the screen's order. */
+    private static JSONObject items(QueryRequestActivity activity) throws Exception {
+        JSONObject found = new JSONObject();
+        for (Map.Entry<String, View> box : new TreeMap<>(boxes(activity)).entrySet()) {
+            View view = box.getValue();
+            JSONArray listed = new JSONArray();
+            if (view instanceof android.widget.Spinner) {
+                android.widget.SpinnerAdapter adapter = ((android.widget.Spinner)view).getAdapter();
+                for (int i = 0; adapter != null && i < adapter.getCount(); i++) {
+                    listed.put(String.valueOf(adapter.getItem(i)));
+                }
+            } else if (view instanceof android.view.ViewGroup) {
+                android.view.ViewGroup group = (android.view.ViewGroup)view;
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    if (group.getChildAt(i) instanceof android.widget.CompoundButton) {
+                        listed.put(String.valueOf(((android.widget.CompoundButton)group.getChildAt(i)).getText()));
+                    }
+                }
+            } else {
+                continue;
+            }
+            found.put(box.getKey(), listed);
+        }
+        return found;
     }
 
     private static void press(QueryRequestActivity activity) {

@@ -433,10 +433,12 @@ export function expressionLookupsCovered(
 export function lookupOptionsSourceCovered(
 	source: LookupOptionsSource,
 	data: PreviewLookupData | undefined,
+	sortColumnId?: LookupColumnId,
 ): boolean {
 	const collector = identityCollector(data);
 	collector.check(source.tableId, source.valueColumnId);
 	collector.check(source.tableId, source.labelColumnId);
+	if (sortColumnId !== undefined) collector.check(source.tableId, sortColumnId);
 	if (source.filter !== undefined) {
 		mapPredicateAst(source.filter, coverageHooks(collector));
 	}
@@ -444,16 +446,23 @@ export function lookupOptionsSourceCovered(
 }
 
 /**
- * Compute a lookup-backed select's live choices: the filtered rows in
- * authored order, each projected to its value/label column cell text.
- * Rows whose cells are blank stay included — row-dependent validity
- * (blank values, duplicates) is the export boundary's verdict, and
- * the running preview renders the fixture the device would carry.
+ * Compute a lookup-backed select's live choices: the filtered rows, each
+ * projected to its value/label column cell text. Rows whose cells are blank
+ * stay included — row-dependent validity (blank values, duplicates) is the
+ * export boundary's verdict, and the running preview renders the fixture the
+ * device would carry.
+ *
+ * Without `sortColumnId` the choices keep the table's row order, as a form
+ * select's do. With it they are ordered by that column's cell text compared
+ * code unit by code unit, ties in row order: the order Core gives an
+ * `<itemset>` with a `<sort>` (`ItemsetBinding.sortChoices` compares Java
+ * strings with a stable sort), never a locale's collation.
  */
 export function evaluateLookupChoices(
 	source: LookupOptionsSource,
 	data: PreviewLookupData,
 	bindings: LookupEvaluationBindings,
+	sortColumnId?: LookupColumnId,
 ): readonly LookupChoice[] {
 	const { table, rows, matches } = matchingRows(
 		data,
@@ -472,20 +481,43 @@ export function evaluateLookupChoices(
 		source.labelColumnId,
 		"evaluateLookupChoices",
 	);
-	const choices: LookupChoice[] = [];
+	const sortColumn =
+		sortColumnId === undefined
+			? undefined
+			: requireColumn(table, sortColumnId, "evaluateLookupChoices");
+	const choices: {
+		readonly choice: LookupChoice;
+		readonly sortText: string;
+	}[] = [];
 	for (const [index, row] of rows.entries()) {
 		if (!matches(row, index)) continue;
 		choices.push({
-			key: row.id as string,
-			value: lookupFixtureCellText(
-				valueColumn.dataType,
-				row.values[valueColumn.id],
-			),
-			label: lookupFixtureCellText(
-				labelColumn.dataType,
-				row.values[labelColumn.id],
-			),
+			choice: {
+				key: row.id as string,
+				value: lookupFixtureCellText(
+					valueColumn.dataType,
+					row.values[valueColumn.id],
+				),
+				label: lookupFixtureCellText(
+					labelColumn.dataType,
+					row.values[labelColumn.id],
+				),
+			},
+			sortText:
+				sortColumn === undefined
+					? ""
+					: lookupFixtureCellText(
+							sortColumn.dataType,
+							row.values[sortColumn.id],
+						),
 		});
 	}
-	return choices;
+	if (sortColumn !== undefined) {
+		// `Array.prototype.sort` is stable, and `<` on strings compares UTF-16
+		// code units, as Java's `String.compareTo` does.
+		choices.sort((a, b) =>
+			a.sortText < b.sortText ? -1 : a.sortText > b.sortText ? 1 : 0,
+		);
+	}
+	return choices.map((entry) => entry.choice);
 }

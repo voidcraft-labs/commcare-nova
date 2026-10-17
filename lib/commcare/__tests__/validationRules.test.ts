@@ -3,6 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
 	type Form,
@@ -648,6 +649,317 @@ describe("case action destinations and repeat scope", () => {
 	});
 });
 
+describe("POST_SUBMIT_NOT_OFFERED", () => {
+	const child = testUuid("rules-child-module");
+	const childForm = testUuid("rules-child-form");
+	/** A survey module "Survey" (`m`) with a child survey module "Follow-up
+	 * visits" under it, whose one form is the subject. */
+	function nested(): BlueprintDoc {
+		const doc = buildDoc({
+			appName: "Outreach",
+			modules: [
+				{
+					uuid: m,
+					name: "Survey",
+					forms: [{ uuid: a, name: "Intake", type: "survey", fields: [plain] }],
+				},
+				{
+					uuid: child,
+					name: "Follow-up visits",
+					forms: [
+						{
+							uuid: childForm,
+							name: "Check-in",
+							type: "survey",
+							fields: [{ kind: "text", id: "note", label: "Note" }],
+						},
+					],
+				},
+			],
+		});
+		doc.modules[child].parentModuleUuid = m;
+		return doc;
+	}
+	function notOffered(doc: BlueprintDoc) {
+		return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			({ code }) => code === "POST_SUBMIT_NOT_OFFERED",
+		);
+	}
+	function only(doc: BlueprintDoc) {
+		const errors = notOffered(doc);
+		expect(errors).toHaveLength(1);
+		return errors[0];
+	}
+	const several = { kind: "multiple" as const, maximum: 5 };
+
+	it("menu-selects-several: refuses previous in a module that selects several cases", () => {
+		const base = patient("followup");
+		const refused = only(
+			candidate(base, (d) => {
+				d.modules[m].caseListConfig = {
+					...(d.modules[m].caseListConfig ?? caseListConfig([])),
+					selection: several,
+				};
+				d.forms[a].postSubmit = "previous";
+			}),
+		);
+		expect(refused.details).toMatchObject({
+			reason: "menu-selects-several",
+			destination: "previous",
+			offered: "app_home,firstMenu,module",
+		});
+		expect(refused.message).toBe(
+			'"Intake" goes to the previous screen after submit, but "Patients" selects several cases, and CommCare has no previous screen to return to there. Choose one of: "app_home", "firstMenu", "module".',
+		);
+		expect(userFacingError(refused)).toBe(
+			'"Intake" goes to the previous screen after submit, but "Patients" selects several cases, and CommCare has no previous screen to return to there. Choose one of: "App home", "First menu", "This module".',
+		);
+		expect(
+			notOffered(
+				candidate(base, (d) => {
+					d.modules[m].caseListConfig = {
+						...(d.modules[m].caseListConfig ?? caseListConfig([])),
+						selection: several,
+					};
+					d.forms[a].postSubmit = "module";
+				}),
+			),
+		).toEqual([]);
+	});
+
+	it("parent-selects-several: refuses module, parentMenu and previous under a parent that selects several cases", () => {
+		for (const destination of ["module", "parentMenu", "previous"] as const) {
+			const refused = only(
+				candidate(nested(), (d) => {
+					d.modules[m].caseListConfig = {
+						...caseListConfig([]),
+						selection: several,
+					};
+					d.forms[childForm].postSubmit = destination;
+				}),
+			);
+			expect(refused.details).toMatchObject({
+				reason: "parent-selects-several",
+				destination,
+				offered: "app_home,firstMenu",
+				parentName: "Survey",
+			});
+		}
+		const refused = only(
+			candidate(nested(), (d) => {
+				d.modules[m].caseListConfig = {
+					...caseListConfig([]),
+					selection: several,
+				};
+				d.forms[childForm].postSubmit = "module";
+			}),
+		);
+		expect(refused.message).toBe(
+			'"Check-in" goes to its module after submit, but "Follow-up visits" sits under "Survey", which selects several cases. Choose one of: "app_home", "firstMenu".',
+		);
+		expect(userFacingError(refused)).toBe(
+			'"Check-in" goes to its module after submit, but "Follow-up visits" sits under "Survey", which selects several cases. Choose one of: "App home", "First menu".',
+		);
+		expect(
+			notOffered(
+				candidate(nested(), (d) => {
+					d.modules[m].caseListConfig = {
+						...caseListConfig([]),
+						selection: several,
+					};
+					d.forms[childForm].postSubmit = "firstMenu";
+				}),
+			),
+		).toEqual([]);
+	});
+
+	it("menu-opens-on-search: refuses previous in a module that opens on Search", () => {
+		const base = patient("followup");
+		const refused = only(
+			candidate(base, (d) => {
+				d.modules[m].caseSearchConfig = { searchFirst: true };
+				d.forms[a].postSubmit = "previous";
+			}),
+		);
+		expect(refused.details).toMatchObject({ reason: "menu-opens-on-search" });
+		expect(refused.message).toBe(
+			'"Intake" goes to the previous screen after submit, but "Patients" opens on Search, and CommCare can\'t go back to the previous screen there. Choose one of: "app_home", "firstMenu", "module".',
+		);
+		expect(userFacingError(refused)).toBe(
+			'"Intake" goes to the previous screen after submit, but "Patients" opens on Search, and CommCare can\'t go back to the previous screen there. Choose one of: "App home", "First menu", "This module".',
+		);
+		expect(
+			notOffered(
+				candidate(base, (d) => {
+					d.modules[m].caseSearchConfig = { searchFirst: true };
+					d.forms[a].postSubmit = "module";
+				}),
+			),
+		).toEqual([]);
+	});
+
+	it("menu-is-case-list-only: refuses module in a bare case list", () => {
+		const refused = only(
+			candidate(patient("followup"), (d) => {
+				d.modules[m].caseListOnly = true;
+				d.forms[a].postSubmit = "module";
+			}),
+		);
+		expect(refused.details).toMatchObject({ reason: "menu-is-case-list-only" });
+		expect(refused.message).toBe(
+			'"Intake" goes to its module after submit, but "Patients" is a case list with no forms, so there is no form list to land on. Choose one of: "app_home", "firstMenu", "previous".',
+		);
+		expect(userFacingError(refused)).toBe(
+			'"Intake" goes to its module after submit, but "Patients" is a case list with no forms, so there is no form list to land on. Choose one of: "App home", "First menu", "Previous screen".',
+		);
+	});
+
+	it("no-parent-menu: refuses parentMenu in a top-level module", () => {
+		const refused = only(
+			candidate(survey(), (d) => {
+				d.forms[a].postSubmit = "parentMenu";
+			}),
+		);
+		expect(refused.details).toMatchObject({ reason: "no-parent-menu" });
+		expect(refused.message).toBe(
+			'"Intake" goes to the parent module after submit, but "Survey" has no parent module. Choose one of: "app_home", "firstMenu", "module", "previous".',
+		);
+		expect(userFacingError(refused)).toBe(
+			'"Intake" goes to the parent module after submit, but "Survey" has no parent module. Choose one of: "App home", "First menu", "This module", "Previous screen".',
+		);
+		assertAdmittedDoc(
+			candidate(nested(), (d) => {
+				d.forms[childForm].postSubmit = "parentMenu";
+			}),
+		);
+	});
+
+	it("menu-off-the-menu: refuses module and previous in a module off the menu", () => {
+		for (const destination of ["module", "previous"] as const) {
+			const refused = only(
+				candidate(survey(), (d) => {
+					d.modules[m].hiddenFromMenu = true;
+					d.forms[a].postSubmit = destination;
+				}),
+			);
+			expect(refused.details).toMatchObject({
+				reason: "menu-off-the-menu",
+				destination,
+			});
+		}
+		const refused = only(
+			candidate(survey(), (d) => {
+				d.modules[m].hiddenFromMenu = true;
+				d.forms[a].postSubmit = "previous";
+			}),
+		);
+		expect(refused.message).toBe(
+			'"Intake" goes to the previous screen after submit, but "Survey" is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead. Choose one of: "app_home", "firstMenu".',
+		);
+		expect(userFacingError(refused)).toBe(
+			'"Intake" goes to the previous screen after submit, but "Survey" is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead. Choose one of: "App home", "First menu".',
+		);
+		assertAdmittedDoc(
+			candidate(survey(), (d) => {
+				d.modules[m].hiddenFromMenu = true;
+				d.forms[a].postSubmit = "firstMenu";
+			}),
+		);
+	});
+
+	it("parent-off-the-menu: refuses parentMenu under a parent off the menu", () => {
+		const refused = only(
+			candidate(nested(), (d) => {
+				d.modules[m].hiddenFromMenu = true;
+				d.forms[childForm].postSubmit = "parentMenu";
+			}),
+		);
+		expect(refused.details).toMatchObject({
+			reason: "parent-off-the-menu",
+			parentName: "Survey",
+		});
+		expect(refused.message).toBe(
+			'"Check-in" goes to the parent module after submit, but "Survey" is off the menu: on Android it lists none of its own forms, and Web Apps opens the app\'s first screen instead. Choose one of: "app_home", "firstMenu", "module", "previous".',
+		);
+		expect(userFacingError(refused)).toBe(
+			'"Check-in" goes to the parent module after submit, but "Survey" is off the menu: on Android it lists none of its own forms, and Web Apps opens the app\'s first screen instead. Choose one of: "App home", "First menu", "This module", "Previous screen".',
+		);
+		assertAdmittedDoc(
+			candidate(nested(), (d) => {
+				d.modules[m].hiddenFromMenu = true;
+				d.forms[childForm].postSubmit = "module";
+			}),
+		);
+	});
+
+	it("exempts a fallback beside links from the two several-case reasons alone", () => {
+		const linked = (d: BlueprintDoc) => {
+			d.forms[a].formLinks = [
+				{
+					uuid: testUuid("rules-link"),
+					target: { type: "module", moduleUuid: m },
+					condition: xp("#user/username = 'reviewer'"),
+				},
+			];
+		};
+		const multi = (d: BlueprintDoc) => {
+			d.modules[m].caseListConfig = {
+				...(d.modules[m].caseListConfig ?? caseListConfig([])),
+				selection: several,
+			};
+		};
+		expect(
+			notOffered(
+				candidate(patient("followup"), (d) => {
+					multi(d);
+					linked(d);
+					d.forms[a].postSubmit = "previous";
+				}),
+			),
+		).toEqual([]);
+		expect(
+			only(
+				candidate(patient("followup"), (d) => {
+					multi(d);
+					d.forms[a].postSubmit = "previous";
+				}),
+			).details,
+		).toMatchObject({ reason: "menu-selects-several" });
+		expect(
+			only(
+				candidate(survey(), (d) => {
+					linked(d);
+					d.forms[a].postSubmit = "parentMenu";
+				}),
+			).details,
+		).toMatchObject({ reason: "no-parent-menu" });
+		expect(
+			only(
+				candidate(survey(), (d) => {
+					d.modules[m].hiddenFromMenu = true;
+					linked(d);
+					d.forms[a].formLinks = [
+						{
+							uuid: testUuid("rules-link"),
+							target: { type: "form", moduleUuid: m, formUuid: a },
+							condition: xp("#user/username = 'reviewer'"),
+						},
+					];
+					d.forms[a].postSubmit = "module";
+				}),
+			).details,
+		).toMatchObject({ reason: "menu-off-the-menu" });
+	});
+
+	it("never refuses an absent slot", () => {
+		assertAdmittedDoc(
+			candidate(nested(), (d) => {
+				d.modules[m].hiddenFromMenu = true;
+			}),
+		);
+	});
+});
+
 describe("form navigation admission", () => {
 	function linkedBase() {
 		return buildDoc({
@@ -670,7 +982,7 @@ describe("form navigation admission", () => {
 		uuid: testUuid(id),
 		target: { type: "form" as const, moduleUuid: m, formUuid },
 	});
-	it.each(["app_home", "module", "previous"] as const)(
+	it.each(["app_home", "firstMenu", "module", "previous"] as const)(
 		"admits explicit %s destination",
 		(postSubmit) => {
 			assertAdmittedDoc(

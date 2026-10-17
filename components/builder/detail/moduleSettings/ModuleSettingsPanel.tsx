@@ -22,8 +22,9 @@ interface ModuleSettingsPanelProps {
  * Module-settings drawer body rendered inside the Popover popup. Pure
  * chrome: a labeled header with a dismiss button and a content region
  * that hosts the module's name (when it has no other screen), case type,
- * appearance, and display-condition sections. The shell keeps its header fixed while the body scrolls
- * within the available viewport.
+ * appearance, and menu sections (whether the module is on the menu, and the
+ * display condition that applies while it is). The shell keeps its header
+ * fixed while the body scrolls within the available viewport.
  */
 export function ModuleSettingsPanel({
 	moduleUuid,

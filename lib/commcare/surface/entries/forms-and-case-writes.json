@@ -1002,8 +1002,9 @@
 			"schema:ShadowForm.post_form_workflow"
 		],
 		"valueClass": "root",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `postSubmit: firstMenu`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `postSubmit: firstMenu`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1091,8 +1092,9 @@
 			"schema:ShadowForm.post_form_workflow"
 		],
 		"valueClass": "parent-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `postSubmit: parentMenu`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `postSubmit: parentMenu`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1163,7 +1165,7 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova emits `previous_screen` in some of these today, which HQ's build refuses: defect 14)",
+			"cell": "— (`POST_SUBMIT_NOT_OFFERED` refuses it)",
 			"markers": []
 		},
 		"gates": []
@@ -1192,8 +1194,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova emits `previous_screen` there today: save-breaking)",
-			"markers": ["save-breaking"]
+			"cell": "— (`POST_SUBMIT_NOT_OFFERED` refuses it)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -1238,8 +1240,9 @@
 			"schema:ShadowForm.post_form_workflow_fallback"
 		],
 		"valueClass": "root-or-parent-module-offered",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `postSubmit: firstMenu` / `parentMenu` after the conditional links",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `postSubmit: firstMenu` / `parentMenu` after the conditional links",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2222,8 +2225,8 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit (Nova writes `false`: unproducible)",
-			"markers": ["unproducible", "omit"]
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},

@@ -19,7 +19,11 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { advancedSearchInputDef, makeTranslationUnitId } from "@/lib/domain";
+import {
+	advancedSearchInputDef,
+	isSelectSearchInput,
+	makeTranslationUnitId,
+} from "@/lib/domain";
 import {
 	and,
 	eq,
@@ -170,8 +174,44 @@ it("binds both choice widgets to the entire filtered fixture row contract", () =
 		).toEqual([
 			["label", { ref: "label" }],
 			["value", { ref: "code" }],
+			["sort", { ref: "label" }],
 		]);
 	}
+});
+it("sorts lookup choices by the chosen column, the label column by default", () => {
+	const { config, context, validations } = projection("prompt-widgets");
+	const sortedByCode = config.searchInputs.map((searchInput) =>
+		isSelectSearchInput(searchInput)
+			? {
+					...searchInput,
+					options: {
+						...searchInput.options,
+						sortColumnId: searchInput.options.valueColumnId,
+					},
+				}
+			: searchInput,
+	);
+	const emission = buildSearchPrompts(
+		sortedByCode,
+		"m0",
+		validations,
+		context,
+		promptLookupNaming,
+	);
+	const sortRefs = emission.elements
+		.filter((element) => ["region", "regions"].includes(element.attribs.key))
+		.map(
+			(element) =>
+				onlyXml(
+					xmlChildren(
+						onlyXml(
+							xmlChildren(readXmlEvidence(serializeXml(element)), "itemset"),
+						),
+						"sort",
+					),
+				).attributes,
+		);
+	expect(sortRefs).toEqual([{ ref: "code" }, { ref: "code" }]);
 });
 it.each(promptScenarios)(
 	"carries %s prompt trees, instance declarations and locale messages through both complete exports",

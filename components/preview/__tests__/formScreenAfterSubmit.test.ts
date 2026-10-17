@@ -303,6 +303,36 @@ describe("afterSubmitRoute", () => {
 		});
 	});
 
+	it.each(["firstMenu", "parentMenu"] as const)(
+		"hands a %s fallback to the screen as its own destination",
+		(destination) => {
+			expect(
+				afterSubmitRoute({
+					choice: { kind: "fallback", destination },
+					doc,
+					caseFirstModules,
+					caseSelections: noCaseSelections,
+					carriedCase: neverCarries,
+				}),
+			).toEqual({ kind: "post-submit", destination });
+		},
+	);
+
+	it("opens a form target that is off the menu, as Android does", () => {
+		const hidden = structuredClone(doc);
+		hidden.forms[NOTE].hiddenFromMenu = true;
+		hidden.modules[MENU].hiddenFromMenu = true;
+		expect(
+			afterSubmitRoute({
+				choice: fired({ type: "form", moduleUuid: MENU, formUuid: NOTE }),
+				doc: hidden,
+				caseFirstModules,
+				caseSelections: noCaseSelections,
+				carriedCase: () => ({ kind: "none" }),
+			}),
+		).toMatchObject({ kind: "form", moduleUuid: MENU, formUuid: NOTE });
+	});
+
 	it("reports a target module that is not in the document", () => {
 		const route = afterSubmitRoute({
 			choice: fired({ type: "module", moduleUuid: MISSING_MODULE }),
