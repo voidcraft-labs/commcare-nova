@@ -382,6 +382,13 @@ export function localizationWireFixture(
 				: scenario === "prompts"
 					? bilingualPromptDoc()
 					: bilingualDoc();
+	if (scenario === "bilingual") {
+		// The one corpus list with an authored order rule whose first language
+		// is not English: its sort element's `display` is keyed by `es`.
+		const column = doc.modules[doc.moduleOrder[0]]?.caseListConfig?.columns[0];
+		if (!column) throw new Error("Missing bilingual age column");
+		column.sort = { direction: "desc", priority: 0 };
+	}
 	if (scenario === "escaped" || scenario === "stale") {
 		const entry =
 			doc.localization?.translations.spa?.[

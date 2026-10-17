@@ -70,14 +70,18 @@ import {
 import {
 	asUuid,
 	type BlueprintDoc,
+	type CaseListComparator,
 	type CaseListConfig,
+	type CaseListOrderPlan,
+	type CaseListSortKey,
 	type CaseOperation,
+	type CaseProperty,
 	type CaseTileGrouping,
 	type CaseType,
 	type CaseWriteBucket,
 	type Column,
 	caseDataTypeForFieldKind,
-	caseListColumnIsEmitted,
+	caseListColumnRuns,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
 	deriveCaseWriteInventory,
@@ -86,9 +90,9 @@ import {
 	isCaptureFieldKind,
 	type Module,
 	orderedCaseOperations,
-	orderedColumns,
 	organizationLevelsOf,
 	type PersistableDoc,
+	TIME_SINCE_UNIT_DAYS,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -102,14 +106,19 @@ import type { Predicate, Term, ValueExpression } from "@/lib/domain/predicate";
 import { walkExpressionTerms, walkTerms } from "@/lib/domain/predicate";
 import {
 	ancestorPath,
+	concat,
 	eq,
+	ifExpr,
 	isBlank,
 	isIn,
 	literal,
+	multiSelectAny,
 	not,
 	or,
 	prop,
 	relationStep,
+	switchCase,
+	switchExpr,
 	term,
 } from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
@@ -134,6 +143,7 @@ import type {
 	SubmissionMutation,
 	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
+import type { CaseListOrderLocale } from "./caseListOrder";
 import { formAnswerXPathValue } from "./dataInstance";
 import type { ResolvedPreviewIdentity } from "./identity";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
@@ -153,14 +163,17 @@ import type { CaseDatabaseSnapshot } from "./xpathInstances";
  */
 export const SAMPLE_CASE_DEFAULT_COUNT = 30;
 
-/** Narrow to calculated definitions that the running app executes. A dormant
- * saved calculation remains fully valid but contributes no query projection.
- * Keeping this as a real type predicate lets the case-store receive the
- * calculated-column arm rather than the broad union. */
-function isRuntimeCalculatedColumn(
-	column: Column,
-): column is Extract<Column, { kind: "calculated" }> {
-	return column.kind === "calculated" && caseListColumnIsEmitted(column);
+/** The calculated columns the running app evaluates (`caseListColumnRuns`):
+ * every one of a list with no tile layout, hidden ones included, since each
+ * is a field of the short detail. A calculation no runtime evaluates remains
+ * fully valid but contributes no query projection. */
+function runtimeCalculatedColumns(
+	config: CaseListConfig | undefined,
+): Extract<Column, { kind: "calculated" }>[] | undefined {
+	return config?.columns.filter(
+		(column): column is Extract<Column, { kind: "calculated" }> =>
+			column.kind === "calculated" && caseListColumnRuns(column, config),
+	);
 }
 
 /**
@@ -301,6 +314,10 @@ export async function readCases(
 		caseIds?: readonly string[];
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
+		/** The list's order plan and the language its keys read; absent
+		 *  where the read has no list to order (the selection check by
+		 *  `caseIds`), which then sorts by case id alone. */
+		order?: CaseStoreOrder;
 		parentCase?: ParentCaseSelection;
 		inputValues?: SearchInputValues;
 		bindings?: TermBindings;
@@ -383,10 +400,8 @@ export async function readCases(
 	const queryAtOffset = (offset: number) =>
 		store.query({
 			...caseReadCore(args, composedQuery.predicate),
-			sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
-			calculated: args.caseListConfig?.columns.filter(
-				isRuntimeCalculatedColumn,
-			),
+			sort: buildCaseStoreSortKeys(args.order, args.caseType),
+			calculated: runtimeCalculatedColumns(args.caseListConfig),
 			limit: page?.limit,
 			offset: page === undefined ? undefined : offset,
 		});
@@ -489,10 +504,8 @@ async function readGroupedCases(
 	const queryAtOffset = (groupOffset: number) =>
 		store.queryGrouped({
 			...caseReadCore(args, composedQuery.predicate),
-			sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
-			calculated: args.caseListConfig?.columns.filter(
-				isRuntimeCalculatedColumn,
-			),
+			sort: buildCaseStoreSortKeys(args.order, args.caseType),
+			calculated: runtimeCalculatedColumns(args.caseListConfig),
 			indexIdentifier: grouping.identifier,
 			groupOffset,
 			groupLimit: page.limit,
@@ -810,6 +823,8 @@ export async function readFilterPreview(
 		lookupTableSchemas?: LookupTableSchemas;
 		excludedOwnerIds?: readonly string[];
 		limit?: number;
+		/** The list's order, so the sample is the list's first rows. */
+		order?: CaseStoreOrder;
 	},
 ): Promise<LoadFilterPreviewResult> {
 	const limit = args.limit ?? FILTER_PREVIEW_DEFAULT_LIMIT;
@@ -832,8 +847,8 @@ export async function readFilterPreview(
 	// callers receive the same row shape as the running case list.
 	const rows = await store.query({
 		...caseReadCore(args, predicate),
-		calculated: args.caseListConfig.columns.filter(isRuntimeCalculatedColumn),
-		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
+		calculated: runtimeCalculatedColumns(args.caseListConfig),
+		sort: buildCaseStoreSortKeys(args.order, args.caseType),
 		limit,
 	});
 
@@ -844,97 +859,195 @@ export async function readFilterPreview(
 	return { kind: "rows", rows, totalCount };
 }
 
+/** A read's order: the list's order plan, the case type's catalog, and the
+ *  worker-language text its sort keys read. */
+export interface CaseStoreOrder {
+	readonly plan: CaseListOrderPlan;
+	readonly caseProperties: readonly CaseProperty[];
+	readonly locale: CaseListOrderLocale;
+}
+
 /**
- * Build the case-store `SortKey[]` array from a `CaseListConfig`.
- * Sort directives live on each column directly via the optional
- * `column.sort: { direction, priority }` slot — there is no
- * top-level `sort` array. Columns with `sort` set become
- * directives; the array sorts by `priority` ascending with
- * explicit tie-break to independent Results order so the column
- * appearing earlier in the running list wins on equal priority.
- * Details order cannot affect query ordering. The tie-break rule binds at
- * every layer (saga / preview / wire) — see
- * `lib/commcare/suite/case-list/sortKeys.ts::buildSortDirectives`,
- * which the wire emitter binds to the same shape.
+ * The case-store `SortKey[]` of a read: each of the plan's rules in `order`,
+ * fields and carriers together, then the case id for paging. A rule is one
+ * key, but a rule over a multi select's labels is two (its labels, then the
+ * raw value). With no plan the read sorts by the case id alone.
  *
- * Each survivor's expression lifts based on column kind:
- *   - non-calc kinds → `term(prop(caseType, column.field))`. The
- *     case-store's term compiler resolves `data_type` from the
- *     supplied blueprint's case-type schema and emits the typed
- *     JSONB read; ORDER BY then applies the comparator the
- *     case-store's `SortKey.direction` selects.
- *   - calc kind → the column's `expression` verbatim. Postgres's
- *     planner CSE-folds the redundant evaluation across SELECT +
- *     ORDER BY against identical expressions, so the runtime cost
- *     is one evaluation per row.
+ * Each key's value is the field's sort key as the plan states it
+ * (`lib/domain/caseListOrder.ts`), built from the compiler's own arms:
  *
- * When no authored sort applies (`caseListConfig === undefined`, or
- * no column carries `sort`) the keys are the store's default
- * ordering fact spelled explicitly: `date_opened` (creation time),
- * then the id tie-break.
+ *   - `property`: the raw value.
+ *   - `calculated`: the column's expression, read with portable case dates.
+ *   - `option-label`: a single select's label in the worker's language
+ *     (`switch`, the raw value where no option matches, first match winning
+ *     as the device's nested `if` does); a multi select's known labels in
+ *     catalog order, each followed by a space, then the raw value.
+ *   - `mapping-position`: the index of the first entry the value holds as
+ *     one of its space-separated tokens, as text, `""` when none: the
+ *     device's `selected()` (`lib/commcare/suite/case-list/sortKeys.ts::idMappingSortXpath`),
+ *     over a multi select's tokens joined by one space.
+ *   - `link-text`: the markdown the link shows, `""` for a blank value.
+ *   - `interval-text`: the interval's shown text (`sql/compileIntervalText.ts`).
  */
 function buildCaseStoreSortKeys(
-	caseListConfig: CaseListConfig | undefined,
+	order: CaseStoreOrder | undefined,
 	caseType: string,
 ): CaseStoreSortKey[] {
-	// Offset pagination needs a total order. Authored keys can tie;
-	// the id is unique and deterministic. It carries NO time order —
-	// authored opaque ids sort lexically — which is why the unsorted
-	// arms lead with `date_opened` rather than leaning on the id.
 	const stablePageTieBreaker: CaseStoreSortKey = {
-		direction: "asc",
+		kind: "expression",
 		expression: term(prop(caseType, "case_id")),
-	};
-	const creationOrder: CaseStoreSortKey = {
+		comparator: "text",
 		direction: "asc",
-		expression: term(prop(caseType, "date_opened")),
+		blanks: "first",
 	};
-	if (caseListConfig === undefined)
-		return [creationOrder, stablePageTieBreaker];
-
-	type Survivor = { readonly column: Column; readonly index: number };
-	const survivors: Survivor[] = [];
-	// Results order — the same independent surface sequence the short-detail
-	// wire emitter walks, so equal-priority sort rules break ties identically
-	// without coupling the running list to Details rearrangement.
-	const sortedColumns = orderedColumns(caseListConfig, "list");
-	for (let i = 0; i < sortedColumns.length; i++) {
-		const column = sortedColumns[i];
-		if (column.sort === undefined) continue;
-		survivors.push({ column, index: i });
-	}
-	if (survivors.length === 0) return [creationOrder, stablePageTieBreaker];
-
-	const sorted = [...survivors].sort((a, b) => {
-		const ap = a.column.sort?.priority ?? 0;
-		const bp = b.column.sort?.priority ?? 0;
-		if (ap !== bp) return ap - bp;
-		return a.index - b.index;
-	});
-
+	if (order === undefined) return [stablePageTieBreaker];
+	const rules = [
+		...order.plan.fields.flatMap((field) =>
+			field.rule === undefined || field.key === undefined
+				? []
+				: [{ rule: field.rule, key: field.key, comparator: field.comparator }],
+		),
+		...order.plan.carriers.map((carrier) => ({
+			rule: carrier.rule,
+			key: { kind: "property", property: carrier.property } as CaseListSortKey,
+			comparator: carrier.comparator,
+		})),
+	].sort((a, b) => a.rule.order - b.rule.order);
+	const columns = new Map<string, Column>(
+		order.plan.fields.map((field) => [field.column.uuid, field.column]),
+	);
 	return [
-		...sorted.flatMap(({ column }) => {
-			const sortConfig = column.sort;
-			if (sortConfig === undefined) return [];
-			// Calc-arm column: the column's own `expression` is the sort
-			// key. Non-calc kinds carry a flat `field` slot; the case-
-			// store's term compiler reads its data_type from the bound
-			// blueprint's case-type schema.
-			const expression =
-				column.kind === "calculated"
-					? column.expression
-					: term(prop(caseType, column.field));
-			return [
-				{
-					direction: sortConfig.direction,
-					expression,
-					...(column.kind === "calculated"
-						? { portableCaseDates: true as const }
-						: {}),
-				},
-			];
-		}),
+		...rules.flatMap(({ rule, key, comparator }) =>
+			sortKeysForRule(
+				key,
+				comparator,
+				rule.direction,
+				rule.blanks,
+				caseType,
+				columns,
+				order,
+			),
+		),
 		stablePageTieBreaker,
+	];
+}
+
+function sortKeysForRule(
+	key: CaseListSortKey,
+	comparator: CaseListComparator,
+	direction: "asc" | "desc",
+	blanks: "first" | "last",
+	caseType: string,
+	columns: ReadonlyMap<string, Column>,
+	order: CaseStoreOrder,
+): CaseStoreSortKey[] {
+	const expressionKey = (
+		expression: ValueExpression,
+		keyComparator: CaseListComparator = comparator,
+		portableCaseDates = false,
+	): CaseStoreSortKey => ({
+		kind: "expression",
+		expression,
+		...(portableCaseDates && { portableCaseDates: true as const }),
+		comparator: keyComparator,
+		direction,
+		blanks,
+	});
+	const textLiteral = (value: string) => term(literal(value));
+	if (key.kind === "property") {
+		return [expressionKey(term(prop(caseType, key.property)))];
+	}
+	if (key.kind === "option-label") {
+		const property = order.caseProperties.find(
+			(candidate) => candidate.name === key.property,
+		);
+		const raw = term(prop(caseType, key.property));
+		const options = property?.options ?? [];
+		if (property === undefined || options.length === 0) {
+			return [expressionKey(raw, "text")];
+		}
+		if (property.data_type === "multi_select") {
+			const tokens = options.flatMap((option, index) =>
+				option.value !== "" && !/\s/.test(option.value)
+					? [{ option, index }]
+					: [],
+			);
+			const [first, ...rest] = tokens.map(({ option, index }) =>
+				ifExpr(
+					multiSelectAny(prop(caseType, key.property), literal(option.value)),
+					textLiteral(`${order.locale.optionLabel(property, index)} `),
+					textLiteral(""),
+				),
+			);
+			if (first === undefined) return [expressionKey(raw, "text")];
+			return [
+				expressionKey(concat(first, ...rest), "text"),
+				expressionKey(raw, "text"),
+			];
+		}
+		const [first, ...rest] = options.map((option, index) =>
+			switchCase(
+				literal(option.value),
+				textLiteral(order.locale.optionLabel(property, index)),
+			),
+		);
+		return [
+			expressionKey(
+				first === undefined ? raw : switchExpr(raw, [first, ...rest], raw),
+				"text",
+			),
+		];
+	}
+	const column = columns.get(key.column);
+	if (column === undefined) return [];
+	if (key.kind === "calculated") {
+		if (column.kind !== "calculated") return [];
+		return [expressionKey(column.expression, comparator, true)];
+	}
+	if (column.kind === "calculated") return [];
+	const raw = prop(caseType, column.field);
+	if (key.kind === "mapping-position") {
+		if (column.kind !== "id-mapping" && column.kind !== "image-map") return [];
+		return [
+			{
+				kind: "mapping-position",
+				expression: term(raw),
+				values: column.mapping.map((entry) => javaTrim(entry.value)),
+				direction,
+				blanks,
+			},
+		];
+	}
+	if (key.kind === "link-text") {
+		if (column.kind !== "link") return [];
+		return [
+			expressionKey(
+				ifExpr(
+					isBlank(raw),
+					textLiteral(""),
+					concat(
+						textLiteral(`[${column.linkText}](`),
+						term(raw),
+						textLiteral(")"),
+					),
+				),
+				"text",
+			),
+		];
+	}
+	if (column.kind !== "interval") return [];
+	const divisorDays = TIME_SINCE_UNIT_DAYS[column.unit];
+	return [
+		{
+			kind: "interval-text",
+			property: column.field,
+			display: column.display,
+			thresholdDays: column.threshold * divisorDays,
+			divisorDays,
+			text: order.locale.intervalText(column),
+			direction,
+			blanks,
+		},
 	];
 }
 
@@ -1006,7 +1119,7 @@ export async function readCaseData(
 			eq(prop(args.caseType, "case_id"), literal(args.caseId)),
 		),
 		parentCases: args.parentCase,
-		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
+		calculated: runtimeCalculatedColumns(args.caseListConfig),
 		limit: 1,
 		includeHeld: args.includeHeld,
 	});

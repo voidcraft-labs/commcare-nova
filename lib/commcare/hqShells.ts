@@ -186,8 +186,18 @@ export function detailColumn(
  * the module reaches the wire JSON; new modules with no search
  * config land here as the no-search baseline. The shell is the
  * single seed point — keeps CCHQ default drift to one file.
+ *
+ * `title_label` and `description` hold an empty text under every app
+ * language, which is what HQ's Case List save writes into both on every
+ * menu, whether or not it offers search
+ * (`views/modules.py::_gather_and_update_search_properties`). The projection
+ * writes an authored title or subtitle over the seed.
  */
-export function caseSearchConfigShell(): CaseSearchConfig {
+export function caseSearchConfigShell(
+	languages: readonly string[],
+): CaseSearchConfig {
+	const blank = () =>
+		Object.fromEntries(languages.map((language) => [language, ""]));
 	return {
 		doc_type: "CaseSearch",
 		// CCHQ default: `{'en': 'Search All Cases'}` per
@@ -205,8 +215,8 @@ export function caseSearchConfigShell(): CaseSearchConfig {
 		inline_search: false,
 		include_all_related_cases: false,
 		default_properties: [],
-		title_label: {},
-		description: {},
+		title_label: blank(),
+		description: blank(),
 	};
 }
 
@@ -358,6 +368,7 @@ export function moduleShell(
 	caseType: string,
 	forms: HqForm[],
 	caseDetails: DetailPair,
+	languages: readonly string[],
 ): HqModule {
 	return {
 		doc_type: "Module",
@@ -378,7 +389,7 @@ export function moduleShell(
 			custom_icons: [],
 		},
 		case_list_form: { doc_type: "CaseListForm", form_id: null, label: {} },
-		search_config: caseSearchConfigShell(),
+		search_config: caseSearchConfigShell(languages),
 		display_style: "list",
 		media_image: {},
 		media_audio: {},

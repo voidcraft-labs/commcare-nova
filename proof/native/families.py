@@ -86,6 +86,8 @@ CORE_CLASSES = {
     "CaseCaptureRuntimeTest": "case",
     "CaseChoiceRuntimeTest": "case-choice",
     "CaseListRuntimeTest": "case-list",
+    # Reads only its checked-in control (/case-list-order/orders.json), which Preview's case store is held to too.
+    "CaseListOrderRuntimeTest": "case-list",
     "CaseOperationRuntimeTest": "case",
     "ConnectRuntimeTest": "connect",
     "ContainerRuntimeTest": "container",

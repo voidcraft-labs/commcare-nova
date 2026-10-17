@@ -1,4 +1,5 @@
-"""Formplayer's search screen over a Nova search: what it sends HQ for an answer holding both quote marks.
+"""Formplayer's search screen over a Nova search: what it sends HQ for an answer holding both quote marks, and the
+description it hands the client.
 
 Finding 48 (``targeted-search-hq-compile``), on HQ's release of a real Nova
 export served to Formplayer by HQ's own views (``proof.formplayer.hq``).
@@ -12,15 +13,24 @@ answer (one quote mark) rules out: it is sent, HQ's own search view takes
 it whole (its reading of the request and its compile of the query), and
 HQ's compiler compiles the string that holds the answer.
 
-What the Case List save does to a search's description (finding 54) is the
-rule ``search-description-empty``'s, whose test serves both spellings to
-Formplayer and the Web Apps client.
+Finding 54, on the same document. HQ's Case List save writes a search
+description of no text for the page's language, and HQ's build then writes a
+``<description>`` whose app string is a non-breaking space. Nova now stores
+that description and writes the element on both paths. Contract: Nova's
+export stores ``description`` as ``{en: ""}``, the Case List page saved
+without a change leaves it and ``title_label`` as they were, and Formplayer
+hands the client the non-breaking space on HQ's build of Nova's export, on
+the build after the save and on Nova's local archive. Plausible failures: a
+save that still writes the maps (Nova's would differ from what it stores),
+and an archive whose search writes no description (Formplayer would hand
+``""``, as it did before).
 """
 
 from __future__ import annotations
 
 from proof.formplayer import apps
 from proof.formplayer.walk import screen_kind
+from proof.hq.operations import with_runtime_app_id
 from proof.observe.sessions import csql_compile
 
 SEARCH = ["0", "action 0"]
@@ -28,6 +38,9 @@ SEARCH = ["0", "action 0"]
 SEARCH_VIEWS = ("remote_search", "app_aware_remote_search")
 MIXED = 'it\'s "x"'
 ONE_MARK = "it's"
+NBSP = "\u00a0"
+# The search maps the Case List save writes for the page's language.
+SEARCH_MAPS = ("description", "title_label")
 
 
 def _query_data(key, inputs):
@@ -87,3 +100,48 @@ def test_formplayer_keeps_a_mixed_quote_answer_from_hq_and_sends_a_one_mark_answ
         assert [result for query, result in zip(queries, compiled, strict=True) if ONE_MARK in query] == [
             {"compiled": True}
         ]
+
+
+def _stored_maps(published):
+    """The first menu's search description and title as HQ stores them."""
+    from proof.hq import operations
+
+    search = operations.held_app(published.unit, published.app_id).to_json()["modules"][0]["search_config"]
+    return {key: search.get(key) for key in SEARCH_MAPS}
+
+
+def _description(web):
+    """The description Formplayer hands the client on the search screen."""
+    screen = web.navigate(SEARCH)
+    assert screen_kind(screen) == "query", screen
+    return screen.get("description")
+
+
+def test_formplayer_hands_a_non_breaking_space_for_the_empty_description_on_every_build(
+    hq, core_runner, formplayer_runner, editor_driver, formplayer_documents, evidence
+):
+    from proof.editors import pages
+
+    document = formplayer_documents["targeted-search-hq-compile"]
+    with apps.published(document, core_runner) as published:
+        nova_stored = _stored_maps(published)
+        local = with_runtime_app_id(document.local_ccz.read_bytes(), published.app_id)
+        local_id = apps.build_id(published.app_id, local)
+        handed = {}
+        with apps.served(published, formplayer_runner, label="nova") as served:
+            served.hq.archives[local_id] = local
+            with served.run("build"):
+                handed["build"] = _description(apps.web(formplayer_runner, served))
+            with served.run("local"):
+                handed["local"] = _description(apps.web(formplayer_runner, served, app_id=local_id))
+        with published.unit.fork():
+            apps.saved_page(published, editor_driver, pages.CASE_LIST, published.module_id(0))
+            saved_stored = _stored_maps(published)
+            with apps.served(published, formplayer_runner, label="saved") as served, served.run("saved"):
+                handed["saved"] = _description(apps.web(formplayer_runner, served))
+    evidence("search-description", {"stored": {"nova": nova_stored, "saved": saved_stored}, "handed": handed})
+
+    assert nova_stored["description"] == {"en": ""}
+    # The Case List save writes nothing new into either map.
+    assert saved_stored == nova_stored
+    assert handed == {"build": NBSP, "local": NBSP, "saved": NBSP}

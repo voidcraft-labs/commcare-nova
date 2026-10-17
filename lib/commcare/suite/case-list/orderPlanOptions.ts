@@ -1,0 +1,226 @@
+// lib/commcare/suite/case-list/orderPlanOptions.ts
+//
+// The options every reader of the case list order plan builds it with
+// (`lib/domain/caseListOrder.ts::caseListOrderPlan`). The plan lives in the
+// domain, which imports nothing from `lib/commcare`, so the two things it
+// cannot compute come from here: a calculated column's resolved type, and the
+// text HQ JSON writes as an expression column's `field`. One helper builds
+// both for every reader (HQ JSON, the local suite, the validator, the cutover
+// and Preview), so no two readers can build the plan differently.
+
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	ATTRIBUTE_BACKED_COLUMN_PROPERTIES,
+	type BlueprintDoc,
+	type CaseListOrderOptions,
+	type CaseListOrderPlan,
+	type Column,
+	caseListOrderPlan,
+	casePropertyShowsOptionLabels,
+	effectiveCaseSearchConfig,
+	effectiveCaseTypes,
+	type Module,
+} from "@/lib/domain";
+import {
+	ANY_TYPE,
+	type CheckError,
+	checkExpression,
+} from "@/lib/domain/predicate";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import { emitCasePropertyWirePath } from "../../casePropertyWire";
+import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
+import { moduleTypeContext } from "../../validator/rules/case-list/shared";
+import { classifyRelatedCaseSearchExpression } from "../case-search/relatedCaseProjection";
+import {
+	intervalColumnDisplayXpath,
+	linkColumnDisplayXpath,
+	plainSelectDisplayXpath,
+} from "./columns";
+
+/**
+ * HQ's `XPathEnum` builder discovers a `translatable-enum` column's variables
+ * by substring before it prefixes them with `$k`
+ * (`suite_xml/xml_models.py::XPathEnum.build`). Fixed-width decimal indices
+ * make every index prefix-free, so key 1 can never corrupt key 10.
+ */
+export function hqEnumPlaceholder(index: number): string {
+	return `nova_text_${index.toString(10).padStart(10, "0")}`;
+}
+
+/** Whether the column reads an attribute-backed property (finding 57). */
+export function columnReadsCaseAttribute(column: Column): boolean {
+	return (
+		column.kind !== "calculated" &&
+		(ATTRIBUTE_BACKED_COLUMN_PROPERTIES as ReadonlySet<string>).has(
+			column.field,
+		)
+	);
+}
+
+/**
+ * The text HQ JSON writes as a column's expression `field` on one screen.
+ * `screen` is the detail the column is written into: on Results a column
+ * hidden there that is not calculated prints its raw wire path (`@<name>`
+ * for an attribute-backed one); on Details a column prints as its kind shows
+ * it. A column with no expression of its own prints its raw wire path.
+ *
+ * `lookupNaming` is the run's naming where the caller has one; a caller with
+ * no definitions snapshot prints through `identityLookupWireNaming()`, under
+ * which two expressions print alike exactly when they do under any naming.
+ */
+export function hqExpressionFieldText(
+	column: Column,
+	mod: Module,
+	doc: BlueprintDoc,
+	screen: "results" | "details",
+	lookupNaming?: LookupWireNaming,
+	typeContext: TypeContext = moduleTypeContext(mod, doc),
+): string {
+	if (column.kind === "calculated") {
+		if (effectiveCaseSearchConfig(mod) !== undefined) {
+			const related = classifyRelatedCaseSearchExpression(column.expression, {
+				...typeContext,
+				...(mod.caseType === undefined
+					? {}
+					: { currentCaseType: mod.caseType }),
+			});
+			if (related.kind === "ancestor-property") return related.hqExpression;
+		}
+		try {
+			return emitOnDeviceExpression(
+				column.expression,
+				undefined,
+				typeContext,
+				undefined,
+				{
+					lookup: {
+						naming: lookupNaming ?? identityLookupWireNaming(),
+						instanceScope: "suite",
+					},
+				},
+			);
+		} catch (error) {
+			// A document the validator refuses can hold an expression the
+			// on-device emitter has no spelling for, and the order plan is total
+			// (the validator reads the plan of a document it then refuses). An
+			// export never reaches this arm: it re-runs the validator first.
+			if (lookupNaming !== undefined) throw error;
+			return unprintableExpressionText(column.expression);
+		}
+	}
+	const path = emitCasePropertyWirePath(column.field);
+	if (screen === "results" && column.visibleInList === false) return path;
+	switch (column.kind) {
+		case "plain": {
+			const property = effectiveCaseTypes(doc)
+				.find((type) => type.name === mod.caseType)
+				?.properties.find((candidate) => candidate.name === column.field);
+			if (property === undefined || !casePropertyShowsOptionLabels(property)) {
+				return path;
+			}
+			return plainSelectDisplayXpath(
+				path,
+				property,
+				doc,
+				(_option, index) => `$${hqEnumPlaceholder(index)}`,
+			);
+		}
+		case "interval":
+			return intervalColumnDisplayXpath(column, `$${hqEnumPlaceholder(0)}`);
+		case "link":
+			return linkColumnDisplayXpath(path, column.linkText);
+		default:
+			return path;
+	}
+}
+
+/**
+ * The join text of an expression the on-device emitter refuses: the
+ * expression's structure, printed with its object keys in sorted order, so
+ * two such texts are equal exactly when the two expressions are equal. The
+ * prefix holds a character no XPath expression holds, so it never equals a
+ * printed expression.
+ */
+export function unprintableExpressionText(expression: unknown): string {
+	return `\u0000unprintable:${canonicalJson(expression)}`;
+}
+
+function canonicalJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+	if (value !== null && typeof value === "object") {
+		const entries = Object.entries(value as Record<string, unknown>)
+			.filter(([, entry]) => entry !== undefined)
+			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+		return `{${entries
+			.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+			.join(",")}}`;
+	}
+	return JSON.stringify(value) ?? "null";
+}
+
+/**
+ * The options of a module's order plan. `mediaOn` is whether the export
+ * carries a media manifest; the validator, the cutover and Preview pass
+ * `true`, the plan of every production export. Readers 1 and 2 pass their
+ * run's lookup naming, so every stored short column's `field` is the plan's
+ * join text itself.
+ */
+export function caseListOrderOptions(
+	mod: Module,
+	doc: BlueprintDoc,
+	mediaOn: boolean,
+	lookupNaming?: LookupWireNaming,
+): CaseListOrderOptions {
+	let typeContext: TypeContext | undefined;
+	const context = (): TypeContext => {
+		typeContext ??= moduleTypeContext(mod, doc);
+		return typeContext;
+	};
+	return {
+		mediaOn,
+		calculatedType: (column) => {
+			if (column.kind !== "calculated") return undefined;
+			const errors: CheckError[] = [];
+			const resolved = checkExpression(
+				column.expression,
+				context(),
+				errors,
+				[],
+			);
+			return resolved === ANY_TYPE ? undefined : resolved;
+		},
+		expressionText: (column) =>
+			hqExpressionFieldText(
+				column,
+				mod,
+				doc,
+				"results",
+				lookupNaming,
+				context(),
+			),
+	};
+}
+
+/**
+ * The plan of one module's list, over the module's effective case type
+ * catalog (`effectiveCaseTypes`), with `caseListOrderOptions`. A module with
+ * no list has the plan of an empty one.
+ */
+export function moduleCaseListOrderPlan(
+	mod: Module,
+	doc: BlueprintDoc,
+	mediaOn: boolean,
+	lookupNaming?: LookupWireNaming,
+): CaseListOrderPlan {
+	const config = mod.caseListConfig;
+	if (config === undefined) return { fields: [], carriers: [], authored: [] };
+	const caseProperties =
+		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
+			?.properties ?? [];
+	return caseListOrderPlan(
+		config,
+		caseProperties,
+		caseListOrderOptions(mod, doc, mediaOn, lookupNaming),
+	);
+}

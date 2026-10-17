@@ -1,13 +1,12 @@
 // lib/commcare/suite/case-list/types.ts
 //
 // Shared structural types for the case-list detail emitter stack.
-// Two orchestrators (`shortDetail.ts`, `longDetail.ts`) walk
-// `module.caseListConfig.columns` and dispatch per-`Column` slots
-// through `columns.ts`; the per-column sort-directive lookup map
-// is built once by `sortKeys.ts::buildSortDirectives` and threaded
-// through the context. Keeping the cross-module shapes here lets
-// each emitter import only the type it needs without circling
-// back through the orchestrator.
+// Two orchestrators (`shortDetail.ts`, `longDetail.ts`) walk the list's
+// fields and dispatch per-`Column` slots through
+// `columns.ts`; the per-column sort-directive lookup map is built once
+// by `sortKeys.ts::planSortNodes` and threaded through the context.
+// Keeping the cross-module shapes here lets each emitter import only
+// the type it needs without circling back through the orchestrator.
 //
 // Two orthogonal axes drive per-emit divergence:
 //
@@ -134,8 +133,9 @@ export type DetailTarget = "case" | "search";
  *     helper, and feeds the per-column header-locale composer.
  *
  *   - `sortByUuid` — resolved sort directives keyed by
- *     `column.uuid`. Built once per module by
- *     `sortKeys.ts::buildSortDirectives` and threaded through here.
+ *     `column.uuid`, one for every field that keeps a sort key. Built
+ *     once per module from the order plan by `sortKeys.ts::planSortNodes`
+ *     and threaded through here.
  *     Per-column emitters look up their directive in O(1) without
  *     walking the array. Long detail's emitter ignores the map per
  *     the `DetailKind`-described divergence above; passing it

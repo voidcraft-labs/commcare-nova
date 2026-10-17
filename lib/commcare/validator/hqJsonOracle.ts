@@ -559,6 +559,11 @@ function checkForm(
  * numeric ones, which CCHQ declares `IntegerProperty` / `FloatProperty`: a
  * `NaN` / `Infinity` from a faulty interval computation serializes to JSON
  * `null` and would silently default out at import rather than carry its value.
+ *
+ * Two checks hold the spellings HQ's Case List page keeps, neither of them
+ * import-fatal: each sort element in the page's own words
+ * (`checkSortElementSpelling`), and no `@` in a field the page reads as a
+ * property name (`checkDetailFields`).
  */
 function checkDetail(
 	detail: Detail,
@@ -580,6 +585,87 @@ function checkDetail(
 
 	for (const column of detail.columns) {
 		checkColumnNumbers(column, moduleName, errors);
+	}
+	checkSortElementSpelling(detail, moduleName, errors);
+	checkDetailFields(detail, moduleName, errors);
+}
+
+/**
+ * Each sort element in the words HQ's Case List page writes, so a save there
+ * keeps it as Nova sent it: `type` one of `plain`, `date`, `int` and `double`
+ * (`static/app_manager/js/details/bootstrap5/sort_rows.js`), `blanks` `first`
+ * or `last` (the page's default where the stored value is empty), and an
+ * empty `sort_calculation`, which the page's save empties unless the project
+ * has `SORT_CALCULATION_IN_CASE_LIST` (`views/modules.py::_update_sort_elements`).
+ * HQ's build writes the same `<sort>` either way, so a former spelling is not
+ * import-fatal: it is a difference the first save in HQ makes.
+ */
+function checkSortElementSpelling(
+	detail: Detail,
+	moduleName: string,
+	errors: ValidationError[],
+): void {
+	for (const [index, element] of detail.sort_elements.entries()) {
+		const problems = [
+			...(element.type === "string"
+				? ['its type is "string", where the Case List page writes "plain"']
+				: []),
+			...(element.blanks === ""
+				? [
+						'its blanks is empty, where the Case List page writes "first" or "last"',
+					]
+				: []),
+			...(element.sort_calculation !== ""
+				? [
+						"it holds a sort_calculation, which the Case List page's save empties",
+					]
+				: []),
+		];
+		if (problems.length === 0) continue;
+		errors.push(
+			validationError(
+				"HQJSON_BAD_SORT_ELEMENT",
+				"module",
+				`Module "${moduleName}" has a sort element over "${element.field}" (number ${index + 1}) in a spelling CommCare HQ's Case List page rewrites on its next save: ${problems.join("; ")}. Look at how the case list's order rules are projected into sort elements. This is a bug in the app generator.`,
+				{ moduleName },
+			),
+		);
+	}
+}
+
+/**
+ * No `@` where HQ reads a field as a property name: a sort element's
+ * `field`, and the `field` of a column whose `useXpathExpression` is false.
+ * Both go through `helpers/validators.py::ModuleDetailValidatorMixin._validate_detail_screen_field`
+ * (and its page twin `static/app_manager/js/details/utils.js::isValidPropertyName`),
+ * which takes no `@`: a sort element with one stops the build
+ * (`invalid sort field`) and a column with one stops the Case List page's
+ * save. An attribute-backed column is an expression column, `@<name>` with
+ * `useXpathExpression: true`.
+ */
+function checkDetailFields(
+	detail: Detail,
+	moduleName: string,
+	errors: ValidationError[],
+): void {
+	const fields = [
+		...detail.sort_elements.map(
+			(element) => ["sort element", element.field] as const,
+		),
+		...detail.columns
+			.filter((column) => !column.useXpathExpression)
+			.map((column) => ["property column", column.field] as const),
+	];
+	for (const [where, field] of fields) {
+		if (!field.includes("@")) continue;
+		errors.push(
+			validationError(
+				"HQJSON_BAD_DETAIL_FIELD",
+				"module",
+				`Module "${moduleName}" has a ${where} whose field is "${field}". CommCare HQ reads that field as a property name, which can't hold @, so its build or its Case List page refuses it. A case attribute is read by an expression column (useXpathExpression: true). This is a bug in the app generator.`,
+				{ moduleName },
+			),
+		);
 	}
 }
 
@@ -697,6 +783,7 @@ function checkLogoRefs(
  */
 function checkModule(
 	module: HqModule,
+	langs: readonly string[],
 	ids: HqIdentityTable,
 	errors: ValidationError[],
 ): void {
@@ -749,6 +836,7 @@ function checkModule(
 	checkDetail(module.case_details.short, moduleName, errors);
 	checkDetail(module.case_details.long, moduleName, errors);
 	checkCaseListForm(module, moduleName, ids, loc, errors);
+	checkSearchLabels(module, moduleName, langs, loc, errors);
 
 	// Module-level + case-list-level menu media. Each carrier emits a
 	// `media_image` / `media_audio` dict (NavMenuItemMediaMixin); when present,
@@ -834,6 +922,35 @@ function checkCaseListForm(
 	}
 }
 
+/**
+ * `search_config.title_label` and `search_config.description` each hold every
+ * app language, blank where nothing is authored. HQ's Case List save writes
+ * both for the page's language on every menu, whether or not the menu offers
+ * search (`views/modules.py::_gather_and_update_search_properties`), so a map
+ * missing a language is one that save rewrites.
+ */
+function checkSearchLabels(
+	module: HqModule,
+	moduleName: string,
+	langs: readonly string[],
+	loc: ValidationLocation,
+	errors: ValidationError[],
+): void {
+	for (const slot of ["title_label", "description"] as const) {
+		const labels: Record<string, string> = module.search_config[slot];
+		const missing = langs.filter((lang) => !Object.hasOwn(labels, lang));
+		if (missing.length === 0) continue;
+		errors.push(
+			validationError(
+				"HQJSON_BAD_SEARCH_LABEL",
+				"module",
+				`Module "${moduleName}" has a search_config.${slot} with no text for ${missing.map((lang) => `"${lang}"`).join(", ")}. It should hold every app language, blank where nothing is authored, because CommCare HQ's Case List save writes the page's language into it otherwise. Look at how the search configuration's labels are seeded. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+}
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 /**
@@ -882,7 +999,7 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 		),
 	};
 	for (const module of hqApp.modules) {
-		checkModule(module, ids, errors);
+		checkModule(module, hqApp.langs, ids, errors);
 	}
 
 	// The application-level media surface: the `logo_refs` paths, which feed

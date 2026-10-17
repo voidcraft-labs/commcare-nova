@@ -41,7 +41,7 @@ import {
 	type ModuleIconRef,
 } from "./builtinIcons";
 import { type Field, isContainer } from "./fields";
-import { caseListColumnIsEmitted } from "./modules";
+import { caseListColumnTextShows } from "./modules";
 import type { Media, MediaAssetId } from "./multimedia";
 import type { Uuid } from "./uuid";
 
@@ -239,7 +239,7 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 		}
 		const columns = mod.caseListConfig?.columns ?? [];
 		for (const column of columns) {
-			if (!caseListColumnIsEmitted(column)) continue;
+			if (!caseListColumnTextShows(column)) continue;
 			if (column.kind !== "image-map") continue;
 			for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {
 				const row = column.mapping[rowIndex];
@@ -569,7 +569,7 @@ export function* walkAuthoredAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 			}
 		}
 		for (const column of mod.caseListConfig?.columns ?? []) {
-			if (column.kind !== "image-map" || caseListColumnIsEmitted(column)) {
+			if (column.kind !== "image-map" || caseListColumnTextShows(column)) {
 				continue;
 			}
 			for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {

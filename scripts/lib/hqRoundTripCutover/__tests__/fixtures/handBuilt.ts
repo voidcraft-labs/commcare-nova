@@ -658,7 +658,8 @@ export const HAND_BUILT_FIXTURES: readonly HandBuiltFixture[] = [
 	},
 	{
 		id: "hand-sort-property-ownership",
-		holds: "two order rules over one property in one list",
+		holds:
+			"two order rules over one property in one list, and an order rule on a plain column after an ID mapping over its property",
 		build: (base) =>
 			produce(base("navigation-base"), (draft) => {
 				const config = draft.modules[NAVIGATION.menu]?.caseListConfig;
@@ -675,13 +676,44 @@ export const HAND_BUILT_FIXTURES: readonly HandBuiltFixture[] = [
 				} as never);
 				config.listColumnOrder.push(uuid);
 				config.detailColumnOrder.push(uuid);
+				const code = fixtureUuid(0x902);
+				const notes = fixtureUuid(0x903);
+				config.columns.push(
+					{
+						uuid: code,
+						kind: "id-mapping",
+						field: "notes",
+						header: "Notes code",
+						mapping: [{ value: "n1", label: "First" }],
+					} as never,
+					{
+						uuid: notes,
+						sort: { direction: "asc", priority: 2 },
+						kind: "plain",
+						field: "notes",
+						header: "Notes",
+					} as never,
+				);
+				config.listColumnOrder.push(code, notes);
+				config.detailColumnOrder.push(code, notes);
 			}),
 		check: (document) => {
-			const sorted = columns(document).filter(
-				(column) => column?.sort !== undefined,
+			const all = columns(document);
+			const sorted = all.filter((column) => column?.sort !== undefined);
+			const mapping = all.findIndex(
+				(column) => column?.kind === "id-mapping" && column.field === "notes",
 			);
 			return (
-				new Set(sorted.map((column) => column?.field)).size < sorted.length
+				new Set(sorted.map((column) => column?.field)).size < sorted.length &&
+				mapping >= 0 &&
+				all
+					.slice(mapping + 1)
+					.some(
+						(column) =>
+							column?.kind === "plain" &&
+							column.field === "notes" &&
+							column.sort !== undefined,
+					)
 			);
 		},
 		witnesses: {
@@ -1126,7 +1158,6 @@ export const HAND_BUILT_FIXTURES: readonly HandBuiltFixture[] = [
 			steps: [],
 			blockers: [],
 			reasons: [
-				"case-list-order-changes",
 				"case-list-search-matches-hidden-fields",
 				"hidden-order-column-not-in-sort-menu",
 				"record-id-column-now-shows",

@@ -156,7 +156,7 @@
 			"digest": "6004d6401104cf8dfc22cf66626b01b857dcfcd33942ea7ec6ab5762933dbc1d",
 			"steps": [],
 			"blockers": [],
-			"reasons": ["menu-id-changes-once"]
+			"reasons": ["menu-id-changes-once", "case-list-order-changes"]
 		},
 		{
 			"id": "hand-media-slots",
@@ -249,7 +249,7 @@
 		{
 			"id": "hand-sort-property-ownership",
 			"kind": "hand-built",
-			"digest": "f4957ba2b96a119ea4b7d05390b76253075f2311f5d6fe2fe3f16587353f30c4",
+			"digest": "7543635dc96be84f73ed0d49c266a63b32c5e2a8875ebab3f140371d82e984f2",
 			"steps": ["sort-property-ownership"],
 			"blockers": [],
 			"reasons": [
@@ -395,7 +395,6 @@
 			"steps": [],
 			"blockers": [],
 			"reasons": [
-				"case-list-order-changes",
 				"case-list-search-matches-hidden-fields",
 				"hidden-order-column-not-in-sort-menu",
 				"record-id-column-now-shows"

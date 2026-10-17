@@ -104,7 +104,7 @@ describe("tile row sizing", () => {
 });
 
 describe("alignment and size resolution", () => {
-	it("resolves an absent alignment to start and maps physical words to logical ones", () => {
+	it("resolves the default alignment to start and maps physical words to logical ones", () => {
 		const projection = projectTileGrid([
 			plainColumn(NAME, "case_name", "Patient", {
 				tile: tileCell(0, 0, 2, 1),
@@ -122,7 +122,7 @@ describe("alignment and size resolution", () => {
 		expect(cellFor(projection, VILLAGE).verticalAlign).toBe("center");
 	});
 
-	it("leaves an absent font size absent so the cell inherits", () => {
+	it("draws a cell born with the three defaults at its own size and alignment, inheriting nothing", () => {
 		const projection = projectTileGrid([
 			plainColumn(NAME, "case_name", "Patient", {
 				tile: tileCell(0, 0, 2, 1),
@@ -131,10 +131,9 @@ describe("alignment and size resolution", () => {
 				tile: tileCell(2, 0, 2, 1, { fontSize: "small" }),
 			}),
 		]);
-		expect(cellFor(projection, NAME).fontSize).toBeUndefined();
-		expect(
-			planTileCell(cellFor(projection, NAME)).style.fontSize,
-		).toBeUndefined();
+		const plan = planTileCell(cellFor(projection, NAME));
+		expect(plan.style.fontSize).toBe("medium");
+		expect(plan.style.textAlign).toBe("start");
 		expect(planTileCell(cellFor(projection, VILLAGE)).style.fontSize).toBe(
 			"small",
 		);
@@ -228,37 +227,46 @@ describe("the tile-wide border / shading switch", () => {
 const TILE_ON: CaseTileLayout = {};
 
 describe("the columns a tile carries", () => {
-	it("keeps a hidden column that still orders the list, without giving it a square", () => {
-		const carried = tileResultsColumns(
-			[
-				plainColumn(NAME, "case_name", "Patient", {
-					tile: tileCell(0, 0, 4, 1),
-				}),
-				plainColumn(VILLAGE, "village", "Village", {
-					visibleInList: false,
-					sort: { direction: "asc", priority: 0 },
-					tile: tileCell(4, 0, 2, 1),
-				}),
-				plainColumn(PRIORITY, "care_priority", "Priority", {
-					visibleInList: false,
-				}),
-			],
-			TILE_ON,
-		);
+	const columns = [
+		plainColumn(NAME, "case_name", "Patient", {
+			tile: tileCell(0, 0, 4, 1),
+		}),
+		plainColumn(VILLAGE, "village", "Village", {
+			visibleInList: false,
+			sort: { direction: "asc", priority: 0 },
+			tile: tileCell(4, 0, 2, 1),
+		}),
+		plainColumn(PRIORITY, "care_priority", "Priority", {
+			visibleInList: false,
+		}),
+	];
 
+	it("carries no field for a column hidden from Results, whether or not it orders the list", () => {
+		const carried = tileResultsColumns(columns, TILE_ON);
+
+		// A hidden order rule rides as a sort row with no stored column, so
+		// its stored cell never reaches the grid.
 		expect(
 			carried.map((entry) => [entry.column.uuid, entry.valueHidden]),
-		).toEqual([
-			[NAME, false],
-			[VILLAGE, true],
-		]);
-		// The carrier keeps the list's order but claims no square: the wire
-		// refuses a `<style>` for a hidden column, so letting its stored cell
-		// through would widen the tile in the preview and nowhere else.
-		expect(carried[1].column.tile).toBeUndefined();
+		).toEqual([[NAME, false]]);
 		expect(projectTileGrid(carried.map((entry) => entry.column)).columns).toBe(
 			4,
 		);
+	});
+
+	it("carries every column of a list with no tile layout, a hidden one at no width", () => {
+		const carried = tileResultsColumns(columns, undefined);
+		expect(
+			carried.map((entry) => [
+				entry.column.uuid,
+				entry.valueHidden,
+				entry.column.tile,
+			]),
+		).toEqual([
+			[NAME, false, undefined],
+			[VILLAGE, true, undefined],
+			[PRIORITY, true, undefined],
+		]);
 	});
 
 	it("carries a calculated column like any other placed column", () => {

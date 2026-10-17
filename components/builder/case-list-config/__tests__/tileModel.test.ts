@@ -18,6 +18,10 @@ import {
 	describeTileCell,
 	describeTilePlace,
 	firstFreeTilePlacement,
+	groupingReopenNotice,
+	HIDDEN_FROM_RESULTS_LINE,
+	hiddenFromResultsLine,
+	NOT_ON_TILE_LINE,
 	nextFreeTilePlacement,
 	placementForJoiningTile,
 	planColumnTilePlacement,
@@ -490,5 +494,52 @@ describe("tileLayoutIssues", () => {
 			visibleInList: false,
 		});
 		expect(issues([NAME, detailOnly], true)).toEqual([]);
+	});
+});
+
+describe("groupingReopenNotice", () => {
+	it("says nothing for a list that groups nothing", () => {
+		expect(groupingReopenNotice(undefined)).toBeNull();
+	});
+
+	it("names the connection the list groups by, so the line shows exactly when grouping is on", () => {
+		expect(groupingReopenNotice({ identifier: "parent", headerRows: 1 })).toBe(
+			"On Android, a form left unfinished for a case with no parent connection can't be opened again: CommCare stops when the worker picks it from incomplete forms. Apps built in CommCare HQ with grouped tiles do the same.",
+		);
+		expect(
+			groupingReopenNotice({ identifier: "host", headerRows: 2 }),
+		).toContain("a case with no host connection");
+	});
+});
+
+describe("hiddenFromResultsLine", () => {
+	const sort = { direction: "asc" as const, priority: 0 };
+
+	it("says nothing of a column shown on Results", () => {
+		expect(hiddenFromResultsLine(column("a", "A"), false)).toBeUndefined();
+		expect(hiddenFromResultsLine(column("a", "A"), true)).toBeUndefined();
+	});
+
+	it("says the list's search still matches a hidden column in a list with no tile", () => {
+		for (const slots of [
+			{ visibleInList: false },
+			{ visibleInList: false, sort },
+		]) {
+			expect(hiddenFromResultsLine(column("a", "A", slots), false)).toBe(
+				HIDDEN_FROM_RESULTS_LINE,
+			);
+		}
+	});
+
+	it("says a tile's search doesn't match a hidden column with no order rule, and says nothing of one with a rule", () => {
+		expect(
+			hiddenFromResultsLine(column("a", "A", { visibleInList: false }), true),
+		).toBe(NOT_ON_TILE_LINE);
+		expect(
+			hiddenFromResultsLine(
+				column("a", "A", { visibleInList: false, sort }),
+				true,
+			),
+		).toBeUndefined();
 	});
 });

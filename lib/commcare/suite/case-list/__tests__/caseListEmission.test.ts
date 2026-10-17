@@ -50,7 +50,9 @@ describe("admitted case-list archives", () => {
 				details.filter((d) => d.attribs.id === "m0_case_short"),
 			);
 			const fields = children(short, "field");
-			expect(fields).toHaveLength(9);
+			// Every Results column is a field, the two hidden ones as HQ's
+			// `invisible` columns.
+			expect(fields).toHaveLength(10);
 			expect(
 				fields.map((field) => only(children(field, "template")).attribs),
 			).toEqual([
@@ -59,19 +61,58 @@ describe("admitted case-list archives", () => {
 				{},
 				{ form: "markdown" },
 				{},
-				{ form: "image" },
+				{ form: "image", width: "13%" },
 				{},
 				{},
 				{ width: "0" },
+				{ width: "0" },
 			]);
 			expect(
-				fields.flatMap((field) =>
+				fields.map((field) => only(children(field, "header")).attribs),
+			).toEqual([
+				{},
+				{},
+				{},
+				{},
+				{},
+				{ width: "13%" },
+				{},
+				{},
+				{ width: "0" },
+				{ width: "0" },
+			]);
+			// The order plan's keys: the three rules, and the keys HQ's build
+			// gives a date, an ID mapping, an image map and an interval with no
+			// rule.
+			expect(
+				fields.map((field) =>
 					children(field, "sort").map((sort) => sort.attribs),
 				),
 			).toEqual([
-				{ type: "string", order: "3", direction: "ascending" },
-				{ type: "int", order: "1", direction: "descending" },
-				{ type: "double", order: "2", direction: "ascending" },
+				[
+					{
+						type: "string",
+						order: "3",
+						direction: "ascending",
+						blanks: "first",
+					},
+				],
+				[{ type: "string" }],
+				[],
+				[],
+				[{ type: "string" }],
+				[{ type: "string" }],
+				[{ type: "string" }],
+				[{ type: "int", order: "1", direction: "descending", blanks: "last" }],
+				[
+					{
+						type: "double",
+						order: "2",
+						direction: "ascending",
+						blanks: "first",
+					},
+				],
+				[],
 			]);
 			const long = details.filter((d) => d.attribs.id === "m0_case_long");
 			if (scenario === "no-details")
@@ -94,6 +135,10 @@ describe("admitted case-list archives", () => {
 					"text",
 					"text",
 				]);
+				// The image map is 13% wide on the long detail too.
+				const image = children(only(long), "field")[3];
+				expect(only(children(image, "header")).attribs.width).toBe("13%");
+				expect(only(children(image, "template")).attribs.width).toBe("13%");
 			}
 			const browse = scenario === "browse" || scenario === "no-details";
 			const command = browse ? "m0-case-list" : "m0-f0";

@@ -65,7 +65,10 @@ on tomorrow’s date.
 
 Select a Results or Details row, then use **Hide from Results** or **Hide from
 Details** at the bottom of its properties when you only want it off that
-screen. Hiding is reversible. **Delete information** removes that display
+screen. Hiding is reversible. An item hidden from Results stays part of the
+list, so the list's search still matches its value; a tile works a little
+differently (see [Lay results out as a tile](#lay-results-out-as-a-tile)).
+**Delete information** removes that display
 setup from both screens and Default order, if used, but never deletes the case
 property or saved case data. Results must keep at least one item so people can
 recognize and choose a case. Search fields can be removed from the bottom of
@@ -119,9 +122,12 @@ Turning the tile on and placing the information happen together. Every piece
 of information shown in Results needs a place on the grid, so give each item a
 place or hide it from Results first.
 
-Hiding still works the way it does for a row of columns. An item hidden from
-Results needs no place on the tile, and Default order can still sort by a
-hidden item: the list carries the value without showing it.
+Hiding works a little differently on a tile. An item hidden from Results needs
+no place on the tile, and Default order can still sort by a hidden item: the
+list carries the value without showing it, and the list's search matches it.
+Two hidden items can't order a tile list: a calculated value, and Record ID.
+Place either on the tile to order by it. A hidden item that doesn't order the
+list isn't part of the tile at all, so the list's search doesn't match it yet.
 
 Give an item a place by choosing where it starts and how far it reaches, the
 column and row it begins at, and how many columns and rows it spans. Two items
@@ -137,9 +143,9 @@ those behave in ways worth knowing up front:
   puts the whole tile into a boxed layout, which changes the spacing of every
   other item on the tile, not just the one you set. Decide them for the tile,
   not for one piece of information.
-- **Text size is inherited when you leave it alone.** An item with no size set
-  reads at the same size as the rest of the list. There is no default size Nova
-  fills in, so set a size only where an item should stand out or recede.
+- **Every item has a text size.** A new item starts at Medium, and Small or
+  Large make it recede or stand out. A tile's text has its own three sizes and
+  doesn't follow the rest of the list.
 
 The tile is the layout for Results everywhere Results appear, so the list
 people search into looks the same as the list they browse. You can also ask for
@@ -164,7 +170,7 @@ whole group, from the first case in it; the rows below them are drawn for every
 case. Nova offers only the depths that cut the tile cleanly, with something
 above the line, something below it, and no piece of information crossing it.
 
-Three things to know before you turn it on:
+Four things to know before you turn it on:
 
 - **Choosing a group uses its first case.** With Several cases, each group has
   one checkbox and adds its first case. The other rows are there to read, not to
@@ -175,6 +181,9 @@ Three things to know before you turn it on:
   tell you how many of your cases that is right now.
 - **Pages count groups, not cases.** A page holds whole groups, so a page can
   be long when the groups are large.
+- **A form left unfinished for a case with no such connection can't be reopened
+  on Android.** CommCare stops when the worker picks it from incomplete forms.
+  That is CommCare's own behavior, the same for apps built in CommCare HQ.
 
 Grouping is a Web Apps capability. CommCare on Android reads the setting and
 ignores it, so a grouped list there is an ordinary tile list, one tile per case.
@@ -469,6 +478,30 @@ When you order by a calculated value, Results uses the same case values for
 display and ordering, including information from a supporting parent case in
 Search results.
 
+Every device, Preview, and every way you publish or download the app order a
+list the same way:
+
+- **With no rules,** cases are listed by the first item Results shows,
+  ascending.
+- **Cases with no value** come first in a rule that goes up (A to Z, earliest,
+  lowest) and last in one that goes down.
+- **Each item orders by what it is.** A date orders by the date, whatever style
+  shows it. A choice shown on Results orders by the labels it shows. **Value
+  labels** and **Value images** order by the order of their own table, so the
+  first entry's cases come first, and a value with no entry counts as no value.
+  A time since a date orders by the text it shows. A calculated value orders by
+  its result, and a link by the saved address. An item hidden from Results
+  orders by the saved value.
+- **A list keeps one rule for each value.** Two rules over the same property,
+  or over two calculated values with the same formula, can't both order it.
+  Where two items read one property and order it differently, such as a plain
+  item and its Value labels, the rule belongs on whichever comes first in
+  Results. **Add to order** still lists a choice like that, with the reason it
+  can't be added.
+
+A saved value in **Value labels** is one word, and it can't hold `&`, `<`, `>`,
+`"` or `'`, because CommCare HQ's ID mapping has no way to store one.
+
 This is separate from arranging information inside a result. One controls the
 order of cases; the other controls how each case is presented.
 
@@ -487,6 +520,10 @@ When a search field needs a custom matching condition, a required condition,
 or a check, or the Search button needs a display condition, the sidebar shows
 its summary and opens the same full condition editor in the center. The
 condition is never duplicated in both places.
+
+A custom **Date style** can use any CommCare date pattern but a straight
+apostrophe (`'`), which CommCare HQ's date column has no way to store. A curved
+one (’) works.
 
 For a case-list-only module, use the settings button beside the module name for
 appearance. **App home tile** controls how the module looks on the app's main
@@ -628,6 +665,9 @@ calendar-day precision, matching CommCare devices. Stored timestamps and server
 search retain their time. A clock format cannot recover time from these built-in
 column values. An event whose time of day workers need to see can use its own
 saved datetime property.
+
+A Results or Details column of record IDs shows each case's own ID on every
+device. A tile list orders by Record ID only while that column is on the tile.
 
 The owner controls sharing and sync, and does not identify who last edited a
 record. Closing a case normally removes it from a worker's next sync, though an

@@ -1,9 +1,10 @@
 // components/builder/case-list-config/tile/TileLayoutCanvas.tsx
 //
 // Everything the tile arrangement owns on the Results canvas: the
-// starting-layout menu, the grid itself, and the one setting that
-// belongs to the layout rather than to a field: whether the tile stays
-// on screen above this module's forms.
+// starting-layout menu, the grid itself, the columns hidden from
+// Results that the tile leaves out of its search, and the one setting
+// that belongs to the layout rather than to a field: whether the tile
+// stays on screen above this module's forms.
 
 "use client";
 
@@ -21,17 +22,23 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import type {
-	CaseListConfig,
-	CaseTileGrouping,
-	CaseTileLayout,
-	CaseType,
-	TileCell,
-	Uuid,
+import {
+	type CaseListConfig,
+	type CaseTileGrouping,
+	type CaseTileLayout,
+	type CaseType,
+	orderedColumns,
+	type TileCell,
+	type Uuid,
 } from "@/lib/domain";
+import { columnLabel } from "../canvas/ColumnInventory";
 import { TileGridEditor } from "./TileGridEditor";
 import { TileGroupingSection } from "./TileGroupingSection";
-import { tileMembership, tileMemberUuids } from "./tileModel";
+import {
+	hiddenFromResultsLine,
+	tileMembership,
+	tileMemberUuids,
+} from "./tileModel";
 import {
 	matchingTilePreset,
 	TILE_PRESETS,
@@ -100,6 +107,8 @@ export function TileLayoutCanvas({
 				onPlace={onPlace}
 				onPlaceUnplaced={onPlaceUnplaced}
 			/>
+
+			<OffTileColumns config={config} />
 
 			{canEdit && (
 				<ToggleRow
@@ -193,5 +202,40 @@ function PresetMenu({
 				})}
 			</DropdownMenuContent>
 		</DropdownMenu>
+	);
+}
+
+/**
+ * The columns hidden from Results with no order rule, each with what that
+ * means in a tile list: no field of the tile, so the list's search doesn't
+ * match it yet. An ordering hidden column is searched through its carrier
+ * and needs no line.
+ */
+function OffTileColumns({ config }: { readonly config: CaseListConfig }) {
+	const offTile = orderedColumns(config, "list").flatMap((column) => {
+		const line = hiddenFromResultsLine(column, true);
+		return line === undefined ? [] : [{ column, line }];
+	});
+	if (offTile.length === 0) return null;
+	return (
+		<ul
+			aria-label="Hidden from Results"
+			className="list-none space-y-2 p-0"
+			data-tile-off-tile-columns
+		>
+			{offTile.map(({ column, line }) => (
+				<li
+					key={column.uuid}
+					className="rounded-lg border border-white/[0.06] bg-nova-deep/30 px-3 py-2.5"
+				>
+					<span className="block break-words text-[14px] font-medium text-nova-text">
+						{columnLabel(column)}
+					</span>
+					<span className="mt-0.5 block text-[13px] leading-relaxed text-nova-text-muted">
+						{line}
+					</span>
+				</li>
+			))}
+		</ul>
 	);
 }

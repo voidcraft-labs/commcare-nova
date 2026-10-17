@@ -149,12 +149,9 @@ describe("setCaseListTile", () => {
 		// Grouping lives INSIDE the layout, so it leaves with it. Every cell
 		// still survives, which is the whole point of the null-clear.
 		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.tile).toBeUndefined();
-		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual({
-			x: 0,
-			y: 0,
-			width: 12,
-			height: 1,
-		});
+		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual(
+			tileCell(0, 0, 12, 1),
+		);
 	});
 
 	it("turns the tile on and places every field in one call", async () => {
@@ -178,18 +175,12 @@ describe("setCaseListTile", () => {
 		const success = expectSuccess(result.result);
 		expect(success).toMatchObject({ layout: "tile", unplacedColumnUuids: [] });
 		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.tile).toEqual({});
-		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual({
-			x: 0,
-			y: 0,
-			width: 12,
-			height: 1,
-		});
-		expect(columnTile(h.currentDoc(), STATUS_COLUMN)).toEqual({
-			x: 0,
-			y: 1,
-			width: 6,
-			height: 1,
-		});
+		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual(
+			tileCell(0, 0, 12, 1),
+		);
+		expect(columnTile(h.currentDoc(), STATUS_COLUMN)).toEqual(
+			tileCell(0, 1, 6, 1),
+		);
 	});
 
 	it("plans placements as granular per-column tilePatch writes, then the layout", async () => {
@@ -217,12 +208,12 @@ describe("setCaseListTile", () => {
 			expect.objectContaining({
 				kind: "updateColumn",
 				uuid: NAME_COLUMN,
-				tilePatch: { x: 0, y: 0, width: 12, height: 1 },
+				tilePatch: tileCell(0, 0, 12, 1),
 			}),
 			expect.objectContaining({
 				kind: "updateColumn",
 				uuid: STATUS_COLUMN,
-				tilePatch: { x: 0, y: 1, width: 6, height: 1 },
+				tilePatch: tileCell(0, 1, 6, 1),
 			}),
 			{
 				kind: "setCaseListMeta",
@@ -455,18 +446,12 @@ describe("setCaseListTile", () => {
 		});
 
 		expectSuccess(result.result);
-		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual({
-			x: 0,
-			y: 1,
-			width: 6,
-			height: 1,
-		});
-		expect(columnTile(h.currentDoc(), STATUS_COLUMN)).toEqual({
-			x: 0,
-			y: 0,
-			width: 12,
-			height: 1,
-		});
+		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual(
+			tileCell(0, 1, 6, 1),
+		);
+		expect(columnTile(h.currentDoc(), STATUS_COLUMN)).toEqual(
+			tileCell(0, 0, 12, 1),
+		);
 	});
 
 	it("is rejected when half a swap would put two fields on one square", async () => {

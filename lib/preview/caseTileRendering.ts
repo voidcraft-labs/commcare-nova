@@ -17,21 +17,15 @@
 // Two rules a fresh implementation gets wrong, both proven by the
 // templates:
 //
-//   1. **A tile carries more columns than it shows, and the extra ones
-//      hold no square.** A column hidden from Results that still owns a
-//      Default-order rule is emitted as a zero-width sort carrier
-//      (`lib/commcare/suite/case-list/shortDetail.ts`) so the device can
-//      order by it. It is NOT a tile cell: `columns.ts::tileStyleChildren`
-//      refuses a `<style>` for a hidden column, so
-//      `DetailField::isCaseTileField` is false, Formplayer sends a null
-//      tile for it, and `views.js::buildCellLayout` writes no `grid-area`
-//      rule. `tile_item.html` still emits a wrapper div, but its content
-//      goes inside `<div class="d-none">` and `grid.scss::.box` gives the
-//      wrapper no size — an empty, zero-size, auto-placed item. So the
-//      carrier adds nothing to the grid's extent and takes no part in the
-//      tile-wide border/shading switch. `tileResultsColumns` strips the
-//      stored cell from a hidden carrier to keep this projection matching
-//      that.
+//   1. **A tile's fields are the columns it shows.** A column hidden from
+//      Results is no field of a tile's short detail
+//      (`lib/domain/caseListOrder.ts`, rule 1): an order rule on it rides
+//      as a sort row with no stored column, for which CommCare appends a
+//      zero-width carrier with no `<style>`. Formplayer sends a null tile
+//      for that carrier and `views.js::buildCellLayout` writes no
+//      `grid-area` rule, so it adds nothing to the grid's extent and takes
+//      no part in the tile-wide border/shading switch; Preview draws
+//      nothing for it.
 //
 //   2. **`text-align` is not part of the alignment switch.** The cell
 //      template emits `text-align` for every cell in every mode, and
@@ -53,32 +47,22 @@ import {
 export interface TileResultsColumn {
 	readonly column: Column;
 	/**
-	 * True for a column the case list hides but still orders by. It rides
-	 * the detail so the device can sort on it and draws nothing —
-	 * `tile_item.html`'s `widthHint === 0` arm renders its value inside a
-	 * `d-none` wrapper.
+	 * True for a field hidden from Results, which a list with no tile
+	 * layout carries at width 0 and whose value nothing draws. A tile list
+	 * has none.
 	 */
 	readonly valueHidden: boolean;
 }
 
 /**
- * The columns a tile-laid-out Results list carries, from the module's
- * columns already sorted into Results order.
- *
- * This is the same set the short detail emits: every column shown in
- * Results, plus every hidden column that owns a Default-order rule. The
- * order matters — it is the order the emitted `<field>`s take.
- *
- * A hidden carrier arrives here with its stored placement STRIPPED, which
- * is what keeps this projection honest against the wire. Hiding a column
- * keeps its cell on the document — an author who hides and unhides should
- * get their drawing back — but `columns.ts::tileStyleChildren` refuses to
- * emit a `<style>` for a hidden column, so on the device that carrier is
- * not a tile field at all: it claims no `grid-area`, adds nothing to the
- * grid's extent, and takes no part in the tile-wide border/shading switch.
- * Leaving the cell attached here would let an invisible column silently
- * widen the tile and box every visible cell in the preview and nowhere
- * else.
+ * The fields a Results list carries, from the module's columns already
+ * sorted into Results order: the order plan's rule 1
+ * (`lib/domain/caseListOrder.ts`). In a list with a tile layout these are
+ * the columns shown on Results, each with the cell `tileCellFor` gives it;
+ * a list with no tile layout carries every column, a hidden one at width 0.
+ * `caseList.ts::applyTileLayoutToShortDetail` and the local short detail
+ * walk the same fields, so the three agree on which columns a tile's short
+ * detail holds.
  */
 export function tileResultsColumns(
 	listOrderedColumns: readonly Column[],
@@ -86,14 +70,9 @@ export function tileResultsColumns(
 ): readonly TileResultsColumn[] {
 	return listOrderedColumns.flatMap<TileResultsColumn>((column) => {
 		const hidden = column.visibleInList === false;
-		if (hidden && column.sort === undefined) return [];
+		if (layout !== undefined && hidden) return [];
 		// `tileCellFor` is the ONE decision about whether a column holds a
-		// square, shared with both emitters. Reading it here — rather than
-		// re-testing `visibleInList` and reaching a matching answer by hand — is
-		// what stops this surface drifting away from what the wire does. The
-		// caller's real layout is threaded in rather than assumed present: a
-		// caller may compute this before it decides whether to draw a tile, and
-		// a synthetic stand-in would hand back cells the wire would not emit.
+		// square, shared with both emitters.
 		const cell = tileCellFor(column, layout);
 		if (cell !== undefined) return [{ column, valueHidden: hidden }];
 		const { tile: _unemittedCell, ...carried } = column;
@@ -143,15 +122,14 @@ export interface TileCellPlan {
  *   - `inset` — the cell keeps its own alignments and takes the flat
  *     margin that lines it up with its boxed neighbours.
  *
- * An absent `fontSize` leaves the declaration off entirely, so the cell
- * inherits the list's size. Substituting `medium` here would make every
- * unsized cell disagree with the device.
+ * Every cell states its size (`tileCellSchema`), and a tile's text never
+ * follows the list's own size.
  */
 export function planTileCell(cell: TileCellProjection): TileCellPlan {
 	const base: CSSProperties = {
 		gridArea: cell.gridArea,
 		textAlign: cell.horizontalAlign,
-		...(cell.fontSize !== undefined && { fontSize: cell.fontSize }),
+		fontSize: cell.fontSize,
 	};
 	if (cell.mode === "boxed") {
 		return {

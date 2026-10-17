@@ -38,15 +38,20 @@ import {
 	loadAuthorizedFormSubmissionSnapshot,
 } from "@/lib/db/formAttachments";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
 	CasePropertyDataType,
 	CaseType,
+	PersistableDoc,
 } from "@/lib/domain";
 import {
 	caseListConfigSchema,
+	effectiveAppLocalization,
 	ownRecordValue,
 	personasOf,
 	recordFromEntries,
@@ -67,6 +72,7 @@ import {
 import {
 	buildSubmissionOperationProgram,
 	buildSubmissionReceiptIdentity,
+	type CaseStoreOrder,
 	collectConfigLookupTableIds,
 	gatedCaseStore,
 	gatedCaseStoreWithScope,
@@ -99,6 +105,7 @@ import type {
 	SubmissionResult,
 	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
+import { previewCaseStoreOrder } from "./caseListOrder";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -187,6 +194,40 @@ function stripDerivedFieldParent(blueprint: unknown): unknown {
  * undefined; `readCases` only needs it when a predicate/sort/calc
  * references a typed property.
  */
+/**
+ * The order of a Results read: the order plan of the module the call names,
+ * resolved in the committed blueprint, over the live list the call carries,
+ * with its keys' text in the language Preview shows. A call with no list
+ * (the selection check by `caseIds`), or whose module the committed
+ * blueprint does not hold yet, has none.
+ */
+function caseStoreOrder(
+	blueprint: PersistableDoc | undefined,
+	args: {
+		readonly caseType: string;
+		readonly caseListConfig?: CaseListConfig;
+		readonly moduleUuid?: string;
+		readonly language?: string;
+	},
+): CaseStoreOrder | undefined {
+	if (
+		blueprint === undefined ||
+		args.caseListConfig === undefined ||
+		args.moduleUuid === undefined
+	) {
+		return undefined;
+	}
+	const doc = hydratePersistedBlueprint(blueprint);
+	const mod = doc.modules[args.moduleUuid];
+	if (mod === undefined) return undefined;
+	return previewCaseStoreOrder(
+		{ ...mod, caseType: args.caseType },
+		doc,
+		args.caseListConfig,
+		args.language ?? effectiveAppLocalization(doc.localization).sourceLanguage,
+	);
+}
+
 export async function loadCasesAction(args: {
 	appId: string;
 	caseType: string;
@@ -207,6 +248,14 @@ export async function loadCasesAction(args: {
 	/** Which persona Preview is running as, if any. A SELECTOR — the
 	 *  identity itself is resolved server-side from the committed doc. */
 	personaUuid?: string;
+	/** The module whose list this is, passed wherever `caseListConfig` is.
+	 *  A SELECTOR: the server resolves the module in the committed
+	 *  blueprint and builds the list's order plan over it, with the live
+	 *  `caseListConfig` in place of its stored one. */
+	moduleUuid?: string;
+	/** The language Preview is showing, which a sort key's option labels
+	 *  and interval text read. */
+	language?: string;
 }): Promise<LoadCasesResult> {
 	try {
 		const caseTypeSchemas =
@@ -368,12 +417,14 @@ export async function loadCasesAction(args: {
 							excludedLookupData,
 						),
 					);
+		const order = caseStoreOrder(context.blueprint, args);
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
 			caseIds: args.caseIds,
 			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
+			...(order !== undefined && { order }),
 			parentCase: args.parentCase,
 			inputValues,
 			bindings,
@@ -1000,6 +1051,8 @@ export async function loadFilterPreviewAction(args: {
 	caseType: string;
 	blueprint: BlueprintDoc;
 	caseListConfig: CaseListConfig;
+	/** The module whose list this is, so the sample follows its order. */
+	moduleUuid?: string;
 	excludedOwnerIdsExpression?: ValueExpression;
 	limit?: number;
 	/** Viewer IANA timezone for `format-date` rendering; UTC when omitted. */
@@ -1116,6 +1169,11 @@ export async function loadFilterPreviewAction(args: {
 			),
 			excludedOwnerIds,
 			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
+			order: caseStoreOrder(parsedBlueprint.data, {
+				caseType: args.caseType,
+				caseListConfig: parsedConfig.data,
+				moduleUuid: args.moduleUuid,
+			}),
 		});
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)

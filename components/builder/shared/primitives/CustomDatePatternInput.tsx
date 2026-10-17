@@ -176,7 +176,7 @@ function CustomEditor({
 	const [draft, setDraft] = useState(value);
 	const [pendingCaret, setPendingCaret] = useState<number | null>(null);
 	const [showError, setShowError] = useState(false);
-	const problem = datePatternProblem(draft);
+	const problem = datePatternProblem(draft, patternVocabulary);
 	const isInvalid = showError && problem !== null;
 
 	useEffect(() => {
@@ -194,14 +194,14 @@ function CustomEditor({
 	}, [pendingCaret]);
 
 	const commit = useCallback(() => {
-		const nextProblem = datePatternProblem(draft);
+		const nextProblem = datePatternProblem(draft, patternVocabulary);
 		if (nextProblem !== null) {
 			setShowError(true);
 			return;
 		}
 		setShowError(false);
 		if (draft !== value) onChange(draft);
-	}, [draft, onChange, value]);
+	}, [draft, onChange, patternVocabulary, value]);
 
 	const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
 		const nextTarget = event.relatedTarget;
@@ -218,7 +218,8 @@ function CustomEditor({
 		const next = insertDatePiece(draft, piece, start, end);
 		setPendingCaret(next.caret);
 		setDraft(next.draft);
-		if (datePatternProblem(next.draft) === null) setShowError(false);
+		if (datePatternProblem(next.draft, patternVocabulary) === null)
+			setShowError(false);
 	};
 
 	return (
@@ -238,7 +239,8 @@ function CustomEditor({
 					onChange={(event) => {
 						const next = event.target.value;
 						setDraft(next);
-						if (datePatternProblem(next) === null) setShowError(false);
+						if (datePatternProblem(next, patternVocabulary) === null)
+							setShowError(false);
 					}}
 					onKeyDown={(event) => {
 						if (event.key !== "Enter") return;

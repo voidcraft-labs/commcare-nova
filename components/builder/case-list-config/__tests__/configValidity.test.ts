@@ -16,6 +16,7 @@ import {
 	dateColumn,
 	plainColumn,
 	simpleSearchInputDef,
+	tileCell,
 } from "@/lib/domain";
 import {
 	eq,
@@ -82,8 +83,8 @@ function verdicts(partial: Partial<CaseListConfig>) {
 
 const CLEAN = { search: false, list: false, detail: false };
 
-const TOP_LEFT = { x: 0, y: 0, width: 6, height: 1 };
-const TOP_RIGHT = { x: 6, y: 0, width: 6, height: 1 };
+const TOP_LEFT = tileCell(0, 0, 6, 1);
+const TOP_RIGHT = tileCell(6, 0, 6, 1);
 
 describe("caseListConfigVerdicts", () => {
 	it("reports the admitted default Results configuration clean", () => {
@@ -453,7 +454,7 @@ describe("caseListConfigVerdicts", () => {
 			columns: [
 				{
 					...plainColumn(testUuid("c1"), "case_name", "Name"),
-					tile: { x: 8, y: 0, width: 6, height: 1 },
+					tile: tileCell(8, 0, 6, 1),
 				},
 			],
 		});
@@ -470,7 +471,7 @@ describe("caseListConfigVerdicts", () => {
 			columns: [
 				{
 					...plainColumn(testUuid("c1"), "case_name", "Name"),
-					tile: { x: 8, y: 0, width: 6, height: 1 },
+					tile: tileCell(8, 0, 6, 1),
 				},
 			],
 		});
@@ -488,7 +489,7 @@ describe("caseListConfigVerdicts", () => {
 				},
 				{
 					...plainColumn(testUuid("c2"), "age", "Age"),
-					tile: { x: 3, y: 0, width: 6, height: 1 },
+					tile: tileCell(3, 0, 6, 1),
 				},
 			],
 		});
@@ -503,7 +504,7 @@ describe("caseListConfigVerdicts", () => {
 			columns: [
 				{
 					...plainColumn(testUuid("c1"), "case_name", "Name"),
-					tile: { x: 8, y: 0, width: 6, height: 1 },
+					tile: tileCell(8, 0, 6, 1),
 				},
 			],
 		});

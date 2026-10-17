@@ -757,6 +757,43 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `configure_case_selection` | Pass `selection: { kind: "multiple", maximum: N }` to let workers choose several cases, where `N` is 1 through 100. Pass `selection: null` to return to opening one case at a time. A several-case module needs a follow-up or close form that can consume the batch. Questions saved to the selected case start without one case's value; each nonblank answer is saved to every selected case, while blank preserves their existing values. A capture destination updates only when the runtime submission provides a file; according to its configured mode, each case stores either that attachment or its published link. Preview creates neither. `applied` and `unchanged` are complete outcomes. `needs_changes` applies no mutations. For `needs: "confirmation"`, review the returned effects, then repeat the same request with `confirmedModuleUuids` exactly equal to `requiredConfirmedModuleUuids` and `confirmationToken` copied unchanged from that same result. The token binds the approval to the requested source selection and every reviewed module effect. If that effect changed, no mutation is applied and the result supplies the current review and a new token. For `needs: "repair"`, fix the UUID-owned blockers before retrying. For `needs: "refresh"`, call again without either confirmation field to review the current effects. `unavailable` also applies nothing and returns the reason the request cannot run against the current app. |
 | `set_case_list_tile` | Lay the case list out as a tile — a 12 x 12 grid where each field shown in Results occupies a rectangle — and place its fields on that grid. `tile` turns the layout on or off (`null` turns it off and keeps every placement), `placements` moves fields, and both may ride one call. While the tile is on, every field shown in Results needs a place and no two fields may share a square, so the whole layout lands in one call. |
 
+A column's `sort` is one order rule; the rule with the lowest `priority` decides
+first, and the next breaks ties. Every export and Preview order a list the same
+way:
+
+- With no rule at all, a list orders by its first column shown on Results,
+  ascending. Cases with no value come first when ascending and last when
+  descending.
+- Each column kind orders by its own key. A plain column orders by the saved
+  value, as a number for a number property, and shown on Results over a choice
+  property with options, by the option label it shows. A date column orders by
+  the saved date, whatever `pattern` shows it. An `id-mapping` or `image-map`
+  column shown on Results orders by the order of its `mapping` entries, never by
+  label, and a value with no entry counts as no value. An interval column shown
+  on Results orders by the text it shows, compared as text. A link column orders
+  by the saved value, and a calculated column by its result. A column hidden
+  from Results orders by the saved value.
+- A list keeps one rule for each value: a second rule over the same property, or
+  over the same calculation, is refused. Where two columns read one property and
+  order differently (a plain column and an ID mapping, say), the rule goes on
+  whichever comes first in Results.
+- In a list with a case tile, a column hidden from Results can carry a rule
+  unless it is calculated or reads `case_id`.
+
+Hiding a column from Results (`visibleInList: false`) keeps it in the list's
+search. In a list with a case tile, a hidden column is not on the tile, and the
+search matches it only where it carries `sort`.
+
+A date column's `pattern` is a CommCare date pattern such as `%Y-%m-%d`; it
+can't hold a straight apostrophe (`'`), and a curved one (`’`) works. An
+`id-mapping` value is one word and can't hold `&`, `<`, `>`, `"` or `'`.
+
+A tile cell's `horizontalAlign` (`left`, `center` or `right`), `verticalAlign`
+(`top`, `middle` or `bottom`) and `fontSize` (`small`, `medium` or `large`) may
+be left out of a placement or a born-placed column: Nova gives each `left`,
+`top` and `medium`, and every saved cell holds all three. A tile's text has its
+own three sizes and never follows the rest of the list.
+
 `set_case_list_tile` also carries **grouping**, through `tile.grouping`. It shows
 the cases that share a connection together, under one heading:
 
@@ -765,12 +802,14 @@ the cases that share a connection together, under one heading:
 | `identifier` | The name of the case connection to group by, almost always `parent`. Grouping is by a connection, never by a property value: the heading is drawn from the first case in each group, which is only honest when every case in the group shares it. |
 | `headerRows` | How many of the tile's top rows form the group heading. Those rows are drawn once per group, from the group's first case; the rows below are drawn for every case. The line must be a clean cut — at least one field above it, at least one below it, and no field crossing it. |
 
-Two consequences to pass on to whoever asked for grouping. Choosing a group
+Three consequences to pass on to whoever asked for grouping. Choosing a group
 uses its **first** case. A several-case workflow can choose several groups, but
 each group's one checkbox still adds only its first case; the other rows are
 there to read. Every case with no such connection lands together in one group.
-The list also pages by group, so a page holds whole groups and however many
-cases they carry.
+And on Android a form left unfinished for a case with no such connection can't
+be opened again: CommCare stops when the worker picks it from incomplete forms,
+the same for an app built in CommCare HQ. The list also pages by group, so a
+page holds whole groups and however many cases they carry.
 
 ## Working on case search
 

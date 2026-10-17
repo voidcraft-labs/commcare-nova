@@ -57,7 +57,7 @@ public class TileSuiteRuntimeTest {
                 assertEquals(Integer.valueOf(4), detail.getMaxWidthHeight().first);
                 assertEquals(Integer.valueOf(headerRows + 1), detail.getMaxWidthHeight().second);
                 assertEquals("large", fields[0].getFontSize());
-                assertNull(fields[1].getFontSize());
+                assertEquals("medium", fields[1].getFontSize());
                 assertEquals("start", fields[0].getVerticalAlign());
                 assertEquals("center", fields[1].getVerticalAlign());
                 assertEquals("end", fields[2].getVerticalAlign());

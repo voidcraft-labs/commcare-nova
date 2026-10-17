@@ -27,22 +27,26 @@
  *   - It does not require placement when the layout is off.
  *   - **It does not require a hidden, order-driving column to be
  *     placed.** Sorting by something a worker doesn't see is an
- *     ordinary case-list pattern and it works unchanged on a tile.
- *     Nova emits such a column as the zero-width sort carrier
- *     (`<header width="0">` + `<template width="0">` + `<sort>`) with
- *     no `<style>`, and CommCare treats that shape as its own reserved
- *     hidden-field spelling: `commcare-core/.../org/commcare/suite/model/Style.java::Style(DetailField)`
+ *     ordinary case-list pattern and it works unchanged on a tile. A
+ *     column hidden from Results is no field of the tile's short detail
+ *     (`lib/domain/caseListOrder.ts::caseListOrderPlan`, rule 1), so its
+ *     order rule reaches CommCare HQ as a sort row with no stored column,
+ *     and HQ appends the hidden field that carries it
+ *     (`corehq/apps/app_manager/util.py::create_temp_sort_column`). No
+ *     Case List save can give that field a cell, because it is never
+ *     stored, and the build writes no `<style>` for it, so it is CommCare's
+ *     own reserved hidden-field spelling (`<header width="0">` +
+ *     `<template width="0">` + `<sort>`):
+ *     `commcare-core/.../org/commcare/suite/model/Style.java::Style(DetailField)`
  *     carries the comment "For width, default to -1 since '0' is
  *     reserved for hidden (Search) fields", and both tile templates
  *     (`commcare-hq/corehq/apps/cloudcare/templates/cloudcare/partials/case_list/tile_item.html`
  *     and `tile_grouped_item.html`) branch on `styles[index].widthHint === 0`
- *     to render the value inside a `d-none` wrapper. The surrounding
- *     cell div carries a `-grid-style-N` class that
- *     `views.js::buildCellLayout` never emits a rule for, and
- *     `formplayer-common/grid.scss::.box` sets only colors and font
- *     size, so the div is an empty zero-size grid item. Nothing renders,
- *     and the ordering still applies because the runtime sorts entities
- *     before it draws them.
+ *     to render the value inside a `d-none` wrapper. Nothing renders, and
+ *     the ordering still applies because the runtime sorts entities before
+ *     it draws them. A calculated column, or one over `case_id`, has no
+ *     such spelling, since its rule needs the stored column; the gate
+ *     refuses that order rule (`caseTileHiddenCalculatedSort`).
  *
  * The 12-column cap is Nova's own. CommCare Core has no column-count
  * constant — `commcare-core/.../org/commcare/suite/model/Detail.java::Detail.getMaxWidthHeight`
@@ -61,7 +65,6 @@
 
 import {
 	type BlueprintDoc,
-	type Column,
 	type Module,
 	orderedColumns,
 	TILE_GRID_COLUMNS,
@@ -73,6 +76,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
+import { describeColumn, describeColumnAtSentenceStart } from "./shared";
 
 export function caseTileLayout(
 	mod: Module,
@@ -100,7 +104,7 @@ export function caseTileLayout(
 			validationError(
 				"CASE_LIST_TILE_CELL_OUT_OF_GRID",
 				"module",
-				`${describeColumn(column, index)} on the "${mod.name}" case tile runs past the edge of the grid: it starts at column ${cell.x + 1}, row ${cell.y + 1} and spans ${cell.width} × ${cell.height}, which reaches column ${right} and row ${bottom}. The tile is ${TILE_GRID_COLUMNS} columns by ${TILE_GRID_ROWS} rows. Move the field left or up, or make it narrower or shorter, so it ends inside the grid.`,
+				`${describeColumnAtSentenceStart(column, index)} on the "${mod.name}" case tile runs past the edge of the grid: it starts at column ${cell.x + 1}, row ${cell.y + 1} and spans ${cell.width} × ${cell.height}, which reaches column ${right} and row ${bottom}. The tile is ${TILE_GRID_COLUMNS} columns by ${TILE_GRID_ROWS} rows. Move the field left or up, or make it narrower or shorter, so it ends inside the grid.`,
 				location,
 				{
 					columnUuid: column.uuid,
@@ -142,7 +146,7 @@ export function caseTileLayout(
 				validationError(
 					"CASE_LIST_TILE_CELLS_OVERLAP",
 					"module",
-					`${describeColumn(first.column, first.index)} and ${describeColumn(second.column, second.index)} sit on top of each other on the "${mod.name}" case tile. Two fields cannot share the same square, one would be drawn over the other. Move or resize one of them so they no longer cover the same part of the grid.`,
+					`${describeColumnAtSentenceStart(first.column, first.index)} and ${describeColumn(second.column, second.index)} sit on top of each other on the "${mod.name}" case tile. Two fields cannot share the same square, one would be drawn over the other. Move or resize one of them so they no longer cover the same part of the grid.`,
 					location,
 					{
 						firstUuid: first.column.uuid,
@@ -164,7 +168,7 @@ export function caseTileLayout(
 			validationError(
 				"CASE_LIST_TILE_COLUMN_NOT_PLACED",
 				"module",
-				`${describeColumn(column, index)} is shown in the "${mod.name}" case list but has no place on the tile. Every field a tile shows needs a square to sit in. Give it a place on the tile, or hide it from the case list.`,
+				`${describeColumnAtSentenceStart(column, index)} is shown in the "${mod.name}" case list but has no place on the tile. Every field a tile shows needs a square to sit in. Give it a place on the tile, or hide it from the case list.`,
 				location,
 				{ columnUuid: column.uuid, columnIndex: String(index) },
 			),
@@ -172,19 +176,4 @@ export function caseTileLayout(
 	}
 
 	return errors;
-}
-
-/**
- * Compose a short author-facing handle for a column referenced from an
- * error message. Mirrors `sortPriorityUniqueness`'s helper: calculated
- * columns have no `field`, so `header` is the informative slot when
- * present.
- */
-function describeColumn(column: Column, index: number): string {
-	const header = column.header.trim();
-	if (header.length > 0) return `"${header}" (column #${index + 1})`;
-	if (column.kind !== "calculated" && column.field.trim().length > 0) {
-		return `"${column.field}" (column #${index + 1})`;
-	}
-	return `Column #${index + 1}`;
 }

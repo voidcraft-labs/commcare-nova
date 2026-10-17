@@ -315,3 +315,51 @@ it("rejects a Search starting value that reads another answer before answers exi
 		],
 	]);
 });
+
+it("writes both search labels under every wire code, blank where nothing is authored", () => {
+	const bilingual = (doc: BlueprintDoc): BlueprintDoc => {
+		doc.localization = {
+			...doc.localization,
+			sourceLanguage: "eng",
+			defaultLanguage: "spa",
+			languageOrder: ["spa", "eng"],
+			wireCodes: { spa: "es", eng: "en" },
+			translations: { spa: {} },
+		};
+		return doc;
+	};
+	const labels = (doc: BlueprintDoc) => {
+		const { title_label, description } = exported(bilingual(doc)).hq.modules[0]
+			.search_config;
+		return { title_label, description };
+	};
+
+	// A list that offers no Search: nothing is authored.
+	const unsearched = searchEmissionFixture("inline");
+	const menu = unsearched.modules[unsearched.moduleOrder[0]];
+	if (menu.caseListConfig === undefined)
+		throw new Error("Fixture has a case list");
+	menu.caseListConfig.searchInputs = [];
+	menu.caseSearchConfig = undefined;
+	expect(labels(unsearched)).toEqual({
+		title_label: { es: "", en: "" },
+		description: { es: "", en: "" },
+	});
+
+	// Search with no subtitle: the title holds its text, the description is blank.
+	const plain = labels(searchEmissionFixture("remote"));
+	expect(Object.keys(plain.title_label)).toEqual(["es", "en"]);
+	for (const text of Object.values(plain.title_label))
+		expect(text).not.toBe("");
+	expect(plain.description).toEqual({ es: "", en: "" });
+
+	// Search with a subtitle: the description holds it under each wire code.
+	const subtitled = searchEmissionFixture("remote");
+	subtitled.modules[subtitled.moduleOrder[0]].caseSearchConfig = {
+		searchScreenSubtitle: "Look up a patient",
+	};
+	expect(labels(subtitled).description).toEqual({
+		es: "Look up a patient",
+		en: "Look up a patient",
+	});
+});

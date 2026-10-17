@@ -83,7 +83,15 @@ describe("persistable JSON numbers", () => {
 			(value: number) =>
 				columnSortSchema.safeParse({ direction: "asc", priority: value }),
 			(value: number) =>
-				tileCellSchema.safeParse({ x: 0, y: 0, width: value, height: 1 }),
+				tileCellSchema.safeParse({
+					x: 0,
+					y: 0,
+					width: value,
+					height: 1,
+					horizontalAlign: "left",
+					verticalAlign: "top",
+					fontSize: "medium",
+				}),
 			(value: number) =>
 				timedEventTimingSchema.safeParse({
 					kind: "random-window",

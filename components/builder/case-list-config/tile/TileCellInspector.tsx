@@ -8,14 +8,14 @@
 // spelling at all for an unplaced field: offering them would be an
 // affordance with nothing to write.
 //
-// Two runtime facts this surface states rather than hides:
+// One runtime fact this surface states rather than hides: a border or
+// shading is ONE setting for the whole tile. Turning either on for one
+// field changes how every field on the tile is spaced, and a field inside
+// a box stops honoring its own alignment.
 //
-//   - A border or shading is ONE setting for the whole tile. Turning
-//     either on for one field changes how every field on the tile is
-//     spaced, and a field inside a box stops honoring its own alignment.
-//   - An absent text size means the cell INHERITS the list's size. There
-//     is no "medium" default at runtime, so the control offers
-//     inheriting as a real choice instead of pretending to a default.
+// Every placed cell states its alignment and its text size (`tileCell()`
+// gives a new one `left`, `top` and `medium`), so the controls show the
+// cell's own values with no absent state.
 
 "use client";
 
@@ -76,11 +76,6 @@ export interface TileCellInspectorProps {
 	readonly onClearPlace: () => void;
 	readonly onPutOnTile: () => void;
 }
-
-/** Nova's authoring word for "no text size", which the runtime honors as
- *  "use the list's size". */
-const INHERIT_FONT_SIZE = "inherit" as const;
-type FontSizeChoice = TileFontSize | typeof INHERIT_FONT_SIZE;
 
 export function TileCellInspector({
 	column,
@@ -184,7 +179,7 @@ export function TileCellInspector({
 							<span className={INSPECTOR_LABEL_CLS}>Across</span>
 							<SegmentedRow<TileHorizontalAlign>
 								legend="Horizontal position inside the square"
-								value={cell.horizontalAlign ?? "left"}
+								value={cell.horizontalAlign}
 								options={[
 									{ value: "left", label: "Left" },
 									{ value: "center", label: "Center" },
@@ -199,7 +194,7 @@ export function TileCellInspector({
 							<span className={INSPECTOR_LABEL_CLS}>Down</span>
 							<SegmentedRow<TileVerticalAlign>
 								legend="Vertical position inside the square"
-								value={cell.verticalAlign ?? "top"}
+								value={cell.verticalAlign}
 								options={[
 									{ value: "top", label: "Top" },
 									{ value: "middle", label: "Middle" },
@@ -220,15 +215,8 @@ export function TileCellInspector({
 						<div className="space-y-2">
 							<span className={INSPECTOR_LABEL_CLS}>Text size</span>
 							<TextSizePicker
-								value={cell.fontSize ?? INHERIT_FONT_SIZE}
-								onChange={(choice) => {
-									if (choice === INHERIT_FONT_SIZE) {
-										const { fontSize: _cleared, ...rest } = cell;
-										onPlace(rest);
-										return;
-									}
-									onPlace({ ...cell, fontSize: choice });
-								}}
+								value={cell.fontSize}
+								onChange={(fontSize) => onPlace({ ...cell, fontSize })}
 							/>
 						</div>
 
@@ -326,26 +314,23 @@ function SavedPlaceSection({
 }
 
 /**
- * Text size, with inheriting the list's size as a real first choice.
- *
- * A menu rather than a segmented row because the honest name for an
- * absent size is a phrase, not a word, and four segments in a 300px rail
- * would clip it. The runtime has no `medium` fallback: an absent size
- * produces an empty declaration the browser discards, so presenting one
- * of the three sizes as the default would be a lie.
+ * Text size: Small, Medium or Large. A tile's text has its own three sizes
+ * and never follows the rest of the list, on Android or in Web Apps, and
+ * HQ's Case List save writes `medium` into a cell that holds no size, so
+ * there is no fourth, absent choice.
  */
 function TextSizePicker({
 	value,
 	onChange,
 }: {
-	readonly value: FontSizeChoice;
-	readonly onChange: (next: FontSizeChoice) => void;
+	readonly value: TileFontSize;
+	readonly onChange: (next: TileFontSize) => void;
 }) {
 	const current = TEXT_SIZE_CHOICES.find((choice) => choice.value === value);
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
-				aria-label={`Text size: ${current?.label ?? "Same as the list"}`}
+				aria-label={`Text size: ${current?.label ?? value}`}
 				className={CONSOLE_TRIGGER_CLS}
 			>
 				<span className="min-w-0 flex-1 text-left">
@@ -410,15 +395,12 @@ function TextSizePicker({
 /** A cell's presentation in one sentence, for a reader with no controls. */
 function describeTilePresentation(cell: TileCell): string {
 	const across = { left: "Left", center: "Centred", right: "Right" }[
-		cell.horizontalAlign ?? "left"
+		cell.horizontalAlign
 	];
 	const down = { top: "top", middle: "middle", bottom: "bottom" }[
-		cell.verticalAlign ?? "top"
+		cell.verticalAlign
 	];
-	const size =
-		cell.fontSize === undefined
-			? "the same text size as the list"
-			: `${cell.fontSize} text`;
+	const size = `${cell.fontSize} text`;
 	const box =
 		cell.showBorder === true && cell.showShading === true
 			? "a border and shading"
@@ -431,17 +413,12 @@ function describeTilePresentation(cell: TileCell): string {
 }
 
 const TEXT_SIZE_CHOICES: ReadonlyArray<{
-	readonly value: FontSizeChoice;
+	readonly value: TileFontSize;
 	readonly label: string;
 	readonly description: string;
 }> = [
-	{
-		value: INHERIT_FONT_SIZE,
-		label: "Same as the list",
-		description: "Whatever size the case list already uses",
-	},
-	{ value: "small", label: "Small", description: "Quieter than the list" },
-	{ value: "medium", label: "Medium", description: "A standard size" },
+	{ value: "small", label: "Small", description: "The smallest of the three" },
+	{ value: "medium", label: "Medium", description: "The standard size" },
 	{ value: "large", label: "Large", description: "Stands out on the tile" },
 ];
 

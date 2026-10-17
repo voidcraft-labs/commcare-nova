@@ -33,7 +33,12 @@ export type {
 	CompilePredicateThunk,
 	ExpressionCompileContext,
 } from "./compileExpression";
-export { compileExpression } from "./compileExpression";
+export {
+	compileDeviceTextExpression,
+	compileExpression,
+} from "./compileExpression";
+export type { IntervalTextKey } from "./compileIntervalText";
+export { compileIntervalText } from "./compileIntervalText";
 export type {
 	LookupRowScope,
 	LookupTableSchemas,

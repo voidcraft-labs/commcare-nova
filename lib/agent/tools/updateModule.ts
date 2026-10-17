@@ -50,6 +50,7 @@ import { predicateSchema } from "@/lib/domain/predicate";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
+	CASE_LIST_ORDER_GUIDANCE,
 	columnInputSchema,
 	newUuid,
 	stampColumnUuid,
@@ -92,7 +93,7 @@ export const updateModuleInputSchema = moduleAddressSchema
 			.array(columnInputSchema)
 			.optional()
 			.describe(
-				"Case-list columns, in display order — required alongside case_type when the module has forms but no columns yet (a case-managing module's list must render rows). Ignored when the module already has columns; refine those via the case-list-config tools.",
+				`Case-list columns, in display order — required alongside case_type when the module has forms but no columns yet (a case-managing module's list must render rows). Ignored when the module already has columns; refine those via the case-list-config tools. ${CASE_LIST_ORDER_GUIDANCE}`,
 			),
 		displayCondition: predicateSchema
 			.nullable()

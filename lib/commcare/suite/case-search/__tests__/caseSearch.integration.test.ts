@@ -107,3 +107,49 @@ it.each(["display-first", "advanced-first"])(
 		expect(runValidation(current, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	},
 );
+
+// A search with no subtitle still writes `<description>` after its title, with
+// a blank locale value, as HQ's build writes after its Case List save.
+it.each(["remote", "inline"] as const)(
+	"writes a blank description on the %s search's query",
+	(scenario) => {
+		const doc = searchEmissionFixture(scenario);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const zip = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		);
+		const suite = readXmlEvidence(zip.readAsText("suite.xml"));
+		const search =
+			scenario === "remote"
+				? onlyXml(xmlChildren(suite, "remote-request"))
+				: onlyXml(
+						xmlChildren(suite, "entry").filter(
+							(entry) =>
+								onlyXml(xmlChildren(entry, "command")).attributes.id ===
+								"m0-f0",
+						),
+					);
+		const query = onlyXml(
+			xmlChildren(onlyXml(xmlChildren(search, "session")), "query"),
+		);
+		expect(query.children.slice(0, 2).map((child) => child.name)).toEqual([
+			"title",
+			"description",
+		]);
+		const locale = onlyXml(
+			xmlChildren(
+				onlyXml(
+					xmlChildren(onlyXml(xmlChildren(query, "description")), "text"),
+				),
+				"locale",
+			),
+		);
+		expect(locale.attributes).toEqual({ id: "case_search.m0.description" });
+		for (const dir of ["default", "en"]) {
+			const lines = zip.readAsText(`${dir}/app_strings.txt`).split("\n");
+			expect(lines).toContain("case_search.m0.description= ");
+		}
+	},
+);

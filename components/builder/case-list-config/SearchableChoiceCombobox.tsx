@@ -31,6 +31,10 @@ export interface SearchableChoice<T> {
 	readonly keepOpen?: boolean;
 	readonly quiet?: boolean;
 	readonly tone?: "normal" | "attention";
+	/** Why this choice can't be made, shown in the place of `detail`. A choice
+	 *  that holds one is drawn disabled, keeps its place in its group and
+	 *  still matches the search, so its reason can always be read. */
+	readonly disabledReason?: string;
 }
 
 interface SearchableChoiceGroup<T> {
@@ -132,7 +136,7 @@ export function SearchableChoiceCombobox<T>({
 			}}
 			onValueChange={(id) => {
 				const choice = choices.find((candidate) => candidate.id === id);
-				if (choice === undefined) return;
+				if (choice === undefined || choice.disabledReason !== undefined) return;
 				if (choice.keepOpen) keepOpenAfterChoiceRef.current = true;
 				setQuery("");
 				onChoose(choice);
@@ -141,7 +145,7 @@ export function SearchableChoiceCombobox<T>({
 			filter={(choice: SearchableChoice<T>, currentQuery) => {
 				const normalized = currentQuery.trim().toLocaleLowerCase();
 				if (normalized === "") return true;
-				return `${choice.label} ${choice.detail ?? ""} ${choice.searchText ?? ""}`
+				return `${choice.label} ${choice.disabledReason ?? choice.detail ?? ""} ${choice.searchText ?? ""}`
 					.toLocaleLowerCase()
 					.includes(normalized);
 			}}
@@ -209,42 +213,49 @@ export function SearchableChoiceCombobox<T>({
 							<ComboboxGroup key={group.value} items={group.items}>
 								<ComboboxLabel>{group.value}</ComboboxLabel>
 								<ComboboxCollection>
-									{(choice: SearchableChoice<T>) => (
-										<ComboboxItem
-											key={choice.id}
-											value={choice.id}
-											className={cn(
-												"min-w-0 whitespace-normal",
-												choice.quiet && "text-nova-text-secondary",
-											)}
-										>
-											{choice.icon !== undefined && (
-												<Icon
-													icon={choice.icon}
-													width="16"
-													height="16"
-													className="shrink-0 text-nova-text-muted"
-												/>
-											)}
-											<span className="min-w-0 flex-1 text-left">
-												<span className="block whitespace-normal break-words font-medium">
-													{choice.label}
-												</span>
-												{choice.detail !== undefined && (
-													<span
-														className={cn(
-															"mt-0.5 block whitespace-normal break-words text-xs leading-relaxed",
-															choice.tone === "attention"
-																? "text-nova-rose"
-																: "text-nova-text-muted",
-														)}
-													>
-														{choice.detail}
-													</span>
+									{(choice: SearchableChoice<T>) => {
+										const line = choice.disabledReason ?? choice.detail;
+										return (
+											<ComboboxItem
+												key={choice.id}
+												value={choice.id}
+												disabled={choice.disabledReason !== undefined}
+												className={cn(
+													"min-w-0 whitespace-normal",
+													choice.quiet && "text-nova-text-secondary",
 												)}
-											</span>
-										</ComboboxItem>
-									)}
+											>
+												{choice.icon !== undefined && (
+													<Icon
+														icon={choice.icon}
+														width="16"
+														height="16"
+														className="shrink-0 text-nova-text-muted"
+													/>
+												)}
+												<span className="min-w-0 flex-1 text-left">
+													<span className="block whitespace-normal break-words font-medium">
+														{choice.label}
+													</span>
+													{line !== undefined && (
+														<span
+															className={cn(
+																"mt-0.5 block whitespace-normal break-words text-xs leading-relaxed",
+																/* A withheld choice's reason is never the
+																 * attention tone: nothing was attempted. */
+																choice.tone === "attention" &&
+																	choice.disabledReason === undefined
+																	? "text-nova-rose"
+																	: "text-nova-text-muted",
+															)}
+														>
+															{line}
+														</span>
+													)}
+												</span>
+											</ComboboxItem>
+										);
+									}}
 								</ComboboxCollection>
 							</ComboboxGroup>
 						)}

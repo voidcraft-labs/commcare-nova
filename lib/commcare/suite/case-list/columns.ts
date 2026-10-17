@@ -24,9 +24,9 @@
 //     The empty-string short-circuit covers absent values; the
 //     pattern routes through `quoteLiteral` to escape any embedded
 //     single-quote authoring (the on-device XPath dialect's
-//     concat-fallback). Sort uses raw `{xpath}` (mirrors CCHQ's
-//     `Date.SORT_XPATH_FUNCTION = "{xpath}"`) so ISO-string
-//     lexicographic ordering matches calendar order.
+//     concat-fallback). Its sort key is the raw `{xpath}` (CCHQ's
+//     `Date.SORT_XPATH_FUNCTION = "{xpath}"`), so ISO-string order
+//     matches calendar order.
 //
 //   - `phone`             → CCHQ `detail_screen.py::Phone` format.
 //     Same XPath as `plain`; the divergence between the two
@@ -48,7 +48,8 @@
 //     labels as its language-neutral fallback. The `selected()` arm matches against the raw
 //     property value; the `replace(join(...), '\\s+', ' ')` collapse
 //     trims the leading whitespace from the join's empty-arm
-//     fall-throughs. Sort uses raw `{xpath}`.
+//     fall-throughs. Its sort key is the mapping position
+//     (`sortKeys.ts::idMappingSortXpath`), as HQ's `enum` sorts.
 //
 //   - `image-map`         → CCHQ `detail_screen.py::EnumImage` format
 //     (`<template form="image">`). The id-mapping shape with image
@@ -57,8 +58,9 @@
 //     if(...))` inlining the resolved `jr://` path literals. Nested-if
 //     (not id-mapping's `replace(join(...))`) because the join's
 //     empty-arm collapse would leave a trailing space inside a matched
-//     `jr://` path and break the reference. Degrades to a plain column
-//     (raw property value) when media emission is off (no manifest).
+//     `jr://` path and break the reference. Written as images wherever
+//     `imageMapShowsImages` holds, at `13%` like HQ's build; otherwise a
+//     plain column over the raw property value.
 //
 //   - `interval`          → merges CCHQ's `TimeAgo` + `LateFlag`
 //     formats under one Nova kind. The `display` discriminator
@@ -82,7 +84,8 @@
 //         the cell empty only when the date is present and within
 //         threshold.
 //
-//     Sort uses raw `{xpath}` for both arms.
+//     Its sort key is the text it shows, as HQ's `translatable-enum`
+//     sorts.
 //
 //   - `calculated`        → CCHQ `useXpathExpression` branch in
 //     `detail_screen.py::FormattedDetailColumn.template`. The
@@ -96,8 +99,10 @@
 //     expression is the source.
 //
 // `<sort>` block emission is detail-surface-aware. Short detail
-// emits sort blocks for every column whose uuid keys into
-// `ctx.sortByUuid`. Long detail emits no `<sort>` blocks for the
+// emits a sort block for every field that keeps a sort key in the
+// order plan (`ctx.sortByUuid`). A field hidden from Results is HQ's
+// `invisible` column: an empty header and a raw template at width 0.
+// Long detail emits no `<sort>` blocks for the
 // non-nodeset case, matching CCHQ's
 // `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
 // short-circuit on `self.detail.display != 'short'`.
@@ -110,6 +115,7 @@ import {
 	type Column,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
+	imageMapShowsImages,
 	makeTranslationUnitId,
 	printProseTemplate,
 	TIME_SINCE_UNIT_DAYS,
@@ -131,7 +137,11 @@ import type {
 import { escapeRegex } from "../../xml";
 import { lowerXPathForJavaRosa } from "../../xpath";
 import { keyAsVariable } from "./keyVariable";
-import { buildSortBlock, type ResolvedSortDirective } from "./sortKeys";
+import {
+	buildSortBlock,
+	calculatedPropertyText,
+	type ResolvedSortDirective,
+} from "./sortKeys";
 import { buildTileStyleBlock } from "./tileStyle";
 import type {
 	CaseListEmission,
@@ -356,13 +366,34 @@ function detailCalculatedHeaderLocaleId(
  * Build a `<header>` block that resolves through a locale id.
  * The locale id is XML-attribute-safe (alphanumerics + `.` + `_`
  * + `-`) by construction at the composer site, so the serializer's
- * one-pass escape is a no-op here.
+ * one-pass escape is a no-op here. `width` is the header's width hint
+ * where the column has one (an image map's `13%`).
  */
-function buildHeaderBlock(localeId: string, hidden = false): Element {
-	return el("header", hidden ? { width: "0" } : {}, [
+function buildHeaderBlock(localeId: string, width?: string): Element {
+	return el("header", width === undefined ? {} : { width }, [
 		el("text", {}, [el("locale", { id: localeId })]),
 	]);
 }
+
+/**
+ * The header of a field hidden from Results: width 0 over an empty text,
+ * with no locale id, which is the header HQ's build writes for an
+ * `invisible` column whose sort element has no display text
+ * (`detail_screen.py::Invisible.header`, `models/case_list.py::
+ * SortElement.has_display_values`). With it Android's Sort menu lists the
+ * shown columns alone, and the field's header is no app string.
+ */
+function buildHiddenHeaderBlock(): Element {
+	return el("header", { width: "0" }, [el("text", {}, [])]);
+}
+
+/**
+ * The width hint an image map's header and template carry where it is
+ * written as images, on the short and the long detail alike: HQ's build
+ * writes `13%` (`detail_screen.py::EnumImage.header_width` and
+ * `template_width`, with no dynamic width).
+ */
+const IMAGE_MAP_WIDTH = "13%";
 
 /**
  * Build a `<template>` Element whose `<xpath function="...">` is
@@ -385,11 +416,12 @@ function buildHeaderBlock(localeId: string, hidden = false): Element {
 function buildTemplateBlock(
 	xpathFunction: string,
 	form: string | undefined = undefined,
-	hidden = false,
+	width: string | undefined = undefined,
 	variables: readonly Element[] = [],
 ): Element {
-	const templateAttribs: Record<string, string> = hidden ? { width: "0" } : {};
+	const templateAttribs: Record<string, string> = {};
 	if (form !== undefined) templateAttribs.form = form;
+	if (width !== undefined) templateAttribs.width = width;
 	return el("template", templateAttribs, [
 		el("text", {}, [el("xpath", { function: xpathFunction }, [...variables])]),
 	]);
@@ -439,9 +471,9 @@ function localizedVariable(
  */
 function buildCalculatedTemplateBlock(
 	calcXpath: string,
-	hidden = false,
+	width?: string,
 ): Element {
-	return el("template", hidden ? { width: "0" } : {}, [
+	return el("template", width === undefined ? {} : { width }, [
 		el("text", {}, [
 			el("xpath", { function: "$calculated_property" }, [
 				el("variable", { name: "calculated_property" }, [
@@ -778,9 +810,10 @@ export function idMappingDisplayXpath(
  * language simplification Nova applies throughout. An empty mapping
  * short-circuits to `''` (no image).
  *
- * Resolution requires the asset manifest; the media-OFF path degrades
- * the column to plain in `propertyDisplayXpath`, so reaching here with
- * a missing manifest entry is a compiler-bug via `requireAssetRef`.
+ * A map with entries resolves its paths through the asset manifest; a map
+ * with no entries names no image and is `''` with or without one
+ * (`lib/domain/modules.ts::imageMapShowsImages`). Reaching an entry with no
+ * manifest, or a missing manifest entry, is a compiler bug.
  */
 function imageMapDisplayXpath(
 	field: string,
@@ -788,13 +821,18 @@ function imageMapDisplayXpath(
 		readonly value: string;
 		readonly assetId: MediaAssetId;
 	}>,
-	assets: AssetManifest,
+	assets: AssetManifest | undefined,
 ): string {
 	// Fold right so the first entry is the outermost `if`, matching the
 	// runtime's first-match-wins walk: the empty-string base is the final
 	// else (no value matched => no image).
 	return mapping.reduceRight((elseArm, entry) => {
 		const value = quoteLiteral(entry.value, "case-list-filter");
+		if (assets === undefined) {
+			throw new Error(
+				"imageMapDisplayXpath: an image map with entries was written as images with no media manifest. `imageMapShowsImages` holds a map with entries to its image column only where the export carries one.",
+			);
+		}
 		const path = quoteLiteral(
 			requireAssetRef(entry.assetId, assets, "imageMapDisplayXpath"),
 			"case-list-filter",
@@ -827,8 +865,9 @@ export function imageMapEnumKey(value: string): string {
  * `id_strings.py::detail_column_alt_text_variable` gives for that column and
  * key, whose string is blank in every language: Nova sets no alt text, and
  * HQ's `clean_trans` of an empty label is blank too. Absent for every other
- * kind, and for an image map without media, which both paths emit as a
- * plain column.
+ * kind, for an image map that is not written as images
+ * (`imageMapShowsImages`), which both paths emit as a plain column, and for
+ * a field hidden from Results, which HQ's build writes as `invisible`.
  */
 function imageMapAltText(
 	column: Exclude<Column, { kind: "calculated" }>,
@@ -837,7 +876,12 @@ function imageMapAltText(
 ):
 	| { readonly element: Element; readonly strings: Record<string, string> }
 	| undefined {
-	if (column.kind !== "image-map" || !ctx.assets) return undefined;
+	if (
+		column.kind !== "image-map" ||
+		!imageMapShowsImages(column, ctx.assets !== undefined)
+	) {
+		return undefined;
+	}
 	const field = emitCasePropertyWirePath(column.field);
 	const idBase = detailColumnLocaleBase(
 		ctx.target,
@@ -990,12 +1034,13 @@ function propertyDisplayProjection(
 			);
 		}
 		case "image-map":
-			// Media-ON → the per-value image-path chain (rendered via
-			// `<template form="image">`). Media-OFF (no manifest) → degrade
-			// to the raw property value as a plain column; `templateFormFor`
-			// drops the `form="image"` in lockstep so the two never disagree.
+			// Written as images (`imageMapShowsImages`) → the per-value
+			// image-path chain, rendered via `<template form="image">`.
+			// Otherwise the raw property value as a plain column;
+			// `templateFormFor` reads the same predicate so the two never
+			// disagree.
 			return plain(
-				ctx.assets
+				imageMapShowsImages(column, ctx.assets !== undefined)
 					? imageMapDisplayXpath(field, column.mapping, ctx.assets)
 					: plainDisplayXpath(field),
 			);
@@ -1025,12 +1070,12 @@ function propertyDisplayProjection(
  *
  *   - `phone` on long detail → `'phone'` per
  *     `commcare-hq/corehq/apps/app_manager/detail_screen.py::Phone.template_form`.
- *   - `image-map` when media is on → `'image'` per
- *     `commcare-hq/.../detail_screen.py::EnumImage.template_form`, so the
- *     runtime renders the display XPath's resolved jr:// path as an image.
- *     Media-OFF image-map drops to `undefined` (a plain template over the
- *     raw value), matching `propertyDisplayXpath`'s degradation — the form
- *     attribute and the display XPath must never disagree.
+ *   - `image-map` written as images (`imageMapShowsImages`) → `'image'`
+ *     per `commcare-hq/.../detail_screen.py::EnumImage.template_form`, so
+ *     the runtime renders the display XPath's resolved jr:// path as an
+ *     image. Otherwise `undefined` (a plain template over the raw value),
+ *     matching `propertyDisplayProjection` — the form attribute and the
+ *     display XPath must never disagree.
  *   - `link` on every surface → `'markdown'`, the ONLY thing that makes a
  *     case-list cell render as a link. `case_list/item.html` renders an
  *     ordinary cell as `<%- datum %>`, escaped text; only a `Markdown` cell
@@ -1052,94 +1097,60 @@ function templateFormFor(
 	assets: AssetManifest | undefined,
 ): string | undefined {
 	if (column.kind === "phone" && detailKind === "long") return "phone";
-	if (column.kind === "image-map" && assets) return "image";
+	if (
+		column.kind === "image-map" &&
+		imageMapShowsImages(column, assets !== undefined)
+	) {
+		return "image";
+	}
 	if (column.kind === "link") return "markdown";
 	return undefined;
 }
 
 /**
- * Resolve a column's `<sort>` block (or absence thereof). On short
- * detail, looks up the column's uuid in `ctx.sortByUuid`; on long
- * detail, always returns `undefined` — CCHQ's
- * `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
- * short-circuits when `self.detail.display != 'short'` (modulo
- * nodeset-column tabs not modelled in `caseListConfig`), and the
- * canonical fixture
+ * The `<sort>` of a short-detail field that keeps a sort key, or nothing.
+ * Long detail carries no `<sort>`: HQ's
+ * `detail_screen.py::FormattedDetailColumn.sort_node` short-circuits when
+ * `self.detail.display != 'short'`, and the canonical fixture
  * `commcare-hq/corehq/apps/app_manager/tests/data/suite/multi-sort.xml::<detail id="m0_case_long">`
- * carries zero `<sort>` blocks despite a multi-key sort on the
- * parent module's short detail. The same suppression rule binds
- * the `m{N}_search_long` block — the canonical fixture
- * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_search_long']`
- * carries zero `<sort>` blocks alongside the search-short block's
- * directives.
+ * carries none.
  *
- * Search-target emission re-lowers a calc-arm directive's xpath
- * against the `"results"` instance root so the rendered `<sort>`
- * block carries the search-instance roster for any cross-case calc
- * references. The property-rooted directive arm has no instance
- * prefix and passes through unchanged.
+ * The directive (`sortKeys.ts::planSortNodes`) says what the sort reads; the
+ * text comes from the field itself, so a calculation sorts by the same
+ * expression its template evaluates, against the same case source, and a
+ * label or interval sorts by its display text with variables of its own.
  */
 function resolveSortElement(
 	column: Column,
 	ctx: CaseListEmitContext,
+	fieldText: () => {
+		readonly xpath: string;
+		readonly variables: readonly Element[];
+	},
 ): Element | undefined {
 	if (ctx.detailKind === "long") return undefined;
 	const directive = ctx.sortByUuid.get(column.uuid);
 	if (directive === undefined) return undefined;
-	const targeted = retargetSortDirective(directive, column, ctx);
-	return buildSortBlock(targeted);
+	return buildSortBlock(directive, sortText(directive, fieldText));
 }
 
-/**
- * Re-lower calculated sorting against the detail's actual case source.
- * Ordinary lists use the directive's default casedb root. Remote Search
- * uses results; inline Search still has the case target but reads
- * results:inline. Display and sorting must resolve supporting cases in
- * the same instance. Property-only directives remain relative to the row.
- */
-function retargetSortDirective(
+function sortText(
 	directive: ResolvedSortDirective,
-	column: Column,
-	ctx: CaseListEmitContext,
-): ResolvedSortDirective {
-	if (instanceRootFor(ctx) === "casedb" || directive.kind === "property")
-		return directive;
-	if (column.kind !== "calculated") {
-		// Structural invariant: a calc-arm directive always pairs with
-		// a calculated column. The `buildSortDirectives` pipeline
-		// builds the two slots in lockstep keyed off the same column.
-		throw new Error(
-			`retargetSortDirective received a calculated directive paired with a ${column.kind}-kind column. The directive map keys on column uuid; the kinds must agree.`,
-		);
+	fieldText: () => {
+		readonly xpath: string;
+		readonly variables: readonly Element[];
+	},
+): { readonly xpath: string; readonly variables: readonly Element[] } {
+	switch (directive.kind) {
+		case "property":
+			return { xpath: directive.xpath, variables: [] };
+		case "calculated":
+			return calculatedPropertyText(fieldText().xpath);
+		case "variables":
+			return fieldText();
 	}
-	return {
-		...directive,
-		calcXpath: emitOnDeviceExpression(
-			column.expression,
-			instanceRootFor(ctx),
-			relationContextFor(ctx),
-			undefined,
-			lookupTermContext(ctx),
-		),
-	};
 }
 
-/**
- * Build one `<field>` Element for a column. The `position` is 1-based
- * — the surrounding orchestrator passes the column's position in the
- * selected Results or Details wire sequence plus 1 so the locale-id suffix
- * matches CCHQ's `detail_column_header_locale` convention. Off-screen sort
- * carriers keep their Results position, so their sort references remain
- * stable while Details uses its independent order.
- *
- * The dispatch routes calculated columns through the inline-variable
- * template path (CCHQ's `useXpathExpression` branch); every other kind
- * goes through the standard `<header>` / `<template>` pair. May carry a
- * `<template>` `form` attribute (long-detail phone columns) and may
- * carry a `<sort>` block on short detail when the column's uuid keys
- * into `ctx.sortByUuid`. Long detail emits no `<sort>` blocks
- * regardless of `ctx.sortByUuid` content.
- */
 /**
  * The `<style>` child a placed cell contributes, or nothing.
  *
@@ -1180,19 +1191,54 @@ function tileStyleChildren(
 	return [buildTileStyleBlock(cell)];
 }
 
+/**
+ * Build one `<field>` Element for a column. The `position` is 1-based
+ * — the surrounding orchestrator passes the column's position in the
+ * complete Results or Details sequence plus 1 so the locale-id suffix
+ * matches CCHQ's `detail_column_header_locale` convention.
+ *
+ * The dispatch routes calculated columns through the inline-variable
+ * template path (CCHQ's `useXpathExpression` branch); every other kind
+ * goes through the standard `<header>` / `<template>` pair. May carry a
+ * `<template>` `form` attribute (long-detail phone columns, image maps,
+ * links) and, on the short detail, the `<sort>` of a field that keeps a
+ * sort key.
+ *
+ * A field hidden from Results (`hidden`) is HQ's `invisible` column, byte
+ * for byte: an empty header with no locale id at width 0, and a template at
+ * width 0 over the raw wire path, never a label expression or variables; a
+ * calculated one keeps its calculation. It contributes no app string and no
+ * translation unit.
+ */
 export function buildColumnField(args: {
 	readonly column: Column;
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
-	/** Zero-width carrier used only when an off-screen Results field still
-	 * owns a Default-order rule. The field remains on the wire for its sort
-	 * block without becoming visible in the running app. */
+	/** The field is hidden from Results: HQ's `invisible` column. */
 	readonly hidden?: boolean;
 }): CaseListFieldEmission {
 	const { column, position, ctx, hidden = false } = args;
 
 	if (column.kind === "calculated") {
 		return buildCalculatedField({ column, position, ctx, hidden });
+	}
+
+	if (hidden) {
+		const raw = emitCasePropertyWirePath(column.field);
+		const fieldChildren: Element[] = [
+			buildHiddenHeaderBlock(),
+			buildTemplateBlock(raw, undefined, "0"),
+		];
+		const sortEl = resolveSortElement(column, ctx, () => ({
+			xpath: raw,
+			variables: [],
+		}));
+		if (sortEl !== undefined) fieldChildren.push(sortEl);
+		return {
+			element: el("field", {}, fieldChildren),
+			strings: {},
+			translationUnits: {},
+		};
 	}
 
 	const display = propertyDisplayProjection(column, ctx, position);
@@ -1203,17 +1249,27 @@ export function buildColumnField(args: {
 		column.field,
 		position,
 	);
+	const width =
+		column.kind === "image-map" &&
+		imageMapShowsImages(column, ctx.assets !== undefined)
+			? IMAGE_MAP_WIDTH
+			: undefined;
 	const fieldChildren: Element[] = [
 		...tileStyleChildren(column, ctx),
-		buildHeaderBlock(headerLocaleId, hidden),
+		buildHeaderBlock(headerLocaleId, width),
 		buildTemplateBlock(
 			display.xpath,
 			templateFormFor(column, ctx.detailKind, ctx.assets),
-			hidden,
+			width,
 			display.variables,
 		),
 	];
-	const sortEl = resolveSortElement(column, ctx);
+	const sortEl = resolveSortElement(column, ctx, () => {
+		// A fresh projection: the sort's variables are elements of their own,
+		// never the template's.
+		const again = propertyDisplayProjection(column, ctx, position);
+		return { xpath: again.xpath, variables: again.variables };
+	});
 	if (sortEl !== undefined) fieldChildren.push(sortEl);
 	const altText = imageMapAltText(column, position, ctx);
 	if (altText !== undefined) fieldChildren.push(altText.element);
@@ -1244,12 +1300,9 @@ export function buildColumnField(args: {
  * runtime. CCHQ's stock convention has the same shape (per
  * `id_strings.py::detail_column_header_locale`, with the
  * `column.useXpathExpression` branch substituting the literal
- * `calculated_property` for the property name).
- *
- * Sort routing is identical to property-rooted columns: short detail
- * looks up the column's uuid in `ctx.sortByUuid` and the directive
- * carries the inline-variable shape; long detail emits no `<sort>`
- * block.
+ * `calculated_property` for the property name). A calculated field hidden
+ * from Results keeps its calculation at width 0 under the empty header of
+ * every hidden field, with no string.
  */
 function buildCalculatedField(args: {
 	readonly column: Extract<Column, { kind: "calculated" }>;
@@ -1273,6 +1326,22 @@ function buildCalculatedField(args: {
 		undefined,
 		lookupTermContext(ctx),
 	);
+	const sortEl = resolveSortElement(column, ctx, () => ({
+		xpath: calcXpath,
+		variables: [],
+	}));
+	if (hidden) {
+		const fieldChildren: Element[] = [
+			buildHiddenHeaderBlock(),
+			buildCalculatedTemplateBlock(calcXpath, "0"),
+		];
+		if (sortEl !== undefined) fieldChildren.push(sortEl);
+		return {
+			element: el("field", {}, fieldChildren),
+			strings: {},
+			translationUnits: {},
+		};
+	}
 	const headerLocaleId = detailCalculatedHeaderLocaleId(
 		ctx.target,
 		ctx.detailKind,
@@ -1281,10 +1350,9 @@ function buildCalculatedField(args: {
 	);
 	const fieldChildren: Element[] = [
 		...tileStyleChildren(column, ctx),
-		buildHeaderBlock(headerLocaleId, hidden),
-		buildCalculatedTemplateBlock(calcXpath, hidden),
+		buildHeaderBlock(headerLocaleId),
+		buildCalculatedTemplateBlock(calcXpath),
 	];
-	const sortEl = resolveSortElement(column, ctx);
 	if (sortEl !== undefined) fieldChildren.push(sortEl);
 
 	return {
@@ -1294,6 +1362,28 @@ function buildCalculatedField(args: {
 			[headerLocaleId]: makeTranslationUnitId("column", column.uuid, "header"),
 		},
 	};
+}
+
+/**
+ * The field CommCare HQ's build appends for a sort row no stored column
+ * takes (`util.py::create_temp_sort_column`, an `invisible` column with an
+ * empty display): an empty header at width 0, a width 0 template over the
+ * raw wire path, and the rule's `<sort>`. It is never stored and carries no
+ * tile cell, and the list's search matches its raw value.
+ */
+export function buildCarrierField(
+	property: string,
+	directive: ResolvedSortDirective,
+): Element {
+	const raw = emitCasePropertyWirePath(property);
+	return el("field", {}, [
+		buildHiddenHeaderBlock(),
+		buildTemplateBlock(raw, undefined, "0"),
+		buildSortBlock(
+			directive,
+			sortText(directive, () => ({ xpath: raw, variables: [] })),
+		),
+	]);
 }
 
 /**

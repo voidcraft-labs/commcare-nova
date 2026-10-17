@@ -45,6 +45,7 @@ function app(
 		"patient",
 		[form()],
 		detailPair([]),
+		["en"],
 	);
 	edit(module);
 	return applicationShell("Clinic", [module], { "f0.xml": attachment });

@@ -13,7 +13,7 @@ import type { Element } from "domhandler";
 import { el } from "@/lib/commcare/elementBuilders";
 import {
 	type CaseListConfig,
-	caseListColumnIsEmitted,
+	caseListColumnRuns,
 	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
 	searchInputExpressions,
@@ -350,30 +350,31 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	const titleDisplay =
 		caseSearchConfig.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
 
-	// Description (subtitle) is conditional — CCHQ's `<query>` carries
-	// `<description>` only when the author supplied copy. The locale id
-	// pattern is CCHQ's `case_search.{m}.description`; an absent
-	// subtitle elides the element entirely so the runtime renders the
-	// screen without a subtitle slot rather than printing a blank
-	// locale fallback. Element ordering inside `<query>` is
-	// title → description → data → prompts, matching CCHQ's
+	// Every search writes `<description>`, blank where no subtitle is
+	// authored: HQ's Case List save writes the description for the page's
+	// language on every menu, empty for none, and HQ's build of the saved
+	// app then writes the element
+	// (`views/modules.py::_gather_and_update_search_properties`), so the HQ
+	// JSON stores the blank map and both paths write the element. A blank
+	// value has no translation unit, so it is a literal every language's
+	// table writes, as a non-breaking space
+	// (`localeFile.ts::serializeLocaleFileValue`). The locale id pattern is
+	// CCHQ's `case_search.{m}.description`; element ordering inside
+	// `<query>` is title → description → data → prompts, matching CCHQ's
 	// `RemoteRequestQuery` factory.
-	const subtitleDisplay = caseSearchConfig.searchScreenSubtitle;
+	const subtitleDisplay = caseSearchConfig.searchScreenSubtitle ?? "";
 	const descriptionLocaleId = `case_search.${moduleId}.description`;
 
-	// `<query>` children in canonical order: title → description? →
+	// `<query>` children in canonical order: title → description →
 	// data → prompts. The serializer preserves child insertion order.
 	const queryChildren: Element[] = [
 		el("title", {}, [el("text", {}, [el("locale", { id: titleLocaleId })])]),
+		el("description", {}, [
+			el("text", {}, [el("locale", { id: descriptionLocaleId })]),
+		]),
+		...dataElements,
+		...promptEmission.elements,
 	];
-	if (subtitleDisplay !== undefined) {
-		queryChildren.push(
-			el("description", {}, [
-				el("text", {}, [el("locale", { id: descriptionLocaleId })]),
-			]),
-		);
-	}
-	queryChildren.push(...dataElements, ...promptEmission.elements);
 
 	// `<query>` attribute insertion order — `url, default_search,
 	// storage-instance, template` — matches CCHQ's canonical order
@@ -392,9 +393,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 
 	const strings: Record<string, string> = {
 		[titleLocaleId]: titleDisplay,
-		...(subtitleDisplay !== undefined
-			? { [descriptionLocaleId]: subtitleDisplay }
-			: {}),
+		[descriptionLocaleId]: subtitleDisplay,
 		...promptEmission.strings,
 	};
 	const translationUnits = { ...promptEmission.translationUnits };
@@ -497,7 +496,10 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// server-regenerated suite gets via
 	// `commcare-hq/.../suite_xml/post_process/instances.py::InstancesHelper.add_entry_instances`.
 	for (const column of caseListConfig.columns) {
-		if (column.kind !== "calculated" || !caseListColumnIsEmitted(column)) {
+		if (
+			column.kind !== "calculated" ||
+			!caseListColumnRuns(column, caseListConfig)
+		) {
 			continue;
 		}
 		for (const id of collectExpressionInstances(

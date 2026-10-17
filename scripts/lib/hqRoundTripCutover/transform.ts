@@ -22,12 +22,17 @@ import { appSettingsStep } from "./steps/appSettings";
 import { caseOperationIdsStep } from "./steps/caseOperationIds";
 import { connectIdsStep } from "./steps/connectIds";
 import { connectTaskFormsStep } from "./steps/connectTaskForms";
+import { datePatternsStep } from "./steps/datePatterns";
 import { emptyFormsStep } from "./steps/emptyForms";
 import { entryPointIdsStep } from "./steps/entryPointIds";
+import { idMappingKeysStep } from "./steps/idMappingKeys";
 import { languageWireCodesStep } from "./steps/languageWireCodes";
 import { optionLabelsStep } from "./steps/optionLabels";
 import { optionValuesStep } from "./steps/optionValues";
 import { questionIdsStep } from "./steps/questionIds";
+import { sortPropertyOwnershipStep } from "./steps/sortPropertyOwnership";
+import { tileCellsStep } from "./steps/tileCells";
+import { tileHiddenCalculatedSortStep } from "./steps/tileHiddenCalculatedSort";
 import { unsuppliedSessionReadsStep } from "./steps/unsuppliedSessionReads";
 
 /** How the plan classed one deployment of the app (`plan.ts`). */
@@ -104,6 +109,11 @@ export const CUTOVER_STEPS: readonly CutoverStep[] = [
 	optionLabelsStep,
 	emptyFormsStep,
 	unsuppliedSessionReadsStep,
+	idMappingKeysStep,
+	datePatternsStep,
+	tileHiddenCalculatedSortStep,
+	sortPropertyOwnershipStep,
+	tileCellsStep,
 	appSettingsStep,
 ];
 

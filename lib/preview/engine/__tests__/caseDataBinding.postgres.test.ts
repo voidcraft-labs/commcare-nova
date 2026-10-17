@@ -65,6 +65,7 @@ import {
 	seedSampleCases,
 } from "../caseDataBindingHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
+import { previewCaseStoreOrder } from "../caseListOrder";
 import { previewAsMe } from "../identity";
 import type { SearchInputValues } from "../runtimeBindings";
 
@@ -701,9 +702,9 @@ describe("readCases", () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
-		// The unsorted list orders by the durable `(opened_on, case_id)`
-		// fact — creation time first, id purely as tie-break — so ids are
-		// deliberately OUT of id order while `opened_on` fixes the pages.
+		// A read with no list to order sorts by the case id alone, which
+		// fixes every page: the ids are inserted out of id order and out of
+		// `opened_on` order, so neither insertion nor creation time leaks in.
 		const caseIds = [
 			"10000000-0000-0000-0000-000000000003",
 			"10000000-0000-0000-0000-000000000001",
@@ -735,9 +736,10 @@ describe("readCases", () => {
 			pageSize: 2,
 		});
 		if (firstPage.kind !== "rows") return;
-		expect(firstPage.rows.map((row) => row.case_id)).toEqual(
-			caseIds.slice(0, 2),
-		);
+		expect(firstPage.rows.map((row) => row.case_id)).toEqual([
+			caseIds[1],
+			caseIds[2],
+		]);
 
 		const staleFinalPage = await readCases(store, {
 			appId: APP_ID,
@@ -751,7 +753,7 @@ describe("readCases", () => {
 			pageSize: 2,
 		});
 		if (staleFinalPage.kind !== "rows") return;
-		expect(staleFinalPage.rows.map((row) => row.case_id)).toEqual([caseIds[2]]);
+		expect(staleFinalPage.rows.map((row) => row.case_id)).toEqual([caseIds[0]]);
 	});
 
 	it("uses Results order, not Details order, to break equal sort priorities", async () => {
@@ -777,30 +779,38 @@ describe("readCases", () => {
 			});
 		}
 
+		const resultsConfig = resolveCaseListConfig({
+			columns: [
+				plainColumn(NAME_COLUMN_UUID, "case_name", "Name", {
+					sort: { direction: "asc", priority: 0 },
+				}),
+				plainColumn(
+					testUuid("10000000-0000-0000-0000-000000000003"),
+					"age",
+					"Age",
+					{
+						sort: { direction: "asc", priority: 0 },
+					},
+				),
+			],
+			detailColumnOrder: [
+				testUuid("10000000-0000-0000-0000-000000000003"),
+				NAME_COLUMN_UUID,
+			],
+			searchInputs: [],
+		});
+		const mod = blueprint.modules[blueprint.moduleOrder[0]];
 		const result = await readCases(store, {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: resolveCaseListConfig({
-				columns: [
-					plainColumn(NAME_COLUMN_UUID, "case_name", "Name", {
-						sort: { direction: "asc", priority: 0 },
-					}),
-					plainColumn(
-						testUuid("10000000-0000-0000-0000-000000000003"),
-						"age",
-						"Age",
-						{
-							sort: { direction: "asc", priority: 0 },
-						},
-					),
-				],
-				detailColumnOrder: [
-					testUuid("10000000-0000-0000-0000-000000000003"),
-					NAME_COLUMN_UUID,
-				],
-				searchInputs: [],
-			}),
+			caseListConfig: resultsConfig,
+			order: previewCaseStoreOrder(
+				{ ...mod, caseType: "patient" },
+				blueprint,
+				resultsConfig,
+				"en",
+			),
 		});
 
 		expect(result.kind).toBe("rows");
@@ -3060,6 +3070,52 @@ describe("readFilterPreview", () => {
 		if (result.kind !== "rows") return;
 		expect(result.rows).toHaveLength(2);
 		expect(result.totalCount).toBe(2);
+	});
+
+	it("samples the list's first rows, in the list's order", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		for (const [caseId, name] of [
+			[ALICE_CASE_ID, "Alice"],
+			[BOB_CASE_ID, "Bob"],
+		] as const) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: "patient",
+					case_name: name,
+					status: "open",
+					properties: {},
+				},
+			});
+		}
+		// Newest name first: the case id alone would put Alice first.
+		const config = makeCaseListConfig({
+			columns: [
+				plainColumn(NAME_COLUMN_UUID, "case_name", "Name", {
+					sort: { direction: "desc", priority: 0 },
+				}),
+			],
+		});
+		const mod = blueprint.modules[blueprint.moduleOrder[0]];
+		const result = await readFilterPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: config,
+			limit: 1,
+			order: previewCaseStoreOrder(
+				{ ...mod, caseType: "patient" },
+				blueprint,
+				config,
+				"en",
+			),
+		});
+		expect(result).toMatchObject({ kind: "rows", totalCount: 2 });
+		if (result.kind !== "rows") return;
+		expect(result.rows.map((row) => row.case_id)).toEqual([BOB_CASE_ID]);
 	});
 
 	it("narrows to the predicate-matching subset and reports the matching totalCount", async () => {

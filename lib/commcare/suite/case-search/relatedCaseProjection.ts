@@ -17,7 +17,7 @@
  * narrower CCHQ representation decision.
  */
 
-import { type CaseListConfig, caseListColumnIsEmitted } from "@/lib/domain";
+import { type CaseListConfig, caseListColumnRuns } from "@/lib/domain";
 import {
 	canonicalizeRelationPath,
 	expressionReadsRelatedCaseData,
@@ -106,17 +106,19 @@ export function classifyRelatedCaseSearchExpression(
 
 /**
  * Whether an effective Search must carry supporting cases for its emitted
- * Results, Details, or Default-order calculations. A fully hidden, unsorted
- * definition remains valid authoring state but has no runtime effect.
+ * Results, Details, or Default-order calculations: every calculated column a
+ * runtime evaluates (`caseListColumnRuns`), which in a list with no tile
+ * layout is every one, a column hidden from both screens included, since it
+ * is a field of the short detail.
  */
 export function searchNeedsSupportingCases(
-	config: Pick<CaseListConfig, "columns">,
+	config: Pick<CaseListConfig, "columns" | "tile">,
 	context: RelationEvaluationScopeContext = {},
 ): boolean {
 	return config.columns.some(
 		(column) =>
 			column.kind === "calculated" &&
-			caseListColumnIsEmitted(column) &&
+			caseListColumnRuns(column, config) &&
 			classifyRelatedCaseSearchExpression(column.expression, context).kind !==
 				"none",
 	);

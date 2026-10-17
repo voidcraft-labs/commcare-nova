@@ -22,6 +22,7 @@ import {
 	type HqModule,
 	moduleShell,
 	type OpenSubCaseAction,
+	type SortElement,
 } from "@/lib/commcare";
 import { expandDoc as projectUncheckedDoc } from "@/lib/commcare/expander";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
@@ -178,6 +179,7 @@ function baselineApp(): HqApplication {
 		"patient",
 		[form],
 		detail,
+		["en"],
 	);
 
 	return applicationShell("Clinic", [module], {});
@@ -200,6 +202,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 			"visit",
 			[],
 			detailPair([]),
+			["en"],
 		);
 		child.root_module_id = root.unique_id;
 		child.parent_select = {
@@ -354,7 +357,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 		expect(validateHqJson(app)).toEqual([]);
 	});
 
-	it("joins attribute-backed sorts to their visible HQ column and drops useless hidden definitions", () => {
+	it("writes attribute-backed columns as expressions, joins their sorts by position and stores fully hidden definitions", () => {
 		const status = plainColumn(
 			testUuid("00000000-0000-4000-8000-000000000095"),
 			"status",
@@ -386,9 +389,18 @@ describe("HQ-JSON oracle — clean baseline", () => {
 		);
 		const short = app.modules[0].case_details.short;
 
-		expect(short.columns.map((column) => column.field)).toEqual(["status"]);
+		expect(
+			short.columns.map((column) => [
+				column.field,
+				column.format,
+				column.useXpathExpression,
+			]),
+		).toEqual([
+			["@status", "plain", true],
+			["external_id", "invisible", false],
+		]);
 		expect(short.sort_elements.map((element) => element.field)).toEqual([
-			"status",
+			"_cc_calculated_0",
 		]);
 		expect(validateHqJson(app)).toEqual([]);
 	});
@@ -698,6 +710,94 @@ describe("HQ-JSON oracle — detail display choice slot", () => {
 		const app = baselineApp();
 		moduleOf(app).case_details.short.display = "medium" as "short";
 		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_DETAIL_DISPLAY"]);
+	});
+});
+
+// ── sort element spelling and property-name fields ──────────────────
+
+describe("HQ-JSON oracle — sort elements and property-name fields", () => {
+	/** A baseline app whose short detail carries one sort element in the
+	 *  Case List page's own spelling, with `edit` applied over it. */
+	function sortedApp(edit: (element: SortElement) => void): HqApplication {
+		const app = baselineApp();
+		const element: SortElement = {
+			field: "name",
+			type: "plain",
+			direction: "ascending",
+			blanks: "first",
+			display: { en: "" },
+			sort_calculation: "",
+		};
+		edit(element);
+		moduleOf(app).case_details.short.sort_elements = [element];
+		return app;
+	}
+
+	it("accepts a sort element in the Case List page's spelling", () => {
+		expect(validateHqJson(sortedApp(() => {}))).toEqual([]);
+	});
+
+	it('flags a sort element whose type is "string"', () => {
+		const app = sortedApp((element) => {
+			element.type = "string";
+		});
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_SORT_ELEMENT"]);
+	});
+
+	it("flags a sort element with empty blanks", () => {
+		const app = sortedApp((element) => {
+			element.blanks = "";
+		});
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_SORT_ELEMENT"]);
+	});
+
+	it("flags a sort element that holds a sort_calculation", () => {
+		const app = sortedApp((element) => {
+			element.field = "_cc_calculated_0";
+			element.sort_calculation = "name";
+		});
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_SORT_ELEMENT"]);
+	});
+
+	it("flags a sort element whose field holds @", () => {
+		const app = sortedApp((element) => {
+			element.field = "@status";
+		});
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_DETAIL_FIELD"]);
+	});
+
+	it("flags a property column whose field holds @", () => {
+		const app = baselineApp();
+		moduleOf(app).case_details.short.columns = [
+			detailColumn("@status", "Status"),
+		];
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_DETAIL_FIELD"]);
+	});
+});
+
+// ── search configuration labels ─────────────────────────────────────
+
+describe("HQ-JSON oracle — search configuration labels", () => {
+	it("accepts title_label and description that hold every app language", () => {
+		const app = baselineApp();
+		app.langs = ["en", "es"];
+		moduleOf(app).search_config.title_label = { en: "Find", es: "" };
+		moduleOf(app).search_config.description = { en: "", es: "" };
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
+	it("flags a description that lacks an app language", () => {
+		const app = baselineApp();
+		app.langs = ["en", "es"];
+		moduleOf(app).search_config.title_label = { en: "", es: "" };
+		moduleOf(app).search_config.description = { en: "" };
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_SEARCH_LABEL"]);
+	});
+
+	it("flags a title_label that lacks an app language", () => {
+		const app = baselineApp();
+		moduleOf(app).search_config.title_label = {};
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_SEARCH_LABEL"]);
 	});
 });
 

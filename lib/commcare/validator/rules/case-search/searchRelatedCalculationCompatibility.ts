@@ -12,7 +12,7 @@
  * `effectiveCaseSearchConfig`. Every saved calculated definition is checked,
  * including one hidden from both screens and absent from Default order. Hiding
  * is reversible presentation state, never a way to defer an invalid formula;
- * only support-row derivation and emission consult `caseListColumnIsEmitted`.
+ * only support-row derivation and emission consult `caseListColumnRuns`.
  */
 
 import { classifyRelatedCaseSearchExpression } from "@/lib/commcare/suite/case-search/relatedCaseProjection";

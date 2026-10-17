@@ -58,6 +58,7 @@ import {
 	type CaseType,
 	type Column,
 	calculatedColumn,
+	caseListSortKeysMatch,
 	dateColumn,
 	type Field,
 	type Form,
@@ -100,6 +101,10 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import {
+	caseListOrderOptions,
+	moduleCaseListOrderPlan,
+} from "../suite/case-list/orderPlanOptions";
 import {
 	buildField,
 	type FieldBuildCtx,
@@ -759,9 +764,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		// layout inside the 12 x 12 grid with no overlap and full coverage, so
 		// the fuzz exercises `<style>`/`<grid>` emission on every column kind
 		// without needing a solver. Presentation slots rotate through the
-		// vocabulary — including leaving them absent, which is a distinct wire
-		// state (an absent font size makes the cell inherit rather than take a
-		// default).
+		// vocabulary, and a cell given none takes `tileCell()`'s defaults.
 		const tileColumns =
 			modSpec.tile === false
 				? columns
@@ -965,7 +968,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// App-level logo (web-apps banner) — minted only when the spec asks for it.
 	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
-	return {
+	return orderRulesAsTheCutoverLeavesThem({
 		appId: "suite-fuzz-app",
 		appName: "Suite Fuzz App",
 		connectType: null,
@@ -980,7 +983,109 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		// fieldParent is rebuilt by the caller via rebuildFieldParent.
 		fieldParent: {},
 		...(logo ? { logo } : {}),
+	});
+}
+
+/** A copy of the module with each column's order rule set by `sortOf`. */
+function withColumnSorts(
+	module: Module,
+	sortOf: (column: Column) => Column["sort"],
+): Module {
+	const config = module.caseListConfig;
+	if (config === undefined) return module;
+	return {
+		...module,
+		caseListConfig: {
+			...config,
+			columns: config.columns.map((column) => {
+				const { sort: _sort, ...rest } = column;
+				const sort = sortOf(column);
+				return (sort === undefined ? rest : { ...rest, sort }) as Column;
+			}),
+		},
 	};
+}
+
+/**
+ * Rewrites each drawn list's order rules as the cutover rewrites a stored
+ * list, in the cutover's order, so the arbitrary draws only what the gate
+ * admits (`CASE_TILE_HIDDEN_CALCULATED_SORT`,
+ * `CASE_LIST_SORT_PROPERTY_AMBIGUOUS`). The rewrite runs after the draw and
+ * removes no draw, so the random stream and every other draw stay.
+ *
+ * - `tile-hidden-calculated-sort`: in a tile list, a column hidden from
+ *   Results that is calculated or reads `case_id` loses its order rule.
+ * - `sort-property-ownership` (a): of the order rules with one join text,
+ *   the first in rule order keeps it and the others are removed.
+ * - `sort-property-ownership` (b): on what remains, a rule that lands on
+ *   another column whose key differs from its own moves to that column.
+ */
+function orderRulesAsTheCutoverLeavesThem(doc: BlueprintDoc): BlueprintDoc {
+	const modules: Record<Uuid, Module> = { ...doc.modules };
+	const current = (): BlueprintDoc => ({ ...doc, modules });
+	for (const uuid of doc.moduleOrder) {
+		let module = modules[uuid];
+		if (module?.caseListConfig === undefined) continue;
+
+		if (module.caseListConfig.tile !== undefined) {
+			module = withColumnSorts(module, (column) =>
+				column.visibleInList === false &&
+				(column.kind === "calculated" || column.field === "case_id")
+					? undefined
+					: column.sort,
+			);
+			modules[uuid] = module;
+		}
+
+		const removed = new Set<string>();
+		const keptJoinTexts = new Set<string>();
+		for (const rule of moduleCaseListOrderPlan(module, current(), true)
+			.authored) {
+			if (keptJoinTexts.has(rule.joinText)) removed.add(rule.column);
+			else keptJoinTexts.add(rule.joinText);
+		}
+		module = withColumnSorts(module, (column) =>
+			removed.has(column.uuid) ? undefined : column.sort,
+		);
+		modules[uuid] = module;
+
+		const remaining = current();
+		const plan = moduleCaseListOrderPlan(module, remaining, true);
+		const options = caseListOrderOptions(module, remaining, true);
+		const columns = module.caseListConfig?.columns ?? [];
+		const moves = new Map<Uuid, Uuid>();
+		for (const rule of plan.authored) {
+			if (typeof rule.landsOn !== "number") continue;
+			const landing = plan.fields[rule.landsOn];
+			if (landing === undefined || landing.column.uuid === rule.column) {
+				continue;
+			}
+			if (
+				landing.key !== undefined &&
+				caseListSortKeysMatch(
+					plan,
+					columns,
+					rule.ownKey,
+					landing.key,
+					options.expressionText,
+				)
+			) {
+				continue;
+			}
+			moves.set(landing.column.uuid, rule.column);
+		}
+		if (moves.size === 0) continue;
+		const sortOfUuid = new Map(
+			columns.map((column) => [column.uuid, column.sort]),
+		);
+		const movedFrom = new Set(moves.values());
+		modules[uuid] = withColumnSorts(module, (column) => {
+			const from = moves.get(column.uuid);
+			if (from !== undefined) return sortOfUuid.get(from);
+			return movedFrom.has(column.uuid) ? undefined : column.sort;
+		});
+	}
+	return current();
 }
 
 /**

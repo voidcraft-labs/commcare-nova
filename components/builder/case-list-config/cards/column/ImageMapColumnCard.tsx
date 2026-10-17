@@ -37,6 +37,7 @@ import { ColumnFieldRow } from "./ColumnFieldRow";
 import {
 	AddMappingButton,
 	MappingEmptyNotice,
+	MappingOrderNote,
 	MappingRowShell,
 	MappingSectionLabel,
 	useMappingRemovalFocus,
@@ -52,6 +53,7 @@ interface ImageMapColumnCardProps {
 export function ImageMapColumnCard({
 	value,
 	onChange,
+	ctx,
 	errors,
 }: ImageMapColumnCardProps) {
 	const { rootRef, removeWithFocus } = useMappingRemovalFocus();
@@ -226,6 +228,7 @@ export function ImageMapColumnCard({
 				) : (
 					<AddMappingButton onClick={() => setAdding(true)} />
 				)}
+				{ctx.ordersByMapping === true && <MappingOrderNote />}
 			</div>
 		</div>
 	);

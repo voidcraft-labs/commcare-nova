@@ -155,6 +155,7 @@ describe("the ledger writes", () => {
 		// Its only deployment no longer holds the app, so a CCZ needs a publish.
 		expect(await noticeReasons(appId)).toEqual([
 			"hq-app-deleted",
+			"case-list-order-changes",
 			"local-archive-changes",
 			"case-name-now-checked",
 			"ccz-needs-project-space",
@@ -176,6 +177,7 @@ describe("the ledger writes", () => {
 		expect(identities.rows).toEqual([]);
 		expect(await noticeReasons(appId)).toEqual([
 			"hq-app-not-nova-made",
+			"case-list-order-changes",
 			"local-archive-changes",
 			"case-name-now-checked",
 		]);

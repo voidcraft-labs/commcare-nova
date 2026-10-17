@@ -284,13 +284,13 @@ it.each([false, true])(
 		f.config.listColumnOrder.push(hidden.uuid);
 		f.config.detailColumnOrder.push(hidden.uuid);
 		f.admitted();
+		// A calculation hidden from both screens is still a field of the
+		// short detail, evaluated for every row, order rule or not.
 		const query = buildSearchQuery(f.args);
-		expect([...query.instances]).toEqual(sorted ? ["casedb"] : []);
+		expect([...query.instances]).toEqual(["casedb"]);
 		expect(queries(f.args)).toEqual([
 			{ key: "case_type", ref: "'patient'" },
-			...(sorted
-				? [{ key: "x_commcare_include_all_related_cases", ref: "'true'" }]
-				: []),
+			{ key: "x_commcare_include_all_related_cases", ref: "'true'" },
 		]);
 	},
 );
@@ -338,9 +338,12 @@ it("joins authored title/subtitle and prompt labels to their locale references",
 		"case_search.m0.description": "A name can help.",
 		"search_property.m0.first_name": "Patient name",
 	});
+	// With no subtitle the description is written blank, as HQ's build of
+	// the saved app writes it.
 	const uncustomized = buildSearchQuery(f.args);
 	expect(uncustomized.strings).toEqual({
 		"case_search.m0.inputs": "Search",
+		"case_search.m0.description": "",
 		"search_property.m0.first_name": "Patient name",
 	});
 	expect(
@@ -348,7 +351,7 @@ it("joins authored title/subtitle and prompt labels to their locale references",
 			readXmlEvidence(serializeXml(uncustomized.element)),
 			"description",
 		),
-	).toEqual([]);
+	).toHaveLength(1);
 });
 it.each([false, true])(
 	"carries a confirmation detail only when one is emitted: %s",

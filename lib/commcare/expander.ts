@@ -41,6 +41,7 @@ import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import {
 	type CommCareLocalization,
 	commCareLocalization,
+	repeatForLanguages,
 } from "@/lib/commcare/localization";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
@@ -48,6 +49,7 @@ import { buildLogoRefs } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
 import { hqCaseActions } from "@/lib/commcare/subcaseWire";
+import { EMPTY_CASE_LIST_TEXT } from "@/lib/commcare/suite/case-list/detailTexts";
 import {
 	NEVER_RELEVANT,
 	NO_MATCHES_RELEVANCY,
@@ -414,6 +416,15 @@ export function expandDoc(
 			opts.lookupNaming,
 		);
 		const caseDetails = hasCases ? projection.caseDetails : detailPair([]);
+		// Every menu's empty-list text, in every app language: HQ's model
+		// default holds `en` alone, and its module settings save writes the
+		// page's language as an empty text, which reads blank in an app with
+		// no English. Written on both pairs a menu can take, because the save
+		// writes into a survey menu's short detail too.
+		caseDetails.short.no_items_text = repeatForLanguages(
+			localization.languages,
+			EMPTY_CASE_LIST_TEXT,
+		);
 
 		const shell = moduleShell(
 			moduleUniqueIds[mIdx],
@@ -425,6 +436,7 @@ export function expandDoc(
 			caseType,
 			forms,
 			caseDetails,
+			localization.languages,
 		);
 		shell.session_endpoint_id = mod.entryPoint?.id ?? "";
 		shell.case_list_session_endpoint_id = mod.caseListEntryPoint?.id ?? "";

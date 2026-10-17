@@ -40,6 +40,7 @@ import {
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	CALCULATED_SEARCH_EXPRESSION_GUIDANCE,
+	CASE_LIST_ORDER_GUIDANCE,
 	columnUpdateInputSchema,
 	stampColumnUuid,
 	uuidInputSchema,
@@ -51,7 +52,7 @@ export const updateCaseListColumnInputSchema = moduleAddressSchema
 			"Uuid of the existing column to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
 		column: columnUpdateInputSchema.describe(
-			`Replacement column body (full shape, any kind). The uuid carries over from the existing entry — never supply one, and the column keeps its place on the case tile. Use setCaseListTile to move it. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE}`,
+			`Replacement column body (full shape, any kind). The uuid carries over from the existing entry — never supply one, and the column keeps its place on the case tile. Use setCaseListTile to move it. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE} ${CASE_LIST_ORDER_GUIDANCE}`,
 		),
 	})
 	.strict();

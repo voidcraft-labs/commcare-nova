@@ -1106,36 +1106,6 @@ class Predicates(unittest.TestCase):
             self.assertIs(refused["finishing"], False)
             self.assertEqual(refused["errorText"], "Client-side error (code 400) received from network request.")
 
-    # The spelling rules one of whose readers is Android ---------------------------------------------------------
-
-    def test_a_search_description_changes_nothing_a_device_shows(self):
-        """The rule ``search-description-empty``. Contract: Android's search screen shows no description, so a
-        search whose ``<query>`` holds the ``<description>`` HQ's build writes for a description of no text
-        (its text the non-breaking space HQ's app strings hold) is, on a device, the search without one: the
-        install, every profile reader, the home screen and every walk are the same. Failure it catches: a
-        search screen that shows the description, or an install the element changes."""
-        title = '<title><text><locale id="case_search.m0.inputs"/></text></title>'
-        described = title + '<description><text><locale id="case_search.m0.description"/></text></description>'
-        with zipfile.ZipFile(SEARCH_COMPILE) as zipped:
-            suite = zipped.read("suite.xml").decode()
-            strings = {name: zipped.read(name).decode() for name in ("default/app_strings.txt", "en/app_strings.txt")}
-        self.assertIn(title, suite)
-        self.assertNotIn("<description>", suite)
-        with_description = variant(
-            SEARCH_COMPILE,
-            self.work / "description.ccz",
-            {
-                "suite.xml": suite.replace(title, described).encode(),
-                **{
-                    name: (text.rstrip("\n") + "\ncase_search.m0.description=\u00a0\n").encode()
-                    for name, text in strings.items()
-                },
-            },
-        )
-        plain, other = self.walked(SEARCH_COMPILE), self.walked(with_description)
-        self.assertTrue(self.steps(plain, "QueryRequestActivity"))
-        self.assertEqual(differing(plain, other), set())
-
     def test_a_fuzzy_search_matches_a_columns_sort_key_and_only_where_it_has_one(self):
         """Finding 51. Contract: with fuzzy search on, Android matches a misspelled term against each column's
         sort key (``EntityStringFilterer``, ``EntitySortUtil``), so the same list finds a case by a misspelling
@@ -1189,6 +1159,8 @@ class Predicates(unittest.TestCase):
         self.assertEqual(offered["suffixed"], {"en": "English", "cmn-hans": "简体中文", "cmn-hant": "繁體中文"})
         self.assertEqual(offered["zho"], {"en": "English", "zho": "简体中文", "cmn-hant": "繁體中文"})
         self.assertEqual(offered["unnamed"], {"en": "English", "zho": "zho", "cmn-hant": "繁體中文"})
+
+    # The spelling rules one of whose readers is Android ---------------------------------------------------------
 
     def test_a_device_reads_an_archive_alike_under_either_app_id(self):
         """The spelling rule ``runtime-url-app-id``. Contract: an archive whose search URL and server

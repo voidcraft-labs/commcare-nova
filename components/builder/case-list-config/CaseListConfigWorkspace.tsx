@@ -97,6 +97,7 @@ import {
 	type CaseSelection,
 	type CaseTileGrouping,
 	type Column,
+	caseListOrdersByMapping,
 	caseSearchConfigAfterFinalInputRemoval,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
@@ -115,6 +116,7 @@ import {
 	type Predicate,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
 import { selectableSegmentCls } from "@/lib/styles";
@@ -169,6 +171,7 @@ import {
 import { TileCellInspector } from "./tile/TileCellInspector";
 import type { CaseListArrangement } from "./tile/TileLayoutToggle";
 import {
+	hiddenFromResultsLine,
 	nextFreeTilePlacement,
 	placementForJoiningTile,
 	tileMembership,
@@ -1098,8 +1101,14 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		);
 		if (!outcome.ok) return;
 		pendingCanvasFocusRef.current = surface;
+		/* Hiding from Results says what the list's search then matches, in
+		 * the same line the column's placement shows. */
+		const searchLine =
+			surface === "list"
+				? hiddenFromResultsLine(hidden, config.tile !== undefined)
+				: undefined;
 		setWorkspaceAnnouncement(
-			`${label} hidden from ${surfaceDisplayName(surface)}. You can add it again from Add information.`,
+			`${searchLine === undefined ? `${label} hidden from ${surfaceDisplayName(surface)}.` : `${label}: ${searchLine}`} You can add it again from Add information.`,
 		);
 		deselect();
 	};
@@ -2586,6 +2595,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 					surface === null ? null : (
 						<ColumnInspectorBody
 							key={column.uuid}
+							moduleUuid={args.moduleUuid}
 							column={column}
 							config={config}
 							surface={surface}
@@ -2728,6 +2738,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 }
 
 function ColumnInspectorBody({
+	moduleUuid,
 	column,
 	config,
 	surface,
@@ -2746,6 +2757,7 @@ function ColumnInspectorBody({
 	onHide,
 	onDelete,
 }: {
+	readonly moduleUuid: Uuid | undefined;
 	readonly column: Column;
 	readonly config: CaseListConfig;
 	/** The whole case list: a tile placement is adjudicated against the
@@ -2767,6 +2779,7 @@ function ColumnInspectorBody({
 	readonly onDelete: () => void;
 }) {
 	const canEdit = useCanEdit();
+	const orderPlan = useCaseListOrderPlan(moduleUuid, config);
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
 	/* Focus lands here when the tile section removes itself, its own button
 	 * goes with it, and an unmounted action never drops focus on the page. */
@@ -2798,6 +2811,10 @@ function ColumnInspectorBody({
 				userProperties={userProperties}
 				currentCaseType={currentCaseType}
 				searchIsEffective={searchIsEffective}
+				ordersByMapping={
+					orderPlan !== undefined &&
+					caseListOrdersByMapping(orderPlan, column.uuid)
+				}
 			/>
 			<TileCellInspector
 				column={column}

@@ -130,7 +130,7 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
-	caseListColumnIsEmitted,
+	caseListColumnRuns,
 	casePropertyTargetKey,
 	caseTypeTargetKey,
 	collectTranslationUnits,
@@ -628,9 +628,10 @@ function promptSettings(input: SearchInputDef): unknown {
  *   for `default_search`, and `buildSearchQuery` reads them for its
  *   `_xpath_query` clauses, prompt defaults and instances);
  * - whether a calculated column it emits reads a related case, which adds
- *   the supporting-case request (`relatedCaseProjection.ts::searchNeedsSupportingCases`);
- * - whether the search screen has a subtitle, which adds a `<description>`
- *   (its words, and the title's, land in the app's strings).
+ *   the supporting-case request (`relatedCaseProjection.ts::searchNeedsSupportingCases`).
+ *
+ * Every query writes a `<description>`, blank where no subtitle is authored,
+ * so a subtitle's words, like the title's, land in the app's strings alone.
  *
  * The filter and owner exclusion it also sends are `selectionDatum`'s; the
  * calculated columns' instances it declares are `ownEntryInstances`'s, as
@@ -656,8 +657,6 @@ const inlineSearch: ModuleDerivation = {
 				caseList,
 				moduleTypeContext(module, side.wire),
 			),
-			description:
-				effectiveCaseSearchConfig(module)?.searchScreenSubtitle !== undefined,
 		};
 	},
 	holders: selectionForms,
@@ -726,7 +725,10 @@ const ownEntryInstances: ModuleDerivation = {
 			: effectiveCaseSearchConfig(module)?.searchButtonDisplayCondition;
 		const calculated = new Set<string>();
 		for (const column of module.caseListConfig?.columns ?? []) {
-			if (column.kind !== "calculated" || !caseListColumnIsEmitted(column)) {
+			if (
+				column.kind !== "calculated" ||
+				!caseListColumnRuns(column, module.caseListConfig ?? {})
+			) {
 				continue;
 			}
 			for (const id of collectExpressionInstances(

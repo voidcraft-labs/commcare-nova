@@ -63,7 +63,11 @@ import {
 	resolveModuleAddress,
 } from "../shared/entityAddresses";
 import type { MutationSuccess } from "../shared/toolCallSummary";
-import { caseTileLayoutInputSchema, tilePlacementInputSchema } from "./shared";
+import {
+	caseTileLayoutInputSchema,
+	tileCellFromInput,
+	tilePlacementInputSchema,
+} from "./shared";
 
 export const setCaseListTileInputSchema = moduleAddressSchema
 	.extend({
@@ -161,7 +165,10 @@ export const setCaseListTileTool = {
 					);
 				}
 				named.add(columnUuid);
-				const cell = placement.cell ?? undefined;
+				const cell =
+					placement.cell === null
+						? undefined
+						: tileCellFromInput(placement.cell);
 				mutations.push(
 					...columnTileMutations(current, { ...current, tile: cell }, mod.uuid),
 				);
@@ -193,9 +200,10 @@ export const setCaseListTileTool = {
 			const committedConfig =
 				commit.newDoc.modules[moduleUuid]?.caseListConfig ?? config;
 			// Only a field the tile SHOWS needs a place, which is the coverage
-			// rule's own scope: a field hidden from Results emits as the zero-width
-			// sort carrier and renders nothing, so ordering by something a worker
-			// can't see keeps working on a tile.
+			// rule's own scope: a field hidden from Results is no field of the
+			// tile, and one that orders the list rides as a sort row for which
+			// CommCare appends a zero-width carrier that renders nothing, so
+			// ordering by something a worker can't see keeps working on a tile.
 			const unplacedColumnUuids = committedConfig.columns
 				.filter(
 					(column) =>

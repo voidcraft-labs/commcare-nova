@@ -183,9 +183,10 @@ must remain valid even when it is hidden in both layouts and absent from sort.
 Hiding a column is a reversible presentation edit, so schema admission, the
 commit gate, builder recovery, SA/MCP projections, and migrations retain and
 validate its complete definition. Only preview, CommCare compilation, and
-emitted-reference walks consult the one `caseListColumnIsEmitted` predicate. A
-hidden definition is not deferred invalid data and revealing it never opens a
-repair flow.
+emitted-reference walks consult the two predicates that say a column reaches a
+runtime: `caseListColumnRuns`, a runtime evaluates its value, and
+`caseListColumnTextShows`, its header, labels or images reach a screen. A hidden definition is not deferred invalid data and
+revealing it never opens a repair flow.
 
 **Nova is not CommCare HQ.** HQ, CommCare Core, Formplayer, and CommCare Android
 establish only what the target wire and runtime accept, reject, or execute. Their
@@ -371,6 +372,16 @@ These decisions are closed unless the project owner explicitly reopens them.
   presentation is not promised until the Web Apps HTTPS-resource path works.
 - **Smart links belong to data registries, which are retiring, so they never
   ship.** No unused emission helper lands as speculative machinery.
+- **A tile list's search misses a hidden column with no order rule.** In a list
+  with a case tile, a column hidden from Results is no field of the tile's short
+  detail. One that carries an order rule rides as a sort row with no stored
+  column, for which CommCare appends a zero-width field the search matches; one
+  with no order rule reaches the short detail not at all, so the list's search
+  cannot match its value. Every surface says so where the column is hidden
+  (the builder's line, the `visibleInList` tool description, the docs). A hidden calculated column, or one over
+  `case_id`, cannot carry an order rule in a tile list at all
+  (`CASE_TILE_HIDDEN_CALCULATED_SORT`): its rule would need a stored column,
+  which HQ's Case List save gives a cell.
 - **Long-detail tiles are out of scope.** Tiles apply to the short and
   search details; the case-detail view emits a plain field list.
 - **The offline demo sandbox is out of scope.** A `.ccz` can embed a complete

@@ -166,7 +166,7 @@ describe("searchNeedsSupportingCases", () => {
 		),
 	);
 
-	it("derives support only from emitted related calculations", () => {
+	it("derives support from every related calculation a runtime evaluates", () => {
 		const visibleRelated = calculatedColumn(
 			testUuid("visible-related"),
 			"Region",
@@ -197,8 +197,17 @@ describe("searchNeedsSupportingCases", () => {
 		expect(
 			searchNeedsSupportingCases(configWith([visibleSelf]), PARENT_GRAPH),
 		).toBe(false);
+		// A column hidden from both screens is still a hidden field of a list
+		// with no tile layout, whose value the list's search matches.
 		expect(
 			searchNeedsSupportingCases(configWith([dormantRelated]), PARENT_GRAPH),
+		).toBe(true);
+		// In a tile list it is no field, and nothing evaluates it.
+		expect(
+			searchNeedsSupportingCases(
+				{ ...configWith([dormantRelated]), tile: {} },
+				PARENT_GRAPH,
+			),
 		).toBe(false);
 		expect(
 			searchNeedsSupportingCases(configWith([visibleRelated]), PARENT_GRAPH),

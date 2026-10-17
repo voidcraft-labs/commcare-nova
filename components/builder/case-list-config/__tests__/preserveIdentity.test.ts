@@ -7,6 +7,7 @@ import {
 	dateColumn,
 	plainColumn,
 	simpleSearchInputDef,
+	tileCell,
 } from "@/lib/domain";
 import { eq, input, prop, whenInput } from "@/lib/domain/predicate";
 import { withPreservedIdentity } from "../preserveIdentity";
@@ -18,7 +19,7 @@ describe("rebuilt case-list item identity", () => {
 		const uuid = testUuid("preserve-column"),
 			fresh = testUuid("preserve-new-column");
 		const existing = plainColumn(uuid, "date_opened", "Opened", {
-			tile: { x: 0, y: 2, width: 6, height: 1, fontSize: "large" },
+			tile: tileCell(0, 2, 6, 1, { fontSize: "large" }),
 		});
 		const rebuilt = dateColumn(fresh, "date_opened", "Date opened", "%Y-%m-%d");
 		columnSchema.parse(existing);
@@ -30,7 +31,7 @@ describe("rebuilt case-list item identity", () => {
 			field: "date_opened",
 			header: "Date opened",
 			pattern: "%Y-%m-%d",
-			tile: { x: 0, y: 2, width: 6, height: 1, fontSize: "large" },
+			tile: tileCell(0, 2, 6, 1, { fontSize: "large" }),
 		});
 		expect(rebuilt.uuid).toBe(fresh);
 		expect(existing.kind).toBe("plain");

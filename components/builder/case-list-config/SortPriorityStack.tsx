@@ -42,6 +42,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useCaseListOrderChoiceRefusal } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import {
 	type ProseProjector,
 	useProseProjection,
@@ -52,6 +53,7 @@ import type {
 	Column,
 	ColumnSort,
 	SortDirection,
+	Uuid,
 } from "@/lib/domain";
 import { type CaseListConfig, orderedColumns } from "@/lib/domain";
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
@@ -66,6 +68,9 @@ import { seedColumnForProperty } from "./seeds";
 import { resolveSortedColumns } from "./sortPriority";
 
 export interface CaseOrderingComposerProps {
+	/** The module whose list this orders: the Add menu asks the gate's order
+	 *  rules about each choice against that module's list. */
+	readonly moduleUuid: Uuid;
 	/** The whole config, because both lists this composer shows are Results
 	 *  sequences: the sorted carriers and the fields still available to add. */
 	readonly config: CaseListConfig;
@@ -75,12 +80,12 @@ export interface CaseOrderingComposerProps {
 	readonly onChange: (next: readonly Column[]) => void;
 }
 
-type OrderChoice =
-	| { readonly kind: "existing"; readonly column: Column }
-	| {
-			readonly kind: "property";
-			readonly property: CaseType["properties"][number];
-	  };
+/** The column a choice would put in the default order: a stored column, or a
+ *  new column over the property, hidden from both screens. The same column is
+ *  asked about and committed, so its reason is the commit's. */
+interface OrderChoice {
+	readonly column: Column;
+}
 
 /**
  * Sorting is a relationship between fields, so its overview and full rule
@@ -89,6 +94,7 @@ type OrderChoice =
  * "First … Then …".
  */
 export function CaseOrderingComposer({
+	moduleUuid,
 	config,
 	value,
 	caseType,
@@ -108,6 +114,12 @@ export function CaseOrderingComposer({
 	const composerRef = useRef<HTMLDivElement | null>(null);
 	const addRuleTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const sorted = useMemo(() => resolveSortedColumns(config), [config]);
+	/* The Add control exists only in the expanded editor, so the document is
+	 * read for the menu only while it can open. */
+	const orderChoiceRefusal = useCaseListOrderChoiceRefusal(
+		moduleUuid,
+		expanded && canEdit,
+	);
 	// Unsorted fields are offered in Results order, which is the order the
 	// author sees them on the screen they came from.
 	const unsorted = useMemo(
@@ -134,11 +146,27 @@ export function CaseOrderingComposer({
 			const name = column.field;
 			if (!unsortedByProperty.has(name)) unsortedByProperty.set(name, column);
 		}
+		/* A choice an order rule would refuse stays in the menu, disabled, with
+		 * the refusal's own line as its reason: the column `addRule` would
+		 * commit, carrying the rule it would take, is put to the gate's order
+		 * rules over the list as the choice would leave it. */
+		const withheld = (column: Column) =>
+			orderChoiceRefusal({
+				...column,
+				sort: { direction: "asc", priority: sorted.length },
+			} as Column);
 
 		for (const property of properties) {
 			const name = property.name;
 			if (sortedPropertyNames.has(name)) continue;
 			const existing = unsortedByProperty.get(name);
+			const column =
+				existing ??
+				seedColumnForProperty(property, projectProse, {
+					visibleInList: false,
+					visibleInDetail: false,
+				});
+			const disabledReason = withheld(column);
 			choices.push({
 				id: `property:${name}`,
 				label:
@@ -146,10 +174,8 @@ export function CaseOrderingComposer({
 						? propertyDisplayLabel(property, projectProse)
 						: friendlyColumnLabel(existing, caseType, projectProse),
 				group: "Case information",
-				value:
-					existing === undefined
-						? { kind: "property", property }
-						: { kind: "existing", column: existing },
+				value: { column },
+				...(disabledReason !== undefined && { disabledReason }),
 			});
 		}
 
@@ -157,6 +183,7 @@ export function CaseOrderingComposer({
 			if (column.kind !== "calculated" && propertyByName.has(column.field)) {
 				continue;
 			}
+			const disabledReason = withheld(column);
 			choices.push({
 				id: `saved:${column.uuid}`,
 				label: friendlyColumnLabel(column, caseType, projectProse),
@@ -168,13 +195,14 @@ export function CaseOrderingComposer({
 					column.kind === "calculated"
 						? "Calculated information"
 						: "More information",
-				value: { kind: "existing", column },
+				value: { column },
+				...(disabledReason !== undefined && { disabledReason }),
 			});
 		}
 		return choices;
-	}, [caseType, sorted, unsorted, projectProse]);
+	}, [caseType, orderChoiceRefusal, sorted, unsorted, projectProse]);
 	const orderSummary = useMemo(() => {
-		if (sorted.length === 0) return "No default order";
+		if (sorted.length === 0) return "Ordered by the first column";
 		const shown = sorted.slice(0, 2).map((column) => {
 			const direction = column.sort?.direction ?? "asc";
 			const directionLabel =
@@ -342,21 +370,15 @@ export function CaseOrderingComposer({
 	const addRule = useCallback(
 		(choice: OrderChoice) => {
 			if (!canEdit) return;
-			const column =
-				choice.kind === "existing"
-					? choice.column
-					: {
-							...seedColumnForProperty(choice.property, projectProse, {
-								visibleInList: false,
-								visibleInDetail: false,
-							}),
-						};
 			applyRuleSequence([
 				...sorted,
-				{ ...column, sort: { direction: "asc", priority: sorted.length } },
+				{
+					...choice.column,
+					sort: { direction: "asc", priority: sorted.length },
+				} as Column,
 			]);
 		},
-		[applyRuleSequence, canEdit, projectProse, sorted],
+		[applyRuleSequence, canEdit, sorted],
 	);
 
 	return (
@@ -371,7 +393,9 @@ export function CaseOrderingComposer({
 							className={`break-words text-[14px] leading-relaxed ${sorted.length === 0 ? "text-nova-text-muted" : "font-medium text-nova-text"}`}
 						>
 							<span className="sr-only">Current order </span>
-							{sorted.length === 0 ? "No order set" : orderSummary}
+							{sorted.length === 0
+								? "Ordered by the first column"
+								: orderSummary}
 						</p>
 					</div>
 					{(canEdit || sorted.length > 0) && (

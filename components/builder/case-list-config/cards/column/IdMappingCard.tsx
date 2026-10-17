@@ -12,8 +12,12 @@
 //   - `header`: column display label.
 //   - `mapping`: variadic list of `{ value, label }` entries.
 //     Order is significant: the runtime walks the list top-to-
-//     bottom and renders the first match, so authors can place
-//     more-specific entries above more-general ones.
+//     bottom and renders the first match, and the list orders the
+//     column by entry position, so the table's order is the sort
+//     order. A saved value can't hold a space, nor any of the five
+//     characters CommCare HQ's ID mapping can't store (`&`, `<`,
+//     `>`, `"`, `'`; the validator's
+//     `CASE_LIST_ID_MAPPING_KEY_CHARACTERS`), so neither is staged.
 //
 // Why move-up / move-down (not drag-and-drop): mapping tables
 // are typically 2-10 entries authored once. The complexity of
@@ -33,12 +37,14 @@ import {
 	type IdMappingEntry,
 	idMappingColumn,
 	idMappingEntry,
+	idMappingValueHoldsForbiddenCharacter,
 } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 import {
 	AddMappingButton,
 	MappingEmptyNotice,
+	MappingOrderNote,
 	MappingRowShell,
 	MappingSectionLabel,
 	useMappingRemovalFocus,
@@ -51,7 +57,12 @@ interface IdMappingCardProps {
 	readonly errors?: readonly string[];
 }
 
-export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
+export function IdMappingCard({
+	value,
+	onChange,
+	ctx,
+	errors,
+}: IdMappingCardProps) {
 	const { rootRef, removeWithFocus } = useMappingRemovalFocus();
 	const rowIdentity = useStableListIdentity(value.mapping);
 	const [adding, setAdding] = useState(false);
@@ -229,6 +240,7 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 				) : (
 					<AddMappingButton onClick={() => setAdding(true)} />
 				)}
+				{ctx.ordersByMapping === true && <MappingOrderNote />}
 			</div>
 		</div>
 	);
@@ -306,6 +318,9 @@ function mappingValueIssue(
 ): string | null {
 	if (candidate.length === 0) return "Enter a saved value.";
 	if (/\s/.test(candidate)) return "Saved values cannot contain spaces.";
+	if (idMappingValueHoldsForbiddenCharacter(candidate)) {
+		return "Saved values can't hold &, <, >, \" or '.";
+	}
 	return entries.some(
 		(entry, index) => index !== candidateIndex && entry.value === candidate,
 	)

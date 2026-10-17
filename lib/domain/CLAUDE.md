@@ -237,13 +237,33 @@ Publishing does not install a rule, Preview does not mutate cases or advance a
 schedule, and a generated guide is never persisted beside its source object.
 
 Every saved case-list column is valid unconditionally, including one hidden
-from both layouts and absent from sort. `caseListColumnIsEmitted` is the sole
-authored-to-runtime projection. Preview, CommCare emission, and emitted-reference
-walks consult it, as does the authored persistence walk
+from both layouts and absent from sort. Two predicates in `modules.ts` are
+the authored-to-runtime projection. `caseListColumnRuns(column, config)` says
+a runtime evaluates the column's value: every column of a list with no tile
+layout, and in a tile list a column shown on Results or Details. CommCare
+emission's instance walks and Preview's case data binding consult it.
+`caseListColumnTextShows(column)` says its header, labels or images reach a
+screen: a column shown on Results or Details. The translation inventory
+consults it, as does the authored persistence walk
 `mediaRefs.ts::walkAuthoredAssetRefs` that backs reverse-index admission,
-deletion, and Project moves. Schemas, admission, and editor projections retain
-and validate the complete definition; no validator, `lib/doc`, or component
-reads it.
+deletion, and Project moves. Schemas, admission, and editor
+projections retain and validate the complete definition; no validator,
+`lib/doc`, or component reads either.
+
+**A list's order is one derived statement.** `caseListOrder.ts::caseListOrderPlan`
+states a case list's short-detail fields and its order as HQ's build writes
+them for the app Nova sends: each field's wire class and join text, the sort
+key it keeps with no rule, each authored rule and where it lands, the implicit
+rule of an unsorted list, and the carriers appended for a rule no field takes.
+It stores nothing and imports nothing from `lib/commcare`: the three options it
+cannot compute (`mediaOn`, a calculated column's resolved type, an expression
+column's printed text) come from
+`lib/commcare/suite/case-list/orderPlanOptions.ts::caseListOrderOptions`. The
+HQ JSON, the local suite, Preview's case store read, the order rules of the
+validator and the cutover all read this one plan, so none decides an order on
+its own. A date column's `pattern` is any pattern Core formats; the schema keeps
+its pattern check, and the validator alone refuses a straight apostrophe
+(`CASE_LIST_DATE_PATTERN_APOSTROPHE`), which HQ's build writes unescaped.
 
 **A choice's stored value has one grammar, and the slug is what Nova teaches, not all it admits.** `selectOptionValue.ts` is the shared leaf for the VALUE of an inline select option and of a catalog property's option: non-empty, no whitespace, no `'` `"` `` ` `` (`SELECT_OPTION_VALUE_PATTERN`). The bound is the wire's, not a naming taste: CommCare Android throws on any select value holding a space, a multi-select answer is a space-joined token list, and the case list compares the property inside an XPath literal. The stored schemas (`selectOptionSchema`, the catalog `options`) stay permissive so a document written before the rule still hydrates; the validator (`SELECT_OPTION_VALUE_INVALID` / `CASE_PROPERTY_OPTION_VALUE_INVALID`), the SA/MCP schemas, and the builder's editor all apply the leaf, and every one of them suggests the underscore-joined slug rather than only refusing: `suggestSelectOptionValue` mints it from a label and `repairSelectOptionValue` from a refused value (its own words first, then the label's), both NFC-normalized and lowercased over Unicode letters, combining marks, and digits (so "Sí" becomes `sí`, not `s`, and "नमस्ते" keeps its vowel signs and virama rather than splitting at each one; the grammar admits those characters, so the suggester must too) and both suffixed `_2`, `_3` past any sibling's value, because the validator has no inline duplicate-value rule to catch a collision the suggestion itself created. `sanitizeSelectOptionValue` is the keystroke repair (whitespace to `_`, quotes dropped) and deliberately never trims an edge: it runs on every keystroke of a controlled input, where trimming would erase the `_` just typed before the next character lands. It keeps case and every other character, because `ICD10` and `a-b` are safe data. Model-facing schemas compose `selectOptionValueSchema`, the one Zod leaf carrying the pattern, the rejection, and the teaching description together, so no slot can police the shape without stating it first; the `_2`, `_3` collision policy is `idSlug.ts::suffixUntilFree`, shared with module and form ids. A choice nobody has named yet is `fields/base.ts::mintSelectOptionPlaceholder(n)` (`option_n` / "Option n"), and `isMintedSelectOptionPlaceholder` is its recognizer (a label with any structural reference is authored content, never an untouched placeholder): the builder's editor lets the first real label of such a row name its value, and the refusals use the same minter for the fallback value, so the convention lives once.
 
@@ -365,7 +385,7 @@ Values are keyed by property **UUID**, never slug, so a slug rename rewrites not
 
 `BUILT_IN_USER_PROPERTIES` is the set CommCare injects into every worker's session AFTER the authored data, so it doubles as the reserved-name list — `__tests__/users.test.ts` asserts that every built-in slug is already unreachable through the slug rule rather than maintaining a second list. Each entry carries an `availability` saying whether Nova can honestly supply it before a deployment target exists, and a `readByRuntime` flag: exactly three keys change how the runtime behaves and the rest are inert. Slug legality itself is a CommCare rule and lives with the validator (`lib/commcare/validator/userPropertySlug.ts`), re-exported through `lib/doc/identifierVerdicts.ts` so authoring surfaces keep one import home. Two HQ `Field` columns are excluded on purpose: `regex` (paid privilege — an authored pattern would silently not validate) and `required_for` (the mobile/web split Nova does not model, because it provisions mobile workers only).
 
-A case list is laid out either as a row of columns or as a **tile**: `caseListConfig.tile` (presence IS the switch) plus a per-column `tile` cell carrying `{x, y, width, height}` and optional alignment / text size / border / shading. Placement is NOT sequence — a cell is where a field sits on the grid, the config's two ordering arrays are where it sits in a sequence, and the two never derive from each other. The five presentation slots live INSIDE the cell because CommCare's `<style>` cannot exist without a complete `<grid>`, so styling an unplaced column has no wire spelling; keeping them nested is what makes that state unrepresentable rather than merely rejected. The schema keeps only the per-cell bounds with no repair ambiguity (non-negative origin, positive span) so an imported out-of-grid or overlapping layout still LOADS; the grid contract itself — the 12 × 12 cap, no overlap, full coverage — is the validator's (`lib/commcare/validator/rules/case-list/caseTileLayout.ts`). `tileGridExtent` is the derived fact every renderer must share: the drawn grid is the OCCUPIED extent, never the 12-column authoring canvas.
+A case list is laid out either as a row of columns or as a **tile**: `caseListConfig.tile` (presence IS the switch) plus a per-column `tile` cell carrying `{x, y, width, height}`, its required `horizontalAlign`, `verticalAlign` and `fontSize` (`tileCell()` fills `left`, `top` and `medium`), and optional border / shading. Placement is NOT sequence — a cell is where a field sits on the grid, the config's two ordering arrays are where it sits in a sequence, and the two never derive from each other. The five presentation slots live INSIDE the cell because CommCare's `<style>` cannot exist without a complete `<grid>`, so styling an unplaced column has no wire spelling; keeping them nested is what makes that state unrepresentable rather than merely rejected. The schema keeps only the per-cell bounds with no repair ambiguity (non-negative origin, positive span) so an imported out-of-grid or overlapping layout still LOADS; the grid contract itself — the 12 × 12 cap, no overlap, full coverage — is the validator's (`lib/commcare/validator/rules/case-list/caseTileLayout.ts`). `tileGridExtent` is the derived fact every renderer must share: the drawn grid is the OCCUPIED extent, never the 12-column authoring canvas.
 
 ## Expressions, Connect, media live where their boundary is
 

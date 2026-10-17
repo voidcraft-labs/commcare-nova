@@ -4,12 +4,13 @@ import { buildDoc, caseListConfig, xp } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { mutationSchema } from "@/lib/doc/types";
-import type {
-	BlueprintDoc,
-	CaseSelection,
-	Form,
-	Module,
-	Uuid,
+import {
+	type BlueprintDoc,
+	type CaseSelection,
+	type Form,
+	type Module,
+	tileCell,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	planCaseSelectionTransition as actualTransition,
@@ -178,7 +179,7 @@ function linkedDoc(args?: {
 		}),
 	};
 	if (args?.targetTile && target.caseListConfig)
-		target.caseListConfig.columns[0].tile = { x: 0, y: 0, width: 1, height: 1 };
+		target.caseListConfig.columns[0].tile = tileCell(0, 0, 1, 1);
 	const doc = buildDoc({
 		appName: "Planner",
 		caseTypes: [

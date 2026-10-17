@@ -769,11 +769,19 @@ cloning `BlueprintDoc` into a second app model.
   template is empty.
 - Suite app strings become a complete table per language rather than one map
   copied to every directory. Multi-select label expressions retain each option's
-  original catalog index when non-token values are skipped. HQ enum variables
-  use fixed-width, prefix-free indices because HQ discovers them through ordered
-  substring replacement. Hidden Results sort carriers retain their positional
-  calculation join but strip unused translated-enum expressions and variables
-  that HQ's final Invisible formatter cannot declare.
+  original catalog index when non-token values are skipped. A
+  `translatable-enum` column's variables, a select's labels and an interval's
+  text, use fixed-width, prefix-free indices because HQ discovers them through
+  ordered substring replacement. An ID mapping is HQ's `enum`, whose variables
+  HQ names from each entry's value. In a list with no case tile, a column hidden
+  from Results is HQ's `invisible` column on both paths: the raw property, with
+  no label expression and no enum variables, under an empty header that has no
+  locale id and no app string. An order rule on it is a sort element over the
+  property name. Only a hidden calculated column, and a hidden column over
+  `case_id`, `owner_id` or `status`, keeps its expression and the positional
+  join. In a tile list a hidden column is no field, and its order rule is a sort
+  element with no stored column. A sort element's `display` holds one key, the
+  first language's wire code, with empty text.
 - The direct CCZ writes the default table to `default/app_strings.txt` and each
   other table to its wire-code directory. Every table carries the language
   name rows and `lang.current` values CommCare's picker expects. Values

@@ -195,27 +195,6 @@
 		"control": "targeted-time-ordering"
 	},
 	{
-		"id": "d10-row-order-trace-rows-caseid",
-		"defect": 10,
-		"part": "label-column and unsorted order",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/rows/*/caseId",
-		"document": "targeted-label-sort",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0"
-	},
-	{
-		"id": "d10-row-order-trace-rows-sortfields",
-		"defect": 10,
-		"part": "label-column and unsorted order",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/rows/*/sortFields/*",
-		"document": "targeted-label-sort",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0",
-		"kind": "changed"
-	},
-	{
 		"id": "d12-custom-tile-app-case-tile-template",
 		"defect": 12,
 		"part": "custom tile",
@@ -494,117 +473,6 @@
 		"path": "/modules/*/case_type",
 		"document": "targeted-survey-menu",
 		"control": "targeted-survey-menu"
-	},
-	{
-		"id": "d14-tiles-app-null-on-a-custom-tile-column",
-		"defect": 14,
-		"part": "tiles",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:Detail.case_tile_template/refused/null-on-a-custom-tile-column",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-app-null-on-an-unplaced-custom-tile-column",
-		"defect": 14,
-		"part": "tiles",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:Detail.case_tile_template/refused/null-on-an-unplaced-custom-tile-column",
-		"document": "tile",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-tiles-app-font-size",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/case_details/short/columns/*/font_size",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-app-grid-x-changed",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/case_details/short/columns/*/grid_x",
-		"kind": "changed",
-		"document": "workforce-tile-persistent",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-tiles-app-grid-y-changed",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/case_details/short/columns/*/grid_y",
-		"kind": "changed",
-		"document": "workforce-tile-persistent",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-tiles-app-height-added",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/case_details/short/columns/*/height",
-		"kind": "added",
-		"document": "workforce-tile-persistent",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-tiles-app-width-added",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/case_details/short/columns/*/width",
-		"kind": "added",
-		"document": "workforce-tile-persistent",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-tiles-suite-style-added",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*",
-		"path": "/suite/detail[@id=*]/field[*]/style[*]",
-		"kind": "added",
-		"document": "workforce-tile-persistent",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-tiles-suite-style-font-size",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*",
-		"path": "/suite/detail[@id=*]/field[*]/style[*]/@font-size",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d16-hidden-columns-evaluate-rows-caseid",
-		"defect": 16,
-		"part": "hidden columns",
-		"check": "intent",
-		"artifact": "evaluate:search-by-village@local",
-		"path": "/caseList/rows/*/caseId",
-		"values": {
-			"before": "targeted-amina",
-			"after": {
-				"absent": "Core's result holds nothing at this pointer."
-			}
-		},
-		"document": "targeted-hidden-column",
-		"control": "targeted-hidden-column"
 	},
 	{
 		"id": "d20-sync-on-form-entry-suite-entry-post",
@@ -2073,96 +1941,6 @@
 		"control": "container-live-count-entry"
 	},
 	{
-		"id": "d35-hidden-select-text-trace-rows-fields",
-		"defect": 35,
-		"part": "hidden select column text",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/rows/*/fields/*",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0"
-	},
-	{
-		"id": "d36-hidden-sort-offered-trace-headers",
-		"defect": 36,
-		"part": "hidden sort column offered",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/headers/*",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0",
-		"control": "case-list-inline"
-	},
-	{
-		"id": "d38-image-map-width-trace-headerwidths",
-		"defect": 38,
-		"part": "image-map column width",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/headerWidths/*",
-		"document": "case-list-inline",
-		"control": "case-list-inline"
-	},
-	{
-		"id": "d38-image-map-width-trace-templatewidths",
-		"defect": 38,
-		"part": "image-map column width",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/templateWidths/*",
-		"document": "case-list-inline",
-		"control": "case-list-inline"
-	},
-	{
-		"id": "d41-empty-list-text-app-no-items-text",
-		"defect": 41,
-		"part": "empty-list text goes blank",
-		"check": "proof4",
-		"artifact": "app.json@module settings@*@maximum",
-		"path": "/modules/*/case_details/short/no_items_text/*",
-		"document": "localization-optional",
-		"control": "case-list-inline"
-	},
-	{
-		"id": "d41-empty-list-text-strings-m-no-items-text",
-		"defect": 41,
-		"part": "empty-list text goes blank",
-		"check": "proof4",
-		"artifact": "app_strings:*@module settings@*@maximum",
-		"path": "/m*_no_items_text",
-		"document": "endpoint-case-list",
-		"control": "search-browse"
-	},
-	{
-		"id": "d42-tile-alignment-app-null-on-a-placed-custom-tile-column",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:Detail.case_tile_template/refused/null-on-a-placed-custom-tile-column",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d42-tile-alignment-app-horizontal-align",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/case_details/short/columns/*/horizontal_align",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d42-tile-alignment-suite-style-horz-align",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*",
-		"path": "/suite/detail[@id=*]/field[*]/style[*]/@horz-align",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
 		"id": "d48-mixed-quote-suite-csql-fn-search-value-mixes-quote-marks",
 		"defect": 48,
 		"part": "mixed-quote search answer",
@@ -2203,28 +1981,6 @@
 		"document": "search-automatic",
 		"control": "search-automatic",
 		"kind": "removed"
-	},
-	{
-		"id": "d51-sort-keys-trace-rows-sortfields-removed",
-		"defect": 51,
-		"part": "sort keys",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/rows/*/sortFields/*",
-		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"kind": "removed"
-	},
-	{
-		"id": "d51-sort-keys-trace-rows-sortfields-added",
-		"defect": 51,
-		"part": "sort keys",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/rows/*/sortFields/*",
-		"document": "targeted-shared-property-sort",
-		"control": "targeted-shared-property-sort",
-		"kind": "added"
 	},
 	{
 		"id": "d26-form-links-app-form-links-other-module-target",
@@ -2466,36 +2222,6 @@
 		"control": "targeted-sync-on-form-entry"
 	},
 	{
-		"id": "d35-hidden-select-column-text-formplayer-local-ccz-data",
-		"defect": 35,
-		"part": "hidden select column text",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/entities/*/data/*",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0"
-	},
-	{
-		"id": "d10-label-column-and-unsorted-or-formplayer-local-ccz-response-entityorder",
-		"defect": 10,
-		"part": "label-column and unsorted order",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/entityOrder/*",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0"
-	},
-	{
-		"id": "d36-hidden-sort-column-offered-formplayer-local-ccz-response-headers",
-		"defect": 36,
-		"part": "hidden sort column offered",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/headers/*",
-		"document": "targeted-shared-property-sort",
-		"control": "targeted-shared-property-sort"
-	},
-	{
 		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-case",
 		"defect": 24,
 		"part": "inert subcase",
@@ -2591,53 +2317,12 @@
 		"control": "targeted-sync-on-form-entry"
 	},
 	{
-		"id": "d36-hidden-sort-column-offered-formplayer-local-ccz-persistentcasetile-headers",
-		"defect": 36,
-		"part": "hidden sort column offered",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/persistentCaseTile/headers/*",
-		"document": "tile-persistent",
-		"control": "tile-persistent"
-	},
-	{
-		"id": "d51-sort-keys-formplayer-local-ccz-response-sortindices",
-		"defect": 51,
-		"part": "sort keys",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/sortIndices/*",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d51-sort-keys-formplayer-local-ccz-submit-nextscreen-sortindices",
-		"defect": 51,
-		"part": "sort keys",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submit/nextScreen/sortIndices/*",
-		"kind": "removed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-after-59"
-	},
-	{
 		"id": "d12-custom-tile-formplayer-case-list-response-maxheight",
 		"defect": 12,
 		"part": "custom tile",
 		"check": "proof4",
 		"artifact": "formplayer@case list@*",
 		"path": "/runs/*/steps/*/response/maxHeight",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-response-maxwidth",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/maxWidth",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
 	},
@@ -2652,102 +2337,12 @@
 		"control": "targeted-custom-tile"
 	},
 	{
-		"id": "d14-tiles-formplayer-case-list-response-persistentcasetile-maxwidth",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/persistentCaseTile/maxWidth",
-		"document": "tile-persistent",
-		"control": "tile-persistent"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-styles-fontsize",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/persistentCaseTile/styles/*/fontSize",
-		"document": "tile-persistent",
-		"control": "tile-persistent"
-	},
-	{
-		"id": "d42-custom-tile-cell-alignment-formplayer-case-list-styles-horizontalalign",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/persistentCaseTile/styles/*/horizontalAlign",
-		"document": "tile-persistent",
-		"control": "tile-persistent"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-persistentcasetile-tiles",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/persistentCaseTile/tiles/*",
-		"document": "tile-persistent",
-		"control": "tile-persistent"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-tiles-fontsize",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/persistentCaseTile/tiles/*/fontSize",
-		"document": "tile-persistent",
-		"control": "tile-persistent"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-styles-fontsize-2",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/styles/*/fontSize",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d42-custom-tile-cell-alignment-formplayer-case-list-styles-horizontalalign-2",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/styles/*/horizontalAlign",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
 		"id": "d12-custom-tile-formplayer-case-list-response-tiles",
 		"defect": 12,
 		"part": "custom tile",
 		"check": "proof4",
 		"artifact": "formplayer@case list@*",
 		"path": "/runs/*/steps/*/response/tiles",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-response-tiles",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/tiles/*",
-		"document": "tile-grouped-browse",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-tiles-fontsize-2",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/tiles/*/fontSize",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
 	},
@@ -2792,16 +2387,6 @@
 		"control": "targeted-custom-tile"
 	},
 	{
-		"id": "d14-tiles-formplayer-case-list-submit-nextscreen-maxwidth",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/maxWidth",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
 		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-numentitiesperrow",
 		"defect": 12,
 		"part": "custom tile",
@@ -2812,52 +2397,12 @@
 		"control": "targeted-custom-tile"
 	},
 	{
-		"id": "d14-tiles-formplayer-case-list-styles-fontsize-3",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/fontSize",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d42-custom-tile-cell-alignment-formplayer-case-list-styles-horizontalalign-3",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/horizontalAlign",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
 		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-tiles",
 		"defect": 12,
 		"part": "custom tile",
 		"check": "proof4",
 		"artifact": "formplayer@case list@*",
 		"path": "/runs/*/steps/*/submit/nextScreen/tiles",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-nextscreen-tiles",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/tiles/*",
-		"document": "tile-persistent",
-		"control": "tile-persistent"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-tiles-fontsize-3",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/tiles/*/fontSize",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
 	},
@@ -2890,36 +2435,6 @@
 		"path": "/runs/*/steps/*/submit/nextScreen",
 		"document": "targeted-form-links-hidden-and-fallback",
 		"control": "targeted-form-links-hidden-and-fallback"
-	},
-	{
-		"id": "d41-empty-list-text-goes-blank-formplayer-module-settings-response-noitemstext",
-		"defect": 41,
-		"part": "empty-list text goes blank",
-		"check": "proof4",
-		"artifact": "formplayer@module settings@*",
-		"path": "/runs/*/steps/*/response/noItemsText",
-		"document": "targeted-empty-list-no-english",
-		"control": "search-browse"
-	},
-	{
-		"id": "d41-empty-list-text-goes-blank-webapps-module-settings-list-empty-html",
-		"defect": 41,
-		"part": "empty-list text goes blank",
-		"check": "proof4",
-		"artifact": "webapps@module settings@*",
-		"path": "/runs/*/screens/*/list/empty/html",
-		"document": "targeted-empty-list-no-english",
-		"control": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0"
-	},
-	{
-		"id": "d41-empty-list-text-goes-blank-webapps-module-settings-list-empty-text",
-		"defect": 41,
-		"part": "empty-list text goes blank",
-		"check": "proof4",
-		"artifact": "webapps@module settings@*",
-		"path": "/runs/*/screens/*/list/empty/text",
-		"document": "targeted-empty-list-no-english",
-		"control": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0"
 	},
 	{
 		"id": "d25-query-repeat-rewritten-into--formplayer-vellum-data-count",
@@ -3112,102 +2627,12 @@
 		"control": "targeted-list-first-web-apps"
 	},
 	{
-		"id": "d14-tiles-webapps-case-list-list-cells",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/cells/*",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-webapps-case-list-cells-alignself",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/cells/*/alignSelf",
-		"document": "tile-grouped-browse",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-tiles-webapps-case-list-cells-class",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/cells/*/class",
-		"document": "tile-grouped-browse",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-tiles-webapps-case-list-cells-fontsize",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/cells/*/fontSize",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-webapps-case-list-cells-gridarea",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/cells/*/gridArea",
-		"document": "tile-grouped-browse",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d42-custom-tile-cell-alignment-webapps-case-list-cells-justifyself",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/cells/*/justifySelf",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d42-custom-tile-cell-alignment-webapps-case-list-cells-textalign",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/cells/*/textAlign",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
 		"id": "d12-custom-tile-webapps-case-list-list-headers",
 		"defect": 12,
 		"part": "custom tile",
 		"check": "proof4",
 		"artifact": "webapps@case list@*",
 		"path": "/runs/*/screens/*/list/headers/*",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-webapps-case-list-cells",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/rows/*/cells/*",
-		"document": "tile-grouped-browse",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-tiles-webapps-case-list-cells-hidden",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/rows/*/cells/*/hidden",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
 	},
@@ -3220,16 +2645,6 @@
 		"path": "/runs/*/screens/*/list/rows/*/cells/*/image",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-webapps-case-list-cells-text",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/rows/*/cells/*/text",
-		"document": "tile-grouped-browse",
-		"control": "tile-grouped-browse"
 	},
 	{
 		"id": "d12-custom-tile-webapps-case-list-list-sort",
@@ -3250,6 +2665,149 @@
 		"path": "/runs/*/screens/*/list/tiles",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-app-font-size",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "app.json@case list@*@CASE_LIST_TILE",
+		"path": "/modules/*/case_details/short/columns/*/font_size",
+		"kind": "removed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-app-horizontal-align",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "app.json@case list@*@CASE_LIST_TILE",
+		"path": "/modules/*/case_details/short/columns/*/horizontal_align",
+		"kind": "removed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-maxwidth",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/maxWidth",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-maxwidth",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/maxWidth",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-styles-fontsize",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/styles/*/fontSize",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-styles-fontsize",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/fontSize",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-styles-horizontalalign",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/styles/*/horizontalAlign",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-styles-horizontalalign",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/horizontalAlign",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-webapps-case-list-list-cells",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*",
+		"kind": "removed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-webapps-case-list-cells-hidden",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/rows/*/cells/*/hidden",
+		"kind": "removed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-app-vertical-align",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "app.json@case list@*@CASE_LIST_TILE",
+		"path": "/modules/*/case_details/short/columns/*/vertical_align",
+		"kind": "removed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-styles-verticalalign",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/styles/*/verticalAlign",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-styles-verticalalign",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/verticalAlign",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-explicit-cells"
 	},
 	{
 		"id": "d14-search-settings-webapps-case-list-screens-title",
@@ -3337,146 +2895,6 @@
 		"control": "targeted-sync-on-form-entry"
 	},
 	{
-		"id": "d36-android-proof3-local-ccz-list-entityselectactivity-getsortoptionslist-changed",
-		"defect": 36,
-		"part": "hidden sort column offered",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/EntitySelectActivity.getSortOptionsList",
-		"kind": "changed",
-		"document": "case-list-browse",
-		"control": "case-list-browse"
-	},
-	{
-		"id": "d38-android-proof3-local-ccz-list-header-children-layoutwidth-changed",
-		"defect": 38,
-		"part": "image-map column width",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/header/*/children/*/layoutWidth",
-		"kind": "changed",
-		"document": "case-list-browse",
-		"control": "case-list-browse"
-	},
-	{
-		"id": "d38-android-proof3-local-ccz-list-headerdrawn-texts-lines-changed",
-		"defect": 38,
-		"part": "image-map column width (a header drawn at the width it is given)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/headerDrawn/texts/*/lines",
-		"kind": "changed",
-		"document": "case-list-browse",
-		"control": "case-list-browse"
-	},
-	{
-		"id": "d38-android-proof3-local-ccz-list-headerdrawn-height-changed",
-		"defect": 38,
-		"part": "image-map column width (a header drawn at the width it is given)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/headerDrawn/height",
-		"kind": "changed",
-		"document": "media-only",
-		"control": "media-only"
-	},
-	{
-		"id": "d10-android-proof3-local-ccz-list-order-changed",
-		"defect": 10,
-		"part": "label-column and unsorted order",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/order",
-		"kind": "changed",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0"
-	},
-	{
-		"id": "d38-android-proof3-local-ccz-list-rows-children-layoutwidth-changed",
-		"defect": 38,
-		"part": "image-map column width",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/rows/*/children/*/layoutWidth",
-		"kind": "changed",
-		"document": "case-list-browse",
-		"control": "case-list-browse"
-	},
-	{
-		"id": "d51-android-proof3-local-ccz-list-searches-fuzzyon-changed",
-		"defect": 51,
-		"part": "sort keys (fuzzy search)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/searches/fuzzyOn/*",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d51-android-proof3-local-ccz-list-sorted-changed",
-		"defect": 51,
-		"part": "sort keys (the order a Sort choice gives)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/sorted/*",
-		"kind": "changed",
-		"document": "case-list-inline",
-		"control": "case-list-inline"
-	},
-	{
-		"id": "d36-android-proof3-local-ccz-list-sorted-added",
-		"defect": 36,
-		"part": "hidden sort column offered",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/sorted/*",
-		"kind": "added",
-		"document": "case-list-browse",
-		"control": "case-list-browse"
-	},
-	{
-		"id": "d10-android-proof3-local-ccz-list-sorted-zone-changed",
-		"defect": 10,
-		"part": "label-column and unsorted order (the order a Sort choice gives)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/sorted/*",
-		"kind": "changed",
-		"document": "targeted-label-sort",
-		"control": "targeted-label-sort",
-		"values": {
-			"before": "proof text | proof text | 10 | 10 | 2",
-			"after": "10 | 10 | 2 | proof text | proof text"
-		}
-	},
-	{
-		"id": "d10-android-proof3-local-ccz-list-sorted-level-changed",
-		"defect": 10,
-		"part": "label-column and unsorted order (the order a Sort choice gives)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/sorted/*",
-		"kind": "changed",
-		"document": "targeted-label-sort",
-		"control": "targeted-label-sort",
-		"values": {
-			"before": "2 | proof text | 10 | 10 | proof text",
-			"after": "10 | 10 | 2 | proof text | proof text"
-		}
-	},
-	{
-		"id": "d36-android-proof3-local-ccz-list-sorted-removed",
-		"defect": 36,
-		"part": "hidden sort column offered",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/sorted/*",
-		"kind": "removed",
-		"document": "targeted-shared-property-sort",
-		"control": "targeted-shared-property-sort"
-	},
-	{
 		"id": "d53-android-proof3-local-ccz-query-getrawqueryparams-removed",
 		"defect": 53,
 		"part": "zero-input search sentinel",
@@ -3516,61 +2934,6 @@
 		"check": "proof4",
 		"artifact": "android@case list@*",
 		"path": "/walks/*/steps/*/list/rowClass",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-android-proof4-case-list-list-rows-children-added",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/list/rows/*/children/*",
-		"kind": "added",
-		"document": "tile-grouped-browse",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-android-proof4-case-list-list-rows-drawn-texts-added",
-		"defect": 14,
-		"part": "tiles (a row drawn with the field the save adds)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/list/rows/*/drawn/texts/*",
-		"kind": "added",
-		"document": "tile-grouped-browse",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d14-android-proof4-case-list-list-rows-drawn-height-changed",
-		"defect": 14,
-		"part": "tiles (a row drawn with the field the save adds)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/list/rows/*/drawn/height",
-		"kind": "changed",
-		"document": "tile-grouped-browse",
-		"control": "tile-grouped-browse"
-	},
-	{
-		"id": "d42-android-proof4-case-list-list-rows-children-gravity-changed",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/list/rows/*/children/*/gravity",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-android-proof4-case-list-list-rows-children-textsize-changed",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/list/rows/*/children/*/textSize",
 		"kind": "changed",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
@@ -4544,184 +3907,6 @@
 		},
 		"document": "targeted-datetime-ordering",
 		"control": "targeted-datetime-ordering"
-	},
-	{
-		"id": "d57-case-id-column-app-detailcolumn-field-property-name",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:DetailColumn.field/refused/fails-the-editor-s-property-name-check-on-a-non-calculated-column",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-trace-casedetail-headers",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/caseDetail/tabs/*/headers/*",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-trace-casedetail-values",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/caseDetail/tabs/*/values/*",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-formplayer-local-ccz-endpointactions",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/endpointActions/*",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-formplayer-local-ccz-styles",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/styles/*",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-formplayer-local-ccz-widthhints",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/widthHints/*",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-formplayer-local-ccz-details-details",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/details/*/details/*",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-formplayer-local-ccz-details-headers",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/details/*/headers/*",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-formplayer-local-ccz-details-styles",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/details/*/styles/*",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-android-proof3-local-ccz-detail-tabs-fields-texts-changed",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/detail/tabs/*/fields/*/texts/*",
-		"kind": "changed",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-android-proof3-local-ccz-detail-tabs-fields-added",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/detail/tabs/*/fields/*",
-		"kind": "added",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-android-proof3-local-ccz-rows-children-text-changed",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/rows/*/children/*/children/*/text",
-		"kind": "changed",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-android-proof3-local-ccz-rows-drawn-texts-added",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/rows/*/drawn/texts/*",
-		"kind": "added",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-android-proof3-local-ccz-searches-asinstalled-added",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/searches/asInstalled/*",
-		"kind": "added",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-android-proof3-local-ccz-searches-fuzzyoff-added",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/searches/fuzzyOff/*",
-		"kind": "added",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-android-proof3-local-ccz-searches-fuzzyon-added",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/searches/fuzzyOn/*",
-		"kind": "added",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
-	},
-	{
-		"id": "d57-case-id-column-editor-save-unsent",
-		"defect": 57,
-		"part": "case_id column and attribute-backed hidden carriers",
-		"check": "proof4",
-		"artifact": "editor:case list@*",
-		"path": "/modules/*/save/unsent/There are errors in your configuration. There is an error in your property name: @owner_id",
-		"kind": "refused",
-		"document": "targeted-case-id-column",
-		"control": "targeted-case-id-column"
 	},
 	{
 		"id": "d23-attachment-form-case-updates-attachment-under-save-to-case",

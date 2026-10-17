@@ -3,19 +3,26 @@ import { datePatternProblem, insertDatePiece } from "../datePatternDraft";
 
 describe("custom date pattern draft", () => {
 	it("retains exact authored spaces and supported concrete date pieces", () => {
-		expect(datePatternProblem("   ")).toBeNull();
-		expect(datePatternProblem("Report %A, %B %e (%Y)")).toBeNull();
+		expect(datePatternProblem("   ", "concrete")).toBeNull();
+		expect(datePatternProblem("Report %A, %B %e (%Y)", "concrete")).toBeNull();
 	});
 	it("distinguishes missing input, an unfinished escape and an unsupported piece", () => {
-		expect(datePatternProblem("")).toBe(
+		expect(datePatternProblem("", "concrete")).toBe(
 			"Enter a custom style or choose a date piece",
 		);
-		expect(datePatternProblem("Date %")).toBe(
+		expect(datePatternProblem("Date %", "concrete")).toBe(
 			"Finish the date piece after % or remove it",
 		);
-		expect(datePatternProblem("%Q")).toBe(
+		expect(datePatternProblem("%Q", "concrete")).toBe(
 			"%Q isn't a date piece. Choose another piece or remove it",
 		);
+	});
+	it("refuses a straight apostrophe in a case-list date style, and takes it in an expression", () => {
+		expect(datePatternProblem("%d %b '%y", "concrete")).toBe(
+			"A date style can't hold a straight apostrophe ('). You can use a curved one (’).",
+		);
+		expect(datePatternProblem("%d %b ’%y", "concrete")).toBeNull();
+		expect(datePatternProblem("%d %b '%y", "expression")).toBeNull();
 	});
 	it("inserts at the caret, replaces a selection and returns the caret after the inserted token", () => {
 		expect(insertDatePiece("%Y-", "%m", 3)).toEqual({

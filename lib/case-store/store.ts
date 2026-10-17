@@ -172,17 +172,60 @@ export type CaseUpdateArgs = {
 );
 
 /**
- * One sort key for a case-list query. The expression slot is a
- * `ValueExpression` (not a bare property name) so authors can sort
- * by typed reads (`(properties->>'age')::int`) or computed values
- * (e.g. `today() - opened_on` for a "days since opened" sort).
+ * One sort key for a case-list query, compared as a device compares it
+ * (`lib/domain/caseListOrder.ts`, the order plan Preview reads):
+ *
+ *   - `text`: the value lowercased and compared by code point, a missing
+ *     value as `""`, as Core compares `toLowerCase()` strings
+ *     (`EntitySorter`).
+ *   - `integer` / `decimal`: the value as a number where its trimmed text is
+ *     one (`-?digits(.digits)?`), truncated toward zero for `integer`; a
+ *     value that is no number sorts after every number ascending and before
+ *     every number descending.
+ *   - `blanks`: where a blank or missing value sorts, whatever the direction.
+ *
+ * `expression` keys sort by a `ValueExpression`; `interval-text` keys by an
+ * interval column's shown text (`sql/compileIntervalText.ts`), and
+ * `mapping-position` keys by the index of the first of `values` the value
+ * holds as a token, as text, `""` when it holds none. Neither can be stated
+ * as a `ValueExpression`.
  */
-export interface SortKey {
-	/** A calculated Results/Details column uses the same portable reads to sort. */
-	portableCaseDates?: true;
-	direction: "asc" | "desc";
-	expression: ValueExpression;
-}
+export type SortKey =
+	| {
+			readonly kind: "expression";
+			readonly expression: ValueExpression;
+			/** A calculated Results/Details column uses the same portable reads
+			 *  to sort. */
+			readonly portableCaseDates?: true;
+			readonly comparator: "text" | "integer" | "decimal";
+			readonly direction: "asc" | "desc";
+			readonly blanks: "first" | "last";
+	  }
+	| {
+			readonly kind: "interval-text";
+			readonly property: string;
+			readonly display: "always" | "flag";
+			readonly thresholdDays: number;
+			readonly divisorDays: number;
+			readonly text: string;
+			readonly direction: "asc" | "desc";
+			readonly blanks: "first" | "last";
+	  }
+	| {
+			/** An ID mapping's or an image map's order, as a device's
+			 *  `if(selected(<value>, '<entry>'), <index>, ...)` gives it: an entry
+			 *  matches where it is one of the value's space-separated tokens
+			 *  (commcare-core `XPathSelectedFunc`), compared as text. */
+			readonly kind: "mapping-position";
+			/** The value read, as a device reads it (a multi select's tokens
+			 *  joined by one space). */
+			readonly expression: ValueExpression;
+			/** Each entry's value in table order, trimmed as `selected()` trims
+			 *  it (Java `String.trim`). */
+			readonly values: readonly string[];
+			readonly direction: "asc" | "desc";
+			readonly blanks: "first" | "last";
+	  };
 
 /**
  * Restrict a read to what one worker's device would actually hold.

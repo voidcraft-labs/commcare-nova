@@ -59,6 +59,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
+import { describeColumnAtSentenceStart } from "./shared";
 
 export function caseTileGrouping(
 	mod: Module,
@@ -120,7 +121,7 @@ export function caseTileGrouping(
 			validationError(
 				"CASE_LIST_TILE_GROUP_CELL_STRADDLES_HEADER",
 				"module",
-				`${describeColumn(entry.column, entry.index)} crosses the group header boundary on the "${mod.name}" case tile: the header is the top ${rowCount(headerRows)} and this field runs from row ${cell.y + 1} to row ${tileCellBottomEdge(cell)}. A field cannot be split, so this one would be drawn entirely in the header, from the first case in each group, and every other case's value would disappear. Move or resize it so it sits fully inside the header or fully below it.`,
+				`${describeColumnAtSentenceStart(entry.column, entry.index)} crosses the group header boundary on the "${mod.name}" case tile: the header is the top ${rowCount(headerRows)} and this field runs from row ${cell.y + 1} to row ${tileCellBottomEdge(cell)}. A field cannot be split, so this one would be drawn entirely in the header, from the first case in each group, and every other case's value would disappear. Move or resize it so it sits fully inside the header or fully below it.`,
 				location,
 				{
 					columnUuid: entry.column.uuid,
@@ -150,18 +151,4 @@ export function caseTileGrouping(
 
 function rowCount(rows: number): string {
 	return rows === 1 ? "1 row" : `${rows} rows`;
-}
-
-/**
- * Author-facing handle for a column named in a message. Mirrors
- * `caseTileLayout`'s helper: calculated columns have no `field`, so
- * `header` is the informative slot when present.
- */
-function describeColumn(column: Column, index: number): string {
-	const header = column.header.trim();
-	if (header.length > 0) return `"${header}" (column #${index + 1})`;
-	if (column.kind !== "calculated" && column.field.trim().length > 0) {
-		return `"${column.field}" (column #${index + 1})`;
-	}
-	return `Column #${index + 1}`;
 }

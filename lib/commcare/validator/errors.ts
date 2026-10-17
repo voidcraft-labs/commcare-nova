@@ -104,6 +104,10 @@ export type ValidationErrorCode =
 	| "CASE_LIST_BARE_SEARCH_INPUT_REF"
 	| "CASE_LIST_DUPLICATE_SORT_PRIORITY"
 	| "CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE"
+	| "CASE_LIST_ID_MAPPING_KEY_CHARACTERS"
+	| "CASE_LIST_DATE_PATTERN_APOSTROPHE"
+	| "CASE_LIST_SORT_PROPERTY_AMBIGUOUS"
+	| "CASE_TILE_HIDDEN_CALCULATED_SORT"
 	| "CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE"
 	| "CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK"
 	| "CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE"
@@ -355,6 +359,12 @@ export type ValidationErrorCode =
 	| "HQJSON_BAD_SUBCASE_RELATIONSHIP"
 	| "HQJSON_BAD_DETAIL_DISPLAY"
 	| "HQJSON_BAD_TYPE"
+	// Spellings HQ's import accepts and its Case List page rewrites or
+	// refuses: a sort element in another word than the page's, and an `@`
+	// in a field HQ reads as a property name.
+	| "HQJSON_BAD_SORT_ELEMENT"
+	| "HQJSON_BAD_DETAIL_FIELD"
+	| "HQJSON_BAD_SEARCH_LABEL"
 	// An action shape HQ's import accepts but no HQ editor writes: an external
 	// id on `open_case.external_id`. HQ's Case Management tab writes one as an
 	// ordinary `update_case.update` row, and Nova writes it that way too.

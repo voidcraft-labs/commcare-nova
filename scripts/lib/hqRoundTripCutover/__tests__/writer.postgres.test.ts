@@ -428,8 +428,9 @@ describe("the fleet transaction over the frozen fixtures", () => {
 				committed.set(row.id, loaded.doc);
 			}
 		});
-		// Each fixture's app holds the notice of each identifier and form
-		// content step its fixture witnessed, which reads the document alone.
+		// Each fixture's app holds the notice of each identifier, form content
+		// and case-list step its fixture witnessed, and each case-list line
+		// that writes nothing, all of which read the document alone.
 		const notices = await sql<{
 			app_id: string;
 			entries: { kind: string; reason: string }[];
@@ -443,6 +444,16 @@ describe("the fleet transaction over the frozen fixtures", () => {
 			"option-value-split",
 			"empty-form-label-added",
 			"session-read-removed",
+			"id-mapping-entry-removed",
+			"date-pattern-apostrophe-replaced",
+			"tile-order-rule-removed",
+			"order-rule-removed-same-property",
+			"order-rule-moved-to-first-column",
+			"tile-cell-defaults-set",
+			"case-list-order-changes",
+			"case-list-search-matches-hidden-fields",
+			"hidden-order-column-not-in-sort-menu",
+			"record-id-column-now-shows",
 		]);
 		const manifest = readFixtureManifest();
 		for (const [index, id] of writableFixtures.entries()) {
@@ -483,6 +494,20 @@ describe("the fleet transaction over the frozen fixtures", () => {
 		expect(deliverForms?.map(deliverBlocks)).toEqual([
 			{ type: expect.any(String), deliver: true, task: undefined },
 			{ type: "survey", deliver: false, task: "q_task" },
+		]);
+		// Step `sort-property-ownership` keeps one rule over the name and moves
+		// the notes rule to the ID mapping that comes first.
+		const ownership = appOf("hand-sort-property-ownership");
+		const [patients] = ownership.moduleOrder;
+		expect(
+			ownership.modules[patients ?? ""]?.caseListConfig?.columns.map(
+				(column) => [column.header, column.sort],
+			),
+		).toEqual([
+			["Name", { direction: "asc", priority: 0 }],
+			["Name again", undefined],
+			["Notes code", { direction: "asc", priority: 2 }],
+			["Notes", undefined],
 		]);
 		// Step `option-values` renames the second holder of a value.
 		const options = appOf("hand-option-values");

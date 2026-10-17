@@ -3640,6 +3640,36 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/usexpathexpression-field-reading-one-case-attribute",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "`useXpathExpression` + `field` reading one case attribute (`@case_id`, `@owner_id`, `@status`)",
+		"surfaceKeys": [
+			"schema:DetailColumn.field",
+			"schema:DetailColumn.useXpathExpression"
+		],
+		"valueClass": "expression-reading-one-case-attribute",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a column over `case_id`, `owner_id` or `status`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`useXpathExpression: true`, `field: @<name>`, the column kind's format (`plain`, `date`, `phone`, `enum`, `enum-image`, `invisible`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/calculated-column-reading-results-search-input-instances-in-a",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -3842,8 +3872,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova emits unplaced carriers today: save-breaking; in-envelope: every tile column placed, sort carriers kept out of the tile detail)",
-			"markers": ["save-breaking"]
+			"cell": "not written: every column of a tile's short detail is placed, and a hidden order rule is a sort row with no stored column (`caseListOrderPlan`, rule 4)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3904,8 +3934,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova writes null for a cell with no alignment today, `applyTileLayoutToShortDetail`: save-breaking)",
-			"markers": ["save-breaking"]
+			"cell": "not written: every placed cell states `horizontal_align` (`applyTileLayoutToShortDetail`)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3934,8 +3964,8 @@
 			}
 		},
 		"emission": {
-			"cell": "always explicit (`null` becomes `medium` on save, visibly: save-breaking today)",
-			"markers": ["save-breaking"]
+			"cell": "always explicit: `small`, `medium` or `large` on every placed cell",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -4152,15 +4182,10 @@
 			"schema:DetailColumn.date_format",
 			"schema:DetailColumn.format"
 		],
-		"valueClass": "date-with-one-of-hq-s-five-patterns",
+		"valueClass": "date-with-a-pattern-core-formats",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `date` column `pattern`; narrow: HQ's five patterns (Nova admits any today; the migration turns each Nova date column with another pattern into a calculated `format-date` column with the same display; a new date column takes `%b %d, %Y`)",
-		"slotChanges": [
-			{
-				"direction": "narrow",
-				"text": "HQ's five patterns (Nova admits any today; the migration turns each Nova date column with another pattern into a calculated `format-date` column with the same display; a new date column takes `%b %d, %Y`)"
-			}
-		],
+		"dispositionCell": "**HELD**: `date` column `pattern`; the Case List page lists a pattern outside its five as one more choice and both saves keep it",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4182,7 +4207,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Column formats",
-		"item": "2′ `date` + a `date_format` that is empty or holds an escape Core's `format-date` does not format",
+		"item": "2′ `date` + a `date_format` that is empty or holds an escape Core's `format-date` does not format, or holds a straight apostrophe",
 		"surfaceKeys": [
 			"format:date",
 			"schema:DetailColumn.date_format",
@@ -4190,11 +4215,15 @@
 		],
 		"valueClass": "date-with-another-pattern",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: broken at runtime: Core raises on the escape (`DateUtils.format`: \"unsupported escape\" or \"unrecognized escape in date format string\"), and an empty pattern shows no date",
+		"dispositionCell": "**REFUSED**: broken at runtime: Core raises on the escape (`DateUtils.format`: \"unsupported escape\" or \"unrecognized escape in date format string\"), and an empty pattern shows no date; not HQ-buildable: HQ writes the pattern unescaped, so a straight apostrophe builds a suite Core refuses to admit",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
 				"named": "Core raises on the escape (`DateUtils.format`: \"unsupported escape\" or \"unrecognized escape in date format string\"), and an empty pattern shows no date"
+			},
+			{
+				"kind": "not-hq-buildable",
+				"named": "HQ writes the pattern unescaped, so a straight apostrophe builds a suite Core refuses to admit"
 			}
 		],
 		"platforms": {
@@ -4202,7 +4231,7 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (any other pattern, HQ's five or not, such as `%Y-%m-%d`, is row 2's: HQ's Case List page keeps a pattern its menu does not list, `ui-element-select.js::Select.val` adding it as an option that `column.js` saves)",
+			"cell": "— (any other pattern, HQ's five or not, such as `%Y-%m-%d`, is row 2's: HQ's Case List page keeps a pattern its menu does not list, `ui-element-select.js::Select.val` adding it as an option that `column.js` saves; a straight apostrophe is refused, `CASE_LIST_DATE_PATTERN_APOSTROPHE`)",
 			"markers": []
 		},
 		"gates": []
@@ -4334,7 +4363,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`enum`: `field` the property, one key per value, sorted by mapping position on every runtime, the position compared as text, so `10` sorts before `2` (`detail_screen.py::Enum`, Core `EntitySorter`); Nova emits `translatable-enum` sorted by label today: defect 10)",
+			"cell": "`enum`: `field` the property, one key per value, sorted by mapping position on every runtime, the position compared as text, so `10` sorts before `2` (`detail_screen.py::Enum`, Core `EntitySorter`; `hqJson/caseList.ts::projectColumnToDetail`, `lib/domain/caseListOrder.ts::caseListOrderPlan`)",
 			"markers": []
 		},
 		"gates": []
@@ -4597,7 +4626,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`invisible` (Nova drops one that sorts nothing today, `hqJson/caseList.ts::hqShortSourceColumns` and the suite's short detail, though both runtimes' list search matches every field, `EntitySortUtil.sortEntities`: defect 16)",
+			"cell": "`invisible` for every column hidden from Results",
 			"markers": []
 		},
 		"gates": []
@@ -6230,7 +6259,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`_cc_calculated_N`",
+			"cell": "`_cc_calculated_N`, joined to the first field with the same `field` text (`caseListOrderPlan`, rule 5)",
 			"markers": []
 		},
 		"gates": []
@@ -6347,7 +6376,7 @@
 			}
 		},
 		"emission": {
-			"cell": "the derived type",
+			"cell": "the derived type, in the Case List page's words (`plain`, `date`, `int`, `double`)",
 			"markers": []
 		},
 		"gates": []
@@ -6526,8 +6555,8 @@
 			}
 		},
 		"emission": {
-			"cell": "the explicit value (Nova writes `''` today: unproducible)",
-			"markers": ["unproducible"]
+			"cell": "the explicit value",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -6648,8 +6677,8 @@
 			}
 		},
 		"emission": {
-			"cell": "`_cc_calculated_N` alone (Nova writes `_cc_calculated_N` with its own expression today, `projectSortElements`, which is this state: unproducible; HQ builds it with the expression inlined where the column form uses a variable, which every runtime reads identically)",
-			"markers": ["unproducible"]
+			"cell": "`_cc_calculated_N` alone",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -6707,8 +6736,8 @@
 			}
 		},
 		"emission": {
-			"cell": "`field` alone (Nova writes the pair for its label columns today: unproducible)",
-			"markers": ["unproducible"]
+			"cell": "`field` alone",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -6736,8 +6765,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova writes the pair for sorted link columns today: unproducible; in-envelope: a sort element on the raw property, `field: <property>`, which HQ carries as a hidden sort column)",
-			"markers": ["unproducible"]
+			"cell": "not written: a sorted link column writes a sort element on the raw property, which HQ carries as a hidden sort column",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -6768,7 +6797,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`[]`; Nova's `.ccz` and Preview must apply the same order (defect 10)",
+			"cell": "`[]` where the first field is shown, and one element for the first shown field where a hidden one comes before it; the local suite and Preview apply the same order (`caseListOrderPlan`, rule 7)",
 			"markers": []
 		},
 		"gates": []
@@ -6795,7 +6824,7 @@
 			}
 		},
 		"emission": {
-			"cell": "Nova's `.ccz` and Preview must sort by label too (defect 10)",
+			"cell": "`_cc_calculated_N`; the local suite and Preview sort by the label too (`caseListOrderPlan`, rule 3)",
 			"markers": []
 		},
 		"gates": []

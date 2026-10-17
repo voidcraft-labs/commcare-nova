@@ -20,7 +20,7 @@ import {
 } from "./localization";
 import { collectAssetRefs } from "./mediaRefs";
 import {
-	caseListColumnIsEmitted,
+	caseListColumnTextShows,
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
@@ -580,7 +580,7 @@ export function collectTranslationUnits(
 
 		const list = module.caseListConfig;
 		for (const column of list?.columns ?? []) {
-			if (!caseListColumnIsEmitted(column)) continue;
+			if (!caseListColumnTextShows(column)) continue;
 			const owner = {
 				kind: "case-list-column" as const,
 				moduleUuid,

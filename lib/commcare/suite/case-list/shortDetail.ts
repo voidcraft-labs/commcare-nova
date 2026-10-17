@@ -32,20 +32,24 @@
 //     registers its value in every emitted app-string table. HQ independently
 //     adds the same id when it generates its app strings.
 //
-//   - One `<field>` per column where `visibleInList ?? true`, in
-//     the config's exact Results UUID permutation.
+//   - One `<field>` per field of the list's order plan
+//     (`lib/domain/caseListOrder.ts::caseListOrderPlan`), in the config's
+//     exact Results UUID permutation: every column of a list with no tile
+//     layout, a column hidden from Results as HQ's `invisible` field, and
+//     in a tile list the columns shown on Results. Then one field per
+//     carrier, the hidden sort field HQ appends for a rule no stored column
+//     takes.
 //
-// Per-column sort directives are resolved once by
-// `sortKeys.ts::buildSortDirectives(mod, doc)` and threaded through
-// the per-column emitter via `CaseListEmitContext.sortByUuid`. The
-// per-column emitter looks up its directive by `column.uuid` and
-// emits the matching `<sort>` block on short detail.
+// The `<sort>` blocks are resolved once from the plan by
+// `sortKeys.ts::planSortNodes` and threaded through the per-column
+// emitter via `CaseListEmitContext.sortByUuid`. The per-column emitter
+// looks up its directive by `column.uuid` and emits the matching `<sort>`
+// block on short detail.
 //
 // Position counter convention: the 1-based position passed to the
 // per-column header-locale composer is the column's index in the complete
-// Results-ordered source sequence plus one. The visibility filter affects
-// which fields render, not their position numbers — toggling
-// `visibleInList` doesn't churn locale ids. Mirrors CCHQ's
+// Results-ordered source sequence plus one. Hiding a column renumbers no
+// other — toggling `visibleInList` doesn't churn locale ids. Mirrors CCHQ's
 // `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
 // `column.id`-keyed numbering convention.
 //
@@ -86,14 +90,15 @@ import { simplifyForEmission } from "@/lib/domain/predicate";
 import type { Predicate } from "@/lib/domain/predicate/types";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { emitCaseListFilter } from "../../predicate";
-import { buildColumnField } from "./columns";
+import { buildCarrierField, buildColumnField } from "./columns";
 import {
 	EMPTY_CASE_LIST_TEXT,
 	emptyCaseListTextLocaleId,
 	SELECT_TEXT,
 	selectTextLocaleId,
 } from "./detailTexts";
-import { buildSortDirectives } from "./sortKeys";
+import { moduleCaseListOrderPlan } from "./orderPlanOptions";
+import { planSortNodes } from "./sortKeys";
 import { buildTileGroupElement } from "./tileGroup";
 import type {
 	CaseListEmission,
@@ -162,14 +167,10 @@ const AUTO_LAUNCH_SINGLE_SELECT_EXPR =
  * header-string map the surrounding compiler threads into
  * `app_strings.txt`.
  *
- * `doc` is the source `BlueprintDoc`. The emitter consults it for
- * two reasons: (1) `buildSortDirectives` walks the doc's case-type
- * declarations to resolve the comparator type for property-rooted
- * sort directives, (2) `buildSortDirectives` runs the predicate AST
- * type checker against the same admission set as the validator
- * (declared properties + writer-derived + standard) for calculated-
- * column sort directives. Tests that don't exercise sort behavior
- * pass an empty doc.
+ * `doc` is the source `BlueprintDoc`. The order plan reads its case-type
+ * catalog for each property's data type and select options, and type
+ * checks calculated columns against the same admission set as the
+ * validator (declared properties + writer-derived + standard).
  *
  * `target` selects between the two wire ids the same
  * `caseListConfig` projects onto — `"case"` (the local case-list
@@ -254,9 +255,16 @@ export function buildShortDetail(args: {
 	const caseProperties =
 		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
 			?.properties ?? [];
+	const plan = moduleCaseListOrderPlan(
+		mod,
+		doc,
+		args.assets !== undefined,
+		args.lookupNaming,
+	);
+	const sortNodes = planSortNodes(plan);
 	const ctx: CaseListEmitContext = {
 		moduleIndex,
-		sortByUuid: buildSortDirectives(mod, doc, args.lookupNaming),
+		sortByUuid: sortNodes.byUuid,
 		detailKind: "short",
 		target,
 		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
@@ -274,30 +282,30 @@ export function buildShortDetail(args: {
 	const strings: Record<string, string> = { ...texts.strings };
 	const translationUnits: Record<string, TranslationUnitId> = {};
 
-	// Walk every column in the config's exact Results UUID permutation, not
-	// array position. Position is 1-based against the complete short-detail
-	// sequence — the counter advances for fields hidden from Results because
-	// CCHQ's header-locale suffix keys off the column's position in that array.
-	// `sortKeys` consumes this same list order; long detail deliberately uses
-	// its independent Details order instead.
-	const sortedColumns = orderedColumns(config, "list");
-	for (let i = 0; i < sortedColumns.length; i++) {
-		const column = sortedColumns[i];
-		// An off-screen definition normally emits nothing. If it still owns a
-		// Default-order rule, however, the device needs a field to carry the
-		// `<sort>` block. Emit that rare case at zero width: ordering survives
-		// without resurrecting the information in Results.
-		const hidden = column.visibleInList === false;
-		if (hidden && !ctx.sortByUuid.has(column.uuid)) continue;
+	// Walk the plan's fields, which keep the config's exact Results UUID
+	// permutation. A shown field's header locale keeps its 1-based position
+	// in the complete Results sequence, so hiding a column renumbers no
+	// other; a hidden field has no locale. Long detail deliberately uses its
+	// independent Details order instead.
+	const resultsPosition = new Map(
+		orderedColumns(config, "list").map((column, index) => [
+			column.uuid,
+			index + 1,
+		]),
+	);
+	for (const field of plan.fields) {
 		const emission = buildColumnField({
-			column,
-			position: i + 1,
+			column: field.column,
+			position: resultsPosition.get(field.column.uuid) ?? field.position + 1,
 			ctx,
-			hidden,
+			hidden: field.hidden,
 		});
 		fields.push(emission.element);
 		Object.assign(strings, emission.strings);
 		Object.assign(translationUnits, emission.translationUnits);
+	}
+	for (const carrier of sortNodes.carriers) {
+		fields.push(buildCarrierField(carrier.property, carrier.directive));
 	}
 
 	return {

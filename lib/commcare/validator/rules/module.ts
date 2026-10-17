@@ -19,12 +19,15 @@ import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
 import { caseTileGrouping } from "./case-list/caseTileGrouping";
+import { caseTileHiddenCalculatedSort } from "./case-list/caseTileHiddenCalculatedSort";
 import { caseTileLayout } from "./case-list/caseTileLayout";
 import { columnKindPropertyType } from "./case-list/columnKindPropertyType";
 import { columnReferences } from "./case-list/columnReferences";
 import { csqlPredicateRepresentability } from "./case-list/csqlPredicateRepresentability";
 import { dateAddOnDeviceCompatibility } from "./case-list/dateAddOnDeviceCompatibility";
+import { dateColumnPattern } from "./case-list/dateColumnPattern";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
+import { idMappingKeyCharacters } from "./case-list/idMappingKeyCharacters";
 import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCompatibility";
 import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
 import { onDeviceExpressionCompatibility } from "./case-list/onDeviceExpressionCompatibility";
@@ -37,6 +40,7 @@ import { searchInputScreenPredicateTypeCheck } from "./case-list/searchInputScre
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
+import { sortPropertyOwnership } from "./case-list/sortPropertyOwnership";
 import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
@@ -282,6 +286,18 @@ function parentCaseSelection(
 			];
 }
 
+/**
+ * The rules that read a column's order rule. The commit gate runs them in
+ * `MODULE_RULES`, and Default order's Add menu runs exactly these over the
+ * list a choice would leave (`lib/doc/commitVerdicts.ts::caseListOrderChoiceRefusal`),
+ * so a choice the menu offers is one the gate admits.
+ */
+export const CASE_LIST_ORDER_RULES: readonly ModuleRule[] = [
+	sortPriorityUniqueness,
+	sortPropertyOwnership,
+	caseTileHiddenCalculatedSort,
+];
+
 export const MODULE_RULES: readonly ModuleRule[] = [
 	parentCaseSelection,
 	caseFormsNoCaseType,
@@ -301,12 +317,14 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
 	imageMapValueUnique,
+	idMappingKeyCharacters,
+	dateColumnPattern,
 	matchModeWhitespaceInValue,
 	matchModeOnDeviceCompatibility,
 	onDeviceExpressionCompatibility,
 	dateAddOnDeviceCompatibility,
 	ancestorExistsCannotNestSubcase,
-	sortPriorityUniqueness,
+	...CASE_LIST_ORDER_RULES,
 	caseTileLayout,
 	caseTileGrouping,
 	searchInputNameUniqueness,

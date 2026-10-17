@@ -7,7 +7,9 @@ import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
+import { effectiveAppLocalization } from "@/lib/domain";
 import { readCases } from "@/lib/preview/engine/caseDataBindingHelpers";
+import { previewCaseStoreOrder } from "@/lib/preview/engine/caseListOrder";
 import {
 	APP_ID,
 	buildFixtureDoc,
@@ -104,11 +106,19 @@ describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)"
 		// Read through the preview helper — it lowers the v2 config
 		// into the v2 case-store API surface (calc projections,
 		// per-column sort + tie-break, predicate filter).
+		const caseListConfig = mod.caseListConfig;
+		if (!caseListConfig) throw new Error("missing patients case list");
 		const result = await readCases(store, {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(doc),
-			caseListConfig: mod.caseListConfig,
+			caseListConfig,
+			order: previewCaseStoreOrder(
+				{ ...mod, caseType: "patient" },
+				doc,
+				caseListConfig,
+				effectiveAppLocalization(doc.localization).sourceLanguage,
+			),
 		});
 		if (result.kind !== "rows") {
 			throw new Error("expected rows from preview");

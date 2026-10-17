@@ -347,22 +347,26 @@ export const FIXTURE_DOCUMENTS: readonly FixtureDocument[] = [
 		id: "targeted-label-sort",
 		edited: false,
 		holds:
-			"two menus on one case type, each holding a follow-up named Visit with the one question notes",
+			"two menus on one case type, each holding a follow-up named Visit with the one question notes, one list ordered by an ID mapping and the other by a select's labels",
 		check: (document) =>
 			document.moduleOrder.length === 2 &&
 			document.moduleOrder.every((menu) => {
 				const [form] = document.formOrder[menu] ?? [];
 				const fieldUuids = document.fieldOrder[form ?? ""] ?? [];
+				const config = document.modules[menu]?.caseListConfig as
+					| { readonly columns?: readonly { readonly sort?: Json }[] }
+					| undefined;
 				return (
 					document.forms[form ?? ""]?.name === "Visit" &&
 					fieldUuids.length === 1 &&
-					document.fields[fieldUuids[0] ?? ""]?.id === "notes"
+					document.fields[fieldUuids[0] ?? ""]?.id === "notes" &&
+					(config?.columns ?? []).some((column) => column.sort !== undefined)
 				);
 			}),
 		witnesses: {
 			steps: [],
 			blockers: [],
-			reasons: ["menu-id-changes-once"],
+			reasons: ["menu-id-changes-once", "case-list-order-changes"],
 		},
 	},
 ];

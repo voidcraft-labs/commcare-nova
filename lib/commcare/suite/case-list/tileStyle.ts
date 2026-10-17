@@ -26,10 +26,14 @@
 // receive and needs no guard.
 //
 // The five presentation attributes are the whole of what `<style>`
-// carries besides the grid, and each is optional
-// (`commcare-core/.../org/commcare/xml/StyleParser.java::StyleParser.parse`
-// reads every one with a plain `getAttributeValue`, and
-// `Boolean.parseBoolean(null)` makes both booleans default false).
+// carries besides the grid. The parser reads each with a plain
+// `getAttributeValue` (`commcare-core/.../org/commcare/xml/StyleParser.java::StyleParser.parse`),
+// but Nova writes alignment and size on every cell: the document requires
+// them, because HQ's Case List save writes all three into a cell that holds
+// none (`static/app_manager/js/details/bootstrap5/column.js`, defaults
+// `left`, `start`, `medium`), and HQ's build then carries them into each
+// `<style>`. Border and shading stay off the wire when unset
+// (`Boolean.parseBoolean(null)` makes both default false).
 // `css-id` is the sixth attribute the parser reads; Nova does not emit
 // it because the Web Apps renderer never consumes it (`Tile.cssId` is
 // serialized to the client and referenced nowhere in cloudcare), so an
@@ -71,21 +75,15 @@ export const TILE_VERTICAL_ALIGN_WIRE: Readonly<
  * `commcare-hq/corehq/apps/app_manager/tests/data/suite/suite-case-tiles.xml`
  * and `…/case-tile-case-detail.xml` without normalizing attribute order.
  *
- * A presentation slot the author never set is OMITTED rather than
- * emitted at its default. That distinction is real for `font-size`: an
- * absent attribute leaves the renderer's generated rule as an empty
- * `font-size: ;` declaration the browser discards, so the cell inherits
- * the list's size — there is no `medium` fallback at runtime.
+ * `horz-align`, `vert-align` and `font-size` are written on every cell;
+ * `show-border` and `show-shading` only where set.
  */
 export function buildTileStyleBlock(cell: TileCell): Element {
-	const attribs: Record<string, string> = {};
-	if (cell.horizontalAlign !== undefined) {
-		attribs["horz-align"] = cell.horizontalAlign;
-	}
-	if (cell.verticalAlign !== undefined) {
-		attribs["vert-align"] = TILE_VERTICAL_ALIGN_WIRE[cell.verticalAlign];
-	}
-	if (cell.fontSize !== undefined) attribs["font-size"] = cell.fontSize;
+	const attribs: Record<string, string> = {
+		"horz-align": cell.horizontalAlign,
+		"vert-align": TILE_VERTICAL_ALIGN_WIRE[cell.verticalAlign],
+		"font-size": cell.fontSize,
+	};
 	if (cell.showBorder !== undefined) {
 		attribs["show-border"] = String(cell.showBorder);
 	}

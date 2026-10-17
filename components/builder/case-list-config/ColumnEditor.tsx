@@ -86,6 +86,8 @@ interface ColumnEditorProps {
 	readonly userProperties?: readonly UserProperty[];
 	/** Whether the module currently emits the Search workflow. */
 	readonly searchIsEffective?: boolean;
+	/** Whether the list orders by this column's mapping table. */
+	readonly ordersByMapping?: boolean;
 	/**
 	 * Reports whether the supplied field/display pair satisfies the
 	 * same admission predicate as the kind and property pickers.
@@ -103,12 +105,25 @@ export function ColumnEditor({
 	currentCaseType,
 	userProperties = [],
 	searchIsEffective = false,
+	ordersByMapping = false,
 	onValidityChange,
 }: ColumnEditorProps) {
 	const projectProse = useProseProjection();
 	const ctx = useMemo<ColumnEditContext>(
-		() => ({ caseTypes, currentCaseType, userProperties, searchIsEffective }),
-		[caseTypes, currentCaseType, userProperties, searchIsEffective],
+		() => ({
+			caseTypes,
+			currentCaseType,
+			userProperties,
+			searchIsEffective,
+			ordersByMapping,
+		}),
+		[
+			caseTypes,
+			currentCaseType,
+			userProperties,
+			searchIsEffective,
+			ordersByMapping,
+		],
 	);
 
 	// Per-kind applicability check. Calculated columns have no

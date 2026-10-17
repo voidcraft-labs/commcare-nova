@@ -3697,8 +3697,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				predicate: gt(prop("patient", "age"), literal(30)),
 				sort: [
 					{
-						direction: "desc",
+						kind: "expression",
 						expression: term(prop("patient", "age")),
+						comparator: "integer",
+						direction: "desc",
+						blanks: "last",
 					},
 				],
 			});
@@ -3750,8 +3753,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				],
 				sort: [
 					{
-						direction: "desc",
+						kind: "expression",
 						expression: ageNextYear,
+						comparator: "integer",
+						direction: "desc",
+						blanks: "last",
 					},
 				],
 			});
