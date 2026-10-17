@@ -114,6 +114,23 @@ HELD_CHECKS = frozenset(
     }
 )
 
+# Each defect the known-defect register may hold, mapped to the later step that owns its fix: step 2 fixed
+# every other numbered defect and finding it registered, so an entry of any of them is a regression or a fix left
+# listed (``test_registers.test_every_live_defect_is_a_later_steps``). Registering another defect adds it here
+# with its step. Finding 56 is the only harness finding (numbered from 31) left open.
+OPEN_DEFECTS = {
+    20: 4,
+    21: 5,
+    23: 5,
+    24: 5,
+    25: 5,
+    26: 5,
+    27: 5,
+    28: 5,
+    30: 5,
+    56: 3,
+}
+
 PROOF_DIR = Path(__file__).resolve().parents[1]
 KNOWN_DEFECTS = PROOF_DIR / "known-defects.json"
 FIXED_DEFECTS = PROOF_DIR / "fixed-defects.json"

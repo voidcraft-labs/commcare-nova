@@ -54,6 +54,26 @@ def test_the_registers_hold_what_decision_12_needs():
     assert all(entry.document is None for entry in cases.load_fixed())
 
 
+def test_every_live_defect_is_a_later_steps():
+    """Step 2's exit: the known-defect register holds no entry of a defect step 2 fixed. Each live entry's defect
+    is one ``registers.OPEN_DEFECTS`` gives to a later step, so an entry of any other is a fix left listed or a
+    regression registered as a symptom. Each defect the map names still has a live entry, so a defect a later step
+    fixes leaves the map with its entries and a regression of it is registered again only by adding it back."""
+    live = registers.load_known_defects(registers.KNOWN_DEFECTS)
+    stray = sorted(entry.id for entry in live if entry.defect not in registers.OPEN_DEFECTS)
+    assert not stray, (
+        f"proof/known-defects.json holds {stray}, whose defects no later step owns. Move a fixed defect's entries to"
+        " proof/fixed-defects.json; a defect a later step fixes goes into registers.OPEN_DEFECTS with that step."
+    )
+    named = {entry.defect for entry in live}
+    unheld = sorted(defect for defect in registers.OPEN_DEFECTS if defect not in named)
+    assert not unheld, (
+        f"registers.OPEN_DEFECTS names {unheld}, which no entry of proof/known-defects.json holds. A defect whose"
+        " entries all moved to proof/fixed-defects.json leaves the map with them."
+    )
+    assert all(step > 2 for step in registers.OPEN_DEFECTS.values())
+
+
 def _write(path, value):
     path.write_text(json.dumps(value), encoding="utf-8")
     return path

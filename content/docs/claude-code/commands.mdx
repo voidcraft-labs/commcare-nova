@@ -94,6 +94,12 @@ Pushes an app from Nova to CommCare HQ. The first argument is the app's ID or a 
 
 Name a **project space** as the second argument to upload straight there, useful when your key reaches several spaces and you already know the target. Leave it off and Claude shows you the target before uploading, asking which one if your API key (saved in [Nova settings](https://commcare.app/settings)) reaches more than one, then asks you to confirm; decline to back out. If you name a space the key can't reach, Claude lists the ones it can so you can pick.
 
+Before anything is sent, Claude checks in with you about what Nova can't see for itself:
+
+- **Plan features and project-space settings.** No API key can read a project space's plan or two of its settings, so when your app needs a plan feature that nobody has confirmed there yet, Claude names it, what happens without it and the plans that include it. The same goes for the two settings an app can need: the flat location list and a CommCare Connect forwarder, which the project space turns on whatever its plan. Nova sends the upload once you say the project space has them, and keeps what you confirmed for the next upload there.
+- **The CommCare version.** If the app in CommCare HQ is set to a CommCare version older than 2.57, Nova sends none of its content, and Claude gives you the link to the app's settings in CommCare HQ, where you can raise it before uploading again.
+- **Changes made in CommCare HQ.** If the app, a lookup table or a place changed in CommCare HQ since Nova last published it, Claude shows you what changed, and Nova writes over a change only once you choose to replace it. A change you'd rather keep stays as it is in CommCare HQ, and you can bring it into your app in Nova before you upload again.
+
 ```text
 /nova:upload_to_hq vaccine tracking
 /nova:upload_to_hq "vaccine tracking" my-project-space
