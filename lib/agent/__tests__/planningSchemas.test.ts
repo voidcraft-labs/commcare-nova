@@ -363,3 +363,54 @@ describe("connectFormPatchSchema", () => {
 		).toBe(false);
 	});
 });
+
+describe("a Connect config that states both a deliver unit and a task", () => {
+	const both = {
+		deliver_unit: { name: "Home visit" },
+		task: { name: "Follow up", description: "Check the referral" },
+	};
+	const refusal =
+		"A form can't hold both a deliver_unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in that form while the task is assigned. A task goes in a form of its own.";
+
+	it("is refused on both surfaces, beside a deliver unit alone and a task alone", () => {
+		for (const schema of [connectFormConfigSchema, connectFormPatchSchema]) {
+			const result = schema.safeParse(both);
+			expect(result.success).toBe(false);
+			expect(result.error?.issues.map((issue) => issue.message)).toEqual([
+				refusal,
+			]);
+			expect(
+				schema.safeParse({ deliver_unit: both.deliver_unit }).success,
+			).toBe(true);
+			expect(schema.safeParse({ task: both.task }).success).toBe(true);
+		}
+	});
+
+	it("reads a null as stating neither, so a patch that removes one passes", () => {
+		expect(
+			connectFormPatchSchema.safeParse({
+				deliver_unit: null,
+				task: both.task,
+			}).success,
+		).toBe(true);
+		expect(
+			connectFormConfigSchema.safeParse({
+				deliver_unit: both.deliver_unit,
+				task: null,
+			}).success,
+		).toBe(true);
+	});
+
+	it("says before a call is made that the two go in separate forms", () => {
+		const schema = JSON.stringify(
+			z.toJSONSchema(connectFormConfigSchema, {
+				target: "draft-7",
+				io: "input",
+			}),
+		);
+		expect(schema).toContain("Never on the form that holds a `task`.");
+		expect(schema).toContain(
+			"It goes in a form of its own, never beside `deliver_unit`",
+		);
+	});
+});

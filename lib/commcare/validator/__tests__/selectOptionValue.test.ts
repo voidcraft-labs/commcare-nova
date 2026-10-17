@@ -34,7 +34,7 @@ function select(
 	});
 }
 
-function fieldFindings(field: FieldSpec) {
+function fieldFindings(field: FieldSpec, code: string = FIELD_CODE) {
 	const doc = buildDoc({
 		appName: "Choices",
 		modules: [
@@ -45,7 +45,7 @@ function fieldFindings(field: FieldSpec) {
 		],
 	});
 	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-	expect(findings.every((finding) => finding.code === FIELD_CODE)).toBe(true);
+	expect(findings.every((finding) => finding.code === code)).toBe(true);
 	if (findings.length === 0) expectAdmittedDoc(doc);
 	return findings;
 }
@@ -165,8 +165,57 @@ describe("SELECT_OPTION_VALUE_INVALID", () => {
 	});
 });
 
+describe("SELECT_OPTION_VALUE_DUPLICATE", () => {
+	const DUPLICATE = "SELECT_OPTION_VALUE_DUPLICATE";
+
+	it("refuses each later holder of a value, offering a free one", () => {
+		const findings = fieldFindings(
+			select("single_select", [
+				["yes", "Yes"],
+				["no", "No"],
+				["yes", "Sure"],
+				["yes", "Of course"],
+				["yes_2", "Yes two"],
+			]),
+			DUPLICATE,
+		);
+		expect(findings.map((e) => e.details)).toEqual([
+			{
+				optionUuid: testUuid("opt-3"),
+				optionValue: "yes",
+				problem: "duplicate",
+				suggestedValue: "yes_3",
+			},
+			{
+				optionUuid: testUuid("opt-4"),
+				optionValue: "yes",
+				problem: "duplicate",
+				suggestedValue: "yes_4",
+			},
+		]);
+		expect(findings[0]?.message).toBe(
+			'Two choices of "answer" in "Visit" both store "yes", so a saved answer can\'t say which was chosen. "yes_3" is free for the second.',
+		);
+	});
+
+	it("compares exactly, so values differing only in case are distinct", () => {
+		expect(
+			fieldFindings(
+				select("multi_select", [
+					["yes", "Yes"],
+					["Yes", "Yes, capital"],
+				]),
+				DUPLICATE,
+			),
+		).toEqual([]);
+	});
+});
+
 describe("CASE_PROPERTY_OPTION_VALUE_INVALID", () => {
-	function catalogFindings(options: Array<{ value: string; label: string }>) {
+	function catalogFindings(
+		options: Array<{ value: string; label: string }>,
+		code: string = CATALOG_CODE,
+	) {
 		const doc = buildDoc({
 			appName: "Choices",
 			caseTypes: [
@@ -210,9 +259,7 @@ describe("CASE_PROPERTY_OPTION_VALUE_INVALID", () => {
 			],
 		});
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(findings.every((finding) => finding.code === CATALOG_CODE)).toBe(
-			true,
-		);
+		expect(findings.every((finding) => finding.code === code)).toBe(true);
 		if (findings.length === 0) expectAdmittedDoc(doc);
 		return findings;
 	}
@@ -243,5 +290,28 @@ describe("CASE_PROPERTY_OPTION_VALUE_INVALID", () => {
 		});
 		expect(finding?.message).toContain('case property "client.status"');
 		expect(finding?.message).toContain('Use "in_progress" instead');
+	});
+
+	it("refuses a catalog whose choices share a value, offering a free one", () => {
+		const findings = catalogFindings(
+			[
+				{ value: "open", label: "Open" },
+				{ value: "open", label: "Reopened" },
+				{ value: "Open", label: "Open, capital" },
+			],
+			"CASE_PROPERTY_OPTION_VALUE_DUPLICATE",
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.scope).toBe("app");
+		expect(findings[0]?.details).toEqual({
+			caseType: "client",
+			property: "status",
+			optionValue: "open",
+			problem: "duplicate",
+			suggestedValue: "open_2",
+		});
+		expect(findings[0]?.message).toBe(
+			'Two choices of the "client" property "status" both store "open", so a saved value can\'t say which was chosen. "open_2" is free for the second.',
+		);
 	});
 });

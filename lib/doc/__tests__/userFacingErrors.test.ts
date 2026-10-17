@@ -160,6 +160,188 @@ describe("userFacingError — voice", () => {
 		expect(line).toContain("Give one of them a different ID");
 	});
 
+	it("says the identifier sentence each surface says, with its free name", () => {
+		const location = {
+			moduleUuid: testUuid("11111111-1111-4111-8111-111111111111"),
+			formUuid: testUuid("22222222-2222-4222-8222-222222222222"),
+			formName: "Register Client",
+			fieldUuid: testUuid("33333333-3333-4333-8333-333333333333"),
+			fieldId: "_notes",
+		};
+		expect(
+			userFacingError(
+				validationError("INVALID_FIELD_ID", "field", "Internal", location, {
+					problem: "leading-underscore",
+					suggestedId: "notes",
+				}),
+			),
+		).toBe(
+			'"_notes" in "Register Client" needs another ID. A question ID can\'t start with an underscore, because CommCare HQ\'s form builder can\'t keep it. "notes" is free here.',
+		);
+		expect(
+			userFacingError(
+				validationError(
+					"CONNECT_ID_INVALID_FORMAT",
+					"form",
+					"Internal",
+					location,
+					{
+						connectId: "task",
+						problem: "reserved-name",
+						suggestedId: "q_task",
+					},
+				),
+			),
+		).toBe(
+			'The Connect ID "task" in "Register Client" needs a change. "task" is a name CommCare Connect keeps for itself, and it can\'t receive a form whose block is called that. "q_task" is free here.',
+		);
+		expect(
+			userFacingError(
+				validationError(
+					"ENTRY_POINT_INVALID",
+					"app",
+					"Internal",
+					{},
+					{
+						reason: "id-format",
+						problem: "edge",
+						suggestedId: "intake",
+					},
+				),
+			),
+		).toBe(
+			"A deep link ID starts and ends with a lowercase letter or a digit, because CommCare HQ won't save one that doesn't. \"intake\" is free here.",
+		);
+		expect(
+			userFacingError(
+				validationError(
+					"CASE_OPERATION_LINK_INVALID",
+					"form",
+					"Internal",
+					location,
+					{
+						linkIdentifier: "create",
+						problem: "reads_as_case_action",
+						suggestedId: "q_create",
+					},
+				),
+			),
+		).toBe(
+			'"create" is a name CommCare HQ\'s form builder reads as starting a new case. "q_create" is free here.',
+		);
+		expect(
+			userFacingError(
+				validationError(
+					"CASE_OPERATION_INVALID_ID",
+					"form",
+					"Internal",
+					location,
+					{
+						operationId: "bind",
+						problem: "stops_form_builder",
+						suggestedId: "q_bind",
+					},
+				),
+			),
+		).toBe(
+			'"bind" is a name CommCare HQ\'s form builder can\'t open a form with. "q_bind" is free here.',
+		);
+		expect(
+			userFacingError(
+				validationError(
+					"CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP",
+					"form",
+					"Internal",
+					location,
+					{ property: "close", problem: "closes_case" },
+				),
+			),
+		).toBe(
+			'"_notes" in "Register Client" saves the case property "close". CommCare HQ\'s form builder reads a property named "close" as closing the case, so editing this form there would close the case every time it\'s sent. Save it under another property name here.',
+		);
+		const {
+			fieldUuid: _fieldUuid,
+			fieldId: _fieldId,
+			...formLocation
+		} = location;
+		expect(
+			userFacingError(
+				validationError(
+					"CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP",
+					"form",
+					"Internal",
+					formLocation,
+					{
+						operationId: "visit_update",
+						property: "bind",
+						problem: "stops_form_builder",
+					},
+				),
+			),
+		).toBe(
+			'The case change "visit_update" in "Register Client" saves the case property "bind". CommCare HQ\'s form builder can\'t open a form that saves a property named "bind" from a case change. Save it under another property name here.',
+		);
+		/* A Connect setting's formula belongs to the form, so the read of the
+		 * form's root names the setting, not a field. */
+		expect(
+			userFacingError(
+				validationError("INVALID_REF", "form", "Internal", formLocation, {
+					ref: "/data",
+				}),
+			),
+		).toBe(
+			'A CommCare Connect setting of "Register Client" reads the whole form, not a question. You can point it at a question, a group or a repeat instead.',
+		);
+		expect(
+			userFacingError(
+				validationError(
+					"FIELD_ID_NAMES_CONNECT_BLOCK",
+					"field",
+					"Internal",
+					location,
+					{ fieldId: "_notes", suggestedId: "notes_2" },
+				),
+			),
+		).toBe(
+			'"_notes" and a CommCare Connect block of "Register Client" share one name, so the form would hold two items CommCare can\'t tell apart. You can rename the field, or give the block another ID. "notes_2" is free for the field.',
+		);
+	});
+
+	it("names the value two choices share and the one free for the second", () => {
+		expect(
+			userFacingError(
+				validationError(
+					"SELECT_OPTION_VALUE_DUPLICATE",
+					"field",
+					"Internal",
+					{ formName: "Visit", fieldId: "answer" },
+					{ optionValue: "yes", suggestedValue: "yes_2", problem: "duplicate" },
+				),
+			),
+		).toBe(
+			'Two choices of "answer" in "Visit" both store "yes", so a saved answer can\'t say which was chosen. "yes_2" is free for the second.',
+		);
+		expect(
+			userFacingError(
+				validationError(
+					"CASE_PROPERTY_OPTION_VALUE_DUPLICATE",
+					"app",
+					"Internal",
+					{},
+					{
+						caseType: "client",
+						property: "status",
+						optionValue: "open",
+						suggestedValue: "open_2",
+						problem: "duplicate",
+					},
+				),
+			),
+		).toBe(
+			'Two choices of the "client" property "status" both store "open", so a saved value can\'t say which was chosen. "open_2" is free for the second.',
+		);
+	});
+
 	it("gives duplicate worker-information choices a direct repair", () => {
 		const line = userFacingError(
 			validationError(

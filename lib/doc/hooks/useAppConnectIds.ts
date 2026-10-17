@@ -113,7 +113,7 @@ export function useAppConnectIds(): readonly AppConnectId[] {
  * guard and `deriveConnectId` seed share one notion of "taken".
  *
  * This yields the same effective "taken" set as the SA path's
- * `collectConnectIds` + the walk-accumulation in `enforceConnectIds`,
+ * `appConnectIds` + the walk-accumulation in `enforceConnectIds`,
  * just decomposed differently: the UI knows the single `(form, kind)` slot
  * it's editing and excludes exactly that, while the tool excludes the whole
  * form and re-accumulates each co-located id as it walks the merged config.
@@ -130,4 +130,43 @@ export function connectIdsExcept(
 		ids.add(entry.id);
 	}
 	return ids;
+}
+
+/** Each form's top-level field ids, by form uuid. */
+export type RootFieldIdsByForm = Readonly<Record<string, readonly string[]>>;
+
+function sameRootFieldIds(a: RootFieldIdsByForm, b: RootFieldIdsByForm) {
+	const keys = Object.keys(a);
+	if (keys.length !== Object.keys(b).length) return false;
+	return keys.every((key) => {
+		const x = a[key];
+		const y = b[key];
+		return (
+			y !== undefined &&
+			x.length === y.length &&
+			x.every((id, i) => id === y[i])
+		);
+	});
+}
+
+/**
+ * Every form's top-level field ids. A Connect block's wrapper sits in its
+ * form's data root beside them, so a block id the guards offer or accept
+ * must be none of them, the same scope the SA tools and the commit gate
+ * hold. Compared by value, so an edit below a form's root doesn't
+ * re-render the guard.
+ */
+export function useRootFieldIdsByForm(): RootFieldIdsByForm {
+	return useBlueprintDocEq((s) => {
+		const out: Record<string, string[]> = {};
+		for (const moduleUuid of s.moduleOrder) {
+			for (const formUuid of s.formOrder[moduleUuid] ?? []) {
+				out[formUuid] = (s.fieldOrder[formUuid] ?? []).flatMap((uuid) => {
+					const id = s.fields[uuid]?.id;
+					return id === undefined ? [] : [id];
+				});
+			}
+		}
+		return out;
+	}, sameRootFieldIds);
 }

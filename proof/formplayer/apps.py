@@ -9,7 +9,10 @@ worker's cases saved through HQ's receiver, a build HQ released, and every
 request Formplayer makes of HQ answered by the view HQ's URLconf names), so
 what this package's tests read of Formplayer is what Formplayer makes of
 HQ's own answers. A state a person's save leaves is made by HQ's own pages
-and views (``saved_page``, ``saved_profile``), never written by hand.
+and views (``saved_page``, ``saved_profile``), never written by hand; a form
+source no Nova export holds, which a test writes by hand to show what a
+reader does with it, is written as the spelling rules' tests write one
+(``form_written``).
 
 ``build_id`` names an archive HQ does not hold (Nova's local export) by its
 content, and ``core_sessions`` runs Core's sessions over a build, as proof 3
@@ -139,6 +142,28 @@ def saved_profile(published: Published, properties: dict):
         raise SaveRefused(
             f"HQ's edit_commcare_profile answered {response.status_code} {response.content[:400]!r} for {properties}."
         )
+
+
+def form_written(holder, write):
+    """A ``change`` for ``served`` (and for ``proof.webapps.hq.Project.released``) that writes form sources by hand:
+    ``write`` maps each form's place (``"<module>.<form>"``) to its source's text to the text to store, written as
+    ``proof.rules.conftest.Published._write`` writes a form, through HQ's app and its save. The stored document the
+    release is made from is then read again, so the release is of the written forms. ``holder`` holds the app
+    (its ``unit`` and ``app_id``: a ``Published`` or a ``Project``)."""
+
+    def change(stored):
+        from proof.hq import operations
+
+        app = operations.held_app(holder.unit, holder.app_id)
+        for position, rewrite in sorted(write.items()):
+            m, f = (int(part) for part in position.split("."))
+            form = app.modules[m].forms[f]
+            form.source = rewrite(form.source)
+        app.save()
+        stored.clear()
+        stored.update(operations.held_app(holder.unit, holder.app_id).to_json())
+
+    return change
 
 
 @contextmanager

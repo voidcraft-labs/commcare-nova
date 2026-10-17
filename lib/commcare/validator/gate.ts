@@ -131,6 +131,8 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// as an XPath literal (`field = 'value'`) and the device as a select
 	// value it refuses; the wire cannot carry it.
 	CASE_PROPERTY_OPTION_VALUE_INVALID: "soundness",
+	// A saved value of a catalog with two equal choices can't say which.
+	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: "soundness",
 	CASE_PROPERTY_XPATH_INCOMPATIBLE: "soundness",
 	XPATH_INSTANCE_UNAVAILABLE: "soundness",
 	AUTOMATION_INVALID: "soundness",
@@ -296,12 +298,22 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CONNECT_ID_INVALID_FORMAT: "soundness",
 	CONNECT_ID_TOO_LONG: "soundness",
 	CONNECT_ID_DUPLICATE: "soundness",
+	// Connect turns away the visit in a form that also completes a task.
+	CONNECT_DELIVER_FORM_HOLDS_TASK: "soundness",
+	// Core can't load a form that reads a session datum its entry lacks.
+	SESSION_DATUM_NOT_SUPPLIED: "soundness",
+	// HQ's form builder can't open, or closes the case on, a form whose
+	// Save to Case block writes one of these property names.
+	CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP: "soundness",
 	CASE_HASHTAG_ON_CREATE_FORM: "soundness",
 	PRIMARY_CASE_FIELD_IN_REPEAT: "soundness",
 	USERCASE_WRITE_UNDECLARED_PROPERTY: "soundness",
 	USERCASE_WRITE_MANAGED_PROPERTY: "soundness",
 	USERCASE_FIELD_IN_REPEAT: "soundness",
 	DUPLICATE_FIELD_ID: "soundness",
+	// A root field and a Connect block of one form would be two elements of
+	// one name in the form's data root.
+	FIELD_ID_NAMES_CONNECT_BLOCK: "soundness",
 	CASE_PROPERTY_BAD_FORMAT: "soundness",
 	CASE_PROPERTY_TOO_LONG: "soundness",
 	CASE_OPERATION_DUPLICATE_UUID: "soundness",
@@ -334,6 +346,8 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// on any select value with a space, and a multi-select answer is a
 	// space-joined token list, so the form cannot run with it.
 	SELECT_OPTION_VALUE_INVALID: "soundness",
+	// HQ's form builder refuses two choices of one question with one value.
+	SELECT_OPTION_VALUE_DUPLICATE: "soundness",
 	// A written choice with no label in any language and no media: HQ's form
 	// builder drops its itext on save and HQ's next build refuses the form,
 	// and an option with no `<label>` is one CommCare refuses to parse.

@@ -691,6 +691,7 @@ describe("the forms whose generated data paths move", () => {
 				gate: [],
 				exportReadiness: [],
 				caseSchemas: [],
+				content: [],
 			}),
 		).toEqual([
 			`App app-names: ${RAW.appName}`,
@@ -698,6 +699,109 @@ describe("the forms whose generated data paths move", () => {
 			`  generated-paths-move ${check}: Check`,
 			`  generated-paths-move ${discharge}: Discharge`,
 			`  generated-count-or-message-name-moves ${check}: Check`,
+		]);
+	});
+});
+
+describe("the Connect blocks a plan renames", () => {
+	const connectDeployment = (deploymentId: string) => ({
+		deploymentId,
+		server: "production" as const,
+		domain: "field-ops",
+		remoteAppId: "hq-app",
+		outcome: "unreadable" as const,
+		buildSpecVersion: null,
+		pairing: null,
+		identities: [],
+		unpaired: [],
+		formIdsUnknown: [],
+		keyUses: [],
+		notices: [],
+	});
+	const renamed = (block: string) => ({
+		reason: "connect-block-renamed" as const,
+		entity: {
+			type: "form" as const,
+			uuid: testUuid("connect-form"),
+			nameAtMigration: "Visit form",
+		},
+		detail: { block, from: "task", to: "q_task" },
+	});
+	const build = {
+		plan: {
+			format: "hq-round-trip-emission-1",
+			apps: [
+				appPlan("app-deliver", {
+					changes: [renamed("deliver_unit"), renamed("task")],
+					deployments: [connectDeployment("d-deliver")],
+				}),
+				appPlan("app-assessment", {
+					changes: [renamed("assessment")],
+					deployments: [connectDeployment("d-assessment")],
+				}),
+				appPlan("app-kept", { deployments: [connectDeployment("d-kept")] }),
+			],
+			lookupTagRenames: [],
+			projectBlockers: [],
+			digest: "d".repeat(64),
+		},
+		targets: new Map(),
+		apps: [],
+		deployments: [],
+		lookupContexts: new Map(),
+	} as unknown as CutoverPlanBuild;
+	const source: FleetSource = {
+		apps: [],
+		projects: new Map(),
+		privateWork: {
+			openWorkspaces: 0,
+			openChangeSets: 0,
+			activeCandidates: 0,
+			endingSessions: [],
+		},
+	};
+
+	it("lists each deployment whose deliver unit, learn module or task the plan renames, by id and kind, and none whose ids it keeps", () => {
+		const report = new CutoverReport("scan");
+		planSections(report, source, build, NO_HOLDERS);
+		expect(
+			report.all().find((line) => line.section === "connect-renames"),
+		).toEqual({
+			report: "hq-round-trip-emission",
+			mode: "scan",
+			section: "connect-renames",
+			deployments: [
+				{
+					appId: "app-deliver",
+					deploymentId: "d-deliver",
+					blocks: ["deliver_unit", "task"],
+				},
+			],
+		});
+		expect(report.text()).not.toContain("q_task");
+		expect(report.text()).not.toContain("Visit form");
+	});
+
+	it("prints each place a content blocker met, and each line the notice holds, under --debug-details alone", () => {
+		expect(
+			debugDetails(build, "app-deliver", {
+				parse: [],
+				gate: [],
+				exportReadiness: [],
+				caseSchemas: [],
+				content: [
+					{
+						code: "form-root-read",
+						where: "fields.f.calculate",
+						message: '"count(/data)" reads the form\'s root alone.',
+					},
+				],
+			}),
+		).toEqual([
+			"App app-deliver: (unread)",
+			'  form-root-read fields.f.calculate: "count(/data)" reads the form\'s root alone.',
+			`  connect-block-renamed form ${testUuid("connect-form")}: Visit form block="deliver_unit" from="task" to="q_task"`,
+			`  connect-block-renamed form ${testUuid("connect-form")}: Visit form block="task" from="task" to="q_task"`,
 		]);
 	});
 });

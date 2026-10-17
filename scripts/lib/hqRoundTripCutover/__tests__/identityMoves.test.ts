@@ -40,9 +40,14 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { collectHqPaths } from "../matching";
-import { rawDocumentAssembly, readRawDocument } from "../oldShape";
-import { questionPaths } from "../questionPaths";
-import { transformDocument } from "../transform";
+import {
+	copyRawDocument,
+	type RawDocument,
+	rawDocumentAssembly,
+	readRawDocument,
+} from "../oldShape";
+import { formLeafPaths, questionPaths } from "../questionPaths";
+import { type DocumentChange, transformDocument } from "../transform";
 import { readLegacyApp } from "./fixtures/legacyBodies";
 import {
 	LEGACY_DIRECTORY,
@@ -66,7 +71,7 @@ const DOCUMENTS = readFixtureManifest()
 
 function emitted(id: string) {
 	const raw = readRawDocument(id, readFixtureCarriers(id));
-	const { target } = transformDocument(raw, {
+	const { target, changes } = transformDocument(raw, {
 		appId: id,
 		projectId: "fixture-project",
 		lookupColumnTypes: new Map(),
@@ -97,7 +102,56 @@ function emitted(id: string) {
 	const hq = expandDoc(doc, {
 		...(naming !== undefined && { lookupNaming: naming }),
 	}) as unknown as HqApp;
-	return { doc, hq, lookup, menus: questionPaths(target) };
+	return {
+		doc,
+		hq,
+		lookup,
+		menus: questionPaths(target),
+		source: raw,
+		changes,
+	};
+}
+
+/**
+ * Each authored path a question rename moves, old to new: the source's leaf
+ * paths beside the same walk with each renamed field under its new id.
+ */
+function questionPathMoves(
+	source: RawDocument,
+	changes: readonly DocumentChange[],
+): Map<string, string> {
+	const renamed = copyRawDocument(source);
+	for (const change of changes) {
+		if (change.reason !== "question-renamed") continue;
+		const field = renamed.fields[change.entity.uuid ?? ""];
+		if (field !== undefined && change.detail?.to !== undefined) {
+			(field as { id: string }).id = change.detail.to;
+		}
+	}
+	const moves = new Map<string, string>();
+	for (const formUuid of Object.keys(source.forms)) {
+		const before = formLeafPaths(source, formUuid);
+		const after = formLeafPaths(renamed, formUuid);
+		before.forEach((path, index) => {
+			const moved = after[index];
+			if (moved !== undefined && moved !== path) moves.set(path, moved);
+		});
+	}
+	return moves;
+}
+
+/**
+ * The forms of the emission that the stored document held, by their index
+ * in the app JSON's order; a form a step adds has no pre-step counterpart.
+ */
+function storedForms(
+	doc: BlueprintDoc,
+	hq: HqApp,
+	source: RawDocument,
+): { index: number; uuid: Uuid }[] {
+	return formUuids(doc, hq).flatMap((uuid, index) =>
+		source.forms[uuid] === undefined ? [] : [{ index, uuid }],
+	);
 }
 
 /** Each form's XForm in order, by the app JSON's own form ids. */
@@ -314,57 +368,125 @@ describe.each(DOCUMENTS)("over %s", (id) => {
 		expect(emitted(id).hq.langs).toEqual(legacy.langs);
 	});
 
-	it("keeps every question path no step renames", () => {
-		const { doc, hq } = emitted(id);
+	it("keeps every question path no step renames, and moves each renamed one from its old path to its new one", () => {
+		const { doc, hq, source, changes } = emitted(id);
 		const after = xforms(hq);
 		const before = xforms(legacy);
-		const forms = formUuids(doc, hq);
-		expect(after).toHaveLength(before.length);
+		const forms = storedForms(doc, hq, source);
+		const moves = questionPathMoves(source, changes);
 		expect(forms).toHaveLength(before.length);
 		before.forEach((xform, index) => {
+			const form = forms[index];
+			if (form === undefined) throw new Error(`No form ${index} in ${id}.`);
 			expect(
-				authoredTree(after[index] ?? "", doc, forms[index]).leaves.sort(),
+				authoredTree(after[form.index] ?? "", doc, form.uuid).leaves.sort(),
 			).toEqual(
 				collectHqPaths(xform)
 					.filter((entry) => !entry.generated)
-					.map((entry) => entry.path)
+					.map((entry) => moves.get(entry.path) ?? entry.path)
 					.sort(),
 			);
 		});
 	});
 
-	it("moves every generated node's path as the plan names it, and leaves each count and message node where it stood", () => {
-		const { doc, hq } = emitted(id);
+	it("moves each renamed Connect block and deep link from its old id to its new one, and nowhere else", () => {
+		const { doc, hq, source, changes } = emitted(id);
 		const after = xforms(hq);
 		const before = xforms(legacy);
-		formUuids(doc, hq).forEach((formUuid, index) => {
-			const xform = after[index] ?? "";
-			const plan = planGeneratedNodes(doc, formUuid);
-			const { scopeOf } = authoredTree(xform, doc, formUuid);
-			const tree = walk(dataRoot(xform));
-			const previous = walk(dataRoot(before[index] ?? ""));
-			// No node keeps the pre-step prefix.
-			expect(
-				tree.filter((entry) => entry.element.name.startsWith("__nova_")),
-			).toEqual([]);
-			// `nova_count_` and `nova_constraint_message_` do not move.
-			expect(
-				plan.nodes
-					.filter(
-						(node) =>
-							node.purpose === "count" || node.purpose === "constraint-message",
-					)
-					.map((node) => `${scopeOf.get(node.owner)}/${node.name}`)
-					.sort(),
-			).toEqual(
-				collectHqPaths(before[index] ?? "")
-					.filter((entry) => entry.generated)
-					.map((entry) => entry.path)
-					.sort(),
+		const forms = storedForms(doc, hq, source);
+		forms.forEach((form, index) => {
+			const now = elements(dataRoot(after[form.index] ?? "")).map(
+				(element) => element.name,
 			);
-			// Each operation's block, from `__nova_operations/<id>` to its place.
-			expectOperationsMoved(doc, formUuid, plan, tree, previous);
+			const then = elements(dataRoot(before[index] ?? "")).map(
+				(element) => element.name,
+			);
+			for (const change of changes) {
+				if (
+					change.reason !== "connect-block-renamed" ||
+					change.entity.uuid !== form.uuid
+				) {
+					continue;
+				}
+				expect(then).toContain(change.detail?.from);
+				expect(now).not.toContain(change.detail?.from);
+				// A task step `connect-task-forms` moves stands in its new form.
+				expect(
+					after.flatMap((xform) =>
+						elements(dataRoot(xform)).map((element) => element.name),
+					),
+				).toContain(change.detail?.to);
+			}
 		});
+		type Endpoints = { session_endpoint_id?: string };
+		const byUniqueId = new Map(
+			Object.keys(doc.forms).map((uuid) => [
+				derivedUniqueId(asUuid(uuid)),
+				uuid,
+			]),
+		);
+		const endpoints = (app: HqApp, stored: (uniqueId: string) => boolean) =>
+			app.modules.flatMap((module) => [
+				(module as Endpoints).session_endpoint_id ?? "",
+				(module as { case_list_session_endpoint_id?: string })
+					.case_list_session_endpoint_id ?? "",
+				...module.forms
+					.filter((form) => stored(form.unique_id))
+					.map((form) => (form as Endpoints).session_endpoint_id ?? ""),
+			]);
+		const renamed = new Map(
+			changes
+				.filter((change) => change.reason === "entry-point-renamed")
+				.map((change) => [change.detail?.from, change.detail?.to]),
+		);
+		expect(
+			endpoints(
+				hq,
+				(uniqueId) =>
+					source.forms[byUniqueId.get(uniqueId) ?? ""] !== undefined,
+			),
+		).toEqual(
+			endpoints(legacy, () => true).map(
+				(endpoint) => renamed.get(endpoint) ?? endpoint,
+			),
+		);
+	});
+
+	it("moves every generated node's path as the plan names it, and leaves each count and message node where it stood", () => {
+		const { doc, hq, source } = emitted(id);
+		const after = xforms(hq);
+		const before = xforms(legacy);
+		storedForms(doc, hq, source).forEach(
+			({ index: at, uuid: formUuid }, index) => {
+				const xform = after[at] ?? "";
+				const plan = planGeneratedNodes(doc, formUuid);
+				const { scopeOf } = authoredTree(xform, doc, formUuid);
+				const tree = walk(dataRoot(xform));
+				const previous = walk(dataRoot(before[index] ?? ""));
+				// No node keeps the pre-step prefix.
+				expect(
+					tree.filter((entry) => entry.element.name.startsWith("__nova_")),
+				).toEqual([]);
+				// `nova_count_` and `nova_constraint_message_` do not move.
+				expect(
+					plan.nodes
+						.filter(
+							(node) =>
+								node.purpose === "count" ||
+								node.purpose === "constraint-message",
+						)
+						.map((node) => `${scopeOf.get(node.owner)}/${node.name}`)
+						.sort(),
+				).toEqual(
+					collectHqPaths(before[index] ?? "")
+						.filter((entry) => entry.generated)
+						.map((entry) => entry.path)
+						.sort(),
+				);
+				// Each operation's block, from `__nova_operations/<id>` to its place.
+				expectOperationsMoved(doc, formUuid, plan, tree, previous);
+			},
+		);
 	});
 
 	it("moves every menu id, form id and xmlns of a deployment no credential read from HQ's values to the derived ones", () => {
@@ -390,7 +512,7 @@ describe.each(DOCUMENTS)("over %s", (id) => {
 	});
 
 	it("moves each form's xmlns in the local archive from a drawn one to the derived one", () => {
-		const { doc, hq, lookup, menus } = emitted(id);
+		const { doc, hq, lookup, menus, source } = emitted(id);
 		const archive = new AdmZip(
 			compileCcz(hq as never, doc.appName, doc, {
 				runtimeTarget: TEST_RUNTIME_TARGET,
@@ -398,12 +520,24 @@ describe.each(DOCUMENTS)("over %s", (id) => {
 			}),
 		);
 		const before = new AdmZip(`${LEGACY_DIRECTORY}/${id}/legacy/local.ccz`);
+		// A form a step adds has no archive entry before.
+		const stored = new Map(
+			questionPaths(source).flatMap((menu, menuIndex) =>
+				menu.forms.map(
+					(form, formIndex) =>
+						[form.uuid, `modules-${menuIndex}/forms-${formIndex}.xml`] as const,
+				),
+			),
+		);
 		menus.forEach((menu, menuIndex) => {
 			menu.forms.forEach((form, formIndex) => {
 				const entry = `modules-${menuIndex}/forms-${formIndex}.xml`;
 				const now = dataXmlns(archive.readAsText(entry));
 				expect(now).toBe(derivedFormXmlns(asUuid(form.uuid)));
-				expect(dataXmlns(before.readAsText(entry))).not.toBe(now);
+				const then = stored.get(form.uuid);
+				if (then !== undefined) {
+					expect(dataXmlns(before.readAsText(then))).not.toBe(now);
+				}
 			});
 		});
 	});

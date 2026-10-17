@@ -15,6 +15,7 @@ import type { ConnectConfig } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	configToDraft,
+	deliverBlockOffered,
 	draftToConfig,
 	EMPTY_DRAFT,
 	parseTimeEstimate,
@@ -173,5 +174,20 @@ describe("Connect draft round-trip", () => {
 		};
 		const round = draftToConfig(draft, "learn", parse, derivedId);
 		expect(round.assessment).toStrictEqual({ id: "q", user_score: override });
+	});
+});
+
+describe("deliverBlockOffered", () => {
+	it("offers each block only while the other is off", () => {
+		const held = (deliver_unit: boolean, task: boolean) => ({
+			deliver_unit,
+			task,
+		});
+		expect(deliverBlockOffered("deliver_unit", held(false, false))).toBe(true);
+		expect(deliverBlockOffered("task", held(false, false))).toBe(true);
+		expect(deliverBlockOffered("task", held(true, false))).toBe(false);
+		expect(deliverBlockOffered("deliver_unit", held(true, false))).toBe(true);
+		expect(deliverBlockOffered("deliver_unit", held(false, true))).toBe(false);
+		expect(deliverBlockOffered("task", held(false, true))).toBe(true);
 	});
 });

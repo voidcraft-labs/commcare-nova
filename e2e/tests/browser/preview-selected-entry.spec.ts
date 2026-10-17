@@ -90,6 +90,7 @@ async function selectedEntryPeer() {
 		"@/lib/preview/entryPointLaunchAction": boundary,
 		"@/lib/auth/hooks/useAuth": boundary,
 		"@/lib/lookup/actions": boundary,
+		"@/lib/deployment/actions": boundary,
 	});
 }
 

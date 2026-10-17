@@ -20,6 +20,91 @@ const REAL_ENTRIES = {
 		reason: "ccz-needs-project-space",
 		entity: { type: "app", nameAtMigration: "Clinic visits" },
 	},
+	"question-renamed": {
+		kind: "document",
+		reason: "question-renamed",
+		entity: {
+			type: "field",
+			uuid: "01992000-0000-7000-8000-0000000000e1",
+			nameAtMigration: "notes",
+		},
+		detail: { form: "Intake", kind: "question", from: "_notes", to: "notes" },
+	},
+	"case-operation-renamed": {
+		kind: "document",
+		reason: "case-operation-renamed",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Intake",
+		},
+		detail: { from: "instance", to: "q_instance" },
+	},
+	"connect-block-renamed": {
+		kind: "document",
+		reason: "connect-block-renamed",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Intake",
+		},
+		detail: { block: "task", from: "task", to: "q_task" },
+	},
+	"connect-task-moved-to-own-form": {
+		kind: "document",
+		reason: "connect-task-moved-to-own-form",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Intake",
+		},
+		detail: { task: "follow_up", newForm: "Follow-up task" },
+	},
+	"entry-point-renamed": {
+		kind: "document",
+		reason: "entry-point-renamed",
+		entity: {
+			type: "entryPoint",
+			uuid: "01992000-0000-7000-8000-0000000000f1",
+			nameAtMigration: "intake",
+		},
+		detail: { from: "intake_", to: "intake" },
+	},
+	"option-value-split": {
+		kind: "document",
+		reason: "option-value-split",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Intake",
+		},
+		detail: {
+			question: "consent",
+			value: "yes",
+			to: "yes_2",
+			keptLabel: "Yes",
+			label: "Yes, today",
+		},
+	},
+	"empty-form-label-added": {
+		kind: "document",
+		reason: "empty-form-label-added",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Intake",
+		},
+	},
+	"session-read-removed": {
+		kind: "document",
+		reason: "session-read-removed",
+		entity: {
+			type: "field",
+			uuid: "01992000-0000-7000-8000-0000000000e1",
+			nameAtMigration: "notes",
+		},
+		detail: { form: "Intake", datum: "case_id_new" },
+	},
 	"option-label-filled": {
 		kind: "document",
 		reason: "option-label-filled",

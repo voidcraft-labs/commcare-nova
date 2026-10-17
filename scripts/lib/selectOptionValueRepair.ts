@@ -32,6 +32,7 @@ import {
 	fieldCaseWrite,
 	isXPathExpression,
 	mintSelectOptionPlaceholder,
+	optionValueSpaceKey,
 	type PersistableDoc,
 	type ProseTemplate,
 	proseTemplateText,
@@ -107,7 +108,7 @@ export interface SelectOptionValueRepairPlan {
 	readonly literalReferences: readonly SelectOptionValueLiteralReference[];
 }
 
-type MutableDoc = {
+export type MutableDoc = {
 	-readonly [K in keyof PersistableDoc]: PersistableDoc[K];
 };
 
@@ -149,62 +150,7 @@ export function planSelectOptionValueRepair(
 	const target = structuredClone(doc) as MutableDoc;
 	const rewrites: SelectOptionValueRewrite[] = [];
 
-	/* Every option list that names the same case property is one value
-	 * space: the catalog's options and every field writing that property.
-	 * Their refused values are renamed together, against the union of their
-	 * admitted values, so a field and its catalog never disagree about what
-	 * an old token became. A select with no case binding is its own space. */
-	const spaces = new Map<string, OptionSpace>();
-	const spaceFor = (key: string): OptionSpace => {
-		let space = spaces.get(key);
-		if (space === undefined) {
-			space = { lists: [], taken: new Set() };
-			spaces.set(key, space);
-		}
-		return space;
-	};
-
-	for (const caseType of target.caseTypes ?? []) {
-		for (const property of caseType.properties) {
-			if (property.options === undefined) continue;
-			const space = spaceFor(`${caseType.name}\u0000${property.name}`);
-			space.lists.push({
-				options: property.options,
-				where: {
-					kind: "catalog-option",
-					caseType: caseType.name,
-					property: property.name,
-				},
-			});
-		}
-	}
-
-	const formNameOfField = fieldFormNames(target);
-	for (const field of Object.values(target.fields)) {
-		if (field === undefined) continue;
-		if (field.kind !== "single_select" && field.kind !== "multi_select") {
-			continue;
-		}
-		if (field.optionsSource.kind !== "inline") continue;
-		const write = fieldCaseWrite(field);
-		const key =
-			write === undefined
-				? `field\u0000${field.uuid}`
-				: `${write.caseType}\u0000${write.property}`;
-		spaceFor(key).lists.push({
-			options: field.optionsSource.options,
-			where: {
-				kind: "field-option",
-				fieldUuid: field.uuid,
-				fieldId: field.id,
-				formName: formNameOfField.get(field.uuid) ?? "",
-				...(write !== undefined && {
-					caseType: write.caseType,
-					property: write.property,
-				}),
-			},
-		});
-	}
+	const spaces = selectOptionValueSpaces(target);
 
 	/* Two translation unit ids are keyed by the stored value itself rather
 	 * than by a uuid — a catalog option's, and an id-mapping column's
@@ -272,7 +218,9 @@ export function planSelectOptionValueRepair(
 			}
 			const caseType = module?.caseType;
 			if (caseType === undefined) continue;
-			const values = valueMapByKey.get(`${caseType}\u0000${column.field}`);
+			const values = valueMapByKey.get(
+				optionValueSpaceKey({ caseType, property: column.field }),
+			);
 			if (values === undefined) continue;
 			for (const entry of column.mapping) {
 				const to = values.get(entry.value);
@@ -333,10 +281,7 @@ export function planSelectOptionValueRepair(
 		const field = target.fields[condition.field];
 		if (field === undefined) continue;
 		const write = fieldCaseWrite(field);
-		const key =
-			write === undefined
-				? `field\u0000${field.uuid}`
-				: `${write.caseType}\u0000${write.property}`;
+		const key = optionValueSpaceKey(write ?? { fieldUuid: field.uuid });
 		const to = valueMapByKey.get(key)?.get(condition.answer);
 		if (to === undefined) continue;
 		form.closeCondition = { ...condition, answer: to };
@@ -394,7 +339,75 @@ export function planSelectOptionValueRepair(
 	};
 }
 
-interface OptionSpace {
+/**
+ * Every option list of the document, grouped into value spaces by
+ * `optionValueSpaceKey`: the catalog's options and every field writing that
+ * property are one space, and a select with no case binding is its own. Their
+ * refused values are renamed together, against the union of their admitted
+ * values, so a field and its catalog never disagree about what an old token
+ * became. The lists hold `target`'s own option arrays, which the repair
+ * rewrites in place.
+ */
+export function selectOptionValueSpaces(
+	target: MutableDoc,
+): Map<string, OptionSpace> {
+	const spaces = new Map<string, OptionSpace>();
+	const spaceFor = (key: string): OptionSpace => {
+		let space = spaces.get(key);
+		if (space === undefined) {
+			space = { lists: [], taken: new Set() };
+			spaces.set(key, space);
+		}
+		return space;
+	};
+
+	for (const caseType of target.caseTypes ?? []) {
+		for (const property of caseType.properties) {
+			if (property.options === undefined) continue;
+			spaceFor(
+				optionValueSpaceKey({
+					caseType: caseType.name,
+					property: property.name,
+				}),
+			).lists.push({
+				options: property.options,
+				where: {
+					kind: "catalog-option",
+					caseType: caseType.name,
+					property: property.name,
+				},
+			});
+		}
+	}
+
+	const formNameOfField = fieldFormNames(target);
+	for (const field of Object.values(target.fields)) {
+		if (field === undefined) continue;
+		if (field.kind !== "single_select" && field.kind !== "multi_select") {
+			continue;
+		}
+		if (field.optionsSource.kind !== "inline") continue;
+		const write = fieldCaseWrite(field);
+		spaceFor(
+			optionValueSpaceKey(write ?? { fieldUuid: field.uuid }),
+		).lists.push({
+			options: field.optionsSource.options,
+			where: {
+				kind: "field-option",
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+				formName: formNameOfField.get(field.uuid) ?? "",
+				...(write !== undefined && {
+					caseType: write.caseType,
+					property: write.property,
+				}),
+			},
+		});
+	}
+	return spaces;
+}
+
+export interface OptionSpace {
 	readonly lists: Array<{
 		readonly options: Array<{ value: string; label: ProseTemplate }>;
 		readonly where: SelectOptionValueRewrite["where"];

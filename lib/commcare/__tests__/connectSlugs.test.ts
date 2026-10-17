@@ -11,6 +11,10 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
+import {
+	questionIdProblem,
+	RESERVED_CONNECT_BLOCK_IDS,
+} from "@/lib/domain/questionId";
 import { connectWireFixtures } from "./connectWireFixtures";
 
 function fixture(name: string) {
@@ -26,31 +30,39 @@ describe("Connect identity projection", () => {
 	it.each(["learn-default", "deliver-default", "absent"])(
 		"%s keeps complete stored identities and does not mutate its source",
 		(name) => {
-			const { doc, formUuid, form } = fixture(name);
+			const { doc } = fixture(name);
 			const before = structuredClone(doc);
 			const result = buildConnectSlugMap(doc);
 			expect([...result]).toEqual(
-				form.connect ? [[formUuid, form.connect]] : [],
+				doc.formOrder[doc.moduleOrder[0]].flatMap((formUuid) => {
+					const connect = doc.forms[formUuid].connect;
+					return connect ? [[formUuid, connect]] : [];
+				}),
 			);
 			expect(doc).toEqual(before);
 		},
 	);
 
-	it.each(["", "bad id", "1leading", "a".repeat(51)])(
-		"refuses a forged invalid final id %j instead of repairing it",
-		(id) => {
-			const { doc, form } = fixture("learn-default");
-			if (
-				!form.connect ||
-				!("learn_module" in form.connect) ||
-				!form.connect.learn_module
-			)
-				throw new Error("Missing lesson");
-			form.connect.learn_module.id = id;
-			expect(() => buildConnectSlugMap(doc)).toThrow(/invalid final id/);
-			expect(() => expandDoc(doc)).toThrow(/invalid final id/);
-		},
-	);
+	it.each([
+		"",
+		"bad id",
+		"1leading",
+		"_leading",
+		"XMLquiz",
+		"task",
+		"a".repeat(51),
+	])("refuses a forged invalid final id %j instead of repairing it", (id) => {
+		const { doc, form } = fixture("learn-default");
+		if (
+			!form.connect ||
+			!("learn_module" in form.connect) ||
+			!form.connect.learn_module
+		)
+			throw new Error("Missing lesson");
+		form.connect.learn_module.id = id;
+		expect(() => buildConnectSlugMap(doc)).toThrow(/invalid final id/);
+		expect(() => expandDoc(doc)).toThrow(/invalid final id/);
+	});
 
 	it("refuses two blocks sharing a final id, including different block kinds", () => {
 		const { doc, form } = fixture("learn-default");
@@ -85,21 +97,68 @@ describe("Connect creation identity policy", () => {
 		"1st_module",
 		"bad-dash",
 		"",
+		"_leading_underscore",
+		"XMLquiz",
+		"Meta",
+		"case",
+		"parsererror",
 		"a".repeat(51),
 	])("explains invalid id %j", (id) => {
 		expect(connectIdError(id)).toEqual(expect.any(String));
 	});
-	it.each(["intake_2024", "_leading_underscore", "a".repeat(50)])(
-		"accepts %j",
+	it.each([
+		"intake_2024",
+		"xmlquiz",
+		"metadata",
+		"tasks",
+		"Task",
+		"Module",
+		"q_deliver",
+		"a".repeat(50),
+	])("accepts %j", (id) => {
+		expect(connectIdError(id)).toBeNull();
+	});
+	it.each(["assessment", "deliver", "module", "task", "work_area_update"])(
+		"refuses %j, a name Connect's receiver keeps for itself",
 		(id) => {
-			expect(connectIdError(id)).toBeNull();
+			expect(connectIdError(id)).toBe(
+				`"${id}" is a name CommCare Connect keeps for itself, and it can't receive a form whose block is called that. "q_${id}" is free here.`,
+			);
 		},
 	);
+	it("offers a replacement free among the app's other Connect ids", () => {
+		expect(connectIdError("_lesson", new Set(["lesson"]))).toBe(
+			"A Connect ID can't start with an underscore, because CommCare HQ's form builder can't keep it. \"lesson_2\" is free here.",
+		);
+		// The replacement is cut at the tail so its suffix fits the cap.
+		const long = `_1st_lesson${"x".repeat(39)}`;
+		const migrated = `q1st_lesson${"x".repeat(39)}`;
+		expect(migrated).toHaveLength(50);
+		expect(connectIdError(long)).toContain(`"${migrated}" is free here.`);
+		expect(connectIdError(long, new Set([migrated]))).toContain(
+			`"${migrated.slice(0, 48)}_2" is free here.`,
+		);
+	});
 	it("only rejects explicit identities that another block owns", () => {
 		expect(
 			connectIdConflictError("intro", new Set(["intro", "other"])),
 		).toContain("already used");
 		expect(connectIdConflictError("intro", new Set(["other"]))).toBeNull();
+	});
+	it("mints a letter-first id and never one of Connect's own names", () => {
+		expect(deriveConnectId("1st visit", new Set())).toBe("q1st_visit");
+		expect(deriveConnectId("1st visit", new Set(["q1st_visit"]))).toBe(
+			"q1st_visit_2",
+		);
+		expect(deriveConnectId("Task", new Set())).toBe("q_task");
+		expect(deriveConnectId("Work area update", new Set())).toBe(
+			"q_work_area_update",
+		);
+		expect(deriveConnectId("XML quiz", new Set())).toBe("xml_quiz");
+		expect(deriveConnectId("Meta", new Set())).toBe("q_meta");
+		const long = deriveConnectId(`1 ${"x".repeat(60)}`, new Set());
+		expect(long).toHaveLength(50);
+		expect(long.startsWith("q1_")).toBe(true);
 	});
 	it("derives the first available suffix across digit and length boundaries", () => {
 		expect(deriveConnectId("Module 3 Intro", new Set())).toBe("module_3_intro");
@@ -112,7 +171,7 @@ describe("Connect creation identity policy", () => {
 			taken.add(expected);
 		}
 	});
-	it("constructs a bounded fresh XML-safe identity from arbitrary names without changing reservations", () => {
+	it("constructs a bounded fresh editor-safe identity from arbitrary names without changing reservations", () => {
 		fc.assert(
 			fc.property(
 				fc.string(),
@@ -120,14 +179,18 @@ describe("Connect creation identity policy", () => {
 				(name, reservations) => {
 					const initial = new Set(reservations);
 					const first = deriveConnectId(name, initial);
-					expect(first).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/);
+					expect(
+						questionIdProblem(first, RESERVED_CONNECT_BLOCK_IDS),
+					).toBeUndefined();
 					expect(first.length).toBeLessThanOrEqual(50);
 					expect(initial.has(first)).toBe(false);
 					expect([...initial]).toEqual([...new Set(reservations)]);
 					const occupied = new Set([...initial, first]);
 					const second = deriveConnectId(name, occupied);
 					expect(occupied.has(second)).toBe(false);
-					expect(second).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/);
+					expect(
+						questionIdProblem(second, RESERVED_CONNECT_BLOCK_IDS),
+					).toBeUndefined();
 					expect(second.length).toBeLessThanOrEqual(50);
 				},
 			),
@@ -137,18 +200,20 @@ describe("Connect creation identity policy", () => {
 });
 
 describe("Connect data paths in validator admission", () => {
+	// A deliver app's task sits in the menu's second form, beside a label.
 	it.each([
-		["learn-default", "lesson"],
-		["deliver-default", "task"],
-	])(
+		["learn-default", 0, "lesson"],
+		["deliver-default", 1, "follow_up"],
+	] as const)(
 		"%s admits the actual wrapper and identifies a missing wrapper",
-		(name, wrapper) => {
-			const { doc, formUuid } = fixture(name);
+		(name, formIndex, wrapper) => {
+			const { doc } = fixture(name);
+			const formUuid = doc.formOrder[doc.moduleOrder[0]][formIndex];
 			const field = doc.fields[doc.fieldOrder[formUuid][0]];
 			const setReference = (target: BlueprintDoc, path: string) => {
 				const targetField = target.fields[field.uuid];
-				if (targetField.kind !== "int")
-					throw new Error("Expected score question");
+				if (targetField.kind !== "int" && targetField.kind !== "label")
+					throw new Error("Expected the form's first question or label");
 				targetField.relevant = xpIn(target, formUuid, `${path} = 'x'`);
 			};
 			setReference(doc, `/data/${wrapper}`);

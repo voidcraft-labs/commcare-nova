@@ -27,6 +27,11 @@ to the selected record type. A separate `resolveFormReference` can accept short
 parsing keeps its existing resolver. Instance- and current-rooted paths retain
 literal path semantics.
 
+An absolute path names a field of the form. The root alone, `/data`, names
+none and is refused under `INVALID_REF`
+(`lib/preview/xpath/dependencies.ts::formRootReadPositions`): HQ's form
+builder shows it as an unknown question.
+
 The domain `expressionFunctions.ts` signatures may admit only functions classified as JavaRosa native,
 proven-lowered, or path initializers used in their required path-root position,
 and every admitted call shape must have a faithful Preview execution path. Do

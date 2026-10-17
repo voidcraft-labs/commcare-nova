@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+	duplicateSelectOptionValues,
 	isValidSelectOptionValue,
 	repairSelectOptionValue,
 	SELECT_OPTION_VALUE_PATTERN,
 	sanitizeSelectOptionValue,
 	selectOptionValueProblem,
+	selectOptionValueProblemAmong,
 	selectOptionValueSchema,
 	suggestSelectOptionValue,
 } from "../selectOptionValue";
@@ -180,5 +182,35 @@ describe("repairSelectOptionValue", () => {
 		expect(
 			repairSelectOptionValue("a b", "A b", "option_1", new Set(["a_b"])),
 		).toBe("a_b_2");
+	});
+});
+
+describe("duplicate values in one list", () => {
+	it("keeps the first holder and offers each later one a free value", () => {
+		expect(
+			duplicateSelectOptionValues(["yes", "no", "yes", "yes_2", "yes", "no"]),
+		).toEqual([
+			{ index: 2, value: "yes", suggestion: "yes_3" },
+			{ index: 4, value: "yes", suggestion: "yes_4" },
+			{ index: 5, value: "no", suggestion: "no_2" },
+		]);
+	});
+
+	it("compares exactly and leaves a grammar problem to its own refusal", () => {
+		expect(duplicateSelectOptionValues(["yes", "Yes", "a b", "a b"])).toEqual(
+			[],
+		);
+	});
+
+	it("judges a value among the values before it", () => {
+		expect(selectOptionValueProblemAmong("yes", new Set(["yes"]))).toBe(
+			"duplicate",
+		);
+		expect(selectOptionValueProblemAmong("a b", new Set(["a b"]))).toBe(
+			"whitespace",
+		);
+		expect(selectOptionValueProblemAmong("Yes", new Set(["yes"]))).toBe(
+			undefined,
+		);
 	});
 });

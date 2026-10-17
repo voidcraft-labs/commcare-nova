@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
+import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
@@ -263,20 +264,48 @@ describe("whole-document structural admission", () => {
 describe("field and property identity policy", () => {
 	// Nova reserves no question names for its own nodes: the allocator steps
 	// around an authored name equal to a generated one.
-	it.each(["answer_value", "_answer", "nova_answer", "nova_url_x", "__nova_x"])(
-		"admits field id %s",
-		(id) => {
-			assertAdmittedDoc(survey([{ ...plain, id }]));
-		},
-	);
-	it.each(["1answer", "answer-value"])(
-		"rejects field id %s under Nova's identifier policy",
-		(id) => {
-			findings(
+	it.each([
+		"answer_value",
+		"nova_answer",
+		"nova_url_x",
+		"xmlcode",
+		"metadata",
+		"cases",
+		"instances",
+		"itext",
+	])("admits field id %s", (id) => {
+		assertAdmittedDoc(survey([{ ...plain, id }]));
+	});
+	it.each([
+		["1answer", "not-letter-first", "q1answer"],
+		["answer-value", "characters", "answer_value"],
+		["_answer", "leading-underscore", "answer"],
+		["__nova_x", "leading-underscore", "nova_x"],
+		["XMLcode", "xml-prefix", "qXMLcode"],
+		["Meta", "reserved-name", "q_Meta"],
+		["case", "reserved-name", "q_case"],
+		["Script", "reserved-name", "q_Script"],
+		["parsererror", "reserved-name", "q_parsererror"],
+	])(
+		"rejects field id %s under Nova's identifier policy as %s, offering %s",
+		(id, problem, suggestedId) => {
+			const [finding] = findings(
 				candidate(survey(), (d) => {
 					d.fields[q].id = id;
 				}),
 				["INVALID_FIELD_ID"],
+			);
+			expect(finding?.details).toMatchObject({ problem, suggestedId });
+			// The builder's verdict says the same sentence the finding ends with.
+			const verdict = fieldIdVerdict({
+				doc: survey(),
+				parentUuid: a,
+				proposedId: id,
+				excludeUuid: q,
+			});
+			expect(verdict.ok).toBe(false);
+			expect(finding?.message.endsWith(verdict.ok ? "" : verdict.message)).toBe(
+				true,
 			);
 		},
 	);
@@ -1064,6 +1093,11 @@ describe("Connect participant admission", () => {
 			for (const [id, code] of [
 				["bad id", "CONNECT_ID_INVALID_FORMAT"],
 				["1bad", "CONNECT_ID_INVALID_FORMAT"],
+				["_lesson", "CONNECT_ID_INVALID_FORMAT"],
+				["XMLquiz", "CONNECT_ID_INVALID_FORMAT"],
+				["meta", "CONNECT_ID_INVALID_FORMAT"],
+				["task", "CONNECT_ID_INVALID_FORMAT"],
+				["deliver", "CONNECT_ID_INVALID_FORMAT"],
 				["a".repeat(51), "CONNECT_ID_TOO_LONG"],
 			]) {
 				const base = connect(mode, make("valid_id"));
@@ -1096,6 +1130,49 @@ describe("Connect participant admission", () => {
 				details: { connectId: "lesson" },
 			},
 		]);
+	});
+	/* A Connect block's wrapper and the form's top-level fields are children
+	 * of one data root, so the two kinds share one set of names there. */
+	it("refuses a top-level field named like its form's Connect block, offering a free name", () => {
+		expect(
+			findings(
+				candidate(connect("deliver"), (d) => {
+					d.fields[q].id = "visit";
+				}),
+				["FIELD_ID_NAMES_CONNECT_BLOCK"],
+			),
+		).toMatchObject([
+			{
+				location: { fieldUuid: q, fieldId: "visit" },
+				details: { suggestedId: "visit_2" },
+			},
+		]);
+		assertAdmittedDoc(
+			candidate(connect("deliver"), (d) => {
+				d.fields[q].id = "visit_2";
+			}),
+		);
+	});
+	it("offers a refused field id or Connect id a name neither kind holds at the root", () => {
+		expect(
+			findings(
+				candidate(connect("deliver"), (d) => {
+					d.fields[q].id = "_visit";
+				}),
+				["INVALID_FIELD_ID"],
+			),
+		).toMatchObject([{ details: { suggestedId: "visit_2" } }]);
+		expect(
+			findings(
+				candidate(connect("deliver"), (d) => {
+					d.fields[q].id = "visit";
+					d.forms[a].connect = {
+						deliver_unit: { id: "_visit", name: "Visit" },
+					};
+				}),
+				["CONNECT_ID_INVALID_FORMAT"],
+			),
+		).toMatchObject([{ details: { suggestedId: "visit_2" } }]);
 	});
 	it.each(["entity_id", "entity_name"] as const)(
 		"rejects explicit empty deliver %s and admits absent defaults",

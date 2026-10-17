@@ -1031,10 +1031,13 @@ planned ("Found while planning step 2").
     widget for it. The lane's Formplayer walk now submits what the client
     holds (`proof/formplayer/walk.py::UNSUPPORTED`,
     `proof/webapps/observe.py::submitted_alike` holds the two alike).
-    *Documents:* `fuzz-xform-20260930-10`, in a repetition added last;
-    `targeted-datetime-ordering`, whose survey form asks two date and time
-    questions and nothing else (finding 56). Each holds the stop
-    Formplayer, `submit-refused:validation-error`.
+    *Documents:* `targeted-datetime-ordering`, whose survey form asks two
+    date and time questions and nothing else (finding 56), which holds the
+    stop Formplayer, `submit-refused:validation-error`.
+    `fuzz-xform-20260930-10` held it too, in a repetition added last, until
+    step 2 drew the repeat that follows it over the open cases (finding 71),
+    so the walk answers its rows after the repetition and Formplayer's next
+    answer replaces the held text.
 
 The same check found that Formplayer's walk had never pressed the Add of a
 repeat a worker adds to, so no repetition, nor the case it creates, was ever

@@ -328,6 +328,52 @@ def test_a_place_where_more_than_one_block_of_a_kind_went_or_came_pairs_none():
     assert _beyond(_learn(), LEARN_CATALOG, (*LEARN_A, ("module", "drying")), LEARN_B) == LEARN_REPORTS
 
 
+def _files(**forms):
+    """A build of one form per file, each holding its Connect blocks (``forms-<n>``: blocks)."""
+    files = {f"modules-0/{name.replace('_', '-')}.xml": _xform(*blocks).encode() for name, blocks in forms.items()}
+    return hq_own_reports.connect_forms(BuildOutcome("A", 1, [], {}, {**files, "suite.xml": b"<suite/>"}))
+
+
+def _task_run(task):
+    """A run whose one post is a task form's payload Connect took, and which completed none of the worker's tasks."""
+    taken = {"status": 200, "body": {}, "raised": [], "payload": _payload(("task", task))}
+    return {"runs": {"android": [_run(taken, {"assignedTasks": [{"slug": "follow_up", "status": "assigned"}]})]}}
+
+
+def _task_beyond(record, a, b):
+    found = connect.absolute_differences(
+        record,
+        DELIVER_CATALOG,
+        check="proof4",
+        document="-",
+        artifact="connect",
+        beyond={},
+        forms=("connect@B-edit@minimum", a, b),
+    )
+    return [difference.path for difference in found]
+
+
+def test_a_renamed_task_in_a_form_of_its_own_completing_nothing_is_connects_own():
+    # The task is in the deliver app's second form, as Nova writes it and as HQ's form builder does, and the edit
+    # renames it there: Connect takes the payload and completes no task the worker was assigned under the old id.
+    a = _files(forms_0=DELIVER_A[:1], forms_1=DELIVER_A[1:])
+    b = _files(forms_0=DELIVER_B[:1], forms_1=DELIVER_B[1:])
+    assert hq_own_reports.renamed_blocks(a, b) == {
+        ("deliver", "home_visit", "household_visit"),
+        ("task", "follow_up", "return_visit"),
+    }
+    assert _task_beyond(_task_run("return_visit"), a, b) == []
+
+
+def test_a_task_the_edit_left_alone_that_completed_nothing_is_still_reported():
+    a = _files(forms_0=DELIVER_A[:1], forms_1=DELIVER_A[1:])
+    deliver_renamed = _files(forms_0=DELIVER_B[:1], forms_1=DELIVER_A[1:])
+    assert _task_beyond(_task_run("follow_up"), a, deliver_renamed) == ["/runs/*/task-completed-nothing"]
+    # A task payload naming an id no rename reached stands as well.
+    b = _files(forms_0=DELIVER_B[:1], forms_1=DELIVER_B[1:])
+    assert _task_beyond(_task_run("school_visit"), a, b) == ["/runs/*/task-completed-nothing"]
+
+
 def test_a_block_whose_id_changed_at_another_place_is_no_rename():
     # The edit took the deliver unit's question out of the form's data and gave a group a new one.
     moved = (

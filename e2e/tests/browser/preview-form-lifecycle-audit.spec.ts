@@ -16,6 +16,7 @@ test("a case-data refresh retires Submit without blaming answers or replaying th
 			"@/lib/preview/entryPointLaunchAction": boundary,
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
 			"@/lib/preview/xpath/browserWorkerClient": boundary,
 		},
 	);
@@ -135,6 +136,7 @@ test("Submit commits the coordinate and clock currently being edited", async ({
 			"@/lib/preview/entryPointLaunchAction": boundary,
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
 		},
 	);
 	const submissions: unknown[][] = [];
@@ -203,6 +205,7 @@ test("Numeric answers remain editable and block submission until corrected", asy
 			"@/lib/preview/entryPointLaunchAction": boundary,
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
 		},
 	);
 	const submissions: unknown[][] = [];
@@ -270,6 +273,7 @@ test("Form submission waits for real file upload, preserves same-Project answers
 			"@/lib/preview/entryPointLaunchAction": boundary,
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
 		},
 	);
 	const upload = Promise.withResolvers<void>();
@@ -405,6 +409,7 @@ test("page entry initializes dependent repeat rows and Back preserves their answ
 			"@/lib/preview/entryPointLaunchAction": boundary,
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
 		},
 	);
 	try {
@@ -452,6 +457,7 @@ test("an earlier-page count grows repeats and lowering it retains answers", asyn
 			"@/lib/preview/entryPointLaunchAction": boundary,
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
 		},
 	);
 	try {
@@ -498,6 +504,7 @@ for (const sectioned of [false, true]) {
 				"@/lib/preview/entryPointLaunchAction": boundary,
 				"@/lib/auth/hooks/useAuth": boundary,
 				"@/lib/lookup/actions": boundary,
+				"@/lib/deployment/actions": boundary,
 			},
 		);
 		const submissions: unknown[] = [];

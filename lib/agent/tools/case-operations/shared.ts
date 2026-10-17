@@ -44,7 +44,12 @@ const operationIdInputSchema = z
 	.regex(
 		CASE_OPERATION_IDENTIFIER_REGEX,
 		CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
-	);
+	)
+	.superRefine((value, ctx) => {
+		const verdict = caseOperationIdVerdict(value, new Set(), "suggested");
+		if (verdict.ok) return;
+		ctx.addIssue({ code: "custom", message: verdict.userMessage });
+	});
 
 const propertyInputSchema = z
 	.string()
@@ -63,7 +68,11 @@ const linkIdInputSchema = z
 	)
 	.max(255)
 	.superRefine((value, ctx) => {
-		const verdict = caseOperationLinkIdentifierVerdict(value, new Set());
+		const verdict = caseOperationLinkIdentifierVerdict(
+			value,
+			new Set(),
+			"suggested",
+		);
 		if (verdict.ok) return;
 		ctx.addIssue({ code: "custom", message: verdict.userMessage });
 	});

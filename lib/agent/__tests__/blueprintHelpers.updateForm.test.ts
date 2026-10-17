@@ -48,7 +48,7 @@ function docWithEveryHelperClearableSlot(): BlueprintDoc {
 				closeCondition: { field: FIELD_UUID, answer: "yes" },
 				connect: {
 					learn_module: {
-						id: "module",
+						id: "intro",
 						name: "Module",
 						description: "Learn",
 						time_estimate: 10,
@@ -118,7 +118,7 @@ describe("form metadata and Connect helper ownership", () => {
 		const doc = docWithEveryHelperClearableSlot();
 		const refined = {
 			learn_module: {
-				id: "module",
+				id: "intro",
 				name: "Module",
 				description: "Refined",
 				time_estimate: 15,

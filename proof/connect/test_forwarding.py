@@ -26,8 +26,9 @@ from proof.observe.record import Blobs
 @pytest.fixture(scope="module")
 def forwarded_delivery(hq, core_runner, connect_runtime, connect_documents, lane_services):
     """``targeted-connect-deliver-rename``'s released build on a device (``proof.android.observe``), whose walks
-    send each form they save to HQ's own receiver: twice, as two devices of one served state; once on a device
-    whose GPS finds no fix; and once in a project space whose plan has no Data Forwarding."""
+    send each form they save, the deliver form and the task's, to HQ's own receiver: twice, as two devices of one
+    served state; once on a device whose GPS finds no fix; and once in a project space whose plan has no Data
+    Forwarding."""
     from proof.android import observe as android
     from proof.connect import hq as connect_hq
     from proof.formplayer import hq as formplayer_hq
@@ -65,10 +66,24 @@ def forwarded_delivery(hq, core_runner, connect_runtime, connect_documents, lane
                 opportunity.close()
 
 
+# A device's runs of the document's two forms, as Connect's record names them: the deliver form, and the task's
+# form, which holds the task in a form of its own (finding 61).
+DELIVER_RUN, TASK_RUN = "m0/m0-f0", "m0/m0-f1"
+
+
+def _runs(runs):
+    """A device's runs that reached HQ's receiver, by name: one of each form."""
+    found = {run["run"]: run for run in runs}
+    assert sorted(found) == [DELIVER_RUN, TASK_RUN] and len(found) == len(runs), sorted(run["run"] for run in runs)
+    return found
+
+
 def _delivery(kept):
-    """The one run of a device's walks that reached HQ's receiver."""
-    (run,) = kept["connect"]["runs"]["android"]
-    return run
+    """The run of the deliver form, of a device's walks of both forms that reached HQ's receiver; the task form's
+    reached it too, and HQ's receiver took it."""
+    runs = _runs(kept["connect"]["runs"]["android"])
+    assert [received["status"] for received in runs[TASK_RUN]["received"]] == [201]
+    return runs[DELIVER_RUN]
 
 
 def test_connect_makes_the_opportunity_from_the_build_hqs_own_view_serves(forwarded_delivery):
@@ -120,7 +135,7 @@ def test_a_form_without_a_fix_is_the_one_connect_flags(forwarded_delivery):
 
 def test_a_project_space_without_data_forwarding_forwards_nothing(forwarded_delivery):
     """HQ registers a repeat record only where the project space can forward data: without the privilege HQ's
-    receiver takes the form and nothing reaches Connect."""
-    (run,) = forwarded_delivery["unprivileged"]
-    assert [received["status"] for received in run["received"]] == [201]
-    assert (run["forwards"], run["posts"], run["state"]["visits"]) == ([], [], [])
+    receiver takes each form and nothing reaches Connect."""
+    for name, run in _runs(forwarded_delivery["unprivileged"]).items():
+        assert [received["status"] for received in run["received"]] == [201], name
+        assert (run["forwards"], run["posts"], run["state"]["visits"]) == ([], [], []), name

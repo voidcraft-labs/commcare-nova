@@ -17,9 +17,7 @@ import {
 	closeConditionUnparsable,
 } from "./documents/closeConditions";
 import {
-	connectDeliverKeyNames,
 	connectDeliverRename,
-	connectLearnKeyNames,
 	connectLearnRename,
 } from "./documents/connectApps";
 import { customTile } from "./documents/customTile";
@@ -28,13 +26,10 @@ import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
 import { formLinksHiddenFallback } from "./documents/formLinksHiddenFallback";
 import {
-	formRootRead,
 	invalidConnectIds,
 	invalidQuestionIds,
 	labelledGroupRepeat,
-	parsererrorNodeName,
 	reservedNodeNames,
-	reservedQuestionNames,
 	surveyMenu,
 } from "./documents/formShapes";
 import { gpsQuestion } from "./documents/gpsQuestion";
@@ -63,7 +58,6 @@ import {
 	parentFormSelectionFrame,
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
-import { supplyPointRead } from "./documents/supplyPointRead";
 import { timeOrdering } from "./documents/timeOrdering";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
 
@@ -102,19 +96,13 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	emptyListNoEnglish,
 	connectDeliverRename,
 	connectLearnRename,
-	connectLearnKeyNames,
-	connectDeliverKeyNames,
 	saveToCaseRead,
-	supplyPointRead,
 	mediaSlots,
 	captureWidgets,
 	noMatchesReturnIdentity,
 	hqSideLookup,
 	datetimeOrdering,
 	caseIdColumn,
-	reservedQuestionNames,
-	parsererrorNodeName,
-	formRootRead,
 	attributeDisplayCondition,
 	gpsQuestion,
 	blankLabels,

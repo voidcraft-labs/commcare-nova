@@ -8,6 +8,7 @@ export {
 	loadMissingConnectionCountAction,
 	loadParkedValuesAction,
 	populateSampleCasesAction,
+	readDeploymentsAction,
 	replaceParkedValueAction,
 	resetSampleCasesAction,
 	restoreParkedValuesAction,

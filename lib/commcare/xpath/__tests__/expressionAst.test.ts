@@ -18,9 +18,11 @@ import {
 	xpathPrintContext,
 } from "@/lib/domain";
 import {
+	hasExplicitPathContext,
 	parseXPathExpression,
 	parseXPathExpressionWithIssues,
 } from "../expressionAst";
+import { parser } from "../parser";
 
 const FORM = testUuid("form-1");
 const AGE = testUuid("f-age");
@@ -440,5 +442,38 @@ describe("structural case-property rename", () => {
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
 			"#mother/years + #case/age + #other/age",
 		);
+	});
+});
+
+describe("hasExplicitPathContext", () => {
+	/** Each name step of `source`, with whether a call starts its path. */
+	function nameSteps(source: string): Array<[string, boolean]> {
+		const steps: Array<[string, boolean]> = [];
+		parser.parse(source).iterate({
+			enter(node) {
+				if (node.name !== "NameTest") return;
+				steps.push([
+					source.slice(node.from, node.to),
+					hasExplicitPathContext(node.node, source),
+				]);
+			},
+		});
+		return steps;
+	}
+
+	it("answers yes for a step of a path an instance() or current() call starts", () => {
+		expect(nameSteps("instance('casedb')/casedb/case")).toEqual([
+			["casedb", true],
+			["case", true],
+		]);
+		expect(nameSteps("current()/../notes")).toEqual([["notes", true]]);
+	});
+
+	it("answers no for a relative step and a step of a root path", () => {
+		expect(nameSteps("../notes")).toEqual([["notes", false]]);
+		expect(nameSteps("/data/notes")).toEqual([
+			["data", false],
+			["notes", false],
+		]);
 	});
 });

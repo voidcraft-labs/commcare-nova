@@ -17,13 +17,16 @@ import {
 import { loadAppInTransaction } from "@/lib/db/canonicalCommitKernel";
 import type { AppDatabase } from "@/lib/db/pg";
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
+import type { BlueprintDoc } from "@/lib/domain";
 import {
 	DEPLOYMENT_NOTICE_REASONS,
 	DOCUMENT_NOTICE_REASONS,
 } from "@/lib/notices/migrationNotice";
 import type { BuildPlanOptions } from "../plan";
-import { readPlannedFleet } from "../plan";
+import { CUTOVER_BLOCKER_CODES, readPlannedFleet } from "../plan";
 import { runMigrate } from "../run";
+import { CONNECT_BLOCK_KINDS } from "../steps/connectIds";
+import { CUTOVER_STEPS } from "../transform";
 import {
 	type CutoverStoppedError,
 	readCutoverBaselines,
@@ -321,13 +324,18 @@ describe("the fleet transaction over the frozen fixtures", () => {
 
 		const dryRun = await runMigrate(h.db(), { mode: "dry-run" });
 		expect(dryRun.outcome).toEqual({ outcome: "ok" });
-		// A notice reason is a code of the report's and an app id is the
-		// fleet's own, and an authored name may fall inside either: a question
-		// named "checked" in the reason `case-name-now-checked`, one named
-		// "space" in the app id `app-42-hand-open-workspace`.
+		// A notice reason, a step id, a blocker code and a Connect block's
+		// kind are codes of the report's and an app id is the fleet's own, and
+		// an authored name may fall inside any of them: a question named
+		// "checked" in the reason `case-name-now-checked`, one named "space" in
+		// the app id `app-42-hand-open-workspace`, an entry point named "entry"
+		// in the step id `entry-point-ids`.
 		const ownValues: ReadonlySet<string> = new Set([
 			...DOCUMENT_NOTICE_REASONS,
 			...DEPLOYMENT_NOTICE_REASONS,
+			...CUTOVER_STEPS.map((step) => step.id),
+			...CUTOVER_BLOCKER_CODES,
+			...CONNECT_BLOCK_KINDS,
 			...before.rows.map((row) => row.id),
 		]);
 		const reportValues = stringValues(dryRun.report.all()).filter(
@@ -408,15 +416,83 @@ describe("the fleet transaction over the frozen fixtures", () => {
 		expect(markers.rows.map((row) => row.app_id)).toEqual(
 			[...fleet.appIds].sort(),
 		);
+		const committed = new Map<string, BlueprintDoc>();
 		await h.withTransaction(async (tx) => {
 			for (const row of after.rows) {
 				expect(await loadAppInTransaction(tx, row.id)).not.toBeNull();
-				await loadCanonicalBlueprintAtSequence(tx, {
+				const loaded = await loadCanonicalBlueprintAtSequence(tx, {
 					appId: row.id,
 					seq: Number(row.mutation_seq),
 					expectedDigest: null,
 				});
+				committed.set(row.id, loaded.doc);
 			}
+		});
+		// Each fixture's app holds the notice of each identifier and form
+		// content step its fixture witnessed, which reads the document alone.
+		const notices = await sql<{
+			app_id: string;
+			entries: { kind: string; reason: string }[];
+		}>`SELECT app_id, entries FROM app_migration_notices`.execute(h.db());
+		const documentReasons: ReadonlySet<string> = new Set([
+			"question-renamed",
+			"case-operation-renamed",
+			"connect-block-renamed",
+			"connect-task-moved-to-own-form",
+			"entry-point-renamed",
+			"option-value-split",
+			"empty-form-label-added",
+			"session-read-removed",
+		]);
+		const manifest = readFixtureManifest();
+		for (const [index, id] of writableFixtures.entries()) {
+			const appId = fleet.appIds[index];
+			const written = notices.rows
+				.filter((row) => row.app_id === appId)
+				.flatMap((row) => row.entries)
+				.filter((entry) => entry.kind === "document")
+				.map((entry) => entry.reason);
+			const witnessed =
+				manifest.fixtures
+					.find((fixture) => fixture.id === id)
+					?.reasons.filter((reason) => documentReasons.has(reason)) ?? [];
+			expect(written, id).toEqual(expect.arrayContaining(witnessed));
+		}
+		const appOf = (id: string): BlueprintDoc => {
+			const doc = committed.get(
+				fleet.appIds[writableFixtures.indexOf(id)] ?? "",
+			);
+			if (doc === undefined) throw new Error(`The fleet holds no ${id}.`);
+			return doc;
+		};
+		// Step `connect-task-forms` gives the deliver form's task a survey
+		// form of its own, after its source.
+		const connect = appOf("connect-deliver-default");
+		const deliverBlocks = (uuid: string) => {
+			const block = connect.forms[uuid]?.connect;
+			return {
+				type: connect.forms[uuid]?.type,
+				deliver: block !== undefined && "deliver_unit" in block,
+				task:
+					block !== undefined && "task" in block ? block.task?.id : undefined,
+			};
+		};
+		const deliverForms = Object.values(connect.formOrder).find((forms) =>
+			forms.some((uuid) => deliverBlocks(uuid).task !== undefined),
+		);
+		expect(deliverForms?.map(deliverBlocks)).toEqual([
+			{ type: expect.any(String), deliver: true, task: undefined },
+			{ type: "survey", deliver: false, task: "q_task" },
+		]);
+		// Step `option-values` renames the second holder of a value.
+		const options = appOf("hand-option-values");
+		const consent = options.fields["00000000-0000-4000-8000-000000000201"];
+		expect(
+			consent !== undefined && "optionsSource" in consent
+				? consent.optionsSource
+				: undefined,
+		).toMatchObject({
+			options: [{ value: "yes" }, { value: "yes_2" }, { value: "no" }],
 		});
 
 		const events = await sql<{ kind: string; archived: string }>`
@@ -545,6 +621,31 @@ describe("the fleet transaction over the frozen fixtures", () => {
 							server: "production",
 							domain: "field-ops",
 						},
+					},
+					// Step `question-ids` renames the three ids HQ's form builder
+					// can't keep, and step `entry-point-ids` the deep link HQ
+					// would not save as written.
+					...(
+						[
+							["39160b11-9a57-5bd5-ad4d-5763f2529661", "_notes", "notes"],
+							["d0b66252-a2f7-5d8e-a0e9-cc900926e1a2", "XMLcode", "qXMLcode"],
+							["4cdc70c4-40a5-5f60-a6f5-61867579a734", "Meta", "q_Meta"],
+						] as const
+					).map(([uuid, from, to]) => ({
+						kind: "document",
+						reason: "question-renamed",
+						entity: { type: "field", uuid, nameAtMigration: to },
+						detail: { form: "Intake", kind: "question", from, to },
+					})),
+					{
+						kind: "document",
+						reason: "entry-point-renamed",
+						entity: {
+							type: "entryPoint",
+							uuid: "8a8e7e87-2b04-53bb-a4b3-b44509bbb157",
+							nameAtMigration: "intake",
+						},
+						detail: { from: "intake_", to: "intake" },
 					},
 					// No deployment was read, so the stored settings get no
 					// line; every app is told about the downloaded file.

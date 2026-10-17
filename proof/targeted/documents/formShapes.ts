@@ -10,39 +10,34 @@
  *   the document the Web Apps client's Incomplete Forms tile is read on
  *   (`proof/webapps/test_app_list.py`); `targeted-attribute-display-condition`
  *   holds the two the other way round.
- * - `targeted-invalid-question-ids` (defect 15): question ids with a
- *   leading underscore, a leading `XML` and `Meta`, which Nova's id rule
- *   admits (`lib/commcare/constants.ts::XML_ELEMENT_NAME_REGEX`) and Vellum's
- *   refuses (`Vellum src/util.js::isValidElementName`, `^(?!XML)[a-zA-Z][\w-]*$`;
- *   `src/mugs/baseSpecs.js`, `meta` in any case), and an entry point whose id
- *   is not a fixed point of HQ's `slugify`, which every settings save of its
- *   form refuses under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`).
+ * - `targeted-invalid-question-ids` (defect 15): what the cutover's renames
+ *   and Nova's minters write in place of the question and deep link ids HQ's
+ *   editors refuse, beside the other replacements the grammar must admit:
+ *   `notes`, `q1st`, `qXMLcode` and `q_Meta` (Vellum refuses a leading
+ *   underscore, a leading digit, a leading `XML` and `meta` in any case,
+ *   `Vellum src/util.js::isValidElementName`, `src/mugs/baseSpecs.js`), a
+ *   root group `q_meta` whose question a calculation reads (HQ's build
+ *   removes a root node named `meta`, `xform.py::XForm.already_has_meta`),
+ *   `q_instance`, `q_bind` and `q_parsererror` (finding 43), a calculation
+ *   and a display condition that are `false()`, and the deep links `intake`
+ *   and `intake-2_b`, each a fixed point of HQ's `slugify`
+ *   (`views/utils.py::get_cleaned_session_endpoint_id`). Its control keeps
+ *   the ids HQ's editors refuse.
  * - `targeted-invalid-connect-ids` (defect 15, Connect): a Connect learn
- *   module and assessment whose ids take the same forms, which Vellum's
- *   question-id rule refuses as well.
+ *   app whose module id is 50 characters starting `q1st_lesson`, what the
+ *   cutover makes of one starting `_1st_lesson`, and whose assessment is
+ *   `qXMLquiz`. Its control keeps the ids Vellum refuses.
  * - `targeted-labelled-group-repeat` (defect 27): a user repeat inside a
  *   labelled group, which Nova writes as a field list
  *   (`lib/commcare/xform/builder.ts`), where Vellum asks for a repeat count.
- * - `targeted-reserved-node-names` (the harness's findings, defect 43, a
- *   question named `instance` or `bind`): questions named `instance`, `bind` and `itext`, names Nova
- *   admits and Vellum's parser looks up by bare name in the whole form
- *   (`Vellum src/parser.js::_getInstances`, `xml.find("instance")`).
- * - `targeted-parsererror-node-name` (defect 43, a question named
- *   `parsererror`): one question so named. Vellum loads a form through
- *   jQuery's `parseXML`, which takes any element named `parsererror` for the
- *   browser's own parse failure and throws "Invalid XML", so HQ's form
- *   builder cannot open the form and saves nothing.
- * - `targeted-reserved-question-names` (finding 70): questions named
- *   `registration` and `script`, which Vellum warns about on every save
- *   (`Vellum src/mugs/baseSpecs.js`, `RESERVED_NAMES`), and a root question
- *   named `case` in a registration form, which HQ takes for the form's own
- *   case block (`xform.py::XForm.case_node`), so its build and its form
- *   settings and Case Management pages refuse the form.
- * - `targeted-form-root-read` (finding 71): a Hidden Value that counts the
- *   form's root, a repeat counted by it and a repeat over the root as its
- *   list of ids. Nova's path check reads only paths under `/data/`
- *   (`lib/preview/xpath/dependencies.ts::extractPathRefs`), so it admits
- *   each, and HQ's form builder reports the first two as an unknown question.
+ * - `targeted-reserved-node-names` (finding 43): one form for each of the
+ *   questions `q_instance`, `q_bind` and `q_parsererror`, the names Nova
+ *   offers for the three it refuses, and `itext` and `label`, XForm markup
+ *   names Nova admits. Vellum's parser looks names up by bare element name
+ *   in the whole form (`Vellum src/parser.js::_getInstances`,
+ *   `xml.find("instance")`), and opens every one of these. Its control keeps
+ *   the questions named `instance` and `bind`, and
+ *   `targeted-parsererror-node-name`'s the one named `parsererror`.
  *
  * Fixed values: each form holds what the worker answers (`./echo.ts`).
  */
@@ -121,6 +116,9 @@ export function invalidQuestionIds() {
 	const id = "targeted-invalid-question-ids";
 	const uuid = (name: string) => targetedUuid(id, name);
 	const form = uuid("form");
+	const second = uuid("second-form");
+	const text = (name: string, fieldId: string, label: string) =>
+		f({ kind: "text", uuid: uuid(name), id: fieldId, label: proseText(label) });
 	const doc = buildDoc({
 		appId: id,
 		appName: "Question ids",
@@ -134,39 +132,63 @@ export function invalidQuestionIds() {
 						name: "Intake",
 						type: "survey",
 						fields: [
+							text("underscore", "notes", "Notes"),
+							text("first", "q1st", "First visit"),
+							text("xml", "qXMLcode", "Code"),
+							text("meta", "q_Meta", "Details"),
 							f({
-								kind: "text",
-								uuid: uuid("underscore"),
-								id: "_notes",
-								label: proseText("Notes"),
+								kind: "group",
+								uuid: uuid("meta-group"),
+								id: "q_meta",
+								label: proseText("More details"),
+								children: [text("detail", "detail", "Detail")],
+							}),
+							f({
+								kind: "hidden",
+								uuid: uuid("detail-copy"),
+								id: "detail_copy",
+								calculate: "#form/q_meta/detail",
+							}),
+							text("instance", "q_instance", "Instance"),
+							text("bind", "q_bind", "Bind"),
+							text("parsererror", "q_parsererror", "Parser error"),
+							f({
+								kind: "hidden",
+								uuid: uuid("never-value"),
+								id: "never_value",
+								calculate: "false()",
 							}),
 							f({
 								kind: "text",
-								uuid: uuid("xml"),
-								id: "XMLcode",
-								label: proseText("Code"),
-							}),
-							f({
-								kind: "text",
-								uuid: uuid("meta"),
-								id: "Meta",
-								label: proseText("Details"),
+								uuid: uuid("never-shown"),
+								id: "never_shown",
+								label: proseText("Never shown"),
+								relevant: "false()",
 							}),
 						],
+					},
+					{
+						uuid: second,
+						name: "Second intake",
+						type: "survey",
+						fields: [text("second", "second", "Second")],
 					},
 				],
 			},
 		],
 	});
 	const intake = doc.forms[form];
-	if (intake === undefined) throw new Error("No intake form.");
-	intake.entryPoint = { uuid: uuid("entry"), id: "intake_" };
+	const secondIntake = doc.forms[second];
+	if (intake === undefined || secondIntake === undefined)
+		throw new Error("No intake forms.");
+	intake.entryPoint = { uuid: uuid("entry"), id: "intake" };
+	secondIntake.entryPoint = { uuid: uuid("second-entry"), id: "intake-2_b" };
 	return targetedDocument({
 		id,
 		rows: ["15"],
 		doc,
 		expected: {
-			intent: [answerHeld("notes-held", form, "/data/_notes", "fine")],
+			intent: [answerHeld("notes-held", form, "/data/notes", "fine")],
 		},
 	});
 }
@@ -190,12 +212,13 @@ export function invalidConnectIds() {
 						type: "survey",
 						connect: {
 							learn_module: {
-								id: "_lesson",
+								// What the cutover makes of a 50-character id that starts `_1st_lesson`.
+								id: "q1st_lesson".padEnd(50, "x"),
 								name: "Hand washing",
 								description: "Wash for twenty seconds.",
 								time_estimate: 5,
 							},
-							assessment: { id: "XMLquiz" },
+							assessment: { id: "qXMLquiz" },
 						},
 						fields: [
 							f({
@@ -287,7 +310,15 @@ export function labelledGroupRepeat() {
 export function reservedNodeNames() {
 	const id = "targeted-reserved-node-names";
 	const uuid = (name: string) => targetedUuid(id, name);
-	const names = ["instance", "bind", "itext"] as const;
+	// Each form keeps the named uuids it had when its question was named for
+	// the key: `q_instance` the form of `instance`, `q_bind` the form of `bind`.
+	const names = [
+		{ key: "instance", name: "q_instance" },
+		{ key: "bind", name: "q_bind" },
+		{ key: "itext", name: "itext" },
+		{ key: "parsererror", name: "q_parsererror" },
+		{ key: "label", name: "label" },
+	] as const;
 	const doc = buildDoc({
 		appId: id,
 		appName: "Node names",
@@ -295,14 +326,14 @@ export function reservedNodeNames() {
 			{
 				uuid: uuid("module"),
 				name: "Names",
-				forms: names.map((name) => ({
-					uuid: uuid(`form-${name}`),
+				forms: names.map(({ key, name }) => ({
+					uuid: uuid(`form-${key}`),
 					name: `Named ${name}`,
 					type: "survey" as const,
 					fields: [
 						f({
 							kind: "text",
-							uuid: uuid(`field-${name}`),
+							uuid: uuid(`field-${key}`),
 							id: name,
 							label: proseText(`The ${name}`),
 						}),
@@ -313,244 +344,19 @@ export function reservedNodeNames() {
 	});
 	return targetedDocument({
 		id,
-		rows: ["43 (a question named instance or bind)"],
+		rows: [
+			"43 (the names offered for instance, bind and parsererror, beside itext and label)",
+		],
 		doc,
 		expected: {
-			intent: names.map((name) =>
+			intent: names.map(({ key, name }) =>
 				answerHeld(
 					`${name}-held`,
-					uuid(`form-${name}`),
+					uuid(`form-${key}`),
 					`/data/${name}`,
 					"kept",
 				),
 			),
-		},
-	});
-}
-
-export function parsererrorNodeName() {
-	const id = "targeted-parsererror-node-name";
-	const uuid = (name: string) => targetedUuid(id, name);
-	const form = uuid("form");
-	const doc = buildDoc({
-		appId: id,
-		appName: "Node name",
-		modules: [
-			{
-				uuid: uuid("module"),
-				name: "Names",
-				forms: [
-					{
-						uuid: form,
-						name: "Named parsererror",
-						type: "survey",
-						fields: [
-							f({
-								kind: "text",
-								uuid: uuid("field"),
-								id: "parsererror",
-								label: proseText("The parsererror"),
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
-	return targetedDocument({
-		id,
-		rows: ["43 (a question named parsererror)"],
-		doc,
-		expected: {
-			intent: [
-				answerHeld("parsererror-held", form, "/data/parsererror", "kept"),
-			],
-		},
-	});
-}
-
-export function reservedQuestionNames() {
-	const id = "targeted-reserved-question-names";
-	const uuid = (name: string) => targetedUuid(id, name);
-	const survey = uuid("survey");
-	const doc = buildDoc({
-		appId: id,
-		appName: "Question names",
-		caseTypes: [
-			{
-				name: "client",
-				properties: [
-					{ name: "case_name", label: proseText("Name") },
-					{
-						name: "case_reference",
-						label: proseText("Case reference"),
-						data_type: "text",
-					},
-				],
-			},
-		],
-		modules: [
-			{
-				uuid: uuid("survey-module"),
-				name: "Notes",
-				forms: [
-					{
-						uuid: survey,
-						name: "Notes",
-						type: "survey",
-						fields: [
-							f({
-								kind: "text",
-								uuid: uuid("registration"),
-								id: "registration",
-								label: proseText("Registration"),
-							}),
-							f({
-								kind: "text",
-								uuid: uuid("script"),
-								id: "script",
-								label: proseText("Script"),
-							}),
-							f({
-								kind: "text",
-								uuid: uuid("notes"),
-								id: "notes",
-								label: proseText("Notes"),
-							}),
-						],
-					},
-				],
-			},
-			{
-				uuid: uuid("client-module"),
-				name: "Clients",
-				caseType: "client",
-				caseListConfig: caseListOf([
-					plainColumn(uuid("name"), "case_name", "Name"),
-				]),
-				forms: [
-					{
-						uuid: uuid("register"),
-						name: "Register",
-						type: "registration",
-						fields: [
-							f({
-								kind: "text",
-								uuid: uuid("full-name"),
-								id: "full_name",
-								label: proseText("Full name"),
-								caseWrite: { caseType: "client", property: "case_name" },
-							}),
-							f({
-								kind: "text",
-								uuid: uuid("case"),
-								id: "case",
-								label: proseText("Case reference"),
-								caseWrite: { caseType: "client", property: "case_reference" },
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
-	return targetedDocument({
-		id,
-		rows: ["70"],
-		doc,
-		expected: {
-			intent: [answerHeld("notes-held", survey, "/data/notes", "kept")],
-		},
-	});
-}
-
-export function formRootRead() {
-	const id = "targeted-form-root-read";
-	const uuid = (name: string) => targetedUuid(id, name);
-	const calculated = uuid("calculated");
-	const doc = buildDoc({
-		appId: id,
-		appName: "Form root",
-		modules: [
-			{
-				uuid: uuid("module"),
-				name: "Root reads",
-				forms: [
-					{
-						uuid: calculated,
-						name: "Calculated",
-						type: "survey",
-						fields: [
-							f({
-								kind: "text",
-								uuid: uuid("name"),
-								id: "name",
-								label: proseText("Name"),
-							}),
-							f({
-								kind: "hidden",
-								uuid: uuid("total"),
-								id: "total",
-								calculate: "count(/data)",
-							}),
-						],
-					},
-					{
-						uuid: uuid("counted"),
-						name: "Counted",
-						type: "survey",
-						fields: [
-							f({
-								kind: "repeat",
-								uuid: uuid("rows"),
-								id: "rows",
-								label: proseText("Rows"),
-								repeat_mode: "count_bound",
-								repeat_count: "count(/data)",
-								children: [
-									f({
-										kind: "text",
-										uuid: uuid("row"),
-										id: "row",
-										label: proseText("Row"),
-									}),
-								],
-							}),
-						],
-					},
-					{
-						uuid: uuid("queried"),
-						name: "Queried",
-						type: "survey",
-						fields: [
-							f({
-								kind: "repeat",
-								uuid: uuid("items"),
-								id: "items",
-								label: proseText("Items"),
-								repeat_mode: "query_bound",
-								data_source: { ids_query: "/data" },
-								children: [
-									f({
-										kind: "text",
-										uuid: uuid("item"),
-										id: "item",
-										label: proseText("Item"),
-									}),
-								],
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
-	return targetedDocument({
-		id,
-		rows: ["71"],
-		doc,
-		expected: {
-			intent: [answerHeld("name-held", calculated, "/data/name", "kept")],
 		},
 	});
 }

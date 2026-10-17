@@ -89,6 +89,7 @@ import {
 } from "./formLinkProjection";
 import { projectCaseListForHq } from "./hqJson/caseList";
 import { buildXFormSource } from "./xform/builder";
+import { formUpdatesSelectedCasesInSource } from "./xform/sourceCaseWrites";
 
 /**
  * One projected link in HQ's `FormLink` shape. `xpath` carries the
@@ -288,8 +289,9 @@ export function expandDoc(
 			);
 			const ownCaseDatumId = ownCaseDatum?.id;
 			const formActions = linkContext.formActions(formUuid);
-			const multipleCaseDatum =
-				ownCaseDatum?.maxSelectValue === undefined ? undefined : ownCaseDatum;
+			const multipleCaseDatum = formUpdatesSelectedCasesInSource(ownCaseDatum)
+				? ownCaseDatum
+				: undefined;
 			const multiSelectPrimaryUpdate =
 				multipleCaseDatum === undefined
 					? {}
@@ -310,7 +312,7 @@ export function expandDoc(
 					searchAnswers: searchAnswersOf(authoredDoc, synthetic.hostModuleUuid),
 				}),
 				...(ownCaseDatumId !== undefined &&
-					ownCaseDatum?.maxSelectValue === undefined && {
+					multipleCaseDatum === undefined && {
 						selectedCaseIdRef: `instance('commcaresession')/session/data/${ownCaseDatumId}`,
 					}),
 				...(multipleCaseDatum !== undefined && {

@@ -96,6 +96,13 @@ export async function loadLookupFixtureDataAction(): Promise<never> {
 export async function launchEntryPointAction(): Promise<never> {
 	throw new Error("Unexpected entry point launch in case layout evidence");
 }
+// The form settings' Connect section reads where the app is published.
+export async function readDeploymentsAction(): Promise<{
+	readonly success: true;
+	readonly data: readonly [];
+}> {
+	return { success: true, data: [] };
+}
 async function unexpectedCaseWrite(): Promise<never> {
 	throw new Error("Unexpected case mutation in case layout evidence");
 }

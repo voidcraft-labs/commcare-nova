@@ -466,6 +466,29 @@ export function isConnectLearnConfig(
 ): config is ConnectLearnConfig {
 	return "learn_module" in config || "assessment" in config;
 }
+
+/**
+ * Whether a deliver config holds both a deliver unit and a task. Connect
+ * reads a submission's deliver unit before its task and turns the delivery
+ * away while the worker has a pending task (commcare-connect
+ * `form_receiver/processor.py::process_deliver_form`,
+ * `_has_blocking_pending_task`), so the visit made in the form that also
+ * completes the task is never paid. A task goes in a form of its own. The
+ * validator, the builder, the tools and the cutover ask this one predicate;
+ * it takes a stored config or a draft alike.
+ */
+export function connectDeliverFormHoldsTask(
+	config:
+		| ConnectConfig
+		| { readonly deliver_unit?: unknown; readonly task?: unknown },
+): boolean {
+	return (
+		"deliver_unit" in config &&
+		config.deliver_unit !== undefined &&
+		"task" in config &&
+		config.task !== undefined
+	);
+}
 export type ConnectLearnModule = z.infer<typeof connectLearnModuleSchema>;
 export type ConnectAssessment = z.infer<typeof connectAssessmentSchema>;
 export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;

@@ -13,10 +13,13 @@ import {
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_FORM_ATTACHMENTS,
 	MEDIA_FIELD_KINDS,
-	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
 import { caseWriteAdmissionFindings } from "@/lib/commcare/caseWriteFindings";
-import { connectIdError } from "@/lib/commcare/connectSlugs";
+import {
+	connectIdError,
+	connectIdProblem,
+	freeConnectId,
+} from "@/lib/commcare/connectSlugs";
 import {
 	type FormLinkProjectionContext,
 	formLinkActionsBuildable,
@@ -26,9 +29,12 @@ import {
 	projectFormLinks,
 } from "@/lib/commcare/formLinkProjection";
 import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
+import { descendantFieldUuids } from "@/lib/doc/fieldWalk";
 import {
+	appConnectIds,
 	type BlueprintDoc,
 	type CaseWriteInventory,
+	connectDeliverFormHoldsTask,
 	deriveCaseWriteInventory,
 	type Field,
 	FORM_REFERENCE_SLOTS,
@@ -36,8 +42,10 @@ import {
 	type FormLink,
 	fieldReferenceSlotsFor,
 	fieldRegistry,
+	formConnectIds,
 	formExpressionValue,
 	formLinkDestination,
+	formRootTakenIds,
 	isConnectLearnConfig,
 	isNoMatchesForm,
 	type Module,
@@ -50,6 +58,7 @@ import {
 	type XPathExpression,
 	xpathPrintContext,
 } from "@/lib/domain";
+import { freeQuestionId } from "@/lib/domain/questionId";
 import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { searchNoMatchesEntry } from "./case-search/searchNoMatches";
@@ -61,27 +70,10 @@ import {
 	formLinkSelectionCardinality,
 	multiSelectFormSemantics,
 } from "./multiSelect";
+import { sessionDatumNotSupplied } from "./sessionData";
+import { casePropertyNameFormBuilderCannotKeep } from "./sourceCaseWrites";
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-/**
- * Domain field-tree walker: collect every field.id under `parentUuid`,
- * including descendants in containers. Used by rules that need to check
- * membership — "does a field with this id exist in this form?"
- */
-/** Every field uuid under `parentUuid`, containers included. */
-function collectFieldUuids(doc: BlueprintDoc, parentUuid: Uuid): Set<string> {
-	const uuids = new Set<string>();
-	const walk = (uuid: Uuid) => {
-		for (const childUuid of doc.fieldOrder[uuid] ?? []) {
-			if (doc.fields[childUuid] === undefined) continue;
-			uuids.add(childUuid);
-			if (doc.fieldOrder[childUuid] !== undefined) walk(childUuid);
-		}
-	};
-	walk(parentUuid);
-	return uuids;
-}
 
 interface FormContext {
 	formUuid: Uuid;
@@ -107,22 +99,54 @@ function emptyForm(
 	ctx: FormContext,
 ): ValidationError[] {
 	const order = doc.fieldOrder[ctx.formUuid] ?? [];
-	/* A section keeps the root non-empty while holding nothing, so the
-	 * honest question is whether the form holds anything at all: a
-	 * non-section root field, or a section with something on it. */
-	const holdsAnything = order.some((uuid) => {
-		const field = doc.fields[uuid];
-		if (field === undefined) return false;
-		if (field.kind !== "section") return true;
-		return (doc.fieldOrder[uuid]?.length ?? 0) > 0;
-	});
-	if (holdsAnything) return [];
-	const message =
+	/* A form needs a field a person authored that is not a container: a
+	 * question, a label or a hidden value, at any depth. HQ's build refuses
+	 * a form whose questions are all groups as a blank form
+	 * (`helpers/validators.py::FormBaseValidator.validate_for_build`), and
+	 * Nova asks for an authored field rather than counting the leaves the
+	 * emitter generates (a count node, a Save to Case leaf), so a form of
+	 * empty containers and case changes is refused too. */
+	const holdsQuestion = (parentUuid: Uuid): boolean =>
+		(doc.fieldOrder[parentUuid] ?? []).some((uuid) => {
+			const field = doc.fields[uuid];
+			if (field === undefined) return false;
+			if (!CONTAINER_KINDS.has(field.kind)) return true;
+			return holdsQuestion(uuid);
+		});
+	if (holdsQuestion(ctx.formUuid)) return [];
+	const onlyEmptySections =
+		order.length > 0 &&
+		order.every((uuid) => {
+			const field = doc.fields[uuid];
+			return (
+				field?.kind === "section" && (doc.fieldOrder[uuid]?.length ?? 0) === 0
+			);
+		});
+	const problem =
 		order.length === 0
+			? "no_fields"
+			: onlyEmptySections
+				? "empty_sections"
+				: "no_question";
+	const message =
+		problem === "no_fields"
 			? `"${ctx.formName}" in "${ctx.moduleName}" has no fields. CommCare can't build an empty form. Add at least one field.`
-			: `"${ctx.formName}" in "${ctx.moduleName}" has sections, but nothing on any of them. CommCare can't build an empty form. Add a question to one of its sections.`;
-	return [validationError("EMPTY_FORM", "form", message, baseLocation(ctx))];
+			: problem === "empty_sections"
+				? `"${ctx.formName}" in "${ctx.moduleName}" has sections, but nothing on any of them. CommCare can't build an empty form. Add a question to one of its sections.`
+				: `"${ctx.formName}" in "${ctx.moduleName}" has sections or groups and no question in them yet. CommCare can't build a form with no question. Add a question, a label or a hidden value.`;
+	return [
+		validationError("EMPTY_FORM", "form", message, baseLocation(ctx), {
+			problem,
+		}),
+	];
 }
+
+/** The field kinds that only hold other fields. */
+const CONTAINER_KINDS: ReadonlySet<Field["kind"]> = new Set([
+	"group",
+	"repeat",
+	"section",
+]);
 
 /** A section named the way a person knows it: its title, else its id. */
 function sectionTitle(doc: BlueprintDoc, section: Field): string {
@@ -336,7 +360,7 @@ function closeConditionValidation(
 			// The ref is the checked field's stable uuid; it must land on a
 			// field of THIS form. A legacy dangler (unresolvable id text)
 			// fails the same membership test and reports its text verbatim.
-			const formFieldUuids = collectFieldUuids(doc, ctx.formUuid);
+			const formFieldUuids = descendantFieldUuids(doc, ctx.formUuid);
 			if (!formFieldUuids.has(cc.field)) {
 				const shown = doc.fields[cc.field]?.id ?? cc.field;
 				errors.push(
@@ -414,6 +438,16 @@ function projectionContextFor(doc: BlueprintDoc): FormLinkProjectionContext {
 	const built = formLinkProjectionContext(doc);
 	projectionContexts.set(doc, built);
 	return built;
+}
+
+/**
+ * The entry plan the source-write and session-read rules read, built once
+ * per validation run. It names every datum an entry declares (ids, case
+ * types, selection cardinality) without compiling the selectors, whose lookup
+ * reads need a Project's lookup naming the validator never holds.
+ */
+export function entryPlanContext(doc: BlueprintDoc): FormLinkProjectionContext {
+	return formLinkProjectionContext(doc, { entryMetadataOnly: true });
 }
 
 /**
@@ -715,18 +749,30 @@ function connectValidation(
 		return errors;
 	}
 
-	// A Connect id becomes an XML element name in the emitted form (the
-	// wrapper `<id vellum:role=...>` and the Connect-namespaced `id=`
-	// attribute) and lands in a Connect DB slug column (tightest is
-	// `varchar(50)`). `connectIdError` is the single authority on what makes
-	// an id valid (legal element name AND within length) — the same helper
-	// the field-level commit guard uses, so the field and the server never
-	// disagree. We reject a bad id here rather than silently fixing it.
-	//
-	// Stored blocks always carry ids. `connectIdError` returns one reason; we pick the
-	// structured code from the cheap element-name check (a char failure →
-	// INVALID_FORMAT, otherwise the only remaining failure is length →
-	// TOO_LONG) and wrap the reason with the form/kind context.
+	// Connect reads a deliver form's deliver unit before its task and turns
+	// the delivery away while the worker has a pending task
+	// (commcare-connect `form_receiver/processor.py::process_deliver_form`,
+	// `process_deliver_unit`), so the visit in a form that also completes a
+	// task is never paid. A task goes in a form of its own.
+	if (connectDeliverFormHoldsTask(form.connect)) {
+		errors.push(
+			validationError(
+				"CONNECT_DELIVER_FORM_HOLDS_TASK",
+				"form",
+				`"${ctx.formName}" holds both a deliver unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in this form while the task is assigned. A task goes in a form of its own.`,
+				loc,
+			),
+		);
+	}
+
+	// A Connect id names a node of the emitted form (the wrapper
+	// `<id vellum:role=...>` and the Connect-namespaced `id=` attribute) and
+	// lands in a Connect DB slug column (tightest is `varchar(50)`).
+	// `connectIdProblem` is the single authority on what makes an id valid
+	// (the question-id grammar without Connect's own names, then the length
+	// cap), and `connectIdError` says the same sentence the builder's field
+	// and the tools say, offering an id free among the app's other Connect
+	// ids. We reject a bad id here rather than silently fixing it.
 	const connectIds: ReadonlyArray<{
 		label: string;
 		id: string;
@@ -762,20 +808,40 @@ function connectValidation(
 					? []
 					: [{ label: "task", id: form.connect.task.id }]),
 			];
+	// A refused id is offered a replacement free among the app's other
+	// Connect ids and this form's root questions, whose elements share the
+	// wrapper's parent. Read once per form, and only once an id is refused.
+	let takenBeside: ReadonlySet<string> | undefined;
 	for (const { label, id } of connectIds) {
-		const reason = connectIdError(id);
-		if (!reason) continue;
-		const code = XML_ELEMENT_NAME_REGEX.test(id)
-			? "CONNECT_ID_TOO_LONG"
-			: "CONNECT_ID_INVALID_FORMAT";
+		const problem = connectIdProblem(id);
+		if (problem === undefined) continue;
+		takenBeside ??= new Set([
+			...appConnectIds(doc),
+			...formRootTakenIds(doc, ctx.formUuid),
+		]);
+		const taken = new Set(takenBeside);
+		taken.delete(id);
+		const reason = connectIdError(id, taken);
 		errors.push(
-			validationError(
-				code,
-				"form",
-				`Connect ${label} id in "${ctx.formName}": ${reason}`,
-				loc,
-				{ connectId: id },
-			),
+			problem.kind === "format"
+				? validationError(
+						"CONNECT_ID_INVALID_FORMAT",
+						"form",
+						`Connect ${label} id in "${ctx.formName}": ${reason}`,
+						loc,
+						{
+							connectId: id,
+							problem: problem.problem,
+							suggestedId: freeConnectId(id, taken),
+						},
+					)
+				: validationError(
+						"CONNECT_ID_TOO_LONG",
+						"form",
+						`Connect ${label} id in "${ctx.formName}": ${reason}`,
+						loc,
+						{ connectId: id },
+					),
 		);
 	}
 
@@ -847,6 +913,38 @@ function connectValidation(
 				),
 			);
 		}
+	}
+	return errors;
+}
+
+/**
+ * A form's root fields and its Connect blocks' wrappers are children of the
+ * one data root, so a root field named like one of the form's blocks would
+ * be two elements of one name, which no reader can tell apart. The finding
+ * sits on the field and offers an id free among every name at the root.
+ */
+function rootFieldNamesConnectBlock(
+	doc: BlueprintDoc,
+	ctx: FormContext,
+): ValidationError[] {
+	const connectIds = formConnectIds(doc, ctx.formUuid);
+	if (connectIds.size === 0) return [];
+	const taken = formRootTakenIds(doc, ctx.formUuid);
+	const errors: ValidationError[] = [];
+	for (const uuid of doc.fieldOrder[ctx.formUuid] ?? []) {
+		const field = doc.fields[uuid];
+		if (field === undefined || !connectIds.has(field.id)) continue;
+		const suggestedId = freeQuestionId(field.id, taken);
+		taken.add(suggestedId);
+		errors.push(
+			validationError(
+				"FIELD_ID_NAMES_CONNECT_BLOCK",
+				"field",
+				`Field "${field.id}" in "${ctx.formName}" has the same ID as one of the form's CommCare Connect blocks. The block and a top-level field sit side by side in the form, so the form would hold two items of one name that CommCare can't tell apart. You can rename the field ("${suggestedId}" is free) or give the block another ID.`,
+				{ ...baseLocation(ctx), fieldUuid: field.uuid, fieldId: field.id },
+				{ fieldId: field.id, suggestedId },
+			),
+		);
 	}
 	return errors;
 }
@@ -1059,6 +1157,7 @@ export function runFormRules(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	moduleUuid: Uuid,
+	entryPlan: FormLinkProjectionContext,
 	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const form = doc.forms[formUuid];
@@ -1089,6 +1188,7 @@ export function runFormRules(
 	}
 	errors.push(...closeConditionValidation(doc, form, ctx, mod));
 	errors.push(...duplicateFieldIds(doc, ctx));
+	errors.push(...rootFieldNamesConnectBlock(doc, ctx));
 	errors.push(...caseWriteAdmissionFindings(ctx, caseWriteInventory));
 	errors.push(...tooManyAttachments(doc, ctx));
 	errors.push(...casePropertyBadFormat(ctx, caseWriteInventory));
@@ -1105,8 +1205,17 @@ export function runFormRules(
 		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
 	);
 	errors.push(
+		...casePropertyNameFormBuilderCannotKeep(
+			doc,
+			formUuid,
+			moduleUuid,
+			entryPlan,
+		),
+	);
+	errors.push(
 		...multiSelectFormSemantics(doc, form, mod, ctx, caseWriteInventory),
 	);
+	errors.push(...sessionDatumNotSupplied(doc, formUuid, moduleUuid, entryPlan));
 
 	return errors;
 }

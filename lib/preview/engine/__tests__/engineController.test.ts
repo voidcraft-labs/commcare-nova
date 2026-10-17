@@ -772,8 +772,14 @@ describe("EngineController", () => {
 						kind: "group",
 						label: proseText("Container"),
 					},
+					[Q1_UUID]: {
+						uuid: Q1_UUID,
+						id: "name",
+						kind: "text",
+						label: proseText("Name"),
+					},
 				},
-				{ [FORM_UUID]: [groupUuid], [groupUuid]: [] },
+				{ [FORM_UUID]: [groupUuid, Q1_UUID], [groupUuid]: [] },
 			);
 			const store = createLoadedStore(doc);
 			const ctrl = ownedController();
@@ -1094,6 +1100,23 @@ describe("EngineController", () => {
 		const repeatUuid = testUuid("eeeeeeee-0001-0001-0001-000000000001");
 		const nameUuid = testUuid("eeeeeeee-0001-0001-0001-000000000002");
 
+		/** The doc with a root label beside its containers, so a form whose
+		 * last question leaves still holds one (`EMPTY_FORM`). */
+		function withRootNote(doc: PersistableDoc): PersistableDoc {
+			const noteUuid = testUuid("eeeeeeee-0000-0000-0000-00000000aaaa");
+			doc.fields[noteUuid] = {
+				uuid: noteUuid,
+				id: "note",
+				kind: "label",
+				label: proseText("Note"),
+			};
+			doc.fieldOrder[FORM_UUID] = [
+				...(doc.fieldOrder[FORM_UUID] ?? []),
+				noteUuid,
+			];
+			return doc;
+		}
+
 		function repeatDoc(): PersistableDoc {
 			return makeDoc(
 				{
@@ -1290,7 +1313,7 @@ describe("EngineController", () => {
 		});
 
 		it("publishes field deletion only through the explicit deleted variant", () => {
-			const store = createLoadedStore(captureContainerDoc());
+			const store = createLoadedStore(withRootNote(captureContainerDoc()));
 			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
@@ -1771,7 +1794,7 @@ describe("EngineController", () => {
 		});
 
 		it("removing a repeat-child field leaves no phantom state blocking submit", () => {
-			const doc = repeatDoc();
+			const doc = withRootNote(repeatDoc());
 			doc.fields[nameUuid] = {
 				...doc.fields[nameUuid],
 				required: xp("true()"),

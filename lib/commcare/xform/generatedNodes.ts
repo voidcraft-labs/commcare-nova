@@ -59,6 +59,7 @@ import {
 	type Field,
 	fieldExpressionValue,
 	fieldKindCarriesValidation,
+	formConnectIds,
 	isCaptureField,
 	isContainer,
 	makeTranslationUnitId,
@@ -195,23 +196,6 @@ export function isKeyedRootCreate(operation: CaseOperation): boolean {
 		operation.forEach === undefined &&
 		operation.target.kind === "new" &&
 		operation.target.idFrom !== undefined
-	);
-}
-
-/** The Connect block ids a form's data root holds. */
-export function formConnectIds(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): ReadonlySet<string> {
-	const connect = doc.forms[formUuid]?.connect;
-	if (connect === undefined || doc.connectType === null) return new Set();
-	return new Set(
-		[
-			"learn_module" in connect ? connect.learn_module?.id : undefined,
-			"assessment" in connect ? connect.assessment?.id : undefined,
-			"deliver_unit" in connect ? connect.deliver_unit?.id : undefined,
-			"task" in connect ? connect.task?.id : undefined,
-		].filter((id): id is string => id !== undefined),
 	);
 }
 

@@ -21,6 +21,9 @@
 
 import { type Kysely, sql, type Transaction } from "kysely";
 import { buildCaseTypeMap } from "@/lib/case-store/store";
+import { formLinkProjectionContext } from "@/lib/commcare/formLinkProjection";
+import { sourceBlockCaseWrites } from "@/lib/commcare/xform/sourceCaseWrites";
+import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
 import type { PersistedEntityRowText } from "@/lib/db/persistedJson";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import type { AppDatabase } from "@/lib/db/pg";
@@ -43,8 +46,13 @@ import {
 } from "@/lib/domain";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import {
+	caseOperationLinkNameProblem,
+	sourceWritePropertyProblem,
+} from "@/lib/domain/questionId";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import type { LookupDataType } from "@/lib/lookup/types";
+import { formRootReadPositions } from "@/lib/preview/xpath/dependencies";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { behaviorChanges } from "./behavior";
@@ -77,9 +85,11 @@ import {
 	readPublishedDocument,
 } from "./publishedDocument";
 import { questionPaths } from "./questionPaths";
+import { isRecord, rawText } from "./steps/relativePaths";
 import {
 	type DeploymentOutcome,
 	type DocumentChange,
+	type StepBlocker,
 	type StepDeployment,
 	transformDocument,
 } from "./transform";
@@ -685,6 +695,8 @@ export interface PlannedTarget {
 	readonly raw: RawDocument;
 	/** The parsed and hydrated target; absent where it does not parse. */
 	readonly doc: BlueprintDoc | undefined;
+	/** Each place a transform step could not rewrite. */
+	readonly stepBlockers?: readonly StepBlocker[];
 }
 
 export interface CutoverPlanBuild {
@@ -784,10 +796,112 @@ export function caseSchemaDifferences(
 	return differences;
 }
 
-/** The parse, gate, export-readiness and case-schema blockers of one target. */
+/**
+ * One place in an app that meets a blocker no step rewrites, because the
+ * value is the identity of data that exists or a person's call. `where` and
+ * `message` name authored content, for `--debug-details` alone.
+ */
+export interface ContentBlockerPlace {
+	readonly code:
+		| "unresolved-relative-path"
+		| "link-identifier-reserved"
+		| "reserved-property-write"
+		| "form-root-read";
+	readonly where: string;
+	readonly message: string;
+}
+
+/**
+ * The places of the four blockers part 08 of step 2's plan leaves to a
+ * person. A relative path a step could not follow comes from the transform.
+ * A link identifier HQ's form builder can't keep (`instance`, `bind`,
+ * `parsererror`, or `close` or `create`, which it reads as the block's own
+ * action) is read from the target's rows, since no step renames one: it is
+ * the index name on cases that exist. A case property of those names written
+ * by a block in a form's source is read from the hydrated target through
+ * `sourceBlockCaseWrites`, with the entry plan the validator reads, and a
+ * read of the form's root alone from every carrier `authoredXPathCarriers`
+ * lists, through `formRootReadPositions`; no step changes either, so they are
+ * the stored document's.
+ */
+export function contentBlockerPlaces(
+	raw: RawDocument,
+	doc: BlueprintDoc | undefined,
+	stepBlockers: readonly StepBlocker[],
+): ContentBlockerPlace[] {
+	const places: ContentBlockerPlace[] = stepBlockers.map((blocker) => ({
+		code: blocker.code,
+		where: `${blocker.entity.type}=${blocker.entity.uuid ?? ""} ${blocker.entity.nameAtMigration} slot=${blocker.detail.slot ?? ""}`,
+		message: `In "${blocker.detail.form ?? ""}", "${blocker.detail.expression ?? ""}" names "${blocker.detail.name ?? ""}", a node the cutover renames, and the path does not reach it through the form.`,
+	}));
+	for (const moduleUuid of raw.moduleOrder) {
+		for (const formUuid of raw.formOrder[moduleUuid] ?? []) {
+			const form = raw.forms[formUuid];
+			if (form === undefined || !Array.isArray(form.caseOperations)) continue;
+			for (const operation of form.caseOperations) {
+				if (!isRecord(operation) || !Array.isArray(operation.links)) continue;
+				for (const link of operation.links) {
+					const identifier = isRecord(link) ? rawText(link.identifier) : "";
+					if (caseOperationLinkNameProblem(identifier) === undefined) continue;
+					places.push({
+						code: "link-identifier-reserved",
+						where: `form=${formUuid} ${rawText(form.name)} operation=${rawText(operation.uuid)} ${rawText(operation.id)}`,
+						message: `The case change links its case under "${identifier}", a name CommCare HQ's form builder can't keep there.`,
+					});
+				}
+			}
+		}
+	}
+	if (doc === undefined) return places;
+	const context = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	for (const moduleUuid of doc.moduleOrder) {
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			for (const write of sourceBlockCaseWrites(
+				doc,
+				moduleUuid,
+				formUuid,
+				context,
+			)) {
+				if (sourceWritePropertyProblem(write.property) === undefined) continue;
+				places.push({
+					code: "reserved-property-write",
+					where: `form=${formUuid} ${form?.name ?? ""} ${
+						write.origin.kind === "operation"
+							? `operation=${write.origin.operationUuid}`
+							: `field=${write.origin.fieldUuid}`
+					}`,
+					message: `A block in the form's source saves the case property "${write.property}", a name CommCare HQ's form builder can't keep there.`,
+				});
+			}
+		}
+	}
+	for (const carrier of authoredXPathCarriers(doc)) {
+		if (formRootReadPositions(carrier.source).length === 0) continue;
+		places.push({
+			code: "form-root-read",
+			where: carrier.path,
+			message: `"${carrier.source}" reads the form's root alone.`,
+		});
+	}
+	return places;
+}
+
+/** The content blockers as counts, in the order the codes are listed. */
+function contentBlockers(
+	places: readonly ContentBlockerPlace[],
+): CutoverBlocker[] {
+	return CUTOVER_BLOCKER_CODES.flatMap((code) => {
+		const count = places.filter((place) => place.code === code).length;
+		return count === 0 ? [] : [{ code, count, findingCodes: [] }];
+	});
+}
+
+/** The parse, gate, export-readiness, case-schema and content blockers of one target. */
 function judgeTarget(
 	app: SourceApp,
 	target: RawDocument,
+	stepBlockers: readonly StepBlocker[],
 	lookupContext: LookupValidationContext,
 	media: Awaited<ReturnType<typeof readProjectMediaManifest>> | null,
 ): { blockers: CutoverBlocker[]; doc: BlueprintDoc | undefined } {
@@ -802,6 +916,9 @@ function judgeTarget(
 					count: parsed.error.issues.length,
 					findingCodes: [],
 				},
+				...contentBlockers(
+					contentBlockerPlaces(target, undefined, stepBlockers),
+				),
 			],
 			doc: undefined,
 		};
@@ -840,6 +957,9 @@ function judgeTarget(
 			findingCodes: [],
 		});
 	}
+	blockers.push(
+		...contentBlockers(contentBlockerPlaces(target, doc, stepBlockers)),
+	);
 	return { blockers, doc };
 }
 
@@ -982,7 +1102,13 @@ export async function buildCutoverPlan(
 		);
 
 		for (const { app, result } of transformed) {
-			const judged = judgeTarget(app, result.target, lookupContext, media);
+			const judged = judgeTarget(
+				app,
+				result.target,
+				result.blockers,
+				lookupContext,
+				media,
+			);
 			const withoutPushedRevision = app.deployments.filter(
 				(deployment) => deployment.pushedRevision === null,
 			).length;
@@ -1003,7 +1129,11 @@ export async function buildCutoverPlan(
 					classOf.get(deployment.deploymentId) as DeploymentClass,
 				]),
 			);
-			targets.set(app.appId, { raw: result.target, doc: judged.doc });
+			targets.set(app.appId, {
+				raw: result.target,
+				doc: judged.doc,
+				stepBlockers: result.blockers,
+			});
 			const behavior =
 				judged.doc === undefined ? [] : behaviorChanges(judged.doc);
 			const behaviorEntries: Record<string, number> = {};
@@ -1118,8 +1248,9 @@ function findingDetail(finding: {
 
 /**
  * Every place each blocker met in one app, for `--debug-details`: the parse
- * issues by path, each validator finding with its location, and each case
- * type whose derived schema differs from its active stored row.
+ * issues by path, each validator finding with its location, each case type
+ * whose derived schema differs from its active stored row, and each place a
+ * content blocker met.
  */
 export async function blockerDetails(
 	tx: Transaction<AppDatabase>,
@@ -1131,6 +1262,7 @@ export async function blockerDetails(
 	gate: { code: string; where: string; message: string }[];
 	exportReadiness: { code: string; where: string; message: string }[];
 	caseSchemas: string[];
+	content: ContentBlockerPlace[];
 }> {
 	const app = source.apps.find((candidate) => candidate.appId === appId);
 	const target = build.targets.get(appId);
@@ -1140,6 +1272,7 @@ export async function blockerDetails(
 	const parsed = blueprintDocSchema.safeParse(
 		rawDocumentAssembly(appId, target.raw),
 	);
+	const stepBlockers = target.stepBlockers ?? [];
 	if (!parsed.success) {
 		return {
 			parse: parsed.error.issues.map((issue) => ({
@@ -1149,6 +1282,7 @@ export async function blockerDetails(
 			gate: [],
 			exportReadiness: [],
 			caseSchemas: [],
+			content: contentBlockerPlaces(target.raw, undefined, stepBlockers),
 		};
 	}
 	const doc = hydratePersistedBlueprint(parsed.data);
@@ -1183,6 +1317,7 @@ export async function blockerDetails(
 				);
 			})
 			.sort(),
+		content: contentBlockerPlaces(target.raw, doc, stepBlockers),
 	};
 }
 

@@ -9,6 +9,7 @@ import {
 import {
 	type AppConnectId,
 	connectIdsExcept,
+	type RootFieldIdsByForm,
 } from "@/lib/doc/hooks/useAppConnectIds";
 import {
 	asUuid,
@@ -76,6 +77,40 @@ export type SubConfigKind =
 	| "assessment"
 	| "deliver_unit"
 	| "task";
+
+/** The two blocks of a deliver app's form. */
+export type DeliverBlockKind = "deliver_unit" | "task";
+
+/**
+ * Whether a form's deliver unit or task can be switched on: each is offered
+ * only while the other is off. CommCare Connect checks a delivery before it
+ * completes a task, so a form holding both has its own visit turned away
+ * while the task is assigned (`connectDeliverFormHoldsTask`, which the gate
+ * refuses). `held` says which of the two the form or the draft holds.
+ */
+export function deliverBlockOffered(
+	kind: DeliverBlockKind,
+	held: Readonly<Record<DeliverBlockKind, boolean>>,
+): boolean {
+	return !held[kind === "deliver_unit" ? "task" : "deliver_unit"];
+}
+
+/** What a block's place reads while `deliverBlockOffered` withholds it. */
+export const DELIVER_BLOCK_WITHHELD_NOTE =
+	"A task goes in a form of its own. CommCare Connect checks the delivery before it completes a task, so a form holding both has its own visit turned away while the task is assigned.";
+
+/**
+ * The note under each Connect id field a change can hurt, shown once the
+ * app is published to a project space. CommCare Connect keys its records by
+ * these ids. An assessment's has none: Connect keeps no record under it.
+ */
+export const CONNECT_ID_PUBLISHED_NOTES = {
+	deliver_unit:
+		"CommCare Connect knows this deliver unit by its ID. If you change it, Connect turns away each delivery of the new ID until an opportunity manager adds it to a payment unit, and CommCare HQ doesn't send those deliveries again. It helps to have that done before you publish.",
+	learn_module:
+		"CommCare Connect knows this learn module by its ID. If you change it, Connect reads it as a second module and keeps the old one, so a learner who had not finished the course stays short of finished.",
+	task: "CommCare Connect knows this task by its ID. If you change it, a task already assigned under the old ID is never completed by this form, and Connect rejects that worker's deliveries while it stays assigned.",
+} as const satisfies Partial<Record<SubConfigKind, string>>;
 
 /** Seed a draft from an existing block (the manager's per-form starting
  *  point). `printExpr` lowers a stored XPath AST to its text so the buffers
@@ -200,14 +235,21 @@ export function connectIdHelpers(
 	formUuid: string,
 	moduleName: string,
 	formName: string,
+	rootFieldIds: readonly string[] = [],
 ): { derivedId: (kind: SubConfigKind) => string; validateId: IdValidator } {
 	const takenFor = (kind: SubConfigKind) =>
 		connectIdsExcept(ids, asUuid(formUuid), kind);
+	const beside = new Set(rootFieldIds);
 	return {
 		derivedId: (kind) =>
-			deriveConnectId(idBaseName(kind, moduleName, formName), takenFor(kind)),
+			deriveConnectId(
+				idBaseName(kind, moduleName, formName),
+				new Set([...takenFor(kind), ...beside]),
+			),
 		validateId: (kind, value) => {
-			return value === "" ? null : connectIdValidity(value, takenFor(kind));
+			return value === ""
+				? null
+				: connectIdValidity(value, takenFor(kind), beside);
 		},
 	};
 }
@@ -222,12 +264,14 @@ export function connectIdHelpers(
  * blank same-base blocks disambiguate here exactly as they will at commit (no
  * display-vs-stored drift), and an explicit duplicate typed across two forms
  * is caught inline. Callers may seed the scope with committed ids outside
- * their target set; every returned entry is the complete guard universe. */
+ * their target set; every returned entry is the complete guard universe. A
+ * blank draft also derives clear of its own form's top-level field ids. */
 export function assignDraftConnectIds(
 	forms: readonly { formUuid: string; moduleName: string; formName: string }[],
 	modeDrafts: Record<string, BlockDraft>,
 	mode: ConnectType,
 	reservedIds: readonly AppConnectId[] = [],
+	rootFieldIds: RootFieldIdsByForm = {},
 ): AppConnectId[] {
 	const taken = new Set(reservedIds.map(({ id }) => id));
 	const out: AppConnectId[] = [...reservedIds];
@@ -272,6 +316,7 @@ export function assignDraftConnectIds(
 			buffer === "" ? undefined : buffer,
 			base,
 			taken,
+			new Set(rootFieldIds[formUuid] ?? []),
 		);
 		out.push({ formUuid: asUuid(formUuid), kind, id });
 	}

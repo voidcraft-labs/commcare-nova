@@ -427,7 +427,7 @@ export const HAND_BUILT_FIXTURES: readonly HandBuiltFixture[] = [
 	{
 		id: "hand-empty-forms",
 		holds:
-			"a form holding a Hidden Value and no question, and a sectioned form whose first section holds none",
+			"a form holding a Hidden Value and no other question, a sectioned form whose first section holds one Hidden Value, and a form holding only an empty group",
 		build: (base) =>
 			produce(base("navigation-base"), (draft) => {
 				const flat = fixtureUuid(0x401);
@@ -435,6 +435,8 @@ export const HAND_BUILT_FIXTURES: readonly HandBuiltFixture[] = [
 				const flatHidden = fixtureUuid(0x403);
 				const section = fixtureUuid(0x404);
 				const sectionHidden = fixtureUuid(0x405);
+				const empty = fixtureUuid(0x406);
+				const box = fixtureUuid(0x407);
 				draft.forms[flat] = {
 					uuid: flat,
 					id: "tally",
@@ -445,6 +447,12 @@ export const HAND_BUILT_FIXTURES: readonly HandBuiltFixture[] = [
 					uuid: sectioned,
 					id: "sectioned_tally",
 					name: "Sectioned tally",
+					type: "survey",
+				} as never;
+				draft.forms[empty] = {
+					uuid: empty,
+					id: "empty_tally",
+					name: "Empty tally",
 					type: "survey",
 				} as never;
 				draft.fields[flatHidden] = {
@@ -465,20 +473,40 @@ export const HAND_BUILT_FIXTURES: readonly HandBuiltFixture[] = [
 					id: "stamp",
 					calculate: text("today()"),
 				} as never;
-				draft.formOrder[NAVIGATION.menu]?.push(flat, sectioned);
+				draft.fields[box] = {
+					uuid: box,
+					kind: "group",
+					id: "box",
+					label: text("Box"),
+				} as never;
+				draft.formOrder[NAVIGATION.menu]?.push(flat, sectioned, empty);
 				draft.fieldOrder[flat] = [flatHidden];
 				draft.fieldOrder[sectioned] = [section];
 				draft.fieldOrder[section] = [sectionHidden];
+				draft.fieldOrder[empty] = [box];
+				draft.fieldOrder[box] = [];
 				draft.fieldParent[flatHidden] = flat;
 				draft.fieldParent[section] = sectioned;
 				draft.fieldParent[sectionHidden] = section;
+				draft.fieldParent[box] = empty;
 			}),
 		check: (document) =>
 			forms(document).some((form) =>
 				(document.fieldOrder[String(form.uuid)] ?? []).every(
 					(uuid) => document.fields[uuid]?.kind === "hidden",
 				),
-			),
+			) &&
+			forms(document).some((form) => {
+				const roots = document.fieldOrder[String(form.uuid)] ?? [];
+				return (
+					roots.length > 0 &&
+					roots.every(
+						(uuid) =>
+							document.fields[uuid]?.kind === "group" &&
+							(document.fieldOrder[uuid] ?? []).length === 0,
+					)
+				);
+			}),
 		witnesses: {
 			steps: ["empty-forms"],
 			blockers: [],

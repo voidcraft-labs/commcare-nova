@@ -94,25 +94,48 @@ def _every(statuses, status):
     return bool(statuses) and set(statuses) == {status}
 
 
+# The document's two forms as each reader names its runs of them: the deliver form first, and the task's form,
+# which holds the task in a form of its own (finding 61). Formplayer's walk submits them in order; a device names
+# a run by the form's command, a tablet's run with ``@tablet`` after it.
+DELIVER_FORM = ("walk-0", "m0/m0-f0")
+TASK_FORM = ("walk-1", "m0/m0-f1")
+
+
+def _form(run):
+    """Which of the document's forms a run is of: ``DELIVER_FORM``, ``TASK_FORM``, or None for any other run."""
+    name = run["run"].split("@", 1)[0]
+    return next((form for form in (DELIVER_FORM, TASK_FORM) if name in form), None)
+
+
+def _device_answers(record, form):
+    """The statuses of every post of each device's runs of ``form``."""
+    return [
+        post["status"] for run in record["runs"].get("android") or [] if _form(run) == form for post in run["posts"]
+    ]
+
+
 @pytest.mark.under_determinism
 def test_every_state_of_a_connect_app_reaches_the_one_opportunity(observed):
     """The opportunity holds what the document authors, read by Connect from HQ's own archive view; and each
-    state's submissions, Formplayer's and each device's, reached Connect's receiver."""
+    state's submissions of both forms, Formplayer's and each device's, reached Connect's receiver."""
     opportunity = observed.configurations[CONFIGURATION].a["hooks"]["served"]["connect"]
     assert {asked["view"] for asked in opportunity["asked"]} == {"direct_ccz"}
     assert [unit["slug"] for unit in opportunity["catalog"]["deliverUnits"]] == ["home_visit"]
+    assert [task["slug"] for task in opportunity["catalog"]["taskTypes"]] == ["follow_up"]
     states = _states(observed)
     for state in ("A", "b"):
-        assert _answers(states[state], "formplayer") == [200], state
+        assert _answers(states[state], "formplayer") == [200, 200], state
         assert _every(_answers(states[state], "android"), 200), state
     # The local archive, made for the deployment, names the app in its profile's PostURL: Formplayer submits from
     # it and every device on it posts there, so both readers reach Connect.
     assert sorted(states["local"]["runs"]) == ["android", "formplayer"]
-    assert _answers(states["local"], "formplayer") == [200]
+    assert _answers(states["local"], "formplayer") == [200, 200]
     assert _every(_answers(states["local"], "android"), 200)
-    # After the edit that renames the deliver unit, the opportunity made before it refuses each delivery.
-    assert _answers(states["b_edit"], "formplayer") == [400]
-    assert _every(_answers(states["b_edit"], "android"), 400)
+    # After the edit that renames the deliver unit in the first form and the task in the second, the opportunity
+    # made before it refuses each delivery, and takes the task form's payload, which completes nothing.
+    assert _answers(states["b_edit"], "formplayer") == [400, 200]
+    assert _every(_device_answers(states["b_edit"], DELIVER_FORM), 400)
+    assert _every(_device_answers(states["b_edit"], TASK_FORM), 200)
     # A served save forwards too, and Connect holds of it what it held of the state it was saved over.
     assert states["b:saves"], "no editor save over B was served, so no save's submissions reached Connect"
     for save in states["b:saves"]:
@@ -121,9 +144,23 @@ def test_every_state_of_a_connect_app_reaches_the_one_opportunity(observed):
 
 @pytest.mark.under_determinism
 def test_each_run_met_the_opportunity_as_it_stood(observed):
-    """Formplayer's delivery and each device's walk each left one visit: no run read another's."""
-    for run in [run for runs in _states(observed)["A"]["runs"].values() for run in runs]:
-        assert len(run["state"]["visits"]) == 1, run["run"]
+    """At A, each run of the deliver form left one visit and completed no task, and each run of the task's form
+    left no visit and completed the worker's assigned task: no run read another's."""
+    record = _states(observed)["A"]
+    assert [run["run"] for run in record["runs"]["formplayer"]] == ["walk-0", "walk-1"]
+    runs = [run for runs in record["runs"].values() for run in runs]
+    for run in runs:
+        completed = [
+            task["slug"] for task in run["state"].get("assignedTasks") or [] if task.get("status") == "completed"
+        ]
+        form = _form(run)
+        assert form is not None, run["run"]
+        if form == DELIVER_FORM:
+            assert len(run["state"]["visits"]) == 1, run["run"]
+            assert completed == [], run["run"]
+        else:
+            assert run["state"]["visits"] == [], run["run"]
+            assert completed == ["follow_up"], run["run"]
 
 
 @pytest.mark.under_determinism

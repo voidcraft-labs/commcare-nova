@@ -15,8 +15,11 @@ forward or Connect's receiver does not find; an id Connect keys a row by
 moving under an opportunity that already holds it (defect 15); a submission
 that carries no location where Connect checks one (the harness's finding
 34); a block spelled another way by HQ's form designer that Connect reads
-differently (finding 55); and a name Nova admits that Connect's receiver
-cannot process (finding 60).
+differently (finding 55); a name Connect's receiver cannot process (finding
+60), which Nova's validator refuses and these tests write by hand into a fork
+of the published app; and a deliver form that also holds the task its
+submission completes, whose own visit Connect rejects (finding 61), written
+by hand the same way.
 
 Every scenario's steps, with the rows Connect held after each, are written to
 the run's ``connect/scenario.<name>.json``, beside the submission and the
@@ -31,13 +34,15 @@ import pytest
 
 from proof.checks.compare.xml_tree import parse_xml
 from proof.connect.conftest import (
+    ACCEPTED_NAMES,
+    BOTH_IN_ONE_FORM,
     CONNECT_XMLNS,
     DELIVER,
-    DELIVER_KEY_NAMES,
+    DELIVER_DEFAULT,
     LEARN,
-    LEARN_KEY_NAMES,
     NEXT_DAY_CLOCK,
-    TASK_NAMED_TASK,
+    REFUSED_NAMES,
+    TASK_FORM,
     WITHOUT_WORK_AREA,
     WRITTEN,
 )
@@ -47,6 +52,10 @@ PROFILE_XMLNS = "http://cihi.commcarehq.org/jad"
 VISIT_ATTACHMENTS = "commcare_connect.opportunity.tasks.download_user_visit_attachments"
 TASK_COMPLETED = "commcare_connect.opportunity.tasks.send_task_completion_notification"
 ASSESSMENT_SCORED = "commcare_connect.opportunity.tasks.notify_user_for_scored_assessment"
+# What Connect's receiver raises on a Connect key it finds in a wrapper node, which holds no namespace (finding 60).
+KEY_ERROR = [{"class": "KeyError", "message": "'@xmlns'"}]
+# The deliver unit of ``connect-deliver-default``, the deliver app the hand-written forms are made from.
+DEFAULT_UNIT = "visit"
 # What the Core runner answers the learn form's score with (``proof/core/answers.json``), which the assessment
 # reads; the learn app passes at 5.
 SCORE = 7
@@ -62,8 +71,7 @@ class World:
     """The Connect apps and the scenarios made of them."""
 
     def __init__(self, apps, runtime, out):
-        self.learn, self.deliver, self.named_task = apps[LEARN], apps[DELIVER], apps[TASK_NAMED_TASK]
-        self.learn_keys, self.deliver_keys = apps[LEARN_KEY_NAMES], apps[DELIVER_KEY_NAMES]
+        self.learn, self.deliver, self.deliver_default = apps[LEARN], apps[DELIVER], apps[DELIVER_DEFAULT]
         self._runtime, self._out, self._paths, self._ran = runtime, out, {}, {}
         archives = out / "archives"
         archives.mkdir(exist_ok=True)
@@ -113,6 +121,21 @@ class World:
     def ready(self, *more):
         """An opportunity synced from HQ's builds, its deliver unit paid for, its worker's claim made."""
         return [self.opportunity(), self.sync(), self.pay(self.unit), {"do": "claim"}, *more]
+
+    def written(self, app, name, *more):
+        """An opportunity synced from a hand-written form's release (``name``, of ``app``, the learn app or
+        ``connect-deliver-default``), every deliver unit Connect reads from it paid for, its worker's claim made.
+        """
+        if app is self.learn:
+            return [self.opportunity(), self.sync(learn=name), self.pay(self.unit), {"do": "claim"}, *more]
+        unit = name.removeprefix("deliver-") if name.startswith("deliver-") else DEFAULT_UNIT
+        return [
+            self.opportunity(deliver=app),
+            self.sync(deliver=name, deliver_app=app),
+            self.pay(unit),
+            {"do": "claim"},
+            *more,
+        ]
 
     # Runs ------------------------------------------------------------------------------------------------------
 
@@ -218,13 +241,27 @@ def test_a_delivery_is_approved_and_paid_from_either_archive(world):
     assert local_state == state
 
 
-def test_the_form_that_delivers_also_completes_the_workers_assigned_task(world):
-    """Nova's deliver form holds the task beside the deliver unit, and Connect reads the unit first: while the
-    task is assigned the form's own visit is rejected for it, the same submission then completes the task, and
-    the next day's visit is approved."""
-    posts, state = world.delivered(
-        "deliver-task", world.assign(world.task), world.post(world.deliver, "hq"), world.post(world.deliver, "hq@next")
+def test_a_form_that_delivers_and_completes_the_workers_assigned_task_has_its_own_visit_rejected(world):
+    """A deliver form that also holds the task, written by hand (Nova's validator refuses the shape,
+    ``CONNECT_DELIVER_FORM_HOLDS_TASK``), and Connect reads the unit first: while the task is assigned the form's
+    own visit is rejected for it, the same submission then completes the task, and the next day's visit is
+    approved and paid."""
+    deliver = world.deliver
+    task_in_the_deliver_form = deliver.submissions[BOTH_IN_ONE_FORM].payload["form"]
+    assert sorted(task_in_the_deliver_form) == sorted([world.unit, world.task])
+    result = world.run(
+        "deliver-task-both",
+        [
+            world.opportunity(),
+            world.sync(deliver=BOTH_IN_ONE_FORM),
+            world.pay(world.unit),
+            {"do": "claim"},
+            world.assign(world.task),
+            world.post(deliver, BOTH_IN_ONE_FORM),
+            world.post(deliver, f"{BOTH_IN_ONE_FORM}@next"),
+        ],
     )
+    posts, state = result[-2:], result[-1]["state"]
     answered(posts[0])
     (first,) = posts[0]["state"]["visits"]
     assert (first["status"], flags(first)) == ("rejected", ["pending_task"])
@@ -237,6 +274,51 @@ def test_the_form_that_delivers_also_completes_the_workers_assigned_task(world):
         ("proof-worker-2026-01-15", "rejected"),
         ("proof-worker-2026-01-16", "approved"),
     ]
+    assert state["access"]["paymentAccrued"] == PAY
+
+
+def test_a_task_in_a_form_of_its_own_is_completed_and_the_next_delivery_paid_in_either_order(world):
+    """Nova's deliver app holds its task in a form of its own. A delivery sent while the task is assigned is
+    rejected for it; the task's form then completes the task and makes no visit; and the next delivery is
+    approved and paid. Sent the other way round, the task's form completes the task with no visit, and the
+    delivery after it is approved and paid."""
+    deliver = world.deliver
+    assert sorted(deliver.submissions["hq"].payload["form"]) == [world.unit]
+    assert sorted(deliver.submissions[f"hq{TASK_FORM}"].payload["form"]) == [world.task]
+    posts, state = world.delivered(
+        "deliver-then-task",
+        world.assign(world.task),
+        world.post(deliver, "hq"),
+        world.post(deliver, f"hq{TASK_FORM}"),
+        world.post(deliver, "hq@next"),
+    )
+    for post in posts:
+        answered(post)
+    (first,) = posts[0]["state"]["visits"]
+    assert (first["status"], flags(first)) == ("rejected", ["pending_task"])
+    assert posts[1]["state"]["visits"] == posts[0]["state"]["visits"]
+    assert [(task["slug"], task["status"]) for task in posts[1]["state"]["assignedTasks"]] == [
+        (world.task, "completed")
+    ]
+    assert sorted((visit["entityId"], visit["status"]) for visit in state["visits"]) == [
+        ("proof-worker-2026-01-15", "rejected"),
+        ("proof-worker-2026-01-16", "approved"),
+    ]
+    assert state["access"]["paymentAccrued"] == PAY
+    posts, state = world.delivered(
+        "task-then-deliver",
+        world.assign(world.task),
+        world.post(deliver, f"hq{TASK_FORM}"),
+        world.post(deliver, "hq"),
+    )
+    for post in posts:
+        answered(post)
+    assert posts[0]["state"]["visits"] == []
+    assert [(task["slug"], task["status"]) for task in posts[0]["state"]["assignedTasks"]] == [
+        (world.task, "completed")
+    ]
+    (visit,) = state["visits"]
+    assert (visit["status"], visit["flags"]) == ("approved", None)
     assert state["access"]["paymentAccrued"] == PAY
 
 
@@ -421,17 +503,26 @@ def test_a_renamed_learn_module_leaves_learning_unfinished(world):
 
 
 def test_a_renamed_task_never_completes_the_task_a_worker_was_assigned(world):
-    """A task assigned before the rename is of the old task type. After the rename the form's task matches no
-    assigned task, so it stays assigned and every delivery of the worker is rejected for it, where the form
-    before the rename completed it (the assigned-task test)."""
+    """A task assigned before the rename is of the old task type. After the rename the task form's task matches no
+    assigned task: Connect takes the form, makes no visit and completes nothing, so the task stays assigned and
+    every delivery of the worker is rejected for it, where the task form before the rename completed it (the
+    task form test)."""
     posts, state = world.delivered(
         "rename-task",
         world.assign(world.task),
         world.sync(deliver="renamed"),
         world.pay(world.unit_renamed),
+        world.post(world.deliver, f"renamed{TASK_FORM}"),
         world.post(world.deliver, "renamed"),
         world.post(world.deliver, "renamed@next"),
     )
+    task_form = posts[0]
+    answered(task_form)
+    assert task_form["state"]["visits"] == []
+    assert [(task["slug"], task["status"]) for task in task_form["state"]["assignedTasks"]] == [
+        (world.task, "assigned")
+    ]
+    posts = posts[1:]
     answered(posts[0])
     answered(posts[1])
     assert [task["slug"] for task in state["taskTypes"]] == [world.task, world.task_renamed]
@@ -446,65 +537,113 @@ def test_a_renamed_task_never_completes_the_task_a_worker_was_assigned(world):
 # Finding 60: a block named like one of Connect's own keys ---------------------------------------------------------
 
 
+def _hand_written(world, document):
+    """``REFUSED_NAMES`` or ``ACCEPTED_NAMES`` of one document by name, each with the app it is a fork of and the
+    submission that carries the changed form (a task form's under ``TASK_FORM``)."""
+    app = world.learn if document == LEARN else world.deliver_default
+
+    def submission(name):
+        return f"{name}{TASK_FORM}" if name.startswith("task-") else name
+
+    return app, submission
+
+
 def test_a_task_named_task_fails_connects_receiver_on_every_submission(world):
     """Nova names a Connect block's wrapper node by the block's id, and Connect's receiver looks for ``task`` at
-    every depth of the form and reads each match's namespace. A task whose id is ``task`` is so wrapped in a
-    node that has none: the receiver raises ``KeyError('@xmlns')``, answers 500 and keeps nothing of the
-    submission, its delivery included, from HQ's build and the local archive alike. The deliver app whose task
-    is ``follow_up`` is accepted (the delivery tests)."""
-    app = world.named_task
-    assert set(app.submissions["hq"].payload["form"]["task"]) == {"task"}
-    result = world.run(
-        "task-named-task",
-        [
-            world.opportunity(deliver=app),
-            world.sync(deliver_app=app),
-            world.pay("visit"),
-            {"do": "claim"},
-            world.post(app, "hq"),
-            world.post(app, "local"),
-        ],
-    )
-    claimed, from_hq, from_local = result[-3:]
+    every depth of the form and reads each match's namespace. A task whose id is ``task``, written by hand in a
+    fork of the published deliver app (Nova's validator refuses the name), is so wrapped in a node that has
+    none: the receiver raises ``KeyError('@xmlns')``, answers 500 and keeps nothing of the submission. The
+    deliver app whose task is ``follow_up`` is accepted (the task form tests), and so is a task ``q_task``
+    (the accepted names test)."""
+    app, submission = _hand_written(world, DELIVER_DEFAULT)
+    assert set(app.submissions[submission("task-task")].payload["form"]["task"]) == {"task"}
+    result = world.run("task-named-task", world.written(app, "task-task", world.post(app, submission("task-task"))))
+    claimed, post = result[-2:]
     assert claimed["state"]["taskTypes"] == [
         {"slug": "task", "name": "Record & review", "description": "Ask <then> listen"}
     ]
-    for post in (from_hq, from_local):
-        assert (post["status"], post["raised"]) == (500, [{"class": "KeyError", "message": "'@xmlns'"}])
-        assert post["state"] == claimed["state"]
-        assert post["state"]["visits"] == []
+    assert (post["status"], post["raised"]) == (500, KEY_ERROR)
+    assert post["state"] == claimed["state"]
+    assert post["state"]["visits"] == []
 
 
 def test_every_other_name_connects_receiver_looks_for_fails_it_too(world):
     """The receiver looks for ``module`` and ``assessment`` in a learn app's form, and ``deliver``, ``task`` and
-    ``work_area_update`` in a deliver app's. A form whose one Connect block is named like any of them fails the
-    receiver the same way, and Connect keeps nothing of it: no completed module, no assessment, no visit. The
-    apps whose blocks are named otherwise are accepted (the learn and delivery tests)."""
-    learn, deliver = world.learn_keys, world.deliver_keys
+    ``work_area_update`` in a deliver app's. A form whose Connect block is named like any of them, written by
+    hand, fails the receiver the same way, and Connect keeps nothing of it: no completed module, no assessment,
+    no visit."""
+    refused = sorted(name for names in REFUSED_NAMES.values() for name in names)
+    assert refused == [
+        "assessment-assessment",
+        "deliver-deliver",
+        "deliver-work_area_update",
+        "module-module",
+        "task-task",
+    ]
+    for document, names in REFUSED_NAMES.items():
+        app, submission = _hand_written(world, document)
+        for name in names:
+            if name == "task-task":
+                continue
+            kind, block = name.split("-", 1)
+            assert block in app.submissions[submission(name)].payload["form"], name
+            result = world.run(f"refused-{name}", world.written(app, name, world.post(app, submission(name))))
+            claimed, post = result[-2:]
+            rows = {"module": "learnModules", "assessment": "learnModules", "deliver": "deliverUnits"}[kind]
+            if kind != "assessment":
+                assert block in [row["slug"] for row in claimed["state"][rows]], name
+            assert (post["status"], post["raised"]) == (500, KEY_ERROR), name
+            assert post["state"] == claimed["state"], name
+            assert (post["state"]["visits"], post["state"]["completedModules"], post["state"]["assessments"]) == (
+                [],
+                [],
+                [],
+            ), name
 
-    def named(app):
-        """Each of the app's submissions, by its Connect block's id (its wrapper node's name)."""
-        found = {}
-        for submitted in app.submissions.values():
-            (wrapper,) = submitted.payload["form"]
-            found[wrapper] = {"do": "post", "name": f"{app.document}:{wrapper}", "payload": submitted.payload}
-        return found
 
-    posts = {**named(learn), **named(deliver)}
-    assert sorted(posts) == ["assessment", "deliver", "module", "work_area_update"]
-    result = world.run(
-        "key-names",
-        [
-            world.opportunity(learn=learn, deliver=deliver),
-            world.sync(learn_app=learn, deliver_app=deliver),
-            world.pay("deliver", "work_area_update"),
-            {"do": "claim"},
-            *(posts[name] for name in sorted(posts)),
-        ],
-    )
-    claimed = result[3]
-    assert [module["slug"] for module in claimed["state"]["learnModules"]] == ["module"]
-    assert [unit["slug"] for unit in claimed["state"]["deliverUnits"]] == ["deliver", "work_area_update"]
-    for post in result[4:]:
-        assert (post["status"], post["raised"]) == (500, [{"class": "KeyError", "message": "'@xmlns'"}]), post["name"]
-        assert post["state"] == claimed["state"], post["name"]
+def test_the_names_beside_connects_keys_are_received(world):
+    """What bounds finding 60: the match is exact and case-sensitive, each kind of app fails only on its own
+    names, and HQ forwards Connect blocks alone. So each replacement Nova offers, each name in another case, and
+    each name of the other kind of app is received: a deliver unit's visit approved once paid for, a task
+    completed, a learn module completed and an assessment scored and passed. A hidden value named like a key is
+    not forwarded at all, and its form is received as without it."""
+    deliver, learn = world.deliver_default, world.learn
+    for document, names in ACCEPTED_NAMES.items():
+        app, submission = _hand_written(world, document)
+        for name in names:
+            if name == "questions":
+                continue
+            kind, block = name.split("-", 1)
+            assigned = [world.assign(block)] if kind == "task" else []
+            post = world.run(
+                f"accepted-{name}", world.written(app, name, *assigned, world.post(app, submission(name)))
+            )[-1]
+            answered(post)
+            state = post["state"]
+            if kind == "deliver":
+                (visit,) = state["visits"]
+                assert (visit["deliverUnit"], visit["status"]) == (block, "approved"), name
+                assert state["access"]["paymentAccrued"] == PAY, name
+            elif kind == "task":
+                assert [(task["slug"], task["status"]) for task in state["assignedTasks"]] == [(block, "completed")], (
+                    name
+                )
+                assert state["visits"] == [], name
+            elif kind == "module":
+                assert [done["module"] for done in state["completedModules"]] == [block], name
+                assert state["access"]["learnProgress"] == 100.0, name
+            else:
+                assert [(a["score"], a["passingScore"], a["passed"]) for a in state["assessments"]] == [
+                    (SCORE, PASSING_SCORE, True)
+                ], name
+    for app, document, blocks in (
+        (deliver, DELIVER_DEFAULT, [DEFAULT_UNIT]),
+        (learn, LEARN, [world.module, "hand_washing_quiz"]),
+    ):
+        written = app.submissions["questions"]
+        assert sorted(written.payload["form"]) == sorted(blocks) == sorted(app.submissions["hq"].payload["form"])
+        held = world.run(f"questions-{document}", world.written(app, "questions", world.post(app, "questions")))
+        plain = world.run(f"plain-{document}", world.written(app, "questions", world.post(app, "hq")))
+        answered(held[-1])
+        answered(plain[-1])
+        assert held[-1]["state"] == plain[-1]["state"], document

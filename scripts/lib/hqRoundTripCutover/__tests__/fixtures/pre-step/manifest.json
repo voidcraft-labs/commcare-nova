@@ -201,7 +201,7 @@
 		{
 			"id": "hand-empty-forms",
 			"kind": "hand-built",
-			"digest": "ebf7805b84f081d62b164ac7d59ff2c6765aeacf03d29ee364ac37d75a126cb1",
+			"digest": "caf731065da311622f38a032e28d03d60ef84ddea7140efa6e3dde3f03b189b4",
 			"steps": ["empty-forms"],
 			"blockers": [],
 			"reasons": ["empty-form-label-added"]

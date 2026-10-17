@@ -226,8 +226,14 @@ export function parseXPathExpressionWithIssues(
 
 /** An explicit XPath initializer owns its path steps and predicate context.
  * These are existing carrier paths, whose namespaces and capabilities are
- * checked by canonical admission. A sibling expression cannot inherit them. */
-function hasExplicitPathContext(node: SyntaxNode, source: string): boolean {
+ * checked by canonical admission. A sibling expression cannot inherit them.
+ * Whether a name step sits in a path an `instance()` or `current()` call
+ * starts is read from the syntax tree and the text alone, so the cutover's
+ * relative-path rewrite asks the same question of a raw stored expression. */
+export function hasExplicitPathContext(
+	node: SyntaxNode,
+	source: string,
+): boolean {
 	function initialized(path: SyntaxNode | null): boolean {
 		if (!path) return false;
 		if (path.name === "Invoke") {

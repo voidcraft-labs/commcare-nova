@@ -62,6 +62,12 @@ import {
 	walkTerms,
 	walkTermsWithPaths,
 } from "@/lib/domain/predicate";
+import {
+	caseOperationIdNameProblem,
+	caseOperationLinkNameProblem,
+	caseOperationNameSentence,
+	freeCaseOperationName,
+} from "@/lib/domain/questionId";
 import { type ValidationError, validationError } from "../errors";
 import {
 	type LookupTypeIndex,
@@ -203,6 +209,23 @@ export function validateCaseOperations(
 					operation,
 					"CASE_OPERATION_INVALID_ID",
 					`Case operation id "${operation.id}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`,
+				),
+			);
+		}
+		const idNameProblem = caseOperationIdNameProblem(operation.id);
+		if (idNameProblem !== undefined) {
+			// The free name avoids every operation id of the form.
+			const suggestedId = freeCaseOperationName(
+				operation.id,
+				new Set(operations.map((other) => other.id)),
+			);
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_INVALID_ID",
+					`Case operation "${operation.id}" in "${ctx.form.name}": ${caseOperationNameSentence(operation.id, idNameProblem, suggestedId)}`,
+					{ problem: idNameProblem, suggestedId },
 				),
 			);
 		}
@@ -455,6 +478,9 @@ function validateOperation(
 	}
 
 	const linkIds = new Set<string>();
+	const allLinkIds = new Set(
+		(operation.links ?? []).map((link) => link.identifier),
+	);
 	for (const link of operation.links ?? []) {
 		const invalidLinkFormat = !isCaseOperationIdentifier(link.identifier);
 		const linkTooLong =
@@ -471,6 +497,26 @@ function validateOperation(
 						: linkTooLong
 							? `Link identifier "${link.identifier}" is longer than ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`
 							: `Link identifier "${link.identifier}" is used more than once by this operation.`,
+				),
+			);
+		}
+		const linkNameProblem = invalidLinkFormat
+			? undefined
+			: caseOperationLinkNameProblem(link.identifier);
+		if (linkNameProblem !== undefined) {
+			// The free name avoids every link identifier of the operation.
+			const suggestedId = freeCaseOperationName(link.identifier, allLinkIds);
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_LINK_INVALID",
+					`Link identifier "${link.identifier}" of case operation "${operation.id}": ${caseOperationNameSentence(link.identifier, linkNameProblem, suggestedId)}`,
+					{
+						linkIdentifier: link.identifier,
+						problem: linkNameProblem,
+						suggestedId,
+					},
 				),
 			);
 		}

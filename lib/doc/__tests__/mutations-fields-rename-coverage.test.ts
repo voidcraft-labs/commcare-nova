@@ -333,7 +333,7 @@ describe("field reference projection after rename and move", () => {
 				mode === "learn"
 					? {
 							assessment: {
-								id: "assessment",
+								id: "quiz",
 								user_score: xpIn(base, Q("form"), "/data/age * 10"),
 							},
 						}

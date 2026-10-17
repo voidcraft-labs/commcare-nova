@@ -1,0 +1,41 @@
+---
+title: CommCare Connect
+description: Make a learn app or a deliver app for CommCare Connect, and keep the IDs Connect knows each part by.
+---
+
+CommCare Connect pays frontline workers for training they finish and for
+visits they deliver. A Connect app in Nova is one of two kinds, chosen in
+**App settings → Connect**:
+
+- A **learn app** teaches. Each form that takes part holds a **learn module**,
+  its training content, or an **assessment**, a quiz whose score Connect
+  reads, or both.
+- A **deliver app** records the work. Each form that takes part holds a
+  **deliver unit**, a visit Connect can pay for, or a **task**, something a
+  worker is assigned and finishes with that form.
+
+A form that holds none of these stays an ordinary form of the app. You set a
+form's part in its settings, or for every form at once in the Connect manager.
+
+## Deliver units and tasks
+
+A task goes in a form of its own. CommCare Connect checks the delivery before it
+completes a task, so a form holding both a deliver unit and a task has its own
+visit turned away while the task is assigned. Nova offers a form's task only
+while that form holds no deliver unit, and the other way round.
+
+## IDs
+
+Each learn module, assessment, deliver unit and task has an ID that CommCare
+Connect knows it by. Nova picks one from the name. An ID you choose yourself
+starts with a letter, uses letters, digits and underscores, and is 50
+characters or fewer. It also differs from every other Connect ID in the app
+and from the IDs of the form's top-level fields, since the block sits beside
+them in the form.
+
+CommCare Connect keeps its records under these IDs, so it helps to settle them
+before you publish. If you change a deliver unit's ID after that, Connect turns
+away each delivery of the new ID until an opportunity manager adds it to a
+payment unit, and CommCare HQ doesn't send those deliveries again. Connect reads
+a changed learn module ID as a second module, and a task already assigned under
+an old ID is never completed by the form.

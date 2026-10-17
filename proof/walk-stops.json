@@ -66,12 +66,6 @@
 		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
 	},
 	{
-		"document": "fuzz-xform-20260930-10",
-		"reader": "formplayer",
-		"cause": "submit-refused:validation-error",
-		"reason": "The client holds \"Not Supported by Web Entry\" as the answer of the date and time question in the repetition a worker adds last, which it draws no widget for, and submits it (entries.js::UnsupportedEntry); Formplayer refuses the submission as an illegal argument."
-	},
-	{
 		"document": "fuzz-xform-20260930-4",
 		"reader": "formplayer",
 		"cause": "submit-refused:validation-error",
@@ -126,10 +120,10 @@
 		"reason": "The client draws no widget for a date and time question, holds \"Not Supported by Web Entry\" as the answer of each of the survey form's two, and submits them (entries.js::UnsupportedEntry); Formplayer refuses the submission as two illegal arguments, on every state of HQ's builds."
 	},
 	{
-		"document": "targeted-invalid-question-ids",
+		"control": "targeted-invalid-question-ids",
 		"reader": "formplayer",
 		"cause": "notification:question-bound-to-non-existent-node",
-		"reason": "Formplayer cannot install the app: a question of its form is bound to a node the form does not hold (UnresolvedResourceException), which is the document's witness of defect 15, so the walk ends at its first request."
+		"reason": "The control retains the document from before step 2 rewrote its question ids: a question of its form is bound to a node the form does not hold (UnresolvedResourceException), so Formplayer cannot install the app and the walk ends at its first request."
 	},
 	{
 		"control": "targeted-invalid-question-ids-after-9",
@@ -156,10 +150,10 @@
 		"reason": "HQ's case search view refuses the query the search sends (case_search/filter_dsl.py: You cannot query related cases here; defect 12) and Formplayer answers with that in place of the results, on every state."
 	},
 	{
-		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read",
 		"reader": "formplayer",
 		"cause": "notification:calculation-error",
-		"reason": "Formplayer answers the form's opening with Core's calculation error: the form reads the session's supply point id, which no session holds without CommTrack (defect 20), so no reader opens the form."
+		"reason": "The control retains the document from before step 2 refused a read of a session datum no Nova session supplies: its form reads the session's supply point id, which no session holds without CommTrack, so Formplayer answers the form's opening with Core's calculation error and no reader opens the form."
 	},
 	{
 		"document": "tile-grouped-browse",

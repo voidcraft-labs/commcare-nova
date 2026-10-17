@@ -50,6 +50,7 @@ import type {
 	UpdateCaseAction,
 } from "@/lib/commcare/types";
 import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
+import { subcaseIsWrittenInSource } from "@/lib/commcare/xform/sourceCaseWrites";
 import { spellPredicateSelf } from "@/lib/commcare/xpath/selfSteps";
 import { xpathStringLiteral } from "@/lib/commcare/xpath/stringLiteral";
 import {
@@ -293,11 +294,8 @@ export function buildCaseOperations(
 		operations.length === 0 &&
 		ordinaryClose === undefined &&
 		Object.keys(ordinaryPrimaryUpdate).length === 0 &&
-		!ordinarySubcases.some(
-			(subcase) =>
-				subcase.condition.type !== "never" &&
-				(selectedCasesInstanceId !== undefined ||
-					subcase.relationship === "extension"),
+		!ordinarySubcases.some((subcase) =>
+			subcaseIsWrittenInSource(subcase, selectedCasesInstanceId !== undefined),
 		)
 	)
 		return null;
@@ -1046,8 +1044,7 @@ export function buildCaseOperations(
 	// Open Case Condition.
 	for (const [subcaseIndex, subcase] of ordinarySubcases.entries()) {
 		const multiple = selectedCasesInstanceId !== undefined;
-		if (!multiple && subcase.relationship !== "extension") continue;
-		if (subcase.condition.type === "never") continue;
+		if (!subcaseIsWrittenInSource(subcase, multiple)) continue;
 		const authoredParentPath = subcase.repeat_context
 			? FormPath.parse(subcase.repeat_context)
 			: FormPath.root();

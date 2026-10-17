@@ -1414,10 +1414,10 @@ test("options use real label editors, preserve draft identity across key-order e
 		).toBe(true);
 		await page.getByRole("button", { name: "Leave options" }).click();
 		await expect(saved).toContainText('"value":"crimson"');
-		await value.fill("blue");
+		await value.fill("navy");
 		await page.getByRole("button", { name: "Make app read only" }).click();
 		await value.press("Enter");
-		await expect(value).toHaveValue("blue");
+		await expect(value).toHaveValue("navy");
 		await expect(saved).toContainText('"value":"crimson"');
 		await expect(page.getByRole("alert")).toBeVisible();
 		await page.getByRole("button", { name: "Restore editing" }).click();
@@ -2979,7 +2979,9 @@ test("native inline validity refuses Enter and blur with the actual Connect iden
 	const saved = page.getByLabel("Saved Connect code");
 	await input.fill("bad code");
 	await expect(input).toHaveAttribute("aria-invalid", "true");
-	await expect(input).toHaveAccessibleDescription(/can't contain spaces/);
+	await expect(input).toHaveAccessibleDescription(
+		/holds only letters, digits and underscores/,
+	);
 	await input.press("Enter");
 	await expect(saved).toHaveText("starting_code");
 	await input.fill("2bad");

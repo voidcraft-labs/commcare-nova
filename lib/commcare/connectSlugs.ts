@@ -9,12 +9,16 @@
  * into a DB slug column — the tightest, `LearnModule.slug` / `Task.slug`,
  * is a Django `SlugField()` = Postgres `varchar(50)` (`DeliverUnit.slug` is
  * wider at 100). Connect's insert bypasses field validation, so an
- * over-length id reaches Postgres raw and 500s; and the id must be a legal
- * XML element name or the form is malformed.
+ * over-length id reaches Postgres raw and 500s. The wrapper is a node of the
+ * form HQ's form builder opens, so the id follows the question-id grammar
+ * (`lib/domain/questionId.ts`), and it is never one of the five names
+ * Connect's receiver searches a submission for at every depth
+ * (`RESERVED_CONNECT_BLOCK_IDS`): a wrapper so named has no namespace where
+ * the receiver reads one, so Connect answers 500 for every submission.
  *
- * So a connect id has three constraints — legal element name, ≤50 chars,
- * unique across the app — and they are all forced correct at the SOURCE,
- * never fixed up at emit. The same flat app-wide notion of "taken" (every
+ * So a connect id has three constraints — the question-id grammar without
+ * Connect's own names, ≤50 chars, unique across the app — and they are all
+ * forced correct at the SOURCE, never fixed up at emit. The same flat app-wide notion of "taken" (every
  * connect id on every form, regardless of kind) is used on every surface:
  *  - {@link connectIdError} is the format/length verdict, shared by the UI
  *    commit guard (`InlineField` in `LearnConfig`) and the per-commit
@@ -40,7 +44,13 @@ import {
 	type ConnectTask,
 	type Uuid,
 } from "@/lib/domain";
-import { XML_ELEMENT_NAME_REGEX } from "./constants";
+import {
+	editorSafeQuestionId,
+	type QuestionIdProblem,
+	questionIdProblem,
+	questionIdProblemSentence,
+	RESERVED_CONNECT_BLOCK_IDS,
+} from "@/lib/domain/questionId";
 import { toSnakeId } from "./identifierValidation";
 
 /**
@@ -71,35 +81,71 @@ export const CONNECT_SLUG_MAX_LENGTH = CONNECT_ID_MAX_LENGTH;
  * files so the agent-facing contract can't drift between them.
  */
 export const CONNECT_ID_FIELD_DESCRIPTION =
-	"Leave unset. Nova derives a valid unique id from the name. Set only " +
-	`to pin one (XML-name legal, ≤${CONNECT_SLUG_MAX_LENGTH} chars, app-unique).`;
+	"Leave unset. Nova derives a valid unique id from the name. Set only to " +
+	"pin one: a letter first, then letters, digits or underscores, not " +
+	`starting with XML, at most ${CONNECT_SLUG_MAX_LENGTH} characters, unique in the app, and none ` +
+	"of assessment, deliver, module, task, work_area_update, meta, case, " +
+	"registration, script, instance, bind, parsererror. CommCare Connect " +
+	"keys its records by these ids, so change one only when the person " +
+	"asks, and publish that change after an opportunity manager has added " +
+	"the new deliver unit to a payment unit.";
+
+/** Why a Connect id can't be used alone, without the app's other ids. */
+export type ConnectIdProblem =
+	| { readonly kind: "format"; readonly problem: QuestionIdProblem }
+	| { readonly kind: "too-long" };
 
 /**
- * The single definition of what makes a connect id valid.
- *
- * A connect id becomes an XML element name in the emitted form (the wrapper
- * `<id vellum:role=...>` and the Connect-namespaced `id=` attribute) and is
- * written into a Connect DB slug column (the tightest is `varchar(50)`). So
- * a valid id must be a legal XML element name AND within
- * {@link CONNECT_SLUG_MAX_LENGTH}. Returns a human-readable reason when the
- * id is invalid, or `null` when it's fine.
- *
- * Shared by both enforcement surfaces so they can never disagree: the
- * field-level commit guard (`InlineField`, wired up in `LearnConfig`) blocks
- * the save and shows the reason inline, and the validator's connect-id
- * rules wrap the same reason in a form-scoped error for the agent path
- * (`update_form`, which sets ids as a bare string and bypasses the field).
- * Callers that need to render the message themselves get the reason; the
- * server rules add the form/kind context around it.
+ * The single definition of what makes a connect id valid: the question-id
+ * grammar without Connect's own names, then the length cap. `undefined`
+ * when the id is fine.
  */
-export function connectIdError(id: string): string | null {
-	if (!XML_ELEMENT_NAME_REGEX.test(id)) {
-		return `"${id}" can't be used as a Connect id, it becomes an XML element name in the form, so it can't contain spaces or start with a digit. Use letters, numbers, and underscores, starting with a letter or underscore.`;
+export function connectIdProblem(id: string): ConnectIdProblem | undefined {
+	const problem = questionIdProblem(id, RESERVED_CONNECT_BLOCK_IDS);
+	if (problem !== undefined) return { kind: "format", problem };
+	if (id.length > CONNECT_SLUG_MAX_LENGTH) return { kind: "too-long" };
+	return undefined;
+}
+
+/**
+ * The replacement a format refusal offers: editor-safe, free among
+ * `taken`, and cut at the tail so the id with its suffix fits the cap, as
+ * {@link deriveConnectId} cuts it.
+ */
+export function freeConnectId(id: string, taken: ReadonlySet<string>): string {
+	return freeWithinCap(
+		editorSafeQuestionId(id, RESERVED_CONNECT_BLOCK_IDS),
+		taken,
+	);
+}
+
+/**
+ * The reason a connect id is refused, or `null` when it's fine. A format
+ * refusal is the one sentence every surface says, offering an id free
+ * among `taken` (the app's other Connect ids).
+ *
+ * Shared by every enforcement surface so they can never disagree: the
+ * field-level commit guards (`LearnConfig`, the enable dialog through
+ * `connectIdValidity`), the SA tools (`enforceConnectIds`), and the
+ * validator's connect-id rules, which file the same reason under a
+ * form-scoped code for the agent path (`update_form`, which sets ids as a
+ * bare string and bypasses the field).
+ */
+export function connectIdError(
+	id: string,
+	taken: ReadonlySet<string> = new Set(),
+): string | null {
+	const problem = connectIdProblem(id);
+	if (problem === undefined) return null;
+	if (problem.kind === "format") {
+		return questionIdProblemSentence(
+			id,
+			problem.problem,
+			freeConnectId(id, taken),
+			"connect",
+		);
 	}
-	if (id.length > CONNECT_SLUG_MAX_LENGTH) {
-		return `"${id}" is ${id.length} characters. Connect stores ids in a column limited to ${CONNECT_SLUG_MAX_LENGTH}. Shorten it to ${CONNECT_SLUG_MAX_LENGTH} characters or fewer.`;
-	}
-	return null;
+	return `"${id}" is ${id.length} characters. Connect stores ids in a column limited to ${CONNECT_SLUG_MAX_LENGTH}. Shorten it to ${CONNECT_SLUG_MAX_LENGTH} characters or fewer.`;
 }
 
 /**
@@ -128,16 +174,33 @@ export function connectIdConflictError(
 }
 
 /**
+ * A Connect block's wrapper sits in its form's data root beside the form's
+ * top-level fields, so its id can't be one of theirs: the form would hold
+ * two elements of one name. `rootFieldIds` is the form's top-level field
+ * ids. Returns a reason, or `null` when no top-level field holds the id.
+ */
+export function connectIdRootFieldConflictError(
+	id: string,
+	rootFieldIds: ReadonlySet<string>,
+): string | null {
+	return rootFieldIds.has(id)
+		? `"${id}" already names a top-level field in this form, and a Connect block can't share a field's name. Another ID will work.`
+		: null;
+}
+
+/**
  * Derive a valid, unique connect id from a display `name`, disambiguating
  * against `existingIds`.
  *
  * This is the "force correct at the source" autofill: before a separate
  * creation draft becomes a Connect block, it gets a value from here that is
  * stored in the doc (visible via `get_form` and in the authoring field), not
- * conjured at emit. The result is always a legal XML
- * element name (`toSnakeId`), within {@link CONNECT_SLUG_MAX_LENGTH} (the
- * base is truncated), and unique against `existingIds` (a numeric suffix is
- * appended on collision, re-cutting the base so the suffixed id still fits).
+ * conjured at emit. The result always passes {@link connectIdProblem}: the
+ * name's words normalized by `editorSafeQuestionId` (`1st visit` →
+ * `q1st_visit`, `Task` → `q_task`), within {@link CONNECT_SLUG_MAX_LENGTH}
+ * (the base is truncated), and unique against `existingIds` (a numeric
+ * suffix is appended on collision, re-cutting the base so the suffixed id
+ * still fits).
  *
  * Suffix disambiguation lives here — at the source — because it resolves an
  * *implicit* collision between auto-derived defaults (two blocks whose names
@@ -149,19 +212,29 @@ export function deriveConnectId(
 	name: string,
 	existingIds: ReadonlySet<string>,
 ): string {
-	// `toSnakeId` already guarantees legal chars + non-empty (`|| "unnamed"`).
-	const base = toSnakeId(name).slice(0, CONNECT_SLUG_MAX_LENGTH);
-	if (!existingIds.has(base)) return base;
+	// `toSnakeId` gives the name's words, never empty; the question-id
+	// normalizer makes them an id HQ's form builder and Connect both keep.
+	return freeWithinCap(
+		editorSafeQuestionId(toSnakeId(name), RESERVED_CONNECT_BLOCK_IDS),
+		existingIds,
+	);
+}
 
-	// Collision with an existing id: append `_2`, `_3`, … re-cutting the
-	// base so the assembled id never exceeds the cap (guards the off-by-one
-	// where a longer suffix — `_10`, `_100` — would push it back over).
+/**
+ * `base` cut to the cap when it is free, else `_2`, `_3`, … appended,
+ * re-cutting the base so the assembled id never exceeds the cap (guards the
+ * off-by-one where a longer suffix — `_10`, `_100` — would push it back
+ * over). Cutting keeps a valid id valid: every rule of the grammar reads
+ * its head, and no reserved name is longer than any cut.
+ */
+function freeWithinCap(base: string, taken: ReadonlySet<string>): string {
+	const whole = base.slice(0, CONNECT_SLUG_MAX_LENGTH);
+	if (!taken.has(whole)) return whole;
 	for (let n = 2; ; n++) {
 		const suffix = `_${n}`;
 		const candidate =
-			toSnakeId(name).slice(0, CONNECT_SLUG_MAX_LENGTH - suffix.length) +
-			suffix;
-		if (!existingIds.has(candidate)) return candidate;
+			base.slice(0, CONNECT_SLUG_MAX_LENGTH - suffix.length) + suffix;
+		if (!taken.has(candidate)) return candidate;
 	}
 }
 

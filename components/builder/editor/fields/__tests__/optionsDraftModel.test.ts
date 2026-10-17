@@ -8,6 +8,7 @@ import {
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import {
 	optionsSnapshotKey,
+	optionValueRefusal,
 	removeOptionDraft,
 	replaceOptionLabel,
 	replaceOptionMedia,
@@ -89,5 +90,38 @@ describe("actual option draft mutations", () => {
 		expect(removeOptionDraft(three, 3)).toBe(three);
 		expect(removeOptionDraft(three, 0)).toEqual([blue, third]);
 		expect(removeOptionDraft(three, 2)).toEqual([red, blue]);
+	});
+});
+
+describe("the value a row may keep beside its siblings", () => {
+	const option = (name: string, value: string): SelectOption => ({
+		uuid: testUuid(name),
+		value,
+		label: proseText(name),
+	});
+
+	it("refuses a value an earlier choice holds and offers one no choice holds", () => {
+		const draft = [
+			option("Yes", "yes"),
+			option("Yes again", "yes_2"),
+			option("Also yes", "yes"),
+		];
+		expect(optionValueRefusal(draft, 0)).toBeUndefined();
+		expect(optionValueRefusal(draft, 1)).toBeUndefined();
+		expect(optionValueRefusal(draft, 2)).toBe(
+			'Another choice already stores "yes", so a saved answer couldn\'t say which was chosen. "yes_3" is free here.',
+		);
+	});
+
+	it("keeps values that differ only in case, and leaves a blank value to the commit", () => {
+		const draft = [
+			option("Yes", "yes"),
+			option("YES", "Yes"),
+			option("Blank", ""),
+			option("Blank too", ""),
+		];
+		expect(optionValueRefusal(draft, 1)).toBeUndefined();
+		expect(optionValueRefusal(draft, 3)).toBeUndefined();
+		expect(optionValueRefusal(draft, 9)).toBeUndefined();
 	});
 });

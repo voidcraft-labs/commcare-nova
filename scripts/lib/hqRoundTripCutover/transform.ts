@@ -19,8 +19,16 @@ import type {
 } from "@/lib/notices/migrationNotice";
 import { copyRawDocument, type RawDocument } from "./oldShape";
 import { appSettingsStep } from "./steps/appSettings";
+import { caseOperationIdsStep } from "./steps/caseOperationIds";
+import { connectIdsStep } from "./steps/connectIds";
+import { connectTaskFormsStep } from "./steps/connectTaskForms";
+import { emptyFormsStep } from "./steps/emptyForms";
+import { entryPointIdsStep } from "./steps/entryPointIds";
 import { languageWireCodesStep } from "./steps/languageWireCodes";
 import { optionLabelsStep } from "./steps/optionLabels";
+import { optionValuesStep } from "./steps/optionValues";
+import { questionIdsStep } from "./steps/questionIds";
+import { unsuppliedSessionReadsStep } from "./steps/unsuppliedSessionReads";
 
 /** How the plan classed one deployment of the app (`plan.ts`). */
 export type DeploymentOutcome =
@@ -59,28 +67,58 @@ export interface DocumentChange {
 	readonly detail?: Readonly<Record<string, string>>;
 }
 
+/**
+ * What a step met and could not rewrite, for a person to resolve before the
+ * window. It stops the cutover as the plan's blocker of the same code. Its
+ * `detail` names the entity and the text met, authored content that only
+ * `--debug-details` prints.
+ */
+export interface StepBlocker {
+	readonly code: "unresolved-relative-path";
+	readonly entity: NoticeEntityRef;
+	readonly detail: Readonly<Record<string, string>>;
+}
+
 export interface CutoverStep {
 	readonly id: string;
-	/** Mutates `document`, the transform's private copy. */
-	apply(document: RawDocument, context: StepContext): readonly DocumentChange[];
+	/**
+	 * Mutates `document`, the transform's private copy, and adds to
+	 * `blockers` each place it could not rewrite.
+	 */
+	apply(
+		document: RawDocument,
+		context: StepContext,
+		blockers?: StepBlocker[],
+	): readonly DocumentChange[];
 }
 
 /** Every registered step, in the one order they run in. */
 export const CUTOVER_STEPS: readonly CutoverStep[] = [
 	languageWireCodesStep,
+	questionIdsStep,
+	caseOperationIdsStep,
+	connectIdsStep,
+	connectTaskFormsStep,
+	entryPointIdsStep,
+	optionValuesStep,
 	optionLabelsStep,
+	emptyFormsStep,
+	unsuppliedSessionReadsStep,
 	appSettingsStep,
 ];
 
 export interface StepResult {
 	readonly stepId: string;
 	readonly changes: readonly DocumentChange[];
+	readonly blockers: readonly StepBlocker[];
 }
 
 export interface TransformResult {
 	readonly target: RawDocument;
 	/** Every step's changes, in step order. */
 	readonly changes: readonly DocumentChange[];
+	/** Every place a step could not rewrite, in step order. */
+	readonly blockers: readonly StepBlocker[];
 	/** Each registered step with the changes it made, in order. */
 	readonly steps: readonly StepResult[];
 }
@@ -92,13 +130,15 @@ export function transformDocument(
 	steps: readonly CutoverStep[] = CUTOVER_STEPS,
 ): TransformResult {
 	const target = copyRawDocument(document);
-	const results = steps.map((step) => ({
-		stepId: step.id,
-		changes: step.apply(target, context),
-	}));
+	const results = steps.map((step) => {
+		const blockers: StepBlocker[] = [];
+		const changes = step.apply(target, context, blockers);
+		return { stepId: step.id, changes, blockers };
+	});
 	return {
 		target,
 		changes: results.flatMap((result) => result.changes),
+		blockers: results.flatMap((result) => result.blockers),
 		steps: results,
 	};
 }

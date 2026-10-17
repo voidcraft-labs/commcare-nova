@@ -65,7 +65,9 @@ A (``beyond``): an edit changes what a form submits, so its rows are not
 held to A's, and what it breaks in Connect is. What Connect does itself
 with a block whose id the edit renamed, the same for an app HQ's own editors
 renamed one in, is not B-edit's to report (``proof.checks.hq_own_reports``,
-``connect_block_renamed``).
+``connect_block_renamed``): its refusals and moved ids, and a renamed task in a
+form of its own that completes nothing (``task-completed-nothing``), each
+asked of the set as ``absolute_differences`` asks it.
 """
 
 from __future__ import annotations

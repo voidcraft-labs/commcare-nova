@@ -1169,14 +1169,15 @@ describe("label/hint prose entity escaping", () => {
 
 // ── Select option itext ids keyed by index, not value (issue #10) ────────
 //
-// Two options sharing the same `value` previously collapsed onto one itext
-// id (`${field.id}-${opt.value}-label`), making CommCare's XForm parser
-// throw `duplicate definition for text ID` (verified against
-// commcare-core XFormParser.java::parseTranslation). Keying the id by the
-// option's stable array index makes the ids unique regardless of value.
-// JavaRosa accepts two `<item>`s sharing a `<value>`
-// (XFormParser.java::parseItem adds each SelectChoice with no value-
-// uniqueness check) — the collision was purely in the itext layer.
+// Two options sharing the same `value` once collapsed onto one itext id
+// (`${field.id}-${opt.value}-label`), making CommCare's XForm parser throw
+// `duplicate definition for text ID` (commcare-core
+// XFormParser.java::parseTranslation), so the id is keyed by the option's
+// stable array index. Two options of one select no longer share a value:
+// HQ's form builder reports "This choice value has been used in the same
+// question" (Vellum `src/mugs/types/select.js`) and a saved answer can't say
+// which was chosen, so the validator refuses the pair
+// (`SELECT_OPTION_VALUE_DUPLICATE`) before anything is emitted.
 
 describe("select option itext ids — index-keyed (issue #10)", () => {
 	function firstFormXml(doc: ReturnType<typeof buildDoc>): string {
@@ -1187,7 +1188,7 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 		return first;
 	}
 
-	it("single_select with duplicate option values emits distinct itext ids", () => {
+	it("single_select with duplicate option values is refused before emission", () => {
 		const doc = buildDoc({
 			appName: "Dup single",
 			modules: [
@@ -1202,7 +1203,6 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 									kind: "single_select",
 									id: "rating",
 									label: proseText("Rating"),
-									// Both options carry value "3" — the bug trigger.
 									options: [
 										{ value: "3", label: "Three (low scale)" },
 										{ value: "3", label: "Three (high scale)" },
@@ -1214,15 +1214,14 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 				},
 			],
 		});
-		const xml = firstFormXml(doc);
-		expectChoices(xml, "/data/rating", [
-			["rating-opt0-label", "3", "Three (low scale)"],
-			["rating-opt1-label", "3", "Three (high scale)"],
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings.map((finding) => finding.code)).toEqual([
+			"SELECT_OPTION_VALUE_DUPLICATE",
 		]);
-		expect(validateXForm(xml, "F", "M")).toEqual([]);
+		expect(findings[0]?.location.fieldId).toBe("rating");
 	});
 
-	it("multi_select with duplicate option values emits distinct itext ids", () => {
+	it("multi_select with duplicate option values is refused before emission", () => {
 		const doc = buildDoc({
 			appName: "Dup multi",
 			modules: [
@@ -1248,12 +1247,11 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 				},
 			],
 		});
-		const xml = firstFormXml(doc);
-		expectChoices(xml, "/data/tags", [
-			["tags-opt0-label", "x", "First X"],
-			["tags-opt1-label", "x", "Second X"],
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings.map((finding) => finding.code)).toEqual([
+			"SELECT_OPTION_VALUE_DUPLICATE",
 		]);
-		expect(validateXForm(xml, "F", "M")).toEqual([]);
+		expect(findings[0]?.location.fieldId).toBe("tags");
 	});
 
 	it("distinct-value single_select still emits one item + ref per option (regression)", () => {
@@ -3176,6 +3174,8 @@ describe("empty form expansion", () => {
 
 describe("empty container expansion", () => {
 	// Empty groups are admitted authored containers and preserve their label.
+	// The form needs one field that is not a container (`EMPTY_FORM`), so a
+	// Label stands at the root beside the group.
 	it("emits an empty <group> wrapper when a group has zero children", () => {
 		const doc = buildDoc({
 			appName: "EmptyGroup",
@@ -3192,6 +3192,12 @@ describe("empty container expansion", () => {
 									id: "demographics",
 									label: proseText("Demographics"),
 									children: [],
+								}),
+								f({
+									uuid: testUuid("empty-group-note"),
+									kind: "label",
+									id: "note",
+									label: proseText("Note"),
 								}),
 							],
 						},

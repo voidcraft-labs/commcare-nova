@@ -5,7 +5,12 @@ import { Button } from "@/components/shadcn/button";
 import { Label } from "@/components/shadcn/label";
 import { Switch } from "@/components/shadcn/switch";
 import { useEntryPoints } from "@/lib/doc/hooks/useEntryPoints";
-import { entryPointIdSchema } from "@/lib/domain";
+import {
+	editorSafeEntryPointId,
+	entryPointIdProblem,
+	entryPointIdProblemSentence,
+	suffixUntilFree,
+} from "@/lib/domain";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { DraftCommitInput } from "./DraftCommitField";
@@ -81,11 +86,24 @@ export function DeepLinksSection() {
 							value={point.id}
 							disabled={!canWrite}
 							ariaDescribedBy={`${prefix}-id-help`}
-							validate={(value) =>
-								entryPointIdSchema.validate(value)
-									? undefined
-									: "You can use lowercase letters, numbers, underscores, and hyphens"
-							}
+							validate={(value) => {
+								const problem = entryPointIdProblem(value);
+								if (problem === undefined) return undefined;
+								/* The offered ID is free among the app's other deep
+								 * links, so taking it never meets a second refusal. */
+								const taken = new Set(
+									model.entries.flatMap((item) =>
+										item.entryPoint !== undefined &&
+										item.entryPoint.uuid !== point.uuid
+											? [item.entryPoint.id]
+											: [],
+									),
+								);
+								return entryPointIdProblemSentence(
+									problem,
+									suffixUntilFree(editorSafeEntryPointId(value), taken),
+								);
+							}}
 							onCommit={(id) => model.update(point, { id })}
 						/>
 					</div>

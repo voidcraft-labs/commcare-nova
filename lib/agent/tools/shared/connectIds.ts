@@ -7,8 +7,9 @@
  * run every authored block through here:
  *  - an OMITTED id is autofilled with a valid, unique, name-derived id
  *    (`deriveConnectId`) — stored on the doc so the SA sees it immediately;
- *  - an EXPLICIT id is validated (format + length via `connectIdError`,
- *    uniqueness via `connectIdConflictError`) and, if invalid, FAILS the
+ *  - an EXPLICIT id is validated (grammar + length via `connectIdError`,
+ *    which offers an id free among the app's others, uniqueness via
+ *    `connectIdConflictError`) and, if invalid, FAILS the
  *    tool call so nothing is written. The SA gets one diagnostic and
  *    re-issues with a fixed id — never a silent sanitize or rename.
  *
@@ -19,14 +20,13 @@
 import {
 	connectIdConflictError,
 	connectIdError,
+	connectIdRootFieldConflictError,
 	deriveConnectId,
 } from "@/lib/commcare/connectSlugs";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type ConnectConfig,
 	connectConfigSchema,
-	type Uuid,
 } from "@/lib/domain";
 import type { ConnectConfigDraft } from "./connectInput";
 
@@ -77,42 +77,21 @@ export function connectIdsInConfig(
 export function reserveExplicitConnectIds(
 	config: ConnectConfigDraft,
 	taken: Set<string>,
+	rootFieldIds: ReadonlySet<string> = new Set(),
 ): readonly string[] {
 	const errors: string[] = [];
 	for (const { kind, id } of explicitIdEntries(config)) {
-		const reason = connectIdError(id) ?? connectIdConflictError(id, taken);
+		const reason =
+			connectIdError(id, new Set([...taken, ...rootFieldIds])) ??
+			connectIdRootFieldConflictError(id, rootFieldIds) ??
+			connectIdConflictError(id, taken);
 		if (reason) {
-			errors.push(`${KIND_LABEL[kind]} id ${reason}`);
+			errors.push(`${KIND_LABEL[kind]} id "${id}": ${reason}`);
 		} else {
 			taken.add(id);
 		}
 	}
 	return errors;
-}
-
-/**
- * Every connect id currently set anywhere in the doc, optionally excluding
- * one form. The edit path (`updateForm`) excludes the form being edited so
- * its own ids don't read as conflicts with themselves. Every kind shares one
- * app-wide scope. The exact-target configure path starts from an empty set
- * because its complete target replaces every prior block.
- */
-export function collectConnectIds(
-	doc: BlueprintDoc,
-	exceptFormUuid?: Uuid,
-): Set<string> {
-	const ids = new Set<string>();
-	for (const formKey of Object.keys(doc.forms)) {
-		const formUuid = asUuid(formKey);
-		if (formUuid === exceptFormUuid) continue;
-		const c = doc.forms[formUuid]?.connect;
-		if (!c) continue;
-		if ("learn_module" in c && c.learn_module) ids.add(c.learn_module.id);
-		if ("assessment" in c && c.assessment) ids.add(c.assessment.id);
-		if ("deliver_unit" in c && c.deliver_unit) ids.add(c.deliver_unit.id);
-		if ("task" in c && c.task) ids.add(c.task.id);
-	}
-	return ids;
 }
 
 /** Outcome of {@link enforceConnectIds}: the finalized config (every
@@ -142,6 +121,7 @@ export function enforceConnectIds(
 	moduleName: string,
 	formName: string,
 	existingIds: Set<string>,
+	rootFieldIds: ReadonlySet<string> = new Set(),
 ): EnforceConnectIdsResult {
 	if (connectType === null) {
 		return {
@@ -167,7 +147,7 @@ export function enforceConnectIds(
 	const out: ConnectConfigDraft = { ...config };
 	const pairName = `${moduleName} ${formName}`;
 
-	const errors = [...reserveExplicitConnectIds(out, existingIds)];
+	const errors = [...reserveExplicitConnectIds(out, existingIds, rootFieldIds)];
 
 	// Every explicit identity is already reserved. One arm per kind now derives
 	// only an omission; the name differs (module vs module+form), but the shape
@@ -179,7 +159,10 @@ export function enforceConnectIds(
 	): void => {
 		if (!sub) return;
 		if (sub.id === undefined) {
-			const id = deriveConnectId(deriveName, existingIds);
+			const id = deriveConnectId(
+				deriveName,
+				new Set([...existingIds, ...rootFieldIds]),
+			);
 			existingIds.add(id);
 			assign({ ...sub, id });
 		}

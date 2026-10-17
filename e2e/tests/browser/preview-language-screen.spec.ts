@@ -19,6 +19,7 @@ test("a rejected submission keeps required errors and review announcements in th
 			"@/lib/preview/entryPointLaunchAction": boundary,
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
 			"@/lib/preview/xpath/browserWorkerClient": resolve(
 				"e2e/lib/preview-language-worker-boundary.ts",
 			),
@@ -132,6 +133,7 @@ test("a production form keeps partial drafts and capture identity mounted throug
 			"@/lib/preview/entryPointLaunchAction": boundary,
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
 			"@/lib/preview/xpath/browserWorkerClient": resolve(
 				"e2e/lib/preview-language-worker-boundary.ts",
 			),
@@ -411,6 +413,7 @@ for (const outcome of ["accept", "new-entry"] as const) {
 				"@/lib/preview/entryPointLaunchAction": boundary,
 				"@/lib/auth/hooks/useAuth": boundary,
 				"@/lib/lookup/actions": boundary,
+				"@/lib/deployment/actions": boundary,
 				"@/lib/preview/xpath/browserWorkerClient": resolve(
 					"e2e/lib/preview-language-worker-boundary.ts",
 				),
@@ -603,6 +606,7 @@ test("held section unwrap and wrap retain the published controls until their new
 			"@/lib/preview/entryPointLaunchAction": boundary,
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
 			"@/lib/preview/xpath/browserWorkerClient": resolve(
 				"e2e/lib/preview-language-worker-boundary.ts",
 			),

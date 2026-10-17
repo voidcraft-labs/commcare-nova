@@ -8,8 +8,8 @@
  *
  * It exercises the surfaces the oracle's invariants touch: all field kinds,
  * nested groups + repeats (all three repeat modes, incl. query_bound's
- * model-iteration markup), selects with duplicate option values (legal —
- * CommCare only requires the value be present), labels/hints with XML special
+ * model-iteration markup), selects whose drawn option values collide and
+ * are suffixed apart (`a`, `a_2`), labels/hints with XML special
  * chars (`<`, `&`, markdown), relevant/constraint/calculate XPath, the
  * four form types (registration / followup / close / survey), AND CommCare
  * Connect emission — a fraction of generated docs are Connect apps
@@ -25,6 +25,11 @@ import * as fc from "fast-check";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
+	entrySessionDatums,
+	formLinkProjectionContext,
+} from "@/lib/commcare/formLinkProjection";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import {
 	type BlueprintDoc,
 	type CaseType,
 	type ConnectConfig,
@@ -38,6 +43,7 @@ import {
 	NEW_APP_SETTINGS,
 	opaqueXPathExpression,
 	plainColumn,
+	suffixUntilFree,
 	type Uuid,
 } from "@/lib/domain";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
@@ -89,11 +95,11 @@ export class IdMinter {
 const SIBLING_ID_POOL = [
 	"input",
 	"model",
-	"instance",
+	"itext",
 	"secret",
 	"translation",
 	"text",
-	"bind",
+	"label",
 ] as const;
 
 export function pickSiblingId(index: number): string {
@@ -151,8 +157,10 @@ const SAFE_VALUE_XPATH = [
 ] as const;
 
 /** Count expressions for `count_bound` repeats: a literal (hoisted) or a
- *  function call (hoisted). Both must survive the emitter's hoist path. */
-const SAFE_COUNT_XPATH = ["3", "1 + 2", "count(/data)"] as const;
+ *  function call (hoisted). Both must survive the emitter's hoist path. The
+ *  call is `int(3)` because the manifest check types a hoisted count as
+ *  Nova's types do, where `int` is an integer and most calls are not. */
+const SAFE_COUNT_XPATH = ["3", "1 + 2", "int(3)"] as const;
 
 /**
  * Type-matched `default_value` per validatable kind. The domain validator
@@ -694,19 +702,37 @@ const leafSpecArb: fc.Arbitrary<FieldGenSpec> = fc.record(
 	{ requiredKeys: ["kind", "label"] },
 );
 
+/** Each option keeps its drawn value unless an earlier one holds it, and
+ * then takes the first free suffixed one. */
+function distinctOptionValues<T extends { readonly value: string }>(
+	options: readonly T[],
+): T[] {
+	const taken = new Set<string>();
+	return options.map((option) => {
+		const value = suffixUntilFree(option.value, taken);
+		taken.add(value);
+		return value === option.value ? option : { ...option, value };
+	});
+}
+
 const selectSpecArb: fc.Arbitrary<FieldGenSpec> = fc
 	.record({
 		single: fc.boolean(),
 		label: labelArb,
-		// ≥2 options; option values are drawn from a small set so duplicates
-		// occur naturally (legal in CommCare — only presence is required).
-		options: fc.array(
-			fc.record({
-				value: fc.constantFrom("a", "b", "c", "yes", "no"),
-				label: labelArb,
-			}),
-			{ minLength: 2, maxLength: 4 },
-		),
+		// ≥2 options; option values are drawn from a small set, and a later
+		// holder of a drawn value takes the first free suffixed one (`a`,
+		// `a_2`), since two choices of one select may not store one value
+		// (`SELECT_OPTION_VALUE_DUPLICATE`). Mapping keeps every draw where
+		// it was.
+		options: fc
+			.array(
+				fc.record({
+					value: fc.constantFrom("a", "b", "c", "yes", "no"),
+					label: labelArb,
+				}),
+				{ minLength: 2, maxLength: 4 },
+			)
+			.map(distinctOptionValues),
 		wantsDefault: fc.boolean(),
 		media: FIELD_MEDIA_SPEC_ARB,
 	})
@@ -781,7 +807,7 @@ function containerSpecArb(
 				label: labelArb,
 				idsQuery: fc.constantFrom(
 					"instance('casedb')/casedb/case/@case_id",
-					"/data",
+					"instance('casedb')/casedb/case[@status = 'open']/@case_id",
 				),
 				children,
 			})
@@ -879,9 +905,9 @@ export function sectionRoot(
  * matching the mode. Each participating form carries one of the legal shapes
  * for its mode:
  *   - learn  → learn_module, assessment, or both;
- *   - deliver→ deliver_unit, task, or both.
- * Both kinds are independent (the "sub-configs are independent" contract), so
- * the "both" shape exercises two co-located blocks emitting as `<data>`
+ *   - deliver→ deliver_unit or task, never both (a task goes in a form of
+ *     its own, `CONNECT_DELIVER_FORM_HOLDS_TASK`).
+ * The learn "both" shape exercises two co-located blocks emitting as `<data>`
  * siblings — the case `buildConnectBlocks` lays out under one `<data>` parent.
  *
  * Scalar slots (name / description / time_estimate / user_score) are filled
@@ -913,12 +939,14 @@ const learnFormArb: fc.Arbitrary<ConnectFormSpec> = subConfigPairArb.map(
 	}),
 );
 
-/** A deliver-form sub-config selection (deliver_unit / task, ≥1). */
+/** A deliver-form sub-config selection: a deliver unit or a task, never
+ * both (`CONNECT_DELIVER_FORM_HOLDS_TASK`). The draw that asks for both maps
+ * to the deliver unit alone, so the draws after it stay where they were. */
 const deliverFormArb: fc.Arbitrary<ConnectFormSpec> = subConfigPairArb.map(
 	([deliverUnit, task]) => ({
 		connectType: "deliver",
 		deliverUnit,
-		task,
+		task: task && !deliverUnit,
 	}),
 );
 
@@ -1435,3 +1463,77 @@ export function hasFormItextMedia(doc: BlueprintDoc): boolean {
 	}
 	return false;
 }
+
+/** A datum no Nova menu ever supplies. */
+export const UNSUPPLIED_SESSION_DATUM = "supply_point_id";
+
+/** A drawn document holding one raw session read, and whether the form's
+ * entry declares the datum it reads. */
+export interface SessionReadDoc {
+	readonly doc: BlueprintDoc;
+	readonly datumId: string;
+	readonly declared: boolean;
+}
+
+/**
+ * A drawn document whose one form gains a Hidden Value that reads
+ * `instance('commcaresession')/session/data/<id>`: a datum the form's entry
+ * declares when the entry declares one and the draw asks for it, else one no
+ * menu supplies. The read is added after `blueprintDocArbitrary`'s draws, so
+ * the documents that arbitrary draws (and the corpus samples) are unchanged.
+ * An admitted document compiles to forms whose exact session reads the
+ * binding-resolution oracle finds declared; a read of an undeclared datum is
+ * refused by the validator (`SESSION_DATUM_NOT_SUPPLIED`) and never compiled.
+ */
+export const sessionReadDocArbitrary: fc.Arbitrary<SessionReadDoc> = fc
+	.record({
+		doc: blueprintDocArbitrary,
+		formPick: fc.nat(),
+		datumPick: fc.nat(),
+		wantsDeclared: fc.boolean(),
+	})
+	.map(({ doc: drawn, formPick, datumPick, wantsDeclared }) => {
+		// fast-check may hand one drawn value to this mapper more than once.
+		const doc = structuredClone(drawn);
+		rebuildFieldParent(doc);
+		const forms = doc.moduleOrder.flatMap((moduleUuid) =>
+			(doc.formOrder[moduleUuid] ?? []).map((formUuid) => ({
+				moduleUuid,
+				formUuid,
+			})),
+		);
+		const target = forms[formPick % forms.length];
+		if (target === undefined) {
+			return { doc, datumId: UNSUPPLIED_SESSION_DATUM, declared: false };
+		}
+		const declaredIds = entrySessionDatums(
+			doc,
+			formLinkProjectionContext(doc),
+			target.moduleUuid,
+			target.formUuid,
+		).flatMap((datum) => (datum.projectionOnlySelection ? [] : [datum.id]));
+		const declared = wantsDeclared && declaredIds.length > 0;
+		const datumId = declared
+			? (declaredIds[datumPick % declaredIds.length] as string)
+			: UNSUPPLIED_SESSION_DATUM;
+		// A sectioned root admits only sections, so the read goes on the
+		// first page there.
+		const rootOrder = doc.fieldOrder[target.formUuid] ?? [];
+		const first = rootOrder[0];
+		const parentUuid =
+			first !== undefined && doc.fields[first]?.kind === "section"
+				? first
+				: target.formUuid;
+		const uuid = testUuid("session-read");
+		doc.fields[uuid] = {
+			uuid,
+			kind: "hidden",
+			id: "session_read",
+			calculate: opaqueXPathExpression(
+				`instance('commcaresession')/session/data/${datumId}`,
+			),
+		};
+		doc.fieldOrder[parentUuid] = [...(doc.fieldOrder[parentUuid] ?? []), uuid];
+		rebuildFieldParent(doc);
+		return { doc, datumId, declared };
+	});

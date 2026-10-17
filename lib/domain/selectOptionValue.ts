@@ -4,7 +4,8 @@
 // multi-select answer saves, as opposed to the label a person reads.
 //
 // Shared by the validator (`SELECT_OPTION_VALUE_INVALID` /
-// `CASE_PROPERTY_OPTION_VALUE_INVALID`), the SA/MCP tool schemas, and the
+// `CASE_PROPERTY_OPTION_VALUE_INVALID`, and their `_DUPLICATE` twins for a
+// value two choices of one list hold), the SA/MCP tool schemas, and the
 // builder's option editor, so the three editors accept and refuse the same
 // values for the same reason, and every one of them teaches the same shape
 // before a value is rejected.
@@ -60,12 +61,23 @@ export const selectOptionValueSchema = z
 	.regex(SELECT_OPTION_VALUE_PATTERN, SELECT_OPTION_VALUE_REJECTION)
 	.describe(SELECT_OPTION_VALUE_DESCRIPTION);
 
-export type SelectOptionValueProblem = "empty" | "whitespace" | "quote";
+/**
+ * Why a choice's value is refused: the three grammar problems a value has
+ * alone, and `duplicate`, a value an earlier choice of the same list holds.
+ * HQ's form builder reports a repeated value among one question's choices
+ * on exact string equality (Vellum `src/mugs/types/select.js`), and an
+ * answer saved with it can't say which choice was meant.
+ */
+export type SelectOptionValueProblem =
+	| "empty"
+	| "whitespace"
+	| "quote"
+	| "duplicate";
 
-/** Why a value is refused, or `undefined` when it is admitted. */
+/** Why a value is refused alone, or `undefined` when it is admitted. */
 export function selectOptionValueProblem(
 	value: string,
-): SelectOptionValueProblem | undefined {
+): Exclude<SelectOptionValueProblem, "duplicate"> | undefined {
 	if (value.length === 0) return "empty";
 	const hit = FORBIDDEN.exec(value);
 	if (hit === null) return undefined;
@@ -74,6 +86,57 @@ export function selectOptionValueProblem(
 
 export function isValidSelectOptionValue(value: string): boolean {
 	return selectOptionValueProblem(value) === undefined;
+}
+
+/**
+ * Why a value is refused in its list, where `earlier` holds the values of
+ * the choices before it: its grammar problem first, then `duplicate`. The
+ * comparison is exact, as HQ's form builder and Core compare, so values
+ * differing only in case are distinct.
+ */
+export function selectOptionValueProblemAmong(
+	value: string,
+	earlier: ReadonlySet<string>,
+): SelectOptionValueProblem | undefined {
+	return (
+		selectOptionValueProblem(value) ??
+		(earlier.has(value) ? "duplicate" : undefined)
+	);
+}
+
+/** A later choice holding a value an earlier choice of its list holds. */
+export interface DuplicateSelectOptionValue {
+	/** The choice's position in its list, from 0. */
+	readonly index: number;
+	readonly value: string;
+	/** A value no choice of the list holds and no earlier suggestion took. */
+	readonly suggestion: string;
+}
+
+/**
+ * Every later holder of a value in one option list. The first choice
+ * holding a value keeps it; each later holder is offered
+ * `suffixUntilFree(value, taken)`, where `taken` is the list's values and
+ * the suggestions before it, so a third holder of `yes` is offered `yes_3`.
+ * A value with a grammar problem is that problem's to report, not this.
+ */
+export function duplicateSelectOptionValues(
+	values: readonly string[],
+): DuplicateSelectOptionValue[] {
+	const taken = new Set(values);
+	const seen = new Set<string>();
+	const duplicates: DuplicateSelectOptionValue[] = [];
+	values.forEach((value, index) => {
+		if (selectOptionValueProblem(value) !== undefined) return;
+		if (!seen.has(value)) {
+			seen.add(value);
+			return;
+		}
+		const suggestion = suffixUntilFree(value, taken);
+		taken.add(suggestion);
+		duplicates.push({ index, value, suggestion });
+	});
+	return duplicates;
 }
 
 /**
@@ -140,4 +203,21 @@ function slugOf(text: string): string {
 		.toLowerCase()
 		.replace(/[^\p{L}\p{M}\p{N}]+/gu, "_")
 		.replace(/^_+|_+$/g, "");
+}
+
+/**
+ * The key of the value space a list of choices belongs to. Every list that
+ * names one case property, the property's catalog and every select that
+ * writes it, is one space, so a field and its catalog never disagree about a
+ * value; a select that writes no property is a space of its own. The
+ * select-option repair and the cutover's split both group by this key.
+ */
+export function optionValueSpaceKey(
+	owner:
+		| { readonly caseType: string; readonly property: string }
+		| { readonly fieldUuid: string },
+): string {
+	return "fieldUuid" in owner
+		? `field\u0000${owner.fieldUuid}`
+		: `${owner.caseType}\u0000${owner.property}`;
 }

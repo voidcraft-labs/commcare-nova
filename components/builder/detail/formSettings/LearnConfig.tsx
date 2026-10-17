@@ -1,21 +1,21 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
+import { useAppPublishedAnywhere } from "@/components/builder/app-setup/usePublishingRecords";
 import {
 	DEFAULT_LEARN_TIME_ESTIMATE_HOURS,
 	DraftField,
 	parseTimeEstimate,
 } from "@/components/builder/detail/appSettings/ConnectEnableDialog";
+import { CONNECT_ID_PUBLISHED_NOTES } from "@/components/builder/detail/appSettings/connectDraft";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Switch } from "@/components/shadcn/switch";
-import {
-	connectIdConflictError,
-	connectIdError,
-	deriveConnectId,
-} from "@/lib/commcare/connectSlugs";
+import { deriveConnectId } from "@/lib/commcare/connectSlugs";
+import { connectIdValidity } from "@/lib/doc/connectConfig";
 import {
 	connectIdsExcept,
 	useAppConnectIds,
+	useRootFieldIdsByForm,
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import {
@@ -109,10 +109,22 @@ export function LearnConfig({
 	// name), so the uniqueness scope is app-wide, not just this form's
 	// co-located block. Same scope the SA tools + the commit gate enforce.
 	const appConnectIds = useAppConnectIds();
+	/* Once the app is on a project space, the Module ID says what changing
+	 * it does there: Connect keys the module's records by it. */
+	const published = useAppPublishedAnywhere();
 	const appWideExcept = useCallback(
 		(kind: "learn_module" | "assessment"): Set<string> =>
 			connectIdsExcept(appConnectIds, formUuid, kind),
 		[appConnectIds, formUuid],
+	);
+	/* A block's wrapper sits beside the form's top-level fields, so its id
+	 * is none of theirs. */
+	const rootFieldIdsByForm = useRootFieldIdsByForm();
+	const rootFieldIds = rootFieldIdsByForm[formUuid];
+	const beside = useCallback(
+		(kind: "learn_module" | "assessment"): Set<string> =>
+			new Set([...appWideExcept(kind), ...(rootFieldIds ?? [])]),
+		[appWideExcept, rootFieldIds],
 	);
 
 	// Name-derived defaults for a freshly enabled sub-config, unique against
@@ -122,10 +134,10 @@ export function LearnConfig({
 		const modName = mod?.name ?? "";
 		const pairName = `${modName} ${form?.name ?? ""}`;
 		return {
-			learnId: deriveConnectId(modName, appWideExcept("learn_module")),
-			assessmentId: deriveConnectId(pairName, appWideExcept("assessment")),
+			learnId: deriveConnectId(modName, beside("learn_module")),
+			assessmentId: deriveConnectId(pairName, beside("assessment")),
 		};
-	}, [mod, form, appWideExcept]);
+	}, [mod, form, beside]);
 
 	// Refs preserve each sub-block's last-seen value exactly. A restore
 	// proposes that explicit id verbatim; if another form claimed it while
@@ -251,13 +263,21 @@ export function LearnConfig({
 											// app), so a bad value can't be saved.
 											value={lm.id}
 											onChange={(v) => updateLearnModule("id", v)}
-											validate={(v) =>
-												connectIdError(v) ??
-												connectIdConflictError(v, appWideExcept("learn_module"))
-											}
+											validate={(v) => {
+												return connectIdValidity(
+													v,
+													appWideExcept("learn_module"),
+													new Set(rootFieldIds ?? []),
+												);
+											}}
 											mono
 											required
 										/>
+										{published && (
+											<p className="text-[10px] leading-snug text-nova-text-muted">
+												{CONNECT_ID_PUBLISHED_NOTES.learn_module}
+											</p>
+										)}
 										<InlineField
 											label="Name"
 											value={lm.name}
@@ -359,10 +379,13 @@ export function LearnConfig({
 									onChange={(v) =>
 										save({ ...connect, assessment: { ...assessment, id: v } })
 									}
-									validate={(v) =>
-										connectIdError(v) ??
-										connectIdConflictError(v, appWideExcept("assessment"))
-									}
+									validate={(v) => {
+										return connectIdValidity(
+											v,
+											appWideExcept("assessment"),
+											new Set(rootFieldIds ?? []),
+										);
+									}}
 									mono
 									required
 								/>

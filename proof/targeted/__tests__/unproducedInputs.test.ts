@@ -16,14 +16,17 @@
  *   So a type that is its own parent, written from its own menu, is
  *   admitted and exports no `subcases` action at all. The accepted
  *   counterpart is a field that writes another type, which exports one.
- * - **A form whose source holds the session's `supply_point_id` path**
- *   (defect 20, under CommTrack). This one Nova's gate admits: a hidden
- *   value may read the path. What keeps HQ's substring test
+ * - **A form that reads the session's `supply_point_id`** (defect 20,
+ *   under CommTrack). No menu of a Nova app supplies that datum, so the
+ *   form could never open, and Nova's gate refuses the read
+ *   (`SESSION_DATUM_NOT_SUPPLIED`, finding 68); a read of a datum the form's
+ *   entry declares is admitted. The path written as text, in a string or a
+ *   label, reads nothing and is admitted, and what keeps HQ's substring test
  *   (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`) from
- *   finding it is the spelling: every export writes the path's apostrophes
- *   as `&apos;`. So the document is a corpus document
- *   (`targeted-supply-point-read`), and the lane observes what HQ does with
- *   it, before and after a save in HQ's form builder respells the source.
+ *   finding it there is the spelling: every export writes the path's
+ *   apostrophes as `&apos;`. The control `targeted-supply-point-read` keeps
+ *   the read from before the refusal, and the lane observes what HQ does
+ *   with it.
  * - **Defect 20's `product_id` datum** (under CommTrack). HQ gives it only
  *   to an advanced module: the case list menu item of an `AdvancedModule`,
  *   and an advanced form whose last load action shows product stock
@@ -56,9 +59,11 @@ import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceC
 import type { BlueprintDoc } from "@/lib/domain";
 import { plainColumn, proseText } from "@/lib/domain";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
-import { SUPPLY_POINT_PATH } from "../documents/supplyPointRead";
 
 const ID = "targeted-unproduced-inputs";
+/** The path HQ's substring test looks for (`suite_xml/xml_models.py::session_var`). */
+const SUPPLY_POINT_PATH =
+	"instance('commcaresession')/session/data/supply_point_id";
 const uuid = (name: string) => targetedUuid(ID, name);
 
 interface HqForm {
@@ -184,19 +189,58 @@ describe("a basic child case of its own menu's case type", () => {
 
 describe("a form that reads the session's supply point", () => {
 	const escaped = SUPPLY_POINT_PATH.replaceAll("'", "&apos;");
-	const placements = {
-		"a hidden value that reads the path": f({
-			kind: "hidden",
-			uuid: uuid("held"),
-			id: "held",
-			calculate: SUPPLY_POINT_PATH,
-		}),
-		"a hidden value holding the path as text": f({
-			kind: "hidden",
-			uuid: uuid("held"),
-			id: "held",
-			calculate: `"${SUPPLY_POINT_PATH}"`,
-		}),
+
+	function visit(field: ReturnType<typeof f>): BlueprintDoc {
+		return buildDoc({
+			appId: ID,
+			appName: "Stock",
+			caseTypes: [
+				{
+					name: "client",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					uuid: uuid("module"),
+					name: "Clients",
+					caseType: "client",
+					caseListConfig: caseListOf([
+						plainColumn(uuid("name"), "case_name", "Name"),
+					]),
+					forms: [
+						{
+							uuid: uuid("form"),
+							name: "Visit",
+							type: "followup",
+							fields: [field],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	function held(calculate: string) {
+		return f({ kind: "hidden", uuid: uuid("held"), id: "held", calculate });
+	}
+
+	it("is refused by Nova's gate where a hidden value reads the path, since no menu supplies the datum", () => {
+		expect(() => exported(visit(held(SUPPLY_POINT_PATH)))).toThrow(
+			/SESSION_DATUM_NOT_SUPPLIED/,
+		);
+	});
+
+	it("is admitted where the read is of a datum the form's entry declares", () => {
+		const sources = Object.values(
+			exported(visit(held("instance('commcaresession')/session/data/case_id")))
+				._attachments,
+		);
+		expect(sources).toHaveLength(1);
+	});
+
+	const text = {
+		"a hidden value holding the path as text": held(`"${SUPPLY_POINT_PATH}"`),
 		"a label that says the path": f({
 			kind: "text",
 			uuid: uuid("held"),
@@ -205,38 +249,10 @@ describe("a form that reads the session's supply point", () => {
 		}),
 	};
 
-	it.each(Object.entries(placements))(
-		"is admitted with %s, and its export spells the path so HQ's test does not find it",
+	it.each(Object.entries(text))(
+		"is admitted with %s, which reads nothing, and its export spells the path so HQ's test does not find it",
 		(_name, field) => {
-			const doc = buildDoc({
-				appId: ID,
-				appName: "Stock",
-				caseTypes: [
-					{
-						name: "client",
-						properties: [{ name: "case_name", label: proseText("Name") }],
-					},
-				],
-				modules: [
-					{
-						uuid: uuid("module"),
-						name: "Clients",
-						caseType: "client",
-						caseListConfig: caseListOf([
-							plainColumn(uuid("name"), "case_name", "Name"),
-						]),
-						forms: [
-							{
-								uuid: uuid("form"),
-								name: "Visit",
-								type: "followup",
-								fields: [field],
-							},
-						],
-					},
-				],
-			});
-			const sources = Object.values(exported(doc)._attachments);
+			const sources = Object.values(exported(visit(field))._attachments);
 			expect(sources).toHaveLength(1);
 			for (const source of sources) {
 				expect(source).toContain(escaped);

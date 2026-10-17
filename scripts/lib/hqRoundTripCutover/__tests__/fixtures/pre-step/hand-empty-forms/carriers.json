@@ -43,6 +43,20 @@
 			"data_text": "{\"uuid\":\"00000000-0000-4000-8000-000000000405\",\"id\":\"stamp\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"today()\"}]}}"
 		},
 		{
+			"uuid": "00000000-0000-4000-8000-000000000406",
+			"kind": "form",
+			"parent_uuid": "17a69048-be0c-59d4-a7a2-9bda805659b8",
+			"ordinal": 4,
+			"data_text": "{\"uuid\":\"00000000-0000-4000-8000-000000000406\",\"id\":\"empty_tally\",\"name\":\"Empty tally\",\"type\":\"survey\"}"
+		},
+		{
+			"uuid": "00000000-0000-4000-8000-000000000407",
+			"kind": "field",
+			"parent_uuid": "00000000-0000-4000-8000-000000000406",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"00000000-0000-4000-8000-000000000407\",\"id\":\"box\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Box\"}]},\"kind\":\"group\"}"
+		},
+		{
 			"uuid": "17a69048-be0c-59d4-a7a2-9bda805659b8",
 			"kind": "module",
 			"parent_uuid": null,
