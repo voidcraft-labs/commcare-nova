@@ -349,6 +349,10 @@ export type ValidationErrorCode =
 	| "HQJSON_BAD_SUBCASE_RELATIONSHIP"
 	| "HQJSON_BAD_DETAIL_DISPLAY"
 	| "HQJSON_BAD_TYPE"
+	// An action shape HQ's import accepts but no HQ editor writes: an external
+	// id on `open_case.external_id`. HQ's Case Management tab writes one as an
+	// ordinary `update_case.update` row, and Nova writes it that way too.
+	| "HQJSON_OPEN_CASE_EXTERNAL_ID"
 	// Media path regression guard. CCHQ's
 	// `suite_xml/generator.py::media_resources` RAISES `MediaResourceError`
 	// for a media path that doesn't start with `jr://file/`. Menu media

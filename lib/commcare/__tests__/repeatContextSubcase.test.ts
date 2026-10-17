@@ -138,8 +138,10 @@ function assertChild(
 	parent: Element,
 	casePath: string,
 	type: string,
-	namePath: string,
+	nameParent: string,
 ) {
+	const namePath = `${nameParent}/case_name`;
+	const trimmedPath = `${nameParent}/nova_trimmed_case_name`;
 	const transaction = child(parent, "case");
 	expect(transaction.attribs).toEqual({
 		case_id: "",
@@ -163,16 +165,28 @@ function assertChild(
 		nodeset: `${casePath}/create/case_type`,
 		calculate: `'${type}'`,
 	});
+	// The create names the question's trimmed sibling, which carries the trim
+	// and HQ's inert required stamp; the question carries the requirement and
+	// the check a worker meets.
 	expect(output.binds(`${casePath}/create/case_name`)).toEqual({
 		nodeset: `${casePath}/create/case_name`,
+		calculate: trimmedPath,
+	});
+	expect(output.binds(trimmedPath)).toEqual({
+		nodeset: trimmedPath,
 		calculate: `replace(${namePath}, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')`,
+		relevant: `count(${namePath}) > 0`,
+		required: "true()",
 	});
 	expect(output.binds(namePath)).toEqual({
 		nodeset: namePath,
 		type: "xsd:string",
 		required: "true()",
+		constraint: NAME_CHECK,
 	});
 }
+const TRIMMED_ANSWER = "replace(., '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')";
+const NAME_CHECK = `string-length(${TRIMMED_ANSWER}) > 0 and string-length(${TRIMMED_ANSWER}) <= 255`;
 for (const mode of ["user_controlled", "count_bound", "query_bound"] as const) {
 	for (const count of [1, 2]) {
 		it(`${mode}: ${count} child buckets retain their answer scope and per-iteration identity`, () => {
@@ -204,8 +218,10 @@ for (const mode of ["user_controlled", "count_bound", "query_bound"] as const) {
 			const scope =
 				mode === "query_bound" ? "/data/children/item" : "/data/children";
 			expect(template.children.filter(isTag).map((e) => e.name)).toEqual(
+				// HQ inserts a repeat's single subcase block as the item's first
+				// child, and appends one wrapper per subcase when there are several.
 				count === 1
-					? ["case_name", "case"]
+					? ["case", "case_name", "nova_trimmed_case_name"]
 					: ["child1_section", "child2_section", "subcase_0", "subcase_1"],
 			);
 			for (let index = 0; index < types.length; index++) {
@@ -219,9 +235,7 @@ for (const mode of ["user_controlled", "count_bound", "query_bound"] as const) {
 					holder,
 					path,
 					type,
-					count === 1
-						? `${scope}/case_name`
-						: `${scope}/${type}_section/case_name`,
+					count === 1 ? scope : `${scope}/${type}_section`,
 				);
 				expect(output.binds(`${path}/@case_id`)).toEqual({
 					nodeset: `${path}/@case_id`,
@@ -282,7 +296,7 @@ it("keeps identical cousin question IDs in independent repeat case buckets", () 
 			child(output.data, id),
 			`${scope}/case`,
 			"person",
-			`${scope}/case_name`,
+			scope,
 		);
 		expect(output.binds(`${scope}/case/@case_id`)).toEqual({
 			nodeset: `${scope}/case/@case_id`,
@@ -323,7 +337,7 @@ it("preserves global action indices across root, repeat and root child creates",
 			child(output.data, `subcase_${index}`),
 			path,
 			type,
-			`/data/${type}/case_name`,
+			`/data/${type}`,
 		);
 		expect(output.setvalues(`${path}/@case_id`)).toEqual([
 			{
@@ -338,12 +352,25 @@ it("preserves global action indices across root, repeat and root child creates",
 		child(output.data, "children"),
 		"/data/children/case",
 		"child",
-		"/data/children/case_name",
+		"/data/children",
 	);
 	expect(output.binds("/data/children/case/@case_id")).toEqual({
 		nodeset: "/data/children/case/@case_id",
 		calculate: "uuid()",
 	});
+	// The data node's order is HQ's: fields, the subcase blocks, then the
+	// form's own case, then meta (`xform.py::XForm._create_casexml`).
+	expect(output.data.children.filter(isTag).map((e) => e.name)).toEqual([
+		"case_name",
+		"nova_trimmed_case_name",
+		"guardian",
+		"children",
+		"consent",
+		"subcase_0",
+		"subcase_2",
+		"case",
+		"orx:meta",
+	]);
 	expect(output.datums).toEqual([
 		{ id: "case_id_new_household_0", function: "uuid()" },
 		{ id: "case_id_new_guardian_1", function: "uuid()" },

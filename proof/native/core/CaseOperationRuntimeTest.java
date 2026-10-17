@@ -158,6 +158,29 @@ public class CaseOperationRuntimeTest {
             assertEquals("Answer one actual question " + path, 1, nodes.size());
             form.setValue(new StringData(value), nodes.getRefAt(0));
         }
+        /** The question at {@code path} answered as form entry answers it: Core checks its constraint first. */
+        int answerQuestion(String path, String value) throws Exception {
+            FormEntryController controller = parsed.getFormEntryController();
+            controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+            int steps = 0;
+            int event;
+            while ((event = controller.stepToNextEvent()) != FormEntryController.EVENT_END_OF_FORM) {
+                if (++steps > 70) throw new AssertionError("Form entry did not terminate");
+                FormIndex index = controller.getModel().getFormIndex();
+                if (event == FormEntryController.EVENT_QUESTION && path.equals(index.getReference().toString(false))) {
+                    return controller.answerQuestion(index, new StringData(value));
+                }
+            }
+            throw new AssertionError("The form shows no question " + path);
+        }
+        /** The node at {@code path} made non-relevant, as a false relevance condition makes it
+         * ({@code Condition.apply}), and every calculation and condition that reads it run again. */
+        void hide(String path) throws Exception {
+            XPathNodeset nodes = (XPathNodeset)XPathParseTool.parseXPath(path).eval(form.getMainInstance(), form.getEvaluationContext());
+            assertEquals("Hide one actual node " + path, 1, nodes.size());
+            form.getMainInstance().resolveReference(nodes.getRefAt(0)).setRelevant(false);
+            form.triggerTriggerables(nodes.getRefAt(0));
+        }
         void enter(String scenario) throws Exception {
             FormEntryController controller = parsed.getFormEntryController();
             controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
@@ -640,6 +663,34 @@ public class CaseOperationRuntimeTest {
         run.apply();
         assertEquals("Matched child", run.record("patient-1").getPropertyString("nickname"));
         assertEquals("Old nickname", run.record("patient-2").getPropertyString("nickname"));
+    }
+    private static final String NAME_QUESTION = "/data/full_name";
+    /** The case family's capture follow-up, which renames the selected patient from its question
+     * {@code full_name}: its case block reads the name through the question's trimmed sibling, and the question
+     * carries the name's guard, so a worker meets a blank or over-long name at the question. */
+    private Run renamed() throws Exception {
+        return new Run("capture-followup", null, new FormParseInit("/case/capture-followup" + (hq ? ".hq.xml" : ".xml")));
+    }
+    @Test public void aBlankOrOverLongNameIsRefusedAtItsQuestion() throws Exception {
+        for (String name : new String[]{"   ", " \t\r\n", "x".repeat(256)}) {
+            Run run = renamed();
+            Object preloaded = run.eval(NAME_QUESTION);
+            assertEquals("A name of " + name.length() + " characters", FormEntryController.ANSWER_CONSTRAINT_VIOLATED, run.answerQuestion(NAME_QUESTION, name));
+            assertEquals("The refused answer leaves the preloaded name", preloaded, run.eval(NAME_QUESTION));
+        }
+        for (String name : new String[]{"  Alice  ", "x".repeat(255)}) {
+            Run run = renamed();
+            assertEquals(FormEntryController.ANSWER_OK, run.answerQuestion(NAME_QUESTION, name));
+            run.apply();
+            assertEquals(name.trim(), run.record("patient-1").getName());
+        }
+    }
+    @Test public void aHiddenNameQuestionLeavesTheCaseNameAlone() throws Exception {
+        Run run = renamed();
+        assertEquals(FormEntryController.ANSWER_OK, run.answerQuestion(NAME_QUESTION, "New name"));
+        run.hide(NAME_QUESTION);
+        run.apply();
+        assertEquals("Original name", run.record("patient-1").getName());
     }
     @Test public void scalarNormalizationAndBounds() throws Exception {
         for (String value : new String[]{"\t Alice  Smith \r\n", "\u00a0Alice\u2003", "😀".repeat(127) + "x"}) {

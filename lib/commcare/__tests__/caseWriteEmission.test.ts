@@ -156,7 +156,10 @@ it.each(["registration", "followup"] as const)(
 			expect(output.actions.update_case.update).toEqual({
 				issue_description: { question_path: path, update_mode: "always" },
 				...(type === "followup" && {
-					name: { question_path: "/data/subject", update_mode: "always" },
+					name: {
+						question_path: "/data/nova_trimmed_subject",
+						update_mode: "always",
+					},
 				}),
 			});
 			for (const tree of [output.source, output.local]) {
@@ -192,9 +195,10 @@ it.each(["registration", "followup"] as const)(
 					: "/data/case/update/case_name";
 			expect(output.local.bind(namePath)).toEqual({
 				nodeset: namePath,
-				calculate:
-					"replace(/data/subject, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
-				...(type === "followup" && { relevant: "count(/data/subject) > 0" }),
+				calculate: "/data/nova_trimmed_subject",
+				...(type === "followup" && {
+					relevant: "count(/data/nova_trimmed_subject) > 0",
+				}),
 			});
 			if (type === "followup") {
 				expect(output.actions.case_preload.preload).toEqual({

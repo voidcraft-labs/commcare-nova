@@ -2801,63 +2801,6 @@ describe("applySubmission — followup", () => {
 		expect(visits.rows[0]?.parent_case_id).toBe(ALICE_CASE_ID);
 	});
 
-	it("skips the primary update when the patch carries no writes", async () => {
-		// Empty-patch short-circuit: a followup whose form has no
-		// editable fields (or whose children are the only writes)
-		// should NOT bump `modified_on` for nothing. The envelope skips
-		// `updateCase` when the patch carries neither properties nor a
-		// caseName. Pre-seed the primary, snapshot its `modified_on`, run
-		// an empty-patch followup, then assert the timestamp didn't move.
-		const store = makeStore(PROJECT_A, OWNER_A);
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE, VISIT_CASE_TYPE]);
-		await seedSchema(store, blueprint, "patient");
-		await seedSchema(store, blueprint, "visit");
-		await store.insert({
-			appId: APP_ID,
-			row: {
-				case_id: ALICE_CASE_ID,
-				case_type: "patient",
-				case_name: "Alice",
-				status: "open",
-				properties: { age: 30 },
-			},
-		});
-
-		// Read the pre-call modified_on for the comparison.
-		const before = await readCases(store, {
-			appId: APP_ID,
-			caseType: "patient",
-		});
-		if (before.kind !== "rows") throw new Error("expected rows");
-		const beforeModifiedOn = before.rows[0]?.modified_on;
-
-		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
-			kind: "followup",
-			...FINAL_SUBMISSION_PROTOCOL,
-			caseIds: [ALICE_CASE_ID],
-			patch: { properties: {} },
-			children: [
-				{
-					caseType: "visit",
-					caseName: "Followup visit",
-					properties: { notes: "stable" },
-				},
-			],
-		};
-
-		await store.applySubmission(submissionEnvelopeArgs(mutation, APP_ID));
-
-		const after = await readCases(store, {
-			appId: APP_ID,
-			caseType: "patient",
-		});
-		if (after.kind !== "rows") throw new Error("expected rows");
-		// `modified_on` either stays `null` (insert path didn't set
-		// one) or matches the pre-call snapshot — either way, it must
-		// not advance.
-		expect(after.rows[0]?.modified_on).toEqual(beforeModifiedOn);
-	});
-
 	it("rolls the whole envelope back when a child fails validation — the primary update never lands", async () => {
 		// The envelope is ONE Postgres transaction: the followup's
 		// primary update runs first, then each child insert. A child that

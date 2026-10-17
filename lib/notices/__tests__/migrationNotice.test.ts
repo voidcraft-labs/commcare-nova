@@ -51,6 +51,44 @@ const REAL_ENTRIES = {
 		reason: "local-archive-changes",
 		entity: { type: "app", nameAtMigration: "Clinic visits" },
 	},
+	"follow-up-now-touches-case": {
+		kind: "document",
+		reason: "follow-up-now-touches-case",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Review",
+		},
+	},
+	"linked-follow-up-now-writes-case": {
+		kind: "document",
+		reason: "linked-follow-up-now-writes-case",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Review",
+		},
+		detail: { source: "Intake" },
+	},
+	"close-moves-to-save-to-case": {
+		kind: "document",
+		reason: "close-moves-to-save-to-case",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b2",
+			nameAtMigration: "Discharge",
+		},
+	},
+	"case-name-now-checked": {
+		kind: "document",
+		reason: "case-name-now-checked",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b3",
+			nameAtMigration: "Register",
+		},
+		detail: { question: "Full name" },
+	},
 	"setting-changes-at-next-publish": {
 		...deploymentEntry("setting-changes-at-next-publish"),
 		detail: { setting: "incomplete", readers: "android-and-webapps" },

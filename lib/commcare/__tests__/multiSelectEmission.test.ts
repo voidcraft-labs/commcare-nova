@@ -149,8 +149,10 @@ function artifacts(doc: ReturnType<typeof buildDoc>, published = true) {
 						.some((e) => e.name === "form" && textContent(e) === form.xmlns),
 			),
 	);
+	// `always`, as HQ's Case Management save writes it; HQ builds no primary
+	// block in a multi-select menu under either condition.
 	expect(form.actions.update_case.update).toEqual({});
-	expect(form.actions.update_case.condition.type).toBe("never");
+	expect(form.actions.update_case.condition.type).toBe("always");
 	expect(form.actions.case_preload.preload).toEqual({});
 	expect(form.actions.case_preload.condition.type).toBe("never");
 	return {
@@ -162,6 +164,9 @@ function artifacts(doc: ReturnType<typeof buildDoc>, published = true) {
 		],
 	};
 }
+const TRIMMED_ANSWER = "replace(., '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')";
+const EXTERNAL_ID_CHECK = `string-length(${TRIMMED_ANSWER}) <= 255`;
+const NAME_CHECK = `string-length(${TRIMMED_ANSWER}) > 0 and ${EXTERNAL_ID_CHECK}`;
 function selectedIdentity(form: ReturnType<typeof formTree>, name: string) {
 	// A block inside a group reads the row's id one step further up.
 	const nested = "../".repeat(name.split("/").length - 1);
@@ -317,36 +322,34 @@ for (const published of [true, false]) {
 				src: "",
 				from: "local",
 			});
+			// A name and an external id read the question's trimmed sibling.
 			const writers = [
-				[
-					"case_name",
-					"replace(/data/full_name, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
-					"/data/full_name",
-				],
-				["note", "/data/note", "/data/note"],
-				[
-					"external_id",
-					"replace(/data/external_id, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
-					"/data/external_id",
-				],
+				["case_name", "/data/nova_trimmed_full_name"],
+				["note", "/data/note"],
+				["external_id", "/data/nova_trimmed_external_id"],
 				...(published
-					? [
-							[
-								"photo_url",
-								"/data/nova_url_photo_link",
-								"/data/nova_url_photo_link",
-							] as const,
-						]
+					? [["photo_url", "/data/nova_url_photo_link"] as const]
 					: []),
 			] as const;
-			for (const [property, calculate, source] of writers)
+			for (const [property, source] of writers)
 				expect(form.bind(`${scope}/${UPDATE}/case/update/${property}`)).toEqual(
 					{
 						nodeset: `${scope}/${UPDATE}/case/update/${property}`,
-						calculate,
-						relevant: `count(${source}) > 0 and string(${calculate}) != ''`,
+						calculate: source,
+						relevant: `count(${source}) > 0 and string(${source}) != ''`,
 					},
 				);
+			for (const [question, check] of [
+				["full_name", NAME_CHECK],
+				["external_id", EXTERNAL_ID_CHECK],
+			] as const) {
+				expect(form.bind(`/data/nova_trimmed_${question}`)).toEqual({
+					nodeset: `/data/nova_trimmed_${question}`,
+					calculate: `replace(/data/${question}, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')`,
+					relevant: `count(/data/${question}) > 0`,
+				});
+				expect(form.bind(`/data/${question}`).constraint).toBe(check);
+			}
 			expect(form.bind(`${scope}/${UPDATE}/case/attachment/photo`)).toEqual({
 				nodeset: `${scope}/${UPDATE}/case/attachment/photo`,
 				relevant: "count(/data/photo) = 1 and string(/data/photo) != ''",
@@ -464,6 +467,26 @@ it("leaves an earlier retype intact when the ordinary final action only closes",
 				.map((e) => e.name),
 		).toEqual(["close"]);
 		selectedIdentity(form, "archive_selected");
+		selectedIdentity(form, "nova_close_selected_cases");
+	}
+});
+it("closes every selected case on a condition the Case Management tab cannot state, with HQ's close action never", () => {
+	const doc = fixture("close", [f({ kind: "text", id: "outcome" })]);
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	const outcome = doc.fieldOrder[formUuid][0];
+	(doc.forms[formUuid] as Form).closeCondition = {
+		field: outcome,
+		answer: "it's done",
+	};
+	const output = artifacts(doc);
+	expect(output.hq.modules[0].forms[0].actions.close_case.condition.type).toBe(
+		"never",
+	);
+	for (const form of output.forms) {
+		expect(form.bind(`${scope}/nova_close_selected_cases/case/close`)).toEqual({
+			nodeset: `${scope}/nova_close_selected_cases/case/close`,
+			relevant: `/data/outcome = "it's done"`,
+		});
 		selectedIdentity(form, "nova_close_selected_cases");
 	}
 });

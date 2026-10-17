@@ -138,12 +138,50 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* The entity is a follow-up form that writes nothing to its case. */
+	"follow-up-now-touches-case": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				": submitting it now updates its case's last-modified date, even when nothing changes. Case update rules and data forwarding in CommCare HQ see that.",
+			),
+		]),
+	/* The entity is the follow-up form a link opens; `detail.source` names the
+	 * form that holds the link. */
+	"linked-follow-up-now-writes-case": (entry: DocumentNoticeEntry, ctx) => {
+		const source = entry.detail?.source;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				`, when ${source ?? "another form"} opens it: submitting it now updates the case that link names. If the link's case value is empty, Android can't save the form, and if it names no case, CommCare HQ creates one. The value is yours to change in ${source === undefined ? "that form's" : `${source}'s`} link.`,
+			),
+		]);
+	},
+	/* The entity is the close form whose condition HQ's tab cannot state. */
+	"close-moves-to-save-to-case": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				": its close is now written as a case change in the form. CommCare HQ shows no close on its Case Management tab, and the next publish asks about one more plan feature.",
+			),
+		]),
 	"local-archive-changes": () =>
 		noticeLine([
 			text(
 				"A CommCare file downloaded from Nova now needs CommCare 2.57 or later.",
 			),
 		]),
+	/* The entity is the form; `detail.question` names the question its case
+	 * name comes from. */
+	"case-name-now-checked": (entry: DocumentNoticeEntry, ctx) => {
+		const question = entry.detail?.question;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				`: workers now see a message when the case name from ${question ?? "its question"} is blank or longer than 255 characters. CommCare can't save a case with a name like that.`,
+			),
+		]);
+	},
 	"unsaved-assistant-work-discarded": () =>
 		noticeLine([
 			text(

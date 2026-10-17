@@ -25,6 +25,7 @@ DOCUMENTS = (
     "case-operation-sequence",
     "localization-bilingual",
     "media-only",
+    "navigation-base",
     "search-browse",
     "targeted-capture-widgets",
     "targeted-custom-tile",

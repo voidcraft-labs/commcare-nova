@@ -1,8 +1,15 @@
+import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import { parseDocument } from "htmlparser2";
 import { SaxesParser } from "saxes";
 import { expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	buildDoc,
+	caseListConfig,
+	type FieldSpec,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import {
 	alwaysCondition,
 	emptyFormActions,
@@ -11,9 +18,16 @@ import {
 	neverCondition,
 	type OpenSubCaseAction,
 } from "@/lib/commcare";
+import { compileCcz } from "@/lib/commcare/compiler";
+import { expandDoc } from "@/lib/commcare/expander";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import { buildXForm } from "@/lib/commcare/xform/builder";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain";
+import { caseOperationFixture } from "./caseOperationFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function one(nodes: Element[]): Element {
 	expect(nodes).toHaveLength(1);
@@ -56,24 +70,20 @@ function read(xml: string) {
 			).attribs,
 	};
 }
-function host() {
+function host(
+	fields: FieldSpec[] = [
+		"patient_name",
+		"child_name",
+		"weight",
+		"assigned_owner",
+		"done",
+	].map((id) => f({ kind: "text", id })),
+) {
 	const doc = buildDoc({
 		modules: [
 			{
 				name: "Questions",
-				forms: [
-					{
-						name: "Record",
-						type: "survey",
-						fields: [
-							"patient_name",
-							"child_name",
-							"weight",
-							"assigned_owner",
-							"done",
-						].map((id) => f({ kind: "text", id })),
-					},
-				],
+				forms: [{ name: "Record", type: "survey", fields }],
 			},
 		],
 	});
@@ -283,3 +293,405 @@ it.each([
 		).toEqual(binds);
 	},
 );
+
+// ── Case writes through basic actions ──────────────────────────────────
+
+const TRIMMED_ANSWER = "replace(., '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')";
+const EXTERNAL_ID_CHECK = `string-length(${TRIMMED_ANSWER}) <= 255`;
+const NAME_CHECK = `string-length(${TRIMMED_ANSWER}) > 0 and ${EXTERNAL_ID_CHECK}`;
+const trim = (path: string) =>
+	`replace(${path}, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')`;
+const names = (parent: Element) =>
+	parent.children.filter(isTag).map((e) => e.name);
+
+/** Both export paths of a document's first form: HQ's source and the archive's. */
+function bothExports(doc: ReturnType<typeof buildDoc>, formIndex = 0) {
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	const hq = expandDoc(doc);
+	const form = hq.modules[0].forms[formIndex];
+	const source = hq._attachments[`${form.unique_id}.xml`];
+	if (typeof source !== "string") throw new Error("Missing form source");
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
+	return {
+		actions: form.actions,
+		source: read(source),
+		local: read(zip.readAsText(`modules-0/forms-${formIndex}.xml`)),
+	};
+}
+
+function patientApp(
+	type: "registration" | "followup" | "close",
+	fields: FieldSpec[],
+	closeCondition?: {
+		field: string;
+		answer: string;
+		operator?: "=" | "selected";
+	},
+) {
+	return buildDoc({
+		appName: "Case writes",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					"case_name",
+					"external_id",
+					"zeta",
+					"alpha",
+					"outcome",
+				].map((name) => ({ name, label: proseText(name) })),
+			},
+			{
+				name: "visit",
+				parent_type: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Record",
+						type,
+						fields,
+						...(closeCondition !== undefined && { closeCondition }),
+					},
+				],
+			},
+			{
+				name: "Visits",
+				caseType: "visit",
+				caseListOnly: true,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [],
+			},
+		],
+	});
+}
+
+const write = (property: string, caseType = "patient") => ({
+	caseWrite: { caseType, property },
+});
+
+it("touches the selected case on a follow-up that writes nothing, with no update child", () => {
+	const actions = emptyFormActions();
+	actions.update_case.condition = alwaysCondition();
+	const touch = read(addCaseBlocks(host(), actions, "patient"));
+	const block = child(touch.data, "case");
+	expect(names(block)).toEqual([]);
+	for (const [path, attribs] of [
+		[
+			"/data/case/@case_id",
+			{ calculate: "instance('commcaresession')/session/data/case_id" },
+		],
+		[
+			"/data/case/@date_modified",
+			{ type: "xsd:dateTime", calculate: "/data/meta/timeEnd" },
+		],
+		["/data/case/@user_id", { calculate: "/data/meta/userID" }],
+	] as const)
+		expect(touch.bind(path)).toEqual({ nodeset: path, ...attribs });
+	actions.update_case.update = {
+		weight: { question_path: "/data/weight", update_mode: "always" },
+	};
+	const writing = read(addCaseBlocks(host(), actions, "patient"));
+	expect(names(child(writing.data, "case"))).toEqual(["update"]);
+});
+
+it("writes update children and their binds in name order for every block", () => {
+	// Python orders HQ's update keys by code point, so an uppercase name
+	// stands before every lowercase one (`XFormCaseBlock.add_case_updates`).
+	const xml = host([
+		...["zeta", "external", "alpha", "name", "Upper"].map((id) =>
+			f({ kind: "text", id }),
+		),
+		...["scan", "badge"].map((id) => f({ kind: "image", id })),
+	]);
+	const writes = (
+		paths: Record<string, string>,
+	): Record<string, { question_path: string; update_mode: string }> =>
+		Object.fromEntries(
+			Object.entries(paths).map(([property, path]) => [
+				property,
+				{ question_path: path, update_mode: "always" },
+			]),
+		);
+	const listed = {
+		zeta: "/data/zeta",
+		external_id: "/data/external",
+		alpha: "/data/alpha",
+		name: "/data/name",
+		Upper: "/data/Upper",
+		scan: "/data/scan",
+		badge: "/data/badge",
+	};
+	const actions = emptyFormActions();
+	actions.open_case.condition = alwaysCondition();
+	actions.open_case.name_update.question_path = "/data/name";
+	actions.update_case.condition = alwaysCondition();
+	actions.update_case.update = writes(listed);
+	const { name: _name, ...subcaseWrites } = listed;
+	actions.subcases = [{ ...subcase(), case_properties: writes(subcaseWrites) }];
+	actions.usercase_update.condition = alwaysCondition();
+	actions.usercase_update.update = writes({
+		zeta: "/data/zeta",
+		alpha: "/data/alpha",
+		Upper: "/data/Upper",
+	});
+	const output = read(addCaseBlocks(xml, actions, "patient"));
+	const ordered = ["Upper", "alpha", "case_name", "external_id", "zeta"];
+	for (const [casePath, block, properties] of [
+		["/data/case", child(output.data, "case"), ordered],
+		[
+			"/data/subcase_0/case",
+			child(child(output.data, "subcase_0"), "case"),
+			ordered.filter((name) => name !== "case_name"),
+		],
+		[
+			"/data/commcare_usercase/case",
+			child(child(output.data, "commcare_usercase"), "case"),
+			["Upper", "alpha", "zeta"],
+		],
+	] as const) {
+		expect(names(child(block, "update"))).toEqual(properties);
+		expect(
+			output.modelNodes
+				.filter(
+					(e) =>
+						e.name === "bind" &&
+						e.attribs.nodeset.startsWith(`${casePath}/update/`),
+				)
+				.map((e) => e.attribs.nodeset.slice(`${casePath}/update/`.length)),
+		).toEqual(properties);
+		if (casePath !== "/data/commcare_usercase/case")
+			expect(names(child(block, "attachment"))).toEqual(["badge", "scan"]);
+	}
+});
+
+it("names each case name and external id by the question's trimmed sibling and checks the visible question", () => {
+	const doc = patientApp("registration", [
+		f({ kind: "text", id: "name", required: "true()", ...write("case_name") }),
+		f({ kind: "text", id: "external", ...write("external_id") }),
+		f({ kind: "text", id: "nova_trimmed_external" }),
+		f({
+			kind: "repeat",
+			id: "visits",
+			repeat_mode: "user_controlled",
+			children: [
+				f({
+					kind: "hidden",
+					id: "visit_name",
+					calculate: "'Visit'",
+					...write("case_name", "visit"),
+				}),
+			],
+		}),
+	]);
+	const { actions, source, local } = bothExports(doc);
+	// An authored question named like the sibling takes it; the sibling steps
+	// around it with a suffix.
+	const trimmedExternal = "/data/nova_trimmed_external_1";
+	expect(actions.open_case.name_update.question_path).toBe(
+		"/data/nova_trimmed_name",
+	);
+	expect(actions.open_case.external_id).toBeNull();
+	expect(actions.update_case.update.external_id.question_path).toBe(
+		trimmedExternal,
+	);
+	expect(actions.subcases[0].name_update.question_path).toBe(
+		"/data/visits/nova_trimmed_visit_name",
+	);
+	for (const form of [source, local]) {
+		for (const [path, question] of [
+			["/data/nova_trimmed_name", "/data/name"],
+			[trimmedExternal, "/data/external"],
+			["/data/visits/nova_trimmed_visit_name", "/data/visits/visit_name"],
+		] as const) {
+			const { required: _stamp, ...bind } = form.bind(path);
+			expect(bind).toEqual({
+				nodeset: path,
+				calculate: trim(question),
+				relevant: `count(${question}) > 0`,
+			});
+		}
+		// The visible name question is required on its one bind and carries
+		// the check; the external id takes the length half; a Hidden Value
+		// takes neither.
+		expect(form.bind("/data/name")).toMatchObject({
+			required: "true()",
+			constraint: NAME_CHECK,
+		});
+		expect(form.bind("/data/external").constraint).toBe(EXTERNAL_ID_CHECK);
+		expect(form.bind("/data/visits/visit_name").constraint).toBeUndefined();
+		expect(form.bind("/data/visits/visit_name").required).toBeUndefined();
+	}
+	// The archive's leaves read the action's path as it stands, with no trim
+	// of their own, and stamp HQ's inert requirement on the sibling.
+	expect(local.bind("/data/case/create/case_name").calculate).toBe(
+		"/data/nova_trimmed_name",
+	);
+	expect(local.bind("/data/nova_trimmed_name").required).toBe("true()");
+	expect(local.bind("/data/case/update/external_id")).toEqual({
+		nodeset: "/data/case/update/external_id",
+		calculate: trimmedExternal,
+		relevant: `count(${trimmedExternal}) > 0`,
+	});
+	expect(names(child(child(local.data, "case"), "update"))).toEqual([
+		"external_id",
+	]);
+	expect(local.bind("/data/visits/case/create/case_name").calculate).toBe(
+		"/data/visits/nova_trimmed_visit_name",
+	);
+});
+
+it("states the requirement in place of an authored required condition on a create name", () => {
+	const doc = patientApp("registration", [
+		f({ kind: "text", id: "flag" }),
+		f({
+			kind: "text",
+			id: "name",
+			required: "#form/flag = 'yes'",
+			...write("case_name"),
+		}),
+	]);
+	const { source } = bothExports(doc);
+	const binds = source.modelNodes.filter(
+		(e) => e.name === "bind" && e.attribs.nodeset === "/data/name",
+	);
+	expect(binds).toHaveLength(1);
+	expect(binds[0]?.attribs.required).toBe("true()");
+	expect(binds[0]?.attribs["vellum:requiredCondition"]).toBeUndefined();
+});
+
+it("writes a close the Case Management tab cannot state as a Save to Case close", () => {
+	for (const answer of ["it's", `say "it's"`]) {
+		const doc = patientApp("close", [f({ kind: "text", id: "outcome" })], {
+			field: "outcome",
+			answer,
+		});
+		const { actions, source, local } = bothExports(doc);
+		expect(actions.close_case.condition.type).toBe("never");
+		expect(actions.update_case.condition.type).toBe("always");
+		const literal = answer.includes('"')
+			? `concat('say "it', "'", 's"')`
+			: `"it's"`;
+		for (const form of [source, local]) {
+			const operations = child(form.data, "nova_operations");
+			const group = child(operations, "nova_condition_close");
+			const block = child(group, "nova_close");
+			// The archive strips `vellum:` attributes; HQ's source keeps them.
+			expect(block.attribs).toEqual(
+				form === source
+					? { "vellum:role": "SaveToCase", "vellum:case_type": "patient" }
+					: {},
+			);
+			expect(names(child(block, "case"))).toEqual(["close"]);
+			const base = "/data/nova_operations/nova_condition_close";
+			expect(form.bind(base)).toEqual({
+				nodeset: base,
+				relevant: `/data/outcome = ${literal}`,
+			});
+			expect(form.bind(`${base}/nova_close/case/@case_id`)).toEqual({
+				nodeset: `${base}/nova_close/case/@case_id`,
+				calculate: "instance('commcaresession')/session/data/case_id",
+			});
+			expect(
+				form.modelNodes.some(
+					(e) => e.name === "instance" && e.attribs.id === "commcaresession",
+				),
+			).toBe(true);
+		}
+		// The archive's primary block touches the case and holds no close.
+		expect(names(child(local.data, "case"))).toEqual([]);
+	}
+});
+
+it("writes a close condition still missing its answer, which the validator refuses, as an unconditional close action", () => {
+	const doc = patientApp("close", [f({ kind: "text", id: "outcome" })], {
+		field: "outcome",
+		answer: "",
+	});
+	// The emitter stays total on a document the gate would refuse.
+	const hq = expandDoc(doc);
+	const form = hq.modules[0].forms[0];
+	expect(form.actions.close_case.condition.type).toBe("always");
+	const source = hq._attachments[`${form.unique_id}.xml`];
+	if (typeof source !== "string") throw new Error("Missing form source");
+	expect(
+		read(source)
+			.data.children.filter(isTag)
+			.map((e) => e.name),
+	).not.toContain("nova_operations");
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
+	const local = read(zip.readAsText("modules-0/forms-0.xml"));
+	expect(names(child(local.data, "case"))).toEqual(["close"]);
+});
+
+it("keeps a statable close on HQ's close action", () => {
+	const doc = patientApp(
+		"close",
+		[
+			f({
+				kind: "single_select",
+				id: "outcome",
+				optionsSource: {
+					kind: "inline",
+					options: ["done", "moved"].map((value) => ({
+						value,
+						label: proseText(value),
+						uuid: testUuid(`option-${value}`),
+					})),
+				},
+			}),
+		],
+		{ field: "outcome", answer: "done" },
+	);
+	const { actions, source, local } = bothExports(doc);
+	expect(actions.close_case.condition).toMatchObject({
+		type: "if",
+		question: "/data/outcome",
+		answer: "done",
+	});
+	expect(source.data.children.filter(isTag).map((e) => e.name)).not.toContain(
+		"nova_operations",
+	);
+	expect(names(child(local.data, "case"))).toEqual(["close"]);
+});
+
+it("puts a repeat's single subcase block first in its item, before the item's Save to Case blocks", () => {
+	const doc = caseOperationFixture("repeat");
+	const answer = Object.values(doc.fields).find(
+		(field) => field.id === "answer",
+	);
+	if (answer === undefined) throw new Error("Missing answer question");
+	Object.assign(answer, {
+		caseWrite: { caseType: "visit", property: "case_name" },
+	});
+	const hq = expandDoc(doc);
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
+	const local = read(zip.readAsText("modules-0/forms-0.xml"));
+	const items = child(local.data, "items");
+	expect(names(items)).toEqual([
+		"case",
+		"answer",
+		"nova_trimmed_answer",
+		"key",
+		"nova_operations",
+	]);
+	// The data node's own order is HQ's: fields, then the form's own case,
+	// then meta.
+	expect(names(local.data).slice(-2)).toEqual(["case", "orx:meta"]);
+});

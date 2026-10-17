@@ -145,8 +145,16 @@ function searchApp(
 	return { doc, form };
 }
 
+/** The visit opened on a patient: the note holds what the worker enters. */
 function noteHeld(form: ReturnType<typeof targetedUuid>) {
-	return { intent: [answerHeld("note-held", form, "/data/note", "seen")] };
+	return {
+		intent: [
+			answerHeld("note-held", form, "/data/note", "seen", "local", {
+				command: "m0-f0",
+				caseId: "targeted-patient",
+			}),
+		],
+	};
 }
 
 export function searchDefaultFilterName() {

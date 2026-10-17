@@ -208,6 +208,19 @@ function checkFormActions(
 		errors,
 	);
 
+	// Nova writes an external id as an ordinary update row, the spelling HQ's
+	// Case Management tab writes; no editor sets `open_case.external_id`.
+	if (actions.open_case.external_id !== null) {
+		errors.push(
+			validationError(
+				"HQJSON_OPEN_CASE_EXTERNAL_ID",
+				"form",
+				`"${formName}" sets its external id through open_case.external_id. CommCare HQ's import accepts that, but no HQ editor writes it there: the Case Management tab writes an external id as an update_case.update.external_id row, and an editor save would move it. Look at how buildFormActions in lib/commcare/formActions.ts wrote this form's external id. This is a bug in the app generator.`,
+				{ formName },
+			),
+		);
+	}
+
 	// `update_mode` on every conditional-case-update entry. CCHQ's
 	// `ConditionalCaseUpdate.update_mode` is a choice slot; the update maps and
 	// the subcase property maps each carry one per property.

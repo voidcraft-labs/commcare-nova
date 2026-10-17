@@ -34,14 +34,15 @@
  *   `n >= 1` not taken.
  * - **Order**, each allocation joining the taken set: questions in field
  *   order, and for one question its constraint counts by ordinal, its
- *   constraint message, its url, its datetime, then (a repeat) its count;
+ *   constraint message, its url, its datetime, its trimmed value, then (a
+ *   repeat) its count;
  *   then the scope's containers `nova_operations`, `nova_subcases`,
  *   `nova_selected_cases`. Inside an operations namespace: operations in
  *   their authored order, each `nova_count_nova_keyed_`, then `nova_keyed_`,
  *   then `nova_condition_`, then guards in the order `type`, `retype`,
  *   `text`; then `nova_condition_update_selected_cases`,
- *   `nova_update_selected_cases`, `nova_subcase_<n>` ascending and
- *   `nova_close_selected_cases`.
+ *   `nova_update_selected_cases`, `nova_subcase_<n>` ascending,
+ *   `nova_close_selected_cases`, `nova_condition_close` and `nova_close`.
  *
  * A generated name moves only when its owner is renamed or an authored
  * sibling equal to it appears or disappears, both edits to the same form.
@@ -54,6 +55,7 @@ import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	caseScalarTextGuards,
 	type Field,
 	fieldExpressionValue,
 	fieldKindCarriesValidation,
@@ -80,6 +82,7 @@ export type GeneratedNodePurpose =
 	| "constraint-message"
 	| "url"
 	| "datetime"
+	| "trimmed"
 	| "count"
 	| "keyed-count"
 	| "keyed"
@@ -102,6 +105,11 @@ export interface GeneratedNodePlan {
 	url(fieldUuid: Uuid): string;
 	/** The sibling holding a datetime answer's case value as text. */
 	datetime(fieldUuid: Uuid): string;
+	/**
+	 * The sibling holding a case name's or external id's value trimmed, which
+	 * every write of that value names.
+	 */
+	trimmed(fieldUuid: Uuid): string;
 	/**
 	 * A count-bound repeat's calculated count. A repeat whose count reads a
 	 * question directly has no count node; this is the name its count would
@@ -134,6 +142,10 @@ export interface GeneratedNodePlan {
 	conditionUpdateSelectedCases(): string;
 	/** The close of every selected case, at the form root. */
 	closeSelectedCases(): string;
+	/** The group whose relevance carries a Save to Case close's condition. */
+	conditionClose(): string;
+	/** The close-only block of the form's own case, inside that group. */
+	close(): string;
 	/** Every question- and operation-owned node the plan allocated. */
 	readonly nodes: readonly GeneratedNode[];
 }
@@ -203,6 +215,18 @@ export function formConnectIds(
 	);
 }
 
+/**
+ * The trimmed sibling of the question at `path`, which every write of a case
+ * name or an external id names in place of the question.
+ */
+export function trimmedValuePath(
+	plan: GeneratedNodePlan,
+	fieldUuid: Uuid,
+	path: FormPath,
+): FormPath {
+	return path.parent().child(plan.trimmed(fieldUuid));
+}
+
 /** The name a count-bound repeat's count node takes beside no collision. */
 export function repeatCountBaseName(repeatId: string): string {
 	return `nova_count_${repeatId}`;
@@ -213,6 +237,7 @@ const SUBCASES = "nova_subcases";
 const SELECTED_CASES = "nova_selected_cases";
 const UPDATE_SELECTED_CASES = "nova_update_selected_cases";
 const CLOSE_SELECTED_CASES = "nova_close_selected_cases";
+const CLOSE = "nova_close";
 
 /** One parent element's names: authored ones first, then each allocation. */
 class Namespace {
@@ -289,6 +314,8 @@ function allocateGeneratedNodes(
 		);
 	};
 
+	const trimmedFields = caseScalarTextGuards(doc, formUuid);
+
 	// Field namespaces: one per container's child element, in field order.
 	const fieldScopes = new Map<string, Namespace>();
 	const countBases = new Map<Uuid, { scope: Namespace; base: string }>();
@@ -331,6 +358,12 @@ function allocateGeneratedNodes(
 					"datetime",
 					field.uuid,
 					scope.allocate(`nova_datetime_${field.id}`),
+				);
+			if (trimmedFields.has(field.uuid))
+				record(
+					"trimmed",
+					field.uuid,
+					scope.allocate(`nova_trimmed_${field.id}`),
 				);
 			if (field.kind === "repeat" && field.repeat_mode === "count_bound") {
 				const base = repeatCountBaseName(field.id);
@@ -445,6 +478,10 @@ function allocateGeneratedNodes(
 	);
 	const updateSelectedCases = rootOperations.allocate(UPDATE_SELECTED_CASES);
 	const closeSelectedCases = rootOperations.peek(CLOSE_SELECTED_CASES);
+	const conditionClose = rootOperations.allocate(
+		`nova_condition_${CLOSE.slice("nova_".length)}`,
+	);
+	const close = rootOperations.allocate(CLOSE);
 
 	const lookup = (
 		purpose: GeneratedNodePurpose,
@@ -471,6 +508,7 @@ function allocateGeneratedNodes(
 		constraintMessage: (fieldUuid) => lookup("constraint-message", fieldUuid),
 		url: (fieldUuid) => lookup("url", fieldUuid),
 		datetime: (fieldUuid) => lookup("datetime", fieldUuid),
+		trimmed: (fieldUuid) => lookup("trimmed", fieldUuid),
 		count: (repeatUuid) => {
 			const planned = byOwner.get(ownerKey("count", repeatUuid));
 			if (planned !== undefined) return planned;
@@ -494,6 +532,8 @@ function allocateGeneratedNodes(
 		updateSelectedCases: () => updateSelectedCases,
 		conditionUpdateSelectedCases: () => conditionUpdateSelectedCases,
 		closeSelectedCases: () => closeSelectedCases,
+		conditionClose: () => conditionClose,
+		close: () => close,
 		nodes,
 	};
 }

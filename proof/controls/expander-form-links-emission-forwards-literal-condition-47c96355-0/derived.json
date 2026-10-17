@@ -90,7 +90,12 @@
 						}
 					]
 				]
-			]
+			],
+			"sequence": 1,
+			"settings": {
+				"showIncompleteForms": false,
+				"showSavedForms": false
+			}
 		},
 		"lookupTags": {},
 		"wire": {
@@ -202,7 +207,12 @@
 						}
 					]
 				]
-			]
+			],
+			"sequence": 2,
+			"settings": {
+				"showIncompleteForms": false,
+				"showSavedForms": false
+			}
 		},
 		"lookupTags": {},
 		"wire": {

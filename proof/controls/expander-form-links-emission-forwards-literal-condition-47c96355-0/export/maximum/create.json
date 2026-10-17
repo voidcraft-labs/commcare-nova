@@ -11,5 +11,6 @@
 		"status": "not_needed",
 		"capabilities": [],
 		"advisories": []
-	}
+	},
+	"layout": 2
 }

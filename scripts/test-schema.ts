@@ -22,7 +22,7 @@
  *     `setCaseListFilter`, `setCaseListTile`, `addSearchInputs`, `updateSearchInput`,
  *     `removeSearchInput`, `reorderSearchInputs`,
  *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
- *     `moveField`, `createForm`, `createModule`, `updateModule`,
+ *     `moveField`, `createForm`, `createModule`, `updateModule`, `updateForm`,
  *     `renameCaseProperties`, `addLanguage`, `updateTranslations`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
  *     `setAppLogo`, `listMediaAssets`,
@@ -85,6 +85,7 @@ import {
 } from "../lib/agent/tools/organization";
 import { renameCasePropertiesTool } from "../lib/agent/tools/renameCaseProperties";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
+import { updateFormTool } from "../lib/agent/tools/updateForm";
 import {
 	updateModuleInputSchema,
 	updateModuleTool,
@@ -141,6 +142,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: updateModuleInputSchema,
 		prompt:
 			'Use updateModule with moduleUuid 11111111-1111-4111-8111-111111111111 to set its case type to "patient" and rename it to "Patients".',
+	},
+	{
+		name: "updateForm",
+		description: updateFormTool.description,
+		schema: updateFormTool.inputSchema,
+		prompt:
+			"Use updateForm with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to close the case only when the answer to fieldUuid 33333333-3333-4333-8333-333333333333 is 'done'.",
 	},
 	{
 		name: "configureCaseList",

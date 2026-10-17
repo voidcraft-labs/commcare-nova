@@ -376,7 +376,13 @@ The standard writable scalars are a separate, explicit projection:
 Preview routes them through the primary/child scalar slots that the submission
 envelope maps to `cases.case_name` and `cases.external_id`. Both use the shared
 Java `String.trim` boundary (only U+0000 through U+0020) and the 255 UTF-16-unit
-limit. An active blank `case_name` is invalid; an active blank `external_id` is
+limit. The form engine refuses a blank or over-long case name, and an over-long
+external id, at the question a worker answers, reading
+`lib/domain/caseScalarTextGuard.ts::caseScalarTextGuards`, as a device refuses
+it from that question's own constraint, on the kinds
+`caseScalarTextGuardIsChecked` names, the emitter's own predicate (a Hidden
+Value source takes no such check). A case-destination edit that moves a guard
+revalidates the answers it reaches. An active blank `case_name` is invalid; an active blank `external_id` is
 a real `""` write that clears the value. A missing or irrelevant writer is no
 intent and preserves the existing scalar. The primary destination in an
 authored several-case form has one additional safeguard: a normalized blank

@@ -314,266 +314,6 @@
 		"control": "targeted-invalid-question-ids"
 	},
 	{
-		"id": "d14-close-conditions-app-own-case-condition-not-offered-or-quoted-3731",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:Form.actions/refused/own-case-condition-not-offered-or-quoted",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-app-answer-with-apostrophe-ab34",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:FormAction.condition/refused/answer-with-apostrophe",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-app-own-case-condition-not-offered-or-quoted-2119",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:FormAction.condition/refused/own-case-condition-not-offered-or-quoted",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-app-answer-with-apostrophe-4107",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:FormActionCondition.answer/refused/answer-with-apostrophe",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-app-own-case-condition-not-offered-or-quoted-2f42",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:FormActionCondition.answer/refused/own-case-condition-not-offered-or-quoted",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-app-own-case-condition-not-offered-or-quoted-ba84",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:FormActionCondition.question/refused/own-case-condition-not-offered-or-quoted",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-app-own-case-condition-not-offered-or-quoted-bf5c",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:FormActions.close_case/refused/own-case-condition-not-offered-or-quoted",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-blocks-case-close-937a",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/blocks/*/case/*/close",
-		"values": {
-			"before": "",
-			"after": null
-		},
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-blocks-closed-9db3",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/cases/*/closed",
-		"values": {
-			"before": true,
-			"after": false
-		},
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-trace-case-status-7b66",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/@status",
-		"values": {
-			"before": "closed",
-			"after": "open"
-		},
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-trace-case-last-modified-b2a8",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/last_modified[*]/text()",
-		"values": {
-			"before": "@clock:today",
-			"after": "2025-12-01"
-		},
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-trace-case-close-7842",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission/data/case[*]/close[*]",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-app-condition-answer",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "app.json@case management@*",
-		"path": "/modules/*/forms/*/actions/close_case/condition/answer",
-		"values": {
-			"before": "\"done\"",
-			"after": "done"
-		},
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-app-condition-question",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "app.json@case management@*",
-		"path": "/modules/*/forms/*/actions/close_case/condition/question",
-		"values": {
-			"before": "/data/outcome",
-			"after": ""
-		},
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-blocks-case-close-3452",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "case_blocks@case management@*",
-		"path": "/runs/*/blocks/*/case/*/close",
-		"values": {
-			"before": "",
-			"after": null
-		},
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-blocks-closed-cf78",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "case_blocks@case management@*",
-		"path": "/runs/*/cases/*/closed",
-		"values": {
-			"before": true,
-			"after": false
-		},
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-form-close-relevant",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "form:*@case management@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/case/close]/@relevant",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-trace-case-status-4d82",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "trace@case management@*",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/@status",
-		"values": {
-			"before": "closed",
-			"after": "open"
-		},
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-trace-case-last-modified-7f74",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "trace@case management@*",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/last_modified[*]/text()",
-		"values": {
-			"before": "@clock:today",
-			"after": "2025-12-01"
-		},
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-trace-case-close-f132",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "trace@case management@*",
-		"path": "/runs/*/trace/*/submission/data/case[*]/close[*]",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-trace-validate-app-path-error",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "trace@case management@*",
-		"path": "/unbuildable/validate_app/modules/*/forms/*/path error",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-validate-path-error",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "validate_app@case management@*",
-		"path": "/modules/*/forms/*/path error",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
 		"id": "d14-logos-media-unmatched-logo-refs",
 		"defect": 14,
 		"part": "logos",
@@ -624,120 +364,21 @@
 		"control": "case-capture-multiple"
 	},
 	{
-		"id": "d14-non-writing-followup-app-schema-form-actions-update-never-followup-alone",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:Form.actions/refused/update-never-followup-alone",
-		"document": "targeted-search-hq-compile",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-non-writing-followup-app-update-never-followup-alone-6cae",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:FormActions.update_case/refused/update-never-followup-alone",
-		"document": "targeted-search-hq-compile",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-non-writing-followup-app-update-never-followup-alone-c173",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:UpdateCaseAction.condition/refused/update-never-followup-alone",
-		"document": "targeted-search-hq-compile",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-non-writing-followup-app-condition-type",
-		"defect": 14,
-		"part": "non-writing follow-up",
+		"id": "d26-a-link-names-no-case-soft-assert-casedb-base-get-case-from-case-update",
+		"defect": 26,
+		"part": "a link's case value names no case",
 		"check": "proof4",
-		"artifact": "app.json@case management@*",
-		"path": "/modules/*/forms/*/actions/update_case/condition/type",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
+		"artifact": "android@soft_assert:request:*",
+		"path": "/corehq~1form_processor~1casedb_base.py::get_case_from_case_update",
+		"kind": "error",
+		"document": "expander-form-links-emission-forwards-literal-condition-47c96355-0",
+		"control": "expander-form-links-emission-forwards-literal-condition-47c96355-0"
 	},
 	{
-		"id": "d14-non-writing-followup-blocks-case",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "proof4",
-		"artifact": "case_blocks@case management@*",
-		"path": "/runs/*/blocks/*/case",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-non-writing-followup-blocks",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "proof4",
-		"artifact": "case_blocks@case management@*",
-		"path": "/runs/*/cases/*",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-non-writing-followup-form-case-case-id",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "proof4",
-		"artifact": "form:*@case management@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/case/@case_id]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-non-writing-followup-form-case-date-modified",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "proof4",
-		"artifact": "form:*@case management@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/case/@date_modified]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-non-writing-followup-form-case-user-id",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "proof4",
-		"artifact": "form:*@case management@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/case/@user_id]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-non-writing-followup-form-instance-case",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "proof4",
-		"artifact": "form:*@case management@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/case[*]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-non-writing-followup-trace-case",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "proof4",
-		"artifact": "trace@case management@*",
-		"path": "/runs/*/trace/*/submission/data/case[*]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d14-non-writing-followup-soft-assert-casedb-base-get-case-from-case-update",
-		"defect": 14,
-		"part": "non-writing follow-up (HQ makes the case a form link's literal id names, which no form created)",
-		"check": "proof4",
+		"id": "d26-a-link-names-no-case-soft-assert-proof3-casedb-base-get-case-from-case-update",
+		"defect": 26,
+		"part": "a link's case value names no case",
+		"check": "proof3",
 		"artifact": "android@soft_assert:request:*",
 		"path": "/corehq~1form_processor~1casedb_base.py::get_case_from_case_update",
 		"kind": "error",
@@ -2564,166 +2205,6 @@
 		"control": "expander-empty-container-expansion-emits-an-empty-group-86a5cfc1-0"
 	},
 	{
-		"id": "d33-trimmed-blocks-create-case-name-da66",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/blocks/*/*~1case/*/create/case_name",
-		"document": "case-capture-repeat",
-		"control": "case-capture-repeat"
-	},
-	{
-		"id": "d33-trimmed-blocks-create-case-name-75ae",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/blocks/*/*~1item~1case/*/create/case_name",
-		"document": "case-capture-query",
-		"control": "case-capture-query"
-	},
-	{
-		"id": "d33-trimmed-blocks-create-case-name-fbcf",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/blocks/*/*~1item~1subcase_*~1case/*/create/case_name",
-		"document": "case-extension-query",
-		"control": "case-extension-query"
-	},
-	{
-		"id": "d33-trimmed-blocks-create-case-name-302f",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/blocks/*/*~1subcase_*~1case/*/create/case_name",
-		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
-	},
-	{
-		"id": "d33-trimmed-blocks-create-case-name-3912",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/blocks/*/case/*/create/case_name",
-		"document": "targeted-custom-tile",
-		"control": "case-extension-registration"
-	},
-	{
-		"id": "d33-trimmed-blocks-update-case-name",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/blocks/*/case/*/update/case_name",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d33-trimmed-blocks-update-external-id",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/blocks/*/case/*/update/external_id",
-		"document": "case-operation-relevance",
-		"control": "navigation-base"
-	},
-	{
-		"id": "d33-trimmed-blocks-create-case-name-0d9c",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/blocks/*/subcase_*~1case/*/create/case_name",
-		"document": "case-extension-registration",
-		"control": "case-extension-registration"
-	},
-	{
-		"id": "d33-trimmed-blocks-external-id",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/cases/*/external_id",
-		"document": "case-operation-relevance",
-		"control": "navigation-base"
-	},
-	{
-		"id": "d33-trimmed-blocks-name",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "case_blocks@local.ccz",
-		"path": "/runs/*/cases/*/name",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0",
-		"control": "case-extension-registration"
-	},
-	{
-		"id": "d33-trimmed-trace-create-case-name-1739",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission/data/*/case[*]/create[*]/case_name[*]/text()",
-		"document": "case-capture-repeat",
-		"control": "case-capture-repeat"
-	},
-	{
-		"id": "d33-trimmed-trace-create-case-name-f103",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/case[*]/create[*]/case_name[*]/text()",
-		"document": "case-capture-query",
-		"control": "case-capture-query"
-	},
-	{
-		"id": "d33-trimmed-trace-create-case-name-c348",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission/data/case[*]/create[*]/case_name[*]/text()",
-		"document": "targeted-custom-tile",
-		"control": "case-extension-registration"
-	},
-	{
-		"id": "d33-trimmed-trace-update-case-name",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission/data/case[*]/update[*]/case_name[*]/text()",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d33-trimmed-trace-update-external-id",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission/data/case[*]/update[*]/external_id[*]/text()",
-		"document": "case-operation-relevance",
-		"control": "navigation-base"
-	},
-	{
-		"id": "d33-trimmed-trace-create-case-name-4cbc",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission/data/subcase_*[*]/case[*]/create[*]/case_name[*]/text()",
-		"document": "case-extension-registration",
-		"control": "case-extension-registration"
-	},
-	{
 		"id": "d35-hidden-select-text-trace-rows-fields",
 		"defect": 35,
 		"part": "hidden select column text",
@@ -2742,26 +2223,6 @@
 		"path": "/runs/*/trace/*/headers/*",
 		"document": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0",
 		"control": "case-list-inline"
-	},
-	{
-		"id": "d37-case-order-trace-order-d1aa",
-		"defect": 37,
-		"part": "new case order",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/caseDb/casedb/order()",
-		"document": "case-extension-registration",
-		"control": "case-extension-registration"
-	},
-	{
-		"id": "d37-case-order-trace-order-cb3c",
-		"defect": 37,
-		"part": "new case order",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission/data/order()",
-		"document": "case-extension-registration",
-		"control": "case-extension-registration"
 	},
 	{
 		"id": "d38-image-map-width-trace-headerwidths",
@@ -2932,25 +2393,6 @@
 		"path": "/csql-fn:search-value-mixes-quote-marks/refused",
 		"document": "targeted-search-hq-compile",
 		"control": "targeted-search-hq-compile"
-	},
-	{
-		"id": "d14-close-conditions-admission-unresolved-resource",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "bar",
-		"artifact": "admission@*",
-		"path": "/problems/*/install/org.commcare.resources.model.UnresolvedResourceException",
-		"document": "targeted-close-condition-unparsable",
-		"control": "targeted-close-condition-unparsable",
-		"values": {
-			"before": null,
-			"after": {
-				"stage": "install",
-				"descriptor": "Form: (Module Visits) - Close when finished",
-				"message": "Encountered a problem with display condition for node [/data/case/close] at line: /data/outcome = 'it's done', Couldn't understand the expression starting at this point: .../outcome = 'it'\u034esdone'",
-				"class": "org.commcare.resources.model.UnresolvedResourceException"
-			}
-		}
 	},
 	{
 		"id": "d15-question-ids-admission-unresolved-resource",
@@ -3305,16 +2747,6 @@
 		"control": "case-extension-query-after-13"
 	},
 	{
-		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-order",
-		"defect": 24,
-		"part": "inert subcase",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/order()",
-		"document": "case-capture-query",
-		"control": "case-capture-query"
-	},
-	{
 		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-subcase",
 		"defect": 24,
 		"part": "inert subcase",
@@ -3323,80 +2755,6 @@
 		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/subcase_*[*]",
 		"document": "case-extension-query",
 		"control": "case-extension-query-after-13"
-	},
-	{
-		"id": "d33-trimmed-case-names-and-exter-formplayer-local-ccz-update-external-id-text",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]/update[*]/external_id[*]/text()",
-		"document": "navigation-base",
-		"control": "navigation-base"
-	},
-	{
-		"id": "d33-trimmed-case-names-and-exter-formplayer-local-ccz-submissions-create-case-name-text",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/create[*]/case_name[*]/text()",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-after-59"
-	},
-	{
-		"id": "d33-trimmed-case-names-and-exter-formplayer-local-ccz-submissions-group-create-case-name-text",
-		"defect": 33,
-		"part": "trimmed case names and external ids",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/*/case[*]/create[*]/case_name[*]/text()",
-		"kind": "changed",
-		"document": "case-capture-repeat",
-		"control": "case-capture-repeat-after-59"
-	},
-	{
-		"id": "d66-update-property-order-formplayer-local-ccz-case-update-order",
-		"defect": 66,
-		"part": "update property order",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]/update[*]/order()",
-		"document": "workforce-case-operation-sequence",
-		"control": "workforce-case-operation-sequence"
-	},
-	{
-		"id": "d37-new-case-order-formplayer-local-ccz-output-data-order",
-		"defect": 37,
-		"part": "new case order",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/order()",
-		"document": "case-extension-registration",
-		"control": "case-extension-registration"
-	},
-	{
-		"id": "d37-case-order-formplayer-local-ccz-submissions-data-order",
-		"defect": 37,
-		"part": "new case order",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/order()",
-		"kind": "changed",
-		"document": "case-extension-registration",
-		"control": "case-extension-registration-after-59"
-	},
-	{
-		"id": "d37-case-order-formplayer-local-ccz-submissions-data-group-order",
-		"defect": 37,
-		"part": "new case order",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/*/order()",
-		"kind": "changed",
-		"document": "case-capture-repeat",
-		"control": "case-capture-repeat-after-59"
 	},
 	{
 		"id": "d24-inert-subcase-formplayer-local-ccz-output-data-subcase",
@@ -3763,56 +3121,6 @@
 		"path": "/runs/*/steps/*/submit/nextScreen/usesCaseTiles",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-non-writing-follow-up-formplayer-case-management-output-data-case",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "proof4",
-		"artifact": "formplayer@case management@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]",
-		"document": "targeted-form-links-hidden-and-fallback",
-		"control": "targeted-form-links-hidden-and-fallback"
-	},
-	{
-		"id": "d14-non-writing-follow-up-formplayer-case-management-instance-data-case",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "proof4",
-		"artifact": "formplayer@case management@*",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]",
-		"document": "targeted-form-links-hidden-and-fallback",
-		"control": "targeted-form-links-hidden-and-fallback"
-	},
-	{
-		"id": "d14-close-conditions-formplayer-case-management-data-case-close",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "formplayer@case management@*",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/close[*]",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-non-writing-follow-up-formplayer-case-management-output-data-case-2",
-		"defect": 14,
-		"part": "non-writing follow-up",
-		"check": "proof4",
-		"artifact": "formplayer@case management@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/instanceXml/output/data/case[*]",
-		"document": "search-registration-link",
-		"control": "search-registration-link"
-	},
-	{
-		"id": "d14-close-conditions-formplayer-case-management-submit-nextscreen-type",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "formplayer@case management@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/type",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
 	},
 	{
 		"id": "d26-hidden-links-and-navigation--formplayer-form-settings-submit-nextscreen",
@@ -4281,21 +3589,6 @@
 		"control": "targeted-search-hq-compile"
 	},
 	{
-		"id": "d14-android-proof3-local-ccz-install-changed",
-		"defect": 14,
-		"part": "close conditions (HQ's build does not install)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/install",
-		"kind": "changed",
-		"document": "targeted-close-condition-unparsable",
-		"control": "targeted-close-condition-unparsable",
-		"values": {
-			"before": "InvalidResource",
-			"after": "Installed"
-		}
-	},
-	{
 		"id": "d15-android-proof3-local-ccz-install-changed",
 		"defect": 15,
 		"part": "question ids (HQ's build does not install)",
@@ -4365,17 +3658,6 @@
 		"kind": "changed",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry"
-	},
-	{
-		"id": "d14-android-proof3-local-ccz-form-saved-cases-changed",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/form/saved/cases/*",
-		"kind": "changed",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
 	},
 	{
 		"id": "d36-android-proof3-local-ccz-list-entityselectactivity-getsortoptionslist-changed",
@@ -4637,94 +3919,6 @@
 		"kind": "changed",
 		"document": "navigation-search-date-add",
 		"control": "navigation-search-date-add"
-	},
-	{
-		"id": "d14-android-proof4-case-management-form-saved-cases-changed",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "android@case management@*",
-		"path": "/walks/*/steps/*/form/saved/cases/*",
-		"kind": "changed",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-android-proof4-case-management-list-order-changed",
-		"defect": 14,
-		"part": "non-writing follow-up (HQ applies the touch, so the touched case moves after its ties in HQ's next search)",
-		"check": "proof4",
-		"artifact": "android@case management@*",
-		"path": "/walks/*/steps/*/list/order",
-		"kind": "changed",
-		"document": "case-list-inline",
-		"control": "case-list-inline"
-	},
-	{
-		"id": "d14-android-proof4-case-management-formentryactivity-error-saving-your-form-changed",
-		"defect": 14,
-		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
-		"check": "proof4",
-		"artifact": "android@case management@*",
-		"path": "/walks/*/screens/after-FormEntryActivity:FormEntryActivity:FormEntryActivity!Error Saving your Form",
-		"kind": "changed",
-		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
-		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
-	},
-	{
-		"id": "d14-android-proof4-case-management-form-saved-aftersend-removed",
-		"defect": 14,
-		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
-		"check": "proof4",
-		"artifact": "android@case management@*",
-		"path": "/walks/*/steps/*/form/saved/afterSend",
-		"kind": "removed",
-		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
-		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
-	},
-	{
-		"id": "d14-android-proof4-case-management-form-saved-casesastheformopened-added",
-		"defect": 14,
-		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
-		"check": "proof4",
-		"artifact": "android@case management@*",
-		"path": "/walks/*/steps/*/form/saved/casesAsTheFormOpened",
-		"kind": "added",
-		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
-		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
-	},
-	{
-		"id": "d14-android-proof4-case-management-form-saved-finishing-changed",
-		"defect": 14,
-		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
-		"check": "proof4",
-		"artifact": "android@case management@*",
-		"path": "/walks/*/steps/*/form/saved/finishing",
-		"kind": "changed",
-		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
-		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
-	},
-	{
-		"id": "d14-android-proof4-case-management-form-saved-records-status-changed",
-		"defect": 14,
-		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
-		"check": "proof4",
-		"artifact": "android@case management@*",
-		"path": "/walks/*/steps/*/form/saved/records/*/status",
-		"kind": "changed",
-		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
-		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
-	},
-	{
-		"id": "d14-android-proof4-case-management-form-saved-resultcode-removed",
-		"defect": 14,
-		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
-		"check": "proof4",
-		"artifact": "android@case management@*",
-		"path": "/walks/*/steps/*/form/saved/resultCode",
-		"kind": "removed",
-		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
-		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
 	},
 	{
 		"id": "d25-android-proof4-vellum-menuactivity-formentryactivity-formentryactivity-error-occurred-changed",
@@ -5963,38 +5157,6 @@
 		"control": "navigation-search-datetime-add"
 	},
 	{
-		"id": "d14-close-conditions-webapps-case-management-screens-kind",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof4",
-		"artifact": "webapps@case management@*",
-		"path": "/runs/*/screens/*/kind",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
-	},
-	{
-		"id": "d14-close-conditions-formplayer-local-ccz-submissions-data-case-close",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/close[*]",
-		"kind": "removed",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions-after-59"
-	},
-	{
-		"id": "d14-close-conditions-formplayer-local-ccz-submit-nextscreen-type",
-		"defect": 14,
-		"part": "close conditions",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submit/nextScreen/type",
-		"kind": "changed",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions-after-59"
-	},
-	{
 		"id": "d26-form-links-webapps-form-settings-breadcrumbs",
 		"defect": 26,
 		"part": "hidden links and navigation fallbacks",
@@ -6463,5 +5625,69 @@
 		"kind": "removed",
 		"document": "case-capture-multiple",
 		"control": "case-capture-multiple-after-3"
+	},
+	{
+		"id": "d24-inert-subcase-blocks-item-case-added",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "case_blocks@local.ccz",
+		"path": "/runs/*/blocks/*/*~1item~1case",
+		"kind": "added",
+		"document": "case-extension-query",
+		"control": "case-extension-query-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-blocks-item-subcase-case-removed",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "case_blocks@local.ccz",
+		"path": "/runs/*/blocks/*/*~1item~1subcase_*~1case",
+		"kind": "removed",
+		"document": "case-extension-query",
+		"control": "case-extension-query-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-blocks-cases",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "case_blocks@local.ccz",
+		"path": "/runs/*/cases/*",
+		"document": "case-extension-query",
+		"control": "case-extension-query-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-blocks-case-added",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "case_blocks@local.ccz",
+		"path": "/runs/*/blocks/*/*~1case",
+		"kind": "added",
+		"document": "case-extension-repeat",
+		"control": "case-extension-repeat-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-blocks-subcase-case-removed",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "case_blocks@local.ccz",
+		"path": "/runs/*/blocks/*/*~1subcase_*~1case",
+		"kind": "removed",
+		"document": "case-extension-repeat",
+		"control": "case-extension-repeat-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-trace-casedb-case",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]",
+		"document": "case-extension-repeat",
+		"control": "case-extension-repeat-after-13"
 	}
 ]

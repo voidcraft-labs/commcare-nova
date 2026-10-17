@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { FieldPicker } from "@/components/ui/FieldPicker";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useCloseConditionPlacement } from "@/lib/doc/hooks/useCloseConditionPlacement";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useFieldEntrySource } from "@/lib/doc/hooks/useFieldEntrySource";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
@@ -55,7 +56,9 @@ interface FormCloseConditionDraft {
  * carries a finite option list, the value selector swaps to a dropdown
  * of those options; otherwise a plain text input is shown. HQ wraps
  * string values in quotes automatically, so users type literal values
- * rather than XPath expressions.
+ * rather than XPath expressions. A saved condition the Case Management
+ * tab of CommCare HQ cannot state is written as a Save to Case close, and
+ * the section says so beneath the condition.
  */
 export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
@@ -64,6 +67,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	 * outcome inline, so theirs stays quiet. */
 	const { updateForm: updateFormAction, inline } = useBlueprintMutations();
 	const triggerId = useId();
+	const placement = useCloseConditionPlacement(formUuid);
 
 	/* FieldPicker and close-field resolution share one shallow-stable owning-doc
 	 * slice. It carries the field tree plus the form/worker-information context
@@ -308,6 +312,13 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 							 * anchor the finding to. */}
 							<RejectionInline message={conditionRejection} />
 						</div>
+						{savedCondition !== undefined && placement === "save-to-case" && (
+							<p className="mt-1.5 text-xs text-nova-text-muted">
+								CommCare HQ saves this condition as a Save to Case close.
+								Publishing checks that the project space's plan includes Save to
+								Case.
+							</p>
+						)}
 					</motion.div>
 				)}
 			</AnimatePresence>

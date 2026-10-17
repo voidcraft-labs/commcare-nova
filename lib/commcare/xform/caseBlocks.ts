@@ -53,7 +53,6 @@ import {
 import { newCaseIdDatumId } from "@/lib/commcare/session";
 import { subcaseSessionDatumId } from "@/lib/commcare/subcaseWire";
 import { SESSION_USERCASE_ID } from "@/lib/commcare/usercaseWire";
-import { caseScalarTextValueCalculation } from "@/lib/commcare/xform/caseOps";
 import {
 	appendChildren,
 	ensureInstance,
@@ -61,6 +60,7 @@ import {
 	findModelElement,
 	insertBeforeItext,
 	parseXForm,
+	prependChildren,
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
@@ -88,11 +88,25 @@ function formActionsPropertyToWire(property: string): string {
 }
 
 /**
+ * HQ's order for a block's update and attachment children and their binds:
+ * by wire property name, as `xform.py::XFormCaseBlock.add_case_updates` sorts
+ * them. Python orders `str` keys by code point, and every wire property name
+ * is ASCII (`lib/domain/casePropertyName.ts`), where code-unit order agrees.
+ */
+function byWireName(
+	a: { validProp: string },
+	b: { validProp: string },
+): number {
+	return a.validProp < b.validProp ? -1 : a.validProp > b.validProp ? 1 : 0;
+}
+
+/**
  * The structured payload `buildCaseBlocks` returns. Three siblings the caller
  * splices into the existing XForm DOM:
  *
- *   - `dataChildren` — the `<case>` and (zero or more) `<subcase_n>` elements
- *     appended under the form's primary `<data>` instance node.
+ *   - `dataChildren` — the `<subcase_n>` elements, then the `<case>`, then
+ *     the worker's record, spliced under the form's primary `<data>` node
+ *     (or a repeat item) in HQ's order.
  *   - `binds` — the per-attribute and per-property `<bind>` elements appended
  *     to the form's `<model>`, alongside any other binds the main emitter
  *     produced.
@@ -100,11 +114,11 @@ function formActionsPropertyToWire(property: string): string {
  *     non-repeat subcases, plus case-preload reads from `casedb`) appended to
  *     the form's `<model>`. Form-root scope because `xforms-ready` fires once
  *     at form load.
- *   - `requiredNamePaths` — the `/data/...` paths of every question that
- *     supplies a case name (primary open + each subcase open). The caller
- *     merges `required="true()"` onto each field's existing bind (CommCare
- *     forces every opened case's name question required, primary and subcase
- *     alike; mirrors `XFormCaseBlock.add_create_block`).
+ *   - `requiredNamePaths` — the path every create's name action names
+ *     (primary open + each subcase open), the question's trimmed sibling. The
+ *     caller merges `required="true()"` onto that node's bind, as
+ *     `XFormCaseBlock.add_create_block` does; it is inert on a calculated
+ *     node, and the question's own requirement is the source's (`builder.ts`).
  *   - `needsCasedbInstance` — true when a preload setvalue reads from `casedb`.
  *     The caller declares the `casedb` secondary instance if the form doesn't
  *     already carry it (`buildXForm`'s instance scan only sees field-level
@@ -134,6 +148,13 @@ function formActionsPropertyToWire(property: string): string {
 interface CaseBlockChild {
 	readonly parentPath: FormPath;
 	readonly element: Element;
+	/**
+	 * Where the child stands among its parent's: a repeat's single subcase
+	 * block is the first child of the repeat item, as HQ inserts it
+	 * (`subcase_node.insert(0, ...)` in `xform.py::XForm._create_casexml`);
+	 * every other block is appended.
+	 */
+	readonly position: "first" | "last";
 }
 
 interface CaseBlocksEmission {
@@ -215,7 +236,6 @@ function buildCaseBlocks(
 	// evaluates true.
 	const isCreate = openMode === "always" || openMode === "if";
 	const isUpdate = updateCase.condition.type === "always";
-	const openExternalId = isCreate ? openCase.external_id : null;
 	// Single read of the close condition's discriminator — reused below when
 	// deciding whether to emit a `relevant` bind.
 	const closeMode = closeCase.condition.type;
@@ -255,10 +275,9 @@ function buildCaseBlocks(
 	const caseChildren: Element[] = [];
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
-	// Paths of the questions that supply a case name on this form — the
-	// primary open plus every subcase open. Surfaced so the caller stamps
-	// `required="true()"` onto each field's bind (CommCare forces every
-	// opened case's name question required).
+	// The paths every create's name action names on this form — the primary
+	// open plus every subcase open. Surfaced so the caller stamps
+	// `required="true()"` onto each one's bind, as HQ's build does.
 	const requiredNamePaths: string[] = [];
 
 	// Typed reference to the primary `<case>` element under `<data>`. Every
@@ -308,16 +327,18 @@ function buildCaseBlocks(
 			openCase.name_update?.question_path ||
 			FormPath.root().child("name").toXPath();
 		const validatedNamePath = validateXFormPath(namePath);
+		// The action names the question's trimmed sibling, so the leaf binds
+		// it as it stands, as HQ's build does.
 		binds.push(
 			el("bind", {
 				nodeset: primaryCreatePath.child("case_name").toXPath(),
-				calculate: caseScalarTextValueCalculation(validatedNamePath),
+				calculate: validatedNamePath,
 			}),
 		);
-		// CommCare forces the case-name question required so a case can never be
-		// created nameless — `XFormCaseBlock.add_create_block` adds
-		// `required="true()"` to the source field's bind. Surface the path; the
-		// caller merges the attribute onto that field's existing bind.
+		// `XFormCaseBlock.add_create_block` adds `required="true()"` to the
+		// bind of the path the name action names, here the trimmed sibling,
+		// where it is inert; the local archive stamps it alike. The question's
+		// own requirement is the source's (`builder.ts`).
 		requiredNamePaths.push(validatedNamePath);
 		// owner_id reads from the always-on meta block (which is itself seeded
 		// from session/context at form load). Matching CCHQ's canonical shape —
@@ -363,28 +384,13 @@ function buildCaseBlocks(
 		);
 	}
 
-	if ((isUpdate && updateCase.update) || openExternalId !== null) {
-		// Always emit `<update/>` on the wire — CCHQ does the same via
-		// `XFormCaseBlock.update_block`'s memoized side-effect, and we
-		// match for byte-level parity so any future CCHQ-side check on
-		// the element's presence agrees on every Nova-emitted form.
+	if (isUpdate && Object.keys(updateCase.update).length > 0) {
+		// `<update>` stands exactly when the update map holds an entry: HQ's
+		// `XForm._add_case_updates` reaches `XFormCaseBlock.update_block` only
+		// for a non-empty map, so a follow-up that writes nothing carries the
+		// bare block that touches its case.
 		const primaryUpdatePath = primaryCasePath.child("update");
-		const updateMappings: Array<
-			readonly [
-				string,
-				{ readonly question_path: string; readonly update_mode: string },
-			]
-		> = [
-			...(openExternalId === null
-				? []
-				: [
-						[
-							"external_id",
-							{ question_path: openExternalId, update_mode: "always" },
-						] as const,
-					]),
-			...Object.entries(updateCase.update),
-		];
+		const updateMappings = Object.entries(updateCase.update);
 		// Resolve every write's question path once, then split on HQ's own
 		// structural rule. A write naming an `<upload ref>` is an attachment
 		// and belongs in the `<attachment>` block; everything else is an
@@ -393,12 +399,14 @@ function buildCaseBlocks(
 		// partition — listing an attachment property under `<update>` would
 		// leave a scalar child the receiver writes the file NAME into,
 		// beside the attachment carrying the file.
-		const resolvedWrites = updateMappings.map(([prop, mapping]) => {
-			const validProp = validatePropertyName(formActionsPropertyToWire(prop));
-			const qPath =
-				mapping.question_path || FormPath.root().child(prop).toXPath();
-			return { validProp, resolvedQPath: validateXFormPath(qPath) } as const;
-		});
+		const resolvedWrites = updateMappings
+			.map(([prop, mapping]) => {
+				const validProp = validatePropertyName(formActionsPropertyToWire(prop));
+				const qPath =
+					mapping.question_path || FormPath.root().child(prop).toXPath();
+				return { validProp, resolvedQPath: validateXFormPath(qPath) } as const;
+			})
+			.sort(byWireName);
 		const attachmentWrites = resolvedWrites.filter((write) =>
 			attachmentPaths().has(write.resolvedQPath),
 		);
@@ -462,14 +470,12 @@ function buildCaseBlocks(
 			// at submission, overwriting the case's existing property
 			// value. CCHQ's `XFormCaseBlock.add_case_updates` carries the
 			// same guard; matching here preserves case data through
-			// conditional-question flows.
+			// conditional-question flows. A name or an external id reads the
+			// question's trimmed sibling, which its action names.
 			binds.push(
 				el("bind", {
 					nodeset: primaryUpdatePath.child(validProp).toXPath(),
-					calculate:
-						validProp === "external_id" || validProp === "case_name"
-							? caseScalarTextValueCalculation(resolvedQPath)
-							: resolvedQPath,
+					calculate: resolvedQPath,
 					relevant: `count(${resolvedQPath}) > 0`,
 				}),
 			);
@@ -523,12 +529,12 @@ function buildCaseBlocks(
 	// A child-create-only followup still needs its selected parent block:
 	// every child index reads /data/case/@case_id. HQ bind_case_id likewise
 	// materializes this empty transaction even without parent property writes.
+	// The block is spliced after the subcase blocks and before the worker's
+	// record, the order `XForm._create_casexml` and `_add_usercase` leave the
+	// data node in; Core applies blocks in document order.
 	const dataChildren: CaseBlockChild[] = [];
-	if (isCreate || isUpdate || isClose || hasSubcases) {
-		dataChildren.push({
-			parentPath: FormPath.root(),
-			element: buildCaseElement(caseChildren),
-		});
+	const hasPrimaryBlock = isCreate || isUpdate || isClose || hasSubcases;
+	if (hasPrimaryBlock) {
 		// `<case>` attribute binds read out of the always-on /data/meta block
 		// (populated by setvalues from session/context at form load + on every
 		// revalidate for timeEnd). The meta block ships with every Nova-emitted
@@ -631,12 +637,11 @@ function buildCaseBlocks(
 		binds.push(
 			el("bind", {
 				nodeset: subcaseCreatePath.child("case_name").toXPath(),
-				calculate: caseScalarTextValueCalculation(namePath),
+				calculate: namePath,
 			}),
 		);
-		// CommCare forces every opened case's name question required, subcases
-		// included — `add_create_block` runs the same `required="true()"` stamp
-		// for the basic-module subcase path. Surface the path for the merge.
+		// `add_create_block` runs the same `required="true()"` stamp on the
+		// subcase's name action path. Surface the path for the merge.
 		requiredNamePaths.push(namePath);
 		// Owner-id binds to the submitting user. The basic module Nova uploads
 		// always autosets the owner via `autoset_owner_id_for_subcase`
@@ -722,14 +727,14 @@ function buildCaseBlocks(
 		// structural check, and `form_preparation_v2_advanced/`'s own
 		// `update_attachment_case.xml` carries the identical
 		// `<update/>` + `<attachment>` shape nested under its case wrapper.
-		const scWrites = Object.entries(sc.case_properties).map(
-			([prop, mapping]) => {
+		const scWrites = Object.entries(sc.case_properties)
+			.map(([prop, mapping]) => {
 				const validProp = validatePropertyName(prop);
 				const qPath =
 					mapping.question_path || FormPath.root().child(prop).toXPath();
 				return { validProp, resolvedQPath: validateXFormPath(qPath) } as const;
-			},
-		);
+			})
+			.sort(byWireName);
 		const scAttachmentWrites = scWrites.filter((write) =>
 			attachmentPaths().has(write.resolvedQPath),
 		);
@@ -786,10 +791,7 @@ function buildCaseBlocks(
 			binds.push(
 				el("bind", {
 					nodeset: subcaseUpdatePath.child(validProp).toXPath(),
-					calculate:
-						validProp === "external_id"
-							? caseScalarTextValueCalculation(resolvedQPath)
-							: resolvedQPath,
+					calculate: resolvedQPath,
 					relevant: `count(${resolvedQPath}) > 0`,
 				}),
 			);
@@ -863,16 +865,26 @@ function buildCaseBlocks(
 			dataChildren.push({
 				parentPath,
 				element: el(elName, {}, [caseElement]),
+				position: "last",
 			});
 		} else {
 			// `nest=false` only happens when `repeatCtxPath` is set (the
 			// single-subcase-per-real-repeat branch). The case splices
-			// directly into the repeat element.
+			// directly into the repeat element, as its first child.
 			dataChildren.push({
 				parentPath: repeatCtxPath as FormPath,
 				element: caseElement,
+				position: "first",
 			});
 		}
+	}
+
+	if (hasPrimaryBlock) {
+		dataChildren.push({
+			parentPath: FormPath.root(),
+			element: buildCaseElement(caseChildren),
+			position: "last",
+		});
 	}
 
 	// The worker's own record, mirroring `XForm._add_usercase` exactly: a
@@ -888,17 +900,23 @@ function buildCaseBlocks(
 		const usercasePath = FormPath.root().child("commcare_usercase");
 		const usercaseCasePath = usercasePath.child("case");
 		const usercaseUpdatePath = usercaseCasePath.child("update");
-		const properties = Object.keys(usercaseAction.update).map((property) =>
-			validatePropertyName(formActionsPropertyToWire(property)),
-		);
+		const writes = Object.entries(usercaseAction.update)
+			.map(([property, mapping]) => ({
+				validProp: validatePropertyName(formActionsPropertyToWire(property)),
+				questionPath: validateXFormPath(
+					mapping.question_path || FormPath.root().child(property).toXPath(),
+				),
+			}))
+			.sort(byWireName);
 		dataChildren.push({
+			position: "last",
 			parentPath: FormPath.root(),
 			element: el("commcare_usercase", {}, [
 				buildCaseElement([
 					el(
 						"update",
 						{},
-						properties.map((property) => el(property, {})),
+						writes.map((write) => el(write.validProp, {})),
 					),
 				]),
 			]),
@@ -926,13 +944,7 @@ function buildCaseBlocks(
 				calculate: metaUserID,
 			}),
 		);
-		for (const [property, mapping] of Object.entries(usercaseAction.update)) {
-			const wireProperty = validatePropertyName(
-				formActionsPropertyToWire(property),
-			);
-			const questionPath = validateXFormPath(
-				mapping.question_path || FormPath.root().child(property).toXPath(),
-			);
+		for (const { validProp: wireProperty, questionPath } of writes) {
 			// Same `count(...) > 0` guard every other update bind carries: a
 			// conditionally-hidden question has no data node at submission, and
 			// without the guard its bind would fire with an empty calculate and
@@ -1078,14 +1090,15 @@ export function addCaseBlocks(
 	const dataEl = findDataElement(doc, "addCaseBlocks");
 
 	// Group dataChildren by their splice parent's serialized XPath and walk
-	// each parent once. Per-parent batching keeps `appendChildren`'s
+	// each parent once, prepending the children that stand first and
+	// appending the rest. Per-parent batching keeps the splice helpers'
 	// `relinkSiblings` invariant clean (the linked-list `prev`/`next`
 	// pointers DOM-serializer walks in parallel with the children array stay
-	// consistent because each parent's children array is re-linked once after
-	// all its appends).
+	// consistent because each parent's children array is re-linked once per
+	// batch).
 	const spliceGroups = new Map<
 		string,
-		{ parent: Element; children: Element[] }
+		{ parent: Element; first: Element[]; last: Element[] }
 	>();
 	for (const child of emission.dataChildren) {
 		const key = child.parentPath.toXPath();
@@ -1097,14 +1110,16 @@ export function addCaseBlocks(
 			// parent, not once per child.
 			group = {
 				parent: resolveSpliceParent(dataEl, child.parentPath),
-				children: [],
+				first: [],
+				last: [],
 			};
 			spliceGroups.set(key, group);
 		}
-		group.children.push(child.element);
+		group[child.position].push(child.element);
 	}
-	for (const { parent, children } of spliceGroups.values()) {
-		appendChildren(parent, children);
+	for (const { parent, first, last } of spliceGroups.values()) {
+		if (first.length > 0) prependChildren(parent, first);
+		if (last.length > 0) appendChildren(parent, last);
 	}
 
 	// Splice binds + setvalues into `<model>`. The model's canonical child
@@ -1126,14 +1141,13 @@ export function addCaseBlocks(
 	const inserted: ChildNode[] = [...emission.binds, ...emission.setvalues];
 	insertBeforeItext(modelEl, inserted);
 
-	// Force every opened case's name question required. CommCare guarantees a
-	// case can't be created nameless by stamping `required="true()"` onto the
-	// name question's bind (`XFormCaseBlock.add_create_block`, run for the
-	// primary case AND every subcase). `buildXForm` already emitted each field's
-	// bind, so we merge the attribute onto it rather than appending a duplicate
-	// — matching CCHQ's `add_bind` merge-on-conflict, and JavaRosa's own bind
-	// merge. A missing bind is a compiler-bug invariant (every field gets one),
-	// so append defensively.
+	// Stamp `required="true()"` on the path each create's name action names,
+	// as `XFormCaseBlock.add_create_block` does for the primary case AND every
+	// subcase. `buildXForm` already emitted that node's bind, so we merge the
+	// attribute onto it rather than appending a duplicate — matching CCHQ's
+	// `add_bind` merge-on-conflict, and JavaRosa's own bind merge. A missing
+	// bind is a compiler-bug invariant (every node gets one), so append
+	// defensively.
 	for (const namePath of emission.requiredNamePaths ?? []) {
 		mergeRequiredOntoBind(modelEl, namePath);
 	}
@@ -1198,7 +1212,7 @@ function resolveSpliceParent(dataEl: Element, path: FormPath): Element {
  * appending a duplicate (CCHQ's `add_bind` merge-on-conflict). Binds are direct
  * children of `<model>`, so the search is direct-child only — matching CCHQ's
  * direct-child `get_bind` and avoiding the `<instance>`/`<data>` subtree. A
- * missing bind is a compiler-bug invariant (every field gets one), so a fresh
+ * missing bind is a compiler-bug invariant (every node gets one), so a fresh
  * bind is appended defensively.
  */
 function mergeRequiredOntoBind(model: Element, namePath: string): void {

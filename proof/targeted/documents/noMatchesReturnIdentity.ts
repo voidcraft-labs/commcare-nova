@@ -95,7 +95,12 @@ export function noMatchesReturnIdentity() {
 		doc,
 		edit,
 		expected: {
-			intent: [answerHeld("note-held", uuid("visit"), "/data/note", "seen")],
+			intent: [
+				answerHeld("note-held", uuid("visit"), "/data/note", "seen", "local", {
+					command: "m0-f0",
+					caseId: "targeted-patient",
+				}),
+			],
 		},
 		files: { "restore.xml": restoreXml({ cases: [] }) },
 	});

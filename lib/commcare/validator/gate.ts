@@ -453,6 +453,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	HQJSON_BAD_SUBCASE_RELATIONSHIP: "oracle",
 	HQJSON_BAD_DETAIL_DISPLAY: "oracle",
 	HQJSON_BAD_TYPE: "oracle",
+	HQJSON_OPEN_CASE_EXTERNAL_ID: "oracle",
 	HQJSON_BAD_NAV_MEDIA_VALUE: "oracle",
 	HQJSON_BAD_LOGO_REF: "oracle",
 	// ── Binding-resolution oracle ────────────────────────────────────

@@ -10,17 +10,28 @@ usercase datum and its assertion as the local suite carries them, and whole
 capture and operation forms free of editor attributes, which Core then runs
 (``CaseCaptureRuntimeTest``, ``CaseOperationRuntimeTest``), each operation
 form's blocks inside one ``nova_operations`` group whose body control HQ
-keeps. The plausible failures: HQ's basic case builder dropping
-``relationship="extension"`` (it ignores ``OpenSubCaseAction.relationship``),
-an active redundant transaction, a datum allocation or link match that no
-longer lines up with Nova's suite, a regenerated form Core cannot run, and a
-group HQ's form builder reads as a Hidden Value because no control names it.
+keeps. The local form's case blocks stand where HQ's build puts them
+(``xform.py::XForm._create_casexml``): the data node's children, and each
+repeat item's that holds a case block, in the order HQ's regenerated form
+holds them, every subcase before the form's own case, and a single repeat
+subcase's block first in its item; and each block's ``<update>`` and
+``<attachment>`` children in HQ's name order
+(``xform.py::XFormCaseBlock.add_case_updates``). The plausible failures: HQ's basic case
+builder dropping ``relationship="extension"`` (it ignores
+``OpenSubCaseAction.relationship``), an active redundant transaction, a datum
+allocation or link match that no longer lines up with Nova's suite, a
+regenerated form Core cannot run, a group HQ's form builder reads as a Hidden
+Value because no control names it, and a local block in another place than
+HQ's, which Core applies in another order (``XmlFormRecordProcessor.process``),
+and a local update whose properties stand in another order than HQ's.
 
 The relation-instance forms HQ regenerates for ``RelationInstanceRuntimeTest``
 have no HQ check of their own: the checks publish and build those documents
 (``proof/checks/bar.py``) and hold each write their operation makes to a case
 block of the form HQ built (``proof/checks/intent.py``).
 """
+
+import json
 
 from lxml import etree
 
@@ -31,6 +42,66 @@ FAMILIES = ("case",)
 OWNER_PRELOAD = "instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/@owner_id"
 VELLUM = '//@*[namespace-uri()="http://commcarehq.org/xforms/vellum"]'
 BODY = {"h": "http://www.w3.org/1999/xhtml"}
+
+
+def _data(tree):
+    """The form's data node: the first child of its primary instance."""
+    (data,) = tree.xpath("//x:model/x:instance[not(@src)]/*", namespaces=NAMESPACES)
+    return data
+
+
+def _names(element, left_out=()):
+    """The local names of ``element``'s child elements, in document order, but those ``left_out`` names."""
+    return [
+        etree.QName(child).localname
+        for child in element
+        if isinstance(child.tag, str) and etree.QName(child).localname not in left_out
+    ]
+
+
+def _child_orders(tree):
+    """The order of the children of the data node and of every element between it and a case block, each by the
+    element's path below the data node (the data node's own is ``""``)."""
+    data = _data(tree)
+    orders = {"": _names(data)}
+    for block in data.iter(f"{{{NAMESPACES['cx']}}}case"):
+        above = list(block.iterancestors())
+        below = above[: above.index(data)]
+        for depth, element in enumerate(below):
+            path = "/".join(etree.QName(step).localname for step in reversed(below[depth:]))
+            orders[path] = _names(element)
+    return orders
+
+
+def _write_orders(tree):
+    """The children of each case block's ``<update>`` and ``<attachment>``, one entry per block, sorted. A block HQ
+    disables (``relevant="false()"``) is left out: it is an inert subcase the local form does not write (defect 24).
+    The local form names and places a repeat's one remaining subcase as HQ does a single one (``case``, first in its
+    item) where HQ numbers it among the inert ones, so blocks are matched by what they write, not by path or place."""
+    data = _data(tree)
+    disabled = set(tree.xpath('//x:model/x:bind[@relevant="false()"]/@nodeset', namespaces=NAMESPACES))
+    orders = []
+    for block in data.iter(f"{{{NAMESPACES['cx']}}}case"):
+        steps = [etree.QName(step).localname for step in reversed(list(block.iterancestors()))]
+        path = "/" + "/".join([*steps[steps.index(etree.QName(data).localname) :], "case"])
+        if path in disabled:
+            continue
+        orders.append(
+            {
+                part: _names(element)
+                for part in ("update", "attachment")
+                for element in block.findall(f"cx:{part}", NAMESPACES)
+            }
+        )
+    return sorted(orders, key=lambda order: json.dumps(order, sort_keys=True))
+
+
+def _same_write_orders(record):
+    """HQ's regenerated form's write orders, once each local ``<update>`` and ``<attachment>`` lists its children as
+    HQ's build writes them (``xform.py::XFormCaseBlock.add_case_updates``, in name order)."""
+    native = _write_orders(etree.fromstring(record["native"]))
+    assert _write_orders(etree.fromstring(record["local"])) == native, (record["scenario"], native)
+    return native
 
 
 def _expected_datum_ids(scenario):
@@ -60,6 +131,11 @@ def _check_extension(record):
         [] if scenario in ("multiple", "multiple-repeat") else [f"{prefix}/subcase_0/case", f"{prefix}/subcase_2/case"]
     )
     assert disabled == expected_disabled, (scenario, disabled)
+    # The data node's children in HQ's order: ``_create_casexml`` writes no meta block, and the subcase blocks HQ
+    # disables are the inert ones Nova's local form leaves out (defect 24).
+    inert = {path.split("/")[2] for path in disabled if path.count("/") == 3}
+    order = _names(_data(tree), inert)
+    assert _names(_data(local), {"meta"}) == order, (scenario, order)
     expected_ids = _expected_datum_ids(scenario)
     assert record["datumIds"] == expected_ids, scenario
     assert all(function == "uuid()" for function in record["datumFunctions"]), scenario
@@ -74,6 +150,8 @@ def _check_extension(record):
         "nativeCreateDatums": expected_ids,
         "nativeLinkSourceId": record["linkSourceId"],
         "nativeOwnerPreload": (record["ownerPreloadValues"] or [None])[0],
+        "nativeDataOrder": order,
+        "nativeWriteOrders": _same_write_orders(record),
     }
 
 
@@ -117,6 +195,7 @@ def _check_worker(record):
         "nativeWorkerBinds": _worker_binds(native),
         "nativeWorkerDatum": datums[0]["function"],
         "nativeWorkerAssertion": record["assertionTest"],
+        "nativeWriteOrders": _same_write_orders(record),
     }
 
 
@@ -132,7 +211,7 @@ def _check_capture(record):
         assert len(tree.xpath("//cx:update/cx:scan_url", namespaces=NAMESPACES)) == 1, name
         assert tree.xpath('//x:model/x:setvalue[contains(@ref,"/details/")]', namespaces=NAMESPACES) == [], name
         assert tree.xpath(VELLUM) == [], name
-    return _hashes(record, scenario)
+    return _ordered(record, scenario)
 
 
 def _check_operation(record):
@@ -148,7 +227,18 @@ def _check_operation(record):
         path = "/" + "/".join([*steps[: steps.index("instance")][::-1], "nova_operations"])
         assert len(tree.xpath("//h:body//x:group[@ref=$path]", namespaces=NAMESPACES | BODY, path=path)) == 1, name
         assert tree.xpath(VELLUM) == [], name
-    return _hashes(record, name.removeprefix("operation-"))
+    return _ordered(record, name.removeprefix("operation-"))
+
+
+def _ordered(record, scenario):
+    """The record's hashes, once the local form's case blocks stand where HQ's regenerated form puts them."""
+    native = _child_orders(etree.fromstring(record["native"]))
+    assert _child_orders(etree.fromstring(record["local"])) == native, (record["scenario"], native)
+    return {
+        **_hashes(record, scenario),
+        "nativeChildOrders": native,
+        "nativeWriteOrders": _same_write_orders(record),
+    }
 
 
 def _hashes(record, scenario):

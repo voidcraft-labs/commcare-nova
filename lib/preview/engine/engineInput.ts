@@ -1,6 +1,7 @@
 import { planGeneratedNodes } from "@/lib/commcare/xform/generatedNodes";
 import {
 	type BlueprintDoc,
+	caseScalarTextGuards,
 	caseSelectionCardinality,
 	isContainer,
 	type LanguageTag,
@@ -34,6 +35,9 @@ export function buildEngineInput(
 		formUuid,
 		wireName: formWireName(doc, formUuid),
 		repeatCountNames: repeatCountNamesOf(doc, formUuid),
+		caseScalarTextGuards: Object.fromEntries(
+			caseScalarTextGuards(doc, formUuid),
+		),
 		...(resolved === undefined ? {} : { language: resolved }),
 		fields:
 			resolved === undefined

@@ -2276,7 +2276,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`name_update`",
+			"cell": "`name_update`, naming the question's `nova_trimmed_<question>` Hidden Value",
 			"markers": []
 		},
 		"gates": []
@@ -2306,8 +2306,8 @@
 			}
 		},
 		"emission": {
-			"cell": "`update_case.update.external_id` (no editor sets `open_case.external_id`, and Nova writes it on registrations today, `lib/commcare/formActions.ts`: unproducible)",
-			"markers": ["unproducible"]
+			"cell": "`update_case.update.external_id`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -2602,8 +2602,8 @@
 			}
 		},
 		"emission": {
-			"cell": "`always` (Nova writes `never` when a registration writes nothing but the name and `external_id` today: unproducible, since the Case Management save writes `always`)",
-			"markers": ["unproducible"]
+			"cell": "`always`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -2632,8 +2632,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova emits this today: save-breaking; in-envelope: `always`, with HQ's touch block: defect 14)",
-			"markers": ["save-breaking"]
+			"cell": "— (Nova writes `always`, and HQ builds its touch block)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -2663,8 +2663,8 @@
 			}
 		},
 		"emission": {
-			"cell": "`always` (Nova writes `never` for every multi-select follow-up today, `formActions.ts`: unproducible)",
-			"markers": ["unproducible"]
+			"cell": "`always`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -4327,7 +4327,7 @@
 			}
 		},
 		"emission": {
-			"cell": "as keys",
+			"cell": "as keys; a name or `external_id` names the question's `nova_trimmed_<question>` Hidden Value",
 			"markers": []
 		},
 		"gates": []

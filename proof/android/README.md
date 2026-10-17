@@ -478,6 +478,15 @@ sent; a keyed root create writes its keyed id, also on a form saved incomplete
 at its first screen, reopened from home and completed; and no generated
 group, repeat or row is a screen or a question.
 
+`test_case_name_guard.py` reads the corpus the same way, on the
+registration form "Register" (`m0-f1`) of `navigation-base`, whose case name
+is a Hidden Value trimming the question's answer and whose question carries
+the name's guard. A whitespace-only name typed into the question's box is
+held with "Sorry, this response is required!", a 256-character one with
+"Sorry, this response is invalid!", each with nothing saved or sent; and a
+name with surrounding spaces is accepted, sent as the trimmed name in the
+case block, and held under it in the case the device made.
+
 Each test carries `@pytest.mark.reader("android")` and takes the `hq` fixture,
 so the pull request lane deselects it and the nightly runs it.
 

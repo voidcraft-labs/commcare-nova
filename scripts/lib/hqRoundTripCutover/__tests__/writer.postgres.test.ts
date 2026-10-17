@@ -17,6 +17,10 @@ import {
 import { loadAppInTransaction } from "@/lib/db/canonicalCommitKernel";
 import type { AppDatabase } from "@/lib/db/pg";
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
+import {
+	DEPLOYMENT_NOTICE_REASONS,
+	DOCUMENT_NOTICE_REASONS,
+} from "@/lib/notices/migrationNotice";
 import type { BuildPlanOptions } from "../plan";
 import { readPlannedFleet } from "../plan";
 import { runMigrate } from "../run";
@@ -317,7 +321,18 @@ describe("the fleet transaction over the frozen fixtures", () => {
 
 		const dryRun = await runMigrate(h.db(), { mode: "dry-run" });
 		expect(dryRun.outcome).toEqual({ outcome: "ok" });
-		const reportValues = stringValues(dryRun.report.all());
+		// A notice reason is a code of the report's and an app id is the
+		// fleet's own, and an authored name may fall inside either: a question
+		// named "checked" in the reason `case-name-now-checked`, one named
+		// "space" in the app id `app-42-hand-open-workspace`.
+		const ownValues: ReadonlySet<string> = new Set([
+			...DOCUMENT_NOTICE_REASONS,
+			...DEPLOYMENT_NOTICE_REASONS,
+			...before.rows.map((row) => row.id),
+		]);
+		const reportValues = stringValues(dryRun.report.all()).filter(
+			(value) => !ownValues.has(value),
+		);
 		// The report's own vocabulary: an author may name a question "outcome".
 		const vocabulary = new Set(
 			dryRun.report

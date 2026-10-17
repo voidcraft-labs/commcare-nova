@@ -417,7 +417,9 @@ describe("expandDoc", () => {
 		const actions = hq.modules[0].forms[0].actions;
 
 		expect(actions.open_case.condition.type).toBe("always");
-		expect(actions.open_case.name_update.question_path).toBe("/data/case_name");
+		expect(actions.open_case.name_update.question_path).toBe(
+			"/data/nova_trimmed_case_name",
+		);
 		expect(actions.update_case.update.age.question_path).toBe("/data/age");
 	});
 
@@ -2823,7 +2825,9 @@ describe("expansion with complete fields", () => {
 		const hq = expandDoc(doc);
 		const actions = hq.modules[0].forms[0].actions;
 		expect(actions.open_case.condition.type).toBe("always");
-		expect(actions.open_case.name_update.question_path).toBe("/data/case_name");
+		expect(actions.open_case.name_update.question_path).toBe(
+			"/data/nova_trimmed_case_name",
+		);
 	});
 
 	it("uses field labels directly without case_types merge", () => {
