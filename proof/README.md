@@ -319,9 +319,12 @@ and holds each to the effects as written.
    results and every file every `create_all_files()` writes, each parsed by
    its comparator (one that has none refuses the file), after the spelling
    rules. A form's or resource's version may differ only where its content
-   does. A build profile's build is the app's kept to the profile's
-   languages, so a difference its file shows as the main build's same file
-   does is reported once, on the main build.
+   does. A form's content is its bytes as HQ built them, its data node's
+   `version` value aside (`proof/checks/compare/versions.py::form_content`),
+   because HQ hashes the bytes: one tree in two layouts, as a save in HQ's
+   form builder lays it out, is two contents. A build profile's build is the
+   app's kept to the profile's languages, so a difference its file shows as
+   the main build's same file does is reported once, on the main build.
 3. **Behavioral equivalence** (`proof/checks/proof3.py`). The Core runner's
    scripted sessions, derived once on `build(A)` (every menu command, every
    reachable form with the first case of each list), replay over the
@@ -493,7 +496,6 @@ named here, rather than by every document's checks:
 
 | What | Held by | What it shows |
 | --- | --- | --- |
-| Defect 3's unknown-question clause | `targeted-save-to-case-read`, proof 4 | Vellum warns "Unknown question" on a read of a property only a Save to Case block writes, and not on the same read of a property an ordinary field writes |
 | Defect 4's add-ons | `proof/views/test_add_ons.py` | an add-on a person turned on in HQ (Menu Mode, over `targeted-hq-side-state`) is offered by HQ's module page after their save, and still offered after Nova's next publish |
 | Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py`, and `proof/views/__tests__/lookupUploadAnswer.test.ts` for Nova's side | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table; handed an answer of that status and type, Nova's own client reports an upload that may have landed |
 | Defect 5's 32-character tag | `proof/views/test_lookup_upload.py` | HQ's upload takes a 32-character tag and answers a 33-character one with a 500 (a database error; it checks no length) |
@@ -1279,9 +1281,13 @@ question named `parsererror`, which stops HQ's form builder opening the
 form). `targeted-shared-property-sort` holds two menus: a shown and a hidden
 column over one property, and a list whose hidden column carries the order
 rule beside a shown image map over the same property, the one shape where a
-sort key on another field changes what a fuzzy search finds (finding 51). The focused `stableWitnesses.test.ts` holds every emitted byte
-to an emission after an unrelated document advances the fixture counter and
-changes that balance.
+sort key on another field changes what a fuzzy search finds (finding 51).
+`targeted-blank-labels` passes with no entry and no control: a question whose
+label is blank in every language and carries no media, one with label media
+and no text, and a choice with media and no text, which two saves in HQ's
+form builder leave as they are and HQ builds. The focused
+`stableWitnesses.test.ts` holds every emitted byte to an emission after an
+unrelated document advances the fixture counter and changes that balance.
 
 To add one: write `proof/targeted/documents/<name>.ts` returning
 `targetedDocument({id, rows, doc, expected, ...})`, with its id
@@ -2575,7 +2581,7 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 5, table content | Nova's next push uploads its workbook for a table a person keeps in HQ (a field property, row attributes, owners and a description) with `replace`; HQ's upload sees another table (`run_upload.py::table_key`), deletes it and makes it again, so the table and its rows get new ids and lose the property, the attributes, the owners and the description | proof 1 (the project's lookup tables) | `targeted-hq-side-lookup` (its control, `targeted-hq-side-state`, keeps the table from before the two documents were split) |
 | 2 | `validate_app` fails with "Expecting 'QNAME', got 'AT'" (`helpers/validators.py`, the form's `validate_for_build`). Fixed in step 2: the HQ JSON prints a display condition's read of the case's status, id, type or owner as the expanded read of the selected case | the bar | fixed; still shown by the control `expander-display-condition-hq-projection-projects-typed-c7fa4700-0`; `targeted-attribute-display-condition` holds the fix |
 | 3 | the case properties HQ learns each form writes (`FormBase.get_all_case_updates`) and the data dictionary rows its save writes (`refresh_data_dictionary_from_app`) lack the properties Nova's Save to Case blocks write, and a Vellum save rewrites `case_references_data.save` | intent (HQ); proof 4 | a form with case operations, under a configuration with `save_to_case`, which HQ's refresh requires |
-| 3, unknown question | HQ's form builder warns "Unknown question: #case/<property>" where a form reads a property only a Save to Case block writes, and not where an ordinary field writes it | proof 4 (Vellum's report) | `targeted-save-to-case-read` |
+| 3, unknown question | HQ's form builder warns "Unknown question: #case/<property>" where a form reads a property only a Save to Case block writes, and not where an ordinary field writes it. Fixed in step 2: no form Nova writes holds a `#case/` hashtag, so the form builder reads a raw read of an unlisted property as it stands | proof 4 (Vellum's report) | fixed; still shown by the control `targeted-save-to-case-read` |
 | 4, add-ons | an add-on a person turned on in HQ (`views/apps.py::edit_add_ons`) is gone after Nova's next publish, whose upload writes its own ten, and HQ's module page no longer offers the section. Fixed in step 2: Nova writes only the add-ons its app needs, each `true`, over the map HQ holds | `proof/views/test_add_ons.py` (HQ's page in Chromium); proof 2 (`add_ons@<state>`); intent (`add_ons_in_use`) | fixed; `targeted-hq-side-state`, where Menu Mode stays offered after Nova's next publish |
 | 5, the upload's answers | without the Lookup Tables privilege HQ's upload API answers Nova's push with its "Upgrade Required" page, status 200, and writes nothing; it takes a 32-character tag and fails with a 500 on a 33-character one | `proof/views/test_lookup_upload.py` (HQ's view, to Nova's captured request) | `lookup-app` |
 | 12, what no editor offers | HQ's Case List page holds the control for an inline search, a multi-select list and an excluded search input only under `CASE_SEARCH_ADVANCED`, which Nova's publish does not ask for | `proof/views/test_case_list_offers.py` (HQ's page in Chromium) | `case-list-inline`, `search-multiple`, an expander search document |
@@ -2591,22 +2597,22 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 12, related lookups | HQ's compiler raises without `CASE_SEARCH_RELATED_LOOKUPS` (`filter_dsl.py::_require_related_lookups_flag`) | intent (HQ), under the minimum configuration | `targeted-search-related-lookups` |
 | 12, custom tile | a Case List save under `CASE_LIST_TILE` alone drops the custom tile | proof 4 under that configuration, then 2 | `targeted-custom-tile` |
 | 12, single-date prompt | a Case List save without `CASE_SEARCH_ADVANCED` drops the date input | proof 4 under the minimum, then 2 | a search with a single-date input |
-| 13, shadows | the saved form's calculate, relevance or constraint holds a predicate on a form path, which Core's parser rejects, so HQ's build fails | proof 4, then 2 | a constraint over a repeat's rows |
+| 13, shadows | the saved form's calculate, relevance or constraint holds a predicate on a form path, which Core's parser rejects, so HQ's build fails. Fixed in step 2: a shadow carries `#form/` only, and none is written where a hashtag would be a predicate's base or the head of a longer path | proof 4, then 2 | fixed; still shown by the controls `container-query-conditional` and `container-query-conditional-parent` |
 | 13, guard blocks | the saved form loses each guard's case-id bind, and HQ's case processing refuses the empty id (`AbstractCaseDbCache.get`, "case_id must not be empty") | proof 4, then 3 | case-type, retype and text guards |
 | 13, reserved names | Vellum reports each `__nova_` node as not a valid question id | proof 4 | any form with an emitted node |
 | 13, wrapper containers | Vellum asks to "Add at least one property to update, or deselect the Update action." on every Save to Case block that creates and updates a case inside a wrapper container (correction 9) | proof 4 | a form with case operations |
-| 13, wrapper conditions and leaf guards | the save drops an operation's condition and its case-leaf constraints, so the operation always runs and Core accepts a blank or over-long value | proof 4, then 3 | a conditional operation and a guarded case leaf |
-| 13, datetime leaves | the save drops the leaf's type and HQ stores only the date | proof 4, then 3 | a datetime written to a case |
+| 13, wrapper conditions and leaf guards | the save drops an operation's condition, so the operation always runs, and its case-leaf constraints. Core's behavior is the same with or without a leaf constraint, and step 2 fixed that part: no leaf of a case block carries one | proof 4, then 3 | a conditional operation; the leaf constraints are still shown by the controls `case-extension-registration`, `case-capture-multiple`, `case-extension-multiple`, `case-extension-multiple-repeat`, `case-extension-query` and `case-extension-repeat` |
+| 13, datetime leaves | the save drops the leaf's type and HQ stores only the date. Fixed in step 2: a write to a datetime property is an untyped leaf whose calculate prints the instant, which a save keeps | proof 4, then 3 | fixed; still shown by the control `case-operation-sequence`; Formplayer's screen after the submit on `case-operation-retype` |
 | 13, root create id | the save turns a live create id into a load-time value, and a later update fails ("Unable to update or close case", `CaseXmlParser`) | proof 4, then 3 | a create keyed by a form answer at the form root |
-| 13, `#form/` defaults and block ids | Vellum marks a default that reads `#form/…` and a read of another block's `case/@case_id` as errors | proof 4 | a default reading another answer; two blocks sharing a case id |
-| 13, blank translations | the save fills an explicitly empty translation from the default language, so a worker who chose that language is shown the default language's label, hint and help where they were shown nothing (Formplayer's form and the Web Apps client's screens, walked in each language) | proof 4, then 2 | a multilingual form with an empty translation |
+| 13, `#form/` defaults and block ids | Vellum marks a default that reads `#form/…` and a read of another block's `case/@case_id` as errors. Step 2 fixed the defaults, which read `current()/…`, and a registration form's read of its own new case id, which reads the session | proof 4 | two blocks sharing a case id; the defaults are still shown by the control `targeted-load-time-values`, and the registration read by the control `expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0` |
+| 13, blank translations | the save fills an explicitly empty translation from the default language, so a worker who chose that language is shown the default language's label, hint and help where they were shown nothing (Formplayer's form and the Web Apps client's screens, walked in each language). Fixed in step 2: Nova writes the same fill | proof 4, then 2 | fixed; still shown by the control `localization-optional` |
 | 14, non-writing follow-up | a Case Management save turns `update never` into `always` with a touch block, which HQ applies as an update: the touched case moves after the cases it ties with in HQ's next search, which sorts ties by index order, so a device lists and opens another case; a case id a form link forwards that no form created becomes a case HQ makes without a create block; and where a form link gives the form no case id, a device refuses to save it ("The case_id attribute of a <case> wasn't set") | proof 4, then 3 | a follow-up form that writes nothing; `case-list-inline`; the form-link expander documents |
 | 14, close conditions | the save strips an answer's surrounding quotes, and clears a condition on a question its tab does not offer, after which HQ's build of the saved app fails (correction 6); an answer holding `'` builds unescaped, so Core refuses HQ's build or reads another condition | proof 4, then 2 and 3; the bar (Core's admission of HQ's build); proof 3 across the two paths | `targeted-close-conditions`, `targeted-close-condition-unparsable` |
 | 14, multi-select destinations | the form settings save refuses them, and HQ's build refuses the mismatch | proof 4; the bar | `targeted-multi-select-destinations` |
 | 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | `targeted-search-button-label`, a lookup prompt, `targeted-search-default-filter-name`, `targeted-search-hq-compile` |
 | 14, survey menus | the module's case type is `''` where the document holds one | intent (HQ) | `targeted-survey-menu` |
 | 14, tiles | the save writes a font size and places unplaced columns, changing the suite, and aligns every custom-tile cell (defect 42) | proof 4, then 2 | a tile without sizes or positions; `targeted-custom-tile` |
-| 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name | proof 4, then 3 | any form |
+| 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name. Fixed in step 2: the `name` is the form's name in the default language, which the save writes | proof 4, then 3 | fixed; still shown by the controls `case-operation-query`, `targeted-form-links-hidden-and-fallback`, `case-extension-registration` and `targeted-custom-tile-after-59` |
 | 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). What Connect does with a Connect id renamed under an opportunity that holds it is Connect's own, the same for an id renamed in HQ's form builder ("Connect in the unit") | proof 4; the bar | `targeted-invalid-question-ids`, `targeted-invalid-connect-ids` |
 | 16, hidden columns | a case list search no longer matches a hidden column's values, because Nova drops the column (`EntitySortUtil.sortEntities`) | intent (Core) | `targeted-hidden-column` |
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`) | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | a module that offers search; `targeted-sync-on-form-entry` |
@@ -2838,15 +2844,6 @@ runs it.
 
 The rules whose readers reach past HQ's build and Core:
 
-- **`connect-work-area-empty`** (finding 55): a Vellum save writes an empty
-  `work_area_id` into a Connect deliver unit. Its test writes the form both
-  ways, builds both in HQ, runs Core's sessions and Formplayer's walk over
-  both, and has HQ's own receiver and Connect repeater forward each
-  submission to one opportunity in Connect, which answers and holds the same
-  for both; an id that names a work area is refused by Connect, and the
-  rule leaves it. A device opens, walks and saves the form with the node as
-  without it. Formplayer's traces take the rules for an `instance` (each XML
-  document a trace holds).
 - **`search-description-empty`** (finding 54): the Case List save writes a
   search description of no text. HQ's build gives the search a
   `<description>` for it, Formplayer hands the client a non-breaking space
@@ -2874,8 +2871,10 @@ The rules whose readers reach past HQ's build and Core:
   address the device's answer holds; `proof/rules/__init__.py::ARTIFACT_READERS`
   names Formplayer and the device as its readers. With `case-block-position`
   it is one of the two rules that compare the two export paths; every other
-  rule judges HQ's stored app, HQ's builds and HQ's forms against each other,
-  and `connect-work-area-empty` a form's data as Connect reads it.
+  rule judges HQ's stored app, HQ's builds and HQ's forms against each other.
+
+Formplayer's traces take the rules for an `instance` (each XML document a
+trace holds).
 
 `profile-unread-properties` reads the stored app as well as HQ's built
 profiles. HQ's App Settings save, even one that changes nothing, still adds
@@ -3198,8 +3197,9 @@ carry the edit renaming their Connect ids), and, for finding 60,
 - Finding 34: with GPS verification on, a delivery with no location is
   flagged and left pending, the local archive's always; the distance check
   passes over it on both sides.
-- Finding 55: the empty `work_area_id` a Vellum save writes leaves the same
-  rows.
+- Finding 55: Nova's deliver unit holds the empty `work_area_id` a Vellum
+  save writes, and Connect leaves the same rows for it as for the same form
+  with the element taken out.
 - Defect 15: after a rename, deliveries are refused ("Payment unit is not
   configured for the deliver unit") until a manager pays for the new unit; a
   renamed learn module leaves a later learner at half, never finished; a
@@ -3393,7 +3393,7 @@ the form HQ built (intent). Expansion allocates fresh HQ ids and form
 namespaces, so the recorded digests identify one run's artifacts; they are not
 fixed expectations.
 
-In Core, `CaseCaptureRuntimeTest` (ten methods) runs `FormParseInit`,
+In Core, `CaseCaptureRuntimeTest` (twelve methods) runs `FormParseInit`,
 `FormDef.initialize`, form-entry traversal, answer propagation, XPath
 evaluation and `XFormSerializingVisitor` over both paths' capture forms, with
 only the session and existing case data supplied. User repeats are created
@@ -3403,8 +3403,11 @@ omitting both case writes, an active blank URL clearing one property,
 untouched neighboring rows keeping their URL, capture fields starting empty on
 followup, and child indices naming the selected parent; the multiple-parent
 document writes shared file names to both ids, and all-blank shared answers
-omit the whole ordinary update. `CaseOperationRuntimeTest` (26 cases, both
-paths) seeds native `Case` records in Core's indexed in-memory storage, reads
+omit the whole ordinary update. Two of its methods read the extension
+registration form on both paths, HQ's side regenerated whole for them
+(`registration.whole.hq.xml`): its two extension children and its ordinary
+child each name the case the form registers. `CaseOperationRuntimeTest` (26
+cases, both paths) seeds native `Case` records in Core's indexed in-memory storage, reads
 them through `CaseInstanceTreeElement`, finalizes with `postProcessInstance`
 and applies the submission through `XmlFormRecordProcessor` and
 `CaseXmlParser`. Its assertions inspect the stored cases: generated and
@@ -3636,7 +3639,7 @@ paths and checks the Connect namespace in the submission.
 | Family | HQ | Core |
 | --- | --- | --- |
 | `case-list` | Suite contributors and authored app strings regenerate the eight case list scenarios for the Core class; no HQ check (the bar builds them, and no structural equivalence is claimed). | `CaseListRuntimeTest`: typed sort and ties, formatted templates, long-detail order and nodesets on both paths. |
-| `container` | Each group and repeat scenario's form regenerated for the Core class; no HQ check (the bar builds them). | `ContainerRuntimeTest`: group relevance, repeat entry, live counts, per-row values and case effects on both paths; initialization snapshots, row insertion and field-list timing on the local forms; private wire counterexamples for count types. |
+| `container` | Each group and repeat scenario's form regenerated for the Core class; no HQ check (the bar builds them). | `ContainerRuntimeTest`: group relevance, repeat entry, live counts, per-row values, case effects, a default read from each of four placements and a registration form's default and calculation that read its own new case id on both paths; initialization snapshots, row insertion and field-list timing on the local forms; private wire counterexamples for count types. |
 | `endpoint` | `<endpoint>` and reached `<remote-request>` elements equal Nova's, with `SESSION_ENDPOINTS` on. | `EndpointRuntimeTest`: argument binding, refusing missing and unexpected keys. |
 | `expander` | HQ regenerates the suites and app strings the Core class reads; no HQ check (the bar publishes and builds every admitted expander document, and Core admits each build and CCZ). | `ExpanderRuntimeTest`: a case list column over eleven options shows `Tag 10` for `tag_10` on both paths, so HQ's enum key replacement keeps double-digit option keys apart. |
 | `hq-oracle` | `Application.wrap` fails exactly where Nova's HQ-JSON oracle reports a fatal code; `RemoteApp` dispatch. | None. |

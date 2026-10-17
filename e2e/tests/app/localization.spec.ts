@@ -211,3 +211,67 @@ test(
 		).toBeVisible();
 	},
 );
+
+test(
+	"a cleared translation shows workers the default language's text and reads as missing",
+	{ tag: "@seed:localization" },
+	async ({ scenario, page }, _testInfo) => {
+		const seed = seedFor(scenario, "localization");
+
+		const appId = seed.localizationAppId;
+		if (!appId) throw new Error("Missing language app for this attempt");
+		const setupPath = `/build/${appId}/setup/languages`;
+		await page.goto(setupPath);
+		await page
+			.getByRole("button", { name: "Add language", exact: true })
+			.click();
+		const dialog = page.getByRole("dialog");
+		await dialog
+			.getByRole("combobox", { name: "Language", exact: true })
+			.fill("Spanish");
+		await page.getByRole("option", { name: /Español/ }).click();
+		const languageSaved = nextSave(page, appId);
+		await dialog
+			.getByRole("button", { name: "Add language", exact: true })
+			.click();
+		expect((await languageSaved).status()).toBe(200);
+		await expect(page).toHaveURL(`${setupPath}?lang=spa`);
+
+		const label = page.getByRole("article").filter({ hasText: "Field label" });
+		const draft = label.getByRole("textbox", {
+			name: "Reference-safe translation",
+		});
+		await expect(draft).toHaveValue("Client name");
+		await draft.fill("");
+		const cleared = nextSave(page, appId);
+		await label.getByRole("button", { name: "Save translation" }).click();
+		expect((await cleared).status()).toBe(200);
+
+		await expect(label.getByText("Missing", { exact: true })).toBeVisible();
+		await expect(draft).toHaveValue("");
+		await expect(draft).toHaveAttribute("placeholder", "Client name");
+		await expect(
+			label.getByText(
+				"Workers see the English text here until this is translated.",
+			),
+		).toBeVisible();
+		await expect(
+			label.getByRole("button", { name: "Mark as reviewed" }),
+		).toHaveCount(0);
+
+		const response = await page.request.get(`/api/apps/${appId}`);
+		expect(response.status()).toBe(200);
+		const { blueprint } = snapshotSchema.parse(await response.json());
+		expect(blueprint.localization?.translations.spa).toMatchObject({
+			[makeTranslationUnitId("field", LOCALIZATION_SEED.fieldUuid, "label")]: {
+				value: proseText(""),
+			},
+		});
+
+		await page.goto(`/build/${appId}/${LOCALIZATION_SEED.fieldUuid}?lang=spa`);
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		await expect(
+			page.getByRole("textbox", { name: /Client name$/ }),
+		).toBeVisible();
+	},
+);

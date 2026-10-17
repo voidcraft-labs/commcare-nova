@@ -167,6 +167,7 @@ EVERY = "every"
 # module names in a module-level constant, ``(module, constant)``, which the module reads through the corpus's
 # index), ``native`` (the native products the corpus carries), or both. A package not named reads both, whole.
 PACKAGE_DATA = {
+    "proof/android": {"documents": ("proof/android/conftest.py", "DOCUMENTS")},
     "proof/checks": {"documents": EVERY},
     "proof/connect": {"documents": ("proof/connect/conftest.py", "DOCUMENTS")},
     "proof/editors": {"documents": ("proof/editors/conftest.py", "DOCUMENTS")},

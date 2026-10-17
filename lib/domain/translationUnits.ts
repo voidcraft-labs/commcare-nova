@@ -34,6 +34,7 @@ import {
 	projectProseTemplate,
 } from "./prose";
 import { SEARCH_RUNTIME_VALIDATION_MESSAGES } from "./searchRuntimeValidationMessages";
+import { translationFillSource } from "./translationFill";
 import type { Uuid } from "./uuid";
 
 export const translationUnitRoles = [
@@ -164,6 +165,11 @@ export interface LocalizedTranslationUnit extends TranslationUnit {
 	readonly explicit?: TranslationEntry;
 	readonly effective: LocalizedValue;
 	readonly status: TranslationStatus;
+	/**
+	 * The language whose text workers read in place of this current blank
+	 * translation (`translationFill.ts::translationFillSource`).
+	 */
+	readonly filledFrom?: LanguageTag;
 }
 
 export const translationCoverageDiagnosticCodes = [
@@ -821,6 +827,30 @@ export function translationUnitsById(
 	);
 }
 
+const snapshotTranslationUnitsByDoc = new WeakMap<
+	BlueprintDoc,
+	ReadonlyMap<TranslationUnitId, TranslationUnit>
+>();
+
+/**
+ * `translationUnitsById` for one document snapshot, built once and shared by
+ * every reader of that snapshot: the builder's hooks, the commit gate's
+ * validator, an emission run and a Preview rebuild. A `BlueprintDoc` is an
+ * immutable snapshot (each edit produces a new one), so the inventory keyed
+ * by its identity never goes stale, and a superseded snapshot's inventory is
+ * discarded with it. A caller holding a document it changes in place reads
+ * `translationUnitsById` instead.
+ */
+export function snapshotTranslationUnits(
+	doc: BlueprintDoc,
+): ReadonlyMap<TranslationUnitId, TranslationUnit> {
+	const cached = snapshotTranslationUnitsByDoc.get(doc);
+	if (cached !== undefined) return cached;
+	const units = translationUnitsById(doc);
+	snapshotTranslationUnitsByDoc.set(doc, units);
+	return units;
+}
+
 function sameValueKind(unit: TranslationUnit, value: LocalizedValue): boolean {
 	return unit.valueKind === "text"
 		? typeof value === "string"
@@ -872,31 +902,27 @@ export function translationValueIntegrityIssue(
 		: "protected-content";
 }
 
-export function localizeTranslationUnit(
+interface StoredTranslation {
+	readonly explicit?: TranslationEntry;
+	readonly effective: LocalizedValue;
+	readonly status: TranslationStatus;
+}
+
+function storedTranslation(
 	doc: BlueprintDoc,
 	language: LanguageTag,
 	unitValue: TranslationUnit,
-): LocalizedTranslationUnit {
+): StoredTranslation {
 	const localization = effectiveAppLocalization(doc.localization);
 	if (!localization.languageOrder.includes(language)) {
 		throw new Error(`Language ${language} does not belong to this app.`);
 	}
 	if (language === localization.sourceLanguage) {
-		return {
-			...unitValue,
-			language,
-			effective: unitValue.source,
-			status: "ready",
-		};
+		return { effective: unitValue.source, status: "ready" };
 	}
 	const explicit = localization.translations[language]?.[unitValue.id];
 	if (explicit === undefined) {
-		return {
-			...unitValue,
-			language,
-			effective: unitValue.source,
-			status: "missing",
-		};
+		return { effective: unitValue.source, status: "missing" };
 	}
 	const current =
 		translationSourceFingerprintsEqual(
@@ -905,21 +931,53 @@ export function localizeTranslationUnit(
 		) &&
 		translationValueIntegrityIssue(unitValue, explicit.value) === undefined;
 	if (!current) {
-		return {
-			...unitValue,
-			language,
-			explicit,
-			effective: unitValue.source,
-			status: "out-of-date",
-		};
+		return { explicit, effective: unitValue.source, status: "out-of-date" };
 	}
 	return {
-		...unitValue,
-		language,
 		explicit,
 		effective: explicit.value,
 		status: explicit.review === "reviewed" ? "ready" : "needs-review",
 	};
+}
+
+/**
+ * The value a unit stores for one language: the source language's canonical
+ * value, a current translation, or the source where the translation is
+ * missing or stale. It is the value before the form builder's fill
+ * (`translationFill.ts`), which reads it for every language.
+ */
+export function storedTranslationValue(
+	doc: BlueprintDoc,
+	language: LanguageTag,
+	unitValue: TranslationUnit,
+): LocalizedValue {
+	return storedTranslation(doc, language, unitValue).effective;
+}
+
+/**
+ * One unit in one language. A current translation of an itext role that is
+ * blank beside text in another language is `missing`, with `filledFrom`
+ * naming the language whose text workers read in its place; it keeps its
+ * stored blank as `effective`.
+ */
+export function localizeTranslationUnit(
+	doc: BlueprintDoc,
+	language: LanguageTag,
+	unitValue: TranslationUnit,
+): LocalizedTranslationUnit {
+	const stored = storedTranslation(doc, language, unitValue);
+	const localized: LocalizedTranslationUnit = {
+		...unitValue,
+		language,
+		...stored,
+	};
+	if (stored.explicit === undefined || stored.status === "out-of-date") {
+		return localized;
+	}
+	const filledFrom = translationFillSource(doc, unitValue, language);
+	return filledFrom === undefined
+		? localized
+		: { ...localized, status: "missing", filledFrom };
 }
 
 export function collectLocalizedTranslationUnits(

@@ -19,9 +19,11 @@ import java.util.Vector;
 /**
  * The values a walk answers a form's questions with: the lane's own answer table (proof/core/answers.json, sent
  * with the request), read as the Core runner reads it (proof/core Answers.java), so a device's walk gives a
- * question what Core's and Formplayer's walks give it. A question takes the values of its control's entry, else
- * of its data type's; a select takes the 1-based index of an option, a multi-select a list of them, and any
- * other value is cast from its text by Core's own template for the question (AnswerDataFactory).
+ * question what Core's and Formplayer's walks give it. A question takes the values the request's own
+ * {@code questions} map names for it, else those of its control's entry, else of its data type's (the lane's
+ * own table holds no {@code questions}, so no walk of the lane reads one); a select takes the 1-based index of
+ * an option, a multi-select a list of them, and any other value is cast from its text by Core's own template
+ * for the question (AnswerDataFactory).
  *
  * The table's clock values are the reader's clock's (ProofClock), which is the day and instant the app's own
  * logic reads on the device.
@@ -39,8 +41,10 @@ final class Answers {
         if (table == null) {
             return found;
         }
-        JSONArray values = table.optJSONObject("controls") == null ? null
-                : table.optJSONObject("controls").optJSONArray(control(prompt.getControlType()));
+        JSONArray values = named(prompt);
+        if (values == null && table.optJSONObject("controls") != null) {
+            values = table.optJSONObject("controls").optJSONArray(control(prompt.getControlType()));
+        }
         if (values == null && table.optJSONObject("dataTypes") != null) {
             values = table.optJSONObject("dataTypes").optJSONArray(dataType(prompt.getDataType()));
         }
@@ -50,6 +54,26 @@ final class Answers {
                     : "@clock:now".equals(value) ? ProofClock.nowText() : value);
         }
         return found;
+    }
+
+    /**
+     * The values the request's own {@code questions} map gives the question: those under its reference as a walk
+     * records it (/data/items[1]/item[2]/choice[1]), else under its generic reference (/data/items/item/choice,
+     * one entry for every row); null where the map names neither. A single value is a list of one.
+     */
+    private static JSONArray named(FormEntryPrompt prompt) {
+        JSONObject questions = table.optJSONObject("questions");
+        if (questions == null) {
+            return null;
+        }
+        Object values = questions.opt(String.valueOf(prompt.getIndex().getReference()));
+        if (values == null) {
+            values = questions.opt(String.valueOf(prompt.getIndex().getReference().genericize()));
+        }
+        if (values == null) {
+            return null;
+        }
+        return values instanceof JSONArray ? (JSONArray)values : new JSONArray().put(String.valueOf(values));
     }
 
     static int repeatsToAdd() {

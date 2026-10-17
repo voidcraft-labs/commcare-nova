@@ -31,12 +31,14 @@ import pytest
 
 from proof.checks.compare.xml_tree import parse_xml
 from proof.connect.conftest import (
+    CONNECT_XMLNS,
     DELIVER,
     DELIVER_KEY_NAMES,
     LEARN,
     LEARN_KEY_NAMES,
     NEXT_DAY_CLOCK,
     TASK_NAMED_TASK,
+    WITHOUT_WORK_AREA,
     WRITTEN,
 )
 
@@ -51,6 +53,9 @@ SCORE = 7
 PASSING_SCORE = 5
 # What the payment unit of every scenario pays for one approved visit (``proof/connect/driver.py``).
 PAY = 10
+# The deliver app's forms whose deliver unit's ``work_area_id`` finding 55 compares: Nova's, Vellum's save of it,
+# and Nova's with the element and its bind taken out.
+DELIVERED = ("hq", "vellum", WITHOUT_WORK_AREA)
 
 
 class World:
@@ -327,19 +332,25 @@ def test_the_distance_check_holds_a_local_archives_delivery_as_hqs(world):
     assert second("distance-hq-far", "hq+fix", "hq@next+far")["flags"] is None
 
 
-# Finding 55: the work area id HQ's form designer writes ------------------------------------------------------------
+# Finding 55: the work area id Nova's deliver unit holds --------------------------------------------------------------
 
 
-def test_connect_reads_the_empty_work_area_id_hqs_form_designer_writes_as_none(world):
-    """A Vellum save writes an empty ``work_area_id`` into the deliver unit, which Nova's form does not hold.
-    HQ forwards it as an empty string, and Connect's receiver leaves the same rows as for Nova's form."""
+def test_connect_reads_the_empty_work_area_id_novas_form_holds_as_none(world):
+    """Nova's deliver unit holds an empty ``work_area_id``, as HQ's form designer writes it, so a Vellum save
+    keeps it. HQ forwards it as an empty string from both forms, and Connect's receiver leaves the same rows for
+    each as for the same form with the element and its bind taken out, whose payload holds no such key."""
     deliver = world.deliver
-    assert "work_area_id" not in deliver.submissions["hq"].payload["form"][world.unit]["deliver"]
-    assert deliver.submissions["vellum"].payload["form"][world.unit]["deliver"]["work_area_id"] == ""
-    posts, state = world.delivered("deliver-vellum", world.post(deliver, "vellum"))
-    answered(posts[0])
-    _, plain = world.delivered("deliver-hq", world.post(deliver, "hq"))
-    assert state == plain
+    units = {name: deliver.submissions[name].payload["form"][world.unit]["deliver"] for name in DELIVERED}
+    assert units["hq"]["work_area_id"] == units["vellum"]["work_area_id"] == ""
+    assert "work_area_id" not in units[WITHOUT_WORK_AREA]
+    for name in DELIVERED:
+        held = parse_xml(deliver.submissions[name].xml).findall(f".//{{{CONNECT_XMLNS}}}work_area_id")
+        assert len(held) == (0 if name == WITHOUT_WORK_AREA else 1), name
+    rows = {}
+    for name in DELIVERED:
+        posts, rows[name] = world.delivered(f"deliver-{name}", world.post(deliver, name))
+        answered(posts[0])
+    assert rows["hq"] == rows["vellum"] == rows[WITHOUT_WORK_AREA]
 
 
 # Defect 15: renamed ids ----------------------------------------------------------------------------------------------

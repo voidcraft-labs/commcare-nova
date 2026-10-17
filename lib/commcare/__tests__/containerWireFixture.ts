@@ -161,6 +161,21 @@ export function containerWireFixture(scenario: ContainerScenario) {
 							label: proseText("Name"),
 							caseWrite: { caseType: "patient", property: "case_name" },
 						}),
+						// A default and a calculation that read the new case's id.
+						// Their own uuids keep every other document's minted
+						// identities where they are.
+						f({
+							kind: "hidden",
+							id: "own_id_read",
+							uuid: "container-registration-own-id-read",
+							default_value: "#patient/case_id",
+						}),
+						f({
+							kind: "hidden",
+							id: "tracking_code",
+							uuid: "container-registration-tracking-code",
+							calculate: "concat('P-', #patient/case_id)",
+						}),
 					],
 				}),
 			];
@@ -445,12 +460,24 @@ export function containerWireFixture(scenario: ContainerScenario) {
 			];
 			break;
 		case "init-add":
+			// A default in each placement: at the root, in a repeat row reading
+			// an answer outside the repeat (the row's `zone`), in a row reading a
+			// sibling in the row, and in a nested repeat's row reading the
+			// enclosing row's answer. The three Hidden Values carry their own
+			// uuids, so every other document's minted identities stay where
+			// they are.
 			fields = [
 				f({
 					kind: "text",
 					id: "zone",
 					label: proseText("Zone"),
 					default_value: "'north'",
+				}),
+				f({
+					kind: "hidden",
+					id: "root_read",
+					uuid: "container-init-add-root-read",
+					default_value: "#form/zone",
 				}),
 				f({
 					kind: "repeat",
@@ -462,6 +489,12 @@ export function containerWireFixture(scenario: ContainerScenario) {
 							id: "zone",
 							label: proseText("Zone"),
 							default_value: "#form/zone",
+						}),
+						f({
+							kind: "hidden",
+							id: "sibling_read",
+							uuid: "container-init-add-sibling-read",
+							default_value: "#form/visits/zone",
 						}),
 						f({
 							kind: "repeat",
@@ -478,6 +511,12 @@ export function containerWireFixture(scenario: ContainerScenario) {
 									calculate: "current()/../@id",
 								}),
 								text("note"),
+								f({
+									kind: "hidden",
+									id: "enclosing_read",
+									uuid: "container-init-add-enclosing-read",
+									default_value: "#form/visits/zone",
+								}),
 							],
 						}),
 					],

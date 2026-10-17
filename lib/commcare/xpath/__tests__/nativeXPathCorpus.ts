@@ -70,7 +70,7 @@ export const nativePathCases = [
 	{
 		name: "attribute axis",
 		source: "string(/data/attribute::name)",
-		expected: "xpath_proof",
+		expected: "XPath proof",
 	},
 	{
 		name: "self axis",

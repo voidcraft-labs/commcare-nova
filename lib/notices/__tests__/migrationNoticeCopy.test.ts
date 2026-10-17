@@ -107,6 +107,19 @@ const ENTRIES: Record<
 			entity: APP_ENTITY,
 		},
 	},
+	"option-label-filled": {
+		withDetail: {
+			kind: "document",
+			reason: "option-label-filled",
+			entity: FORM_ENTITY,
+			detail: { question: "Village", value: "north" },
+		},
+		bare: {
+			kind: "document",
+			reason: "option-label-filled",
+			entity: FORM_ENTITY,
+		},
+	},
 	"android-form-lists-setting-stored": {
 		withDetail: {
 			kind: "document",
@@ -405,6 +418,22 @@ describe("the form-list, validation and download lines", () => {
 		).toBe(
 			"This app now states whether workers see saved forms and incomplete forms on their home screen: saved forms off, incomplete forms on. Android reads both settings, and Web Apps reads the incomplete forms one. Nova kept each list on wherever a project space of this app shows it today. They are yours to change in App settings.",
 		);
+	});
+
+	it("names the form, the question and the value a choice with no label now shows", () => {
+		const line = renderNoticeEntry(
+			document("option-label-filled", FORM_ENTITY, {
+				question: "Village",
+				value: "north",
+			}),
+			REMOVED,
+		);
+		expect(line.text).toBe(
+			"Visit: the choice with the value north in Village had no label, so it now shows its value. Give it the wording you want workers to read.",
+		);
+		expect(
+			line.parts.filter((part) => part.kind === "entity").map((p) => p.text),
+		).toEqual(["Visit"]);
 	});
 
 	it("names the form and the question whose validation now runs, by its kind", () => {

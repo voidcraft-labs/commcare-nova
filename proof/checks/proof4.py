@@ -141,7 +141,7 @@ from proof.checks.compare import names
 from proof.checks.compare.build_files import compare_parsed_builds
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.trace import generated_labels
-from proof.checks.compare.versions import CONTENT_VERSION, apply_version_clause
+from proof.checks.compare.versions import CONTENT_VERSION, apply_version_clause, form_content
 from proof.checks.compare.xml_tree import XmlNotWellFormed, compare_xml_trees, parse_xml
 from proof.checks.differences import CONNECT, FORMPLAYER, RELEASE, WEBAPPS, Difference, pointer_token
 from proof.checks.proof2 import parsed_build
@@ -475,35 +475,35 @@ def _data_node(form_root):
 
 
 def _built_forms(outcome):
-    """Each form a build wrote (``modules-<m>/forms-<f>.xml``) as (xmlns, version, data node without version)."""
+    """Each form a build wrote (``modules-<m>/forms-<f>.xml``) as (xmlns, version, content), its content its bytes
+    with its data node's ``version`` value aside (``compare.versions.form_content``)."""
     found = {}
     for path, content in (outcome.files or {}).items():
         if not PurePosixPath(path).match("modules-*/forms-*.xml"):
             continue
-        root = parse_xml(content)
-        data = _data_node(root)
+        data = _data_node(parse_xml(content))
         if data is None:
             continue
-        version = data.get("version")
-        if version is not None:
-            del data.attrib["version"]
-        found[path] = (etree.QName(data).namespace, version, root)
+        found[path] = (etree.QName(data).namespace, data.get("version"), form_content(content))
     return found
 
 
 def content_versions(before, after):
     """The forms whose built content differs between two builds, each side's ``{xmlns: version}``.
 
-    The content is the form file with its data node's ``version`` aside, as
-    proof 2's version clause reads it (``proof.checks.compare.versions``):
-    HQ's ``set_form_versions`` keeps a form's version only where its content
-    hashes the same as the previous build's.
+    The content is the form file's bytes with its data node's ``version``
+    value aside, as proof 2's version clause reads it
+    (``proof.checks.compare.versions``): HQ's ``set_form_versions`` keeps a
+    form's version only where its rendered bytes hash the same as the
+    previous build's. ``judge_save`` hands these to the trace's and to the
+    served readers' comparisons alike, so a form HQ's form builder saved in
+    its own layout may carry another version on every reader's record.
     """
     forms_a, forms_b = _built_forms(before), _built_forms(after)
     changed_a, changed_b = {}, {}
     for path in sorted(set(forms_a) & set(forms_b)):
-        (xmlns_a, version_a, root_a), (xmlns_b, version_b, root_b) = forms_a[path], forms_b[path]
-        if compare_xml_trees(root_a, root_b, check=CHECK, document="-", artifact="-"):
+        (xmlns_a, version_a, content_a), (xmlns_b, version_b, content_b) = forms_a[path], forms_b[path]
+        if content_a != content_b:
             changed_a[xmlns_a] = version_a
             changed_b[xmlns_b] = version_b
     return changed_a, changed_b

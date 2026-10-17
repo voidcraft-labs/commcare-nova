@@ -4,6 +4,7 @@ import {
 	respondWithParts,
 } from "@/lib/agent/__tests__/responsesParts";
 import { withResponsesPeer } from "@/lib/agent/__tests__/responsesPeer";
+import { authoringFingerprint } from "@/lib/agent/authoring/fingerprints";
 import { AuthoringSession } from "@/lib/agent/build/authoringSession";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
 import { productionModelStep } from "@/lib/agent/modelStep";
@@ -553,3 +554,129 @@ it.each([false, true])(
 		expect(failures).toEqual([]);
 	},
 );
+
+it("translates a blank translation beside text, which workers read in another language", async () => {
+	const f = await fixture();
+	const requests: ProviderRequest[] = [];
+	const failures: unknown[] = [];
+	await withResponsesPeer(
+		(request, response) => {
+			const chunks: Buffer[] = [];
+			request.on("data", (chunk: Buffer) => chunks.push(chunk));
+			request.on("end", () => {
+				try {
+					const wire: ProviderRequest = JSON.parse(
+						Buffer.concat(chunks).toString(),
+					);
+					requests.push(wire);
+					respondWithParts(
+						response,
+						[
+							{
+								type: "text",
+								text: JSON.stringify({
+									translations: requestBatch(wire).units.map((unit) => ({
+										unitId: unit.unitId,
+										translatedText: `Français ${unit.sourceText.replaceAll("\n", "\\n")}`,
+									})),
+								}),
+							},
+						],
+						requests.length,
+					);
+				} catch (error) {
+					failures.push(error);
+					response.writeHead(400).end();
+				}
+			});
+		},
+		async (provider) => {
+			const run = (): TranslationRun => ({
+				designSessionId: f.claim.designSessionId,
+				authority: {
+					actorUserId: f.authority.actorUserId,
+					expectedProjectId: f.authority.projectId,
+					runId: f.authority.runId,
+					holderNonce: f.authority.holderNonce,
+				},
+				signal: new AbortController().signal,
+				modelStep: productionModelStep(
+					provider(MODEL_ROLES.translator.modelId),
+					MODEL_ROLES.translator.reasoningEffort,
+					"translation-test",
+				),
+				onStep: async () => {},
+				onRecoveredUsage: () => {},
+			});
+			expect(
+				await f.session.write(call, (ctx) =>
+					translateLanguage(ctx, target, run()),
+				),
+			).toMatchObject({ ok: true });
+			const firstRequests = requests.length;
+			const borrower = collectLocalizedTranslationUnits(
+				(await f.session.snapshot()).doc,
+				tag,
+			).find(
+				(unit) =>
+					unit.context.fieldId === "borrower" && unit.role === "field-label",
+			);
+			if (borrower === undefined) throw new Error("Missing borrower label");
+			expect(
+				await f.session.shared(
+					{
+						toolName: "updateTranslations",
+						toolCallId: "clear-borrower-text",
+						input: {
+							language: target,
+							updates: [
+								{
+									operation: "set",
+									unitId: borrower.id,
+									expectedSourceFingerprint: authoringFingerprint(
+										borrower.sourceFingerprint,
+									),
+									value: "",
+								},
+							],
+						},
+					},
+					"architect",
+				),
+			).toMatchObject({ ok: true });
+			const blanked = collectLocalizedTranslationUnits(
+				(await f.session.snapshot()).doc,
+				tag,
+			).find((unit) => unit.id === borrower.id);
+			expect(blanked).toMatchObject({
+				status: "missing",
+				filledFrom: "eng",
+				effective: { parts: [] },
+			});
+
+			expect(
+				await f.session.write(
+					{ ...call, toolCallId: "translate-blank" },
+					(ctx) => translateLanguage(ctx, target, run()),
+				),
+			).toMatchObject({ ok: true, translated: 1 });
+			expect(requests).toHaveLength(firstRequests + 1);
+			expect(requestBatch(requests[firstRequests]).units).toEqual([
+				expect.objectContaining({
+					unitId: borrower.id,
+					sourceText: "Borrower",
+				}),
+			]);
+			expect(
+				collectLocalizedTranslationUnits(
+					(await f.session.snapshot()).doc,
+					tag,
+				).find((unit) => unit.id === borrower.id),
+			).toMatchObject({
+				status: "needs-review",
+				effective: { parts: [{ kind: "text", text: "Français Borrower" }] },
+			});
+		},
+	);
+	expect(failures).toEqual([]);
+});

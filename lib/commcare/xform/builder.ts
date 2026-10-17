@@ -38,10 +38,7 @@ import { repeatCountNodeName } from "./repeatCountNode";
 
 import type { ChildNode, Element } from "domhandler";
 import { decodeXML } from "entities";
-import {
-	buildVellumTransforms,
-	RESERVED_XFORM_NODE_PREFIX,
-} from "@/lib/commcare";
+import { RESERVED_XFORM_NODE_PREFIX } from "@/lib/commcare";
 import {
 	effectiveAssessmentUserScore,
 	effectiveDeliverEntities,
@@ -52,6 +49,7 @@ import { readFieldString } from "@/lib/commcare/fieldProps";
 import { referencesSearchAnswer } from "@/lib/commcare/hashtags";
 import {
 	caseTypeDepthMap,
+	expandHashtagsForDefaultValue,
 	expandHashtagsInContext,
 	type FormHashtagContext,
 	vellumShorthandInContext,
@@ -69,6 +67,7 @@ import {
 	instanceSourceFor,
 } from "@/lib/commcare/predicate/instances";
 import { serializeXml } from "@/lib/commcare/serializeXml";
+import { newCaseIdDatumId } from "@/lib/commcare/session";
 import type {
 	FormActionCondition,
 	OpenSubCaseAction,
@@ -100,6 +99,7 @@ import {
 } from "@/lib/commcare/xform/formPath";
 import { collectInstanceRefs } from "@/lib/commcare/xform/instanceRefs";
 import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
+import { spellPredicateSelf } from "@/lib/commcare/xpath/selfSteps";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
@@ -114,12 +114,14 @@ import {
 	makeTranslationUnitId,
 	type ProseTemplate,
 	printProseTemplate,
+	proseTemplateIsEmpty,
 	type TranslationUnitId,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
+import { formWireName } from "@/lib/domain/formWireName";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
@@ -297,8 +299,9 @@ class InstanceTracker {
 	/**
 	 * `caseTypeNames` is the form's reachable case-type namespaces (the keys of
 	 * `FormHashtagContext.caseTypeDepths`). A `#<case_type>/<prop>` ref expands
-	 * to the casedb walk whose private HQ spelling is `#case/`, so the scanners must force the
-	 * `casedb` `<instance>` for it too — otherwise a form whose ONLY case
+	 * to a casedb walk, or on a registration form `case_id` to a session read,
+	 * so the scanners must force the `casedb` `<instance>` (and with it the
+	 * session's) for it too — otherwise a form whose ONLY case
 	 * reference is a per-type ref would emit a casedb lookup with no instance
 	 * declaration, an invalid form JavaRosa rejects at install.
 	 */
@@ -479,7 +482,7 @@ function buildConnectBlocks(
 			}),
 			el("bind", {
 				nodeset: assessPath.child("assessment").child("user_score").toXPath(),
-				calculate: expand(userScore),
+				calculate: spellPredicateSelf(expand(userScore)),
 			}),
 		);
 	}
@@ -498,10 +501,16 @@ function buildConnectBlocks(
 		const duPath = FormPath.root().child(duId);
 		dataElements.push(
 			el(duId, { "vellum:role": "ConnectDeliverUnit" }, [
+				// HQ's form builder lists `work_area_id` after `entity_name` and
+				// writes it with a bare bind (`commcareConnect.js`,
+				// `ConnectDeliverUnit.childNodes`); Connect reads the empty value
+				// as no work area (`form_receiver/processor.py::
+				// process_deliver_unit`).
 				el("deliver", { xmlns: CONNECT_XMLNS, id: duId }, [
 					el("name", {}, [text(du.name)]),
 					el("entity_id", {}),
 					el("entity_name", {}),
+					el("work_area_id", {}),
 				]),
 			]),
 		);
@@ -512,11 +521,14 @@ function buildConnectBlocks(
 			}),
 			el("bind", {
 				nodeset: duPath.child("deliver").child("entity_id").toXPath(),
-				calculate: expand(entityId),
+				calculate: spellPredicateSelf(expand(entityId)),
 			}),
 			el("bind", {
 				nodeset: duPath.child("deliver").child("entity_name").toXPath(),
-				calculate: expand(entityName),
+				calculate: spellPredicateSelf(expand(entityName)),
+			}),
+			el("bind", {
+				nodeset: duPath.child("deliver").child("work_area_id").toXPath(),
 			}),
 		);
 	}
@@ -717,12 +729,17 @@ export function buildXForm(
 	// every helper (binds, defaults, itext prose, connect exprs, repeat counts).
 	// It carries `caseTypeDepths`, so a `#<case_type>/<prop>` ref resolves to the
 	// right parent-index walk. On case-create (registration) forms,
-	// `#<own_type>/case_id` rewrites to `/data/case/@case_id`
-	// (populated by the case-create scaffolding's setvalue chain); the
-	// case-loading lookup shape is reserved for forms that load an existing case.
+	// `#<own_type>/case_id` reads the session datum the entry mints the new
+	// case's id into (`ownNewCaseIdRef`); the case-loading lookup shape is
+	// reserved for forms that load an existing case.
 	const authoredPaths = xpathPrintContext(doc);
 	const formPaths = new Map<string, FormPath>();
+	// Hidden Values take no `required`: HQ's form builder marks one
+	// "Required is not allowed." on every save.
+	const hiddenValuePaths = new Set<string>();
 	for (const [uuid, location] of collectFieldLocations(doc, formUuid)) {
+		if (doc.fields[uuid]?.kind === "hidden")
+			hiddenValuePaths.add(location.path.toXPath());
 		const segments = authoredPaths.fieldPathSegments(uuid);
 		if (segments !== undefined) {
 			// A repeat reference denotes its rows, including a query repeat's
@@ -743,31 +760,31 @@ export function buildXForm(
 		...(opts.searchAnswers !== undefined && {
 			searchAnswers: opts.searchAnswers,
 		}),
+		...(form.type === "registration" &&
+			opts.moduleCaseType !== undefined && {
+				ownNewCaseIdRef: `instance('commcaresession')/session/data/${newCaseIdDatumId(opts.moduleCaseType)}`,
+			}),
 	};
 	const expand = (expr: string): string =>
 		lowerXPathForJavaRosa(expandHashtagsInContext(expr, formCtx));
+	// A default's form reads print relative to the question it sets.
+	const expandDefault = (expr: string, target: FormPath): string =>
+		spellPredicateSelf(
+			lowerXPathForJavaRosa(
+				expandHashtagsForDefaultValue(expr, formCtx, target),
+			),
+		);
 
 	// Editor-vocabulary projector for the `vellum:*` shadow attributes, threaded
-	// like `expand`. Returns the shadow text (`#patient/x` → `#case/x`) or
-	// `undefined` when the slot must emit no shadow. As a side effect it
-	// accumulates every case ref it clears — in editor vocabulary, mapped to the
-	// same expansion the real attribute carries, both computed in the
-	// projection's single parse pass — into `vellumRefs`, which becomes the
-	// head-level `<vellum:hashtags>` / `<vellum:hashtagTransforms>` metadata
-	// (the shape Vellum's own writer produces and its parser consumes as the
-	// pre-datasources fallback). Memoized per expression string: this runs
-	// inside the deep-validator compile loop on every commit-gated mutation
-	// batch, and labels alone invoke it twice per itext entry (plain +
-	// markdown `<value>`).
-	const vellumRefs = new Map<string, string>();
+	// like `expand`. Returns the shadow text, which carries `#form/` references
+	// alone, or `undefined` when the slot must emit no shadow. Memoized per
+	// expression string: this runs inside the deep-validator compile loop on
+	// every commit-gated mutation batch, and labels alone invoke it twice per
+	// itext entry (plain + markdown `<value>`).
 	const shorthandMemo = new Map<string, string | undefined>();
 	const shorthand = (expr: string): string | undefined => {
 		if (shorthandMemo.has(expr)) return shorthandMemo.get(expr);
-		const editorXPath = vellumShorthandInContext(
-			expr,
-			formCtx,
-			(ref, expanded) => vellumRefs.set(ref, expanded),
-		);
+		const editorXPath = vellumShorthandInContext(expr, formCtx);
 		const projected =
 			editorXPath === undefined
 				? undefined
@@ -787,15 +804,14 @@ export function buildXForm(
 	// after the text values (the CCHQ shape — see `multimedia/itextMedia.ts`).
 	// An entry with media but no text still emits — the text `<value>` is just
 	// empty (`buildLabelNodes("")` yields no children), matching CCHQ's
-	// media-only itext shape — so a hint/help slot can carry media without
-	// text. An entry with neither text nor media is skipped entirely UNLESS
-	// `force` is set: a leaf control's `<label>` is emitted unconditionally
-	// (every leaf carries one), so its itext entry must exist even for an
-	// empty label, or the `jr:itext('<id>-label')` ref dangles and JavaRosa's
-	// `verifyTextMappings` rejects the form at parse. Optional slots (hint /
-	// help / constraintMsg / options) and container labels stay skip-on-empty
-	// — their body ref is itself conditional, so a skipped entry leaves no
-	// dangling reference.
+	// media-only itext shape — so a slot can carry media without text. An
+	// entry blank in every language with no media is skipped, and its body
+	// ref with it: HQ's form builder writes no such item and drops the
+	// reference to it on save (`javaRosa/util.js::getItextItemsFromMugs`), so
+	// a leaf whose label is blank everywhere carries no `<label>`. Only an
+	// option label is `force`d: each `<item>` needs its `<label>`, and the
+	// validator refuses a written choice with no label and no media
+	// (`SELECT_OPTION_LABEL_EMPTY`) before emission.
 	const addItext: AddItext = (
 		id: string,
 		label: ProseTemplate | undefined,
@@ -825,7 +841,7 @@ export function buildXForm(
 		);
 		if (
 			!force &&
-			localizedTemplates.every((template) => template.parts.length === 0) &&
+			localizedTemplates.every(proseTemplateIsEmpty) &&
 			sourceMediaValues.length === 0
 		)
 			return { registered: false };
@@ -896,6 +912,7 @@ export function buildXForm(
 			addItext,
 			instances,
 			expand,
+			expandDefault,
 			shorthand,
 			opts.assets,
 			lookupSelects,
@@ -909,7 +926,11 @@ export function buildXForm(
 	dataElements.push(...connectParts.dataElements);
 	binds.push(...connectParts.binds);
 
-	const dataRootRuntimeAttributes = xformDataRootRuntimeAttributes(form.name);
+	// `<h:title>` and the data node's `name` both carry the form's name in
+	// the app's default language, the name HQ's form builder writes into both
+	// on a save in that editing language.
+	const wireName = formWireName(doc, formUuid);
+	const dataRootRuntimeAttributes = xformDataRootRuntimeAttributes(wireName);
 
 	// Assemble the model: primary instance (the data tree), then the
 	// accumulated secondary instances, binds, setvalues, and the itext block.
@@ -945,6 +966,7 @@ export function buildXForm(
 		attachCaseOperationData(dataEl, caseOperations.dataChildren);
 		binds.push(...caseOperations.binds);
 		for (const namePath of caseOperations.requiredNamePaths) {
+			if (hiddenValuePaths.has(namePath)) continue;
 			const bind = binds.find(
 				(candidate) => candidate.attribs.nodeset === namePath,
 			);
@@ -984,32 +1006,14 @@ export function buildXForm(
 		]),
 	];
 
-	// Head-level hashtag metadata — the shape Vellum's own writer serializes
-	// after `</model>` (`Vellum/src/writer.js`) and its parser reads back as the
-	// fallback vocabulary while HQ's data sources are still loading
-	// (`parser.js::initHashtags`, "load hashtags from form to prevent unknown
-	// hashtag warnings"). `<vellum:hashtags>` maps each case/user ref the form
-	// uses (in editor vocabulary) to its expanded XPath;
-	// `<vellum:hashtagTransforms>` carries the `{prefixes}` expansion table for
-	// the generation prefixes those refs need. Omitted entirely when the form
-	// references no case/user hashtags, matching vanilla output. These are HEAD
-	// ELEMENTS, not per-bind attributes: the editor never reads hashtag metadata
-	// off a bind, and an unread `vellum:*` bind attribute survives into
-	// `rawBindAttributes` and accretes a prefix on every editor save.
+	// The head holds no `<vellum:hashtags>` or `<vellum:hashtagTransforms>`:
+	// shadows carry `#form/` alone, which the editor knows on every form, and
+	// a case read is raw casedb XPath that the editor's reverse map names
+	// itself.
 	const headChildren: ChildNode[] = [
-		el("h:title", {}, [text(form.name)]),
+		el("h:title", {}, [text(wireName)]),
 		el("model", {}, modelChildren),
 	];
-	if (vellumRefs.size > 0) {
-		headChildren.push(
-			el("vellum:hashtags", {}, [
-				text(JSON.stringify(Object.fromEntries(vellumRefs))),
-			]),
-			el("vellum:hashtagTransforms", {}, [
-				text(JSON.stringify(buildVellumTransforms(vellumRefs.keys()))),
-			]),
-		);
-	}
 	const body = el("h:body", {}, bodyElements);
 	if (caseOperations !== null) {
 		attachCaseOperationBody(body, caseOperations.bodyChildren);
@@ -1113,6 +1117,7 @@ function buildFieldParts(
 	addItext: AddItext,
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
+	expandDefault: (expr: string, target: FormPath) => string,
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
@@ -1162,11 +1167,9 @@ function buildFieldParts(
 	const helpMedia = readFieldMedia(field, "help_media");
 	const validateMsgMedia = readFieldMedia(field, "validate_msg_media");
 	const canValidate = fieldKindCarriesValidation(field.kind);
-	const isContainerKind = isContainer(field);
 	const hasLabel =
 		field.kind !== "hidden" &&
-		addItext(`${itextKey}-label`, label, labelMedia, !isContainerKind)
-			.registered;
+		addItext(`${itextKey}-label`, label, labelMedia).registered;
 	const hasHint =
 		field.kind !== "hidden" &&
 		addItext(`${itextKey}-hint`, hint, hintMedia).registered;
@@ -1199,9 +1202,18 @@ function buildFieldParts(
 
 	// Bind: real attributes get expanded XPath; `vellum:*` attrs carry the
 	// shorthand PROJECTED INTO THE EDITOR'S VOCABULARY (`shorthand` — see
-	// `vellumShorthandInContext`) for the Vellum round-trip. Attributes are
-	// accumulated in an ordered object so the emitted attribute sequence
-	// matches the prior emitter (the serializer preserves insertion order).
+	// `vellumShorthandInContext`) for the Vellum round-trip. Every attribute
+	// but `constraint` is spelled with a predicate's own node as `./.`
+	// (`xpath/selfSteps.ts`): there HQ's form builder reads a bare `.` as the
+	// question itself. In a validation condition `.` is the answer and the
+	// editor allows it. Attributes are accumulated in an ordered object so the
+	// emitted attribute sequence matches the prior emitter (the serializer
+	// preserves insertion order).
+	const computed = (expr: string): string => spellPredicateSelf(expand(expr));
+	const computedShorthand = (expr: string): string | undefined => {
+		const projected = shorthand(expr);
+		return projected === undefined ? undefined : spellPredicateSelf(projected);
+	};
 	const nodePathStr = nodePath.toXPath();
 	const vellumPathStr = nodePath.toVellum();
 	const bindAttribs: Record<string, string> = {
@@ -1224,10 +1236,10 @@ function buildFieldParts(
 		// deliberately NOT emitted — JavaRosa ignores it with an "unrecognized
 		// attributes" parse warning, and Vellum reconstructs the condition from
 		// `required` when it's absent.
-		const requiredShorthand = shorthand(required);
+		const requiredShorthand = computedShorthand(required);
 		if (requiredShorthand !== undefined)
 			bindAttribs["vellum:requiredCondition"] = requiredShorthand;
-		bindAttribs.required = expand(required);
+		bindAttribs.required = computed(required);
 	}
 
 	// Validation (constraint + constraintMsg) is meaningful only on input
@@ -1246,13 +1258,13 @@ function buildFieldParts(
 		bindAttribs.constraint = expand(plan.source);
 		for (const calculation of plan.calculations) {
 			dataElements.push(el(calculation.name, {}));
+			// No `vellum:calculate`: the count filters a form reference, which
+			// the editor cannot parse as a hashtag.
 			const attrs: Record<string, string> = {
 				nodeset: calculation.path,
 				type: "xsd:int",
-				calculate: expand(calculation.source),
+				calculate: computed(calculation.source),
 			};
-			const shadow = shorthand(calculation.source);
-			if (shadow !== undefined) attrs["vellum:calculate"] = shadow;
 			// Preserve the question's effective relevance in its own context.
 			// The condition belongs to that question, not this generated node.
 			attrs.relevant = `count(${nodePath.toXPath()}) > 0`;
@@ -1277,32 +1289,33 @@ function buildFieldParts(
 	}
 
 	if (relevant) {
-		const relevantShorthand = shorthand(relevant);
+		const relevantShorthand = computedShorthand(relevant);
 		if (relevantShorthand !== undefined)
 			bindAttribs["vellum:relevant"] = relevantShorthand;
-		bindAttribs.relevant = expand(relevant);
+		bindAttribs.relevant = computed(relevant);
 	}
 	if (calculate) {
-		const calculateShorthand = shorthand(calculate);
+		const calculateShorthand = computedShorthand(calculate);
 		if (calculateShorthand !== undefined)
 			bindAttribs["vellum:calculate"] = calculateShorthand;
-		bindAttribs.calculate = expand(calculate);
+		bindAttribs.calculate = computed(calculate);
 	}
 
 	// Setvalue for `default_value`. Inside a repeat group we fire on `jr-insert`
 	// so each new iteration gets the default; outside, the one-shot
-	// `xforms-ready` event is correct.
+	// `xforms-ready` event is correct (Vellum chooses the same events). Every
+	// form read prints relative to this question as `current()/...`, with no
+	// `vellum:value`: HQ's form builder refuses a `#form/` reference in a
+	// default and reads an absolute `/data/` path back as one.
 	if (defaultValue) {
-		const setvalueAttribs: Record<string, string> = {
-			event: insideRepeat ? "jr-insert" : "xforms-ready",
-			"vellum:ref": vellumPathStr,
-			ref: nodePathStr,
-		};
-		const defaultShorthand = shorthand(defaultValue);
-		if (defaultShorthand !== undefined)
-			setvalueAttribs["vellum:value"] = defaultShorthand;
-		setvalueAttribs.value = expand(defaultValue);
-		setvalues.push(el("setvalue", setvalueAttribs));
+		setvalues.push(
+			el("setvalue", {
+				event: insideRepeat ? "jr-insert" : "xforms-ready",
+				"vellum:ref": vellumPathStr,
+				ref: nodePathStr,
+				value: expandDefault(defaultValue, nodePath),
+			}),
+		);
 	}
 
 	// Record this leaf bind's slot so a container can rewrite it IN PLACE after
@@ -1411,6 +1424,7 @@ function buildFieldParts(
 			addItext,
 			instances,
 			expand,
+			expandDefault,
 			shorthand,
 			assets,
 			lookupSelects,
@@ -1472,6 +1486,7 @@ function buildFieldParts(
 			field,
 			nodePath,
 			itextKey,
+			hasLabel,
 			hasHint,
 			hasHelp,
 			hasValidationMessage &&
@@ -1608,8 +1623,10 @@ function buildLookupItemset(
 
 /**
  * Build the `<h:body>` control for a non-container, non-hidden leaf field. All
- * leaf kinds share the `<label>` + optional `<hint>` itext-reference shape;
- * they differ only in the wrapping control element and its attributes:
+ * leaf kinds share the `<label>` + optional `<hint>` itext-reference shape
+ * (the `<label>` left out when the label is blank in every language and has
+ * no media, as HQ's form builder leaves it); they differ only in the wrapping
+ * control element and its attributes:
  *
  *   - select kinds → `<select1>` / `<select>` with one `<item>` per option;
  *   - label kind   → `<trigger appearance="minimal">`;
@@ -1621,6 +1638,7 @@ function buildLeafControl(
 	field: Field,
 	nodePath: FormPath,
 	itextKey: string,
+	hasLabel: boolean,
 	hasHint: boolean,
 	hasHelp: boolean,
 	hasValidationMessage: boolean,
@@ -1629,10 +1647,11 @@ function buildLeafControl(
 	// The shared head of every control: the label reference, then the optional
 	// hint and help references (in XForm body order: label → hint → help). A
 	// ref emits only when its itext entry was registered (text or media
-	// present), so no `<hint>`/`<help>` ever dangles against a missing entry.
-	const head: Element[] = [
-		el("label", { ref: `jr:itext('${itextKey}-label')` }),
-	];
+	// present), so no `<label>`/`<hint>`/`<help>` ever dangles against a
+	// missing entry.
+	const head: Element[] = [];
+	if (hasLabel)
+		head.push(el("label", { ref: `jr:itext('${itextKey}-label')` }));
 	if (hasHint) head.push(el("hint", { ref: `jr:itext('${itextKey}-hint')` }));
 	if (hasHelp) head.push(el("help", { ref: `jr:itext('${itextKey}-help')` }));
 	// Core fills output templates through the question's alert; its legacy
@@ -1725,6 +1744,7 @@ function buildContainer(
 	addItext: AddItext,
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
+	expandDefault: (expr: string, target: FormPath) => string,
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
@@ -1770,6 +1790,7 @@ function buildContainer(
 			addItext,
 			instances,
 			expand,
+			expandDefault,
 			shorthand,
 			assets,
 			lookupSelects,
@@ -1826,8 +1847,9 @@ function buildContainer(
 		};
 		const relevantShorthand = shorthand(relevant);
 		if (relevantShorthand !== undefined)
-			groupBindAttribs["vellum:relevant"] = relevantShorthand;
-		groupBindAttribs.relevant = expand(relevant);
+			groupBindAttribs["vellum:relevant"] =
+				spellPredicateSelf(relevantShorthand);
+		groupBindAttribs.relevant = spellPredicateSelf(expand(relevant));
 		binds[bindSlot] = el("bind", groupBindAttribs);
 	} else {
 		// Drop the leaf bind in place. `splice` (not `pop`) so any synthetic
@@ -1939,7 +1961,7 @@ function buildRepeatBody(
 		// The stored AST projects to text once; every use below (expand,
 		// instance scan, the vellum round-trip attribute) shares it.
 		const repeatCount = readFieldString(field, "repeat_count", doc) ?? "";
-		const expandedCount = expand(repeatCount);
+		const expandedCount = spellPredicateSelf(expand(repeatCount));
 		// Hashtags inside repeat_count may reference casedb/session.
 		instances.scanXPath(repeatCount);
 
@@ -1993,7 +2015,7 @@ function buildRepeatBody(
 		repeatAttribs["jr:count"] = countAttrPath;
 		repeatAttribs["jr:noAddRemove"] = "true()";
 		const idsQuery = readFieldString(field, "ids_query", doc) ?? "";
-		const expandedIdsQuery = expand(idsQuery);
+		const expandedIdsQuery = spellPredicateSelf(expand(idsQuery));
 		const idsValue = `join(' ', ${expandedIdsQuery})`;
 		// Reading @ids while its container is excluded yields blank in Core.
 		// A one-time count would stay zero after the repeat becomes relevant.
@@ -2052,14 +2074,17 @@ function buildRepeatBody(
 	// The `<repeat>` itself, then the surrounding `<group>` wrapper that holds
 	// the optional label + the repeat. Children sit directly inside the
 	// `<repeat>`. Attribute insertion order is `nodeset` first, then the
-	// mode-specific attributes — matching the prior emitter's byte order.
+	// mode-specific attributes — matching the prior emitter's byte order. The
+	// wrapper carries no `ref`, as HQ's form builder writes it
+	// (`mugs/types/group.js`, `writeControlRefAttr: null`); Core collapses it
+	// into the repeat either way.
 	const repeatEl = el(
 		"repeat",
 		{ nodeset: repeatNodeset, ...repeatAttribs },
 		childBody,
 	);
 	const groupChildren: Element[] = labelEl ? [labelEl, repeatEl] : [repeatEl];
-	return el("group", { ref: nodePath.toXPath() }, groupChildren);
+	return el("group", {}, groupChildren);
 }
 
 /**

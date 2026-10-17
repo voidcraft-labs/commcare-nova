@@ -67,6 +67,8 @@ DOCUMENTS = (
 )
 DELIVER, LEARN, TASK_NAMED_TASK, DELIVER_KEY_NAMES, LEARN_KEY_NAMES = DOCUMENTS
 CONFIGURATION = "minimum"
+# The submission of the deliver app's form with its deliver unit's ``work_area_id`` and that node's bind taken out.
+WITHOUT_WORK_AREA = "without-work-area"
 # The submission of the deliver app's control's pre-fix local archive, which names no submission URL.
 CONTROL_LOCAL = "control-local"
 CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
@@ -150,7 +152,8 @@ class ConnectApp:
     renames: dict = field(default_factory=dict)
     # By name: "<path>", "<path>@next" (the day after), each with "+fix", "+near" or "+far" where a fix was
     # written. The paths are "hq" and "local", "renamed" and "renamed-local" where the document carries the edit,
-    # and "vellum" and "control-local" (the control's pre-fix local archive, posted with no app named) for the
+    # and "vellum", "without-work-area" (the form with its deliver unit's ``work_area_id`` and that node's bind
+    # taken out) and "control-local" (the control's pre-fix local archive, posted with no app named) for the
     # deliver app. A document of several forms has "hq#1", "hq#2", one for each form its session submits.
     submissions: dict = field(default_factory=dict)
     # The profile of the deliver app's control's pre-fix local archive, which names no submission URL.
@@ -425,9 +428,32 @@ def _local_archive(scratch, name, path, app_id):
     return written
 
 
+def _without_work_area(root):
+    """A form's root with each deliver unit's ``work_area_id`` and its bind taken out, as no editor writes it."""
+    from lxml import etree
+
+    xforms = "{http://www.w3.org/2002/xforms}"
+    deliver, work_area = f"{{{CONNECT_XMLNS}}}deliver", f"{{{CONNECT_XMLNS}}}work_area_id"
+    paths = set()
+    for element in list(root.iter(work_area)):
+        parent = element.getparent()
+        if parent is None or parent.tag != deliver:
+            continue
+        # The node's absolute path, as its bind's node set names it: each step up to the form's data root.
+        steps = [element]
+        while steps[-1].getparent().tag != f"{xforms}instance":
+            steps.append(steps[-1].getparent())
+        paths.add("".join(f"/{etree.QName(step).localname}" for step in reversed(steps)))
+        parent.remove(element)
+    binds = [bind for bind in root.iter(f"{xforms}bind") if bind.get("nodeset") in paths]
+    assert paths and len(binds) == len(paths), (sorted(paths), len(binds))
+    for bind in binds:
+        bind.getparent().remove(bind)
+
+
 def _connect_app(document, core_runner, editor_driver, connect_runtime):
     from proof.checks.corpus import CONTROLS_DIR
-    from proof.rules.conftest import published
+    from proof.rules.conftest import published, rewritten
 
     with published(document, core_runner, CONFIGURATION) as app, tempfile.TemporaryDirectory() as scratch:
         built = app.spell()
@@ -464,8 +490,15 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
                 _local_archive(scratch, "edit-local.ccz", document.edit.local_ccz, app.app_id),
             )
         if document.id == DELIVER:
-            (form,) = [form for module in built.stored["doc"]["modules"] for form in module["forms"]]
+            ((position, form),) = [
+                (f"{m}.{f}", form)
+                for m, module in enumerate(built.stored["doc"]["modules"])
+                for f, form in enumerate(module["forms"])
+            ]
             made["vellum"] = paths.build(_vellum_saved_build(app, editor_driver, form["unique_id"]).files, "vellum")
+            without = app.spell(sources={position: rewritten(_without_work_area)})
+            assert without.build.files is not None and not without.build.raised, without.build.raised
+            made[WITHOUT_WORK_AREA] = paths.build(without.build.files, WITHOUT_WORK_AREA)
             made.update(_devices(app, document))
             # The control's pre-fix archive, which names no submission URL, for the refusal it meets.
             control = CONTROLS_DIR / DELIVER / "local.ccz"

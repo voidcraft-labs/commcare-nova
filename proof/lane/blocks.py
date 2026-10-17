@@ -110,6 +110,7 @@ DOCUMENT_KINDS = ("corpus:", "control:")
 # of a document. Like a document's group, each runs in the main phase,
 # once the corpus is in place.
 CORPUS_PACKAGES = (
+    "proof/android",
     "proof/checks",
     "proof/connect",
     "proof/editors",

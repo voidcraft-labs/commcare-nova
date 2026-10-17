@@ -3,24 +3,29 @@
  *
  * Contracts locked in:
  *
- *   - On a registration form, the own-type `#<own_type>/case_id` rewrites to
- *     the form-local path
- *     `/data/case/@case_id` (populated by the case-create scaffolding's
- *     setvalue chain).
+ *   - On a registration form, the own-type `#<own_type>/case_id` reads the
+ *     session datum the entry mints the new case's id into, which the caller
+ *     names.
+ *   - A default value's form reads print relative to the question it sets.
  *   - Literal authored `#case/...` fails closed at every wire projection.
  *   - A per-case-type namespace `#<type>/<prop>` resolves to the SAME
  *     parent-index walk the private HQ `#case/parent…/<prop>` projection names,
  *     addressed by the type's reachable-case-type hop depth.
+ *   - A `vellum:*` shadow carries `#form/` references alone, and none that
+ *     heads a predicate or a longer path.
  */
 
 import { describe, expect, it } from "vitest";
 import { expandCaseToWire, hqLoadReference } from "@/lib/commcare/hashtags";
 import {
+	expandHashtagsForDefaultValue,
 	expandHashtagsForSessionStack,
 	expandHashtagsInContext,
 	type FormHashtagContext,
 	vellumShorthandInContext,
 } from "@/lib/commcare/hashtags/formContext";
+import { newCaseIdDatumId } from "@/lib/commcare/session";
+import { FormPath } from "@/lib/commcare/xform/formPath";
 
 const ctx = (
 	formType: FormHashtagContext["formType"],
@@ -76,13 +81,22 @@ describe("expandHashtagsInContext", () => {
 			);
 		});
 
-		it("rewrites #<own_type>/case_id to /data/case/@case_id on a registration form", () => {
+		it("reads #<own_type>/case_id from the entry's new-case datum on a registration form", () => {
+			const ownNewCaseIdRef = `instance('commcaresession')/session/data/${newCaseIdDatumId("pregnancy")}`;
 			expect(
+				expandHashtagsInContext("concat('P-', #pregnancy/case_id)", {
+					...ctx("registration", depths),
+					ownNewCaseIdRef,
+				}),
+			).toBe(
+				"concat('P-', instance('commcaresession')/session/data/case_id_new_pregnancy_0)",
+			);
+			expect(() =>
 				expandHashtagsInContext(
 					"#pregnancy/case_id",
 					ctx("registration", depths),
 				),
-			).toBe("/data/case/@case_id");
+			).toThrow("names no session datum");
 		});
 
 		it("leaves an unreachable namespace verbatim for the validator to reject", () => {
@@ -116,139 +130,139 @@ describe("expandHashtagsInContext", () => {
 	});
 });
 
+describe("expandHashtagsForDefaultValue", () => {
+	const formPaths = new Map([
+		["zone", FormPath.root().child("zone")],
+		["visits", FormPath.root().child("visits")],
+		["visits/zone", FormPath.root().child("visits").child("zone")],
+	]);
+	const c: FormHashtagContext = {
+		...ctx("followup", new Map([["patient", 0]])),
+		formPaths,
+	};
+
+	it("prints each form read relative to the question the default sets", () => {
+		expect(
+			expandHashtagsForDefaultValue(
+				"concat('was ', #form/zone)",
+				c,
+				FormPath.root().child("root_read"),
+			),
+		).toBe("concat('was ', current()/../zone)");
+		expect(
+			expandHashtagsForDefaultValue(
+				"#form/zone",
+				c,
+				FormPath.root().child("visits").child("zone"),
+			),
+		).toBe("current()/../../zone");
+		expect(
+			expandHashtagsForDefaultValue(
+				"#form/visits/zone",
+				c,
+				FormPath.root().child("visits").child("sibling_read"),
+			),
+		).toBe("current()/../zone");
+	});
+
+	it("expands case reads as the absolute walk every other slot prints", () => {
+		expect(
+			expandHashtagsForDefaultValue(
+				"#patient/name",
+				c,
+				FormPath.root().child("root_read"),
+			),
+		).toBe(expandHashtagsInContext("#patient/name", c));
+	});
+});
+
 describe("vellumShorthandInContext", () => {
-	// pregnancy (own, 0) → mother (1) → household (2): the guaranteed own
-	// generation plus two ancestor depths HQ's editor only knows when the
-	// app's own forms establish the relationship.
 	const depths = new Map([
 		["pregnancy", 0],
 		["mother", 1],
-		["household", 2],
 	]);
+	const formPaths = new Map([
+		["age", FormPath.root().child("age")],
+		["med", FormPath.root().child("med")],
+		["items/choice", FormPath.root().child("items").child("choice")],
+	]);
+	const c: FormHashtagContext = { ...ctx("followup", depths), formPaths };
 
-	it("projects a canonical own-type ref onto HQ's private #case/ spelling", () => {
-		const c = ctx("followup", depths);
-		expect(vellumShorthandInContext("#pregnancy/ga", c)).toBe("#case/ga");
-		expect(() => vellumShorthandInContext("#case/ga", c)).toThrow(
-			'Authored "#case/..." is not a Nova reference',
+	it("projects #form/ refs to the editor's own spelling", () => {
+		expect(vellumShorthandInContext("#form/age > 18", c)).toBe(
+			"#form/age > 18",
 		);
-	});
-
-	it("suppresses ancestor-generation shadows — HQ derives parent generations from in-app subcase forms, not the catalog", () => {
-		// `case_properties.py::get_case_relationships` builds the editor's
-		// parent/grandparent generations from case-subcase relationships
-		// "appearing in all relevant forms"; Nova's catalog parent link doesn't
-		// guarantee any, so a `#case/parent/` shadow could be unexpandable.
-		const c = ctx("followup", depths);
-		expect(vellumShorthandInContext("#mother/code", c)).toBeUndefined();
-		expect(vellumShorthandInContext("#household/head", c)).toBeUndefined();
-	});
-
-	it("suppresses #user/ shadows — the usercase namespace is a domain privilege Nova can't know", () => {
-		// `casedb_schema.py::get_casedb_schema` adds the user subset only under
-		// `domain_has_usercase_access(app.domain)` (off by default), and
-		// `Vellum/src/form.js::_updateHashtags` wipes the head-element fallback
-		// once data sources load.
-		expect(
-			vellumShorthandInContext("#user/role = 'chw'", ctx("followup", depths)),
-		).toBeUndefined();
-		expect(
-			vellumShorthandInContext("#user/a/b", ctx("followup")),
-		).toBeUndefined();
-	});
-
-	it("keeps #form/ refs verbatim", () => {
-		expect(
-			vellumShorthandInContext("#form/age > 18", ctx("followup", depths)),
-		).toBe("#form/age > 18");
-	});
-
-	it("translates refs inside a larger mixed expression", () => {
-		expect(
-			vellumShorthandInContext(
-				"#form/med != '' and contains(lower-case(#pregnancy/allergen), 'pen')",
-				ctx("followup", depths),
-			),
-		).toBe("#form/med != '' and contains(lower-case(#case/allergen), 'pen')");
-	});
-
-	it("suppresses the WHOLE shadow when any ref has no guaranteed editor spelling", () => {
-		expect(
-			vellumShorthandInContext(
-				"#form/med != '' and #mother/code = 'x'",
-				ctx("followup", depths),
-			),
-		).toBeUndefined();
-	});
-
-	it("suppresses every case-namespace shadow on non-case-loading forms", () => {
-		// Registration AND survey forms upload with `requires: "none"`, and HQ
-		// only feeds the editor case data sources when the form loads a case
-		// (`get_casedb_schema` gates on `form.requires_case()`), so even the
-		// own-type ref has no editor vocabulary there.
-		expect(
-			vellumShorthandInContext(
-				"#pregnancy/case_id",
-				ctx("registration", depths),
-			),
-		).toBeUndefined();
-		expect(
-			vellumShorthandInContext("#pregnancy/ga", ctx("survey", depths)),
-		).toBeUndefined();
-		// #form shadows survive on every form type.
+		// A ref the form does not map is kept as written.
 		expect(
 			vellumShorthandInContext("#form/age > 18", ctx("registration")),
 		).toBe("#form/age > 18");
 	});
 
-	it("suppresses an unreachable namespace and relationship-named / multi-segment properties", () => {
-		const c = ctx("followup", depths);
+	it("writes no shadow for an expression that reads a case, on every form type", () => {
+		// The editor's reverse map names a listed case property itself; a
+		// shadow of Nova's own would save `#case/status` as a child element and
+		// draw an unknown-question warning for an unlisted property.
+		for (const formType of [
+			"followup",
+			"close",
+			"registration",
+			"survey",
+		] as const) {
+			const typed: FormHashtagContext = {
+				...ctx(formType, depths),
+				formPaths,
+			};
+			expect(vellumShorthandInContext("#pregnancy/ga", typed)).toBeUndefined();
+			expect(
+				vellumShorthandInContext(
+					"#form/med != '' and contains(lower-case(#pregnancy/allergen), 'pen')",
+					typed,
+				),
+			).toBeUndefined();
+		}
+		expect(vellumShorthandInContext("#mother/code", c)).toBeUndefined();
+		expect(vellumShorthandInContext("#case/ga", c)).toBeUndefined();
+	});
+
+	it("writes no shadow for #user/, #search/ or an unreachable namespace", () => {
+		expect(vellumShorthandInContext("#user/role = 'chw'", c)).toBeUndefined();
+		expect(vellumShorthandInContext("#search/name", c)).toBeUndefined();
 		expect(vellumShorthandInContext("#unknown/x", c)).toBeUndefined();
-		// A property literally named after a relationship word would be read by
-		// the editor as a WALK, diverging from the expanded attribute.
+	});
+
+	it("writes no shadow when a #form/ ref is the base of a predicate", () => {
 		expect(
-			vellumShorthandInContext("#pregnancy/grandparent", c),
+			vellumShorthandInContext("count(#form/items/choice[. = 'yes']) = 1", c),
 		).toBeUndefined();
-		expect(vellumShorthandInContext("#pregnancy/parent", c)).toBeUndefined();
-		// Multi-segment property path — no editor prefix covers it.
-		expect(vellumShorthandInContext("#pregnancy/a/b", c)).toBeUndefined();
+		expect(
+			vellumShorthandInContext(
+				"#form/age > count(#form/items/choice[./. = 'yes'])",
+				c,
+			),
+		).toBeUndefined();
+	});
+
+	it("writes no shadow when a #form/ ref is the first step of a longer path", () => {
+		expect(
+			vellumShorthandInContext("#form/items/choice/..", c),
+		).toBeUndefined();
+		expect(
+			vellumShorthandInContext("count(#form/items/choice//x)", c),
+		).toBeUndefined();
+	});
+
+	it("keeps a shadow whose #form/ ref stands inside another path's predicate", () => {
+		expect(
+			vellumShorthandInContext(
+				"count(instance('casedb')/casedb/case[@case_type = #form/med])",
+				c,
+			),
+		).toBe("count(instance('casedb')/casedb/case[@case_type = #form/med])");
 	});
 
 	it("returns undefined when the expression has no hashtags at all", () => {
-		expect(
-			vellumShorthandInContext("/data/age > 18", ctx("followup", depths)),
-		).toBeUndefined();
-		expect(vellumShorthandInContext("", ctx("followup"))).toBeUndefined();
-	});
-
-	it("reports each cleared ref with its expansion via onRef, only when the whole expression clears", () => {
-		const c = ctx("followup", depths);
-		const seen: Array<[string, string]> = [];
-		vellumShorthandInContext(
-			"#pregnancy/ga > 20 and #pregnancy/risk = 'high'",
-			c,
-			(ref, expanded) => seen.push([ref, expanded]),
-		);
-		expect(seen).toEqual([
-			[
-				"#case/ga",
-				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/ga",
-			],
-			[
-				"#case/risk",
-				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/risk",
-			],
-		]);
-
-		// A suppressed expression reports nothing — its refs must not leak into
-		// head metadata for a shadow that was never emitted.
-		const none: Array<[string, string]> = [];
-		vellumShorthandInContext(
-			"#pregnancy/ga > #mother/min_ga",
-			c,
-			(ref, expanded) => none.push([ref, expanded]),
-		);
-		expect(none).toEqual([]);
+		expect(vellumShorthandInContext("/data/age > 18", c)).toBeUndefined();
+		expect(vellumShorthandInContext("", c)).toBeUndefined();
 	});
 });
 

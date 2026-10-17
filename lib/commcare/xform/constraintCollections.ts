@@ -1,6 +1,7 @@
 import type { SyntaxNode } from "@lezer/common";
 import { RESERVED_XFORM_NODE_PREFIX } from "@/lib/commcare/constants";
 import { parser } from "@/lib/commcare/xpath/parser";
+import { spellPredicateSelf } from "@/lib/commcare/xpath/selfSteps";
 import { printWireXPathSource } from "@/lib/commcare/xpath/wireSource";
 import {
 	type BlueprintDoc,
@@ -99,7 +100,10 @@ export function planConstraintCollections(
 				calculation = {
 					name: syntheticName,
 					path: path.parent().child(syntheticName).toXPath(),
-					source: countSource,
+					// Lifted out of the validation condition, the count is a
+					// calculate, where HQ's form builder reads a bare `.` as the
+					// question itself (`xpath/selfSteps.ts`).
+					source: spellPredicateSelf(countSource),
 				};
 				calculations.push(calculation);
 				bySource.set(countSource, calculation);

@@ -166,7 +166,6 @@ function assertChild(
 	expect(output.binds(`${casePath}/create/case_name`)).toEqual({
 		nodeset: `${casePath}/create/case_name`,
 		calculate: `replace(${namePath}, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')`,
-		constraint: "string-length(.) > 0 and string-length(.) <= 255",
 	});
 	expect(output.binds(namePath)).toEqual({
 		nodeset: namePath,

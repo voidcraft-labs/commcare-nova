@@ -92,7 +92,6 @@ from proof.rules import (  # noqa: E402
     case_references_load,
     column_tab_keys,
     condition_operator_default,
-    connect_work_area_empty,
     detail_null_booleans,
     empty_binds,
     empty_media_maps,
@@ -134,8 +133,6 @@ RULES: tuple[SpellingRule, ...] = (
     itext_value_order.RULE,
     model_order.RULE,
     setvalue_order.RULE,
-    # A form's data as Connect reads it: the one rule whose readers are HQ's repeater and Connect's receiver.
-    connect_work_area_empty.RULE,
     # HQ's app document, and the suite where it builds the same reading.
     case_references_load.RULE,
     add_ons.RULE,

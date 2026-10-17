@@ -35,6 +35,7 @@ import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWra
 import { SectionHeading } from "@/components/preview/form/sections/SectionHeading";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useFilledField } from "@/lib/doc/hooks/useLocalization";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CommitOutcome,
@@ -71,6 +72,9 @@ export const SectionHeaderRow = memo(function SectionHeaderRow({
 }: SectionHeaderRowProps) {
 	const q = useLocalizedField(uuid);
 	const language = useBuilderLanguage();
+	/* The title renders what a worker reads (a blank translation takes the
+	 * form builder's fill); its TextEditable edits `q`'s stored label. */
+	const shown = useFilledField(language.language, uuid);
 	const labelEditor = useTranslationUnitEditor(
 		makeTranslationUnitId("field", uuid, "label"),
 	);
@@ -139,7 +143,9 @@ export const SectionHeaderRow = memo(function SectionHeaderRow({
 
 	if (q?.kind !== "section") return null;
 
-	const hasTitle = q.label !== undefined && !proseTemplateIsEmpty(q.label);
+	const shownLabel = shown?.kind === "section" ? shown.label : undefined;
+	const hasTitle =
+		shownLabel !== undefined && !proseTemplateIsEmpty(shownLabel);
 
 	return (
 		<>
@@ -170,9 +176,9 @@ export const SectionHeaderRow = memo(function SectionHeaderRow({
 									onSave={saveTitle ?? undefined}
 									fieldType="label"
 								>
-									{hasTitle && q.label ? (
+									{hasTitle && shownLabel ? (
 										<LabelContent
-											label={q.label}
+											label={shownLabel}
 											resolvedLabel={state.resolvedLabel}
 											isEditMode
 											className="text-lg font-semibold leading-7 text-nova-text"

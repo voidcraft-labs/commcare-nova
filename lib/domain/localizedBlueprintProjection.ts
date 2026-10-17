@@ -5,6 +5,7 @@ import type { Field } from "./fields";
 import {
 	effectiveAppLocalization,
 	type LanguageTag,
+	type LocalizedValue,
 	makeTranslationUnitId,
 	type TranslationUnitId,
 } from "./localization";
@@ -15,14 +16,16 @@ import {
 	type Module,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 } from "./modules";
+import { filledProse, translationFillSource } from "./translationFill";
 import {
 	localizeTranslationUnit,
-	translationUnitsById,
+	snapshotTranslationUnits,
+	type TranslationUnit,
 } from "./translationUnits";
 import type { Uuid } from "./uuid";
 
 function localizedText(
-	units: ReturnType<typeof translationUnitsById>,
+	units: ReturnType<typeof snapshotTranslationUnits>,
 	doc: BlueprintDoc,
 	language: LanguageTag,
 	id: TranslationUnitId,
@@ -39,7 +42,7 @@ export function projectLocalizedAppName(
 	language: LanguageTag,
 ): string {
 	return localizedText(
-		translationUnitsById(doc),
+		snapshotTranslationUnits(doc),
 		doc,
 		language,
 		makeTranslationUnitId("app", "name"),
@@ -60,7 +63,7 @@ export function projectLocalizedForm(
 	return {
 		...form,
 		name: localizedText(
-			translationUnitsById(doc),
+			snapshotTranslationUnits(doc),
 			doc,
 			language,
 			makeTranslationUnitId("form", uuid, "name"),
@@ -74,14 +77,14 @@ export function projectLocalizedModule(
 	doc: BlueprintDoc,
 	language: LanguageTag,
 	uuid: Uuid,
-	unitIndex?: ReturnType<typeof translationUnitsById>,
+	unitIndex?: ReturnType<typeof snapshotTranslationUnits>,
 ): Module | undefined {
 	const module = doc.modules[uuid];
 	if (module === undefined) return undefined;
 	if (language === effectiveAppLocalization(doc.localization).sourceLanguage) {
 		return module;
 	}
-	const units = unitIndex ?? translationUnitsById(doc);
+	const units = unitIndex ?? snapshotTranslationUnits(doc);
 	const text = (id: TranslationUnitId, fallback: string): string =>
 		localizedText(units, doc, language, id, fallback);
 	const localized = structuredClone(module);
@@ -201,28 +204,85 @@ export function projectLocalizedModule(
 	return localized;
 }
 
+/**
+ * How a field projection reads its itext slots. `filled` gives what a worker
+ * sees: each label, hint, help text, validation message and option label
+ * takes the form builder's fill for a blank value (`translationFill.ts`), in
+ * the source language too. Without it each slot is the stored value, which
+ * every editor edits.
+ */
+export interface LocalizedFieldProjectionOptions {
+	readonly filled?: boolean;
+}
+
 /** Project prose and inline option labels without changing identity or logic. */
 export function projectLocalizedField(
 	doc: BlueprintDoc,
 	language: LanguageTag,
 	uuid: Uuid,
-	unitIndex?: ReturnType<typeof translationUnitsById>,
+	unitIndex?: ReturnType<typeof snapshotTranslationUnits>,
+	options: LocalizedFieldProjectionOptions = {},
 ): Field | undefined {
 	const field = doc.fields[uuid];
 	if (field === undefined) return undefined;
-	if (language === effectiveAppLocalization(doc.localization).sourceLanguage) {
+	const filled = options.filled === true;
+	if (
+		!filled &&
+		language === effectiveAppLocalization(doc.localization).sourceLanguage
+	) {
 		return field;
 	}
-	const units = unitIndex ?? translationUnitsById(doc);
-	return projectFieldWithUnits(doc, language, field, units);
+	const units = unitIndex ?? snapshotTranslationUnits(doc);
+	return projectFieldWithUnits(doc, language, field, units, filled);
+}
+
+/** The units of a field's itext slots and inline option labels. */
+function fieldItextUnits(
+	field: Field,
+	units: ReturnType<typeof snapshotTranslationUnits>,
+): TranslationUnit[] {
+	const ids: TranslationUnitId[] = [];
+	const record = field as unknown as Record<string, unknown>;
+	for (const slot of ["label", "hint", "help", "validate_msg"] as const) {
+		if (record[slot] !== undefined) {
+			ids.push(makeTranslationUnitId("field", field.uuid, slot));
+		}
+	}
+	if ("optionsSource" in field && field.optionsSource.kind === "inline") {
+		for (const option of field.optionsSource.options) {
+			ids.push(
+				makeTranslationUnitId("field", field.uuid, "option", option.uuid),
+			);
+		}
+	}
+	return ids.flatMap((id) => {
+		const unit = units.get(id);
+		return unit === undefined ? [] : [unit];
+	});
 }
 
 function projectFieldWithUnits(
 	doc: BlueprintDoc,
 	language: LanguageTag,
 	field: Field,
-	units: ReturnType<typeof translationUnitsById>,
+	units: ReturnType<typeof snapshotTranslationUnits>,
+	filled: boolean,
 ): Field {
+	if (
+		filled &&
+		language === effectiveAppLocalization(doc.localization).sourceLanguage &&
+		!fieldItextUnits(field, units).some(
+			(unit) => translationFillSource(doc, unit, language) !== undefined,
+		)
+	) {
+		// In the source language a slot the fill leaves alone reads the stored
+		// value, so a field with no filled slot is the stored field itself.
+		return field;
+	}
+	const read = (unit: TranslationUnit): LocalizedValue =>
+		filled
+			? filledProse(doc, unit, language)
+			: localizeTranslationUnit(doc, language, unit).effective;
 	const localized = structuredClone(field) as Field;
 	const sourceRecord = field as unknown as Record<string, unknown>;
 	const record = localized as unknown as Record<string, unknown>;
@@ -230,7 +290,7 @@ function projectFieldWithUnits(
 		if (sourceRecord[slot] === undefined) continue;
 		const unit = units.get(makeTranslationUnitId("field", field.uuid, slot));
 		if (unit !== undefined) {
-			record[slot] = localizeTranslationUnit(doc, language, unit).effective;
+			record[slot] = read(unit);
 		}
 	}
 	if (
@@ -245,8 +305,7 @@ function projectFieldWithUnits(
 				if (unit === undefined) return option;
 				return {
 					...option,
-					label: localizeTranslationUnit(doc, language, unit)
-						.effective as typeof option.label,
+					label: read(unit) as typeof option.label,
 				};
 			},
 		);
@@ -262,15 +321,23 @@ function projectFieldWithUnits(
 export function projectLocalizedFields(
 	doc: BlueprintDoc,
 	language: LanguageTag,
+	options: LocalizedFieldProjectionOptions = {},
 ): Record<string, Field> {
-	if (language === effectiveAppLocalization(doc.localization).sourceLanguage) {
+	const filled = options.filled === true;
+	if (
+		!filled &&
+		language === effectiveAppLocalization(doc.localization).sourceLanguage
+	) {
 		return doc.fields;
 	}
-	const units = translationUnitsById(doc);
-	return Object.fromEntries(
-		Object.entries(doc.fields).map(([uuid, field]) => [
-			uuid,
-			projectFieldWithUnits(doc, language, field, units),
-		]),
+	const units = snapshotTranslationUnits(doc);
+	let changed = false;
+	const projected = Object.fromEntries(
+		Object.entries(doc.fields).map(([uuid, field]) => {
+			const next = projectFieldWithUnits(doc, language, field, units, filled);
+			if (next !== field) changed = true;
+			return [uuid, next];
+		}),
 	);
+	return changed ? projected : doc.fields;
 }

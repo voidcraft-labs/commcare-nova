@@ -274,6 +274,12 @@ export interface FormEngineInput {
 	language?: LanguageTag;
 	/** The form entity (no nested fields). */
 	form: Form;
+	/**
+	 * The form's name as its XForm carries it (`lib/domain/formWireName.ts`),
+	 * which `/data/@name` reads. Absent, it is the stored name, which is the
+	 * wire name of an app in one language.
+	 */
+	wireName?: string;
 	/** The form's uuid — used as the root key into `fieldOrder`. */
 	formUuid: Uuid;
 	/** Flat uuid→field map (the `doc.fields` slice). */
@@ -587,7 +593,9 @@ export class FormEngine {
 		this.caseDataOwnType = moduleCaseType;
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.formType = input.form.type;
-		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
+		this.formRootAttributes = xformDataRootRuntimeAttributes(
+			input.wireName ?? input.form.name,
+		);
 		this.caseData = caseData ?? new Map();
 		this.searchAnswers = runtimeOptions.searchAnswers ?? new Map();
 		this.secondaryInstances = secondaryXPathInstances({
@@ -2362,7 +2370,9 @@ export class FormEngine {
 	 * and states are still valid.
 	 */
 	rebuildDag(input: FormEngineInput): void {
-		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
+		this.formRootAttributes = xformDataRootRuntimeAttributes(
+			input.wireName ?? input.form.name,
+		);
 		this.instance.setRootAttributes(this.formRootAttributes);
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.instance.refreshTemplate(this.tree);
@@ -2803,7 +2813,9 @@ export class FormEngine {
 		caseData: CaseDataByType,
 		moduleCaseType?: string,
 	): void {
-		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
+		this.formRootAttributes = xformDataRootRuntimeAttributes(
+			input.wireName ?? input.form.name,
+		);
 		this.instance.setRootAttributes(this.formRootAttributes);
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
@@ -2883,7 +2895,9 @@ export class FormEngine {
 		this.caseDataOwnType = moduleCaseType;
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.formType = input.form.type;
-		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
+		this.formRootAttributes = xformDataRootRuntimeAttributes(
+			input.wireName ?? input.form.name,
+		);
 		this.caseData = caseData ?? new Map();
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);

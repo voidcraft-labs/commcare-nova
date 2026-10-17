@@ -95,10 +95,13 @@ describe("Connect blocks in delivered forms", () => {
 									id: "visit",
 									role: "ConnectDeliverUnit",
 									tag: "deliver",
+									// The empty work area id follows the entity name, as
+									// HQ's form builder writes a deliver unit.
 									values: {
 										name: "Home & clinic <雪>",
 										entity_id: "",
 										entity_name: "",
+										work_area_id: "",
 									},
 								},
 								{
@@ -131,6 +134,9 @@ describe("Connect blocks in delivered forms", () => {
 						},
 						values: block.values,
 					});
+					expect(inner.children.filter(isTag).map((e) => e.name)).toEqual(
+						Object.keys(block.values),
+					);
 					const wrapperBind = one(
 						model.children
 							.filter(isTag)
@@ -252,5 +258,11 @@ it("joins case-backed Connect calculations and HQ dependency paths to the select
 			"/data/vendor_visit/deliver/entity_name",
 			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/case_name",
 		],
+		["/data/vendor_visit/deliver/work_area_id", undefined],
 	]);
+	// The work area id's bind names its node alone, as HQ's form builder
+	// writes it.
+	expect(binds.at(-1)?.attribs).toEqual({
+		nodeset: "/data/vendor_visit/deliver/work_area_id",
+	});
 });

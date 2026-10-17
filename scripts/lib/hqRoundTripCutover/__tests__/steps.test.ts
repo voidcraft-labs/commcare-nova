@@ -14,18 +14,27 @@ import {
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { blueprintDocSchema } from "@/lib/domain";
+import {
+	blueprintDocSchema,
+	makeTranslationUnitId,
+	translationSourceFingerprint,
+} from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { lookupContextOf } from "@/proof/corpus/documents";
 import { legacyWireCodes } from "../legacyLanguageWireCodes";
 import {
+	copyRawDocument,
+	type Json,
+	type JsonRecord,
+	type RawDocument,
 	rawDocumentAssembly,
 	rawDocumentDigest,
 	readRawDocument,
 } from "../oldShape";
 import { caseSchemaDifferences } from "../plan";
 import { questionPaths } from "../questionPaths";
+import { optionLabelsStep } from "../steps/optionLabels";
 import {
 	CUTOVER_STEPS,
 	type StepContext,
@@ -285,5 +294,191 @@ describe("step language-wire-codes", () => {
 		expect(
 			legacyWireCodes({ languageOrder: ["eng", "spa", "eng-GB"] }),
 		).toEqual({ eng: "eng-", spa: "es", "eng-GB": "eng-gb" });
+	});
+});
+
+describe("step option-labels", () => {
+	const WITNESS = "hand-option-labels";
+	const FORM = "cd8766da-7326-51ee-aa0b-f8101304f9ea";
+	const FIELD = "00000000-0000-4000-8000-000000000301";
+	const BLANK = "00000000-0000-4000-8000-000000000302";
+	const BLANK_UNIT = makeTranslationUnitId("field", FIELD, "option", BLANK);
+
+	function witness(): RawDocument {
+		return copyRawDocument(
+			readRawDocument(WITNESS, readFixtureCarriers(WITNESS)),
+		);
+	}
+
+	type WritableOption = { label: Json; media?: Json };
+	function blankOption(document: RawDocument): WritableOption {
+		const source = document.fields[FIELD]?.optionsSource as {
+			options: { uuid: string }[];
+		};
+		const option = source.options.find((candidate) => candidate.uuid === BLANK);
+		if (option === undefined)
+			throw new Error("The witness lost its blank choice.");
+		return option as unknown as WritableOption;
+	}
+
+	function optionLabels(document: RawDocument): {
+		value: string;
+		label: Json;
+	}[] {
+		const source = document.fields[FIELD]?.optionsSource as {
+			options: { value: string; label: Json }[];
+		};
+		return source.options.map(({ value, label }) => ({ value, label }));
+	}
+
+	/** The witness with a Spanish translation of its blank choice. */
+	function translated(entry: Record<string, Json>): RawDocument {
+		const document = witness();
+		(document as { localization: Json }).localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
+			translations: {
+				spa: {
+					[BLANK_UNIT]: {
+						sourceFingerprint: translationSourceFingerprint("prose", {
+							parts: [],
+						}),
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "eng",
+						...entry,
+					},
+				},
+			},
+		};
+		return document;
+	}
+
+	function admitted(document: RawDocument): string[] {
+		const parsed = blueprintDocSchema.parse(
+			rawDocumentAssembly(WITNESS, document),
+		);
+		const verdict = mutationCommitVerdict(
+			hydratePersistedBlueprint(parsed),
+			[],
+			lookupContextOf(readFixtureProject(WITNESS).lookup as never),
+		);
+		return verdict.ok ? [] : verdict.findings.map((finding) => finding.code);
+	}
+
+	function run(document: RawDocument) {
+		const result = transformDocument(document, contextFor(WITNESS));
+		return {
+			target: result.target,
+			changes:
+				result.steps.find((step) => step.stepId === "option-labels")?.changes ??
+				[],
+		};
+	}
+
+	it("gives a choice blank in every language its own value, and names it once", () => {
+		const { target, changes } = run(witness());
+		expect(optionLabels(target)).toEqual([
+			{ value: "home", label: { parts: [{ kind: "text", text: "home" }] } },
+			{ value: "clinic", label: { parts: [{ kind: "text", text: "Clinic" }] } },
+		]);
+		expect(changes).toEqual([
+			{
+				reason: "option-label-filled",
+				entity: { type: "form", uuid: FORM, nameAtMigration: "Visit" },
+				detail: { question: "visit_kind", value: "home" },
+			},
+		]);
+	});
+
+	it("is refused by the gate where the step does not run", () => {
+		const document = witness();
+		const steps = CUTOVER_STEPS.filter((step) => step.id !== "option-labels");
+		expect(
+			admitted(transformDocument(document, contextFor(WITNESS), steps).target),
+		).toContain("SELECT_OPTION_LABEL_EMPTY");
+	});
+
+	it("leaves a choice that carries media, which the gate admits blank", () => {
+		const document = witness();
+		blankOption(document).media = {
+			image: "00000000-0000-4000-8000-0000000003a1",
+		};
+		const { target, changes } = run(document);
+		expect(changes).toEqual([]);
+		expect(blankOption(target).label).toEqual({ parts: [] });
+	});
+
+	it("leaves a choice another language translates, which the gate admits", () => {
+		const { target, changes } = run(
+			translated({
+				value: { parts: [{ kind: "text", text: "Casa" }] },
+			}),
+		);
+		expect(changes).toEqual([]);
+		expect(blankOption(target).label).toEqual({ parts: [] });
+		expect(admitted(target)).toEqual([]);
+	});
+
+	it("fills a choice whose only translation is blank, out of date or adds a reference", () => {
+		const entries: Record<string, Json>[] = [
+			{ value: { parts: [] } },
+			{
+				value: { parts: [{ kind: "text", text: "Casa" }] },
+				sourceFingerprint: translationSourceFingerprint("prose", {
+					parts: [{ kind: "text", text: "Home" }],
+				}),
+			},
+			{
+				value: {
+					parts: [
+						{ kind: "text", text: "Casa " },
+						{ kind: "case-ref", caseType: "patient", property: "notes" },
+					],
+				},
+			},
+		];
+		for (const entry of entries) {
+			const { target, changes } = run(translated(entry));
+			expect(changes.map((change) => change.detail)).toEqual([
+				{ question: "visit_kind", value: "home" },
+			]);
+			expect(blankOption(target).label).toEqual({
+				parts: [{ kind: "text", text: "home" }],
+			});
+			expect(admitted(target)).toEqual([]);
+		}
+	});
+
+	it("leaves a lookup-backed and a case-backed select byte for byte", () => {
+		const document = witness();
+		const backed: Record<string, JsonRecord> = {};
+		for (const [fixture, field] of [
+			["hand-lookup-tag-collision", "5894e1e5-a263-56a1-aa32-7fa739231835"],
+			["case-choice-attendance", "4a0f488e-e51b-546a-a045-f0f077ec6c7e"],
+		] as const) {
+			const record = readRawDocument(fixture, readFixtureCarriers(fixture))
+				.fields[field];
+			if (record === undefined) throw new Error(`${fixture} lost ${field}.`);
+			backed[field] = record;
+		}
+		const writable = document as unknown as {
+			fields: Record<string, JsonRecord>;
+			fieldOrder: Record<string, readonly string[]>;
+		};
+		for (const [uuid, record] of Object.entries(backed)) {
+			writable.fields[uuid] = record;
+			writable.fieldOrder[FORM] = [...(writable.fieldOrder[FORM] ?? []), uuid];
+		}
+		const changes = optionLabelsStep.apply(document, contextFor(WITNESS));
+		expect(changes.map((change) => change.detail?.question)).toEqual([
+			"visit_kind",
+		]);
+		for (const [uuid, record] of Object.entries(backed)) {
+			expect(JSON.stringify(document.fields[uuid])).toBe(
+				JSON.stringify(record),
+			);
+		}
 	});
 });

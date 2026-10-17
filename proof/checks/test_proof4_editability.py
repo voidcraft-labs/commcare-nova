@@ -100,6 +100,11 @@ And what fork-from-B rests on:
   reads a file differently on the two sides (a version moved with nothing
   else, a form whose content changed) and wherever a file of the same bytes
   is still a difference (one that does not parse);
+- a form's content is its bytes, its data node's ``version`` value aside,
+  as HQ hashes it: a form saved in another layout of the same tree may take
+  a new version, on the build and in ``content_versions``, which the trace
+  and the served readers' comparisons read, and a form of the same bytes
+  whose version moved is a difference;
 - what a view offers is read from B's app as read once only while HQ holds
   B's app document, and from the app read afresh once a save changed it;
   under ``PROOF_VERIFY_MEMOS=1`` every reading of B's app as read once (the
@@ -1720,6 +1725,26 @@ def test_a_saves_build_compared_with_build_b_parsed_once_is_compared_as_both_bui
     misread.flat = {**misread.flat, "en/app_strings.txt": (None, b"name=Named\n")}
     with pytest.raises(observed.MemoMismatch):
         observed.raw_builds_differ(b, saves["app string"][0], misread, verify=True)
+
+
+def test_a_form_saved_in_another_layout_may_take_a_new_version_and_one_of_the_same_bytes_may_not():
+    """HQ's next build gives a form a new version wherever its bytes differ from the previous build's
+    (``Application.set_form_versions`` hashes the rendered file), so a form HQ's form builder saved in its own
+    layout, the same tree, may carry another version on the build, the trace and the served readers'
+    records alike (``content_versions``); a form of the same bytes whose version moved is a difference."""
+    b = _build(5, form_version=3)
+    relaid = _build(6, form_version=6)
+    relaid = replace(
+        relaid,
+        files={**relaid.files, "modules-0/forms-0.xml": _form(6).replace(b"<name/>", b"<name></name>")},
+    )
+    same = _build(6, form_version=6)
+    assert not observed.raw_builds_differ(b, relaid)
+    assert observed.raw_builds_differ(b, relaid, observed.ParsedBuild(b), verify=True) is False
+    assert proof4.content_versions(b, relaid) == ({"http://example.com/f": "3"}, {"http://example.com/f": "6"})
+    assert observed.raw_builds_differ(b, same)
+    assert observed.raw_builds_differ(b, same, observed.ParsedBuild(b), verify=True) is True
+    assert proof4.content_versions(b, same) == ({}, {})
 
 
 def test_a_saves_language_strings_are_compared_as_read_over_the_default_file_in_both_comparisons():

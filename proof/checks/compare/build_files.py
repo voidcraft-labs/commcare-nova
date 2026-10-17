@@ -22,7 +22,9 @@ file is named as an artifact (``artifact_for``): ``form:<m>.<f>`` for a form,
 ``<profile id>/`` before that for a build profile's file (its path read
 without the profile's prefix), so a rule or a register entry names a
 profile's forms as ``<profile id>/form:*`` and every build's as ``*form:*``.
-Each parsed file is keyed by the path HQ gave it.
+Each parsed file is keyed by the path HQ gave it, and keeps the bytes HQ
+built beside its parse, which proof 2's version clause reads a form's
+content from (``compare.versions.form_content``).
 
 A build profile's build is the app's build restricted to the profile's
 languages (``Application.create_all_files(build_profile_id)``: the same
@@ -55,6 +57,9 @@ class BuiltFile:
     kind: str  # "xml" or "app_strings"
     parsed: object  # the lxml root, the strings map, or None when it did not parse
     error: str | None = None
+    # The bytes HQ built, before any spelling rule: what HQ hashes when it decides a form's version
+    # (``compare.versions.form_content``).
+    content: bytes | None = None
 
 
 def _base_artifact(path):
@@ -119,16 +124,16 @@ def parse_build_files(files, *, rules, profile_id=None):
             try:
                 root = parse_xml(content)
             except XmlNotWellFormed as error:
-                parsed[path] = BuiltFile(path, artifact, kind, None, str(error))
+                parsed[path] = BuiltFile(path, artifact, kind, None, str(error), content=content)
                 continue
             for normalize in normalizers(artifact, rules):
                 root = normalize(root)
-            parsed[path] = BuiltFile(path, artifact, kind, root)
+            parsed[path] = BuiltFile(path, artifact, kind, root, content=content)
         else:
             strings = parse_app_strings(content)
             for normalize in normalizers(artifact, rules):
                 strings = normalize(strings)
-            parsed[path] = BuiltFile(path, artifact, kind, strings)
+            parsed[path] = BuiltFile(path, artifact, kind, strings, content=content)
     return parsed
 
 

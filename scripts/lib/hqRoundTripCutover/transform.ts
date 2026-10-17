@@ -20,6 +20,7 @@ import type {
 import { copyRawDocument, type RawDocument } from "./oldShape";
 import { appSettingsStep } from "./steps/appSettings";
 import { languageWireCodesStep } from "./steps/languageWireCodes";
+import { optionLabelsStep } from "./steps/optionLabels";
 
 /** How the plan classed one deployment of the app (`plan.ts`). */
 export type DeploymentOutcome =
@@ -67,6 +68,7 @@ export interface CutoverStep {
 /** Every registered step, in the one order they run in. */
 export const CUTOVER_STEPS: readonly CutoverStep[] = [
 	languageWireCodesStep,
+	optionLabelsStep,
 	appSettingsStep,
 ];
 

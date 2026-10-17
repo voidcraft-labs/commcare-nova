@@ -4,12 +4,14 @@ import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { SaxesParser } from "saxes";
 import { expect, it } from "vitest";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	extensionCaseFixture,
 	extensionScenarios,
@@ -108,6 +110,15 @@ it.each(extensionScenarios)(
 				.filter((e) => e.name === "bind");
 			const bindAt = (path: string) =>
 				one(binds.filter((b) => b.attribs.nodeset === path)).attribs;
+			// No case-block leaf carries a constraint: no runtime evaluates one
+			// on a node with no control, and HQ's form builder drops it.
+			expect(
+				binds.filter(
+					(b) =>
+						b.attribs.constraint !== undefined &&
+						b.attribs.nodeset.split("/").includes("case"),
+				),
+			).toEqual([]);
 			const data = at(
 				one(
 					model.children
@@ -231,11 +242,14 @@ it.each(extensionScenarios)(
 							? `count(current()/../../../../../${type}_note) > 0`
 							: `count(/data/${type}_note) > 0`,
 				);
+				// A registration form's children name the case it registers by the
+				// datum its entry mints the id into, the value HQ's build also
+				// gives the form's own create block.
 				expect(bindAt(`${path}/index/parent`).calculate).toBe(
 					multiple
 						? "current()/../../../../../@id"
 						: offset
-							? "/data/case/@case_id"
+							? "instance('commcaresession')/session/data/case_id_new_patient_0"
 							: "instance('commcaresession')/session/data/case_id",
 				);
 			}
@@ -253,3 +267,86 @@ it.each(extensionScenarios)(
 		}
 	},
 );
+
+it("writes no required on a Hidden Value that names an extension child", () => {
+	// HQ's form builder marks `required` on a Hidden Value "Required is not
+	// allowed." on every save; the name a hidden value calculates is never
+	// blank for want of an answer.
+	const doc = buildDoc({
+		appName: "Hidden child name",
+		caseTypes: [
+			{ name: "patient", properties: [] },
+			{
+				name: "episode",
+				parent_type: "patient",
+				relationship: "extension",
+				properties: [{ name: "note", label: proseText("Note") }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Open episode",
+						type: "followup",
+						fields: [
+							f({
+								kind: "hidden",
+								id: "episode_name",
+								calculate: "'Episode'",
+								caseWrite: { caseType: "episode", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+			{
+				name: "Episodes",
+				caseType: "episode",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Review episode",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
+								caseWrite: { caseType: "episode", property: "note" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	const hq = expandDoc(doc);
+	const source = hq._attachments[`${hq.modules[0].forms[0].unique_id}.xml`];
+	if (typeof source !== "string") throw new Error("Missing source form");
+	const tree = xmlTree(source);
+	const model = at(at(one(tree.children.filter(isTag)), "h:head"), "model");
+	const nameBinds = model.children
+		.filter(isTag)
+		.filter(
+			(e) => e.name === "bind" && e.attribs.nodeset === "/data/episode_name",
+		);
+	expect(one(nameBinds).attribs.required).toBeUndefined();
+	expect(
+		findAll(
+			(e) =>
+				e.name === "bind" && e.attribs.nodeset.endsWith("/create/case_name"),
+			model.children,
+		).map((e) => e.attribs.calculate),
+	).toEqual([
+		"replace(/data/episode_name, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
+	]);
+});

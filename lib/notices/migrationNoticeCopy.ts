@@ -94,6 +94,18 @@ const FORM_ID_REPOINT =
 	"If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish.";
 
 export const MIGRATION_NOTICE_COPY = {
+	/* The entity is the form; `detail.question` names the select and
+	 * `detail.value` the option's value, now also its label. */
+	"option-label-filled": (entry: DocumentNoticeEntry, ctx) => {
+		const question = entry.detail?.question;
+		const value = entry.detail?.value;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				`: the choice ${value === undefined ? "" : `with the value ${value} `}in ${question ?? "a question"} had no label, so it now shows its value. Give it the wording you want workers to read.`,
+			),
+		]);
+	},
 	/* `detail.saved` and `detail.incomplete`: the app's two settings after the
 	 * cutover, each "on" or "off". */
 	"android-form-lists-setting-stored": (entry: DocumentNoticeEntry) => {

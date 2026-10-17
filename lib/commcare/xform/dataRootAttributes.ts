@@ -6,16 +6,19 @@ export interface XFormDataRootRuntimeAttributes {
 }
 
 /**
- * Project a Nova form name into the exact non-namespace attributes emitted on
- * the primary instance root. Preview consumes this same projection so raw
- * XPath over `/data/@*` cannot drift from the compiled XForm.
+ * The exact non-namespace attributes emitted on the primary instance root.
+ * `name` is the form's wire name (`lib/domain/formWireName.ts`) as given,
+ * the same string `<h:title>` holds, because HQ's form builder writes the
+ * form's name into both on every save. Preview consumes this same
+ * projection so raw XPath over `/data/@*` cannot drift from the compiled
+ * XForm.
  */
 export function xformDataRootRuntimeAttributes(
-	formName: string,
+	formWireName: string,
 ): XFormDataRootRuntimeAttributes {
 	return {
 		uiVersion: "1",
 		version: "1",
-		name: formName.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+		name: formWireName,
 	};
 }

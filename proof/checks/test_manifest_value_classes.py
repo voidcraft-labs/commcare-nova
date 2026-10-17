@@ -1253,6 +1253,12 @@ def _settings_and_forms():
         model='<setvalue event="xforms-ready" ref="/data/r" value="/data/q"/>',
         body='<input ref="/data/q"/><input ref="/data/r"/>',
     )
+    # The same read of the question, relative to the node the setvalue sets, as Nova prints a default.
+    preloaded_relatively = _form(
+        data="<q/><r/>",
+        model='<setvalue event="xforms-ready" ref="/data/r" value="concat(\'was \', current()/../q)"/>',
+        body='<input ref="/data/q"/><input ref="/data/r"/>',
+    )
     unread = _form(
         data="<q/><r/>",
         model='<setvalue event="xforms-ready" ref="/data/r" value="today()"/>',
@@ -1575,6 +1581,13 @@ def _settings_and_forms():
             refused(
                 "app",
                 preload_app(preloaded),
+                "schema:FormActions.case_preload",
+                f"{actions}/case_preload",
+                readings=True,
+            ),
+            refused(
+                "app",
+                preload_app(preloaded_relatively),
                 "schema:FormActions.case_preload",
                 f"{actions}/case_preload",
                 readings=True,

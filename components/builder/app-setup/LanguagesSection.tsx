@@ -42,6 +42,7 @@ import { Skeleton } from "@/components/shadcn/skeleton";
 import { Textarea } from "@/components/shadcn/textarea";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useLocalizedTranslationUnit } from "@/lib/doc/hooks/useLocalization";
 import { useLocalizationWorkspace } from "@/lib/doc/hooks/useLocalizationWorkspace";
 import {
 	addLanguageMutation,
@@ -269,6 +270,8 @@ export function LanguagesSection() {
 		sourceDisplay.englishName ?? sourceDisplay.label ?? "the source language";
 	const selectedName =
 		selectedDisplay.englishName ?? selectedDisplay.label ?? "this language";
+	const languageName = (display: LanguageDisplay) =>
+		display.englishName ?? display.label ?? display.tag;
 
 	const automaticTranslation = isSource
 		? null
@@ -537,6 +540,14 @@ export function LanguagesSection() {
 							projectValue={projectValue}
 							unit={unit}
 							isSource={isSource}
+							filledFromName={
+								unit.filledFrom === undefined
+									? undefined
+									: languageName(
+											displays.get(unit.filledFrom) ??
+												languageDisplay(unit.filledFrom, resolver),
+										)
+							}
 						/>
 					))}
 					{visibleUnits.length === 0 && (
@@ -939,14 +950,28 @@ function TranslationUnitRow({
 	projectValue,
 	unit,
 	isSource,
+	filledFromName,
 }: {
 	readonly projectValue: (value: LocalizedValue) => string;
 	readonly unit: LocalizedTranslationUnit;
 	readonly isSource: boolean;
+	/** The name of the language workers read here while this translation is
+	 * blank (`unit.filledFrom`). */
+	readonly filledFromName?: string;
 }) {
 	const { inline } = useBlueprintMutations();
 	const navigate = useNavigate();
 	const editor = useTranslationUnitEditor(unit.id);
+	/* A blank translation beside text shows workers another language's text
+	 * (the form builder's fill); its stored value there is that text. */
+	const filledFrom = useLocalizedTranslationUnit(
+		unit.filledFrom ?? unit.language,
+		unit.id,
+	);
+	const filledText =
+		unit.filledFrom === undefined || filledFrom === undefined
+			? undefined
+			: projectValue(filledFrom.effective);
 	const { direction, sourceLanguage } = useBuilderLanguage();
 	const initial = unit.explicit?.value ?? unit.effective;
 	const [draft, setDraft] = useState<LocalizedValue>(() =>
@@ -1083,7 +1108,14 @@ function TranslationUnitRow({
 								value={draft}
 								onChange={setDraft}
 								onValidityChange={setDraftValid}
+								placeholder={filledText}
 							/>
+						)}
+						{filledText !== undefined && filledFromName !== undefined && (
+							<p className="mt-1.5 text-xs text-nova-text-muted">
+								Workers see the {filledFromName} text here until this is
+								translated.
+							</p>
 						)}
 						<div className="mt-2 flex flex-wrap items-center justify-end gap-2">
 							{unit.explicit !== undefined && (
@@ -1097,6 +1129,7 @@ function TranslationUnitRow({
 							)}
 							{unit.explicit !== undefined &&
 								unit.status !== "ready" &&
+								unit.status !== "missing" &&
 								!changed && (
 									<Button type="button" variant="outline" onClick={review}>
 										<Icon icon={tablerCheck} aria-hidden="true" />
@@ -1131,12 +1164,14 @@ function ProtectedProseEditor({
 	value,
 	onChange,
 	onValidityChange,
+	placeholder,
 }: {
 	readonly projectValue: (value: LocalizedValue) => string;
 	readonly source: ProseTemplate;
 	readonly value: ProseTemplate;
 	readonly onChange: (value: ProseTemplate) => void;
 	readonly onValidityChange: (valid: boolean) => void;
+	readonly placeholder?: string;
 }) {
 	/* Freeze collision-free markers for this editor instance. Parent draft
 	 * updates must not change the marker alphabet midway through an edit; the
@@ -1156,6 +1191,7 @@ function ProtectedProseEditor({
 					if (next.value !== undefined) onChange(next.value);
 				}}
 				aria-label="Reference-safe translation"
+				placeholder={placeholder}
 			/>
 			{tokens.length > 0 && (
 				<div className="mt-2 space-y-1.5">

@@ -8,9 +8,12 @@ import {
 	resolveAppLanguage,
 	type Uuid,
 } from "@/lib/domain";
+import { formWireName } from "@/lib/domain/formWireName";
 import type { FormEngineInput } from "./formEngine";
 
-/** The same form, localization and runtime catalogs for every engine host. */
+/** The same form, localization and runtime catalogs for every engine host.
+ * In a language, each field's worker-facing text is what a device shows:
+ * the form builder's fill for a blank translation applied. */
 export function buildEngineInput(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -27,11 +30,12 @@ export function buildEngineInput(
 	return {
 		form,
 		formUuid,
+		wireName: formWireName(doc, formUuid),
 		...(resolved === undefined ? {} : { language: resolved }),
 		fields:
 			resolved === undefined
 				? doc.fields
-				: projectLocalizedFields(doc, resolved),
+				: projectLocalizedFields(doc, resolved, { filled: true }),
 		fieldOrder: doc.fieldOrder,
 		caseTypes: materializableCaseTypes(doc),
 		caseSelectionCardinality: module

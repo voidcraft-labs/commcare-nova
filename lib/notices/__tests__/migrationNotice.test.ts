@@ -20,6 +20,16 @@ const REAL_ENTRIES = {
 		reason: "ccz-needs-project-space",
 		entity: { type: "app", nameAtMigration: "Clinic visits" },
 	},
+	"option-label-filled": {
+		kind: "document",
+		reason: "option-label-filled",
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Intake",
+		},
+		detail: { question: "Village", value: "north" },
+	},
 	"android-form-lists-setting-stored": {
 		kind: "document",
 		reason: "android-form-lists-setting-stored",

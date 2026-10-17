@@ -196,7 +196,8 @@ The requests (`Reader.java`):
     with neither fails the request by name, so no record holds a form cut
     short; each question
     answered from the lane's answer table (`proof/core/answers.json`, as the
-    Core runner reads it) through the form's own controller and read back by
+    Core runner reads it), or from the request's own `questions` map where it
+    names the question, through the form's own controller and read back by
     its own widget (a question the form holds no answer for is recorded
     unanswered, whatever its widget shows: a date widget shows today); each
     capture question given a file through its own screen (`Captures.java`):
@@ -241,6 +242,25 @@ The requests (`Reader.java`):
   case leaves the next a device made again: the worker's sandbox wiped by
   the app's own call and the worker signed in again (or the restore applied
   again, without a network).
+
+  A request may narrow and steer the walk. `commands` walks the named forms
+  alone, each from home (`m<menu>-f<form>`, as HQ's suite names a form's
+  command), a case list before one answered with its first case. `views`
+  records each screen's views as Android laid them out, and `typeRefused`
+  types a value the form refused into the question's own box, so Android
+  shows its own message for it. `questions` is a map the answer table
+  carries: the values for a question are those under its reference as the
+  walk records it (`/data/items[1]/item[2]/choice[1]`), else under its
+  generic reference (`/data/items/item/choice`, one entry for every row),
+  read before the table's `controls` and `dataTypes` (`Answers.java::valuesFor`);
+  the lane's own table holds none, so no walk of the lane reads one.
+  `saveIncomplete` names a form whose first screen is answered and saved as
+  the quit dialog's Save saves it (`Updates.saveIncomplete`), and with
+  `reopen` that record is reopened from home's incomplete forms, as
+  `Updates.reopen` reopens one, walked to its end with the request's
+  answers, finished, saved and sent where the device is served; the answer
+  holds it as `savedIncomplete.reopened`, with the form under `form` as a
+  walk's step holds one.
 - **`installs`**: several archives installed in turn on one device, each
   status (`ProfileAndroidInstaller.checkDuplicate` among them) and the apps
   the device then holds.
@@ -430,6 +450,23 @@ is stopped and reported as a request left unanswered, with how far it had
 walked), that every screen the reader builds is built where its end is kept
 (`Opened.java`), and the judges over planted differences and the records a
 shard keeps.
+
+`test_form_reads.py` reads the corpus: each test reads HQ's build of a
+document as the pull request's own emitter wrote it, published as the corpus
+captured it (`proof.rules.conftest.published`), released and served by HQ's
+own views (`proof.formplayer.hq.serve`), and installed from HQ's download of
+the release (`observe.release_archive`), with the device's network HQ's views
+over that state. Its documents are `conftest.py::DOCUMENTS`, handed to the
+tests by the session fixture `android_documents`. A registration form's read
+of its own new case id holds the id its create block writes, on a form
+completed in one go and on one saved incomplete, reopened and completed; a
+form's title and a completed save's name are the form's name in the app's
+default language, under a header that is the same text as before; and a
+validation that counts the rows whose answer reads its own node accepts the
+dependent answer where the count matches and refuses it with Android's own
+message where it does not. Each test carries `@pytest.mark.reader("android")`
+and takes the `hq` fixture, so the pull request lane deselects it and the
+nightly runs it.
 
 `proof/checks/test_device_archive.py` runs in the lane too: the archive a
 state keeps is HQ's own download with the media its suite names, and a

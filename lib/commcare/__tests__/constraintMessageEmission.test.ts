@@ -129,8 +129,8 @@ describe("constraint message emission", () => {
 					.digest("hex"),
 			).toBe(
 				scenario === "plain"
-					? "a3f7dd50d56f4cde8977c208086296480c151eba4b4783d826c6b2dd24d60fcf"
-					: "372082d6908a2c62bafa62f2062ac44fcc45e93b843c21f9bab5fd7fc547ff78",
+					? "cd683db4208f9eb9535abaa27f548b0d8b5d68f2f51a78db588881438198644f"
+					: "ee6d79ceff3f66cbd212181d8c9b5631c80bc5dc2ab84b05023d68d1c8620c91",
 			);
 			for (const root of routes(fixture)) {
 				expect(carrierBinds(root)).toEqual([]);
@@ -174,7 +174,7 @@ describe("constraint message emission", () => {
 					}),
 				)
 				.digest("hex"),
-		).toBe("46f0d4103f193330f15a9991277e4ed933e7b0b2e3c4415a76cdff1521a4a6cb");
+		).toBe("eecd7155e8665f857cb45f88922e33a825e8132d7a0d5a03b3f45bc50389e378");
 		for (const root of routes(fixture)) {
 			expect(carrierBinds(root)).toEqual([]);
 			expect(bind(root).attributes["jr:constraintMsg"]).toBe(

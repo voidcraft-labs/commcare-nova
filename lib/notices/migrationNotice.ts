@@ -36,6 +36,7 @@ export const migrationNoticeCutoverSchema = z.enum(MIGRATION_NOTICE_CUTOVERS);
  * A reason joins the list at its place in that order, never at the end.
  */
 export const DOCUMENT_NOTICE_REASONS = [
+	"option-label-filled",
 	"android-form-lists-setting-stored",
 	"validation-now-enforced",
 	"local-archive-changes",

@@ -147,7 +147,7 @@ describe("structural XPath evaluation", () => {
 		const ctx = contextForRoot(data);
 		expect(evaluate("/data/@version", ctx)).toBe("1");
 		expect(evaluate("/data/@uiVersion", ctx)).toBe("1");
-		expect(evaluate("/data/@name", ctx)).toBe("household_follow_up");
+		expect(evaluate("/data/@name", ctx)).toBe("Household Follow-up");
 	});
 
 	it("unpacks selected coalesce nodesets after Core's eager argument pass", () => {

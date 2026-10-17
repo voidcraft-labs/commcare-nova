@@ -9,6 +9,7 @@
 
 import type { CorpusDocument } from "../corpus/documents";
 import { attributeDisplayCondition } from "./documents/attributeDisplayCondition";
+import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
 import { caseIdColumn } from "./documents/caseIdColumn";
 import {
@@ -116,6 +117,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	formRootRead,
 	attributeDisplayCondition,
 	gpsQuestion,
+	blankLabels,
 ];
 
 /** Every targeted document, in a fixed order. */

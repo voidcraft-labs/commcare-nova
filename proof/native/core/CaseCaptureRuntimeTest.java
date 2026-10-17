@@ -64,6 +64,11 @@ public class CaseCaptureRuntimeTest {
                 context.addChild(node("drift", "0"));
                 TreeElement data = node("data", null);
                 data.addChild(node("case_id_new_patient_0", "new-patient-id"));
+                // The datums HQ allocates the extension registration form's three children
+                // (suite_xml/sections/entries.py::EntriesHelper.get_new_case_id_datums_meta).
+                data.addChild(node("case_id_new_episode_1", "new-episode-id"));
+                data.addChild(node("case_id_new_visit_2", "new-visit-id"));
+                data.addChild(node("case_id_new_consent_3", "new-consent-id"));
                 data.addChild(node("case_id", "existing-patient-id"));
                 session.addChild(context);
                 session.addChild(data);
@@ -185,6 +190,31 @@ public class CaseCaptureRuntimeTest {
         answer(form, "/data/full_name", "");
         assertEquals("All blank shared answers omit every ordinary transaction", 0, submission(form).getElementsByTagNameNS(namespace, "case").getLength());
     }
+    /**
+     * The case family's extension registration form: two extension children and an ordinary child of the case
+     * the form registers. Each names that case as its parent, the extension children through the session's
+     * datum for the new case (the id the form's own create block carries), on Nova's form and on HQ's whole
+     * regeneration of it, where HQ's own blocks for the extension children are inactive.
+     */
+    private static void checkExtensionParents(boolean hq) throws Exception {
+        FormParseInit parsed = new FormParseInit("/case/registration" + (hq ? ".whole.hq.xml" : ".xml"));
+        FormDef form = parsed.getFormDef();
+        form.initialize(true, environment());
+        enter(parsed, "registration");
+        assertEquals("new-patient-id", eval(form, "string(/data/case/@case_id)"));
+        String namespace = "http://commcarehq.org/case/transaction/v2";
+        org.w3c.dom.NodeList parents = submission(form).getElementsByTagNameNS(namespace, "parent");
+        assertEquals(3, parents.getLength());
+        int extensions = 0;
+        for (int index = 0; index < parents.getLength(); index++) {
+            org.w3c.dom.Element parent = (org.w3c.dom.Element)parents.item(index);
+            assertEquals("new-patient-id", parent.getTextContent());
+            if ("extension".equals(parent.getAttribute("relationship"))) extensions++;
+        }
+        assertEquals(2, extensions);
+    }
+    @Test public void extensionParents() throws Exception { checkExtensionParents(false); }
+    @Test public void hqExtensionParents() throws Exception { checkExtensionParents(true); }
     @Test public void multiple() throws Exception { checkMultiple(false); }
     @Test public void hqMultiple() throws Exception { checkMultiple(true); }
     @Test public void registration() throws Exception { check("registration", false, "/data"); }

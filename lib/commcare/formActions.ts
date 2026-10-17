@@ -456,9 +456,10 @@ export function buildCaseReferencesLoad(
 	const caseTypeDepths = caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []);
 	// The one legal authored case ref on a registration form is
 	// `#<own_type>/case_id`. Its private HQ metadata projection is
-	// `#case/case_id`, while the XForm side expands it to the form-local
-	// `/data/case/@case_id` (the registration narrowing in
-	// `hashtags/formContext.ts`). Recording that private projection here would
+	// `#case/case_id`, while the XForm side reads the session datum the entry
+	// mints the new case's id into (the registration narrowing in
+	// `hashtags/formContext.ts`), the datum HQ's build also sets
+	// `/data/case/@case_id` from. Recording that private projection here would
 	// tell HQ's App Summary the form reads `case_id` from a case database it
 	// never touches.
 	// Vanilla parity: HQ's editor can't author case refs on a non-case-loading

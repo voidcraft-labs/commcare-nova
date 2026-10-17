@@ -5,10 +5,12 @@ blocks with its own classes: ``XForm._create_casexml`` for the extension
 scenarios, ``XForm._add_usercase`` and the worker datum and assertion
 builders for the worker scenarios, and ``XForm.add_case_and_meta`` with
 ``strip_vellum_ns_attributes`` for the capture and operation forms Core then
-executes. Each regenerated form is written beside its input as
-``<scenario>.hq.xml``; for the ``case`` family, what its HQ check compares is
-returned, and for ``relation-instance``, whose forms only Core reads, the
-names of the forms written.
+executes, and for the extension registration form as well, which Core also
+runs. Each regenerated form is written beside its input as
+``<scenario>.hq.xml`` (the whole extension registration form as
+``registration.whole.hq.xml``); for the ``case`` family, what its HQ check
+compares is returned, and for ``relation-instance``, whose forms only Core
+reads, the names of the forms written.
 """
 
 from lxml import etree
@@ -74,6 +76,9 @@ def _extension(exports, scenario):
     datums = EntriesHelper.get_new_case_id_datums_meta(form)
     matched_id = None
     if scenario == "registration":
+        # The whole form HQ's build writes, its meta block among it, for Core to run
+        # (``CaseCaptureRuntimeTest``): ``_create_casexml`` alone writes no meta block.
+        (exports / f"{scenario}.whole.hq.xml").write_bytes(regenerate_form(form, DOMAIN))
         source = []
         for meta in datums:
             datum = workflow_meta_from_session_datum(meta.datum, None)

@@ -21,14 +21,19 @@ import {
 import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import {
+	effectiveAppLocalization,
 	expressionInspectionSource,
 	fieldKindCarriesValidation,
+	filledProse,
 	hiddenFieldCarriesBothValueSources,
+	makeTranslationUnitId,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
+	proseTemplateIsEmpty,
 	proseTemplateText,
 	repairSelectOptionValue,
 	selectOptionValueProblem,
+	snapshotTranslationUnits,
 } from "@/lib/domain";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type ValidationError, validationError } from "../errors";
@@ -515,10 +520,71 @@ function reservedFieldIdPrefix(
 	];
 }
 
+/**
+ * A written choice needs a label in some language or media. HQ's form
+ * builder drops an itext item blank in every language on save and keeps the
+ * option's reference to it, so HQ's next build refuses the form, and an
+ * option written without a `<label>` is one CommCare refuses to parse: no
+ * spelling of an empty choice survives a save and a build. The label is
+ * blank in every language exactly when the form builder's fill
+ * (`translationFill.ts`) leaves it blank in the default language. Only
+ * written choices are read: a lookup or cases source holds no option of its
+ * own, its labels being row or record data.
+ */
+function selectOptionLabelEmpty(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (field.kind !== "single_select" && field.kind !== "multi_select")
+		return [];
+	if (field.optionsSource.kind !== "inline") return [];
+	const errors: ValidationError[] = [];
+	const { defaultLanguage } = effectiveAppLocalization(ctx.doc.localization);
+	field.optionsSource.options.forEach((option, index) => {
+		const media = option.media;
+		if (
+			media?.image !== undefined ||
+			media?.audio !== undefined ||
+			media?.video !== undefined
+		)
+			return;
+		const unit = snapshotTranslationUnits(ctx.doc).get(
+			makeTranslationUnitId("field", field.uuid, "option", option.uuid),
+		);
+		const label =
+			unit === undefined
+				? option.label
+				: filledProse(ctx.doc, unit, defaultLanguage);
+		if (!proseTemplateIsEmpty(label)) return;
+		errors.push(
+			validationError(
+				"SELECT_OPTION_LABEL_EMPTY",
+				"field",
+				`Option ${index + 1} of field "${field.id}" in "${ctx.formName}" has no label in any language and no image, audio or video. A worker would see an empty choice, and CommCare HQ's form builder cannot keep one. Give the choice a label, or attach media to it.`,
+				{
+					moduleUuid: ctx.moduleUuid,
+					moduleName: ctx.moduleName,
+					formUuid: ctx.formUuid,
+					formName: ctx.formName,
+					fieldUuid: field.uuid,
+					fieldId: field.id,
+				},
+				{
+					optionUuid: option.uuid,
+					optionValue: option.value,
+					optionPosition: String(index + 1),
+				},
+			),
+		);
+	});
+	return errors;
+}
+
 const FIELD_RULES = [
 	selectNoOptions,
 	selectTooFewOptions,
 	selectOptionValueInvalid,
+	selectOptionLabelEmpty,
 	hiddenNoValue,
 	hiddenValueBothSources,
 	requiredOnHidden,

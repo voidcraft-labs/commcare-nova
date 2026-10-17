@@ -14,7 +14,10 @@ updates a case, or closes a case, and they happen in the order you put them in.
 For an approval time that must survive later edits, save it in a dedicated
 property that holds a date and time. A date property holds only the calendar
 day. Calculated case changes preserve the clock time when exported to CommCare;
-the record's general last-modified time still changes on later updates.
+the record's general last-modified time still changes on later updates. A saved
+date and time copied to another property is written again in the device's time
+zone, so it can land a day off when that zone's date differs from the date
+that was saved.
 
 ## Forms that open an existing case
 

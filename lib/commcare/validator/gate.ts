@@ -334,6 +334,10 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// on any select value with a space, and a multi-select answer is a
 	// space-joined token list, so the form cannot run with it.
 	SELECT_OPTION_VALUE_INVALID: "soundness",
+	// A written choice with no label in any language and no media: HQ's form
+	// builder drops its itext on save and HQ's next build refuses the form,
+	// and an option with no `<label>` is one CommCare refuses to parse.
+	SELECT_OPTION_LABEL_EMPTY: "soundness",
 	// A field still writing to a case type absent from the catalog — reachable
 	// when a peer concurrently retires the type the field was declared against.
 	CASE_WRITE_UNKNOWN_TYPE: "soundness",
