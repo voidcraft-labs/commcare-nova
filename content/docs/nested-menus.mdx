@@ -45,12 +45,15 @@ cases and the child's maximum fits the complete set. A child with a different
 case type uses every selected parent to find the combined set of related
 children, then asks for its own selection.
 
-Downloaded apps preserve these selections. CommCare HQ cannot yet preserve two
-of these workflows: finding related cases from several selected parents, and
-opening a same-case submenu whose selection limit is smaller than its parent's.
-Nova names the affected menu before creating an HQ import file or uploading the
-app. A downloadable app keeps the workflow; selecting one parent case or raising
-the submenu's limit makes the corresponding workflow available for HQ export.
+A CCZ carries these selections as Preview runs them. CommCare HQ cannot yet
+preserve two of these workflows: finding related cases from several selected
+parents, and opening a same-case submenu whose selection limit is smaller than
+its parent's. While an app uses either one, Nova names the menus involved and
+holds back publishing and the CommCare HQ app file. Selecting one parent case,
+or raising the submenu's limit to its parent's or more, makes the app ready for
+CommCare HQ again. A CCZ is made for a project space the app is already
+published to, so an app that uses one of these workflows and has never been
+published runs in Preview only.
 
 ## Menu parents and case parents are different
 

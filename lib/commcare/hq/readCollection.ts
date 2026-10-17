@@ -24,7 +24,7 @@ export async function readHqCollection(
 	let url = firstUrl;
 	return withHqRequestDeadline(async (signal) => {
 		for (let page = 0; page < maxPages; page++) {
-			const result = await readHqJson(creds, url, label, signal);
+			const result = await readHqJson(creds, url, label, { signal });
 			if ("success" in result) return result;
 			const body = result.data;
 			if (
@@ -34,7 +34,7 @@ export async function readHqCollection(
 				(body.meta.next !== null && typeof body.meta.next !== "string")
 			) {
 				log.error(`[commcare] ${label} is malformed`, undefined, {});
-				return { success: false, status: 502 };
+				return { success: false, status: 502, cause: "malformed" };
 			}
 			rows.push(...body.objects);
 			if (body.meta.next === null) return rows;
@@ -42,7 +42,7 @@ export async function readHqCollection(
 			try {
 				next = new URL(body.meta.next, url);
 			} catch {
-				return { success: false, status: 502 };
+				return { success: false, status: 502, cause: "malformed" };
 			}
 			if (
 				body.meta.next === "" ||
@@ -57,7 +57,7 @@ export async function readHqCollection(
 					undefined,
 					{},
 				);
-				return { success: false, status: 502 };
+				return { success: false, status: 502, cause: "malformed" };
 			}
 			url = next.toString();
 		}

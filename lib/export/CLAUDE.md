@@ -10,9 +10,9 @@ Project access, document, and mutation sequence to `prepareExportBoundary`.
 Nothing may expand, compile, import, or upload before the result is `ok: true`.
 
 Project-space compatibility metadata is not another artifact-validity verdict.
-After the boundary passes, JSON/CCZ callers derive a targetless `not_checked`
-report from the same exact document and attach it without changing artifact
-bytes. Direct HQ publishing checks the concrete target before any remote write;
+After the boundary passes, JSON/CCZ callers derive a `not_checked` report from
+the same exact document and attach it without changing artifact bytes: a
+download checks no project space, also where a `.ccz` is made for one. Direct HQ publishing checks the concrete target before any remote write;
 missing or unverified required support is a deployment refusal, while the
 large-Search performance advisory only controls a derived optimization. Private
 probe mechanics live in `lib/commcare/projectSpaceCompatibility.ts` and the
@@ -22,7 +22,10 @@ in this boundary.
 Every local `.ccz` (the compile route, MCP `compile_app`, the proof harness's
 capture of a download) is assembled by
 `lib/export/localArchive.ts::compileLocalArchive` from a `ccz`-mode prepared
-export; change what an archive holds there.
+export and the one published project space the archive is made for
+(`compileLocalArchive(prepared, runtimeTarget, identity)`, the target and that
+deployment's ids required), so no archive is compiled without one; change what
+an archive holds there.
 
 The boundary structurally extracts the complete lookup target set and reads
 one snapshot even when that set is empty, on every mode:
@@ -72,4 +75,10 @@ follows actual selection datums, including case-list-only entries and catalog
 ancestor chains; registration or survey forms without those selections are
 unaffected. These are target limitations, never document admission rules. Local
 CCZ emits the set-membership parent filter and distinct child selection and is
-covered by native Core runtime proof.
+covered by native Core runtime proof. A `.ccz` is made for a reached deployment
+alone (`lib/deployment/downloadTarget.ts::resolveDownloadTarget`), so an app
+that holds one of the two selections has that archive only for a project space
+it reached without the selection. Published nowhere it has no export of any
+kind: `resolveDownloadTarget` refuses its `.ccz` with `selection-held-from-hq`,
+carrying the findings' lines, and it runs in Preview until an edit clears the
+finding.

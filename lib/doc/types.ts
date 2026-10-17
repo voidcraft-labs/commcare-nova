@@ -42,6 +42,7 @@ import {
 	formLinkSchema,
 	formSchema,
 	languageTagSchema,
+	languageWireCodeSchema,
 	localizedValueSchema,
 	locationPropertySchema,
 	mediaAssetIdSchema,
@@ -998,14 +999,19 @@ function createMutationSchema({
 		// strings remain on their owning Blueprint entities; these commands edit
 		// only the language catalog and target-language values. Identity-adding
 		// kinds carry the structured identity object; reference kinds carry the
-		// canonical tag it serializes to (`languageTag(identity)`).
+		// canonical tag it serializes to (`languageTag(identity)`). The
+		// identity-adding kinds also carry the language's CommCare wire code,
+		// an identity the producer mints (`lib/doc/languageMutations.ts`) and
+		// the reducer stores as carried, never recomputing it on replay.
 		z.object({
 			kind: z.literal("relabelSourceLanguage"),
 			language: appLanguageIdentitySchema,
+			wireCode: languageWireCodeSchema,
 		}),
 		z.object({
 			kind: z.literal("addLanguage"),
 			language: appLanguageIdentitySchema,
+			wireCode: languageWireCodeSchema,
 		}),
 		z.object({ kind: z.literal("removeLanguage"), code: languageTagSchema }),
 		z.object({

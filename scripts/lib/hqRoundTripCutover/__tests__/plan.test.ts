@@ -6,6 +6,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { classifyDeployment, type DeploymentReads } from "../hqRead";
+import { readRawDocument } from "../oldShape";
 import {
 	type AppPlan,
 	type CutoverPlan,
@@ -13,6 +15,18 @@ import {
 	type DeploymentPlan,
 	PLAN_FORMAT,
 } from "../plan";
+import { questionPaths } from "../questionPaths";
+import { HISTORIES } from "./fixtures/fixtureDocuments";
+import {
+	readFixtureCarriers,
+	readFixtureHistory,
+	readHistoryCarriers,
+} from "./fixtures/preStep";
+import {
+	retainedCutoverRead,
+	retainedFormIds,
+	retainedSource,
+} from "./fixtures/retainedCutoverReads";
 
 function deployment(patch: Partial<DeploymentPlan> = {}): DeploymentPlan {
 	return {
@@ -38,7 +52,9 @@ function deployment(patch: Partial<DeploymentPlan> = {}): DeploymentPlan {
 				lastUsedAt: "2026-10-15T10:00:07.000Z",
 			},
 		],
-		notices: ["deep-links-need-republish"],
+		unpaired: [],
+		formIdsUnknown: [],
+		notices: [{ reason: "deep-links-need-republish" }],
 		...patch,
 	};
 }
@@ -192,5 +208,116 @@ describe("the plan digest", () => {
 				],
 			}),
 		).not.toBe(base);
+	});
+});
+
+describe("each deployment's pairing over HQ's reads of a history", () => {
+	async function readsOf(document: string): Promise<DeploymentReads> {
+		return {
+			source: {
+				kind: "ok",
+				value: await retainedSource(
+					retainedCutoverRead(document, "after-create", "app-source.json"),
+				),
+			},
+			formIds: {
+				kind: "ok",
+				value: await retainedFormIds(
+					retainedCutoverRead(document, "after-create", "application.json"),
+				),
+			},
+			keyUses: [],
+		};
+	}
+
+	function sides(document: string, name: string) {
+		const rows = readFixtureHistory(document, name).rows;
+		return {
+			published: questionPaths(
+				readRawDocument(document, readFixtureCarriers(document)),
+			),
+			today: questionPaths(
+				readRawDocument(
+					document,
+					readHistoryCarriers(document, name, rows.at(-1)?.seq ?? 1),
+				),
+			),
+		};
+	}
+
+	it.each(
+		HISTORIES.filter((history) => history.name !== "twin-moved").map(
+			(history) => [history.document, history.name],
+		),
+	)(
+		"gives %s's history %s the same identity rows by either path",
+		async (document, name) => {
+			const reads = await readsOf(document);
+			const { published, today } = sides(document, name);
+			const byDocument = classifyDeployment({
+				reads,
+				today,
+				published: { kind: "document", source: "folded", menus: published },
+				transientAsUnreadable: false,
+			});
+			const byEvidence = classifyDeployment({
+				reads,
+				today,
+				published: { kind: "none", reason: "fold-refused" },
+				transientAsUnreadable: false,
+			});
+			expect(byDocument.pairing).toEqual({
+				path: "published-document",
+				source: "folded",
+			});
+			expect(byEvidence.pairing).toEqual({
+				path: "evidence",
+				reason: "fold-refused",
+			});
+			expect(byEvidence.identities).toEqual(byDocument.identities);
+			expect(byDocument.unpaired).toEqual([]);
+		},
+	);
+
+	it("pairs the twins by the published document, and by evidence pairs neither and names both", async () => {
+		const reads = await readsOf("targeted-label-sort");
+		const { published, today } = sides("targeted-label-sort", "twin-moved");
+		const twins = today.flatMap((menu) => menu.forms.map((form) => form.uuid));
+		const byDocument = classifyDeployment({
+			reads,
+			today,
+			published: { kind: "document", source: "folded", menus: published },
+			transientAsUnreadable: false,
+		});
+		const byEvidence = classifyDeployment({
+			reads,
+			today,
+			published: { kind: "none", reason: "fold-refused" },
+			transientAsUnreadable: false,
+		});
+		const formRows = (rows: typeof byDocument.identities) =>
+			rows
+				.filter((row) => row.entityKind === "form")
+				.map((row) => row.novaEntityUuid)
+				.sort();
+		expect(formRows(byDocument.identities)).toEqual([...twins].sort());
+		expect(byDocument.unpaired).toEqual([]);
+		expect(formRows(byEvidence.identities)).toEqual([]);
+		expect(
+			byEvidence.unpaired
+				.filter((entity) => entity.kind === "form")
+				.map((entity) => entity.uuid)
+				.sort(),
+		).toEqual([...twins].sort());
+		const digestOf = (identities: typeof byDocument.identities) =>
+			cutoverPlanDigest({
+				format: PLAN_FORMAT,
+				apps: [app({ deployments: [deployment({ identities })] })],
+				lookupTagRenames: [],
+				projectBlockers: [],
+			});
+		expect(digestOf(byDocument.identities)).not.toBe(
+			digestOf(byEvidence.identities),
+		);
 	});
 });

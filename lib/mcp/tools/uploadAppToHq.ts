@@ -7,13 +7,14 @@
  * Nova-internal read/write; see `lib/mcp/scopes.ts` for the full
  * enforcement model.
  *
- * The first publish to a project space creates the app there and the
- * deployment ledger records the mapping; publishing again sends that
- * mapping's id so HQ updates the same app in place, and the payload's
- * `hq_app_action` says which happened. The create path also runs after
- * the mapped app was deleted on HQ (`remote_app_missing` below). The
- * decision is the shared publish lifecycle's, made from the ledger; the
- * request shape carries no say in it.
+ * The first publish to a project space creates an empty app there, which
+ * the deployment ledger records, and then fills it in place; publishing
+ * again sends that mapping's id so HQ updates the same app in place, and
+ * the payload's `hq_app_action` says which happened (`created` also for a
+ * publish that fills the empty app an earlier try left). The create path
+ * also runs after the mapped app was deleted on HQ (`remote_app_missing`
+ * below). The decision is the shared publish lifecycle's, made from the
+ * ledger; the request shape carries no say in it.
  *
  * The upload is media-ON and two-phase: import the media-bearing HQ JSON
  * first (forms carry `jr://file/commcare/...` itext references), then
@@ -21,9 +22,10 @@
  * A media failure leaves the app intact and surfaces as a
  * warning; it never fails the upload.
  *
- * The app's Project data goes FIRST, before the app itself: an app whose
- * selects read a table that is not there yet installs and misbehaves. That
- * step is not optional and has no argument of its own, but it can refuse
+ * The app's Project data goes before the app's content: content whose
+ * selects read a table that is not there yet installs and misbehaves. On a
+ * first publish the empty app is made first, and it holds nothing that reads
+ * a table. That step is not optional and has no argument of its own, but it can refuse
  * (`hq_resource_conflict`), and it reports through the `resources_pushed`
  * progress stage when it lands.
  *
@@ -76,13 +78,16 @@
  *                                 and no adoption resolves it: the message
  *                                 names each place and what has to change,
  *                                 in Nova or on CommCare HQ.
- *   9. `hq_app_state_unknown`:    Nova could not safely read the current HQ
- *                                 app source immediately before an in-place
- *                                 update, so it left that app unchanged.
- *  10. `remote_app_missing`:      the in-place update found the mapped HQ
- *                                 app deleted there. Nothing was changed;
- *                                 calling again creates a fresh app and
- *                                 supersedes the dead mapping.
+ *   9. `hq_app_state_unknown`:    Nova could not safely read the HQ app's
+ *                                 source before sending its content, or the
+ *                                 app there is a linked app Nova does not
+ *                                 update. Its content was not sent; the
+ *                                 message says whether this call left an
+ *                                 empty app there.
+ *  10. `remote_app_missing`:      HQ reported the mapped app deleted there.
+ *                                 Nothing was changed; calling again creates
+ *                                 a fresh app and supersedes the dead
+ *                                 mapping.
  *  11. `hq_upload_failed`:        `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
  *                                 returned 5xx), or CommCare HQ would not

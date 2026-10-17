@@ -234,6 +234,7 @@ describe("planLanguageIdentityRepair roots", () => {
 			translations: {
 				"spa-MX": { [UNIT_ID]: { ...entry, translatedFrom: "eng" } },
 			},
+			wireCodes: { eng: "en", "spa-MX": "es" },
 		});
 	});
 
@@ -329,7 +330,11 @@ describe("planLanguageIdentityRepair change rows", () => {
 		expect(first?.seq).toBe(2);
 		expect(first?.replacedEmptiedBatch).toBe(false);
 		expect(JSON.parse(first?.mutationsText ?? "")).toEqual([
-			{ kind: "addLanguage", language: { language: "spa", region: "MX" } },
+			{
+				kind: "addLanguage",
+				language: { language: "spa", region: "MX" },
+				wireCode: "es",
+			},
 		]);
 
 		expect(second?.seq).toBe(3);
@@ -376,6 +381,7 @@ describe("planLanguageIdentityRepair change rows", () => {
 			defaultLanguage: "eng",
 			languageOrder: ["eng", "spa-MX"],
 			translations: { "spa-MX": {} },
+			wireCodes: { eng: "en", "spa-MX": "es" },
 		});
 	});
 

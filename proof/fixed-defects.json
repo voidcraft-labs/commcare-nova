@@ -1,5 +1,273 @@
 [
 	{
+		"id": "d1-ids-app-unique-id-b812",
+		"defect": 1,
+		"part": "ids and xmlns",
+		"check": "proof1",
+		"artifact": "app.json",
+		"path": "/modules/*/forms/*/unique_id",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d1-ids-app-xmlns",
+		"defect": 1,
+		"part": "ids and xmlns",
+		"check": "proof1",
+		"artifact": "app.json",
+		"path": "/modules/*/forms/*/xmlns",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d1-ids-app-unique-id-caac",
+		"defect": 1,
+		"part": "ids and xmlns",
+		"check": "proof1",
+		"artifact": "app.json",
+		"path": "/modules/*/unique_id",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d1-ids-form-xmlns",
+		"defect": 1,
+		"part": "ids and xmlns",
+		"check": "proof1",
+		"artifact": "form:*",
+		"path": "/xmlns",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d1-language-codes-app-langs",
+		"defect": 1,
+		"part": "language codes",
+		"check": "proof1",
+		"artifact": "app.json",
+		"path": "/langs/*",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d1-local-path-ccz-entries-xmlns",
+		"defect": 1,
+		"part": "local path",
+		"check": "proof1",
+		"artifact": "local.ccz",
+		"path": "/entries/*/xmlns",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d1-language-codes-build-profile-raised",
+		"defect": 1,
+		"part": "language codes (a build profile)",
+		"check": "bar",
+		"artifact": "create_all_files:*@B-edit",
+		"path": "/raised/XFormException",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d1-android-proof1-b-update-reopened-changed",
+		"defect": 1,
+		"part": "ids and xmlns (an incomplete form after the next publish)",
+		"check": "proof1",
+		"artifact": "android@B",
+		"path": "/update/reopened/*",
+		"kind": "changed",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d32-search-url-trace-requests-url",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/requests/*/url",
+		"control": "case-list-inline"
+	},
+	{
+		"id": "d32-search-url-trace-stackaftersubmit-steps",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/stackAfterSubmit/steps/*/value",
+		"control": "search-registration-link"
+	},
+	{
+		"id": "d32-search-url-trace-url",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/url",
+		"control": "case-list-inline"
+	},
+	{
+		"id": "d32-searches-from-a-local-ccz-formplayer-local-ccz-asked-2",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/asked/*/*",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-searches-from-a-local-ccz-formplayer-local-ccz-response-type",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/type",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-url-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/url",
+		"kind": "changed",
+		"control": "case-list-browse"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-screens-after-queryrequestactivity-entityselectactivity-end-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case goes no further)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/screens/after-QueryRequestActivity:EntitySelectActivity:end",
+		"kind": "changed",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-screens-after-queryrequestactivity-home-end-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case goes no further)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/screens/after-QueryRequestActivity:home:end",
+		"kind": "changed",
+		"control": "no-matches-multiple-home"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-walks-removed",
+		"defect": 32,
+		"part": "searches from a local .ccz (the walks past a search that finds a case)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*",
+		"kind": "removed",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-errortext-added",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/errorText",
+		"kind": "added",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-finishing-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/finishing",
+		"kind": "changed",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-resultcode-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/resultCode",
+		"kind": "changed",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-errorshown-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorShown",
+		"kind": "changed",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-errortext-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorText",
+		"kind": "changed",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-finishing-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/finishing",
+		"kind": "changed",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-resultcode-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/resultCode",
+		"kind": "changed",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-errorshown-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorShown",
+		"kind": "changed",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-errortext-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorText",
+		"kind": "changed",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-finishing-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/finishing",
+		"kind": "changed",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-resultcode-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/resultCode",
+		"kind": "changed",
+		"control": "search-automatic"
+	},
+	{
 		"id": "d52-output-in-validation-form-alert",
 		"defect": 52,
 		"part": "validation message with an output",
@@ -16,5 +284,34 @@
 		"artifact": "source:form:*@vellum@*",
 		"path": "/html/body[*]/input[*]/alert[*]",
 		"control": "expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0"
+	},
+	{
+		"id": "d59-local-archive-names-no-serve-formplayer-local-ccz-submit-status",
+		"defect": 59,
+		"part": "local archive names no server",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submit/status",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed",
+		"defect": 59,
+		"part": "local archive names no server (where a device posts a form)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/profile/readers/FormSubmissionHelper.getFormPostURL",
+		"kind": "changed",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d59-android-proof3-local-ccz-network-signin-changed",
+		"defect": 59,
+		"part": "local archive names no server (where a device signs in)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/network/signIn",
+		"kind": "changed",
+		"control": "case-capture-followup"
 	}
 ]

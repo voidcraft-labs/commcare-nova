@@ -32,7 +32,7 @@ import zipfile
 from pathlib import Path
 
 from proof.android.client import AndroidReader, AndroidReaderUnavailable, unavailable
-from proof.android.selfcheck import CONTROLS, differing, edited, variant, with_property
+from proof.android.selfcheck import CONTROLS, differing, edited, leaves, variant, with_property
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 ANSWERS = Path(__file__).resolve().parents[1] / "core" / "answers.json"
@@ -48,6 +48,8 @@ SYNC_ON_ENTRY = CONTROLS / "targeted-sync-on-form-entry" / "local.ccz"
 SYNC_ON_ENTRY_RESTORE = FIXTURES / "targeted-sync-on-form-entry.restore.xml"
 SEARCH_COMPILE = CONTROLS / "targeted-search-hq-compile" / "local.ccz"
 CONNECT_DELIVER = CONTROLS / "targeted-connect-deliver-rename" / "local.ccz"
+# The edit's pre-fix archive of the control, which holds two suffixed language codes (defect 1's).
+SUFFIXED_LANGUAGES = CONTROLS / "targeted-hq-side-state" / "edit" / "local.ccz"
 # The settings Android's own settings screen lets a worker change, of those the reader records.
 WORKER_SETTABLE = {"cc-fuzzy-search-enabled", "cc-enable-tts", "cc-autoup-freq"}
 
@@ -96,6 +98,81 @@ def with_entries(archive: Path, target: Path, entries: dict) -> Path:
         for name, content in sorted(entries.items()):
             copy.writestr(zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0)), content)
     return target
+
+
+def with_language_code(archive: Path, target: Path, old: str, new: str, *, name_key: bool = True) -> Path:
+    """The archive with the language ``old`` named ``new`` in every place the archive names a language by its
+    code: its own member (``<old>/app_strings.txt``, renamed), the suite's ``<locale language>``, resource id and
+    location, each form's ``<translation lang>``, the key of each app strings member that names the language
+    (``<old>=<name>``) and its own member's ``lang.current``, both where ``name_key``. No member keeps ``old``
+    where ``name_key``."""
+    own = f"{old}/app_strings.txt"
+    with zipfile.ZipFile(archive) as original, zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as copy:
+        names = [info.filename for info in original.infolist()]
+        assert own in names, f"{archive} holds no {own}"
+        for info in original.infolist():
+            data = original.read(info.filename)
+            name = info.filename
+            if name == "suite.xml":
+                text = data.decode("utf-8")
+                for before, after in (
+                    (f'<locale language="{old}">', f'<locale language="{new}">'),
+                    (f'id="app_strings_{old}"', f'id="app_strings_{new}"'),
+                    (f"./{old}/app_strings.txt", f"./{new}/app_strings.txt"),
+                ):
+                    assert before in text, f"{archive}'s suite does not hold {before!r}"
+                    text = text.replace(before, after)
+                data = text.encode("utf-8")
+            elif name.endswith(".xml") and f'lang="{old}"'.encode() in data:
+                data = data.replace(f'<translation lang="{old}"'.encode(), f'<translation lang="{new}"'.encode())
+            elif name.endswith("/app_strings.txt"):
+                lines = data.decode("utf-8").split("\n")
+                for index, line in enumerate(lines):
+                    if name_key and line.startswith(f"{old}="):
+                        lines[index] = f"{new}={line[len(old) + 1 :]}"
+                    elif name_key and name == own and line == f"lang.current={old}":
+                        lines[index] = f"lang.current={new}"
+                data = "\n".join(lines).encode("utf-8")
+                if name == own:
+                    name = f"{new}/app_strings.txt"
+            copy.writestr(zipfile.ZipInfo(name, info.date_time), data)
+    if name_key:
+        with zipfile.ZipFile(target) as written:
+            held = [info.filename for info in written.infolist() if old in info.filename]
+            held += [info.filename for info in written.infolist() if old.encode() in written.read(info.filename)]
+        assert not held, f"{target} still names {old} in {sorted(set(held))}"
+    return target
+
+
+def with_runtime_urls(archive: Path, target: Path, app_id: str) -> Path:
+    """The archive with its search URL naming ``app_id`` in place of the placeholder a pre-fix archive names, and
+    the four server properties Nova's profile writes for its project space after ``cc-app-version``, each
+    forced (``lib/commcare/runtimeTarget.ts::profileServerProperties``), naming ``app_id`` where they name the
+    app."""
+    base, domain = "https://www.commcarehq.org", "nova-proof"
+    properties = "".join(
+        f'<property key="{key}" value="{value}" force="true"/>'
+        for key, value in (
+            ("ota-restore-url", f"{base}/a/{domain}/phone/restore/{app_id}/"),
+            ("PostURL", f"{base}/a/{domain}/receiver/{app_id}/"),
+            ("key_server", f"{base}/a/{domain}/phone/keys/"),
+            ("cc_user_domain", f"{domain}.commcarehq.org"),
+        )
+    )
+    version = '<property key="cc-app-version" value="1"/>'
+    with zipfile.ZipFile(archive) as zipped:
+        suite = zipped.read("suite.xml").decode("utf-8")
+        profile = zipped.read("profile.ccpr").decode("utf-8")
+    search = f"{base}/a/{domain}/phone/search/__APP_ID__/"
+    assert search in suite and version in profile, f"{archive} names no placeholder search URL or app version"
+    return variant(
+        archive,
+        target,
+        {
+            "suite.xml": suite.replace(search, search.replace("__APP_ID__", app_id)).encode("utf-8"),
+            "profile.ccpr": profile.replace(version, version + properties).encode("utf-8"),
+        },
+    )
 
 
 def cells(view) -> list[dict]:
@@ -767,6 +844,80 @@ class Predicates(unittest.TestCase):
             self.assertEqual(held["fuzzyOff"]["proox"], [])
         self.assertEqual(local["fuzzyOn"]["proox"], [])
         self.assertEqual(as_hq["fuzzyOn"]["proox"], ["proof text"])
+
+    def test_every_language_code_an_archive_holds_is_offered(self):
+        """Defect 1's language codes. Contract: Android's language picker offers every code an archive's suite
+        holds, a preferred spelling (``zho``) beside a suffixed one (``cmn-hant``), each named by the app string
+        whose key is the code (``ChangeLocaleUtil.translateLocales``, ``Localization.get``), and the code itself
+        where no string has that key. Failure it catches: a code the picker drops or renames, or a name read
+        from anything but the app strings."""
+        zho = with_language_code(SUFFIXED_LANGUAGES, self.work / "zho.ccz", "cmn-hans", "zho")
+        unnamed = with_language_code(
+            SUFFIXED_LANGUAGES, self.work / "zho-unnamed.ccz", "cmn-hans", "zho", name_key=False
+        )
+        offered = {}
+        for label, archive in (("suffixed", SUFFIXED_LANGUAGES), ("zho", zho), ("unnamed", unnamed)):
+            answer = self.reader.request("profile", archive=str(archive))
+            self.assertEqual(answer["install"], "Installed", label)
+            locale = answer["profile"]["locale"]
+            offered[label] = dict(
+                zip(locale["ChangeLocaleUtil.getLocaleCodes"], locale["ChangeLocaleUtil.getLocaleNames"], strict=True)
+            )
+        self.assertEqual(offered["suffixed"], {"en": "English", "cmn-hans": "简体中文", "cmn-hant": "繁體中文"})
+        self.assertEqual(offered["zho"], {"en": "English", "zho": "简体中文", "cmn-hant": "繁體中文"})
+        self.assertEqual(offered["unnamed"], {"en": "English", "zho": "zho", "cmn-hant": "繁體中文"})
+
+    def test_a_device_reads_an_archive_alike_under_either_app_id(self):
+        """The spelling rule ``runtime-url-app-id``. Contract: an archive whose search URL and server
+        properties name one app id and the same archive naming another install alike, and every profile
+        reader, the home screen and every walk give the same answer but for the id in each address: a device
+        reads an app's id as an address and nothing more. Failure it catches: an id read as anything but an
+        address (an app's identity, a key of what the device holds), which would make the release's id and
+        the working app's two apps to a worker."""
+        first, second = "0" * 31 + "1", "0" * 31 + "2"
+        answers = {
+            app_id: self.walked(
+                with_runtime_urls(SYNC_ON_ENTRY, self.work / f"app-{app_id}.ccz", app_id), SYNC_ON_ENTRY_RESTORE
+            )
+            for app_id in (first, second)
+        }
+        self.assertTrue(answers[first]["walks"])
+        before, after = dict(leaves(answers[first])), dict(leaves(answers[second]))
+        changed = differing(answers[first], answers[second])
+        self.assertIn("/profile/readers/FormSubmissionHelper.getFormPostURL", changed)
+        self.assertTrue([path for path in changed if path.endswith("/query/url")], sorted(changed))
+        for path in sorted(changed):
+            with self.subTest(path=path):
+                self.assertIsInstance(before.get(path), str)
+                self.assertIn(first, before[path])
+                self.assertEqual(before[path].replace(first, second), after.get(path))
+
+    def test_an_archive_that_needs_a_later_commcare_is_refused(self):
+        """The import guide's version sentence. Contract: Android installs an archive whose profile asks for a
+        CommCare version it runs (``requiredMajor``, ``requiredMinor`` and ``requiredMinimal``, as HQ's build
+        writes them, ``templates/app_manager/profile.xml``), refuses one that asks for a later one
+        (``IncompatibleReqs``), and refuses to stage an update to it from an install it runs while it stages
+        the update that keeps the version it runs. Failure it catches: a requirement Android does not read, so
+        a phone on an older CommCare takes an app it cannot run."""
+        root = '<profile xmlns="http://cihi.commcarehq.org/jad" version="{version}"'
+
+        def needing(label, version, major, minor):
+            raised = [(root.format(version="1"), root.format(version=version))]
+            if version != "1":
+                raised.append(('<resource id="suite" version="1"', f'<resource id="suite" version="{version}"'))
+            required = f' requiredMajor="{major}" requiredMinor="{minor}" requiredMinimal="0"'
+            raised.append((root.format(version=version), root.format(version=version) + required))
+            return edited(INLINE_LIST, self.work / f"needs-{label}.ccz", "profile.ccpr", raised)
+
+        runs, later = needing("runs", "1", 2, 57), needing("later", "1", 2, 99)
+        installed = self.reader.request("installs", archives=[str(runs)])
+        refused = self.reader.request("installs", archives=[str(later)])
+        self.assertEqual([step["install"] for step in installed["installs"]], ["Installed"])
+        self.assertEqual([step["install"] for step in refused["installs"]], ["IncompatibleReqs"])
+        kept = self.reader.request("update", archive=str(runs), update=str(needing("kept", "2", 2, 57)))
+        raised = self.reader.request("update", archive=str(runs), update=str(needing("raised", "2", 2, 99)))
+        self.assertEqual((kept["staged"], kept["updated"]), ("UpdateStaged", "Installed"))
+        self.assertEqual(raised["staged"], "IncompatibleReqs")
 
 
 if __name__ == "__main__":

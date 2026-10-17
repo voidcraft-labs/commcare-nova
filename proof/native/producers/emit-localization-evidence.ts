@@ -7,6 +7,7 @@ import {
 } from "../../../lib/commcare/__tests__/localizationWireFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
 if (!output)
@@ -17,7 +18,11 @@ mkdirSync(output, { recursive: true });
 for (const scenario of localizationScenarios) {
 	const doc = localizationWireFixture(scenario),
 		hq = expandDoc(doc),
-		zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+		zip = new AdmZip(
+			compileCcz(hq, doc.appName, doc, {
+				runtimeTarget: NATIVE_RUNTIME_TARGET,
+			}),
+		);
 	const prefix = `locale-${scenario}`;
 	writeFileSync(resolve(output, `${prefix}.json`), JSON.stringify(hq));
 	for (const entry of zip.getEntries()) {

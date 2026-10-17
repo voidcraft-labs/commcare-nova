@@ -2,9 +2,10 @@
 
 Each rule's test (``proof/rules/test_<rule>.py``) proves that HQ's build or
 Core's run does not depend on the one spelling the rule erases. It publishes
-a corpus document as Nova's publish leaves it in HQ (A: Nova's create, with
-the lookup workbook and media Nova's push sends beside it, applied through
-HQ's own import, ``proof.hq.operations``), and in a fork of that state of
+a corpus document as Nova's publish leaves it in HQ (A: Nova's first
+publish, the shell's create and the content import, with the lookup workbook
+and media Nova's push sends beside them, applied through HQ's own import,
+``proof.observe.publish.create``), and in a fork of that state of
 its own for each spelling (``unit.fork``) writes the app document or a
 form's source the way an editor writes it, reads back what HQ stores
 (``proof.observe.proof4.stored_app``, as proof 4 reads it), and builds it
@@ -73,6 +74,7 @@ DOCUMENTS = (
     "search-browse",
     "targeted-connect-deliver-rename",
     "targeted-custom-tile",
+    "targeted-sync-on-form-entry",
     "tile-boxed",
 )
 
@@ -186,17 +188,15 @@ def published(document, core_runner, configuration="minimum"):
     """``document`` as Nova's first publish leaves it in HQ under ``configuration``, in a check's state."""
     from proof.hq import operations
     from proof.hq.check import hq_check
+    from proof.observe import publish
 
     export = document.exports[configuration]
     with hq_check(export.configuration.hq()) as (unit, _):
-        if export.create.lookups is not None:
-            uploaded = operations.upload_lookup_workbook(unit, export.create.lookups.workbook(), replace=True)
-            assert uploaded.errors == [], uploaded.errors
-        result = operations.apply_upload(unit, export.create.upload())
-        assert 200 <= result.status < 300 and result.response.get("success"), result.response
-        app_id = result.response["app_id"]
-        if export.create.media is not None:
-            media = operations.apply_media_upload(unit, app_id, export.create.media.upload())
+        app_id, refusal, lookups = publish.create(unit, export)
+        assert refusal is None, refusal
+        assert lookups is None or lookups["errors"] == [], lookups
+        if export.content.media is not None:
+            media = operations.apply_media_upload(unit, app_id, export.content.media.upload())
             assert media.status == 200, media.response
         yield Published(document, export, unit, app_id)
 
@@ -280,7 +280,7 @@ def restore(app, database):
     """HQ's restore over the published state for ``database``, serving the tables its publish uploaded."""
     from proof.observe.sessions import hq_restore
 
-    status, held = hq_restore(app.unit, database, app.export.create.lookups, "restore")
+    status, held = hq_restore(app.unit, database, app.export.content.lookups, "restore")
     assert held is not None, f"HQ's restore refused the document's lookup tables: {status}"
     return held
 

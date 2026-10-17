@@ -1018,8 +1018,8 @@ cell cap is what bounds that cardinality.
 Every export mode carries the data a carrier reads, from one validated
 generation. `.ccz` embeds it as suite fixtures; `hq-json` and `hq-upload` build
 the fixapi workbook (`lib/commcare/lookup/workbook.ts`), which the direct upload
-pushes to the project space before the app and the manual artifact ships beside
-the app JSON. The HQ modes carry two size verdicts of their own: CommCare HQ's
+pushes to the project space before the app's content and the manual artifact
+ships beside the app JSON. The HQ modes carry two size verdicts of their own: CommCare HQ's
 whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`) and
 `LOOKUP_TAG_TOO_LONG_FOR_HQ`, because a data sheet is NAMED for its tag and a
 sheet name holds 31 characters while a tag may be authored up to 32.
@@ -2029,10 +2029,11 @@ restored. No lock spans the HQ round trips: every record write is one short
 transaction folding against the freshly locked row, and an observation applies
 only while the mapping it asked about is still the active one.
 
-`resources` is what the app DEPENDS ON, put there before the app itself: its
-lookup tables and its organization's places. Take the tables first — the app's
-selects read them by name
-at runtime, so an app that arrived first would install and misbehave. CommCare
+`resources` is what the app's content DEPENDS ON, put there before that
+content: its lookup tables and its organization's places. A first publish makes
+the empty app first, which holds nothing that reads a table or a place. Take the
+tables before the content: the app's selects read them by name at runtime, so
+content that arrived first would install and misbehave. CommCare
 HQ has no REST endpoint that takes a table's rows in bulk — the row resource
 keys rows by a server-minted UUID with no natural key — so the push is the Excel
 fixture upload (`POST /a/<domain>/fixtures/fixapi/`, synchronous, `replace=true`,
@@ -2052,8 +2053,9 @@ the tastypie `lookup_table` read needs the domain's paid API_ACCESS privilege
 and the account's `access_api` permission, while the upload needs neither. So a
 project space can accept the push while refusing to say what it holds, which is
 exactly the case Nova must refuse rather than push into. A publish refused at
-`resources` sent nothing of the app, so its retry re-pushes the data and never
-re-imports the app; a SUCCEEDED push folds through `applyAttemptOutcome` so a
+`resources` sent none of the app's content, so its retry re-pushes the data and
+then sends the content once; a first publish refused there leaves the empty app,
+which the retry fills. A SUCCEEDED push folds through `applyAttemptOutcome` so a
 republish of a `runnable` app is not walked backward by its own data landing.
 
 `resources` also carries the app's PLACES, through

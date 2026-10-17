@@ -14,6 +14,7 @@ import { blueprintDocSchema, simpleSearchInputDef } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../validator/runner";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function appWithSearch(search: "none" | "explicit" | "input" | "owner-only") {
 	const list = caseListConfig([{ field: "case_name", header: "Name" }]);
@@ -62,7 +63,9 @@ function appWithSearch(search: "none" | "explicit" | "input" | "owner-only") {
 function profileProperties(search: Parameters<typeof appWithSearch>[0]) {
 	const doc = appWithSearch(search);
 	const xml = new AdmZip(
-		compileCcz(expandDoc(doc), doc.appName, doc),
+		compileCcz(expandDoc(doc), doc.appName, doc, {
+			runtimeTarget: TEST_RUNTIME_TARGET,
+		}),
 	).readAsText("profile.ccpr");
 	const parsed = parseDocument(xml, { xmlMode: true });
 	return findAll((n) => isTag(n) && n.name === "property", parsed.children).map(

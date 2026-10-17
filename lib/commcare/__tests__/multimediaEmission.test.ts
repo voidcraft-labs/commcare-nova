@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { mediaIds, mediaWireFixture } from "./mediaWireFixtures";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import {
 	onlyXml,
 	readXmlEvidence,
@@ -24,7 +25,12 @@ describe("admitted XForm media references", () => {
 				const { doc, assets } = mediaWireFixture(mediaOnly);
 				const options = enabled ? { assets } : {};
 				const hq = expandDoc(doc, options);
-				const zip = new AdmZip(compileCcz(hq, doc.appName, doc, options));
+				const zip = new AdmZip(
+					compileCcz(hq, doc.appName, doc, {
+						...options,
+						runtimeTarget: TEST_RUNTIME_TARGET,
+					}),
+				);
 				const source =
 					hq._attachments[`${hq.modules[0].forms[0].unique_id}.xml`];
 				if (typeof source !== "string")
@@ -136,15 +142,19 @@ describe("admitted XForm media references", () => {
 				expect(hq.logo_refs).toEqual(
 					enabled ? { hq_logo_web_apps: { path: ref("icon") } } : undefined,
 				);
-				expect(Object.keys(hq.multimedia_map).sort()).toEqual(
+				// No mode writes a map: HQ's media upload maps each file by the
+				// path the content references. Those paths are the prepared
+				// assets', and the archive bundles exactly them.
+				expect(Object.hasOwn(hq, "multimedia_map")).toBe(false);
+				expect(
+					zip
+						.getEntries()
+						.map((entry) => entry.entryName)
+						.filter((name) => name.startsWith("commcare/"))
+						.sort(),
+				).toEqual(
 					enabled
-						? [
-								...new Set(
-									[...assets.values()].map(
-										(asset) => `jr://file/${asset.wirePath}`,
-									),
-								),
-							].sort()
+						? [...new Set([...assets.values()].map((a) => a.wirePath))].sort()
 						: [],
 				);
 			});

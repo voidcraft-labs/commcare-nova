@@ -8,6 +8,7 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { lookupAppFixture } from "./lookupAppFixtures";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 // Native LookupRuntimeTest owns installed global fixtures, replacement, menu
 // relevance, selected-case column evaluation and both paths' live itemsets.
@@ -18,7 +19,10 @@ describe("lookup artifacts from an admitted app", () => {
 			const { doc, naming, fixtures } = lookupAppFixture(reversed);
 			const hq = expandDoc(doc, { lookupNaming: naming });
 			const zip = new AdmZip(
-				compileCcz(hq, doc.appName, doc, { lookup: { naming, fixtures } }),
+				compileCcz(hq, doc.appName, doc, {
+					runtimeTarget: TEST_RUNTIME_TARGET,
+					lookup: { naming, fixtures },
+				}),
 			);
 			const xml = zip.readAsText("suite.xml");
 			new SaxesParser({ xmlns: true }).write(xml).close();

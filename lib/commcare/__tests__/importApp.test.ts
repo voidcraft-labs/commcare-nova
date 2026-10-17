@@ -2,7 +2,7 @@
  * HQ's app_import_api.py returns literal success, an app id, optional warnings,
  * and the updated version. The persisted publish consequences live in the MCP
  * Postgres suite; this file owns response and request protocol edge cases. */
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
 	readMultipartRequest,
 	withHttpPeer,
@@ -18,6 +18,13 @@ const HOST = "https://india.commcarehq.org",
 	PATH = "/a/clinic/apps/api/import_app/";
 const APP = { doc_type: "Application", name: "Visits" };
 const AUTH = { authorization: "ApiKey account:fixture-key" };
+const RATE_LIMITED = {
+	statusCode: 429,
+	data: "",
+	responseOptions: { headers: { "retry-after": "0.9505331516265869" } },
+};
+
+afterEach(() => vi.useRealTimers());
 
 it("sends create and update multipart bytes, preserving the explicit name, mapped id and returned warnings/version", async () => {
 	await withHttpPeer(async (peer) => {
@@ -192,5 +199,62 @@ it("rejects unroutable target identifiers before sending bytes", async () => {
 			await importApp(CREDS, "clinic", "Visits", APP, "../outside"),
 		).toEqual({ success: false, status: 400 });
 		expect(peer.getCallHistory()?.calls()).toEqual([]);
+	});
+});
+
+it("answers HQ's 429 without a resend when the wait would outlast the import's deadline", async () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: PATH, method: "POST" })
+			.reply(() => {
+				/* The answer arrives with half a second of the deadline left. */
+				vi.setSystemTime(Date.now() + 59_500);
+				return RATE_LIMITED;
+			});
+		expect(await importApp(CREDS, "clinic", "Visits", APP)).toEqual({
+			success: false,
+			status: 429,
+			edgeRefusal: false,
+			retryAfterMs: 951,
+		});
+		expect(peer.getCallHistory()?.calls()).toHaveLength(1);
+	});
+});
+
+it("sends nothing more when the deadline ends the wait, and answers HQ's 429", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	await withHttpPeer(async (peer) => {
+		const sent = Promise.withResolvers<void>();
+		const answer = Promise.withResolvers<void>();
+		peer
+			.get(HOST)
+			.intercept({ path: PATH, method: "POST" })
+			.reply(async () => {
+				sent.resolve();
+				await answer.promise;
+				return RATE_LIMITED;
+			});
+		const pending = importApp(CREDS, "clinic", "Visits", APP);
+		try {
+			await sent.promise;
+			/* The deadline's timer runs on, while the wall clock it was set
+			 * from has barely moved, so the wait is begun and the deadline
+			 * falls inside it. */
+			await vi.advanceTimersByTimeAsync(59_500);
+			answer.resolve();
+			await vi.advanceTimersByTimeAsync(600);
+			expect(await pending).toEqual({
+				success: false,
+				status: 429,
+				edgeRefusal: false,
+				retryAfterMs: 951,
+			});
+		} finally {
+			answer.resolve();
+			await pending.catch(() => undefined);
+		}
+		expect(peer.getCallHistory()?.calls()).toHaveLength(1);
 	});
 });

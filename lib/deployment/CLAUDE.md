@@ -106,13 +106,18 @@ share this rule, including that fallback.
 `preflight → resources → uploaded → built → released → runnable`, plus
 `incomplete`.
 
-`resources` is what the app DEPENDS ON, put there before the app itself: its
-lookup tables and its organization's places. The ordering is the reason it is a
-rung rather than a step inside the upload — the app's selects read those tables
-by name while somebody is using it, so an app that arrived first would install
-and misbehave. A publish refused at `resources` sent nothing of the app, which
-is what makes its retry cheap: it re-pushes the data and never re-imports the
-app.
+`resources` is what the app's content DEPENDS ON, put there before that
+content: its lookup tables and its organization's places. The ordering is the
+reason it is a rung rather than a step inside the upload: the app's selects read
+those tables by name while somebody is using it, so content that arrived first
+would install and misbehave. On a first publish the empty app is made and read
+before any table or place is pushed: it holds no content, so nothing in it reads
+a table or a place, and CommCare HQ makes no build of it. A publish refused at
+`resources` sent none of the app's content, so its retry re-pushes the data and
+then sends the content once. A first publish refused there leaves the empty app,
+mapped with a null `pushed_revision`, and the retry fills that app and makes no
+second one. A create CommCare HQ refuses and a failed read after the create fold
+at `resources` too, since no later rung is reached.
 
 **Both halves can stop partway, and the reason is CommCare HQ's.** A
 lookup-table push is one workbook, but `UploadFixtureAPIResponse.response_codes`
@@ -155,7 +160,9 @@ versions read (the pass's first question) gets no answer,
 Otherwise one bad minute would walk a `runnable` deployment down and tell
 every member of the Project their app is refused while it is still
 released and in use. A 404 from `current_app_version` IS an answer (the
-app is gone) and is recorded; conversely, ANY answered pass confirms the
+app is gone) and is recorded. The same fact is the active `app` mapping's
+`remote_missing_at`, which a succeeded `upload` observation or
+`recordRemoteResource` clears; conversely, ANY answered pass confirms the
 upload rung, which is what heals a `remote_app_missing` record after the
 app is restored through CommCare HQ's own undo.
 
@@ -238,8 +245,13 @@ boundary refuses, or Project data Nova may not write over. Failing one leaves
 the deployment `incomplete` rather than succeeding with a warning attached, and
 nothing externally visible has happened.
 
-`project-data` and `organization` are the two edges that TALK to CommCare HQ
-during preflight, and each appears only when the app carries that thing.
+`project-data`, `organization` and `target-app` are the three edges that TALK
+to CommCare HQ during preflight, and each appears only when the app carries that
+thing: `target-app` whenever `plannedInPlaceUpdate` names an app. It reads the
+app's source (`lib/commcare/hq/appSource.ts::readHqAppSource`), and is the only
+edge that does. It is not the publish's only read of it: a first publish reads
+the source after it creates the empty app, and a publish that pushed a lookup
+table or a place reads it again before the import.
 
 `project-data` reads the target's tables and plans the push
 (`lookupResourcePlan.ts`), refusing on any tag the target already uses for a
@@ -350,11 +362,25 @@ An ordinary republish updates the mapped app in place: the import
 carries the active mapping's remote id (`plannedInPlaceUpdate`,
 `resources.ts`), CommCare HQ overwrites that app, and the live row
 updates without supersession. A publish creates afresh only when there is
-no active mapping, or when a persisted upload failure says the mapped app
-is gone — the 404 CommCare HQ answers an update with folds through
-`applyDeploymentObservation` as a `remote_app_missing` upload failure
-(target information, not attempt information), the publish refuses, and
-the NEXT publish creates and supersedes the dead mapping.
+no active mapping or the active mapping's `remote_missing_at` is set. HQ
+reports an app gone in two forms: a 404 from the source read, the update or
+`current_app_version`; or a 200 source read whose `doc_type` ends
+`-Deleted`, HQ's ordinary delete being soft, with the update answering 400
+for it. Either sets `remote_missing_at` and folds `remote_app_missing`
+(target information, not attempt information); that publish refuses and the
+next creates an empty shell, then updates it, and supersedes the dead
+mapping. The app a publish has just created is the exception: its second
+read or its update reporting it gone refuses (`hq_app_state_unknown`,
+`hq_rejected_upload`) and keeps the mapping, so the next publish reads that
+app at `target-app` and records it gone there if it is. The recreated app keeps the deployment's recorded ids, which
+`app_deployment_identities` holds sparsely: only the ids that differ from
+the derivation, for a deployment first published before ids were derived (a
+menu's id and a form's `xmlns` as the app source held them, a form's id as
+the `ApplicationResource` read held it). No publish writes a row. No publish
+reads form ids back. A deployment whose HQ app is gone stays the same
+deployment: its live `app` mapping carries `remote_missing_at`, and its next
+publish creates a new app in that project space. One that holds no identity
+row gets derived ids there.
 
 That recreate, plus rows from before in-place updates existed, is how an
 APP row is superseded. The pushed kinds have more routes, all of which
@@ -397,6 +423,17 @@ described what the target held before it — a build of the previous
 version is not evidence about this one — and the next observation
 re-derives the honest story, version gap and all.
 
+## Identities
+
+A menu's and a form's HQ id is its UUID with the hyphens removed, and a form's
+`xmlns` follows from its UUID (`lib/commcare/wireIdentity.ts`), so every
+publish and every `.ccz` of one deployment sends the same ids and nothing in
+the document stores them. `app_deployment_identities` holds only the ids a
+target holds that differ. The runtime role reads it
+(`store.ts::readDeploymentIdentityOverrides`, which a publish and a `.ccz`
+hand the expander as `targetWireIdentity(overrides)`) and cannot write it;
+every row belongs to a deployment first published before ids were derived.
+
 ## One publish lifecycle
 
 `service.ts::publishAppToHq` is the only thing that decides what a publish
@@ -425,13 +462,21 @@ against an app that is already released there, where the record stays
 `runnable` because it still is — and carries no failure at all, because
 the refusal was the attempt's. `onUploadStarted` fires once, after every
 blocking preflight edge passes and before Nova sends CommCare HQ
-anything at all — the lookup tables and the places go first, then the app — so a caller
-that reports progress can never announce a publish that never left the
-building (the MCP tool also allocates its LogWriter there, so a refusal
-decided locally records no phantom run). Everything a person could have
-decided differently is settled by then, both ownership conflicts and the
-whole organization shape included, so what remains after it is CommCare
-HQ's own answer.
+anything at all, so a caller that reports progress can never announce a
+publish that never left the building (the MCP tool also allocates its
+LogWriter there, so a refusal decided locally records no phantom run). On a
+first publish the empty app is made first, read and recorded
+(`recordCreatedRemoteApp`, with no pushed revision); then the lookup tables
+and the places go; then the app's content, as an update. For an app that is
+already there nothing moves: the tables and places go first and the update
+follows. A publish that pushed a table or a place reads the app's source
+again before the update, which is built over that read; where nothing was
+pushed it is built over the read the publish already holds. Everything a
+person could have decided differently is settled by then, both ownership
+conflicts and the whole organization shape included, so what remains after
+it is CommCare HQ's own answer. On a first publish that answer can come
+before any Project data goes: a create CommCare HQ refuses, or a read after
+the create that fails, stops the publish at `resources`.
 
 ## No lock spans the CommCare HQ round trips
 
@@ -581,8 +626,9 @@ is this app" without any control that would be refused.
 **The dialog opens on the records too, not only after a publish creates
 one.** `readDeploymentsAction` loads every project space this app has
 reached when the dialog opens. The records tell the form whether the
-selected project space gets an in-place update or a fresh app
-(`plannedInPlaceUpdate`, the same predicate the publish applies), and
+selected project space gets a fresh app, the empty app an earlier try made
+filled in, or an in-place update (`nextPublishAction`, over
+`plannedInPlaceUpdate`, the same predicate the publish applies), and
 above the form they render as compact per-target rows linking to the
 Publishing section rather than a second set of full cards that would have
 to be kept honest. Refresh authorizes as an `edit`, which is also why
@@ -627,9 +673,9 @@ persona stands in only exist over there once a publish has put them there.
 
 ## Two things the record answers besides publishing
 
-`readDeploymentPreviewRecords` serves both from one read of four columns
-(`state`, `resume_phase`, `server`, `domain`), and both filter with the
-DISPLAY predicate `deploymentDisplaysAsReached(record, "uploaded")`: a probe
+`readDeploymentPreviewRecords` serves `previewSpace.ts` alone, from one read
+of four columns (`state`, `resume_phase`, `server`, `domain`), and filters with
+the DISPLAY predicate `deploymentDisplaysAsReached(record, "uploaded")`: a probe
 that could not be checked did not undo the upload, and withdrawing either
 answer over it would change the app for a reason that has nothing to do with
 the app.
@@ -641,7 +687,12 @@ the app.
   An origin is part of that answer, so it de-dupes on `(server, domain)` —
   US, India, and EU can hold unrelated project spaces of the same name, and
   picking either origin would build links that open for one set of workers
-  and nowhere for the other. Its `attachmentSpace.ts` read deliberately does
+  and nowhere for the other.
+- `downloadTarget.ts::resolveDownloadTarget` names what a download is made
+  for, over `store.ts::readReachedDeploymentTargets`: for a `.ccz`, the one
+  published project space it signs workers in to, with that deployment's
+  ids, or the refusal that lists the published spaces; for the HQ import
+  file, only where its attachment links resolve. Its read deliberately does
   NOT swallow a fault the way `previewSpace.ts` does: degrading to "no
   target" would silently drop a case write from the exported app.
 

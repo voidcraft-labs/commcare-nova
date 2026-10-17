@@ -123,7 +123,7 @@ function authoredApp(id: string): PersistableDoc {
 				values: { [property]: "south" },
 			},
 		},
-		{ kind: "addLanguage", language: { language: "fra" } },
+		{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fra" },
 	]);
 	doc.organizationLevels = {
 		[level]: {

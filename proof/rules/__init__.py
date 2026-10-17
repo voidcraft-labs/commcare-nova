@@ -56,9 +56,14 @@ ANDROID_PREDICATES = RULES_DIR.parent / "android" / "predicates.py"
 IMAGE_READERS = ("formplayer", "webapps", "connect")
 ANDROID = "android"
 READERS = (*IMAGE_READERS, ANDROID)
-# The artifacts only one reader gives, so a rule that reads one names that reader, and the reader that reads
-# what it hands on: Formplayer's answers are the Web Apps client's input.
-ARTIFACT_READERS = {"formplayer": ("formplayer", "webapps"), "instance": ("formplayer",)}
+# The artifacts only some readers give, so a rule that reads one names those readers, and the reader that reads
+# what one hands on: Formplayer's answers are the Web Apps client's input, and the address of a request a reader
+# sent HQ is Formplayer's (a submission's path) and the device's (a search's URL, its form post address).
+ARTIFACT_READERS = {
+    "formplayer": ("formplayer", "webapps"),
+    "instance": ("formplayer",),
+    "request-url": ("formplayer", ANDROID),
+}
 
 
 @dataclass(frozen=True)
@@ -102,6 +107,7 @@ from proof.rules import (  # noqa: E402
     profile_required_minimal,
     profile_unread_properties,
     required_condition,
+    runtime_url_app_id,
     search_description_empty,
     search_title_empty,
     select_string_type,
@@ -162,6 +168,8 @@ RULES: tuple[SpellingRule, ...] = (
     # A session trace.
     profile_required_minimal.RULE,
     case_block_position.RULE,
+    # The address of a request a reader sent HQ.
+    runtime_url_app_id.RULE,
 )
 
 

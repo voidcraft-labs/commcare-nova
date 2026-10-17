@@ -18,6 +18,7 @@ import type {
 	NoticeEntityRef,
 } from "@/lib/notices/migrationNotice";
 import { copyRawDocument, type RawDocument } from "./oldShape";
+import { languageWireCodesStep } from "./steps/languageWireCodes";
 
 /** How the plan classed one deployment of the app (`plan.ts`). */
 export type DeploymentOutcome =
@@ -63,7 +64,7 @@ export interface CutoverStep {
 }
 
 /** Every registered step, in the one order they run in. */
-export const CUTOVER_STEPS: readonly CutoverStep[] = [];
+export const CUTOVER_STEPS: readonly CutoverStep[] = [languageWireCodesStep];
 
 export interface StepResult {
 	readonly stepId: string;

@@ -4,7 +4,7 @@ One-way emission boundary: `BlueprintDoc` → CommCare wire formats (XForm XML, 
 
 ## Client-safe barrel
 
-The `./index.ts` barrel must stay client-safe: Node-only modules (`./compiler` via `adm-zip`; `./ids` via `node:crypto`) and the heavy emission pipeline (`./expander`, `./xform`) are imported from explicit sub-paths so Turbopack tree-shakes them out of client bundles. The XPath engine, validator, encryption, and HQ HTTP client follow the same sub-path rule. The allowed-consumer set lives in `biome.json`'s `noRestrictedImports` rule — read it there; a copy here drifts.
+The `./index.ts` barrel must stay client-safe: the Node-only module (`./compiler` via `adm-zip`) and the heavy emission pipeline (`./expander`, `./xform`) are imported from explicit sub-paths so Turbopack tree-shakes them out of client bundles. The XPath engine, validator, encryption, and HQ HTTP client follow the same sub-path rule. The allowed-consumer set lives in `biome.json`'s `noRestrictedImports` rule — read it there; a copy here drifts.
 
 ## Key design decisions
 
@@ -34,42 +34,54 @@ CommCare Android removes only the literal `default` locale from its language
 picker, so the named copy is required to let a worker switch back to the app's
 default language.
 
-The app language catalog uses Nova identity tags until this boundary.
-`languageWire.ts::planLanguageWire` is the one tag→wire-code mapping,
-computed once per emission and total and injective by construction: each
-identity's preferred spelling is its Classic catalog row's code — reached
-directly or by widening a macrolanguage member through
-`classicWideningTarget` (`cmn` widens through `zho` to Classic's Chinese
-row) — three-letter except the four grandfathered two-letter rows
-(`eng`→`en`, `spa`→`es`, `swh`→`sw`, `afr`→`af`); an identity with no
-Classic reach emits its Set 3 code, which is always wire-valid. Identities
-colliding on one preferred spelling each take a single lowercase suffix
-segment (`cmn-Hans`/`cmn-Hant` → `cmn-hans`/`cmn-hant`) because Classic's
-grammar allows exactly one hyphen; a final injectivity assert throws as a
-compiler bug. Device-picker name rows come from the registry's baked display
-labels at the most specific key — never runtime `Intl`, whose Node/ICU
-variance must not reach wire bytes. HQ `langs`, localized property maps,
-itext language/default attributes, `default/app_strings.txt`, per-language
-directories, endonyms, and `lang.current` are one-way CommCare wire
-spellings here. Two-letter language codes exist nowhere outside this
-directory; `classicLanguages.ts` (over
-`config/commcare-classic-languages.json`) is wire data quarantined here, and
-its only consumers are the wire plan and the language-identity migration
-script. An `eng`-only app — including every app with an absent localization
-root — emits byte-identical output to the historical `en`-only shape.
+The app language catalog uses Nova identity tags until this boundary. A
+language's wire code is chosen here once, when the language is added, and
+stored in `localization.wireCodes`; every export reads the stored code, so
+adding or removing a language never renames another's.
+`languageWire.ts::mintLanguageWireCode` chooses a wire code once, when a
+language is added: the identity's preferred spelling where no held language
+has it, else the suffixed form. Each identity's preferred spelling is its
+Classic catalog row's code, reached directly or by widening a macrolanguage
+member through `classicWideningTarget` (`cmn` widens through `zho` to
+Classic's Chinese row), three-letter except the four grandfathered
+two-letter rows (`eng`→`en`, `spa`→`es`, `swh`→`sw`, `afr`→`af`); an
+identity with no Classic reach takes its Set 3 code, which is always
+wire-valid. The suffixed form lowers the identity's script and region into a
+single suffix segment (`cmn-Hant` → `cmn-hant`) because Classic's grammar
+allows exactly one hyphen, and no preferred spelling holds one. The producer
+of the `addLanguage` or `relabelSourceLanguage` mutation calls it and the
+mutation carries the result; no reducer calls it. `planLanguageWire` reads
+`localization.wireCodes` and computes no code; the map is total and
+injective because the schema holds it so. Device-picker name rows come from
+the registry's baked display labels at the most specific key — never runtime
+`Intl`, whose Node/ICU variance must not reach wire bytes. HQ `langs`,
+localized property maps, itext language/default attributes,
+`default/app_strings.txt`, per-language directories, endonyms, and
+`lang.current` are one-way CommCare wire spellings here.
+`classicLanguages.ts` (over `config/commcare-classic-languages.json`) is wire
+data quarantined here, and its only consumers are the wire plan and the
+language-identity migration script. An `eng`-only app — including every app
+with an absent localization root — emits byte-identical output to the
+historical `en`-only shape.
 
 ### Runtime request destinations
 
-`runtimeTarget.ts` is the sole origin/domain/app projection for Search, case
-claim, and known-case hydration URLs. `expandDoc`, `compileCcz`, and the shared
-navigation context carry the same target. Direct publishing supplies its
-selected server and domain. Download routes and MCP `compile_app` reuse a unique
-deployed space or require an explicit server; an explicit choice also scopes
-attachment URL resolution to that server. Multiple spaces on the selected
-server leave domain/app placeholders in the portable import artifact. Unbound
-internal compiler calls use a neutral `__COMMCARE_HOST__` placeholder, never an
-implicit US server. These portable placeholders require HQ import/build before
-runtime use.
+`lib/deployment/runtimeTarget.ts::chooseDownloadTarget` (pure) and
+`lib/deployment/downloadTarget.ts::resolveDownloadTarget` (server-only) are
+the one resolver of what an export is made for. It yields a full target (the
+server, the domain, the deployment's HQ working app id and its recorded ids)
+or none, and a bare server reaches no emitted byte. `runtimeTarget.ts` here
+projects that target into the Search, case claim and known-case hydration
+URLs (`runtimeUrls`, which has no partial-placeholder arm: with no target it
+prints the neutral `__COMMCARE_HOST__` template that structural validation and
+the HQ JSON path read, since HQ writes its own URLs when it builds); `expandDoc`,
+`compileCcz` and the shared navigation context carry the same target, and
+direct publishing supplies its selected server and domain. Every `.ccz` is
+made for one published project space, and its profile names that space's
+four server properties (`ota-restore-url`, `PostURL`, `key_server` and
+`cc_user_domain`, from `runtimeTarget.ts::profileServerProperties`); an app
+that is published nowhere is offered no `.ccz`. The HQ import file carries
+derived ids and no target.
 
 ### The surface manifest
 
@@ -203,7 +215,7 @@ The large-search performance check is advisory: it controls only whether Nova
 can add its derived Search optimization and never blocks publishing or removes
 Search.
 
-JSON and CCZ have no target project space, so compatibility is `not_checked`.
+A download checks no project space, so its compatibility is `not_checked`: the HQ import file has no target, and a `.ccz` is made for a project space the app is already published to, whose publish made the check.
 Upstream drift reaches the probe through the weekly pin pull request
 (`.github/workflows/upstream-pins.yml`), which moves the pins to each
 upstream's default-branch head, regenerates the surface there, and classifies
@@ -449,8 +461,11 @@ selected-value set with Core-supported `selected(join(...), .)`. HQ also aligns
 same-type collection datums without comparing their maxima, which can bypass a
 smaller child limit. The local projection keeps that child datum distinct and
 reports the incompatible HQ alignment to the export analyzer. Both shapes
-remain admitted and downloadable as CCZ; no registration-only or unused catalog
-relationship is refused. Native nested-menu proofs execute both local workflows
+remain admitted, and the local projection carries both in every `.ccz`. A
+`.ccz` is made for a reached deployment alone, so an app that holds one of them
+has that archive only for a project space it reached without the shape
+(`lib/export/CLAUDE.md`). No registration-only or unused catalog relationship
+is refused. Native nested-menu proofs execute both local workflows
 and deliberately bypassed HQ counterexamples, separate from supported HQ parity.
 
 The selected own-case id is not assumed to be `case_id`. It is threaded into
@@ -497,9 +512,14 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   the form has links (HQ reads links only then); `post_form_workflow_fallback`
   is the `postSubmit` workflow word when a guarded fallback frame exists, else
   `null` (`WORKFLOW_FALLBACK_OPTIONS` is `None` — no choice validation). HQ
-  re-ids forms on import (`update_form_unique_ids` rewrites `form_id`) and not
-  modules, so the expander pre-generates every form unique id before the module
-  map. `hqJsonOracle.ts::checkFormLinks` pins the shape and id resolution.
+  re-mints form ids only when it creates an app from a body that holds forms
+  (`util.py::update_form_unique_ids` rewrites `form_id` with them), and on
+  every source read. Nova's create is an empty shell and its update writes ids
+  verbatim, so every menu and form id is `lib/commcare/wireIdentity.ts`'s
+  derivation or the target's recorded override (`ExpandOptions.identity`). A
+  manual import of the HQ import file is a create that carries forms, so its
+  form ids are HQ's and its menu ids and every `xmlns` are Nova's.
+  `hqJsonOracle.ts::checkFormLinks` pins the shape and id resolution.
 - **Frame children follow `WorkflowHelper.get_frame_children`** exactly:
   module command → longest common prefix (by datum id) of every FORM entry's
   datums in the target module → form command → the target form's remaining
@@ -1251,7 +1271,11 @@ app in place: HQ's import endpoint takes an `app_id` multipart field
 (`corehq/apps/app_manager/views/app_import_api.py::_handle_import_app`,
 update via `overwrite_app_from_source`; 200 `{success, app_id, version}` on
 update, 201 without `version` on create, 404 `Application not found` for an
-unknown id). Which of the two a publish does, and what happens to it
+unknown id, and 400 for an app deleted in HQ, whose source read still answers
+200 with a `doc_type` ending `-Deleted` (`app_manager/util.py::app_doc_types`)).
+An update never writes `multimedia_map`, `build_profiles`, `custom_base_url` or
+`practice_mobile_worker_id`, and Nova sends no `multimedia_map` in any mode.
+Which of the two a publish does, and what happens to it
 afterwards, lives in `lib/deployment`:
 this package owns the HTTP calls, that one owns the lifecycle, the ownership
 ledger, and the setup artifact. The three reads a key CAN make about a
@@ -1261,6 +1285,18 @@ actually is: the catch-all `download_file` route handles it, not
 `download_odk_profile`, so it can regenerate a build's files, and naming a
 BUILD id is what keeps it on that build instead of falling through to
 `autogenerate_build` and starting a new version. Dimagi runs three separate SaaS deployments (`servers.ts`: production/www, india, eu — mirroring HQ's `ServerLocation`), each with its own account DB, so an API key only authenticates against the server that issued it; the connection stores which one it was verified against and every request derives its base URL from that closed catalog (the SSRF boundary — never a user-supplied URL). User API keys are KMS-encrypted at rest via `./encryption`. Domain slugs are validated against HQ's legacy regex to prevent path traversal in the import URL.
+
+The HQ import file is always a ZIP
+(`multimedia/hqJsonExportArchive.ts::buildHqJsonExportArchive`): the app's
+JSON, `README.txt`, `lookup-tables.xlsx` where the app reads lookup tables and
+`multimedia.zip` where it has media. The README is rendered from a pure derived
+guide, `lib/publish/manualImportGuide.ts`, whose steps are each present only
+when they apply: the lookup tables first, so the app finds its data when HQ
+builds it, then the import, the CommCare version to check, the media and the
+capabilities the project space needs. It names capabilities, never HQ flag
+names. The file carries derived ids and no runtime URL, and a person who
+imports it makes a create that carries forms, so its form ids are HQ's and its
+menu ids and every `xmlns` are Nova's.
 
 A key is **not** one-project-per-user: an unscoped HQ key reaches every project space its owner belongs to. `discoverAccessibleDomains` lists them and probes app-level access in a bounded-concurrency window (an unbounded fan-out self-inflicts a 429 on big accounts). The upload *target* is chosen by `resolveUploadDomain` (`@/lib/db/domainResolution`) — explicit arg, else the sole space of a single-space key, else **error** (ambiguous) for a multi-space key (never silently the first space). There is no stored default: a multi-space key's target is a per-upload choice, and no path assumes one project space per key.
 

@@ -45,7 +45,10 @@ import {
 	type RefreshedDeploymentView,
 	refreshDeploymentAction,
 } from "@/lib/deployment/actions";
-import { activeRemoteApp } from "@/lib/deployment/resources";
+import {
+	activeRemoteApp,
+	remoteAppReportedGone,
+} from "@/lib/deployment/resources";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /**
@@ -154,11 +157,14 @@ export function DeploymentStatus({
 			? record.phases[record.resumePhase]
 			: null;
 	/* Check status only where checking can answer. A record refused before
-	 * its app reached CommCare HQ has nothing there to ask about, and a
-	 * record with no active mapping has nothing to name: offering the one
-	 * button whose every press errors is worse than not offering it. */
+	 * its app's content reached CommCare HQ has nothing there to ask about,
+	 * and a record with no active mapping has nothing to name: offering the
+	 * one button whose every press errors is worse than not offering it. An
+	 * app HQ reported gone is always asked about again, since HQ's own undo
+	 * is how it comes back (`service.ts::refreshDeployment`). */
 	const observable =
-		deploymentIsObservable(record) && activeRemoteApp(view.deployment) !== null;
+		activeRemoteApp(view.deployment) !== null &&
+		(deploymentIsObservable(record) || remoteAppReportedGone(view.deployment));
 
 	return (
 		<section aria-labelledby={headingId} className="mt-5">
@@ -262,7 +268,7 @@ export function DeploymentStatus({
 					) : null}
 					{record.resumePhase !== null ? (
 						<p className="mt-2 pl-9 text-nova-text-secondary">
-							{failure.failure.code === "remote_app_missing"
+							{remoteAppReportedGone(view.deployment)
 								? "Publishing again creates a new app on CommCare HQ, because the one Nova made is gone."
 								: RESUME_SENTENCE[record.resumePhase]}
 						</p>

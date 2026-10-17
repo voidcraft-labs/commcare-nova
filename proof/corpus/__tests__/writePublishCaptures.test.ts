@@ -1,24 +1,24 @@
 /**
  * The capture writer's output is the same, byte for byte, on every run for
- * a seed, and it keeps the identities Nova mints apart where Nova does.
+ * a seed, and every publish of a document sends the same ids.
  *
  * Contract: `writePublishCaptures` writes, for each document and
- * configuration, the files the HQ side of the harness reads, each export's
- * minted identities (`lib/commcare/ids.ts` for module and form `unique_id`s
- * and form `xmlns`, `randomUUID` for a `.ccz` profile's `uniqueid`) drawn
- * from its operation's seeded generator (`../entropy.mts`). The plausible
- * failures: a source of variation reaching the files (a draw left unseeded,
- * a multipart boundary, an archive timestamp or zone, an unordered
- * collection), which would make every comparison over them noisy; the
- * minted identities collapsing, which would hide defects 1 and 9 from the
- * checks that must see them (the create and update of one document must
- * carry different module ids, and the two local exports must differ); an
- * update of an unchanged document sending other bytes than the republish,
- * which would make every unchanged edit look like a change; an update
- * of a changed document minting ids the republish minted, so an id of D′
- * would name an entity of D; and a document with media whose capture lacks
- * the upload Nova sends after the import, sends it to another app, or
- * carries other bytes than the uploaded asset's.
+ * configuration, the files the HQ side of the harness reads: a first
+ * publish as the empty shell's create and the content update that fills
+ * it, then each later update, each export's draws (`randomUUID` for a
+ * `.ccz` profile's `uniqueid`) answered from its operation's seeded
+ * generator (`../entropy.mts`). The plausible failures: a source of
+ * variation reaching the files (a draw left unseeded, a multipart boundary,
+ * an archive timestamp or zone, an unordered collection), which would make
+ * every comparison over them noisy; the profile `uniqueid`s collapsing,
+ * which would hide defect 9 from the checks that must see it (the two local
+ * exports must differ); an update of an unchanged document sending other
+ * bytes than the republish, which would make every unchanged edit look like
+ * a change; a publish sending other module or form ids than the publish
+ * before it, which is defect 1; a shell that carries a menu, a workbook or
+ * media; and a document with media whose capture lacks the upload Nova
+ * sends after the content import, sends it to another app, or carries
+ * other bytes than the uploaded asset's.
  */
 
 import { createHash } from "node:crypto";
@@ -142,7 +142,7 @@ async function appOf(
 	return JSON.parse(await file.text());
 }
 
-it("writes the same bytes on every run for a seed, keeps Nova's minted identities apart, and sends an unchanged update as the republish", {
+it("writes the same bytes on every run for a seed, sends every publish of a document the same ids, and sends an unchanged update as the republish", {
 	// Three runs over three documents, each capturing every publish and
 	// writing every archive.
 	timeout: 30_000,
@@ -181,6 +181,8 @@ it("writes the same bytes on every run for a seed, keeps Nova's minted identitie
 					path.startsWith("search-lookup-media/"),
 			),
 		).toEqual([
+			"clinic-visits/minimum/content.import.body",
+			"clinic-visits/minimum/content.import.json",
 			"clinic-visits/minimum/create.import.body",
 			"clinic-visits/minimum/create.import.json",
 			"clinic-visits/minimum/local-1.ccz",
@@ -190,6 +192,8 @@ it("writes the same bytes on every run for a seed, keeps Nova's minted identitie
 			"clinic-visits/minimum/update-edited.import.json",
 			"clinic-visits/minimum/update.import.body",
 			"clinic-visits/minimum/update.import.json",
+			"clinic-visits/none/content.import.body",
+			"clinic-visits/none/content.import.json",
 			"clinic-visits/none/create.import.body",
 			"clinic-visits/none/create.import.json",
 			"clinic-visits/none/local-1.ccz",
@@ -200,12 +204,14 @@ it("writes the same bytes on every run for a seed, keeps Nova's minted identitie
 			"clinic-visits/none/update.import.body",
 			"clinic-visits/none/update.import.json",
 			"clinic-visits/verdict.json",
+			"search-lookup-media/minimum/content.import.body",
+			"search-lookup-media/minimum/content.import.json",
+			"search-lookup-media/minimum/content.lookup.body",
+			"search-lookup-media/minimum/content.lookup.json",
+			"search-lookup-media/minimum/content.media.body",
+			"search-lookup-media/minimum/content.media.json",
 			"search-lookup-media/minimum/create.import.body",
 			"search-lookup-media/minimum/create.import.json",
-			"search-lookup-media/minimum/create.lookup.body",
-			"search-lookup-media/minimum/create.lookup.json",
-			"search-lookup-media/minimum/create.media.body",
-			"search-lookup-media/minimum/create.media.json",
 			"search-lookup-media/minimum/local-1.ccz",
 			"search-lookup-media/minimum/local-2.ccz",
 			"search-lookup-media/minimum/outcome.json",
@@ -225,13 +231,41 @@ it("writes the same bytes on every run for a seed, keeps Nova's minted identitie
 			}
 		}
 
-		// Nova's own minting reaches the files: each export draws other ids.
-		const created = await appOf(nova, "clinic-visits/none/create.import");
+		const body = (path: string) => nova.get(path) ?? Buffer.alloc(0);
+
+		// The first publish is two imports: a shell with no menu, then the
+		// content that fills it.
+		const shell = await appOf(nova, "clinic-visits/none/create.import");
+		expect(shell.modules).toEqual([]);
+		expect(
+			JSON.parse(body("clinic-visits/none/create.import.json").toString()),
+		).toMatchObject({
+			layout: 2,
+			fields: ["waf_padding", "app_name", "app_file"],
+		});
+		expect(
+			JSON.parse(body("clinic-visits/none/content.import.json").toString()),
+		).toMatchObject({
+			layout: 2,
+			placeholderAppId: "nova-proof-placeholder-app",
+			assumedSource: {
+				doc_type: "Application",
+				"build_spec.version": "2.57.0",
+				profile: {},
+			},
+		});
+
+		// Nova's derived ids reach the files: every publish sends the same ones.
+		const minted = (app: Awaited<ReturnType<typeof appOf>>) =>
+			app.modules.flatMap((module) => [
+				module.unique_id,
+				...module.forms.flatMap((form) => [form.unique_id, form.xmlns]),
+			]);
+		const content = await appOf(nova, "clinic-visits/none/content.import");
 		const updated = await appOf(nova, "clinic-visits/none/update.import");
-		expect(created.modules[0]?.unique_id).toMatch(/^[0-9a-f]{40}$/);
-		expect(created.modules[0]?.unique_id).not.toBe(
-			updated.modules[0]?.unique_id,
-		);
+		expect(content.modules[0]?.unique_id).toMatch(/^[0-9a-f]{32}$/);
+		expect(minted(content).length).toBeGreaterThan(1);
+		expect(minted(content)).toEqual(minted(updated));
 		const [local1, local2] = [
 			nova.get("clinic-visits/none/local-1.ccz"),
 			nova.get("clinic-visits/none/local-2.ccz"),
@@ -240,8 +274,7 @@ it("writes the same bytes on every run for a seed, keeps Nova's minted identitie
 		expect(local1?.equals(local2 ?? Buffer.alloc(0))).toBe(false);
 
 		// An edit that changes nothing sends exactly the republish; a rename
-		// does not, and mints none of the ids the republish minted.
-		const body = (path: string) => nova.get(path) ?? Buffer.alloc(0);
+		// does not, and sends the republish's ids.
 		expect(
 			body("clinic-visits-unchanged/none/update-edited.import.body").equals(
 				body("clinic-visits-unchanged/none/update.import.body"),
@@ -256,30 +289,24 @@ it("writes the same bytes on every run for a seed, keeps Nova's minted identitie
 			nova,
 			"clinic-visits/none/update-edited.import",
 		);
-		const minted = (app: typeof renamed) =>
-			app.modules.flatMap((module) => [
-				module.unique_id,
-				...module.forms.flatMap((form) => [form.unique_id, form.xmlns]),
-			]);
-		const republished = new Set(minted(updated));
-		expect(minted(renamed).length).toBeGreaterThan(1);
-		expect(minted(renamed).filter((id) => republished.has(id))).toEqual([]);
+		expect(minted(renamed)).toEqual(minted(updated));
 
 		// The document with an uploaded image sends its media after each
-		// import, to the app the import made, as one ZIP holding the image's
-		// bytes under its wire path; the republish sends the create's ZIP.
+		// content import, to the app the first publish made, as one ZIP
+		// holding the image's bytes under its wire path; the shell sends none,
+		// and the republish sends the content's ZIP.
 		const media = "search-lookup-media/minimum";
-		expect(
-			JSON.parse(body(`${media}/outcome.json`).toString()).create.requests,
-		).toEqual(["lookup", "import", "media"]);
-		const sidecar = JSON.parse(body(`${media}/create.media.json`).toString());
+		const outcome = JSON.parse(body(`${media}/outcome.json`).toString());
+		expect(outcome.create.requests).toEqual(["import"]);
+		expect(outcome.content.requests).toEqual(["lookup", "import", "media"]);
+		const sidecar = JSON.parse(body(`${media}/content.media.json`).toString());
 		expect(sidecar).toMatchObject({
 			method: "POST",
 			path: "/a/nova-proof/apps/api/nova-proof-placeholder-app/multimedia/",
 			fields: ["waf_padding", "bulk_upload_file"],
 		});
 		const upload = (
-			await new Response(new Uint8Array(body(`${media}/create.media.body`)), {
+			await new Response(new Uint8Array(body(`${media}/content.media.body`)), {
 				headers: { "content-type": sidecar.contentType },
 			}).formData()
 		).get("bulk_upload_file");
@@ -299,10 +326,10 @@ it("writes the same bytes on every run for a seed, keeps Nova's minted identitie
 		expect(image?.getData().equals(png)).toBe(true);
 		expect(
 			body(`${media}/update.media.body`).equals(
-				body(`${media}/create.media.body`),
+				body(`${media}/content.media.body`),
 			),
 		).toBe(true);
-		expect(nova.has("clinic-visits/minimum/create.media.body")).toBe(false);
+		expect(nova.has("clinic-visits/minimum/content.media.body")).toBe(false);
 	} finally {
 		vi.useRealTimers();
 		await rm(root, { recursive: true, force: true });

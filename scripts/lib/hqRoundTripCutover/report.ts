@@ -13,9 +13,12 @@
  */
 
 import { sql, type Transaction } from "kysely";
+import { COMMCARE_VERSION_FLOOR } from "@/lib/commcare/versionFloor";
 import type { AppDatabase } from "@/lib/db/pg";
 import type { HolderCensus } from "./holders";
+import type { MatchResult } from "./matching";
 import type { CutoverBlockerCode, CutoverPlanBuild, FleetSource } from "./plan";
+import { suffixedWireCodeLanguages } from "./steps/languageWireCodes";
 import { CUTOVER_STEPS } from "./transform";
 import type { WriterReport } from "./writer";
 
@@ -122,6 +125,7 @@ export function planSections(
 	source: FleetSource,
 	build: CutoverPlanBuild,
 	holders: HolderCensus,
+	spaceReads: readonly SpaceReads[] = [],
 ): void {
 	report.line("steps", {
 		steps: CUTOVER_STEPS.map((step) => {
@@ -135,6 +139,18 @@ export function planSections(
 				apps: counts.filter((count) => count > 0).length,
 				changes: counts.reduce((sum, count) => sum + count, 0),
 			};
+		}),
+	});
+	// Step `language-wire-codes`: the apps with a stored localization root,
+	// and each language whose stored code is a suffixed one. Tags, never text.
+	const rooted = source.apps.filter((app) => app.raw.localization !== null);
+	report.line("language-wire-codes", {
+		rootedApps: rooted.length,
+		suffixed: rooted.flatMap((app) => {
+			const target = build.targets.get(app.appId);
+			const languages =
+				target === undefined ? [] : suffixedWireCodeLanguages(target.raw);
+			return languages.length === 0 ? [] : [{ appId: app.appId, languages }];
 		}),
 	});
 	const behavior = new Map<string, { apps: number; entries: number }>();
@@ -172,7 +188,7 @@ export function planSections(
 			.map((app) => app.appId),
 		endingSessions: source.privateWork.endingSessions,
 	});
-	deploymentsLine(report, source, build);
+	deploymentsLine(report, source, build, spaceReads);
 	const blockers = new Map<
 		CutoverBlockerCode,
 		{ count: number; apps: string[] }
@@ -213,11 +229,20 @@ export function planSections(
 	}
 }
 
+/** What one run sent to a project space, from its pacer. */
+export interface SpaceReads {
+	readonly server: string;
+	readonly domain: string;
+	readonly limitedReads: number;
+	readonly lastLimitedReadAt: string | null;
+}
+
 /** The `deployments` line and one `space` line per server and project space. */
 function deploymentsLine(
 	report: CutoverReport,
 	source: FleetSource,
 	build: CutoverPlanBuild,
+	spaceReads: readonly SpaceReads[],
 ): void {
 	const perServer: Record<string, number> = {};
 	const spaces = new Map<
@@ -249,8 +274,25 @@ function deploymentsLine(
 	const published = build.deployments.flatMap((deployment) =>
 		deployment.publishedDocument === null ? [] : [deployment.publishedDocument],
 	);
+	const perOutcome: Record<string, number> = {};
+	const perPairing: Record<string, number> = {};
+	for (const app of build.plan.apps) {
+		for (const deployment of app.deployments) {
+			perOutcome[deployment.outcome] =
+				(perOutcome[deployment.outcome] ?? 0) + 1;
+			const pairing =
+				deployment.pairing === null
+					? "none"
+					: deployment.pairing.path === "published-document"
+						? `published-document:${deployment.pairing.source}`
+						: `evidence:${deployment.pairing.reason}`;
+			perPairing[pairing] = (perPairing[pairing] ?? 0) + 1;
+		}
+	}
 	report.line("deployments", {
 		perServer,
+		perOutcome,
+		perPairing,
 		noAppMapping: source.apps.reduce(
 			(sum, app) => sum + app.deploymentsWithoutMapping,
 			0,
@@ -296,11 +338,18 @@ function deploymentsLine(
 				(sum, tables) => sum + 1 + tables.size + 1,
 				0,
 			);
+		const sent = spaceReads.find(
+			(entry) => entry.server === space.server && entry.domain === space.domain,
+		);
 		report.line("space", {
 			server: space.server,
 			domain: space.domain,
 			deployments: space.deployments,
 			limitedReads,
+			...(sent !== undefined && {
+				limitedReadsSent: sent.limitedReads,
+				lastLimitedReadAt: sent.lastLimitedReadAt,
+			}),
 			windowExceedsHour: 2 * limitedReads > HOUR_FLOOR,
 			windowExceedsDay: 2 * limitedReads > DAY_FLOOR,
 		});
@@ -314,6 +363,9 @@ export function deploymentLines(
 ): void {
 	for (const app of build.plan.apps) {
 		for (const deployment of app.deployments) {
+			const detail = build.deployments.find(
+				(entry) => entry.deploymentId === deployment.deploymentId,
+			);
 			report.line("deployment", {
 				appId: app.appId,
 				deploymentId: deployment.deploymentId,
@@ -321,8 +373,20 @@ export function deploymentLines(
 				domain: deployment.domain,
 				outcome: deployment.outcome,
 				buildSpecVersion: deployment.buildSpecVersion,
+				belowVersionFloor:
+					deployment.buildSpecVersion === null
+						? null
+						: belowFloor(deployment.buildSpecVersion),
 				pairing: deployment.pairing,
 				identityRows: deployment.identities.length,
+				unpaired: deployment.unpaired.map(({ kind, uuid, cause }) => ({
+					kind,
+					uuid,
+					cause:
+						cause.kind === "tie" ? `tie-at-stage-${cause.stage}` : cause.kind,
+				})),
+				formIdsUnknown: deployment.formIdsUnknown,
+				...matchCounts(detail?.match ?? null),
 			});
 			for (const use of deployment.keyUses) {
 				report.line("key-use", {
@@ -337,6 +401,42 @@ export function deploymentLines(
 	}
 }
 
+/** Whether HQ's version for the app is below CommCare's version floor. */
+function belowFloor(version: string): boolean {
+	const [major = 0, minor = 0] = version
+		.split(".")
+		.map((part) => Number.parseInt(part, 10));
+	return (
+		major < COMMCARE_VERSION_FLOOR.major ||
+		(major === COMMCARE_VERSION_FLOOR.major &&
+			minor < COMMCARE_VERSION_FLOOR.minor)
+	);
+}
+
+/** A deployment's pairs as counts and positions: no name, no path. */
+function matchCounts(match: MatchResult | null): Record<string, unknown> {
+	if (match === null) return {};
+	const counts = {
+		menusPaired: match.pairs.menus.size,
+		formsPaired: match.pairs.forms.length,
+	};
+	if (match.path === "published-document") {
+		return {
+			...counts,
+			addedSince: match.addedSince,
+			goneSince: match.goneSince,
+		};
+	}
+	return {
+		...counts,
+		pairsPerStage: match.pairsPerStage,
+		ties: match.ties,
+		contests: match.contests,
+		hqUnpaired: match.hqUnpaired,
+		...(match.differences !== undefined && { differences: match.differences }),
+	};
+}
+
 /** The writer's timings and the database's growth, for the fleet line. */
 export function writerFields(writer: WriterReport): Record<string, unknown> {
 	return {
@@ -344,6 +444,8 @@ export function writerFields(writer: WriterReport): Record<string, unknown> {
 		databaseBytesAtStep11: writer.databaseBytes,
 		walBytes: writer.walBytes,
 		appsWritten: writer.appsWritten,
+		identitiesWritten: writer.identitiesWritten,
+		deploymentsMarkedMissing: writer.deploymentsMarkedMissing,
 		noticesWritten: writer.noticesWritten,
 		keyReadersWritten: writer.keyReadersWritten,
 		eventsArchived: writer.eventsArchived,

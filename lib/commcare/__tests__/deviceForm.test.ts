@@ -10,6 +10,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { stripVellumAttributes } from "@/lib/commcare/xform/deviceForm";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function one(elements: Element[]) {
 	expect(elements).toHaveLength(1);
@@ -63,9 +64,9 @@ it("retains source editor shadows but ships only runtime bind and action attribu
 		"vellum:relevant": "#form/answer != ''",
 	});
 	const local = tree(
-		new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
-			"modules-0/forms-0.xml",
-		),
+		new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		).readAsText("modules-0/forms-0.xml"),
 	);
 	expect(
 		findAll(

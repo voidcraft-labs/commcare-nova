@@ -11,6 +11,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { usercaseWriteFixture } from "./usercaseWriteFixture";
 
 function one(elements: Element[]) {
@@ -36,7 +37,9 @@ function exported(doc: BlueprintDoc) {
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	const hq = expandDoc(doc);
 	const form = hq.modules[0].forms[0];
-	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
 	const suite = root(zip.readAsText("suite.xml"));
 	const entries = children(suite, "entry");
 	const entry = one(

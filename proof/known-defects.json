@@ -1,75 +1,5 @@
 [
 	{
-		"id": "d1-ids-app-unique-id-b812",
-		"defect": 1,
-		"part": "ids and xmlns",
-		"check": "proof1",
-		"artifact": "app.json",
-		"path": "/modules/*/forms/*/unique_id",
-		"document": "targeted-multi-select-destinations",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d1-ids-app-xmlns",
-		"defect": 1,
-		"part": "ids and xmlns",
-		"check": "proof1",
-		"artifact": "app.json",
-		"path": "/modules/*/forms/*/xmlns",
-		"document": "targeted-multi-select-destinations",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d1-ids-app-unique-id-caac",
-		"defect": 1,
-		"part": "ids and xmlns",
-		"check": "proof1",
-		"artifact": "app.json",
-		"path": "/modules/*/unique_id",
-		"document": "targeted-multi-select-destinations",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d1-ids-form-xmlns",
-		"defect": 1,
-		"part": "ids and xmlns",
-		"check": "proof1",
-		"artifact": "form:*",
-		"path": "/xmlns",
-		"document": "targeted-multi-select-destinations",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d1-language-codes-app-langs",
-		"defect": 1,
-		"part": "language codes",
-		"check": "proof1",
-		"artifact": "app.json",
-		"path": "/langs/*",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state"
-	},
-	{
-		"id": "d1-local-path-ccz-entries-xmlns",
-		"defect": 1,
-		"part": "local path",
-		"check": "proof1",
-		"artifact": "local.ccz",
-		"path": "/entries/*/xmlns",
-		"document": "targeted-multi-select-destinations",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d1-language-codes-build-profile-raised",
-		"defect": 1,
-		"part": "language codes (a build profile)",
-		"check": "bar",
-		"artifact": "create_all_files:*@B-edit",
-		"path": "/raised/XFormException",
-		"document": "targeted-hq-side-state",
-		"control": "targeted-hq-side-state"
-	},
-	{
 		"id": "d2-display-condition-validate-form-filter-xpath",
 		"defect": 2,
 		"part": "form display condition on the loaded case",
@@ -2961,7 +2891,7 @@
 		"part": "search settings",
 		"check": "proof4",
 		"artifact": "editor:case list@*",
-		"path": "/modules/*/alerts/× The case search property '*' is missing the following lookup table attributes: sort",
+		"path": "/modules/*/alerts/\u00d7 The case search property '*' is missing the following lookup table attributes: sort",
 		"document": "prompt-widgets",
 		"control": "prompt-widgets"
 	},
@@ -4705,36 +4635,6 @@
 		"control": "expander-empty-container-expansion-emits-an-empty-group-86a5cfc1-0"
 	},
 	{
-		"id": "d32-search-url-trace-requests-url",
-		"defect": 32,
-		"part": "searches from a local .ccz",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/requests/*/url",
-		"document": "case-list-inline",
-		"control": "case-list-inline"
-	},
-	{
-		"id": "d32-search-url-trace-stackaftersubmit-steps",
-		"defect": 32,
-		"part": "searches from a local .ccz",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/stackAfterSubmit/steps/*/value",
-		"document": "search-hidden-link",
-		"control": "search-registration-link"
-	},
-	{
-		"id": "d32-search-url-trace-url",
-		"defect": 32,
-		"part": "searches from a local .ccz",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/url",
-		"document": "case-list-inline",
-		"control": "case-list-inline"
-	},
-	{
 		"id": "d33-trimmed-blocks-create-case-name-da66",
 		"defect": 33,
 		"part": "trimmed case names and external ids",
@@ -5498,7 +5398,7 @@
 			"after": {
 				"stage": "install",
 				"descriptor": "Form: (Module Visits) - Close when finished",
-				"message": "Encountered a problem with display condition for node [/data/case/close] at line: /data/outcome = 'it's done', Couldn't understand the expression starting at this point: .../outcome = 'it'͎sdone'",
+				"message": "Encountered a problem with display condition for node [/data/case/close] at line: /data/outcome = 'it's done', Couldn't understand the expression starting at this point: .../outcome = 'it'\u034esdone'",
 				"class": "org.commcare.resources.model.UnresolvedResourceException"
 			}
 		}
@@ -6336,16 +6236,6 @@
 		"control": "targeted-sync-on-form-entry"
 	},
 	{
-		"id": "d32-searches-from-a-local-ccz-formplayer-local-ccz-asked-2",
-		"defect": 32,
-		"part": "searches from a local .ccz",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/asked/*/*",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry"
-	},
-	{
 		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-alttext",
 		"defect": 65,
 		"part": "texts the local archive leaves out",
@@ -6436,6 +6326,28 @@
 		"control": "targeted-hq-side-state"
 	},
 	{
+		"id": "d9-form-version-formplayer-local-ccz-submissions-data-version",
+		"defect": 9,
+		"part": "form version",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/@version",
+		"kind": "changed",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state-after-59"
+	},
+	{
+		"id": "d9-form-version-formplayer-local-ccz-submit-nextscreen-output-data-version",
+		"defect": 9,
+		"part": "form version",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submit/nextScreen/instanceXml/output/data/@version",
+		"kind": "changed",
+		"document": "targeted-form-link-hidden-target",
+		"control": "targeted-form-link-hidden-target-after-59"
+	},
+	{
 		"id": "d33-trimmed-case-names-and-exter-formplayer-local-ccz-update-external-id-text",
 		"defect": 33,
 		"part": "trimmed case names and external ids",
@@ -6444,6 +6356,28 @@
 		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]/update[*]/external_id[*]/text()",
 		"document": "navigation-base",
 		"control": "navigation-base"
+	},
+	{
+		"id": "d33-trimmed-case-names-and-exter-formplayer-local-ccz-submissions-create-case-name-text",
+		"defect": 33,
+		"part": "trimmed case names and external ids",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/create[*]/case_name[*]/text()",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-after-59"
+	},
+	{
+		"id": "d33-trimmed-case-names-and-exter-formplayer-local-ccz-submissions-group-create-case-name-text",
+		"defect": 33,
+		"part": "trimmed case names and external ids",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/case[*]/create[*]/case_name[*]/text()",
+		"kind": "changed",
+		"document": "case-capture-repeat",
+		"control": "case-capture-repeat-after-59"
 	},
 	{
 		"id": "d66-update-property-order-formplayer-local-ccz-case-update-order",
@@ -6476,6 +6410,28 @@
 		"control": "case-extension-registration"
 	},
 	{
+		"id": "d37-case-order-formplayer-local-ccz-submissions-data-order",
+		"defect": 37,
+		"part": "new case order",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/order()",
+		"kind": "changed",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration-after-59"
+	},
+	{
+		"id": "d37-case-order-formplayer-local-ccz-submissions-data-group-order",
+		"defect": 37,
+		"part": "new case order",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/order()",
+		"kind": "changed",
+		"document": "case-capture-repeat",
+		"control": "case-capture-repeat-after-59"
+	},
+	{
 		"id": "d24-inert-subcase-formplayer-local-ccz-output-data-subcase",
 		"defect": 24,
 		"part": "inert subcase",
@@ -6484,6 +6440,61 @@
 		"path": "/runs/*/steps/*/response/instanceXml/output/data/subcase_*[*]",
 		"document": "case-extension-registration",
 		"control": "case-extension-registration"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-subcase",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/subcase_*[*]",
+		"kind": "removed",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration-after-59"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-case-unpaired",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/case[*]",
+		"kind": "added",
+		"document": "case-extension-repeat",
+		"control": "case-extension-repeat-after-59"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-subcase-unpaired",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/subcase_*[*]",
+		"kind": "removed",
+		"document": "case-extension-repeat",
+		"control": "case-extension-repeat-after-59"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-item-case-unpaired",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/item[@id=*]/case[*]",
+		"kind": "added",
+		"document": "case-extension-query",
+		"control": "case-extension-query-after-59"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-item-subcase-unpaired",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/item[@id=*]/subcase_*[*]",
+		"kind": "removed",
+		"document": "case-extension-query",
+		"control": "case-extension-query-after-59"
 	},
 	{
 		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-response-metadata-attemptrestore",
@@ -6536,6 +6547,17 @@
 		"control": "targeted-close-conditions"
 	},
 	{
+		"id": "d51-sort-keys-formplayer-local-ccz-submit-nextscreen-sortindices",
+		"defect": 51,
+		"part": "sort keys",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submit/nextScreen/sortIndices/*",
+		"kind": "removed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-after-59"
+	},
+	{
 		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-response-translations",
 		"defect": 65,
 		"part": "texts the local archive leaves out",
@@ -6546,24 +6568,37 @@
 		"control": "targeted-close-conditions"
 	},
 	{
-		"id": "d32-searches-from-a-local-ccz-formplayer-local-ccz-response-type",
-		"defect": 32,
-		"part": "searches from a local .ccz",
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-submit-nextscreen-noitemstext",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
 		"check": "proof3",
 		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/type",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry"
+		"path": "/runs/*/steps/*/submit/nextScreen/noItemsText",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-after-59"
 	},
 	{
-		"id": "d59-local-archive-names-no-serve-formplayer-local-ccz-submit-status",
-		"defect": 59,
-		"part": "local archive names no server",
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-submit-nextscreen-selecttext",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
 		"check": "proof3",
 		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/submit/status",
-		"document": "targeted-close-conditions",
-		"control": "targeted-close-conditions"
+		"path": "/runs/*/steps/*/submit/nextScreen/selectText",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-after-59"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-submit-nextscreen-translations",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submit/nextScreen/translations/*",
+		"kind": "removed",
+		"document": "targeted-form-link-hidden-target",
+		"control": "targeted-form-link-hidden-target-after-59"
 	},
 	{
 		"id": "d12-custom-tile-formplayer-case-list-response-maxheight",
@@ -7146,6 +7181,17 @@
 		"control": "case-extension-registration"
 	},
 	{
+		"id": "d14-data-node-name-formplayer-local-ccz-submit-submitresponsemessage",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submit/submitResponseMessage",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile-after-59"
+	},
+	{
 		"id": "d13-datetime-leaves-formplayer-vellum-submit-nextscreen-type",
 		"defect": 13,
 		"part": "datetime leaves",
@@ -7481,6 +7527,17 @@
 		"control": "targeted-connect-deliver-rename"
 	},
 	{
+		"id": "d34-connect-location-capture-formplayer-local-ccz-submissions-data-meta-location",
+		"defect": 34,
+		"part": "Connect location capture",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]",
+		"kind": "removed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename-after-59"
+	},
+	{
 		"id": "d60-connect-key-names-connect-a-refused-500-keyerror",
 		"defect": 60,
 		"part": "Connect block named like a Connect key",
@@ -7501,17 +7558,6 @@
 		"kind": "error",
 		"document": "targeted-connect-deliver-rename",
 		"control": "targeted-connect-deliver-rename"
-	},
-	{
-		"id": "d1-android-proof1-b-update-reopened-changed",
-		"defect": 1,
-		"part": "ids and xmlns (an incomplete form after the next publish)",
-		"check": "proof1",
-		"artifact": "android@B",
-		"path": "/update/reopened/*",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
 	},
 	{
 		"id": "d9-android-proof1-local-ccz-installs-changed",
@@ -7823,171 +7869,6 @@
 		"artifact": "android@local.ccz",
 		"path": "/walks/*/steps/*/query/RemoteQuerySessionManager.getRawQueryParams/*",
 		"kind": "removed",
-		"document": "search-automatic",
-		"control": "search-automatic"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-url-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/url",
-		"kind": "changed",
-		"document": "case-list-browse",
-		"control": "case-list-browse"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-screens-after-queryrequestactivity-entityselectactivity-end-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case goes no further)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/screens/after-QueryRequestActivity:EntitySelectActivity:end",
-		"kind": "changed",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-screens-after-queryrequestactivity-home-end-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case goes no further)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/screens/after-QueryRequestActivity:home:end",
-		"kind": "changed",
-		"document": "no-matches-multiple-home",
-		"control": "no-matches-multiple-home"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-walks-removed",
-		"defect": 32,
-		"part": "searches from a local .ccz (the walks past a search that finds a case)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*",
-		"kind": "removed",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-errortext-added",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/errorText",
-		"kind": "added",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-finishing-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/finishing",
-		"kind": "changed",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-resultcode-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/resultCode",
-		"kind": "changed",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-errorshown-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorShown",
-		"kind": "changed",
-		"document": "search-automatic",
-		"control": "search-automatic"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-errortext-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorText",
-		"kind": "changed",
-		"document": "search-automatic",
-		"control": "search-automatic"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-finishing-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/finishing",
-		"kind": "changed",
-		"document": "search-automatic",
-		"control": "search-automatic"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-resultcode-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/resultCode",
-		"kind": "changed",
-		"document": "search-automatic",
-		"control": "search-automatic"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-errorshown-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorShown",
-		"kind": "changed",
-		"document": "search-automatic",
-		"control": "search-automatic"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-errortext-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorText",
-		"kind": "changed",
-		"document": "search-automatic",
-		"control": "search-automatic"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-finishing-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/finishing",
-		"kind": "changed",
-		"document": "search-automatic",
-		"control": "search-automatic"
-	},
-	{
-		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-resultcode-changed",
-		"defect": 32,
-		"part": "searches from a local .ccz (a search that finds a case, refused)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/resultCode",
-		"kind": "changed",
 		"document": "search-automatic",
 		"control": "search-automatic"
 	},
@@ -8443,28 +8324,6 @@
 		"control": "localization-bilingual"
 	},
 	{
-		"id": "d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed",
-		"defect": 59,
-		"part": "local archive names no server (where a device posts a form)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/profile/readers/FormSubmissionHelper.getFormPostURL",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
-		"id": "d59-android-proof3-local-ccz-network-signin-changed",
-		"defect": 59,
-		"part": "local archive names no server (where a device signs in)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/network/signIn",
-		"kind": "changed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
 		"id": "d3-save-to-case-read-proof4-editor-vellum-again-case-1-error-0",
 		"defect": 3,
 		"part": "unknown question for a property only a Save to Case block writes",
@@ -8866,22 +8725,7 @@
 		"kind": "removed",
 		"document": "targeted-supply-point-read",
 		"values": {
-			"before": "http://openrosa.org/formdesigner/444aa554bd6ce79e",
-			"after": null
-		},
-		"control": "targeted-supply-point-read"
-	},
-	{
-		"id": "d20-supply-point-proof4-trace-vellum-xmlns-removed-22",
-		"defect": 20,
-		"part": "CommTrack (a form that reads the session supply point)",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/xmlns",
-		"kind": "removed",
-		"document": "targeted-supply-point-read",
-		"values": {
-			"before": "http://openrosa.org/formdesigner/6d589420121f63ba",
+			"before": "http://openrosa.org/formdesigner/B039255D-FBEE-5F59-AE2C-4B3F1FEA7CAD",
 			"after": null
 		},
 		"control": "targeted-supply-point-read"
@@ -9071,6 +8915,28 @@
 		"path": "/runs/*/screens/*/kind",
 		"document": "targeted-close-conditions",
 		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d14-close-conditions-formplayer-local-ccz-submissions-data-case-close",
+		"defect": 14,
+		"part": "close conditions",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/close[*]",
+		"kind": "removed",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions-after-59"
+	},
+	{
+		"id": "d14-close-conditions-formplayer-local-ccz-submit-nextscreen-type",
+		"defect": 14,
+		"part": "close conditions",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submit/nextScreen/type",
+		"kind": "changed",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions-after-59"
 	},
 	{
 		"id": "d26-form-links-webapps-form-settings-breadcrumbs",

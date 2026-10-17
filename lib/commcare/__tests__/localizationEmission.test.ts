@@ -12,6 +12,7 @@ import {
 	localizationScenarios,
 	localizationWireFixture,
 } from "./localizationWireFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function elements(xml: string, name: string) {
 	return findAll(
@@ -39,9 +40,13 @@ describe("localized emitted artifacts", () => {
 			const doc = localizationWireFixture(scenario),
 				before = structuredClone(doc),
 				hq = expandDoc(doc),
-				zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+				zip = new AdmZip(
+					compileCcz(hq, doc.appName, doc, {
+						runtimeTarget: TEST_RUNTIME_TARGET,
+					}),
+				);
 			const languages =
-				scenario === "mandarin" ? ["en", "cmn-hans", "cmn-hant"] : ["es", "en"];
+				scenario === "mandarin" ? ["en", "zho", "cmn-hant"] : ["es", "en"];
 			expect(hq.langs).toEqual(languages);
 			const locales = elements(zip.readAsText("suite.xml"), "locale").filter(
 				(e) => e.attribs.language !== undefined,
@@ -105,9 +110,9 @@ describe("localized emitted artifacts", () => {
 			es: "Edad",
 			en: "Age",
 		});
-		const xml = new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
-			"modules-0/forms-0.xml",
-		);
+		const xml = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		).readAsText("modules-0/forms-0.xml");
 		const labels = elements(xml, "translation").map((t) => ({
 			lang: t.attribs.lang,
 			label: t.children
@@ -123,12 +128,10 @@ describe("localized emitted artifacts", () => {
 		const mandarin = expandDoc(localizationWireFixture("mandarin"));
 		expect(mandarin.modules[0].name).toEqual({
 			en: "Patients",
-			"cmn-hans": "Patients",
+			zho: "Patients",
 			"cmn-hant": "Patients",
 		});
-		expect(mandarin.translations["cmn-hans"]["homescreen.title"]).toBe(
-			"健康应用",
-		);
+		expect(mandarin.translations.zho["homescreen.title"]).toBe("健康应用");
 		expect(mandarin.translations["cmn-hant"]["homescreen.title"]).toBe(
 			"健康應用",
 		);
@@ -136,9 +139,11 @@ describe("localized emitted artifacts", () => {
 	it("keeps target-only group, hint, help and constraint references attached to their owner", () => {
 		const doc = localizationWireFixture("optional"),
 			hq = expandDoc(doc),
-			xml = new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
-				"modules-0/forms-0.xml",
-			);
+			xml = new AdmZip(
+				compileCcz(hq, doc.appName, doc, {
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
+			).readAsText("modules-0/forms-0.xml");
 		const spanish = elements(xml, "translation").find(
 			(t) => t.attribs.lang === "es",
 		);
@@ -171,7 +176,11 @@ describe("localized emitted artifacts", () => {
 	it("serializes comment and newline escapes and refuses the ambiguous literal backslash-n", () => {
 		const doc = localizationWireFixture("escaped"),
 			hq = expandDoc(doc),
-			zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+			zip = new AdmZip(
+				compileCcz(hq, doc.appName, doc, {
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
+			);
 		expect(
 			serializedRecord(
 				zip.readAsText("es/app_strings.txt"),
@@ -184,9 +193,11 @@ describe("localized emitted artifacts", () => {
 			];
 		if (!entry) throw new Error("Missing app title translation");
 		entry.value = String.raw`Aplicación \n literal`;
-		expect(() => compileCcz(expandDoc(doc), doc.appName, doc)).toThrow(
-			/literal sequence \\n/,
-		);
+		expect(() =>
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		).toThrow(/literal sequence \\n/);
 	});
 	it("emits source fallback for a stale translated title", () => {
 		const hq = expandDoc(localizationWireFixture("stale"));

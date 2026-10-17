@@ -14,8 +14,10 @@ import {
 	collectTranslationCoverageDiagnostics,
 	collectTranslationUnits,
 	effectiveAppLocalization,
+	isEnglishOnlyLocalization,
 	languageTag,
 	languageTagSchema,
+	languageWireCodeSchema,
 	makeTranslationUnitId,
 	parseLanguageTag,
 	proseText,
@@ -186,6 +188,7 @@ describe("app localization vocabulary", () => {
 			defaultLanguage: "spa",
 			languageOrder: ["spa", "eng"],
 			translations: { spa: {} },
+			wireCodes: { spa: "es", eng: "en" },
 		} as const;
 		expect(appLocalizationSchema.safeParse(valid).success).toBe(true);
 		expect(
@@ -205,6 +208,58 @@ describe("app localization vocabulary", () => {
 				...valid,
 				languageOrder: ["spa", "eng", "spa"],
 			}).success,
+		).toBe(false);
+	});
+
+	it("requires one distinct CommCare code for every app language and no other", () => {
+		const valid = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "cmn-Hans", "cmn-Hant"],
+			translations: { "cmn-Hans": {}, "cmn-Hant": {} },
+			wireCodes: { eng: "en", "cmn-Hans": "zho", "cmn-Hant": "cmn-hant" },
+		} as const;
+		expect(appLocalizationSchema.safeParse(valid).success).toBe(true);
+		const refused = (wireCodes: Record<string, string>) =>
+			appLocalizationSchema.safeParse({ ...valid, wireCodes }).success;
+		// A language with no code.
+		expect(refused({ eng: "en", "cmn-Hans": "zho" })).toBe(false);
+		// A code for a language the app does not hold.
+		expect(refused({ ...valid.wireCodes, spa: "es" })).toBe(false);
+		// Two languages sharing one code.
+		expect(refused({ eng: "en", "cmn-Hans": "zho", "cmn-Hant": "zho" })).toBe(
+			false,
+		);
+		// A code outside CommCare HQ's grammar.
+		expect(
+			refused({ eng: "EN", "cmn-Hans": "zho", "cmn-Hant": "cmn-hant" }),
+		).toBe(false);
+		expect(languageWireCodeSchema.safeParse("cmn-hant").success).toBe(true);
+		expect(languageWireCodeSchema.safeParse("yue-").success).toBe(true);
+		for (const code of ["e", "engl", "cmn-Hant", "cmn-ha-nt", "zh_cn"]) {
+			expect(languageWireCodeSchema.safeParse(code).success).toBe(false);
+		}
+	});
+
+	it("reads the absent root as English under the code en", () => {
+		expect(effectiveAppLocalization(undefined).wireCodes).toEqual({
+			eng: "en",
+		});
+		const englishOnly = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng"],
+			translations: {},
+			wireCodes: { eng: "en" },
+		};
+		expect(isEnglishOnlyLocalization(englishOnly)).toBe(true);
+		// A root whose English holds a suffixed code keeps that code, which the
+		// absent root could not spell.
+		expect(
+			isEnglishOnlyLocalization({
+				...englishOnly,
+				wireCodes: { eng: "eng-" },
+			}),
 		).toBe(false);
 	});
 
@@ -389,6 +444,7 @@ describe("translation unit inventory", () => {
 			sourceLanguage: "eng",
 			defaultLanguage: "eng",
 			languageOrder: ["eng", "spa"],
+			wireCodes: { eng: "en", spa: "es" },
 			translations: {
 				spa: {
 					[unit.id]: {
@@ -467,6 +523,7 @@ describe("translation unit inventory", () => {
 			sourceLanguage: "eng",
 			defaultLanguage: "eng",
 			languageOrder: ["eng", "spa"],
+			wireCodes: { eng: "en", spa: "es" },
 			translations: {
 				spa: {
 					[unit.id]: {

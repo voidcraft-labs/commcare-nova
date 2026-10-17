@@ -138,6 +138,7 @@ describe("blueprint entity-row round trip", () => {
 			sourceLanguage: "eng",
 			defaultLanguage: "eng",
 			languageOrder: ["eng", "spa"],
+			wireCodes: { eng: "en", spa: "es" },
 			translations: { spa: {} },
 		};
 		expect(roundTrip(doc)).toEqual(toPersistableDoc(doc));

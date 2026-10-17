@@ -22,6 +22,16 @@ update (so a privilege the content needs is off), a privilege the document
 names lost, and a process that never booted HQ silently reading a
 configuration with no privileges at all.
 
+A first publish is read in the layout its create's sidecar marks
+(``corpus._captured``, ``Export``): the two-import layout (``"layout": 2``)
+gives the shell as ``create`` and the import that fills it as ``content``,
+and a sidecar without the key, which a control retained before the two
+imports holds, gives one ``create`` that is its own ``content``. The
+plausible failures: a reader of state A's app that reads the shell, a legacy
+control read as two imports (so its every group fails), a marker the checks
+do not know read as either layout, and a marked directory without its
+content read as legacy.
+
 The input manifest (``inputs.json``) is what the lane keys every
 observation by, so a digest that is not the bytes the checks read would let
 a stale record stand in for a changed input; it is recomputed here from the
@@ -58,7 +68,7 @@ def test_a_document_is_read_with_every_export_and_its_configuration(copied):
     assert document.exports, "the document is exported under at least its minimum configuration"
     for name, export in document.exports.items():
         assert export.configuration.name == name
-        assert export.create.upload().body and export.republish.upload().body
+        assert export.create.upload().body and export.content.upload().body and export.republish.upload().body
     assert document.local_ccz is not None and document.local_again_ccz is not None
     assert [language["tag"] for language in document.wire_languages], "every document has a language"
 
@@ -138,6 +148,13 @@ def test_privileges_are_refused_for_an_unknown_configuration_or_a_lost_capture(h
     (lost / "export" / "minimum" / "create.json").unlink()
     with pytest.raises(configurations.PrivilegeInputError, match="create.json"):
         configurations.privileges_for(lost, "minimum")
+    # A first publish in two imports whose content is gone: the shell holds no menu to derive a privilege from.
+    no_content = root / "no-content"
+    shutil.copytree(directory, no_content)
+    assert corpus.load(root).document(document_id).exports["minimum"].two_imports
+    (no_content / "export" / "minimum" / "content.json").unlink()
+    with pytest.raises(configurations.PrivilegeInputError, match="content.json"):
+        configurations.privileges_for(no_content, "minimum")
 
 
 def test_a_process_that_never_booted_hq_reads_no_privileges(copied, monkeypatch):
@@ -193,12 +210,23 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
                     assert entry["digest"] == _digest(document.root / entry["path"]), (document.id, name, part, role)
             export = document.exports[name]
             assert parts["a"]["create.request.body"]["path"] == f"export/{name}/create.body"
+            # A first publish in two imports is read whole by part a: the shell and the content.
+            first = "content." if export.two_imports else "create."
+            if export.two_imports:
+                assert parts["a"]["content.request.body"]["path"] == f"export/{name}/content.body"
+                assert parts["a"]["privileges.content.request.body"]["path"] == "export/minimum/content.body"
+                assert "create.media.body" not in parts["a"] and "create.lookups.body" not in parts["a"]
+            assert parts["a"]["privileges.create.request.body"]["path"] == "export/minimum/create.body"
             assert parts["b"]["request.body"]["path"] == f"export/{name}/republish.body"
+            if export.content.lookups is not None:
+                assert parts["a"][f"{first}lookups.body"]["path"] == (
+                    f"export/{name}/{export.content.lookups.body_path.name}"
+                )
             if export.republish.lookups is not None:
                 assert parts["b"]["lookups.body"]["path"] == f"export/{name}/{export.republish.lookups.body_path.name}"
             # The media upload each publish sent after its import is read by the part that replays it.
             for part, role, captured in (
-                ("a", "create.media.body", export.create),
+                ("a", f"{first}media.body", export.content),
                 ("b", "media.body", export.republish),
             ):
                 if captured.media is None:
@@ -220,6 +248,10 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
                 assert "b_edit" not in parts
         for role, entry in manifest["local"].items():
             assert entry["digest"] == _entries_digest(document.root / entry["path"]), (document.id, role)
+        # The HQ import file, which no check reads and the HQ package's import-page tests do.
+        assert manifest["importFile"] == {
+            "import-file": {"path": "import-file.zip", "digest": _entries_digest(document.import_file)}
+        }, document.id
         if document.edit is not None:
             assert manifest["judge"]["batch"]["digest"] == _digest(document.root / "edit" / "batch.json")
     assert edited > 0, "some document's edit is published, so b_edit was compared"
@@ -228,6 +260,48 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
 
 def _configurations(root, document_id):
     return root / document_id / "configurations.json"
+
+
+def _app_file(captured):
+    from proof.hq.operations import upload_field
+
+    return json.loads(upload_field(captured.upload(), "app_file"))
+
+
+def test_a_first_publish_is_read_in_the_layout_its_create_marks(copied):
+    from proof.hq import operations
+
+    root, document_id = copied
+    # A corpus document: the shell, then the content that fills it, which names the workbook and the media.
+    for name, export in corpus.load(root).document(document_id).exports.items():
+        assert export.two_imports, name
+        assert export.content is not export.create
+        assert _app_file(export.create)["modules"] == []
+        assert export.create.lookups is None and export.create.media is None
+        assert _app_file(export.content)["modules"], name
+        assert "app_id" not in operations.upload_field_names(export.create.upload())
+        assert export.content.meta["placeholderAppId"] == operations.PLACEHOLDER_APP_ID
+        assert set(export.content.assumed_source) == {"doc_type", "build_spec.version", "profile"}
+        assert export.content.assumed_source["profile"] == {}
+        assert set(export.republish.assumed_source) == {"doc_type", "build_spec.version", "profile"}
+    # A control retained before the two imports: one create, which is its own content, and the profile its
+    # updates were built over.
+    control = next(document for document in corpus.load_controls() if document.id == "navigation-base")
+    for name, export in control.exports.items():
+        assert not export.two_imports, name
+        assert export.content is export.create
+        assert _app_file(export.content)["modules"], name
+        assert export.republish.assumed_source == {"profile": export.republish.meta["assumedSourceProfile"]}
+    # A marker the checks do not know is refused by name, and so is a marked directory without its content.
+    directory = root / document_id / "export" / "minimum"
+    sidecar = json.loads((directory / "create.json").read_text())
+    (directory / "create.json").write_text(json.dumps({**sidecar, "layout": 3}))
+    with pytest.raises(corpus.CorpusLayoutError, match='"layout": 3'):
+        _ = corpus.load(root).document(document_id).exports
+    (directory / "create.json").write_text(json.dumps(sidecar))
+    (directory / "content.json").unlink()
+    with pytest.raises(corpus.CorpusLayoutError, match="content.json"):
+        _ = corpus.load(root).document(document_id).exports
 
 
 def test_an_index_naming_a_missing_document_is_refused(copied):

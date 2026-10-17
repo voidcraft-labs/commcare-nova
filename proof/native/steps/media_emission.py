@@ -8,9 +8,12 @@ run by ``NativeSession.media_certificate``) and writes their digests to
 ``core-validated-sources.properties``.
 
 ``media`` is HQ's main pass, one project space per scenario. HQ imports the
-scenario, regenerates its form, suite (no remote requests), English app
-strings, profile and media suite (``<scenario>.hq.*``), and, where the
-scenario carries media, runs its whole bulk multimedia upload task
+scenario, which carries no multimedia map (``multimediaMapBeforeUpload``
+counts what the import mapped), regenerates its form, suite (no remote
+requests), English app strings, profile and media suite
+(``<scenario>.hq.*``), and, where the scenario carries media, runs its whole
+bulk multimedia upload task, after which its media suite is generated again
+from the app the upload mapped
 (``hqmedia/tasks.py::process_bulk_upload_zip``) over Nova's upload zip, on the
 harness's Couch and blob store: HQ holds the app, stores each media object and
 its bytes, and saves the app's multimedia map. Formplayer's form validation
@@ -49,6 +52,8 @@ HQ_SOURCES = [
 # write nothing for an app that declares none). USERCASE stays refused:
 # Nova's media forms write no worker record.
 PRIVILEGES = {"COMMCARE_LOGO_UPLOADER", "APP_DEPENDENCIES"}
+# The version each scenario's imported app is built at, the version Nova's local archive stamps.
+IMPORTED_VERSION = 1
 
 
 class UncertifiedSource(HarnessRefusal):
@@ -162,7 +167,7 @@ def media(session):
         with check as (_, seams):
             app = import_source((exports / f"{name}.json").read_bytes(), DOMAIN)
             app._id = name
-            app.version = 1
+            app.version = IMPORTED_VERSION
             app.custom_base_url = NOVA_SERVER_ORIGIN
             form = app.get_module(0).get_form(0)
             (exports / f"{name}.hq.xml").write_bytes(regenerate_form(form, DOMAIN))
@@ -182,9 +187,20 @@ def media(session):
             if enabled:
                 import zipfile
 
+                from corehq.apps.app_manager.dbaccessors import get_app
+
                 with zipfile.ZipFile(exports / f"{name}.multimedia.zip") as archive:
                     uploaded = {path: archive.read(path) for path in archive.namelist()}
                 record["uploaded"] = {path: {**_classify(data, path), "bytes": data} for path, data in uploaded.items()}
                 record["bulkStatus"], record["mapped"] = _bulk_upload(name, exports, app)
+                # Nova's import carries no map, so HQ's media suite names the media once its upload mapped them, as
+                # Nova's publish sends the upload after the import; each at the app's version, as HQ's build stamps
+                # it (``Application.create_all_files`` -> ``set_media_versions``).
+                uploaded_app = get_app(DOMAIN, app._id)
+                uploaded_app.version = IMPORTED_VERSION
+                uploaded_app.set_media_versions()
+                native_media = etree.tostring(etree.fromstring(MediaSuiteGenerator(uploaded_app).generate_suite()))
+                (exports / f"{name}.hq.media-suite.xml").write_bytes(native_media)
+                record["nativeMediaSuite"] = native_media
         records.append(record)
     return {"certificate": certificate, "records": records}

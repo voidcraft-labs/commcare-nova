@@ -197,6 +197,7 @@ function fixture(): BlueprintDoc {
 		sourceLanguage: "eng",
 		defaultLanguage: "eng",
 		languageOrder: ["eng", "spa"],
+		wireCodes: { eng: "en", spa: "es" },
 		translations: {
 			spa: Object.fromEntries(
 				units.map((unit) => [

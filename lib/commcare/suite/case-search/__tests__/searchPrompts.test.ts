@@ -1,6 +1,7 @@
 import AdmZip from "adm-zip";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import {
 	PROMPT_IDS,
 	promptLookupContext,
@@ -179,6 +180,7 @@ it.each(promptScenarios)(
 		const hq = expandDoc(doc, { lookupNaming: promptLookupNaming });
 		const zip = new AdmZip(
 			compileCcz(hq, doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
 				lookup: { naming: promptLookupNaming, fixtures: promptLookupFixtures },
 			}),
 		);

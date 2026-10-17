@@ -131,7 +131,7 @@ const docStore = createBlueprintDocStore();
 docStore.getState().load(doc);
 docStore.getState().startTracking();
 applyControllerEdit(docStore, [
-	{ kind: "addLanguage", language: { language: "spa" } },
+	{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 ]);
 const session = createBuilderSessionStore({
 	appId: doc.appId,

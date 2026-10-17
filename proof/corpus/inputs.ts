@@ -8,7 +8,7 @@
  *
  *   {version: 1, document,
  *    configurations: {<config>: {a, b, b_edit?}},
- *    local, judge}
+ *    local, judge, importFile}
  *
  * Each part maps a role to `{path, digest}`: the path relative to the
  * document's directory, and `sha256:<hex>` over the file's bytes, or for a
@@ -31,11 +31,16 @@
  *
  * - `a`, per configuration: `configurations.json`, `document.json`,
  *   `verdict.json`, `hq-side.json` where the document carries what a person
- *   saves in HQ over A (`hqSide`), the create's request, the lookup workbook
- *   it pushed and the media upload it sent, and the privilege inputs: the minimum
- *   configuration's create and D′'s update there, whose apps
- *   `proof/checks/configurations.py::privileges_for` reads (with what else
- *   each sent, which its sidecar names).
+ *   saves in HQ over A (`hqSide`), the first publish's requests with the
+ *   lookup workbook it pushed and the media upload it sent, and the
+ *   privilege inputs: the minimum configuration's first publish and D′'s
+ *   update there, whose apps `proof/checks/configurations.py::privileges_for`
+ *   reads (with what else each sent, which its sidecar names). A first
+ *   publish is the create alone in the legacy layout, under `create.`; in
+ *   the two-import layout (a create sidecar marked `"layout": 2`) it is the
+ *   shell's create under `create.` and the content import under `content.`,
+ *   which names the workbook and the media, and the privileges name both
+ *   (`privileges.create.`, `privileges.content.`).
  * - `b`: the republish's request and the workbook and media upload it names.
  * - `b_edit`: D′'s update request and the workbook and media upload it
  *   names, with `edit/document.json` and `edit/verdict.json`.
@@ -43,6 +48,12 @@
  *   `edit/local.ccz`).
  * - `judge`: what only the judges read: `edit/batch.json` and a targeted
  *   document's `expected.json`.
+ * - `importFile`: the HQ import file (`import-file.zip`), by its entries as a
+ *   local archive is, which no check reads and the HQ package's import-page
+ *   tests do (`proof/hq/test_import_file.py`): the corpus's `inputs.json`
+ *   digest of the document's manifest is what that package's outcome is
+ *   keyed by (`proof/store/queue.py::PACKAGE_DATA`), so a change to the file
+ *   moves it.
  */
 
 import { createHash } from "node:crypto";
@@ -50,6 +61,7 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import AdmZip from "adm-zip";
+import { TWO_IMPORT_LAYOUT } from "./publish";
 
 /** One input file: where it is under the document's directory, and its digest. */
 export interface InputFile {
@@ -72,6 +84,7 @@ export interface DocumentInputs {
 	readonly configurations: Readonly<Record<string, ConfigurationInputs>>;
 	readonly local: InputPart;
 	readonly judge: InputPart;
+	readonly importFile: InputPart;
 }
 
 export interface CorpusInputs {
@@ -133,6 +146,34 @@ async function request(
 	return part;
 }
 
+/**
+ * Whether the first publish in `directory` is two imports: its create's
+ * sidecar is marked with the layout (`./publish.ts::TWO_IMPORT_LAYOUT`).
+ */
+async function twoImports(root: string, directory: string): Promise<boolean> {
+	const meta = JSON.parse(
+		await readFile(join(root, `${directory}/create.json`), "utf8"),
+	) as { layout?: unknown };
+	return meta.layout === TWO_IMPORT_LAYOUT;
+}
+
+/**
+ * The first publish's roles in `directory`: the create under `<prefix>create.`
+ * and, in the two-import layout, the content import under `<prefix>content.`.
+ */
+async function firstPublish(
+	root: string,
+	directory: string,
+	prefix = "",
+): Promise<Record<string, InputFile>> {
+	return {
+		...prefixed(`${prefix}create.`, await request(root, directory, "create")),
+		...((await twoImports(root, directory))
+			? prefixed(`${prefix}content.`, await request(root, directory, "content"))
+			: {}),
+	};
+}
+
 /** `request`'s roles, each under a prefix. */
 function prefixed(
 	prefix: string,
@@ -154,10 +195,7 @@ export async function documentInputs(
 ): Promise<DocumentInputs> {
 	const edited = existsSync(join(root, "edit", "batch.json"));
 	const privileges: Record<string, InputFile> = {
-		...prefixed(
-			"privileges.create.",
-			await request(root, "export/minimum", "create"),
-		),
+		...(await firstPublish(root, "export/minimum", "privileges.")),
 		...(edited && existsSync(join(root, "edit/export/minimum/update.json"))
 			? prefixed(
 					"privileges.update.",
@@ -180,7 +218,7 @@ export async function documentInputs(
 		byConfiguration[name] = {
 			a: {
 				...shared,
-				...prefixed("create.", await request(root, exported, "create")),
+				...(await firstPublish(root, exported)),
 				...privileges,
 			},
 			b: await request(root, exported, "republish"),
@@ -212,12 +250,20 @@ export async function documentInputs(
 	if (existsSync(join(root, "expected.json"))) {
 		judge.expected = await file(root, "expected.json");
 	}
+	const importFile: Record<string, InputFile> = {};
+	if (existsSync(join(root, "import-file.zip"))) {
+		importFile["import-file"] = {
+			path: "import-file.zip",
+			digest: archiveDigest(await readFile(join(root, "import-file.zip"))),
+		};
+	}
 	return {
 		version: 1,
 		document: id,
 		configurations: byConfiguration,
 		local,
 		judge,
+		importFile,
 	};
 }
 

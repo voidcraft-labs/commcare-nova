@@ -428,15 +428,23 @@ def search_compiles(unit, trace, operation, *, core_runner=None, suite=None):
     return found
 
 
-def observe(unit, *, document, export, a_build, b_aligned, b_differs, restore_a, core_runner, blobs, operation=None):
+def observe(
+    unit, *, document, export, app_id, a_build, b_aligned, b_differs, restore_a, core_runner, blobs, operation=None
+):
     """Proof 3's sessions for one configuration, as the ``b_aligned`` record's ``sessions``; None where none run.
 
-    ``restore_a`` is the ``a`` record's restore over A (its lookup outcome and
-    restore bytes); ``b_differs`` whether the raw builds of A and of B aligned
-    to A differ, so that B's sessions run; ``operation`` the unit's operation
-    each HQ step runs in (``unit.operation`` by default, or the part's logged
-    one, which records what HQ noted in each).
+    ``app_id`` is A's id: the local archive is replayed with its runtime URLs
+    naming it in place of the placeholder its capture named
+    (``proof.hq.operations.with_runtime_app_id``), as the archive Nova
+    compiles for the deployment names the app HQ holds there. ``restore_a``
+    is the ``a`` record's restore over A (its lookup outcome and restore
+    bytes); ``b_differs`` whether the raw builds of A and of B aligned to A
+    differ, so that B's sessions run; ``operation`` the unit's operation each
+    HQ step runs in (``unit.operation`` by default, or the part's logged one,
+    which records what HQ noted in each).
     """
+    from proof.hq.operations import with_runtime_app_id
+
     operation = operation or unit.operation
     if a_build is None or unbuildable(a_build) is not None or document.local_ccz is None:
         return None
@@ -463,12 +471,14 @@ def observe(unit, *, document, export, a_build, b_aligned, b_differs, restore_a,
             unit, baseline.trace, operation, core_runner=core_runner, suite=(a_build.files or {}).get("suite.xml")
         )
         script = script_of(baseline.trace)
+        local = Path(scratch, "local.ccz")
+        local.write_bytes(with_runtime_app_id(document.local_ccz.read_bytes(), app_id))
         _, recorded["local"] = _side(
             core_runner,
             unit,
             database,
             "local.ccz",
-            document.local_ccz,
+            local,
             restore_plain,
             blobs,
             operation=operation,

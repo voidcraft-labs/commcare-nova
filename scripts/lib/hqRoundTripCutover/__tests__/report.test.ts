@@ -16,6 +16,7 @@ import type {
 } from "../plan";
 import {
 	CutoverReport,
+	deploymentLines,
 	fleetLine,
 	outcomeLine,
 	planInputs,
@@ -72,6 +73,7 @@ function deployment(
 		noCredential: false,
 		publishedDocument: { kind: "stored" },
 		mappedTableIds: [],
+		match: null,
 		...patch,
 	};
 }
@@ -238,5 +240,120 @@ describe("the report", () => {
 				windowExceedsDay: false,
 			}),
 		]);
+	});
+});
+
+describe("the deployment lines of a run that read HQ", () => {
+	const evidence = {
+		path: "evidence" as const,
+		pairs: {
+			menus: new Map([[0, "00000000-0000-4000-8000-0000000000a1"]]),
+			forms: [],
+		},
+		unpaired: [],
+		pairsPerStage: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+		ties: 1,
+		contests: 1,
+		hqUnpaired: [{ menu: 0, form: 0 }],
+		differences: { menus: 0, forms: 0, names: 1, caseTypes: 0, paths: 0 },
+	};
+	const build = {
+		plan: {
+			format: "hq-round-trip-emission-1",
+			apps: [
+				{
+					appId: "app-1",
+					projectId: "project-1",
+					baseSeq: 3,
+					baseDigest: "a".repeat(64),
+					targetDigest: "a".repeat(64),
+					blockers: [],
+					changes: [],
+					discardsPrivateWork: false,
+					deployments: [
+						{
+							deploymentId: "d-1",
+							server: "production",
+							domain: "field-ops",
+							remoteAppId: "hq-app",
+							outcome: "read-in-full" as const,
+							buildSpecVersion: "2.53.0",
+							pairing: {
+								path: "evidence" as const,
+								reason: "hq-differs" as const,
+							},
+							identities: [],
+							unpaired: [
+								{
+									kind: "form" as const,
+									uuid: "00000000-0000-4000-8000-0000000000b1",
+									cause: { kind: "tie" as const, stage: 2 },
+								},
+								{
+									kind: "form" as const,
+									uuid: "00000000-0000-4000-8000-0000000000b2",
+									cause: { kind: "contest" as const },
+								},
+							],
+							formIdsUnknown: [],
+							keyUses: [
+								{
+									userId: "member-a",
+									firstUsedAt: "2026-10-15T10:00:00.000Z",
+									lastUsedAt: "2026-10-15T10:00:07.000Z",
+								},
+							],
+							notices: [],
+						},
+					],
+				},
+			],
+			lookupTagRenames: [],
+			projectBlockers: [],
+			digest: "d".repeat(64),
+		},
+		targets: new Map(),
+		apps: [],
+		deployments: [deployment("d-1", "field-ops", { match: evidence })],
+		lookupContexts: new Map(),
+	} as unknown as CutoverPlanBuild;
+
+	it("prints the pairing, each entity left unpaired by uuid and cause, the counts per stage and the version floor", () => {
+		const report = new CutoverReport("dry-run");
+		deploymentLines(report, build);
+		const [line, use] = report.all();
+		expect(line).toMatchObject({
+			section: "deployment",
+			deploymentId: "d-1",
+			outcome: "read-in-full",
+			buildSpecVersion: "2.53.0",
+			belowVersionFloor: true,
+			pairing: { path: "evidence", reason: "hq-differs" },
+			unpaired: [
+				{
+					kind: "form",
+					uuid: "00000000-0000-4000-8000-0000000000b1",
+					cause: "tie-at-stage-2",
+				},
+				{
+					kind: "form",
+					uuid: "00000000-0000-4000-8000-0000000000b2",
+					cause: "contest",
+				},
+			],
+			menusPaired: 1,
+			formsPaired: 0,
+			pairsPerStage: { 1: 1 },
+			ties: 1,
+			contests: 1,
+			hqUnpaired: [{ menu: 0, form: 0 }],
+			differences: { names: 1 },
+		});
+		expect(use).toMatchObject({
+			section: "key-use",
+			userId: "member-a",
+			server: "production",
+			domain: "field-ops",
+		});
 	});
 });

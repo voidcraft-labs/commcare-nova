@@ -17,6 +17,7 @@ import {
 	COMMCARE_SERVERS,
 	type CommCareServer,
 } from "@/lib/commcare/servers";
+import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
 
 export type { CommCareServer } from "@/lib/commcare/servers";
 
@@ -445,14 +446,12 @@ export interface DeploymentConfirmation {
 	readonly confirmedAt: string;
 }
 
-/** One id this target holds that is not Nova's derivation. Never part of DeploymentWithResources. */
-export interface DeploymentIdentityOverride {
-	readonly entityKind: "module" | "form";
-	readonly novaEntityUuid: string;
-	readonly uniqueId: string | null;
-	/** Forms only. */
-	readonly xmlns: string | null;
-}
+/**
+ * One id this target holds that is not Nova's derivation. Never part of
+ * DeploymentWithResources. The shape is the emission boundary's, which the
+ * deployment layer consumes and never the reverse.
+ */
+export type DeploymentIdentityOverride = WireIdentityOverride;
 
 /** What Nova's upload owned inside the overlay keys when a baseline was recorded. */
 export interface AppOwnership {

@@ -15,7 +15,7 @@ import { getCredentialsForUpload } from "@/lib/db/settings";
 import { type BlueprintDoc, entryPointInventory } from "@/lib/domain";
 import type { EntryPointLink, PublishedEntryPoint } from "./entryPointTypes";
 import { DeploymentError } from "./errors";
-import { activeRemoteApp } from "./resources";
+import { publishedRemoteApp } from "./resources";
 import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
@@ -80,7 +80,8 @@ export async function getEntryPointLink(input: {
 		refuse(
 			"Publish this app to the selected project space before creating a link.",
 		);
-	const remote = activeRemoteApp(deployment);
+	/* A link into an empty or a gone app opens nothing. */
+	const remote = publishedRemoteApp(deployment);
 	const evidence = await readEntryPointEvidence(scope, target);
 	const manifest = evidence.manifest;
 	if (

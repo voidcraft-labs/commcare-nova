@@ -4,6 +4,11 @@ import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import {
+	addLanguageMutation,
+	heldLanguageWireCodes,
+	relabelSourceLanguageMutation,
+} from "@/lib/doc/languageMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
@@ -490,6 +495,9 @@ export const getLanguagesTool = {
 						: automaticTranslationCapability(sourceIdentity, identity);
 					return {
 						language: identity,
+						// The CommCare code the language took when it joined the app.
+						// An identity Nova keeps, never an input.
+						commcareCode: localization.wireCodes[tag],
 						endonym:
 							resolvedLanguageDisplayLabel(identity) ??
 							languageDescriptor(identity),
@@ -638,7 +646,7 @@ export const addLanguageTool = {
 				);
 			}
 			const mutations: Mutation[] = [
-				{ kind: "addLanguage", language: identity },
+				addLanguageMutation(heldLanguageWireCodes(doc), identity),
 			];
 			for (const unit of collectLocalizedTranslationUnits(doc, copyFromTag)) {
 				mutations.push({
@@ -732,7 +740,7 @@ export const updateLanguageTool = {
 						}
 						return await commitLanguageMutations(
 							ctx,
-							[{ kind: "relabelSourceLanguage", language: replacement }],
+							[relabelSourceLanguageMutation(replacement)],
 							`localization:${replacementTag}:source`,
 							{
 								language: replacement,
@@ -744,8 +752,11 @@ export const updateLanguageTool = {
 						);
 					}
 					const entries = localization.translations[tag] ?? {};
+					// The replacement is added before the old language is removed, so
+					// it mints against codes that still hold the old one: the state
+					// the reducer applies the add on.
 					const mutations: Mutation[] = [
-						{ kind: "addLanguage", language: replacement },
+						addLanguageMutation(heldLanguageWireCodes(doc), replacement),
 					];
 					for (const [unitId, entry] of Object.entries(entries)) {
 						mutations.push({

@@ -8,6 +8,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { proseText } from "@/lib/domain/prose";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 // Independent wire expectations: HQ xform.py::VELLUM_TYPES and
 // xform_builder.py::ODK_TYPES; Core XFormParser::parseUpload; cloudcare
@@ -83,9 +84,11 @@ describe("question types and labels in delivered XForms", () => {
 			const hq = expandDoc(doc);
 			const xml =
 				delivery === "ccz"
-					? new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
-							"modules-0/forms-0.xml",
-						)
+					? new AdmZip(
+							compileCcz(hq, doc.appName, doc, {
+								runtimeTarget: TEST_RUNTIME_TARGET,
+							}),
+						).readAsText("modules-0/forms-0.xml")
 					: Object.values(hq._attachments)[0];
 			if (typeof xml !== "string") throw new Error("Missing delivered form");
 			// htmlparser2 recovers malformed XML, so prove strict syntax first.

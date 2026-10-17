@@ -37,6 +37,7 @@ doc.localization = {
 	sourceLanguage: "eng",
 	defaultLanguage: "eng",
 	languageOrder: ["eng", "spa", "eng-GB"],
+	wireCodes: { eng: "en", spa: "es", "eng-GB": "eng-gb" },
 	translations: { spa: {}, "eng-GB": {} },
 };
 const docStore = createBlueprintDocStore();

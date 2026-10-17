@@ -836,7 +836,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
 		`This setting needs ${det(e, "acceptedColumnTypes", "a different kind of")} data, but the selected lookup column contains ${det(e, "actualColumnType", "incompatible")} data. Choose a compatible column.`,
 	LOOKUP_CELL_TEXT_CHANGED_BY_HQ: (e) =>
-		`The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "this data table"))} has leading or trailing whitespace that CommCare HQ would remove. You can remove that whitespace in Project data, or download the app to preserve these values.`,
+		`The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "this data table"))} has leading or trailing whitespace that CommCare HQ would remove. You can remove that whitespace in Project data.`,
 	LOOKUP_CELL_TEXT_UNREPRESENTABLE: (e) =>
 		`The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "the data table"))} contains characters Nova can't preserve. You can remove them or retype the affected values in Project data.`,
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
@@ -851,10 +851,21 @@ const USER_MESSAGE_BY_CODE: Record<
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
 	LOOKUP_HQ_PUSH_TOO_LARGE: () =>
 		"This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.",
-	HQ_NESTED_SELECTION_UNREPRESENTABLE: (e) =>
-		det(e, "reason", "") === "smaller-child-maximum"
-			? `CommCare HQ cannot preserve this child menu's limit of ${det(e, "targetMaximum", "fewer")} selected cases. You can download the app to keep this selection, or change the nested selection before uploading.`
-			: "CommCare HQ cannot preserve this child menu's selection from multiple parent cases. You can download the app to keep this selection, or change the nested selection before uploading.",
+	HQ_NESTED_SELECTION_UNREPRESENTABLE: (e) => {
+		const named = (key: string, fallback: string) => {
+			const name = det(e, key, "");
+			return name ? q(name) : fallback;
+		};
+		const parent = named("sourceModuleName", "the parent menu");
+		const child = named("targetModuleName", "this menu");
+		const keeps =
+			"Preview keeps this selection, and so does a CCZ for a project space the app is already published to.";
+		if (det(e, "reason", "") === "smaller-child-maximum") {
+			const sourceMaximum = det(e, "sourceMaximum", "the parent's limit");
+			return `CommCare HQ can't yet keep the limit of ${det(e, "targetMaximum", "fewer")} selected cases in ${child} under ${parent}, which selects up to ${sourceMaximum}. You can raise the limit in ${child} to ${sourceMaximum} or more. ${keeps}`;
+		}
+		return `CommCare HQ can't yet find the cases for ${child} from several cases selected in ${parent}. You can set ${parent} to select one case. ${keeps}`;
+	},
 	LOOKUP_TAG_TOO_LONG_FOR_HQ: (e) =>
 		`CommCare HQ addresses a lookup table by its export tag, and ${det(e, "tag", "one referenced table")} is too long for it. Shorten the tag to ${det(e, "tagAllowed", "31")} characters or fewer in Project data, then try again.`,
 	LOOKUP_TAG_RESERVED_BY_HQ: (e) =>

@@ -7,6 +7,7 @@ import {
 	LOCATION_SCENARIOS,
 	locationOwnerFixture,
 } from "../../../lib/commcare/locations/__tests__/locationOwnerFixture";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
 if (!output)
@@ -17,7 +18,11 @@ mkdirSync(output, { recursive: true });
 for (const scenario of LOCATION_SCENARIOS) {
 	const doc = locationOwnerFixture(scenario),
 		hq = expandDoc(doc),
-		zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+		zip = new AdmZip(
+			compileCcz(hq, doc.appName, doc, {
+				runtimeTarget: NATIVE_RUNTIME_TARGET,
+			}),
+		);
 	writeFileSync(
 		resolve(output, `location-${scenario}.json`),
 		JSON.stringify(hq),

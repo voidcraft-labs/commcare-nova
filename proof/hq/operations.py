@@ -10,10 +10,18 @@ runs.
 - ``apply_media_upload``: a captured media upload of Nova's publish, applied
   through ``app_import_api.py::_handle_upload_multimedia``, which maps the
   media into the app (``hqmedia/tasks.py::process_bulk_upload_zip``);
-- ``publish_capture``: a captured create and the update Nova built over it,
-  applied only while HQ holds the profile the update was built from;
+- ``publish_capture``: a captured first publish (the shell's create and the
+  content that fills it) and the update Nova built over it, each update
+  applied only while HQ serves the source it was built over
+  (``hold_assumed_source``);
+- ``with_runtime_app_id``: a local archive whose runtime URLs name the app
+  HQ holds in place of the placeholder its capture named;
 - ``app_source``: ``app_manager/views/apps.py::app_source``, decorators and
   all, as Nova's update reads it;
+- ``api_request``: a request to any of HQ's API views as Nova's client sends
+  it, authenticated by an API key (``seed_api_user``, ``seed_api_key``), with
+  HQ's authentication, permission and privilege checks and its rate limiter
+  run (``proof.hq.seams.api_rate_limits``);
 - ``build``: ``validate_app()``, ``create_all_files()`` and
   ``create_all_files(build_profile_id)`` for each build profile;
 - ``process_case_blocks``: HQ's case processing of one submission up to its
@@ -31,6 +39,7 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from email.parser import BytesHeaderParser
+from typing import NamedTuple
 
 from proof.hq import buildcache
 from proof.hq import requests as hq_requests
@@ -58,8 +67,13 @@ class PublishRefused(AssertionError):
     """HQ refused an upload the harness applied."""
 
 
-class CapturedProfileNotHeld(HarnessRefusal):
-    """HQ holds a profile for the created app other than the one a captured update was built from."""
+class CapturedSourceNotHeld(HarnessRefusal):
+    """HQ serves the app with a source other than the one a captured import was built over."""
+
+
+# The app id a capture's content import and updates name, and a local archive's runtime URLs
+# (``proof/corpus/publish.ts::PLACEHOLDER_APP_ID``). HQ mints the real one at the create.
+PLACEHOLDER_APP_ID = "nova-proof-placeholder-app"
 
 
 def _boundary(content_type):
@@ -218,32 +232,154 @@ def _accepted(result: Published, what: str) -> Published:
     return result
 
 
-def publish_capture(state, create: Upload, update: Upload, assumed_source_profile):
-    """Apply a captured publish: its create, then the update Nova built over the app the create made.
+_ABSENT = object()
 
-    Nova's update reads the app's profile back through ``app_source`` and
-    builds the app it sends from it (``lib/deployment/importApplication.ts``),
-    and a capture records the profile its peer answered with. So the create
-    is applied, the profile HQ now serves for the app (A) is read through
-    HQ's own view, and the captured update is applied, with A's id, only
-    when that is the profile it was built from: over any other profile the
-    captured bytes are not what Nova would send to this HQ, and the harness
-    refuses (``CapturedProfileNotHeld``), naming both.
 
-    Returns A's id and HQ's answer to the create and to the update.
+def _field(source, path):
+    """The value at ``path`` (``build_spec.version``) in HQ's source, or ``_ABSENT``."""
+    value = source
+    for key in path.split("."):
+        if not isinstance(value, dict) or key not in value:
+            return _ABSENT
+        value = value[key]
+    return value
+
+
+def source_differences(served, assumed):
+    """Each field ``assumed`` names, by its path, whose value HQ's ``served`` source does not hold: ``[(path,
+    assumed value, served value or None)]``. HQ returns each as stored, so JSON equality decides."""
+    differences = []
+    for path, value in sorted(assumed.items()):
+        held = _field(served, path)
+        if held is _ABSENT or held != value:
+            differences.append((path, value, None if held is _ABSENT else held))
+    return differences
+
+
+def hold_assumed_source(state, app_id, assumed, what):
+    """Refuse (``CapturedSourceNotHeld``) unless HQ's ``app_source`` serves the app with every field of
+    ``assumed``: a captured import built over another source is not what Nova would send to this HQ."""
+    differences = source_differences(app_source(state, app_id), assumed)
+    if differences:
+        named = "; ".join(
+            f"{path}: the capture assumed {json.dumps(value, sort_keys=True)}, HQ serves"
+            f" {json.dumps(held, sort_keys=True)}"
+            for path, value, held in differences
+        )
+        raise CapturedSourceNotHeld(
+            f"The {what} was built over a source HQ does not serve for the app ({app_id}): {named}. Nova's publish"
+            " over this HQ would send other bytes, so the harness does not apply the captured ones. Capture the"
+            " import over the source HQ holds (proof/corpus/publish.ts, PublishInput.source and the peer's shell"
+            " source, proof/corpus/targetPeer.ts::shellSource)."
+        )
+
+
+def publish_capture(state, create: Upload, content: Upload, content_source, update: Upload, update_source):
+    """Apply a captured publish: the shell's create, the content that fills it, then the update Nova built over A.
+
+    Nova reads the app's source back through ``app_source`` after the create
+    and before each update, and builds what it sends over it
+    (``lib/deployment/importApplication.ts``); a capture records the fields of
+    the source its peer answered with. So the shell is created, HQ's own read
+    of it is held to the content's assumed source (``hold_assumed_source``),
+    the content is applied with A's id (``with_app_id``), A's read is held to
+    the update's assumed source, and the update is applied: over any other
+    source the captured bytes are not what Nova would send to this HQ, and the
+    harness refuses (``CapturedSourceNotHeld``), naming each differing field.
+
+    Returns A's id and HQ's answer to the create, the content and the update.
     """
     app_id, (created,) = publish(state, [create])
-    held = app_source(state, app_id).get("profile")
-    if held != assumed_source_profile:
-        raise CapturedProfileNotHeld(
-            "The captured update was built over the profile "
-            f"{json.dumps(assumed_source_profile, sort_keys=True)}, but HQ's app_source serves the app its create "
-            f"made ({app_id}) with {json.dumps(held, sort_keys=True)}. Nova's update over this HQ would carry "
-            "another profile, so the harness does not apply the captured one. Capture the update over the profile "
-            "HQ holds (proof/corpus/publish.ts, PublishInput.sourceProfile)."
-        )
+    hold_assumed_source(state, app_id, content_source, "captured content")
+    filled = _accepted(apply_upload(state, with_app_id(content, app_id)), "the captured content")
+    hold_assumed_source(state, app_id, update_source, "captured update")
     updated = _accepted(apply_upload(state, with_app_id(update, app_id)), "the captured update")
-    return app_id, created, updated
+    return app_id, created, filled, updated
+
+
+# A local archive's runtime URLs: each ``(member, element, attribute)`` that names one, and the path segments
+# after ``/a/<domain>/`` of the URLs that name the app (``lib/commcare/runtimeTarget.ts::runtimeUrls``,
+# ``::profileServerProperties``).
+_RUNTIME_URL_PLACES = (
+    ("suite.xml", "query", "url"),
+    ("suite.xml", "query", "value"),
+    ("profile.ccpr", "property", "value"),
+)
+_APP_ID_PATHS = (("phone", "search"), ("phone", "case_fixture"), ("phone", "restore"), ("receiver",))
+
+
+def _with_app_id_in_url(url, app_id):
+    """``url`` with the placeholder app id replaced by ``app_id`` where it is one of the archive's runtime URLs
+    that name the app: ``<origin>/a/<domain>/<path>/<placeholder>/``. Any other value is returned as it is."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    if not parts.scheme or not parts.netloc:
+        return url
+    segments = parts.path.split("/")
+    # ["", "a", <domain>, *path, <app id>, ""]
+    if len(segments) < 5 or segments[1] != "a" or segments[-1] != "" or segments[-2] != PLACEHOLDER_APP_ID:
+        return url
+    if tuple(segments[3:-2]) not in _APP_ID_PATHS:
+        return url
+    return urlunsplit(parts._replace(path="/".join([*segments[:-2], app_id, ""])))
+
+
+def _rewritten_member(xml: bytes, places, app_id):
+    """The member's XML with each runtime URL that names the placeholder naming ``app_id``, parsed and written
+    as XML; None where no URL names it."""
+    from lxml import etree
+
+    root = etree.fromstring(xml)
+    changed = False
+    for element_name, attribute in places:
+        for element in root.iter(etree.Element):
+            if etree.QName(element).localname != element_name:
+                continue
+            value = element.get(attribute)
+            if value is None:
+                continue
+            rewritten = _with_app_id_in_url(value, app_id)
+            if rewritten != value:
+                element.set(attribute, rewritten)
+                changed = True
+    if not changed:
+        return None
+    return etree.tostring(root, xml_declaration=True, encoding="utf-8")
+
+
+def with_runtime_app_id(archive: bytes, app_id: str) -> bytes:
+    """The local archive with the placeholder app id its capture named (``PLACEHOLDER_APP_ID``) replaced by
+    ``app_id``, the app HQ holds, in every runtime URL that names the app: the ``suite.xml`` member's search and
+    case fixture URLs, and the ``profile.ccpr`` member's ``PostURL`` and ``ota-restore-url``.
+
+    Each member is parsed and written as XML, never edited as text, and every other member and every entry's
+    name, order and compression are kept. It is the counterpart of ``with_app_id``, which names A in an update's
+    ``app_id`` field: Nova compiles a local archive for the deployment it was published to, whose HQ app the
+    capture could not know. An archive whose URLs name no placeholder (a control's pre-fix archive, which names
+    no app) is returned as it is.
+    """
+    import io
+    import zipfile
+
+    places = {}
+    for member, element, attribute in _RUNTIME_URL_PLACES:
+        places.setdefault(member, []).append((element, attribute))
+    with zipfile.ZipFile(io.BytesIO(archive)) as source:
+        members = [(info, source.read(info)) for info in source.infolist()]
+    rewritten = {}
+    for info, data in members:
+        if info.filename in places:
+            replaced = _rewritten_member(data, places[info.filename], app_id)
+            if replaced is not None:
+                rewritten[info.filename] = replaced
+    if not rewritten:
+        return archive
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as target:
+        for info, data in members:
+            target.writestr(info, rewritten.get(info.filename, data))
+    return out.getvalue()
 
 
 def app_source(state, app_id):
@@ -262,6 +398,205 @@ def held_app(state, app_id):
     from corehq.apps.app_manager.dbaccessors import get_app
 
     return get_app(state.domain, app_id)
+
+
+# HQ's API, as Nova's client reaches it ---------------------------------------
+
+
+class ApiCredential(NamedTuple):
+    """A web user's API key, as Nova's client sends it (``Authorization: ApiKey <username>:<key>``)."""
+
+    username: str
+    key: str
+
+
+@dataclass(frozen=True)
+class HqAnswer:
+    """HQ's answer to one API request: its status, the headers a reader of it reads (``Content-Type`` and
+    ``Retry-After``, where the response carries them), and its body as text."""
+
+    status: int
+    headers: dict
+    body: str
+
+    def retained(self):
+        """The answer as a retained read holds it (``proof/hq-reads/``): ``{status, headers, body}``, the headers
+        and body left out where HQ sent none (a view that raised ``Http404`` is ``{"status": 404}``, one that raised
+        ``PermissionDenied`` ``{"status": 403}``)."""
+        return {
+            "status": self.status,
+            **({"headers": dict(sorted(self.headers.items()))} if self.headers else {}),
+            **({"body": self.body} if self.body else {}),
+        }
+
+
+# The response headers an answer keeps: those Nova's client reads.
+_ANSWER_HEADERS = ("Content-Type", "Retry-After")
+
+
+def api_request(
+    state,
+    method: str,
+    path: str,
+    *,
+    credential: ApiCredential | None,
+    body: bytes = b"",
+    content_type: str = "application/json",
+) -> HqAnswer:
+    """HQ's answer to one request to its API, as Nova's client sends it.
+
+    The request is built with Django's ``RequestFactory`` and an
+    ``Authorization: ApiKey <username>:<key>`` header for ``credential`` (none
+    for ``None``), with none of ``proof/hq/requests.py``'s session state: the
+    user is the anonymous one Django's authentication middleware gives a
+    request with no session, and its project space is the one its path names,
+    as HQ's ``UsersMiddleware`` sets it. Its path is resolved through HQ's
+    URLconf and the view called with its decorators, so HQ's API key
+    authentication, permission check, privilege check and rate limiter
+    (``HQThrottle``) all run. Where the view or a decorator raises ``Http404``
+    or ``PermissionDenied`` in place of returning a response, the answer is the
+    status Django's handler gives it (404, 403) alone, which is all Nova reads
+    of it. Run it under ``proof.hq.seams.api_rate_limits`` or
+    ``rate_counters``, which hold the rate limiter's counts.
+    """
+    from django.contrib.auth.models import AnonymousUser
+    from django.core.exceptions import PermissionDenied
+    from django.http import Http404
+    from django.test import RequestFactory
+    from django.urls import resolve
+
+    headers = {} if credential is None else {"HTTP_AUTHORIZATION": f"ApiKey {credential.username}:{credential.key}"}
+    request = RequestFactory().generic(method, path, data=body, content_type=content_type, **headers)
+    request.user = AnonymousUser()
+    match = resolve(request.path)
+    if "domain" in match.kwargs:
+        request.domain = match.kwargs["domain"]
+    try:
+        response = match.func(request, *match.args, **match.kwargs)
+    except Http404:
+        return HqAnswer(404, {}, "")
+    except PermissionDenied:
+        return HqAnswer(403, {}, "")
+    if hasattr(response, "render") and not getattr(response, "is_rendered", True):
+        response.render()
+    content = b"".join(response.streaming_content) if response.streaming else response.content
+    kept = {name: response[name] for name in _ANSWER_HEADERS if response.has_header(name)}
+    return HqAnswer(response.status_code, kept, content.decode("utf-8"))
+
+
+# The password every API user the harness seeds holds; an API request authenticates by its key alone.
+API_USER_PASSWORD = "nova-proof-api-user"
+
+
+def seed_api_user(state, username: str, *, member=True, edit_apps=True, access_api=True) -> ApiCredential:
+    """A web user with an active API key, made by HQ's own models: a member of the state's project space under a
+    role holding exactly ``edit_apps`` and ``access_api`` as given, or, with ``member`` false, a member of none.
+    Returns the key's credential."""
+    from corehq.apps.users.models import HqPermissions, WebUser
+    from corehq.apps.users.models_role import UserRole
+
+    if member:
+        role = UserRole.create(
+            state.domain,
+            f"API {username}",
+            permissions=HqPermissions(edit_apps=edit_apps, access_api=access_api),
+        )
+        WebUser.create(state.domain, username, API_USER_PASSWORD, None, None, role_id=role.get_id)
+    else:
+        WebUser.create(None, username, API_USER_PASSWORD, None, None)
+    return seed_api_key(state, username)
+
+
+def seed_api_key(state, username: str, *, active=True, domain: str | None = None) -> ApiCredential:
+    """A further API key of the web user ``username``, made by HQ's own model: inactive where ``active`` is
+    false, and scoped to the project space ``domain`` where one is named (HQ's authentication accepts a scoped
+    key only for that project space, ``HQApiKeyAuthentication.is_authenticated``)."""
+    from corehq.apps.users.models import HQApiKey
+    from django.contrib.auth.models import User
+
+    user = User.objects.get(username=username)
+    key = HQApiKey.objects.create(user=user, name=f"nova-proof-{username}", is_active=active, domain=domain or "")
+    return ApiCredential(username, key.plaintext_key)
+
+
+def source_read(state, app_id, credential: ApiCredential) -> HqAnswer:
+    """``app_manager/views/apps.py::app_source`` for ``app_id``, as Nova's ``readHqAppSource`` reads it."""
+    return api_request(state, "GET", f"/a/{state.domain}/apps/source/{app_id}/", credential=credential)
+
+
+def form_id_read(state, app_id, credential: ApiCredential) -> HqAnswer:
+    """HQ's application API (``api/resources/v0_4.py::ApplicationResource``) for ``app_id``, as the cutover's
+    ``readHqApplicationFormIds`` reads it."""
+    return api_request(state, "GET", f"/a/{state.domain}/api/v0.4/application/{app_id}/", credential=credential)
+
+
+def import_request(state, upload: Upload, credential: ApiCredential) -> HqAnswer:
+    """``app_manager/views/app_import_api.py::import_app_api`` with its decorators, as Nova's ``importApp`` sends
+    it."""
+    return api_request(
+        state,
+        "POST",
+        f"/a/{state.domain}/apps/api/import_app/",
+        credential=credential,
+        body=upload.body,
+        content_type=upload.content_type,
+    )
+
+
+def current_version_read(state, app_id, credential: ApiCredential) -> HqAnswer:
+    """``app_manager/views/releases.py::current_app_version`` for ``app_id``, as Check status reads it."""
+    return api_request(state, "GET", f"/a/{state.domain}/apps/view/{app_id}/current_version/", credential=credential)
+
+
+def session_post(state, view_name, *args, pairs=()):
+    """A form POST of ``pairs`` the state's web user's browser makes to the view ``view_name`` (its URL's
+    arguments after the project space), answered by it with its decorators."""
+    from django.urls import resolve, reverse
+
+    path = reverse(view_name, args=[state.domain, *args])
+    request = hq_requests.form_post(state, path, pairs)
+    match = resolve(path)
+    return match.func(request, *match.args, **match.kwargs)
+
+
+def delete_app_through_view(state, app_id):
+    """HQ's ordinary delete of the app, through ``views/apps.py::delete_app`` as a person's Delete makes it: a
+    soft delete, which leaves the document with ``doc_type`` ``Application-Deleted``
+    (``models/applications.py::ApplicationBase.delete_app``)."""
+    response = session_post(state, "delete_app", app_id)
+    if response.status_code != 302:
+        raise PublishRefused(f"HQ's delete_app answered {response.status_code} for {app_id}.")
+
+
+def undo_delete_app_through_view(state, app_id):
+    """HQ's undo of that delete, through ``views/apps.py::undo_delete_app``, which restores the app it names."""
+    response = session_post(state, "undo_delete_app", app_id)
+    if response.status_code != 302:
+        raise PublishRefused(f"HQ's undo_delete_app answered {response.status_code} for {app_id}.")
+
+
+# The project space a linked app the harness makes names as its master; no app of it is read.
+LINKED_MASTER_DOMAIN = "nova-proof-master"
+
+
+def link_app_through_hq(state, app_id, master_id="nova-proof-master-app"):
+    """The app turned into a linked one as HQ's operator command turns it
+    (``corehq/apps/linked_domain/applications.py::link_app``): the same document as a ``LinkedApplication`` whose
+    master is an app of another project space."""
+    from corehq.apps.app_manager.models import LinkedApplication
+    from corehq.apps.linked_domain.applications import link_app
+
+    held = held_app(state, app_id).to_json()
+    link_app(LinkedApplication.wrap({**held, "doc_type": "LinkedApplication"}), LINKED_MASTER_DOMAIN, master_id)
+
+
+def break_form_source(state, app_id):
+    """The app's first form's stored source replaced by text no XML parser reads, saved through HQ's own model:
+    the state an app whose form source does not parse is in."""
+    app = held_app(state, app_id)
+    form = next(iter(app.get_forms()))
+    app.lazy_put_attachment("<h:html", f"{form.unique_id}.xml")
+    app.save()
 
 
 # Build -------------------------------------------------------------------

@@ -64,6 +64,11 @@ is compared. What a reader keys by a name is compared by that name and never by 
 their ids, a Sort choice's order by the choice, a search's matches by its term, the cases a device holds by
 their ids (each case one value), the home screen's hidden buttons by their names.
 
+Each address of a request the device sends HQ that its answer holds (the form post address its profile reader
+gives, each search's URL and each post's) is handed to the spelling rules given for one (``REQUEST_URL``): a
+device on A sends HQ's release's id where a device on Nova's local archive sends the working app's, which the rule
+``runtime_url_app_id`` reads as one.
+
 What is left out of a comparison, each because it names an install and not what a worker reads, or says again
 what a reader beside it says: the app's id and version (proof 1's), the profile's stored values (each
 reader's answer is compared, so a stored value no reader reads differently is no difference), the apps the
@@ -77,6 +82,7 @@ import json
 
 from proof.checks import hq_own_reports
 from proof.checks.compare.json_tree import compare_json
+from proof.checks.compare.spelling import normalized
 from proof.checks.differences import ANDROID, ANDROID_TABLET, Difference, pointer_token
 
 LOCAL = f"{ANDROID}@local.ccz"
@@ -105,6 +111,10 @@ DATA_MAPS = frozenset(
 )
 # What names an install, never what a worker reads of it.
 APP_LEFT_OUT = ("uniqueId", "versionNumber", "installedApps", "resourcesValidated")
+# The artifact a spelling rule names to read the address of a request a reader sent HQ (``proof.rules``).
+REQUEST_URL = "request-url"
+# The profile reader that gives the address the device sends a completed form to.
+POST_URL_READER = "FormSubmissionHelper.getFormPostURL"
 
 
 SEPARATOR = " | "
@@ -199,6 +209,22 @@ def comparable_app(answer: dict | None) -> dict | None:
             _menu(step)
             _form(step)
     return found
+
+
+def _addressed(answer: dict, rules) -> dict:
+    """A comparable ``app`` answer with each address of a request the device sends HQ read by the spelling rules
+    given for one (``REQUEST_URL``): the form post address its profile reader gives, and each search's and each
+    post's URL."""
+    readers = (answer.get("profile") or {}).get("readers")
+    if isinstance(readers, dict) and isinstance(readers.get(POST_URL_READER), str):
+        readers[POST_URL_READER] = normalized(REQUEST_URL, readers[POST_URL_READER], rules)
+    for walk in (answer.get("walks") or {}).values():
+        for step in (walk.get("steps") or []) if isinstance(walk, dict) else []:
+            for kind in ("query", "post"):
+                held = step.get(kind) if isinstance(step, dict) else None
+                if isinstance(held, dict) and isinstance(held.get("url"), str):
+                    held["url"] = normalized(REQUEST_URL, held["url"], rules)
+    return answer
 
 
 def signed_in(result: str) -> str:
@@ -465,12 +491,14 @@ def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
     return before, after
 
 
-def app_differences(before, after, *, check, document, artifact) -> list:
+def app_differences(before, after, *, check, document, artifact, rules=()) -> list:
     """Every difference between what a device shows of two archives: ``before`` the baseline's ``app`` answer,
-    ``after`` the other's."""
+    ``after`` the other's, each address of a request the device sends HQ read by the spelling rules given
+    (``_addressed``)."""
     a, b = comparable_app(before), comparable_app(after)
     if a is None or b is None:
         return []
+    a, b = _addressed(a, rules), _addressed(b, rules)
     if a.get("install") != INSTALLED or b.get("install") != INSTALLED:
         a, b = {"install": a.get("install")}, {"install": b.get("install")}
     else:
@@ -578,8 +606,9 @@ def tablet_only(phone: list, tablet: list) -> list:
     return [d for d in tablet if (d.check, d.artifact.removeprefix(f"{TABLET}@"), d.at) not in shown]
 
 
-def behavior(document: str, record: dict, *, device: str = ANDROID) -> list:
-    """Proof 3's differences in what one kind of device (``device``: ``android``, a phone, or ``TABLET``) did."""
+def behavior(document: str, record: dict, *, device: str = ANDROID, rules=()) -> list:
+    """Proof 3's differences in what one kind of device (``device``: ``android``, a phone, or ``TABLET``) did,
+    each address of a request a device sends HQ read by the spelling rules given (``rules``)."""
     local_artifact, a_artifact, republish = (f"{device}@local.ccz", f"{device}@A", f"{device}@B")
     found = []
     for name in sorted(record.get("configurations") or {}):
@@ -608,12 +637,12 @@ def behavior(document: str, record: dict, *, device: str = ANDROID) -> list:
         )
         found += _applied("proof3", document, a_artifact, a)
         if local is not None:
-            found += app_differences(a, local, check="proof3", document=document, artifact=local_artifact)
+            found += app_differences(a, local, check="proof3", document=document, artifact=local_artifact, rules=rules)
         found += signed_in_differences(document, a, (held.get("local") or {}).get("asIs"))
         b = (held.get("B") or {}).get("app")
         if b is not None:
             found += _applied("proof3", document, republish, b)
-            found += app_differences(a, b, check="proof3", document=document, artifact=republish)
+            found += app_differences(a, b, check="proof3", document=document, artifact=republish, rules=rules)
     return found
 
 

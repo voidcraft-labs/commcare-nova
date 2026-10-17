@@ -1,0 +1,14 @@
+{
+	"nova-proof": {
+		"day": 50.0,
+		"hour": 30.0,
+		"minute": 10.0,
+		"second": 1.0
+	},
+	"no_account:nova-proof": {
+		"day": 50.0,
+		"hour": 30.0,
+		"minute": 10.0,
+		"second": 1.0
+	}
+}

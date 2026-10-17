@@ -17,6 +17,10 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
+	addLanguageMutation,
+	heldLanguageWireCodes,
+} from "@/lib/doc/languageMutations";
+import {
 	addLocationPropertyMutations,
 	addOrganizationLevelMutations,
 } from "@/lib/doc/organizationMutations";
@@ -173,7 +177,7 @@ export function workforceDocument(base: EditCorpusDocument): BlueprintDoc {
 				closeCase: false,
 			},
 		},
-		{ kind: "addLanguage", language: { language: "fra" } },
+		addLanguageMutation(heldLanguageWireCodes(doc), { language: "fra" }),
 	];
 	const verdict = mutationCommitVerdict(
 		doc,

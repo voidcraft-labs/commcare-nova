@@ -414,6 +414,7 @@ describe("EngineController", () => {
 				{
 					kind: "addLanguage",
 					language: { language: "spa" },
+					wireCode: "es",
 				},
 				{
 					kind: "setTranslation",

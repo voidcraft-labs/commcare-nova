@@ -79,20 +79,19 @@ def published(document, core_runner, configuration="minimum"):
     from proof.hq import operations
     from proof.hq.check import hq_check
     from proof.hq.seams import build_seams
+    from proof.observe import publish
 
     export = document.exports[configuration]
     with hq_check(export.configuration.hq()) as (unit, _):
         # One operation, its digest the document's: what HQ draws while it applies the publish (the app's id,
         # each media file's) is then this document's own and the same on every run.
         with unit.operation("formplayer:publish", document.id.encode()):
-            if export.create.lookups is not None:
-                uploaded = operations.upload_lookup_workbook(unit, export.create.lookups.workbook(), replace=True)
-                assert uploaded.errors == [], uploaded.errors
-            result = operations.apply_upload(unit, export.create.upload())
-            assert 200 <= result.status < 300 and result.response.get("success"), result.response
-            app_id = result.response["app_id"]
-            if export.create.media is not None:
-                media = operations.apply_media_upload(unit, app_id, export.create.media.upload())
+            # Nova's first publish: the shell and the content that fills it, after the workbook it pushes.
+            app_id, refusal, lookups = publish.create(unit, export)
+            assert refusal is None, refusal
+            assert lookups is None or lookups["errors"] == [], lookups
+            if export.content.media is not None:
+                media = operations.apply_media_upload(unit, app_id, export.content.media.upload())
                 assert media.status == 200, media.response
         with build_seams():
             outcome, _ = build_state(operations.held_app(unit, app_id), unit.record, "A")

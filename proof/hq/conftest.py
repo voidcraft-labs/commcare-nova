@@ -3,8 +3,15 @@
 HQ's boot (``hq``), the network watch (``network``) and the HQ timings
 (``timed``) are the whole harness's, in ``proof/conftest.py``; ``timed`` is
 imported here for the tests that time HQ's operations. This module adds what
-only HQ's own tests read: HQ's suite-test app, a Nova-shaped upload of it,
-and a form validator that counts what HQ sends it.
+only HQ's own tests read: HQ's suite-test app, a Nova-shaped upload of it, a
+form validator that counts what HQ sends it, and the corpus documents the
+package's tests read (``DOCUMENTS``, through ``documents``).
+
+``DOCUMENTS`` names every corpus document a test of this package reads, which
+is what a stored outcome of the package is keyed by
+(``proof.store.queue.PACKAGE_DATA``), as the other packages name theirs.
+The tests read the corpus's own emission (the capture's two imports and the
+HQ import file), never a control, which holds the legacy layout.
 """
 
 from __future__ import annotations
@@ -14,7 +21,59 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 
+import pytest
+
 from proof.conftest import timed  # noqa: F401  (HQ's tests time their operations with it)
+
+# Every corpus document a test of this package reads, by id, and no other: the seven whose branches
+# ``test_branches.py`` holds, and the four the publish, import file and retained read tests publish.
+DOCUMENTS = (
+    "lookup-app",
+    "media-rich",
+    "location-multirung",
+    "search-parent",
+    "nested-menu-registration-children",
+    "localization-bilingual",
+    "connect-deliver-custom",
+    "navigation-base",
+    "targeted-form-links-hidden-and-fallback",
+    "case-list-inline",
+    "targeted-hq-side-lookup",
+)
+
+
+class _Named(dict):
+    def __missing__(self, document_id):
+        pytest.fail(
+            f"An HQ test read the corpus document {document_id}, which proof/hq/conftest.py::DOCUMENTS does not"
+            " name, so a change to it would not invalidate the package's stored outcome. Add it to DOCUMENTS."
+        )
+
+
+def load_corpus():
+    """The corpus the run checks (``proof.checks.cases.load_corpus``), for a test of this package that collects its
+    parameters from it (``test_branches.py``): every corpus read of the package goes through this module, which
+    keys the package's outcome (``DOCUMENTS``)."""
+    from proof.checks.cases import load_corpus as loaded
+
+    return loaded()
+
+
+@pytest.fixture(scope="session")
+def documents():
+    """The corpus documents ``DOCUMENTS`` names, by id; a test of a document the corpus lacks, or one
+    ``DOCUMENTS`` does not name, fails."""
+    from proof.checks import corpus
+
+    found = {document.id: document for document in corpus.load(corpus.corpus_root()).emitted}
+    missing = sorted(set(DOCUMENTS) - set(found))
+    if missing:
+        pytest.fail(
+            f"The corpus holds no {missing}, which proof/hq/conftest.py::DOCUMENTS names as the documents HQ's own"
+            " tests read. Name documents the corpus holds."
+        )
+    return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
+
 
 HQ_ROOT = Path(os.environ.get("PROOF_HQ", "/opt/hq"))
 # An app HQ's own suite tests build (one basic module, two forms with

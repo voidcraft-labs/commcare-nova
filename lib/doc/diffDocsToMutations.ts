@@ -118,9 +118,11 @@ import type {
 	Automation,
 	CaseListConfig,
 	CaseType,
+	EffectiveAppLocalization,
 	Field,
 	Form,
 	FormLink,
+	LanguageTag,
 	Media,
 	Module,
 	SearchInputDef,
@@ -907,6 +909,21 @@ export class LocalizationEndpointNotRepresentableError extends Error {
 	}
 }
 
+/**
+ * The code the target document stores for a language. The diff is the one
+ * producer of a language mutation that does not mint: it carries the target's
+ * own code, so an undo of a removal restores the code the language had.
+ */
+function storedWireCode(
+	localization: EffectiveAppLocalization,
+	tag: LanguageTag,
+): string {
+	const wireCode = localization.wireCodes[tag];
+	if (wireCode === undefined)
+		throw new LocalizationEndpointNotRepresentableError();
+	return wireCode;
+}
+
 /** Diff app-language metadata and per-unit overlays after structural edits. */
 function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	if (deepEqual(prev.localization, next.localization)) return [];
@@ -921,6 +938,7 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		out.push({
 			kind: "relabelSourceLanguage",
 			language: parseLanguageTag(after.sourceLanguage),
+			wireCode: storedWireCode(after, after.sourceLanguage),
 		});
 	}
 
@@ -928,9 +946,45 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		applyMutations(draft, out);
 	});
 	let current = effectiveAppLocalization(working.localization);
+	// A language the target drops whose wire code a language it adds carries
+	// leaves first, so the add does not meet its own code held; every other
+	// removal waits until the target's default is in place. One that is the
+	// default hands the default on before it leaves: to the target's default
+	// when the app already holds it, else to the source language, which every
+	// endpoint here keeps.
+	const addedCodes = new Set(
+		after.languageOrder
+			.filter((tag) => !current.languageOrder.includes(tag))
+			.map((tag) => storedWireCode(after, tag)),
+	);
+	for (const tag of current.languageOrder) {
+		if (
+			!after.languageOrder.includes(tag) &&
+			tag !== current.sourceLanguage &&
+			addedCodes.has(storedWireCode(current, tag))
+		) {
+			if (tag === current.defaultLanguage) {
+				out.push({
+					kind: "setDefaultLanguage",
+					code: current.languageOrder.includes(after.defaultLanguage)
+						? after.defaultLanguage
+						: current.sourceLanguage,
+				});
+			}
+			out.push({ kind: "removeLanguage", code: tag });
+		}
+	}
+	working = produce(prev, (draft) => {
+		applyMutations(draft, out);
+	});
+	current = effectiveAppLocalization(working.localization);
 	for (const tag of after.languageOrder) {
 		if (!current.languageOrder.includes(tag)) {
-			out.push({ kind: "addLanguage", language: parseLanguageTag(tag) });
+			out.push({
+				kind: "addLanguage",
+				language: parseLanguageTag(tag),
+				wireCode: storedWireCode(after, tag),
+			});
 		}
 	}
 	working = produce(prev, (draft) => {
@@ -952,7 +1006,10 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	current = effectiveAppLocalization(working.localization);
 	if (
 		!deepEqual(current.languageOrder, after.languageOrder) ||
-		current.sourceLanguage !== after.sourceLanguage
+		current.sourceLanguage !== after.sourceLanguage ||
+		after.languageOrder.some(
+			(tag) => current.wireCodes[tag] !== after.wireCodes[tag],
+		)
 	) {
 		throw new LocalizationEndpointNotRepresentableError();
 	}

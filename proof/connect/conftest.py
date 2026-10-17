@@ -15,14 +15,18 @@ it:
   (``served_download``);
 - a submission of its Connect form from each runtime path, each made by
   Core's own session (``proof.observe.sessions``): on HQ's build, on Nova's
-  local archive replaying the same script, on HQ's build and Nova's local
-  archive of the edit, and on HQ's build of the form as HQ's own form
-  designer saves it (Vellum, ``proof.editors.vellum``), on the lane's day and
-  on the day after;
+  local archive replaying the same script (its runtime URLs naming the app
+  HQ holds, ``proof.hq.operations.with_runtime_app_id``), on HQ's build and
+  Nova's local archive of the edit, on HQ's build of the form as HQ's own
+  form designer saves it (Vellum, ``proof.editors.vellum``), and, for the
+  deliver app, on its control's pre-fix local archive
+  (``proof/controls/targeted-connect-deliver-rename/local.ccz``), on the
+  lane's day and on the day after;
 - HQ's Connect payload for each, as HQ's own receiver and Connect repeater
   made and sent it (``_forwarded_by_hq``): each submission posted to HQ's
-  receiver view under the app's id or, for the local archive, also with no
-  app named, and the payload read where it reached Connect.
+  receiver view under the app's id, which every archive Nova compiles names
+  in its ``PostURL``, or, for the control's pre-fix archive, which names
+  none, with no app named, and the payload read where it reached Connect.
 
 A submission's location is written by CommCare Android alone: HQ's build adds
 the meta's location node and the action that fills it (``xform.py::
@@ -63,6 +67,8 @@ DOCUMENTS = (
 )
 DELIVER, LEARN, TASK_NAMED_TASK, DELIVER_KEY_NAMES, LEARN_KEY_NAMES = DOCUMENTS
 CONFIGURATION = "minimum"
+# The submission of the deliver app's control's pre-fix local archive, which names no submission URL.
+CONTROL_LOCAL = "control-local"
 CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
 # The day after the lane's own (``proof.core.client.DEFAULT_CLOCK``), for a worker's second visit.
 NEXT_DAY_CLOCK = "2026-01-16T10:30:00.000Z"
@@ -144,10 +150,12 @@ class ConnectApp:
     # Each Connect block's id in D and in the edit, by the block's element name.
     renames: dict = field(default_factory=dict)
     # By name: "<path>", "<path>@next" (the day after), each with "+fix", "+near" or "+far" where a fix was
-    # written, and "local-unnamed" (the local archive's submission posted with no app named). The paths are "hq"
-    # and "local", "renamed" and "renamed-local" where the document carries the edit, and "vellum" for the
+    # written. The paths are "hq" and "local", "renamed" and "renamed-local" where the document carries the edit,
+    # and "vellum" and "control-local" (the control's pre-fix local archive, posted with no app named) for the
     # deliver app. A document of several forms has "hq#1", "hq#2", one for each form its session submits.
     submissions: dict = field(default_factory=dict)
+    # The profile of the deliver app's control's pre-fix local archive, which names no submission URL.
+    control_local_profile: bytes | None = None
 
 
 # Where Connect downloads an app's archive from its HQ server, and what it asks first
@@ -226,7 +234,7 @@ class _Paths:
 
         self.document, self.app, self.core_runner, self.scratch = document, app, core_runner, Path(scratch)
         database = casedata.case_database(document.document)
-        status, self.restore_hq = hq_restore(app.unit, database, app.export.create.lookups, "restore")
+        status, self.restore_hq = hq_restore(app.unit, database, app.export.content.lookups, "restore")
         assert self.restore_hq is not None, f"HQ's restore refused {document.id}'s lookup tables: {status}"
         self.restore_plain = local_restore(app.unit, database)
         self.script = None
@@ -292,11 +300,13 @@ def _devices(app, document) -> dict:
     next: ``hq+fix``, ``hq@next+near``, ``hq@next+far``, ``local+fix``, ``local@next+near``."""
     from proof.android import observe as android
     from proof.formplayer import hq as formplayer_hq
+    from proof.hq.operations import with_runtime_app_id
     from proof.observe.record import Blobs
 
     blobs, made = Blobs(), {}
     with formplayer_hq.serve(app.unit, document, app.app_id) as served:
-        archives = {"hq": (android.release_archive(served), False), "local": (document.local_ccz.read_bytes(), True)}
+        local = with_runtime_app_id(document.local_ccz.read_bytes(), app.app_id)
+        archives = {"hq": (android.release_archive(served), False), "local": (local, True)}
         for name, side, fix, clock in (
             ("hq+fix", "hq", FIX, None),
             ("hq@next+near", "hq", FIX_NEAR, NEXT_DAY_CLOCK),
@@ -366,17 +376,16 @@ def _refuses_to_answer(method, url, headers, body):
 
 def _forwarded_by_hq(app, document, made, connect_runtime) -> dict:
     """Each submission of ``made`` (by name) as HQ forwards it: posted to HQ's own receiver view as a device
-    posts it, under the app's id (and the local archive's once more with no app named, ``local-unnamed``),
-    taken by HQ's receiver whole and sent by HQ's own Connect repeater, with a token it asked Connect for, to a
-    served Connect over a real connection (``proof.connect.hq.forwarding``). The payload is read where it
-    arrived. That Connect holds HQ's server and no opportunity, so it authenticates HQ and answers that the
-    form belongs to nothing: what Connect makes of a payload is each test's own scenario's to show."""
+    posts it, under the app's id, which every archive Nova compiles names in its ``PostURL``, or, for the
+    control's pre-fix local archive (``control-local``), which names none, with no app named; taken by HQ's
+    receiver whole and sent by HQ's own Connect repeater, with a token it asked Connect for, to a served Connect
+    over a real connection (``proof.connect.hq.forwarding``). The payload is read where it arrived. That Connect
+    holds HQ's server and no opportunity, so it authenticates HQ and answers that the form belongs to nothing:
+    what Connect makes of a payload is each test's own scenario's to show."""
     from proof.connect import hq as connect_hq
     from proof.formplayer import hq as formplayer_hq
 
-    wanted = [(name, xml, app.app_id) for name, xml in sorted(made.items())]
-    if "local" in made:
-        wanted.append(("local-unnamed", made["local"], None))
+    wanted = [(name, xml, None if name == CONTROL_LOCAL else app.app_id) for name, xml in sorted(made.items())]
     found = {}
     with formplayer_hq.serve(app.unit, document, app.app_id) as served:
         session = connect_runtime.session(_refuses_to_answer)
@@ -407,13 +416,26 @@ def _forwarded_by_hq(app, document, made, connect_runtime) -> dict:
     return found
 
 
+def _local_archive(scratch, name, path, app_id):
+    """Nova's local archive at ``path`` as the deployment's archive names its app, ``app_id``
+    (``proof.hq.operations.with_runtime_app_id``), written under ``scratch``."""
+    from proof.hq.operations import with_runtime_app_id
+
+    written = Path(scratch) / name
+    written.write_bytes(with_runtime_app_id(path.read_bytes(), app_id))
+    return written
+
+
 def _connect_app(document, core_runner, editor_driver, connect_runtime):
+    from proof.checks.corpus import CONTROLS_DIR
     from proof.rules.conftest import published
 
     with published(document, core_runner, CONFIGURATION) as app, tempfile.TemporaryDirectory() as scratch:
         built = app.spell()
         assert built.build.files is not None and not built.build.raised, built.build.raised
         paths = _Paths(document, app, core_runner, scratch)
+        local = _local_archive(scratch, "local.ccz", document.local_ccz, app.app_id)
+        control_profile = None
         downloads = {"built": served_download(app, document, "built")}
         if document.id in (DELIVER_KEY_NAMES, LEARN_KEY_NAMES):
             forms = paths.build_forms(built.build.files, "built")
@@ -421,7 +443,7 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
         else:
             made = {
                 "hq": paths.build(built.build.files, "built"),
-                "local": paths.archive("Nova's local archive", document.local_ccz),
+                "local": paths.archive("Nova's local archive", local),
             }
         renames = {}
         if document.id in (DELIVER, LEARN):
@@ -435,14 +457,21 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
                 f"{document.id}'s edit renames its Connect ids, and HQ's builds of it hold {renames}"
             )
             made["hq@next"] = paths.build(built.build.files, "built", NEXT_DAY_CLOCK)
-            made["local@next"] = paths.archive("Nova's local archive", document.local_ccz, NEXT_DAY_CLOCK)
+            made["local@next"] = paths.archive("Nova's local archive", local, NEXT_DAY_CLOCK)
             made["renamed"] = paths.build(edited.files, "edit")
             made["renamed@next"] = paths.build(edited.files, "edit", NEXT_DAY_CLOCK)
-            made["renamed-local"] = paths.archive("Nova's local archive of the edit", document.edit.local_ccz)
+            made["renamed-local"] = paths.archive(
+                "Nova's local archive of the edit",
+                _local_archive(scratch, "edit-local.ccz", document.edit.local_ccz, app.app_id),
+            )
         if document.id == DELIVER:
             (form,) = [form for module in built.stored["doc"]["modules"] for form in module["forms"]]
             made["vellum"] = paths.build(_vellum_saved_build(app, editor_driver, form["unique_id"]).files, "vellum")
             made.update(_devices(app, document))
+            # The control's pre-fix archive, which names no submission URL, for the refusal it meets.
+            control = CONTROLS_DIR / DELIVER / "local.ccz"
+            made[CONTROL_LOCAL] = paths.archive("the control's pre-fix local archive", control)
+            control_profile = zipfile.ZipFile(control).read("profile.ccpr")
 
         submissions = _forwarded_by_hq(app, document, made, connect_runtime)
         return ConnectApp(
@@ -450,10 +479,11 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
             domain=app.unit.domain,
             app_id=app.app_id,
             username=next(iter(submissions.values())).payload["metadata"]["username"],
-            local_profile=zipfile.ZipFile(document.local_ccz).read("profile.ccpr"),
+            local_profile=zipfile.ZipFile(local).read("profile.ccpr"),
             downloads=downloads,
             renames=renames,
             submissions=submissions,
+            control_local_profile=control_profile,
         )
 
 

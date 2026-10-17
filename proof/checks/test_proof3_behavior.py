@@ -119,6 +119,17 @@ def _observed_without_hooks(document, core_runner, names):
         return unit.observe_document(document, core_runner=core_runner, configurations=set(names))
 
 
+def _app_id_of(build):
+    """The id of the app HQ built ``build`` from, as its profile names it (``uniqueid``, the app's ``origin_id``:
+    ``templates/app_manager/profile.xml``, ``models/applications.py::Application.create_profile``), so the local
+    archive's sessions name the app A's did."""
+    profile = (build.files or {}).get("profile.ccpr")
+    if profile is None:
+        return None
+    root = etree.fromstring(profile if isinstance(profile, bytes) else profile.encode())
+    return root.get("uniqueid")
+
+
 def _behavior(document, export, observed, core_runner):
     """Proof 3 on ``observed``'s builds: observed in a unit of the export's configuration as a document's tree
     observes it (``proof.observe.sessions``), then judged as its records are."""
@@ -130,12 +141,13 @@ def _behavior(document, export, observed, core_runner):
         differs = any(difference.kind != "refused" for difference in raw)
     with hq_check(export.configuration.hq()) as (unit, _):
         restore_a = sessions.hq_restore(
-            unit, casedata.case_database(document.document), export.create.lookups, "restore-a"
+            unit, casedata.case_database(document.document), export.content.lookups, "restore-a"
         )
         recorded = sessions.observe(
             unit,
             document=document,
             export=export,
+            app_id=_app_id_of(a_build),
             a_build=a_build,
             b_aligned=observed.b_aligned,
             b_differs=differs,
@@ -280,7 +292,7 @@ def control(hq, core_runner, tmp_path_factory):
     scratch = tmp_path_factory.mktemp("proof3-control")
     for document in cases.load_corpus().emitted:
         export = document.exports.get("minimum")
-        if export is None or export.create.lookups is not None or export.republish.lookups is not None:
+        if export is None or export.content.lookups is not None or export.republish.lookups is not None:
             continue
         records = _observed_without_hooks(document, core_runner, [export.configuration.name])
         observed = observations.republish_view(records, export.configuration.name)
@@ -938,7 +950,7 @@ def test_a_republish_hq_refuses_still_compares_the_local_archive_with_build_a(hq
 def _lookup_document():
     for document in cases.load_corpus().emitted:
         for export in document.exports.values():
-            if export.create.lookups is not None:
+            if export.content.lookups is not None:
                 return document, export
     return None
 
@@ -958,7 +970,7 @@ def test_hqs_builds_read_lookup_tables_from_hqs_restore(hq, core_runner):
     )
     database = casedata.case_database(document.document)
     with hq_check(export.configuration.hq()) as (state, _):
-        tables = casedata.lookup_fixtures(state, export.create.lookups)
+        tables = casedata.lookup_fixtures(state, export.content.lookups)
         restore = casedata.restore(database, state.domain, tables)
         plain = casedata.restore(database, state.domain)
     expressions = [
@@ -1015,9 +1027,9 @@ def test_a_lookup_table_hq_cannot_serve_is_a_refused_comparison(hq, core_runner)
     name = export.configuration.name
     observed = observations.republish_view(_observed_without_hooks(document, core_runner, [name]), name)
     assert observed.a is not None and proof3.unbuildable(observed.a.build) is None
-    captured = export.create.lookups
+    captured = export.content.lookups
     per_owner = replace(
-        export, create=replace(export.create, lookups=_Workbook(captured.body_path, _per_owner(captured.workbook())))
+        export, content=replace(export.content, lookups=_Workbook(captured.body_path, _per_owner(captured.workbook())))
     )
     differences = _behavior(document, per_owner, observed, core_runner)
     assert [(d.artifact, d.path, d.kind) for d in differences] == [

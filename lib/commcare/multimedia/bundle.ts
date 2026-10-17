@@ -1,17 +1,8 @@
 // lib/commcare/multimedia/bundle.ts
 //
-// Two outputs, split by consumer:
-//
-//   - `MediaBundle`    — `mediaSuiteXml` + `cczEntries`. The COMPILER
-//                        reads these to write the media-bearing parts
-//                        of the local CCZ archive (the descriptor +
-//                        the bundled file bytes).
-//   - `buildMultimediaMap(assets)` → `Record<string, MultimediaMapItem>`.
-//                        The EXPANDER stamps this onto the
-//                        HqApplication for the HQ-JSON / upload path.
-//                        Produced separately so the compiler doesn't
-//                        carry an HQ-JSON-shaped output it never
-//                        consumes.
+// `MediaBundle` — `mediaSuiteXml` + `cczEntries`. The COMPILER reads these
+// to write the media-bearing parts of the local CCZ archive (the descriptor
+// + the bundled file bytes).
 //
 // The bundle is the totality boundary for media emission: given a
 // manifest the caller built by walking every media reference in the
@@ -19,46 +10,15 @@
 // bytes it needs to bundle is a compiler-bug (the byte load is the
 // caller's contract), not a recoverable emit-time state.
 //
-// `multimedia_map` shape verified against
-// `commcare-hq/.../hqmedia/models.py::HQMediaMapItem` (`multimedia_id`,
-// `media_type`, `version`) and
-// `commcare-hq/.../app_manager/suite_xml/generator.py::media_resources`,
-// which iterates `multimedia_map.items()` and raises `MediaResourceError`
-// when a key doesn't start with `jr://file/`. The map key IS the
-// fully-qualified jr:// reference (`jr://file/commcare/<hash><ext>`);
-// CCHQ strips the `jr://file/` prefix to derive the install path.
-// `media_type` is the CommCare media class name (`CommCareImage` /
-// `CommCareAudio` / `CommCareVideo`).
+// The HQ app Nova sends carries no `multimedia_map`. CommCare HQ's media
+// upload matches each file to a path the app's content references and
+// writes the map itself (`corehq/apps/hqmedia/tasks.py::
+// process_bulk_upload_zip`), and an update never writes the key Nova sends
+// (`models/applications.py::ApplicationBase._update_excluded_fields`).
 
-import type { MediaKind } from "@/lib/domain/multimedia";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
-import {
-	type AssetManifest,
-	jrFileRef,
-	type ResolvedMediaAsset,
-} from "./assetWirePath";
+import type { AssetManifest, ResolvedMediaAsset } from "./assetWirePath";
 import { buildMediaSuiteXml } from "./mediaSuiteXml";
-
-/**
- * CommCare's media document class per Nova media kind. This is the
- * `media_type` string in each `multimedia_map` value and the type
- * CommCare routes the file to on upload.
- */
-const MEDIA_TYPE_FOR_KIND: Record<MediaKind, string> = {
-	image: "CommCareImage",
-	audio: "CommCareAudio",
-	video: "CommCareVideo",
-};
-
-/** One `multimedia_map` value. CCHQ reassigns `multimedia_id` when the
- *  per-file multimedia upload calls `create_mapping(multimedia, path)`
- *  and overwrites this entry with the couch-assigned `_id`; Nova seeds a
- *  deterministic placeholder so the inbound import shape is valid. */
-export interface MultimediaMapItem {
-	readonly multimedia_id: string;
-	readonly media_type: string;
-	readonly version: number;
-}
 
 /** One file to write into the CCZ archive: the wire path (zip entry)
  *  and its validated bytes. */
@@ -67,38 +27,11 @@ export interface MediaCczEntry {
 	readonly bytes: Buffer;
 }
 
-/** The compiler-facing media bundle. The HQ-JSON `multimedia_map` is
- *  produced separately by `buildMultimediaMap` and stamped onto the
- *  application by the expander, so it doesn't appear here — the
- *  compiler reads `mediaSuiteXml` for the descriptor and `cczEntries`
- *  for the bundled file bytes. */
+/** The compiler-facing media bundle: the compiler reads `mediaSuiteXml`
+ *  for the descriptor and `cczEntries` for the bundled file bytes. */
 export interface MediaBundle {
 	readonly mediaSuiteXml: string;
 	readonly cczEntries: readonly MediaCczEntry[];
-}
-
-/**
- * Build the `multimedia_map` for a set of resolved assets. Key is the
- * fully-qualified `jr://file/commcare/<hash><ext>` reference (CCHQ
- * raises on a key that doesn't start with `jr://file/` — see the file
- * header). Value carries the media class + a placeholder
- * `multimedia_id` (the content hash — deterministic, and CCHQ
- * overwrites it via `create_mapping` when the per-file multimedia
- * upload posts the bytes for this path). Used by the expander to stamp
- * the HqApplication for the upload path.
- */
-export function buildMultimediaMap(
-	assets: Iterable<ResolvedMediaAsset>,
-): Record<string, MultimediaMapItem> {
-	const map: Record<string, MultimediaMapItem> = {};
-	for (const asset of assets) {
-		map[jrFileRef(asset.wirePath)] = {
-			multimedia_id: asset.contentHash,
-			media_type: MEDIA_TYPE_FOR_KIND[asset.kind],
-			version: 1,
-		};
-	}
-	return map;
 }
 
 /**

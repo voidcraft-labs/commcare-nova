@@ -13,6 +13,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
 import { caseCaptureFixture, caseCaptureScenarios } from "./caseCaptureFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function one(elements: Element[]): Element {
 	expect(elements).toHaveLength(1);
@@ -64,9 +65,11 @@ for (const scenario of caseCaptureScenarios) {
 			if (typeof sourceXml !== "string") throw new Error("Missing source form");
 			const source = formTree(sourceXml);
 			const device = formTree(
-				new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
-					"modules-0/forms-0.xml",
-				),
+				new AdmZip(
+					compileCcz(hq, doc.appName, doc, {
+						runtimeTarget: TEST_RUNTIME_TARGET,
+					}),
+				).readAsText("modules-0/forms-0.xml"),
 			);
 			const repeated = scenario === "repeat" || scenario === "query";
 			const scope =

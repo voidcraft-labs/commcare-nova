@@ -9,6 +9,7 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { BlueprintDoc } from "@/lib/domain";
 import { formLinkWireFixture } from "./formLinkWireFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 interface StackCreate {
 	readonly ifClause: string | undefined;
@@ -48,7 +49,9 @@ function stackCreates(suite: string, commandId: string): StackCreate[] {
 
 function compile(doc: BlueprintDoc): { hq: HqApplication; suite: string } {
 	const hq = expandDoc(doc);
-	const zip = new AdmZip(compileCcz(hq, "Parity", doc));
+	const zip = new AdmZip(
+		compileCcz(hq, "Parity", doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
 	return { hq, suite: zip.readAsText("suite.xml") };
 }
 

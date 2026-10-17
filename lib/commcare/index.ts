@@ -9,9 +9,9 @@
 // The barrel re-exports only the primitives that are safe to pull
 // into any layer, including client components: constants, HQ JSON
 // type declarations, boilerplate shell factories, hashtag expansion,
-// identifier validation, session mechanics, and XML helpers. Anything
-// that drags Node-only dependencies (the .ccz archive packer,
-// `node:crypto` id generators) or a heavy pipeline surface (the
+// identifier validation, session mechanics, the derived wire identity of
+// every menu and form, and XML helpers. Anything that drags Node-only
+// dependencies (the .ccz archive packer) or a heavy pipeline surface (the
 // BlueprintDoc → HqApplication expander, XForm emitter, validator,
 // xpath engine, encryption, HQ HTTP client) is imported directly from
 // its sub-path (`@/lib/commcare/expander`, `@/lib/commcare/xform`,
@@ -39,4 +39,5 @@ export {
 } from "./previousTaskProjection";
 export * from "./session";
 export * from "./types";
+export * from "./wireIdentity";
 export * from "./xml";

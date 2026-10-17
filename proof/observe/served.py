@@ -157,7 +157,8 @@ class Serving:
         """What a worker's device makes of the state (``proof.android.observe.app``): the released build's
         archive, or ``archive`` (Nova's local export) installed, over HQ's views of the state; with
         ``delivered``, its requests made as the worker HQ made and its restore and forms delivered to HQ's own
-        addresses for the worker and the app (``proof.android.hq``); on a phone, or a tablet held in landscape (``device``)."""
+        addresses for the worker and the app (``proof.android.hq``); on a phone, or a tablet held in landscape
+        (``device``)."""
         from proof.android import observe as android
 
         archive = android.release_archive(self.served) if archive is None else archive
@@ -234,12 +235,22 @@ def serving(unit, document, app_id, *, driver, blobs, label, previous=None, chan
     return opened()
 
 
-def _devices(held, document, a_record, b_record, blobs) -> dict:
+def local_archive(path, app_id) -> bytes:
+    """Nova's local archive at ``path`` as the deployment's archive names its app: the working app HQ holds, A, in
+    place of the placeholder its capture named (``proof.hq.operations.with_runtime_app_id``). A control's pre-fix
+    archive names no app and is read as it is."""
+    from proof.hq.operations import with_runtime_app_id
+
+    return with_runtime_app_id(path.read_bytes(), app_id)
+
+
+def _devices(held, document, app_id, a_record, b_record, blobs) -> dict:
     """Two exports of one app on a device (``Serving.devices``): Nova's two local exports, where the document has
-    both, and HQ's builds of A then B, where HQ released both. Nova's local exports name no server (finding 59),
-    so the device updated from one to the other is given the input the lane gives Core over them (``delivered``):
+    both, each naming A (``local_archive``), and HQ's builds of A then B, where HQ released both. The device
+    updated from one local export to the other is given the input the lane gives Core over them (``delivered``):
     a worker who signs in, as on the device whose walks proof 3 compares, so the forms they leave incomplete
-    before the update are theirs to reopen after it, as on HQ's builds."""
+    before the update are theirs to reopen after it, as on HQ's builds. (A control's pre-fix exports name no
+    server, finding 59, so without that input its device would meet Android's own defaults.)"""
     from proof.android import observe as android
 
     found = {}
@@ -248,7 +259,12 @@ def _devices(held, document, a_record, b_record, blobs) -> dict:
     if document.local_ccz is not None:
         again = document.local_ccz.parent / "local-again.ccz"
         if again.is_file():
-            found["local"] = held.devices("local", document.local_ccz.read_bytes(), again.read_bytes(), delivered=True)
+            found["local"] = held.devices(
+                "local",
+                local_archive(document.local_ccz, app_id),
+                local_archive(again, app_id),
+                delivered=True,
+            )
     a_state = (a_record or {}).get("state") or {}
     b_state = (b_record or {}).get("state") or {}
     if android.released(a_state.get("build")) and android.released(b_state.get("build")):
@@ -392,24 +408,22 @@ def aligned(
                         kept = forwarder.take(blobs)
                         if kept is not None:
                             recorded["B"]["connect"] = kept
-                recorded["devices"] = _devices(held, document, a_record, b_record, blobs)
+                recorded["devices"] = _devices(held, document, app_id, a_record, b_record, blobs)
                 if document.local_ccz is not None:
+                    local = local_archive(document.local_ccz, app_id)
                     with connect_.reading(forwarder, "formplayer"):
                         local_side, local_trace = held.local(document, script)
-                    # A device on Nova's local archive as Android meets it (its requests to Android's own defaults,
-                    # finding 59), and one given the input the lane gives Core over that archive.
+                    # A device on Nova's local archive as Android meets it (its requests to the addresses its
+                    # profile names; on a control's pre-fix archive, to Android's own defaults, finding 59), and one
+                    # given the input the lane gives Core over that archive.
                     recorded["local"] = {
                         "formplayer": local_side,
-                        **(
-                            {"android": held.android("local", document.local_ccz.read_bytes())}
-                            if observes("android")
-                            else {}
-                        ),
-                        **held.devices_on("local:delivered", document.local_ccz.read_bytes(), delivered=True),
+                        **({"android": held.android("local", local)} if observes("android") else {}),
+                        **held.devices_on("local:delivered", local, delivered=True),
                     }
                     if forwarder is not None:
                         forwarder.walked(local_trace)
-                        kept = forwarder.take(blobs, archives=[document.local_ccz.read_bytes()])
+                        kept = forwarder.take(blobs, archives=[local])
                         if kept is not None:
                             recorded["local"]["connect"] = kept
     except ReleaseRefused as error:

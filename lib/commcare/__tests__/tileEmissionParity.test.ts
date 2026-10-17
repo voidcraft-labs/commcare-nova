@@ -10,6 +10,7 @@ import { blueprintDocSchema, orderedColumns } from "@/lib/domain";
 import { splitTileGridByGroupHeader } from "@/lib/preview/caseTileGrouping";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { tileFixture, tileScenarios } from "./tileFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
@@ -22,7 +23,11 @@ describe("delivered case tiles", () => {
 			blueprintDocSchema.parse(toPersistableDoc(doc));
 			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 			const hq = expandDoc(doc);
-			const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+			const zip = new AdmZip(
+				compileCcz(hq, doc.appName, doc, {
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
+			);
 			const suite = readXmlEvidence(zip.readAsText("suite.xml"));
 			const details = xmlChildren(suite, "detail");
 			const search = scenario === "grouped-search";

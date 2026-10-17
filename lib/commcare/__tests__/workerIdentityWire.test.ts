@@ -8,6 +8,7 @@ import { blueprintDocSchema } from "@/lib/domain";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import { runValidation } from "../validator/runner";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import {
 	WORKER_PROPERTY,
 	workerSlugs,
@@ -29,7 +30,11 @@ describe("worker property wire projection", () => {
 			const { doc } = workerWireFixture(slug),
 				before = structuredClone(doc),
 				hq = expandDoc(doc),
-				zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+				zip = new AdmZip(
+					compileCcz(hq, doc.appName, doc, {
+						runtimeTarget: TEST_RUNTIME_TARGET,
+					}),
+				);
 			const menuCondition = `instance('commcaresession')/session/user/data/${slug} = 'n'`;
 			expect(hq.modules[0].module_filter).toBe(menuCondition);
 			const menu = elements(zip.readAsText("suite.xml"), "menu").find(

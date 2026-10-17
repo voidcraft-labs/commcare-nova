@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"build_comment\": null, \"built_from_app_id\": null, \"built_on\": null, \"id\": \"e47eb37067ab46dca8063597d3b980d5\", \"is_released\": false, \"modules\": [{\"case_properties\": [\"name\"], \"case_type\": \"\", \"forms\": [{\"name\": {\"en\": \"Visit\", \"es\": \"Visit\"}, \"questions\": [{\"comment\": null, \"constraint\": null, \"group\": null, \"hashtagValue\": \"#form/section\", \"is_group\": true, \"label\": \"Sección\", \"label_ref\": \"section-label\", \"relevant\": null, \"repeat\": null, \"required\": false, \"setvalue\": null, \"tag\": \"group\", \"translations\": {\"es\": \"Sección\"}, \"type\": \"FieldList\", \"value\": \"/data/section\"}, {\"comment\": null, \"constraint\": \". != ''\", \"constraintMsg_ref\": \"section-name-constraintMsg\", \"group\": \"/data/section\", \"hashtagValue\": \"#form/section/name\", \"is_group\": false, \"label\": \"Name\", \"label_ref\": \"section-name-label\", \"relevant\": null, \"repeat\": null, \"required\": false, \"setvalue\": null, \"tag\": \"input\", \"translations\": {\"en\": \"Name\", \"es\": \"Name\"}, \"type\": \"Text\", \"value\": \"/data/section/name\"}], \"unique_id\": \"ab53f46e2a82809a29f26137adccd9187e620aed\", \"xmlns\": \"http://openrosa.org/formdesigner/6d589420121f63ba\"}], \"name\": {\"en\": \"Patients\", \"es\": \"Patients\"}, \"unique_id\": \"963df3488a4bdb5874da6ac335f33810bbd66a93\"}], \"name\": \"Target-only prose\", \"resource_uri\": \"\", \"version\": 2, \"versions\": []}"
+}

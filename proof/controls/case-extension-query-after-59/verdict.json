@@ -1,0 +1,21 @@
+{
+	"capabilities": [
+		{
+			"id": "case-attachments",
+			"flags": [
+				{
+					"symbol": "MM_CASE_PROPERTIES",
+					"slug": "mm_case_properties"
+				}
+			],
+			"runtimeProbes": []
+		}
+	],
+	"advisories": [],
+	"minimumConfiguration": {
+		"flags": [
+			"MM_CASE_PROPERTIES"
+		],
+		"caseSearchEnabled": false
+	}
+}

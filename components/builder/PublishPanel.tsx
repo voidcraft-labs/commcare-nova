@@ -37,6 +37,10 @@ import {
 	EXPORT_ADVISORY_HEADER,
 } from "@/lib/publish/exportAdvisories";
 import {
+	decodeManualImportGuide,
+	MANUAL_IMPORT_GUIDE_HEADER,
+} from "@/lib/publish/manualImportGuide";
+import {
 	decodeProjectSpaceCompatibilityReport,
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 	type ProjectSpaceCompatibilityReport,
@@ -88,11 +92,12 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
 async function downloadArtifact(opts: {
 	appId: string;
 	server?: CommCareServer;
+	/** The project space a CCZ is made for; the import file takes none. */
+	domain?: string;
 	endpoint: string;
 	/** Noun for the failure toast, e.g. `"the .ccz file"` / `"the JSON file"`. */
 	fileLabel: string;
-	/** Derive the download filename from the response blob (its MIME type may pick the extension). */
-	filename: (blob: Blob) => string;
+	filename: string;
 	signal: AbortSignal;
 	isCurrent: () => boolean;
 	toast: (
@@ -106,10 +111,12 @@ async function downloadArtifact(opts: {
 		const res = await fetch(opts.endpoint, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			// The route loads the authorized blueprint and resolves the chosen server.
+			// The route loads the authorized blueprint and resolves the chosen
+			// project space.
 			body: JSON.stringify({
 				appId: opts.appId,
 				...(opts.server ? { server: opts.server } : {}),
+				...(opts.domain ? { domain: opts.domain } : {}),
 			}),
 			signal: opts.signal,
 		});
@@ -145,10 +152,20 @@ async function downloadArtifact(opts: {
 		const advisories = decodeExportAdvisories(
 			res.headers.get(EXPORT_ADVISORY_HEADER),
 		);
+		// The import file's manual steps, read the same way: a missing or
+		// unreadable header shows none, and the README in the file holds them.
+		const manualImportGuide = decodeManualImportGuide(
+			res.headers.get(MANUAL_IMPORT_GUIDE_HEADER),
+		);
 		const blob = await res.blob();
 		if (!opts.isCurrent()) return { ok: false };
-		triggerBlobDownload(blob, opts.filename(blob));
-		return { ok: true, projectSpaceCompatibility, advisories };
+		triggerBlobDownload(blob, opts.filename);
+		return {
+			ok: true,
+			projectSpaceCompatibility,
+			advisories,
+			manualImportGuide,
+		};
 	} catch (error) {
 		if (
 			opts.signal.aborted ||
@@ -267,19 +284,22 @@ export const PublishPanel = memo(function PublishPanel() {
 	}, [docStore]);
 
 	const handleDownloadCcz = useCallback(
-		async (
-			downloadServer?: CommCareServer,
-		): Promise<PublishDownloadOutcome> => {
+		async (target: {
+			readonly server: CommCareServer;
+			readonly domain: string;
+		}): Promise<PublishDownloadOutcome> => {
 			const s = docStore?.getState();
 			if (!s || s.moduleOrder.length === 0 || !s.appId) return { ok: false };
 			// The compile endpoint returns the `.ccz` bytes inline: one request, no
-			// separate download round-trip.
+			// separate download round-trip. The archive is made for the project
+			// space the dialog chose.
 			return runDownload({
 				appId: s.appId,
-				server: downloadServer,
+				server: target.server,
+				domain: target.domain,
 				endpoint: "/api/compile",
 				fileLabel: "the .ccz file",
-				filename: () => `${s.appName || "app"}.ccz`,
+				filename: `${s.appName || "app"}.ccz`,
 			});
 		},
 		[docStore, runDownload],
@@ -295,12 +315,10 @@ export const PublishPanel = memo(function PublishPanel() {
 				appId: s.appId,
 				server: downloadServer,
 				endpoint: "/api/compile/json",
-				fileLabel: "the JSON file",
-				// Media-aware: a media-free app comes back as a plain `.json`; an app
-				// WITH media comes back as a `.zip` bundle. Name the download from the
-				// response blob's MIME type.
-				filename: (blob) =>
-					`${s.appName || "app"}.${blob.type.includes("zip") ? "zip" : "json"}`,
+				fileLabel: "the CommCare HQ import file",
+				// The import file is always a ZIP: the app, its companions, and the
+				// README that walks through the import.
+				filename: `${s.appName || "app"}.zip`,
 			});
 		},
 		[docStore, runDownload],

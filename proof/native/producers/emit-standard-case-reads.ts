@@ -6,6 +6,7 @@ import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
 import { runValidation } from "../../../lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
 if (!output)
@@ -15,7 +16,9 @@ if (!output)
 const doc = standardCaseReadsFixture();
 const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 if (findings.length) throw new Error(JSON.stringify(findings));
-const bytes = compileCcz(expandDoc(doc), doc.appName, doc);
+const bytes = compileCcz(expandDoc(doc), doc.appName, doc, {
+	runtimeTarget: NATIVE_RUNTIME_TARGET,
+});
 mkdirSync(output, { recursive: true });
 writeFileSync(resolve(output, "standard-case-reads.ccz"), bytes);
 writeFileSync(

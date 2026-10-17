@@ -5,15 +5,14 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 import { isCommCareServer } from "@/lib/commcare/servers";
 import { resolveAppAccess } from "@/lib/db/appAccess";
-import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
-import { attachmentUrlTargetFor } from "@/lib/deployment/attachmentTarget";
 import {
-	downloadDeploymentTarget,
-	downloadRuntimeTarget,
-} from "@/lib/deployment/runtimeTarget";
+	type DownloadTarget,
+	downloadAttachmentState,
+	resolveDownloadTarget,
+} from "@/lib/deployment/downloadTarget";
+import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { PersistableDoc } from "@/lib/domain";
@@ -30,16 +29,24 @@ import type { AttachmentTargetState } from "@/lib/publish/exportAdvisories";
  * The lookup snapshot keeps its authorized Project identity because later
  * emitters must consume the generation validated here; it remains server-only.
  *
+ * `download` is the project space the download is made for: for a `.ccz`
+ * the one reached deployment whose addresses, HQ app id and ids the archive
+ * carries, and for the import file only what scopes its attachment links.
+ *
  * `attachmentTargetState` rides alongside the boundary's resolved
  * `attachmentTarget` because the two answer different questions. The emitter
  * needs the address or nothing; the person downloading the file needs to know
  * WHY there is nothing, and "no project space holds this app yet" leaves them
  * somewhere different than "several do".
  */
-export type PreparedCompileRequest = PreparedExportBoundary & {
-	readonly runtimeTarget: RuntimeTarget;
-	readonly attachmentTargetState: AttachmentTargetState;
-};
+export type PreparedCompileRequest<M extends "ccz" | "hq-json"> =
+	PreparedExportBoundary & {
+		readonly download: Extract<
+			DownloadTarget,
+			{ format: M extends "ccz" ? "ccz" : "json" }
+		>;
+		readonly attachmentTargetState: AttachmentTargetState;
+	};
 
 /**
  * The shared front half of the two CommCare export routes: `/api/compile`
@@ -55,16 +62,18 @@ export type PreparedCompileRequest = PreparedExportBoundary & {
  * per-route difference is the gate wording, so the caller passes the verb
  * that completes "…isn't ready to <verb>."
  */
-export async function prepareCompileRequest(
+export async function prepareCompileRequest<
+	M extends Extract<ExportMode, "ccz" | "hq-json">,
+>(
 	req: NextRequest,
 	{
 		boundaryErrorVerb,
 		mode,
 	}: {
 		boundaryErrorVerb: "compile" | "export";
-		mode: Extract<ExportMode, "ccz" | "hq-json">;
+		mode: M;
 	},
-): Promise<PreparedCompileRequest> {
+): Promise<PreparedCompileRequest<M>> {
 	const session = await requireSession(req);
 	// The client sends only the app id: the blueprint loads server-side, so no
 	// whole doc crosses the wire. (The auto-save persists edits within ~1s, and
@@ -89,24 +98,11 @@ export async function prepareCompileRequest(
 		app.blueprint as PersistableDoc,
 	);
 
-	// The transaction-boundary gate: zero tolerance, before any expensive
-	// work. Every finding (soundness, completeness, media-state) rejects the
-	// export with the rule's own actionable message: an invalid app must
-	// never leave for a device or CommCare HQ, and a stale media reference
-	// would otherwise make the media-ON `expandDoc` throw `requireAssetRef`
-	// → opaque 500.
-	// A downloadable app and an import file both have to be TOLD where their
-	// attachment links resolve — neither carries a target of its own. The
-	// app's deployment record answers when exactly one project space holds
-	// it; with none, or with several, there is no honest answer and the
-	// links are left out.
-	const scope = {
-		appId,
-		projectId: access.projectId,
-		role: access.role,
-		actorUserId: access.actorUserId,
-	};
-	const attachmentDeploymentTarget = await attachmentDeploymentTargetFor(scope);
+	// A `.ccz` is made for one project space this app is published to, and
+	// the import file for none: a reached deployment only scopes its
+	// attachment links. The choice reads the ledger and, for a `.ccz` of an
+	// app published nowhere, which menu's selection feeds which; it reads no
+	// Project data, so a refusal costs no lookup or media read.
 	const server = (body as { server?: unknown } | null)?.server;
 	if (
 		server !== undefined &&
@@ -114,20 +110,34 @@ export async function prepareCompileRequest(
 	) {
 		throw new ApiError("Choose US, India, or EU as the CommCare server.", 400);
 	}
-	const runtimeTarget = downloadRuntimeTarget(
-		attachmentDeploymentTarget,
-		server,
+	const domain = (body as { domain?: unknown } | null)?.domain;
+	if (domain !== undefined && (typeof domain !== "string" || domain === "")) {
+		throw new ApiError("Choose a project space by its name.", 400);
+	}
+	const download = await resolveDownloadTarget(
+		{
+			appId,
+			projectId: access.projectId,
+			role: access.role,
+			actorUserId: access.actorUserId,
+		},
+		{
+			format: mode === "ccz" ? "ccz" : "json",
+			...(server !== undefined && { server }),
+			...(domain !== undefined && { domain }),
+			doc: docWithParent,
+		},
 	);
-	if (!runtimeTarget)
-		throw new ApiError(
-			"Choose a CommCare server for this download, then try again.",
-			422,
-		);
+	if ("kind" in download) {
+		throw new ApiError(download.message, 422, downloadRefusalLines(download));
+	}
 
-	const selectedDeployment = downloadDeploymentTarget(
-		attachmentDeploymentTarget,
-		server,
-	);
+	// The transaction-boundary gate: zero tolerance, before any expensive
+	// work. Every finding (soundness, completeness, media-state) rejects the
+	// export with the rule's own actionable message: an invalid app must
+	// never leave for a device or CommCare HQ, and a stale media reference
+	// would otherwise make the media-ON `expandDoc` throw `requireAssetRef`
+	// → opaque 500.
 	const boundary = await prepareExportBoundary({
 		mode,
 		access: {
@@ -137,7 +147,7 @@ export async function prepareCompileRequest(
 		},
 		doc: docWithParent,
 		compiledAtSeq: app.mutation_seq,
-		attachmentTarget: attachmentUrlTargetFor(selectedDeployment),
+		attachmentTarget: download.attachmentTarget,
 	});
 	if (!boundary.ok) {
 		// The concise builder copy on the detail lines: this is a
@@ -152,7 +162,7 @@ export async function prepareCompileRequest(
 
 	return {
 		...boundary.prepared,
-		runtimeTarget,
-		attachmentTargetState: selectedDeployment.kind,
+		download: download as PreparedCompileRequest<M>["download"],
+		attachmentTargetState: downloadAttachmentState(download),
 	};
 }

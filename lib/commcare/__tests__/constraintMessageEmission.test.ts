@@ -21,6 +21,7 @@ import {
 } from "./constraintMessageFixture";
 import { containerWireFixture } from "./containerWireFixture";
 import { mediaIds, mediaManifest } from "./mediaWireFixtures";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
 
 function descendants(node: XmlEvidence, name: string): XmlEvidence[] {
@@ -71,6 +72,7 @@ function routes(
 		readXmlEvidence(
 			new AdmZip(
 				compileCcz(hq, fixture.doc.appName, fixture.doc, {
+					runtimeTarget: TEST_RUNTIME_TARGET,
 					assets: fixture.assets,
 				}),
 			).readAsText("modules-0/forms-0.xml"),
@@ -93,6 +95,7 @@ function translate(
 		sourceLanguage: "eng",
 		defaultLanguage: "eng",
 		languageOrder: ["eng", "spa"],
+		wireCodes: { eng: "en", spa: "es" },
 		translations: {
 			spa: {
 				[unitId]: {
@@ -451,6 +454,7 @@ describe("constraint message emission", () => {
 				sourceLanguage: "eng",
 				defaultLanguage: "eng",
 				languageOrder: ["eng", "spa"],
+				wireCodes: { eng: "en", spa: "es" },
 				translations: { spa: {} },
 			};
 			admitConstraintMessageFixture(doc);

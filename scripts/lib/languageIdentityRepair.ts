@@ -25,6 +25,10 @@ import {
 } from "../../lib/db/canonicalMutationFold";
 import { parsePersistedJsonText } from "../../lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "../../lib/db/pg";
+import {
+	addLanguageMutation,
+	relabelSourceLanguageMutation,
+} from "../../lib/doc/languageMutations";
 import { mutationSchema } from "../../lib/doc/types";
 import {
 	identityIssues,
@@ -41,6 +45,7 @@ import {
 	type LanguageTag,
 	languageTag,
 	languageTagSchema,
+	languageWireCodeSchema,
 	localizedValueSchema,
 	parseLanguageTag,
 	translationUnitIdSchema,
@@ -200,6 +205,7 @@ const oldIdentityCarrierSchema = z.strictObject({
 const newIdentityCarrierSchema = z.strictObject({
 	kind: z.enum(["relabelSourceLanguage", "addLanguage"]),
 	language: appLanguageIdentitySchema,
+	wireCode: languageWireCodeSchema.optional(),
 });
 
 const oldUpdateLanguageSchema = z.strictObject({
@@ -504,24 +510,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // Effective language-catalog state used to resolve a batch emptied by
-// dropping metadata-only `updateLanguage` mutations. Setting the same default
-// retains the history revision without changing language semantics. The real
-// fold proof, including English-only dematerialization, owns stored equality.
+// dropping metadata-only `updateLanguage` mutations, and to mint each
+// rewritten language's wire code against the codes the app holds at that row.
+// Setting the same default retains the history revision without changing
+// language semantics. The real fold proof, including English-only
+// dematerialization, owns stored equality.
 interface MiniLocalizationState {
 	source: LanguageTag;
 	default: LanguageTag;
 	order: LanguageTag[];
+	wireCodes: Map<LanguageTag, string>;
 }
 type MiniFoldState = MiniLocalizationState | null;
 
 function miniMaterialize(state: MiniFoldState): MiniLocalizationState {
-	return state ?? { source: "eng", default: "eng", order: ["eng"] };
+	return (
+		state ?? {
+			source: "eng",
+			default: "eng",
+			order: ["eng"],
+			wireCodes: new Map([["eng", "en"]]),
+		}
+	);
+}
+
+/** The wire codes the folded languages hold, for minting the next one. */
+function miniHeldWireCodes(state: MiniFoldState): Set<string> {
+	return new Set(miniMaterialize(state).wireCodes.values());
 }
 
 function miniApply(
 	state: MiniFoldState,
 	mutation:
-		| { kind: "relabelSourceLanguage" | "addLanguage"; tag: LanguageTag }
+		| {
+				kind: "relabelSourceLanguage" | "addLanguage";
+				tag: LanguageTag;
+				wireCode: string;
+		  }
 		| { kind: "removeLanguage" | "setDefaultLanguage"; tag: LanguageTag }
 		| { kind: "materialize-only" },
 ): MiniFoldState {
@@ -533,11 +558,18 @@ function miniApply(
 				source: mutation.tag,
 				default: mutation.tag,
 				order: [mutation.tag],
+				wireCodes: new Map([[mutation.tag, mutation.wireCode]]),
 			};
 		}
 		case "addLanguage": {
 			const next = miniMaterialize(state);
-			if (!next.order.includes(mutation.tag)) next.order.push(mutation.tag);
+			if (
+				!next.order.includes(mutation.tag) &&
+				![...next.wireCodes.values()].includes(mutation.wireCode)
+			) {
+				next.order.push(mutation.tag);
+				next.wireCodes.set(mutation.tag, mutation.wireCode);
+			}
 			return next;
 		}
 		case "removeLanguage": {
@@ -548,6 +580,7 @@ function miniApply(
 				next.order.includes(mutation.tag)
 			) {
 				next.order = next.order.filter((tag) => tag !== mutation.tag);
+				next.wireCodes.delete(mutation.tag);
 			}
 			return next;
 		}
@@ -565,6 +598,34 @@ function miniApply(
 		case "materialize-only":
 			return miniMaterialize(state);
 	}
+}
+
+/**
+ * Each language's wire code as the planner mints it when the languages join
+ * the app one by one in `languageOrder`, the order a root holds them in.
+ */
+function wireCodesMintedInOrder(
+	languageOrder: readonly LanguageTag[],
+): Record<LanguageTag, string> {
+	const held = new Set<string>();
+	const wireCodes: Record<LanguageTag, string> = {};
+	for (const tag of languageOrder) {
+		const { wireCode } = addLanguageMutation(held, parseLanguageTag(tag));
+		held.add(wireCode);
+		wireCodes[tag] = wireCode;
+	}
+	return wireCodes;
+}
+
+/** A rewritten identity carrier, its code minted against the folded state. */
+function mintedCarrier(
+	kind: "relabelSourceLanguage" | "addLanguage",
+	identity: AppLanguageIdentity,
+	state: MiniFoldState,
+): { kind: typeof kind; language: AppLanguageIdentity; wireCode: string } {
+	return kind === "relabelSourceLanguage"
+		? relabelSourceLanguageMutation(identity)
+		: addLanguageMutation(miniHeldWireCodes(state), identity);
 }
 
 /**
@@ -715,6 +776,7 @@ export function planLanguageIdentityRepair(
 			defaultLanguage: need(old.defaultLanguage),
 			languageOrder,
 			translations,
+			wireCodes: wireCodesMintedInOrder(languageOrder),
 		};
 		const admitted = appLocalizationSchema.safeParse(root);
 		if (!admitted.success) {
@@ -862,6 +924,7 @@ export function planLanguageIdentityRepair(
 				source: admitted.data.sourceLanguage,
 				default: admitted.data.defaultLanguage,
 				order: [...admitted.data.languageOrder],
+				wireCodes: new Map(Object.entries(admitted.data.wireCodes)),
 			};
 		}
 	}
@@ -925,10 +988,25 @@ export function planLanguageIdentityRepair(
 						);
 						continue;
 					}
+					const tag = languageTag(asNew.data.language);
+					if (asNew.data.wireCode === undefined) {
+						// A structured identity from before codes were carried takes
+						// the code the planner mints at this point of the fold.
+						const carried = mintedCarrier(kind, asNew.data.language, miniState);
+						nextElements.push(carried);
+						changed = true;
+						miniState = miniApply(miniState, {
+							kind,
+							tag,
+							wireCode: carried.wireCode,
+						});
+						continue;
+					}
 					nextElements.push(element);
 					miniState = miniApply(miniState, {
 						kind,
-						tag: languageTag(asNew.data.language),
+						tag,
+						wireCode: asNew.data.wireCode,
 					});
 					continue;
 				}
@@ -948,9 +1026,14 @@ export function planLanguageIdentityRepair(
 				);
 				if (identity === undefined) continue;
 				noteDroppedMetadata("change-row", ref, asOld.data.language, identity);
-				nextElements.push({ kind, language: identity });
+				const carried = mintedCarrier(kind, identity, miniState);
+				nextElements.push(carried);
 				changed = true;
-				miniState = miniApply(miniState, { kind, tag: languageTag(identity) });
+				miniState = miniApply(miniState, {
+					kind,
+					tag: languageTag(identity),
+					wireCode: carried.wireCode,
+				});
 				continue;
 			}
 			if (kind === "updateLanguage") {
@@ -1077,6 +1160,32 @@ export function planLanguageIdentityRepair(
 			mutationsText: JSON.stringify(nextElements),
 			replacedEmptiedBatch,
 		});
+	}
+
+	// A rewritten root holds the codes its languages took in the fold of the
+	// rows above, so the fold proof reaches it exactly. A root the rows never
+	// reach keeps the codes minted in its own language order.
+	if (
+		rootAction === "rewrite" &&
+		rootRewriteText !== null &&
+		miniState !== null
+	) {
+		const folded = miniState;
+		const root = appLocalizationSchema.parse(JSON.parse(rootRewriteText));
+		if (
+			root.languageOrder.length === folded.order.length &&
+			root.languageOrder.every((tag) => folded.wireCodes.has(tag))
+		) {
+			const withFoldedCodes = appLocalizationSchema.safeParse({
+				...root,
+				wireCodes: Object.fromEntries(
+					root.languageOrder.map((tag) => [tag, folded.wireCodes.get(tag)]),
+				),
+			});
+			if (withFoldedCodes.success) {
+				rootRewriteText = JSON.stringify(withFoldedCodes.data);
+			}
+		}
 	}
 
 	// ── Translation-batch state ────────────────────────────────────

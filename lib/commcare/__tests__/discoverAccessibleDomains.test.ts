@@ -185,6 +185,7 @@ it("returns transport, JSON, permission and throttle failures rather than incomp
 		expect(await discoverAccessibleDomains(CREDS)).toEqual({
 			success: false,
 			status: 502,
+			cause: "malformed",
 		});
 		peer
 			.get(HOST)
@@ -193,6 +194,7 @@ it("returns transport, JSON, permission and throttle failures rather than incomp
 		expect(await discoverAccessibleDomains(CREDS)).toEqual({
 			success: false,
 			status: 503,
+			cause: "network",
 		});
 		expect(
 			peer
@@ -221,6 +223,7 @@ it("does not call a redirected or HTML login page successful app access", async 
 		expect(await testDomainAccess(CREDS, "alpha")).toEqual({
 			success: false,
 			status: 502,
+			cause: "malformed",
 		});
 		expect(
 			peer
@@ -335,7 +338,9 @@ it("finishes in-flight probes but starts no next window after a transport failur
 			await new Promise<void>((resolve) => setImmediate(resolve));
 			expect(settled).toBe(false);
 			release.resolve();
-			expect(await pending).toEqual({ value: { success: false, status: 503 } });
+			expect(await pending).toEqual({
+				value: { success: false, status: 503, cause: "network" },
+			});
 			expect(active).toBe(0);
 		} finally {
 			release.resolve();
@@ -377,7 +382,11 @@ it.each(["membership", "app access"] as const)(
 			try {
 				await reached.promise;
 				await vi.advanceTimersByTimeAsync(30_000);
-				expect(await pending).toEqual({ success: false, status: 503 });
+				expect(await pending).toEqual({
+					success: false,
+					status: 503,
+					cause: "timeout",
+				});
 				expect(vi.getTimerCount()).toBe(0);
 			} finally {
 				release.resolve();

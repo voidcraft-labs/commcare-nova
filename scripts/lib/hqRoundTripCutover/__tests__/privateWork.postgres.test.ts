@@ -128,13 +128,30 @@ describe("private work across the cutover", () => {
 		const notices = await sql<{ app_id: string; entries: unknown }>`
 			SELECT app_id, entries FROM app_migration_notices ORDER BY app_id
 		`.execute(h.db());
+		// No app here is published anywhere, so the live ones are also told a
+		// CCZ needs a project space; the deleted one is not.
 		expect(notices.rows).toEqual([
 			{
 				app_id: "app-a-working",
 				entries: [
 					{
 						kind: "document",
+						reason: "ccz-needs-project-space",
+						entity: { type: "app", nameAtMigration: expect.any(String) },
+					},
+					{
+						kind: "document",
 						reason: "unsaved-assistant-work-discarded",
+						entity: { type: "app", nameAtMigration: expect.any(String) },
+					},
+				],
+			},
+			{
+				app_id: "app-b-idle",
+				entries: [
+					{
+						kind: "document",
+						reason: "ccz-needs-project-space",
 						entity: { type: "app", nameAtMigration: expect.any(String) },
 					},
 				],
@@ -235,11 +252,11 @@ describe("private work across the cutover", () => {
 				.execute(),
 		).toEqual([{ status: "superseded" }]);
 		expect(await h.readDesignSessionRow(idle)).toEqual(idleBefore);
-		const notices = await h
-			.db()
-			.selectFrom("app_migration_notices")
-			.select("app_id")
-			.execute();
-		expect(notices).toEqual([]);
+		// A notice belongs to an app, and a pre-app build has none.
+		const discarded = await sql<{ app_id: string }>`
+			SELECT app_id FROM app_migration_notices
+			WHERE entries @> '[{"reason":"unsaved-assistant-work-discarded"}]'::jsonb
+		`.execute(h.db());
+		expect(discarded.rows).toEqual([]);
 	}, 30_000);
 });

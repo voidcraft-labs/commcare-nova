@@ -426,8 +426,10 @@ data directly, so there is nothing else to configure.
 When Search reaches cases that are not already available in the app, the
 destination project space needs **Case search** support. Nova checks for that
 support before a direct publish and sends nothing if it is missing or cannot be
-confirmed. Downloads stay available so you can choose and check the destination
-later. See [Project-space compatibility](/docs/project-space-compatibility).
+confirmed. That check never holds back a download: the CommCare HQ app file
+stays available for any app CommCare HQ can take, so you can choose and check
+the destination later, and a CommCare mobile app file is there for each project
+space the app is already published to. See [Project-space compatibility](/docs/project-space-compatibility).
 
 Nova also includes faster handling for large Search results automatically when
 the project space supports it. That performance check never blocks publishing.

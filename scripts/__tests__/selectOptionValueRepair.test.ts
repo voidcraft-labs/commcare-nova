@@ -229,6 +229,7 @@ describe("planSelectOptionValueRepair", () => {
 				sourceLanguage: "eng",
 				defaultLanguage: "eng",
 				languageOrder: ["eng", "fra"],
+				wireCodes: { eng: "en", fra: "fra" },
 				translations: { fra: { [oldUnitId]: entry } },
 			},
 		};

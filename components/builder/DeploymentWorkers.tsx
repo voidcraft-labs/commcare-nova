@@ -32,7 +32,7 @@ import type {
 	ProvisionWorkersView,
 } from "@/lib/deployment/actions";
 import { provisionWorkersAction } from "@/lib/deployment/actions";
-import { activeRemoteApp } from "@/lib/deployment/resources";
+import { publishedRemoteApp } from "@/lib/deployment/resources";
 import type { DeploymentWithResources } from "@/lib/deployment/types";
 import { defaultWorkerUsername } from "@/lib/deployment/workerProvisionPlan";
 import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
@@ -186,13 +186,14 @@ export function DeploymentWorkers({
 
 	if (personas.length === 0) return null;
 
-	/* The app has to be on the project space first. Its places are what a
-	 * persona's assignment points at, and an account that can sign in to an
-	 * app that is not there has nothing to do. The predicate is the mapping
-	 * rather than the state — exactly what the server refuses on — because
+	/* The app's content has to be on the project space first. Its places
+	 * are what a persona's assignment points at, and an account that can
+	 * sign in to an app that is not there, or is only the empty app a first
+	 * publish makes, has nothing to do. The predicate is the mapping rather
+	 * than the state — exactly what the server refuses on — because
 	 * `incomplete` covers both a deployment that never got there and one
 	 * that got there and then stumbled. */
-	const published = activeRemoteApp(deployment) !== null;
+	const published = publishedRemoteApp(deployment) !== null;
 
 	return (
 		<section aria-labelledby={headingId} className="mt-4">

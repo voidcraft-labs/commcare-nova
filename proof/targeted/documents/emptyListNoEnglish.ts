@@ -98,6 +98,7 @@ export function emptyListNoEnglish() {
 		sourceLanguage: "spa",
 		defaultLanguage: "spa",
 		languageOrder: ["spa"],
+		wireCodes: { spa: "es" },
 		translations: {},
 	};
 	const restore = restoreXml({

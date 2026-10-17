@@ -5,16 +5,15 @@
  *
  * Contract (`../entropy.mts`): an operation's draws are a function of the
  * corpus seed, its ordinal and its configuration alone, through every
- * entry point Nova reaches (`lib/commcare/ids.ts` over `randomBytes`, the
- * compiler's `randomUUID`, `lib/doc`'s `crypto.randomUUID`, and the
- * `getRandomValues` and `randomFillSync` other modules use), and through
- * their callback forms. The plausible failures: one generator shared by
+ * entry point Nova reaches (`randomBytes`, the compiler's `randomUUID`,
+ * `lib/doc`'s `crypto.randomUUID`, and the `getRandomValues` and
+ * `randomFillSync` other modules use), and through their callback forms. The plausible failures: one generator shared by
  * operations that interleave across awaits, so a draw's value depends on
  * scheduling; an entry point left unpatched, so its draws stay random; a
  * patched entry point that writes outside the range it was asked to fill or
  * accepts what Node refuses; seeding that leaks outside an operation, so
  * draws the corpus never asked to seed repeat; two exports sharing an
- * ordinal, so an id one mints names another's entity; and a census
+ * ordinal, so two exports Nova keeps apart draw one value; and a census
  * (`PROOF_ENTROPY_TRACE`) that cannot say where a read came from when the
  * code on the stack lowered `Error.stackTraceLimit`.
  */
@@ -33,7 +32,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { genHexId, genShortId } from "@/lib/commcare/ids";
 import { ENTROPY_PRELOAD, emissionEnv } from "../emissionProcess";
 import {
 	type EntropyOperation,
@@ -54,8 +52,6 @@ function drawEach(): string[] {
 	const filled = new Uint8Array(6);
 	randomFillSync(filled);
 	return [
-		genHexId(),
-		genShortId(),
 		randomUUID(),
 		globalThis.crypto.randomUUID(),
 		Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(8))).toString(
@@ -68,6 +64,9 @@ function drawEach(): string[] {
 	];
 }
 
+/** Twenty bytes of hex, one draw through `randomBytes`. */
+const hexId = () => randomBytes(20).toString("hex");
+
 const UUID_V4 =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -79,8 +78,8 @@ describe("seeded entropy", () => {
 	it("answers an operation's draws from its seed, ordinal and configuration alone", () => {
 		const first = seeded(CREATE, drawEach);
 		expect(seeded(CREATE, drawEach)).toEqual(first);
-		expect(first[2]).toMatch(UUID_V4);
-		expect(first[3]).toMatch(UUID_V4);
+		expect(first[0]).toMatch(UUID_V4);
+		expect(first[1]).toMatch(UUID_V4);
 		for (const other of [
 			{ ...CREATE, ordinal: OPERATION_ORDINALS.republish },
 			{ ...CREATE, configuration: LOCAL_CONFIGURATION },
@@ -98,35 +97,35 @@ describe("seeded entropy", () => {
 	});
 
 	it("keeps each operation's stream its own while operations interleave across awaits", async () => {
-		const alone = seeded(CREATE, () => [genHexId(), genHexId(), genHexId()]);
+		const alone = seeded(CREATE, () => [hexId(), hexId(), hexId()]);
 		const other: EntropyOperation = {
 			...CREATE,
 			ordinal: OPERATION_ORDINALS.local,
 		};
-		const otherAlone = seeded(other, () => [genHexId(), genHexId()]);
+		const otherAlone = seeded(other, () => [hexId(), hexId()]);
 		const yieldTurn = () =>
 			new Promise<void>((resolve) => setImmediate(resolve));
 		const [interleaved, otherInterleaved] = await Promise.all([
 			seeded(CREATE, async () => {
-				const drawn = [genHexId()];
+				const drawn = [hexId()];
 				await yieldTurn();
-				drawn.push(genHexId());
+				drawn.push(hexId());
 				await yieldTurn();
-				drawn.push(genHexId());
+				drawn.push(hexId());
 				return drawn;
 			}),
 			seeded(other, async () => {
 				await yieldTurn();
-				const drawn = [genHexId()];
+				const drawn = [hexId()];
 				await yieldTurn();
-				drawn.push(genHexId());
+				drawn.push(hexId());
 				return drawn;
 			}),
 			// Draws outside any operation, between the operations' own.
 			(async () => {
-				genHexId();
+				hexId();
 				await yieldTurn();
-				genHexId();
+				hexId();
 			})(),
 		]);
 		expect(interleaved).toEqual(alone);
@@ -134,10 +133,10 @@ describe("seeded entropy", () => {
 	});
 
 	it("draws real entropy outside an operation", () => {
-		const outside = [genHexId(), genHexId(), randomUUID(), randomUUID()];
+		const outside = [hexId(), hexId(), randomUUID(), randomUUID()];
 		expect(new Set(outside).size).toBe(outside.length);
-		expect(seeded(undefined, () => genHexId())).not.toBe(
-			seeded(undefined, () => genHexId()),
+		expect(seeded(undefined, () => hexId())).not.toBe(
+			seeded(undefined, () => hexId()),
 		);
 	});
 

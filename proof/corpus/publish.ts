@@ -7,13 +7,14 @@
  * code, not a copy of it:
  *
  * - the application JSON from `lib/deployment/importApplication.ts::hqImportApplication`,
- *   the assembly `publishAppToHq` calls;
+ *   the assembly `publishAppToHq` calls: the empty shell a first publish
+ *   creates, and every update;
  * - the project-space check from `lib/commcare/client.ts::probeHqProjectSpaceCompatibility`
  *   over `projectSpaceCompatibilityProbePlan`, whose report decides both
  *   whether Nova publishes at all and the derived Search profile key;
- * - the lookup workbook from `uploadLookupTableWorkbook`, the update's source
- *   profile from `readHqAppSourceProfile`, the upload from `importApp`, and
- *   the media upload after it from `uploadAppMediaBundle` over
+ * - the source reads from `readHqAppSource`, the lookup workbook from
+ *   `uploadLookupTableWorkbook`, the imports from `importApp`, and the media
+ *   upload after the content from `uploadAppMediaBundle` over
  *   `buildMediaBulkUploadZip` (`lib/deployment/service.ts::uploadMediaBytes`,
  *   sent whenever the prepared export carries media), each sent to a loopback
  *   peer (`./targetPeer.ts`) that answers as the configured project space
@@ -34,36 +35,40 @@
  * - an organization with no places. Preflight pushes the live places Nova
  *   holds for the app (`lib/deployment/locationResourcePlan.ts::plannedPlacesFor`),
  *   so with none a capture sends no location request, and a document whose
- *   logic reads places is published to a project space that holds none.
+ *   logic reads places is published to a project space that holds none;
+ * - a ledger that records no identity override, so every id is the derived
+ *   one (`lib/commcare/wireIdentity.ts::DERIVED_WIRE_IDENTITY`).
  *
  * A document Nova's export boundary refuses is not a corpus document: the
  * capture refuses it with the boundary's findings (`exportFindings`) before
  * anything is sent, since no project space would receive it.
  *
- * A publish is a create of D (state A) followed by one or more updates over
- * A: D again, or D′ after an edit batch. Each update is captured naming a
- * placeholder app id, with the peer answering the source read with the
- * profile HQ holds for A. HQ mints A's id, so the harness writes it into the
- * update's `app_id` field (`proof/hq/operations.py::with_app_id`). The
- * profile is an assumption about HQ, so it is recorded beside the body for
- * the HQ side to hold against HQ's own `app_source` for A before it applies
- * the update: a difference means the captured update is not the one Nova
- * would send there.
+ * A publish is a first publish of D (state A) followed by one or more
+ * updates over A: D again, or D′ after an edit batch. The first publish is
+ * two imports, in the order `publishAppToHq` sends them: the empty shell
+ * (`create`, no `app_id`), its source read, the lookup workbook, and the
+ * update that fills it (`content`, naming a placeholder app id). Each later
+ * update names the placeholder too. HQ mints A's id, so the harness writes
+ * it into each update's `app_id` field (`proof/hq/operations.py::with_app_id`).
+ * The peer answers every source read from what it holds of the app, and the
+ * fields of that source an update's body depends on (`AssumedSource`) are an
+ * assumption about HQ, so they are recorded beside the body for the HQ side
+ * to hold against HQ's own `app_source` for A before it applies the update:
+ * a difference means the captured update is not the one Nova would send
+ * there.
  *
- * Every output is deterministic apart from the identities Nova mints on each
- * export: module and form `unique_id`s and form `xmlns` in the app JSON, and
- * the profile `uniqueid` in a `.ccz`. Given a corpus seed, each publish step
- * and each local export draws those from its own seeded generator
- * (`./entropy.mts`): the create at `OPERATION_ORDINALS.create`, the first
- * update (the republish) at `OPERATION_ORDINALS.republish`, and each later
- * update at the republish's ordinal when that draw sends exactly what the
- * republish sends, and otherwise at an ordinal of its own
- * (`capturePublish`). undici draws a random multipart
- * boundary per request, so each captured body is re-framed with a fixed one
- * (after checking the re-framed body parses to the same fields), and a
- * `.ccz` and a media upload's ZIP are built with the clock fixed, because
- * each archive stamps its entries with the time (HQ reads a ZIP's names and
- * bytes, never its times: `hqmedia/tasks.py::process_bulk_upload_zip`).
+ * A publish draws no id: its menu ids, form ids and `xmlns` are derived from
+ * the document. Every output is deterministic apart from what a `.ccz` still
+ * draws, the profile `uniqueid`. Given a corpus seed, each publish step and
+ * each local export runs in its own seeded stream (`./entropy.mts`): the
+ * first publish at `OPERATION_ORDINALS.create`, the republish at
+ * `OPERATION_ORDINALS.republish`, and each later update at its own
+ * (`capturePublish`). undici draws a random multipart boundary per request,
+ * so each captured body is re-framed with a fixed one (after checking the
+ * re-framed body parses to the same fields), and a `.ccz` and a media
+ * upload's ZIP are built with the clock fixed, because each archive stamps
+ * its entries with the time (HQ reads a ZIP's names and bytes, never its
+ * times: `hqmedia/tasks.py::process_bulk_upload_zip`).
  */
 
 import { createHash } from "node:crypto";
@@ -74,7 +79,8 @@ import {
 	probeHqProjectSpaceCompatibility,
 	uploadAppMediaBundle,
 } from "@/lib/commcare/client";
-import { readHqAppSourceProfile } from "@/lib/commcare/hq/appSource";
+import { expandDoc, type HqAppShell } from "@/lib/commcare/expander";
+import { type HqAppSource, readHqAppSource } from "@/lib/commcare/hq/appSource";
 import { uploadLookupTableWorkbook } from "@/lib/commcare/hq/lookupTables";
 import {
 	type AssetManifest,
@@ -82,6 +88,10 @@ import {
 	wirePathFor,
 } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
+import {
+	buildHqJsonExportArchive,
+	hqImportFileGuide,
+} from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import {
 	HQ_PRIVATE_FEATURE_FLAG_SYMBOLS,
 	type HqPrivateFeatureFlagRequirement,
@@ -91,18 +101,12 @@ import {
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
+import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import {
-	type AttachmentDeploymentTarget,
-	attachmentUrlTarget,
-	attachmentUrlTargetFor,
-} from "@/lib/deployment/attachmentTarget";
+import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
 import { hqImportApplication } from "@/lib/deployment/importApplication";
-import {
-	downloadDeploymentTarget,
-	downloadRuntimeTarget,
-} from "@/lib/deployment/runtimeTarget";
+import { chooseDownloadTarget } from "@/lib/deployment/runtimeTarget";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import {
@@ -130,10 +134,11 @@ import {
 	partitionAssetRefs,
 	resolveBuiltinManifestEntries,
 } from "@/lib/media/builtinIconAssets";
+import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
+import { CORPUS_COMMCARE_VERSION } from "./configurations";
 import { hydrateAdmittedDocument } from "./editBatches";
 import {
 	type EntropyOperation,
-	entropySeeded,
 	OPERATION_ORDINALS,
 	seeded,
 } from "./entropy.mts";
@@ -153,8 +158,11 @@ export const PROOF_DOMAIN = "nova-proof";
 const PROOF_PROJECT = "proof-corpus";
 
 /**
- * The app id an update names at capture. HQ mints the real one when it
- * applies the create; the harness writes that into the update's `app_id`.
+ * The app id the content import and every update name at capture, and the
+ * app id a local archive's runtime URLs name. HQ mints the real one when it
+ * applies the create; the harness writes that into each update's `app_id`
+ * (`proof/hq/operations.py::with_app_id`) and into the archive's runtime
+ * URLs (`proof/hq/operations.py::with_runtime_app_id`).
  */
 export const PLACEHOLDER_APP_ID = "nova-proof-placeholder-app";
 
@@ -163,6 +171,15 @@ const CREDENTIALS: CommCareCredentials = {
 	apiKey: "nova-proof-key",
 	server: PROOF_SERVER,
 };
+
+/**
+ * The layout marker a capture writes in each import's sidecar: a first
+ * publish captured as two imports, the shell's `create` and the `content`
+ * update that fills it. A sidecar without the key is the legacy layout, a
+ * first publish that is one create, which controls retained before the two
+ * imports keep (`proof/checks/corpus.py::_captured`).
+ */
+export const TWO_IMPORT_LAYOUT = 2;
 
 /**
  * The instant a `.ccz` is built at. AdmZip stamps each archive entry with
@@ -302,8 +319,11 @@ export function minimumConfiguration(
 
 // ── The Project state preflight reads ───────────────────────────────
 
-/** The two exports a capture makes: the direct HQ upload and the `.ccz` download. */
-export type CaptureExportMode = Extract<ExportMode, "hq-upload" | "ccz">;
+/** The three exports a capture makes: the direct HQ upload, the `.ccz` download and the HQ import file. */
+export type CaptureExportMode = Extract<
+	ExportMode,
+	"hq-upload" | "ccz" | "hq-json"
+>;
 
 function compareIds(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
@@ -480,7 +500,9 @@ export class UnexportableDocumentError extends Error {
 		super(
 			mode === "hq-upload"
 				? `Nova's publish refuses corpus document ${documentId} before it sends anything (${reasons}), so no project space would receive it. Fix the document or the Project data it carries.`
-				: `Nova's compile route refuses to build corpus document ${documentId} (${reasons}), so no device would receive it. Fix the document or the Project data it carries.`,
+				: mode === "ccz"
+					? `Nova's compile route refuses to build corpus document ${documentId} (${reasons}), so no device would receive it. Fix the document or the Project data it carries.`
+					: `Nova's compile route refuses to build the HQ import file of corpus document ${documentId} (${reasons}), so no one could import it. Fix the document or the Project data it carries.`,
 		);
 		this.name = "UnexportableDocumentError";
 	}
@@ -680,8 +702,102 @@ function compatibilityOutcome(
 	};
 }
 
-/** One publish of a document: refused by Nova's check, or what it sent. */
+/**
+ * The fields of HQ's app source a captured import depends on, each by its
+ * path in the source HQ serves (`app_manager/views/apps.py::app_source`).
+ * Nova's import accepts a read only of an `Application` with a CommCare
+ * version (`readHqAppSource`), and builds an update's profile over the
+ * read's `profile` (`lib/commcare/targetProfile.ts`), so these are what the
+ * peer answered the read the import was built on with. The HQ side holds
+ * each to HQ's own read before it applies the import
+ * (`proof/observe/publish.py::update`, `proof/hq/operations.py::publish_capture`).
+ */
+export interface AssumedSource {
+	readonly doc_type: "Application";
+	readonly "build_spec.version": string;
+	readonly profile: HqApplicationProfile;
+}
+
+/** The fields of `source` a captured import depends on. */
+function assumedSourceOf(source: HqAppSource): AssumedSource {
+	return {
+		doc_type: source.docType,
+		"build_spec.version": source.buildSpecVersion,
+		profile: source.profile,
+	};
+}
+
+/** `source` with each field `fields` names, by its path, set to that value. */
+function withFields(
+	source: Readonly<Record<string, unknown>>,
+	fields: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+	const result = structuredClone(source) as Record<string, unknown>;
+	for (const [path, value] of Object.entries(fields)) {
+		const keys = path.split(".");
+		const last = keys.pop();
+		if (last === undefined) continue;
+		let at = result;
+		for (const key of keys) {
+			const next = at[key];
+			at[key] =
+				typeof next === "object" && next !== null && !Array.isArray(next)
+					? { ...next }
+					: {};
+			at = at[key] as Record<string, unknown>;
+		}
+		at[last] = structuredClone(value);
+	}
+	return result;
+}
+
+/**
+ * The source HQ serves for an app after it applied `application` as an
+ * update: the body as sent, with HQ's own CommCare version (an update keeps
+ * the app's `build_spec`: `models/applications.py::_merge_source_into_app`),
+ * and the fields a caller says something changed since
+ * (`PublishInput.source`).
+ */
+function sourceAfterUpdate(
+	application: HqApplication,
+	changed: Partial<AssumedSource> | undefined,
+): Record<string, unknown> {
+	return withFields(application as unknown as Record<string, unknown>, {
+		doc_type: "Application",
+		"build_spec.version": CORPUS_COMMCARE_VERSION,
+		profile: application.profile ?? {},
+		...changed,
+	});
+}
+
+/** The requests one import sends: the workbook before it, the import, and the media after it. */
+export interface SentImport {
+	/** The lookup workbook upload, when the document references a table. */
+	readonly lookup?: CapturedRequest;
+	readonly importApp: CapturedRequest;
+	/** The media upload after the import, when the export carries media. */
+	readonly media?: CapturedRequest;
+	/** The application JSON the import carried. */
+	readonly application: HqApplication;
+	/** The fields of the source read the import was built on. */
+	readonly assumedSource: AssumedSource;
+}
+
+/** One update of a document: refused by Nova's check, or what it sent. */
 export type StepOutcome =
+	| {
+			readonly status: "refused";
+			readonly compatibility: CompatibilityOutcome;
+	  }
+	| ({
+			readonly status: "sent";
+			readonly compatibility: CompatibilityOutcome;
+			/** Every request the step sent, `<method> <path>`, in the order it sent them. */
+			readonly sequence: readonly string[];
+	  } & SentImport);
+
+/** A first publish: refused by Nova's check, or the shell's create and the content's update it sent. */
+export type FirstPublishOutcome =
 	| {
 			readonly status: "refused";
 			readonly compatibility: CompatibilityOutcome;
@@ -689,13 +805,15 @@ export type StepOutcome =
 	| {
 			readonly status: "sent";
 			readonly compatibility: CompatibilityOutcome;
-			/** The lookup workbook upload, when the document references a table. */
-			readonly lookup?: CapturedRequest;
-			readonly importApp: CapturedRequest;
-			/** The media upload after the import, when the export carries media. */
-			readonly media?: CapturedRequest;
-			/** The application JSON the import carried. */
-			readonly application: HqApplication;
+			/** The shell's create, which names no app and pushes nothing before it. */
+			readonly create: {
+				readonly importApp: CapturedRequest;
+				readonly application: HqAppShell;
+			};
+			/** The update that fills the shell: state A's app. */
+			readonly content: SentImport;
+			/** Every request the first publish sent, `<method> <path>`, in the order it sent them. */
+			readonly sequence: readonly string[];
 	  };
 
 function takeRequest(
@@ -708,39 +826,67 @@ function takeRequest(
 	);
 	if (matching.length !== 1 || matching[0] === undefined) {
 		throw new Error(
-			`The capture expected Nova's client to send one ${method} ${path} in this publish, and it sent ${matching.length}.`,
+			`The capture expected Nova's client to send one ${method} ${path} in this step of the publish, and it sent ${matching.length}.`,
 		);
 	}
 	return matching[0];
 }
 
+/** Each request, `<method> <path>`, in order. */
+function sequenceOf(requests: readonly PeerRequest[]): string[] {
+	return requests.map((request) => `${request.method} ${request.path}`);
+}
+
+/** The compatibility check `publishAppToHq`'s preflight makes before any write. */
+async function compatibilityCheck(
+	peer: TargetPeer,
+	prepared: PreparedDocument,
+) {
+	const probe = await probeHqProjectSpaceCompatibility(
+		CREDENTIALS,
+		peer.state.domain,
+		projectSpaceCompatibilityProbePlan(prepared.export.doc),
+	);
+	return { report: probe.report, outcome: compatibilityOutcome(probe.report) };
+}
+
+/** A source read of the app, as Nova's publish makes it; any answer but a source stops the capture. */
+async function readSource(
+	peer: TargetPeer,
+	prepared: PreparedDocument,
+	appId: string,
+): Promise<HqAppSource> {
+	const read = await readHqAppSource(CREDENTIALS, peer.state.domain, appId);
+	if ("success" in read || read.kind !== "source") {
+		throw new Error(
+			`Nova's publish of ${prepared.source.id} could not read the app's source from the capture peer (${JSON.stringify(read)}), so it would not have sent the app's content.`,
+		);
+	}
+	return read.source;
+}
+
 /**
- * One publish as `publishAppToHq` makes it once its target is reachable:
- * the compatibility check (a blocked report stops the publish before any
- * write), the lookup push, then on an update the source read, then the
- * import of the assembled application, and, when the export carries media,
- * the media upload to the app the import answered with
- * (`service.ts::uploadMediaBytes`: one ZIP of every asset, then the status
- * reads, which change nothing in HQ and are not captured).
+ * The resource push and the import of the app's content, as `publishAppToHq`
+ * makes them once the app exists and `source` is its last read: the lookup
+ * workbook, then a second source read (the push took time, and HQ may have
+ * changed the app), then the import of the assembled application as an
+ * update of `appId`, and, when the export carries media, the media upload
+ * to the app the import answered with (`service.ts::uploadMediaBytes`: one
+ * ZIP of every asset, then the status reads, which change nothing in HQ and
+ * are not captured).
  */
-async function publishStep(
+async function sendContent(
 	peer: TargetPeer,
 	prepared: PreparedDocument,
 	appName: string,
-	update: boolean,
-): Promise<StepOutcome> {
+	report: ProjectSpaceCompatibilityReport,
+	appId: string,
+	read: HqAppSource,
+): Promise<SentImport> {
 	const domain = peer.state.domain;
 	const target = { server: PROOF_SERVER, domain };
-	const probe = await probeHqProjectSpaceCompatibility(
-		CREDENTIALS,
-		domain,
-		projectSpaceCompatibilityProbePlan(prepared.export.doc),
-	);
-	const compatibility = compatibilityOutcome(probe.report);
-	if (probe.report.status === "blocked") {
-		return { status: "refused", compatibility };
-	}
 	const mark = peer.requests.length;
+	let source = read;
 	if (prepared.export.lookupWorkbook !== undefined) {
 		const pushed = await uploadLookupTableWorkbook(
 			CREDENTIALS,
@@ -753,36 +899,21 @@ async function publishStep(
 				`The capture peer refused the lookup workbook of ${prepared.source.id} (status ${pushed.status}), which it accepts from every publish.`,
 			);
 		}
-	}
-	let sourceProfile: HqApplicationProfile | undefined;
-	if (update) {
-		const source = await readHqAppSourceProfile(
-			CREDENTIALS,
-			domain,
-			PLACEHOLDER_APP_ID,
-		);
-		if ("success" in source) {
-			throw new Error(
-				`Nova's update of ${prepared.source.id} could not read the app's source from the capture peer (status ${source.status}), so it would not have sent the update.`,
-			);
-		}
-		sourceProfile = source.profile;
+		source = await readSource(peer, prepared, appId);
 	}
 	const application = hqImportApplication({
 		prepared: prepared.export,
 		target,
-		compatibility: probe.report,
-		update:
-			sourceProfile === undefined
-				? null
-				: { appId: PLACEHOLDER_APP_ID, sourceProfile },
+		compatibility: report,
+		update: { appId, source },
+		identity: DERIVED_WIRE_IDENTITY,
 	});
 	const imported = await importApp(
 		CREDENTIALS,
 		domain,
 		appName,
 		application,
-		update ? PLACEHOLDER_APP_ID : undefined,
+		appId,
 	);
 	if (!imported.success) {
 		throw new Error(
@@ -807,8 +938,6 @@ async function publishStep(
 	}
 	const sent = peer.since(mark);
 	return {
-		status: "sent",
-		compatibility,
 		...(prepared.export.lookupWorkbook !== undefined && {
 			lookup: await reframed(
 				takeRequest(sent, "POST", `/a/${domain}/fixtures/fixapi/`),
@@ -827,6 +956,94 @@ async function publishStep(
 			),
 		}),
 		application,
+		assumedSource: assumedSourceOf(source),
+	};
+}
+
+/**
+ * A first publish as `publishAppToHq` makes it once its target is
+ * reachable: the compatibility check (a blocked report stops the publish
+ * before any write), the empty shell's create, the source read of the app
+ * it made, then the app's content (`sendContent`). The shell is created
+ * before any Project data is pushed, and holds nothing that reads it.
+ */
+async function firstPublish(
+	peer: TargetPeer,
+	prepared: PreparedDocument,
+	appName: string,
+): Promise<FirstPublishOutcome> {
+	const domain = peer.state.domain;
+	const start = peer.requests.length;
+	const { report, outcome } = await compatibilityCheck(peer, prepared);
+	if (report.status === "blocked") {
+		return { status: "refused", compatibility: outcome };
+	}
+	const mark = peer.requests.length;
+	const shell = hqImportApplication({
+		prepared: prepared.export,
+		target: { server: PROOF_SERVER, domain },
+		compatibility: report,
+		update: null,
+		identity: DERIVED_WIRE_IDENTITY,
+	});
+	const created = await importApp(CREDENTIALS, domain, appName, shell);
+	if (!created.success) {
+		throw new Error(
+			`The capture peer refused the shell create of ${prepared.source.id} (status ${created.status}), which it accepts from every publish.`,
+		);
+	}
+	const createRequest = takeRequest(
+		peer.since(mark),
+		"POST",
+		`/a/${domain}/apps/api/import_app/`,
+	);
+	const read = await readSource(peer, prepared, created.appId);
+	const content = await sendContent(
+		peer,
+		prepared,
+		appName,
+		report,
+		created.appId,
+		read,
+	);
+	return {
+		status: "sent",
+		compatibility: outcome,
+		create: { importApp: await reframed(createRequest), application: shell },
+		content,
+		sequence: sequenceOf(peer.since(start)),
+	};
+}
+
+/**
+ * A later publish as `publishAppToHq` makes it over an app it reached: the
+ * compatibility check, preflight's source read of the mapped app, then the
+ * app's content (`sendContent`).
+ */
+async function updateStep(
+	peer: TargetPeer,
+	prepared: PreparedDocument,
+	appName: string,
+): Promise<StepOutcome> {
+	const start = peer.requests.length;
+	const { report, outcome } = await compatibilityCheck(peer, prepared);
+	if (report.status === "blocked") {
+		return { status: "refused", compatibility: outcome };
+	}
+	const read = await readSource(peer, prepared, PLACEHOLDER_APP_ID);
+	const sent = await sendContent(
+		peer,
+		prepared,
+		appName,
+		report,
+		PLACEHOLDER_APP_ID,
+		read,
+	);
+	return {
+		status: "sent",
+		compatibility: outcome,
+		...sent,
+		sequence: sequenceOf(peer.since(start)),
 	};
 }
 
@@ -841,47 +1058,46 @@ export interface PublishUpdate {
 
 export interface PublishInput {
 	readonly create: PublishDocument;
-	/** The create's app name; the document's own by default. */
+	/** The first publish's app name; the document's own by default. */
 	readonly appName?: string;
-	/** Each a separate next publish over A. */
+	/**
+	 * Each a separate next publish over A. The first is the republish of D,
+	 * which the capture sends twice (`capturePublish`).
+	 */
 	readonly updates: readonly PublishUpdate[];
 	readonly configuration: PublishConfiguration;
 	/**
-	 * The corpus seed every step's minted identities are drawn from
-	 * (`./entropy.mts`), with the configuration's id, at the ordinals
-	 * `capturePublish` gives each step. Without one they are drawn as Nova
-	 * draws them.
+	 * The corpus seed every step's stream is drawn from (`./entropy.mts`),
+	 * with the configuration's id, at the ordinals `capturePublish` gives
+	 * each step. Without one every draw is real.
 	 */
 	readonly seed?: number;
 	/**
-	 * The profile HQ holds for A when the updates are published, when
-	 * something changed it after the create. By default it is the profile
-	 * HQ keeps from the create: the create's `profile`, or HQ's empty
-	 * default when the create sends none (`models/applications.py::Application.profile`
-	 * is a `DictProperty`, which the create path does not otherwise write,
-	 * and `views/apps.py::app_source` serves it through `export_json`).
+	 * The fields of HQ's source for A when the updates are published, where
+	 * something changed them after the content import. By default each is
+	 * what the content import left: the profile it sent
+	 * (`views/apps.py::app_source` serves the stored profile through
+	 * `export_json`) and HQ's own CommCare version.
 	 */
-	readonly sourceProfile?: HqApplicationProfile;
+	readonly source?: Partial<AssumedSource>;
 }
 
 export type PublishCapture =
 	| {
 			readonly status: "refused";
-			readonly create: Extract<StepOutcome, { status: "refused" }>;
+			readonly create: Extract<FirstPublishOutcome, { status: "refused" }>;
 	  }
 	| {
 			readonly status: "sent";
-			readonly create: Extract<StepOutcome, { status: "sent" }>;
-			/** The profile the peer answered each update's source read with. */
-			readonly assumedSourceProfile: HqApplicationProfile;
+			readonly create: Extract<FirstPublishOutcome, { status: "sent" }>;
 			readonly updates: Readonly<Record<string, StepOutcome>>;
 	  };
 
 /**
  * Whether two publish steps sent the same bytes: the same import and the
- * same lookup workbook, or none. The media upload follows from the import
- * (one ZIP entry per path its `multimedia_map` names, each the bytes of the
- * content hash in its path), so the same import sends the same media.
+ * same lookup workbook, or none. The media upload follows from the prepared
+ * assets (one ZIP entry per asset `buildMediaBulkUploadZip` writes), so the
+ * same document sends the same media.
  */
 function sendsTheSame(left: StepOutcome, right: StepOutcome): boolean {
 	if (left.status !== "sent" || right.status !== "sent") return false;
@@ -893,23 +1109,19 @@ function sendsTheSame(left: StepOutcome, right: StepOutcome): boolean {
 }
 
 /**
- * Capture what Nova's publish sends for a create and the updates over it.
- * Throws `UnexportableDocumentError` when Nova's export boundary refuses a
- * document, since no configuration would receive it.
+ * Capture what Nova's publish sends for a first publish and the updates
+ * over it. Throws `UnexportableDocumentError` when Nova's export boundary
+ * refuses a document, since no configuration would receive it.
  *
- * With a seed, the create draws its minted identities at
- * `OPERATION_ORDINALS.create` and the first update (the republish of D) at
- * `OPERATION_ORDINALS.republish`. Each later update (D′) is drawn at the
- * republish's ordinal too, and kept when it sends exactly the republish's
- * bytes: an edit that changes nothing Nova sends leaves its update
- * byte-identical to the republish. Otherwise it is drawn again at an
- * ordinal of its own (`OPERATION_ORDINALS.update`, then one more for each
- * later update), which is the update kept. One stream would mint, in the
- * same order, the ids of D's entities for whatever entities D′ holds in
- * their places, so an id of D′ would name another entity of D; a stream of
- * its own mints ids no other export of the document holds, as Nova's
- * unseeded generator does. With seeding off (`PROOF_ENTROPY=real`) every
- * draw is fresh already, and each update is drawn once.
+ * Each step is drawn once, in a stream of its own: with a seed, the first
+ * publish at `OPERATION_ORDINALS.create`, the republish of D at
+ * `OPERATION_ORDINALS.republish`, and each update to D′ at
+ * `OPERATION_ORDINALS.update`, then one more for each later update. An
+ * update that changes nothing Nova sends equals the republish because Nova
+ * derives what it sends, never because the two shared a draw. The republish
+ * is captured a second time, in the first stream no update holds, and the
+ * two must send the same bytes, as a third publish sends the second's: a
+ * change that mints an id per publish again stops the capture here.
  */
 export async function capturePublish(
 	input: PublishInput,
@@ -946,54 +1158,56 @@ export async function capturePublish(
 			flags: new Set(configuration.flags),
 			caseSearchEnabled: configuration.caseSearchEnabled,
 			appId: PLACEHOLDER_APP_ID,
+			commcareVersion: CORPUS_COMMCARE_VERSION,
 		},
 		async (peer) => {
 			const created = await seeded(operation(OPERATION_ORDINALS.create), () =>
-				publishStep(
-					peer,
-					create,
-					input.appName ?? create.export.doc.appName,
-					false,
-				),
+				firstPublish(peer, create, input.appName ?? create.export.doc.appName),
 			);
 			if (created.status === "refused") {
 				assertModeled(peer);
 				return { status: "refused", create: created };
 			}
-			const assumedSourceProfile =
-				input.sourceProfile ?? created.application.profile ?? {};
-			peer.holdProfile(assumedSourceProfile);
+			/* Every update is a separate next publish over A, so the peer
+			 * answers each from what the content import left. */
+			peer.holdSource(
+				sourceAfterUpdate(created.content.application, input.source),
+			);
+			const send = (
+				{ update, prepared }: (typeof updates)[number],
+				ordinal: number,
+			) =>
+				seeded(operation(ordinal), () =>
+					updateStep(
+						peer,
+						prepared,
+						update.appName ?? prepared.export.doc.appName,
+					),
+				);
 			const outcomes: Record<string, StepOutcome> = {};
-			let republish: StepOutcome | undefined;
-			for (const [position, { update, prepared }] of updates.entries()) {
-				const send = (ordinal: number) =>
-					seeded(operation(ordinal), () =>
-						publishStep(
-							peer,
-							prepared,
-							update.appName ?? prepared.export.doc.appName,
-							true,
-						),
+			for (const [position, entry] of updates.entries()) {
+				outcomes[entry.update.name] = await send(
+					entry,
+					position === 0
+						? OPERATION_ORDINALS.republish
+						: OPERATION_ORDINALS.update + position - 1,
+				);
+			}
+			const [republish] = updates;
+			if (republish !== undefined) {
+				const first = outcomes[republish.update.name];
+				const again = await send(
+					republish,
+					OPERATION_ORDINALS.update + updates.length - 1,
+				);
+				if (first === undefined || !sendsTheSame(first, again)) {
+					throw new Error(
+						`Nova's republish of ${republish.prepared.source.id} sent other bytes the second time it was captured, so a third publish would not send the second's. A publish derives everything it sends from the document; look for an id drawn per publish.`,
 					);
-				let outcome = await send(OPERATION_ORDINALS.republish);
-				if (republish === undefined) {
-					republish = outcome;
-				} else if (
-					input.seed !== undefined &&
-					entropySeeded() &&
-					!sendsTheSame(outcome, republish)
-				) {
-					outcome = await send(OPERATION_ORDINALS.update + position - 1);
 				}
-				outcomes[update.name] = outcome;
 			}
 			assertModeled(peer);
-			return {
-				status: "sent",
-				create: created,
-				assumedSourceProfile,
-				updates: outcomes,
-			};
+			return { status: "sent", create: created, updates: outcomes };
 		},
 	);
 }
@@ -1047,37 +1261,111 @@ function atInstant<T>(instant: number, build: () => T): T {
 /**
  * The document's `.ccz` as Nova's compile route builds it
  * (`app/api/compile/route.ts` over `prepareCompileRequest`, then
- * `lib/export/localArchive.ts::compileLocalArchive`) for an app whose
- * deployment record names this one project space: the download reuses that
- * target for the runtime URLs and the attachment links, embeds the
- * referenced lookup tables as fixtures, and stamps the app's sequence.
+ * `lib/export/localArchive.ts::compileLocalArchive`) for an app published to
+ * the one project space `domain`: the download's rule
+ * (`lib/deployment/runtimeTarget.ts::chooseDownloadTarget`) picks that one
+ * reached deployment, whose HQ app is `PLACEHOLDER_APP_ID`, for the profile's
+ * server properties and runtime URLs and the attachment links, with the
+ * derived ids the ledger's absent overrides give. The archive embeds the
+ * referenced lookup tables as fixtures and stamps the app's sequence.
  * Throws `UnexportableDocumentError` where the route's boundary refuses.
- * With an operation, the archive's minted identities are drawn from its
- * seeded generator (`./entropy.mts`).
+ * With an operation, the archive's draws come from its seeded stream
+ * (`./entropy.mts`).
  */
 export async function localCcz(
 	source: PublishDocument,
 	domain: string,
 	operation?: EntropyOperation,
 ): Promise<Buffer> {
-	const deployment: AttachmentDeploymentTarget = {
-		kind: "known",
-		target: { server: PROOF_SERVER, domain },
-	};
-	const runtimeTarget = downloadRuntimeTarget(deployment);
-	if (runtimeTarget === undefined) {
+	const choice = chooseDownloadTarget(
+		[{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }],
+		{ format: "ccz", domain },
+	);
+	if (choice.kind !== "project-space") {
 		throw new Error(
-			"The compile route found no runtime target for a known deployment.",
+			`The download rule chose no project space for a CCZ of ${source.id} from its one reached deployment (${JSON.stringify(choice)}).`,
 		);
 	}
+	const { target } = choice;
 	const { export: prepared } = await prepareDocument(
 		source,
 		"ccz",
-		attachmentUrlTargetFor(downloadDeploymentTarget(deployment)),
+		attachmentUrlTarget(target),
 	);
 	return seeded(operation, () =>
-		atInstant(CCZ_CLOCK, () => compileLocalArchive(prepared, runtimeTarget)),
+		atInstant(CCZ_CLOCK, () =>
+			compileLocalArchive(
+				prepared,
+				{ server: target.server, domain: target.domain, appId: target.hqAppId },
+				DERIVED_WIRE_IDENTITY,
+			),
+		),
 	);
+}
+
+/**
+ * The document's HQ import file as `/api/compile/json` builds it for an app
+ * published to the one project space `domain`: the download's rule
+ * (`lib/deployment/runtimeTarget.ts::chooseDownloadTarget`) scopes its
+ * attachment links to that deployment, `expandDoc` writes the app JSON with
+ * no runtime target and the derived ids, and `buildHqJsonExportArchive`
+ * packs it with the media upload, the lookup workbook and the README that
+ * renders the manual-import guide (`lib/publish/manualImportGuide.ts`). The
+ * ZIP is built with the clock fixed, as a `.ccz` is.
+ */
+export async function importFile(
+	source: PublishDocument,
+	domain: string,
+): Promise<Buffer> {
+	const choice = chooseDownloadTarget(
+		[{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }],
+		{ format: "json" },
+	);
+	const { export: prepared } = await prepareDocument(
+		source,
+		"hq-json",
+		choice.kind === "project-space" ? attachmentUrlTarget(choice.target) : null,
+	);
+	const { doc, assets, lookupWorkbook } = prepared;
+	const hqJson = expandDoc(doc, {
+		attachmentTarget: prepared.attachmentTarget,
+		...(assets.size > 0 && { assets }),
+		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
+	});
+	const guide = hqImportFileGuide({
+		appName: doc.appName,
+		doc,
+		assets,
+		lookupWorkbook,
+	});
+	return atInstant(CCZ_CLOCK, () =>
+		buildHqJsonExportArchive(
+			doc.appName,
+			hqJson,
+			assets,
+			lookupWorkbook,
+			renderManualImportGuide(guide),
+		),
+	);
+}
+
+/**
+ * The paths of the media upload a publish of the document sends: one per
+ * wire path of the export's prepared assets, as `buildMediaBulkUploadZip`
+ * writes them, sorted. Empty for a document whose export carries no media.
+ */
+export async function preparedMediaPaths(
+	source: PublishDocument,
+	domain: string,
+): Promise<string[]> {
+	const { export: prepared } = await prepareDocument(
+		source,
+		"hq-upload",
+		attachmentUrlTarget({ server: PROOF_SERVER, domain }),
+	);
+	return [
+		...new Set([...prepared.assets.values()].map((asset) => asset.wirePath)),
+	].sort();
 }
 
 /** Nova's verdict for a stored document, after the same admission a capture makes. */

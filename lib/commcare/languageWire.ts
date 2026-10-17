@@ -3,12 +3,15 @@
 // The one projection from Nova's structured language identities to CommCare
 // Classic's wire spellings. Classic's locale grammar accepts
 // `^[a-z]{2,3}(-[a-z]*)?$`; its picker catalog presents three-letter codes
-// except four grandfathered two-letter rows. Nothing outside lib/commcare
-// speaks these spellings.
+// except four grandfathered two-letter rows. A code is minted here once, when
+// its language joins the app, and the document stores it
+// (`localization.wireCodes`); emission reads the stored code.
 
 import {
 	type AppLanguageIdentity,
+	type EffectiveAppLocalization,
 	type LanguageTag,
+	languageTag,
 	parseLanguageTag,
 } from "@/lib/domain";
 import { classicWideningTarget } from "@/lib/domain/languageRegistry";
@@ -19,7 +22,7 @@ export interface LanguageWirePlan {
 	/** Wire codes in `languageOrder` order. */
 	readonly languages: readonly string[];
 	readonly defaultLanguage: string;
-	/** Total over the input order and injective — two tags never share a code. */
+	/** Total over `languageOrder` and injective, as the schema guarantees. */
 	readonly wireCodeByTag: ReadonlyMap<LanguageTag, string>;
 	/**
 	 * Device-picker label rows: the baked endonym at the identity's most
@@ -32,7 +35,8 @@ export interface LanguageWirePlan {
 /**
  * Each identity's preferred Classic spelling: its own catalog row, or its
  * macrolanguage's row (`cmn` widens through `zho` to Classic's Chinese row),
- * else the Set 3 code itself, which is always wire-valid.
+ * else the Set 3 code itself, which is always wire-valid. No preferred
+ * spelling holds a hyphen.
  */
 function preferredWireSpelling(identity: AppLanguageIdentity): string {
 	const direct = classicLanguageRow(identity.language);
@@ -43,49 +47,54 @@ function preferredWireSpelling(identity: AppLanguageIdentity): string {
 }
 
 /**
- * Plan the wire spelling for every configured language in one pass. Distinct
- * identities that collapse to one preferred spelling (two Mandarin branches
- * both widening to Chinese) each take `language-<script><region>` lowered into
- * Classic's single allowed suffix segment; distinct identities sharing a
- * language differ in script or region, so the suffixes are distinct by
- * construction, and the closing assert makes any violation a loud compiler
- * bug rather than a silently merged locale.
+ * The code a language takes when it joins an app whose languages hold `held`:
+ * its preferred spelling while no language holds that, else
+ * `language-<script><region>` lowered into Classic's single allowed suffix
+ * segment. The suffix always carries a hyphen, which no preferred spelling
+ * does, and two identities sharing a language differ in script or region, so
+ * the code never collides with one `held` names.
+ *
+ * Producers mint through `lib/doc/languageMutations.ts`, which carries the
+ * code on the mutation that adds the language; the reducer stores it and the
+ * emitter reads it, so a later change to the language catalog never renames
+ * a code an app already holds.
+ */
+export function mintLanguageWireCode(
+	held: ReadonlySet<string>,
+	identity: AppLanguageIdentity,
+): string {
+	const preferred = preferredWireSpelling(identity);
+	if (!held.has(preferred)) return preferred;
+	const suffixed = `${identity.language}-${(identity.script ?? "").toLowerCase()}${(identity.region ?? "").toLowerCase()}`;
+	if (held.has(suffixed)) {
+		throw new Error(
+			`The CommCare code ${suffixed} for ${languageTag(identity)} is already held by another language of this app. This is a bug in mintLanguageWireCode, not an authorable state.`,
+		);
+	}
+	return suffixed;
+}
+
+/**
+ * Plan the wire spelling for every configured language from the codes the
+ * localization stores. The schema guarantees a code for every tag of
+ * `languageOrder` and no two tags sharing one.
  */
 export function planLanguageWire(
-	languageOrder: readonly LanguageTag[],
-	defaultLanguage: LanguageTag,
+	localization: EffectiveAppLocalization,
 ): LanguageWirePlan {
-	const identities = languageOrder.map((tag) => ({
-		tag,
-		identity: parseLanguageTag(tag),
-	}));
-	const byPreferred = new Map<string, typeof identities>();
-	for (const entry of identities) {
-		const preferred = preferredWireSpelling(entry.identity);
-		const group = byPreferred.get(preferred);
-		if (group === undefined) byPreferred.set(preferred, [entry]);
-		else group.push(entry);
-	}
-
 	const wireCodeByTag = new Map<LanguageTag, string>();
 	const nameByWireCode = new Map<string, string>();
-	for (const [preferred, group] of byPreferred) {
-		for (const { tag, identity } of group) {
-			const wireCode =
-				group.length === 1
-					? preferred
-					: `${identity.language}-${(identity.script ?? "").toLowerCase()}${(identity.region ?? "").toLowerCase()}`;
-			wireCodeByTag.set(tag, wireCode);
-			nameByWireCode.set(
-				wireCode,
-				resolvedLanguageDisplayLabel(identity) ?? tag,
+	for (const tag of localization.languageOrder) {
+		const wireCode = localization.wireCodes[tag];
+		if (wireCode === undefined) {
+			throw new Error(
+				`Language ${tag} has no stored CommCare code. Every app language holds one from the mutation that added it.`,
 			);
 		}
-	}
-
-	if (new Set(wireCodeByTag.values()).size !== wireCodeByTag.size) {
-		throw new Error(
-			"The language wire plan assigned one Classic spelling to two app languages. This is a bug in planLanguageWire, not an authorable state.",
+		wireCodeByTag.set(tag, wireCode);
+		nameByWireCode.set(
+			wireCode,
+			resolvedLanguageDisplayLabel(parseLanguageTag(tag)) ?? tag,
 		);
 	}
 
@@ -100,8 +109,8 @@ export function planLanguageWire(
 	};
 
 	return {
-		languages: languageOrder.map(wireCode),
-		defaultLanguage: wireCode(defaultLanguage),
+		languages: localization.languageOrder.map(wireCode),
+		defaultLanguage: wireCode(localization.defaultLanguage),
 		wireCodeByTag,
 		nameByWireCode,
 	};

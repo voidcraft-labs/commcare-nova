@@ -6,8 +6,9 @@
  *
  * The codes come from the functions `lib/commcare/localization.ts::
  * commCareLocalization` calls for the expander: the language wire plan
- * (`planLanguageWire`) over the document's effective localization
- * (`effectiveAppLocalization`), in its `languageOrder`.
+ * (`planLanguageWire`) over the codes the document's effective localization
+ * stores (`effectiveAppLocalization`, its `wireCodes`), in its
+ * `languageOrder`.
  *
  *   node --conditions=react-server --import tsx proof/checks/wireLanguages.ts <document.json>...
  *
@@ -30,10 +31,7 @@ export function wireLanguages(persisted: PersistableDoc): WireLanguage[] {
 	const localization = effectiveAppLocalization(
 		hydratePersistedBlueprint(persisted).localization,
 	);
-	const wire = planLanguageWire(
-		localization.languageOrder,
-		localization.defaultLanguage,
-	);
+	const wire = planLanguageWire(localization);
 	return localization.languageOrder.map((tag) => {
 		const code = wire.wireCodeByTag.get(tag);
 		if (code === undefined) {

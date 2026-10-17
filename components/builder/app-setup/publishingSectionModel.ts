@@ -17,7 +17,10 @@ import {
 	deploymentDisplaysAsReached,
 } from "@/lib/deployment";
 import type { DeploymentView } from "@/lib/deployment/actions";
-import { plannedInPlaceUpdate } from "@/lib/deployment/resources";
+import {
+	type NextPublishAction,
+	nextPublishAction,
+} from "@/lib/deployment/resources";
 import {
 	type AppDeploymentNoticeEntry,
 	type DeploymentNoticeEntry,
@@ -150,8 +153,11 @@ export interface CompactTargetRow {
 	readonly statusLabel: string;
 	/** True when the record is a refused publish rather than a reached rung. */
 	readonly stopped: boolean;
-	/** Whether publishing again updates the app already there in place. */
-	readonly updatesInPlace: boolean;
+	/**
+	 * What publishing again does there: create an app, fill the empty one an
+	 * earlier try made, or update the app that is there.
+	 */
+	readonly nextPublish: NextPublishAction;
 	/**
 	 * Whether the connected key can publish here at all. False when the
 	 * record lives on a different CommCare HQ installation than the key
@@ -176,7 +182,7 @@ export function compactTargetRows(
 				? "Publish stopped partway"
 				: (furthestReachedLabel(view) ?? "Not on this project space yet"),
 			stopped,
-			updatesInPlace: plannedInPlaceUpdate(view.deployment) !== null,
+			nextPublish: nextPublishAction(view.deployment),
 			reachable: record.server === connectionServer,
 		};
 	});

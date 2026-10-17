@@ -1,6 +1,5 @@
 /** TypeScript interfaces for CommCare HQ import JSON structures. */
 
-import type { MultimediaMapItem } from "./multimedia/bundle";
 import type { LogoRef } from "./multimedia/logoEntry";
 
 export interface LocalizedString {
@@ -460,13 +459,12 @@ export interface HqFormLinkDatum {
  * `xpath` is the link's guard; HQ reads the empty string as an
  * unconditional link, and Nova's projection writes the exclusive guard the
  * local suite emits so the two paths derive the same `<create if>`. A form
- * target carries `form_id` + `form_module_id` (HQ's `update_form_unique_ids`
- * re-ids forms on import and rewrites `form_id` with them, so the expander
- * pre-generates every form id before the module map and references only
- * those); a module target carries `module_unique_id` (modules are never
- * re-ided). `datums` is empty when the target's session is matched from the
- * source entry (HQ's `_get_datums_matched_to_source`) and lists explicit
- * values otherwise (`_get_datums_matched_to_manual_values`). HQ reads
+ * target carries `form_id` + `form_module_id`, each the target's
+ * `WireIdentity` id (`./wireIdentity.ts`), the same ids the export gives the
+ * form and its module; a module target carries `module_unique_id`. `datums`
+ * is empty when the target's session is matched from the source entry
+ * (HQ's `_get_datums_matched_to_source`) and lists explicit values otherwise
+ * (`_get_datums_matched_to_manual_values`). HQ reads
  * `form_links` only while `post_form_workflow === "form"`.
  */
 export type HqFormLink =
@@ -597,7 +595,6 @@ export interface HqApplication {
 	name: string;
 	langs: string[];
 	build_spec: { doc_type: "BuildSpec"; version: string; build_number: null };
-	multimedia_map: Record<string, MultimediaMapItem>;
 	/** Per-language app_strings overrides. */
 	translations: Record<string, Record<string, string>>;
 	auto_gps_capture: boolean;

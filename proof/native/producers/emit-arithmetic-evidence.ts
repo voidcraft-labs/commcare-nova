@@ -10,6 +10,7 @@ import { toPersistableDoc } from "../../../lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import { blueprintDocSchema } from "../../../lib/domain";
 import { arith, literal, term } from "../../../lib/domain/predicate";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
 if (!output)
@@ -22,7 +23,11 @@ blueprintDocSchema.parse(toPersistableDoc(doc));
 const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 if (findings.length) throw new Error(JSON.stringify(findings));
 const hq = expandDoc(doc);
-const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+const zip = new AdmZip(
+	compileCcz(hq, doc.appName, doc, {
+		runtimeTarget: NATIVE_RUNTIME_TARGET,
+	}),
+);
 writeFileSync(
 	resolve(output, "arithmetic.xml"),
 	zip.readAsText("modules-0/forms-0.xml"),

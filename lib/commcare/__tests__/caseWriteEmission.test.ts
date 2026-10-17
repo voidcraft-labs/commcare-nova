@@ -11,6 +11,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema, proseText } from "@/lib/domain";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function one(elements: Element[]) {
 	expect(elements).toHaveLength(1);
@@ -50,7 +51,9 @@ function exported(doc: BlueprintDoc) {
 	const form = hq.modules[0].forms[0];
 	const source = hq._attachments[`${form.unique_id}.xml`];
 	if (typeof source !== "string") throw new Error("Missing HQ source");
-	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
 	return {
 		actions: form.actions,
 		source: read(source),

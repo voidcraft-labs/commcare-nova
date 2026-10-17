@@ -19,6 +19,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, proseText } from "@/lib/domain";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function one(elements: Element[]): Element {
 	expect(elements).toHaveLength(1);
@@ -78,7 +79,9 @@ function compile(doc: ReturnType<typeof buildDoc>) {
 	);
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	const hq = expandDoc(doc);
-	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
 	const html = parse(zip.readAsText("modules-0/forms-0.xml"));
 	const model = child(child(html, "h:head"), "model");
 	const data = child(

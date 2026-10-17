@@ -170,7 +170,7 @@ def test_a_trace_names_formplayers_own_address_by_a_mark_so_every_runner_records
 
     from proof.formplayer import observe
 
-    served = SimpleNamespace(hq=SimpleNamespace(restores=[]), build_id="build", usercase_id=None)
+    served = SimpleNamespace(hq=SimpleNamespace(restores=[]), app_id="app", build_id="build", usercase_id=None)
 
     def recorded(port, other="http://127.0.0.1:9/navigate_menu"):
         trace = {"runs": [{"steps": [{"response": {"url": f"http://127.0.0.1:{port}/navigate_menu", "other": other}}]}]}

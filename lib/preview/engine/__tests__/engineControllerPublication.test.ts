@@ -231,7 +231,7 @@ function fixture(sectioned = false) {
 	if (!unit)
 		throw new Error("Expected the greeting's admitted translation unit");
 	applyControllerEdit(store, [
-		{ kind: "addLanguage", language: { language: "spa" } },
+		{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 		{
 			kind: "setTranslation",
 			language: "spa",
@@ -487,7 +487,7 @@ describe("same-entry runtime publication", () => {
 			store.getState().load(admittedControllerDoc(doc));
 			store.getState().startTracking();
 			applyControllerEdit(store, [
-				{ kind: "addLanguage", language: { language: "spa" } },
+				{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 			]);
 			for (const uuid of [name, spaces]) {
 				const unitId = makeTranslationUnitId("field", uuid, "validate_msg");
@@ -624,7 +624,7 @@ describe("same-entry runtime publication", () => {
 			store.getState().load(admittedControllerDoc(doc));
 			store.getState().startTracking();
 			applyControllerEdit(store, [
-				{ kind: "addLanguage", language: { language: "spa" } },
+				{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 			]);
 			const ctrl = new EngineController(
 				mode === "worker"

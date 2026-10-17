@@ -37,6 +37,7 @@ export const migrationNoticeCutoverSchema = z.enum(MIGRATION_NOTICE_CUTOVERS);
  */
 export const DOCUMENT_NOTICE_REASONS = [
 	"unsaved-assistant-work-discarded",
+	"ccz-needs-project-space",
 ] as const;
 export type DocumentNoticeReason = (typeof DOCUMENT_NOTICE_REASONS)[number];
 
@@ -44,7 +45,14 @@ export type DocumentNoticeReason = (typeof DOCUMENT_NOTICE_REASONS)[number];
  * Reasons a deployment entry can carry, in the order the dialog, the
  * Publishing card and `get_app` show them.
  */
-export const DEPLOYMENT_NOTICE_REASONS = ["deep-links-need-republish"] as const;
+export const DEPLOYMENT_NOTICE_REASONS = [
+	"hq-app-deleted",
+	"hq-app-not-nova-made",
+	"ids-change-once-unreadable",
+	"menu-id-changes-once",
+	"form-ids-change-once",
+	"deep-links-need-republish",
+] as const;
 export type DeploymentNoticeReason = (typeof DEPLOYMENT_NOTICE_REASONS)[number];
 
 export const NOTICE_ENTITY_TYPES = [

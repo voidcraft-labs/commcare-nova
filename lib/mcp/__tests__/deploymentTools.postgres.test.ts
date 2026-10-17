@@ -8,7 +8,10 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
+	applyDeploymentObservation,
 	foldDeploymentAttempt,
+	readDeployment,
+	recordCreatedRemoteApp,
 	recordRemoteResource,
 } from "@/lib/deployment/store";
 import {
@@ -203,6 +206,8 @@ it("reports every stored target to a viewer with its current resource identity a
 					retry_from: null,
 					retry_from_state: null,
 					hq_app_id: "working-app",
+					hq_app_gone: false,
+					hq_app_empty: false,
 					ownership: "nova-created",
 					pushed_revision: 0,
 					remote_revision: 1,
@@ -354,7 +359,10 @@ it("names a missing remote app as an upload refusal and heals it when HQ later r
 				state: "incomplete",
 				retry_from: "upload",
 				retry_from_state: "resources",
+				hq_app_id: "working-app",
+				hq_app_gone: true,
 			});
+			expect((await snapshot()).resources[0].remote_missing_at).not.toBeNull();
 			expect(gone.phases.upload).toEqual({
 				status: "failed",
 				detail:
@@ -370,7 +378,9 @@ it("names a missing remote app as an upload refusal and heals it when HQ later r
 				state: "uploaded",
 				retry_from: null,
 				remote_revision: 4,
+				hq_app_gone: false,
 			});
+			expect((await snapshot()).resources[0].remote_missing_at).toBeNull();
 			expect(restored.phases.upload).toEqual({
 				status: "succeeded",
 				detail: null,
@@ -380,6 +390,113 @@ it("names a missing remote app as an upload refusal and heals it when HQ later r
 		expect((await snapshot()).deployments[0].state).toBe("uploaded");
 		expect(urls(peer)).toHaveLength(2);
 	});
+});
+
+it("says what Nova knows of each target's HQ app: there, empty, gone or none", async () => {
+	await seed(false);
+	const at = "2026-09-01T00:00:00.000Z";
+	const target = (domain: string) => ({ server: "india" as const, domain });
+	await record("working-app");
+	await foldDeploymentAttempt(
+		SCOPE,
+		target("shell"),
+		"preflight",
+		{ status: "succeeded", at },
+		{ ensure: true },
+	);
+	await recordCreatedRemoteApp(SCOPE, target("shell"), {
+		remoteId: "shell-app",
+	});
+	const published = await record("gone-app", target("gone"));
+	const mapped = published.active[0];
+	await applyDeploymentObservation(SCOPE, target("gone"), {
+		observedRemoteId: mapped.remoteId,
+		observedPushToken: mapped.pushToken,
+		outcomes: [
+			[
+				"upload",
+				{
+					status: "failed",
+					at,
+					failure: {
+						code: "remote_app_missing",
+						message: "The app Nova published isn't there any more.",
+						details: [],
+					},
+				},
+			],
+		],
+		remoteRevision: null,
+	});
+	await foldDeploymentAttempt(
+		SCOPE,
+		target("none"),
+		"preflight",
+		{ status: "succeeded", at },
+		{ ensure: true },
+	);
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			const body = JSON.parse(
+				resultText(await call(client, GET, { app_id: APP })),
+			);
+			const flags = Object.fromEntries(
+				body.deployments.map(
+					(entry: {
+						domain: string;
+						hq_app_id: string | null;
+						hq_app_gone: boolean;
+						hq_app_empty: boolean;
+					}) => [
+						entry.domain,
+						[entry.hq_app_id, entry.hq_app_gone, entry.hq_app_empty],
+					],
+				),
+			);
+			expect(flags).toEqual({
+				clinic: ["working-app", false, false],
+				shell: ["shell-app", false, true],
+				gone: ["gone-app", true, false],
+				none: [null, false, false],
+			});
+		});
+		expect(urls(peer)).toEqual([]);
+	});
+});
+
+it("tells a refresh of a first publish that stopped with its empty app mapped that there is nothing to check, and asks HQ nothing", async () => {
+	await seed(false);
+	const at = "2026-09-01T00:00:00.000Z";
+	await foldDeploymentAttempt(
+		SCOPE,
+		TARGET,
+		"preflight",
+		{ status: "succeeded", at },
+		{ ensure: true },
+	);
+	await recordCreatedRemoteApp(SCOPE, TARGET, { remoteId: "working-app" });
+	await foldDeploymentAttempt(SCOPE, TARGET, "resources", {
+		status: "failed",
+		at,
+		failure: {
+			code: "hq_rejected_resource_push",
+			message: "CommCare HQ would not take this app's lookup tables.",
+			details: [],
+		},
+	});
+	expect((await readDeployment(SCOPE, TARGET))?.active).toHaveLength(1);
+	const before = await snapshot();
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			expect(errorBody(await call(client))).toMatchObject({
+				error_type: "invalid_input",
+				message:
+					"This publish stopped before the app's content reached CommCare HQ, so checking there would say nothing about it. Fix what stopped it and publish again.",
+			});
+		});
+		expect(urls(peer)).toEqual([]);
+	});
+	expect(await snapshot()).toEqual(before);
 });
 
 it("returns the fresh mapping when a publish lands during the HQ check", async () => {

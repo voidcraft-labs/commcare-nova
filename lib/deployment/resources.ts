@@ -43,26 +43,13 @@ export function activeRemoteApp(
 }
 
 /**
- * The mapped CommCare HQ app the next publish will update in place, or
- * `null` when it will create a fresh one.
+ * The mapped CommCare HQ app the next publish updates in place, or `null`
+ * when it creates one.
  *
- * An active mapping whose upload phase holds no persisted failure means
- * the project space still holds the app Nova put there, so a publish
- * updates it. The predicate is ANY persisted upload failure, not the
- * `remote_app_missing` code alone: attempt failures are never persisted
- * on a reached target (`applyAttemptOutcome` returns the record
- * unchanged), so a failure sitting beside an active mapping implies a
- * prior observation found the app gone, even when a later failed create
- * attempt overwrote the code. Keying on the code would send that state
- * back down the update path against an app CommCare HQ already said is
- * missing. The one imperfect corner: an app restored through CommCare
- * HQ's own undo and never re-observed gets a fresh copy instead of an
- * update. Rare and non-destructive. A Check status before publishing
- * heals it, but only while the persisted failure still carries the
- * `remote_app_missing` code (`deploymentIsObservable` whitelists exactly
- * that); a later failed create attempt that overwrote the code closes
- * that window until a publish lands and `recordRemoteResource` clears
- * the failure.
+ * A live mapping is updated in place whether or not it holds content yet: a
+ * shell Nova created and never filled is filled by the next publish, never
+ * made a second time. A mapping CommCare HQ reported gone
+ * (`remoteMissingAt`) is created afresh.
  *
  * Shared by the publish lifecycle (the decision itself) and the publish
  * dialog (the copy saying which will happen), so the promise on the
@@ -72,9 +59,58 @@ export function plannedInPlaceUpdate(
 	deployment: DeploymentWithResources,
 ): DeploymentResource | null {
 	const active = activeRemoteApp(deployment);
-	if (active === null) return null;
-	if (deployment.deployment.phases.upload?.status === "failed") return null;
-	return active;
+	return active === null || active.remoteMissingAt !== null ? null : active;
+}
+
+/**
+ * False for a shell Nova created and never filled.
+ *
+ * The first publish creates an empty app, then fills it with an update; the
+ * mapping carries no pushed revision until that update lands.
+ */
+export function remoteAppHoldsContent(resource: DeploymentResource): boolean {
+	return resource.pushedRevision !== null;
+}
+
+/**
+ * The mapped app when CommCare HQ holds this app's content there, else
+ * `null`: a shell holds nothing to sign in to or link into, and a gone app
+ * holds nothing at all.
+ */
+export function publishedRemoteApp(
+	deployment: DeploymentWithResources,
+): DeploymentResource | null {
+	const planned = plannedInPlaceUpdate(deployment);
+	return planned !== null && remoteAppHoldsContent(planned) ? planned : null;
+}
+
+/** What the next publish to a target does with the app there. */
+export type NextPublishAction = "creates" | "fills-shell" | "updates";
+
+/**
+ * What the next publish does: create an app, fill the empty one an earlier
+ * try made, or update the app that is there. `null` is a target this app
+ * has no deployment on.
+ */
+export function nextPublishAction(
+	deployment: DeploymentWithResources | null,
+): NextPublishAction {
+	const planned = deployment === null ? null : plannedInPlaceUpdate(deployment);
+	if (planned === null) return "creates";
+	return remoteAppHoldsContent(planned) ? "updates" : "fills-shell";
+}
+
+/**
+ * CommCare HQ reported the active mapped app gone; false when there is no
+ * active mapping.
+ *
+ * Read from the mapping rather than from a failure code, so it still holds
+ * after a later failed create overwrote the code.
+ */
+export function remoteAppReportedGone(
+	deployment: DeploymentWithResources,
+): boolean {
+	return (activeRemoteApp(deployment)?.remoteMissingAt ?? null) !== null;
 }
 
 /**

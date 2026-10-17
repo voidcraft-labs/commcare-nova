@@ -13,7 +13,11 @@ import {
 	resolveCaseListConfig,
 	xp,
 } from "@/lib/__tests__/docHelpers";
-import { expandDoc as projectUncheckedDoc } from "@/lib/commcare/expander";
+import {
+	APP_SHELL_KEYS,
+	expandAppShell,
+	expandDoc as projectUncheckedDoc,
+} from "@/lib/commcare/expander";
 import { expandCaseToWire } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
@@ -5444,5 +5448,43 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		});
 		const property = expandDoc(doc).modules[0].search_config.properties[0];
 		expect(property.exclude).toBeUndefined();
+	});
+});
+
+describe("expandAppShell", () => {
+	it("holds exactly the shell's keys in their order, with no menu and no attachment", () => {
+		const shell = expandAppShell(registrationDoc);
+		expect(Object.keys(shell)).toEqual([
+			"doc_type",
+			"application_version",
+			"name",
+			"langs",
+			"build_spec",
+			"translations",
+			"auto_gps_capture",
+			"add_ons",
+			"modules",
+			"_attachments",
+		]);
+		expect(Object.keys(shell)).toEqual([...APP_SHELL_KEYS]);
+		expect(shell.modules).toEqual([]);
+		expect(shell._attachments).toEqual({});
+		for (const absent of [
+			"multimedia_map",
+			"logo_refs",
+			"profile",
+			"location_fixture_restore",
+		]) {
+			expect(Object.hasOwn(shell, absent)).toBe(false);
+		}
+	});
+
+	it("writes the app-level values the update a first publish sends writes", () => {
+		const shell = expandAppShell(registrationDoc);
+		const app = expandDoc(registrationDoc);
+		for (const key of APP_SHELL_KEYS) {
+			if (key === "modules" || key === "_attachments") continue;
+			expect(shell[key]).toEqual(app[key]);
+		}
 	});
 });

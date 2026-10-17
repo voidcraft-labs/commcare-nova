@@ -1,0 +1,21 @@
+{
+	"capabilities": [
+		{
+			"id": "commcare-connect",
+			"flags": [
+				{
+					"symbol": "COMMCARE_CONNECT",
+					"slug": "commcare_connect"
+				}
+			],
+			"runtimeProbes": []
+		}
+	],
+	"advisories": [],
+	"minimumConfiguration": {
+		"flags": [
+			"COMMCARE_CONNECT"
+		],
+		"caseSearchEnabled": false
+	}
+}

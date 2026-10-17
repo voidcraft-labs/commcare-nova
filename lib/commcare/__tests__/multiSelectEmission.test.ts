@@ -18,6 +18,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, type Form, proseText } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 const target = { origin: "https://www.commcarehq.org", domain: "demo-project" };
 const scope = "/data/__nova_selected_cases/item/__nova_operations";
@@ -130,7 +131,9 @@ function artifacts(doc: ReturnType<typeof buildDoc>, published = true) {
 	const form = hq.modules[0].forms[0];
 	const source = hq._attachments[`${form.unique_id}.xml`];
 	if (typeof source !== "string") throw new Error("Missing form source");
-	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
 	const suite = parse(zip.readAsText("suite.xml"));
 	const entry = one(
 		suite.children

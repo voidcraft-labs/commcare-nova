@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { mediaIds, mediaWireFixture } from "./mediaWireFixtures";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
 describe("admitted media app archive joins", () => {
@@ -12,7 +13,10 @@ describe("admitted media app archive joins", () => {
 			const { doc, assets } = mediaWireFixture();
 			const hq = expandDoc(doc, enabled ? { assets } : {});
 			const zip = new AdmZip(
-				compileCcz(hq, doc.appName, doc, enabled ? { assets } : {}),
+				compileCcz(hq, doc.appName, doc, {
+					...(enabled ? { assets } : {}),
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
 			);
 			const media = readXmlEvidence(zip.readAsText("media_suite.xml"));
 			const expected = enabled

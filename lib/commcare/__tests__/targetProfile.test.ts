@@ -1,10 +1,7 @@
 /** Pure target-profile ownership and merge boundary; no HQ import or runtime claim. */
 import { describe, expect, it } from "vitest";
 import type { HqApplication } from "@/lib/commcare";
-import {
-	projectNewAppProfileForTarget,
-	projectUpdatedAppProfileForTarget,
-} from "../targetProfile";
+import { projectUpdatedAppProfileForTarget } from "../targetProfile";
 
 function application(withDerivedProfile = true): HqApplication {
 	return {
@@ -17,7 +14,6 @@ function application(withDerivedProfile = true): HqApplication {
 			version: "2.54.0",
 			build_number: null,
 		},
-		multimedia_map: {},
 		translations: {},
 		auto_gps_capture: false,
 		...(withDerivedProfile && {
@@ -45,47 +41,14 @@ describe("target profile projection", () => {
 			};
 			const beforeInput = structuredClone(input);
 			const beforeCurrent = structuredClone(current);
-			const created = projectNewAppProfileForTarget(input, state);
 			const updated = projectUpdatedAppProfileForTarget(input, current, state);
 			expect(input).toEqual(beforeInput);
 			expect(current).toEqual(beforeCurrent);
-			for (const result of [created, updated]) {
-				const { profile: _profile, ...remaining } = result.application;
-				const { profile: _beforeProfile, ...beforeRemaining } = beforeInput;
-				expect(remaining).toEqual(beforeRemaining);
-			}
+			const { profile: _profile, ...remaining } = updated.application;
+			const { profile: _beforeProfile, ...beforeRemaining } = beforeInput;
+			expect(remaining).toEqual(beforeRemaining);
 		},
 	);
-	it("keeps the derived property for a supported new app", () => {
-		const input = application();
-		expect(projectNewAppProfileForTarget(input, "available")).toEqual({
-			application: input,
-			profileChanged: false,
-		});
-	});
-
-	it("omits the advisory property for an unsupported new app", () => {
-		const projected = projectNewAppProfileForTarget(application(), "missing");
-		expect(projected.application.profile).toBeUndefined();
-		expect(Object.keys(projected.application).at(-1)).toBe("_attachments");
-	});
-
-	it("keeps unrelated generated profile state for an unsupported new app", () => {
-		const input = application();
-		if (!input.profile?.custom_properties) {
-			throw new Error("Expected generated profile properties");
-		}
-		input.profile.features = { foreign: { active: true } };
-		input.profile.custom_properties.foreign = "generated";
-
-		const projected = projectNewAppProfileForTarget(input, "unverified");
-		expect(projected.application.profile).toEqual({
-			features: { foreign: { active: true } },
-			custom_properties: { foreign: "generated" },
-		});
-		expect(Object.keys(projected.application).at(-1)).toBe("_attachments");
-	});
-
 	it("overlays only Nova's key onto the complete update profile", () => {
 		const projected = projectUpdatedAppProfileForTarget(
 			application(),

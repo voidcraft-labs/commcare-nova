@@ -1491,9 +1491,13 @@ operation and is unavailable to viewers. Its result and check failure are cleare
 selected destination, deployment, or access changes. The copy states the observed
 check time, because HQ chooses the build each recipient opens.
 
-Download options can select US, India, or EU explicitly. Leaving the choice at
-Use published destination delegates resolution to the compile boundary and
-never silently selects US when no unambiguous destination exists.
+A CommCare mobile app file is made for one project space the app is published
+to. The dialog offers a select of those spaces (`onDownloadCcz` takes
+`{ server, domain }`): the only one is preselected, several leave the button off
+until one is chosen, and with none the dialog says why and offers Publish to
+CommCare HQ in its place. The CommCare HQ app file is always a ZIP (Download
+ZIP), and its outcome shows the steps of the guide the ZIP holds; its optional
+server select only scopes attachment links.
 
 
 Worker credentials live together in `provisioningOutcomes`, keyed by server and

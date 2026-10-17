@@ -112,6 +112,7 @@ import AdmZip from "adm-zip";
 import { type AnyNode, type Element, isTag } from "domhandler";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { HqApplication } from "@/lib/commcare";
+import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
@@ -126,6 +127,10 @@ import { parseXml } from "@/lib/commcare/xmlParse";
 import { caseSearchConfigPatchMutations } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import {
+	addLanguageMutation,
+	heldLanguageWireCodes,
+} from "@/lib/doc/languageMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { formScaffoldMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
@@ -305,6 +310,7 @@ function wireOf(
 		});
 	});
 	const archive = compileCcz(app, doc.appName, doc, {
+		runtimeTarget: TEST_RUNTIME_TARGET,
 		assets,
 		...(lookup !== undefined &&
 			naming !== undefined && {
@@ -1820,7 +1826,9 @@ describe("the footprint's derivations", () => {
 		{
 			name: "a new language reaches the app's own record",
 			document: "case-operation-relation",
-			batch: () => [{ kind: "addLanguage", language: { language: "spa" } }],
+			batch: (doc) => [
+				addLanguageMutation(heldLanguageWireCodes(doc), { language: "spa" }),
+			],
 			reaches: (doc) => formsOf(doc, "Patients"),
 			leaves: () => [],
 			app: true,

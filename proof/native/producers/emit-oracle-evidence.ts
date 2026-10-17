@@ -6,6 +6,7 @@ import { suiteOracleCases } from "../../../lib/commcare/__tests__/suiteOracleCor
 import { xformOracleCases } from "../../../lib/commcare/__tests__/xformOracleCorpus";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const outArgument = process.argv[2];
 if (!outArgument)
@@ -34,7 +35,11 @@ writeFileSync(
 console.log(`${suiteOracleCases.length} native suite cases`);
 
 const { doc } = mediaWireFixture();
-const archive = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
+const archive = new AdmZip(
+	compileCcz(expandDoc(doc), doc.appName, doc, {
+		runtimeTarget: NATIVE_RUNTIME_TARGET,
+	}),
+);
 writeFileSync(
 	resolve(out, "admitted-case-title.suite.xml"),
 	archive.readAsText("suite.xml"),

@@ -3,6 +3,7 @@ import { isTag } from "domhandler";
 import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
@@ -16,7 +17,11 @@ describe("admitted location owner exports", () => {
 		(scenario) => {
 			const doc = locationOwnerFixture(scenario),
 				hq = expandDoc(doc),
-				zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+				zip = new AdmZip(
+					compileCcz(hq, doc.appName, doc, {
+						runtimeTarget: TEST_RUNTIME_TARGET,
+					}),
+				);
 			const form = parseDocument(zip.readAsText("modules-0/forms-0.xml"), {
 				xmlMode: true,
 			});

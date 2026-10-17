@@ -3,30 +3,38 @@
  *
  * Contract: for the same app and the same project space, the requests the
  * harness's capture (`proof/corpus/publish.ts::capturePublish`) records are
- * the requests `publishAppToHq` sends, and the capture's local archive
- * (`localCcz`) is the one Nova's compile route (`app/api/compile/route.ts`)
- * returns once the app's deployment record names that project space. The
- * capture stands in for Nova's database with the Project state preflight
- * would read and for HQ with a peer answering from a configuration, so the
- * plausible failures are there: a lookup snapshot, media manifest,
- * attachment target or compatibility report that differs from what
- * preflight hands the send, an update that reads a different source
- * profile, a verdict naming flags other than the ones Nova's check asks
- * about, or an archive assembled with options the route does not use.
+ * the requests `publishAppToHq` sends, in the same order, and the capture's
+ * local archive (`localCcz`) is the one Nova's compile route
+ * (`app/api/compile/route.ts`) returns once the app's deployment record
+ * names that project space. The capture stands in for Nova's database with
+ * the Project state preflight would read and for HQ with a peer answering
+ * from a configuration, so the plausible failures are there: a lookup
+ * snapshot, media manifest, attachment target or compatibility report that
+ * differs from what preflight hands the send, a first publish whose shell,
+ * source reads, workbook and content arrive in another order than Nova's, an
+ * update built over a different source, a verdict naming flags other than
+ * the ones Nova's check asks about, or an archive assembled with options the
+ * route does not use. And a publish sends the ids the publish before it
+ * sent: three publishes of one document carry one set of menu ids, form ids
+ * and `xmlns`.
  *
- * Each app is published twice through the real `publishAppToHq` (migrated
+ * Each app is published through the real `publishAppToHq` (migrated
  * Postgres, the real preflight and HQ client; only KMS, object storage and
- * the HQ peer are controlled) and captured twice through `capturePublish`.
- * The bodies are compared decoded: field order, `app_name`, `app_id`
- * presence, the app file's name and type, the workbook bytes, the app
- * JSON once each side's module and form `unique_id`s and form `xmlns`,
- * minted afresh on every export, are replaced by their positions, and the
- * media upload Nova sends after the import (`uploadMediaBytes`): its fields,
- * the ZIP's name and type, and each file the ZIP holds, by name and bytes,
- * in order (each ZIP stamps its files with the time it was built). The
- * archives are compared entry by entry with Nova's id minting fixed for
- * both builds and the profile's `uniqueid` named in place; the route runs
- * with only the session and object storage controlled.
+ * the HQ peer are controlled) and captured through `capturePublish`. The
+ * test's peer answers each source read as the capture's peer does, from
+ * what Nova last sent: after the shell's create its source
+ * (`proof/corpus/targetPeer.ts::shellSource`), after the content import
+ * that body with HQ's CommCare version. The bodies are compared decoded:
+ * field order, `app_name`, `app_id` presence, the app file's name and type,
+ * the workbook bytes, the app JSON with the app id each side names put in
+ * place, and the media upload Nova sends after the content import
+ * (`uploadMediaBytes`): its fields, the ZIP's name and type, and each file
+ * the ZIP holds, by name and bytes, in order (each ZIP stamps its files with
+ * the time it was built). The order is compared over the requests that
+ * write or read the app and its data (imports, source reads, workbooks and
+ * media uploads). The archives are compared entry by entry with the
+ * profile's `uniqueid` and the app id named in place; the route runs with
+ * only the session and object storage controlled.
  */
 
 import { createHash } from "node:crypto";
@@ -62,6 +70,7 @@ import {
 } from "@/lib/lookup/service";
 import { loadAppBlueprint } from "@/lib/mcp/loadApp";
 import { downloadAssetBytes } from "@/lib/storage/media";
+import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import {
 	type CapturedRequest,
 	capturePublish,
@@ -72,22 +81,8 @@ import {
 	type PublishConfiguration,
 	type PublishDocument,
 } from "../publish";
+import { shellSource } from "../targetPeer";
 
-/** Nova's id minting, fixed while `minting.fixed` is set, for two builds to compare. */
-const minting = vi.hoisted(() => ({ fixed: false, next: 0 }));
-
-vi.mock("@/lib/commcare/ids", async (importOriginal) => {
-	const original = await importOriginal<typeof import("@/lib/commcare/ids")>();
-	const fixed = (length: number) => {
-		minting.next += 1;
-		return minting.next.toString(16).padStart(length, "0");
-	};
-	return {
-		...original,
-		genHexId: () => (minting.fixed ? fixed(40) : original.genHexId()),
-		genShortId: () => (minting.fixed ? fixed(16) : original.genShortId()),
-	};
-});
 vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/auth-utils")>()),
 	requireSession: vi.fn(),
@@ -200,21 +195,76 @@ interface HqApp {
 	readonly [key: string]: unknown;
 }
 
+/** The app JSON with the app id each side names (Nova's mapped app, the capture's placeholder) put in place. */
+function appNamedInPlace(app: HqApp): unknown {
+	return JSON.parse(
+		JSON.stringify(app)
+			.split(REMOTE_APP)
+			.join("<app id>")
+			.split(PLACEHOLDER_APP_ID)
+			.join("<app id>"),
+	);
+}
+
+/** Every module id, form id and `xmlns` an import carries, in order. */
+function sentIds(app: HqApp): string[] {
+	return app.modules.flatMap((module) => [
+		module.unique_id,
+		...module.forms.flatMap((form) => [form.unique_id, form.xmlns]),
+	]);
+}
+
+/** The app JSON a multipart import carries. */
+async function appFile(form: FormData | undefined): Promise<HqApp> {
+	const file = form?.get("app_file");
+	if (!(file instanceof Blob))
+		throw new Error("The import carries no app file.");
+	return JSON.parse(await file.text());
+}
+
 /**
- * The app JSON with every module and form `unique_id` and form `xmlns`
- * replaced by its position, wherever it occurs (as a value, in an
- * attachment's name, inside a form's source).
+ * The source HQ serves after Nova's imports so far, as the capture's peer
+ * answers it: the shell's after a create alone, and after the content
+ * import that body with HQ's CommCare version and `profile`.
  */
-function positional(app: HqApp): unknown {
-	let text = JSON.stringify(app);
-	app.modules.forEach((module, m) => {
-		text = text.split(module.unique_id).join(`<module ${m}>`);
-		module.forms.forEach((form, f) => {
-			text = text.split(form.xmlns).join(`<xmlns ${m}.${f}>`);
-			text = text.split(form.unique_id).join(`<form ${m}.${f}>`);
-		});
+async function sourceAfter(
+	imports: readonly FormData[],
+	profile?: unknown,
+): Promise<Record<string, unknown>> {
+	if (imports.length === 1) {
+		return shellSource(await appFile(imports[0]), CORPUS_COMMCARE_VERSION);
+	}
+	const content = await appFile(imports[1]);
+	return {
+		...content,
+		doc_type: "Application",
+		build_spec: {
+			...(content.build_spec as Record<string, unknown>),
+			version: CORPUS_COMMCARE_VERSION,
+		},
+		profile: profile ?? content.profile ?? {},
+	};
+}
+
+/** What a request does to the app or its data, for holding the order of two publishes alike. */
+function ordered(sequence: readonly string[]): string[] {
+	return sequence.flatMap((entry) => {
+		const [method, path = ""] = entry.split(" ");
+		const pathname = new URL(path, HOST).pathname;
+		if (method === "POST" && pathname.endsWith("/apps/api/import_app/")) {
+			return ["import"];
+		}
+		if (method === "GET" && pathname.includes("/apps/source/")) {
+			return ["source read"];
+		}
+		if (method === "POST" && pathname.endsWith("/fixtures/fixapi/")) {
+			return ["workbook"];
+		}
+		if (method === "POST" && pathname.endsWith("/multimedia/")) {
+			return ["media"];
+		}
+		return [];
 	});
-	return JSON.parse(text);
 }
 
 type FormField =
@@ -253,12 +303,13 @@ async function decoded(captured: CapturedRequest) {
  * The import the capture recorded, compared with the one Nova sent: the
  * same fields in the same order and values, except that an update names
  * the placeholder where Nova names the mapped app, and the app JSON is
- * compared by position. Returns Nova's app JSON.
+ * compared with each side's app id put in place. Returns Nova's app JSON.
  */
 async function expectSameImport(
 	captured: CapturedRequest,
-	sent: FormData,
+	sent: FormData | undefined,
 ): Promise<HqApp> {
+	if (sent === undefined) throw new Error("Nova sent no such import.");
 	const [capturedFields, sentFields] = [
 		await decoded(captured),
 		await fieldsOf(sent),
@@ -298,7 +349,7 @@ async function expectSameImport(
 	if (apps === undefined)
 		throw new Error("Neither import carried an app file.");
 	const [capturedApp, sentApp] = apps;
-	expect(positional(capturedApp)).toEqual(positional(sentApp));
+	expect(appNamedInPlace(capturedApp)).toEqual(appNamedInPlace(sentApp));
 	return sentApp;
 }
 
@@ -335,10 +386,11 @@ async function expectSameMedia(captured: CapturedRequest, sent: FormData) {
 
 /**
  * A `.ccz`'s entries by name. The profile's `uniqueid`, a fresh UUID on
- * every build, is named in place wherever it occurs; binary entries are
- * compared byte for byte through latin1.
+ * every build, and the app id its runtime URLs name are named in place
+ * wherever they occur; binary entries are compared byte for byte through
+ * latin1.
  */
-function cczEntries(archive: Uint8Array): Map<string, string> {
+function cczEntries(archive: Uint8Array, appId: string): Map<string, string> {
 	const entries = new AdmZip(Buffer.from(archive))
 		.getEntries()
 		.filter((entry) => !entry.isDirectory);
@@ -351,34 +403,32 @@ function cczEntries(archive: Uint8Array): Map<string, string> {
 	return new Map(
 		entries.map((entry) => [
 			entry.entryName,
-			entry.getData().toString("latin1").split(uniqueid).join("<uniqueid>"),
+			entry
+				.getData()
+				.toString("latin1")
+				.split(uniqueid)
+				.join("<uniqueid>")
+				.split(appId)
+				.join("<app id>"),
 		]),
 	);
-}
-
-/** Build with Nova's id minting fixed and restarted, so two builds mint alike. */
-async function withFixedMinting<T>(build: () => Promise<T>): Promise<T> {
-	minting.fixed = true;
-	minting.next = 0;
-	try {
-		return await build();
-	} finally {
-		minting.fixed = false;
-	}
 }
 
 function sentSteps(capture: PublishCapture) {
 	if (capture.status !== "sent") throw new Error("The capture was refused.");
 	const update = capture.updates.update;
 	if (update?.status !== "sent") throw new Error("The update was refused.");
-	return {
-		create: capture.create,
-		update,
-		assumed: capture.assumedSourceProfile,
-	};
+	return { first: capture.create, update };
 }
 
-it("captures the create and the profile-preserving update Nova sends for the shared survey app", async () => {
+/** The requests of each publish, cut from one ordered log at each publish's start. */
+function perPublish(log: readonly string[], starts: readonly number[]) {
+	return starts.map((start, index) =>
+		log.slice(start, starts[index + 1] ?? log.length),
+	);
+}
+
+it("captures the shell, the content and the profile-preserving update Nova sends for the shared survey app, in Nova's order, and every publish sends the same ids", async () => {
 	await seed(clinicVisitsDocument());
 	const document = await storedDocument();
 	const capture = sentSteps(
@@ -391,14 +441,17 @@ it("captures the create and the profile-preserving update Nova sends for the sha
 				caseSearchEnabled: false,
 				domain: DOMAIN,
 			},
-			sourceProfile: TARGET_PROFILE_WITH_DERIVED_KEY,
+			source: { profile: TARGET_PROFILE_WITH_DERIVED_KEY },
 		}),
 	);
 
 	const imports: FormData[] = [];
+	const log: string[] = [];
+	const starts: number[] = [];
 	await withHttpPeer(async (peer) => {
 		request(peer, IMPORT, "POST")
 			.reply(async (opts) => {
+				log.push(`POST ${opts.path}`);
 				imports.push(await readMultipartRequest(opts));
 				return imports.length === 1
 					? {
@@ -410,27 +463,62 @@ it("captures the create and the profile-preserving update Nova sends for the sha
 							data: JSON.stringify({
 								success: true,
 								app_id: REMOTE_APP,
-								version: 2,
+								version: imports.length,
 							}),
 						};
 			})
-			.times(2);
-		request(peer, SOURCE).reply(200, {
-			profile: TARGET_PROFILE_WITH_DERIVED_KEY,
-		});
+			.times(4);
+		request(peer, SOURCE)
+			.reply(async (opts) => {
+				log.push(`GET ${opts.path}`);
+				return {
+					statusCode: 200,
+					data: JSON.stringify(
+						await sourceAfter(imports, TARGET_PROFILE_WITH_DERIVED_KEY),
+					),
+				};
+			})
+			.times(3);
+		starts.push(log.length);
 		expect((await publish()).hqAppAction).toBe("created");
+		starts.push(log.length);
+		expect((await publish("Visiting program")).hqAppAction).toBe("updated");
+		starts.push(log.length);
 		expect((await publish("Visiting program")).hqAppAction).toBe("updated");
 	});
 
-	const [created, updated] = imports;
-	if (created === undefined || updated === undefined)
-		throw new Error("Nova sent fewer than two imports.");
-	await expectSameImport(capture.create.importApp, created);
+	// The capture sends its requests in the order Nova's publish does.
+	const [firstOrder, updateOrder, againOrder] = perPublish(log, starts);
+	expect(ordered(capture.first.sequence)).toEqual([
+		"import",
+		"source read",
+		"import",
+	]);
+	expect(ordered(firstOrder ?? [])).toEqual(ordered(capture.first.sequence));
+	expect(ordered(capture.update.sequence)).toEqual(["source read", "import"]);
+	expect(ordered(updateOrder ?? [])).toEqual(ordered(capture.update.sequence));
+	expect(ordered(againOrder ?? [])).toEqual(ordered(capture.update.sequence));
+
+	const [shell, content, updated, again] = imports;
+	const sentShell = await expectSameImport(
+		capture.first.create.importApp,
+		shell,
+	);
+	expect(sentShell.modules).toEqual([]);
+	const sentContent = await expectSameImport(
+		capture.first.content.importApp,
+		content,
+	);
 	const sentUpdate = await expectSameImport(capture.update.importApp, updated);
 	// The update carries HQ's own profile settings without Nova's derived key,
 	// so the comparison covers the profile projection.
 	expect(sentUpdate.profile).toEqual(TARGET_OWNED_PROFILE);
-	expect(capture.create.lookup).toBeUndefined();
+	expect(capture.first.content.lookup).toBeUndefined();
+	// Three publishes of one document send one set of ids.
+	const ids = sentIds(sentContent);
+	expect(ids.length).toBeGreaterThan(1);
+	expect(sentIds(sentUpdate)).toEqual(ids);
+	expect(sentIds(await appFile(again))).toEqual(ids);
 });
 
 it("captures what Nova sends and downloads for Search, lookup data, media and an attachment link, with the verdict naming the flags Nova's check asks about", async () => {
@@ -517,6 +605,8 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 	const workbooks: FormData[] = [];
 	const uploads: FormData[] = [];
 	const flagQueries: string[] = [];
+	const log: string[] = [];
+	const starts: number[] = [];
 	await withHttpPeer(async (peer) => {
 		const listed = { domain_name: DOMAIN, project_name: "Clinic" };
 		peer
@@ -554,6 +644,7 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 			.times(3);
 		request(peer, WORKBOOK, "POST")
 			.reply(async (opts) => {
+				log.push(`POST ${opts.path}`);
 				workbooks.push(await readMultipartRequest(opts));
 				return {
 					statusCode: 200,
@@ -563,6 +654,7 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 			.times(2);
 		request(peer, IMPORT, "POST")
 			.reply(async (opts) => {
+				log.push(`POST ${opts.path}`);
 				imports.push(await readMultipartRequest(opts));
 				return imports.length === 1
 					? {
@@ -574,24 +666,24 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 							data: JSON.stringify({
 								success: true,
 								app_id: REMOTE_APP,
-								version: 2,
+								version: imports.length,
 							}),
 						};
 			})
-			.times(2);
-		// What HQ holds after the create: the create's profile, or HQ's empty default.
-		request(peer, SOURCE).reply(async () => {
-			const file = imports[0]?.get("app_file");
-			if (!(file instanceof Blob))
-				throw new Error("The source was read before the create.");
-			const created = JSON.parse(await file.text()) as HqApp;
-			return {
-				statusCode: 200,
-				data: JSON.stringify({ profile: created.profile ?? {} }),
-			};
-		});
+			.times(3);
+		// What HQ holds: the shell's source after the create, then the content's.
+		request(peer, SOURCE)
+			.reply(async (opts) => {
+				log.push(`GET ${opts.path}`);
+				return {
+					statusCode: 200,
+					data: JSON.stringify(await sourceAfter(imports)),
+				};
+			})
+			.times(4);
 		request(peer, MEDIA, "POST")
 			.reply(async (opts) => {
+				log.push(`POST ${opts.path}`);
 				uploads.push(await readMultipartRequest(opts));
 				return {
 					statusCode: 200,
@@ -610,9 +702,32 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 				errors: [],
 			})
 			.times(2);
+		starts.push(log.length);
 		expect((await publish()).hqAppAction).toBe("created");
+		starts.push(log.length);
 		expect((await publish()).hqAppAction).toBe("updated");
 	});
+
+	// The capture sends its requests in the order Nova's publish does: the
+	// shell and its source read before the workbook, and the content after it.
+	const [firstOrder, updateOrder] = perPublish(log, starts);
+	expect(ordered(capture.first.sequence)).toEqual([
+		"import",
+		"source read",
+		"workbook",
+		"source read",
+		"import",
+		"media",
+	]);
+	expect(ordered(firstOrder ?? [])).toEqual(ordered(capture.first.sequence));
+	expect(ordered(capture.update.sequence)).toEqual([
+		"source read",
+		"workbook",
+		"source read",
+		"import",
+		"media",
+	]);
+	expect(ordered(updateOrder ?? [])).toEqual(ordered(capture.update.sequence));
 
 	// The verdict names exactly the flags Nova's own check asked HQ about.
 	expect(flagQueries.sort()).toEqual(
@@ -621,55 +736,70 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 			.flatMap((slug) => [slug, slug])
 			.sort(),
 	);
-	const [created, updated] = imports;
-	const [createdWorkbook, updatedWorkbook] = workbooks;
-	if (!created || !updated || !createdWorkbook || !updatedWorkbook) {
-		throw new Error("Nova sent fewer than two imports and two workbooks.");
+	const [shell, content, updated] = imports;
+	const [contentWorkbook, updatedWorkbook] = workbooks;
+	if (!contentWorkbook || !updatedWorkbook) {
+		throw new Error("Nova sent fewer than two workbooks.");
 	}
-	if (!capture.create.lookup || !capture.update.lookup) {
+	const { content: captured } = capture.first;
+	if (!captured.lookup || !capture.update.lookup) {
 		throw new Error("The capture sent no workbook.");
 	}
-	await expectSameWorkbook(capture.create.lookup, createdWorkbook);
+	await expectSameWorkbook(captured.lookup, contentWorkbook);
 	await expectSameWorkbook(capture.update.lookup, updatedWorkbook);
-	// Nova uploads the media after each import, to the app the import made.
-	const [createdMedia, updatedMedia] = uploads;
-	if (!createdMedia || !updatedMedia || uploads.length !== 2) {
+	// Nova uploads the media after each content import, to the app the
+	// first publish made, and none after the shell.
+	const [contentMedia, updatedMedia] = uploads;
+	if (!contentMedia || !updatedMedia || uploads.length !== 2) {
 		throw new Error(
 			`Nova sent ${uploads.length} media uploads, not one per publish.`,
 		);
 	}
-	if (!capture.create.media || !capture.update.media) {
+	if (!captured.media || !capture.update.media) {
 		throw new Error("The capture sent no media upload.");
 	}
-	await expectSameMedia(capture.create.media, createdMedia);
+	await expectSameMedia(captured.media, contentMedia);
 	await expectSameMedia(capture.update.media, updatedMedia);
 	// The capture names its peer's app, which the HQ side replaces with A's.
-	expect(capture.create.media.path).toBe(
+	expect(captured.media.path).toBe(
 		`/a/${DOMAIN}/apps/api/${PLACEHOLDER_APP_ID}/multimedia/`,
 	);
-	const sentCreate = await expectSameImport(capture.create.importApp, created);
+	const sentShell = await expectSameImport(
+		capture.first.create.importApp,
+		shell,
+	);
+	expect(sentShell.modules).toEqual([]);
+	expect(sentShell).not.toHaveProperty("profile");
+	const sentContent = await expectSameImport(captured.importApp, content);
 	await expectSameImport(capture.update.importApp, updated);
-	// The advisory was available, so the create carried Nova's derived key,
-	// and the capture assumed the profile HQ keeps from that create.
-	expect(sentCreate.profile).toBeDefined();
-	expect(capture.assumed).toEqual(sentCreate.profile);
+	// The content was built over the shell's source, HQ's empty profile, and
+	// the advisory was available, so it carried Nova's derived key; the
+	// update was built over the profile the content left.
+	expect(captured.assumedSource).toEqual({
+		doc_type: "Application",
+		"build_spec.version": CORPUS_COMMCARE_VERSION,
+		profile: {},
+	});
+	expect(sentContent.profile).toBeDefined();
+	expect(capture.update.assumedSource.profile).toEqual(sentContent.profile);
 
 	// Once the deployment record names the project space, the compile route
 	// builds the download for it, and the capture's archive is that one.
 	vi.mocked(requireSession).mockResolvedValue({ user: { id: ACTOR } } as never);
-	const routed = await withFixedMinting(async () => {
-		const response = await compileCcz(
-			new NextRequest("http://localhost/api/compile", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ appId: APP }),
-			}),
-		);
-		expect(response.status).toBe(200);
-		return new Uint8Array(await response.arrayBuffer());
-	});
-	const local = await withFixedMinting(() => localCcz(document, DOMAIN));
-	const [routedEntries, localEntries] = [cczEntries(routed), cczEntries(local)];
+	const response = await compileCcz(
+		new NextRequest("http://localhost/api/compile", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ appId: APP }),
+		}),
+	);
+	expect(response.status).toBe(200);
+	const routed = new Uint8Array(await response.arrayBuffer());
+	const local = await localCcz(document, DOMAIN);
+	const [routedEntries, localEntries] = [
+		cczEntries(routed, REMOTE_APP),
+		cczEntries(local, PLACEHOLDER_APP_ID),
+	];
 	expect([...localEntries.keys()].sort()).toEqual(
 		[...routedEntries.keys()].sort(),
 	);

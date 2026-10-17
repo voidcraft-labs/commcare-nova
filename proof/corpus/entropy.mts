@@ -2,11 +2,12 @@
  * Seeded entropy for the corpus's exports, so one emission's bytes are a
  * function of its inputs alone.
  *
- * Every export Nova makes mints identities from `node:crypto`: module and
- * form `unique_id`s and form `xmlns` (`lib/commcare/ids.ts`, `randomBytes`),
- * a `.ccz` profile's `uniqueid` (`lib/commcare/compiler.ts`, `randomUUID`),
- * and `crypto.randomUUID` wherever `lib/doc` mints one. Inside an export
- * operation (`seeded`), this module answers those draws from an HMAC-SHA256
+ * The identities Nova's exports still draw come from `node:crypto`: a
+ * `.ccz` profile's `uniqueid` (`lib/commcare/compiler.ts`, `randomUUID`),
+ * and `crypto.randomUUID` wherever `lib/doc` mints one. A publish draws no
+ * id: its module and form `unique_id`s and form `xmlns` are derived from the
+ * document (`lib/commcare/wireIdentity.ts`). Inside an export operation
+ * (`seeded`), this module answers those draws from an HMAC-SHA256
  * DRBG (NIST SP 800-90A, HMAC_DRBG without reseeding) whose seed is
  * sha256(corpus seed, operation ordinal, configuration name). A seeded draw
  * is a draw the real generator could have made, so what an export sends is
@@ -14,12 +15,12 @@
  *
  * The seed names no document on purpose: two documents with the same
  * content export the same bytes. The ordinals (`OPERATION_ORDINALS`) keep
- * apart what Nova keeps apart: a document's create and its next publish
- * mint different ids (defect 1 stays visible), and so do its two local
- * exports (defect 9). An update to D′ is drawn at the republish's ordinal
- * first and kept only when it sends exactly the republish of D; otherwise
- * it is drawn again at its own (`./publish.ts::capturePublish`), so the ids
- * it mints are never the ones D's republish minted for another entity.
+ * apart what Nova keeps apart: a publish draws no id, and a document's two
+ * local exports draw different profile `uniqueid`s (defect 9). Each update
+ * is captured once, in a stream of its own: the republish of D at its
+ * ordinal and each update to D′ at another (`./publish.ts::capturePublish`).
+ * An update that changes nothing Nova sends equals the republish because
+ * Nova derives what it sends, never because the two shared a draw.
  *
  * Every emission process loads this module first, before any module that
  * could take a reference to a generator, with `--import`:
@@ -63,11 +64,9 @@ export interface EntropyOperation {
 }
 
 /**
- * The ordinal of each export of a corpus document. An update to D′ that
- * sends exactly the republish of D is the republish's draw (an edit that
- * changes nothing Nova sends leaves the two byte-identical); any other
- * update to D′ is drawn at `update`, a stream of its own, so none of the ids
- * it mints for one entity is an id the republish minted for another.
+ * The ordinal of each export of a corpus document. Every update to D′ is
+ * drawn at `update`, then one more for each later update, a stream of its
+ * own.
  */
 export const OPERATION_ORDINALS = {
 	create: 1,

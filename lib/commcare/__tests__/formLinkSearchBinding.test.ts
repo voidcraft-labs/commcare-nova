@@ -12,6 +12,7 @@ import { blueprintDocSchema } from "@/lib/domain";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import { runValidation } from "../validator/runner";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { searchEmissionFixture } from "./searchEmissionFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
@@ -29,7 +30,9 @@ it("preserves explicit new-case intent by selecting HQ's working automatic hydra
 	const hq = expandDoc(doc);
 	expect(hq.modules[1].forms[0].form_links[0].datums).toEqual([]);
 	const suite = readXmlEvidence(
-		new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText("suite.xml"),
+		new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		).readAsText("suite.xml"),
 	);
 	const entry = onlyXml(
 		xmlChildren(suite, "entry").filter(

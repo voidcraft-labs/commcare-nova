@@ -75,7 +75,7 @@ export interface ResolvedMediaAsset {
  *   - `undefined` — media emission is OFF. The validation loop and any
  *     preview that doesn't load assets pass `undefined`; every emitter
  *     skips media entirely (no references, no media-suite, no
- *     multimedia_map). The app is still structurally valid; it just
+ *     bundled files). The app is still structurally valid; it just
  *     carries no media.
  *   - a `Map` — media emission is ON. The caller has resolved EVERY
  *     asset the doc references (it walked the doc to build this map), so

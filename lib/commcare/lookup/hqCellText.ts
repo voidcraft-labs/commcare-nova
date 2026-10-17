@@ -45,7 +45,7 @@ export function lookupHqCellTextFindings(
 				validationError(
 					"LOOKUP_CELL_TEXT_CHANGED_BY_HQ",
 					"app",
-					`The "${column.label}" column in "${table.name}" has leading or trailing whitespace in ${count} row(s) that CommCare HQ would remove. Remove that whitespace in Project data, or download the app to preserve these values.`,
+					`The "${column.label}" column in "${table.name}" has leading or trailing whitespace in ${count} row(s) that CommCare HQ would remove. Remove that whitespace in Project data.`,
 					{},
 					{
 						tableId: table.id,

@@ -304,7 +304,7 @@ automatic-translation action.
 
 | Tool | What it does |
 |---|---|
-| `get_languages` | Read the ordered language catalog, source and default languages, per-target coverage, and diagnostics for content the static app-language catalog cannot translate. |
+| `get_languages` | Read the ordered language catalog, source and default languages, per-target coverage, and diagnostics for content the static app-language catalog cannot translate. Each language's `commcareCode` is the code CommCare knows it by, set when the language was added and never changed while it stays in the app. |
 | `get_translatable_content` | Page through the snapshot-bound translation inventory for one language, including source/effective values, status, breadcrumb context, and authored wording with its insertions. |
 | `add_language` | Add one target and atomically seed every current unit from an existing `copyFrom` language. |
 | `update_language` | Set the runtime default, or replace the sole source language's identity. |
@@ -356,7 +356,7 @@ remote write, even when the agent called `check_project_space_compatibility`
 earlier. A successful upload and a `project_space_incompatible` error both
 return `project_space_compatibility` so the agent can explain the checked result.
 
-`compile_app` stays available because a download has no selected destination.
+`compile_app` stays available for the CommCare HQ app file, which has no destination, and compiles a CommCare mobile app file for a project space the app is published to. Neither checks a project space.
 When the app has destination requirements, its leading
 `nova_project_space_compatibility` result block contains
 `project_space_compatibility` with `status: "not_checked"`. The same report is
@@ -1164,9 +1164,17 @@ returns the saved file when you still have access.
 
 ## Publishing
 
-`compile_app` accepts `server: "production" | "india" | "eu"`. Supply it
-when the app has no unique published destination. Search, case claims, and
-known-case hydration use that server; Nova does not silently choose US.
+`compile_app` with `format: "ccz"` makes the mobile app file for one project
+space the app is already published to: it signs workers in there and sends
+their forms there. Pass `domain`, and `server: "production" | "india" | "eu"`
+when two servers hold that name, to choose among several; an app published
+nowhere has no CCZ yet. `_meta["nova/target"]` names the project space and the
+HQ app the CCZ is made for. With `format: "json"` it returns the CommCare HQ
+import file, always a zip holding the app JSON, its media and lookup tables
+when it has them, and a README with the manual import steps, which also lead
+the result as a `nova_manual_import_guide` block. The import file works in any
+project space, so it takes no `domain`; `server` only chooses where its case
+attachment links open.
 
 `get_entry_point_link` takes `app_id`, `server`, `domain`,
 `entry_point_uuid`, and `selections: [{ module_uuid, case_ids }]`. Supply every
@@ -1188,11 +1196,11 @@ Recipients still authenticate and need the relevant app and case access.
 
 | Tool | What it does |
 |---|---|
-| `compile_app` | Compile to CommCare HQ format: the JSON shape HQ accepts (a zip bundling that JSON with the media files and the `lookup-tables.xlsx` workbook when the app has either), or a `.ccz` archive. When the app needs destination support, a separate [project-space compatibility](../project-space-compatibility.mdx) block lists it as not checked without blocking the download. |
+| `compile_app` | Compile to CommCare HQ format: the CommCare HQ import file (always a zip holding the app JSON, a README with the import steps, and the media files and the `lookup-tables.xlsx` workbook when the app has either), or a `.ccz` archive made for one project space the app is published to. When the app needs destination support, a separate [project-space compatibility](../project-space-compatibility.mdx) block lists it as not checked without blocking the download. |
 | `get_entry_point_link` | Freshly verify a published entry point against the exact released HQ build and return its public URL plus `checked_at`, `released_build_id`, and `released_version`. Reads HQ and records the observation in Nova; requires `nova.hq.write` and edit access. |
 | `get_hq_connection` | Check whether you've added an HQ API key in Commcare Nova settings, and if so, which CommCare server it belongs to (US, India, or EU, separate servers with separate accounts) and which project spaces (domains) it can reach. |
-| `upload_app_to_hq` | Push the app to CommCare HQ: its lookup tables and its organization's places first, then the app itself. The first upload to a project space creates the app there; uploading again updates that same HQ app in place (`hq_app_action` in the result says which happened). Pass `domain` to choose the target space when your key reaches several. The tool rechecks [project-space compatibility](../project-space-compatibility.mdx) immediately before remote writes and returns `project_space_compatibility`, the HQ app URL, the deployment state, and the setup steps the project space still needs by hand. |
-| `get_deployment` | Report every project space the app has been published to and how far along each one is: `preflight`, `resources`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`. Reads Commcare Nova's own record, without contacting CommCare HQ. |
+| `upload_app_to_hq` | Push the app to CommCare HQ. The first upload to a project space creates the app there, empty, then sends its lookup tables and its organization's places, then fills the app in. Uploading again sends the tables and places and then updates that same HQ app in place (`hq_app_action` in the result says which happened, and reads `created` until an upload has filled the app). Pass `domain` to choose the target space when your key reaches several. The tool rechecks [project-space compatibility](../project-space-compatibility.mdx) immediately before remote writes and returns `project_space_compatibility`, the HQ app URL, the deployment state, and the setup steps the project space still needs by hand. |
+| `get_deployment` | Report every project space the app has been published to and how far along each one is: `preflight`, `resources`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`. `hq_app_gone` says CommCare HQ reported the app deleted, so the next upload makes a new one there; `hq_app_empty` says the app there is the empty one a first upload makes before it sends the content, which the next upload fills. Reads Commcare Nova's own record, without contacting CommCare HQ. |
 | `refresh_deployment` | Ask CommCare HQ again what has happened to a published app, and update the stored state. Read-only against CommCare HQ. It can move a deployment forward, and can move it back when a build stops being released there. |
 | `provision_workers` | Create CommCare mobile-worker accounts on a project space for the app's personas, or bring existing ones into step with what the app says. The app must already be published there. Each new account carries that persona's worker information and places, and comes back with a password that exists only in that answer. |
 
@@ -1201,11 +1209,11 @@ An upload never changes your Commcare Nova copy. If the linked HQ app was delete
 </Callout>
 
 <Callout type="warn">
-**A shared name is not permission to write over anything.** An app's lookup tables and its organization's places are pushed before the app, because the app reaches for them by name at runtime. HQ matches a lookup table on its export tag and a place on its site code, so if the project space already holds one under a name this app needs and Commcare Nova did not create it, the upload refuses with `hq_resource_conflict` and sends nothing. The envelope's `resource_conflicts` names each one: `kind` is `lookup-table` or `location`, `name` is what the user calls it in Commcare Nova, `hq_name` is what they will see on HQ. **Ask the user about each one by name and never decide for them.** Re-call with `adopt_resources` carrying the `nova_resource_id` of exactly the ones they confirmed are theirs; those are then kept in step with Commcare Nova on every upload. Anything they did not name stays untouched. The way out differs by kind: rename the table's export tag in Project data, or, because a place's site code is set once, remove the place in Organization and add it again with a code that is free.
+**A shared name is not permission to write over anything.** An app's lookup tables and its organization's places are pushed before the app's content, because the content reaches for them by name at runtime. HQ matches a lookup table on its export tag and a place on its site code, so if the project space already holds one under a name this app needs and Commcare Nova did not create it, the upload refuses with `hq_resource_conflict` and sends nothing. The envelope's `resource_conflicts` names each one: `kind` is `lookup-table` or `location`, `name` is what the user calls it in Commcare Nova, `hq_name` is what they will see on HQ. **Ask the user about each one by name and never decide for them.** Re-call with `adopt_resources` carrying the `nova_resource_id` of exactly the ones they confirmed are theirs; those are then kept in step with Commcare Nova on every upload. Anything they did not name stays untouched. The way out differs by kind: rename the table's export tag in Project data, or, because a place's site code is set once, remove the place in Organization and add it again with a code that is free.
 </Callout>
 
 <Callout type="warn">
-**Commcare Nova cannot create organization levels, and its places have to fit yours.** HQ's location API is read-only for levels, and it takes a place only at the level directly below its parent's, with sibling names that differ. If the app's places do not fit, the upload refuses with `hq_organization_mismatch` and sends nothing; the message names each place and what has to change. No adoption resolves this one — the fix is in Commcare Nova's Organization or on HQ's Organization Levels page. The upload result's setup steps carry every level the app needs, in the order to create them.
+**Commcare Nova cannot create organization levels, and its places have to fit yours.** HQ's location API is read-only for levels, and it takes a place only at the level directly below its parent's, with sibling names that differ. If the app's places do not fit, the upload refuses with `hq_organization_mismatch` and sends none of the app's content. Where the check before the upload finds the mismatch nothing is written; where CommCare HQ refuses a place during the upload, a first upload has already made the empty app, which `get_deployment` reports as `hq_app_empty`; the message names each place and what has to change. No adoption resolves this one: the fix is in Commcare Nova's Organization or on HQ's Organization Levels page. The upload result's setup steps carry every level the app needs, in the order to create them.
 </Callout>
 
 <Callout type="warn">

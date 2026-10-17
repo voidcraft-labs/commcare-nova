@@ -9,6 +9,7 @@ import {
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
 import { buildMediaBulkUploadZip } from "../../../lib/commcare/multimedia/bulkUploadZip";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const outputArgument = process.argv[2];
 if (!outputArgument)
@@ -28,7 +29,10 @@ for (const mediaOnly of [false, true])
 		const name = `media-${mediaOnly ? "only" : "rich"}-${enabled ? "on" : "off"}`;
 		const options = enabled ? { assets } : {};
 		const hq = expandDoc(doc, options);
-		const ccz = compileCcz(hq, doc.appName, doc, options);
+		const ccz = compileCcz(hq, doc.appName, doc, {
+			...options,
+			runtimeTarget: NATIVE_RUNTIME_TARGET,
+		});
 		const source = hq._attachments[`${hq.modules[0].forms[0].unique_id}.xml`];
 		if (typeof source !== "string") throw new Error("Missing source");
 		write(`${name}.source.xml`, source);

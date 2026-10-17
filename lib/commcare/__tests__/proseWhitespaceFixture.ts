@@ -180,6 +180,7 @@ export function proseWhitespaceFixture() {
 		sourceLanguage: "eng",
 		defaultLanguage: "eng",
 		languageOrder: ["eng", "spa"],
+		wireCodes: { eng: "en", spa: "es" },
 		translations: {
 			spa: {
 				[literalUnitId]: {

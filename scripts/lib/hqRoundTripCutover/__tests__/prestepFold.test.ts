@@ -1,9 +1,9 @@
 /**
  * The frozen pre-step fold: the one place a pre-step function is handed
  * pre-step rows. The digest test holds the committed bytes at every head of
- * the stack; the inputs test holds them to the tree they were built from,
- * where that tree can still build them; and the histories hold what the
- * fold replays.
+ * the stack, and the histories hold what the fold replays. The tree no
+ * longer holds the pre-step reducer, so no fresh build of it is compared:
+ * the bytes are the ones built where it still was.
  */
 
 import { createHash } from "node:crypto";
@@ -11,12 +11,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { init, parse } from "es-module-lexer";
 import { describe, expect, it } from "vitest";
-import { foldCanonicalAppChangeSuffixBounded as productionFold } from "@/lib/db/canonicalMutationFold";
-import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import {
-	buildPrestepFold,
-	PRESTEP_FOLD_INPUTS,
-} from "../../../build-hq-round-trip-prestep-fold.mjs";
 import { rawDocumentDigest, readRawDocument } from "../oldShape";
 import {
 	foldCanonicalAppChangeSuffixBounded as frozenFold,
@@ -29,7 +23,6 @@ import { readFixtureHistory, readHistoryCarriers } from "./fixtures/preStep";
 const PRESTEP_FOLD_SHA256 =
 	"7d3525330e07f4f43dd8faec912001f037783caf1ab3982f347d3776c956d415";
 const PRESTEP_DIRECTORY = join(import.meta.dirname, "..", "prestep");
-const REPOSITORY_ROOT = join(import.meta.dirname, "..", "..", "..", "..");
 
 function suffixOf(
 	rows: ReturnType<typeof readFixtureHistory>["rows"],
@@ -61,26 +54,13 @@ describe("the frozen pre-step fold", () => {
 		).toEqual(["node:crypto"]);
 	});
 
-	it("is built from exactly the inputs it lists, each still at its recorded digest", async () => {
-		const recorded = JSON.parse(
-			readFileSync(join(REPOSITORY_ROOT, PRESTEP_FOLD_INPUTS), "utf8"),
-		) as { path: string; sha256: string }[];
-		const fresh = await buildPrestepFold();
-		expect(fresh.inputs).toEqual(recorded);
-		const committed = readFileSync(
-			join(PRESTEP_DIRECTORY, "prestepFold.generated.mjs"),
-			"utf8",
-		);
-		expect(fresh.code).toBe(committed);
-	}, 60_000);
-
 	describe.each(HISTORIES.map((history) => [history.document, history.name]))(
 		"over %s's history %s",
 		(document, name) => {
 			const history = readFixtureHistory(document, name);
 			const suffix = suffixOf(history.rows);
-			const fold = (implementation: typeof frozenFold, targetSeq: number) =>
-				implementation({
+			const fold = (targetSeq: number) =>
+				frozenFold({
 					baselineSnapshotText: history.baseline.snapshotText,
 					baselineSeq: history.baseline.seq,
 					baselineProjectId: "fixture-project",
@@ -88,16 +68,9 @@ describe("the frozen pre-step fold", () => {
 					suffix: suffix.filter((row) => Number(row.seq) <= targetSeq),
 				});
 
-			it("reaches the retained document after every row, as the production fold does", () => {
+			it("reaches the retained document after every row", () => {
 				for (const row of history.rows) {
-					const frozen = fold(frozenFold, row.seq);
-					const production = fold(
-						productionFold as unknown as typeof frozenFold,
-						row.seq,
-					);
-					expect(canonicalJsonDigest(frozen.snapshot)).toBe(
-						canonicalJsonDigest(production.snapshot),
-					);
+					const frozen = fold(row.seq);
 					expect(
 						rawDocumentDigest(rawDocumentFromSnapshot(frozen.snapshot)),
 					).toBe(

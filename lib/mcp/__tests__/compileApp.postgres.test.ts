@@ -10,11 +10,17 @@ import * as XLSX from "xlsx";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { nestedMenuWireFixture } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import type { HqApplication } from "@/lib/commcare/types";
+import { derivedFormXmlns } from "@/lib/commcare/wireIdentity";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitGuardedBatch } from "@/lib/db/apps";
+import { activeRemoteApp } from "@/lib/deployment/resources";
 import {
+	applyDeploymentObservation,
+	type DeploymentScope,
 	foldDeploymentAttempt,
+	recordCreatedRemoteApp,
 	recordRemoteResource,
 } from "@/lib/deployment/store";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
@@ -62,8 +68,80 @@ function call(
 ) {
 	return client.callTool({
 		name: "compile_app",
-		arguments: { app_id: APP, format, server: "india", ...extra },
+		arguments: { app_id: APP, format, ...extra },
 	});
+}
+const OWNER: DeploymentScope = {
+	appId: APP,
+	projectId: PROJECT,
+	actorUserId: "creator",
+	role: "owner",
+};
+const AT = "2026-09-01T00:00:00.000Z";
+const hqAppId = (server: string, domain: string) =>
+	createHash("md5").update(`${server}/${domain}`).digest("hex");
+/** A deployment whose content is on the project space: a CCZ can be made for it. */
+async function publish(server: "india" | "production", domain: string) {
+	const target = { server, domain };
+	await foldDeploymentAttempt(
+		OWNER,
+		target,
+		"preflight",
+		{ status: "succeeded", at: AT },
+		{ ensure: true },
+	);
+	return recordRemoteResource(OWNER, target, {
+		kind: "app",
+		novaResourceId: APP,
+		remoteId: hqAppId(server, domain),
+		ownership: "nova-created",
+		pushedRevision: 0,
+		remoteRevision: 1,
+		uploadedAt: AT,
+	});
+}
+/** A first publish that stopped after making the empty app. */
+async function shellOnly(server: "india" | "production", domain: string) {
+	const target = { server, domain };
+	await foldDeploymentAttempt(
+		OWNER,
+		target,
+		"preflight",
+		{ status: "succeeded", at: AT },
+		{ ensure: true },
+	);
+	await recordCreatedRemoteApp(OWNER, target, {
+		remoteId: hqAppId(server, domain),
+	});
+}
+/** A published app CommCare HQ has since reported gone. */
+async function gone(server: "india" | "production", domain: string) {
+	const published = await publish(server, domain);
+	const mapping = activeRemoteApp(published);
+	if (mapping === null) throw new Error("Expected an app mapping");
+	await applyDeploymentObservation(
+		OWNER,
+		{ server, domain },
+		{
+			observedRemoteId: mapping.remoteId,
+			observedPushToken: mapping.pushToken,
+			outcomes: [
+				[
+					"upload",
+					{
+						status: "failed",
+						at: AT,
+						failure: {
+							code: "remote_app_missing",
+							message: "The app Nova published isn't there any more.",
+							details: [],
+						},
+					},
+				],
+			],
+			remoteRevision: null,
+		},
+	);
 }
 type Result = Awaited<ReturnType<typeof call>>;
 function blocks(result: Result): Record<string, unknown>[] {
@@ -72,6 +150,26 @@ function blocks(result: Result): Record<string, unknown>[] {
 		if (part.type !== "text") throw new Error("Expected MCP text artifact");
 		return JSON.parse(part.text);
 	});
+}
+/** The import file's ZIP and the guide block that leads it. */
+function importFile(result: Result) {
+	const parts = blocks(result);
+	const guide = parts.at(-2);
+	expect(guide).toMatchObject({
+		kind: "nova_manual_import_guide",
+		manual_import_guide: expect.any(Array),
+	});
+	const zip = archive(result, "zip");
+	return { zip, guide: guide?.manual_import_guide as { kind: string }[] };
+}
+function importedApp(result: Result): HqApplication {
+	const { zip } = importFile(result);
+	const name = zip
+		.getEntries()
+		.map((entry) => entry.entryName)
+		.find((entry) => entry.endsWith(".json"));
+	if (!name) throw new Error("The import file holds no app JSON");
+	return JSON.parse(zip.readAsText(name));
 }
 function archive(result: Result, format: "zip" | "ccz") {
 	const body = blocks(result).at(-1);
@@ -190,6 +288,7 @@ it("exports a shared viewer's actual committed version as HQ JSON and an install
 		batchId: "rename",
 		kind: "mcp",
 	});
+	await publish("india", "clinic");
 	const before = await snapshot();
 	await asUser(async (client) => {
 		const json = await call(client, "json");
@@ -197,8 +296,19 @@ it("exports a shared viewer's actual committed version as HQ JSON and an install
 			"nova/compiledAtSeq": 1,
 			"nova/projectSpaceCompatibility": { status: "not_needed" },
 		});
-		const hq = blocks(json)[0] as unknown as HqApplication;
-		expect(blocks(json)).toHaveLength(1);
+		expect(blocks(json)).toHaveLength(2);
+		const { zip: importZip, guide } = importFile(json);
+		expect(
+			importZip
+				.getEntries()
+				.map((entry) => entry.entryName)
+				.sort(),
+		).toEqual(["Clinic follow-up.json", "README.txt"]);
+		expect(guide.map((step) => step.kind)).toEqual([
+			"import-app",
+			"commcare-version",
+		]);
+		const hq = importedApp(json);
 		expect(hq.name).toBe("Clinic follow-up");
 		expect(hq.modules).toHaveLength(1);
 		expect(hq.modules[0].forms).toHaveLength(1);
@@ -213,8 +323,15 @@ it("exports a shared viewer's actual committed version as HQ JSON and an install
 				(node) => textContent(node) === "Patient name",
 			),
 		).toBe(true);
-		expect(hq.multimedia_map).toEqual({});
+		expect(hq).not.toHaveProperty("multimedia_map");
 		const ccz = await call(client, "ccz");
+		expect(ccz._meta).toMatchObject({
+			"nova/target": {
+				server: "india",
+				domain: "clinic",
+				hq_app_id: hqAppId("india", "clinic"),
+			},
+		});
 		const zip = archive(ccz, "ccz");
 		expect(
 			elements(zip.readAsText("modules-0/forms-0.xml"), "input").map(
@@ -281,6 +398,7 @@ it.each([false, true])(
 		);
 		if (withMedia) await seedImage();
 		await seed(doc);
+		await publish("india", "clinic");
 		const before = await snapshot();
 		await asUser(async (client) => {
 			const result = await call(client, "json");
@@ -297,9 +415,7 @@ it.each([false, true])(
 				...(withMedia ? ["multimedia.zip"] : []),
 			]);
 			const hq = JSON.parse(zip.readAsText("Clinic intake.json"));
-			expect(Object.keys(hq.multimedia_map)).toEqual(
-				withMedia ? [`jr://file/${WIRE}`] : [],
-			);
+			expect(hq).not.toHaveProperty("multimedia_map");
 			if (withMedia) {
 				const media = new AdmZip(requiredFile(zip, "multimedia.zip"));
 				expect(media.getEntries().map((entry) => entry.entryName)).toEqual([
@@ -401,6 +517,7 @@ it("refuses missing, foreign and pending media before fetching any bytes in eith
 		}),
 	);
 	await seed(doc);
+	await publish("india", "clinic");
 	await asUser(async (client) => {
 		for (const format of ["json", "ccz"] as const) {
 			const missing = errorBody(await call(client, format));
@@ -451,21 +568,15 @@ it("returns no artifact on object-store failure and succeeds on a later request"
 	expect(await snapshot()).toEqual(before);
 });
 
-it("requires an explicit server without a deployment and enforces actual Project access and SDK formats", async () => {
+it("enforces actual Project access and SDK formats", async () => {
 	await seed();
 	await asUser(async (client) => {
-		const unspecified = await client.callTool({
-			name: "compile_app",
-			arguments: { app_id: APP, format: "json" },
-		});
-		expect(errorBody(unspecified)).toMatchObject({
-			error_type: "invalid_input",
-			message: "Choose a CommCare server for this download, then try again.",
-		});
 		for (const extra of [
 			{ format: "xml" },
 			{ format: undefined },
 			{ server: "https://example.invalid" },
+			{ domain: "" },
+			{ domain: 42 },
 		]) {
 			const result = await call(client, "json", extra);
 			expect(result.isError).toBe(true);
@@ -483,6 +594,212 @@ it("requires an explicit server without a deployment and enforces actual Project
 		expect(errorBody(await call(client, "ccz"))).toEqual(foreign);
 	}, "outsider");
 	expect(downloadAssetBytes).not.toHaveBeenCalled();
+});
+
+const NEEDS_PUBLISHED =
+	"A CCZ signs workers in to one project space and sends their forms there, so it is made for a project space this app is published to. Once the app is published, you can download the CCZ for that space.";
+
+function searchingDoc() {
+	return buildDoc({
+		appName: "Patient search",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseSearchConfig: {},
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [{ id: "note", kind: "text" }],
+					},
+				],
+			},
+		],
+	});
+}
+
+it.each([false, true])(
+	"refuses a CCZ of an app published nowhere, searching: %s, and still makes its import file",
+	async (searching) => {
+		await seed(searching ? searchingDoc() : document());
+		await asUser(async (client) => {
+			for (const extra of [{}, { domain: "clinic" }, { server: "india" }]) {
+				expect(errorBody(await call(client, "ccz", extra))).toEqual({
+					error_type: "invalid_input",
+					message: NEEDS_PUBLISHED,
+					app_id: APP,
+				});
+			}
+			expect(importedApp(await call(client, "json")).doc_type).toBe(
+				"Application",
+			);
+		});
+	},
+);
+
+it("makes a CCZ for one deployment with its addresses, its HQ app and its recorded ids, the same each time", async () => {
+	const doc = searchingDoc();
+	await seed(doc);
+	await h.seedProjectMember("creator", PROJECT, "owner");
+	const view = await publish("india", "clinic");
+	const [formUuid] = doc.formOrder[doc.moduleOrder[0]];
+	const recorded = "http://openrosa.org/formdesigner/hq-own-xmlns";
+	await h
+		.db()
+		.insertInto("app_deployment_identities")
+		.values({
+			deployment_id: view.deployment.id,
+			entity_kind: "form",
+			nova_entity_uuid: formUuid,
+			unique_id: null,
+			xmlns: recorded,
+		})
+		.execute();
+	await asUser(async (client) => {
+		const zips = [
+			archive(await call(client, "ccz"), "ccz"),
+			archive(await call(client, "ccz", { domain: "clinic" }), "ccz"),
+		];
+		const [suite, again] = zips.map((zip) => zip.readAsText("suite.xml"));
+		expect(again).toBe(suite);
+		const [form, formAgain] = zips.map((zip) =>
+			zip.readAsText("modules-0/forms-0.xml"),
+		);
+		expect(formAgain).toBe(form);
+		const data = elements(form, "data")[0];
+		expect(data.attribs.xmlns).toBe(recorded);
+		expect(form).not.toContain(derivedFormXmlns(formUuid));
+		const id = hqAppId("india", "clinic");
+		const properties = Object.fromEntries(
+			elements(zips[0].readAsText("profile.ccpr"), "property").map((node) => [
+				node.attribs.key,
+				node.attribs.value,
+			]),
+		);
+		expect(properties).toMatchObject({
+			"ota-restore-url": `https://india.commcarehq.org/a/clinic/phone/restore/${id}/`,
+			PostURL: `https://india.commcarehq.org/a/clinic/receiver/${id}/`,
+			key_server: "https://india.commcarehq.org/a/clinic/phone/keys/",
+			cc_user_domain: "clinic.commcarehq.org",
+		});
+		expect(
+			elements(suite, "query").map((query) => query.attribs.url),
+		).toContain(`https://india.commcarehq.org/a/clinic/phone/search/${id}/`);
+	});
+});
+
+it("asks for a pick among several published project spaces and refuses one the app isn't on", async () => {
+	await seed();
+	await h.seedProjectMember("creator", PROJECT, "owner");
+	await publish("india", "clinic");
+	await publish("production", "clinic");
+	await shellOnly("india", "shell");
+	await gone("production", "gone");
+	await asUser(async (client) => {
+		const listed = (message: string) => message.split("\n").slice(1).sort();
+		const pick = errorBody(await call(client, "ccz"));
+		expect(pick.error_type).toBe("invalid_input");
+		expect(pick.message.split("\n")[0]).toBe(
+			"A CCZ signs workers in to one project space and sends their forms there. This app is published to several, so you can pick the one this CCZ is for.",
+		);
+		expect(listed(pick.message)).toEqual([
+			"- clinic on India",
+			"- clinic on US",
+		]);
+		expect(
+			errorBody(await call(client, "ccz", { domain: "clinic" })).message,
+		).toContain("you can pick the one this CCZ is for");
+		for (const [extra, named] of [
+			[{ domain: "shell" }, '"shell"'],
+			[{ domain: "gone", server: "production" }, '"gone" on US'],
+			[{ domain: "never" }, '"never"'],
+		] as const) {
+			const refused = errorBody(await call(client, "ccz", extra));
+			expect(refused.message.split("\n")[0]).toBe(
+				`This app isn't published to ${named}, so there's no CCZ for it there. You can pick one of the project spaces it's published to.`,
+			);
+			expect(listed(refused.message)).toEqual([
+				"- clinic on India",
+				"- clinic on US",
+			]);
+		}
+		const india = await call(client, "ccz", {
+			domain: "clinic",
+			server: "india",
+		});
+		expect(india._meta?.["nova/target"]).toEqual({
+			server: "india",
+			domain: "clinic",
+			hq_app_id: hqAppId("india", "clinic"),
+		});
+		expect(
+			await call(client, "ccz", { server: "production" }).then(
+				(result) => result._meta?.["nova/target"],
+			),
+		).toEqual({
+			server: "production",
+			domain: "clinic",
+			hq_app_id: hqAppId("production", "clinic"),
+		});
+	});
+});
+
+it.each(["parent-multiple", "same-smaller"] as const)(
+	"holds a %s selection back from CommCare HQ and keeps it in a CCZ for a published app",
+	async (scenario) => {
+		await seed(nestedMenuWireFixture(scenario));
+		await h.seedProjectMember("creator", PROJECT, "owner");
+		await asUser(async (client) => {
+			const held = errorBody(await call(client, "ccz"));
+			expect(held.error_type).toBe("invalid_input");
+			expect(held.message).toMatch(
+				/^A CCZ signs workers in to one project space and sends their forms there, so it is made for a project space this app is published to\. This app can't be published to CommCare HQ as it is, so it has no CCZ yet\.\n- /,
+			);
+			expect(held.message).toContain('"Parents"');
+			expect(held.message).toContain('"Child care"');
+			const json = errorBody(await call(client, "json"));
+			expect(json.message).toMatch(
+				/^This app isn't ready to compile\. Fix these first: /,
+			);
+		});
+		await publish("india", "clinic");
+		await asUser(async (client) => {
+			const result = await call(client, "ccz");
+			expect(result._meta?.["nova/target"]).toMatchObject({
+				server: "india",
+				domain: "clinic",
+			});
+			const suite = archive(result, "ccz").readAsText("suite.xml");
+			if (scenario === "parent-multiple")
+				expect(suite).toContain("selected(join(");
+			else
+				expect(
+					elements(suite, "instance-datum").map(
+						(datum) => datum.attribs["max-select-value"],
+					),
+				).toEqual(expect.arrayContaining(["5", "4"]));
+		});
+	},
+);
+
+it("refuses a project space for the import file", async () => {
+	await seed();
+	await h.seedProjectMember("creator", PROJECT, "owner");
+	await asUser(async (client) => {
+		expect(errorBody(await call(client, "json", { domain: "clinic" }))).toEqual(
+			{
+				error_type: "invalid_input",
+				message:
+					"The CommCare HQ import file works in any project space, so it isn't made for one. You can download it again without a project space.",
+				app_id: APP,
+			},
+		);
+	});
 });
 
 it("keeps compatibility requirements before actual artifacts without contacting a destination", async () => {
@@ -509,12 +826,13 @@ it("keeps compatibility requirements before actual artifacts without contacting 
 			],
 		}),
 	);
+	await publish("india", "clinic");
 	await withHttpPeer(async (peer) => {
 		await asUser(async (client) => {
 			for (const format of ["json", "ccz"] as const) {
 				const result = await call(client, format);
 				const content = blocks(result);
-				expect(content).toHaveLength(2);
+				expect(content).toHaveLength(format === "json" ? 3 : 2);
 				expect(content[0]).toEqual({
 					kind: "nova_project_space_compatibility",
 					project_space_compatibility:
@@ -531,7 +849,7 @@ it("keeps compatibility requirements before actual artifacts without contacting 
 				if (format === "ccz")
 					expect(archive(result, "ccz").getEntry("suite.xml")).not.toBeNull();
 				else
-					expect(content[1]).toMatchObject({
+					expect(importedApp(result)).toMatchObject({
 						doc_type: "Application",
 						name: "Patient search",
 					});
@@ -584,102 +902,96 @@ it("resolves attachment writes from persisted deployments on the selected server
 			],
 		}),
 	);
-	async function deploy(server: "india" | "production", domain: string) {
-		const scope = {
-			appId: APP,
-			projectId: PROJECT,
-			actorUserId: "creator",
-			role: "owner",
-		};
-		const target = { server, domain };
-		await foldDeploymentAttempt(
-			scope,
-			target,
-			"preflight",
-			{ status: "succeeded", at: "2026-09-01T00:00:00.000Z" },
-			{ ensure: true },
-		);
-		await recordRemoteResource(scope, target, {
-			kind: "app",
-			novaResourceId: APP,
-			remoteId: `${server}-${domain}-app`,
-			ownership: "nova-created",
-			pushedRevision: 0,
-			remoteRevision: 1,
-			uploadedAt: "2026-09-01T00:00:00.000Z",
-		});
-	}
+	await h.seedProjectMember("creator", PROJECT, "owner");
+	const photoBinds = (xform: string) =>
+		elements(xform, "bind")
+			.filter((node) => node.attribs.nodeset === "/data/__nova_url_photo")
+			.map((node) => node.attribs.calculate);
+	const linkTo = (server: "india" | "production", domain: string) =>
+		`if(/data/photo = '', '', concat('https://${server === "production" ? "www" : "india"}.commcarehq.org/a/${domain}/api/form_attachment/v1/', /data/meta/instanceID, '/', /data/photo))`;
 	await asUser(async (client) => {
-		async function check(
+		async function importFileLinks(
 			server: "india" | "production" | undefined,
-			domain: string | null,
+			linked: readonly ["india" | "production", string] | null,
 			reason?: string,
 		) {
-			for (const format of ["json", "ccz"] as const) {
-				const result = await call(client, format, { server });
-				const parts = blocks(result);
-				let xform: string;
-				if (format === "ccz")
-					xform = archive(result, "ccz").readAsText("modules-0/forms-0.xml");
-				else {
-					const hq = parts.at(-1) as unknown as HqApplication;
-					xform = hq._attachments[`${hq.modules[0].forms[0].unique_id}.xml`];
-					const update = hq.modules[0].forms[0].actions.update_case;
-					if (domain)
-						expect(update.update).toMatchObject({
-							photo_url: {
-								question_path: "/data/__nova_url_photo",
-								update_mode: "always",
-							},
-						});
-					else expect(update.update).not.toHaveProperty("photo_url");
-				}
-				const urlBinds = elements(xform, "bind").filter(
-					(node) => node.attribs.nodeset === "/data/__nova_url_photo",
-				);
-				if (domain) {
-					expect(urlBinds.map((node) => node.attribs.calculate)).toEqual([
-						`if(/data/photo = '', '', concat('https://${server === "production" ? "www" : "india"}.commcarehq.org/a/${domain}/api/form_attachment/v1/', /data/meta/instanceID, '/', /data/photo))`,
-					]);
-					expect(result._meta).not.toHaveProperty("nova/exportAdvisories");
-				} else {
-					expect(urlBinds).toEqual([]);
-					expect(parts[0]).toMatchObject({
-						kind: "nova_project_space_compatibility",
-					});
-					expect(parts[1]).toEqual({
-						kind: "nova_export_advisories",
-						export_advisories: result._meta?.["nova/exportAdvisories"],
-					});
-					expect(parts[1].export_advisories).toEqual([
-						{
-							id: "attachment_links_without_target",
-							title: "Attachment links are empty in this file",
-							message: expect.stringContaining(reason ?? ""),
-						},
-					]);
-				}
+			const result = await call(client, "json", { server });
+			const parts = blocks(result);
+			const hq = importedApp(result);
+			const xform = hq._attachments[`${hq.modules[0].forms[0].unique_id}.xml`];
+			const update = hq.modules[0].forms[0].actions.update_case;
+			if (linked) {
+				expect(update.update).toMatchObject({
+					photo_url: {
+						question_path: "/data/__nova_url_photo",
+						update_mode: "always",
+					},
+				});
+				expect(photoBinds(xform)).toEqual([linkTo(...linked)]);
+				expect(result._meta).not.toHaveProperty("nova/exportAdvisories");
+			} else {
+				expect(update.update).not.toHaveProperty("photo_url");
+				expect(photoBinds(xform)).toEqual([]);
+				expect(parts[0]).toMatchObject({
+					kind: "nova_project_space_compatibility",
+				});
+				expect(parts[1]).toEqual({
+					kind: "nova_export_advisories",
+					export_advisories: result._meta?.["nova/exportAdvisories"],
+				});
+				expect(parts[1].export_advisories).toEqual([
+					{
+						id: "attachment_links_without_target",
+						title: "Attachment links are empty in this file",
+						message: expect.stringContaining(reason ?? ""),
+					},
+				]);
 			}
 		}
-		await check("india", null, "has not reached a CommCare project space yet");
-		await deploy("india", "clinic");
-		await check(undefined, "clinic");
-		await check(
+		async function cczLinks(server: "india" | "production", domain: string) {
+			const result = await call(client, "ccz", { server, domain });
+			expect(result._meta).not.toHaveProperty("nova/exportAdvisories");
+			expect(
+				photoBinds(archive(result, "ccz").readAsText("modules-0/forms-0.xml")),
+			).toEqual([linkTo(server, domain)]);
+		}
+		await importFileLinks(
+			"india",
+			null,
+			"has not reached a CommCare project space yet",
+		);
+		await publish("india", "clinic");
+		await importFileLinks(undefined, ["india", "clinic"]);
+		await cczLinks("india", "clinic");
+		await importFileLinks(
 			"production",
 			null,
 			"has not reached a CommCare project space yet",
 		);
-		await deploy("production", "clinic");
-		await check("india", "clinic");
-		await check("production", "clinic");
-		await deploy("india", "training");
-		await check("india", null, "More than one CommCare project space");
-		await check("production", "clinic");
+		await publish("production", "clinic");
+		await importFileLinks("india", ["india", "clinic"]);
+		await importFileLinks("production", ["production", "clinic"]);
+		await importFileLinks(
+			undefined,
+			null,
+			"More than one CommCare project space",
+		);
+		await cczLinks("production", "clinic");
+		await publish("india", "training");
+		await importFileLinks(
+			"india",
+			null,
+			"More than one CommCare project space",
+		);
+		await importFileLinks("production", ["production", "clinic"]);
+		await cczLinks("india", "training");
+		await cczLinks("india", "clinic");
 	});
 });
 
 it("emits no artifact when the real lookup snapshot query fails, including on an app with no lookup references", async () => {
 	await seed();
+	await publish("india", "clinic");
 	const before = await snapshot();
 	await h
 		.pool()
@@ -704,7 +1016,7 @@ it("emits no artifact when the real lookup snapshot query fails, including on an
 			);
 	}
 	await asUser(async (client) =>
-		expect(blocks(await call(client, "json"))).toHaveLength(1),
+		expect(blocks(await call(client, "json"))).toHaveLength(2),
 	);
 	expect(await snapshot()).toEqual(before);
 });

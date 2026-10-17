@@ -46,7 +46,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { organizationLevelsOf, personasOf } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import type { StoredLocation } from "@/lib/organization/types";
-import { activeRemoteApp } from "./resources";
+import { publishedRemoteApp } from "./resources";
 import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
@@ -211,11 +211,12 @@ export async function provisionWorkers(
 	if ("code" in resolved) return refused(resolved);
 	const { creds, domain } = resolved;
 
-	/* The app has to be there first. Its places are what a persona's
-	 * assignment points at, and an account that can sign in to an app the
-	 * project space does not hold is an account with nothing to do. */
+	/* The app's content has to be there first. Its places are what a
+	 * persona's assignment points at, and an account that can sign in to an
+	 * app the project space does not hold, or holds only as the empty app a
+	 * first publish makes, is an account with nothing to do. */
 	const deployment = await readDeployment(input.scope, target);
-	if (deployment === null || activeRemoteApp(deployment) === null) {
+	if (deployment === null || publishedRemoteApp(deployment) === null) {
 		return refused({
 			code: "app_not_published",
 			message: `“${domain}” doesn't have this app yet, so there's nothing for a worker to sign in to. Publish it there first, then come back.`,

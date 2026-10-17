@@ -18,6 +18,7 @@ import { blueprintDocSchema } from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { lookupContextOf } from "@/proof/corpus/documents";
+import { legacyWireCodes } from "../legacyLanguageWireCodes";
 import {
 	rawDocumentAssembly,
 	rawDocumentDigest,
@@ -30,6 +31,7 @@ import {
 	type StepContext,
 	transformDocument,
 } from "../transform";
+import { readLegacyApp } from "./fixtures/legacyBodies";
 import {
 	fixtureMediaRecords,
 	readFixtureCarriers,
@@ -230,5 +232,61 @@ describe("the ordered transform", () => {
 			JSON.stringify({ type: "object", properties: {} }),
 		);
 		expect(caseSchemaDifferences(doc, extra)).toBe(1);
+	});
+});
+
+describe("step language-wire-codes", () => {
+	const corpus = manifest.filter((fixture) => fixture.kind === "corpus");
+
+	it.each(corpus.map((fixture) => fixture.id))(
+		"gives %s the codes its pre-step export sent",
+		(id) => {
+			const raw = readRawDocument(id, readFixtureCarriers(id));
+			const { target, steps } = transformDocument(raw, contextFor(id));
+			expect(
+				steps.find((step) => step.stepId === "language-wire-codes")?.changes,
+			).toEqual([]);
+			const sent = readLegacyApp(id, "create").langs as string[];
+			if (raw.localization === null) {
+				expect(target.localization).toBeNull();
+				expect(sent).toEqual(["en"]);
+				return;
+			}
+			const localization = target.localization as {
+				languageOrder: string[];
+				wireCodes: Record<string, string>;
+			};
+			expect(
+				localization.languageOrder.map((tag) => localization.wireCodes[tag]),
+			).toEqual(sent);
+		},
+	);
+
+	it("is held by at least one corpus fixture with a stored root", () => {
+		expect(
+			corpus.some(
+				(fixture) =>
+					readRawDocument(fixture.id, readFixtureCarriers(fixture.id))
+						.localization !== null,
+			),
+		).toBe(true);
+	});
+
+	it("keeps the pre-step grouping, which suffixed every language of a shared spelling", () => {
+		expect(legacyWireCodes({ languageOrder: ["eng", "spa", "fra"] })).toEqual({
+			eng: "en",
+			spa: "es",
+			fra: "fra",
+		});
+		expect(
+			legacyWireCodes({ languageOrder: ["eng", "cmn-Hans", "cmn-Hant"] }),
+		).toEqual({ eng: "en", "cmn-Hans": "cmn-hans", "cmn-Hant": "cmn-hant" });
+		expect(legacyWireCodes({ languageOrder: ["eng", "cmn-Hans"] })).toEqual({
+			eng: "en",
+			"cmn-Hans": "zho",
+		});
+		expect(
+			legacyWireCodes({ languageOrder: ["eng", "spa", "eng-GB"] }),
+		).toEqual({ eng: "eng-", spa: "es", "eng-GB": "eng-gb" });
 	});
 });

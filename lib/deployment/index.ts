@@ -6,7 +6,14 @@
 
 export { DeploymentError, type DeploymentErrorCode } from "./errors";
 export type { PreflightCheck, PreflightCheckStatus } from "./preflight";
-export { leftBehindResources } from "./resources";
+export {
+	leftBehindResources,
+	type NextPublishAction,
+	nextPublishAction,
+	publishedRemoteApp,
+	remoteAppHoldsContent,
+	remoteAppReportedGone,
+} from "./resources";
 export {
 	buildSetupArtifact,
 	type SetupArtifact,
@@ -31,6 +38,7 @@ export {
 	DEPLOYMENT_STATES,
 	type DeploymentAttemptRefusal,
 	type DeploymentFailure,
+	type DeploymentIdentityOverride,
 	type DeploymentPhase,
 	type DeploymentPhaseOutcome,
 	type DeploymentPhaseOutcomes,

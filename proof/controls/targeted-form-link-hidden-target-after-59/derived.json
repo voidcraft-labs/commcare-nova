@@ -1,0 +1,158 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						],
+						[
+							"role",
+							"proof role"
+						]
+					]
+				}
+			],
+			"user_data": [
+				[
+					"role",
+					"proof role"
+				]
+			],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Linked surveys",
+			"modules": [
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "e8198335-60c1-5df1-ad20-0ce7e71dbe45",
+							"validations": {},
+							"writes": {}
+						},
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "3ebadd4c-7a1e-59c8-a662-bf763c390b3c",
+							"validations": {},
+							"writes": {}
+						},
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "6493a91d-4d11-5951-a221-a31741c1f2cd",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "bafe6e8e-0edc-5dc2-ae3e-e508d78e325e",
+							"validations": {},
+							"writes": {}
+						},
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "07482881-2a6e-5c45-a220-fca31dbbec71",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "10f03c15-f22f-5501-a36c-197bbadd9325",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"e8198335-60c1-5df1-ad20-0ce7e71dbe45",
+						"3ebadd4c-7a1e-59c8-a662-bf763c390b3c",
+						"6493a91d-4d11-5951-a221-a31741c1f2cd"
+					],
+					"uuid": "ababc701-c14c-5895-a047-83b3ba354d51"
+				},
+				{
+					"forms": [
+						"bafe6e8e-0edc-5dc2-ae3e-e508d78e325e",
+						"07482881-2a6e-5c45-a220-fca31dbbec71"
+					],
+					"uuid": "ac7feb7f-d62a-5923-ab5d-02653d8f930f"
+				},
+				{
+					"forms": [
+						"10f03c15-f22f-5501-a36c-197bbadd9325"
+					],
+					"uuid": "4a03b8d3-88ab-5eef-ae19-ad15ff15e083"
+				}
+			]
+		}
+	}
+}

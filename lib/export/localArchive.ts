@@ -12,10 +12,17 @@ import "server-only";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import type { WireIdentity } from "@/lib/commcare/wireIdentity";
 import type { PreparedExportBoundary } from "./boundaryValidation";
 
 /**
  * The `.ccz` for a document the export boundary prepared in `ccz` mode.
+ *
+ * The archive is made for one published project space: `runtimeTarget`
+ * names its server, its project space and the HQ app that holds the app
+ * there, and `identity` gives that deployment's menu and form ids. So no
+ * archive is compiled without a target, and its profile tells a phone where
+ * to sign in, sync and send forms.
  *
  * The expander stamps the prepared media manifest's references, resolves
  * attachment links against the prepared target, and names lookup tables
@@ -27,6 +34,7 @@ import type { PreparedExportBoundary } from "./boundaryValidation";
 export function compileLocalArchive(
 	prepared: PreparedExportBoundary,
 	runtimeTarget: RuntimeTarget,
+	identity: WireIdentity,
 ): Buffer {
 	if (prepared.mode !== "ccz") {
 		throw new Error(
@@ -36,6 +44,7 @@ export function compileLocalArchive(
 	const { doc, assets, attachmentTarget, compiledAtSeq } = prepared;
 	const hqJson = expandDoc(doc, {
 		runtimeTarget,
+		identity,
 		assets,
 		attachmentTarget,
 		...(prepared.lookupNaming !== undefined && {

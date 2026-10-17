@@ -16,8 +16,10 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitGuardedBatch } from "@/lib/db/apps";
 import { provisionWorkersAction } from "@/lib/deployment/actions";
 import {
+	applyDeploymentObservation,
 	foldDeploymentAttempt,
 	readDeployment,
+	recordCreatedRemoteApp,
 	recordPushedResources,
 	recordRemoteResource,
 } from "@/lib/deployment/store";
@@ -451,6 +453,58 @@ it.each([
 		expect(await snapshot()).toEqual(before);
 	});
 });
+
+it.each([
+	"holds only the empty app a first publish made",
+	"holds an app HQ reported gone",
+] as const)(
+	"refuses a project space that %s, asking HQ nothing",
+	async (shape) => {
+		await seed({ published: shape === "holds an app HQ reported gone" });
+		const at = new Date().toISOString();
+		if (shape === "holds only the empty app a first publish made") {
+			await foldDeploymentAttempt(
+				SCOPE,
+				TARGET,
+				"preflight",
+				{ status: "succeeded", at },
+				{ ensure: true },
+			);
+			await recordCreatedRemoteApp(SCOPE, TARGET, { remoteId: "shell-app" });
+		} else {
+			const resource = (await snapshot()).resources[0];
+			await applyDeploymentObservation(SCOPE, TARGET, {
+				observedRemoteId: resource.remote_id,
+				observedPushToken: resource.push_token,
+				outcomes: [
+					[
+						"upload",
+						{
+							status: "failed",
+							at,
+							failure: {
+								code: "remote_app_missing",
+								message: "The app Nova published isn't there any more.",
+								details: [],
+							},
+						},
+					],
+				],
+				remoteRevision: null,
+			});
+		}
+		const before = await snapshot();
+		await withHttpPeer(async (peer) => {
+			await asUser(async (client) => {
+				const result = body(await call(client), true);
+				expect(result.error_type).toBe("app_not_published");
+				expect(result.workers).toEqual([]);
+			});
+			expect(peer.getCallHistory()?.calls()).toEqual([]);
+		});
+		expect(await snapshot()).toEqual(before);
+	},
+);
 
 it("waits for actual worker mapping persistence before releasing its credential answer", async () => {
 	await seed();

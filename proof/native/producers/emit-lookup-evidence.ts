@@ -15,6 +15,7 @@ import { buildLookupFixtures } from "../../../lib/commcare/lookup/fixtures";
 import { hqWouldTrimLookupText } from "../../../lib/commcare/lookup/hqCellText";
 import { lookupWireNaming } from "../../../lib/commcare/lookup/naming";
 import { buildLookupWorkbook } from "../../../lib/commcare/lookup/workbook";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const outputArgument = process.argv[2];
 if (!outputArgument)
@@ -116,7 +117,10 @@ for (const reversed of [false, true]) {
 	const { doc, naming, fixtures } = lookupAppFixture(reversed);
 	const hq = expandDoc(doc, { lookupNaming: naming });
 	const zip = new AdmZip(
-		compileCcz(hq, doc.appName, doc, { lookup: { naming, fixtures } }),
+		compileCcz(hq, doc.appName, doc, {
+			runtimeTarget: NATIVE_RUNTIME_TARGET,
+			lookup: { naming, fixtures },
+		}),
 	);
 	const name = reversed ? "lookup-reversed" : "lookup-app";
 	writeFileSync(resolve(output, `${name}.json`), JSON.stringify(hq));

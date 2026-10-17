@@ -14,16 +14,19 @@ import {
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { deploymentNotFound } from "./errors";
+import { publishedRemoteApp } from "./resources";
 import {
 	applyAttemptOutcome,
 	applyObservation,
 	applyPhaseOutcome,
 	clearObservationOutcomes,
+	deploymentDisplaysAsReached,
 } from "./stateMachine";
 import {
 	DEPLOYMENT_CONFIRMATION_KINDS,
 	type DeploymentConfirmation,
 	type DeploymentConfirmationKind,
+	type DeploymentIdentityOverride,
 	type DeploymentPhase,
 	type DeploymentPhaseOutcome,
 	type DeploymentPhaseOutcomes,
@@ -443,6 +446,81 @@ export async function readDeployment(
 	};
 }
 
+/**
+ * The ids this target holds that are not Nova's derivation, for every
+ * entity that has one. Empty for a target this app has no deployment on.
+ *
+ * Kept out of `DeploymentWithResources` on purpose: only the two readers
+ * that emit an app for a target (a publish and a `.ccz` made for one
+ * project space) need them, and no status read should carry them.
+ */
+export async function readDeploymentIdentityOverrides(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<readonly DeploymentIdentityOverride[]> {
+	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("app_deployment_identities as i")
+		.innerJoin("app_deployments as d", "d.id", "i.deployment_id")
+		.select(["i.entity_kind", "i.nova_entity_uuid", "i.unique_id", "i.xmlns"])
+		.where("d.app_id", "=", scope.appId)
+		.where("d.project_id", "=", scope.projectId)
+		.where("d.server", "=", target.server)
+		.where("d.domain", "=", target.domain)
+		.orderBy("i.entity_kind")
+		.orderBy("i.nova_entity_uuid")
+		.execute();
+	return rows.map((row) => {
+		if (row.entity_kind !== "module" && row.entity_kind !== "form") {
+			throw new Error(
+				`A deployment records an id for a "${row.entity_kind}", which Nova does not know.`,
+			);
+		}
+		return {
+			entityKind: row.entity_kind,
+			novaEntityUuid: row.nova_entity_uuid,
+			uniqueId: row.unique_id,
+			xmlns: row.xmlns,
+		};
+	});
+}
+
+/** A project space this app's content is on, with the HQ app that holds it. */
+export interface ReachedDeploymentTargetRow {
+	readonly server: CommCareServer;
+	readonly domain: string;
+	readonly hqAppId: string;
+}
+
+/**
+ * Every project space this app's content is on: each deployment that
+ * displays as uploaded and whose live app mapping is not reported gone and
+ * holds content. A mapping to the empty shell of a first publish is never
+ * among them, whatever the record displays.
+ */
+export async function readReachedDeploymentTargets(
+	scope: DeploymentScope,
+): Promise<readonly ReachedDeploymentTargetRow[]> {
+	const deployments = await readDeploymentsForApp(scope);
+	return deployments.flatMap((view) => {
+		const remote = publishedRemoteApp(view);
+		if (
+			remote === null ||
+			!deploymentDisplaysAsReached(view.deployment, "uploaded")
+		) {
+			return [];
+		}
+		return [
+			{
+				server: view.deployment.server,
+				domain: view.deployment.domain,
+				hqAppId: remote.remoteId,
+			},
+		];
+	});
+}
+
 async function loadWithinTransaction(
 	tx: Transaction<AppDatabase>,
 	deploymentId: string,
@@ -664,6 +742,45 @@ export async function recordRemoteResource(
 }
 
 /**
+ * Record the empty app a first publish just created on CommCare HQ, before
+ * any of the app's Project data or content is sent.
+ *
+ * The mapping carries no pushed revision, which is what marks it a shell
+ * Nova has not filled (`resources.ts::remoteAppHoldsContent`), and folds no
+ * rung: the deployment is not `uploaded` until the update fills the app,
+ * and saying so earlier would make it observable and a download target.
+ * A mapping CommCare HQ reported gone is superseded by this one.
+ */
+export async function recordCreatedRemoteApp(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: { readonly remoteId: string },
+): Promise<DeploymentWithResources> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			await writeResourceMapping(
+				tx,
+				row.id,
+				{
+					kind: "app",
+					novaResourceId: scope.appId,
+					remoteId: input.remoteId,
+					ownership: "nova-created",
+					pushedRevision: null,
+					remoteRevision: null,
+				},
+				new Date(),
+			);
+			await notifyAppDeployments(tx, scope.appId);
+			return loadWithinTransaction(tx, row.id);
+		},
+	);
+}
+
+/**
  * Point one mapping at its remote resource, inside a caller's transaction.
  *
  * Recording the SAME remote id the mapping already holds is the mainline
@@ -765,6 +882,9 @@ async function writeResourceMapping(
 					pushed_at: input.pushedRevision === null ? null : now,
 					remote_revision: input.remoteRevision,
 					remote_observed_at: input.remoteRevision === null ? null : now,
+					/* A write that landed on this remote id is CommCare HQ
+					 * answering for it, so it is not gone. */
+					remote_missing_at: null,
 				}),
 		)
 		.execute();
@@ -989,16 +1109,33 @@ export async function applyDeploymentObservation(
 				.where("id", "=", row.id)
 				.execute();
 			await notifyAppDeployments(tx, scope.appId);
-			if (input.remoteRevision !== null) {
-				/* What CommCare HQ says its own version is, kept separate from the
-				 * pushed revision on purpose: one is what Nova sent, the other is
-				 * what the target holds, and collapsing them would make a
-				 * hand-edited remote app look like Nova's own work. */
+			/* Whether CommCare HQ holds the app is a fact about the target, so
+			 * the mapping carries it: the next publish creates afresh while it
+			 * is set. HQ answering for the app again, after its own undo, clears
+			 * it. Outside the push-token trigger's columns, so it rotates no
+			 * token. */
+			const upload = input.outcomes.find(([phase]) => phase === "upload")?.[1];
+			const gone =
+				upload?.status === "failed" &&
+				upload.failure.code === "remote_app_missing";
+			const answered = upload?.status === "succeeded";
+			if (input.remoteRevision !== null || gone || answered) {
 				await tx
 					.updateTable("app_deployment_resources")
 					.set({
-						remote_revision: input.remoteRevision,
-						remote_observed_at: now,
+						/* What CommCare HQ says its own version is, kept separate
+						 * from the pushed revision on purpose: one is what Nova
+						 * sent, the other is what the target holds, and collapsing
+						 * them would make a hand-edited remote app look like Nova's
+						 * own work. */
+						...(input.remoteRevision !== null && {
+							remote_revision: input.remoteRevision,
+							remote_observed_at: now,
+						}),
+						...(gone && {
+							remote_missing_at: sql<Date>`COALESCE(remote_missing_at, ${now})`,
+						}),
+						...(answered && { remote_missing_at: null }),
 					})
 					.where("deployment_id", "=", row.id)
 					.where("kind", "=", "app")
