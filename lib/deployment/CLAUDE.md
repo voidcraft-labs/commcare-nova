@@ -45,7 +45,9 @@ remote identity, and every page needs an explicit next-page or terminal cursor.
 A malformed row cannot be skipped, a malformed envelope cannot become an empty
 list, and pagination cannot switch project spaces or resource types. Reads do
 not follow redirects. An unknown workbook-upload verdict means data may have
-landed; only HQ's explicit format-refusal verdict proves that none did.
+landed; two answers prove that none did: HQ's explicit format-refusal verdict,
+and an OK answer that is not JSON, which is the plan page HQ serves before its
+upload view runs (`upgradeRequired`).
 
 Once an app import and its ownership mapping have landed, a media transport or
 status-read failure remains a media warning. Publishing still returns the app
@@ -309,7 +311,17 @@ next publish fills the same app once the version is raised.
 table Nova cannot account for. The refusal is all-or-nothing, because the
 workbook is one upload: a plan that pushed the unambiguous tables and skipped
 the rest would leave the project space holding an app's data half-updated with
-no state that describes it.
+no state that describes it. Before that, and before the drift comparison, it
+refuses (`hq_table_content_unsupported`) when a planned tag is held in HQ by a
+table whose definition read shows what the push would remove: a field
+property, a row attribute, or a table that is not global, whose rows go only
+to their owners (`unsupportedLookupContent`). Whoever owns that table, neither
+an adoption nor a discard keeps that content, so the one way out is a new
+export tag. A description and a field's indexed flag are part of HQ's table
+key too, but no API-key read returns either, so they are stated, never
+detected: the adoption and discard confirmations carry `LOOKUP_DISCARD_NOTE`,
+and a push of an unchanged definition that the re-list shows under a new id
+lands with the made-again warning.
 
 `organization` reads the target's levels and places and plans the push
 (`locationResourcePlan.ts`). It carries the same ownership refusal keyed on site

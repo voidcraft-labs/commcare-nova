@@ -358,3 +358,52 @@ describe("validation on a barcode and a secret question", () => {
 		).toBe(true);
 	});
 });
+
+describe("a hidden value with neither a calculate nor a default", () => {
+	it("emits its data node and its bind, and no setvalue", () => {
+		const doc = admitted(
+			buildDoc({
+				modules: [
+					{
+						name: "Intake",
+						forms: [
+							{
+								name: "Register",
+								type: "survey",
+								fields: [
+									f({ kind: "text", id: "name", label: proseText("Name") }),
+									f({ kind: "hidden", id: "bare" }),
+								],
+							},
+						],
+					},
+				],
+			}),
+		);
+		const form = readXmlEvidence(
+			buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {
+				xmlns: "http://openrosa.org/formdesigner/bare-hidden-value",
+			}),
+		);
+		const nodes = (function all(node: XmlEvidence): XmlEvidence[] {
+			return node.children.flatMap((child) => [child, ...all(child)]);
+		})(form);
+		expect(
+			nodes.filter(
+				(node) => node.name === "bare" && node.children.length === 0,
+			),
+		).toHaveLength(1);
+		const bind = nodes.filter(
+			(node) =>
+				node.name === "bind" && node.attributes.nodeset === "/data/bare",
+		);
+		expect(bind).toHaveLength(1);
+		expect(bind[0]?.attributes.calculate).toBeUndefined();
+		expect(
+			nodes.filter(
+				(node) =>
+					node.name === "setvalue" && node.attributes.ref === "/data/bare",
+			),
+		).toEqual([]);
+	});
+});

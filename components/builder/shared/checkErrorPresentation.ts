@@ -80,7 +80,9 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"case-status-value": () => "Use open or closed for built-in case status",
 	"incompatible-values": () =>
 		"Choose values that use compatible kinds of information",
-	"ordered-values": () => "Use numbers, dates, or times for this comparison",
+	"ordered-values": () => "Use numbers or dates for this comparison",
+	"time-ordering": () =>
+		"A time of day can't be compared with before or after. A date can be compared this way.",
 	"location-value": (path) =>
 		lastNamedSlot(path) === "property"
 			? "Choose location information"

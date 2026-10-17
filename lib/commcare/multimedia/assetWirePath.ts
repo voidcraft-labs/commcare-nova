@@ -14,9 +14,17 @@
 // CommCare resolves a `jr://file/commcare/<hash><ext>` reference to the
 // installed file at `commcare/<hash><ext>` (relative to the suite).
 // commcare-core's `BasicInstaller::install` returns false on the
-// remote-authority branch, so every byte MUST be bundled locally in the
-// CCZ — this is why the media-suite resource emits an `authority="local"`
-// location and the compiler writes the bytes into the archive.
+// remote-authority branch, so the media-suite resource emits an
+// `authority="local"` location and the compiler writes the bytes into the
+// archive. A missing file matters on one runtime alone: an archive install on Core and on Formplayer does not notice a missing
+// media file (commcare-core `ArchiveFileReference.doesBinaryExist` answers
+// true; formplayer `FormplayerArchiveFileRoot.derive` hands every path an
+// `ArchiveFileReference`), while Android unzips the archive and copies each
+// file (commcare-android `InstallArchiveActivity`,
+// `FileSystemInstaller.install`), so a missing file fails the install there.
+// The bundling proof is therefore the media-suite oracle's own
+// `bundledPaths` join (`lib/commcare/validator/mediaSuiteOracle.ts`), not
+// an install on Core.
 //
 // This module owns NO bytes and NO CommCare element construction — it's
 // the path vocabulary the other helpers (`itextMedia`, `mediaSuiteXml`,

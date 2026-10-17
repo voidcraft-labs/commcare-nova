@@ -39,6 +39,7 @@ Predicate operators carry `ValueExpression` operands, and `ValueExpression`'s `i
 `checkPredicate` / `checkExpression` validate a constructed AST against the case-type schema + search-input declarations, with per-node error paths. Rules worth knowing beyond the code:
 
 - Strings are deliberately excluded from `ORDERED_TYPES` — locale-dependent string ordering is rarely meaningful for case-list filtering, so `gt`/`lt` reject text.
+- A time of day is excluded too. Core compares before and after as numbers and a time is not one, so the comparison would never be true, and HQ's query raises on it. `checkComparison` and `checkBetween` give it a code of its own, `time-ordering`, ahead of the ordered-types test; a date and a date and time keep their order.
 - Property references inside relational `where` clauses must resolve against the surrounding `via`'s DESTINATION scope, not the originating one.
 - Lookup-aware callers supply a rows-free `lookupTables` index. A
   `table-lookup` resolves its result column from that index and checks its

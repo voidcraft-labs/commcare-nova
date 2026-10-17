@@ -213,7 +213,6 @@ describe("admitted field conversion", () => {
 		"leaf-to-container",
 		"container-to-leaf",
 		"missing-option-seed",
-		"hidden-without-value",
 	] as const)("refuses %s at the real gate", (scenario) => {
 		const before = fixture(
 			scenario === "container-to-leaf"
@@ -236,16 +235,12 @@ describe("admitted field conversion", () => {
 				? "group"
 				: scenario === "container-to-leaf"
 					? "text"
-					: scenario === "missing-option-seed"
-						? "single_select"
-						: "hidden";
+					: "single_select";
 		const mutation: Mutation = { kind: "convertField", uuid: Q, toKind };
 		expect(
 			mutationCommitVerdict(before, [mutation], LOOKUP_CONTEXT_UNAVAILABLE).ok,
 		).toBe(false);
-		// The schema can represent an empty hidden value, so its semantic refusal belongs
-		// to the commit gate. Structural conversions and missing seeds have reducer guards.
-		if (scenario === "hidden-without-value") return;
+		// Structural conversions and missing seeds have reducer guards.
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
 			expect(
@@ -258,6 +253,17 @@ describe("admitted field conversion", () => {
 		} finally {
 			warn.mockRestore();
 		}
+	});
+	it("admits a conversion to a hidden value that carries neither a calculate nor a default", () => {
+		const before = fixture({ id: "answer", kind: "text" });
+		const mutation: Mutation = {
+			kind: "convertField",
+			uuid: Q,
+			toKind: "hidden",
+		};
+		expect(
+			mutationCommitVerdict(before, [mutation], LOOKUP_CONTEXT_UNAVAILABLE).ok,
+		).toBe(true);
 	});
 	it("replays an unknown subject without manufacturing a field", () => {
 		const before = fixture({ id: "answer", kind: "text" });

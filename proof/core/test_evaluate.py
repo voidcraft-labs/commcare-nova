@@ -158,6 +158,51 @@ def test_values_are_cores_comparisons(core_runner, basic_app):
     ]
 
 
+def test_selected_looks_for_the_trimmed_key_between_single_spaces(core_runner, basic_app):
+    """Core trims the key and looks for it, between spaces, in the value padded with spaces
+    (XPathSelectedFunc.multiSelected): a run of two words matches itself, while two spaces or a tab between the
+    value's words does not separate them."""
+    form = read_archive_entry(BASIC_APP, CONSTRAINTS_FORM)
+    result = core_runner.evaluate(
+        app=basic_app,
+        xmlns=form_xmlns(form),
+        restoreBase64=restore64(),
+        expressions=[
+            "selected('a b', ' a ')",
+            "selected('a b', 'a b')",
+            "selected('a  b', 'a b')",
+            "selected('a\tb', 'b')",
+        ],
+    )
+    assert [(value["type"], value["value"]) for value in result["values"]] == [
+        ("boolean", "true"),
+        ("boolean", "true"),
+        ("boolean", "false"),
+        ("boolean", "false"),
+    ]
+
+
+def test_a_later_load_time_value_reads_a_default_its_calculate_replaces(core_runner):
+    """A hidden value with the default 'D' and the calculate 'C' ends as C, and a second value whose own default
+    reads the first, seeded after it, holds D: the calculate runs after the load-time seeds."""
+    form = (
+        '<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">'
+        "<h:head><h:title>Seeds</h:title><model>"
+        '<instance><data xmlns="http://example.org/seeds"><first/><second/></data></instance>'
+        '<bind nodeset="/data/first" calculate="\'C\'"/>'
+        '<bind nodeset="/data/second"/>'
+        '<setvalue event="xforms-ready" ref="/data/first" value="\'D\'"/>'
+        '<setvalue event="xforms-ready" ref="/data/second" value="/data/first"/>'
+        "</model></h:head><h:body/></h:html>"
+    ).encode()
+    result = core_runner.evaluate(
+        restoreBase64=restore64(),
+        formBase64=base64.b64encode(form).decode(),
+        expressions=["/data/first", "/data/second"],
+    )
+    assert [value["value"] for value in result["values"]] == ["C", "D"]
+
+
 def test_now_and_today_read_the_requests_clock(core_runner, basic_app):
     """The clock's own spellings are marked, and the marks name the clock each request set."""
     form = read_archive_entry(BASIC_APP, CONSTRAINTS_FORM)

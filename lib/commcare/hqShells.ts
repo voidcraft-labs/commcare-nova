@@ -266,10 +266,10 @@ export function applicationShell(
 	 * overlay merge on the update path (`models/applications.py::
 	 * _merge_source_into_app`): every field present in the source
 	 * overwrites the HQ app's value, and a field absent from the source is
-	 * retained. So target-owned settings and state — `cloudcare_enabled`,
-	 * `case_sharing`, `secure_submissions`, the build/release
-	 * metadata, and the rest of HQ's app Settings page attributes — are
-	 * deliberately NOT emitted. Three keys carry Nova's values beside the
+	 * retained. So app content Nova does not author yet (`cloudcare_enabled`,
+	 * `case_sharing`) and target-owned settings and state
+	 * (`secure_submissions`, the build/release metadata, and the rest of HQ's
+	 * app Settings page attributes) are deliberately NOT emitted. Three keys carry Nova's values beside the
 	 * target's own, `translations`, `add_ons` and `profile`; the update path
 	 * projects each onto the target's current value before import
 	 * (`targetOverlay.ts`). `auto_gps_capture` is written only `true`, for a

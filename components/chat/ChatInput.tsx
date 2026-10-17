@@ -43,7 +43,12 @@ import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 // a figure that disagrees with the real debit. Client-safe: every import in
 // `creditPolicy` is type-only, so it pulls no server data layer into the bundle.
 import { chargeAmount } from "@/lib/db/creditPolicy";
-import { isDocumentKind } from "@/lib/domain/multimedia";
+import {
+	acceptedFormatFor,
+	assetKindForMimeType,
+	isDocumentKind,
+	isModelReadableImageMimeType,
+} from "@/lib/domain/multimedia";
 import {
 	useAccessPhase,
 	useAppId,
@@ -52,6 +57,22 @@ import {
 } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import { cn } from "@/lib/utils";
+
+/**
+ * Why the assistant can't take an image format the library holds: the chat
+ * sends an image under its own MIME, and the model reads PNG, JPEG, GIF and
+ * WebP alone (`lib/domain/multimedia.ts::MODEL_READABLE_IMAGE_MIME_TYPES`).
+ */
+function chatUnavailableReason(mimeType: string): string | undefined {
+	if (
+		assetKindForMimeType(mimeType) !== "image" ||
+		isModelReadableImageMimeType(mimeType)
+	) {
+		return undefined;
+	}
+	const label = acceptedFormatFor(mimeType)?.label ?? "these";
+	return `The assistant can't read ${label} images yet. A PNG or JPEG of it works.`;
+}
 
 function isChatAttachmentKind(
 	kind: MediaAssetView["kind"],
@@ -415,6 +436,7 @@ function ChatInputComposer({
 					if (!open || ownsCurrentProjectScope()) setPickerOpen(open);
 				}}
 				kinds={CHAT_ATTACHMENT_KINDS}
+				unavailableReason={chatUnavailableReason}
 				appId={appId}
 				onPick={(selection) => {
 					if (selection.kind === "uploaded") addPicked(selection.asset);

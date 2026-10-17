@@ -74,18 +74,14 @@ import {
 import { predicateSchema } from "@/lib/domain/predicate";
 
 /**
- * The four field message slots a `Media` bundle attaches to. The
- * `setFieldMedia` mutation carries the slot name (`label` / `hint` /
- * `help` / `validate_msg`); the reducer maps it to the `<slot>_media`
- * field key. Kept as a literal tuple in the doc layer so it owns its own
- * wire vocabulary without depending on `lib/agent`.
+ * The two field message slots a `Media` bundle attaches to: the ones a
+ * CommCare runtime draws media for (`lib/domain/fields/base.ts`). The
+ * `setFieldMedia` mutation carries the slot name (`label` / `help`); the
+ * reducer maps it to the `<slot>_media` field key. Kept as a literal tuple
+ * in the doc layer so it owns its own wire vocabulary without depending on
+ * `lib/agent`.
  */
-export const FIELD_MEDIA_SLOTS = [
-	"label",
-	"hint",
-	"help",
-	"validate_msg",
-] as const;
+export const FIELD_MEDIA_SLOTS = ["label", "help"] as const;
 
 // ─── Mutation union ────────────────────────────────────────────────────
 //

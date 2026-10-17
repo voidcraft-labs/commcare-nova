@@ -50,7 +50,8 @@ const cases = [
 		status: 200,
 		invoke: () =>
 			uploadLookupTableWorkbook(creds, "clinic", workbook, { replace: true }),
-		expected: unknownWrite,
+		// Only HQ's plan page sets `upgradeRequired`; every other arm says false.
+		expected: { ...unknownWrite, upgradeRequired: false },
 	},
 	{
 		name: "location batch",

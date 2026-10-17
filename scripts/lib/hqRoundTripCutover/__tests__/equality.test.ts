@@ -16,14 +16,21 @@ import {
 	entrySessionDatums,
 	formLinkProjectionContext,
 } from "@/lib/commcare/formLinkProjection";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	searchInputDependencyUses,
 	searchInputFormFieldDependencies,
 	searchInputRemovalDependencies,
 } from "@/lib/doc/searchInputMutations";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	effectiveCaseTypes,
+	type Uuid,
+	writerPreloadsFromLoadedCase,
+} from "@/lib/domain";
 import {
 	substituteUnansweredSearchInputsInExpression,
 	substituteUnansweredSearchInputsInPredicate,
@@ -31,11 +38,13 @@ import {
 import { duplicateSelectOptionValues } from "@/lib/domain/selectOptionValue";
 import { selectOptionValueSpaces } from "../../selectOptionValueRepair";
 import { type JsonRecord, readRawDocument } from "../oldShape";
+import { rawWriterPreloads } from "../steps/hiddenInertDefault";
 import {
 	optionValueSpaces,
 	planDuplicateOptionValueSplit,
 } from "../steps/optionValues";
 import { reservedSearchInputsStep } from "../steps/reservedSearchInputs";
+import { rawTimeProperties, timeOrderingStep } from "../steps/timeOrdering";
 import { declaredSessionDatumIds } from "../steps/unsuppliedSessionReads";
 import { carriersOf } from "./fixtures/preStep";
 
@@ -744,5 +753,270 @@ describe("reserved-search-inputs removes what the removeSearchInput reducer remo
 		expect(target.fields[CARRIED]?.calculate).toEqual({
 			parts: [{ kind: "text", text: "''" }],
 		});
+	});
+});
+
+describe("hidden-inert-default reads a preloaded writer as writerPreloadsFromLoadedCase does", () => {
+	it("over a writer in a registration, a follow-up, a close, a survey, a multi-select follow-up, and a follow-up writing another case type", () => {
+		const hidden = (id: string, caseType: string) =>
+			f({
+				kind: "hidden",
+				id,
+				caseWrite: { caseType, property: `${id}_value` },
+			});
+		const doc = buildDoc({
+			caseTypes: CASE_TYPES,
+			modules: [
+				{
+					name: "Households",
+					caseType: "household",
+					caseListConfig: columns(),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "household", property: "case_name" },
+								}),
+								hidden("seeded", "household"),
+							],
+						},
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [hidden("kept", "household"), hidden("child", "member")],
+						},
+						{
+							name: "Close",
+							type: "close",
+							fields: [hidden("closing", "household")],
+						},
+					],
+				},
+				{
+					name: "Batches",
+					caseType: "household",
+					caseListConfig: {
+						...columns(),
+						selection: { kind: "multiple", maximum: 5 },
+					},
+					forms: [
+						{
+							name: "Batch",
+							type: "followup",
+							fields: [hidden("batched", "household")],
+						},
+					],
+				},
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Ask",
+							type: "survey",
+							fields: [hidden("asked", "household")],
+						},
+					],
+				},
+			],
+		});
+		const document = raw("hidden writers", doc);
+		const answers: [string, boolean][] = [];
+		for (const moduleUuid of doc.moduleOrder) {
+			const module = doc.modules[moduleUuid];
+			for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+				const form = doc.forms[formUuid];
+				for (const fieldUuid of doc.fieldOrder[formUuid] ?? []) {
+					const field = doc.fields[fieldUuid];
+					if (field?.kind !== "hidden" || module === undefined || !form)
+						continue;
+					const production = writerPreloadsFromLoadedCase(field, module, form);
+					expect(
+						rawWriterPreloads(
+							document.fields[fieldUuid] as JsonRecord,
+							document.modules[moduleUuid],
+							document.forms[formUuid],
+						),
+						field.id,
+					).toBe(production);
+					answers.push([field.id, production]);
+				}
+			}
+		}
+		expect(answers).toEqual([
+			["seeded", false],
+			["kept", true],
+			["child", false],
+			["closing", true],
+			["batched", false],
+			["asked", false],
+		]);
+	});
+});
+
+describe("time-ordering finds what the gate refuses", () => {
+	const TIME_CASE_TYPES = [
+		{
+			name: "patient",
+			properties: [
+				{ name: "case_name", label: "Name", data_type: "text" as const },
+				{ name: "visit_time", label: "Visit time", data_type: "time" as const },
+				{ name: "dob", label: "Birth date", data_type: "date" as const },
+				{ name: "arrival", label: "Arrival" },
+			],
+		},
+	];
+
+	function timeDoc(
+		filter: unknown,
+		relevant: string,
+		required?: string,
+	): BlueprintDoc {
+		const doc = buildDoc({
+			caseTypes: TIME_CASE_TYPES,
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: columns(),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({ kind: "time", id: "start" }),
+								f({
+									kind: "time",
+									id: "arrived",
+									caseWrite: { caseType: "patient", property: "arrival" },
+								}),
+								f({ kind: "date", id: "day" }),
+								f({
+									kind: "hidden",
+									id: "start_copy",
+									calculate: "#form/start",
+								}),
+								f({ kind: "label", id: "checked", relevant }),
+							],
+						},
+					],
+				},
+			],
+		});
+		return produce(doc, (draft) => {
+			const module = draft.modules[draft.moduleOrder[0] as Uuid];
+			if (module?.caseListConfig !== undefined)
+				module.caseListConfig.filter = filter as never;
+			if (required !== undefined) {
+				const visitTime = draft.caseTypes?.[0]?.properties[1];
+				if (visitTime !== undefined)
+					visitTime.required = { parts: [{ kind: "text", text: required }] };
+			}
+		});
+	}
+
+	it("reads the same time properties effectiveCaseTypes types as a time", () => {
+		const doc = timeDoc(undefined, "true()");
+		expect([...rawTimeProperties(raw("time properties", doc))].sort()).toEqual(
+			effectiveCaseTypes(doc)
+				.flatMap((caseType) =>
+					caseType.properties
+						.filter((property) => property.data_type === "time")
+						.map((property) => `${caseType.name}/${property.name}`),
+				)
+				.sort(),
+		);
+	});
+
+	const prop = (property: string) => ({
+		kind: "term",
+		term: { kind: "prop", caseType: "patient", property },
+	});
+	const literal = (value: string, data_type?: string) => ({
+		kind: "term",
+		term: { kind: "literal", value, ...(data_type && { data_type }) },
+	});
+
+	it.each([
+		[
+			"an ordering on a declared time",
+			true,
+			{ kind: "gt", left: prop("visit_time"), right: literal("08:00", "time") },
+		],
+		[
+			"an ordering on a written time",
+			true,
+			{ kind: "lte", left: prop("arrival"), right: literal("08:00", "time") },
+		],
+		[
+			"a range on a time",
+			true,
+			{
+				kind: "between",
+				left: prop("visit_time"),
+				lower: literal("08:00", "time"),
+				lowerInclusive: true,
+				upperInclusive: true,
+			},
+		],
+		[
+			"a time compared with =",
+			false,
+			{ kind: "eq", left: prop("visit_time"), right: literal("08:00", "time") },
+		],
+		[
+			"an ordering on a date",
+			false,
+			{ kind: "gt", left: prop("dob"), right: literal("2026-01-01", "date") },
+		],
+	] as const)("in a Predicate slot, over %s", (name, refused, filter) => {
+		const doc = timeDoc(filter, "true()");
+		const gate = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some((error) =>
+			error.message.includes("A time of day can't be compared"),
+		);
+		const step = timeOrderingStep.apply(raw(name, doc), {
+			appId: name,
+			projectId: "project",
+			lookupColumnTypes: new Map(),
+			deployments: [],
+		});
+		expect(gate).toBe(refused);
+		expect(step.length > 0).toBe(gate);
+	});
+
+	it.each([
+		["two time questions", true, "#form/start < #form/arrived", undefined],
+		[
+			"a hidden value whose calculate is a time",
+			true,
+			"#form/start_copy > 3",
+			undefined,
+		],
+		["a time property", true, "#patient/visit_time >= 3", undefined],
+		["text holding a colon", true, "#form/day > '09:00'", undefined],
+		["a time compared with =", false, "#form/start = #form/arrived", undefined],
+		["a date", false, "#form/day > today()", undefined],
+		[
+			"a catalog property's required condition",
+			true,
+			"true()",
+			"#patient/visit_time > '08:00'",
+		],
+	] as const)("in form logic, over %s", (name, refused, relevant, required) => {
+		const doc = timeDoc(undefined, relevant, required);
+		const gate = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+			(error) => error.code === "XPATH_TIME_ORDERING",
+		);
+		const step = timeOrderingStep.apply(raw(name, doc), {
+			appId: name,
+			projectId: "project",
+			lookupColumnTypes: new Map(),
+			deployments: [],
+		});
+		expect(gate).toBe(refused);
+		expect(step.length > 0).toBe(gate);
 	});
 });

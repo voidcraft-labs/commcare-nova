@@ -33,7 +33,6 @@ import {
 	useLocalizedField,
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
-import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import {
 	CONTAINER_HEADER_STYLES,
@@ -200,12 +199,6 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 							collapsed ? "rounded-b-lg" : "border-b-0"
 						} ${showIntoGroupRing ? "ring-2 ring-nova-violet" : ""}`}
 					>
-						{/* Group label media: banner above the header row, matching
-						    the live `GroupField` position for flipbook parity. */}
-						<MediaDisplay
-							media={q && "label_media" in q ? q.label_media : undefined}
-							interactive={false}
-						/>
 						<div className={CONTAINER_HEADER_STYLES.row}>
 							<button
 								type="button"

@@ -50,6 +50,10 @@ import { type CycleReport, TriggerDag } from "@/lib/preview/engine/triggerDag";
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
+	findTimeOrderingComparisons,
+	TIME_ORDERING_MESSAGE,
+} from "./timeOrdering";
+import {
 	checkCaseHashtag,
 	SESSION_FORM_READ_MESSAGE,
 	validateXPath,
@@ -129,6 +133,26 @@ export function scopeHasForm(
 	formUuid: Uuid,
 ): boolean {
 	return scope === undefined || (scope.formUuids?.has(formUuid) ?? false);
+}
+
+/** One print context per document the validator reads. */
+/**
+ * Each ordering on a time of day in one stored slot, as the slot's XPath
+ * findings (`timeOrdering.ts`).
+ */
+function timeOrderingErrors(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	expr: XPathExpression | undefined,
+): XPathError[] {
+	if (expr === undefined) return [];
+	return findTimeOrderingComparisons(expr, { doc, formUuid }).map(
+		(finding): XPathError => ({
+			code: "XPATH_TIME_ORDERING",
+			message: TIME_ORDERING_MESSAGE,
+			position: finding.from,
+		}),
+	);
 }
 
 /**
@@ -591,6 +615,16 @@ export function validateBlueprintDeep(
 							error: withStoredRef(error, read.expr),
 						});
 					}
+					for (const error of timeOrderingErrors(doc, formUuid, read.expr)) {
+						errors.push({
+							...loc,
+							kind: "form-link-xpath",
+							slot,
+							indices: read.indices,
+							...(linkUuid !== undefined && { linkUuid }),
+							error,
+						});
+					}
 				}
 			}
 
@@ -669,6 +703,9 @@ export function validateBlueprintDeep(
 							slot,
 							error: withStoredRef(error, expr),
 						});
+					}
+					for (const error of timeOrderingErrors(doc, formUuid, expr)) {
+						errors.push({ ...loc, kind: "connect-xpath", slot, error });
 					}
 				}
 			}
@@ -768,6 +805,9 @@ function validateTreeXPath(
 				isRegistrationForm,
 			)) {
 				pushFieldError(node.field, slot, withStoredRef(error, expr));
+			}
+			for (const error of timeOrderingErrors(doc, loc.formUuid, expr)) {
+				pushFieldError(node.field, slot, error);
 			}
 		}
 		if (node.children) {

@@ -17,12 +17,13 @@ the bytes Nova's own client sent (the corpus's captured request).
   the API's JSON and a table. The answer's status and type are retained
   (``retained/lookup-upload-without-privilege.json``) and handed to Nova's
   own client by ``__tests__/lookupUploadAnswer.test.ts``, which shows what
-  Nova then reports: an upload that may have landed.
+  Nova then reports: an upload that wrote nothing, because the plan lacks
+  Lookup Tables.
 - **A 32-character tag.** Contract: HQ's workbook reader takes a table
   whose tag, and so whose sheet name, holds 32 characters
   (``fixtures/upload/workbook.py``), one more than a spreadsheet program
-  lets a sheet name hold and one more than Nova's push allows
-  (``lib/commcare/lookup/workbook.ts::MAX_HQ_FIXTURE_SHEET_NAME_LENGTH``).
+  lets a sheet name hold and the most Nova's tag rule admits
+  (``lib/lookup/constants.ts::LOOKUP_MAX_TAG_LENGTH``).
   The workbook is Nova's own with its one table renamed. Beside it, a tag
   of 33 characters: HQ's upload checks no length, its column holds 32
   characters, and the view fails with a database error HQ answers as a 500,

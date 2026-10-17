@@ -39,7 +39,13 @@ import {
 	formIsSectioned,
 } from "@/lib/doc/formSectionVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	hiddenWriterBlankNote,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
 import { addFieldsItemSchema } from "../toolSchemas";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -100,7 +106,12 @@ export type AddFieldsInput = z.infer<typeof addFieldsInputSchema>;
  * transcript; failure is an error record.
  */
 export type AddFieldsResult =
-	| (MutationSuccess & { fields: CreatedFieldIdentity[] })
+	| (MutationSuccess & {
+			fields: CreatedFieldIdentity[];
+			/** What each submission saves, for every added hidden field with
+			 *  no value that writes a case property (`hiddenWriterBlankNote`). */
+			notes?: Array<{ uuid: Uuid; id: string; note: string }>;
+	  })
 	| { error: string };
 
 export const addFieldsTool = {
@@ -131,7 +142,7 @@ export const addFieldsTool = {
 					},
 				};
 			}
-			const { form } = resolved;
+			const { form, module } = resolved;
 
 			// The shared assembly pipeline: sentinel strip → defaults → uuid
 			// mint → domain Field → identifier verdict, with in-batch
@@ -198,12 +209,20 @@ export const addFieldsTool = {
 					result: { error: commit.error },
 				};
 			}
+			const notes = created.flatMap((identity) => {
+				const field = commit.newDoc.fields[identity.uuid];
+				const note = field && hiddenWriterBlankNote(field, module, form);
+				return note === undefined
+					? []
+					: [{ uuid: identity.uuid, id: identity.id, note }];
+			});
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
 					ok: true,
 					fields: created,
+					...(notes.length > 0 && { notes }),
 					// Bulk add — no single subject; the count drives the action
 					// ("Added 3 fields") and the form breadcrumb names the container.
 					// The successful assembly contains every requested field.

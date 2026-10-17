@@ -252,6 +252,7 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
     documents = cases.load_corpus().emitted
     assert set(listed) == {document.id for document in documents}
     edited = 0
+    stopped = 0
     media_documents = set()
     for document in documents:
         assert listed[document.id] == _digest(document.root / "inputs.json"), document.id
@@ -271,19 +272,25 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
                 assert parts["a"]["privileges.content.request.body"]["path"] == "export/minimum/content.body"
                 assert "create.media.body" not in parts["a"] and "create.lookups.body" not in parts["a"]
             assert parts["a"]["privileges.create.request.body"]["path"] == "export/minimum/create.body"
-            assert parts["b"]["request.body"]["path"] == f"export/{name}/republish.body"
+            if export.republish_stopped is not None:
+                # A republish Nova stopped before it sent anything is read by part b as its recorded outcome alone.
+                stopped += 1
+                assert set(parts["b"]) == {"outcome.json"}, (document.id, name)
+                assert parts["b"]["outcome.json"]["path"] == f"export/{name}/outcome.json"
+            else:
+                assert parts["b"]["request.body"]["path"] == f"export/{name}/republish.body"
             if export.content.lookups is not None:
                 assert parts["a"][f"{first}lookups.body"]["path"] == (
                     f"export/{name}/{export.content.lookups.body_path.name}"
                 )
-            if export.republish.lookups is not None:
+            if export.republish is not None and export.republish.lookups is not None:
                 assert parts["b"]["lookups.body"]["path"] == f"export/{name}/{export.republish.lookups.body_path.name}"
             # The media upload each publish sent after its import is read by the part that replays it.
             for part, role, captured in (
                 ("a", f"{first}media.body", export.content),
                 ("b", "media.body", export.republish),
             ):
-                if captured.media is None:
+                if captured is None or captured.media is None:
                     assert role not in parts[part], (document.id, name, part)
                 else:
                     assert parts[part][role]["path"] == f"export/{name}/{captured.media.body_path.name}"
@@ -309,6 +316,7 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
         if document.edit is not None:
             assert manifest["judge"]["batch"]["digest"] == _digest(document.root / "edit" / "batch.json")
     assert edited > 0, "some document's edit is published, so b_edit was compared"
+    assert stopped > 0, "some document's republish is stopped, so its outcome-only part b was compared"
     assert media_documents, "some document's publish sends media, so its upload's roles were compared"
 
 

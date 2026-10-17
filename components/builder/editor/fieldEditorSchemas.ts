@@ -300,8 +300,8 @@ function hintEntry<F extends Field>(): {
 	};
 }
 
-// A `Media` slot editor entry (label_media / hint_media / help_media /
-// validate_msg_media). Same addable + visible-iff-set shape as the
+// A `Media` slot editor entry (label_media / help_media). Same addable +
+// visible-iff-set shape as the
 // text/XPath factories; `MediaSlotEditor` offers all three media kinds.
 function mediaEntry<F extends Field, K extends keyof F & string>(
 	key: K,
@@ -336,34 +336,27 @@ function caseWriteEntry<F extends Field>(): {
 
 // ── Per-kind schemas ────────────────────────────────────────────────────
 //
-// Each input kind's `ui` section carries the label/hint/help text+media
-// set; `logic` carries the validation-message media (beside the
-// `validate` editor it decorates). The entries are inlined per kind with concrete type args
+// Each input kind's `ui` section carries the label media, the hint text and
+// the help text+media; a hint and a validation message carry text alone. The
+// entries are inlined per kind with concrete type args
 // rather than collapsed into a generic helper: the `FieldEditorEntry<F>`
 // discriminated union only resolves against a concrete field type, so a
 // `<F>`-generic helper can't construct entries that typecheck (it's the
 // same reason the existing `xpathEntry` calls pass concrete kinds).
 // `validate_msg` is deliberately absent as a sibling entry, XPathEditor
-// renders it as a nested affordance under `validate`. `validate_msg_media`
-// IS a sibling logic entry (the nested XPath affordance has no media tier),
-// labelled to read as the validation message's media.
+// renders it as a nested affordance under `validate`.
 
 const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 	data: [caseWriteEntry<TextField>()],
 	logic: [
 		requiredEntry<TextField>(),
 		xpathEntry<TextField, "validate">("validate", "Validation"),
-		mediaEntry<TextField, "validate_msg_media">(
-			"validate_msg_media",
-			"Validation message media",
-		),
 		xpathEntry<TextField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<TextField>(),
 	],
 	ui: [
 		mediaEntry<TextField, "label_media">("label_media", "Label media"),
 		hintEntry<TextField>(),
-		mediaEntry<TextField, "hint_media">("hint_media", "Hint media"),
 		textEntry<TextField, "help">("help", "Help"),
 		mediaEntry<TextField, "help_media">("help_media", "Help media"),
 	],
@@ -374,17 +367,12 @@ const intFieldEditorSchema: FieldEditorSchema<IntField> = {
 	logic: [
 		requiredEntry<IntField>(),
 		xpathEntry<IntField, "validate">("validate", "Validation"),
-		mediaEntry<IntField, "validate_msg_media">(
-			"validate_msg_media",
-			"Validation message media",
-		),
 		xpathEntry<IntField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<IntField>(),
 	],
 	ui: [
 		mediaEntry<IntField, "label_media">("label_media", "Label media"),
 		hintEntry<IntField>(),
-		mediaEntry<IntField, "hint_media">("hint_media", "Hint media"),
 		textEntry<IntField, "help">("help", "Help"),
 		mediaEntry<IntField, "help_media">("help_media", "Help media"),
 	],
@@ -395,17 +383,12 @@ const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
 	logic: [
 		requiredEntry<DecimalField>(),
 		xpathEntry<DecimalField, "validate">("validate", "Validation"),
-		mediaEntry<DecimalField, "validate_msg_media">(
-			"validate_msg_media",
-			"Validation message media",
-		),
 		xpathEntry<DecimalField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<DecimalField>(),
 	],
 	ui: [
 		mediaEntry<DecimalField, "label_media">("label_media", "Label media"),
 		hintEntry<DecimalField>(),
-		mediaEntry<DecimalField, "hint_media">("hint_media", "Hint media"),
 		textEntry<DecimalField, "help">("help", "Help"),
 		mediaEntry<DecimalField, "help_media">("help_media", "Help media"),
 	],
@@ -416,17 +399,12 @@ const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
 	logic: [
 		requiredEntry<DateField>(),
 		xpathEntry<DateField, "validate">("validate", "Validation"),
-		mediaEntry<DateField, "validate_msg_media">(
-			"validate_msg_media",
-			"Validation message media",
-		),
 		xpathEntry<DateField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<DateField>(),
 	],
 	ui: [
 		mediaEntry<DateField, "label_media">("label_media", "Label media"),
 		hintEntry<DateField>(),
-		mediaEntry<DateField, "hint_media">("hint_media", "Hint media"),
 		textEntry<DateField, "help">("help", "Help"),
 		mediaEntry<DateField, "help_media">("help_media", "Help media"),
 	],
@@ -437,17 +415,12 @@ const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
 	logic: [
 		requiredEntry<TimeField>(),
 		xpathEntry<TimeField, "validate">("validate", "Validation"),
-		mediaEntry<TimeField, "validate_msg_media">(
-			"validate_msg_media",
-			"Validation message media",
-		),
 		xpathEntry<TimeField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<TimeField>(),
 	],
 	ui: [
 		mediaEntry<TimeField, "label_media">("label_media", "Label media"),
 		hintEntry<TimeField>(),
-		mediaEntry<TimeField, "hint_media">("hint_media", "Hint media"),
 		textEntry<TimeField, "help">("help", "Help"),
 		mediaEntry<TimeField, "help_media">("help_media", "Help media"),
 	],
@@ -458,17 +431,12 @@ const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
 	logic: [
 		requiredEntry<DatetimeField>(),
 		xpathEntry<DatetimeField, "validate">("validate", "Validation"),
-		mediaEntry<DatetimeField, "validate_msg_media">(
-			"validate_msg_media",
-			"Validation message media",
-		),
 		xpathEntry<DatetimeField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<DatetimeField>(),
 	],
 	ui: [
 		mediaEntry<DatetimeField, "label_media">("label_media", "Label media"),
 		hintEntry<DatetimeField>(),
-		mediaEntry<DatetimeField, "hint_media">("hint_media", "Hint media"),
 		textEntry<DatetimeField, "help">("help", "Help"),
 		mediaEntry<DatetimeField, "help_media">("help_media", "Help media"),
 	],
@@ -479,17 +447,12 @@ const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
 	logic: [
 		requiredEntry<SecretField>(),
 		xpathEntry<SecretField, "validate">("validate", "Validation"),
-		mediaEntry<SecretField, "validate_msg_media">(
-			"validate_msg_media",
-			"Validation message media",
-		),
 		xpathEntry<SecretField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<SecretField>(),
 	],
 	ui: [
 		mediaEntry<SecretField, "label_media">("label_media", "Label media"),
 		hintEntry<SecretField>(),
-		mediaEntry<SecretField, "hint_media">("hint_media", "Hint media"),
 		textEntry<SecretField, "help">("help", "Help"),
 		mediaEntry<SecretField, "help_media">("help_media", "Help media"),
 	],
@@ -500,24 +463,18 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 	logic: [
 		requiredEntry<BarcodeField>(),
 		xpathEntry<BarcodeField, "validate">("validate", "Validation"),
-		mediaEntry<BarcodeField, "validate_msg_media">(
-			"validate_msg_media",
-			"Validation message media",
-		),
 		xpathEntry<BarcodeField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<BarcodeField>(),
 	],
 	ui: [
 		mediaEntry<BarcodeField, "label_media">("label_media", "Label media"),
 		hintEntry<BarcodeField>(),
-		mediaEntry<BarcodeField, "hint_media">("hint_media", "Hint media"),
 		textEntry<BarcodeField, "help">("help", "Help"),
 		mediaEntry<BarcodeField, "help_media">("help_media", "Help media"),
 	],
 };
 
-// Geopoint is input-capable but has no `validate` / `validate_msg`:
-// so it carries no validation-message media entry.
+// Geopoint is input-capable but has no `validate` / `validate_msg`.
 const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 	data: [caseWriteEntry<GeopointField>()],
 	logic: [
@@ -528,7 +485,6 @@ const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 	ui: [
 		mediaEntry<GeopointField, "label_media">("label_media", "Label media"),
 		hintEntry<GeopointField>(),
-		mediaEntry<GeopointField, "hint_media">("hint_media", "Hint media"),
 		textEntry<GeopointField, "help">("help", "Help"),
 		mediaEntry<GeopointField, "help_media">("help_media", "Help media"),
 	],
@@ -546,17 +502,12 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 	logic: [
 		requiredEntry<SingleSelectField>(),
 		xpathEntry<SingleSelectField, "validate">("validate", "Validation"),
-		mediaEntry<SingleSelectField, "validate_msg_media">(
-			"validate_msg_media",
-			"Validation message media",
-		),
 		xpathEntry<SingleSelectField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<SingleSelectField>(),
 	],
 	ui: [
 		mediaEntry<SingleSelectField, "label_media">("label_media", "Label media"),
 		hintEntry<SingleSelectField>(),
-		mediaEntry<SingleSelectField, "hint_media">("hint_media", "Hint media"),
 		textEntry<SingleSelectField, "help">("help", "Help"),
 		mediaEntry<SingleSelectField, "help_media">("help_media", "Help media"),
 	],
@@ -574,17 +525,12 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 	logic: [
 		requiredEntry<MultiSelectField>(),
 		xpathEntry<MultiSelectField, "validate">("validate", "Validation"),
-		mediaEntry<MultiSelectField, "validate_msg_media">(
-			"validate_msg_media",
-			"Validation message media",
-		),
 		xpathEntry<MultiSelectField, "relevant">("relevant", "Show when"),
 		defaultValueEntry<MultiSelectField>(),
 	],
 	ui: [
 		mediaEntry<MultiSelectField, "label_media">("label_media", "Label media"),
 		hintEntry<MultiSelectField>(),
-		mediaEntry<MultiSelectField, "hint_media">("hint_media", "Hint media"),
 		textEntry<MultiSelectField, "help">("help", "Help"),
 		mediaEntry<MultiSelectField, "help_media">("help_media", "Help media"),
 	],
@@ -653,13 +599,13 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 	],
 };
 
-// Hidden's value comes from exactly ONE of `calculate` (keep in step) or
+// Hidden's value comes from at most ONE of `calculate` (keep in step) or
 // `default_value` (set once), so the rail shows one Value control with a
 // mode switch rather than two slots. The entry is keyed on `calculate` for
 // its mount and `data-field-id` plumbing, but `HiddenValueEditor` writes
 // both slots on every gesture; it is always visible and never a pill (a
-// hidden field with no value is refused by `HIDDEN_NO_VALUE`, so there is
-// always something to show). No separate `default_value` entry. No
+// hidden field with no value still has a mode to choose and, when it writes
+// a case property, a sentence saying what it saves). No separate `default_value` entry. No
 // `required` entry: a hidden field is never shown, so it can't be required
 // (the `requiredOnHidden` validator enforces this, mirroring Vellum's
 // DataBindOnly). No `ui` section (hidden fields have no label, no label
@@ -674,9 +620,8 @@ const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 };
 
 // Group/repeat are structural containers shown with minimal chrome
-// (Logic only). Their `label_media` carrier exists in the schema and is
-// set via the SA tools; the inline inspector keeps them uncluttered
-// rather than adding an Appearance section to every container.
+// (Logic only). Their label carries text alone: no CommCare runtime draws
+// media on a group's or repeat's label.
 const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 	data: [],
 	logic: [xpathEntry<GroupField, "relevant">("relevant", "Show when")],

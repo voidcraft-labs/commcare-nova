@@ -254,11 +254,6 @@ it.each([
 		source: () => searchApp("types-tag", table("types"), png),
 		refused: { "hq-upload": ["LOOKUP_TAG_RESERVED_BY_HQ"], ccz: [] },
 	},
-	{
-		name: "a lookup table whose tag is longer than a sheet name",
-		source: () => searchApp("long-tag", table("t".repeat(32)), png),
-		refused: { "hq-upload": ["LOOKUP_TAG_TOO_LONG_FOR_HQ"], ccz: [] },
-	},
 ])(
 	"refuses what the export boundary refuses: $name",
 	async ({ source, refused }) => {

@@ -234,6 +234,46 @@ describe("the report", () => {
 		);
 	});
 
+	it("splits step hidden-inert-default's removals by what each field writes", () => {
+		const detail = (
+			appId: string,
+			inertDefaults: CutoverPlanBuild["apps"][number]["inertDefaults"],
+		) => ({
+			appId,
+			deleted: false,
+			stepChanges: [
+				{
+					stepId: "hidden-inert-default",
+					changes: inertDefaults["saves-blank"],
+				},
+			],
+			behaviorEntries: {},
+			inertDefaults,
+			deploymentsWithoutMapping: 0,
+		});
+		const split = new CutoverReport("scan");
+		planSections(
+			split,
+			source,
+			{
+				...build,
+				apps: [
+					detail("app-1", { "not-writing": 2, preloaded: 1, "saves-blank": 1 }),
+					detail("app-2", { "not-writing": 0, preloaded: 0, "saves-blank": 2 }),
+				],
+			},
+			NO_HOLDERS,
+		);
+		const steps = split.all().find((line) => line.section === "steps")
+			?.steps as { step: string }[];
+		expect(steps.find((step) => step.step === "hidden-inert-default")).toEqual({
+			step: "hidden-inert-default",
+			apps: 2,
+			changes: 3,
+			removed: { notWriting: 2, preloaded: 1, savesBlank: 3 },
+		});
+	});
+
 	it("prints no settings line, since the scan reads no source to count", () => {
 		expect(lines.some((line) => line.section === "settings")).toBe(false);
 	});

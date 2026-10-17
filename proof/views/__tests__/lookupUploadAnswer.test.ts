@@ -9,9 +9,10 @@
  * (`../test_lookup_upload.py`): HTTP status 200, an HTML document, HQ's
  * "Upgrade Required" page, and no table written. This test hands Nova's real
  * client an answer of exactly that status and type, over real HTTP, and
- * holds what the client reports. The plausible failure it shows today is the
- * defect itself: the client reads a 200 it cannot parse as an upload that
- * may have landed, where HQ ran nothing.
+ * holds what the client reports: nothing landed, and the plan lacks Lookup
+ * Tables. The plausible failure it guards is the defect it fixed: a client
+ * that reads a 200 it cannot parse as an upload that may have landed, where
+ * HQ ran nothing.
  */
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
@@ -28,7 +29,7 @@ const answer = JSON.parse(
 	),
 ) as { status: number; contentType: string; holds: string };
 
-it("reports HQ's upgrade page as an upload that may have landed, though HQ wrote no table", async () => {
+it("reports HQ's upgrade page as an upload that wrote nothing, for want of the plan", async () => {
 	await withHttpPeer(async (peer) => {
 		peer
 			.get("https://india.commcarehq.org")
@@ -45,9 +46,10 @@ it("reports HQ's upgrade page as an upload that may have landed, though HQ wrote
 			),
 		).toEqual({
 			success: false,
-			status: 502,
+			status: 426,
 			message: "",
-			mayHaveLanded: true,
+			mayHaveLanded: false,
+			upgradeRequired: true,
 		});
 	});
 });

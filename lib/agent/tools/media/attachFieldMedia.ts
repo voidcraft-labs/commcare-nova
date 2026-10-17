@@ -1,19 +1,16 @@
 /**
  * SA tool: `attach_field_media` — set or clear the image/audio/video on
- * one or more field message slots (label / hint / help / validation
- * message) in a single call.
+ * one or more field message slots (label / help) in a single call.
  *
- * Each visible-message slot on a field carries its own `<slot>_media`
- * bundle (`label_media` / `hint_media` / `help_media` /
- * `validate_msg_media`). Every attachment in the batch names a field and
+ * Each media-carrying message slot on a field holds its own `<slot>_media`
+ * bundle (`label_media` / `help_media`). Every attachment in the batch names a field and
  * a slot; the supplied `Media` bundle replaces that slot wholesale, and
  * an empty bundle (`{}`) clears every reference on it. One attachment is
  * a length-1 `attachments` array — there is no singular twin.
  *
  * Slot availability is per-kind, not universal: `label_media` is on every
- * visible field (and containers); `hint_media` / `help_media` are on
- * input kinds; `validate_msg_media` only on the kinds that support
- * validation. Each attachment gates its slot against the field's KIND via
+ * visible field but a group or repeat; `help_media` is on input kinds.
+ * Each attachment gates its slot against the field's KIND via
  * `fieldKindDeclaresKey` — the schema key set, NOT `key in field`, because
  * an unset optional slot is absent as an own property even on a kind that
  * supports it — and an unsupported slot fails with an Elm-shape error.
@@ -65,9 +62,9 @@ const fieldMediaAttachmentSchema = fieldAddressSchema
 		slot: z
 			.enum(FIELD_MEDIA_SLOTS)
 			.describe(
-				"Which message slot the media attaches to: `label` (every field), " +
-					"`hint` / `help` (input fields), `validate_msg` (fields that support " +
-					"validation). The media shows alongside that message's text.",
+				"Which message slot the media attaches to: `label` (every visible " +
+					"field but a group or repeat) or `help` (input fields). The media " +
+					"shows alongside that message's text.",
 			),
 		media: mediaBundleInput(
 			"The image/audio/video to attach. Supply any subset of `image`, " +
@@ -95,7 +92,7 @@ export type AttachFieldMediaResult = MutationSuccess | { error: string };
 
 export const attachFieldMediaTool = {
 	description:
-		"Set or clear image/audio/video on field message slots (label, hint, help, validation message) — fields may span forms. Asset ids come from list_media_assets; an empty media object clears. The slot must exist on the field's kind.",
+		"Set or clear image/audio/video on a field's label or help. Fields may span forms. Asset ids come from list_media_assets; an empty media object clears. The slot must exist on the field's kind.",
 	inputSchema: attachFieldMediaInputSchema,
 	async execute(
 		input: AttachFieldMediaInput,
@@ -132,7 +129,7 @@ export const attachFieldMediaTool = {
 				// carry is rejected here rather than silently dropped downstream.
 				if (!fieldKindDeclaresKey(field.kind, mediaKey)) {
 					failures.push(
-						`attachments[${i}]: field "${field.id}" is a ${field.kind} field, which has no ${slot} message — so there's nothing to attach ${slot} media to. ${supportedSlotsHint(field.kind)}`,
+						`attachments[${i}]: field "${field.id}" is a ${field.kind} field, whose ${slot} carries no media, so there's no ${slot} slot to attach to. ${supportedSlotsHint(field.kind)}`,
 					);
 					continue;
 				}

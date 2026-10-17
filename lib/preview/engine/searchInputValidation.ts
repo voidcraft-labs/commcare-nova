@@ -145,6 +145,7 @@ export function searchInputRuntimeGlobalError(
 		return undefined;
 	}
 	for (const rejection of emission?.runtimeRejections ?? []) {
+		if (rejection.kind === "blank-comparand") continue;
 		if (skipSessionBackedRejection(rejection, options)) continue;
 		if ((rejection.inputNames?.length ?? 0) > 0) continue;
 		if (!runtimeRejectionApplies(rejection, caseListConfig, values, session)) {
@@ -153,6 +154,39 @@ export function searchInputRuntimeGlobalError(
 		return searchRuntimeGlobalValidationMessage(rejection.kind).message;
 	}
 	return undefined;
+}
+
+/**
+ * Whether the exported search finds nothing for this state with no message:
+ * a blank value compared where CommCare's search cannot compare one, which
+ * the exported `_xpath_query` wrapper answers with `match-none()`
+ * (`lib/commcare/predicate/runtimeCsqlDateSafety.ts`). Preview answers the
+ * search with no rows, before it reaches the case store.
+ */
+export function searchFindsNothing(
+	caseListConfig: CaseListConfig,
+	caseType: string | undefined,
+	values: SearchInputValues,
+	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
+	typeContext?: TypeContext,
+	options?: RuntimeValidationOptions,
+): boolean {
+	let emission: ComposedXPathQuery | undefined;
+	try {
+		emission = composeXPathQueryEmission(
+			caseListConfig,
+			caseType,
+			withSearchInputBindings(caseListConfig, typeContext),
+		);
+	} catch {
+		return false;
+	}
+	return (emission?.runtimeRejections ?? []).some(
+		(rejection) =>
+			rejection.kind === "blank-comparand" &&
+			!skipSessionBackedRejection(rejection, options) &&
+			runtimeRejectionApplies(rejection, caseListConfig, values, session),
+	);
 }
 
 /**

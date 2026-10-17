@@ -124,6 +124,7 @@ import {
 	parseExcludedOwnerIds,
 } from "./searchExpressionEvaluation";
 import {
+	searchFindsNothing,
 	searchInputRuntimeGlobalError,
 	searchInputSubmissionErrors,
 } from "./searchInputValidation";
@@ -362,6 +363,25 @@ export async function loadCasesAction(args: {
 					repair: "inputs",
 				};
 			}
+		}
+		/* A blank value compared where CommCare's search cannot compare one:
+		 * the exported search sends `match-none()` and finds nothing, with no
+		 * message, so Preview answers the same before reaching the case store. */
+		if (
+			args.caseListConfig !== undefined &&
+			searchFindsNothing(
+				args.caseListConfig,
+				args.caseType,
+				inputValues ?? new Map(),
+				searchSession,
+				typeContext,
+			)
+		) {
+			return {
+				kind: "empty",
+				constraintSource:
+					inputValues === undefined ? "authored-rules" : "worker-search",
+			};
 		}
 		const expressionInputValues =
 			inputValues === undefined || args.caseListConfig === undefined

@@ -112,9 +112,7 @@ function fixtureDoc() {
 					audio: media("lbl-aud"),
 					video: media("lbl-vid"),
 				},
-				hint_media: { image: media("hint-img") },
 				help_media: { audio: media("help-aud") },
-				validate_msg_media: { video: media("val-vid") },
 			},
 			[SELECT_FIELD]: {
 				kind: "single_select",
@@ -162,9 +160,7 @@ describe("remapAssetRefs", () => {
 			"lbl-img",
 			"lbl-aud",
 			"lbl-vid",
-			"hint-img",
 			"help-aud",
-			"val-vid",
 			"opt-img",
 			"opt-aud",
 		];

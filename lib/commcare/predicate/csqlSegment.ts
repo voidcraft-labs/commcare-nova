@@ -84,7 +84,8 @@ export type RuntimeCsqlRejectionKind =
 	| "quote"
 	| "whole-number"
 	| "nonnegative-whole-number"
-	| "geopoint";
+	| "geopoint"
+	| "blank-comparand";
 
 export interface RuntimeCsqlRejection {
 	readonly condition: string;

@@ -35,6 +35,8 @@ import {
 	normalizeHqAppSource,
 } from "@/lib/deployment/hqSourceBaseline";
 import type { AppOwnership } from "@/lib/deployment/types";
+import { migrationNoticeEntrySchema } from "@/lib/notices/migrationNotice";
+import { renderNoticeEntry } from "@/lib/notices/migrationNoticeCopy";
 import type { DeploymentReads, HqReadOutcome } from "../hqRead";
 import type { BuildPlanOptions } from "../plan";
 import { runMigrate } from "../run";
@@ -482,6 +484,47 @@ describe("the cutover's baselines", () => {
 		expect(asks?.entities).toEqual([
 			{ type: "lookupTable", uuid: TABLE_UUID, nameAtMigration: "clinics" },
 		]);
+	}, 60_000);
+
+	it("names a mapped table HQ holds content in that the next publish would remove, in the notice and the dry run's report", async () => {
+		const { appId, deploymentId } = await seed("app-baselines-content");
+		const held: HqLookupTable = {
+			...TABLE,
+			isGlobal: false,
+			fieldProperties: { name: ["lang"], code: [] },
+		};
+		const reader = spaceReader({ tables: { kind: "ok", value: [held] } });
+		const dryRun = await runMigrate(h.db(), {
+			mode: "dry-run",
+			plan: { readDeployment: retainedReads },
+			readProjectSpace: reader,
+		});
+		expect(
+			dryRun.report.all().find((line) => line.section === "lookup-tags"),
+		).toMatchObject({
+			unsupportedTables: [
+				{
+					projectId: PROJECT,
+					server: "production",
+					domain: DOMAIN,
+					tableId: TABLE_UUID,
+					remoteId: TABLE_ID,
+					deployments: [deploymentId],
+					holds: ["field-properties", "owned-rows"],
+				},
+			],
+		});
+		expect(dryRun.report.text()).not.toContain('"clinics"');
+		const executed = await execute(retainedReads, reader);
+		expect(executed.outcome).toEqual({ outcome: "ok" });
+		const [entry] = (await deploymentNotices(appId)).filter(
+			(line) => line.reason === "lookup-table-content-unsupported",
+		);
+		// The entry the writer stored, through the renderer every surface uses.
+		const stored = migrationNoticeEntrySchema.parse(entry);
+		expect(renderNoticeEntry(stored, { nameOf: () => null }).text).toBe(
+			`The table clinics on ${DOMAIN} holds field properties and rows limited to certain users, which Nova can't keep. The next publish there stops before it sends anything. Giving the table a new export tag in Project data lets Nova publish its own table and leave that one as it is.`,
+		);
 	}, 60_000);
 
 	it("stores no baseline for a table or place HQ no longer lists", async () => {

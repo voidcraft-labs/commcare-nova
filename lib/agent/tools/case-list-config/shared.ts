@@ -279,6 +279,16 @@ export const CALCULATED_SEARCH_EXPRESSION_GUIDANCE =
 	"When the module uses Search, a calculated column can use the current case or show one parent property by itself. Do not wrap the parent property in another calculation.";
 
 /**
+ * What a free-text search answer holding both quote marks finds, said once:
+ * ends the description of every tool property that holds a Search input's
+ * body. CommCare's search language has no escape for a quote, so the emitter
+ * sends `match-none()` for such an answer on Android, which never enforces
+ * the prompt's validation; Web Apps stops it at the prompt.
+ */
+export const SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE =
+	"On Android, an answer that holds both ' and \" finds nothing.";
+
+/**
  * How a list orders, said once a schema: appended after
  * `CALCULATED_SEARCH_EXPRESSION_GUIDANCE` wherever that is, and on
  * `updateModule`'s `case_list_columns`, which holds the same arms. It states

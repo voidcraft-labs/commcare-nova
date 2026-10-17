@@ -632,7 +632,11 @@ def test_b_and_its_recreation_send_the_media_again_and_a_publish_hq_refuses_send
     returns the refusal before ``uploadMediaBytes``), so a republish whose import HQ refuses is followed by no
     media operation: here one carrying no app file (``_handle_import_app`` answers 400)."""
     document, name = _cheapest_where(
-        lambda d, n: d.exports[n].content.media is not None and d.exports[n].republish.media is not None,
+        lambda d, n: (
+            d.exports[n].content.media is not None
+            and d.exports[n].republish is not None
+            and d.exports[n].republish.media is not None
+        ),
         "content and republish send media",
     )
     republish = document.exports[name].republish

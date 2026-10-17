@@ -13,9 +13,10 @@ of this file; the pins do not move them.
 Keys:
 
 - ``csql-fn:search-value-mixes-quote-marks``: the fail-closed arm of a
-  free-text search input's quote cascade, the CSQL Nova sends when the value
-  holds both quote marks. HQ's CSQL table has no such function, so HQ's search
-  refuses the query. Web Apps sends it only on a default search: a search the
+  free-text search input's quote cascade as exports before step 2 wrote it,
+  the CSQL Nova sent when the value held both quote marks; Nova now sends
+  ``match-none()`` there, and a retained control keeps the function. HQ's CSQL
+  table has no such function, so HQ's search refuses the query. Web Apps sends it only on a default search: a search the
   person starts runs only when its prompts validate, while a default search
   runs whatever its prompts' errors, with the hidden ``_xpath_query``
   evaluated over the prompts' answers.
@@ -43,7 +44,6 @@ NO_READER = "no code in Core, Android or Formplayer reads this key at the pins"
 AUTHORED = {
     "csql-fn:search-value-mixes-quote-marks": {
         "source": [
-            "commcare-nova/lib/commcare/predicate/termEmitter.ts::CSQL_UNREPRESENTABLE_RUNTIME_STRING",
             "commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast",
             "formplayer/src/main/java/org/commcare/formplayer/services/MenuSessionRunnerService.java"
             "::MenuSessionRunnerService.doQuery",
@@ -52,8 +52,8 @@ AUTHORED = {
         ],
         "facts": {
             "kind": "nova-fail-closed",
-            "novaWrites": "the whole CSQL string `search-value-mixes-quote-marks()`, for a free-text input whose"
-            " value holds both quote marks",
+            "novaWrites": "exports before step 2 wrote the whole CSQL string `search-value-mixes-quote-marks()`, for a"
+            " free-text input whose value holds both quote marks",
             "hq": "refused: build_filter_from_ast raises \"'search-value-mixes-quote-marks' is not a valid standalone"
             ' function"',
             "webApps": "sent only on a default search: doQuery runs a search the person starts only when its prompts"

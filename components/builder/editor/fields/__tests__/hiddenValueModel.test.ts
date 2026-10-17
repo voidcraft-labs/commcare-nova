@@ -3,22 +3,19 @@
  * document may hold only one of them. These pin the mode the control shows
  * for every slot combination and the exact patch each gesture dispatches:
  * a patch that names only one slot is the defect, because it is how a field
- * would end up holding both. The other defect they pin is the inert
- * placeholder reaching `calculate`: on a hidden writer to the loaded case
- * that is a calculation of nothing written over the case's value on every
- * submission, so no gesture may produce it.
+ * would end up holding both. The other defect they pin is a calculation
+ * no one typed reaching `calculate`: an empty save or a switch with nothing
+ * to carry must leave the field holding neither slot.
  */
 
 import { describe, expect, it } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
-import { HIDDEN_INERT_VALUE } from "@/lib/domain";
 import {
 	activeHiddenValueMode,
 	HIDDEN_VALUE_EMPTY_PATCH,
 	hiddenValueModeHint,
 	hiddenValueModeSwitch,
 	hiddenValueSavePatch,
-	isInertHiddenValue,
 } from "../hiddenValueModel";
 
 const calc = xp("1 + 1");
@@ -43,21 +40,6 @@ describe("activeHiddenValueMode", () => {
 	});
 });
 
-describe("isInertHiddenValue", () => {
-	it("recognizes the born placeholder", () => {
-		expect(isInertHiddenValue(HIDDEN_INERT_VALUE)).toBe(true);
-		expect(isInertHiddenValue(xp("''"))).toBe(true);
-	});
-	it("rejects a padded literal, a blank text run, a real value, and nothing", () => {
-		expect(isInertHiddenValue(xp("' '"))).toBe(false);
-		expect(isInertHiddenValue({ parts: [{ kind: "text", text: "" }] })).toBe(
-			false,
-		);
-		expect(isInertHiddenValue(calc)).toBe(false);
-		expect(isInertHiddenValue(undefined)).toBe(false);
-	});
-});
-
 describe("hiddenValueSavePatch", () => {
 	it("writes the expression into the mode and clears the other slot", () => {
 		expect(hiddenValueSavePatch("calculate", calc)).toEqual({
@@ -69,7 +51,7 @@ describe("hiddenValueSavePatch", () => {
 			calculate: null,
 		});
 	});
-	it("lands an empty save as set once with the inert placeholder in either mode", () => {
+	it("lands an empty save as neither slot in either mode", () => {
 		expect(hiddenValueSavePatch("calculate", undefined)).toEqual(
 			HIDDEN_VALUE_EMPTY_PATCH,
 		);
@@ -78,7 +60,7 @@ describe("hiddenValueSavePatch", () => {
 		);
 		expect(HIDDEN_VALUE_EMPTY_PATCH).toEqual({
 			calculate: null,
-			default_value: HIDDEN_INERT_VALUE,
+			default_value: null,
 		});
 	});
 	it("saving on a historical both-present field clears the dead default", () => {
@@ -104,9 +86,6 @@ describe("hiddenValueModeSwitch", () => {
 		);
 	});
 	it("waits for a calculation toward keep in step when there is nothing to carry", () => {
-		expect(
-			hiddenValueModeSwitch({ default_value: HIDDEN_INERT_VALUE }, "calculate"),
-		).toEqual({ kind: "await-calculation" });
 		expect(hiddenValueModeSwitch({}, "calculate")).toEqual({
 			kind: "await-calculation",
 		});
@@ -133,10 +112,9 @@ describe("hiddenValueModeSwitch", () => {
 			patch: { default_value: calc, calculate: null },
 		});
 	});
-	it("never places the inert placeholder in calculate", () => {
+	it("never writes a calculation that was not authored", () => {
 		const fields = [
 			{},
-			{ default_value: HIDDEN_INERT_VALUE },
 			{ default_value: seed },
 			{ calculate: calc },
 			{ calculate: calc, default_value: seed },
@@ -144,35 +122,45 @@ describe("hiddenValueModeSwitch", () => {
 		for (const field of fields) {
 			for (const next of ["calculate", "default_value"] as const) {
 				const verdict = hiddenValueModeSwitch(field, next);
-				if (verdict.kind === "commit") {
-					expect(isInertHiddenValue(verdict.patch.calculate ?? undefined)).toBe(
-						false,
-					);
+				if (verdict.kind === "commit" && verdict.patch.calculate !== null) {
+					expect([calc, seed]).toContain(verdict.patch.calculate);
 				}
 			}
 		}
-		expect(
-			isInertHiddenValue(
-				hiddenValueSavePatch("calculate", undefined).calculate ?? undefined,
-			),
-		).toBe(false);
+		expect(hiddenValueSavePatch("calculate", undefined).calculate).toBeNull();
 	});
 });
 
 describe("hiddenValueModeHint", () => {
 	it("names the save-and-resume difference between the modes", () => {
-		expect(hiddenValueModeHint("calculate", false)).toContain(
+		expect(hiddenValueModeHint("calculate", false, undefined, false)).toContain(
 			"each time the form opens",
 		);
-		expect(hiddenValueModeHint("default_value", false)).toContain(
-			"first opens",
-		);
+		expect(
+			hiddenValueModeHint("default_value", false, undefined, false),
+		).toContain("first opens");
 	});
 	it("says what each mode means on a preloaded writer", () => {
-		expect(hiddenValueModeHint("calculate", true)).toContain(
+		expect(hiddenValueModeHint("calculate", true, undefined, false)).toContain(
 			"replaces this case's current value",
 		);
-		expect(hiddenValueModeHint("default_value", true)).toContain(
+		expect(
+			hiddenValueModeHint("default_value", true, undefined, false),
+		).toContain("Opens with this case's current value");
+	});
+	it("is the blank-write note at rest, in either mode", () => {
+		const note =
+			"Has no value yet, so each submission saves visit_count blank.";
+		expect(hiddenValueModeHint("calculate", false, note, false)).toBe(note);
+		expect(hiddenValueModeHint("default_value", false, note, false)).toBe(note);
+	});
+	it("says what the mode does while another value is being chosen", () => {
+		const note =
+			"Has no value yet, so each submission saves visit_count blank.";
+		expect(hiddenValueModeHint("calculate", false, note, true)).toContain(
+			"each time the form opens",
+		);
+		expect(hiddenValueModeHint("default_value", true, note, true)).toContain(
 			"Opens with this case's current value",
 		);
 	});

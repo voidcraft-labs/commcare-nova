@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { csqlStaticQuoteFixture } from "@/lib/commcare/__tests__/csqlStaticQuoteFixture";
+import { searchEmissionFixture } from "@/lib/commcare/__tests__/searchEmissionFixture";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	actingUser,
 	ancestorPath,
@@ -12,6 +14,9 @@ import {
 	concat,
 	count,
 	dateAdd,
+	dateLiteral,
+	datetimeCoerce,
+	datetimeLiteral,
 	double,
 	eq,
 	exists,
@@ -35,6 +40,7 @@ import {
 	multiSelectAny,
 	neq,
 	not,
+	now,
 	or,
 	type Predicate,
 	prop,
@@ -449,3 +455,102 @@ it.each([
 		}
 	},
 );
+
+describe("the three system dates", () => {
+	const system = ["date_opened", "closed_on", "last_modified"] as const;
+
+	it.each(system)("refuses is-blank on %s", (name) => {
+		expect(checkCsqlRepresentability(isBlank(field(name)))).toEqual([
+			expect.objectContaining({
+				reason: "system-datetime-value",
+				details: { property: name, shape: "is-blank" },
+			}),
+		]);
+	});
+
+	it.each(system)(
+		"refuses the null literal compared with %s by every operator",
+		(name) => {
+			const nullValue = literal(null);
+			for (const predicate of [
+				eq(field(name), nullValue),
+				neq(field(name), nullValue),
+				gt(field(name), nullValue),
+				gte(nullValue, field(name)),
+				lt(field(name), nullValue),
+				lte(field(name), nullValue),
+				isIn(field(name), nullValue),
+				between(field(name), { lower: nullValue }),
+			]) {
+				expect(
+					checkCsqlRepresentability(predicate).map((issue) => [
+						issue.reason,
+						issue.details,
+					]),
+				).toEqual([
+					["system-datetime-value", { property: name, shape: "null-value" }],
+				]);
+			}
+		},
+	);
+
+	it.each(system)(
+		"accepts a date turned into a date and time, a date and time literal and now() on %s",
+		(name) => {
+			for (const value of [
+				datetimeCoerce(term(dateLiteral("2026-01-01"))),
+				datetimeLiteral("2026-01-01T00:00:00"),
+				now(),
+			]) {
+				expect(checkCsqlRepresentability(gte(field(name), value))).toEqual([]);
+			}
+		},
+	);
+
+	it("leaves is-blank and the null literal on any other property", () => {
+		expect(checkCsqlRepresentability(isBlank(field("dob")))).toEqual([]);
+		expect(checkCsqlRepresentability(eq(field("dob"), literal(null)))).toEqual(
+			[],
+		);
+	});
+});
+
+describe("the system dates at the gate", () => {
+	function searchFiltering(filter: Predicate) {
+		const doc = structuredClone(searchEmissionFixture("remote"));
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		if (!config) throw new Error("Search fixture needs a case list");
+		config.filter = filter;
+		return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(error) => error.details?.reason === "system-datetime-value",
+		);
+	}
+
+	it("refuses is-blank on date_opened in a search's Cases available rule, and says so", () => {
+		const [error, ...rest] = searchFiltering(
+			not(isBlank(prop("patient", "date_opened"))),
+		);
+		expect(rest).toEqual([]);
+		expect(error?.code).toBe("CASE_LIST_CSQL_NOT_REPRESENTABLE");
+		expect(error === undefined ? "" : userFacingError(error)).toBe(
+			`CommCare's search can't ask whether "Date opened" is blank. Every case has one. Remove that check from "Followup"'s Cases available rule.`,
+		);
+	});
+
+	it("refuses the null literal compared with last_modified, and admits a date and time", () => {
+		const [error] = searchFiltering(
+			eq(prop("patient", "last_modified"), literal(null)),
+		);
+		expect(error === undefined ? "" : userFacingError(error)).toBe(
+			`"Last modified" is compared with a date and time. Give it a date and time in "Followup"'s Cases available rule, or remove that check.`,
+		);
+		expect(
+			searchFiltering(
+				gte(
+					prop("patient", "date_opened"),
+					datetimeCoerce(term(dateLiteral("2026-01-01"))),
+				),
+			),
+		).toEqual([]);
+	});
+});

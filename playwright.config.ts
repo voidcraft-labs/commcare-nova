@@ -140,6 +140,14 @@ export default defineConfig({
 			use: { ...devices["Desktop Chrome"] },
 		},
 		{
+			// The media formats every platform plays, played in WebKit too:
+			// Safari is a Web Apps platform, and WebKit is the engine that
+			// refuses the near misses Nova's upload gate refuses.
+			name: "browser-webkit",
+			testMatch: /browser\/media-play\.spec\.ts/,
+			use: { ...devices["Desktop Safari"] },
+		},
+		{
 			name: "public",
 			testMatch: /app\/public\.spec\.ts/,
 			use: { ...devices["Desktop Chrome"] },

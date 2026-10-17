@@ -226,6 +226,16 @@ const ENTRIES: Record<
 		COLUMN_ENTITY,
 		{ menu: "Households" },
 	),
+	"media-slot-removed": documentEntries("media-slot-removed", FIELD_ENTITY, {
+		form: "Visit",
+		slot: "hint",
+		media: "image",
+	}),
+	"hidden-value-saves-blank": documentEntries(
+		"hidden-value-saves-blank",
+		FIELD_ENTITY,
+		{ form: "Register", property: "visit_status" },
+	),
 	"search-button-text-changed": documentEntries(
 		"search-button-text-changed",
 		MODULE_ENTITY,
@@ -240,6 +250,16 @@ const ENTRIES: Record<
 		"search-input-removed",
 		SEARCH_INPUT_ENTITY,
 		{ menu: "Patients", expressions: "2" },
+	),
+	"time-comparison-never-true": documentEntries(
+		"time-comparison-never-true",
+		FIELD_ENTITY,
+		{ form: "Visit", comparison: "#form/start > '17:00'" },
+	),
+	"search-term-matches-nothing": documentEntries(
+		"search-term-matches-nothing",
+		MODULE_ENTITY,
+		{ term: "date_opened is blank" },
 	),
 	"hidden-from-menu-set": documentEntries(
 		"hidden-from-menu-set",
@@ -256,6 +276,10 @@ const ENTRIES: Record<
 		SEARCH_INPUT_ENTITY,
 		{ menu: "Patients" },
 	),
+	"lookup-tag-renamed": documentEntries("lookup-tag-renamed", LOOKUP_ENTITY, {
+		from: "clinic_casedb_codes",
+		to: "clinic_case_db_codes",
+	}),
 	"survey-menu-takes-case-type": documentEntries(
 		"survey-menu-takes-case-type",
 		MODULE_ENTITY,
@@ -422,6 +446,20 @@ const ENTRIES: Record<
 		"worker-settings-reset-at-next-publish",
 		[],
 	),
+	"lookup-table-content-unsupported": {
+		withDetail: {
+			kind: "deployment",
+			reason: "lookup-table-content-unsupported",
+			deployment: DEPLOYMENT,
+			entities: [LOOKUP_ENTITY],
+			detail: { holds: "field-properties,row-attributes,owned-rows" },
+		},
+		bare: {
+			kind: "deployment",
+			reason: "lookup-table-content-unsupported",
+			deployment: DEPLOYMENT,
+		},
+	},
 	"hq-app-deleted": deploymentEntries("hq-app-deleted", []),
 	"data-paths-move-once": deploymentEntries("data-paths-move-once", []),
 	"hq-app-not-nova-made": deploymentEntries("hq-app-not-nova-made", []),
@@ -1527,6 +1565,166 @@ describe("the identifier and form content lines", () => {
 			),
 		).toBe(
 			"Visit, parent_name: it read case_id_new_child_0 from the session, which no menu of this app supplies, so the form could not open. It now reads nothing there, and the form opens. You can set what it should read.",
+		);
+	});
+});
+
+describe("the removed media slot line", () => {
+	const SAME: NoticeRenderContext = {
+		nameOf: (entity) => entity.nameAtMigration,
+	};
+	const render = (detail?: Record<string, string>) =>
+		renderNoticeEntry(
+			migrationNoticeEntrySchema.parse({
+				kind: "document",
+				reason: "media-slot-removed",
+				entity: { ...FIELD_ENTITY, nameAtMigration: "address" },
+				...(detail && { detail }),
+			}),
+			SAME,
+		).text;
+
+	it.each([
+		["hint", "image", "the image on its hint"],
+		["validation-message", "audio", "the audio on its validation message"],
+		["group-title", "video", "the video on its group title"],
+		["repeat-title", "image", "the image on its repeat title"],
+	])("names the %s's %s", (slot, media, says) => {
+		expect(render({ form: "Visit", slot, media })).toBe(
+			`Visit, address: ${says} was removed. No CommCare app shows media there, so workers see no change. The file is still in your media library.`,
+		);
+	});
+
+	it("still reads as a sentence with no detail", () => {
+		expect(render()).toBe(
+			"address: the media on its message was removed. No CommCare app shows media there, so workers see no change. The file is still in your media library.",
+		);
+	});
+});
+
+describe("the hidden value and time comparison lines", () => {
+	const SAME: NoticeRenderContext = {
+		nameOf: (entity) => entity.nameAtMigration,
+	};
+	const render = (raw: unknown) => renderNoticeEntry(parsed(raw), SAME).text;
+	const field = (nameAtMigration: string) => ({
+		...FIELD_ENTITY,
+		nameAtMigration,
+	});
+	const doc = (
+		reason: string,
+		entity: unknown,
+		detail?: Record<string, string>,
+	) => ({ kind: "document", reason, entity, ...(detail && { detail }) });
+
+	it("say a hidden value with no value saves its property blank", () => {
+		expect(
+			render(
+				doc("hidden-value-saves-blank", field("status_seed"), {
+					form: "Register",
+					property: "visit_status",
+				}),
+			),
+		).toBe(
+			"Register: status_seed has no value, so each submission saves visit_status blank. This is unchanged; Nova now says so where you set it.",
+		);
+	});
+
+	it("say a time comparison now reads as never true, on a field, a menu and a case property's rule", () => {
+		expect(
+			render(
+				doc("time-comparison-never-true", field("late"), {
+					form: "Visit",
+					comparison: "#form/start > '17:00'",
+				}),
+			),
+		).toBe(
+			"Visit, late: “#form/start > '17:00'” compares a time of day with before or after, which is never true on a device. It now reads as never true everywhere, Preview included.",
+		);
+		expect(
+			render(
+				doc("time-comparison-never-true", MODULE_ENTITY, {
+					comparison: "visit_time > 08:00",
+				}),
+			),
+		).toBe(
+			"Patients: “visit_time > 08:00” compares a time of day with before or after, which is never true on a device. It now reads as never true everywhere, Preview included.",
+		);
+		expect(
+			render(
+				doc("time-comparison-never-true", APP_ENTITY, {
+					comparison: "#patient/visit_time > '08:00'",
+					caseType: "patient",
+					property: "visit_time",
+				}),
+			),
+		).toBe(
+			"Clinic visits, the rule of visit_time: “#patient/visit_time > '08:00'” compares a time of day with before or after, which is never true on a device. It now reads as never true everywhere, Preview included.",
+		);
+	});
+
+	it("say a search term HQ can't run now matches nothing", () => {
+		expect(
+			render(
+				doc("search-term-matches-nothing", MODULE_ENTITY, {
+					term: "date_opened is blank",
+				}),
+			),
+		).toBe(
+			"Patients: “date_opened is blank” is a check CommCare's search can't run. It now matches nothing, where the search failed before.",
+		);
+	});
+});
+
+describe("the lines about lookup tables", () => {
+	it("name a renamed table with both tags and the word that made CommCare read it as its own data", () => {
+		const line = renderNoticeEntry(
+			parsed(ENTRIES["lookup-tag-renamed"].withDetail),
+			REMOVED,
+		);
+		expect(line.text).toBe(
+			"The lookup table Clinics now has the export tag clinic_case_db_codes in place of clinic_casedb_codes. CommCare treats a tag holding \"casedb\" as its own case data, so this app couldn't read the table. Where this app is published, the next publish adds the table under the new tag and leaves the old one in CommCare HQ, since Nova can't rename or remove a table there.",
+		);
+		expect(
+			line.parts.filter((part) => part.kind === "entity").map((p) => p.text),
+		).toEqual(["Clinics"]);
+		expect(
+			renderNoticeEntry(
+				parsed({
+					kind: "document",
+					reason: "lookup-tag-renamed",
+					entity: LOOKUP_ENTITY,
+					detail: { from: "stock_ledgerdb", to: "stock_ledger_db" },
+				}),
+				REMOVED,
+			).text,
+		).toBe(
+			"The lookup table Clinics now has the export tag stock_ledger_db in place of stock_ledgerdb. CommCare treats a tag holding \"ledgerdb\" as its own ledger data, so this app couldn't read the table. Where this app is published, the next publish adds the table under the new tag and leaves the old one in CommCare HQ, since Nova can't rename or remove a table there.",
+		);
+	});
+
+	it("name a table HQ holds content in that Nova can't keep, and what it holds", () => {
+		expect(
+			renderNoticeEntry(
+				parsed(ENTRIES["lookup-table-content-unsupported"].withDetail),
+				REMOVED,
+			).text,
+		).toBe(
+			"The table Clinics on field-ops holds field properties, row attributes and rows limited to certain users, which Nova can't keep. The next publish there stops before it sends anything. Giving the table a new export tag in Project data lets Nova publish its own table and leave that one as it is.",
+		);
+		expect(
+			renderNoticeEntry(
+				parsed({
+					kind: "deployment",
+					reason: "lookup-table-content-unsupported",
+					deployment: DEPLOYMENT,
+					entities: [LOOKUP_ENTITY],
+					detail: { holds: "owned-rows" },
+				}),
+				REMOVED,
+			).text,
+		).toBe(
+			"The table Clinics on field-ops holds rows limited to certain users, which Nova can't keep. The next publish there stops before it sends anything. Giving the table a new export tag in Project data lets Nova publish its own table and leave that one as it is.",
 		);
 	});
 });

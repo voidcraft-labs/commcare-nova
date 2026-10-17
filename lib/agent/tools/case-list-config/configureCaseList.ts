@@ -53,6 +53,7 @@ import {
 	CASE_LIST_ORDER_GUIDANCE,
 	columnInputSchema,
 	newUuid,
+	SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE,
 	searchInputDefInputSchema,
 	stampColumnUuid,
 	stampSearchInputUuid,
@@ -76,7 +77,7 @@ export const configureCaseListInputSchema = z
 			.min(1)
 			.optional()
 			.describe(
-				"Known search inputs to add. Supply searchInputUuid when searchInputOrder in this call references the new input.",
+				`Known search inputs to add. Supply searchInputUuid when searchInputOrder in this call references the new input. ${SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE}`,
 			),
 		filter: predicateSchema
 			.nullable()

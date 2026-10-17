@@ -36,6 +36,7 @@ import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	newUuid,
 	RESERVED_SEARCH_INPUT_NAMES_SENTENCE,
+	SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE,
 	SEARCH_INPUT_LOOKUP_ORDER_SENTENCE,
 	searchInputDefInputSchema,
 	stampSearchInputUuid,
@@ -47,7 +48,7 @@ export const addSearchInputsInputSchema = moduleAddressSchema
 			.array(searchInputDefInputSchema)
 			.min(1)
 			.describe(
-				"The Search inputs to append, in order. Supply searchInputUuid when another item in this call references the input; otherwise Nova mints it.",
+				`The Search inputs to append, in order. Supply searchInputUuid when another item in this call references the input; otherwise Nova mints it. ${SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE}`,
 			),
 	})
 	.strict();

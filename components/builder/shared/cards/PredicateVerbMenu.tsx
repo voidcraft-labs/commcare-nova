@@ -655,8 +655,7 @@ const MATCH_VERBS: ReadonlyArray<{
 
 /** Ordering operators compare by total order: only ordered subject
  *  types support them. */
-const ORDERED_COMPARISON_REASON =
-	"Only numbers, dates, and times compare by order";
+const ORDERED_COMPARISON_REASON = "Only numbers and dates compare by order";
 
 function buildVerbEntries(): readonly VerbEntry[] {
 	const entries: VerbEntry[] = [];
@@ -740,7 +739,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			isCurrent: (p) => p.kind === "between",
 			build: (p, ctx) => buildWithSubjectLeft("between", p, ctx),
 			subjectGate: (t) => comparisonOperatorsFor(t).has("gt"),
-			disabledReason: "A range needs a number, date, or time",
+			disabledReason: "A range needs a number or a date",
 		},
 		{
 			id: "msc:any",

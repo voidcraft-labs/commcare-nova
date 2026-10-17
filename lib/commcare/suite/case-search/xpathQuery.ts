@@ -137,9 +137,9 @@ export function xpathQueryRequestValues(
  * computed CSQL output. Presence gates and other control-only references are
  * deliberately excluded: they can activate a branch but do not themselves
  * introduce the unrepresentable quote combination, so blaming that field would
- * be misleading. Fixed session/computed failures with no value-contributing
- * prompt remain observable through the wrapper's explicit invalid sentinel
- * because a worker has no search answer capable of repairing them.
+ * be misleading. A fixed session or computed value with no value-contributing
+ * prompt gets no assertion, because no search answer can repair it: the
+ * wrapper sends `match-none()` for it, and the search finds nothing.
  */
 export function buildRuntimeCsqlPromptValidations(
 	emission: ComposedXPathQuery | undefined,
@@ -154,6 +154,9 @@ export function buildRuntimeCsqlPromptValidations(
 		>
 	>();
 	for (const rejection of emission.runtimeRejections ?? []) {
+		// A blank comparand names no prompt and has no message for a worker:
+		// the search finds nothing (`runtimeCsqlDateSafety.ts`).
+		if (rejection.kind === "blank-comparand") continue;
 		const message = searchRuntimeValidationMessage(new Set([rejection.kind]));
 		if (message === undefined) continue;
 		for (const name of rejection.inputNames ?? []) {

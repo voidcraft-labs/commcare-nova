@@ -5,7 +5,6 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
-	isReservedInstanceTag,
 	LOOKUP_DATA_TYPES,
 	LOOKUP_MAX_CELL_BYTES,
 	LOOKUP_MAX_COLUMN_LABEL_LENGTH,
@@ -19,6 +18,8 @@ import {
 	LOOKUP_REVISION_MAX,
 	LOOKUP_WIRE_IDENTIFIER_PATTERN,
 	LOOKUP_XML_PREFIX_PATTERN,
+	RESERVED_INSTANCE_TAG_WORD_SPELLING,
+	reservedInstanceTagCause,
 } from "./constants";
 import type { LookupRevision, LookupRowValues } from "./types";
 
@@ -146,14 +147,22 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 			(value) => !LOOKUP_XML_PREFIX_PATTERN.test(value),
 			`${label} may not start with xml.`,
 		)
-		.refine(
-			(value) => kind !== "tag" || !isReservedInstanceTag(value),
+		.superRefine((value, ctx) => {
+			if (kind !== "tag") return;
 			// A tag is the fixture's instance id on the device, and the runtime
-			// registers instances into one map by that id — so a reserved tag would
-			// replace the real one and every form using the table would silently
-			// stop writing cases.
-			`${label} is a name CommCare reserves for its own data, so a table cannot use it. Pick another tag.`,
-		);
+			// registers instances into one map by that id and picks an instance's
+			// data by the words its reference contains — so a reserved tag would
+			// be read as CommCare's own data instead of the table.
+			const cause = reservedInstanceTagCause(value);
+			if (cause === null) return;
+			ctx.addIssue({
+				code: "custom",
+				message:
+					cause.kind === "name"
+						? `${label} is a name CommCare reserves for its own data, so a table cannot use it. Pick another tag.`
+						: `${label} contains ${cause.word}, and CommCare reads any tag containing ${cause.word} as its own data, so a table can't use it. You can write it as ${RESERVED_INSTANCE_TAG_WORD_SPELLING[cause.word]} instead.`,
+			});
+		});
 }
 
 export const lookupTagSchema = wireIdentifierSchema("tag");

@@ -26,10 +26,12 @@
  *   privilege and `SYNC_SEARCH_CASE_CLAIM`), which offers no list-first
  *   choice, and the save turns the menu search-first.
  * - `targeted-search-hq-compile` (defects 6 CSQL, 14 reserved input
- *   names): default filters that order a time property and ask whether
- *   `date_opened` is blank, and one free-text input, `owner_id`, on the
- *   case's owner. HQ's CSQL compiler refuses both filters
- *   (`case_search/xpath_functions/comparison.py`). Nova writes the exact
+ *   names; finding 48): a default filter that compares `date_opened` with a
+ *   date turned into a date and time, which HQ's CSQL compiler takes as an
+ *   explicit instant (`case_search/xpath_functions/comparison.py::property_comparison_query`),
+ *   and one free-text input, `owner_id`, on the case's owner. Its control
+ *   keeps the filters that ordered a time property and asked whether
+ *   `date_opened` is blank, both of which HQ's compiler refuses. Nova writes the exact
  *   input on the owner into the query as `@owner_id`
  *   (`lib/commcare/suite/case-search/simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`),
  *   so its prompt is excluded from the request's own keys and its answer
@@ -59,14 +61,14 @@ import {
 } from "@/lib/domain";
 import {
 	ancestorPath,
-	and,
+	dateLiteral,
+	datetimeCoerce,
 	eq,
-	gt,
-	isBlank,
+	gte,
 	literal,
 	prop,
 	relationStep,
-	timeLiteral,
+	term,
 } from "@/lib/domain/predicate";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
@@ -237,9 +239,9 @@ export function searchHqCompile() {
 	const { doc, form } = searchApp(id, "Search HQ compiles", (uuid) => ({
 		properties: [{ name: "visit_time", data_type: "time" }],
 		list: caseListOf([plainColumn(uuid("name"), "case_name", "Name")], {
-			filter: and(
-				gt(prop("patient", "visit_time"), timeLiteral("09:00:00")),
-				isBlank(prop("patient", "date_opened")),
+			filter: gte(
+				prop("patient", "date_opened"),
+				datetimeCoerce(term(dateLiteral("2026-01-01"))),
 			),
 			searchInputs: [
 				simpleSearchInputDef(

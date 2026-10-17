@@ -13,9 +13,11 @@
 //    carrier can populate any combination. Menu audio carriers and app
 //    logo reference `MediaAssetId` directly. Menu icon carriers use the
 //    slot-specific uploaded-or-built-in unions in `builtinIcons.ts`.
-//  - MIME-type partitions, per-kind size caps, the kind/extension
-//    lookups, and the GCS object-key derivations — the cross-cutting
-//    constants both the storage layer and the upload routes consume.
+//  - `ACCEPTED_FORMATS`, the one registry of accepted asset formats, and
+//    the MIME-type partitions, extension lookups and aliases derived from
+//    it; per-kind size caps; and the GCS object-key derivations — the
+//    cross-cutting constants both the storage layer and the upload routes
+//    consume.
 //
 // The stored-record shapes live with their boundaries: the
 // `MediaAssetDoc` interface in `lib/db/types.ts`, the client-facing
@@ -53,75 +55,6 @@ export function asMediaAssetId(s: string): MediaAssetId {
 }
 
 /**
- * MIME types accepted at the upload validation gate, partitioned by
- * kind. The sniffed `mimeType` on a `MediaAsset` MUST be one of
- * these — any other value is a validation-pipeline failure (the
- * upload is rejected, the GCS object is deleted, the Postgres row
- * is removed).
- *
- * SVG is deliberately absent — it's a script container with active
- * content surface (XSS via embedded `<script>` / event handlers),
- * and the wire-side carriers don't render it usefully either way.
- */
-export const IMAGE_MIME_TYPES = [
-	"image/png",
-	"image/jpeg",
-	"image/gif",
-	"image/webp",
-] as const;
-export type ImageMimeType = (typeof IMAGE_MIME_TYPES)[number];
-
-/**
- * Audio is restricted to the two formats CommCare HQ can actually ingest.
- * HQ's media-upload endpoint validates the file extension against Python's
- * `mimetypes` table (`hqmedia/views.py::BaseProcessFileUploadView.validate_file`),
- * and HQ's deployed image (python3.13-bookworm-slim) ships no `/etc/mime.types`
- * and registers no extra types — so its table is CPython's hardcoded map, which
- * has `.mp3` (audio/mpeg) and `.wav` (audio/wav) but NOT `.m4a` (audio/mp4) or
- * `.ogg` (audio/ogg). Accepting m4a/ogg would let a user attach audio that
- * 400s on every HQ upload — a dead affordance Nova rejects at the source.
- */
-export const AUDIO_MIME_TYPES = ["audio/mpeg", "audio/wav"] as const;
-export type AudioMimeType = (typeof AUDIO_MIME_TYPES)[number];
-
-export const VIDEO_MIME_TYPES = ["video/mp4"] as const;
-export type VideoMimeType = (typeof VIDEO_MIME_TYPES)[number];
-
-/**
- * Document MIME types — the library-only asset formats (see
- * `DOCUMENT_KINDS` below). Unlike image/audio/video, documents are NEVER
- * attachable to a CommCare carrier and never reach the wire emitter; they
- * live in the user's file library as inputs to attach to the SA chat.
- *
- * `text/plain` (and `text/markdown`) carry NO magic-bytes signature, so
- * `file-type` can't sniff them — the validator gives the `text` kind a
- * dedicated arm (extension + UTF-8 validity) instead of the magic-bytes
- * gate the other formats pass.
- */
-export const PDF_MIME_TYPES = ["application/pdf"] as const;
-export const TEXT_MIME_TYPES = ["text/plain", "text/markdown"] as const;
-export const DOCX_MIME_TYPES = [
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-] as const;
-export const XLSX_MIME_TYPES = [
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-] as const;
-export const DOCUMENT_MIME_TYPES = [
-	...PDF_MIME_TYPES,
-	...TEXT_MIME_TYPES,
-	...DOCX_MIME_TYPES,
-	...XLSX_MIME_TYPES,
-] as const;
-
-export const ALL_MIME_TYPES = [
-	...IMAGE_MIME_TYPES,
-	...AUDIO_MIME_TYPES,
-	...VIDEO_MIME_TYPES,
-	...DOCUMENT_MIME_TYPES,
-] as const;
-export type AssetMimeType = (typeof ALL_MIME_TYPES)[number];
-
-/**
  * Kinds that attach to a CommCare carrier (a field message, a select
  * option, a menu tile, the app logo) and emit to the wire. The `Media`
  * bundle below is keyed by exactly these.
@@ -155,6 +88,324 @@ export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
  */
 export const ASSET_KINDS = [...MEDIA_KINDS, ...DOCUMENT_KINDS] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
+
+/** One accepted asset format, as `ACCEPTED_FORMATS` lists it. */
+export interface AcceptedFormat {
+	/** The canonical MIME type a validated asset stores. */
+	readonly mime: string;
+	readonly kind: AssetKind;
+	/** The extension a validated asset is stored under. */
+	readonly extension: string;
+	/** Every filename extension a person may upload the format under. */
+	readonly declaredExtensions: readonly string[];
+	/** Other spellings of the MIME a browser claim or a sniff may use. */
+	readonly aliases: readonly string[];
+	/** The format's name as a person reads it. */
+	readonly label: string;
+	/**
+	 * The items of `lib/commcare/surface/media-formats.json` the format
+	 * admits; empty for a document, which never reaches a CommCare carrier.
+	 */
+	readonly surfaceKeys: readonly string[];
+}
+
+/**
+ * Every asset format the upload gate accepts, one entry per canonical MIME.
+ *
+ * A media format is accepted when every CommCare platform plays it and HQ
+ * files its bytes as the same kind: CommCare Android's decoders on Android
+ * 6.0, 10 and 15, the browser engines Web Apps runs in, and HQ's bulk upload,
+ * which types each file by its bytes (`hqmedia/models.py::
+ * CommCareMultimedia.get_class_by_data`), never by its extension. Several
+ * formats are accepted only in the variant every reader played: the body
+ * checks in `lib/media/validate.ts` hold a BMP to two headers, an M4A to its
+ * brand and AAC, an Ogg to Vorbis or Opus, and a WebM to VP8 or 8-bit 4:2:0
+ * VP9 with Vorbis or Opus audio (`media-formats.json`'s `executions` record
+ * where each was played).
+ *
+ * SVG is deliberately absent — it's a script container with active
+ * content surface (XSS via embedded `<script>` / event handlers),
+ * and the wire-side carriers don't render it usefully either way.
+ *
+ * Text carries no magic-bytes signature, so `file-type` can't sniff it — the
+ * validator gives the `text` kind a dedicated arm (extension + UTF-8
+ * validity) instead of the magic-bytes gate the other formats pass.
+ */
+export const ACCEPTED_FORMATS = [
+	{
+		mime: "image/png",
+		kind: "image",
+		extension: ".png",
+		declaredExtensions: [".png"],
+		// Animated PNG is a backward-compatible PNG extension; `file-type`
+		// sniffs it as `image/apng`. Treat it as `image/png` so a normal-
+		// looking `.png` that happens to be animated isn't rejected with a
+		// baffling "your PNG isn't a PNG" — it stores + serves as PNG, and
+		// renderers without APNG support fall back to the first frame.
+		aliases: ["image/apng"],
+		label: "PNG",
+		surfaceKeys: ["media-format:image/png"],
+	},
+	{
+		mime: "image/jpeg",
+		kind: "image",
+		extension: ".jpg",
+		declaredExtensions: [".jpg", ".jpeg"],
+		aliases: [],
+		label: "JPEG",
+		surfaceKeys: ["media-format:image/jpeg"],
+	},
+	{
+		mime: "image/gif",
+		kind: "image",
+		extension: ".gif",
+		declaredExtensions: [".gif"],
+		aliases: [],
+		label: "GIF",
+		surfaceKeys: ["media-format:image/gif"],
+	},
+	{
+		mime: "image/webp",
+		kind: "image",
+		extension: ".webp",
+		declaredExtensions: [".webp"],
+		aliases: [],
+		label: "WebP",
+		surfaceKeys: ["media-format:image/webp"],
+	},
+	{
+		mime: "image/bmp",
+		kind: "image",
+		extension: ".bmp",
+		declaredExtensions: [".bmp"],
+		aliases: ["image/x-ms-bmp", "image/x-bmp"],
+		label: "BMP",
+		surfaceKeys: ["media-format:image/bmp"],
+	},
+	{
+		// `audio/mpeg`'s "mpeg" is historical; the MPEG-1 Audio Layer 3
+		// container is universally `.mp3` on disk and by every player's
+		// extension match.
+		mime: "audio/mpeg",
+		kind: "audio",
+		extension: ".mp3",
+		declaredExtensions: [".mp3"],
+		aliases: [],
+		label: "MP3",
+		surfaceKeys: ["media-format:audio/mp3"],
+	},
+	{
+		// The item is the one step 4 narrows acceptance to: step 2 checks no
+		// WAV encoding.
+		mime: "audio/wav",
+		kind: "audio",
+		extension: ".wav",
+		declaredExtensions: [".wav"],
+		aliases: [],
+		label: "WAV",
+		surfaceKeys: ["media-format:audio/wav-pcm-8-or-16-bit"],
+	},
+	{
+		mime: "audio/mp4",
+		kind: "audio",
+		extension: ".m4a",
+		declaredExtensions: [".m4a"],
+		aliases: ["audio/x-m4a", "audio/m4a"],
+		label: "M4A",
+		surfaceKeys: ["media-format:audio/m4a"],
+	},
+	{
+		mime: "audio/flac",
+		kind: "audio",
+		extension: ".flac",
+		declaredExtensions: [".flac"],
+		aliases: ["audio/x-flac"],
+		label: "FLAC",
+		surfaceKeys: ["media-format:audio/flac"],
+	},
+	{
+		// One entry for Vorbis and Opus: both are `audio/ogg`, and an Opus
+		// file is commonly named `.opus`, accepted as `.jpeg` is for `.jpg`.
+		mime: "audio/ogg",
+		kind: "audio",
+		extension: ".ogg",
+		declaredExtensions: [".ogg", ".opus"],
+		aliases: ["audio/opus", "audio/vorbis", "application/ogg"],
+		label: "Ogg",
+		surfaceKeys: [
+			"media-format:audio/ogg-vorbis",
+			"media-format:audio/ogg-opus",
+		],
+	},
+	{
+		// The items are the ones step 4 narrows acceptance to: step 2 checks
+		// no MP4 codec.
+		mime: "video/mp4",
+		kind: "video",
+		extension: ".mp4",
+		declaredExtensions: [".mp4"],
+		aliases: [],
+		label: "MP4",
+		surfaceKeys: [
+			"media-format:video/mp4-h264-baseline",
+			"media-format:video/mp4-h264-main",
+		],
+	},
+	{
+		// One entry for VP8 and VP9, both `video/webm`.
+		mime: "video/webm",
+		kind: "video",
+		extension: ".webm",
+		declaredExtensions: [".webm"],
+		aliases: [],
+		label: "WebM",
+		surfaceKeys: ["media-format:video/webm-vp8", "media-format:video/webm-vp9"],
+	},
+	{
+		mime: "application/pdf",
+		kind: "pdf",
+		extension: ".pdf",
+		declaredExtensions: [".pdf"],
+		aliases: [],
+		label: "PDF",
+		surfaceKeys: [],
+	},
+	{
+		mime: "text/plain",
+		kind: "text",
+		extension: ".txt",
+		declaredExtensions: [".txt"],
+		aliases: [],
+		label: "Text",
+		surfaceKeys: [],
+	},
+	{
+		mime: "text/markdown",
+		kind: "text",
+		extension: ".md",
+		declaredExtensions: [".md"],
+		aliases: [],
+		label: "Markdown",
+		surfaceKeys: [],
+	},
+	{
+		mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		kind: "docx",
+		extension: ".docx",
+		declaredExtensions: [".docx"],
+		aliases: [],
+		label: "Word",
+		surfaceKeys: [],
+	},
+	{
+		mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		kind: "xlsx",
+		extension: ".xlsx",
+		declaredExtensions: [".xlsx"],
+		aliases: [],
+		label: "Excel",
+		surfaceKeys: [],
+	},
+] as const satisfies readonly AcceptedFormat[];
+
+type RegisteredFormat = (typeof ACCEPTED_FORMATS)[number];
+type MimeOfKind<K extends AssetKind> = Extract<
+	RegisteredFormat,
+	{ readonly kind: K }
+>["mime"];
+
+/** The canonical MIME types of one kind, in registry order. */
+function mimesOfKind<K extends AssetKind>(kind: K): readonly MimeOfKind<K>[] {
+	return ACCEPTED_FORMATS.filter((format) => format.kind === kind).map(
+		(format) => format.mime as MimeOfKind<K>,
+	);
+}
+
+/**
+ * MIME types accepted at the upload validation gate, partitioned by
+ * kind and derived from `ACCEPTED_FORMATS`. The sniffed `mimeType` on a
+ * `MediaAsset` MUST be one of these — any other value is a
+ * validation-pipeline failure (the upload is rejected, the GCS object is
+ * deleted, the Postgres row is removed).
+ */
+export const IMAGE_MIME_TYPES = mimesOfKind("image");
+export type ImageMimeType = MimeOfKind<"image">;
+export const AUDIO_MIME_TYPES = mimesOfKind("audio");
+export type AudioMimeType = MimeOfKind<"audio">;
+export const VIDEO_MIME_TYPES = mimesOfKind("video");
+export type VideoMimeType = MimeOfKind<"video">;
+
+/**
+ * Document MIME types — the library-only asset formats (see
+ * `DOCUMENT_KINDS`). Unlike image/audio/video, documents are NEVER
+ * attachable to a CommCare carrier and never reach the wire emitter; they
+ * live in the user's file library as inputs to attach to the SA chat.
+ */
+export const PDF_MIME_TYPES = mimesOfKind("pdf");
+export const TEXT_MIME_TYPES = mimesOfKind("text");
+export const DOCX_MIME_TYPES = mimesOfKind("docx");
+export const XLSX_MIME_TYPES = mimesOfKind("xlsx");
+export const DOCUMENT_MIME_TYPES = [
+	...PDF_MIME_TYPES,
+	...TEXT_MIME_TYPES,
+	...DOCX_MIME_TYPES,
+	...XLSX_MIME_TYPES,
+];
+
+export type AssetMimeType = RegisteredFormat["mime"];
+export const ALL_MIME_TYPES: readonly AssetMimeType[] = ACCEPTED_FORMATS.map(
+	(format) => format.mime,
+);
+
+/**
+ * The image formats a model provider reads: the four the chat and document
+ * extraction send as pixels. An image asset outside it (a BMP) reaches the
+ * model as a placeholder, never as its own MIME.
+ */
+export const MODEL_READABLE_IMAGE_MIME_TYPES = [
+	"image/png",
+	"image/jpeg",
+	"image/gif",
+	"image/webp",
+] as const satisfies readonly ImageMimeType[];
+export type ModelReadableImageMimeType =
+	(typeof MODEL_READABLE_IMAGE_MIME_TYPES)[number];
+
+/** Whether a MIME type is one a model provider reads as an image. */
+export function isModelReadableImageMimeType(
+	mimeType: string,
+): mimeType is ModelReadableImageMimeType {
+	return (MODEL_READABLE_IMAGE_MIME_TYPES as readonly string[]).includes(
+		mimeType,
+	);
+}
+
+/** "a BMP image": an image format, as a person names it in a sentence. */
+export function imageFormatNoun(mimeType: string): string {
+	const label = FORMAT_BY_MIME.get(mimeType)?.label;
+	return label === undefined ? "an image" : `a ${label} image`;
+}
+
+/**
+ * Every filename extension the upload pre-screen accepts: each format's
+ * declared extensions, in registry order. The post-sniff authoritative
+ * extension comes from `EXTENSION_FOR_MIME_TYPE`.
+ */
+export const ACCEPTED_EXTENSIONS = ACCEPTED_FORMATS.flatMap(
+	(format) => format.declaredExtensions,
+);
+export type AcceptedExtension = RegisteredFormat["declaredExtensions"][number];
+
+const FORMAT_BY_MIME: ReadonlyMap<string, RegisteredFormat> = new Map(
+	ACCEPTED_FORMATS.map((format) => [format.mime, format]),
+);
+
+/** The registry entry of a canonical MIME type, or `undefined`. */
+export function acceptedFormatFor(
+	mimeType: string,
+): RegisteredFormat | undefined {
+	return FORMAT_BY_MIME.get(mimeType);
+}
 
 /** Narrow an `AssetKind` to the library-only document set. */
 export function isDocumentKind(kind: AssetKind): kind is DocumentKind {
@@ -215,28 +466,7 @@ export const MAX_MEDIA_EXPORT_BYTES = 200 * 1024 * 1024;
  * carrier.
  */
 export function assetKindForMimeType(mimeType: string): AssetKind | undefined {
-	if ((IMAGE_MIME_TYPES as readonly string[]).includes(mimeType)) {
-		return "image";
-	}
-	if ((AUDIO_MIME_TYPES as readonly string[]).includes(mimeType)) {
-		return "audio";
-	}
-	if ((VIDEO_MIME_TYPES as readonly string[]).includes(mimeType)) {
-		return "video";
-	}
-	if ((PDF_MIME_TYPES as readonly string[]).includes(mimeType)) {
-		return "pdf";
-	}
-	if ((TEXT_MIME_TYPES as readonly string[]).includes(mimeType)) {
-		return "text";
-	}
-	if ((DOCX_MIME_TYPES as readonly string[]).includes(mimeType)) {
-		return "docx";
-	}
-	if ((XLSX_MIME_TYPES as readonly string[]).includes(mimeType)) {
-		return "xlsx";
-	}
-	return undefined;
+	return FORMAT_BY_MIME.get(mimeType)?.kind;
 }
 
 // The extension → kind / extension → MIME fallbacks (used when the browser sends
@@ -246,18 +476,15 @@ export function assetKindForMimeType(mimeType: string): AssetKind | undefined {
 /**
  * Aliases a raw MIME string can take for an accepted format, when a
  * `file-type` sniff or a browser `Content-Type` uses a non-canonical
- * spelling. Only genuinely different spellings need an entry — codec
- * parameters (`; codecs=...`) are stripped to the base type by
- * `normalizeMimeType` before lookup.
+ * spelling, derived from each registry entry's `aliases`. Only genuinely
+ * different spellings need an entry — codec parameters (`; codecs=...`) are
+ * stripped to the base type by `normalizeMimeType` before lookup.
  */
-const MIME_ALIASES: Record<string, AssetMimeType> = {
-	// Animated PNG is a backward-compatible PNG extension; `file-type`
-	// sniffs it as `image/apng`. Treat it as `image/png` so a normal-
-	// looking `.png` that happens to be animated isn't rejected with a
-	// baffling "your PNG isn't a PNG" — it stores + serves as PNG, and
-	// renderers without APNG support fall back to the first frame.
-	"image/apng": "image/png",
-};
+const MIME_ALIASES: ReadonlyMap<string, AssetMimeType> = new Map(
+	ACCEPTED_FORMATS.flatMap((format) =>
+		format.aliases.map((alias) => [alias, format.mime] as const),
+	),
+);
 
 /**
  * Normalize a raw MIME string — a browser `Content-Type` claim or a
@@ -265,7 +492,8 @@ const MIME_ALIASES: Record<string, AssetMimeType> = {
  * `undefined` if it isn't an accepted media type.
  *
  *  - strips codec parameters (`video/mp4; codecs=avc1` → `video/mp4`)
- *  - maps known aliases (`image/apng` → `image/png`)
+ *  - maps known aliases (`image/apng` → `image/png`, `audio/x-m4a` →
+ *    `audio/mp4`)
  *  - returns canonical entries unchanged
  *
  * Both the claimed and the sniffed MIME flow through this before the
@@ -276,65 +504,43 @@ const MIME_ALIASES: Record<string, AssetMimeType> = {
 export function normalizeMimeType(raw: string): AssetMimeType | undefined {
 	const lower = raw.trim().toLowerCase();
 	const base = lower.split(";")[0]?.trim() ?? lower;
-	if ((ALL_MIME_TYPES as readonly string[]).includes(base)) {
-		return base as AssetMimeType;
-	}
-	return Object.hasOwn(MIME_ALIASES, base) ? MIME_ALIASES[base] : undefined;
+	return FORMAT_BY_MIME.get(base)?.mime ?? MIME_ALIASES.get(base);
 }
 
 /**
- * Canonical file extension for each accepted MIME type. The
- * validator picks an extension from this map after the magic-bytes
- * sniff confirms the real type, regardless of what the client's
- * original filename claimed. Used to construct the GCS object key.
- *
- * One slightly-tricky case: `audio/mpeg` → `.mp3` (the MIME's "mpeg"
- * is historical; the MPEG-1 Audio Layer 3 container is universally
- * `.mp3` on disk and by every player's extension match).
+ * Canonical file extension for each accepted MIME type, from the registry.
+ * The validator picks an extension from this map after the magic-bytes
+ * sniff confirms the real type, regardless of what the client's original
+ * filename claimed. Used to construct the GCS object key.
  */
-export const EXTENSION_FOR_MIME_TYPE: Record<AssetMimeType, string> = {
-	"image/png": ".png",
-	"image/jpeg": ".jpg",
-	"image/gif": ".gif",
-	"image/webp": ".webp",
-	"audio/mpeg": ".mp3",
-	"audio/wav": ".wav",
-	"video/mp4": ".mp4",
-	"application/pdf": ".pdf",
-	"text/plain": ".txt",
-	"text/markdown": ".md",
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-		".docx",
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
-};
+export const EXTENSION_FOR_MIME_TYPE = Object.fromEntries(
+	ACCEPTED_FORMATS.map((format) => [format.mime, format.extension]),
+) as Record<AssetMimeType, string>;
 
 /**
- * Canonical accepted MIME type for a (lowercased) file extension — the inverse of
- * `EXTENSION_FOR_MIME_TYPE`, plus the `.jpeg` spelling (which `EXTENSION_FOR_MIME_TYPE`
- * collapses to `.jpg`). Derived from that one map so the extension↔MIME pairing
- * has a single source and the two directions can't drift.
+ * Canonical accepted MIME type for a (lowercased) file extension: each
+ * format's declared extensions (`.jpeg` beside `.jpg`, `.opus` beside
+ * `.ogg`). Derived from the registry so the extension↔MIME pairing has a
+ * single source and the two directions can't drift.
  *
  * The fallback for when the browser sends no usable `Content-Type` — empty or
- * `application/octet-stream`, common for `.md` and some office files: the client
- * upload path picks the MIME to claim from the filename, and the validator picks
- * the kind. The extension is only a routing HINT; the magic-bytes sniff (or the
- * UTF-8 check for text) is still the authoritative format gate at confirm time.
+ * `application/octet-stream`, common for `.md`, `.flac`, `.opus` and some
+ * office files: the client upload path picks the MIME to claim from the
+ * filename, and the validator picks the kind. The extension is only a routing
+ * HINT; the magic-bytes sniff (or the UTF-8 check for text) is still the
+ * authoritative format gate at confirm time.
  */
-const MIME_FOR_EXTENSION: Record<string, AssetMimeType> = {
-	...Object.fromEntries(
-		(Object.entries(EXTENSION_FOR_MIME_TYPE) as [AssetMimeType, string][]).map(
-			([mime, ext]) => [ext, mime] as const,
+const MIME_FOR_EXTENSION: ReadonlyMap<string, AssetMimeType> = new Map(
+	ACCEPTED_FORMATS.flatMap((format) =>
+		format.declaredExtensions.map(
+			(extension) => [extension, format.mime] as const,
 		),
 	),
-	".jpeg": "image/jpeg",
-};
+);
 
 /** Canonical accepted MIME for a (lowercased) file extension, or `undefined`. */
 export function mimeTypeForExtension(ext: string): AssetMimeType | undefined {
-	const normalized = ext.toLowerCase();
-	return Object.hasOwn(MIME_FOR_EXTENSION, normalized)
-		? MIME_FOR_EXTENSION[normalized]
-		: undefined;
+	return MIME_FOR_EXTENSION.get(ext.toLowerCase());
 }
 
 /**

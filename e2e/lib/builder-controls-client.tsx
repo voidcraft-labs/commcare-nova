@@ -1210,7 +1210,6 @@ const PRELOAD_SOURCE = buildDoc({
 							kind: "hidden",
 							id: "scratch",
 							uuid: PRELOAD_SCRATCH_ID,
-							default_value: "''",
 						},
 					],
 				},

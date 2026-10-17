@@ -3,6 +3,7 @@ import {
 	caseWriteDestinationClass,
 	type Field,
 	formOpensWithOneCase,
+	hiddenWriterBlankNote,
 	type Module,
 	USERCASE_CASE_TYPE,
 	writerPreloadsFromLoadedCase,
@@ -159,5 +160,72 @@ describe("caseWriteDestinationClass", () => {
 				oneCaseModule,
 			),
 		).toBe("worker-record");
+	});
+});
+
+describe("hiddenWriterBlankNote", () => {
+	function hiddenWriter(extra: Record<string, unknown> = {}): Field {
+		return {
+			uuid: "00000000-0000-4000-8000-000000000002",
+			kind: "hidden",
+			id: "visit_count",
+			caseWrite: { caseType: "patient", property: "visit_count" },
+			...extra,
+		} as Field;
+	}
+
+	it("says the case's value carries through where the form preloads it", () => {
+		expect(
+			hiddenWriterBlankNote(hiddenWriter(), oneCaseModule, {
+				type: "followup",
+			}),
+		).toBe(
+			"Opens with this case's current value and carries it through unchanged.",
+		);
+	});
+
+	it("says each submission saves the property blank where it does not", () => {
+		expect(
+			hiddenWriterBlankNote(hiddenWriter(), oneCaseModule, {
+				type: "registration",
+			}),
+		).toBe("Has no value yet, so each submission saves visit_count blank.");
+		expect(
+			hiddenWriterBlankNote(hiddenWriter(), severalCaseModule, {
+				type: "followup",
+			}),
+		).toBe("Has no value yet, so each submission saves visit_count blank.");
+	});
+
+	it("says nothing for a hidden value with no writer, a value, or a visible field", () => {
+		const { caseWrite: _, ...noWriter } = hiddenWriter() as Field & {
+			caseWrite?: unknown;
+		};
+		expect(
+			hiddenWriterBlankNote(noWriter as Field, oneCaseModule, {
+				type: "registration",
+			}),
+		).toBeUndefined();
+		expect(
+			hiddenWriterBlankNote(
+				hiddenWriter({
+					default_value: { parts: [{ kind: "text", text: "''" }] },
+				}),
+				oneCaseModule,
+				{ type: "registration" },
+			),
+		).toBeUndefined();
+		expect(
+			hiddenWriterBlankNote(
+				hiddenWriter({ calculate: { parts: [{ kind: "text", text: "1" }] } }),
+				oneCaseModule,
+				{ type: "registration" },
+			),
+		).toBeUndefined();
+		expect(
+			hiddenWriterBlankNote(textWriter("patient"), oneCaseModule, {
+				type: "registration",
+			}),
+		).toBeUndefined();
 	});
 });

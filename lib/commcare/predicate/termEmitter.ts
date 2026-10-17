@@ -619,29 +619,6 @@ export type RuntimeTermEmission = {
 };
 export type TermEmission = ConstantTermEmission | RuntimeTermEmission;
 
-/**
- * Fixed CSQL expression returned instead of an authored query when a runtime
- * string contains both quote delimiters. CCHQ's CSQL parser accepts either
- * single- or double-quoted XPath literals but has no escape syntax
- * (`eulxml/xpath/lexrules.py::t_LITERAL` is `"[^"]*"|'[^']*'`) and does
- * not whitelist `concat()` as a value function, so such a value is inherently
- * unrepresentable. A fixed unknown function makes the remote query fail
- * explicitly without allowing any runtime bytes to reach the CSQL grammar —
- * CCHQ's `filter_dsl.py::build_filter_from_ast` raises
- * `XPathFunctionException` ("'search-value-mixes-quote-marks' is not a valid
- * standalone function") for any unregistered call, at any nesting depth, so
- * the name doubles as the only message channel the server error offers.
- *
- * Prompt validation normally stops this value at the search screen (web apps
- * block the query on `<validation>` failures at
- * `formplayer .../services/MenuSessionRunnerService.java::doQuery` —
- * `isDefaultSearch || screen.getErrors().isEmpty()`); Android parses but never
- * enforces prompt validation, so this device-side fail-closed arm is the
- * injection defense on that runtime.
- */
-export const CSQL_UNREPRESENTABLE_RUNTIME_STRING =
-	"search-value-mixes-quote-marks()";
-
 export type RuntimeCsqlQuoteStyle = "single" | "double";
 
 /**

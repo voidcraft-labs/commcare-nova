@@ -153,6 +153,7 @@ import {
 import { hqImportApplication } from "@/lib/deployment/importApplication";
 import {
 	type LookupTableConflict,
+	type LookupTableUnsupported,
 	planLookupResourcePush,
 } from "@/lib/deployment/lookupResourcePlan";
 import {
@@ -1000,11 +1001,16 @@ export interface SentImport {
 
 /**
  * Why Nova's preflight stopped a publish over what CommCare HQ holds: the
- * changes made there since Nova's last publish (`hq_changed`), or tables
- * under Nova's tags that Nova cannot account for (`hq_resource_conflict`).
+ * changes made there since Nova's last publish (`hq_changed`), tables
+ * under Nova's tags that Nova cannot account for (`hq_resource_conflict`),
+ * or tables under Nova's tags that hold what Nova's push would remove
+ * (`hq_table_content_unsupported`), which no confirmation resolves.
  */
 export interface PublishStop {
-	readonly code: "hq_changed" | "hq_resource_conflict";
+	readonly code:
+		| "hq_changed"
+		| "hq_resource_conflict"
+		| "hq_table_content_unsupported";
 	readonly remoteChanges: readonly DeploymentRemoteChange[];
 	/** The tables in conflict, by Nova's table id, with their tag and HQ's id. */
 	readonly conflicts: readonly LookupTableConflict[];
@@ -1173,6 +1179,7 @@ async function tableEdge(
 	ledger: CaptureLedger | null,
 	adopt: readonly string[],
 ): Promise<
+	| { readonly unsupported: readonly LookupTableUnsupported[] }
 	| { readonly conflicts: readonly LookupTableConflict[] }
 	| {
 			readonly observed: readonly DeploymentRemoteChange[];
@@ -1208,7 +1215,11 @@ async function tableEdge(
 		hqTables,
 		adoptTableIds: adopt,
 	});
-	if (!plan.ok) return { conflicts: plan.conflicts };
+	if (!plan.ok) {
+		return "unsupported" in plan
+			? { unsupported: plan.unsupported }
+			: { conflicts: plan.conflicts };
+	}
 	const observed: DeploymentRemoteChange[] = [];
 	const rowsRead = new Map<string, readonly HqFixtureRow[]>();
 	for (const push of plan.pushes) {
@@ -1484,9 +1495,9 @@ async function firstPublish(
 	const domain = peer.state.domain;
 	const start = peer.requests.length;
 	const edge = await tableEdge(peer, prepared, null, []);
-	if (edge !== null && "conflicts" in edge) {
+	if (edge !== null && ("conflicts" in edge || "unsupported" in edge)) {
 		throw new Error(
-			`Nova's first publish of ${prepared.source.id} found lookup tables it cannot account for in the capture peer (${JSON.stringify(edge.conflicts)}), which holds none before it.`,
+			`Nova's first publish of ${prepared.source.id} found lookup tables it cannot account for in the capture peer (${JSON.stringify(edge)}), which holds none before it.`,
 		);
 	}
 	const { report, outcome } = await compatibilityCheck(peer, prepared);
@@ -1567,6 +1578,14 @@ async function updateStep(
 ): Promise<StepOutcome> {
 	const start = peer.requests.length;
 	const edge = await tableEdge(peer, prepared, ledger, confirm?.adopted ?? []);
+	if (edge !== null && "unsupported" in edge) {
+		return {
+			status: "stopped",
+			code: "hq_table_content_unsupported",
+			remoteChanges: [],
+			conflicts: [],
+		};
+	}
 	if (edge !== null && "conflicts" in edge) {
 		return {
 			status: "stopped",

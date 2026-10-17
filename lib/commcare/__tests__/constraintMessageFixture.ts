@@ -146,11 +146,6 @@ export function constraintMessageFixture(scenario: ConstraintMessageScenario) {
 								...(scenario === "all-kinds"
 									? {
 											caseWrite: { caseType: "patient", property: "score" },
-											validate_msg_media: {
-												image: mediaIds.icon,
-												audio: mediaIds.audio,
-												video: mediaIds.video,
-											},
 										}
 									: {}),
 							}),

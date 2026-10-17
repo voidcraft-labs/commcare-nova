@@ -48,6 +48,10 @@ import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplate
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
+import {
+	findTimeOrderingComparisons,
+	TIME_ORDERING_MESSAGE,
+} from "../timeOrdering";
 import { AUTOMATION_RULES } from "./automations";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 import { ORGANIZATION_RULES } from "./organization";
@@ -94,6 +98,35 @@ function catalogXPathCompatible(doc: BlueprintDoc): ValidationError[] {
 					},
 				),
 			);
+		}
+	}
+	return errors;
+}
+
+/** A catalog property's `required` and `validation` reach no form slot the
+ * form-logic walk reads, so their orderings on a time of day are refused here,
+ * at app scope, as the form slots refuse theirs (`timeOrdering.ts`). */
+function catalogTimeOrdering(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const caseType of doc.caseTypes ?? []) {
+		for (const property of caseType.properties) {
+			for (const [slot, expression] of [
+				["required", property.required],
+				["validation", property.validation],
+			] as const) {
+				if (expression === undefined) continue;
+				const findings = findTimeOrderingComparisons(expression, { doc });
+				if (findings.length === 0) continue;
+				errors.push(
+					validationError(
+						"XPATH_TIME_ORDERING",
+						"app",
+						`The ${slot} condition of case property "${property.name}" on "${caseType.name}" has an ordering CommCare can't evaluate. ${TIME_ORDERING_MESSAGE}`,
+						{},
+						{ caseType: caseType.name, property: property.name, slot },
+					),
+				);
+			}
 		}
 	}
 	return errors;
@@ -818,6 +851,7 @@ export const APP_RULES = [
 	validEntryPoints,
 	closedBlueprintTopology,
 	catalogXPathCompatible,
+	catalogTimeOrdering,
 	globallyUniqueEntityUuids,
 	catalogOptionValuesValid,
 	catalogOptionValuesDistinct,

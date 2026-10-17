@@ -53,8 +53,8 @@ def _without_build_identities(identities):
 
 
 def _missing(document, observed, states):
-    """Nothing where HQ refused the publish that makes a missing state (the bar's ``import@<state>``), else one
-    refusal naming the first state HQ holds none of (``/no-<state>``).
+    """Nothing where HQ refused the publish that makes a missing state (the bar's ``import@<state>``) or Nova
+    stopped it before it sent anything, else one refusal naming the first state HQ holds none of (``/no-<state>``).
 
     ``states`` are in the order the unit makes them, each over the one
     before (B and B-edit are published over A, and only where HQ accepted A:
@@ -62,7 +62,7 @@ def _missing(document, observed, states):
     every later state is missing too, and the first missing state is why
     the later ones are.
     """
-    refused = {refusal.state for refusal in observed.refusals}
+    refused = {refusal.state for refusal in observed.refusals} | getattr(observed, "stopped", set())
     missing = [name for name, state in states if state is None]
     if not missing or any(name in refused for name in missing):
         return []

@@ -15,6 +15,10 @@ just in what the file contains.
 | **File** | Attaches a document | PDF, DOCX, XLSX, HTML, RTF, TXT, MSG |
 | **Signature** | Signs on a drawing pad in the app | Produces a PNG |
 
+These are the files a worker can attach while filling in a form. The images,
+audio and video you add to the app itself are listed in
+[Building with Nova](/docs/building-with-nova).
+
 Each one can be marked required, can be shown or hidden by a condition,
 and can sit inside a repeating section. Each one can also save to a case
 property, and what it saves is a link to the file rather than the file
@@ -141,15 +145,12 @@ ink cannot reappear later. A temporary access refresh also keeps the ink and its
 Submit blocker; if editor access returns for that same form, Nova resumes the
 retained save once under the new access state.
 
-## File attachments only work in the web app
+## File attachments
 
-The **File** question is a real question in CommCare Web Apps. In the
-CommCare Android app it is not: Android does not recognize it and shows
-a plain text box instead, so a worker there can type anything into it and
-that text is what gets submitted.
-
-If any of your workers use the Android app, prefer Image, Audio, Video,
-or Signature. Use File when you know the work happens in a browser.
+The **File** question works in CommCare Web Apps and in the CommCare Android
+app. In Web Apps a worker attaches a PDF, Word, Excel, HTML, RTF, text or
+Outlook message file. In the Android app the question shows a **Choose
+Document** button.
 
 ## Limits
 

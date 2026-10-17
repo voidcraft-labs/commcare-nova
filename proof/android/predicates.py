@@ -58,6 +58,13 @@ SYNC_ON_ENTRY_RESTORE = FIXTURES / "targeted-sync-on-form-entry.restore.xml"
 SEARCH_COMPILE = CONTROLS / "targeted-search-hq-compile" / "local.ccz"
 CONNECT_DELIVER = CONTROLS / "targeted-connect-deliver-rename" / "local.ccz"
 VALIDATED = CONTROLS / "targeted-validated-barcode-secret" / "local.ccz"
+# Two selects over tables tagged with the words Core reads as its own data, as Nova emitted them before step 2.
+RESERVED_TAGS = CONTROLS / "targeted-lookup-reserved-tags" / "local.ccz"
+# A follow-up form over a patient holding an image question and a File question; its patients are the operation
+# query's restore's.
+CAPTURE = CONTROLS / "case-capture-followup" / "local.ccz"
+# Nova's local archive of a form that names media in every slot, its files bundled.
+MEDIA_ONLY = CONTROLS / "media-only" / "local.ccz"
 # The edit's pre-fix archive of the control, which holds two suffixed language codes (defect 1's).
 SUFFIXED_LANGUAGES = CONTROLS / "targeted-hq-side-state" / "edit" / "local.ccz"
 # The settings Android's own settings screen lets a worker change, of those the reader records.
@@ -240,6 +247,31 @@ def with_entries(archive: Path, target: Path, entries: dict) -> Path:
         for name, content in sorted(entries.items()):
             copy.writestr(zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0)), content)
     return target
+
+
+def without_entry(archive: Path, target: Path, name: str) -> Path:
+    """The archive without the entry ``name``, which it must hold."""
+    with zipfile.ZipFile(archive) as original, zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as copy:
+        held = [info for info in original.infolist() if info.filename != name]
+        assert len(held) == len(original.infolist()) - 1, f"{archive} holds no {name}"
+        for info in held:
+            copy.writestr(info, original.read(info.filename))
+    return target
+
+
+def view_classes(view) -> set:
+    """Every view class a screen's view tree names, the screen's own included."""
+    found = set()
+
+    def visit(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("class"), str):
+                found.add(node["class"])
+            for child in node.get("children") or ():
+                visit(child)
+
+    visit(view)
+    return found
 
 
 def with_language_code(archive: Path, target: Path, old: str, new: str, *, name_key: bool = True) -> Path:
@@ -944,6 +976,64 @@ class Predicates(unittest.TestCase):
         self.assertIn("Use ok", json.dumps(plain))
         self.assertEqual(held(with_media), plain)
 
+    def form_views(self, archive, restore=None) -> list:
+        """The view of every screen of the first form ``m0-f0`` opens, as Android laid it out."""
+        answer = self.walked(archive, restore, commands=["m0-f0"], views=True)
+        forms = [step["form"] for step in answer["walks"]["m0-f0"]["steps"] if "form" in step]
+        self.assertTrue(forms, f"The walk of {archive} opened no form")
+        return [screen.get("view") for screen in forms[0]["screens"]]
+
+    def test_a_file_question_is_drawn_by_androids_document_widget(self):
+        """Defect 16 (what the File question's documentation says). Contract: Android draws a File question (an
+        ``<upload mediatype="application/*,text/*">``) with its own document widget (``WidgetFactory``,
+        ``Constants.CONTROL_DOCUMENT_UPLOAD``: ``DocumentWidget``, its button reading "Choose Document"), and an
+        image question with ``ImageWidget``. Failure it catches: a File question Android draws as a text box, the
+        claim Nova's documentation made before."""
+        views = self.form_views(CAPTURE, OPERATION_QUERY_RESTORE)
+        classes = set().union(*(view_classes(view) for view in views))
+        self.assertIn("DocumentWidget", classes)
+        self.assertIn("ImageWidget", classes)
+        self.assertIn("Choose Document", json.dumps(views))
+
+    def test_an_image_question_with_the_face_appearance_is_drawn_by_androids_face_capture_widget(self):
+        """Defect 16 (what ``captureUpload.ts`` says of ``face``). Contract: Android draws an image question whose
+        appearance is ``face`` with ``FaceCaptureWidget`` and one without it with ``ImageWidget``
+        (``WidgetFactory``, ``FACE_CAPTURE_APPEARANCE_ATTR``). Nova writes no ``face``; it is written into the
+        control's form here. Failure it catches: a branch Android lacks, so ``face`` reads as a plain image."""
+        face = edited(
+            CAPTURE,
+            self.work / "face.ccz",
+            "modules-0/forms-0.xml",
+            [
+                (
+                    '<upload ref="/data/details/thepicture" mediatype="image/*">',
+                    '<upload ref="/data/details/thepicture" mediatype="image/*" appearance="face">',
+                )
+            ],
+        )
+        plain = set().union(*(view_classes(view) for view in self.form_views(CAPTURE, OPERATION_QUERY_RESTORE)))
+        faced = set().union(*(view_classes(view) for view in self.form_views(face, OPERATION_QUERY_RESTORE)))
+        self.assertIn("ImageWidget", plain)
+        self.assertNotIn("FaceCaptureWidget", plain)
+        self.assertIn("FaceCaptureWidget", faced)
+        self.assertNotIn("ImageWidget", faced)
+
+    def test_a_local_archive_missing_a_media_file_is_refused(self):
+        """Defect 11 (what an unbundled media file does). Contract: Android unzips an archive and copies each media
+        file out of it (``InstallArchiveActivity``, ``FileSystemInstaller.install``), so Nova's local archive
+        installs, and the same archive with one media file taken out is refused (``MissingResourcesWithMessage``).
+        Core's and Formplayer's archive installs do not notice the missing file, which is why the media-suite
+        oracle's own join is Nova's bundling proof. Failure it catches: an install that skips a missing media file,
+        so a bundling mistake would reach a phone unnoticed."""
+        with zipfile.ZipFile(MEDIA_ONLY) as held:
+            media = sorted(name for name in held.namelist() if name.startswith("commcare/"))
+        self.assertTrue(media, f"{MEDIA_ONLY} bundles no media file")
+        missing = without_entry(MEDIA_ONLY, self.work / "missing-media.ccz", media[0])
+        whole = self.reader.request("installs", archives=[str(MEDIA_ONLY)])
+        cut = self.reader.request("installs", archives=[str(missing)])
+        self.assertEqual([step["install"] for step in whole["installs"]], ["Installed"])
+        self.assertEqual([step["install"] for step in cut["installs"]], ["MissingResourcesWithMessage"])
+
     # The predicates whose other spelling is HQ's build's -------------------------------------------------------
 
     def walked(self, archive, restore=None, **options):
@@ -963,6 +1053,36 @@ class Predicates(unittest.TestCase):
             for step in answer["walks"][name].get("steps", ())
             if step["screen"] == screen
         ]
+
+    def test_a_lookup_tag_holding_casedb_or_ledgerdb_reads_no_table_and_one_split_or_in_another_case_does(self):
+        """Defect 5 (reserved substrings). Contract: Core picks an instance's data by the words its reference
+        contains, case-sensitively (``CommCareInstanceInitializer.generateRoot``: ``ledgerdb``, then ``casedb``,
+        then ``fixture``), so on the control's archive, whose tags hold ``casedb`` and ``ledgerdb``, the form's
+        first question raises "Error Occurred" with the lookup table sentence and no choices; with the tags
+        written split as Nova writes them now (one of them 32 characters), or with the words in another case,
+        each select lists its table's two rows. Failure it catches: a split tag Android still reads as its own
+        data, or a case-insensitive test, so Nova's rule would refuse too little."""
+        stored = ("clinic_casedb_codes", "stock_ledgerdb_codes")
+
+        def retagged(name, tags):
+            replacements = list(zip(stored, tags, strict=True))
+            suite = edited(RESERVED_TAGS, self.work / f"{name}-suite.ccz", "suite.xml", replacements)
+            return edited(suite, self.work / f"{name}.ccz", "modules-0/forms-0.xml", replacements)
+
+        for label, archive in (
+            ("split", retagged("split", ("clinic_case_db_codes_0123456789a", "stock_ledger_db_codes"))),
+            ("other-case", retagged("other-case", ("clinic_CaseDB_codes", "stock_LedgerDB_codes"))),
+        ):
+            views = json.dumps(self.form_views(archive))
+            with self.subTest(archive=label):
+                for choice in ("North clinic", "South clinic", "Soap", "Salt"):
+                    self.assertIn(choice, views)
+                self.assertNotIn("Error Occurred", views)
+        refused = json.dumps(self.walked(RESERVED_TAGS, commands=["m0-f0"], views=True)["walks"]["m0-f0"])
+        self.assertIn("Error Occurred", refused)
+        self.assertIn("lookup table is available", refused)
+        for choice in ("North clinic", "Soap"):
+            self.assertNotIn(choice, refused)
 
     def test_a_hidden_sort_columns_header_puts_it_in_the_sort_menu(self):
         """Finding 36. Contract: Android's Sort menu offers every column whose header is not empty
@@ -1141,6 +1261,47 @@ class Predicates(unittest.TestCase):
             self.assertIs(refused["errorShown"], True)
             self.assertIs(refused["finishing"], False)
             self.assertEqual(refused["errorText"], "Client-side error (code 400) received from network request.")
+
+    def test_a_search_answer_holding_both_quote_marks_sends_match_none_and_finds_nothing(self):
+        """Finding 48, the document's side. Contract: where the suite's quote cascade writes ``match-none()`` for
+        an answer holding both quote marks, as Nova's emitter writes it now (``csqlEmitter.ts::buildQuoteCascade``),
+        Android's search screen sends that query; when the server answers 200 with no case, as HQ answers a search
+        that finds nothing (``casexml/apps/case/fixtures.py::CaseDBFixture.fixture``: an empty ``<results
+        id="case">``), the screen shows its toast "Query response had no results"
+        (``QueryRequestActivity.processSuccess``, ``query.response.empty``), stays, shows no error, and the prompt
+        still holds the answer and takes typing. The control's archive is written as the document's here: its one
+        cascade's function becomes ``match-none()``, which is the only byte the two suites differ by in that
+        expression. Failure it catches: the screen sending the old function, ending the search, or clearing the
+        prompt."""
+        answered = 'it\'s "x"'
+        archive = edited(
+            SEARCH_COMPILE,
+            self.work / "match-none.ccz",
+            "suite.xml",
+            [("&apos;search-value-mixes-quote-marks()&apos;", "&apos;match-none()&apos;")],
+        )
+        answer = self.walked(archive, queryAnswer=answered, queryFindsNothing=True)
+        probed = [
+            step["query"]["withAnswer"]
+            for step in self.steps(answer, "QueryRequestActivity")
+            if "withAnswer" in step["query"]
+        ]
+        self.assertTrue(probed)
+        for probe in probed:
+            self.assertEqual(probe["RemoteQuerySessionManager.getErrors"], {})
+            params = probe["RemoteQuerySessionManager.getRawQueryParams"]
+            sent = [value for values in params.values() for value in values]
+            self.assertIn("match-none()", sent)
+            self.assertFalse(any("search-value-mixes-quote-marks" in value for value in sent), sent)
+            found = probe["afterServerFindsNothing"]
+            self.assertEqual(found["toast"], "Query response had no results")
+            self.assertIs(found["errorShown"], False)
+            self.assertIs(found["finishing"], False)
+            self.assertTrue(found["prompts"])
+            for prompt in found["prompts"].values():
+                self.assertEqual(prompt["text"], answered)
+                self.assertIs(prompt["enabled"], True)
+                self.assertIs(prompt["focusable"], True)
 
     def test_a_fuzzy_search_matches_a_columns_sort_key_and_only_where_it_has_one(self):
         """Finding 51. Contract: with fuzzy search on, Android matches a misspelled term against each column's

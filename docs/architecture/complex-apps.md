@@ -1020,10 +1020,16 @@ Every export mode carries the data a carrier reads, from one validated
 generation. `.ccz` embeds it as suite fixtures; `hq-json` and `hq-upload` build
 the fixapi workbook (`lib/commcare/lookup/workbook.ts`), which the direct upload
 pushes to the project space before the app's content and the manual artifact
-ships beside the app JSON. The HQ modes carry two size verdicts of their own: CommCare HQ's
-whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`) and
-`LOOKUP_TAG_TOO_LONG_FOR_HQ`, because a data sheet is NAMED for its tag and a
-sheet name holds 31 characters while a tag may be authored up to 32.
+ships beside the app JSON. The HQ modes carry one size verdict of their own: CommCare HQ's
+whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`). HQ's upload reads a data
+sheet by its title with no length check and stores a 32-character tag, so a tag of
+Nova's full 32 characters pushes; HQ answers a longer one with a server error, so
+the cap is Nova's to hold (`lib/lookup/constants.ts::LOOKUP_MAX_TAG_LENGTH`). A
+tag that contains `casedb` or `ledgerdb`, case-sensitively, is refused, because
+commcare-core picks an instance's storage by substring
+(`CommCareInstanceInitializer.generateRoot` tests `ledgerdb`, then `casedb`, then
+`fixture`), so a lookup instance named with either word reads the ledger or case
+database and its select lists nothing.
 
 ### Atomic submission and resolved identity
 
@@ -2180,10 +2186,11 @@ superseded row is retained rather than deleted so an app left behind stays
 nameable.
 
 The emitted app document carries the fields Nova authors, and in three keys
-the target's own part beside them. Target-owned settings and state
-(`cloudcare_enabled`, `case_sharing`, the build/release metadata, and the rest
-of the `commcare-app-settings.yml` attributes) are absent, so the overlay merge
-retains a project's HQ-side configuration across republishes. Publish writes no
+the target's own part beside them. App content Nova does not author yet
+(`cloudcare_enabled`, `case_sharing`) and target-owned settings and state
+(`secure_submissions`, the build/release metadata, and the rest of HQ's app
+Settings page) are absent, so the overlay merge retains a project's HQ-side
+configuration across republishes. Publish writes no
 `logo_refs`, because the logo is uploaded in HQ, and publish says so: an update
 takes out only an entry whose only key is `path`, which HQ's own uploader never
 stores. `cc-show-saved` and

@@ -155,40 +155,32 @@ describe("constraint message emission", () => {
 		},
 	);
 
-	it("keeps empty media-only messages on their existing alert path and gates media-off in lockstep", () => {
-		const fixture = constraintMessageFixture("empty");
-		const field = fixture.doc.fields[CONSTRAINT_CHECKED];
-		if (field.kind !== "int") throw new Error("Expected integer field.");
-		field.validate_msg_media = {
-			image: mediaIds.icon,
-			audio: mediaIds.audio,
-			video: mediaIds.video,
-		};
-		admitConstraintMessageFixture(fixture.doc, fixture.assets);
+	it("writes no media on a validation message, even one a stored field still names", () => {
+		const fixture = constraintMessageFixture("plain");
+		// A field carrying the retired slot, as no schema admits: the emitter
+		// reads the message's text alone, so the form is the plain one's bytes.
+		Object.assign(fixture.doc.fields[CONSTRAINT_CHECKED], {
+			validate_msg_media: {
+				image: mediaIds.icon,
+				audio: mediaIds.audio,
+				video: mediaIds.video,
+			},
+		});
 		expect(
 			createHash("sha256")
 				.update(
 					buildXForm(fixture.doc, fixture.formUuid, {
 						xmlns: "urn:constraint-baseline",
-						assets: fixture.assets,
+						assets: new Map(mediaManifest()),
 					}),
 				)
 				.digest("hex"),
-		).toBe("eecd7155e8665f857cb45f88922e33a825e8132d7a0d5a03b3f45bc50389e378");
+		).toBe("cd683db4208f9eb9535abaa27f548b0d8b5d68f2f51a78db588881438198644f");
 		for (const root of routes(fixture)) {
-			expect(carrierBinds(root)).toEqual([]);
-			expect(bind(root).attributes["jr:constraintMsg"]).toBe(
-				"jr:itext('checked-constraintMsg')",
-			);
 			expect(
 				entry(root, "en").children.map((value) => value.attributes.form),
-			).toEqual([undefined, "markdown", "image", "audio", "video"]);
+			).toEqual([undefined, "markdown"]);
 		}
-		const off = readXmlEvidence(
-			buildXForm(fixture.doc, fixture.formUuid, { xmlns: "urn:constraint" }),
-		);
-		expect(bind(off).attributes["jr:constraintMsg"]).toBeUndefined();
-		expect(descendants(off, "alert")).toEqual([]);
 	});
 
 	it.each(["${0}", "${00}", "${12}", "${not-a-number}", "${", "&#36;&#123;0}"])(
@@ -238,7 +230,7 @@ describe("constraint message emission", () => {
 		},
 	);
 
-	it("preserves all five prose kinds, standard text/media, instance requirements and strict identity resolution", () => {
+	it("preserves all five prose kinds, standard text, instance requirements and strict identity resolution", () => {
 		const fixture = constraintMessageFixture("all-kinds");
 		for (const root of routes(fixture)) {
 			const message = entry(root, "en");
@@ -246,17 +238,18 @@ describe("constraint message emission", () => {
 			expect(message.children.slice(0, 2)).toEqual(
 				ordinary.children.slice(0, 2),
 			);
+			// The message carries no media, so it writes no media form and no
+			// `__nova_mode;<medium>` form: its mode is plain in every reading.
 			expect(
 				message.children
-					.filter((value) =>
-						["image", "audio", "video"].includes(value.attributes.form),
-					)
-					.map((value) => value.text),
-			).toEqual(
-				[mediaIds.icon, mediaIds.audio, mediaIds.video].map(
-					(id) => `jr://file/${fixture.assets.get(id)?.wirePath}`,
-				),
-			);
+					.map((value) => value.attributes.form)
+					.filter(
+						(form) =>
+							form !== undefined &&
+							(["image", "audio", "video", "video-inline"].includes(form) ||
+								form.startsWith("__nova_mode;")),
+					),
+			).toEqual(["__nova_mode;markdown"]);
 			expect(
 				descendants(root, "instance")
 					.filter((node) => node.attributes.id !== undefined)

@@ -491,7 +491,7 @@ def observe(
         if b_aligned is None or b_aligned.files is None or not b_differs or unbuildable(b_aligned) is not None:
             return recorded
         restore_b = restore_hq
-        if export.republish.lookups is not None:
+        if export.republish is not None and export.republish.lookups is not None:
             recorded["lookupsB"], restore_b = hq_restore(
                 unit, database, export.republish.lookups, "restore-b", operation
             )

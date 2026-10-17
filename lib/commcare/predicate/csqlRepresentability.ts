@@ -24,6 +24,10 @@ import type {
 	ValueExpression,
 } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate";
+import {
+	SYSTEM_DATETIME_CASE_PROPERTIES,
+	standardCasePropertyDisplayLabel,
+} from "@/lib/domain/standardCaseProperties";
 import { isNativeCsqlValueExpression } from "../expression/csqlCapabilities";
 import {
 	isRepresentableCalendarDateAddQuantity,
@@ -43,7 +47,8 @@ export type CsqlRepresentabilityReason =
 	| "subcase-count-needs-nonnegative-whole-number"
 	| "multiple-property-scopes"
 	| "form-context-value-not-csql"
-	| "pattern-match-not-csql";
+	| "pattern-match-not-csql"
+	| "system-datetime-value";
 
 type RuntimeValueDialect = "csql" | "on-device";
 
@@ -51,6 +56,11 @@ export interface CsqlRepresentabilityIssue {
 	readonly reason: CsqlRepresentabilityReason;
 	readonly path: readonly (string | number)[];
 	readonly message: string;
+	/**
+	 * For `system-datetime-value`: the system date read (`property`) and
+	 * what was asked of it (`shape`, `is-blank` or `null-value`).
+	 */
+	readonly details?: Readonly<Record<string, string>>;
 }
 
 const SWAPPED_COMPARISON_KIND: Readonly<
@@ -342,6 +352,12 @@ function checkQueryPredicate(
 			}
 			const leftAnchor = isQueryAnchor(predicate.left);
 			const rightAnchor = isQueryAnchor(predicate.right);
+			checkSystemDatetimeValue(
+				leftAnchor ? predicate.left : predicate.right,
+				[leftAnchor ? predicate.right : predicate.left],
+				path,
+				issues,
+			);
 			if (leftAnchor) {
 				checkQueryAnchor(predicate.left, [...path, "left"], issues);
 				if (isSubcaseCountQueryAnchor(predicate.left)) {
@@ -371,6 +387,17 @@ function checkQueryPredicate(
 		}
 		case "in":
 			checkQueryAnchor(predicate.left, [...path, "left"], issues);
+			checkSystemDatetimeValue(
+				predicate.left,
+				predicate.values.map(
+					(value): ValueExpression => ({
+						kind: "term",
+						term: { kind: "literal", value: value.value },
+					}),
+				),
+				path,
+				issues,
+			);
 			for (let index = 0; index < predicate.values.length; index += 1) {
 				const valuePath = [...path, "values", index] as const;
 				if (isSubcaseCountQueryAnchor(predicate.left)) {
@@ -406,6 +433,15 @@ function checkQueryPredicate(
 				return;
 			}
 			checkQueryAnchor(predicate.left, [...path, "left"], issues);
+			checkSystemDatetimeValue(
+				predicate.left,
+				[
+					...(predicate.lower === undefined ? [] : [predicate.lower]),
+					...(predicate.upper === undefined ? [] : [predicate.upper]),
+				],
+				path,
+				issues,
+			);
 			if (predicate.lower !== undefined) {
 				if (isSubcaseCountQueryAnchor(predicate.left)) {
 					checkSubcaseCountBound(predicate.lower, [...path, "lower"], issues);
@@ -439,6 +475,17 @@ function checkQueryPredicate(
 			)
 				return;
 			checkPropertyOnlyLeft(predicate.left, [...path, "left"], issues);
+			{
+				const system = systemDatetimeProperty(predicate.left);
+				if (system !== undefined) {
+					issues.push({
+						reason: "system-datetime-value",
+						path,
+						message: `CommCare's search can't ask whether ${standardCasePropertyDisplayLabel(system)} is blank. Every case has one.`,
+						details: { property: system, shape: "is-blank" },
+					});
+				}
+			}
 			return;
 		case "matches-pattern":
 			issues.push({
@@ -535,6 +582,51 @@ function checkQueryPredicate(
 			);
 		}
 	}
+}
+
+/**
+ * The system date a CSQL anchor reads, if it reads one. CommCare's search
+ * sends `date_opened`, `closed_on` and `last_modified` to its system datetime
+ * query whatever the operator, and that query raises on `''`
+ * (`corehq/apps/case_search/xpath_functions/comparison.py::property_comparison_query`).
+ */
+function systemDatetimeProperty(
+	expression: ValueExpression,
+): string | undefined {
+	return expression.kind === "term" &&
+		expression.term.kind === "prop" &&
+		SYSTEM_DATETIME_CASE_PROPERTIES.has(expression.term.property)
+		? expression.term.property
+		: undefined;
+}
+
+/**
+ * Refuse the null literal as a fixed value compared with a system date: Nova
+ * prints it as `''`, which HQ's system datetime query cannot read. Every
+ * other fixed value that is not a date and time is already a type error, and
+ * a runtime value is guarded by the emitter (`runtimeCsqlDateSafety.ts`).
+ */
+function checkSystemDatetimeValue(
+	anchor: ValueExpression,
+	values: readonly ValueExpression[],
+	path: readonly (string | number)[],
+	issues: CsqlRepresentabilityIssue[],
+): void {
+	const system = systemDatetimeProperty(anchor);
+	if (system === undefined) return;
+	const comparesNull = values.some(
+		(value) =>
+			value.kind === "term" &&
+			value.term.kind === "literal" &&
+			value.term.value === null,
+	);
+	if (!comparesNull) return;
+	issues.push({
+		reason: "system-datetime-value",
+		path,
+		message: `${standardCasePropertyDisplayLabel(system)} is compared with a date and time.`,
+		details: { property: system, shape: "null-value" },
+	});
 }
 
 function checkPropertyOnlyLeft(

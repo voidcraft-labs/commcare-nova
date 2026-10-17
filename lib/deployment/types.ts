@@ -178,6 +178,13 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 */
 	"hq_resource_conflict",
 	/**
+	 * A lookup table under one of this app's export tags holds in CommCare
+	 * HQ what Nova's push would remove: field properties, row attributes or
+	 * rows limited to certain users. Nothing was sent, and neither an
+	 * adoption nor a discard resolves it: a new export tag does.
+	 */
+	"hq_table_content_unsupported",
+	/**
 	 * The app's organization does not fit the levels the target defines,
 	 * so CommCare HQ would refuse the places rather than hold them. Its
 	 * own recovery: change the tree in Nova, or the levels over there.

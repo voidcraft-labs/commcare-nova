@@ -128,7 +128,6 @@ import {
 	type FormType,
 	fieldRegistry,
 	findAuthoredBlueprintIdentity,
-	HIDDEN_INERT_VALUE,
 	type LocationProperty,
 	type MediaAssetId,
 	type ModuleIconRef,
@@ -1108,23 +1107,10 @@ export function createBlueprintMutations(
 					return NOOP_REJECTION;
 				}
 				const batch: Mutation[] = [];
-				// Converting to hidden must land with a value source or the
-				// gate rejects on HIDDEN_NO_VALUE, and this gesture has no
-				// authoring step. A field that already carries a default or a
-				// calculation keeps it (a carried default is a set-once
-				// value). Otherwise the converted field is born the way a
-				// picker-inserted hidden is: set once, with the inert `''`
-				// default the user replaces in the inspector. The seed lives
-				// in `default_value`, never `calculate`: a case-bound field
-				// converted to hidden keeps its writer, and an inert
-				// calculation there would write nothing over the case's
-				// value on every submission. It is pushed AFTER the
-				// conversion plan so the seed is judged as part of the
-				// hidden field's end state.
-				const seedHiddenDefault =
-					toKind === "hidden" &&
-					!("default_value" in field && field.default_value) &&
-					!("calculate" in field && field.calculate);
+				// A field converted to hidden keeps a default or a calculation
+				// it already carries (a carried default is a set-once value);
+				// with neither it is a valid hidden value that stays blank,
+				// the way a picker-inserted hidden is born.
 				// The property-centric plan (shared with the SA's editField):
 				// a case-bound string-scalar conversion carries the
 				// property's other writers across in the same batch and
@@ -1156,14 +1142,6 @@ export function createBlueprintMutations(
 					};
 				}
 				batch.push(...plan.mutations);
-				if (seedHiddenDefault) {
-					batch.push({
-						kind: "updateField",
-						uuid,
-						targetKind: "hidden",
-						patch: { default_value: HIDDEN_INERT_VALUE },
-					});
-				}
 				return toOutcome(guardedApply(batch));
 			},
 

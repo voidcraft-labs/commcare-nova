@@ -128,7 +128,15 @@ export type HqToolErrorType =
  *     table or a place with a name this app's data would land on, and Nova
  *     did not make it. Nothing was sent. A name match is never evidence of
  *     ownership, so the caller either changes the name in Nova or names
- *     the exact resources in `adopt_resources` to take them over.
+ *     the exact resources in `adopt_resources` to take them over. Where a
+ *     lookup table is among them, `adoption_note` says what taking one
+ *     over does to it.
+ *   - `hq_table_content_unsupported` — a lookup table under one of this
+ *     app's export tags holds in CommCare HQ what Nova's push would remove
+ *     (field properties, row attributes or rows limited to certain users).
+ *     Nothing was sent, and neither an adoption nor a discard resolves it:
+ *     the message names each table, and a new export tag in Project data
+ *     lets Nova publish its own table and leave that one alone.
  *   - `hq_organization_mismatch` — the app's organization does not fit the
  *     levels the project space defines, so CommCare HQ would refuse its
  *     places. Nothing was sent. Distinct from a conflict because no
@@ -160,6 +168,7 @@ export type UploadErrorType =
 	| HqToolErrorType
 	| "remote_app_missing"
 	| "hq_resource_conflict"
+	| "hq_table_content_unsupported"
 	| "hq_organization_mismatch"
 	| "project_space_incompatible"
 	| "hq_app_state_unknown"

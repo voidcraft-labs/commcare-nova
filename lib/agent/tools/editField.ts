@@ -63,6 +63,7 @@ import {
 	convertNeedsOptionSeed,
 	findAuthoredBlueprintIdentity,
 	getConvertibleTypes,
+	hiddenWriterBlankNote,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { updateFieldMutations } from "../blueprintHelpers";
@@ -125,6 +126,10 @@ export type EditFieldResult =
 				set: "calculate" | "default_value";
 				cleared: "calculate" | "default_value";
 			};
+			/** What each submission saves, for a hidden field this call left
+			 *  with no value that writes a case property
+			 *  (`hiddenWriterBlankNote`). */
+			note?: string;
 	  })
 	| { error: string }
 	| {
@@ -564,9 +569,9 @@ export const editFieldTool = {
 						id: newId,
 					}),
 			};
-			// A hidden field carries exactly ONE value source: the form
-			// evaluates every `calculate` after it seeds every `default_value`,
-			// so a default beside a calculate could never be seen. The schema
+			// A hidden field carries at most ONE value source: Nova doesn't yet
+			// write a Hidden Value's default beside its calculate
+			// (`HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). The schema
 			// refuses both in one call; this is the cross-call case, where the
 			// field already holds one slot and the patch sets the other without
 			// mentioning it. Clear the held slot in the SAME patch (one gate
@@ -672,6 +677,12 @@ export const editFieldTool = {
 				"label" in postField && postField.label
 					? projectProseTemplate(postField.label, commit.newDoc).text
 					: "";
+			const postModule = commit.newDoc.modules[resolved.moduleUuid];
+			const postForm = commit.newDoc.forms[resolved.formUuid];
+			const note =
+				postModule && postForm
+					? hiddenWriterBlankNote(postField, postModule, postForm)
+					: undefined;
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
@@ -680,6 +691,7 @@ export const editFieldTool = {
 					field: { uuid: fieldUuid, id: postField.id, kind: postField.kind },
 					...(conversion && { conversion }),
 					...(valueSourceSwap && { valueSource: valueSourceSwap }),
+					...(note !== undefined && { note }),
 					...(preparedOptionsSource?.kind === "inline" && {
 						options: preparedOptionsSource.options.map((option) => ({
 							uuid: option.uuid,

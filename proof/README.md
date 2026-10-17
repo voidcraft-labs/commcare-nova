@@ -71,7 +71,11 @@ saves does (`republish`): it `proceeds`, because Nova owns none of the values
 the saves change and its overlays carry them back; it `discards`, going
 through only after the confirmation a person who saw the stop would give; or
 it `stops`, refused by Nova with the failure code the document names
-(`stopCode`), and leaves no B. The capture discards only where preflight
+(`stopCode`), and leaves no B. A stop is written to the export's
+`outcome.json` and no republish request is captured, so the document's `b`
+inputs are that file, the unit records the stop in place of B
+(`proof/observe/unit.py`), and proofs 1 and 2 and the manifest check read no
+B there, as where HQ refused it. The capture discards only where preflight
 answers `hq_changed`: it records the stop in the update's sidecar and sends
 the update again with each table in conflict taken over and each change
 written over at the digest the stop showed. A capture whose outcome differs
@@ -505,7 +509,7 @@ named here, rather than by every document's checks:
 | What | Held by | What it shows |
 | --- | --- | --- |
 | Defect 4's add-ons | `proof/views/test_add_ons.py` | an add-on a person turned on in HQ (Menu Mode, over `targeted-hq-side-state`) is offered by HQ's module page after their save, and still offered after Nova's next publish |
-| Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py`, and `proof/views/__tests__/lookupUploadAnswer.test.ts` for Nova's side | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table; handed an answer of that status and type, Nova's own client reports an upload that may have landed |
+| Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py`, and `proof/views/__tests__/lookupUploadAnswer.test.ts` for Nova's side | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table; handed an answer of that status and type, Nova's own client reports that nothing landed and that the plan lacks Lookup Tables (`upgradeRequired`) |
 | Defect 5's 32-character tag | `proof/views/test_lookup_upload.py` | HQ's upload takes a 32-character tag and answers a 33-character one with a 500 (a database error; it checks no length) |
 | Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, its Case List page holds the control for each only under the flag, and Nova's publish asks for the flag before it sends any of them |
 | Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | every app Nova publishes carries `project_default`, so a device's restore and Web Apps' agree: both hold the places where the project space syncs its flat list and neither does where it does not, and on a plan without Locations neither does; `both_fixtures`, written into the stored app, still gives a device the list whatever the project space says while Web Apps follows the project space (finding 69); HQ's Location Fixture page answers 404 without `HIERARCHICAL_LOCATION_FIXTURE` and, with it, turns the list off and on |
@@ -518,7 +522,7 @@ named here, rather than by every document's checks:
 | Defect 30's export column | `proof/views/test_exports.py` | HQ's own form export of a walked submission, made from the app's builds and the forms index, holds a `nova_count_<repeat>` column the document does not author, holding the count |
 | Defect 24's export columns | `proof/views/test_exports.py` | the inert subcase's `form.subcase_<i>.case.*` columns hold HQ's missing-value mark in every row while the basic child case beside them holds its id, and after HQ's Case Management save its index columns move and lose `@relationship` |
 | A CSQL string a device builds from a typed answer | every served state's device (`proof/android/src/.../Queries.java`, `query/typed`), proof 3 (`proof/checks/android.py::hq_refusals`) | the search screen sends what it built from the answer table's search answers typed into its own views to HQ's own search view, which compiles it against HQ's real Elasticsearch; each request HQ's views refuse while A is served, with a view, status and cause HQ did not refuse Formplayer's walk of A with, is `android@A`, `/hq/<view>/<status>/<what HQ said>` |
-| Defect 16's media slots | `targeted-media-slots`, `proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`, `proof/android/predicates.py` | Formplayer hands the client a question's label media, its hint's text and a group's label image, and nothing naming the hint's or the validation message's image; the Web Apps client lays out the question's label image, sound and video and nothing in the group's header, and shows the message's text; a device lays out the same screen with a hint's, a group label's or a message's image as without it. Its comments, dead code and copy are plan and code text, held by step 2's review |
+| Defect 16's media slots | `targeted-media-slots`, `proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`, `proof/android/predicates.py` | Over the form as Nova emitted it before the slots left the model (`proof/formplayer/media_slots/`), Formplayer hands the client a question's label media, its hint's text and a group's label image, and nothing naming the hint's or the validation message's image; the Web Apps client lays out the question's label image, sound and video and nothing in the group's header, and shows the message's text; a device lays out the same screen with a hint's, a group label's or a message's image as without it. The corrected sentences each run their reader: `proof/core/test_evaluate.py` (`selected()` and a hidden value's default beside its calculate), `proof/hq/test_publish.py` (`case_sharing` and `cloudcare_enabled` written by an update), `proof/hq/test_case_processing.py` and `proof/hq/test_build.py` (an `owner_id` update), and `proof/android/predicates.py` (the File question's `DocumentWidget`, `FaceCaptureWidget` for `face`, and a local archive missing a media file refused) |
 | The version floor | `lib/deployment/__tests__/publishGates.postgres.test.ts`, `proof/hq/test_version_floor.py`, `proof/editors/test_version_raise.py` and `proof/android/predicates.py` | Nova publishes to no app below CommCare 2.57; HQ serves a new app's version from the project space's default and builds differently on each side of the floor; HQ's settings page changes these paths of the app's source when the version is raised there; a device neither installs nor updates to an archive that requires a newer CommCare |
 | The confirmations a publish asks for | `lib/deployment/__tests__/publishGates.postgres.test.ts` and `proof/checks/test_corpus.py` | Nova's publish stops until a person confirms each plan feature and project-space setting the app needs; the list Nova derives for every corpus document equals the one `proof/checks/configurations.py::required_privileges` derives from HQ's own model of the exported app |
 | The form validation HQ asks Formplayer for | every unit's seams (`proof/hq/seams.py::formplayer_validation`), `proof/formplayer/test_validation.py` | every form every build of every document sends is validated by Formplayer's own controller, sent the headers and the digest HQ wrote; the same form HQ signs with another key is refused |
@@ -551,7 +555,7 @@ npm run proof                                           # the whole harness, wit
 PROOF_READERS=0 npm run proof                           # the pull request lane: no state served to a reader
 PROOF_READERS=android npm run proof -- proof/checks -k <document>  # prove an Android change: Formplayer and a device only
 npm run proof -- proof/checks/test_bar.py               # one check over every document
-npm run proof -- proof/checks -k targeted-time-ordering # every check of one document
+npm run proof -- proof/checks -k targeted-search-hq-compile # every check of one document
 npm run proof -- proof/native                           # the native proofs
 npm run proof -- proof/connect                          # the Connect proof
 npm run proof -- proof/views                            # HQ's own pages and views over Nova's exports
@@ -1251,11 +1255,15 @@ builder warns about the first read and not the second.
 The control `targeted-supply-point-read` keeps a form that reads the
 session's supply point in a project space with CommTrack on (finding 68); its
 document left the corpus when Nova's gate began refusing the read.
-`targeted-media-slots` holds every
-media slot Nova offers on a question and a group's label, which
+`targeted-media-slots` holds a question's
+label image, sound and video inside a group, beside a hint and a validation
+message that carry text alone (defect 16 took media off a hint, a validation
+message and a group's or repeat's label); it is the one targeted document
+that carries uploaded media (`TargetedSpec.media`).
 `proof/formplayer/test_media_slots.py` and `proof/webapps/test_media_slots.py`
-read on Formplayer and in the Web Apps client (defect 16); it is the one
-targeted document that carries uploaded media (`TargetedSpec.media`).
+write the form as Nova emitted it before defect 16 (`proof/formplayer/media_slots/`)
+over a fork of its published app, and of `media-rich`'s, and read the slots on
+Formplayer and in the Web Apps client.
 `targeted-capture-widgets` holds one question of each kind a worker answers
 with a gesture (an image, a sound, a video, a document, a signature and a
 location), which `proof/webapps/test_widgets.py` holds Formplayer's walk and
@@ -1288,8 +1296,9 @@ add-ons section saved with Menu Mode on (every add-on as the section posts
 it, the rest off), a CommCare setting
 (`cc-autoup-freq` at `freq-daily`) and a build profile, whose republish
 proceeds with no discard, since Nova owns none of what they change; the
-second a lookup table and its `lookupTable` save, which defect 5's table
-entries need on a republish of its own, whose republish discards.
+second a lookup table and its `lookupTable` save, over which Nova's
+republish stops before it sends anything (`hq_table_content_unsupported`,
+defect 5), so no B exists and HQ's table stays as the person left it.
 `targeted-attribute-display-condition` holds defect 2's fix where a session
 reaches it: one case-first menu with two follow-up forms, shown when the
 selected case's `status` is `open` and when its `owner_id` is `handover`,
@@ -1713,7 +1722,7 @@ What its own tests observe on HQ's releases of real Nova exports, served by HQ's
 | Each after-submit destination (defect 14, multi-select destinations) | Formplayer lands `module` on the menu's case list, `firstMenu` on the app's first screen, and `parentMenu` and `previous` on the parent menu listing its forms and child menus, in menus that select several cases and under them | `test_end_of_form.py` |
 | A menu and forms off the menu (`hiddenFromMenu`) | the menus list neither; a link to a hidden form lands on the menu that holds it and a link into the hidden menu on the app's first screen; an entry point opens its hidden form only where it ignores display conditions, and otherwise lands where a link would | `test_end_of_form.py` |
 | A lookup prompt's choices (defect 14, search settings) | Formplayer hands the client both lookup prompts' choices in label order, where the table's row order differs | `test_search.py` |
-| A search answer holding both quote marks (finding 48) | Formplayer answers the search screen again with the validation's message and sends HQ nothing; an answer with one mark is sent inside the CSQL, HQ's own search view reads it (and refuses the query for the document's own date comparison, defect 6), and HQ's compiler takes the string that holds the answer | `test_search.py` |
+| A search answer holding both quote marks (finding 48) | Formplayer answers the search screen again with the validation's message and sends HQ nothing; an answer with one mark is sent inside the CSQL, HQ's own search view answers the search 200 and Formplayer shows its results, and HQ's compiler takes every string of the request | `test_search.py` |
 | The empty search description (finding 54) | Nova's export stores the blank description the Case List save writes, the save changes neither map, and Formplayer hands Web Apps a non-breaking space for HQ's build of Nova's export, for the saved app and for Nova's local archive | `test_search.py` |
 | `cc-autosync-freq` absent (an app published before Nova wrote it), Nova's `freq-never`, or as HQ's App Settings save keeps it (finding 40) | Formplayer asks HQ for one restore on the first visit and none on return after eight days in all three; with `freq-daily`, which HQ's settings view saves for a person's change, it asks again on return | `test_settings.py` |
 | `cc-fuzzy-search-enabled` absent, Nova's `no`, or as the same save keeps it (finding 40) | a search one letter off a case's name finds nothing in all three; with `yes`, a person's change, it finds the case | `test_settings.py` |
@@ -2646,7 +2655,7 @@ gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its cont
 | 1, language codes | adding a language whose code collides with an existing one, or removing one of a colliding pair, renames the existing language's code, and a build profile a person saved in HQ naming the old code then fails `create_all_files(profile)` ("Form does not contain any translations for any of the build languages", `xform.py::XForm.exclude_languages`). Fixed in step 2: the document stores each language's code from the mutation that adds it (`localization.wireCodes`) | proof 1 over the edit; the bar on B-edit, over A's build profile | fixed; still shown by the control `targeted-hq-side-state` |
 | 4, translations | a UI translation saved in HQ (`views/apps.py::edit_app_ui_translations`) is gone from `app_strings.txt` after the next publish, whose import replaces the app's translations with Nova's (`_merge_source_into_app`). Fixed in step 2: an update carries every key HQ holds that Nova does not write back as HQ held it at the publish's last read (`lib/commcare/targetOverlay.ts`) | proof 2 | fixed; still shown by the control `targeted-hq-side-state` |
 | 4, `auto_gps_capture` | the setting saved in HQ (`views/apps.py::edit_app_attr`) is set back by the next import, so each form's meta loses its location and its poll of the location sensor (`xform.py::XForm._add_meta_2`) and its submission the location. Fixed in step 2: an update carries the key only for a Connect app, and HQ keeps what it holds where the key is left out | proof 2; proof 3 between A's and B's builds | fixed; still shown by the control `targeted-hq-side-state` |
-| 5, table content | Nova's next push uploads its workbook for a table a person keeps in HQ (a field property, row attributes, owners and a description) with `replace`; HQ's upload sees another table (`run_upload.py::table_key`), deletes it and makes it again, so the table and its rows get new ids and lose the property, the attributes, the owners and the description | proof 1 (the project's lookup tables) | `targeted-hq-side-lookup` (its control, `targeted-hq-side-state`, keeps the table from before the two documents were split) |
+| 5, table content | Nova's next push uploads its workbook for a table a person keeps in HQ (a field property, row attributes, owners and a description) with `replace`; HQ's upload sees another table (`run_upload.py::table_key`), deletes it and makes it again, so the table and its rows get new ids and lose the property, the attributes, the owners and the description. Fixed in step 2: Nova's preflight reads a field property, a row attribute or a table that is not global from HQ's definition list and stops before it sends anything (`hq_table_content_unsupported`), so `targeted-hq-side-lookup`'s republish stops and no B exists | proof 1 (the project's lookup tables) | fixed; still shown by the control `targeted-hq-side-state`, which keeps the table from before the two documents were split; `proof/checks/test_hq_side.py` holds that HQ's table is what the person left |
 | 2 | `validate_app` fails with "Expecting 'QNAME', got 'AT'" (`helpers/validators.py`, the form's `validate_for_build`). Fixed in step 2: the HQ JSON prints a display condition's read of the case's status, id, type or owner as the expanded read of the selected case | the bar | fixed; still shown by the control `expander-display-condition-hq-projection-projects-typed-c7fa4700-0`; `targeted-attribute-display-condition` holds the fix |
 | 3 | the case properties HQ learns each form writes (`FormBase.get_all_case_updates`) and the data dictionary rows its save writes (`refresh_data_dictionary_from_app`) lack the properties Nova's Save to Case blocks write, and a Vellum save rewrites `case_references_data.save`. Fixed in step 2: each form stores the `case_references_data.save` map Vellum computes from its Save to Case blocks (`lib/commcare/xform/caseSaveReferences.ts`), so HQ learns their properties at the publish and a Vellum save leaves the map as it is; an attachment under a block, which Vellum's map never lists, is defect 23's | intent (HQ); proof 4; manifest (`save_differing_from_vellum`) | fixed; still shown by the control `case-operation-query` |
 | 3, unknown question | HQ's form builder warns "Unknown question: #case/<property>" where a form reads a property only a Save to Case block writes, and not where an ordinary field writes it. Fixed in step 2: no form Nova writes holds a `#case/` hashtag, so the form builder reads a raw read of an unlisted property as it stands | proof 4 (Vellum's report) | fixed; still shown by the control `targeted-save-to-case-read` |
@@ -2655,9 +2664,9 @@ gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its cont
 | 12, what no editor offers | HQ's Case List page holds the control for an inline search, a multi-select list and an excluded search input only under `CASE_SEARCH_ADVANCED`, which Nova's publish did not ask for. Fixed in step 2: the publish asks for the flag before it sends any of them | `proof/views/test_case_list_offers.py` (HQ's page in Chromium), `proof/editors/test_gated_pages.py` | `case-list-inline`, `search-multiple`, an expander search document |
 | 14, `both_fixtures` | a device restores the flat location fixture by the app's own choice, and Web Apps by the project space's setting, so with that setting off the same app has its places on Android and none in Web Apps, where its form moves no case (finding 69). Fixed in step 2: every app carries `project_default`, so both follow the project space's setting, which a publish asks the person to confirm | `proof/views/test_location_fixture.py` (HQ's restore view, as a device and as Formplayer ask it) | `location-direct` |
 | 20, CommTrack | Nova's gate admitted a read of the session's `supply_point_id`; no session of a Nova app holds it, so the form does not open; under CommTrack HQ's build gives the form the datum only once a save in HQ's form builder has respelled the source, and then a worker without a supply point is refused the form (finding 68). Fixed in step 2, its supply-point part: Nova's gate refuses a read of a session datum the form's entry does not declare (`SESSION_DATUM_NOT_SUPPLIED`) | manifest; proof 4, then 2 and 3 | fixed; still shown by the control `targeted-supply-point-read` |
-| 5, reserved substrings | a select over a table whose tag contains `casedb` reads the case database, and one containing `ledgerdb` the ledger database, not the table (`CommCareInstanceInitializer.generateRoot` tests `ledgerdb`, then `casedb`, before `fixture`) | intent (Core); manifest (the instance source Core gives the table) | `targeted-lookup-reserved-tags` |
-| 6, CSQL | HQ's compiler raises `CaseFilterError` for an ordering against a time of day, and for `''` or a number compared with `date_opened`, `closed_on` or `last_modified` | intent (HQ): each CSQL string a run sends, compiled by HQ (`build_filter_from_xpath`); manifest: each search's CSQL, read by HQ's CSQL parser, falls in those comparisons' REFUSED classes | `targeted-search-hq-compile` |
-| 6, Core | `'14:30' < '15:00'` is false on the device while the document orders it | intent (Core); manifest | `targeted-time-ordering` |
+| 5, reserved substrings | a select over a table whose tag contains `casedb` reads the case database, and one containing `ledgerdb` the ledger database, not the table (`CommCareInstanceInitializer.generateRoot` tests `ledgerdb`, then `casedb`, before `fixture`). Fixed in step 2: Nova refuses a tag that contains either word, case-sensitively, and the cutover renames each stored one | intent (Core); manifest (the instance source Core gives the table) | fixed; still shown by the control `targeted-lookup-reserved-tags`; the document, rewritten with the split tags and one of 32 characters, holds the fix on every runtime |
+| 6, CSQL | HQ's compiler raises `CaseFilterError` for an ordering against a time of day, and for `''` or a number compared with `date_opened`, `closed_on` or `last_modified`, and HQ's search view answers Formplayer's search 400. Fixed in step 2: Nova's gate refuses an ordering on a time (`XPATH_TIME_ORDERING`, and the type checker's `time-ordering`) and, on a system date, `is-blank` and the null literal; a comparison with a runtime value is guarded, so a blank one sends `match-none()`; and the document orders `date_opened` against a date turned into a date and time | intent (HQ): each CSQL string a run sends, compiled by HQ (`build_filter_from_xpath`); manifest: each search's CSQL, read by HQ's CSQL parser, falls in those comparisons' REFUSED classes; proof 3 (Formplayer's search) | fixed; still shown by the control `targeted-search-hq-compile`; the document, whose every search HQ compiles, holds the fix |
+| 6, Core | `'14:30' < '15:00'` is false on the device while the document orders it. Fixed in step 2: Nova's gate refuses an ordering on a time, so no admitted document holds one, and the cutover rewrites each stored one as never true | intent (Core); manifest | fixed; still shown by the controls `targeted-time-ordering`, whose document left the corpus, and `targeted-search-hq-compile` |
 | 7 | HQ's profile sets `cc-show-saved` and `cc-show-incomplete` to `no`; Nova's `.ccz` profile omits both, which Android reads as yes, and holds no `checkoff` feature, so Android hides Saved and keeps no sent form; HQ's App Settings save stores `cc-show-incomplete` `no`, and the Web Apps client's Incomplete Forms tile goes (finding 62). Fixed in step 2: the app holds both settings (`appSettings`), and both paths write them, with `<checkoff active="true"/>` in every local profile | proof 3 across the two paths (the profile in the trace, Android's readers, home buttons and send); proof 4 (the Web Apps client after the App Settings save) | fixed; still shown by the controls `case-operation-query` and `case-capture-followup`, and for finding 62 `targeted-custom-tile` and `targeted-invalid-question-ids` |
 | 8 | a barcode or secret answer that breaks its authored validation is accepted (`FormEntryController.answerQuestion`). Fixed in step 2: the emitter writes the validation on every kind the validator admits it on | intent (Core) | fixed; still shown by the control `targeted-validated-barcode-secret` |
 | 9 | two `.ccz` exports of one document carry different profile `uniqueid`s, both at version 1, and Nova's profile declares no required CommCare version where HQ's does. Fixed in step 2: the `uniqueid` is derived from the app's id and its project space, the versions are the document's sequence, and the profile requires CommCare 2.57 | proof 1, local path; proof 3 across the two paths | fixed; still shown by the controls `case-operation-query` and, on a device's installs and update, `case-capture-followup` |
@@ -3578,12 +3587,13 @@ registration datum (`case_id_new_patient_0`, `uuid()`) Nova's suite names.
 precedence (including a stored blank) and normalized registration external ids
 on both paths, suite instances for module and case conditions, case nodes for
 empty and whitespace owner exclusions, link and fallback frame selection, and
-`RemoteQueryDatum` payloads for supplied and absent prompts. It writes the ten
-search queries Core builds (`navigation/nova-search-payloads.tsv`), and
-`test_search_payload.py` compiles them in HQ's CSQL compiler to complete
-filters: leap-day arithmetic and UTC half-open date and datetime ranges on the
-right property. A property wrapped in a value function must raise
-`CaseFilterError`. No Elasticsearch request or search screen is claimed.
+`RemoteQueryDatum` payloads for supplied, absent and blank prompts. It writes
+the thirteen search queries Core builds (`navigation/nova-search-payloads.tsv`),
+and `test_search_payload.py` compiles them in HQ's CSQL compiler to complete
+filters: leap-day arithmetic, UTC half-open date and datetime ranges on the
+right property, and a day range answered blank to `match-none()`. A property
+wrapped in a value function must raise `CaseFilterError`. No Elasticsearch
+request or search screen is claimed.
 
 #### Search, prompts, CSQL functions, quotes and links
 
@@ -3639,7 +3649,8 @@ decoded text and child order.
   an explicitly present empty answer, and checks prompt errors and refusal
   values even when prompt validation is bypassed. It writes the 144 queries
   (`quote/nova-quote-payloads.jsonl`); HQ compiles 130 to complete filters and
-  refuses the 14 that mix both quote marks. Query-like text stays one literal,
+  the 14 that mix both quote marks, which Core builds as `match-none()`, to the
+  filter that matches no case. Query-like text stays one literal,
   and absent inputs differ from explicitly empty ones.
 - `static-quote`: one admitted app. `StaticQuoteRuntimeTest` compares four
   retained pre-fix refused queries
@@ -3690,13 +3701,22 @@ before HQ's main pass) and writes their digests to
 each scenario's form, suite, strings, profile and media suite, and the media
 suite's local resources must equal the CCZ's. With media, HQ's whole bulk
 upload task runs over Nova's upload zip on the harness's Couch and blob store:
-it completes with no error, unmatched or skipped file, classifies three
-images, one audio and one video, maps each zip entry to the form path HQ
-derives, stores exactly the uploaded bytes and records the project space as
-each file's owner. Every form HQ sends to Formplayer on the way must be one
-Core certified, and Formplayer's own controller validates it. `MediaRuntimeTest` then
-installs both paths' media resources and resolves prompts and image maps; no
-remote download or rendering is claimed.
+it completes with no error, unmatched or skipped file, classifies four
+images, five audio files and two videos (one file of each format defect 11's
+first half accepts among them: a BMP, an M4A, a FLAC, an Ogg Vorbis, an Ogg
+Opus and a WebM, each in a slot of its kind), maps each zip entry to the form
+path HQ derives, stores exactly the uploaded bytes and records the project
+space as each file's owner. Every form HQ sends to Formplayer on the way must
+be one Core certified, and Formplayer's own controller validates it.
+`MediaRuntimeTest` then resolves prompts and image maps over both paths, and
+installs their media resources two ways: from files on disk, Android's shape,
+where a missing file is refused; and from Nova's local archive registered
+with Core's `ArchiveFileRoot`, Core's and Formplayer's shape, where a
+reference to a file the archive does not hold installs too
+(`ArchiveFileReference.doesBinaryExist` answers true), so that test holds the
+archive itself to an entry at each location's path whose SHA-256 is the hash
+the path names. No remote download or rendering is claimed: media playback is
+`e2e/tests/browser/media-play.spec.ts` and `proof/android/decode/`.
 
 #### Connect (`connect`)
 

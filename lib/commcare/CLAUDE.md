@@ -130,7 +130,8 @@ Nova does with each, in two layers:
   proof lane's gate fails while the committed file is not byte for byte the
   extraction at the pins. One family is authored instead:
   `media-formats.json` (`media-format:`), whose facts come from the vendors'
-  documentation; a change to it is a reviewed edit.
+  documentation and, where an item carries `executed`, from the run its
+  record in `executions` names; a change to it is a reviewed edit.
 - **The entries**, authored, parsed by `schema.ts`. `entries/<area>.json`
   holds one inventory entry per counted row of the research's inventory area
   files: the surface keys it covers (or `noSurfaceKey`, why no surface item
@@ -349,10 +350,14 @@ not general native parity for every possible predicate.
 soundness, located at the field) refuses a hidden field
 holding both a `calculate` and a `default_value`. JavaRosa runs the
 `xforms-ready` seeds first and then re-evaluates every calculate
-(`commcare-core` `FormDef::initialize`), so the default is overwritten before
-anyone could read it: schema-legal (both slots are optional so history
-hydrates) and a contradiction. With `hiddenNoValue` it partitions the hidden
-state space; the shared recognizer is `lib/domain/fields/hidden.ts`. The same
+(`commcare-core` `FormDef::initialize`), so the calculate's value is the one
+the field ends with; a later load-time setvalue can still read the default
+before that (run on Core: a hidden value with the default `'D'` and the
+calculate `'C'` ends as `C`, and a second value whose own default reads the
+first holds `D`). Nova does not yet write a Hidden Value's default beside its
+calculate (`lib/domain/fields/hidden.ts::HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). A
+hidden field with neither slot is admitted and opens blank; the shared
+recognizer is `lib/domain/fields/hidden.ts`. The same
 ordering is why the case preload below beats a `default_value` but never a
 `calculate` on a hidden writer.
 
@@ -443,8 +448,15 @@ that protected spelling too. Other prose retains its decoded text nodes.
 The character classifier mirrors these consumers, not JavaScript `trim()`.
 
 Plain literal validation messages emit the compatible bind `jr:constraintMsg`
-reference and a body `<alert>` pointing at the same itext entry. Empty and
-media-only messages retain that path and its shared entry gate.
+reference and a body `<alert>` pointing at the same itext entry. Empty messages
+retain that path and its shared entry gate. A field carries media on its label
+and its help text. A hint, a validation message and a group's or repeat's label
+carry none, because no CommCare runtime shows media there, so a protected
+validation message has no `__nova_mode;image`, `;audio`, `;video` or
+`;video-inline` form. For a validation message, commcare-android
+(`FormEntryActivity`) and Formplayer (`JsonActionUtils`) both read a
+constraint's text through Core's `FormEntryPrompt.getConstraintText()` with no
+text form.
 
 If any effective locale has a typed reference or decoded `${` literal,
 `xform/constraintMessage.ts` instead composes the raw constraint expression.
@@ -453,8 +465,9 @@ data. ASCII JSON literal forms under the original itext id preserve exact
 characters through HQ and Vellum. Typed values reuse the existing identity
 projection, form-context expansion and JavaRosa lowering. One reference stays
 a direct term; `concat(singleNodeset)` would silently join multiple nodes.
-Internal locale/mode forms select the effective wording; media modes delegate
-to the unchanged standard itext/media forms.
+Internal locale/mode forms select the effective wording. The expression's
+outer `if` on `jr:itext('<id>;__nova_mode') = 'media'` stays, and the message
+writes no `__nova_mode;<medium>` form, so it always takes the wording branch.
 Each protected group carries its base id in an inert `__nova_identity` form
 in every locale, preventing HQ from merging equal groups while leaving the
 suffix-based internal references pointed at a removed id.
@@ -478,7 +491,7 @@ client shows its existing localized validation warning, while zero/singleton
 references retain normal scalar coercion. The answer is still rejected and no
 row is selected or joined. A completely empty resolved message also uses that
 warning. This deliberately improves old exception/empty behavior rather than
-claiming identical error handling; media remains on its unchanged branch.
+claiming identical error handling.
 The admitted fixture runs through local CCZ, HQ source and HQ regeneration;
 the ordinary proof also builds it through HQ and saves it twice through Vellum.
 `XmlTextRuntimeTest` reads exact plain and Markdown prompts and validation
@@ -1051,7 +1064,9 @@ Structured value arithmetic preserves the domain's integer result: `expression/o
 
 The `<remote-request>` block's `<session>` carries ONE `<data key="_xpath_query">` element PER composed clause — the unified filter's top-level conjuncts, each advanced-arm search input's predicate, and each simple-arm input whose `(mode, via)` shape needs explicit-predicate emission. The server AND-composes every `_xpath_query` value it receives (`commcare-hq/corehq/apps/case_search/utils.py::_apply_filter` loops the multi-term criteria into one ES filter each; `commcare-core .../session/RemoteQuerySessionManager.java::getRawQueryParams` accumulates a `Multimap`, formplayer forwards repeated params, and Django folds them into a list at `corehq/apps/ota/views.py::app_aware_search`), so N small readable expressions filter identically to one fused mega-expression. On HQ JSON the same clauses land as N `default_properties[]` rows (`DefaultCaseSearchProperty` is a `SchemaListProperty`; CCHQ's `remote_requests.py::_remote_request_query_datums` loops every row into its own `<data>`).
 
-Each clause's on-device wrapper is the shortest correct shape: a constant-only clause is a bare XPath string literal (HQ's own static emission shape); an input-gated clause is the doc-canonical `if(count(<input>), <query>, 'match-all()')` presence cascade with its value guards inside the presence branch; a clause whose only runtime interpolation is one free-text string uses the flat quote cascade (double-quoted CSQL delimiters, flip to single on an embedded `"`, fail closed on both — CSQL has no escape syntax per `eulxml/xpath/lexrules.py::t_LITERAL`, and the fail-closed arm emits the deliberately invalid `search-value-mixes-quote-marks()` because Android never enforces prompt validation, making the on-device guard the injection defense there). The admitted `csqlQuoteFixture` is executed by Core's actual query manager and its complete payloads pass through native HQ compilation, including negation, OR, computed values and raw-query refusal independent of prompt errors. A `date`-widget input's value is picker-formatted on every runtime that binds it (Android doesn't support `input="date"` prompts at all), so it interpolates quote-free between fixed double-quote delimiters with no guard and no prompt validation.
+Each clause's on-device wrapper is the shortest correct shape: a constant-only clause is a bare XPath string literal (HQ's own static emission shape); an input-gated clause is the doc-canonical `if(count(<input>), <query>, 'match-all()')` presence cascade with its value guards inside the presence branch; a clause whose only runtime interpolation is one free-text string uses the flat quote cascade (double-quoted CSQL delimiters, flip to single on an embedded `"`, fail closed on both — CSQL has no escape syntax per `eulxml/xpath/lexrules.py::t_LITERAL`, and the fail-closed arm sends `match-none()`, the one value in HQ's query language that finds nothing, because Android never enforces prompt validation, making the on-device guard the injection defense there; on Android the worker then reads "Query response had no results" with the answer still editable). The admitted `csqlQuoteFixture` is executed by Core's actual query manager and its complete payloads pass through native HQ compilation, including negation, OR, computed values and raw-query refusal independent of prompt errors. A `date`-widget input's value is picker-formatted on every runtime that binds it (Android doesn't support `input="date"` prompts at all), so it interpolates quote-free between fixed double-quote delimiters with no guard and no prompt validation.
+
+A runtime value compared by any operator with `date_opened`, `closed_on` or `last_modified`, or by an ordering operator with any property, carries the typed obligation `blank-comparand` (`predicate/runtimeCsqlDateSafety.ts`): while the value is blank the whole clause is `match-none()`, because HQ's query raises on a blank there.
 
 The clause composition runs through `suite/case-search/xpathQuery.ts::composeXPathQueryEmission`, the single contract both the suite-XML emitter and the HQ-JSON emitter (`hqJson/caseList.ts::projectDefaultProperties`) consume. Simple-arm inputs that need explicit-predicate emission route through `suite/case-search/simpleArmDerivation.ts::deriveSimpleArmPredicate`, which lifts the `(property, mode, via)` shape to an advanced-style predicate (`when-input-present(input(name), op(prop, input(name)))`). Every search input still emits a prompt binding on both wire paths (`<prompt>` in local suite XML; `search_config.properties[]` in HQ JSON) because that is the only source CommCare uses to populate `instance('search-input:results')`. Every advanced prompt, plus every simple prompt routed through `_xpath_query`, emits `exclude="true()"` (suite XML) / `exclude: true` (HQ JSON): Core continues binding the typed value but does not ALSO submit the prompt key as an implicit exact case-property filter. Without that exclusion the automatic query parameter silently ANDs with the authored predicate; omitting an advanced `properties[]` row on HQ JSON removes the input from CCHQ's regenerated search screen entirely. Three CCHQ-runtime facts drive the routing rule:
 
@@ -1134,12 +1149,12 @@ row-dependent select-source findings are common to all three — a choice list
 whose saved values are blank or duplicated is equally broken however the table
 reached the device — and are `environment`-class, since rows change outside the
 document and must never gate a commit. What differs is what each CARRIER can
-hold: `ccz` takes the aggregate fixture budgets, and the HQ modes take
-`LOOKUP_HQ_PUSH_TOO_LARGE` (CommCare HQ's whole-workbook row ceiling) plus
-`LOOKUP_TAG_TOO_LONG_FOR_HQ` — a data sheet is NAMED for its tag and a sheet
-name holds 31 characters while a tag may be authored up to 32, so exactly one
-authorable length is unpushable and the boundary refuses it by name rather than
-letting the emitter meet a sheet it cannot name.
+hold: `ccz` takes the aggregate fixture budgets, and the HQ modes take one
+size verdict, `LOOKUP_HQ_PUSH_TOO_LARGE` (CommCare HQ's whole-workbook row
+ceiling). HQ's upload reads a 32-character sheet name, so a 32-character tag
+pushes. `LOOKUP_TAG_RESERVED_BY_RUNTIME` also refuses a referenced table whose
+tag contains `casedb` or `ledgerdb`, case-sensitively, naming the word in its
+details (`reservedWord`).
 
 Every real export surface enters through the Nova-neutral server seam at `lib/export/boundaryValidation.ts`, selecting `ccz`, `hq-json`, or `hq-upload`. That seam loads definitions and complete ordered rows in one snapshot on every mode, passes the exact available context into `evaluateBoundary`, and returns the same snapshot with prepared media and the mode's lookup carrier (`lookupWire` on `ccz`, `lookupWorkbook` on the two HQ modes). Emitters consume that returned generation and never perform a second lookup read; operational lookup failures stop before expansion, compilation, or HQ import.
 
@@ -1521,10 +1536,10 @@ no response body in logging so the provisioning caller preserves its credential.
 **The generated app shell carries the fields Nova authors, and in three keys
 the target's own part beside them.** HQ's update is an overlay merge
 (`_merge_source_into_app`): a field present in the source overwrites the HQ
-app's value, and an absent one is retained. So target-owned settings and
-state — `cloudcare_enabled`, `case_sharing`, `secure_submissions`, the
-build/release metadata, and the rest of HQ's app Settings page — are never
-emitted by `hqShells.ts::applicationShell`. Publish writes no `logo_refs`,
+app's value, and an absent one is retained. So app content Nova does not
+author yet (`cloudcare_enabled`, `case_sharing`) and target-owned settings and
+state (`secure_submissions`, the build/release metadata, and the rest of HQ's
+app Settings page) are never emitted by `hqShells.ts::applicationShell`. Publish writes no `logo_refs`,
 and an update takes out only an entry whose only key is `path`
 (`targetLogoRefs.ts::withoutPathOnlyLogoRefs`), which HQ's own uploader never
 stores. `cc-show-saved` and

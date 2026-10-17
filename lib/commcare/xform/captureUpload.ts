@@ -66,11 +66,11 @@ export const UPLOAD_MEDIATYPE_BY_CAPTURE_KIND: Record<
  * that carry none.
  *
  * `signature` is the only one. `face` is deliberately absent: Vellum
- * authors it (`mugs/types/media.js::FaceCapture`) but it is inert on
- * both runtimes Nova targets — Android's `WidgetFactory` has no `face`
- * branch and falls to `ImageWidget`, and the string appears nowhere in
- * cloudcare's entry code — so emitting it would decorate the wire with a
- * value nothing reads.
+ * authors it (`mugs/types/media.js::FaceCapture`), and Android's
+ * `WidgetFactory` draws an image question with that appearance with its
+ * `FaceCaptureWidget` (the lane's Android reader holds it:
+ * `proof/android/predicates.py`), but the string appears nowhere in
+ * cloudcare's entry code, and Nova offers no face capture.
  */
 export const UPLOAD_APPEARANCE_BY_CAPTURE_KIND: Record<
 	CaptureFieldKind,

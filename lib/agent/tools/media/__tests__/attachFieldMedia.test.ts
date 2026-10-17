@@ -70,12 +70,12 @@ describe("attachFieldMedia", () => {
 		).toEqual({ image: ASSET_IMG_1 });
 	});
 
-	it("sets a multi-slot bundle on the hint slot", async () => {
+	it("sets a multi-slot bundle on the help slot", async () => {
 		const h = makeMediaFixture();
 		await h.runTool(
 			attachFieldMediaTool,
 			input(
-				attachment(TEXT_FIELD, "hint", {
+				attachment(TEXT_FIELD, "help", {
 					image: ASSET_IMG_1,
 					audio: ASSET_AUD_1,
 				}),
@@ -83,8 +83,26 @@ describe("attachFieldMedia", () => {
 		);
 		const field = h.currentDoc().fields[TEXT_FIELD];
 		expect(
-			field && "hint_media" in field ? field.hint_media : undefined,
+			field && "help_media" in field ? field.help_media : undefined,
 		).toEqual({ image: ASSET_IMG_1, audio: ASSET_AUD_1 });
+	});
+
+	it("offers no slot for a hint's or a validation message's media", () => {
+		for (const slot of ["hint", "validate_msg"]) {
+			expect(
+				attachFieldMediaTool.inputSchema.safeParse({
+					attachments: [
+						{
+							moduleUuid: MOD_A,
+							formUuid: FORM_A,
+							fieldUuid: TEXT_FIELD,
+							slot,
+							media: { image: ASSET_IMG_1 },
+						},
+					],
+				}).success,
+			).toBe(false);
+		}
 	});
 
 	it("attaches to several fields in one batch", async () => {
@@ -156,16 +174,16 @@ describe("attachFieldMedia", () => {
 
 	it("refuses a slot the field's kind doesn't carry", async () => {
 		const h = makeMediaFixture();
-		// A hidden field carries no validate_msg media slot.
+		// A hidden field carries no help media slot.
 		const result = await h.runTool(
 			attachFieldMediaTool,
-			input(attachment(HIDDEN_FIELD, "validate_msg", { image: ASSET_IMG_1 })),
+			input(attachment(HIDDEN_FIELD, "help", { image: ASSET_IMG_1 })),
 		);
 
 		expect(result.mutations).toEqual([]);
 		const error = errorOf(result);
 		expect(error).toContain("hidden field");
-		expect(error).toContain("validate_msg");
+		expect(error).toContain("help");
 	});
 
 	it("returns an Elm-style error when the field id is unknown", async () => {
@@ -233,7 +251,7 @@ describe("attachFieldMedia", () => {
 		const h = makeMediaFixture();
 		const result = await h.runTool(
 			attachFieldMediaTool,
-			input(attachment(TEXT_FIELD, "hint", { image: ASSET_PENDING })),
+			input(attachment(TEXT_FIELD, "help", { image: ASSET_PENDING })),
 		);
 		expect(errorOf(result)).toContain("upload hasn't finished");
 		expect(result.mutations).toEqual([]);

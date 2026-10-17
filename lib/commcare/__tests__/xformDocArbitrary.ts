@@ -268,7 +268,7 @@ export function buildField(
 	}
 
 	if (spec.kind === "hidden") {
-		// hidden MUST carry a value (calculate/default) — HIDDEN_NO_VALUE.
+		// The drawn hidden field carries its drawn calculate.
 		ctx.fields[uuid] = {
 			uuid,
 			kind: "hidden",
@@ -401,18 +401,17 @@ export function buildField(
 		? DEFAULT_VALUE_BY_KIND[spec.kind]
 		: undefined;
 
-	// Media-slot lowering. The schema only carries `validate_msg_media` on
-	// validatable kinds (via the `inputFieldBaseSchema` union), so the
-	// validate_msg-slot is gated on `validatable` just like `validate_msg`.
-	// The other slots (`label_media` / `hint_media` / `help_media`) live on
-	// every input field, so they attach uniformly.
+	// Media-slot lowering. `label_media` and `help_media` live on every input
+	// field, so they attach uniformly. A hint and a validation message carry no
+	// media, yet the spec still draws media for both and their ids are still
+	// minted, gated as before: dropping the draws or the mints would move every
+	// id minted after them, and with them every document the sample holds.
 	const labelMedia = buildMediaSlot(ctx.minter, spec.media?.label);
-	const hintMedia = buildMediaSlot(ctx.minter, spec.media?.hint);
+	buildMediaSlot(ctx.minter, spec.media?.hint);
 	const helpMedia = buildMediaSlot(ctx.minter, spec.media?.help);
-	const validateMsgMedia =
-		validatable && spec.validate
-			? buildMediaSlot(ctx.minter, spec.media?.validateMsg)
-			: undefined;
+	if (validatable && spec.validate) {
+		buildMediaSlot(ctx.minter, spec.media?.validateMsg);
+	}
 
 	ctx.fields[uuid] = {
 		uuid,
@@ -441,9 +440,7 @@ export function buildField(
 			? { default_value: opaqueXPathExpression(typedDefault) }
 			: {}),
 		...(labelMedia ? { label_media: labelMedia } : {}),
-		...(hintMedia ? { hint_media: hintMedia } : {}),
 		...(helpMedia ? { help_media: helpMedia } : {}),
-		...(validateMsgMedia ? { validate_msg_media: validateMsgMedia } : {}),
 	};
 }
 
@@ -554,8 +551,10 @@ export type FieldGenSpec =
 			validateMsg?: string;
 			/** When set, attach the kind's type-matched `default_value`. */
 			wantsDefault?: boolean;
-			/** Optional `label_media`/`hint_media`/`help_media`/`validate_msg_media`
-			 *  populations. Slot kinds drawn from `image`/`audio`/`video`. */
+			/** Optional media draws for the label, hint, help and validation
+			 *  message. Only `label_media` and `help_media` are attached; the
+			 *  hint's and the message's draws stay so the sample's ids hold.
+			 *  Slot kinds drawn from `image`/`audio`/`video`. */
 			media?: FieldMediaSpec;
 	  }
 	| {
@@ -694,9 +693,10 @@ const leafSpecArb: fc.Arbitrary<FieldGenSpec> = fc.record(
 		// (DEFAULT_VALUE_BY_KIND) — exercising the `<setvalue>` path for every
 		// validatable kind, not just `text`.
 		wantsDefault: fc.boolean(),
-		// Optional media populations for the four message slots. `buildField`
-		// gates `validate_msg_media` on `validatable && validate` so the rolled
-		// slot is dropped on non-validatable kinds and absent-validate cases.
+		// Optional media draws for the four message slots. `buildField` attaches
+		// the label's and the help's, and mints the hint's and the validation
+		// message's (the latter only on `validatable && validate`) without
+		// attaching them, so every later draw keeps its id.
 		media: FIELD_MEDIA_SPEC_ARB,
 	},
 	{ requiredKeys: ["kind", "label"] },

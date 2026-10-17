@@ -219,6 +219,16 @@ const REAL_ENTRIES = {
 		entity: { type: "app", nameAtMigration: "Clinic visits" },
 		detail: { saved: "off", incomplete: "on" },
 	},
+	"lookup-tag-renamed": {
+		kind: "document",
+		reason: "lookup-tag-renamed",
+		entity: {
+			type: "lookupTable",
+			uuid: "01992000-0000-7000-8000-0000000000c1",
+			nameAtMigration: "Clinics",
+		},
+		detail: { from: "clinic_casedb_codes", to: "clinic_case_db_codes" },
+	},
 	"validation-now-enforced": {
 		kind: "document",
 		reason: "validation-now-enforced",
@@ -272,6 +282,26 @@ const REAL_ENTRIES = {
 		},
 		detail: { question: "Full name" },
 	},
+	"media-slot-removed": {
+		kind: "document",
+		reason: "media-slot-removed",
+		entity: {
+			type: "field",
+			uuid: "01992000-0000-7000-8000-0000000000e6",
+			nameAtMigration: "address",
+		},
+		detail: { form: "Visit", slot: "hint", media: "image" },
+	},
+	"hidden-value-saves-blank": {
+		kind: "document",
+		reason: "hidden-value-saves-blank",
+		entity: {
+			type: "field",
+			uuid: "01992000-0000-7000-8000-0000000000e5",
+			nameAtMigration: "status_seed",
+		},
+		detail: { form: "Register", property: "visit_status" },
+	},
 	"search-button-text-changed": {
 		kind: "document",
 		reason: "search-button-text-changed",
@@ -301,6 +331,26 @@ const REAL_ENTRIES = {
 			nameAtMigration: "include_closed",
 		},
 		detail: { menu: "Patients", expressions: "2" },
+	},
+	"time-comparison-never-true": {
+		kind: "document",
+		reason: "time-comparison-never-true",
+		entity: {
+			type: "field",
+			uuid: "01992000-0000-7000-8000-0000000000e4",
+			nameAtMigration: "late",
+		},
+		detail: { form: "Visit", comparison: "#form/start > '17:00'" },
+	},
+	"search-term-matches-nothing": {
+		kind: "document",
+		reason: "search-term-matches-nothing",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a1",
+			nameAtMigration: "Patients",
+		},
+		detail: { term: "date_opened is blank" },
 	},
 	"hidden-from-menu-set": {
 		kind: "document",
@@ -403,6 +453,17 @@ const REAL_ENTRIES = {
 				nameAtMigration: "Clinics",
 			},
 		],
+	},
+	"lookup-table-content-unsupported": {
+		...deploymentEntry("lookup-table-content-unsupported"),
+		entities: [
+			{
+				type: "lookupTable",
+				uuid: "01992000-0000-7000-8000-0000000000c1",
+				nameAtMigration: "Clinics",
+			},
+		],
+		detail: { holds: "field-properties,owned-rows" },
 	},
 } as const;
 

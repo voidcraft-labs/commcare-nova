@@ -73,6 +73,7 @@ import {
 	plannedPlacesFor,
 } from "./locationResourcePlan";
 import {
+	describeUnsupportedLookupContent,
 	type PlannedLookupPush,
 	planLookupResourcePush,
 } from "./lookupResourcePlan";
@@ -86,6 +87,7 @@ import {
 	HQ_CHANGES_CONFIRMED_DETAIL,
 	HQ_CHANGES_NONE_DETAIL,
 	HQ_CHANGES_NOTHING_TO_COMPARE_DETAIL,
+	LOOKUP_DISCARD_NOTE,
 } from "./remoteChanges";
 import {
 	type DeploymentTargetKey,
@@ -286,6 +288,8 @@ export type PreflightResult =
 export interface LookupPushPlan {
 	readonly workbook: LookupWorkbook;
 	readonly pushes: readonly PlannedLookupPush[];
+	/** The author's name for each table, by Nova table id. */
+	readonly names: ReadonlyMap<string, string>;
 }
 
 /**
@@ -427,6 +431,7 @@ function blockedOutcome(
 		| "project_space_incompatible"
 		| "hq_resource_state_unknown"
 		| "hq_resource_conflict"
+		| "hq_table_content_unsupported"
 		| "hq_organization_mismatch"
 		| "hq_app_state_unknown"
 		| "remote_app_missing"
@@ -442,6 +447,13 @@ function blockedOutcome(
 } {
 	return { status: "failed", at: now, failure: { code, message, details } };
 }
+
+/**
+ * Why a publish stops over a lookup table HQ holds with content Nova's push
+ * would remove. One line per table follows it.
+ */
+export const LOOKUP_CONTENT_UNSUPPORTED_MESSAGE =
+	"Nova can't keep everything CommCare HQ holds in this app's lookup tables yet, so it stopped before sending anything: publishing over them would remove it. You can give a table a new export tag in Project data, and Nova then publishes its own table and leaves CommCare HQ's as it is.";
 
 /** "1 lookup table" / "3 lookup tables", counted for a sentence. */
 function describeTableCount(count: number): string {
@@ -759,6 +771,35 @@ export async function runDeploymentPreflight(
 				(definition) => [definition.id, definition.name] as const,
 			),
 		);
+		/* Content Nova's push would remove refuses before the drift
+		 * comparison and before any conflict, so it never shows a discard or
+		 * an adoption offer: neither keeps that content, and a new export tag
+		 * settles both. */
+		if (!plan.ok && "unsupported" in plan) {
+			const lines = plan.unsupported.map(
+				(table) =>
+					`The table ${nameByTableId.get(table.tableId) ?? table.tag} holds ${describeUnsupportedLookupContent(table.holds)} in CommCare HQ.`,
+			);
+			checks.push({
+				id: "project-data",
+				title: "Project data",
+				status: "blocked",
+				detail: LOOKUP_CONTENT_UNSUPPORTED_MESSAGE,
+				items: lines,
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(
+					input.now,
+					"hq_table_content_unsupported",
+					LOOKUP_CONTENT_UNSUPPORTED_MESSAGE,
+					lines,
+				),
+				ready: null,
+				projectSpaceCompatibility: null,
+				conflicts: [],
+			};
+		}
 		if (!plan.ok) {
 			const conflicts: readonly DeploymentResourceConflict[] =
 				plan.conflicts.map((conflict) => ({
@@ -789,7 +830,7 @@ export async function runDeploymentPreflight(
 				conflicts,
 			};
 		}
-		lookupPush = { workbook, pushes: plan.pushes };
+		lookupPush = { workbook, pushes: plan.pushes, names: nameByTableId };
 
 		/* Each table this deployment mapped under the tag it still plans, the
 		 * table there now or the one HQ deleted or renamed since. A table
@@ -1401,17 +1442,21 @@ async function lookupRemoteChange(input: {
 	readonly hqTables: readonly HqLookupTable[];
 	readonly baseline: ResourceBaseline | undefined;
 }): Promise<DeploymentRemoteChange | null | "unreadable"> {
+	/* A discard of a change to the table HQ still holds under this tag and
+	 * id replaces that table, so it carries the note; a deleted table is gone
+	 * and a renamed one is left alone, so theirs carry none. */
 	const change = (
 		parts: readonly string[],
 		observedDigest: string,
 		baselineKnown: boolean,
+		note: string | null = LOOKUP_DISCARD_NOTE,
 	): DeploymentRemoteChange => ({
 		kind: "lookup-table",
 		novaResourceId: input.tableId,
 		name: input.name,
 		identity: input.tag,
 		parts,
-		note: null,
+		note,
 		observedDigest,
 		baselineKnown,
 	});
@@ -1423,7 +1468,7 @@ async function lookupRemoteChange(input: {
 		tables: input.hqTables,
 	});
 	if (moved?.kind === "deleted") {
-		return change([describe(moved)], ABSENT_RESOURCE_DIGEST, true);
+		return change([describe(moved)], ABSENT_RESOURCE_DIGEST, true, null);
 	}
 	if (moved?.kind === "renamed") {
 		const renamed = input.hqTables.find(
@@ -1434,7 +1479,12 @@ async function lookupRemoteChange(input: {
 				`The lookup table ${input.mappedRemoteId} read as renamed is not in the list it was read from.`,
 			);
 		}
-		return change([describe(moved)], lookupDefinitionDigest(renamed), true);
+		return change(
+			[describe(moved)],
+			lookupDefinitionDigest(renamed),
+			true,
+			null,
+		);
 	}
 	/* The planner pushes over a table under this tag only when it is the
 	 * mapped one, so the table here has the mapped id. */

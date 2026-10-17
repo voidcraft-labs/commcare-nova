@@ -45,6 +45,7 @@ import {
 } from "./geopoint";
 import { type GroupField, groupFieldMetadata, groupFieldSchema } from "./group";
 import {
+	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
 	type HiddenField,
 	hiddenFieldCarriesBothValueSources,
 	hiddenFieldMetadata,
@@ -530,9 +531,8 @@ export function convertNeedsOptionSeed(
  *     seedless attempt fails the parse and the reducer no-ops.
  *   - `text` → `hidden`: label / hint / required / validate drop (hidden
  *     declares none of them); id / case binding / relevant /
- *     default_value survive. The `HIDDEN_NO_VALUE` validator still wants
- *     a `calculate` or `default_value` on the result — the commit gate
- *     adjudicates that, not this function.
+ *     default_value survive. A result with neither `calculate` nor
+ *     `default_value` is a valid hidden value that stays blank.
  *   - `single_select` → `text`: `optionsSource` drops; everything else carries.
  *   - Capture subkinds (image/audio/video/signature/file): identity +
  *     label + hint + required + relevant carry over, and so does
@@ -718,7 +718,6 @@ export type { SelectOption } from "./base";
 // and by the SA tool schema generator for the `options` field on select tools).
 export {
 	DEFAULT_SELECT_OPTIONS,
-	HIDDEN_INERT_VALUE,
 	isMintedSelectOptionPlaceholder,
 	mintSelectOptionPlaceholder,
 	selectOptionSchema,
@@ -758,4 +757,4 @@ export type {
 	UserControlledRepeatField,
 	VideoField,
 };
-export { hiddenFieldCarriesBothValueSources };
+export { HIDDEN_VALUE_ONE_SOURCE_SENTENCE, hiddenFieldCarriesBothValueSources };

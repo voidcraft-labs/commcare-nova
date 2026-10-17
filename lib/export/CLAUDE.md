@@ -51,9 +51,9 @@ blocks up front (`lookupWire` carries the naming and the exact serialized
 elements the budget measured) and takes the aggregate 10,000-row /
 100,000-cell / 16 MiB budget (`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`). `hq-json` and
 `hq-upload` build the fixapi workbook (`lookupWorkbook`) and take CommCare HQ's
-whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`) plus
-`LOOKUP_TAG_TOO_LONG_FOR_HQ`, which refuses a tag no data sheet could be named
-for BEFORE the workbook is built, so the builder stays a total function.
+whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`), their one size
+verdict. A 32-character tag pushes, so the workbook builder is total over every
+tag the schema admits.
 Select-source option validity over complete tables (`LOOKUP_SELECT_SOURCE_*`)
 is common to all three: a choice list whose saved values are blank or
 duplicated is equally broken however the table reached the device. All are

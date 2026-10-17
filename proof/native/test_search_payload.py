@@ -5,7 +5,8 @@ navigation searches (``NavigationRuntimeTest``, both paths) compiles in HQ's
 CSQL compiler (``case_search/filter_dsl.py::build_filter_from_xpath``) to the
 complete filter the document means: date and datetime arithmetic resolved,
 day ranges as UTC half-open bounds on the right property, unsupplied inputs
-matching everything. Each query Core builds from Nova's nested CSQL
+matching everything, and a day range answered blank matching nothing
+(``match-none()``, where HQ's range query refuses a blank comparand). Each query Core builds from Nova's nested CSQL
 functions (``CsqlFunctionRuntimeTest``) compiles to its exact property
 equality, and each argument tree HQ's parser reads from them has the
 relation and case-type structure Nova emits. A property wrapped in a value
@@ -96,6 +97,11 @@ def _bounded_property(query):
 def _expected_navigation(scenario, supplied, query):
     if supplied == "false":
         return {"match_all": {}}
+    if supplied == "blank":
+        # A present, blank answer to an ordered bound: Nova's guard sends match-none() in place of the range HQ
+        # would refuse (``lib/commcare/predicate/runtimeCsqlDateSafety.ts``).
+        assert scenario == "day-range" and query == "match-none()", (scenario, query)
+        return {"match_none": {}}
     if scenario == "date-add":
         return property_equality("visit_date", "2024-03-07")
     if scenario == "datetime-add":
@@ -143,7 +149,7 @@ def _check_queries(state, payloads, corpus):
         results.append(
             {
                 "scenario": scenario,
-                "supplied": supplied if corpus == "function" else supplied == "true",
+                "supplied": supplied if corpus == "function" else supplied,
                 "query": query,
                 "filter": result,
             }
@@ -155,8 +161,11 @@ def test_hq_compiles_cores_navigation_queries_to_the_meant_filters(native):
     payloads = native.core_artifact("navigation", "nova-search-payloads.tsv", "NavigationRuntimeTest")
     with native_check(DOMAIN) as (state, _):
         results = _check_queries(state, payloads, "navigation")
-        assert len(results) == 10
-        assert [row["scenario"] for row in results] == ["date-add"] * 2 + ["datetime-add"] * 2 + ["day-range"] * 6
+        assert len(results) == 13
+        assert [row["scenario"] for row in results] == ["date-add"] * 2 + ["datetime-add"] * 2 + ["day-range"] * 9
+        assert [row["supplied"] for row in results if row["scenario"] == "day-range"] == (
+            ["false"] * 3 + ["true"] * 3 + ["blank"] * 3
+        )
         assert _refused(state, 'date(visit_date) = date("2024-02-29")'), (
             "Native CSQL accepted a function where a property is required"
         )

@@ -13,6 +13,10 @@
  * (`forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held`,
  * `load-changes-values`), which otherwise only the fuzz sample shows.
  *
+ * Beside them, a Hidden Value with neither a calculate nor a default: a data
+ * node with a bare bind and no `setvalue`, which HQ's form builder keeps as
+ * it is and Core opens blank.
+ *
  * Fixed values: opened on the patient Amina, the weight a worker enters is
  * the weight the form holds.
  */
@@ -67,6 +71,7 @@ export function loadTimeValues() {
 								label: proseText("Note"),
 								default_value: "concat('was ', #form/weight)",
 							}),
+							f({ kind: "hidden", uuid: uuid("bare"), id: "bare" }),
 						],
 					},
 				],

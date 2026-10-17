@@ -30,16 +30,9 @@ describe("NEW_FIELD_BUILDERS — every kind's starter field is schema-valid", ()
 		expect("label" in built).toBe(false);
 	});
 
-	it("births a hidden field set once with the inert default as its only value source", () => {
-		// The inert `''` lands in `default_value`, never in `calculate`: a
-		// hidden field carries one value source, and an inert calculation on
-		// a writer to the loaded case would write nothing over the case's
-		// value on every submission, where an inert default is replaced by
-		// that value before anyone reads it.
+	it("births a hidden field holding neither value slot", () => {
 		const built = NEW_FIELD_BUILDERS.hidden("new_hidden", "ignored");
-		expect(built.kind === "hidden" ? built.default_value : undefined).toEqual({
-			parts: [{ kind: "text", text: "''" }],
-		});
+		expect("default_value" in built).toBe(false);
 		expect("calculate" in built).toBe(false);
 	});
 
@@ -58,9 +51,7 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 	// Schema-valid is necessary but not sufficient: the insert dispatches
 	// through `useBlueprintMutations`' gate, which also runs the validator
 	// rules, and a starter that any rule flags as soundness is a DEAD menu
-	// item (the insert is rejected on every attempt, in both phases). The
-	// `hidden` starter shipped exactly that way once (no value source →
-	// HIDDEN_NO_VALUE), which is why it now seeds `default_value: "''"`.
+	// item (the insert is rejected on every attempt, in both phases).
 	// This sweep is the dissolution-style proof for the whole picker: a
 	// starter the gate would refuse fails the suite the day it's authored.
 	function pickerDoc() {

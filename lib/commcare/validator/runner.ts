@@ -660,5 +660,8 @@ function humanizeXPathError(
 
 		case "TYPE_ERROR":
 			return `${where} has a type mismatch: ${error.message}. This will likely produce unexpected results at runtime.`;
+
+		case "XPATH_TIME_ORDERING":
+			return `${where} compares a time of day with before or after: ${error.message} Compare a date, or a time with =.`;
 	}
 }

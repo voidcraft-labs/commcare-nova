@@ -1,12 +1,15 @@
 /**
  * `targeted-media-slots` (defect 16, the media slots Nova offers): a survey
- * whose one group's label names an image, and whose one question inside it
- * names an image, a sound and a video on its label, an image on its hint and
- * an image on its validation message. Each runtime the lane runs is shown
- * every slot Nova writes, so what a worker sees of each is read where it is
- * drawn: Formplayer's answers and the Web Apps client's screens
- * (`proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`),
- * and a device's screens in every walk of every state a shard serves.
+ * whose one group holds one question that names an image, a sound and a
+ * video on its label, beside a hint and a validation message that carry text
+ * alone. The group's label, the hint and the message held media before
+ * defect 16 took those slots out of the model; Formplayer's and the Web Apps
+ * client's tests write the form as Nova emitted it then over a fork of this
+ * document's published app (`proof/formplayer/media_slots/`), and read where
+ * each slot is drawn: Formplayer's answers and the Web Apps client's screens
+ * (`proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`).
+ * The question's label media stays Nova's own export, the accepted case, and
+ * a device's screens hold it in every walk of every state a shard serves.
  *
  * The question's constraint takes `proof`, the answer table's second text,
  * and refuses its first, which ends in white space: every walk is shown the
@@ -47,7 +50,6 @@ export function mediaSlots() {
 								uuid: uuid("household"),
 								id: "household",
 								label: proseText("Household"),
-								label_media: { image: mediaIds.option },
 								children: [
 									f({
 										kind: "text",
@@ -60,10 +62,8 @@ export function mediaSlots() {
 											video: mediaIds.video,
 										},
 										hint: proseText("Write the street"),
-										hint_media: { image: mediaIds.icon },
 										validate: ". = 'proof'",
 										validate_msg: proseText("Write proof"),
-										validate_msg_media: { image: mediaIds.alias },
 									}),
 								],
 							}),

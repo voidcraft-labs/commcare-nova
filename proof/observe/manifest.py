@@ -92,7 +92,8 @@ def uploads_of(document):
         steps = [("create", export.create)]
         if export.two_imports:
             steps.append(("content", export.content))
-        steps.append(("republish", export.republish))
+        if export.republish is not None:
+            steps.append(("republish", export.republish))
         for step, captured in steps:
             found.append((f"{name}/{step}", captured, export.directory / f"{step}.json"))
     if document.edit is not None:

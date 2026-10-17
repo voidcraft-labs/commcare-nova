@@ -12,9 +12,11 @@ import {
 	concat,
 	count,
 	dateAdd,
+	datetimeCoerce,
 	double,
 	eq,
 	gt,
+	gte,
 	input,
 	isBlank,
 	matchAll,
@@ -29,7 +31,9 @@ import {
 } from "@/lib/domain/predicate";
 import { evaluateAsync } from "../../xpath/asyncEvaluator";
 import { toBoolean } from "../../xpath/coerce";
+import type { PreviewSearchSessionValues } from "../identity";
 import {
+	searchFindsNothing,
 	searchInputRuntimeGlobalError,
 	searchInputRuntimeQuoteErrors,
 	searchInputSubmissionErrors,
@@ -664,5 +668,45 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 		expect(
 			searchInputSubmissionErrors(quoted, "patient", value).get("query"),
 		).toBe("Leave the query blank.");
+	});
+});
+
+describe("searchFindsNothing", () => {
+	const config: CaseListConfig = resolveCaseListConfig({
+		columns: [],
+		searchInputs: [],
+		filter: gte(
+			prop("patient", "date_opened"),
+			datetimeCoerce(term(sessionUser("visit_day"))),
+		),
+	});
+	const session = (
+		visitDay: string | undefined,
+	): PreviewSearchSessionValues => ({
+		context: {},
+		user: visitDay === undefined ? {} : { visit_day: visitDay },
+		userPropertySlugs: {},
+	});
+
+	it("finds nothing, with no message, while a session value compared with date_opened is blank", () => {
+		for (const blank of [undefined, ""]) {
+			expect(
+				searchFindsNothing(config, "patient", new Map(), session(blank)),
+			).toBe(true);
+			expect(
+				searchInputRuntimeGlobalError(
+					config,
+					"patient",
+					new Map(),
+					session(blank),
+				),
+			).toBeUndefined();
+		}
+	});
+
+	it("searches once the value holds a date", () => {
+		expect(
+			searchFindsNothing(config, "patient", new Map(), session("2026-01-01")),
+		).toBe(false);
 	});
 });

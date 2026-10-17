@@ -36,6 +36,8 @@ export const migrationNoticeCutoverSchema = z.enum(MIGRATION_NOTICE_CUTOVERS);
  * A reason joins the list at its place in that order, never at the end.
  */
 export const DOCUMENT_NOTICE_REASONS = [
+	"media-slot-removed",
+	"hidden-value-saves-blank",
 	"search-button-text-changed",
 	"question-renamed",
 	"case-operation-renamed",
@@ -48,6 +50,8 @@ export const DOCUMENT_NOTICE_REASONS = [
 	"session-read-removed",
 	"search-input-renamed",
 	"search-input-removed",
+	"time-comparison-never-true",
+	"search-term-matches-nothing",
 	"hidden-from-menu-set",
 	"after-submit-destination-moved",
 	"id-mapping-entry-removed",
@@ -57,6 +61,7 @@ export const DOCUMENT_NOTICE_REASONS = [
 	"order-rule-moved-to-first-column",
 	"tile-cell-defaults-set",
 	"android-form-lists-setting-stored",
+	"lookup-tag-renamed",
 	"validation-now-enforced",
 	"follow-up-now-touches-case",
 	"linked-follow-up-now-writes-case",
@@ -94,6 +99,7 @@ export const DEPLOYMENT_NOTICE_REASONS = [
 	"setting-changes-at-next-publish",
 	"settings-unknown-unreadable",
 	"worker-settings-reset-at-next-publish",
+	"lookup-table-content-unsupported",
 ] as const;
 export type DeploymentNoticeReason = (typeof DEPLOYMENT_NOTICE_REASONS)[number];
 

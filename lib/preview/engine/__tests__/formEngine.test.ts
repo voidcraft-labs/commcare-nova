@@ -208,6 +208,20 @@ function fixedWorldEvaluator(engine: FormEngine, worldKey: string) {
 }
 
 describe("FormEngine", () => {
+	it("opens a hidden value with neither a calculate nor a default blank", () => {
+		const engine = new FormEngine(
+			dTree(
+				[
+					{ id: "bare", kind: "hidden" },
+					{ id: "seeded", kind: "hidden", default_value: xp("'x'") },
+				],
+				"survey",
+			),
+		);
+		expect(engine.getState("/data/bare").value).toBe("");
+		expect(engine.getState("/data/seeded").value).toBe("x");
+	});
+
 	it.each(["phone", "email"])(
 		"saves only participating ordinary writers after switching to %s",
 		(method) => {

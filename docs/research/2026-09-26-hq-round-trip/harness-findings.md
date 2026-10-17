@@ -1377,6 +1377,16 @@ in its own comment while answering 200
 `fixtures/const.py::LOOKUP_TABLE_TAG_MAX_LENGTH` is 31, which HQ's own table
 page enforces and its upload does not.
 
+HQ's lookup upload removes a table's description, which no workbook can
+carry: the reader builds each table without one
+(`fixtures/upload/workbook.py::_FixtureWorkbook.iter_tables`), and the
+description is part of the key the upload matches a held table by
+(`fixtures/upload/run_upload.py::table_key`), so an upload over a described
+table deletes it and makes it again under a new id with no description. HQ's
+own download of a described table, uploaded back unchanged, does the same,
+with `replace` and without. The table's indexed flags are in that key too,
+and no API-key read returns either.
+
 An ID-mapping cell reads with a leading space for every entry but the first:
 HQ joins every entry's text with a space
 (`suite_xml/xml_models.py::XPathEnum.build`, `replace(join(' ', …))`), and

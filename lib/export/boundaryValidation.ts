@@ -33,7 +33,6 @@ import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourc
 import {
 	buildLookupWorkbook,
 	type LookupWorkbook,
-	MAX_HQ_FIXTURE_SHEET_NAME_LENGTH,
 	MAX_HQ_FIXTURE_WORKBOOK_ROWS,
 	TYPES_SHEET,
 } from "@/lib/commcare/lookup/workbook";
@@ -406,10 +405,7 @@ function lookupExportFindings(
 			: lookupFixtureBudgetFindings(lookupRows.fixtures)),
 		...(lookupRows.hqNaming === undefined
 			? []
-			: [
-					...lookupHqSheetNameFindings(lookupRows.hqNaming),
-					...lookupHqReservedTagFindings(lookupRows.hqNaming),
-				]),
+			: lookupHqReservedTagFindings(lookupRows.hqNaming)),
 		...(lookupRows.workbook === undefined
 			? []
 			: lookupWorkbookBudgetFindings(lookupRows.workbook)),
@@ -417,49 +413,15 @@ function lookupExportFindings(
 }
 
 /**
- * Whether any referenced tag is too long to be a data sheet's name.
+ * Whether any referenced tag is `types`, the one name a data sheet cannot
+ * take.
  *
  * Read before the workbook is built, because the builder cannot name a
  * sheet it has no legal name for; the boundary refuses first so the
  * emitter stays total.
  */
 function hasUnpushableTag(naming: LookupWireNaming): boolean {
-	return naming.tables.some(
-		(table) =>
-			table.tag.length > MAX_HQ_FIXTURE_SHEET_NAME_LENGTH ||
-			table.tag.toLowerCase() === TYPES_SHEET,
-	);
-}
-
-/**
- * The tags CommCare HQ's fixture upload has no way to address.
- *
- * A table's rows travel on a sheet NAMED for its export tag, and a sheet
- * name holds at most 31 characters while a tag may be authored up to 32.
- * That one length is unpushable, and CommCare HQ's own answer for it is
- * "worksheet not found" against a sheet the author never named, so Nova
- * says which tag and how to fix it. Applies to both HQ modes, and to
- * neither the archive (whose fixtures are addressed by element name) nor
- * a commit, since a table's tag is Project data rather than app state.
- */
-function lookupHqSheetNameFindings(
-	naming: LookupWireNaming,
-): ValidationError[] {
-	return naming.tables
-		.filter((table) => table.tag.length > MAX_HQ_FIXTURE_SHEET_NAME_LENGTH)
-		.map((table) =>
-			validationError(
-				"LOOKUP_TAG_TOO_LONG_FOR_HQ",
-				"app",
-				`CommCare HQ reads each lookup table from a sheet named for its export tag, and a sheet name holds at most ${MAX_HQ_FIXTURE_SHEET_NAME_LENGTH} characters. The export tag ${table.tag} is ${table.tag.length}. Shorten it in Project data, then try again.`,
-				{},
-				{
-					tag: table.tag,
-					tagLength: String(table.tag.length),
-					tagAllowed: String(MAX_HQ_FIXTURE_SHEET_NAME_LENGTH),
-				},
-			),
-		);
+	return naming.tables.some((table) => table.tag.toLowerCase() === TYPES_SHEET);
 }
 
 /**

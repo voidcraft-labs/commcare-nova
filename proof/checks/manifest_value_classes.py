@@ -642,11 +642,14 @@ def _constraint_carrier_name(name, source):
 
 
 def _protected_message_values(form, base):
-    """All translations' finite helper forms and payloads, or None for a group outside this class."""
-    modes = {"__nova_mode": "plain", "__nova_mode;markdown": "plain"} | {
-        f"__nova_mode;{media}": "media" for media in ("image", "audio", "video", "video-inline")
-    }
-    required = set(modes) | {"__nova_identity", "__nova_locale", "__nova_locale;markdown"}
+    """All translations' finite helper forms and payloads, or None for a group outside this class.
+
+    A message holds its four media modes (``__nova_mode;image``, ``;audio``, ``;video``, ``;video-inline``) all
+    or none, the same in every translation: Nova writes none, since a validation message carries no media
+    (defect 16), and a retained control keeps the four it was emitted with."""
+    media_modes = {f"__nova_mode;{media}": "media" for media in ("image", "audio", "video", "video-inline")}
+    modes = {"__nova_mode": "plain", "__nova_mode;markdown": "plain"} | media_modes
+    always = {"__nova_mode", "__nova_mode;markdown", "__nova_identity", "__nova_locale", "__nova_locale;markdown"}
     allowed = {None, "markdown", "image", "audio", "video", "video-inline"}
     held, elements = None, set()
     if not form.translations:
@@ -664,6 +667,10 @@ def _protected_message_values(form, base):
         if None not in values or "markdown" not in values:
             return None
         internal = set(values) - allowed
+        held_media = internal & set(media_modes)
+        if held_media and held_media != set(media_modes):
+            return None
+        required = always | held_media
         pieces = set()
         for name in internal - required:
             ordinal = name.removesuffix(";markdown").removeprefix("__nova_piece_")
@@ -4635,12 +4642,20 @@ NON_TIME_CALLS = frozenset(
 )
 
 
+# The case's system dates, which a suite's case list expression reads by name off the case node, never a time of
+# day: Core's casedb holds ``date_opened`` and ``last_modified`` as ``DateData``
+# (``CaseChildElement``'s case node), and ``closed_on``, HQ's third system datetime
+# (``corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY``), is no child Core builds there, so it reads blank.
+SYSTEM_DATE_NAMES = frozenset({"date_opened", "closed_on", "last_modified"})
+
+
 def time_operand(use, manifest):
     """``expressions-and-data/or-with-a-time-on-either-side-a-time-answer-property-or-string``: a relational
     comparison (``<``, ``<=``, ``>``, ``>=``: Core's ``XPathCmpExpr``) with a time on either side, which Core
     compares as a number, a string holding ``:`` being NaN (``FunctionUtils.toNumeric``). Each side is read over the
     expression's structure as HQ's XPath grammar reads it (``_time_kind``); a side whose value this does not read (a
-    case property, a lookup table's field, a value only the run time knows) leaves it open."""
+    case property other than the three system dates, a lookup table's field, a value only the run time knows) leaves
+    it open."""
     document, text = _expression_at(use)
     if document is None or text is None:
         return None
@@ -4705,6 +4720,8 @@ def _time_kind(manifest, document, tree, context, seen):
             return None
         kinds = {_time_kind(manifest, document, branch, context, seen) for branch in branches}
         return True if True in kinds else None if None in kinds else False
+    if kind == "path" and document.kind == "runtime" and _system_date_read(tree):
+        return False
     if kind == "path" and document.kind == "xform":
         if tree[1] == "absolute":
             path = _resolved("/", tree[4])
@@ -4714,6 +4731,14 @@ def _time_kind(manifest, document, tree, context, seen):
             return None
         return None if path is None else _time_node(manifest, document, path, seen)
     return None
+
+
+def _system_date_read(tree):
+    """Whether a path is a bare read, by name, of one of the case's system dates (``SYSTEM_DATE_NAMES``)."""
+    if tree[1] != "relative" or tree[3] or len(tree[4]) != 1:
+        return False
+    axis, test, predicates = tree[4][0]
+    return axis == "child" and test in SYSTEM_DATE_NAMES and not predicates
 
 
 def _time_node(manifest, form, path, seen):

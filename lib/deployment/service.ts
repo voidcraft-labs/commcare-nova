@@ -49,7 +49,11 @@ import {
 import { publishedEntryPoints } from "./entryPointManifest";
 import type { PublishedEntryPointManifest } from "./entryPointTypes";
 import { DeploymentError } from "./errors";
-import { canonicalLookupTable, canonicalPlace } from "./hqResourceBaseline";
+import {
+	canonicalLookupTable,
+	canonicalPlace,
+	lookupDefinitionChange,
+} from "./hqResourceBaseline";
 import { diffHqAppSource, normalizeHqAppSource } from "./hqSourceBaseline";
 import {
 	type HqImportApplicationResult,
@@ -71,6 +75,7 @@ import {
 	APP_PREVIEW_NOTE,
 	APP_READ_BACK_FAILED_WARNING,
 	HQ_CHANGED_DURING_PUSH_MESSAGE,
+	lookupTableMadeAgainWarning,
 	RESOURCES_READ_BACK_FAILED_WARNING,
 } from "./remoteChanges";
 import {
@@ -97,6 +102,7 @@ import {
 	type RecordRemoteResourceInput,
 	readDeployment,
 	readDeploymentIdentityOverrides,
+	readResourceBaselines,
 	recordCreatedRemoteApp,
 	recordPushedResources,
 	recordRemoteResource,
@@ -104,6 +110,7 @@ import {
 import type {
 	AppBaselineWrite,
 	AppOwnership,
+	CanonicalLookupTable,
 	DeploymentAttemptRefusal,
 	DeploymentConfirmationKey,
 	DeploymentFailure,
@@ -866,6 +873,7 @@ export async function publishAppToHq(
 			if (pushed.readBackFailed) {
 				resourceWarnings.push(RESOURCES_READ_BACK_FAILED_WARNING);
 			}
+			resourceWarnings.push(...pushed.warnings);
 			/* Even a refused push can have left tables over there — CommCare
 			 * HQ's `warning` verdict means it took part of the workbook — and
 			 * `pushLookupTables` records those before it returns. Reading its
@@ -1392,6 +1400,8 @@ async function pushLookupTables(
 	readonly deployment: DeploymentWithResources | null;
 	/** Some table this push may have changed could not be read back. */
 	readonly readBackFailed: boolean;
+	/** What the person should know of a push that landed. */
+	readonly warnings: readonly string[];
 }> {
 	/* The tables this deployment mapped before the push, which it may have
 	 * rewritten whether or not the push reports success. */
@@ -1399,6 +1409,13 @@ async function pushLookupTables(
 		push.mappedRemoteId === null
 			? []
 			: [{ kind: "lookup-table" as const, remoteId: push.mappedRemoteId }],
+	);
+	/* Read before the push writes over them: a table HQ makes again under a
+	 * new id is named only where its baseline shows the definition unchanged. */
+	const priorBaselines = new Map(
+		(await readResourceBaselines(scope, target, mappedRefs)).map(
+			(baseline) => [baseline.remoteId, baseline] as const,
+		),
 	);
 	const upload = await uploadLookupTableWorkbook(
 		creds,
@@ -1415,6 +1432,7 @@ async function pushLookupTables(
 			failure: lookupUploadFailure(refusal, domain, createdApp),
 			deployment: null,
 			readBackFailed: false,
+			warnings: [],
 		};
 	}
 
@@ -1432,6 +1450,7 @@ async function pushLookupTables(
 				failure: lookupUploadFailure(refusal, domain, createdApp),
 				deployment: null,
 				readBackFailed: true,
+				warnings: [],
 			};
 		}
 		return {
@@ -1442,6 +1461,7 @@ async function pushLookupTables(
 			},
 			deployment: null,
 			readBackFailed: true,
+			warnings: [],
 		};
 	}
 	const remoteByTag = new Map(
@@ -1451,6 +1471,7 @@ async function pushLookupTables(
 	const mappings: RecordRemoteResourceInput[] = [];
 	const baselines: ResourceBaselineWrite[] = [];
 	const missing: string[] = [];
+	const madeAgain: string[] = [];
 	let readBackFailed = false;
 	/* The tables are independent, so their rows are read a few at a time,
 	 * and the records below keep the plan's order. */
@@ -1477,6 +1498,26 @@ async function pushLookupTables(
 				);
 			}
 			continue;
+		}
+		/* HQ made the table again under a new id though every part of its
+		 * table key Nova can read is what the baseline holds: a description
+		 * or an indexed flag differed, or the table was deleted in HQ between
+		 * preflight's read and the push. */
+		const prior =
+			push.mappedRemoteId === null
+				? undefined
+				: priorBaselines.get(push.mappedRemoteId);
+		if (
+			push.mappedRemoteId !== null &&
+			landed.id !== push.mappedRemoteId &&
+			prior !== undefined &&
+			prior.origin !== "unread" &&
+			lookupDefinitionChange(prior.canonical as CanonicalLookupTable, landed)
+				.length === 0
+		) {
+			madeAgain.push(
+				lookupTableMadeAgainWarning(plan.names.get(push.tableId) ?? push.tag),
+			);
 		}
 		if ("success" in rows) {
 			readBackFailed = true;
@@ -1542,6 +1583,7 @@ async function pushLookupTables(
 			failure: lookupUploadFailure(refusal, domain, createdApp),
 			deployment: await recordPartial(),
 			readBackFailed,
+			warnings: [],
 		};
 	}
 
@@ -1559,6 +1601,7 @@ async function pushLookupTables(
 			},
 			deployment: await recordPartial(),
 			readBackFailed,
+			warnings: [],
 		};
 	}
 
@@ -1578,7 +1621,7 @@ async function pushLookupTables(
 		appId: scope.appId,
 		tables: mappings.length,
 	});
-	return { failure: null, deployment, readBackFailed };
+	return { failure: null, deployment, readBackFailed, warnings: madeAgain };
 }
 
 /**
@@ -1597,6 +1640,19 @@ function lookupUploadFailure(
 	domain: string,
 	createdApp: boolean,
 ): DeploymentFailure {
+	/* The plan page: the plan check in front of the upload view turned the
+	 * workbook away before anything was written. A first publish has already
+	 * made the empty app, so what the project space holds differs by
+	 * `createdApp`. */
+	if (refusal.upgradeRequired) {
+		return {
+			code: "hq_rejected_resource_push",
+			message: createdApp
+				? `The plan for “${domain}” doesn't include Lookup Tables, so CommCare HQ took none of this app's lookup tables and Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Nothing else on the project space changed. Once the plan includes Lookup Tables, publishing again sends the tables and fills the app in.`
+				: `The plan for “${domain}” doesn't include Lookup Tables, so CommCare HQ took none of this app's lookup tables and Nova stopped before sending the app's content. Nothing on the project space changed. Once the plan includes Lookup Tables, publishing again sends the tables and then the app's content.`,
+			details: [],
+		};
+	}
 	const permissions = refusal.status === 401 || refusal.status === 403;
 	return {
 		code: "hq_rejected_resource_push",

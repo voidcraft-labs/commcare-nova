@@ -27,6 +27,7 @@ import { renderNoticeEntry } from "@/lib/notices/migrationNoticeCopy";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { lookupContextOf } from "@/proof/corpus/documents";
 import { legacyWireCodes } from "../legacyLanguageWireCodes";
+import { planProjectLookupTags } from "../lookupTags";
 import {
 	copyRawDocument,
 	type Json,
@@ -39,8 +40,10 @@ import {
 import { caseSchemaDifferences, contentBlockerPlaces } from "../plan";
 import { questionPaths } from "../questionPaths";
 import { EMPTY_FORM_NOTE_TEXT } from "../steps/emptyForms";
+import { inertDefaultCounts } from "../steps/hiddenInertDefault";
 import { optionLabelsStep } from "../steps/optionLabels";
 import { rawText } from "../steps/relativePaths";
+import { timeOrderingStep } from "../steps/timeOrdering";
 import {
 	CUTOVER_STEPS,
 	type DocumentChange,
@@ -90,8 +93,9 @@ function witnesses(id: string, code: string): boolean {
  * The fixtures whose stored shape no step rewrites and the gate refuses, by
  * the codes it refuses them under. A link identifier and a source write the
  * cutover keeps are the identity of case data, and a read of the form's root
- * is a person's call (part 08 of step 2's plan): each is a content blocker
- * of the plan as well.
+ * and a menu a link opens that step `hidden-from-menu` takes off the menu
+ * are a person's call (parts 06 and 08 of step 2's plan): each is a content
+ * blocker of the plan as well.
  */
 const GATE_REFUSED: Readonly<Record<string, readonly string[]>> = {
 	"hand-link-identifier-reserved": ["CASE_OPERATION_LINK_INVALID"],
@@ -99,6 +103,7 @@ const GATE_REFUSED: Readonly<Record<string, readonly string[]>> = {
 		"CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP",
 	],
 	"hand-form-root-read": ["INVALID_REF"],
+	"hand-hidden-menu-is-a-destination": ["HIDDEN_MENU_NOT_A_DESTINATION"],
 };
 
 /**
@@ -209,10 +214,27 @@ describe("the ordered transform", () => {
 			expect(parsed.success).toBe(true);
 			if (!parsed.success) return;
 			const doc = hydratePersistedBlueprint(parsed.data);
-			const lookupContext = lookupContextOf(project.lookup as never);
+			/* Judged as the plan judges it: against the Project's definitions
+			 * with its tag renames applied, a table it cannot rename counted as
+			 * the Project's own blocker and not again here. */
+			const tagPlan = planProjectLookupTags(
+				lookupContextOf(project.lookup as never),
+			);
+			const lookupContext = tagPlan.context;
+			const unrenamed = new Set(tagPlan.blockers.map((b) => b.tableId));
+			const counted = (finding: { code: string; details?: object }) =>
+				!(
+					finding.code === "LOOKUP_TAG_RESERVED_BY_RUNTIME" &&
+					unrenamed.has(
+						(finding.details as { tableId?: string } | undefined)?.tableId ??
+							"",
+					)
+				);
 			const verdict = mutationCommitVerdict(doc, [], lookupContext);
 			expect(
-				verdict.ok ? [] : [...new Set(verdict.findings.map((f) => f.code))],
+				verdict.ok
+					? []
+					: [...new Set(verdict.findings.filter(counted).map((f) => f.code))],
 			).toEqual(GATE_REFUSED[id] ?? []);
 			const media = new Map(
 				fixtureMediaRecords(
@@ -223,11 +245,9 @@ describe("the ordered transform", () => {
 					"fixture-owner",
 				).map((record) => [record.id as string, record]),
 			);
-			const exportFindings = exportReadinessFindings(
-				doc,
-				lookupContext,
-				media,
-			).map((f) => f.code);
+			const exportFindings = exportReadinessFindings(doc, lookupContext, media)
+				.filter(counted)
+				.map((f) => f.code);
 			if (witnesses(id, "target-export-readiness")) {
 				expect(exportFindings).toContain("MEDIA_ASSET_NOT_FOUND");
 			} else {
@@ -1532,6 +1552,7 @@ describe("the content blockers", () => {
 		["hand-link-identifier-reserved", "link-identifier-reserved"],
 		["hand-reserved-property-write", "reserved-property-write"],
 		["hand-form-root-read", "form-root-read"],
+		["hand-hidden-menu-is-a-destination", "hidden-menu-is-a-destination"],
 	])("finds %s's blocker", (id, code) => {
 		expect(blockerCodes(id)).toEqual([code]);
 	});
@@ -1542,7 +1563,8 @@ describe("the content blockers", () => {
 				!id.startsWith("hand-unresolved") &&
 				!id.startsWith("hand-link") &&
 				!id.startsWith("hand-reserved") &&
-				!id.startsWith("hand-form-root"),
+				!id.startsWith("hand-form-root") &&
+				id !== "hand-hidden-menu-is-a-destination",
 		),
 	)("finds none in %s", (id) => {
 		expect(blockerCodes(id)).toEqual([]);
@@ -2529,6 +2551,31 @@ describe("step hidden-from-menu", () => {
 		).toEqual(["module"]);
 	});
 
+	it("marks a menu and a form whose time comparisons step time-ordering made never, and both steps record each", () => {
+		const result = transformDocument(fixtureCopy(ID), contextFor(ID));
+		expect(carriers(result.target)).toEqual({
+			menu: undefined,
+			menuHidden: true,
+			form: undefined,
+			formHidden: true,
+		});
+		const records = (step: string) =>
+			stepChanges(result, step).map((change) => [
+				change.reason,
+				change.entity.type,
+				change.entity.uuid,
+			]);
+		expect(records("time-ordering")).toEqual([
+			["time-comparison-never-true", "module", CHECKS],
+			["time-comparison-never-true", "form", CHECK],
+		]);
+		expect(records("hidden-from-menu")).toEqual([
+			["hidden-from-menu-set", "module", CHECKS],
+			["hidden-from-menu-set", "form", CHECK],
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
 	it("stops on a menu it marks that a form link targets, or that holds an entry point", () => {
 		const doc = withConditions(NEVER, x);
 		writable(doc).forms["cd8766da-7326-51ee-aa0b-f8101304f9ea"] = {
@@ -2802,6 +2849,277 @@ describe("the lines pull request 12's steps write", () => {
 			"Review batches: after submitting, workers now go back to this module's case list. It was set to the previous screen, which CommCare HQ doesn't offer in a module that selects several cases.",
 			"Review single-under-batches: after submitting, workers now go to the app's first menu (First menu in its settings). It was set to the previous screen, which CommCare HQ doesn't offer in a module under one that selects several cases.",
 			"Review batch-under-samples: after submitting, workers now go back to this module's case list. It was set to the previous screen, which CommCare HQ doesn't offer in a module that selects several cases.",
+		]);
+	});
+});
+
+describe("step media-slots", () => {
+	const ID = "hand-media-slots";
+	const FORM = "c6d03874-29c7-5fc0-abfa-db42692c4d24";
+	const GROUP = "5a30f3cb-851c-5e97-a2ee-ec75c49ff23b";
+	const ADDRESS = "4e833baa-7fd3-537e-a75b-0dc4f3d7573a";
+	const ROWS = uuid(0x201);
+	const ROW = uuid(0x202);
+
+	it("deletes the hint's, the validation message's and a container label's media, keeps a question's label media, and names each file", () => {
+		const doc = fixtureCopy(ID);
+		addField(doc, FORM, {
+			uuid: ROWS,
+			kind: "repeat",
+			id: "rows",
+			label: xpathText("Rows"),
+			repeat_mode: "user_controlled",
+			label_media: {
+				audio: "00000000-0000-4000-8000-000000000a01",
+				video: "00000000-0000-4000-8000-000000000a02",
+			},
+		});
+		addField(doc, ROWS, {
+			uuid: ROW,
+			kind: "text",
+			id: "row",
+			label: xpathText("Row"),
+		});
+		const labelMedia = doc.fields[ADDRESS]?.label_media;
+		const result = transformDocument(doc, contextFor(ID));
+		for (const [uuid, key] of [
+			[GROUP, "label_media"],
+			[ADDRESS, "hint_media"],
+			[ADDRESS, "validate_msg_media"],
+			[ROWS, "label_media"],
+		] as const) {
+			expect(Object.hasOwn(result.target.fields[uuid] ?? {}, key)).toBe(false);
+		}
+		expect(result.target.fields[ADDRESS]?.label_media).toEqual(labelMedia);
+		const changes = stepChanges(result, "media-slots");
+		expect(
+			changes.map((change) => [change.entity.uuid, change.detail]),
+		).toEqual([
+			[GROUP, { form: "Visit", slot: "group-title", media: "image" }],
+			[ADDRESS, { form: "Visit", slot: "hint", media: "image" }],
+			[ADDRESS, { form: "Visit", slot: "validation-message", media: "image" }],
+			[ROWS, { form: "Visit", slot: "repeat-title", media: "audio" }],
+			[ROWS, { form: "Visit", slot: "repeat-title", media: "video" }],
+		]);
+		// The renderer reads the exact entry the step writes.
+		expect(
+			changes.map(
+				(change) =>
+					renderNoticeEntry(
+						migrationNoticeEntrySchema.parse({ kind: "document", ...change }),
+						{ nameOf: (entity) => entity.nameAtMigration },
+					).text,
+			),
+		).toEqual([
+			"Visit, household: the image on its group title was removed. No CommCare app shows media there, so workers see no change. The file is still in your media library.",
+			"Visit, address: the image on its hint was removed. No CommCare app shows media there, so workers see no change. The file is still in your media library.",
+			"Visit, address: the image on its validation message was removed. No CommCare app shows media there, so workers see no change. The file is still in your media library.",
+			"Visit, rows: the audio on its repeat title was removed. No CommCare app shows media there, so workers see no change. The file is still in your media library.",
+			"Visit, rows: the video on its repeat title was removed. No CommCare app shows media there, so workers see no change. The file is still in your media library.",
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("leaves a document that holds none of the slots as it is", () => {
+		const doc = fixtureCopy("navigation-base");
+		const result = transformDocument(doc, contextFor("navigation-base"));
+		expect(stepChanges(result, "media-slots")).toEqual([]);
+	});
+});
+
+describe("step hidden-inert-default", () => {
+	const ID = "hand-hidden-inert-default";
+	const SEED = uuid(0x101);
+	const KEPT = uuid(0x102);
+	const BLANK = uuid(0x103);
+	const REGISTER = "cb8763b4-7126-5ec8-ac0b-fb361104f6c4";
+
+	it("removes the placeholder default, keeps a calculate of '', and says which writer now saves blank", () => {
+		const doc = fixtureCopy(ID);
+		addField(doc, REGISTER, {
+			uuid: BLANK,
+			id: "blank_calculate",
+			kind: "hidden",
+			calculate: { parts: [{ kind: "text", text: "''" }] },
+			caseWrite: { caseType: "patient", property: "visit_blank" },
+		});
+		const result = transformDocument(doc, contextFor(ID));
+		expect(result.target.fields[SEED]?.default_value).toBeUndefined();
+		expect(result.target.fields[KEPT]?.default_value).toBeUndefined();
+		expect(result.target.fields[BLANK]?.calculate).toEqual({
+			parts: [{ kind: "text", text: "''" }],
+		});
+		// The registration form does not preload its writer; the follow-up does.
+		expect(stepChanges(result, "hidden-inert-default")).toEqual([
+			{
+				reason: "hidden-value-saves-blank",
+				entity: { type: "field", uuid: SEED, nameAtMigration: "status_seed" },
+				detail: { form: "Register", property: "visit_status" },
+			},
+		]);
+		expect(
+			stepChanges(result, "hidden-inert-default").map(
+				(change) =>
+					renderNoticeEntry(
+						migrationNoticeEntrySchema.parse({ kind: "document", ...change }),
+						{ nameOf: (entity) => entity.nameAtMigration },
+					).text,
+			),
+		).toEqual([
+			"Register: status_seed has no value, so each submission saves visit_status blank. This is unchanged; Nova now says so where you set it.",
+		]);
+		expect(gateCodes(ID, result.target)).toEqual([]);
+	});
+
+	it("splits the scan's count of placeholders by whether the field writes and whether its form preloads", () => {
+		const doc = fixtureCopy(ID);
+		addField(doc, REGISTER, {
+			uuid: uuid(0x104),
+			id: "unwritten_seed",
+			kind: "hidden",
+			default_value: { parts: [{ kind: "text", text: "''" }] },
+		});
+		expect(inertDefaultCounts(doc)).toEqual({
+			"not-writing": 1,
+			preloaded: 1,
+			"saves-blank": 1,
+		});
+	});
+});
+
+describe("step time-ordering", () => {
+	const PATIENT_TIME = {
+		kind: "term",
+		term: { kind: "prop", caseType: "patient", property: "visit_time" },
+	};
+	const EIGHT = {
+		kind: "term",
+		term: { kind: "literal", value: "08:00", data_type: "time" },
+	};
+	const NAME_SET = {
+		kind: "not",
+		clause: {
+			kind: "is-blank",
+			left: {
+				kind: "term",
+				term: { kind: "prop", caseType: "patient", property: "case_name" },
+			},
+		},
+	};
+	const LATE = { kind: "gt", left: PATIENT_TIME, right: EIGHT };
+	const NEVER = { kind: "match-none" };
+	const CHECK = uuid(0xc02);
+
+	function rendered(changes: readonly DocumentChange[]): string[] {
+		return changes.map(
+			(change) =>
+				renderNoticeEntry(
+					migrationNoticeEntrySchema.parse({ kind: "document", ...change }),
+					{ nameOf: (entity) => entity.nameAtMigration },
+				).text,
+		);
+	}
+
+	it("replaces a Predicate ordering on a time in place and sets no flag", () => {
+		const ID = "hand-time-ordering";
+		for (const [condition, expected] of [
+			[LATE, NEVER],
+			[
+				{ kind: "and", clauses: [LATE, NAME_SET] },
+				{ kind: "and", clauses: [NEVER, NAME_SET] },
+			],
+			[
+				{ kind: "and", clauses: [NAME_SET, LATE] },
+				{ kind: "and", clauses: [NAME_SET, NEVER] },
+			],
+		] as const) {
+			const doc = fixtureCopy(ID);
+			writable(doc).forms[CHECK] = {
+				...writable(doc).forms[CHECK],
+				displayCondition: condition,
+			} as JsonRecord;
+			const changes = timeOrderingStep.apply(doc, contextFor(ID));
+			expect(doc.forms[CHECK]?.displayCondition).toEqual(expected);
+			expect(doc.forms[CHECK]?.hiddenFromMenu).toBeUndefined();
+			expect(rendered(changes)).toEqual([
+				"Check: “visit_time > 08:00” compares a time of day with before or after, which is never true on a device. It now reads as never true everywhere, Preview included.",
+			]);
+		}
+	});
+
+	it("replaces a case-backed select's filter that orders a time, and leaves case-choice-attendance as it is", () => {
+		const attendance = fixtureCopy("case-choice-attendance");
+		expect(
+			timeOrderingStep.apply(attendance, contextFor("case-choice-attendance")),
+		).toEqual([]);
+		expect(rawDocumentDigest(attendance)).toBe(
+			rawDocumentDigest(fixtureCopy("case-choice-attendance")),
+		);
+
+		const ID = "hand-time-ordering";
+		const doc = fixtureCopy(ID);
+		const PICK = uuid(0xc31);
+		addField(doc, CHECK, {
+			uuid: PICK,
+			id: "early_patient",
+			kind: "single_select",
+			label: { parts: [{ kind: "text", text: "Early patient" }] },
+			optionsSource: {
+				kind: "cases",
+				caseType: "patient",
+				labelProperty: "case_name",
+				filter: { kind: "and", clauses: [NAME_SET, LATE] },
+			},
+		});
+		const changes = timeOrderingStep.apply(doc, contextFor(ID));
+		expect(doc.fields[PICK]?.optionsSource).toEqual({
+			kind: "cases",
+			caseType: "patient",
+			labelProperty: "case_name",
+			filter: { kind: "and", clauses: [NAME_SET, NEVER] },
+		});
+		expect(
+			changes.map((change) => [change.entity.uuid, change.detail]),
+		).toEqual([
+			[CHECK, { comparison: "visit_time > 08:00" }],
+			[PICK, { form: "Check", comparison: "visit_time > 08:00" }],
+		]);
+	});
+
+	it("replaces a form-logic ordering on two times with false(), outermost first, keeping every other reference", () => {
+		const ID = "hand-time-ordering-form-logic";
+		const doc = fixtureCopy(ID);
+		const changes = timeOrderingStep.apply(doc, contextFor(ID));
+		const late = "c8a22536-c64b-5982-a032-cf682cc625e6";
+		const order = "6a015a92-63c3-55f6-ab70-431ca88e9e02";
+		expect(doc.fields[late]?.relevant).toEqual({
+			parts: [{ kind: "text", text: "false()" }],
+		});
+		expect(doc.fields[order]?.calculate).toEqual({
+			parts: [
+				{
+					kind: "text",
+					text: "if(false(), 'start before end', 'start not before end')",
+				},
+			],
+		});
+		expect(rendered(changes)).toEqual([
+			"Visit times, order: “#form/start < #form/end” compares a time of day with before or after, which is never true on a device. It now reads as never true everywhere, Preview included.",
+			"Visit times, late: “#form/end < #form/start” compares a time of day with before or after, which is never true on a device. It now reads as never true everywhere, Preview included.",
+		]);
+	});
+
+	it("matches nothing where a search asks whether date_opened is blank", () => {
+		const ID = "hand-search-term-matches-nothing";
+		const doc = fixtureCopy(ID);
+		const changes = timeOrderingStep.apply(doc, contextFor(ID));
+		const menu = doc.moduleOrder.find(
+			(moduleUuid) => doc.modules[moduleUuid]?.caseListConfig !== undefined,
+		);
+		const config = doc.modules[menu ?? ""]?.caseListConfig as JsonRecord;
+		expect(config.filter).toEqual({ kind: "not", clause: NEVER });
+		expect(rendered(changes)).toEqual([
+			"Patients: “date_opened is blank” is a check CommCare's search can't run. It now matches nothing, where the search failed before.",
 		]);
 	});
 });

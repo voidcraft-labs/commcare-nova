@@ -84,13 +84,21 @@ def _form(data="", model="", body="", head=""):
 
 
 def _protected_form(
-    control="input", languages=("en", "es"), pieces=(1, 4), nested=False, collision=False, media=False, typed=True
+    control="input",
+    languages=("en", "es"),
+    pieces=(1, 4),
+    nested=False,
+    collision=False,
+    media=False,
+    typed=True,
+    media_modes=True,
 ):
     """Independent wire shapes for the classifier, read by the observation's real Core/HQ parsers.
 
     Noncontiguous ordinals, a blank localized piece, nested paths, every media mode and a case predicate
-    distinguish this class from an observed fixture or a simple-path-only approximation. No Nova emitter
-    or private consumer artifact supplies these bytes.
+    distinguish this class from an observed fixture or a simple-path-only approximation. ``media_modes``
+    writes the four ``__nova_mode;<medium>`` forms a retained control keeps; without them the message is the
+    one Nova writes since defect 16. No Nova emitter or private consumer artifact supplies these bytes.
     """
     parent = "/data/items/item" if nested else "/data"
     source, carrier = f"{parent}/q", f"{parent}/nova_constraint_message_q{'_2' if collision else ''}"
@@ -117,7 +125,8 @@ def _protected_form(
             "__nova_locale": language,
             "__nova_locale;markdown": language,
         }
-        helpers.update({f"__nova_mode;{name}": "media" for name in ("image", "audio", "video", "video-inline")})
+        if media_modes:
+            helpers.update({f"__nova_mode;{name}": "media" for name in ("image", "audio", "video", "video-inline")})
         for piece in pieces:
             literal = "" if index else "Literal ${not-an-expression} café"
             payload = json.dumps({"v": literal}, ensure_ascii=True).replace("$", "\\u0024")
@@ -175,6 +184,7 @@ def _protected_cases():
             "sparse-piece-ordinals": _protected_form(pieces=(0, 2, 8)),
             "nested-collision": _protected_form(nested=True, collision=True),
             "media-and-blank-localized-pieces": _protected_form(languages=("en", "fr", "es"), media=True),
+            "without-media-modes": _protected_form(media_modes=False),
         }
     )
     refused_cases = {}
@@ -193,6 +203,8 @@ def _protected_cases():
         "without-constraint",
         "calculated-carrier",
         "nonempty-carrier",
+        "some-media-modes",
+        "media-modes-in-one-translation",
     ):
         root = etree.fromstring(_protected_form())
         model = root.find(f"{{{classes.XHTML}}}head/{{{classes.XFORMS}}}model")
@@ -236,6 +248,11 @@ def _protected_cases():
         elif name == "nonempty-carrier":
             node = model.find(f"{{{classes.XFORMS}}}instance")[0][1]
             node.text = "authored"
+        elif name == "some-media-modes":
+            text.remove(values["__nova_mode;video-inline"])
+        elif name == "media-modes-in-one-translation":
+            for medium in ("image", "audio", "video", "video-inline"):
+                text.remove(values[f"__nova_mode;{medium}"])
         refused_cases[name] = etree.tostring(root)
     return accepted_cases, refused_cases
 
@@ -3121,6 +3138,12 @@ INPUTS_SUITE = b"""<suite version="1">
 ROLE = "vellum-markup:model/instance//*@vellum:role"
 # A suite expression reading a variable (a menu's display condition).
 VARIABLES_SUITE = b"""<suite version="1"><menu id="m0" relevant="$v = 1"><text><locale id="m"/></text></menu></suite>"""
+# A case's system date read by name, ordered against a date, which is never a time of day; and another property
+# read by name, whose value the suite does not say.
+SYSTEM_DATES_SUITE = b"""<suite version="1">
+  <menu id="m0" relevant="date_opened &gt;= date('2026-01-01')"><text><locale id="m"/></text></menu>
+  <menu id="m1" relevant="visit_time &gt;= date('2026-01-01')"><text><locale id="m"/></text></menu>
+</suite>"""
 
 
 def _data_binds_and_itext():
@@ -3569,6 +3592,8 @@ def _data_binds_and_itext():
             refused("form", times, "xpath-expr:XPathCmpExpr", "bind[1]/@constraint", readings=True),
             accepted("form", times, "xpath-expr:XPathCmpExpr", "bind[2]/@constraint", readings=True),
             unsettled("form", times, "xpath-expr:XPathCmpExpr", "bind[3]/@calculate", readings=True),  # a case's
+            accepted("suite", SYSTEM_DATES_SUITE, "xpath-expr:XPathCmpExpr", "menu[1]/@relevant", readings=True),
+            unsettled("suite", SYSTEM_DATES_SUITE, "xpath-expr:XPathCmpExpr", "menu[2]/@relevant", readings=True),
         ),
         "questions/data-parent-crossing-a-repeat": (
             refused("form", parents, "xform:input@ref", "repeat[1]/input[1]/@ref"),

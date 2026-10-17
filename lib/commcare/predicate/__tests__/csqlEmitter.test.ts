@@ -20,6 +20,7 @@ import {
 	exists,
 	gt,
 	gte,
+	input,
 	isBlank,
 	isIn,
 	literal,
@@ -261,4 +262,58 @@ it("refuses compiler bypasses that cannot preserve property scope", () => {
 	expect(() => emitCsql(eq(name, literal(`both'"`)))).toThrow(
 		/no portable escape/,
 	);
+});
+
+it("writes match-none() in the quote cascade's arm for an answer holding both quote marks", () => {
+	const query = testUuid("query-input");
+	const value = "instance('search-input:results')/input/field[@name='query']";
+	const context = {
+		caseTypes: [],
+		knownInputs: [
+			{
+				uuid: query,
+				name: "query",
+				label: "Query",
+				data_type: "text" as const,
+			},
+		],
+	};
+	expect(emitCsql(eq(name, term(input(query))), context)).toEqual({
+		// No double quote: the double-quoted arm. A double quote and no single
+		// one: the single-quoted arm. Both: the search finds nothing.
+		wrapper: `if(contains(${value}, '"'), if(contains(${value}, "'"), 'match-none()', concat("first_name = '", ${value}, "'")), concat('first_name = "', ${value}, '"'))`,
+		runtimeRejections: [
+			{
+				condition: `contains(${value}, "'") and contains(${value}, '"')`,
+				kind: "quote",
+				inputNames: ["query"],
+			},
+		],
+	});
+});
+
+it("folds every obligation of a clause into one match-none() guard", () => {
+	const query = testUuid("query-input");
+	const value = "instance('search-input:results')/input/field[@name='query']";
+	const context = {
+		caseTypes: [],
+		knownInputs: [
+			{
+				uuid: query,
+				name: "query",
+				label: "Query",
+				data_type: "text" as const,
+			},
+		],
+	};
+	const wrapper = emitCsql(
+		and(eq(name, term(input(query))), gt(age, term(input(query)))),
+		context,
+	).wrapper;
+	expect(
+		wrapper.startsWith(
+			`if((contains(${value}, "'") and contains(${value}, '"')) or (${value} = ''), 'match-none()', concat(`,
+		),
+	).toBe(true);
+	expect(wrapper).not.toContain("search-value-mixes-quote-marks");
 });

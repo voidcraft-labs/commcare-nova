@@ -36,6 +36,100 @@
 			"url": "https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/Video_codecs"
 		}
 	},
+	"executions": {
+		"android-decode": {
+			"files": "lib/media/__tests__/fixtures/ and the BMP files lib/media/__tests__/bmpFixtures.ts builds",
+			"method": "Each audio and video file read by MediaExtractor and decoded to the end of its stream by the platform's own MediaCodec decoder; each image decoded by BitmapFactory (proof/android/decode/DecodeProbe.java).",
+			"platform": "android",
+			"readers": [
+				{
+					"abi": "arm64-v8a",
+					"api": 23,
+					"fingerprint": "Android/sdk_google_phone_arm64/generic_arm64:6.0/MASTER/8690019:userdebug/test-keys",
+					"name": "Android 6.0 emulator system image"
+				},
+				{
+					"abi": "arm64-v8a",
+					"api": 29,
+					"fingerprint": "google/sdk_gphone64_arm64/emulator64_arm64:10/QSR1.211112.011/13135432:userdebug/dev-keys",
+					"name": "Android 10 emulator system image"
+				},
+				{
+					"abi": "arm64-v8a",
+					"api": 35,
+					"fingerprint": "google/sdk_gphone64_arm64/emu64a:15/AE3A.240806.036/12592187:user/release-keys",
+					"name": "Android 15 emulator system image"
+				}
+			]
+		},
+		"browser-playback": {
+			"files": "Files made by the commands at the top of lib/media/__tests__/validate.test.ts (ffmpeg 7.1.1) and BMP files of the bytes lib/media/__tests__/bmpFixtures.ts builds",
+			"method": "Each file served over HTTP with range requests and its MIME type; audio and video played muted to the ended event; each image decoded into an img with a width above 0. Run in the engines Playwright 1.63.0 drives, and in an installed Firefox started headless at a page that runs the same probes.",
+			"platform": "webApps",
+			"readers": [
+				{
+					"name": "Chromium headless shell",
+					"os": "macOS 27 arm64",
+					"version": "153.0.8010.12"
+				},
+				{
+					"name": "Chrome for Testing",
+					"os": "macOS 27 arm64",
+					"version": "153.0.8010.12"
+				},
+				{
+					"name": "Google Chrome",
+					"os": "macOS 27 arm64",
+					"version": "154.0.8037.99"
+				},
+				{
+					"name": "WebKit",
+					"os": "macOS 27 arm64",
+					"version": "26.6"
+				},
+				{
+					"name": "Mozilla Firefox",
+					"os": "macOS 27 arm64",
+					"version": "158.0"
+				},
+				{
+					"name": "Chromium headless shell",
+					"os": "Linux aarch64",
+					"version": "153.0.8010.12"
+				},
+				{
+					"name": "Chromium",
+					"os": "Linux aarch64",
+					"version": "153.0.8010.12"
+				},
+				{
+					"name": "Firefox",
+					"os": "Linux aarch64",
+					"version": "155.0"
+				},
+				{
+					"name": "WebKit",
+					"os": "Linux aarch64",
+					"version": "26.6"
+				},
+				{
+					"name": "Chromium headless shell",
+					"os": "Linux amd64",
+					"version": "153.0.8010.12"
+				},
+				{
+					"name": "Firefox",
+					"os": "Linux amd64",
+					"version": "155.0"
+				},
+				{
+					"name": "WebKit",
+					"os": "Linux amd64",
+					"version": "26.6"
+				}
+			]
+		}
+	},
 	"hqClassification": {
 		"method": "Executed: HQ booted in the proof image, and get_class_by_data called on a file of each format under its usual extension.",
 		"mimeTable": "libmagic 5.44, the compiled magic database of Debian bookworm's libmagic1, which commcare-hq/Dockerfile installs at the pin, read through python-magic 0.4.27 (commcare-hq/uv.lock); Python's mimetypes is consulted only for an application/* result, which no format here gives.",
@@ -116,6 +210,7 @@
 		},
 		"media-format:audio/flac": {
 			"android": {
+				"executed": "android-decode",
 				"reading": "runs"
 			},
 			"documentation": [
@@ -135,11 +230,13 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback",
 				"reading": "runs"
 			}
 		},
 		"media-format:audio/m4a": {
 			"android": {
+				"executed": "android-decode",
 				"reading": "runs"
 			},
 			"documentation": [
@@ -160,6 +257,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback",
 				"reading": "runs"
 			}
 		},
@@ -235,6 +333,7 @@
 		},
 		"media-format:audio/ogg-opus": {
 			"android": {
+				"executed": "android-decode",
 				"reading": "runs"
 			},
 			"documentation": [
@@ -254,12 +353,14 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback",
 				"note": "Safari since 18.4, per MDN's container guide (its Ogg note); MDN's audio codec table still lists Safari as unsupported.",
 				"reading": "runs"
 			}
 		},
 		"media-format:audio/ogg-vorbis": {
 			"android": {
+				"executed": "android-decode",
 				"reading": "runs"
 			},
 			"documentation": [
@@ -279,6 +380,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback",
 				"note": "Safari since 18.4, per MDN's container guide (its Ogg note); MDN's audio codec table still lists Safari as unsupported.",
 				"reading": "runs"
 			}
@@ -382,6 +484,8 @@
 		},
 		"media-format:image/bmp": {
 			"android": {
+				"executed": "android-decode",
+				"note": "Accepted in two headers alone: a 40-byte BITMAPINFOHEADER with BI_RGB at 1, 4, 8, 16, 24 or 32 bits per pixel, and a 124-byte BITMAPV5HEADER at 32 bits with BI_BITFIELDS in sRGB.",
 				"reading": "runs"
 			},
 			"documentation": ["android-supported-formats", "mdn-image-types"],
@@ -395,6 +499,8 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback",
+				"note": "Accepted in the same two headers. WebKit on macOS refuses a BITMAPV4HEADER whose colour space is sRGB or Windows, which Nova refuses for that reason; every other engine decodes it.",
 				"reading": "runs"
 			}
 		},
@@ -831,6 +937,7 @@
 		},
 		"media-format:video/webm-vp8": {
 			"android": {
+				"executed": "android-decode",
 				"reading": "runs"
 			},
 			"documentation": [
@@ -850,11 +957,14 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback",
 				"reading": "runs"
 			}
 		},
 		"media-format:video/webm-vp9": {
 			"android": {
+				"executed": "android-decode",
+				"note": "Profile 0 (8-bit 4:2:0) alone: Android 6.0's decoder refuses profiles 1 and 2, and Android 10's profile 1.",
 				"reading": "runs"
 			},
 			"documentation": [
@@ -874,6 +984,8 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback",
+				"note": "Profile 0 (8-bit 4:2:0) alone: WebKit on macOS refuses profile 1.",
 				"reading": "runs"
 			}
 		}

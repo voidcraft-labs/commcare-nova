@@ -16,11 +16,14 @@ bulk multimedia upload task, after which its media suite is generated again
 from the app the upload mapped
 (``hqmedia/tasks.py::process_bulk_upload_zip``) over Nova's upload zip, on the
 harness's Couch and blob store: HQ holds the app, stores each media object and
-its bytes, and saves the app's multimedia map. Formplayer's form validation
+its bytes, and saves the app's multimedia map. Each uploaded file carries the
+kind Nova gives it (``media-kinds.json``, written by the producer), beside the
+class HQ types it as by its bytes (``CommCareMultimedia.get_class_by_data``). Formplayer's form validation
 is the session's Core runner, and HQ may send it only forms Core certified
 (``UncertifiedSource`` refuses any other).
 """
 
+import json
 from dataclasses import dataclass, field
 
 from lxml import etree
@@ -191,7 +194,11 @@ def media(session):
 
                 with zipfile.ZipFile(exports / f"{name}.multimedia.zip") as archive:
                     uploaded = {path: archive.read(path) for path in archive.namelist()}
-                record["uploaded"] = {path: {**_classify(data, path), "bytes": data} for path, data in uploaded.items()}
+                kinds = json.loads((exports / "media-kinds.json").read_text())
+                record["uploaded"] = {
+                    path: {**_classify(data, path), "bytes": data, "novaKind": kinds.get(path)}
+                    for path, data in uploaded.items()
+                }
                 record["bulkStatus"], record["mapped"] = _bulk_upload(name, exports, app)
                 # Nova's import carries no map, so HQ's media suite names the media once its upload mapped them, as
                 # Nova's publish sends the upload after the import; each at the app's version, as HQ's build stamps

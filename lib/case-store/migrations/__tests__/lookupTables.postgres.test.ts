@@ -4,6 +4,7 @@
 
 import type { PoolClient } from "pg";
 import { describe } from "vitest";
+import { LOOKUP_MAX_TAG_LENGTH } from "@/lib/lookup/constants";
 import { expect, test } from "../../sql/__tests__/setup";
 
 const ACTOR = "lookup-test-user";
@@ -205,6 +206,25 @@ describe("lookup persistence migration", () => {
 				 column_count, created_by, updated_by)
 			 VALUES ('project-a', 'Duplicate', 'Facility', 2, 2, 1, $1, $1)`,
 			[ACTOR],
+		);
+	});
+
+	test("holds a tag to the 32 characters CommCare HQ stores", async ({
+		pgClient,
+	}) => {
+		/* The second writer of a tag beside lookupTagSchema is the table's own
+		 * check: an app test copies stored tags unparsed, and HQ answers a
+		 * longer tag with a server error rather than a refusal. */
+		expect(LOOKUP_MAX_TAG_LENGTH).toBe(32);
+		await insertTable(pgClient, { tag: "t".repeat(LOOKUP_MAX_TAG_LENGTH) });
+		await expectSqlState(
+			pgClient,
+			"23514",
+			`INSERT INTO lookup_tables
+				(project_id, name, tag, definition_revision, rows_revision,
+				 column_count, created_by, updated_by)
+			 VALUES ('project-a', 'Longer', $1, 1, 1, 1, $2, $2)`,
+			["u".repeat(LOOKUP_MAX_TAG_LENGTH + 1), ACTOR],
 		);
 	});
 

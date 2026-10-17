@@ -55,7 +55,7 @@ describe("describeCarrier", () => {
 			describeCarrier(
 				ref({
 					kind: "field_media_bundle",
-					bundleKey: "validate_msg_media",
+					bundleKey: "help_media",
 					moduleUuid: U,
 					moduleName: "Patients",
 					formUuid: U,
@@ -64,7 +64,7 @@ describe("describeCarrier", () => {
 					fieldId: "age",
 				}),
 			),
-		).toBe('the image on field "age"\'s validation message (form "Intake")');
+		).toBe('the image on field "age"\'s help (form "Intake")');
 	});
 
 	it("names an option and an image-map row", () => {

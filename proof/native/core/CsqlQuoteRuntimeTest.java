@@ -20,7 +20,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class CsqlQuoteRuntimeTest {
-    private static final String REFUSAL = "search-value-mixes-quote-marks()";
+    private static final String NOTHING = "match-none()";
     private static final class Parser extends SuiteParser {
         Parser(InputStream stream) throws IOException { super(stream, null, "nova-quotes", null, true, true, false); }
     }
@@ -94,11 +94,11 @@ public class CsqlQuoteRuntimeTest {
                 List<String> queries = new ArrayList<>(manager.getRawQueryParams(false).get("_xpath_query"));
                 assertEquals(sample[0], 6, queries.size());
                 if (sample[0].equals("both")) {
-                    for (int i = 0; i < 6; i++) assertEquals(sample[0] + i, REFUSAL, queries.get(i));
+                    for (int i = 0; i < 6; i++) assertEquals(sample[0] + i, NOTHING, queries.get(i));
                 } else if (sample[0].equals("computed-both")) {
-                    assertEquals(REFUSAL, queries.get(5));
-                    for (int i = 0; i < 5; i++) assertNotEquals(REFUSAL, queries.get(i));
-                } else for (String query : queries) assertNotEquals(sample[0], REFUSAL, query);
+                    assertEquals(NOTHING, queries.get(5));
+                    for (int i = 0; i < 5; i++) assertNotEquals(NOTHING, queries.get(i));
+                } else for (String query : queries) assertNotEquals(sample[0], NOTHING, query);
                 JSONObject record = new JSONObject();
                 record.put("carrier", hq ? "hq" : "local");
                 record.put("sample", sample[0]);

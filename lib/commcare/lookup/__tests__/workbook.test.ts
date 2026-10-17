@@ -154,8 +154,27 @@ describe("lookup XLSX artifact", () => {
 			["", "N", "two", "one"],
 		]);
 	});
-	it.each(["types", "Types", "a".repeat(32)])(
-		"defensively refuses an HQ-unaddressable tag %s",
+	it("names a data sheet by a tag of the full 32 characters", () => {
+		/* HQ's reader finds the sheet by its title with no length check, and
+		 * its tag column stores 32 characters, so the sheet is the tag as
+		 * written. */
+		const tag = "clinic_case_db_codes_0123456789a";
+		expect(tag).toHaveLength(32);
+		const table = wireTable(tag, [{ name: "value", type: "text" }]);
+		const row = wireRow(table, "r", { value: "one" });
+		const result = buildLookupWorkbook(
+			lookupWireNaming([table]),
+			new Map([[table.id, [row]]]),
+		);
+		const decoded = sheets(result.bytes);
+		expect(decoded.map((sheet) => sheet.name)).toEqual(["types", tag]);
+		expect(decoded[1].rows).toEqual([
+			["UID", "Delete(Y/N)", "field: value"],
+			["", "N", "one"],
+		]);
+	});
+	it.each(["types", "Types"])(
+		"defensively refuses the HQ-unaddressable tag %s",
 		(tag) => {
 			const table = wireTable(tag, [{ name: "value", type: "text" }]);
 			expect(() =>
@@ -163,7 +182,7 @@ describe("lookup XLSX artifact", () => {
 					lookupWireNaming([table]),
 					new Map([[table.id, []]]),
 				),
-			).toThrow(/mandatory types sheet|cannot exceed 31/);
+			).toThrow(/mandatory types sheet/);
 		},
 	);
 	it("defensively refuses a snapshot missing its rows", () => {

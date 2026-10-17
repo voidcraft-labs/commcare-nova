@@ -47,6 +47,9 @@ public class StaticQuoteRuntimeTest {
         return new ArrayList<>(manager.getRawQueryParams(false).get("_xpath_query"));
     }
 
+    // The retained counterexample was exported before step 2, whose emitter wrote the refused function
+    // `search-value-mixes-quote-marks()` where a value mixes both quote marks; Nova now writes `match-none()`
+    // there (`CsqlQuoteRuntimeTest`). The resource is never regenerated, so it keeps the function.
     @Test public void formerlyAdmittedBranchesActuallyRefuseSearch() throws Exception {
         assertEquals(Collections.nCopies(4, "search-value-mixes-quote-marks()"),
             queries("/static-quote/before-static-quote-branches.suite.xml"));

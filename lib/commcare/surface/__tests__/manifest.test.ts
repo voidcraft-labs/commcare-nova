@@ -30,6 +30,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ACCEPTED_FORMATS } from "@/lib/domain/multimedia";
 import {
 	type GateEntry,
 	gateEntriesFileSchema,
@@ -486,5 +487,89 @@ describe("each rule refuses a planted entry the real manifest lacks", () => {
 			{ ...(entries[0] as Record<string, unknown>), noSurfaceKey: "" },
 		];
 		expect(inventoryEntriesFileSchema.safeParse(blank).success).toBe(false);
+	});
+});
+
+/** A platform's reading of a media format, with the run that executed it. */
+interface PlatformReading {
+	readonly reading: string;
+	readonly executed?: string;
+}
+interface MediaFormatItem {
+	readonly kind: string;
+	readonly hq: { readonly class: string };
+	readonly android: PlatformReading;
+	readonly webApps: PlatformReading;
+}
+interface Execution {
+	readonly platform: "android" | "webApps";
+	readonly readers: readonly unknown[];
+}
+
+/** The classes HQ's bulk upload files each kind under. */
+const HQ_CLASS_OF_KIND: Readonly<Record<string, string>> = {
+	image: "CommCareImage",
+	audio: "CommCareAudio",
+	video: "CommCareVideo",
+};
+
+/** The items of the formats defect 11's first half added, each executed on both platforms. */
+const EXECUTED_ITEMS = [
+	"media-format:image/bmp",
+	"media-format:audio/m4a",
+	"media-format:audio/flac",
+	"media-format:audio/ogg-vorbis",
+	"media-format:audio/ogg-opus",
+	"media-format:video/webm-vp8",
+	"media-format:video/webm-vp9",
+];
+
+describe("the accepted formats and the media-format family", () => {
+	const media = readJson("media-formats.json") as {
+		items: Readonly<Record<string, MediaFormatItem>>;
+		executions: Readonly<Record<string, Execution>>;
+	};
+
+	it("names, for each registry format, items of its kind that HQ files as that kind and both platforms run", () => {
+		for (const format of ACCEPTED_FORMATS) {
+			for (const key of format.surfaceKeys) {
+				const item = media.items[key];
+				expect(item, key).toBeDefined();
+				if (item === undefined) continue;
+				expect(item.kind, key).toBe(format.kind);
+				expect(item.hq.class, key).toBe(HQ_CLASS_OF_KIND[format.kind]);
+				expect(item.android.reading, key).toBe("runs");
+				expect(item.webApps.reading, key).toBe("runs");
+			}
+		}
+	});
+
+	it("records an executed run on both platforms for each format the first half added", () => {
+		for (const key of EXECUTED_ITEMS) {
+			const item = media.items[key];
+			for (const platform of ["android", "webApps"] as const) {
+				const record = item?.[platform].executed;
+				expect(record, `${key} ${platform}`).toBeDefined();
+				const execution =
+					record === undefined ? undefined : media.executions[record];
+				expect(execution?.platform, `${key} ${platform}`).toBe(platform);
+				expect(execution?.readers.length, `${key} ${platform}`).toBeGreaterThan(
+					0,
+				);
+			}
+		}
+	});
+
+	it("names every execution record from an item, and no record on a reading that is not runs", () => {
+		const named = new Set<string>();
+		for (const [key, item] of Object.entries(media.items)) {
+			for (const platform of ["android", "webApps"] as const) {
+				const reading = item[platform];
+				if (reading.executed === undefined) continue;
+				named.add(reading.executed);
+				expect(reading.reading, `${key} ${platform}`).toBe("runs");
+			}
+		}
+		expect([...named].sort()).toEqual(Object.keys(media.executions).sort());
 	});
 });

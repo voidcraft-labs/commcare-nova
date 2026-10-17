@@ -161,7 +161,7 @@ describe("table-row comparison seeds", () => {
 
 		expect(predicateCardSchemas.between.applicable(textOnly)).toBe(false);
 		expect(predicateUnavailableReason("between", textOnly)).toBe(
-			"Add a number, date, or time data-table column first",
+			"Add a number or date data-table column first",
 		);
 	});
 

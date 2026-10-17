@@ -1,7 +1,15 @@
 /**
  * Post-emission checks for Core SuiteParser/ResourceParser and Nova's local
  * archive resource joins. MediaRuntimeTest exercises the actual native readers,
- * resource table and installer. This is not a rendered-client or playback gate.
+ * resource table and installers. This is not a rendered-client or playback gate.
+ *
+ * The `bundledPaths` join is the bundling proof, because an archive install
+ * on Core and on Formplayer does not notice a missing media file
+ * (commcare-core `ArchiveFileReference.doesBinaryExist` answers true;
+ * formplayer `FormplayerArchiveFileRoot.derive` hands every path an
+ * `ArchiveFileReference`). Android unzips the archive and copies each file
+ * (commcare-android `InstallArchiveActivity`, `FileSystemInstaller.install`),
+ * so there a missing file fails the install.
  *
  * Core accepts an empty media block and ignores its path attribute in
  * InstallerFactory.getMediaInstaller; neither is a runtime refusal. Nova's
@@ -226,19 +234,19 @@ function checkLocation(
 		);
 	} else if (authority.toLowerCase() !== "local") {
 		// CommCare reads bundled bytes only for `local` authority, via
-		// `BasicInstaller::install`'s local branch (`ref.doesBinaryExist()`).
-		// A non-local authority — explicit `remote`, or any unrecognized
-		// literal, which `ResourceParser::parse` leaves at its `REMOTE` enum
-		// default — is added as a remote location and routed through the
-		// installer's remote branch, which never installs a resource: its
-		// cache-write path is unimplemented and returns false. Nova bundles
-		// every media file into the CCZ, so the only correct authority is
-		// `local`; any other value is a generator bug.
+		// `BasicInstaller::install`'s local branch. A non-local authority —
+		// explicit `remote`, or any unrecognized literal, which
+		// `ResourceParser::parse` leaves at its `REMOTE` enum default — is
+		// added as a remote location and routed through the installer's
+		// remote branch, which never installs a resource: its cache-write
+		// path is unimplemented and returns false. Nova bundles every media
+		// file into the CCZ, so the only correct authority is `local`; any
+		// other value is a generator bug.
 		errors.push(
 			validationError(
 				"MEDIA_LOCATION_UNKNOWN_AUTHORITY",
 				"app",
-				`The generated media_suite.xml has a <location authority="${authority}">${where}, but CommCare's installer only reads bundled bytes for "local" authority. Anything else fails install, the path isn't bundled and the installer can never fetch it. This is a bug in the media-suite generator.`,
+				`The generated media_suite.xml has a <location authority="${authority}">${where}, but CommCare's installer reads bundled bytes for "local" authority alone, and its remote branch installs nothing. This is a bug in the media-suite generator.`,
 				loc,
 			),
 		);
@@ -261,8 +269,10 @@ function checkLocation(
 	// location resolves relative to the archive root. Core ignores the media
 	// path attribute when choosing its installer. The compiler writes
 	// the bytes at that path. A mismatch means the suite points the runtime
-	// at a file that isn't in the archive — the installer's `doesBinaryExist()`
-	// returns false and the resource fails install.
+	// at a file that isn't in the archive: Android's install, which copies
+	// each file out of the archive, fails, while Core's and Formplayer's
+	// archive installs do not notice (the file header), so this join is the
+	// proof.
 	if (bundledPaths !== undefined) {
 		const normalized = pathText.startsWith("./") ? pathText.slice(2) : pathText;
 		if (!bundledPaths.has(normalized)) {
@@ -270,7 +280,7 @@ function checkLocation(
 				validationError(
 					"MEDIA_LOCATION_PATH_NOT_BUNDLED",
 					"app",
-					`The generated media_suite.xml has a <location>${where} pointing at "${pathText}", but the compiler bundled no file at "${normalized}". CommCare's installer calls doesBinaryExist() on the location and refuses the resource when the file isn't there. This is a bug in the media-suite generator.`,
+					`The generated media_suite.xml has a <location>${where} pointing at "${pathText}", but the compiler bundled no file at "${normalized}". CommCare Android copies each media file out of the archive and refuses the install when one isn't there. This is a bug in the media-suite generator.`,
 					loc,
 				),
 			);

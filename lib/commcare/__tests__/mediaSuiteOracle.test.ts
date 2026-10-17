@@ -276,8 +276,10 @@ describe("media-suite oracle — Category 2 install-fatal", () => {
 	});
 
 	it("flags a <location> path not present in the bundled-file set", () => {
-		// The compiler bundles `<HASH_A>.png` but not `<HASH_B>.png`; the
-		// suite's reference to the latter is install-fatal.
+		// The compiler bundles `<HASH_A>.png` but not `<HASH_B>.png`. Android,
+		// which copies each media file out of the archive, refuses that
+		// install; Core's and Formplayer's archive installs do not notice, so
+		// this join is the bundling proof.
 		const xml = `<?xml version="1.0"?>
 <suite version="1">
   <media path="../../commcare">

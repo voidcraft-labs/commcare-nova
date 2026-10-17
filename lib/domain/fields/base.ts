@@ -7,8 +7,8 @@
 // - `structuralFieldBase` (`{ uuid, id }`) is the minimum any field
 //   carries — stable identity + form question/node id. `hidden` extends this
 //   directly: CommCare hidden fields have no label (nothing to display).
-// - `containerFieldBase` (structural + optional `label` + optional
-//   `label_media`) is for structural containers (`group`, `repeat`).
+// - `containerFieldBase` (structural + optional `label`) is for
+//   structural containers (`group`, `repeat`).
 //   A non-empty label renders visible chrome (header + collapse +
 //   nesting frame); an empty/absent label renders structure-only with
 //   no visual impact — matching CommCare's behavior for `<group>` /
@@ -17,16 +17,20 @@
 //   `label_media`) is for every visible-input field kind that
 //   genuinely always needs a label.
 // - `inputFieldBaseSchema` (fieldBase + the optional input-specific
-//   slots: `hint`, `hint_media`, `help`, `help_media`, `required`,
-//   `validate_msg_media`, `relevant`, `caseWrite`) carries the
-//   input-specific wiring used by text/int/select/etc.
+//   slots: `hint`, `help`, `help_media`, `required`, `relevant`,
+//   `caseWrite`) carries the input-specific wiring used by
+//   text/int/select/etc.
 //
-// Each displayable message slot (label / hint / help / validate-error)
-// carries its own optional `*_media` sibling — the image / audio /
-// video shown alongside that message's text. The `_media` suffix
-// (rather than a single nested `media` bundle) keeps the carrier prefix
-// legible to schema-walk callers, which key off `field.label_media`
-// directly.
+// Two message slots carry media: a visible field's label
+// (`label_media`) and an input's help (`help_media`), the image / audio /
+// video shown alongside that message's text. They are the slots a CommCare
+// runtime draws media for. A hint, a validation message, and a group's or
+// repeat's label carry text alone: Android, Formplayer and the Web Apps
+// client draw none of their media (the lane holds it:
+// `proof/android/predicates.py`, `proof/formplayer/test_media_slots.py`,
+// `proof/webapps/test_media_slots.py`). The `_media` suffix (rather than a
+// single nested `media` bundle) keeps the carrier prefix legible to
+// schema-walk callers, which key off `field.label_media` directly.
 //
 // There is deliberately NO required-message slot. CommCare's runtime
 // (commcare-core, which also backs web apps via FormPlayer) parses no
@@ -57,11 +61,10 @@ import { type Uuid, uuidSchema } from "../uuid";
 import { type XPathExpression, xpathExpressionSchema } from "../xpath";
 
 // Re-exported so the per-kind schema files (which extend the bases
-// here) can attach `validate_msg_media` next to their `validate_msg`
-// (and the expression-AST schema next to their `validate` /
-// `default_value`) without each reaching across to the owning modules
-// directly.
-export { mediaSchema, proseTemplateSchema, xpathExpressionSchema };
+// here) can attach the prose schema to their `validate_msg` and the
+// expression-AST schema to their `validate` / `default_value` without each
+// reaching across to the owning modules directly.
+export { proseTemplateSchema, xpathExpressionSchema };
 
 /**
  * Minimum shape every field carries: stable uuid + semantic id. Hidden
@@ -95,8 +98,8 @@ export const fieldBaseSchema = structuralFieldBase.extend({
 });
 
 /**
- * Container base for structural folders (`group`, `repeat`). Label
- * (and its companion media) are optional: a non-empty label renders
+ * Container base for structural folders (`group`, `repeat`). The label
+ * is optional and carries no media: a non-empty label renders
  * visible chrome (section header, collapse, nesting frame); an
  * empty/absent label renders structure-only with no visual impact —
  * mirroring CommCare's behavior for `<group>` / `<repeat>` elements
@@ -109,7 +112,6 @@ export const fieldBaseSchema = structuralFieldBase.extend({
  */
 export const containerFieldBase = structuralFieldBase.extend({
 	label: proseTemplateSchema.optional(),
-	label_media: mediaSchema.optional(),
 });
 
 /**
@@ -176,28 +178,23 @@ export const captureCaseWriteSchema = caseWriteSchema
 
 /**
  * Input-capable fields additionally carry hint / required / relevant
- * / case wiring, plus a text + media pair per secondary message slot.
+ * / case wiring, and the help message's text + media pair.
  *
  * Layout of slots:
  *
- *   - `hint` + `hint_media` — secondary always-visible text under
- *     the label.
+ *   - `hint` — secondary always-visible text under the label, text alone.
  *   - `help` + `help_media` — tap-to-expand longer-form text.
  *   - `required` (XPath / `true()`) — gates whether the field must be
  *     answered. There is no companion message slot: CommCare's runtime
  *     has no `jr:requiredMsg` attribute, so the blank-required prompt
  *     is always CommCare's built-in string (see the file header).
  *
- * The validation-error media slot (`validate_msg_media`) is NOT
- * here: its companion text, `validate_msg`, lives only on the
- * per-kind schemas that support validation (text / int / decimal /
- * etc.), so the media slot sits beside it there. Placing it on this
- * base would dangle on kinds like `geopoint` that extend the input
- * base but carry no `validate_msg`.
+ * The validation message, `validate_msg`, lives only on the per-kind
+ * schemas that support validation (text / int / decimal / etc.), and
+ * carries text alone.
  */
 export type InputFieldBase = FieldBase & {
 	hint?: ProseTemplate;
-	hint_media?: Media;
 	help?: ProseTemplate;
 	help_media?: Media;
 	required?: XPathExpression; // an expression, or the "true()" sentinel
@@ -207,7 +204,6 @@ export type InputFieldBase = FieldBase & {
 
 export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	hint: proseTemplateSchema.optional(),
-	hint_media: mediaSchema.optional(),
 	help: proseTemplateSchema.optional(),
 	help_media: mediaSchema.optional(),
 	required: xpathExpressionSchema.optional(),
@@ -284,21 +280,3 @@ export function isMintedSelectOptionPlaceholder(
 		proseTemplateText(option.label).trim() === proseTemplateText(minted.label)
 	);
 }
-
-/**
- * The inert value a builder-born hidden field starts with: the XPath
- * empty-string literal, seeded into `default_value` so the field satisfies
- * the `HIDDEN_NO_VALUE` rule while reading as "no value yet". It lives in
- * `default_value` and never in `calculate`, because a calculation runs after
- * the loaded case's value is seeded: on a hidden field that writes the
- * loaded case's own type, an inert calculation would write nothing over the
- * case's saved value on every submission, where an inert default is replaced
- * by that value before anyone can read it. Shared by every surface that
- * mints or re-seeds a hidden value without an authored expression: the
- * builder's insert picker, the builder's convert-to-hidden gesture, and the
- * inspector's Value control when an expression is emptied (the SA passes a
- * real expression instead). One constant so the born shapes can't drift.
- */
-export const HIDDEN_INERT_VALUE: XPathExpression = {
-	parts: [{ kind: "text", text: "''" }],
-};

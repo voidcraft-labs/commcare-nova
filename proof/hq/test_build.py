@@ -8,6 +8,14 @@ failures: a form HQ never sends (HQ caches a form's verdict per app and form
 for seven days, so a second build of the same app would skip Formplayer),
 and a seam that answers validation itself, so a form Formplayer rejects
 still builds clean.
+
+It also holds that an ``update_case`` carrying ``owner_id`` builds clean:
+``case-reserved-words.json`` does not name it, so
+``helpers/validators.py::IndexedFormBaseValidator.check_case_properties``
+reports nothing, and ``xform.py``'s update block writes its bind like any
+other property's. Nova reserves ``owner_id`` by its own rule
+(``lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES``), not because HQ
+refuses it.
 """
 
 from __future__ import annotations
@@ -25,6 +33,7 @@ from proof.hq.seams import build_seams, formplayer_validation
 
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
 XFORMS = "http://www.w3.org/2002/xforms"
+CASE = "http://commcarehq.org/case/transaction/v2"
 
 
 def _with_unbound_question(app_json):
@@ -79,6 +88,28 @@ def test_a_form_formplayer_rejects_fails_hqs_build(hq, core_runner):
     # HQ reports Formplayer's verdict as a build error on that form.
     messages = [error.get("validation_message") or "" for error in built.errors]
     assert any("not_in_the_instance" in message for message in messages), built.errors
+
+
+def _with_owner_update(app_json):
+    """The app with the follow-up form's ``update_case`` also writing ``owner_id`` from the question it already
+    reads."""
+    form = app_json["modules"][0]["forms"][1]
+    form["actions"]["update_case"]["update"]["owner_id"] = {"question_path": "/data/rename", "update_mode": "always"}
+    return app_json
+
+
+def test_an_update_case_that_writes_owner_id_builds_with_its_bind(hq, core_runner):
+    with hq_check(CONFIGURATION) as (state, record):
+        app_id, _ = operations.publish(state, [nova_shaped_upload(_with_owner_update(hq_test_app()), "Suite app")])
+        with build_seams():
+            built = operations.build(operations.held_app(state, app_id), record)
+
+    assert built.errors == []
+    form = etree.fromstring(built.files["modules-0/forms-1.xml"])
+    binds = {bind.get("nodeset"): bind.get("calculate") for bind in form.iter(f"{{{XFORMS}}}bind")}
+    assert binds["/data/case/update/owner_id"] == "/data/rename"
+    (update,) = form.iter(f"{{{CASE}}}update")
+    assert f"{{{CASE}}}owner_id" in [child.tag for child in update]
 
 
 def _update_keeping_ids(app_json, held_form_ids, changed_form):

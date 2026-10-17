@@ -364,7 +364,7 @@ export function applyFieldMutation(
 			}
 			// A clear removes the own property completely (the slot is
 			// `.optional()`, never stored as `null` or `undefined`). Cast through
-			// a record view: the four `<slot>_media` keys live on different
+			// a record view: the two `<slot>_media` keys live on different
 			// arms of the discriminated `Field` union with no single common
 			// parent, so a structural write is the cleanest way to set one.
 			const record = field as Record<string, unknown>;

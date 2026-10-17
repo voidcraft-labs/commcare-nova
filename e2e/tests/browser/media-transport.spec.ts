@@ -1,6 +1,11 @@
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { build } from "esbuild";
+import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
+import type {} from "../../lib/media-transport-client";
 
 test("native upload progress, cancellation, HTTP refusal and setup failure release the transfer", async ({
 	page,
@@ -186,5 +191,68 @@ test("native upload progress, cancellation, HTTP refusal and setup failure relea
 		await new Promise<void>((resolve, reject) =>
 			server.close((error) => (error ? reject(error) : resolve())),
 		);
+	}
+});
+
+test("an M4A and an Opus file upload through the media picker under an accepted type", async ({
+	page,
+}) => {
+	// The type a browser gives a picked `.m4a` or `.opus` file varies (an
+	// alias, an empty type, `application/octet-stream`); the picker must take
+	// both files and claim a type the upload route accepts. The files come
+	// from disk so the browser types them itself.
+	const directory = mkdtempSync(join(tmpdir(), "nova-media-transport-"));
+	const fixtures = resolve("lib/media/__tests__/fixtures");
+	const m4a = join(directory, "tone.m4a");
+	const opus = join(directory, "tone.opus");
+	copyFileSync(join(fixtures, "tone.m4a"), m4a);
+	copyFileSync(join(fixtures, "tone-opus.ogg"), opus);
+	const claims: { filename: string; mimeType: string }[] = [];
+	const peer = await componentPeer("e2e/lib/media-transport-client.tsx");
+	try {
+		await page.route("**/api/media/library?*", (route) =>
+			route.fulfill({ json: { assets: [], nextCursor: null } }),
+		);
+		await page.route("**/api/media/upload", async (route) => {
+			const body = route.request().postDataJSON() as {
+				filename: string;
+				mimeType: string;
+			};
+			claims.push({ filename: body.filename, mimeType: body.mimeType });
+			// Refused after the claim is read: this check ends at the claim.
+			await route.fulfill({
+				status: 400,
+				json: { error: "Stopped by the transport check." },
+			});
+		});
+		await page.goto(peer.origin);
+		await page.getByRole("button", { name: "Audio files" }).click();
+		const files = page.getByRole("dialog", { name: "Your files" });
+		await files.getByRole("tab", { name: "Upload", exact: true }).click();
+		const input = files.locator('input[type="file"]');
+		for (const [path, filename] of [
+			[m4a, "tone.m4a"],
+			[opus, "tone.opus"],
+		] as const) {
+			await input.setInputFiles(path);
+			await expect
+				.poll(() => claims.map((claim) => claim.filename))
+				.toContain(filename);
+		}
+		await expect(
+			files.getByText("That file can't be used here", { exact: false }),
+		).toHaveCount(0);
+		expect(claims).toEqual([
+			{ filename: "tone.m4a", mimeType: "audio/mp4" },
+			{ filename: "tone.opus", mimeType: "audio/ogg" },
+		]);
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.mediaTransportAudit?.dispose());
+		} finally {
+			await peer.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
 	}
 });

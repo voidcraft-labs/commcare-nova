@@ -19,22 +19,18 @@ const NEUTRAL_MEDIA = {
 };
 
 describe("field schema — media slots", () => {
-	it("text field parses with label_media + hint_media", () => {
+	it("text field parses with label_media", () => {
 		const parsed = fieldSchema.parse({
 			kind: "text",
 			uuid: "10000000-0000-4000-8000-000000000001",
 			id: "patient_name",
 			label: proseText("Patient name"),
 			label_media: { image: "00000000-0000-4000-8000-000000000001" },
-			hint_media: { audio: "00000000-0000-4000-8000-000000000002" },
 		});
 		expect(parsed.kind).toBe("text");
 		if (parsed.kind === "text") {
 			expect(parsed.label_media).toEqual({
 				image: "00000000-0000-4000-8000-000000000001",
-			});
-			expect(parsed.hint_media).toEqual({
-				audio: "00000000-0000-4000-8000-000000000002",
 			});
 		}
 	});
@@ -70,62 +66,95 @@ describe("field schema — media slots", () => {
 		expect(parsed.kind).toBe("text");
 		if (parsed.kind === "text") {
 			expect(parsed.label_media).toBeUndefined();
-			expect(parsed.hint_media).toBeUndefined();
 			expect(parsed.help).toBeUndefined();
 			expect(parsed.help_media).toBeUndefined();
 		}
 	});
 
-	it("group container parses with optional label_media", () => {
-		const parsed = fieldSchema.parse({
-			kind: "group",
-			uuid: "10000000-0000-4000-8000-000000000004",
-			id: "screening",
-			label: proseText("Screening section"),
-			label_media: { image: "00000000-0000-4000-8000-000000000001" },
-		});
-		expect(parsed).toMatchObject({
-			kind: "group",
-			label_media: { image: NEUTRAL_MEDIA.image },
-		});
-	});
-
-	it("refuses input-only media on a group and a nonexistent required-message slot", () => {
+	it("refuses media on a hint, a validation message and a container's label on every kind that had it", () => {
+		const text = {
+			kind: "text",
+			uuid: "10000000-0000-4000-8000-000000000001",
+			id: "name",
+			label: proseText("Name"),
+			hint: proseText("Full name"),
+			validate: opaqueXPathExpression(". != ''"),
+			validate_msg: proseText("Write a name."),
+		};
+		expect(fieldSchema.safeParse(text).success).toBe(true);
+		const validatable = [
+			"text",
+			"int",
+			"decimal",
+			"date",
+			"time",
+			"datetime",
+			"secret",
+			"barcode",
+		];
+		for (const kind of validatable) {
+			for (const slot of ["hint_media", "validate_msg_media"]) {
+				expect(
+					fieldSchema.safeParse({ ...text, kind, [slot]: NEUTRAL_MEDIA })
+						.success,
+					`${kind} ${slot}`,
+				).toBe(false);
+			}
+		}
+		const select = {
+			...text,
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: "90000000-0000-4000-8000-000000000001",
+						value: "a",
+						label: proseText("A"),
+					},
+					{
+						uuid: "90000000-0000-4000-8000-000000000002",
+						value: "b",
+						label: proseText("B"),
+					},
+				],
+			},
+		};
+		for (const kind of ["single_select", "multi_select"]) {
+			expect(fieldSchema.safeParse({ ...select, kind }).success).toBe(true);
+			for (const slot of ["hint_media", "validate_msg_media"]) {
+				expect(
+					fieldSchema.safeParse({ ...select, kind, [slot]: NEUTRAL_MEDIA })
+						.success,
+					`${kind} ${slot}`,
+				).toBe(false);
+			}
+		}
 		const group = {
 			kind: "group",
 			uuid: "10000000-0000-4000-8000-000000000004",
 			id: "screening",
 			label: proseText("Screening"),
-			label_media: NEUTRAL_MEDIA,
 		};
-		expect(fieldSchema.safeParse(group).success).toBe(true);
-		for (const slot of [
-			"hint_media",
-			"help_media",
-			"validate_msg_media",
-			"required_msg_media",
-		]) {
-			expect(
-				fieldSchema.safeParse({ ...group, [slot]: NEUTRAL_MEDIA }).success,
-			).toBe(false);
-		}
-	});
-
-	it("validate_msg_media parses alongside existing validate_msg", () => {
-		const parsed = fieldSchema.parse({
-			kind: "int",
-			uuid: "10000000-0000-4000-8000-000000000005",
-			id: "age",
-			label: proseText("Age"),
-			validate: opaqueXPathExpression(". >= 0 and . <= 120"),
-			validate_msg: proseText("Enter a realistic age (0–120)."),
-			validate_msg_media: { audio: "00000000-0000-4000-8000-000000000009" },
-		});
-		expect(parsed.kind).toBe("int");
-		if (parsed.kind === "int") {
-			expect(parsed.validate_msg_media?.audio).toBe(
-				"00000000-0000-4000-8000-000000000009",
-			);
+		const repeat = {
+			...group,
+			kind: "repeat",
+			repeat_mode: "user_controlled",
+		};
+		for (const container of [group, repeat]) {
+			expect(fieldSchema.safeParse(container).success).toBe(true);
+			for (const slot of [
+				"label_media",
+				"hint_media",
+				"help_media",
+				"validate_msg_media",
+				"required_msg_media",
+			]) {
+				expect(
+					fieldSchema.safeParse({ ...container, [slot]: NEUTRAL_MEDIA })
+						.success,
+					`${container.kind} ${slot}`,
+				).toBe(false);
+			}
 		}
 	});
 });

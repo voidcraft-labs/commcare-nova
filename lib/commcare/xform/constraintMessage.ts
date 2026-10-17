@@ -23,8 +23,15 @@ export interface ProtectedConstraintMessage {
 
 /** Core's alert filler treats literal and returned `${n}` as output slots.
  * Compose these messages in the raw constraint expression instead. Standard
- * itext values remain intact, owned by an irrelevant input, for HQ/Vellum and
- * multimedia. Plain literal messages keep their existing alert spelling.
+ * itext values remain intact, owned by an irrelevant input, for HQ/Vellum.
+ * Plain literal messages keep their existing alert spelling.
+ *
+ * The expression's outer `if` on `jr:itext('<id>;__nova_mode') = 'media'`
+ * answers the plain itext only to a request for a text form the message
+ * marks `media`, and no form here is so marked: a validation message carries
+ * no media, and every reader asks for a constraint's text with no form
+ * (commcare-core `FormEntryPrompt.getConstraintText()`, which commcare-android
+ * `FormEntryActivity` and formplayer `JsonActionUtils` call).
  */
 export function protectConstraintMessage(
 	id: string,
@@ -69,8 +76,6 @@ export function protectConstraintMessage(
 		add("__nova_identity", id);
 		add("__nova_mode", "plain");
 		add("__nova_mode;markdown", "plain");
-		for (const mode of ["image", "audio", "video", "video-inline"])
-			add(`__nova_mode;${mode}`, "media");
 		add("__nova_locale", language);
 		add("__nova_locale;markdown", language);
 		for (const index of pieceIndices) {

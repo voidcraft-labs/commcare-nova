@@ -607,10 +607,10 @@ export interface HqApplicationProfile {
 /**
  * The HQ app document Nova emits, listing ONLY fields Nova authors.
  *
- * Target-owned settings and state — `cloudcare_enabled`, `case_sharing`,
- * `secure_submissions`, `build_spec` and the rest of the build/release
- * metadata, `logo_refs`, and the rest of HQ's App Settings fields — are
- * deliberately absent. Three keys hold Nova's values
+ * App content Nova does not author yet (`cloudcare_enabled`, `case_sharing`)
+ * and target-owned settings and state (`secure_submissions`, `build_spec` and
+ * the rest of the build/release metadata, `logo_refs`, and the rest of HQ's
+ * App Settings fields) are deliberately absent. Three keys hold Nova's values
  * beside the target's own: `translations`, `add_ons` and `profile`. An
  * update replaces each whole, so the publish projects each onto the
  * target's current value (`targetOverlay.ts`) and leaves a key out where the

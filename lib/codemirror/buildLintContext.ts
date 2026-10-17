@@ -17,6 +17,11 @@
  * types, no form paths at all.
  */
 
+import {
+	findTimeOrderingComparisons,
+	orderingSpans,
+} from "@/lib/commcare/validator/timeOrdering";
+import { parseXPathForForm } from "@/lib/doc/expressionText";
 import type { BlueprintDocState } from "@/lib/doc/store";
 import {
 	asUuid,
@@ -120,5 +125,36 @@ export function buildLintContext(
 		formEntries: formEntries.filter((e) => VALUE_PRODUCING_TYPES.has(e.kind)),
 		userProperties: Object.values(state.userProperties ?? {}),
 		formType: form.type,
+		timeOrderings: formTimeOrderings(state, formUuid),
+	};
+}
+
+/**
+ * The lint context's `timeOrderings` for one form: the text parsed to the
+ * stored expression the save would write, read by the validator's own
+ * function. An expression the parse cannot take has no ordering to report;
+ * the validator's other findings name what is wrong with it.
+ */
+export function formTimeOrderings(
+	state: BlueprintDocState,
+	formUuid: Uuid,
+): (text: string) => ReadonlyArray<{ from: number; to: number }> {
+	return (text) => {
+		let expression: ReturnType<typeof parseXPathForForm>;
+		try {
+			expression = parseXPathForForm(state, formUuid, text);
+		} catch {
+			return [];
+		}
+		/* The findings are spans of the stored expression's printed text, and
+		 * a reference typed as `/data/ q` prints as `/data/q`, so each is
+		 * placed by its ordinal on the orderings of the text as typed. Were the
+		 * two to hold different orderings, the whole text is marked, so the
+		 * refusal the commit gate makes is never left without an underline. */
+		const typed = orderingSpans(text);
+		return findTimeOrderingComparisons(expression, {
+			doc: state,
+			formUuid,
+		}).map(({ ordinal }) => typed[ordinal] ?? { from: 0, to: text.length });
 	};
 }

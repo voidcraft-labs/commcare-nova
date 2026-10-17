@@ -43,7 +43,7 @@ import type {
 } from "./plan";
 import { suffixedWireCodeLanguages } from "./steps/languageWireCodes";
 import { CUTOVER_STEPS } from "./transform";
-import type { WriterReport } from "./writer";
+import type { UnsupportedTableRead, WriterReport } from "./writer";
 
 export const REPORT = "hq-round-trip-emission";
 
@@ -149,6 +149,7 @@ export function planSections(
 	build: CutoverPlanBuild,
 	holders: HolderCensus,
 	spaceReads: readonly SpaceReads[] = [],
+	unsupportedTables: readonly UnsupportedTableRead[] = [],
 ): void {
 	report.line("steps", {
 		steps: CUTOVER_STEPS.map((step) => {
@@ -161,6 +162,9 @@ export function planSections(
 				step: step.id,
 				apps: counts.filter((count) => count > 0).length,
 				changes: counts.reduce((sum, count) => sum + count, 0),
+				...(step.id === "hidden-inert-default" && {
+					removed: inertDefaultTotals(build),
+				}),
 			};
 		}),
 	});
@@ -212,6 +216,7 @@ export function planSections(
 			.map((app) => app.appId),
 		endingSessions: source.privateWork.endingSessions,
 	});
+	lookupTagsLine(report, source, build, unsupportedTables);
 	deploymentsLine(report, source, build, spaceReads);
 	connectRenamesLine(report, build);
 	if (report.mode !== "scan") settingsLine(report, build);
@@ -253,6 +258,74 @@ export function planSections(
 			apps: blocker.referencingAppIds,
 		});
 	}
+}
+
+/**
+ * Step `hidden-inert-default`'s removals over the fleet, split by whether the
+ * field writes a case property and whether its form preloads it: its changes
+ * count only the writers each submission saves blank, which get a line.
+ */
+function inertDefaultTotals(build: CutoverPlanBuild) {
+	const totals = { notWriting: 0, preloaded: 0, savesBlank: 0 };
+	for (const app of build.apps) {
+		totals.notWriting += app.inertDefaults["not-writing"];
+		totals.preloaded += app.inertDefaults.preloaded;
+		totals.savesBlank += app.inertDefaults["saves-blank"];
+	}
+	return totals;
+}
+
+/**
+ * The `lookup-tags` line: per Project, each table the cutover renames by its
+ * uuid, the apps that reference it and the deployments whose live mapping
+ * pushed it under its old tag, where the next publish makes the table under
+ * the new tag and leaves the old one. The Job's modes, which read HQ, add
+ * each mapped HQ table that holds a field property, a row attribute or rows
+ * limited to their owners. Tags are authored text, so neither tag is here.
+ */
+function lookupTagsLine(
+	report: CutoverReport,
+	source: FleetSource,
+	build: CutoverPlanBuild,
+	unsupportedTables: readonly UnsupportedTableRead[],
+): void {
+	const projects = new Map<
+		string,
+		{ tableId: string; apps: readonly string[]; mappings: string[] }[]
+	>();
+	for (const rename of build.plan.lookupTagRenames) {
+		const project = source.projects.get(rename.projectId);
+		const list = projects.get(rename.projectId) ?? [];
+		list.push({
+			tableId: rename.tableId,
+			apps: project?.lookupReferences.get(rename.tableId) ?? [],
+			mappings: (project?.lookupMappings ?? [])
+				.filter(
+					(mapping) =>
+						mapping.tableId === rename.tableId &&
+						mapping.pushedIdentity === rename.fromTag,
+				)
+				.map((mapping) => mapping.deploymentId),
+		});
+		projects.set(rename.projectId, list);
+	}
+	report.line("lookup-tags", {
+		projects: [...projects].map(([projectId, tables]) => ({
+			projectId,
+			tables,
+		})),
+		...(report.mode !== "scan" && {
+			unsupportedTables: unsupportedTables.map((table) => ({
+				projectId: table.projectId,
+				server: table.server,
+				domain: table.domain,
+				tableId: table.tableId,
+				remoteId: table.remoteId,
+				deployments: table.deploymentIds,
+				holds: table.holds,
+			})),
+		}),
+	});
 }
 
 /**

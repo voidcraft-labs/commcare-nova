@@ -58,13 +58,11 @@ import {
 	parentFormSelectionFrame,
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
-import { timeOrdering } from "./documents/timeOrdering";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
 
 /** Every targeted document's maker, in the corpus's order. */
 export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	lookupReservedTags,
-	timeOrdering,
 	searchHqCompile,
 	validatedBarcodeSecret,
 	labelSort,
