@@ -435,9 +435,24 @@ export interface CaseSearchConfig {
 	description: LocalizedString | Record<string, never>;
 }
 
+/**
+ * One Save to Case block's entry in `case_references_data.save`: HQ's
+ * `models/form_actions.py::CaseSaveReference`, which allows no other key and
+ * which HQ serves with its `doc_type`. `properties` is what the block writes,
+ * as HQ's form builder lists it (`xform/caseSaveReferences.ts`).
+ */
+export interface HqCaseSaveReference {
+	doc_type: "CaseSaveReference";
+	case_type: string;
+	properties: string[];
+	create: boolean;
+	close: boolean;
+}
+
 export interface CaseReferencesData {
 	load: Record<string, string[]>;
-	save: Record<string, never>;
+	/** Keyed by each Save to Case block's absolute data path. */
+	save: Record<string, HqCaseSaveReference>;
 	doc_type: "CaseReferences";
 }
 

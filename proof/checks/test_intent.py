@@ -285,9 +285,9 @@ def _update(path):
     return {"question_path": path, "update_mode": "always"}
 
 
-def _saved(path, case_type, prop):
+def _saved(path, case_type, *props):
     """A form's Save to Case reference, as Vellum writes it to HQ (``CaseReferences.save``)."""
-    return {"load": {}, "save": {path: {"case_type": case_type, "properties": [prop]}}}
+    return {"load": {}, "save": {path: {"case_type": case_type, "properties": list(props)}}}
 
 
 def _with_photo(source):
@@ -324,8 +324,9 @@ def _suite_app():
 
     Its first form (a registration) also updates the worker's case, opens a
     ``visit`` child case and saves a ``household`` through Save to Case; its
-    second form saves another ``household`` property the same way; a survey
-    menu's form updates the worker's case; a ``visit`` menu (HQ builds a child
+    second form saves another ``household`` property the same way, beside the
+    case's own type, which HQ learns as a property; a survey menu's form
+    updates the worker's case; a ``visit`` menu (HQ builds a child
     case only of a type some menu holds) follows up a visit; and the app sets
     ``cc-show-saved``.
     """
@@ -349,7 +350,8 @@ def _suite_app():
         }
     ]
     register["case_references_data"] = _saved("/data/plain", "household", "size")
-    followup["case_references_data"] = _saved("/data/rename", "household", "rooms")
+    # A block that retypes its case lists the case's own type, as Vellum's list does (saveToCase.js::getCaseSaveData).
+    followup["case_references_data"] = _saved("/data/rename", "household", "rooms", "case_type")
     usercase = {"usercase_update": {"update": {"mood": _update("/data/mood")}, "condition": {"type": "always"}}}
     for case_type, name, actions, requires in (("", "mood", usercase, "none"), ("visit", "check", {}, "case")):
         added, source = _one_question_module(module, case_type, name, actions, requires)
@@ -429,9 +431,14 @@ def test_hqs_refresh_writes_the_rows_the_expected_dictionary_names(suite_held, c
         "commcare-user": {"visits"},
         "household": {"rooms"},
     }
-    # HQ writes what the rule expects, and beyond it only the case name its second form updates; the child
-    # case's note, the survey menu's mood and the first form's Save to Case size never reach it.
-    assert rows == {**expected, "suite_test": expected["suite_test"] | {"name"}}
+    # HQ writes what the rule expects, and beyond it only the case name its second form updates and the case
+    # type its second form's Save to Case lists; the child case's note, the survey menu's mood and the first
+    # form's Save to Case size never reach it.
+    assert rows == {
+        **expected,
+        "suite_test": expected["suite_test"] | {"name"},
+        "household": expected["household"] | {"case_type"},
+    }
     assert intent.data_dictionary("doc", _suite_intent(), held, configuration.privileges) == []
 
     without, plain = _held(core_runner, SUITE_PRIVILEGES - {"VELLUM_SAVE_TO_CASE"})
@@ -465,6 +472,9 @@ def test_each_hq_comparator_reports_exactly_what_the_document_states_otherwise(s
         ("app.json@A", "/modules/*/case_type", "/modules/0/case_type", "changed", "patient", "suite_test")
     ]
 
+    # HQ learns the second form's case_type beside rooms: the case's own type is standard and never reported,
+    # and the custom property beside it still is.
+    assert "case_type" in held.identities["form:0.1"]["case_updates"]["household"]
     other = _suite_intent()
     register, followup = other.modules[0][1]
     register.writes["suite_test"]["weight"] = "value"

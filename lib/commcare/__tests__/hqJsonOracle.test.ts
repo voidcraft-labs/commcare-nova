@@ -162,6 +162,7 @@ function baselineApp(): HqApplication {
 		"none",
 		actions,
 		{},
+		{},
 		"default",
 		null,
 		[],

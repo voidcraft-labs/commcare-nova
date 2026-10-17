@@ -88,7 +88,7 @@ import {
 	selectedCaseSessionDatum,
 } from "./formLinkProjection";
 import { projectCaseListForHq } from "./hqJson/caseList";
-import { buildXForm } from "./xform/builder";
+import { buildXFormSource } from "./xform/builder";
 
 /**
  * One projected link in HQ's `FormLink` shape. `xpath` carries the
@@ -300,7 +300,7 @@ export function expandDoc(
 							opts.attachmentTarget ?? null,
 						);
 
-			attachments[`${formUniqueId}.xml`] = buildXForm(doc, formUuid, {
+			const source = buildXFormSource(doc, formUuid, {
 				xmlns,
 				// Raw `mod.caseType` (not the case-activity-gated `caseType`) so the
 				// reachable-case-type depth map matches the deep validator's accept
@@ -330,6 +330,7 @@ export function expandDoc(
 					attachmentTarget: opts.attachmentTarget,
 				}),
 			});
+			attachments[`${formUniqueId}.xml`] = source.xml;
 
 			// After-submit navigation. With links, HQ reads `form_links` only
 			// under `post_form_workflow = "form"`, and the authored
@@ -359,10 +360,11 @@ export function expandDoc(
 				xmlns,
 				CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
 				hqCaseActions(formActions),
-				// Raw `mod.caseType` for the same reason as `buildXForm`'s
+				// Raw `mod.caseType` for the same reason as `buildXFormSource`'s
 				// `moduleCaseType` above: the depth map must match the deep
 				// validator's accept map.
 				buildCaseReferencesLoad(doc, formUuid, effectiveConnect, mod.caseType),
+				source.caseSaveReferences,
 				projectedLinks === undefined ? workflow : "form",
 				projectedLinks?.fallback.kind === "guarded" ? workflow : null,
 				hqFormLinks,

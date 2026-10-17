@@ -1,35 +1,5 @@
 [
 	{
-		"id": "d3-case-references-app-case-references-data-save",
-		"defect": 3,
-		"part": "case references save",
-		"check": "proof4",
-		"artifact": "app.json@vellum@*",
-		"path": "/modules/*/forms/*/case_references_data/save/*",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d3-case-updates-form-case-updates",
-		"defect": 3,
-		"part": "case-property inventory",
-		"check": "intent",
-		"artifact": "form:*",
-		"path": "/case_updates/*/*",
-		"document": "case-operation-relevance",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d3-data-dictionary-dictionary",
-		"defect": 3,
-		"part": "data dictionary",
-		"check": "intent",
-		"artifact": "data_dictionary@*",
-		"path": "/*/*",
-		"document": "case-operation-relevance",
-		"control": "case-operation-query"
-	},
-	{
 		"id": "d5-reserved-substrings-evaluate",
 		"defect": 5,
 		"part": "reserved substrings",
@@ -6471,5 +6441,27 @@
 		"kind": "error",
 		"document": "targeted-form-root-read",
 		"control": "targeted-form-root-read"
+	},
+	{
+		"id": "d23-attachment-form-case-updates-attachment-under-save-to-case",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "intent",
+		"artifact": "form:*",
+		"path": "/case_updates/*/*",
+		"kind": "removed",
+		"document": "case-capture-multiple",
+		"control": "case-capture-multiple-after-3"
+	},
+	{
+		"id": "d23-attachment-data-dictionary-attachment-under-save-to-case",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "intent",
+		"artifact": "data_dictionary@*",
+		"path": "/*/*",
+		"kind": "removed",
+		"document": "case-capture-multiple",
+		"control": "case-capture-multiple-after-3"
 	}
 ]

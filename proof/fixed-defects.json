@@ -3559,5 +3559,32 @@
 		"path": "/walks/*/steps/*/form/saved/resultCode",
 		"kind": "removed",
 		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d3-case-references-app-case-references-data-save",
+		"defect": 3,
+		"part": "case references save",
+		"check": "proof4",
+		"artifact": "app.json@vellum@*",
+		"path": "/modules/*/forms/*/case_references_data/save/*",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d3-case-updates-form-case-updates",
+		"defect": 3,
+		"part": "case-property inventory",
+		"check": "intent",
+		"artifact": "form:*",
+		"path": "/case_updates/*/*",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d3-data-dictionary-dictionary",
+		"defect": 3,
+		"part": "data dictionary",
+		"check": "intent",
+		"artifact": "data_dictionary@*",
+		"path": "/*/*",
+		"control": "case-operation-query"
 	}
 ]
