@@ -66,6 +66,16 @@ async function publish(server: "india" | "production", domain: string) {
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: AT,
+		baseline: {
+			origin: "unread",
+			remoteAppId: `${server}-${domain}-app`,
+			sourceGzip: null,
+			sourceBytes: null,
+			sourceDigest: null,
+			ownership: null,
+			observedAt: AT,
+			discard: null,
+		},
 	});
 }
 const plainDoc = () =>

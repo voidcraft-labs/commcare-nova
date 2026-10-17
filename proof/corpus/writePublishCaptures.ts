@@ -58,7 +58,14 @@
  *   multipart boundary; each with a `.json` sidecar naming the method, path,
  *   content type and fields, every import's the layout marker
  *   (`./publish.ts::TWO_IMPORT_LAYOUT`), and each update's the placeholder
- *   app id and the fields of HQ's source it was built over (`assumedSource`);
+ *   app id, the fields of HQ's source it was built over (`assumedSource`),
+ *   what the peer answered for the lookup tables it pushes
+ *   (`assumedResources`), and where Nova's preflight stopped it over a
+ *   person's saves in HQ, the stop and what the resend confirmed
+ *   (`confirmed`); and beside each of the first publish's two imports the
+ *   overlay keys its body writes (`create.ownership.json`,
+ *   `content.ownership.json`, `hqImportApplication`'s `ownership`), which
+ *   the retained HQ reads copy (`proof/hq/test_retained_reads.py`);
  * - when Nova publishes there, `local-1.ccz` and `local-2.ccz`: two exports
  *   of D as Nova's compile route builds them for an app published to that
  *   project space.
@@ -102,7 +109,6 @@ import type {
 import { DEFAULT_CORPUS_SEED } from "./defaults";
 import { LOCAL_CONFIGURATION, OPERATION_ORDINALS } from "./entropy.mts";
 import {
-	type AssumedSource,
 	type CapturedRequest,
 	CCZ_CLOCK,
 	capturePublish,
@@ -118,6 +124,7 @@ import {
 	type PublishDocument,
 	type SentImport,
 	type StepOutcome,
+	type StopConfirmation,
 	TWO_IMPORT_LAYOUT,
 	UnexportableDocumentError,
 	type UploadedMedia,
@@ -449,24 +456,38 @@ async function writeRequest(
 	);
 }
 
-/** What an update's import sidecar names beside its request. */
-function updateSidecar(assumedSource: AssumedSource) {
+/**
+ * What an update's import sidecar names beside its request: the fields of
+ * HQ's source and the resources it was built over, and where Nova's
+ * preflight stopped it, the stop and what the resend confirmed.
+ */
+function updateSidecar(
+	sent: SentImport & { readonly confirmed?: StopConfirmation },
+) {
 	return {
 		layout: TWO_IMPORT_LAYOUT,
 		placeholderAppId: PLACEHOLDER_APP_ID,
-		assumedSource,
+		assumedSource: sent.assumedSource,
+		...(sent.assumedResources !== undefined && {
+			assumedResources: sent.assumedResources,
+		}),
+		...(sent.confirmed !== undefined && { confirmed: sent.confirmed }),
 	};
 }
 
 function stepSummary(step: {
 	readonly status: string;
-	readonly compatibility: unknown;
+	readonly compatibility?: unknown;
+	readonly code?: string;
 	readonly lookup?: unknown;
 	readonly media?: unknown;
 }) {
 	return {
 		status: step.status,
-		compatibility: step.compatibility,
+		...(step.compatibility !== undefined && {
+			compatibility: step.compatibility,
+		}),
+		...(step.code !== undefined && { code: step.code }),
 		...(step.status === "sent" && {
 			requests: [
 				...(step.lookup !== undefined ? ["lookup"] : []),
@@ -490,8 +511,9 @@ async function writeImport(
 		directory,
 		`${name}.import`,
 		sent.importApp,
-		updateSidecar(sent.assumedSource),
+		updateSidecar(sent),
 	);
+
 	if (sent.media !== undefined) {
 		await writeRequest(directory, `${name}.media`, sent.media);
 	}
@@ -541,7 +563,15 @@ async function writeConfiguration(
 	await writeRequest(directory, "create.import", create.importApp, {
 		layout: TWO_IMPORT_LAYOUT,
 	});
+	await writeFile(
+		join(directory, "create.ownership.json"),
+		jsonText(create.ownership),
+	);
 	await writeImport(directory, "content", content);
+	await writeFile(
+		join(directory, "content.ownership.json"),
+		jsonText(content.ownership),
+	);
 	for (const [name, step] of Object.entries(capture.updates)) {
 		await writeStep(directory, name, step);
 	}

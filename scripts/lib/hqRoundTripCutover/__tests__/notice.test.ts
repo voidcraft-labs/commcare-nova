@@ -10,6 +10,7 @@ import { entryPointInventory } from "@/lib/domain/entryPoints";
 import { migrationNoticeEntrySchema } from "@/lib/notices/migrationNotice";
 import {
 	appNoticeEntries,
+	baselineNotices,
 	cczNeedsProjectSpace,
 	deploymentNoticeReasons,
 	deploymentNotices,
@@ -262,5 +263,107 @@ describe("an app's notice entries", () => {
 			},
 		]);
 		expect(migrationNoticeEntrySchema.safeParse(entry).success).toBe(true);
+	});
+});
+
+describe("the drift lines a deployment's baselines give", () => {
+	const table = {
+		kind: "lookupTable",
+		uuid: "0199a000-0000-7000-8000-000000000001",
+		name: "Clinics",
+	} as const;
+	const place = {
+		kind: "location",
+		uuid: "0199a000-0000-7000-8000-000000000002",
+		name: "District 4",
+	} as const;
+
+	it("says the first publish writes over earlier edits where the app's baseline is the cutover's", () => {
+		for (const outcome of ["read-in-full", "no-form-ids"] as const) {
+			expect(
+				baselineNotices({ outcome, app: "cutover", unreadResources: [] }),
+			).toEqual([{ reason: "next-publish-overwrites-hq-edits" }]);
+		}
+	});
+
+	it("says the next publish asks, naming no entity where the app is the one not read", () => {
+		expect(
+			baselineNotices({
+				outcome: "unreadable",
+				app: "unread",
+				unreadResources: [table],
+			}),
+		).toEqual([{ reason: "next-publish-asks-before-overwriting" }]);
+	});
+
+	it("names each table and place not read beside a read app", () => {
+		expect(
+			baselineNotices({
+				outcome: "read-in-full",
+				app: "cutover",
+				unreadResources: [table, place],
+			}),
+		).toEqual([
+			{ reason: "next-publish-overwrites-hq-edits" },
+			{
+				reason: "next-publish-asks-before-overwriting",
+				entities: [table, place],
+			},
+		]);
+	});
+
+	it("gives a linked app and a deleted one no drift line", () => {
+		expect(
+			baselineNotices({
+				outcome: "unsupported",
+				app: "unread",
+				unreadResources: [table],
+			}),
+		).toEqual([]);
+		expect(
+			baselineNotices({ outcome: "deleted", app: null, unreadResources: [] }),
+		).toEqual([]);
+	});
+
+	it("are stored in the enum's order beside the plan's lines, tables and places by their own names", () => {
+		const entries = appNoticeEntries(
+			app({
+				deployments: [
+					deployment({
+						outcome: "unreadable",
+						notices: [
+							{ reason: "deep-links-need-republish" },
+							{ reason: "ids-change-once-unreadable" },
+						],
+					}),
+				],
+			}),
+			"Clinic",
+			new Map(),
+			new Map([
+				[
+					"00000000-0000-7000-8000-00000000d001",
+					baselineNotices({
+						outcome: "read-in-full",
+						app: "cutover",
+						unreadResources: [table, place],
+					}),
+				],
+			]),
+		);
+		expect(entries.map((entry) => entry.reason)).toEqual([
+			"ids-change-once-unreadable",
+			"deep-links-need-republish",
+			"next-publish-overwrites-hq-edits",
+			"next-publish-asks-before-overwriting",
+		]);
+		const asks = entries[3];
+		expect(asks?.kind === "deployment" && asks.entities).toEqual([
+			{ type: "lookupTable", uuid: table.uuid, nameAtMigration: "Clinics" },
+			{ type: "location", uuid: place.uuid, nameAtMigration: "District 4" },
+		]);
+		for (const entry of entries) {
+			expect(migrationNoticeEntrySchema.safeParse(entry).success).toBe(true);
+		}
 	});
 });

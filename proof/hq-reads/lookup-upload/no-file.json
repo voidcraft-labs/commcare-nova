@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json"
+	},
+	"body": "{\"message\": \"Invalid post request.Submit the form with field 'file-to-upload' and POST parameter 'replace'\", \"code\": 405}"
+}

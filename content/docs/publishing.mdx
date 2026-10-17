@@ -44,12 +44,14 @@ above the form, with a link across to Publishing for the full picture.
 
 ### Checked
 
-Before anything leaves Nova, it checks three things that would stop the publish
-working: that your API key can reach the project space you picked, that the app
-itself has nothing outstanding, and that the project space supports the app
-features that need destination support. If any required support is missing, or
+Before anything leaves Nova, it checks what would stop the publish working:
+that your API key can reach the project space you picked, that the app itself
+has nothing outstanding, that the project space supports the app features that
+need destination support, and that nothing Nova publishes there has changed in
+CommCare HQ since its last publish. If any required support is missing, or
 Nova cannot confirm it, nothing is sent. The result names the capability and
-the next step.
+the next step. A change made in CommCare HQ is yours to decide on; see
+[Changes made in CommCare HQ](#changes-made-in-commcare-hq).
 
 If Nova cannot confirm the complete list of project spaces your key can reach,
 it reports the connection problem instead of showing an incomplete list. A
@@ -132,12 +134,6 @@ Each publish keeps every menu's and every form's ID in CommCare HQ. So anything
 there that opens a form by its ID, such as an SMS keyword or a scheduled
 message, keeps opening it.
 
-CommCare HQ keeps each form's last check for up to 7 days. If a form had failed
-that check in CommCare HQ before this publish replaced it, App Preview there can
-keep refusing to open the app for that long, with the old error. Making a new
-version in CommCare HQ checks the app afresh. Saving the form once in CommCare
-HQ's form builder clears the old check.
-
 If a status check overlaps a new publish, Nova keeps the new publish's status.
 Answers about the earlier version cannot replace it.
 
@@ -194,6 +190,61 @@ couldn't confirm it is ready. Choose **Check status** to try again.
 The **Open in CommCare HQ** link appears as soon as the app is there, and it
 goes to the app's page for you to work on. It is not the link workers use.
 
+## Changes made in CommCare HQ
+
+Each publish remembers what CommCare HQ held just after it: the app, each
+lookup table and each place. Before the next publish sends anything, Nova reads
+them again. If something your app publishes isn't the same as when Nova last
+published it, Nova stops before sending anything and lists what changed, such
+as a form in a menu, the app's name, a table's columns or rows, or a place's
+name or site code.
+
+**You decide what happens to each change.** Tick **Publish over this** beside
+each one you're happy to replace with this app's version, then choose
+**Publish over these changes**. Leave one unticked and nothing is sent. Each
+tick is for the state Nova showed you, so if something changes again in
+CommCare HQ before you publish, Nova asks again. Closing the dialog or changing
+the destination clears the ticks.
+
+**A save in CommCare HQ can show up here even when it changed no value.**
+CommCare HQ's settings pages and its form builder write things Nova doesn't, so
+opening a form or a menu's settings there and saving it is enough to be listed.
+
+Some changes read a little differently:
+
+- **Nova couldn't confirm what its last publish left**, for example because
+  CommCare HQ didn't answer when Nova read it back. Nova can't tell whether
+  anything changed, so it asks the same way.
+- **A lookup table CommCare HQ no longer has.** Publishing makes it again.
+- **A lookup table with a new tag in CommCare HQ.** Publishing makes a new
+  table under your tag and leaves that one where it is.
+- **A place CommCare HQ no longer lists.** It was archived or deleted there.
+  Publishing makes it again if it was deleted. If it was archived, CommCare HQ
+  refuses the publish while the place stays archived there.
+- **The app changed while Nova was putting its lookup tables and places in
+  place.** Nova stops before sending the app's content. Publishing again checks
+  what is there now and lists anything that changed.
+- **A publish interrupted after CommCare HQ took the app's content and before
+  Nova recorded it.** The next publish lists the app as changed, though the
+  change is Nova's own. Publishing over it sends this app again.
+
+A publish reads your app in CommCare HQ and then writes to it, and CommCare HQ
+gives Nova no way to write only if nothing changed in between. So a change
+saved in CommCare HQ in the moments a publish runs can slip past Nova's check:
+a setting can go back to what it was, or Nova's value can replace it at this
+publish or the next, with no question asked. Saving in CommCare HQ when no
+publish is running avoids this. If a save and a publish did overlap, the app in
+CommCare HQ shows what is there now, and you can make the change again.
+
+**After a publish that replaced the app without knowing it unchanged**, such
+as one over a change to the app you chose to publish over, Nova adds a note to
+the result. CommCare HQ keeps each form's last check for up to 7 days. If a form had failed
+that check in CommCare HQ before this publish replaced it, App Preview there can
+keep refusing to open the app for that long, with the old error. Making a new
+version in CommCare HQ checks the app afresh. Saving the form once in CommCare
+HQ's form builder clears the old check, and Nova's next publish then asks before
+replacing that form.
+
 ## Making workers
 
 Publishing sends an app. It does not create anybody an account, because handing
@@ -239,8 +290,9 @@ usernames in CommCare HQ before trying again. A password that never reached this
 page will need to be reset there.
 
 If a lookup table you previously took over is deleted in CommCare HQ, the next
-publish can recreate it. Nova records the new table as created by Nova and keeps
-the earlier takeover in its history.
+publish asks before it makes the table again, and recreates it once you say so.
+Nova records the new table as created by Nova and keeps the earlier takeover in
+its history.
 
 Three things Nova will refuse rather than guess at:
 

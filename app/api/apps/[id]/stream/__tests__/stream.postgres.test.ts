@@ -922,6 +922,16 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					pushedRevision: 1,
 					uploadedAt: at,
 					remoteRevision: null,
+					baseline: {
+						origin: "unread",
+						remoteAppId: "hq-1",
+						sourceGzip: null,
+						sourceBytes: null,
+						sourceDigest: null,
+						ownership: null,
+						observedAt: at,
+						discard: null,
+					},
 				});
 			},
 		});

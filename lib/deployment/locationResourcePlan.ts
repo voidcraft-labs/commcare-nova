@@ -181,6 +181,12 @@ export interface PlannedPlacePush {
 	 * an adopted place those belong to whoever made it.
 	 */
 	readonly locationData: Readonly<Record<string, unknown>> | null;
+	/**
+	 * The place-information slugs this push writes, sorted: the keys of the
+	 * place's planned values. The drift baseline compares `location_data`
+	 * only under these, because the push reads and keeps every other key.
+	 */
+	readonly ownedKeys: readonly string[];
 }
 
 export type LocationResourcePlan =
@@ -344,6 +350,9 @@ function plannedPush(
 		locationData: input.appModelsPlaceInformation
 			? { ...(remote?.values ?? {}), ...place.values }
 			: null,
+		ownedKeys: input.appModelsPlaceInformation
+			? Object.keys(place.values).sort()
+			: [],
 	};
 }
 

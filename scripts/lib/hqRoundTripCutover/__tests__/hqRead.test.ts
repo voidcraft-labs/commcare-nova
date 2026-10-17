@@ -283,13 +283,20 @@ describe("one deployment's reads, through their attempts", () => {
 				"member-a",
 				"member-b",
 			]);
+			// The source read's outcome came back to the second member's key.
+			expect(reads.sourceAnswer?.userId).toBe("member-b");
 		});
 	});
 
 	it("sends nothing for a deployment no member's key qualifies for", async () => {
 		await withHttpPeer(async (peer) => {
 			const reads = await read({ credentials: [] });
-			expect(reads).toEqual({ source: null, formIds: null, keyUses: [] });
+			expect(reads).toEqual({
+				source: null,
+				formIds: null,
+				keyUses: [],
+				sourceAnswer: null,
+			});
 			expect(peer.getCallHistory()?.calls() ?? []).toEqual([]);
 		});
 	});

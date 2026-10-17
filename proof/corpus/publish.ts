@@ -57,6 +57,22 @@
  * a difference means the captured update is not the one Nova would send
  * there.
  *
+ * Each publish makes the reads Nova's drift check makes
+ * (`lib/deployment/preflight.ts`, `service.ts`), and decides over them with
+ * the same production functions: the table list and, for a table the last
+ * publish pushed, its rows (`hqResourceBaseline.ts`), the source read
+ * compared with the read back after the last import (`hqSourceBaseline.ts`),
+ * the verdict over both (`remoteChanges.ts::decideRemoteChanges`), and the
+ * name clash the push plan refuses (`lookupResourcePlan.ts`). After each
+ * push it reads back what the ledger would record as the next baseline: each
+ * pushed table's rows, and the app's source after its import. What the peer
+ * answered for each table before the publish wrote anything is recorded
+ * beside its body (`AssumedResources`) for the HQ side to hold to HQ's own
+ * resources. A publish over a person's saves in HQ (`PublishInput.hqSide`)
+ * stops as Nova's would and is sent again with what that person confirms
+ * (`StopConfirmation`, recorded beside the body); a stop anywhere else ends
+ * the capture.
+ *
  * A publish draws no id: its menu ids, form ids and `xmlns` are derived from
  * the document. Every output is deterministic apart from what a `.ccz` still
  * draws, the profile `uniqueid`. Given a corpus seed, each publish step and
@@ -81,7 +97,13 @@ import {
 } from "@/lib/commcare/client";
 import { expandDoc, type HqAppShell } from "@/lib/commcare/expander";
 import { type HqAppSource, readHqAppSource } from "@/lib/commcare/hq/appSource";
-import { uploadLookupTableWorkbook } from "@/lib/commcare/hq/lookupTables";
+import {
+	type HqFixtureRow,
+	type HqLookupTable,
+	listHqLookupTables,
+	readHqLookupTableRows,
+	uploadLookupTableWorkbook,
+} from "@/lib/commcare/hq/lookupTables";
 import {
 	type AssetManifest,
 	type ResolvedMediaAsset,
@@ -100,13 +122,44 @@ import {
 } from "@/lib/commcare/projectSpaceCompatibility";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
+import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
+import {
+	ABSENT_RESOURCE_DIGEST,
+	canonicalLookupTable,
+	type LookupChangePart,
+	lookupDefinitionChange,
+	lookupDefinitionDigest,
+	lookupIdentityChange,
+	lookupRowsChange,
+} from "@/lib/deployment/hqResourceBaseline";
+import {
+	diffHqAppSource,
+	normalizeHqAppSource,
+} from "@/lib/deployment/hqSourceBaseline";
 import { hqImportApplication } from "@/lib/deployment/importApplication";
+import {
+	type LookupTableConflict,
+	planLookupResourcePush,
+} from "@/lib/deployment/lookupResourcePlan";
+import {
+	boundedParts,
+	decideRemoteChanges,
+	describeAppChange,
+	describeLookupChange,
+} from "@/lib/deployment/remoteChanges";
 import { chooseDownloadTarget } from "@/lib/deployment/runtimeTarget";
+import type {
+	AppOwnership,
+	CanonicalLookupTable,
+	DeploymentRemoteChange,
+	DeploymentResource,
+	RemoteChangeDiscard,
+} from "@/lib/deployment/types";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import {
@@ -136,6 +189,7 @@ import {
 } from "@/lib/media/builtinIconAssets";
 import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
 import { CORPUS_COMMCARE_VERSION } from "./configurations";
+import type { HqSideSaves } from "./documents";
 import { hydrateAdmittedDocument } from "./editBatches";
 import {
 	type EntropyOperation,
@@ -727,47 +781,122 @@ function assumedSourceOf(source: HqAppSource): AssumedSource {
 	};
 }
 
-/** `source` with each field `fields` names, by its path, set to that value. */
-function withFields(
-	source: Readonly<Record<string, unknown>>,
-	fields: Readonly<Record<string, unknown>>,
-): Record<string, unknown> {
-	const result = structuredClone(source) as Record<string, unknown>;
-	for (const [path, value] of Object.entries(fields)) {
-		const keys = path.split(".");
-		const last = keys.pop();
-		if (last === undefined) continue;
-		let at = result;
-		for (const key of keys) {
-			const next = at[key];
-			at[key] =
-				typeof next === "object" && next !== null && !Array.isArray(next)
-					? { ...next }
-					: {};
-			at = at[key] as Record<string, unknown>;
-		}
-		at[last] = structuredClone(value);
-	}
-	return result;
+/** One field of a lookup table's definition, as `LookupTableResource` serves it. */
+interface ServedTableField {
+	readonly field_name: string;
+	readonly properties: readonly string[];
 }
 
 /**
- * The source HQ serves for an app after it applied `application` as an
- * update: the body as sent, with HQ's own CommCare version (an update keeps
- * the app's `build_spec`: `models/applications.py::_merge_source_into_app`),
- * and the fields a caller says something changed since
- * (`PublishInput.source`).
+ * What the peer answered for one lookup table a publish pushes, before the
+ * publish wrote anything: the definition HQ held under its tag
+ * (`fixtures/resources/v0_1.py::LookupTableResource`, without the id HQ
+ * mints), or null where it held none, and, where the publish read them to
+ * compare, the table's rows in order (`FixtureResource`, each row's
+ * `fields` alone). These decide whether Nova pushes and what it compares,
+ * so the HQ side holds each to HQ's own answer before it applies the
+ * capture (`proof/hq/operations.py::hold_assumed_resources`).
  */
-function sourceAfterUpdate(
-	application: HqApplication,
-	changed: Partial<AssumedSource> | undefined,
-): Record<string, unknown> {
-	return withFields(application as unknown as Record<string, unknown>, {
-		doc_type: "Application",
-		"build_spec.version": CORPUS_COMMCARE_VERSION,
-		profile: application.profile ?? {},
-		...changed,
-	});
+export interface AssumedLookupTable {
+	readonly tag: string;
+	readonly table: {
+		readonly is_global: boolean;
+		readonly fields: readonly ServedTableField[];
+		readonly item_attributes: readonly string[];
+	} | null;
+	readonly rows?: readonly {
+		readonly fields: Readonly<
+			Record<
+				string,
+				| string
+				| {
+						readonly field_list: readonly {
+							readonly field_value: string;
+							readonly properties: Readonly<Record<string, string>>;
+						}[];
+				  }
+			>
+		>;
+	}[];
+}
+
+/** What the peer answered for the project space's resources before a publish wrote anything. */
+export interface AssumedResources {
+	readonly lookupTables: readonly AssumedLookupTable[];
+}
+
+function servedDefinition(table: HqLookupTable): AssumedLookupTable["table"] {
+	return {
+		is_global: table.isGlobal,
+		fields: table.fields.map((name) => ({
+			field_name: name,
+			properties: table.fieldProperties[name] ?? [],
+		})),
+		item_attributes: table.itemAttributes,
+	};
+}
+
+/** A row's fields in the shape `FixtureResource.dehydrate_fields` served them. */
+function servedRow(
+	row: HqFixtureRow,
+): NonNullable<AssumedLookupTable["rows"]>[number] {
+	return {
+		fields: Object.fromEntries(
+			Object.entries(row.fields).map(([name, value]) => [
+				name,
+				typeof value === "string"
+					? value
+					: {
+							field_list: value.map((item) => ({
+								field_value: item.value,
+								properties: item.properties,
+							})),
+						},
+			]),
+		),
+	};
+}
+
+/**
+ * What the capture holds of what Nova's ledger would after a publish: the
+ * app's baseline (HQ's read after Nova's last write, normalized, with the
+ * ownership of the body that write sent) and each pushed table's mapping
+ * and baseline (`lib/deployment/store.ts`). A later publish compares HQ's
+ * reads with these, as preflight compares them with the stored rows.
+ */
+interface CaptureLedger {
+	readonly app: HeldRead;
+	readonly tables: ReadonlyMap<LookupTableId, LedgerTable>;
+}
+
+/** A read of the app the publish holds, normalized, and how a later read is compared with it. */
+interface HeldRead {
+	readonly normalized: unknown;
+	/** The ownership of the body the write before the read sent. */
+	readonly ownership: AppOwnership;
+	/** `create` while the app is the shell the first publish made. */
+	readonly origin: "create" | "push";
+}
+
+/** One pushed table's mapping and the baseline read after the push. */
+interface LedgerTable {
+	readonly tag: string;
+	readonly remoteId: string;
+	readonly canonical: CanonicalLookupTable;
+}
+
+/** A source read normalized as a baseline is (`normalizeHqAppSource`); a read that does not normalize stops the capture. */
+function normalizedRead(
+	prepared: PreparedDocument,
+	source: HqAppSource,
+): { readonly normalized: unknown; readonly digest: string } {
+	const result = normalizeHqAppSource(source.raw);
+	if ("malformed" in result) {
+		throw new Error(
+			`Nova's publish of ${prepared.source.id} read a source from the capture peer that is not an app's (${result.malformed}), so it would not have compared it.`,
+		);
+	}
+	return result;
 }
 
 /** The requests one import sends: the workbook before it, the import, and the media after it. */
@@ -779,21 +908,54 @@ export interface SentImport {
 	readonly media?: CapturedRequest;
 	/** The application JSON the import carried. */
 	readonly application: HqApplication;
+	/** The overlay keys the application writes (`hqImportApplication`'s `ownership`). */
+	readonly ownership: AppOwnership;
 	/** The fields of the source read the import was built on. */
 	readonly assumedSource: AssumedSource;
+	/** What the peer answered for the tables the publish pushes, when it pushes any. */
+	readonly assumedResources?: AssumedResources;
 }
 
-/** One update of a document: refused by Nova's check, or what it sent. */
+/**
+ * Why Nova's preflight stopped a publish over what CommCare HQ holds: the
+ * changes made there since Nova's last publish (`hq_changed`), or tables
+ * under Nova's tags that Nova cannot account for (`hq_resource_conflict`).
+ */
+export interface PublishStop {
+	readonly code: "hq_changed" | "hq_resource_conflict";
+	readonly remoteChanges: readonly DeploymentRemoteChange[];
+	/** The tables in conflict, by Nova's table id, with their tag and HQ's id. */
+	readonly conflicts: readonly LookupTableConflict[];
+}
+
+/**
+ * What a person confirmed to send a stopped publish again, as the publish
+ * dialog sends it: each change to write over with the digest a stop showed
+ * (`discardRemoteChanges`), and each table to take over
+ * (`adoptResourceIds`). Preflight stops at the first edge that refuses, so a
+ * table in conflict is listed before any change, and `stops` holds each
+ * stop the publish met, in order, before the send that went through.
+ */
+export interface StopConfirmation {
+	readonly stops: readonly PublishStop[];
+	readonly discards: readonly RemoteChangeDiscard[];
+	readonly adopted: readonly string[];
+}
+
+/** One update of a document: refused by Nova's check, stopped by its preflight, or what it sent. */
 export type StepOutcome =
 	| {
 			readonly status: "refused";
 			readonly compatibility: CompatibilityOutcome;
 	  }
+	| ({ readonly status: "stopped" } & PublishStop)
 	| ({
 			readonly status: "sent";
 			readonly compatibility: CompatibilityOutcome;
 			/** Every request the step sent, `<method> <path>`, in the order it sent them. */
 			readonly sequence: readonly string[];
+			/** The stop this publish was sent through, and what the resend confirmed. */
+			readonly confirmed?: StopConfirmation;
 	  } & SentImport);
 
 /** A first publish: refused by Nova's check, or the shell's create and the content's update it sent. */
@@ -809,6 +971,8 @@ export type FirstPublishOutcome =
 			readonly create: {
 				readonly importApp: CapturedRequest;
 				readonly application: HqAppShell;
+				/** The overlay keys the shell writes (`hqImportApplication`'s `ownership`). */
+				readonly ownership: AppOwnership;
 			};
 			/** The update that fills the shell: state A's app. */
 			readonly content: SentImport;
@@ -865,15 +1029,221 @@ async function readSource(
 	return read.source;
 }
 
+/** The table list read; any refusal stops the capture, since Nova would not push. */
+async function readTables(
+	peer: TargetPeer,
+	prepared: PreparedDocument,
+): Promise<readonly HqLookupTable[]> {
+	const tables = await listHqLookupTables(CREDENTIALS, peer.state.domain);
+	if ("success" in tables) {
+		throw new Error(
+			`Nova's publish of ${prepared.source.id} could not read the lookup tables from the capture peer (status ${tables.status}), so it would not have pushed them.`,
+		);
+	}
+	return tables;
+}
+
+/** One table's rows read; any refusal stops the capture, since Nova's preflight would stop. */
+async function readRows(
+	peer: TargetPeer,
+	prepared: PreparedDocument,
+	tableId: string,
+) {
+	const rows = await readHqLookupTableRows(
+		CREDENTIALS,
+		peer.state.domain,
+		tableId,
+	);
+	if ("success" in rows) {
+		throw new Error(
+			`Nova's publish of ${prepared.source.id} could not read the rows of the lookup table ${tableId} from the capture peer (status ${rows.status}).`,
+		);
+	}
+	return rows;
+}
+
+/** The author's name for each table the export carries, as preflight names a table in a change. */
+function tableName(prepared: PreparedDocument, tableId: LookupTableId): string {
+	return (
+		prepared.export.lookupSnapshot.definitions.find(
+			(definition) => definition.id === tableId,
+		)?.name ?? tableId
+	);
+}
+
+/**
+ * Preflight's `project-data` edge over the peer, as
+ * `lib/deployment/preflight.ts` runs it: the table list, the push plan
+ * (`planLookupResourcePush`) over the tables the ledger maps, and for each
+ * table the plan compares, where it is, then its definition, then its rows
+ * (`hqResourceBaseline.ts`), the rows read only while the definition is
+ * unchanged. Returns the plan's conflicts, or the changes it collected and
+ * what the peer answered for each table the publish pushes.
+ */
+async function tableEdge(
+	peer: TargetPeer,
+	prepared: PreparedDocument,
+	ledger: CaptureLedger | null,
+	adopt: readonly string[],
+): Promise<
+	| { readonly conflicts: readonly LookupTableConflict[] }
+	| {
+			readonly observed: readonly DeploymentRemoteChange[];
+			readonly assumed: AssumedResources;
+	  }
+	| null
+> {
+	const workbook = prepared.export.lookupWorkbook;
+	if (workbook === undefined) return null;
+	const hqTables = await readTables(peer, prepared);
+	const mappings = [...(ledger?.tables ?? new Map()).entries()].map(
+		([tableId, mapped]): DeploymentResource => ({
+			deploymentId: "capture",
+			kind: "lookup-table",
+			novaResourceId: tableId,
+			remoteId: mapped.remoteId,
+			ownership: "nova-created",
+			pushedIdentity: mapped.tag,
+			adoptedAt: null,
+			adoptedBy: null,
+			pushedRevision: prepared.source.compiledAtSeq,
+			pushedAt: null,
+			pushToken: "capture",
+			remoteRevision: null,
+			remoteObservedAt: null,
+			supersededAt: null,
+			remoteMissingAt: null,
+		}),
+	);
+	const plan = planLookupResourcePush({
+		tables: workbook.tables,
+		mappings,
+		hqTables,
+		adoptTableIds: adopt,
+	});
+	if (!plan.ok) return { conflicts: plan.conflicts };
+	const observed: DeploymentRemoteChange[] = [];
+	const rowsRead = new Map<string, readonly HqFixtureRow[]>();
+	for (const push of plan.pushes) {
+		const mapped = ledger?.tables.get(push.tableId);
+		if (push.mappedRemoteId === null || mapped === undefined) continue;
+		const change = (
+			parts: readonly string[],
+			observedDigest: string,
+		): DeploymentRemoteChange => ({
+			kind: "lookup-table",
+			novaResourceId: push.tableId,
+			name: tableName(prepared, push.tableId),
+			identity: push.tag,
+			parts,
+			note: null,
+			observedDigest,
+			baselineKnown: true,
+		});
+		const describe = (part: LookupChangePart) =>
+			describeLookupChange(part, push.tag);
+		const moved = lookupIdentityChange({
+			mappedRemoteId: push.mappedRemoteId,
+			tag: push.tag,
+			tables: hqTables,
+		});
+		if (moved?.kind === "deleted") {
+			observed.push(change([describe(moved)], ABSENT_RESOURCE_DIGEST));
+			continue;
+		}
+		const current = hqTables.find((table) =>
+			moved?.kind === "renamed"
+				? table.id === push.mappedRemoteId
+				: table.tag === push.tag,
+		);
+		if (current === undefined) {
+			throw new Error(
+				`The lookup table ${push.mappedRemoteId} the capture compared is not in the list it read.`,
+			);
+		}
+		if (moved?.kind === "renamed") {
+			observed.push(change([describe(moved)], lookupDefinitionDigest(current)));
+			continue;
+		}
+		const definition = lookupDefinitionChange(mapped.canonical, current);
+		if (definition.length > 0) {
+			observed.push(
+				change(definition.map(describe), lookupDefinitionDigest(current)),
+			);
+			continue;
+		}
+		const rows = await readRows(peer, prepared, current.id);
+		rowsRead.set(push.tag, rows.rows);
+		const changed = lookupRowsChange(mapped.canonical, rows);
+		if (changed.length > 0) {
+			observed.push(
+				change(
+					changed.map(describe),
+					canonicalLookupTable(current, rows.rows).digest,
+				),
+			);
+		}
+	}
+	return {
+		observed,
+		assumed: {
+			lookupTables: workbook.tables.map((table) => {
+				const held = hqTables.find((remote) => remote.tag === table.tag);
+				const rows = rowsRead.get(table.tag);
+				return {
+					tag: table.tag,
+					table: held === undefined ? null : servedDefinition(held),
+					...(rows !== undefined && { rows: rows.map(servedRow) }),
+				};
+			}),
+		},
+	};
+}
+
+/**
+ * Preflight's app comparison over the peer (`preflight.ts`, the `target-app`
+ * edge): HQ's read against the ledger's baseline under the baseline's
+ * ownership, read as a shell while the baseline is the shell's. The change
+ * names the whole normalized read's digest.
+ */
+function appEdge(
+	prepared: PreparedDocument,
+	appName: string,
+	ledger: CaptureLedger,
+	current: { readonly normalized: unknown; readonly digest: string },
+): DeploymentRemoteChange | null {
+	const parts = diffHqAppSource({
+		baseline: ledger.app.normalized,
+		current: current.normalized,
+		ownership: ledger.app.ownership,
+		shell: ledger.app.origin === "create",
+		schemaDefault: schemaPropertyDefault,
+	});
+	if (parts.length === 0) return null;
+	return {
+		kind: "app",
+		novaResourceId: prepared.source.id,
+		name: appName,
+		identity: PLACEHOLDER_APP_ID,
+		parts: boundedParts(parts.map(describeAppChange)),
+		note: null,
+		observedDigest: current.digest,
+		baselineKnown: true,
+	};
+}
+
 /**
  * The resource push and the import of the app's content, as `publishAppToHq`
- * makes them once the app exists and `source` is its last read: the lookup
- * workbook, then a second source read (the push took time, and HQ may have
- * changed the app), then the import of the assembled application as an
- * update of `appId`, and, when the export carries media, the media upload
- * to the app the import answered with (`service.ts::uploadMediaBytes`: one
- * ZIP of every asset, then the status reads, which change nothing in HQ and
- * are not captured).
+ * makes them once the app exists and `read` is its last read: the lookup
+ * workbook, then the re-list and each pushed table's rows read the ledger
+ * records as its baseline (`service.ts::pushLookupTables`); then a second
+ * source read (the push took time, and HQ may have changed the app), held
+ * to the read this publish holds (`held`) by the drift comparison, which
+ * must find nothing; then the import of the assembled application as an
+ * update of `appId`, the source read back as the app's next baseline, and,
+ * when the export carries media, the media upload to the app the import
+ * answered with (`service.ts::uploadMediaBytes`: one ZIP of every asset,
+ * then the status reads, which change nothing in HQ and are not captured).
  */
 async function sendContent(
 	peer: TargetPeer,
@@ -882,16 +1252,20 @@ async function sendContent(
 	report: ProjectSpaceCompatibilityReport,
 	appId: string,
 	read: HqAppSource,
-): Promise<SentImport> {
+	held: HeldRead,
+	assumedResources: AssumedResources | undefined,
+): Promise<{ readonly sent: SentImport; readonly ledger: CaptureLedger }> {
 	const domain = peer.state.domain;
 	const target = { server: PROOF_SERVER, domain };
 	const mark = peer.requests.length;
 	let source = read;
-	if (prepared.export.lookupWorkbook !== undefined) {
+	const tables = new Map<LookupTableId, LedgerTable>();
+	const workbook = prepared.export.lookupWorkbook;
+	if (workbook !== undefined) {
 		const pushed = await uploadLookupTableWorkbook(
 			CREDENTIALS,
 			domain,
-			prepared.export.lookupWorkbook.bytes,
+			workbook.bytes,
 			{ replace: true },
 		);
 		if (!pushed.success) {
@@ -899,9 +1273,36 @@ async function sendContent(
 				`The capture peer refused the lookup workbook of ${prepared.source.id} (status ${pushed.status}), which it accepts from every publish.`,
 			);
 		}
+		const relisted = await readTables(peer, prepared);
+		for (const table of workbook.tables) {
+			const landed = relisted.find((remote) => remote.tag === table.tag);
+			if (landed === undefined) {
+				throw new Error(
+					`The capture peer holds no table under ${table.tag} after the push that sent it.`,
+				);
+			}
+			const rows = await readRows(peer, prepared, landed.id);
+			tables.set(table.tableId, {
+				tag: table.tag,
+				remoteId: landed.id,
+				canonical: canonicalLookupTable(landed, rows.rows),
+			});
+		}
 		source = await readSource(peer, prepared, appId);
+		const moved = diffHqAppSource({
+			baseline: held.normalized,
+			current: normalizedRead(prepared, source).normalized,
+			ownership: held.ownership,
+			shell: held.origin === "create",
+			schemaDefault: schemaPropertyDefault,
+		});
+		if (moved.length > 0) {
+			throw new Error(
+				`Nova's publish of ${prepared.source.id} would stop at its second source read: the app moved in the capture peer while its tables were pushed (${JSON.stringify(moved)}), and nothing moves it there.`,
+			);
+		}
 	}
-	const application = hqImportApplication({
+	const { application, ownership } = hqImportApplication({
 		prepared: prepared.export,
 		target,
 		compatibility: report,
@@ -920,6 +1321,10 @@ async function sendContent(
 			`The capture peer refused the import of ${prepared.source.id} (status ${imported.status}), which it accepts from every publish.`,
 		);
 	}
+	const readBack = normalizedRead(
+		prepared,
+		await readSource(peer, prepared, imported.appId),
+	);
 	const carriesMedia = prepared.export.assets.size > 0;
 	if (carriesMedia) {
 		const uploaded = await uploadAppMediaBundle(
@@ -938,45 +1343,67 @@ async function sendContent(
 	}
 	const sent = peer.since(mark);
 	return {
-		...(prepared.export.lookupWorkbook !== undefined && {
-			lookup: await reframed(
-				takeRequest(sent, "POST", `/a/${domain}/fixtures/fixapi/`),
-			),
-		}),
-		importApp: await reframed(
-			takeRequest(sent, "POST", `/a/${domain}/apps/api/import_app/`),
-		),
-		...(carriesMedia && {
-			media: await reframed(
-				takeRequest(
-					sent,
-					"POST",
-					`/a/${domain}/apps/api/${imported.appId}/multimedia/`,
+		sent: {
+			...(workbook !== undefined && {
+				lookup: await reframed(
+					takeRequest(sent, "POST", `/a/${domain}/fixtures/fixapi/`),
 				),
+			}),
+			importApp: await reframed(
+				takeRequest(sent, "POST", `/a/${domain}/apps/api/import_app/`),
 			),
-		}),
-		application,
-		assumedSource: assumedSourceOf(source),
+			...(carriesMedia && {
+				media: await reframed(
+					takeRequest(
+						sent,
+						"POST",
+						`/a/${domain}/apps/api/${imported.appId}/multimedia/`,
+					),
+				),
+			}),
+			application,
+			ownership,
+			assumedSource: assumedSourceOf(source),
+			...(assumedResources !== undefined && { assumedResources }),
+		},
+		ledger: {
+			app: { normalized: readBack.normalized, ownership, origin: "push" },
+			tables,
+		},
 	};
 }
 
 /**
  * A first publish as `publishAppToHq` makes it once its target is
- * reachable: the compatibility check (a blocked report stops the publish
- * before any write), the empty shell's create, the source read of the app
- * it made, then the app's content (`sendContent`). The shell is created
+ * reachable: preflight's table list where the app pushes tables (no table is
+ * mapped yet, so nothing is compared), the compatibility check (a blocked
+ * report stops the publish before any write), the empty shell's create, the
+ * source read of the app it made, which the ledger records as the shell's
+ * baseline, then the app's content (`sendContent`). The shell is created
  * before any Project data is pushed, and holds nothing that reads it.
  */
 async function firstPublish(
 	peer: TargetPeer,
 	prepared: PreparedDocument,
 	appName: string,
-): Promise<FirstPublishOutcome> {
+): Promise<
+	| { readonly outcome: Extract<FirstPublishOutcome, { status: "refused" }> }
+	| {
+			readonly outcome: Extract<FirstPublishOutcome, { status: "sent" }>;
+			readonly ledger: CaptureLedger;
+	  }
+> {
 	const domain = peer.state.domain;
 	const start = peer.requests.length;
+	const edge = await tableEdge(peer, prepared, null, []);
+	if (edge !== null && "conflicts" in edge) {
+		throw new Error(
+			`Nova's first publish of ${prepared.source.id} found lookup tables it cannot account for in the capture peer (${JSON.stringify(edge.conflicts)}), which holds none before it.`,
+		);
+	}
 	const { report, outcome } = await compatibilityCheck(peer, prepared);
 	if (report.status === "blocked") {
-		return { status: "refused", compatibility: outcome };
+		return { outcome: { status: "refused", compatibility: outcome } };
 	}
 	const mark = peer.requests.length;
 	const shell = hqImportApplication({
@@ -986,7 +1413,12 @@ async function firstPublish(
 		update: null,
 		identity: DERIVED_WIRE_IDENTITY,
 	});
-	const created = await importApp(CREDENTIALS, domain, appName, shell);
+	const created = await importApp(
+		CREDENTIALS,
+		domain,
+		appName,
+		shell.application,
+	);
 	if (!created.success) {
 		throw new Error(
 			`The capture peer refused the shell create of ${prepared.source.id} (status ${created.status}), which it accepts from every publish.`,
@@ -998,51 +1430,97 @@ async function firstPublish(
 		`/a/${domain}/apps/api/import_app/`,
 	);
 	const read = await readSource(peer, prepared, created.appId);
-	const content = await sendContent(
+	const { sent: content, ledger } = await sendContent(
 		peer,
 		prepared,
 		appName,
 		report,
 		created.appId,
 		read,
+		{
+			normalized: normalizedRead(prepared, read).normalized,
+			ownership: shell.ownership,
+			origin: "create",
+		},
+		edge?.assumed,
 	);
 	return {
-		status: "sent",
-		compatibility: outcome,
-		create: { importApp: await reframed(createRequest), application: shell },
-		content,
-		sequence: sequenceOf(peer.since(start)),
+		outcome: {
+			status: "sent",
+			compatibility: outcome,
+			create: {
+				importApp: await reframed(createRequest),
+				application: shell.application,
+				ownership: shell.ownership,
+			},
+			content,
+			sequence: sequenceOf(peer.since(start)),
+		},
+		ledger,
 	};
 }
 
 /**
- * A later publish as `publishAppToHq` makes it over an app it reached: the
- * compatibility check, preflight's source read of the mapped app, then the
- * app's content (`sendContent`).
+ * A later publish as `publishAppToHq` makes it over an app it reached:
+ * preflight's table edge (`tableEdge`), the compatibility check, the
+ * `target-app` source read and its comparison with the ledger's baseline
+ * (`appEdge`), the verdict over every change collected
+ * (`remoteChanges.ts::decideRemoteChanges`, under what `confirm` names),
+ * then the app's content (`sendContent`). A conflict or a change nobody
+ * confirmed stops it before any write, as preflight's `hq_resource_conflict`
+ * and `hq_changed` do.
  */
 async function updateStep(
 	peer: TargetPeer,
 	prepared: PreparedDocument,
 	appName: string,
+	ledger: CaptureLedger,
+	confirm: StopConfirmation | undefined,
 ): Promise<StepOutcome> {
 	const start = peer.requests.length;
+	const edge = await tableEdge(peer, prepared, ledger, confirm?.adopted ?? []);
+	if (edge !== null && "conflicts" in edge) {
+		return {
+			status: "stopped",
+			code: "hq_resource_conflict",
+			remoteChanges: [],
+			conflicts: edge.conflicts,
+		};
+	}
 	const { report, outcome } = await compatibilityCheck(peer, prepared);
 	if (report.status === "blocked") {
 		return { status: "refused", compatibility: outcome };
 	}
 	const read = await readSource(peer, prepared, PLACEHOLDER_APP_ID);
-	const sent = await sendContent(
+	const current = normalizedRead(prepared, read);
+	const app = appEdge(prepared, appName, ledger, current);
+	const verdict = decideRemoteChanges({
+		observed: [...(app === null ? [] : [app]), ...(edge?.observed ?? [])],
+		discards: confirm?.discards ?? [],
+	});
+	if (!verdict.proceed) {
+		return {
+			status: "stopped",
+			code: "hq_changed",
+			remoteChanges: verdict.remoteChanges,
+			conflicts: [],
+		};
+	}
+	const { sent } = await sendContent(
 		peer,
 		prepared,
 		appName,
 		report,
 		PLACEHOLDER_APP_ID,
 		read,
+		{ ...ledger.app, normalized: current.normalized },
+		edge?.assumed,
 	);
 	return {
 		status: "sent",
 		compatibility: outcome,
 		...sent,
+		...(confirm !== undefined && { confirmed: confirm }),
 		sequence: sequenceOf(peer.since(start)),
 	};
 }
@@ -1073,13 +1551,22 @@ export interface PublishInput {
 	 */
 	readonly seed?: number;
 	/**
-	 * The fields of HQ's source for A when the updates are published, where
-	 * something changed them after the content import. By default each is
-	 * what the content import left: the profile it sent
-	 * (`views/apps.py::app_source` serves the stored profile through
-	 * `export_json`) and HQ's own CommCare version.
+	 * Fields of HQ's source for the app, by path, that hold other values in
+	 * this project space than an update sent: HQ serves them after every
+	 * update, from the content import on. By default each is what the update
+	 * left: the profile it sent (`views/apps.py::app_source` serves the
+	 * stored profile through `export_json`) and HQ's own CommCare version.
 	 */
 	readonly source?: Partial<AssumedSource>;
+	/**
+	 * What a person saves in HQ over A before the updates (the document's
+	 * `hq-side.json`). Each update then meets them, stops, and is sent again
+	 * with what a person who saw each stop confirms: every table in conflict
+	 * taken over, and every change listed with the digest shown. A stop over
+	 * a document without them stops the capture: Nova's own push must never
+	 * read as a change.
+	 */
+	readonly hqSide?: HqSideSaves;
 }
 
 export type PublishCapture =
@@ -1109,6 +1596,45 @@ function sendsTheSame(left: StepOutcome, right: StepOutcome): boolean {
 }
 
 /**
+ * What a person who saw `stop` confirms to send the publish again, beside
+ * what they confirmed of the stops before it.
+ */
+function confirming(
+	before: StopConfirmation | undefined,
+	stop: PublishStop,
+): StopConfirmation {
+	return {
+		stops: [
+			...(before?.stops ?? []),
+			{
+				code: stop.code,
+				remoteChanges: stop.remoteChanges,
+				conflicts: stop.conflicts,
+			},
+		],
+		discards: [
+			...(before?.discards ?? []),
+			...stop.remoteChanges.map((change) => ({
+				kind: change.kind,
+				novaResourceId: change.novaResourceId,
+				observedDigest: change.observedDigest,
+			})),
+		],
+		adopted: [
+			...(before?.adopted ?? []),
+			...stop.conflicts.map((conflict) => conflict.tableId),
+		],
+	};
+}
+
+/**
+ * How many times a person's confirmation can meet another stop: preflight
+ * lists the tables in conflict first and the changes after them, so a
+ * publish over both stops twice before it goes through.
+ */
+const CONFIRMED_STOPS = 2;
+
+/**
  * Capture what Nova's publish sends for a first publish and the updates
  * over it. Throws `UnexportableDocumentError` when Nova's export boundary
  * refuses a document, since no configuration would receive it.
@@ -1122,6 +1648,10 @@ function sendsTheSame(left: StepOutcome, right: StepOutcome): boolean {
  * is captured a second time, in the first stream no update holds, and the
  * two must send the same bytes, as a third publish sends the second's: a
  * change that mints an id per publish again stops the capture here.
+ *
+ * Every update is a separate next publish over A, so the peer is put back
+ * to what the first publish left (with a person's saves, `hqSide`) before
+ * each, and each is compared with the ledger the first publish left.
  */
 export async function capturePublish(
 	input: PublishInput,
@@ -1159,31 +1689,46 @@ export async function capturePublish(
 			caseSearchEnabled: configuration.caseSearchEnabled,
 			appId: PLACEHOLDER_APP_ID,
 			commcareVersion: CORPUS_COMMCARE_VERSION,
+			...(input.source !== undefined && { sourceChanges: input.source }),
 		},
 		async (peer) => {
-			const created = await seeded(operation(OPERATION_ORDINALS.create), () =>
+			const first = await seeded(operation(OPERATION_ORDINALS.create), () =>
 				firstPublish(peer, create, input.appName ?? create.export.doc.appName),
 			);
-			if (created.status === "refused") {
+			if (!("ledger" in first)) {
 				assertModeled(peer);
-				return { status: "refused", create: created };
+				return { status: "refused", create: first.outcome };
 			}
-			/* Every update is a separate next publish over A, so the peer
-			 * answers each from what the content import left. */
-			peer.holdSource(
-				sourceAfterUpdate(created.content.application, input.source),
-			);
+			const { outcome: created, ledger } = first;
+			if (input.hqSide !== undefined) peer.applyHqSide(input.hqSide);
+			const stateA = peer.snapshot();
 			const send = (
 				{ update, prepared }: (typeof updates)[number],
 				ordinal: number,
 			) =>
-				seeded(operation(ordinal), () =>
-					updateStep(
-						peer,
-						prepared,
-						update.appName ?? prepared.export.doc.appName,
-					),
-				);
+				seeded(operation(ordinal), async (): Promise<StepOutcome> => {
+					const appName = update.appName ?? prepared.export.doc.appName;
+					let confirm: StopConfirmation | undefined;
+					for (let stops = 0; ; stops += 1) {
+						peer.restore(stateA);
+						const step = await updateStep(
+							peer,
+							prepared,
+							appName,
+							ledger,
+							confirm,
+						);
+						if (step.status !== "stopped" || stops === CONFIRMED_STOPS) {
+							return step;
+						}
+						if (input.hqSide === undefined) {
+							throw new Error(
+								`Nova's ${update.name} of ${prepared.source.id} stopped with ${step.code} (${JSON.stringify(step.code === "hq_changed" ? step.remoteChanges : step.conflicts)}), and nothing was saved in HQ over the app: Nova's own push read as a change. Look at what the comparison reads of the peer's answers.`,
+							);
+						}
+						confirm = confirming(confirm, step);
+					}
+				});
 			const outcomes: Record<string, StepOutcome> = {};
 			for (const [position, entry] of updates.entries()) {
 				outcomes[entry.update.name] = await send(

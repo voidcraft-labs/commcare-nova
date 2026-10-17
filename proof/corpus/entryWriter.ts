@@ -12,8 +12,13 @@
  * `content` update that fills it, each sidecar marked with the layout
  * (`./publish.ts::TWO_IMPORT_LAYOUT`); the content, the republish and the
  * edit's update each name the placeholder app id and the fields of HQ's
- * source they were built over (`assumedSource`). Beside the exports the
- * directory holds the HQ import file (`import-file.zip`).
+ * source they were built over (`assumedSource`), with what the peer answered
+ * for the lookup tables they push (`assumedResources`) and, for a document a
+ * person saved in HQ over, the stops Nova's preflight made and what the
+ * resend confirmed (`confirmed`). Beside the two imports of the first
+ * publish, `create.ownership.json` and `content.ownership.json` hold the
+ * overlay keys each body writes. Beside the exports the directory holds the
+ * HQ import file (`import-file.zip`).
  *
  * Every export is one seeded operation (`./entropy.mts`) of the corpus
  * seed: each update is captured once, in a stream of its own, the first
@@ -51,7 +56,6 @@ import {
 import { type Footprint, wireLanguages, wireLayout } from "./footprint";
 import { writeDocumentInputs } from "./inputs";
 import {
-	type AssumedSource,
 	type CapturedRequest,
 	type CompatibilityOutcome,
 	capturePublish,
@@ -66,6 +70,7 @@ import {
 	type PublishConfiguration,
 	type PublishDocument,
 	type SentImport,
+	type StopConfirmation,
 	TWO_IMPORT_LAYOUT,
 } from "./publish";
 import { readDocuments } from "./writePublishCaptures";
@@ -275,28 +280,45 @@ async function writeStep(
 		compatibility: step.compatibility,
 		...(lookupFile !== undefined && { lookups: lookupFile }),
 		...(mediaFile !== undefined && { media: mediaFile }),
-		...updateSidecar(step.assumedSource),
+		...updateSidecar(step),
 	});
 }
 
-/** What an update's sidecar names beside its request. */
-function updateSidecar(assumedSource: AssumedSource) {
+/**
+ * What an update's sidecar names beside its request: the fields of HQ's
+ * source and the resources it was built over, and where Nova's preflight
+ * stopped it, the stop and what the resend confirmed.
+ */
+function updateSidecar(
+	step: SentImport & { readonly confirmed?: StopConfirmation },
+) {
 	return {
 		layout: TWO_IMPORT_LAYOUT,
 		placeholderAppId: PLACEHOLDER_APP_ID,
-		assumedSource,
+		assumedSource: step.assumedSource,
+		...(step.assumedResources !== undefined && {
+			assumedResources: step.assumedResources,
+		}),
+		...(step.confirmed !== undefined && { confirmed: step.confirmed }),
 	};
 }
 
 function outcomeJson(
 	step:
-		| { readonly status: string; readonly compatibility: CompatibilityOutcome }
+		| {
+				readonly status: string;
+				readonly compatibility?: CompatibilityOutcome;
+				readonly code?: string;
+		  }
 		| undefined,
 ) {
 	if (step === undefined) return undefined;
 	return {
 		status: step.status,
-		compatibility: step.compatibility,
+		...(step.compatibility !== undefined && {
+			compatibility: step.compatibility,
+		}),
+		...(step.code !== undefined && { code: step.code }),
 	};
 }
 
@@ -400,14 +422,28 @@ export async function writeEntry(
 			],
 			configuration: publishConfiguration(name, configuration),
 			seed,
+			...(document.hqSide !== undefined && { hqSide: document.hqSide }),
 		});
-		const refused = [
+		const steps = [
 			capture.create,
 			...(capture.status === "sent" ? Object.values(capture.updates) : []),
-		].find((step) => step.status === "refused");
+		];
+		const refused = steps.find(
+			(step): step is Extract<typeof step, { status: "refused" }> =>
+				step.status === "refused",
+		);
 		if (refused !== undefined) {
 			throw new Error(
 				`Nova's publish refused corpus document ${document.id} under its ${name} configuration (${JSON.stringify(refused.compatibility)}), which holds every flag its verdict requires. The verdict and Nova's project-space check disagree; look at projectSpaceCompatibilityProbePlan.`,
+			);
+		}
+		const stopped = steps.find(
+			(step): step is Extract<typeof step, { status: "stopped" }> =>
+				step.status === "stopped",
+		);
+		if (stopped !== undefined) {
+			throw new Error(
+				`Nova's publish of corpus document ${document.id} under its ${name} configuration stopped with ${stopped.code} after a person confirmed every change and table it listed (${JSON.stringify(stopped)}). A confirmed publish proceeds; look at what the confirmation names against what the stop listed.`,
 			);
 		}
 		captures.set(name, capture);
@@ -425,11 +461,19 @@ export async function writeEntry(
 			compatibility,
 			layout: TWO_IMPORT_LAYOUT,
 		});
+		await writeJson(join(directory, "create.ownership.json"), create.ownership);
 		await writeStep(
 			directory,
 			"content",
 			{ compatibility, ...content },
 			written,
+		);
+		/* The overlay keys each body of the first publish writes, which the
+		 * retained HQ reads copy beside HQ's answers to that publish
+		 * (`proof/hq/test_retained_reads.py`); no observation reads them. */
+		await writeJson(
+			join(directory, "content.ownership.json"),
+			content.ownership,
 		);
 		const republish = capture.updates.republish;
 		if (republish?.status === "sent") {

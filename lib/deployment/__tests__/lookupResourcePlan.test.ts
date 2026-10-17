@@ -43,14 +43,15 @@ it.each(["nova-created", "adopted"] as const)(
 			adoptTableIds: [],
 		};
 		const before = structuredClone(input);
+		const owned = { ...districts, ownership, mappedRemoteId: "hq-districts" };
 		expect(planLookupResourcePush(input)).toEqual({
 			ok: true,
-			pushes: [{ ...districts, ownership }],
+			pushes: [owned],
 		});
 		// Repeated approval does not invent a second adoption of an owned object.
 		expect(
 			planLookupResourcePush({ ...input, adoptTableIds: [DISTRICTS] }),
-		).toEqual({ ok: true, pushes: [{ ...districts, ownership }] });
+		).toEqual({ ok: true, pushes: [owned] });
 		expect(input).toEqual(before);
 		expect(
 			planLookupResourcePush({
@@ -67,7 +68,11 @@ it.each(["nova-created", "adopted"] as const)(
 				hqTables: [{ id: "replacement", tag: "districts" }],
 				adoptTableIds: [DISTRICTS],
 			}),
-		).toEqual({ ok: true, pushes: [{ ...districts, ownership: "adopted" }] });
+		).toEqual({
+			ok: true,
+			// A table taken over in this publish is not compared with the one mapped before.
+			pushes: [{ ...districts, ownership: "adopted", mappedRemoteId: null }],
+		});
 	},
 );
 
@@ -80,9 +85,16 @@ it.each(["nova-created", "adopted"] as const)(
 			hqTables: [],
 			adoptTableIds: [],
 		};
+		// The mapped table HQ no longer holds is still the one compared.
 		expect(planLookupResourcePush(input)).toEqual({
 			ok: true,
-			pushes: [{ ...districts, ownership: "nova-created" }],
+			pushes: [
+				{
+					...districts,
+					ownership: "nova-created",
+					mappedRemoteId: "hq-districts",
+				},
+			],
 		});
 		const renamed = { ...districts, tag: "areas" };
 		expect(
@@ -93,7 +105,8 @@ it.each(["nova-created", "adopted"] as const)(
 			}),
 		).toEqual({
 			ok: true,
-			pushes: [{ ...renamed, ownership: "nova-created" }],
+			// Renamed in Nova: the mapping names another tag, so nothing is compared.
+			pushes: [{ ...renamed, ownership: "nova-created", mappedRemoteId: null }],
 		});
 		expect(
 			planLookupResourcePush({
@@ -118,8 +131,8 @@ it("creates all requested tables in order only when none conflicts", () => {
 	expect(planLookupResourcePush(input)).toEqual({
 		ok: true,
 		pushes: [
-			{ ...statuses, ownership: "nova-created" },
-			{ ...districts, ownership: "nova-created" },
+			{ ...statuses, ownership: "nova-created", mappedRemoteId: null },
+			{ ...districts, ownership: "nova-created", mappedRemoteId: null },
 		],
 	});
 	expect(
@@ -158,8 +171,8 @@ it("adopts exactly the named conflicts and refuses the whole workbook until ever
 	).toEqual({
 		ok: true,
 		pushes: [
-			{ ...districts, ownership: "adopted" },
-			{ ...statuses, ownership: "adopted" },
+			{ ...districts, ownership: "adopted", mappedRemoteId: null },
+			{ ...statuses, ownership: "adopted", mappedRemoteId: null },
 		],
 	});
 });

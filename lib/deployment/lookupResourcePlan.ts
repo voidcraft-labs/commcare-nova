@@ -51,6 +51,14 @@ export interface PlannedLookupPush {
 	readonly tableId: LookupTableId;
 	readonly tag: string;
 	readonly ownership: DeploymentResourceOwnership;
+	/**
+	 * The HQ table this deployment's live mapping holds under this tag, which
+	 * the drift check compares with its baseline: the table the push writes
+	 * over, or the one HQ deleted or renamed since. Null for a table nobody
+	 * mapped under this tag, and for one this push adopts, where taking it
+	 * over is the person's decision to write over it.
+	 */
+	readonly mappedRemoteId: string | null;
 }
 
 export type LookupResourcePlan =
@@ -122,6 +130,7 @@ export function planLookupResourcePush(
 				tableId: table.tableId,
 				tag: table.tag,
 				ownership: mapping.ownership,
+				mappedRemoteId: mapping.remoteId,
 			});
 			continue;
 		}
@@ -145,6 +154,10 @@ export function planLookupResourcePush(
 				tableId: table.tableId,
 				tag: table.tag,
 				ownership: "nova-created",
+				mappedRemoteId:
+					mapping !== undefined && mapping.pushedIdentity === table.tag
+						? mapping.remoteId
+						: null,
 			});
 			continue;
 		}
@@ -163,6 +176,7 @@ export function planLookupResourcePush(
 			tableId: table.tableId,
 			tag: table.tag,
 			ownership: "adopted",
+			mappedRemoteId: null,
 		});
 	}
 

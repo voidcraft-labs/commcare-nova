@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { CommCareServer } from "@/lib/commcare/servers";
@@ -12,6 +14,7 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
+import { log } from "@/lib/logger";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { deploymentNotFound } from "./errors";
 import { publishedRemoteApp } from "./resources";
@@ -23,6 +26,11 @@ import {
 	deploymentDisplaysAsReached,
 } from "./stateMachine";
 import {
+	type AppBaseline,
+	type AppBaselineWrite,
+	type AppOwnership,
+	type CanonicalLookupTable,
+	type CanonicalPlace,
 	DEPLOYMENT_CONFIRMATION_KINDS,
 	type DeploymentConfirmation,
 	type DeploymentConfirmationKind,
@@ -43,6 +51,9 @@ import {
 	deploymentStateSchema,
 	isDeploymentServer,
 	NO_DEPLOYMENT_PHASE_OUTCOMES,
+	type ResourceBaseline,
+	type ResourceBaselineRef,
+	type ResourceBaselineWrite,
 } from "./types";
 
 /**
@@ -693,6 +704,11 @@ export interface RecordRemoteResourceInput {
  */
 export interface RecordRemoteAppInput extends RecordRemoteResourceInput {
 	readonly uploadedAt: string;
+	/**
+	 * HQ's read of the app right after this upload, or the fact that Nova
+	 * could not read it, written with the mapping so the two never disagree.
+	 */
+	readonly baseline: AppBaselineWrite;
 }
 
 /**
@@ -717,6 +733,7 @@ export async function recordRemoteResource(
 		async (tx, row) => {
 			const now = new Date();
 			await writeResourceMapping(tx, row.id, input, now);
+			await writeAppBaseline(tx, row.id, scope, input.baseline);
 
 			const record = toDeploymentRecord(row);
 			const progress = applyPhaseOutcome(record, "upload", {
@@ -754,7 +771,11 @@ export async function recordRemoteResource(
 export async function recordCreatedRemoteApp(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	input: { readonly remoteId: string },
+	input: {
+		readonly remoteId: string;
+		/** The read after the create as the `create` baseline, or `unread` when it failed. */
+		readonly baseline: AppBaselineWrite;
+	},
 ): Promise<DeploymentWithResources> {
 	return withDeploymentRow(
 		scope,
@@ -774,10 +795,358 @@ export async function recordCreatedRemoteApp(
 				},
 				new Date(),
 			);
+			await writeAppBaseline(tx, row.id, scope, input.baseline);
 			await notifyAppDeployments(tx, scope.appId);
 			return loadWithinTransaction(tx, row.id);
 		},
 	);
+}
+
+/**
+ * Upsert the one app baseline of a deployment, inside a caller's
+ * transaction.
+ *
+ * The `WHERE` is the fold's precondition: two publishes that read back and
+ * record out of order leave the newer read stored, so the baseline is
+ * always HQ's latest known state and a late writer never makes the next
+ * publish stop over Nova's own push. A baseline for another HQ app always
+ * replaces the row, discard record included; one for the same app keeps
+ * the stored discard record unless this write carries one.
+ */
+async function writeAppBaseline(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	scope: DeploymentScope,
+	baseline: AppBaselineWrite,
+): Promise<void> {
+	const discarded = baseline.discard !== null;
+	await sql`
+		INSERT INTO app_deployment_baselines AS existing (
+			deployment_id, remote_app_id, origin, source_gzip, source_bytes,
+			source_digest, ownership, observed_at, observed_by,
+			discarded_digest, discarded_by, discarded_at
+		) VALUES (
+			${deploymentId}, ${baseline.remoteAppId}, ${baseline.origin},
+			${baseline.sourceGzip}, ${baseline.sourceBytes},
+			${baseline.sourceDigest},
+			${baseline.ownership === null ? null : JSON.stringify(baseline.ownership)}::jsonb,
+			${baseline.observedAt}::timestamptz, ${scope.actorUserId},
+			${baseline.discard?.digest ?? null},
+			${discarded ? scope.actorUserId : null},
+			${discarded ? sql`now()` : null}
+		)
+		ON CONFLICT (deployment_id) DO UPDATE SET
+			remote_app_id = EXCLUDED.remote_app_id,
+			origin = EXCLUDED.origin,
+			source_gzip = EXCLUDED.source_gzip,
+			source_bytes = EXCLUDED.source_bytes,
+			source_digest = EXCLUDED.source_digest,
+			ownership = EXCLUDED.ownership,
+			observed_at = EXCLUDED.observed_at,
+			observed_by = EXCLUDED.observed_by,
+			discarded_digest = CASE WHEN EXCLUDED.remote_app_id = existing.remote_app_id
+				THEN COALESCE(EXCLUDED.discarded_digest, existing.discarded_digest)
+				ELSE EXCLUDED.discarded_digest END,
+			discarded_by = CASE WHEN EXCLUDED.remote_app_id = existing.remote_app_id
+				THEN COALESCE(EXCLUDED.discarded_by, existing.discarded_by)
+				ELSE EXCLUDED.discarded_by END,
+			discarded_at = CASE WHEN EXCLUDED.remote_app_id = existing.remote_app_id
+				THEN COALESCE(EXCLUDED.discarded_at, existing.discarded_at)
+				ELSE EXCLUDED.discarded_at END
+		WHERE existing.remote_app_id <> EXCLUDED.remote_app_id
+			OR existing.observed_at <= EXCLUDED.observed_at
+	`.execute(tx);
+}
+
+function compareResourceBaselines(
+	left: ResourceBaselineWrite,
+	right: ResourceBaselineWrite,
+): number {
+	if (left.kind !== right.kind) return left.kind < right.kind ? -1 : 1;
+	if (left.remoteId === right.remoteId) return 0;
+	return left.remoteId < right.remoteId ? -1 : 1;
+}
+
+/**
+ * Upsert the baselines of the HQ tables and places one push read back,
+ * inside a caller's transaction.
+ *
+ * A row is keyed by the HQ resource within the Project and project space,
+ * so two apps of a Project that map one HQ table share it and a sibling's
+ * push refreshes what this app compares with. One statement inserts the
+ * rows in `(kind, remote_id)` order, so two pushes writing overlapping sets
+ * cannot deadlock, and the newer read wins as in `writeAppBaseline`. Where
+ * one call names a resource twice, its newer read is the one written, as
+ * the guard would leave it. The conflict arm is the Project move's
+ * (`lib/db/apps.ts::copyPlaceBaselinesToProject`).
+ */
+async function writeResourceBaselines(
+	tx: Transaction<AppDatabase>,
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	baselines: readonly ResourceBaselineWrite[],
+): Promise<void> {
+	const newest = new Map<string, ResourceBaselineWrite>();
+	for (const baseline of baselines) {
+		const key = `${baseline.kind}\u0000${baseline.remoteId}`;
+		const held = newest.get(key);
+		if (held === undefined || held.observedAt <= baseline.observedAt)
+			newest.set(key, baseline);
+	}
+	const ordered = [...newest.values()].sort(compareResourceBaselines);
+	if (ordered.length === 0) return;
+	await sql`
+		INSERT INTO project_space_resource_baselines AS existing (
+			project_id, server, domain, kind, remote_id, origin, canonical,
+			digest, observed_at, observed_by, observed_from_app_id,
+			discarded_digest, discarded_by, discarded_at
+		)
+		SELECT ${scope.projectId}, ${target.server}, ${target.domain},
+			baseline.kind, baseline.remote_id, baseline.origin,
+			baseline.canonical::jsonb, baseline.digest,
+			baseline.observed_at::timestamptz, ${scope.actorUserId}, ${scope.appId},
+			baseline.discarded_digest,
+			CASE WHEN baseline.discarded_digest IS NULL THEN NULL ELSE ${scope.actorUserId} END,
+			CASE WHEN baseline.discarded_digest IS NULL THEN NULL ELSE now() END
+		FROM unnest(
+			${sql.val(ordered.map((baseline) => baseline.kind))}::text[],
+			${sql.val(ordered.map((baseline) => baseline.remoteId))}::text[],
+			${sql.val(ordered.map((baseline) => baseline.origin))}::text[],
+			${sql.val(ordered.map((baseline) => (baseline.canonical === null ? null : JSON.stringify(baseline.canonical))))}::text[],
+			${sql.val(ordered.map((baseline) => baseline.digest))}::text[],
+			${sql.val(ordered.map((baseline) => baseline.observedAt))}::text[],
+			${sql.val(ordered.map((baseline) => baseline.discard?.digest ?? null))}::text[]
+		) WITH ORDINALITY AS baseline(
+			kind, remote_id, origin, canonical, digest, observed_at,
+			discarded_digest, position
+		)
+		ORDER BY baseline.position
+		ON CONFLICT (project_id, server, domain, kind, remote_id) DO UPDATE SET
+			origin = EXCLUDED.origin,
+			canonical = EXCLUDED.canonical,
+			digest = EXCLUDED.digest,
+			observed_at = EXCLUDED.observed_at,
+			observed_by = EXCLUDED.observed_by,
+			observed_from_app_id = EXCLUDED.observed_from_app_id,
+			discarded_digest = COALESCE(EXCLUDED.discarded_digest, existing.discarded_digest),
+			discarded_by = COALESCE(EXCLUDED.discarded_by, existing.discarded_by),
+			discarded_at = COALESCE(EXCLUDED.discarded_at, existing.discarded_at)
+		WHERE existing.observed_at <= EXCLUDED.observed_at
+	`.execute(tx);
+}
+
+/**
+ * Record that Nova could not read back some of the tables and places a push
+ * may have changed, so the next publish asks before writing over them.
+ */
+export async function markResourceBaselinesUnread(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	refs: readonly ResourceBaselineRef[],
+): Promise<void> {
+	if (refs.length === 0) return;
+	const observedAt = new Date().toISOString();
+	await withDeploymentRow(scope, target, { ensure: false }, async (tx) => {
+		await writeResourceBaselines(
+			tx,
+			scope,
+			target,
+			refs.map((ref) => ({
+				origin: "unread",
+				kind: ref.kind,
+				remoteId: ref.remoteId,
+				canonical: null,
+				digest: null,
+				observedAt,
+				discard: null,
+			})),
+		);
+	});
+}
+
+/**
+ * The app as CommCare HQ returned it when Nova last read it on this target,
+ * or null when no baseline was ever written.
+ *
+ * `edit`, not `view`: the row holds HQ app source. The stored text is
+ * verified against its digest outside any transaction; a row that does not
+ * verify is not a read Nova can compare with, so it is logged and returned
+ * as `unread`, which stops the next publish to ask.
+ */
+export async function readAppBaseline(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<AppBaseline | null> {
+	if (!roleAllowsApp(scope.role, "edit")) throw deploymentNotFound();
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("app_deployment_baselines as b")
+		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
+		.select([
+			"b.deployment_id",
+			"b.remote_app_id",
+			"b.origin",
+			"b.source_gzip",
+			"b.source_digest",
+			"b.ownership",
+			"b.observed_at",
+			"b.observed_by",
+		])
+		.where("d.app_id", "=", scope.appId)
+		.where("d.project_id", "=", scope.projectId)
+		.where("d.server", "=", target.server)
+		.where("d.domain", "=", target.domain)
+		.executeTakeFirst();
+	if (row === undefined) return null;
+	const observed = {
+		remoteAppId: row.remote_app_id,
+		observedAt: row.observed_at.toISOString(),
+		observedBy: row.observed_by,
+	};
+	if (row.origin === "unread") return { origin: "unread", ...observed };
+	if (
+		row.origin !== "create" &&
+		row.origin !== "push" &&
+		row.origin !== "cutover"
+	) {
+		throw new Error(
+			`Deployment ${row.deployment_id} stores an app baseline of origin "${row.origin}", which Nova does not know.`,
+		);
+	}
+	const unverified = (reason: string): AppBaseline => {
+		log.error("[deployment] app baseline does not verify", undefined, {
+			deploymentId: row.deployment_id,
+			reason,
+		});
+		return { origin: "unread", ...observed };
+	};
+	if (row.source_gzip === null || row.source_digest === null) {
+		return unverified("missing source");
+	}
+	let text: Buffer;
+	try {
+		text = gunzipSync(row.source_gzip);
+	} catch {
+		return unverified("gzip");
+	}
+	if (createHash("sha256").update(text).digest("hex") !== row.source_digest) {
+		return unverified("digest");
+	}
+	let source: unknown;
+	try {
+		source = JSON.parse(text.toString("utf8"));
+	} catch {
+		return unverified("json");
+	}
+	const ownership = appOwnershipFromRow(row.ownership);
+	if (ownership === null) return unverified("ownership");
+	return {
+		origin: row.origin,
+		...observed,
+		source,
+		sourceDigest: row.source_digest,
+		ownership,
+	};
+}
+
+function stringList(value: unknown): readonly string[] | null {
+	return Array.isArray(value) &&
+		value.every((item): item is string => typeof item === "string")
+		? value
+		: null;
+}
+
+function appOwnershipFromRow(value: unknown): AppOwnership | null {
+	if (typeof value !== "object" || value === null) return null;
+	const stored = value as Record<string, unknown>;
+	const addOns = stringList(stored.addOns);
+	const profileProperties = stringList(stored.profileProperties);
+	const profileCustomProperties = stringList(stored.profileCustomProperties);
+	if (
+		addOns === null ||
+		profileProperties === null ||
+		profileCustomProperties === null ||
+		typeof stored.autoGpsCapture !== "boolean"
+	)
+		return null;
+	return {
+		addOns,
+		profileProperties,
+		profileCustomProperties,
+		autoGpsCapture: stored.autoGpsCapture,
+	};
+}
+
+/**
+ * The stored baselines of this Project's HQ tables and places on the
+ * target, for the `(kind, remoteId)` pairs `refs` names. A pair with no row
+ * is absent from the result, and the caller treats it as `unread`.
+ */
+export async function readResourceBaselines(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	refs: readonly ResourceBaselineRef[],
+): Promise<readonly ResourceBaseline[]> {
+	if (!roleAllowsApp(scope.role, "edit")) throw deploymentNotFound();
+	if (refs.length === 0) return [];
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("project_space_resource_baselines")
+		.select([
+			"kind",
+			"remote_id",
+			"origin",
+			"canonical",
+			"digest",
+			"observed_at",
+		])
+		.where("project_id", "=", scope.projectId)
+		.where("server", "=", target.server)
+		.where("domain", "=", target.domain)
+		.where(
+			sql<boolean>`(kind, remote_id) IN (
+				SELECT * FROM unnest(
+					${sql.val(refs.map((ref) => ref.kind))}::text[],
+					${sql.val(refs.map((ref) => ref.remoteId))}::text[]
+				)
+			)`,
+		)
+		.execute();
+	return rows.map((row): ResourceBaseline => {
+		if (row.kind !== "lookup-table" && row.kind !== "location") {
+			throw new Error(
+				`A resource baseline names a "${row.kind}", which Nova does not know.`,
+			);
+		}
+		const observedAt = row.observed_at.toISOString();
+		if (row.origin === "unread") {
+			return {
+				origin: "unread",
+				kind: row.kind,
+				remoteId: row.remote_id,
+				observedAt,
+			};
+		}
+		if (
+			(row.origin !== "push" && row.origin !== "cutover") ||
+			row.canonical === null ||
+			row.digest === null
+		) {
+			throw new Error(
+				`The baseline of ${row.kind} ${row.remote_id} is stored as "${row.origin}" without the content that origin holds.`,
+			);
+		}
+		return {
+			origin: row.origin,
+			kind: row.kind,
+			remoteId: row.remote_id,
+			canonical: row.canonical as unknown as
+				| CanonicalLookupTable
+				| CanonicalPlace,
+			digest: row.digest,
+			observedAt,
+		};
+	});
 }
 
 /**
@@ -977,6 +1346,8 @@ export async function recordPushedResources(
 	target: DeploymentTargetKey,
 	inputs: readonly RecordRemoteResourceInput[],
 	outcome: ResourcePushOutcome,
+	/** HQ's reads of what the push left, written with the mappings whatever the outcome. */
+	baselines: readonly ResourceBaselineWrite[] = [],
 ): Promise<DeploymentWithResources> {
 	return withDeploymentRow(
 		scope,
@@ -987,6 +1358,7 @@ export async function recordPushedResources(
 			for (const input of inputs) {
 				await writeResourceMapping(tx, row.id, input, now);
 			}
+			await writeResourceBaselines(tx, scope, target, baselines);
 			if (outcome.status === "partial") {
 				await notifyAppDeployments(tx, scope.appId);
 				return loadWithinTransaction(tx, row.id);

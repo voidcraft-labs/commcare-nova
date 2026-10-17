@@ -1,0 +1,7 @@
+{
+	"status": 400,
+	"headers": {
+		"Content-Type": "application/json"
+	},
+	"body": "{\"error\": \"Location with same name and parent already exists. Location site code: north_clinic.\"}"
+}

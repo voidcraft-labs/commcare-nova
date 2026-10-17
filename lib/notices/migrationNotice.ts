@@ -52,6 +52,8 @@ export const DEPLOYMENT_NOTICE_REASONS = [
 	"menu-id-changes-once",
 	"form-ids-change-once",
 	"deep-links-need-republish",
+	"next-publish-overwrites-hq-edits",
+	"next-publish-asks-before-overwriting",
 ] as const;
 export type DeploymentNoticeReason = (typeof DEPLOYMENT_NOTICE_REASONS)[number];
 

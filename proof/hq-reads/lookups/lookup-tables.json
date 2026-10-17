@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 100, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 3}, \"objects\": [{\"fields\": [{\"field_name\": \"code\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": []}], \"id\": \"09948f8373da4c86a86b7707a0e9fbcd\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"plain\"}, {\"fields\": [{\"field_name\": \"code\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": [\"lang\"]}], \"id\": \"9ea70d486f644cc4a2f22c063294e197\", \"is_global\": false, \"item_attributes\": [\"zone\"], \"resource_uri\": \"\", \"tag\": \"rich\"}, {\"fields\": [{\"field_name\": \"code\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": []}], \"id\": \"a0a2cdc1f69941da848befc33ffc36be\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"long\"}]}"
+}

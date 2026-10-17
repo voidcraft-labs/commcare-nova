@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 3}, \"objects\": [{\"domain\": \"nova-proof\", \"last_modified\": \"2026-10-05T10:02:16\", \"latitude\": \"12.5000000000\", \"location_data\": {}, \"location_id\": \"834a246164014b729dae962085b8894c\", \"location_type_code\": \"region\", \"location_type_name\": \"Region\", \"longitude\": \"-1.1234567890\", \"name\": \"North\", \"parent_location_id\": \"\", \"site_code\": \"north\"}, {\"domain\": \"nova-proof\", \"last_modified\": \"2026-10-05T10:02:18\", \"latitude\": null, \"location_data\": {}, \"location_id\": \"500152b7915c4cb596b54564a523bf70\", \"location_type_code\": \"region\", \"location_type_name\": \"Region\", \"longitude\": null, \"name\": \"South\", \"parent_location_id\": \"\", \"site_code\": \"south\"}, {\"domain\": \"nova-proof\", \"last_modified\": \"2026-10-05T10:02:20\", \"latitude\": null, \"location_data\": {}, \"location_id\": \"69fe0e9395c0468face474ec8be9ce05\", \"location_type_code\": \"district\", \"location_type_name\": \"District\", \"longitude\": null, \"name\": \"North clinic\", \"parent_location_id\": \"834a246164014b729dae962085b8894c\", \"site_code\": \"north_clinic\"}]}"
+}

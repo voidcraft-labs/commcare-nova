@@ -151,6 +151,33 @@ export const MIGRATION_NOTICE_COPY = {
 				`Links to ${projectSpace(entry)} that you already shared keep working. New ones are ready after the next publish there.`,
 			),
 		]),
+	"next-publish-overwrites-hq-edits": (entry) =>
+		noticeLine([
+			text(
+				`The next publish to ${projectSpace(entry)} replaces any change made to this app in CommCare HQ before this update, without asking. For a change made there after this update, Nova asks first.`,
+			),
+		]),
+	"next-publish-asks-before-overwriting": (
+		entry: DeploymentNoticeEntry,
+		ctx,
+	) => {
+		const entities = entry.entities ?? [];
+		/* No entities: the app's own baseline is the one Nova couldn't read. */
+		if (entities.length === 0) {
+			return noticeLine([
+				text(
+					`Nova couldn't read this app on ${projectSpace(entry)}, so the next publish there asks before it writes over what CommCare HQ holds.`,
+				),
+			]);
+		}
+		return noticeLine([
+			text("Nova couldn't read "),
+			...entityList(entities, ctx),
+			text(
+				` on ${projectSpace(entry)}, so the next publish there asks before it writes over them.`,
+			),
+		]);
+	},
 } satisfies {
 	readonly [R in MigrationNoticeReason]: (
 		entry: Extract<MigrationNoticeEntry, { reason: R }>,

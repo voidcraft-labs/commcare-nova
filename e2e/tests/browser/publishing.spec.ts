@@ -3,6 +3,11 @@ import type { Page } from "@playwright/test";
 import type { PublishResponseBody } from "@/components/builder/publishOutcome";
 import { endpointWireFixture } from "@/lib/commcare/__tests__/endpointWireFixture";
 import type { DeploymentView } from "@/lib/deployment/actions";
+import {
+	APP_PREVIEW_NOTE,
+	BASELINE_UNKNOWN_SENTENCE,
+	HQ_CHANGED_MESSAGE,
+} from "@/lib/deployment/remoteChanges";
 import { buildSetupArtifact } from "@/lib/deployment/setupArtifact";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
 import {
@@ -124,6 +129,7 @@ const refusal = {
 				remoteId: "remote-clinics",
 			},
 		],
+		remoteChanges: [],
 	},
 	preview_project_space: null,
 } satisfies PublishResponseBody;
@@ -149,6 +155,95 @@ test("native publish consent expires when the dialog closes or its destination c
 	await choose(page, "Publish option", "CommCare HQ");
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	expect(sent[2]).toMatchObject({ adopt_resources: [] });
+});
+test("native publish lists what changed in CommCare HQ, publishes over each ticked change as it was shown, and lands with the App Preview line", async ({
+	page,
+}) => {
+	const sent: Record<string, unknown>[] = [];
+	const remoteChanges = [
+		{
+			kind: "app",
+			novaResourceId: "native-publishing",
+			name: "Clinic visits",
+			identity: "hq-app",
+			parts: ["The form Visit in the menu Patients", "The app's name"],
+			note: null,
+			observedDigest: "digest-app",
+			baselineKnown: true,
+		},
+		{
+			kind: "location",
+			novaResourceId: "place-north",
+			name: "North",
+			identity: "north",
+			parts: [],
+			note: null,
+			observedDigest: "digest-north",
+			baselineKnown: false,
+		},
+	] as const;
+	const changed = {
+		success: false,
+		refusal: {
+			phase: "preflight",
+			failure: {
+				code: "hq_changed",
+				message: HQ_CHANGED_MESSAGE,
+				details: ["Clinic visits", "North"],
+			},
+			resourceConflicts: [],
+			remoteChanges: [...remoteChanges],
+		},
+		preview_project_space: null,
+	} satisfies PublishResponseBody;
+	const landed = {
+		success: true,
+		hq_app_action: "updated",
+		app_preview_note: APP_PREVIEW_NOTE,
+		url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+		warnings: [],
+		deployment: null,
+		preview_project_space: "alpha",
+	} satisfies PublishResponseBody;
+	await page.route("**/api/commcare/upload", (route) => {
+		sent.push(route.request().postDataJSON());
+		return route.fulfill({ json: sent.length === 1 ? changed : landed });
+	});
+	await open(page);
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect(
+		page.getByText("The form Visit in the menu Patients", { exact: true }),
+	).toBeVisible();
+	await expect(page.getByText("The app's name", { exact: true })).toBeVisible();
+	await expect(
+		page.getByText(BASELINE_UNKNOWN_SENTENCE, { exact: true }),
+	).toBeVisible();
+	const publishOver = page.getByRole("button", {
+		name: "Publish over these changes",
+		exact: true,
+	});
+	await expect(publishOver).toBeDisabled();
+	await page
+		.getByRole("checkbox", { name: "Publish over this Clinic visits" })
+		.check();
+	await expect(publishOver).toBeDisabled();
+	await page.getByRole("checkbox", { name: "Publish over this North" }).check();
+	await publishOver.click();
+	await expect(page.getByText(APP_PREVIEW_NOTE, { exact: true })).toBeVisible();
+	expect(sent).toHaveLength(2);
+	expect(sent[0]).toMatchObject({ discard_remote_changes: [] });
+	expect(sent[1].discard_remote_changes).toEqual([
+		{
+			kind: "app",
+			novaResourceId: "native-publishing",
+			observedDigest: "digest-app",
+		},
+		{
+			kind: "location",
+			novaResourceId: "place-north",
+			observedDigest: "digest-north",
+		},
+	]);
 });
 test("native released links preserve external selection order and recheck before copying", async ({
 	page,

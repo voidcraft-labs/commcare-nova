@@ -140,6 +140,13 @@ export type HqToolErrorType =
  *   - `hq_app_state_unknown` — an in-place update could not safely read the
  *     target app's current source immediately before import, so Nova refused
  *     to replace its profile state.
+ *   - `hq_changed` — the app, a lookup table or a place this app publishes
+ *     is not what CommCare HQ held when Nova last published it. Found in
+ *     preflight, nothing was sent: the payload lists each change with the
+ *     state it was read in, and the caller names each back in
+ *     `discard_hq_changes` once the user said to write over it. Found after
+ *     the tables and places were pushed, the app's content was not sent and
+ *     the payload lists nothing; calling again lists what changed.
  */
 export type UploadErrorType =
 	| HqToolErrorType
@@ -147,7 +154,8 @@ export type UploadErrorType =
 	| "hq_resource_conflict"
 	| "hq_organization_mismatch"
 	| "project_space_incompatible"
-	| "hq_app_state_unknown";
+	| "hq_app_state_unknown"
+	| "hq_changed";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can

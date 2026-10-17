@@ -22,6 +22,7 @@ import { readPlannedFleet } from "../plan";
 import { runMigrate } from "../run";
 import {
 	type CutoverStoppedError,
+	readCutoverBaselines,
 	runFleetTransaction,
 	WRITER_STEPS,
 } from "../writer";
@@ -163,15 +164,46 @@ async function databaseImage(db: Kysely<AppDatabase>): Promise<string> {
 		["app_migration_notice_key_readers", "cutover, user_id, server, domain"],
 		["lookup_table_references", "app_id, table_id"],
 		["app_location_references", "app_id"],
+		[
+			"app_deployment_identities",
+			"deployment_id, entity_kind, nova_entity_uuid",
+		],
+		["app_deployment_baselines", "deployment_id"],
+		[
+			"project_space_resource_baselines",
+			"project_id, server, domain, kind, remote_id",
+		],
 	] as const;
 	const parts: string[] = [];
 	for (const [table, order] of tables) {
+		/* The ledger's tables arrive with this revision's migrations, which a
+		 * database at the previous revision's prefix does not hold yet. */
+		const present = await sql<{ present: boolean }>`
+			SELECT to_regclass(${table}) IS NOT NULL AS present
+		`.execute(db);
+		if (present.rows[0]?.present !== true) {
+			parts.push(`${table}:absent`);
+			continue;
+		}
 		const rows = await sql<{ row: string }>`
 			SELECT t::text AS row FROM ${sql.table(table)} AS t ORDER BY ${sql.raw(order)}
 		`.execute(db);
 		parts.push(`${table}:${rows.rows.map((row) => row.row).join("\n")}`);
 	}
 	return parts.join("\n\n");
+}
+
+/** The plan and the baselines a run with no HQ reads hands the writer. */
+async function plannedWithBaselines(db: Kysely<AppDatabase>) {
+	const planned = await readPlannedFleet(db);
+	return {
+		build: planned.build,
+		baselines: await readCutoverBaselines(db, planned, {
+			deploymentReads: null,
+			readProjectSpace: null,
+			transientAsUnreadable: false,
+		}),
+	};
 }
 
 /** One deployment with a live app mapping last pushed at `pushedRevision`. */
@@ -418,6 +450,7 @@ describe("the fleet transaction over the frozen fixtures", () => {
 				source: { kind: "refused", status: 401 },
 				formIds: null,
 				keyUses: uses,
+				sourceAnswer: null,
 			}),
 		};
 		const dryRun = await runMigrate(h.db(), { mode: "dry-run", plan });
@@ -453,6 +486,16 @@ describe("the fleet transaction over the frozen fixtures", () => {
 					{
 						kind: "deployment",
 						reason: "deep-links-need-republish",
+						deployment: {
+							deploymentId: deployment,
+							server: "production",
+							domain: "field-ops",
+						},
+					},
+					// No key read the app, so its baseline is `unread`.
+					{
+						kind: "deployment",
+						reason: "next-publish-asks-before-overwriting",
 						deployment: {
 							deploymentId: deployment,
 							server: "production",
@@ -506,7 +549,7 @@ describe("the fleet transaction over the frozen fixtures", () => {
 
 	it("stops a second run within the lock timeout, with nothing written", async () => {
 		await seedFleet();
-		const planned = await readPlannedFleet(h.db());
+		const planned = await plannedWithBaselines(h.db());
 		const image = await databaseImage(h.db());
 		const firstRun = new Client({ connectionString: h.uri() });
 		await firstRun.connect();
@@ -516,10 +559,7 @@ describe("the fleet transaction over the frozen fixtures", () => {
 				"SELECT pg_advisory_xact_lock(hashtextextended('cutover:hq-round-trip-emission', 0))",
 			);
 			await expect(
-				runFleetTransaction(h.db(), {
-					mode: "execute",
-					build: planned.build,
-				}),
+				runFleetTransaction(h.db(), { mode: "execute", ...planned }),
 			).rejects.toThrow(/Another run of this cutover held its lock/);
 		} finally {
 			await firstRun.query("ROLLBACK");
@@ -530,7 +570,7 @@ describe("the fleet transaction over the frozen fixtures", () => {
 
 	it("stops with nothing written when an app changed after the plan was built", async () => {
 		const fleet = await seedFleet();
-		const planned = await readPlannedFleet(h.db());
+		const planned = await plannedWithBaselines(h.db());
 		const [changed] = fleet.appIds;
 		await h
 			.db()
@@ -540,7 +580,7 @@ describe("the fleet transaction over the frozen fixtures", () => {
 			.execute();
 		const image = await databaseImage(h.db());
 		await expect(
-			runFleetTransaction(h.db(), { mode: "execute", build: planned.build }),
+			runFleetTransaction(h.db(), { mode: "execute", ...planned }),
 		).rejects.toMatchObject({
 			code: "app-changed",
 		} satisfies Partial<CutoverStoppedError>);
@@ -587,10 +627,9 @@ describe("the fleet transaction over the frozen fixtures", () => {
 				owner: OWNER,
 			}),
 		);
-		const planned = await readPlannedFleet(h.db());
 		await runFleetTransaction(h.db(), {
 			mode: "execute",
-			build: planned.build,
+			...(await plannedWithBaselines(h.db())),
 		});
 		await seedFixtureApp(
 			h.db(),
@@ -614,12 +653,12 @@ describe("the fleet transaction over the frozen fixtures", () => {
 		async (step) => {
 			const fleet = await seedFleet();
 			await seedMutationEvents(fleet.appIds[0] ?? "");
-			const planned = await readPlannedFleet(h.db());
+			const planned = await plannedWithBaselines(h.db());
 			const image = await databaseImage(h.db());
 			await expect(
 				runFleetTransaction(h.db(), {
 					mode: "execute",
-					build: planned.build,
+					...planned,
 					failAfter: step,
 				}),
 			).rejects.toThrow(`injected failure after ${step}`);

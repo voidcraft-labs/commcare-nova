@@ -71,6 +71,14 @@ export interface HqLocation {
 	/** Null at the top. CommCare HQ spells that as `""`; this does not. */
 	readonly parentLocationId: string | null;
 	/**
+	 * The coordinates as CommCare HQ returned them: tastypie serializes
+	 * `locations/models.py::SQLLocation.latitude`, a decimal of ten places,
+	 * as a string, so `12.5` reads `"12.5000000000"`. Null where the place
+	 * holds none.
+	 */
+	readonly latitude: string | null;
+	readonly longitude: string | null;
+	/**
 	 * The place's custom fields, as the target holds them right now.
 	 *
 	 * Read because `_update` REPLACES `metadata` wholesale rather than
@@ -322,6 +330,8 @@ export async function listHqLocations(
 			place.location_type_code.trim() === "" ||
 			(place.parent_location_id !== null &&
 				typeof place.parent_location_id !== "string") ||
+			(place.latitude !== null && typeof place.latitude !== "string") ||
+			(place.longitude !== null && typeof place.longitude !== "string") ||
 			!isHqObject(place.location_data) ||
 			ids.has(place.location_id) ||
 			codes.has(place.site_code)
@@ -336,6 +346,8 @@ export async function listHqLocations(
 			locationTypeCode: place.location_type_code,
 			parentLocationId:
 				place.parent_location_id === "" ? null : place.parent_location_id,
+			latitude: place.latitude,
+			longitude: place.longitude,
 			// HQ validates modeled fields, then replaces the entire metadata
 			// object. Foreign JSON values must survive that replacement too.
 			values: place.location_data,

@@ -32,7 +32,14 @@ runs.
   query compiler, in a case search context and with only a domain;
 - ``search_request_config``: HQ's reading of a case search request as
   Formplayer posts it;
-- ``upload_lookup_workbook``: HQ's lookup table upload.
+- ``upload_lookup_workbook``: HQ's lookup table upload;
+- ``hold_assumed_resources``: the lookup tables a captured publish was
+  decided over, held to what HQ's own table and row resources serve
+  (``CapturedResourcesNotHeld``);
+- ``lookup_tables_read``, ``fixture_rows_read``, ``locations_read``,
+  ``location_patch``, ``location_type_write``: the reads and writes Nova's
+  client makes of HQ's lookup table, row, location and level resources,
+  through ``api_request``.
 """
 
 import json
@@ -69,6 +76,10 @@ class PublishRefused(AssertionError):
 
 class CapturedSourceNotHeld(HarnessRefusal):
     """HQ serves the app with a source other than the one a captured import was built over."""
+
+
+class CapturedResourcesNotHeld(HarnessRefusal):
+    """HQ holds lookup tables other than the ones a captured publish read before it decided what to send."""
 
 
 # The app id a capture's content import and updates name, and a local archive's runtime URLs
@@ -488,10 +499,12 @@ def api_request(
 API_USER_PASSWORD = "nova-proof-api-user"
 
 
-def seed_api_user(state, username: str, *, member=True, edit_apps=True, access_api=True) -> ApiCredential:
+def seed_api_user(
+    state, username: str, *, member=True, edit_apps=True, access_api=True, edit_locations=False, edit_data=False
+) -> ApiCredential:
     """A web user with an active API key, made by HQ's own models: a member of the state's project space under a
-    role holding exactly ``edit_apps`` and ``access_api`` as given, or, with ``member`` false, a member of none.
-    Returns the key's credential."""
+    role holding exactly ``edit_apps``, ``access_api``, ``edit_locations`` and ``edit_data`` as given, or, with
+    ``member`` false, a member of none. Returns the key's credential."""
     from corehq.apps.users.models import HqPermissions, WebUser
     from corehq.apps.users.models_role import UserRole
 
@@ -499,7 +512,9 @@ def seed_api_user(state, username: str, *, member=True, edit_apps=True, access_a
         role = UserRole.create(
             state.domain,
             f"API {username}",
-            permissions=HqPermissions(edit_apps=edit_apps, access_api=access_api),
+            permissions=HqPermissions(
+                edit_apps=edit_apps, access_api=access_api, edit_locations=edit_locations, edit_data=edit_data
+            ),
         )
         WebUser.create(state.domain, username, API_USER_PASSWORD, None, None, role_id=role.get_id)
     else:
@@ -540,6 +555,48 @@ def import_request(state, upload: Upload, credential: ApiCredential) -> HqAnswer
         credential=credential,
         body=upload.body,
         content_type=upload.content_type,
+    )
+
+
+def lookup_tables_read(state, credential: ApiCredential) -> HqAnswer:
+    """``fixtures/resources/v0_1.py::LookupTableResource``'s list, as Nova's ``listHqLookupTables`` reads it."""
+    return api_request(state, "GET", f"/a/{state.domain}/api/lookup_table/v1/?limit=100", credential=credential)
+
+
+def fixture_rows_read(state, table_id, credential: ApiCredential, *, query="") -> HqAnswer:
+    """``fixtures/resources/v0_1.py::FixtureResource`` filtered to one table, as Nova's ``readHqLookupTableRows``
+    reads it; ``query`` is a further page's query as HQ's ``meta.next`` names it (``?fixture_type_id=...&offset=...``),
+    resolved against the first page's address."""
+    path = f"/a/{state.domain}/api/fixture/v1/"
+    return api_request(state, "GET", f"{path}{query or f'?fixture_type_id={table_id}'}", credential=credential)
+
+
+def locations_read(state, credential: ApiCredential) -> HqAnswer:
+    """``locations/resources/v0_6.py::LocationResource``'s list, as Nova's ``listHqLocations`` reads it."""
+    return api_request(state, "GET", f"/a/{state.domain}/api/location/v2/?limit=1000", credential=credential)
+
+
+def location_patch(state, places, credential: ApiCredential) -> HqAnswer:
+    """``LocationResource``'s ``patch_list`` over ``places`` (each a location's fields, as Nova's
+    ``patchHqLocations`` sends a batch: ``{"objects": [...]}``)."""
+    return api_request(
+        state,
+        "PATCH",
+        f"/a/{state.domain}/api/location/v2/",
+        credential=credential,
+        body=json.dumps({"objects": list(places)}).encode(),
+    )
+
+
+def location_type_write(state, credential: ApiCredential, body) -> HqAnswer:
+    """A POST to ``locations/resources/v0_5.py::LocationTypeResource``, the levels' resource, which Nova never
+    writes."""
+    return api_request(
+        state,
+        "POST",
+        f"/a/{state.domain}/api/location_type/v1/",
+        credential=credential,
+        body=json.dumps(body).encode(),
     )
 
 
@@ -874,3 +931,86 @@ def seed_location(state, name, site_code, location_type="district"):
         domain=state.domain, name=location_type, defaults={"code": location_type}
     )
     return SQLLocation.objects.create(domain=state.domain, name=name, site_code=site_code, location_type=loc_type)
+
+
+def _dehydrated(resource, request, objects):
+    """Each object as ``resource`` serves it (``full_dehydrate``), as the JSON its serializer writes."""
+    from django.core.serializers.json import DjangoJSONEncoder
+
+    return [
+        json.loads(
+            json.dumps(
+                resource.full_dehydrate(resource.build_bundle(obj=obj, request=request)).data, cls=DjangoJSONEncoder
+            )
+        )
+        for obj in objects
+    ]
+
+
+def served_lookup_tables(state):
+    """Every lookup table of the project space as ``fixtures/resources/v0_1.py::LookupTableResource`` serves it, by
+    its tag, without the tag itself, the id HQ minted for it or its address."""
+    from corehq.apps.fixtures.resources.v0_1 import LookupTableResource
+
+    resource = LookupTableResource()
+    request = hq_requests.get(state, f"/a/{state.domain}/api/lookup_table/v1/")
+    tables = resource.obj_get_list(resource.build_bundle(request=request), state.domain)
+    return {
+        served["tag"]: {key: value for key, value in served.items() if key not in ("id", "resource_uri", "tag")}
+        for served in _dehydrated(resource, request, tables)
+    }
+
+
+def served_lookup_rows(state, tag):
+    """The rows of the table under ``tag`` as ``fixtures/resources/v0_1.py::FixtureResource`` serves them filtered
+    to that table, in order, each its ``fields`` alone."""
+    from corehq.apps.fixtures.models import LookupTable
+    from corehq.apps.fixtures.resources.v0_1 import FixtureResource
+
+    table = LookupTable.objects.get(domain=state.domain, tag=tag)
+    resource = FixtureResource()
+    request = hq_requests.get(state, f"/a/{state.domain}/api/fixture/v1/", {"fixture_type_id": table.id.hex})
+    rows = resource.obj_get_list(resource.build_bundle(request=request), domain=state.domain)
+    return [{"fields": served["fields"]} for served in _dehydrated(resource, request, rows)]
+
+
+def resource_differences(state, assumed):
+    """Each table ``assumed`` (a capture's ``assumedResources``) names whose definition, or rows where it names
+    them, HQ does not serve as assumed: ``[(tag, what, assumed, served)]``. The ids HQ mints are left out on both
+    sides, as an app's id is written into a captured update (``with_app_id``)."""
+    unread = sorted(set(assumed) - {"lookupTables"})
+    if unread:
+        raise CapturedResourcesNotHeld(
+            f"A captured publish names {unread} among the resources it read, and the harness holds only lookup"
+            " tables to HQ's answers. Hold each kind the capture reads (proof/corpus/publish.ts, AssumedResources)."
+        )
+    served = served_lookup_tables(state)
+    differences = []
+    for table in assumed.get("lookupTables", []):
+        tag = table["tag"]
+        held = served.get(tag)
+        if held != table["table"]:
+            differences.append((tag, "definition", table["table"], held))
+            continue
+        if "rows" in table and (rows := served_lookup_rows(state, tag)) != table["rows"]:
+            differences.append((tag, "rows", table["rows"], rows))
+    return differences
+
+
+def hold_assumed_resources(state, assumed, what):
+    """Refuse (``CapturedResourcesNotHeld``) unless HQ's own resources serve every lookup table ``assumed`` names as
+    the capture's peer answered it: a publish decided over other tables is not the one Nova would make here."""
+    if not assumed:
+        return
+    differences = resource_differences(state, assumed)
+    if differences:
+        named = "; ".join(
+            f"the {kind} of {tag}: the capture assumed {json.dumps(value, sort_keys=True)}, HQ serves"
+            f" {json.dumps(held, sort_keys=True)}"
+            for tag, kind, value, held in differences
+        )
+        raise CapturedResourcesNotHeld(
+            f"The {what} was decided over lookup tables HQ does not hold: {named}. Nova's publish over this HQ would"
+            " compare and push over other tables, so the harness does not apply the captured bytes. Model HQ's"
+            " tables in the capture's peer as HQ holds them (proof/corpus/targetPeer.ts)."
+        )

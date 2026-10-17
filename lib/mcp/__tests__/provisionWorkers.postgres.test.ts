@@ -144,6 +144,16 @@ async function seed(
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: at,
+		baseline: {
+			origin: "unread",
+			remoteAppId: "published-app",
+			sourceGzip: null,
+			sourceBytes: null,
+			sourceDigest: null,
+			ownership: null,
+			observedAt: at,
+			discard: null,
+		},
 	});
 }
 function asUser<T>(
@@ -470,7 +480,19 @@ it.each([
 				{ status: "succeeded", at },
 				{ ensure: true },
 			);
-			await recordCreatedRemoteApp(SCOPE, TARGET, { remoteId: "shell-app" });
+			await recordCreatedRemoteApp(SCOPE, TARGET, {
+				remoteId: "shell-app",
+				baseline: {
+					origin: "unread",
+					remoteAppId: "shell-app",
+					sourceGzip: null,
+					sourceBytes: null,
+					sourceDigest: null,
+					ownership: null,
+					observedAt: at,
+					discard: null,
+				},
+			});
 		} else {
 			const resource = (await snapshot()).resources[0];
 			await applyDeploymentObservation(SCOPE, TARGET, {

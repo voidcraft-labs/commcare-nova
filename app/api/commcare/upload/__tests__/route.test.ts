@@ -119,6 +119,7 @@ beforeEach(() => {
 	vi.mocked(publishAppToHq).mockResolvedValue({
 		landed: true,
 		hqAppAction: "created",
+		appPreviewNote: null,
 		deployment: deploymentView("uploaded"),
 		checks: [],
 		artifact: {
@@ -469,6 +470,91 @@ it.each([{}, [3], "table-1"])(
 		expect(publishAppToHq).not.toHaveBeenCalled();
 	},
 );
+
+it.each([
+	{},
+	"app",
+	[{ kind: "app", novaResourceId: "app-1" }],
+	[{ kind: "module", novaResourceId: "m-1", observedDigest: "d" }],
+	[{ kind: "app", novaResourceId: 1, observedDigest: "d" }],
+	[null],
+])(
+	"refuses a malformed list of changes to publish over %j before publish",
+	async (discard_remote_changes) => {
+		const response = await POST(
+			req({
+				domain: DOMAIN,
+				appName: "App",
+				appId: "app-1",
+				discard_remote_changes,
+			}),
+		);
+		expect(response.status).toBe(400);
+		await response.json();
+		expect(publishAppToHq).not.toHaveBeenCalled();
+	},
+);
+
+it("hands each change to publish over to the lifecycle as it was named, and nothing when none is", async () => {
+	await read(
+		await POST(
+			req({
+				domain: DOMAIN,
+				appName: "App",
+				appId: "app-1",
+				discard_remote_changes: [
+					{
+						kind: "lookup-table",
+						novaResourceId: "table-1",
+						observedDigest: "digest-shown",
+						name: "Clinics",
+					},
+				],
+			}),
+		),
+	);
+	expect(
+		vi.mocked(publishAppToHq).mock.calls[0]?.[0].discardRemoteChanges,
+	).toEqual([
+		{
+			kind: "lookup-table",
+			novaResourceId: "table-1",
+			observedDigest: "digest-shown",
+		},
+	]);
+
+	await read(
+		await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" })),
+	);
+	expect(
+		vi.mocked(publishAppToHq).mock.calls[1]?.[0].discardRemoteChanges,
+	).toEqual([]);
+});
+
+it("answers with the App Preview line a landed publish carries", async () => {
+	vi.mocked(publishAppToHq).mockResolvedValueOnce({
+		landed: true,
+		hqAppAction: "updated",
+		appPreviewNote: "CommCare HQ keeps each form's last check.",
+		deployment: deploymentView("uploaded"),
+		checks: [],
+		artifact: {
+			server: "production",
+			domain: DOMAIN,
+			hqAppId: null,
+			sections: [],
+		},
+		warnings: [],
+		projectSpaceCompatibility: null,
+		hqAppUrl: `https://www.commcarehq.org/a/${DOMAIN}/apps/view/hq-abc/`,
+	} as never);
+	const { body } = await read(
+		await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" })),
+	);
+	expect(body).toMatchObject({
+		app_preview_note: "CommCare HQ keeps each form's last check.",
+	});
+});
 
 it("refuses inaccessible apps before credentials or publishing", async () => {
 	vi.mocked(resolveAppAccess).mockRejectedValueOnce(

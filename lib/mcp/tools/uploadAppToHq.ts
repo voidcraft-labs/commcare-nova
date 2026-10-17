@@ -88,7 +88,20 @@
  *                                 Nothing was changed; calling again creates
  *                                 a fresh app and supersedes the dead
  *                                 mapping.
- *  11. `hq_upload_failed`:        `importApp` returned a non-success
+ *  11. `hq_changed`:              the app, a lookup table or a place this
+ *                                 app publishes is not what CommCare HQ
+ *                                 held when Nova last published it.
+ *                                 Found in preflight, nothing was sent;
+ *                                 `remote_changes` lists each with what
+ *                                 changed and the state it was read in.
+ *                                 Naming each back in `discard_hq_changes`
+ *                                 with that state, once the user said to
+ *                                 write over it, is the one way past it.
+ *                                 Found after the tables and places were
+ *                                 pushed, the app's content was not sent,
+ *                                 `remote_changes` is empty and calling
+ *                                 again lists what changed.
+ *  12. `hq_upload_failed`:        `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
  *                                 returned 5xx), or CommCare HQ would not
  *                                 take the app's lookup tables or places.
@@ -120,7 +133,10 @@ import {
 	currentResourceIdentities,
 	publishAppToHq,
 } from "@/lib/deployment/service";
-import type { DeploymentResourceConflict } from "@/lib/deployment/types";
+import type {
+	DeploymentRemoteChange,
+	DeploymentResourceConflict,
+} from "@/lib/deployment/types";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import { initMcpCall } from "../context";
 import {
@@ -168,6 +184,8 @@ export const UPLOAD_ERROR_TAGS = {
 	project_space_incompatible: "project_space_incompatible",
 	/** The current HQ app source could not be read safely for an update. */
 	hq_app_state_unknown: "hq_app_state_unknown",
+	/** Something this app publishes changed in CommCare HQ since Nova's last publish. */
+	hq_changed: "hq_changed",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
 
 /**
@@ -237,6 +255,47 @@ function makeConflictError(
 	};
 }
 
+/**
+ * Build the envelope for a change made in CommCare HQ, which carries each
+ * change structurally.
+ *
+ * Like the name clash, the caller's one move past it needs exact data: put
+ * each listed change to the user, then send its kind, id and observed
+ * digest back in `discard_hq_changes`. The digest binds the user's answer
+ * to the state they were shown, so it travels as data, never as prose. A
+ * stop during the resource push lists nothing: calling again reads CommCare
+ * HQ afresh and lists what changed then.
+ */
+function makeRemoteChangesError(
+	message: string,
+	appId: string,
+	changes: readonly DeploymentRemoteChange[],
+): McpToolErrorResult {
+	return {
+		isError: true,
+		content: [
+			{
+				type: "text",
+				text: JSON.stringify({
+					error_type: UPLOAD_ERROR_TAGS.hq_changed,
+					message,
+					app_id: appId,
+					remote_changes: changes.map((change) => ({
+						kind: change.kind,
+						nova_resource_id: change.novaResourceId,
+						name: change.name,
+						hq_name: change.identity,
+						parts: change.parts,
+						note: change.note,
+						observed_digest: change.observedDigest,
+						baseline_known: change.baselineKnown,
+					})),
+				}),
+			},
+		],
+	};
+}
+
 /** Compatibility refusals carry the semantic report as structured data so a
  * client can relay the app capability and next step without parsing prose. */
 function makeCompatibilityError(
@@ -278,7 +337,7 @@ export function registerUploadAppToHq(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Upload an app you can edit in its Project to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. A success returns the same checked `project_space_compatibility` report and the durable deployment state.",
+				"Upload an app you can edit in its Project to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. If the app, a lookup table or a place it publishes changed in CommCare HQ since Nova last published it, the call returns `hq_changed` before sending anything: show the user each entry of `remote_changes` (its `name`, `hq_name` and `parts`, or that Nova couldn't tell what changed when `baseline_known` is false) and send them back in `discard_hq_changes` only for the ones the user said to write over. If the app changed while Nova was publishing its lookup tables and places, `hq_changed` comes after those were sent and before the app's content, with `remote_changes` empty; uploading again lists what changed. A success after such a publish can carry `app_preview_note`; relay it. A success returns the same checked `project_space_compatibility` report and the durable deployment state.",
 			inputSchema: z.object({
 				app_id: z
 					.string()
@@ -302,6 +361,18 @@ export function registerUploadAppToHq(
 					.optional()
 					.describe(
 						"Nova ids of lookup tables or places whose name already exists on the project space and which the user has confirmed Nova may take over. Send only after an `hq_resource_conflict` refusal named them and the user said yes for each one; a shared name is not evidence that the existing resource is theirs. Omit to adopt nothing.",
+					),
+				discard_hq_changes: z
+					.array(
+						z.object({
+							kind: z.enum(["app", "lookup-table", "location"]),
+							nova_resource_id: z.string(),
+							observed_digest: z.string(),
+						}),
+					)
+					.optional()
+					.describe(
+						"Send only after an `hq_changed` refusal listed them, the user saw the list, and said to write over each.",
 					),
 			}),
 		},
@@ -410,6 +481,13 @@ export function registerUploadAppToHq(
 						server: target.server,
 						domain: targetDomain,
 						adoptResourceIds: args.adopt_resources ?? [],
+						discardRemoteChanges: (args.discard_hq_changes ?? []).map(
+							(discard) => ({
+								kind: discard.kind,
+								novaResourceId: discard.nova_resource_id,
+								observedDigest: discard.observed_digest,
+							}),
+						),
 						onUploadStarted: () => {
 							call.current = initMcpCall(
 								ctx,
@@ -525,6 +603,18 @@ export function registerUploadAppToHq(
 								outcome.refusal.resourceConflicts,
 							);
 						}
+						/* Something this app publishes changed in CommCare HQ
+						 * since Nova last published it. The envelope carries
+						 * each change with the state it was read in, because
+						 * the caller's one move past it is to ask the user about
+						 * each and send that exact state back. */
+						if (failure.code === "hq_changed") {
+							return makeRemoteChangesError(
+								failure.message,
+								appId,
+								outcome.refusal.remoteChanges,
+							);
+						}
 						/* The organization does not fit the target's levels. Its
 						 * own tag because no ownership decision resolves it and
 						 * nothing was sent: the generic upload-failed envelope
@@ -564,6 +654,9 @@ export function registerUploadAppToHq(
 						hq_app_id: hqAppId,
 						/* Updated in place, or created fresh; the ledger decided. */
 						hq_app_action: outcome.hqAppAction,
+						/* The App Preview statement, on a publish that wrote over
+						 * the app without knowing it unchanged; null otherwise. */
+						app_preview_note: outcome.appPreviewNote,
 						url: outcome.hqAppUrl,
 						warnings: outcome.warnings,
 						project_space_compatibility: outcome.projectSpaceCompatibility,

@@ -41,7 +41,12 @@ import {
 	writerFields,
 } from "./report";
 import {
+	type CutoverBaselines,
 	CutoverStoppedError,
+	DeploymentReadRecorder,
+	hqProjectSpaceReader,
+	type ProjectSpaceReader,
+	readCutoverBaselines,
 	readMarkedAppCounts,
 	runFleetTransaction,
 	type WriterReport,
@@ -84,6 +89,12 @@ export interface MigrateOptions {
 	 * own reader.
 	 */
 	readonly plan?: BuildPlanOptions;
+	/**
+	 * How each project space's lookup tables and places are read for their
+	 * baselines. Absent, with the members' stored keys as `plan` is; tests
+	 * pass their own reader.
+	 */
+	readonly readProjectSpace?: ProjectSpaceReader;
 	/** Tests only: throw right after the named step of the fleet transaction. */
 	readonly failAfter?: WriterStep;
 }
@@ -197,38 +208,61 @@ export async function runMigrate(
 	const pacer = new HqReadPacer(options.clock ?? realClock);
 	const kms = options.kms;
 	let planOptions: BuildPlanOptions = {};
+	let deploymentReads: DeploymentReadRecorder | null = null;
+	let readProjectSpace: ProjectSpaceReader | null = null;
 	if (options.withoutHq !== true) {
 		const reader = options.plan?.readDeployment;
 		const stored =
-			reader === undefined ? await readStoredCredentials(db) : null;
+			reader === undefined || options.readProjectSpace === undefined
+				? await readStoredCredentials(db)
+				: null;
+		const credentialSource = () => {
+			if (kms === undefined || stored === null) {
+				throw new Error(
+					"Reading CommCare HQ decrypts members' stored keys, so the run needs a KMS transport.",
+				);
+			}
+			return storedCredentialSource(stored, kms);
+		};
+		deploymentReads = new DeploymentReadRecorder();
 		planOptions = {
-			readDeployment:
+			readDeployment: deploymentReads.wrap(
 				reader ??
-				((deployment, credentials) => {
-					if (kms === undefined || stored === null) {
-						throw new Error(
-							"Reading CommCare HQ decrypts members' stored keys, so the run needs a KMS transport.",
-						);
-					}
-					return readDeployment(deployment, {
-						credentials,
-						credentialSource: storedCredentialSource(stored, kms),
-						pacer,
-						clock: options.clock ?? realClock,
-					});
-				}),
+					((deployment, credentials) =>
+						readDeployment(deployment, {
+							credentials,
+							credentialSource: credentialSource(),
+							pacer,
+							clock: options.clock ?? realClock,
+						})),
+			),
 			transientAsUnreadable: options.transientAsUnreadable === true,
 		};
+		readProjectSpace =
+			options.readProjectSpace ??
+			((request) =>
+				hqProjectSpaceReader({
+					credentialSource: credentialSource(),
+					pacer,
+					clock: options.clock ?? realClock,
+				})(request));
 	}
 	const readStarted = performance.now();
 	const fleet = await readPlannedFleet(db, planOptions);
+	const baselines: CutoverBaselines = await readCutoverBaselines(db, fleet, {
+		deploymentReads,
+		readProjectSpace,
+		transientAsUnreadable: options.transientAsUnreadable === true,
+		...(options.clock !== undefined && { clock: options.clock }),
+	});
 	const readMilliseconds = Math.round(performance.now() - readStarted);
 	const stoppedBy = [
 		...(planHasBlockers(fleet.build.plan) ? (["blocker"] as const) : []),
 		...(fleet.holders.liveApps.length + fleet.holders.liveSessions.length > 0
 			? (["holder"] as const)
 			: []),
-		...(planHasTransientDeployments(fleet.build.plan)
+		...(planHasTransientDeployments(fleet.build.plan) ||
+		baselines.transient.length > 0
 			? (["transient"] as const)
 			: []),
 	];
@@ -246,6 +280,7 @@ export async function runMigrate(
 			writer = await runFleetTransaction(db, {
 				mode,
 				build: fleet.build,
+				baselines,
 				...(options.failAfter !== undefined && {
 					failAfter: options.failAfter,
 				}),
@@ -270,6 +305,7 @@ export async function runMigrate(
 		pacer.spaceReads(),
 	);
 	deploymentLines(report, fleet.build);
+	baselineLines(report, baselines);
 	if (digestMoved) {
 		return finish(report, { outcome: "stopped", stoppedBy: ["digest"] });
 	}
@@ -282,15 +318,39 @@ export async function runMigrate(
 		return finish(report, {
 			outcome: "stopped",
 			stoppedBy: [
-				writerStop.code === "holder"
-					? "holder"
-					: writerStop.code === "blocker"
-						? "blocker"
-						: "digest",
+				writerStop.code === "holder" ||
+				writerStop.code === "blocker" ||
+				writerStop.code === "transient"
+					? writerStop.code
+					: "digest",
 			],
 		});
 	}
 	return finish(report, { outcome: "ok" });
+}
+
+/**
+ * The baseline step's lines: how many of each origin it read, each table or
+ * place read still transient, and each key its reads sent. Content-free: no
+ * name, tag or site code.
+ */
+function baselineLines(report: CutoverReport, baselines: CutoverBaselines) {
+	const origins: Record<string, number> = {};
+	for (const baseline of baselines.apps.values()) {
+		const key = `app-${baseline.origin}`;
+		origins[key] = (origins[key] ?? 0) + 1;
+	}
+	for (const baseline of baselines.resources) {
+		const key = `${baseline.kind}-${baseline.origin}`;
+		origins[key] = (origins[key] ?? 0) + 1;
+	}
+	report.line("baselines", origins);
+	for (const read of baselines.transient) {
+		report.line("baseline-transient", { ...read });
+	}
+	for (const use of baselines.keyUses) {
+		report.line("key-use", { ...use });
+	}
 }
 
 /** One run of the scan. */

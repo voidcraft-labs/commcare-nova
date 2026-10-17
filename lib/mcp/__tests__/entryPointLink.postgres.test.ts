@@ -242,6 +242,16 @@ async function seed(publish = true) {
 		pushedRevision: loaded.app.mutation_seq,
 		remoteRevision: 3,
 		uploadedAt: "2026-09-01T00:00:00.000Z",
+		baseline: {
+			origin: "unread",
+			remoteAppId: "working-app",
+			sourceGzip: null,
+			sourceBytes: null,
+			sourceDigest: null,
+			ownership: null,
+			observedAt: "2026-09-01T00:00:00.000Z",
+			discard: null,
+		},
 	});
 	expect(
 		await finishDeploymentContentWrite(SCOPE, TARGET, generation, {

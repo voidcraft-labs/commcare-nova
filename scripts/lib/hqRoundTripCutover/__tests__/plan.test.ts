@@ -227,6 +227,7 @@ describe("each deployment's pairing over HQ's reads of a history", () => {
 				),
 			},
 			keyUses: [],
+			sourceAnswer: { userId: "member", at: "2026-10-15T10:00:00.000Z" },
 		};
 	}
 

@@ -98,6 +98,16 @@ async function publish(server: "india" | "production", domain: string) {
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: AT,
+		baseline: {
+			origin: "unread",
+			remoteAppId: hqAppId(server, domain),
+			sourceGzip: null,
+			sourceBytes: null,
+			sourceDigest: null,
+			ownership: null,
+			observedAt: AT,
+			discard: null,
+		},
 	});
 }
 /** A first publish that stopped after making the empty app. */
@@ -112,6 +122,16 @@ async function shellOnly(server: "india" | "production", domain: string) {
 	);
 	await recordCreatedRemoteApp(OWNER, target, {
 		remoteId: hqAppId(server, domain),
+		baseline: {
+			origin: "unread",
+			remoteAppId: hqAppId(server, domain),
+			sourceGzip: null,
+			sourceBytes: null,
+			sourceDigest: null,
+			ownership: null,
+			observedAt: AT,
+			discard: null,
+		},
 	});
 }
 /** A published app CommCare HQ has since reported gone. */

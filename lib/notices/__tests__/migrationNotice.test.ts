@@ -44,6 +44,19 @@ const REAL_ENTRIES = {
 			},
 		],
 	},
+	"next-publish-overwrites-hq-edits": deploymentEntry(
+		"next-publish-overwrites-hq-edits",
+	),
+	"next-publish-asks-before-overwriting": {
+		...deploymentEntry("next-publish-asks-before-overwriting"),
+		entities: [
+			{
+				type: "lookupTable",
+				uuid: "01992000-0000-7000-8000-0000000000c1",
+				nameAtMigration: "Clinics",
+			},
+		],
+	},
 } as const;
 
 function deploymentEntry<const R extends string>(reason: R) {

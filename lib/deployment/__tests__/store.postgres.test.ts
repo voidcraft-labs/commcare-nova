@@ -13,10 +13,12 @@
  * `lib/db/__tests__/projectMove.postgres.test.ts`.
  */
 
+import { gzipSync } from "node:zlib";
 import { sql } from "kysely";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { activeRemoteApp } from "../resources";
 import { deploymentDisplaysAsReached } from "../stateMachine";
 import {
@@ -25,17 +27,26 @@ import {
 	type DeploymentScope,
 	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
+	markResourceBaselinesUnread,
+	readAppBaseline,
 	readDeployment,
 	readDeploymentIdentityOverrides,
 	readDeploymentPreviewRecords,
 	readDeploymentsForApp,
 	readEntryPointEvidence,
 	readReachedDeploymentTargets,
+	readResourceBaselines,
 	recordCreatedRemoteApp,
 	recordEntryPointObservation,
 	recordPushedResources,
 	recordRemoteResource,
 } from "../store";
+import type {
+	AppBaselineWrite,
+	AppOwnership,
+	CanonicalPlace,
+	ResourceBaselineWrite,
+} from "../types";
 
 const h = setupAppStateTestDb("deployments_", {
 	authSchema: "migrated",
@@ -63,6 +74,59 @@ async function seed(
 	return { appId, projectId, role: "owner", actorUserId: "u1" };
 }
 
+const OWNERSHIP: AppOwnership = {
+	addOns: ["subcases"],
+	profileProperties: [],
+	profileCustomProperties: [],
+	autoGpsCapture: true,
+};
+
+/** A baseline of an app Nova could not read back. */
+function unreadBaseline(
+	remoteAppId: string,
+	observedAt = AT,
+): AppBaselineWrite {
+	return {
+		origin: "unread",
+		remoteAppId,
+		sourceGzip: null,
+		sourceBytes: null,
+		sourceDigest: null,
+		ownership: null,
+		observedAt,
+		discard: null,
+	};
+}
+
+/** A baseline of one read of an app, normalized and compressed as a publish stores it. */
+function readBaseline(
+	remoteAppId: string,
+	name: string,
+	options: {
+		readonly origin?: "create" | "push";
+		readonly observedAt?: string;
+		readonly discard?: AppBaselineWrite["discard"];
+	} = {},
+): AppBaselineWrite {
+	const read = normalizeHqAppSource({
+		doc_type: "Application",
+		name,
+		modules: [],
+		_attachments: {},
+	});
+	if ("malformed" in read) throw new Error(read.malformed);
+	return {
+		origin: options.origin ?? "push",
+		remoteAppId,
+		sourceGzip: gzipSync(Buffer.from(read.text, "utf8")),
+		sourceBytes: read.bytes,
+		sourceDigest: read.digest,
+		ownership: OWNERSHIP,
+		observedAt: options.observedAt ?? AT,
+		discard: options.discard ?? null,
+	};
+}
+
 function preflightPassed() {
 	return { status: "succeeded" as const, at: AT };
 }
@@ -88,6 +152,7 @@ async function publish(
 		pushedRevision: seq,
 		uploadedAt: AT,
 		remoteRevision,
+		baseline: unreadBaseline(remoteId),
 	});
 }
 
@@ -240,6 +305,7 @@ describe("ownership mappings", () => {
 							pushedRevision: index + 1,
 							uploadedAt: AT,
 							remoteRevision: null,
+							baseline: unreadBaseline(remoteId),
 						}),
 					),
 				),
@@ -1169,6 +1235,7 @@ describe("the empty app and HQ reporting it gone", () => {
 		const created = await create(scope);
 		const view = await recordCreatedRemoteApp(scope, TARGET, {
 			remoteId: "hq-shell",
+			baseline: unreadBaseline("hq-shell"),
 		});
 		expect(view.deployment).toEqual(created.deployment);
 		expect(view.active).toEqual([
@@ -1214,6 +1281,7 @@ describe("the empty app and HQ reporting it gone", () => {
 		await observe(scope, "failed");
 		const replaced = await recordCreatedRemoteApp(scope, TARGET, {
 			remoteId: "hq-new",
+			baseline: unreadBaseline("hq-new"),
 		});
 		expect(activeRemoteApp(replaced)).toMatchObject({
 			remoteId: "hq-new",
@@ -1230,7 +1298,10 @@ describe("the empty app and HQ reporting it gone", () => {
 		await publish(scope, "hq-app", 3);
 		const shellOnly = { server: "production" as const, domain: "shell" };
 		await create(scope, shellOnly);
-		await recordCreatedRemoteApp(scope, shellOnly, { remoteId: "hq-shell" });
+		await recordCreatedRemoteApp(scope, shellOnly, {
+			remoteId: "hq-shell",
+			baseline: unreadBaseline("hq-shell"),
+		});
 		const goneTarget = { server: "india" as const, domain: "gone" };
 		await create(scope, goneTarget);
 		const gonePublished = await recordRemoteResource(scope, goneTarget, {
@@ -1241,6 +1312,7 @@ describe("the empty app and HQ reporting it gone", () => {
 			pushedRevision: 3,
 			uploadedAt: AT,
 			remoteRevision: null,
+			baseline: unreadBaseline("hq-gone"),
 		});
 		const goneMapping = activeRemoteApp(gonePublished);
 		if (goneMapping === null) throw new Error("Expected an app mapping");
@@ -1264,9 +1336,11 @@ describe("the empty app and HQ reporting it gone", () => {
 			pushedRevision: 3,
 			uploadedAt: AT,
 			remoteRevision: null,
+			baseline: unreadBaseline("hq-before"),
 		});
 		const shellAfter = await recordCreatedRemoteApp(scope, refilled, {
 			remoteId: "hq-shell-after",
+			baseline: unreadBaseline("hq-shell-after"),
 		});
 		expect(deploymentDisplaysAsReached(shellAfter.deployment, "uploaded")).toBe(
 			true,
@@ -1583,5 +1657,329 @@ describe("entry point release evidence", () => {
 		expect(
 			(await readEntryPointEvidence(scope, TARGET)).observation,
 		).toBeNull();
+	});
+});
+
+describe("baselines", () => {
+	const LATER = "2026-08-06T00:05:00.000Z";
+
+	function placeBaseline(
+		remoteId: string,
+		name: string,
+		observedAt = AT,
+	): ResourceBaselineWrite {
+		const canonical: CanonicalPlace = {
+			remoteId,
+			name,
+			siteCode: remoteId,
+			locationTypeCode: "state",
+			parentRemoteId: null,
+			latitude: "12.5000000000",
+			longitude: null,
+			ownedData: {},
+			ownedKeys: [],
+			digest: "c".repeat(64),
+		};
+		return {
+			origin: "push",
+			kind: "location",
+			remoteId,
+			canonical,
+			digest: canonical.digest,
+			observedAt,
+			discard: null,
+		};
+	}
+
+	function tableBaseline(
+		remoteId: string,
+		observedAt = AT,
+	): ResourceBaselineWrite {
+		return {
+			origin: "push",
+			kind: "lookup-table",
+			remoteId,
+			canonical: {
+				remoteId,
+				tag: remoteId,
+				isGlobal: true,
+				fields: [{ name: "code", properties: [] }],
+				itemAttributes: [],
+				rowCount: 1,
+				rowsDigest: "a".repeat(64),
+				definitionDigest: "b".repeat(64),
+				digest: "d".repeat(64),
+			},
+			digest: "d".repeat(64),
+			observedAt,
+			discard: null,
+		};
+	}
+
+	function mappingOf(
+		kind: "lookup-table" | "location",
+		novaResourceId: string,
+		remoteId: string,
+		adoptedBy: string | null = null,
+	) {
+		return {
+			kind,
+			novaResourceId,
+			remoteId,
+			ownership: adoptedBy === null ? "nova-created" : "adopted",
+			pushedIdentity: remoteId,
+			adoptedBy,
+			pushedRevision: null,
+			remoteRevision: null,
+		} as const;
+	}
+
+	it("writes the create baseline with the empty app's mapping", async () => {
+		const scope = await seed();
+		await create(scope);
+		await recordCreatedRemoteApp(scope, TARGET, {
+			remoteId: "hq-shell",
+			baseline: readBaseline("hq-shell", "Shell", { origin: "create" }),
+		});
+		expect(await readAppBaseline(scope, TARGET)).toMatchObject({
+			origin: "create",
+			remoteAppId: "hq-shell",
+			source: expect.objectContaining({ name: "Shell" }),
+			ownership: OWNERSHIP,
+			observedBy: "u1",
+		});
+	});
+
+	it("commits the mapping and its baseline together or not at all", async () => {
+		const scope = await seed();
+		await create(scope);
+		await expect(
+			recordRemoteResource(scope, TARGET, {
+				kind: "app",
+				novaResourceId: scope.appId,
+				remoteId: "hq-app",
+				ownership: "nova-created",
+				pushedRevision: 1,
+				uploadedAt: AT,
+				remoteRevision: null,
+				baseline: { ...readBaseline("hq-app", "App"), sourceDigest: "not-hex" },
+			}),
+		).rejects.toThrow();
+		const view = await readDeployment(scope, TARGET);
+		expect(view?.active).toEqual([]);
+		expect(view?.deployment.state).toBe("preflight");
+		expect(await readAppBaseline(scope, TARGET)).toBeNull();
+	});
+
+	it("keeps the newer read when two publishes record out of order, and a discard with it", async () => {
+		const scope = await seed();
+		await create(scope);
+		const record = (baseline: AppBaselineWrite) =>
+			recordRemoteResource(scope, TARGET, {
+				kind: "app",
+				novaResourceId: scope.appId,
+				remoteId: "hq-app",
+				ownership: "nova-created",
+				pushedRevision: 1,
+				uploadedAt: AT,
+				remoteRevision: null,
+				baseline,
+			});
+		await record(
+			readBaseline("hq-app", "Newer", {
+				observedAt: LATER,
+				discard: { digest: "e".repeat(64) },
+			}),
+		);
+		await record(readBaseline("hq-app", "Older", { observedAt: AT }));
+		expect(await readAppBaseline(scope, TARGET)).toMatchObject({
+			origin: "push",
+			source: expect.objectContaining({ name: "Newer" }),
+			observedAt: LATER,
+		});
+		/* A later read of the same app keeps the discard record it does not
+		 * carry; a read of another app replaces it. */
+		await record(
+			readBaseline("hq-app", "Latest", {
+				observedAt: "2026-08-06T00:10:00.000Z",
+			}),
+		);
+		const db = h.db();
+		const kept = await db
+			.selectFrom("app_deployment_baselines")
+			.select(["discarded_digest", "discarded_by"])
+			.executeTakeFirstOrThrow();
+		expect(kept).toEqual({
+			discarded_digest: "e".repeat(64),
+			discarded_by: "u1",
+		});
+		await recordCreatedRemoteApp(scope, TARGET, {
+			remoteId: "hq-other",
+			baseline: unreadBaseline("hq-other", AT),
+		});
+		const replaced = await db
+			.selectFrom("app_deployment_baselines")
+			.select(["remote_app_id", "origin", "discarded_digest"])
+			.executeTakeFirstOrThrow();
+		expect(replaced).toEqual({
+			remote_app_id: "hq-other",
+			origin: "unread",
+			discarded_digest: null,
+		});
+	});
+
+	it("reads a stored source whose digest does not verify as unread", async () => {
+		const scope = await seed();
+		await create(scope);
+		await recordCreatedRemoteApp(scope, TARGET, {
+			remoteId: "hq-shell",
+			baseline: readBaseline("hq-shell", "Shell", { origin: "create" }),
+		});
+		const db = h.db();
+		await db
+			.updateTable("app_deployment_baselines")
+			.set({ source_gzip: gzipSync(Buffer.from('{"tampered":true}')) })
+			.execute();
+		expect(await readAppBaseline(scope, TARGET)).toEqual({
+			origin: "unread",
+			remoteAppId: "hq-shell",
+			observedAt: AT,
+			observedBy: "u1",
+		});
+	});
+
+	it("shares one row between two apps mapping one HQ table, written in either order without deadlock", async () => {
+		const first = await seed("app-1", "proj-1");
+		const second = await seed("app-2", "proj-1");
+		await create(first);
+		await create(second);
+		const push = (
+			scope: DeploymentScope,
+			order: readonly string[],
+			at: string,
+		) =>
+			recordPushedResources(
+				scope,
+				TARGET,
+				order.map((remoteId, index) =>
+					mappingOf(
+						"lookup-table",
+						`018f0000-0000-7000-8000-00000000000${index + 1}`,
+						remoteId,
+					),
+				),
+				{ status: "partial" },
+				order.map((remoteId) => tableBaseline(remoteId, at)),
+			);
+		await Promise.all([
+			push(first, ["hq-a", "hq-b"], AT),
+			push(second, ["hq-b", "hq-a"], LATER),
+		]);
+		const db = h.db();
+		const rows = await db
+			.selectFrom("project_space_resource_baselines")
+			.select(["remote_id", "observed_at", "observed_from_app_id"])
+			.orderBy("remote_id")
+			.execute();
+		expect(rows.map((row) => row.remote_id)).toEqual(["hq-a", "hq-b"]);
+		for (const row of rows) {
+			expect(row.observed_at.toISOString()).toBe(LATER);
+			expect(row.observed_from_app_id).toBe("app-2");
+		}
+		expect(
+			await readResourceBaselines(first, TARGET, [
+				{ kind: "lookup-table", remoteId: "hq-a" },
+				{ kind: "lookup-table", remoteId: "hq-missing" },
+			]),
+		).toEqual([
+			expect.objectContaining({
+				origin: "push",
+				kind: "lookup-table",
+				remoteId: "hq-a",
+			}),
+		]);
+	});
+
+	it("writes and reads the baselines of an adopted table and an adopted place as of created ones", async () => {
+		const scope = await seed();
+		await create(scope);
+		await recordPushedResources(
+			scope,
+			TARGET,
+			[
+				mappingOf(
+					"lookup-table",
+					"018f0000-0000-7000-8000-000000000001",
+					"hq-theirs",
+					"u1",
+				),
+				mappingOf(
+					"location",
+					"018f0000-0000-7000-8000-0000000000b1",
+					"hq-place",
+					"u1",
+				),
+			],
+			{ status: "complete", kinds: ["lookup-table", "location"], pushedAt: AT },
+			[tableBaseline("hq-theirs"), placeBaseline("hq-place", "Colorado")],
+		);
+		const baselines = await readResourceBaselines(scope, TARGET, [
+			{ kind: "lookup-table", remoteId: "hq-theirs" },
+			{ kind: "location", remoteId: "hq-place" },
+		]);
+		expect(baselines).toHaveLength(2);
+		expect(baselines).toContainEqual(
+			expect.objectContaining({
+				origin: "push",
+				kind: "location",
+				canonical: expect.objectContaining({
+					name: "Colorado",
+					latitude: "12.5000000000",
+				}),
+			}),
+		);
+	});
+
+	it("marks what a push could not read back as unread, and a later read replaces it", async () => {
+		const scope = await seed();
+		await create(scope);
+		await markResourceBaselinesUnread(scope, TARGET, [
+			{ kind: "location", remoteId: "hq-place" },
+		]);
+		expect(
+			await readResourceBaselines(scope, TARGET, [
+				{ kind: "location", remoteId: "hq-place" },
+			]),
+		).toEqual([
+			expect.objectContaining({
+				origin: "unread",
+				kind: "location",
+				remoteId: "hq-place",
+			}),
+		]);
+		await recordPushedResources(
+			scope,
+			TARGET,
+			[
+				mappingOf(
+					"location",
+					"018f0000-0000-7000-8000-0000000000b1",
+					"hq-place",
+				),
+			],
+			{ status: "partial" },
+			[
+				placeBaseline(
+					"hq-place",
+					"Colorado",
+					new Date(Date.now() + 60_000).toISOString(),
+				),
+			],
+		);
+		expect(
+			await readResourceBaselines(scope, TARGET, [
+				{ kind: "location", remoteId: "hq-place" },
+			]),
+		).toEqual([expect.objectContaining({ origin: "push" })]);
 	});
 });

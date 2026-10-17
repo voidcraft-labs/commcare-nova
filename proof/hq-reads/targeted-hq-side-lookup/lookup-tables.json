@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 100, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 1}, \"objects\": [{\"fields\": [{\"field_name\": \"code\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": []}], \"id\": \"8bad86ee12874fe9bf7e5f194597f4fc\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"district\"}]}"
+}

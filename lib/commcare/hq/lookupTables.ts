@@ -56,6 +56,31 @@ export interface HqLookupTable {
 	readonly isGlobal: boolean;
 	/** Field names in CommCare HQ's stored order. */
 	readonly fields: readonly string[];
+	/** Each field's property names, in HQ's order, keyed by field name. */
+	readonly fieldProperties: Readonly<Record<string, readonly string[]>>;
+	/** The row attributes the table's definition names, in HQ's order. */
+	readonly itemAttributes: readonly string[];
+}
+
+/**
+ * One row of a lookup table as `fixtures/resources/v0_1.py::FixtureResource`
+ * serves it. A field holds its one value as a string when every field of the
+ * row holds one (`fixtures/models.py::LookupTableRow.fields_without_attributes`),
+ * and otherwise every field of the row holds its ordered values with their
+ * properties (`LookupTableItemResource.dehydrate_fields`).
+ */
+export interface HqFixtureRow {
+	readonly id: string;
+	readonly fields: Readonly<
+		Record<
+			string,
+			| string
+			| readonly {
+					readonly value: string;
+					readonly properties: Readonly<Record<string, string>>;
+			  }[]
+		>
+	>;
 }
 
 /**
@@ -88,24 +113,45 @@ function toHqLookupTable(raw: unknown): HqLookupTable | null {
 		return null;
 	/* `dehydrate_fields` answers `[{field_name, properties}]`; older rows
 	 * and the XML serializer spell it `name`. Reading both is not an alias
-	 * layer — Nova stores neither, it only needs enough to compare shape
-	 * when reporting a conflict. */
-	const fields = Array.isArray(raw.fields)
-		? raw.fields.flatMap((field): string[] => {
-				if (typeof field === "string") return [field];
-				if (field !== null && typeof field === "object") {
-					const named = field as { field_name?: unknown; name?: unknown };
-					if (typeof named.field_name === "string") return [named.field_name];
-					if (typeof named.name === "string") return [named.name];
-				}
-				return [];
-			})
+	 * layer: the names identify the columns, and the properties are what the
+	 * drift comparison reads of each. */
+	const fields: string[] = [];
+	const fieldProperties: Record<string, readonly string[]> = {};
+	if (Array.isArray(raw.fields)) {
+		for (const field of raw.fields) {
+			if (typeof field === "string") {
+				fields.push(field);
+				fieldProperties[field] = [];
+				continue;
+			}
+			if (!isHqObject(field)) continue;
+			const name =
+				typeof field.field_name === "string"
+					? field.field_name
+					: typeof field.name === "string"
+						? field.name
+						: null;
+			if (name === null) continue;
+			fields.push(name);
+			fieldProperties[name] = Array.isArray(field.properties)
+				? field.properties.filter(
+						(property): property is string => typeof property === "string",
+					)
+				: [];
+		}
+	}
+	const itemAttributes = Array.isArray(raw.item_attributes)
+		? raw.item_attributes.filter(
+				(attribute): attribute is string => typeof attribute === "string",
+			)
 		: [];
 	return {
 		id: raw.id,
 		tag: raw.tag,
 		isGlobal: raw.is_global === true,
 		fields,
+		fieldProperties,
+		itemAttributes,
 	};
 }
 
@@ -141,6 +187,136 @@ export async function listHqLookupTables(
 		tables.push(table);
 	}
 	return tables;
+}
+
+/**
+ * A bound on how many pages of one table's rows Nova will follow. HQ serves
+ * at most 1,000 rows a page whatever `limit` asks, so this admits a table of
+ * a million rows and stops a cursor that never terminates. Each page has its
+ * own request deadline, so a long table is never cut off by one deadline
+ * meant for a single request.
+ */
+const MAX_FIXTURE_ROW_PAGES = 1_000;
+
+/** How many tables' rows a publish reads from CommCare HQ at once. */
+export const LOOKUP_ROWS_READ_CONCURRENCY = 4;
+
+function toFixtureRowFields(
+	raw: Record<string, unknown>,
+): HqFixtureRow["fields"] | null {
+	const fields: Record<string, HqFixtureRow["fields"][string]> = {};
+	const values = Object.values(raw);
+	/* The two shapes never mix in one row: `FixtureResource.dehydrate_fields`
+	 * falls back to the `field_list` form for the whole row as soon as one of
+	 * its fields holds more than one value. */
+	if (values.every((value) => typeof value === "string")) {
+		for (const [name, value] of Object.entries(raw)) {
+			fields[name] = value as string;
+		}
+		return fields;
+	}
+	for (const [name, value] of Object.entries(raw)) {
+		if (!isHqObject(value) || !Array.isArray(value.field_list)) return null;
+		const list: { value: string; properties: Record<string, string> }[] = [];
+		for (const item of value.field_list) {
+			if (
+				!isHqObject(item) ||
+				typeof item.field_value !== "string" ||
+				!isHqObject(item.properties) ||
+				!Object.values(item.properties).every(
+					(property) => typeof property === "string",
+				)
+			)
+				return null;
+			list.push({
+				value: item.field_value,
+				properties: item.properties as Record<string, string>,
+			});
+		}
+		fields[name] = list;
+	}
+	return fields;
+}
+
+/**
+ * Every row of one lookup table, in HQ's own order
+ * (`fixtures/models.py::LookupTableRowManager.iter_rows` sorts by
+ * `sort_key`), with the total HQ reports for it.
+ *
+ * `FixtureResource` filtered by `fixture_type_id` is the one read that
+ * answers a single table's rows. It needs the same API access the table
+ * list does. A row that holds a field with no value makes HQ's serializer
+ * raise and the whole read fail, which is a refusal here like any other.
+ */
+export async function readHqLookupTableRows(
+	creds: CommCareCredentials,
+	domain: string,
+	tableId: string,
+): Promise<
+	| { readonly totalCount: number; readonly rows: readonly HqFixtureRow[] }
+	| CommCareApiError
+> {
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(tableId))
+		return INVALID_DOMAIN_SLUG;
+	const firstUrl = `${baseUrl(creds)}/a/${domain}/api/fixture/v1/?fixture_type_id=${encodeURIComponent(tableId)}`;
+	const reported: { totalCount: number | null } = { totalCount: null };
+	const raw = await readHqCollection(
+		creds,
+		firstUrl,
+		"lookup table rows",
+		MAX_FIXTURE_ROW_PAGES,
+		{
+			deadline: "page",
+			onMeta: (meta) => {
+				if (
+					reported.totalCount === null &&
+					typeof meta.total_count === "number" &&
+					Number.isSafeInteger(meta.total_count) &&
+					meta.total_count >= 0
+				)
+					reported.totalCount = meta.total_count;
+			},
+		},
+	);
+	if ("success" in raw) return raw;
+	const rows: HqFixtureRow[] = [];
+	for (const value of raw) {
+		if (
+			!isHqObject(value) ||
+			typeof value.id !== "string" ||
+			value.id.trim() === "" ||
+			!isHqObject(value.fields)
+		) {
+			log.error("[commcare] lookup table row is malformed", undefined, {
+				domain,
+			});
+			return { success: false, status: 502, cause: "malformed" };
+		}
+		const fields = toFixtureRowFields(value.fields);
+		if (fields === null) {
+			log.error("[commcare] lookup table row fields are malformed", undefined, {
+				domain,
+			});
+			return { success: false, status: 502, cause: "malformed" };
+		}
+		rows.push({ id: value.id, fields });
+	}
+	/* The total is the first page's, and the pages together must hold
+	 * exactly that many rows: a table that changed between two pages is a
+	 * read that cannot be compared, never a short list. */
+	const { totalCount } = reported;
+	if (totalCount === null || totalCount !== rows.length) {
+		log.error(
+			"[commcare] lookup table rows disagree with their total",
+			undefined,
+			{
+				domain,
+				rows: rows.length,
+			},
+		);
+		return { success: false, status: 502, cause: "malformed" };
+	}
+	return { totalCount, rows };
 }
 
 /** What CommCare HQ said about a workbook it accepted. */
