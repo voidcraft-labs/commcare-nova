@@ -29,7 +29,10 @@ import {
 	useState,
 	useTransition,
 } from "react";
-import { DEPLOYMENT_STATE_LABELS } from "@/components/builder/app-setup/publishingSectionModel";
+import {
+	DEPLOYMENT_STATE_LABELS,
+	liveConfirmationRows,
+} from "@/components/builder/app-setup/publishingSectionModel";
 import { Button } from "@/components/shadcn/button";
 import type { SetupArtifactSection } from "@/lib/deployment";
 import {
@@ -44,11 +47,13 @@ import {
 	type DeploymentView,
 	type RefreshedDeploymentView,
 	refreshDeploymentAction,
+	withdrawDeploymentConfirmationAction,
 } from "@/lib/deployment/actions";
 import {
 	activeRemoteApp,
 	remoteAppReportedGone,
 } from "@/lib/deployment/resources";
+import type { DeploymentConfirmationKey } from "@/lib/deployment/types";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /**
@@ -76,6 +81,7 @@ export function DeploymentStatus({
 	view,
 	canRefresh = true,
 	onUpdated,
+	onWithdrawn,
 	workers,
 }: {
 	appId: string;
@@ -88,6 +94,13 @@ export function DeploymentStatus({
 	canRefresh?: boolean;
 	/** Lets the surrounding surface keep the record it is holding current. */
 	onUpdated: (next: RefreshedDeploymentView) => void;
+	/**
+	 * Takes the record a withdrawn confirmation answers with. Withdrawing
+	 * changes what the next publish asks, never which project space Preview
+	 * names, so it answers with the record alone. Absent where the surface
+	 * holds no record to update, and then no Withdraw is offered.
+	 */
+	onWithdrawn?: (next: DeploymentView) => void;
 	/**
 	 * The Workers panel, when this record's surface owns one. A slot rather
 	 * than a built-in render because a worker's password is shown in exactly
@@ -287,6 +300,12 @@ export function DeploymentStatus({
 
 			<LeftBehindNotice resources={view.leftBehind} />
 
+			<ConfirmationsOnRecord
+				appId={appId}
+				view={view}
+				onWithdrawn={canRefresh ? onWithdrawn : undefined}
+			/>
+
 			{workers}
 
 			<SetupNotes sections={view.artifact.sections} />
@@ -340,6 +359,115 @@ function LeftBehindNotice({
 			on CommCare HQ, so {one ? "it is" : "they are"} still there until you
 			remove {one ? "it" : "them"} yourself.
 		</p>
+	);
+}
+
+/**
+ * What a person confirmed about this project space that a publish goes by,
+ * with who and when, and a Withdraw for each where this viewer may edit.
+ *
+ * No API key reads a project space's plan or these settings, so a publish
+ * goes by what someone said here, and Nova cannot see the plan change
+ * later. Withdrawing is how somebody takes an answer back: the row is kept
+ * with who withdrew it, and the next publish asks again.
+ */
+function ConfirmationsOnRecord({
+	appId,
+	view,
+	onWithdrawn,
+}: {
+	appId: string;
+	view: DeploymentView;
+	/** Absent for a viewer, who sees the rows and no control. */
+	onWithdrawn?: (next: DeploymentView) => void;
+}) {
+	const record = view.deployment.deployment;
+	const rows = liveConfirmationRows(view.deployment.confirmations);
+	const sessionApi = useBuilderSessionApi();
+	const [pending, startTransition] = useTransition();
+	const [withdrawError, setWithdrawError] = useState<string | null>(null);
+	const headingId = useId();
+
+	const handleWithdraw = useCallback(
+		(key: DeploymentConfirmationKey) => {
+			/* A withdrawal is a Project write, so it re-reads live capability
+			 * rather than trusting the prop this rendered with. */
+			if (onWithdrawn === undefined || !sessionApi.getState().canEdit) return;
+			setWithdrawError(null);
+			startTransition(async () => {
+				try {
+					const result = await withdrawDeploymentConfirmationAction({
+						appId,
+						server: record.server,
+						domain: record.domain,
+						confirmation: key,
+					});
+					if (result.success) {
+						onWithdrawn(result.data);
+						return;
+					}
+					setWithdrawError(result.message);
+				} catch {
+					setWithdrawError(
+						"Nova couldn't reach the server to withdraw that. Try again in a moment.",
+					);
+				}
+			});
+		},
+		[appId, record.server, record.domain, onWithdrawn, sessionApi],
+	);
+
+	if (rows.length === 0) return null;
+	return (
+		<div className="mt-4">
+			<h4 id={headingId} className="text-[13px] font-medium text-nova-text">
+				What this project space has, as confirmed here
+			</h4>
+			<p className="mt-1 text-[13px] leading-relaxed text-nova-text-secondary">
+				Nova can't read these from CommCare HQ, so each publish here goes by
+				what someone confirmed. If one changes there, you can withdraw it and
+				the next publish asks again.
+			</p>
+			<ul aria-labelledby={headingId} className="mt-2 flex flex-col gap-1.5">
+				{rows.map((row) => (
+					<li
+						key={row.label}
+						className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-lg border border-nova-border bg-nova-well px-3 py-1.5 text-[13px] leading-relaxed"
+					>
+						<span className="min-w-0">
+							<span className="block text-nova-text">{row.label}</span>
+							<span className="block text-[12px] text-nova-text-muted">
+								Confirmed by {row.confirmedBy} on{" "}
+								{new Date(row.confirmedAt).toLocaleDateString(undefined, {
+									day: "numeric",
+									month: "long",
+									year: "numeric",
+								})}
+							</span>
+						</span>
+						{onWithdrawn !== undefined ? (
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => handleWithdraw(row.key)}
+								disabled={pending}
+							>
+								Withdraw
+								<span className="sr-only"> {row.label}</span>
+							</Button>
+						) : null}
+					</li>
+				))}
+			</ul>
+			{withdrawError !== null ? (
+				<p
+					role="alert"
+					className="mt-2 text-[13px] leading-relaxed text-nova-rose"
+				>
+					{withdrawError}
+				</p>
+			) : null}
+		</div>
 	);
 }
 

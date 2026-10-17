@@ -9,12 +9,16 @@
 import {
 	type BlueprintDoc,
 	CONNECT_TYPE_LABELS,
+	caseListColumnTextShows,
 	effectiveCaseSearchConfig,
+	type Field,
 	isCaptureField,
 	type Module,
 	noMatchesFormOf,
 	searchInputDefault,
+	tileCellFor,
 } from "@/lib/domain";
+import { walkExpressionTerms } from "@/lib/domain/predicate";
 import {
 	type ProjectSpaceAdvisoryUse,
 	type ProjectSpaceCapabilityUse,
@@ -24,7 +28,19 @@ import {
 	projectSpaceCompatibilityForUnknownTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
 import { hostLowersNoMatchesForm } from "./emissionPlan";
+import {
+	moduleCaseTypeForActions,
+	parentSelectModuleUuid,
+} from "./formLinkProjection";
+import { moduleIsSearchFirst } from "./suite/case-search/inlineSearch";
+import { searchNeedsSupportingCases } from "./suite/case-search/relatedCaseProjection";
+import {
+	searchInputIsSingleDate,
+	searchInputSuppressesAutoMatch,
+} from "./suite/case-search/searchPrompts";
+import { xpathQueryUsesRelatedLookup } from "./suite/case-search/xpathQuery";
 import { domainFeatureFlag } from "./surface/gates";
+import { moduleTypeContext } from "./validator/rules/case-list/shared";
 
 export * from "@/lib/publish/projectSpaceCompatibility";
 
@@ -36,7 +52,10 @@ export type HqPrivateFeatureFlagId =
 	| "case-attachments"
 	| "attachment-links"
 	| "no-matches-registration"
-	| "large-search-performance";
+	| "large-search-performance"
+	| "related-case-lookups"
+	| "case-tiles"
+	| "custom-case-tiles";
 
 /** Private input to the low-level HQ probe. Never serialize this object. */
 export interface HqPrivateFeatureFlagRequirement {
@@ -58,6 +77,9 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"attachment-links": "VIEW_FORM_ATTACHMENT",
 	"no-matches-registration": "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
 	"large-search-performance": "CUSTOM_PROPERTIES",
+	"related-case-lookups": "CASE_SEARCH_RELATED_LOOKUPS",
+	"case-tiles": "CASE_LIST_TILE",
+	"custom-case-tiles": "CASE_LIST_TILE_CUSTOM",
 } as const satisfies Record<HqPrivateFeatureFlagId, string>;
 
 /* Resolved when the module loads, so a flag whose gate entry is missing or
@@ -95,50 +117,127 @@ export interface HqProjectSpaceCompatibilityProbePlan {
 }
 
 /**
- * Whether a module needs Search prompt starting values on an HQ-built suite.
- *
- * HQ always emits and executes `_xpath_query`, even without its private child
- * setting. The setting gates only `properties[].default_value` when HQ
- * regenerates `<prompt default>`, so no other Search behavior belongs here.
+ * Why a module's effective Search needs HQ's advanced case search setting,
+ * one reason per shape; empty where it needs none. Without the setting HQ
+ * omits `<prompt default>` (`feature_support.py::enable_default_value_expression`),
+ * and its Case List page offers none of the other shapes
+ * (`templates/app_manager/partials/modules/bootstrap5/case_search_properties.html`,
+ * `case_search_property.html`), so nobody could make or change them there.
+ * A search's own filter (`_xpath_query`), the zero-input `match-all()`
+ * included, adds nothing: HQ's Case List page offers and keeps a default
+ * filter for every project space.
  */
-/**
- * HQ writes `<prompt default>` only under its advanced case search setting
- * (`feature_support.py::enable_default_value_expression`). Two authored
- * shapes need that attribute: a visible Search field with a starting value,
- * and a hidden Search value, whose whole content IS the `default`.
- */
-function moduleRequiresAdvancedCaseSearch(module: Module): boolean {
-	if (effectiveCaseSearchConfig(module) === undefined) return false;
-	return (
-		module.caseListConfig?.searchInputs.some(
-			(input) =>
-				input.kind === "hidden" || searchInputDefault(input) !== undefined,
-		) ?? false
-	);
-}
-
-function advancedCaseSearchReasons(module: Module): string[] {
-	if (!moduleRequiresAdvancedCaseSearch(module)) return [];
-	const list = module.caseListConfig;
-	if (!list) return [];
+export function advancedCaseSearchReasons(module: Module): string[] {
+	if (effectiveCaseSearchConfig(module) === undefined) return [];
+	const inputs = module.caseListConfig?.searchInputs ?? [];
 	const reasons: string[] = [];
-	if (
-		list.searchInputs.some((input) => searchInputDefault(input) !== undefined)
-	) {
+	if (inputs.some((input) => searchInputDefault(input) !== undefined)) {
 		reasons.push("A Search field starts with a suggested value.");
 	}
-	if (list.searchInputs.some((input) => input.kind === "hidden")) {
+	if (inputs.some((input) => input.kind === "hidden")) {
 		reasons.push(
 			"A Search screen carries a hidden value worked out when it opens.",
+		);
+	}
+	if (moduleIsSearchFirst(module)) {
+		reasons.push("The menu opens on Search.");
+	}
+	if (inputs.some(searchInputIsSingleDate)) {
+		reasons.push("A Search field takes one date.");
+	}
+	if (inputs.some(searchInputSuppressesAutoMatch)) {
+		reasons.push("A Search field is matched by a rule Nova writes.");
+	}
+	return reasons;
+}
+
+/**
+ * Why a module's effective Search needs HQ's related-case lookups, one
+ * reason per arm; empty where it needs none. Without the setting HQ's case
+ * search refuses a query that reads related cases
+ * (`case_search/filter_dsl.py::_require_related_lookups_flag`), and HQ's
+ * build adds such a query itself for a search-first menu that follows a
+ * parent case chosen first
+ * (`util.py::module_uses_inline_search_with_parent_relationship_parent_select`).
+ */
+function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
+	const list = module.caseListConfig;
+	if (effectiveCaseSearchConfig(module) === undefined || list === undefined) {
+		return [];
+	}
+	const typeContext = moduleTypeContext(module, doc);
+	const reasons: string[] = [];
+	if (xpathQueryUsesRelatedLookup(list, module.caseType, typeContext)) {
+		reasons.push("A Search filter looks at related cases.");
+	}
+	if (
+		searchNeedsSupportingCases(list, {
+			...typeContext,
+			...(module.caseType === undefined
+				? {}
+				: { currentCaseType: module.caseType }),
+		})
+	) {
+		reasons.push("A case list shows values from related cases.");
+	}
+	if (
+		moduleIsSearchFirst(module) &&
+		parentSelectModuleUuid(doc, module.uuid) !== undefined
+	) {
+		reasons.push(
+			"A menu that opens on Search follows a parent case chosen first.",
 		);
 	}
 	return reasons;
 }
 
-type CompatibilityDoc = Pick<
-	BlueprintDoc,
-	"automations" | "connectType" | "fields" | "forms" | "formOrder" | "modules"
->;
+/**
+ * Whether a case list draws each case as a tile: some column has a cell,
+ * the test the HQ JSON emitter makes before it writes `case_tile_template`.
+ * Every Nova tile is `custom`, which HQ's Case List page offers and keeps
+ * only under both tile settings
+ * (`static/app_manager/js/details/bootstrap5/screen.js`).
+ */
+function moduleHasCaseTiles(module: Module): boolean {
+	const list = module.caseListConfig;
+	if (list?.tile === undefined) return false;
+	return list.columns.some(
+		(column) => tileCellFor(column, list.tile) !== undefined,
+	);
+}
+
+/**
+ * Whether a link a capture question saves on a case is shown on a screen:
+ * a column of some module of that case type, shown on Results or Details,
+ * reads the property, as a column of its own or inside a calculated
+ * column's expression. HQ reads `VIEW_FORM_ATTACHMENT` only when someone
+ * opens such a link (`reports/views.py::_can_view_form_attachment`), so a
+ * link no screen shows asks nothing of the project space.
+ */
+export function linkWriteIsShown(doc: BlueprintDoc, field: Field): boolean {
+	if (!isCaptureField(field) || field.caseWrite?.mode !== "url") return false;
+	const { caseType, property } = field.caseWrite;
+	return Object.values(doc.modules).some(
+		(module) =>
+			module.caseType === caseType &&
+			(module.caseListConfig?.columns ?? []).some((column) => {
+				if (!caseListColumnTextShows(column)) return false;
+				if (column.kind !== "calculated") return column.field === property;
+				let reads = false;
+				walkExpressionTerms(column.expression, (term) => {
+					if (
+						term.kind === "prop" &&
+						term.caseType === caseType &&
+						term.property === property &&
+						(term.via === undefined || term.via.kind === "self")
+					) {
+						reads = true;
+					}
+				});
+				return reads;
+			}),
+	);
+}
 
 /**
  * Whether the module's Results offer a registration form after an empty
@@ -150,7 +249,7 @@ type CompatibilityDoc = Pick<
  * cannot disagree.
  */
 function moduleRequiresNoMatchesRegistration(
-	doc: CompatibilityDoc,
+	doc: BlueprintDoc,
 	module: Module,
 ): boolean {
 	return (
@@ -161,7 +260,7 @@ function moduleRequiresNoMatchesRegistration(
 
 /** Semantic capabilities and private proof inputs required by this app. */
 export function projectSpaceCompatibilityProbePlan(
-	doc: CompatibilityDoc,
+	doc: BlueprintDoc,
 ): HqProjectSpaceCompatibilityProbePlan {
 	const reasonsByCapability = new Map<string, Set<string>>();
 	let advancedSearchRequired = false;
@@ -177,14 +276,41 @@ export function projectSpaceCompatibilityProbePlan(
 			"case-search",
 			"The app searches for cases that may not already be available.",
 		);
-		const advancedReasons = advancedCaseSearchReasons(module);
+		/* What HQ's editors offer only under a flag lands only where the
+		 * module's search does: a module that has cases
+		 * (`moduleCaseTypeForActions`, the gate `expandDoc` reads). */
+		const searchLands = moduleCaseTypeForActions(doc, module.uuid) !== "";
+		const advancedReasons = searchLands
+			? advancedCaseSearchReasons(module)
+			: [];
 		if (advancedReasons.length > 0) advancedSearchRequired = true;
 		for (const reason of advancedReasons) addReason("case-search", reason);
+		for (const reason of searchLands
+			? relatedCaseSearchReasons(doc, module)
+			: []) {
+			addReason("related-case-search", reason);
+		}
 		if (moduleRequiresNoMatchesRegistration(doc, module)) {
 			addReason(
 				"registration-after-empty-search",
 				"A search that finds nothing offers to register a new case.",
 			);
+		}
+	}
+
+	for (const module of Object.values(doc.modules)) {
+		/* A case list reaches HQ only for a module that has cases: one with
+		 * a case type and a form that is not a survey, or a case list alone
+		 * (`moduleCaseTypeForActions`, the gate `expandDoc` reads). */
+		if (moduleCaseTypeForActions(doc, module.uuid) === "") continue;
+		if (module.caseListConfig?.selection?.kind === "multiple") {
+			addReason(
+				"multi-select-case-lists",
+				"A case list lets workers choose several cases.",
+			);
+		}
+		if (moduleHasCaseTiles(module)) {
+			addReason("case-tiles", "A case list is laid out as tiles.");
 		}
 	}
 
@@ -195,10 +321,10 @@ export function projectSpaceCompatibilityProbePlan(
 				"case-attachments",
 				"A capture question saves its file on the case.",
 			);
-		} else {
+		} else if (linkWriteIsShown(doc, field)) {
 			addReason(
 				"attachment-links",
-				"A capture question saves a link to its file on the case.",
+				"A case list or its details show a link to a captured file.",
 			);
 		}
 	}
@@ -254,16 +380,19 @@ export function projectSpaceCompatibilityProbePlan(
 		});
 	}
 
-	for (const [capability, flag] of [
-		["commcare-connect", "commcare-connect"],
-		["case-attachments", "case-attachments"],
-		["attachment-links", "attachment-links"],
+	for (const [capability, flags] of [
+		["multi-select-case-lists", ["advanced-case-search"]],
+		["related-case-search", ["related-case-lookups"]],
+		["case-tiles", ["case-tiles", "custom-case-tiles"]],
+		["commcare-connect", ["commcare-connect"]],
+		["case-attachments", ["case-attachments"]],
+		["attachment-links", ["attachment-links"]],
 	] as const) {
 		const reasons = reasonsByCapability.get(capability);
 		if (!reasons) continue;
 		capabilities.push({
 			capability: projectSpaceCapabilityUse(capability, [...reasons]),
-			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS[flag]],
+			featureFlags: flags.map((flag) => HQ_PRIVATE_FEATURE_FLAGS[flag]),
 			runtimeProbes: [],
 		});
 	}
@@ -296,7 +425,7 @@ export function projectSpaceCompatibilityProbePlan(
 }
 
 export function requiredProjectSpaceCapabilities(
-	doc: CompatibilityDoc,
+	doc: BlueprintDoc,
 ): ProjectSpaceCapabilityUse[] {
 	return projectSpaceCompatibilityProbePlan(doc).capabilities.map(
 		(plan) => plan.capability,
@@ -304,7 +433,7 @@ export function requiredProjectSpaceCapabilities(
 }
 
 export function projectSpaceCompatibilityForDownload(
-	doc: CompatibilityDoc,
+	doc: BlueprintDoc,
 ): ProjectSpaceCompatibilityReport {
 	const plan = projectSpaceCompatibilityProbePlan(doc);
 	return projectSpaceCompatibilityForUnknownTarget(
@@ -315,7 +444,7 @@ export function projectSpaceCompatibilityForDownload(
 }
 
 export function projectSpaceCompatibilityForPrepublish(
-	doc: CompatibilityDoc,
+	doc: BlueprintDoc,
 ): ProjectSpaceCompatibilityReport {
 	const plan = projectSpaceCompatibilityProbePlan(doc);
 	return projectSpaceCompatibilityForUnknownTarget(

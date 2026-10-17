@@ -19,8 +19,12 @@ privileges (a callout template accepted under ``TEMPLATED_INTENTS`` alone,
 a custom intent refused under it), and ``ApplicationBase.create_profile``
 for the logos and the Android app dependencies. The other rules' readers
 are HQ's views and editor plugins, its app import, its data dictionary
-refresh and its restore, none of which runs on an app alone; for those the
-content tests here pin what each rule reads, and each rule cites its reader.
+refresh, its restore and its repeat record registration, none of which runs
+on an app alone; for those the content tests here pin what each rule reads,
+and each rule cites its reader. The user case rule finds a read of the
+worker's record as well as a save to it: a form that only reads it, in a
+bind or in a link's condition, gets a blank value without the privilege,
+since HQ makes no record for the worker then.
 """
 
 from __future__ import annotations
@@ -36,9 +40,12 @@ XHTML = "http://www.w3.org/1999/xhtml"
 XFORMS = "http://www.w3.org/2002/xforms"
 ODK = "http://opendatakit.org/xforms"
 VELLUM = "http://commcarehq.org/xforms/vellum"
+CONNECT = "http://commcareconnect.com/data/v1/learn"
 
 
-def source(*, instances=(), intents=(), role=None, lock=None, appearance=None, itemset=False):
+def source(
+    *, instances=(), intents=(), role=None, lock=None, appearance=None, itemset=False, calculate=None, connect=False
+):
     """A one-question form source holding the content under test."""
     from lxml import etree
 
@@ -54,11 +61,17 @@ def source(*, instances=(), intents=(), role=None, lock=None, appearance=None, i
     question = etree.SubElement(data, "{http://openrosa.org/formdesigner/privilege-rule}name")
     if role is not None:
         question.set(f"{{{VELLUM}}}role", role)
+    if connect:
+        # A Connect deliver unit as Nova writes one: a block in Connect's namespace beside the question.
+        block = etree.SubElement(data, "{http://openrosa.org/formdesigner/privilege-rule}visit")
+        etree.SubElement(block, f"{{{CONNECT}}}deliver", id="visit")
     for instance_id, src in instances:
         etree.SubElement(model, f"{{{XFORMS}}}instance", id=instance_id, src=src)
     bind = etree.SubElement(model, f"{{{XFORMS}}}bind", nodeset="/data/name", type="xsd:string")
     if lock is not None:
         bind.set(f"{{{VELLUM}}}lock", lock)
+    if calculate is not None:
+        bind.set("calculate", calculate)
     for intent in intents:
         etree.SubElement(head, f"{{{ODK}}}intent", id=f"intent-{len(intent)}", **{"class": intent})
     body = etree.SubElement(html, f"{{{XHTML}}}body")
@@ -88,6 +101,27 @@ def _usercase(factory, module, form):
     from corehq.apps.app_manager.models import ConditionalCaseUpdate
 
     factory.form_uses_usercase(form, update={"last_visit": ConditionalCaseUpdate(question_path="/data/name")})
+
+
+# A read of the worker's own record as Nova's form source spells it: HQ's ``#user`` hashtag.
+WORKER_READ = "#user/district"
+
+
+def _usercase_calculate(factory, module, form):
+    form.source = source(calculate=WORKER_READ)
+
+
+def _usercase_link_condition(factory, module, form):
+    from corehq.apps.app_manager.const import WORKFLOW_FORM
+    from corehq.apps.app_manager.models import FormLink
+
+    other = factory.new_form(module)
+    form.post_form_workflow = WORKFLOW_FORM
+    form.form_links = [FormLink(xpath=f"{WORKER_READ} = 'north'", form_id=other.unique_id)]
+
+
+def _connect_block(factory, module, form):
+    form.source = source(connect=True)
 
 
 def _lookup_source(factory, module, form):
@@ -171,6 +205,8 @@ def _geocoder_question(factory, module, form):
 
 CASES = [
     ("user_case", _usercase, ["USERCASE"], False),
+    ("user_case_read_in_a_bind", _usercase_calculate, ["USERCASE"], False),
+    ("user_case_read_in_a_link_condition", _usercase_link_condition, ["USERCASE", "FORM_LINK_WORKFLOW"], False),
     ("lookup_tables_form", _lookup_source, ["LOOKUP_TABLES"], False),
     ("lookup_tables_push", None, ["LOOKUP_TABLES"], True),
     ("case_itemset", _case_itemset, ["LOOKUP_TABLES"], False),
@@ -189,6 +225,7 @@ CASES = [
     ("locked_admin_questions", _lock, ["LOCKED_ADMIN_QUESTIONS"], False),
     ("geocoder_prompt", _geocoder_prompt, ["GEOCODER"], False),
     ("geocoder_question", _geocoder_question, ["GEOCODER"], False),
+    ("data_forwarding", _connect_block, ["DATA_FORWARDING"], False),
 ]
 
 
@@ -230,6 +267,7 @@ def test_the_rules_cover_every_privilege_row_a_configuration_names():
         "privilege/save_to_case",
         "privilege/locked_admin_questions",
         "privilege/geocoder",
+        "privilege/data_forwarding",
     }
     assert rows == covered
 

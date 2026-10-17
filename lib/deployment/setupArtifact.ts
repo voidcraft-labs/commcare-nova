@@ -31,6 +31,7 @@
 // the section remains worth reading after the work is done.
 
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
+import { formsUsingWorkerRecord } from "@/lib/commcare/planPrivileges";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import type { BlueprintDoc, OrganizationLevel } from "@/lib/domain";
 import {
@@ -44,9 +45,10 @@ import {
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 import {
-	workerRecordRequirements,
-	workerRecordSetup,
-} from "./workerRecordRequirements";
+	LOGO_UPLOAD_STEP_TEXT,
+	webAppsOffText,
+} from "@/lib/publish/planFeatures";
+import { workerRecordSetup } from "./workerRecordRequirements";
 
 type SetupArtifactSectionId =
 	| "lookup-tables"
@@ -58,6 +60,7 @@ type SetupArtifactSectionId =
 	| "automations"
 	| "build-and-release"
 	| "web-apps"
+	| "logo"
 	| "deep-links";
 
 /**
@@ -129,6 +132,13 @@ export interface SetupArtifactInput {
 	 * than what it has done.
 	 */
 	readonly pushedPlaces?: ReadonlyMap<string, { readonly adopted: boolean }>;
+	/**
+	 * HQ's `cloudcare_enabled` for the app as the deployment's last landed
+	 * publish read it, or null where no publish has read it for the app that
+	 * holds the content: before a first publish, for an empty shell, and for
+	 * an app CommCare HQ reports gone.
+	 */
+	readonly targetWebAppsEnabled: boolean | null;
 }
 
 function hqBase(server: CommCareServer): string {
@@ -442,12 +452,42 @@ function buildAndReleaseSection(
 	};
 }
 
-function webAppsSection(input: SetupArtifactInput): SetupArtifactSection {
-	return {
+/**
+ * Whether the target's Web Apps offers this app. A publish reads HQ's
+ * setting and Nova never writes it: where the last publish read it off,
+ * this says so; where it read it on, there is nothing left to do; where no
+ * publish has read it, the section keeps the general check.
+ */
+function webAppsSection(
+	input: SetupArtifactInput,
+): SetupArtifactSection | null {
+	if (input.targetWebAppsEnabled === true) return null;
+	const base = {
 		id: "web-apps",
 		title: "Web Apps availability",
-		summary: `Whether “${input.domain}” can open this app in a browser at all.`,
 		url: `${hqBase(input.server)}/a/${input.domain}/cloudcare/apps/v2/`,
+	} as const;
+	const sameSetting =
+		"You do not need to publish again. It is an ordinary app setting you can change at any time.";
+	if (input.targetWebAppsEnabled === false) {
+		return {
+			...base,
+			summary: webAppsOffText(input.domain),
+			steps: [
+				step(
+					"enable-web-app",
+					"Once the project space's plan includes Web Apps, you can open the app's Settings on CommCare HQ and tick “Web App”.",
+					[sameSetting],
+				),
+			],
+			caveats: [
+				"Nova read this when it last published here. If Web Apps has been turned on in CommCare HQ since, this note stays until the next publish reads it.",
+			],
+		};
+	}
+	return {
+		...base,
+		summary: `Whether “${input.domain}” can open this app in a browser at all.`,
 		steps: [
 			step(
 				"check-listed",
@@ -458,13 +498,32 @@ function webAppsSection(input: SetupArtifactInput): SetupArtifactSection {
 				"If it is not listed, open the app's Settings on CommCare HQ and tick “Web App”.",
 				[
 					"CommCare HQ sets that box when the app is created, from whether the project had Web Apps at that moment, so an app published before the feature was on starts with it off.",
-					"You do not need to publish again. It is an ordinary app setting you can change at any time.",
+					sameSetting,
 				],
 			),
 		],
 		caveats: [
-			"Nova cannot read that setting back, so it reports what it can see: a released version that serves its install file. If the app still does not appear in Web Apps, the “Web App” setting is the first thing to check.",
+			"Nova reads that setting when it publishes and has no reading for this project space yet, so it reports what it can see: a released version that serves its install file. If the app still does not appear in Web Apps, the “Web App” setting is the first thing to check.",
 		],
+	};
+}
+
+/**
+ * The app's logo, which a publish never sends: HQ's own uploader writes the
+ * record a logo needs there, so a person adds it in the app's settings.
+ */
+function logoSection(input: SetupArtifactInput): SetupArtifactSection | null {
+	if (input.doc.logo === undefined) return null;
+	return {
+		id: "logo",
+		title: "Your app's logo",
+		summary: LOGO_UPLOAD_STEP_TEXT,
+		url:
+			input.hqAppId === null
+				? null
+				: `${hqBase(input.server)}/a/${input.domain}/apps/view/${input.hqAppId}/settings/`,
+		steps: [],
+		caveats: [],
 	};
 }
 
@@ -641,7 +700,7 @@ function placesSection(input: SetupArtifactInput): SetupArtifactSection | null {
 function workerRecordSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
-	const forms = workerRecordRequirements(input.doc);
+	const forms = formsUsingWorkerRecord(input.doc);
 	if (forms.length === 0) return null;
 	return {
 		id: "worker-record",
@@ -690,6 +749,7 @@ export function buildSetupArtifact(input: SetupArtifactInput): SetupArtifact {
 		automationsSection(input),
 		buildAndReleaseSection(input),
 		webAppsSection(input),
+		logoSection(input),
 		deepLinksSection(input),
 	].filter((section): section is SetupArtifactSection => section !== null);
 	return {

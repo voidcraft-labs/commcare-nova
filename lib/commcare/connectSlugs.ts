@@ -251,6 +251,38 @@ export type ResolvedConnectConfig = {
 };
 
 /**
+ * Whether a form's resolved Connect config writes any block into its
+ * source: a learn module, an assessment, a deliver unit or a task.
+ * `xform/builder.ts::buildConnectBlocks` writes exactly these.
+ */
+export function connectConfigWritesBlocks(
+	config: ResolvedConnectConfig | undefined,
+): config is ResolvedConnectConfig {
+	return (
+		config !== undefined &&
+		(config.learn_module !== undefined ||
+			config.assessment !== undefined ||
+			config.deliver_unit !== undefined ||
+			config.task !== undefined)
+	);
+}
+
+/**
+ * Whether some form of the app writes a block in Connect's namespace. Its
+ * submissions reach CommCare Connect only through CommCare HQ's data
+ * forwarding (`corehq/motech/repeaters/models.py::domain_can_forward`, the
+ * plan privilege `data_forwarding`), so publish asks for that privilege and
+ * a Connect forwarder for such an app.
+ */
+export function appEmitsConnectBlocks(doc: BlueprintDoc): boolean {
+	if (doc.connectType === null) return false;
+	for (const config of buildConnectSlugMap(doc).values()) {
+		if (connectConfigWritesBlocks(config)) return true;
+	}
+	return false;
+}
+
+/**
  * Resolve the Connect ids for every form into the wire-final shape.
  *
  * A typed pass-through: it asserts each present sub-config's id is set (the

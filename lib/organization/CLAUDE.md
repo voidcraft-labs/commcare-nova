@@ -329,8 +329,11 @@ Rows still come only from complete server reads, never an optimistic reducer.
   only the fixed place. Publishing creates the places on the target project
   space and the deployment ledger holds each one's `location_id`, and HQ
   builds the device fixture on RESTORE from those same rows
-  (`locations/fixtures.py::FlatLocationSerializer`), so neither a missing
-  identity map nor a missing fixture is a reason to refuse. A REVERSE HOP
+  (`locations/fixtures.py::FlatLocationSerializer`), so a missing identity
+  map is no reason to refuse; whether the project space sends its flat
+  location list to workers, on phones and in Web Apps, is a setting no API
+  reads, which publish asks the person to confirm (`lib/deployment`). A
+  REVERSE HOP
   exports on every mode: `emitTerm`
   writes level codes, which a publish puts on the project space as
   `location_type_code`, matched against the case's own `owner_id`, which is

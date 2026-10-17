@@ -38,9 +38,11 @@ project space's users from HQ's own Elasticsearch), choose that connection
 and save. Each page is HQ's own, rendered by its view with its own
 JavaScript bundle (built into the image from the page's entry), and every
 request the browser makes is answered by the view HQ's URLconf names,
-behind HQ's own middleware. What is stated of the project space
-for that, each named where it is done: its plan has Data Forwarding
-(``proof.hq.seams.also_granted``); the Add Forwarder page gives a forwarder
+behind HQ's own middleware. Its plan has Data Forwarding because its
+configuration grants it, as it grants every privilege a document's content
+needs (``proof.checks.configurations``, the rule ``privilege/data_forwarding``).
+What is stated of the project space beside that, each named where it is
+done: the Add Forwarder page gives a forwarder
 to production's Connect address one more status to retry on (404, for the
 proxy in front of Connect), which the lane's Connect at another address is
 then given through HQ's own model method, as production's has it; Connect is
@@ -220,11 +222,10 @@ def _saved(path, text):
 @contextmanager
 def forwarding(unit, connect_url: str, operation, label: str):
     """The unit's project space forwarding each form it receives to the Connect at ``connect_url``, for the
-    block: Data Forwarding on its plan, and the connection settings and Connect forwarder its admin saves through
-    HQ's own pages. The caller holds the fork that takes them back."""
+    block: the connection settings and Connect forwarder its admin saves through HQ's own pages, over the Data
+    Forwarding its configuration grants. The caller holds the fork that takes them back."""
     from urllib.parse import urlsplit
 
-    from corehq import privileges
     from corehq.motech.const import OAUTH2_CLIENT
     from corehq.motech.models import ConnectionSettings
     from corehq.motech.repeaters.models import ConnectFormRepeater
@@ -233,7 +234,6 @@ def forwarding(unit, connect_url: str, operation, label: str):
     from django.urls import reverse
 
     from proof.hq.boot import GUARD
-    from proof.hq.seams import also_granted
     from proof.observe.served import reading
 
     address = urlsplit(connect_url)
@@ -241,73 +241,90 @@ def forwarding(unit, connect_url: str, operation, label: str):
     insecure = os.environ.get("OAUTHLIB_INSECURE_TRANSPORT")
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
     try:
-        with also_granted(privileges.DATA_FORWARDING):
-            # The admin's pages set Connect's forwarder up: their requests are Connect's
-            # (``proof.observe.served.reading``).
-            with reading("connect"):
-                signed_in = _admin_signed_in(unit, operation, label)
-                settings_path = reverse(ConnectionSettingsDetailView.urlname, kwargs={"domain": unit.domain})
-                # What the admin types and chooses; every other control is left as the page draws it. A token address
-                # is kept only under the "(Custom)" preset: with any other, the page's save drops it
-                # (``motech/forms.py::ConnectionSettingsForm.save``), and HQ then asks no address for a token.
-                _drive_page(
-                    unit,
-                    settings_path,
-                    [
-                        _typed("#id_name", CONNECTION_NAME),
-                        _typed("#id_notify_addresses_str", unit.web_user.username),
-                        _typed("#id_url", f"{connect_url}/api/receiver/"),
-                        _chosen("#id_auth_type", OAUTH2_CLIENT),
-                        {"settle": True},
-                        _typed("#id_client_id", OAUTH_CLIENT["id"]),
-                        _typed("#id_plaintext_client_secret", OAUTH_CLIENT["secret"]),
-                        _chosen("#id_auth_preset", "CUSTOM"),
-                        {"settle": True},
-                        _typed("#id_token_url", f"{connect_url}/o/token/"),
-                        *_saved(settings_path, "Save"),
-                    ],
-                    signed_in,
-                    f"connection-settings@{label}",
-                    drawn=(connect_url,),
+        # The admin's pages set Connect's forwarder up: their requests are Connect's
+        # (``proof.observe.served.reading``).
+        with reading("connect"):
+            signed_in = _admin_signed_in(unit, operation, label)
+            settings_path = reverse(ConnectionSettingsDetailView.urlname, kwargs={"domain": unit.domain})
+            # What the admin types and chooses; every other control is left as the page draws it. A token address
+            # is kept only under the "(Custom)" preset: with any other, the page's save drops it
+            # (``motech/forms.py::ConnectionSettingsForm.save``), and HQ then asks no address for a token.
+            _drive_page(
+                unit,
+                settings_path,
+                [
+                    _typed("#id_name", CONNECTION_NAME),
+                    _typed("#id_notify_addresses_str", unit.web_user.username),
+                    _typed("#id_url", f"{connect_url}/api/receiver/"),
+                    _chosen("#id_auth_type", OAUTH2_CLIENT),
+                    {"settle": True},
+                    _typed("#id_client_id", OAUTH_CLIENT["id"]),
+                    _typed("#id_plaintext_client_secret", OAUTH_CLIENT["secret"]),
+                    _chosen("#id_auth_preset", "CUSTOM"),
+                    {"settle": True},
+                    _typed("#id_token_url", f"{connect_url}/o/token/"),
+                    *_saved(settings_path, "Save"),
+                ],
+                signed_in,
+                f"connection-settings@{label}",
+                drawn=(connect_url,),
+            )
+            settings = ConnectionSettings.objects.filter(domain=unit.domain, name=CONNECTION_NAME).first()
+            if settings is None:
+                raise ForwarderPageRefused(
+                    f"HQ's Connection Settings page ({settings_path}) saved no connection named {CONNECTION_NAME!r}"
+                    " when the admin saved it."
                 )
-                settings = ConnectionSettings.objects.filter(domain=unit.domain, name=CONNECTION_NAME).first()
-                if settings is None:
-                    raise ForwarderPageRefused(
-                        f"HQ's Connection Settings page ({settings_path}) saved no connection named {CONNECTION_NAME!r}"
-                        " when the admin saved it."
-                    )
-                forwarder_path = (
-                    f"{reverse(DomainForwardingOptionsView.urlname, args=[unit.domain])}new/ConnectFormRepeater/"
+            forwarder_path = (
+                f"{reverse(DomainForwardingOptionsView.urlname, args=[unit.domain])}new/ConnectFormRepeater/"
+            )
+            _drive_page(
+                unit,
+                forwarder_path,
+                [
+                    _chosen("#id_connection_settings_id", str(settings.id)),
+                    *_saved(forwarder_path, "Start Forwarding"),
+                ],
+                signed_in,
+                f"connect-forwarder@{label}",
+            )
+            if not ConnectFormRepeater.objects.filter(domain=unit.domain).exists():
+                raise ForwarderPageRefused(
+                    f"HQ's Add Forwarder page ({forwarder_path}) saved no Connect forwarder when the admin saved it."
                 )
-                _drive_page(
-                    unit,
-                    forwarder_path,
-                    [
-                        _chosen("#id_connection_settings_id", str(settings.id)),
-                        *_saved(forwarder_path, "Start Forwarding"),
-                    ],
-                    signed_in,
-                    f"connect-forwarder@{label}",
-                )
-                if not ConnectFormRepeater.objects.filter(domain=unit.domain).exists():
-                    raise ForwarderPageRefused(
-                        f"HQ's Add Forwarder page ({forwarder_path}) saved no Connect forwarder when the admin"
-                        " saved it."
-                    )
-                with operation(f"connect:retry-404@{label}", b"connect-retry-404"):
-                    # HQ's Add Forwarder page gives a forwarder whose address is production's Connect one more status
-                    # to retry on (``views/repeaters.py::AddFormRepeaterView.make_repeater``, for the 404 a proxy in
-                    # front of Connect answers while it is overloaded). The lane's Connect is at another address, so
-                    # the forwarder the page saved is given it here, as production's has it.
-                    (repeater,) = ConnectFormRepeater.objects.filter(domain=unit.domain)
-                    repeater.add_backoff_code(404)
-                    repeater.save()
-            yield
+            with operation(f"connect:retry-404@{label}", b"connect-retry-404"):
+                # HQ's Add Forwarder page gives a forwarder whose address is production's Connect one more status
+                # to retry on (``views/repeaters.py::AddFormRepeaterView.make_repeater``, for the 404 a proxy in
+                # front of Connect answers while it is overloaded). The lane's Connect is at another address, so
+                # the forwarder the page saved is given it here, as production's has it.
+                (repeater,) = ConnectFormRepeater.objects.filter(domain=unit.domain)
+                repeater.add_backoff_code(404)
+                repeater.save()
+        yield
     finally:
         if insecure is None:
             os.environ.pop("OAUTHLIB_INSECURE_TRANSPORT", None)
         else:
             os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = insecure
+
+
+@contextmanager
+def forwarder_removed(unit, operation, label: str):
+    """For the block, the unit's project space holds no Connect forwarder: each one is retired as HQ's Data
+    Forwarding page stops one (``corehq/motech/repeaters/views/repeaters.py::drop_repeater``, which calls
+    ``Repeater.retire``), in a fork of the unit that takes it back."""
+    from corehq.motech.repeaters.models import ConnectFormRepeater
+
+    with unit.fork():
+        with operation(f"connect:forwarder-removed@{label}", b"connect-forwarder-removed"):
+            retired = list(ConnectFormRepeater.objects.filter(domain=unit.domain))
+            if not retired:
+                raise ForwarderPageRefused(
+                    f"The project space {unit.domain} holds no Connect forwarder to remove ({label}); set one up first."
+                )
+            for repeater in retired:
+                repeater.retire()
+        yield
 
 
 def forwards(unit) -> list:

@@ -34,8 +34,8 @@ describe("admitted location owner exports", () => {
 					? []
 					: [{ id: "locations", src: "jr://fixture/locations" }],
 			);
-			if (scenario !== "plain")
-				expect(hq.location_fixture_restore).toBe("both_fixtures");
+			// Every app leaves the flat list to the project space's setting.
+			expect(hq.location_fixture_restore).toBe("project_default");
 			const suite = parseDocument(zip.readAsText("suite.xml"), {
 				xmlMode: true,
 			});

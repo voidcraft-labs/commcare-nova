@@ -33,6 +33,7 @@ import {
 	type ProjectSpaceAdvisoryId,
 	type ProjectSpaceAdvisoryProbe,
 	type ProjectSpaceCapabilityProbe,
+	projectSpaceCompatibilityForNonMember,
 	projectSpaceCompatibilityForTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
 import { profileReferencesBuildSuite } from "./buildProfile";
@@ -305,20 +306,22 @@ export async function probeHqProjectSpaceCompatibility(
 		const visibleDomains = await runBoundedCompatibilityProbe((signal) =>
 			listDomainsMatching(creds, undefined, signal),
 		);
-		if (
-			!Array.isArray(visibleDomains) ||
-			!visibleDomains.some((candidate) => candidate.name === domain)
-		) {
+		if (!Array.isArray(visibleDomains)) {
 			log.warn(
 				"[commcare/project-space] target domain unavailable to live credentials",
-				{
-					domain,
-					status: Array.isArray(visibleDomains)
-						? undefined
-						: visibleDomains.status,
-				},
+				{ domain, status: visibleDomains.status },
 			);
 			return unverifiedProjectSpaceResult(domain, plan);
+		}
+		/* HQ's list answered and does not hold the target: the connected
+		 * account is no longer a member (`api/resources/v0_5.py::UserDomainsResource`
+		 * lists only the spaces a user belongs to). A filtered read would
+		 * then miss the target too, so no flag's answer means anything. */
+		if (!visibleDomains.some((candidate) => candidate.name === domain)) {
+			log.warn("[commcare/project-space] connected account left the target", {
+				domain,
+			});
+			return notAMemberProjectSpaceResult(domain, plan);
 		}
 	} catch (error) {
 		log.warn("[commcare/project-space] live domain check threw", {
@@ -562,6 +565,36 @@ function unverifiedProjectSpaceResult(
 			domain,
 			capabilities,
 			advisories,
+		),
+		emptyCaseListText: null,
+	};
+}
+
+function notAMemberProjectSpaceResult(
+	domain: string,
+	plan: HqProjectSpaceCompatibilityProbePlan,
+): HqProjectSpaceCompatibilityProbeResult {
+	const capabilities: ProjectSpaceCapabilityProbe[] = plan.capabilities.map(
+		(item) => ({
+			capability: item.capability,
+			state: "unverified",
+			issue: "not-a-member",
+		}),
+	);
+	const advisories: ProjectSpaceAdvisoryProbe[] = plan.advisories.map(
+		(item) => ({
+			advisory: item.advisory,
+			state: "unverified",
+		}),
+	);
+	return {
+		capabilities,
+		advisories,
+		availableAdvisories: [],
+		report: projectSpaceCompatibilityForNonMember(
+			domain,
+			plan.capabilities.map((item) => item.capability),
+			plan.advisories.map((item) => item.advisory),
 		),
 		emptyCaseListText: null,
 	};

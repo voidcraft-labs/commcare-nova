@@ -147,6 +147,14 @@ export type HqToolErrorType =
  *     `discard_hq_changes` once the user said to write over it. Found after
  *     the tables and places were pushed, the app's content was not sent and
  *     the payload lists nothing; calling again lists what changed.
+ *   - `hq_confirmation_needed` — the app needs something of the project
+ *     space no API key reads (a plan feature, the flat location list, a
+ *     Connect forwarder), and nobody confirmed it there. Nothing was sent:
+ *     the payload lists each with its label, plans, consequence and
+ *     reasons, and the caller sends back the ones the user said yes to.
+ *   - `hq_app_version_below_floor` — the app on CommCare HQ is set to a
+ *     CommCare version below the one Nova's apps need. Nothing of its
+ *     content was sent; the payload carries the app's `url` there.
  */
 export type UploadErrorType =
 	| HqToolErrorType
@@ -155,7 +163,9 @@ export type UploadErrorType =
 	| "hq_organization_mismatch"
 	| "project_space_incompatible"
 	| "hq_app_state_unknown"
-	| "hq_changed";
+	| "hq_changed"
+	| "hq_confirmation_needed"
+	| "hq_app_version_below_floor";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can

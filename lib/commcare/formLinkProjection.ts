@@ -189,6 +189,13 @@ export interface FormLinkProjectionContext {
 	readonly moduleOrder: readonly Uuid[];
 	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
 	readonly formActions: (formUuid: Uuid) => FormActions;
+	/**
+	 * Where a capture's case-bound link resolves, as the context's caller
+	 * hands it to the emitter (`expandDoc`'s `attachmentTarget`); null writes
+	 * no link. A question about the form's case writes reads it here, so it
+	 * cannot be asked against a different target than the actions were.
+	 */
+	readonly attachmentTarget: AttachmentUrlTarget | null;
 	readonly lookupNaming?: LookupWireNaming;
 	/** Entry datums by form, derived once per context: a form target's frame
 	 *  reads every form of its module, once per link, once per pass. The
@@ -295,6 +302,7 @@ export function formLinkProjectionContext(
 		moduleOrder,
 		formOrder,
 		formActions,
+		attachmentTarget: opts.attachmentTarget ?? null,
 		...(opts.lookupNaming !== undefined && { lookupNaming: opts.lookupNaming }),
 		entryDatums: new Map(),
 		selectionSourceModules: new WeakMap(),
@@ -319,7 +327,7 @@ export function inlineSearchFor(
 	if (mod === undefined || !moduleIsSearchFirst(mod)) return undefined;
 	const held = ctx.inlineSearches.get(moduleUuid);
 	if (held !== undefined) return held;
-	const parentUuid = parentSelectModuleUuid(doc, ctx, moduleUuid);
+	const parentUuid = parentSelectModuleUuid(doc, moduleUuid);
 	const ancestorCaseType =
 		parentUuid === undefined ? undefined : doc.modules[parentUuid]?.caseType;
 	const built = buildInlineSearch({
@@ -460,22 +468,17 @@ function toFrameDatum(
 /** The authored parent-record selection, independent of menu nesting. */
 export function parentSelectModuleUuid(
 	doc: BlueprintDoc,
-	_ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 ): Uuid | undefined {
 	return doc.modules[moduleUuid]?.parentCaseModuleUuid;
 }
 
-function parentSelectChain(
-	doc: BlueprintDoc,
-	ctx: FormLinkProjectionContext,
-	moduleUuid: Uuid,
-): Uuid[] {
+function parentSelectChain(doc: BlueprintDoc, moduleUuid: Uuid): Uuid[] {
 	const reverse: Uuid[] = [];
 	const seen = new Set<Uuid>([moduleUuid]);
 	let current = moduleUuid;
 	while (true) {
-		const parent = parentSelectModuleUuid(doc, ctx, current);
+		const parent = parentSelectModuleUuid(doc, current);
 		if (parent === undefined || seen.has(parent)) break;
 		seen.add(parent);
 		reverse.push(parent);
@@ -494,7 +497,7 @@ function selectableDatums(
 	// A catalog parent relationship does not make primary registration load a
 	// parent; explicit child writes get their computed datums separately below.
 	if (!CASE_LOADING_FORM_TYPES.has(formType)) return [];
-	const chain = parentSelectChain(doc, ctx, moduleUuid);
+	const chain = parentSelectChain(doc, moduleUuid);
 	chain.push(moduleUuid);
 	if (chain.length === 0) return [];
 
@@ -642,7 +645,7 @@ function alignWithRootMenu(
 		if (
 			matchedSourceUuid !== undefined &&
 			matchedSourceUuid !== parentSourceUuid &&
-			parentSelectChain(doc, ctx, moduleUuid).includes(matchedSourceUuid)
+			parentSelectChain(doc, moduleUuid).includes(matchedSourceUuid)
 		) {
 			ctx.onParentSelectionConflict?.(moduleUuid);
 		}

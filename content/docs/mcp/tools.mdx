@@ -271,7 +271,7 @@ the token from the current read when setting or reviewing a translation.
 | `get_app` | Get an overview of an app and its Nova Project: workflows, record model, languages, worker roles, organization and automations. Use scoped reads for content and settings. `notices` lists each update about the app you have not dismissed, such as what Nova changed when it changed how it writes apps for CommCare HQ: its `id`, a `summary` counting its lines by reason, and up to 50 `lines` (`truncated` is true when there are more), each with its `text` and, where it has one, the field or other part it names (`entity_uuid`) and the project space it is about (`deployment`). |
 
 | `dismiss_app_notice` | Dismiss one notice of an app (`app_id`, `notice_id`) for you alone. Any member of the app's Project can dismiss, a viewer included; other members keep seeing the notice until they dismiss it themselves. A `notice_id` that is not one of this app's notices returns `invalid_input`. |
-| `check_project_space_compatibility` | Check whether one explicitly selected CommCare HQ project space can run the app. Returns required app capabilities, blockers, non-blocking performance guidance, and next steps without changing the app or project space. |
+| `check_project_space_compatibility` | Check whether one explicitly selected CommCare HQ project space can run the app. Returns required app capabilities, blockers, non-blocking performance guidance, and next steps without changing the app or project space, and what an upload there will ask the user to confirm: `plan_features`, `flat_location_fixture` and `connect_forwarder`. |
 
 Database failures return a safe operational error. Correctable tool-input refusals keep their specific explanation so the agent can revise the request.
 
@@ -348,6 +348,34 @@ The result returns `project_space_compatibility` with:
   Search results when the faster path is unavailable or unverified
 - `message`, `support_email`, and `docs_url`: a plain-language result and the
   next place to go
+- `issue`: `not-a-member` when the CommCare HQ account connected to Nova is no
+  longer a member of the project space. Nothing about it can be checked, and
+  every upload there is refused until that account joins it again or the user
+  connects a different account
+
+Capability ids include `multi-select-case-lists` (choosing several cases at
+once), `related-case-search` (a search across related cases) and `case-tiles`
+(a case list laid out as tiles), beside the earlier ones. Case search also asks
+for the project space's advanced case search when a search opens before the
+case list, takes one date, starts with a suggested value, carries a hidden
+value, or matches a field by a rule Nova writes.
+
+Beside `project_space_compatibility`, the result lists what an upload there
+will ask the user to confirm, because no API key reads it:
+
+- `plan_features`: each plan feature the app needs, with its `label`, the
+  `plans` that include it, the `reasons` this app needs it, the `consequence`
+  without it, and its `state`: `confirmed` (with `confirmed_by`, a display
+  name, and `confirmed_at`) or `needs_confirmation`
+- `flat_location_fixture`: for an app that reads the places in its
+  organization, whether the project space still sends its flat location list,
+  in the same shape without `plans`; `null` otherwise
+- `connect_forwarder`: for a CommCare Connect app, whether the project space has
+  a forwarder that sends its forms to Connect, in the same shape; `null`
+  otherwise
+
+Relay each with its reasons before the upload, and ask the user; never answer
+for them.
 
 A missing or unverified required capability blocks a later direct publish
 before lookup tables, places, or the app are sent. An advisory never blocks.
@@ -1203,7 +1231,7 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 | `attach_field_media` | Set or clear the image/audio/video on field labels, hints, help, or validation messages, one call batches attachments across fields and forms. |
 | `attach_option_media` | Set or clear the media on dropdown choices (single- or multi-select), a whole picture-choice field in one call. |
 | `set_menu_media` | Set or clear menu icons and audio labels on module home-screen tiles and form menu tiles: any mix of both, the whole app's menu in one call. |
-| `set_app_logo` | Set or clear the app logo shown on the login and home screens. |
+| `set_app_logo` | Set or clear the app logo. It shows in Preview, and in Web Apps once it is added in the app's settings in CommCare HQ. |
 
 Library reads select exactly one `work_id` or `app_id`, so new-app work can read
 its Project's documents before the first save. Use a returned asset id if a
@@ -1262,9 +1290,10 @@ Recipients still authenticate and need the relevant app and case access.
 | `compile_app` | Compile to CommCare HQ format: the CommCare HQ import file (always a zip holding the app JSON, a README with the import steps, and the media files and the `lookup-tables.xlsx` workbook when the app has either), or a `.ccz` archive made for one project space the app is published to. When the app needs destination support, a separate [project-space compatibility](../project-space-compatibility.mdx) block lists it as not checked without blocking the download. |
 | `get_entry_point_link` | Freshly verify a published entry point against the exact released HQ build and return its public URL plus `checked_at`, `released_build_id`, and `released_version`. Reads HQ and records the observation in Nova; requires `nova.hq.write` and edit access. |
 | `get_hq_connection` | Check whether you've added an HQ API key in Commcare Nova settings, and if so, which CommCare server it belongs to (US, India, or EU, separate servers with separate accounts) and which project spaces (domains) it can reach. |
-| `upload_app_to_hq` | Push the app to CommCare HQ. The first upload to a project space creates the app there, empty, then sends its lookup tables and its organization's places, then fills the app in. Uploading again sends the tables and places and then updates that same HQ app in place (`hq_app_action` in the result says which happened, and reads `created` until an upload has filled the app). Pass `domain` to choose the target space when your key reaches several. The tool rechecks [project-space compatibility](../project-space-compatibility.mdx) immediately before remote writes and returns `project_space_compatibility`, the HQ app URL, the deployment state, and the setup steps the project space still needs by hand. After an upload that wrote over the app without knowing it unchanged, `app_preview_note` carries a sentence about App Preview in CommCare HQ to relay to the user; otherwise it is `null`. |
-| `get_deployment` | Report every project space the app has been published to and how far along each one is: `preflight`, `resources`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`. `hq_app_gone` says CommCare HQ reported the app deleted, so the next upload makes a new one there; `hq_app_empty` says the app there is the empty one a first upload makes before it sends the content, which the next upload fills. Reads Commcare Nova's own record, without contacting CommCare HQ. |
-| `refresh_deployment` | Ask CommCare HQ again what has happened to a published app, and update the stored state. Read-only against CommCare HQ. It can move a deployment forward, and can move it back when a build stops being released there. |
+| `upload_app_to_hq` | Push the app to CommCare HQ. The first upload to a project space creates the app there, empty, then sends its lookup tables and its organization's places, then fills the app in. Uploading again sends the tables and places and then updates that same HQ app in place (`hq_app_action` in the result says which happened, and reads `created` until an upload has filled the app). Pass `domain` to choose the target space when your key reaches several. The tool rechecks [project-space compatibility](../project-space-compatibility.mdx) immediately before remote writes and returns `project_space_compatibility`, the HQ app URL, the deployment state, and the setup steps the project space still needs by hand. After an upload that wrote over the app without knowing it unchanged, `app_preview_note` carries a sentence about App Preview in CommCare HQ to relay to the user; otherwise it is `null`. A success also returns `web_apps_enabled`, whether CommCare HQ offers the app in Web Apps there, and `logo_step`: the app's logo, which an upload never sends, as `{ asset_id, file_name, changed, instructions }`, or `null` for an app with no logo; relay `instructions` when `changed` is true. An app on CommCare HQ set below CommCare 2.57 returns `hq_app_version_below_floor` with the app's `url`, before anything of the app's content is sent. |
+| `get_deployment` | Report every project space the app has been published to and how far along each one is: `preflight`, `resources`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`. `hq_app_gone` says CommCare HQ reported the app deleted, so the next upload makes a new one there; `hq_app_empty` says the app there is the empty one a first upload makes before it sends the content, which the next upload fills. `confirmations` lists what the user confirmed about each project space and has not withdrawn, each with its `kind`, `subject`, `label`, `confirmed_by` (a display name) and `confirmed_at`. Reads Commcare Nova's own record, without contacting CommCare HQ. |
+| `refresh_deployment` | Ask CommCare HQ again what has happened to a published app, and update the stored state. Read-only against CommCare HQ. It can move a deployment forward, and can move it back when a build stops being released there. Its answer carries the same `confirmations` as `get_deployment`. |
+| `withdraw_deployment_confirmation` | Withdraw something the user confirmed about a project space: `kind` is `plan-feature` (with its `subject`), `flat-location-fixture` or `connect-forwarder`. The next upload there asks about it again. Commcare Nova keeps who confirmed it and who withdrew it. Requires `nova.hq.write` and edit access; returns the deployment. |
 | `provision_workers` | Create CommCare mobile-worker accounts on a project space for the app's personas, or bring existing ones into step with what the app says. The app must already be published there. Each new account carries that persona's worker information and places, and comes back with a password that exists only in that answer. |
 
 <Callout type="info">
@@ -1277,6 +1306,10 @@ An upload never changes your Commcare Nova copy. If the linked HQ app was delete
 
 <Callout type="warn">
 **A change made in CommCare HQ is the user's to write over, never yours.** Each upload remembers what HQ held just after it: the app, each lookup table and each place. If any of them is not what HQ held when Commcare Nova last published it, the upload refuses with `hq_changed` before sending anything. The envelope's `remote_changes` lists each one: `kind` is `app`, `lookup-table` or `location`, `name` is what the user calls it in Commcare Nova, `hq_name` is the HQ app id, the table's tag or the place's site code, `parts` says what changed, and `baseline_known` is `false` where Commcare Nova couldn't confirm what its last upload left, so it can't tell whether anything changed. A save in HQ can be listed even when it changed no value. **Show the user the whole list and never decide for them.** Re-call with `discard_hq_changes` carrying `{ kind, nova_resource_id, observed_digest }` of exactly the ones they said to write over, each with the `observed_digest` the refusal gave; one left out stops the upload again. A digest names the state the user saw, so if HQ changed again since, the upload refuses again with the new one. Where the app changed in HQ while its lookup tables and places were being pushed, the upload refuses with `hq_changed` and an empty `remote_changes` before it sends the app's content; uploading again lists what changed.
+</Callout>
+
+<Callout type="warn">
+**What a project space's plan includes is the user's to say, never yours.** No API key reads a project space's plan, whether it still sends its flat location list, or whether it forwards forms to CommCare Connect. When the app needs one of these and nobody has confirmed it there, the upload refuses with `hq_confirmation_needed` before sending anything. The envelope's `confirmations_needed` lists each one: `kind`, `subject`, `label`, `plans` (empty for the two settings, which no plan decides), `consequence` and `reasons`. **Show the user each one with its reasons and ask.** Re-call with `confirm_plan_features` carrying the ids of the plan features they said the project space has, and `confirm_flat_location_fixture` and `confirm_connect_forwarder` set to `true` only where they said yes. A refused upload keeps no confirmation, so send them again with each attempt until one goes ahead; from then on the deployment keeps them, and `withdraw_deployment_confirmation` takes one back.
 </Callout>
 
 <Callout type="warn">

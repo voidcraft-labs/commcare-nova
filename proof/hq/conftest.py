@@ -29,8 +29,10 @@ from proof.conftest import timed  # noqa: F401  (HQ's tests time their operation
 
 # Every corpus document a test of this package reads, by id, and no other: the seven whose branches
 # ``test_branches.py`` holds, the four the publish, import file and retained read tests publish, the two more
-# the drift groups of ``test_retained_reads.py`` publish, and the two whose lists ``test_fuzzy_sort_keys.py``
-# searches (``test_date_pattern_characters.py`` publishes ``case-list-inline``, named above).
+# the drift groups of ``test_retained_reads.py`` publish, the two whose lists ``test_fuzzy_sort_keys.py``
+# searches (``test_date_pattern_characters.py`` publishes ``case-list-inline``, named above), and the six more
+# the publish gates' tests publish (``test_version_floor.py``, ``test_plan_features.py``, ``test_flag_probe.py``
+# and ``test_logos.py``, which also read ``lookup-app``, ``search-parent`` and ``media-rich``, named above).
 DOCUMENTS = (
     "lookup-app",
     "media-rich",
@@ -47,6 +49,12 @@ DOCUMENTS = (
     "targeted-hq-side-state",
     "case-operation-query",
     "targeted-shared-property-sort",
+    "prompt-widgets",
+    "case-worker-followup",
+    "worker-district-code",
+    "location-direct",
+    "case-capture-followup",
+    "media-only",
 )
 
 

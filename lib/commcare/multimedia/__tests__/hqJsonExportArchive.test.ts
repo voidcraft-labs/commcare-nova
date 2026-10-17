@@ -18,14 +18,18 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { mediaWireFixture } from "@/lib/commcare/__tests__/mediaWireFixtures";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import {
+	mediaIds,
+	mediaWireFixture,
+} from "@/lib/commcare/__tests__/mediaWireFixtures";
 import { expandDoc } from "@/lib/commcare/expander";
 import { lookupWireCorpus } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { buildLookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
 import type { LookupWorkbook } from "../../lookup/workbook";
-import type { AssetManifest } from "../assetWirePath";
+import type { AssetManifest, ResolvedMediaAsset } from "../assetWirePath";
 import {
 	buildHqJsonExportArchive,
 	hqImportFileGuide,
@@ -47,9 +51,22 @@ function importFile(
 	lookupWorkbook?: LookupWorkbook,
 ): Buffer {
 	const readme = renderManualImportGuide(
-		hqImportFileGuide({ appName, doc, assets, lookupWorkbook }),
+		hqImportFileGuide({
+			appName,
+			doc,
+			assets,
+			lookupWorkbook,
+			attachmentTarget: null,
+		}),
 	);
-	return buildHqJsonExportArchive(appName, HQ, assets, lookupWorkbook, readme);
+	return buildHqJsonExportArchive(
+		appName,
+		doc,
+		HQ,
+		assets,
+		lookupWorkbook,
+		readme,
+	);
 }
 
 function memberNames(buf: Buffer): string[] {
@@ -77,6 +94,7 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 		// fixed members.
 		expect(names.some((n) => n.endsWith(".json"))).toBe(true);
 		expect(names).toContain("multimedia.zip");
+		expect(names).toContain("logo.png");
 		expect(names).toContain("lookup-tables.xlsx");
 		expect(names).toContain("README.txt");
 	});
@@ -114,6 +132,7 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 		expect(memberNames(archive).sort()).toEqual([
 			"README.txt",
 			"Tracker.json",
+			"logo.png",
 			"multimedia.zip",
 		]);
 		const text = readme(archive);
@@ -141,6 +160,7 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 					doc,
 					assets: NO_MEDIA,
 					lookupWorkbook: undefined,
+					attachmentTarget: null,
 				}),
 			),
 		);
@@ -176,5 +196,81 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 		expect(memberNames(importFile("Café Survey", NO_MEDIA))).toContain(
 			"Café Survey.json",
 		);
+	});
+});
+
+/** The entries of the import file's `multimedia.zip`, by wire path. */
+function bulkEntries(archive: Buffer): Map<string, Buffer> {
+	const bytes = new AdmZip(archive).readFile("multimedia.zip");
+	if (!bytes) throw new Error("Missing media archive");
+	return new Map(
+		new AdmZip(bytes)
+			.getEntries()
+			.map((entry) => [entry.entryName, entry.getData()]),
+	);
+}
+
+describe("the logo in the HQ import file", () => {
+	it("keeps an image the logo shares with a menu in multimedia.zip and puts the logo beside it", () => {
+		const shared = ONE_ASSET.get(mediaIds.icon) as ResolvedMediaAsset;
+		const archive = importFile("Media proof", ONE_ASSET);
+		expect(bulkEntries(archive).get(shared.wirePath)).toEqual(shared.bytes);
+		expect(new AdmZip(archive).readFile("logo.png")).toEqual(shared.bytes);
+		expect(
+			JSON.parse(new AdmZip(archive).readAsText("Media proof.json")),
+		).not.toHaveProperty("logo_refs");
+	});
+
+	it("leaves a file only the logo uses out of multimedia.zip and carries it as logo<ext>", () => {
+		const logoId = testMediaAssetId("wire-logo-only");
+		const icon = ONE_ASSET.get(mediaIds.icon) as ResolvedMediaAsset;
+		const bytes = Buffer.from(`${icon.bytes?.toString("base64")}logo`);
+		const logoAsset: ResolvedMediaAsset = {
+			...icon,
+			assetId: logoId,
+			bytes,
+			extension: ".jpg",
+			mimeType: "image/jpeg",
+			contentHash: "logo-only",
+			wirePath: "commcare/logo-only.jpg",
+		};
+		const assets: AssetManifest = new Map([...ONE_ASSET, [logoId, logoAsset]]);
+		const logoDoc = { ...doc, logo: logoId };
+		const readme = renderManualImportGuide(
+			hqImportFileGuide({
+				appName: "Media proof",
+				doc: logoDoc,
+				assets,
+				lookupWorkbook: undefined,
+				attachmentTarget: null,
+			}),
+		);
+		const archive = buildHqJsonExportArchive(
+			"Media proof",
+			logoDoc,
+			expandDoc(logoDoc, { assets }),
+			assets,
+			undefined,
+			readme,
+		);
+		expect(bulkEntries(archive).has(logoAsset.wirePath)).toBe(false);
+		expect(bulkEntries(archive).size).toBe(5);
+		expect(new AdmZip(archive).readFile("logo.jpg")).toEqual(bytes);
+		expect(memberNames(archive)).not.toContain("logo.png");
+	});
+
+	it("holds no logo member for an app without a logo", () => {
+		const noLogo = { ...doc, logo: undefined };
+		const archive = buildHqJsonExportArchive(
+			"Media proof",
+			noLogo,
+			expandDoc(noLogo, { assets: ONE_ASSET }),
+			ONE_ASSET,
+			undefined,
+			"",
+		);
+		expect(
+			memberNames(archive).filter((name) => name.startsWith("logo")),
+		).toEqual([]);
 	});
 });

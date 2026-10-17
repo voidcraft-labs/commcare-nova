@@ -31,8 +31,10 @@ import {
 	type AppOwnership,
 	type CanonicalLookupTable,
 	type CanonicalPlace,
+	confirmationSubject,
 	DEPLOYMENT_CONFIRMATION_KINDS,
 	type DeploymentConfirmation,
+	type DeploymentConfirmationKey,
 	type DeploymentConfirmationKind,
 	type DeploymentIdentityOverride,
 	type DeploymentPhase,
@@ -649,14 +651,32 @@ function progressUpdate(
  * and in that case nothing is written. `ensure` creates the record first,
  * for the one caller allowed to bring it into existence: a publish whose
  * preflight just proved the target reachable.
+ *
+ * `confirmations` are what a person confirmed about the project space for
+ * this publish, stored only with a succeeded preflight: a refused attempt
+ * stores none, so the caller sends them again until an attempt passes. Each
+ * is attributed to the scope's actor, and one already in force is kept as
+ * it is, so its first confirmer stays on record.
  */
 export async function foldDeploymentAttempt(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	phase: DrivenDeploymentPhase,
 	outcome: DeploymentPhaseOutcome,
-	options: { readonly ensure?: boolean } = {},
+	options: {
+		readonly ensure?: boolean;
+		readonly confirmations?: readonly DeploymentConfirmationKey[];
+	} = {},
 ): Promise<DeploymentWithResources> {
+	const confirmations = options.confirmations ?? [];
+	if (
+		confirmations.length > 0 &&
+		(phase !== "preflight" || outcome.status !== "succeeded")
+	) {
+		throw new Error(
+			"A confirmation is stored only with a preflight that passed, and this fold was not one.",
+		);
+	}
 	return withDeploymentRow(
 		scope,
 		target,
@@ -670,8 +690,60 @@ export async function foldDeploymentAttempt(
 					.set(progressUpdate(next, next.phases, new Date()))
 					.where("id", "=", row.id)
 					.execute();
+			}
+			if (confirmations.length > 0) {
+				await tx
+					.insertInto("app_deployment_confirmations")
+					.values(
+						confirmations.map((key) => ({
+							deployment_id: row.id,
+							kind: key.kind,
+							subject: confirmationSubject(key),
+							confirmed_by: scope.actorUserId,
+						})),
+					)
+					.onConflict((conflict) =>
+						conflict
+							.columns(["deployment_id", "kind", "subject"])
+							.where("withdrawn_at", "is", null)
+							.doNothing(),
+					)
+					.execute();
+			}
+			if (next !== record || confirmations.length > 0) {
 				/* Delivered on commit, so connected tabs re-resolve what
 				 * Preview may name only once the fold is visible. */
+				await notifyAppDeployments(tx, scope.appId);
+			}
+			return loadWithinTransaction(tx, row.id);
+		},
+	);
+}
+
+/**
+ * Withdraw what a person confirmed about the project space, so the next
+ * publish asks again. The row is kept with who withdrew it and when; a
+ * subject with no confirmation in force changes nothing.
+ */
+export async function withdrawDeploymentConfirmation(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	key: DeploymentConfirmationKey,
+): Promise<DeploymentWithResources> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			const withdrawn = await tx
+				.updateTable("app_deployment_confirmations")
+				.set({ withdrawn_by: scope.actorUserId, withdrawn_at: sql`now()` })
+				.where("deployment_id", "=", row.id)
+				.where("kind", "=", key.kind)
+				.where("subject", "=", confirmationSubject(key))
+				.where("withdrawn_at", "is", null)
+				.executeTakeFirst();
+			if (Number(withdrawn.numUpdatedRows) > 0) {
 				await notifyAppDeployments(tx, scope.appId);
 			}
 			return loadWithinTransaction(tx, row.id);
@@ -722,6 +794,17 @@ export interface RecordRemoteAppInput extends RecordRemoteResourceInput {
 	 */
 	readonly targetEmptyCaseListText?: boolean;
 	/**
+	 * HQ's `cloudcare_enabled` for the app as this publish read it: the read
+	 * after the import, or the last read before it where that read failed.
+	 * Written with the upload's fold; the setup artifact reads it.
+	 */
+	readonly targetWebAppsEnabled: boolean;
+	/**
+	 * The content hash of the logo this publish offered for upload in
+	 * CommCare HQ. Written only when present; `null` clears it.
+	 */
+	readonly offeredLogoContentHash?: string | null;
+	/**
 	 * HQ's read of the app right after this upload, or the fact that Nova
 	 * could not read it, written with the mapping so the two never disagree.
 	 */
@@ -767,6 +850,10 @@ export async function recordRemoteResource(
 					),
 					...(input.targetEmptyCaseListText !== undefined && {
 						target_empty_case_list_text: input.targetEmptyCaseListText,
+					}),
+					target_web_apps_enabled: input.targetWebAppsEnabled,
+					...(input.offeredLogoContentHash !== undefined && {
+						offered_logo_content_hash: input.offeredLogoContentHash,
 					}),
 				})
 				.where("id", "=", row.id)

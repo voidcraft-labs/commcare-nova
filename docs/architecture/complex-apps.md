@@ -1790,12 +1790,12 @@ and they carry one asymmetry stated where the author picks the kind:
 `WidgetFactory::createWidgetFromPrompt` falls to `StringWidget` and a worker
 there types free text into a `binary` node.
 
-`hqShells.ts::applicationShell` emits one fixed `build_spec.version` (`2.54.0`)
-as part of Nova's single application-shell target. It is not a feature floor,
-reader gate, or capability switch, and no authoring/runtime branch consults it.
-The upload path is declarative because `models/applications.py::import_app`
-deletes `build_spec` and `ApplicationBase.wrap` substitutes the target domain's
-default.
+Nova writes no `build_spec`: HQ ignores the one a create or an update carries,
+gives a new app the project space's default CommCare version, and never changes
+it on an update. Publish reads the target's `build_spec.version` from the app's
+source and stops below 2.57 (`lib/commcare/versionFloor.ts`), saying how to
+raise it in CommCare HQ. A local `.ccz` states the same floor in its profile
+(`requiredMajor`, `requiredMinor`).
 
 `FORM_TOO_MANY_ATTACHMENTS` rejects a form whose **non-repeating** capture
 questions exceed `MAX_FORM_ATTACHMENTS` (50). Formplayer counts at submit time
@@ -2057,7 +2057,12 @@ project space can accept the push while refusing to say what it holds, which is
 exactly the case Nova must refuse rather than push into. A publish refused at
 `resources` sent none of the app's content, so its retry re-pushes the data and
 then sends the content once; a first publish refused there leaves the empty app,
-which the retry fills. A SUCCEEDED push folds through `applyAttemptOutcome` so a
+which the retry fills. The empty app comes first so that its CommCare version,
+which nothing can read before HQ makes the app, is held to the floor before any
+Project data is written (`lib/commcare/versionFloor.ts::compareToVersionFloor`,
+the refusal `hq_app_version_below_floor`): every stop a person could decide
+differently precedes that first write. The floor's stop folds at `resources` as
+well. A SUCCEEDED push folds through `applyAttemptOutcome` so a
 republish of a `runnable` app is not walked backward by its own data landing.
 
 `resources` also carries the app's PLACES, through
@@ -2178,8 +2183,10 @@ The emitted app document carries the fields Nova authors, and in three keys
 the target's own part beside them. Target-owned settings and state
 (`cloudcare_enabled`, `case_sharing`, the build/release metadata, and the rest
 of the `commcare-app-settings.yml` attributes) are absent, so the overlay merge
-retains a project's HQ-side configuration across republishes, and `logo_refs`
-appears only when the app has a Nova-authored logo. `cc-show-saved` and
+retains a project's HQ-side configuration across republishes. Publish writes no
+`logo_refs`, because the logo is uploaded in HQ, and publish says so: an update
+takes out only an entry whose only key is `path`, which HQ's own uploader never
+stores. `cc-show-saved` and
 `cc-show-incomplete` are app content (`appSettings`), written as a key-level
 overlay, and they are the only two profile settings Nova owns on HQ. The
 fifteen other explicit settings, constants at today's device behavior, are

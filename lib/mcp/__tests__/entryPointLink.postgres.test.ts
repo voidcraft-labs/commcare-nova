@@ -50,6 +50,8 @@ const HOST = "https://india.commcarehq.org";
 const PATH = {
 	domains: "/api/user_domains/v1/?limit=100",
 	links: "/api/user_domains/v1/?limit=100&feature_flag=session_endpoints",
+	multiSelect:
+		"/api/user_domains/v1/?limit=100&feature_flag=case_search_advanced",
 	versions: "/a/clinic/apps/view/working-app/current_version/",
 	builds: "/a/clinic/api/application/v1/working-app/",
 	profile: "/a/clinic/apps/download/released-build/profile.ccpr",
@@ -111,6 +113,7 @@ function available(peer: MockAgent) {
 	};
 	reply(peer, PATH.domains, domains);
 	reply(peer, PATH.links, domains);
+	reply(peer, PATH.multiSelect, domains);
 }
 function released(
 	peer: MockAgent,
@@ -242,6 +245,7 @@ async function seed(publish = true) {
 		pushedRevision: loaded.app.mutation_seq,
 		remoteRevision: 3,
 		uploadedAt: "2026-09-01T00:00:00.000Z",
+		targetWebAppsEnabled: true,
 		baseline: {
 			origin: "unread",
 			remoteAppId: "working-app",
@@ -298,6 +302,7 @@ it("returns the working-app URL only after exact released resources match and th
 			[
 				PATH.domains,
 				PATH.links,
+				PATH.multiSelect,
 				PATH.versions,
 				PATH.builds,
 				PATH.profile,
@@ -345,7 +350,7 @@ it.each([
 				});
 			});
 			expect(await readEntryPointEvidence(SCOPE, TARGET)).toEqual(old);
-			expect(paths(peer)).toHaveLength(13);
+			expect(paths(peer)).toHaveLength(15);
 		});
 	},
 );
@@ -362,7 +367,7 @@ it("withholds a link when the release is withdrawn between the two version reads
 		expect(
 			(await readEntryPointEvidence(SCOPE, TARGET)).observation,
 		).toBeNull();
-		expect(paths(peer)).toHaveLength(7);
+		expect(paths(peer)).toHaveLength(8);
 	});
 });
 
@@ -381,7 +386,7 @@ it("rejects a completed remote check after another publish invalidates its gener
 		expect(evidence.generation).not.toBe(generation);
 		expect(evidence.manifest).toBeNull();
 		expect(evidence.observation).toBeNull();
-		expect(paths(peer)).toHaveLength(7);
+		expect(paths(peer)).toHaveLength(8);
 	});
 });
 
@@ -417,7 +422,7 @@ it("does not return a verified URL when storing its observation fails, and a ret
 			(await readEntryPointEvidence(SCOPE, TARGET)).observation
 				?.releasedBuildId,
 		).toBe("released-build");
-		expect(paths(peer)).toHaveLength(14);
+		expect(paths(peer)).toHaveLength(16);
 	});
 });
 
@@ -449,7 +454,7 @@ it("rejects an authoring edit during verification and refuses the resulting stal
 		expect(
 			(await readEntryPointEvidence(SCOPE, TARGET)).observation,
 		).toBeNull();
-		expect(paths(peer)).toHaveLength(7);
+		expect(paths(peer)).toHaveLength(8);
 		expect(vi.mocked(decrypt).mock.calls).toEqual([["ciphertext"]]);
 	});
 });
@@ -476,7 +481,7 @@ it("rechecks edit membership before recording a remotely successful verification
 					.executeTakeFirstOrThrow()
 			).entry_point_observation,
 		).toBeNull();
-		expect(paths(peer)).toHaveLength(7);
+		expect(paths(peer)).toHaveLength(8);
 	});
 });
 

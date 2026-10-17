@@ -6,6 +6,7 @@ import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { projectSpaceConfirmations } from "@/lib/deployment/service";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -16,6 +17,12 @@ import { POST } from "../route";
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
 vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
 vi.mock("@/lib/db/settings", () => ({ getCredentialsForUpload: vi.fn() }));
+/* The confirmation rows read the deployment ledger; their derivation and
+ * state are `publishGates.postgres.test.ts`'s and `confirmations.ts`'s.
+ * This route passes them through beside the report. */
+vi.mock("@/lib/deployment/service", () => ({
+	projectSpaceConfirmations: vi.fn(),
+}));
 vi.mock("@/lib/commcare/client", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/commcare/client")>()),
 	probeHqProjectSpaceCompatibility: vi.fn(),
@@ -63,6 +70,12 @@ beforeEach(() => {
 	vi.mocked(resolveAppAccess).mockReset();
 	vi.mocked(getCredentialsForUpload).mockReset();
 	vi.mocked(probeHqProjectSpaceCompatibility).mockReset();
+	vi.mocked(projectSpaceConfirmations).mockReset();
+	vi.mocked(projectSpaceConfirmations).mockResolvedValue({
+		plan_features: [],
+		flat_location_fixture: null,
+		connect_forwarder: null,
+	});
 	vi.mocked(requireSession).mockResolvedValue({ user: { id: "u1" } } as never);
 	vi.mocked(resolveAppAccess).mockResolvedValue({
 		app: { blueprint: caseSearchDoc() },
@@ -96,12 +109,18 @@ describe("POST /api/commcare/project-space-compatibility", () => {
 		expect(resolveAppAccess).toHaveBeenCalledWith("app-1", "u1", "view");
 		expect(getCredentialsForUpload).not.toHaveBeenCalled();
 		expect(probeHqProjectSpaceCompatibility).not.toHaveBeenCalled();
+		expect(body).toMatchObject({
+			plan_features: [],
+			flat_location_fixture: null,
+			connect_forwarder: null,
+		});
+		expect(vi.mocked(projectSpaceConfirmations).mock.calls[0]?.[2]).toBeNull();
 	});
 
 	it("blocks a selected project space when required app support is missing", async () => {
 		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
 			ok: true,
-			creds: { username: "agent", apiKey: "secret" },
+			creds: { username: "agent", apiKey: "secret", server: "india" },
 			domain: { name: "clinic-space", displayName: "Clinic Space" },
 		} as never);
 		const plan = projectSpaceCompatibilityProbePlan(caseSearchDoc() as never);
@@ -142,6 +161,10 @@ describe("POST /api/commcare/project-space-compatibility", () => {
 		});
 		expect(JSON.stringify(body)).not.toMatch(/slug|namespace/);
 		expect(getCredentialsForUpload).toHaveBeenCalledWith("u1", "clinic-space");
+		expect(vi.mocked(projectSpaceConfirmations).mock.calls[0]?.[2]).toEqual({
+			server: "india",
+			domain: "clinic-space",
+		});
 		expect(probeHqProjectSpaceCompatibility).toHaveBeenCalledWith(
 			expect.objectContaining({ username: "agent" }),
 			"clinic-space",

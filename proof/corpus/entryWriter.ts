@@ -216,6 +216,7 @@ function verdictJson(verdict: NovaPublishVerdict) {
 		capabilities: verdict.capabilities,
 		advisories: verdict.advisories,
 		minimumConfiguration: verdict.minimumConfiguration,
+		planPrivileges: verdict.planPrivileges,
 	};
 }
 

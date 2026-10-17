@@ -385,12 +385,10 @@ export type ValidationErrorCode =
 	// Media path regression guard. CCHQ's
 	// `suite_xml/generator.py::media_resources` RAISES `MediaResourceError`
 	// for a media path that doesn't start with `jr://file/`. Menu media
-	// dicts (`media_image` / `media_audio`) and the web-apps logo
-	// (`logo_refs.hq_logo_web_apps.path`) carry that prefix contract — the
+	// dicts (`media_image` / `media_audio`) carry that prefix contract — the
 	// suite the runtime parses from the upload is regenerated off these
 	// dicts.
 	| "HQJSON_BAD_NAV_MEDIA_VALUE"
-	| "HQJSON_BAD_LOGO_REF"
 	// Binding-resolution oracle (post-expansion) — JavaRosa's install-time XPath
 	// resolution contract. A reference an expression makes that can't be
 	// resolved against the form's symbol space crashes JavaRosa at form-init,

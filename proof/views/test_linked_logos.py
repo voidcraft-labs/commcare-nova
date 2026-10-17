@@ -1,24 +1,29 @@
-"""Defect 14, logos: a linked app made from an app whose logo Nova wrote, and from one whose logo HQ's uploader wrote.
+"""Defect 14, logos: a linked app made from an app Nova publishes, and from one that holds a path-only logo entry.
 
-Contract: Nova's publish writes each logo path-only (``logo_refs``, the slot's
-path and no media object, ``lib/commcare/multimedia/logoEntry.ts``), since
-HQ makes a logo's media object only through its session-authenticated logo
-uploader (``hqmedia/views.py::ProcessLogoFileUploadView``). HQ's linked app
-pull reapplies every logo by its media object
+Contract: Nova's publish writes no ``logo_refs``. HQ's own Copy Application
+view links that app, fails over an entry whose only key is ``path``, and
+links again once the entry is gone or is the record HQ's uploader writes.
+HQ's linked app pull reapplies every logo by its media object
 (``models/applications.py::LinkedApplication.reapply_overrides``, which reads
-each reference's ``m_id``), so making a linked copy of such an app fails;
-once a person uploads the logo through HQ's uploader the same app links. The
-plausible failures: a copy that succeeds over Nova's references (then the
-defect is not one), and one that fails for some other reason over the
-uploaded logo (then the uploader is not what makes it work), which the
-paired observation tells apart.
+each reference's ``m_id``), and HQ's own uploader
+(``hqmedia/views.py::ProcessLogoFileUploadView``) always writes one, so a
+path-only entry is the one shape the pull fails on; Nova's update takes such
+an entry out (``lib/commcare/targetLogoRefs.ts::withoutPathOnlyLogoRefs``).
+The plausible failures: a copy that fails over the app as Nova publishes it,
+a copy that succeeds over a path-only entry (then the cleanup guards
+nothing), one that still fails after the cleanup update, and an uploader
+that, posted for a slot holding a path-only entry, leaves that entry in
+place (then a logo a person uploads while a publish pushes its tables is
+lost to that publish's cleanup).
 
 One logo document is published as Nova publishes it into a project space
 whose plan has release management and the logo uploader, and released as
 HQ's Releases page releases one; a second project space is made for the
 copy. HQ's own Copy Application view, asked as a person with a linked copy
-ticked, makes the linked app from the release, first over Nova's logo and
-then over the logo uploaded through HQ's uploader view and released again.
+ticked, makes the linked app from each release: of the app as Nova
+published it, with a path-only entry written into the stored app, after
+the update Nova sends over that entry, and once the uploader has stored
+its record in the slot the path-only entry held.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from __future__ import annotations
 import base64
 import dataclasses
 import hashlib
+import json
 
 from proof.views.conftest import ask
 
@@ -108,7 +114,45 @@ def _linked_apps():
     return get_linked_apps_for_domain(TARGET)
 
 
-def test_a_linked_copy_fails_over_novas_logo_and_succeeds_over_the_one_hqs_uploader_wrote(
+# The slot a path-only entry held: Web Apps' logo.
+SLOT = "hq_logo_web_apps"
+
+
+def _path_only_written(unit, app_id, label):
+    """A path-only entry written into the stored app in ``SLOT``, at the path of an image the app's media map
+    holds: the shape HQ's uploader never writes."""
+    from proof.hq import operations
+
+    with unit.operation(f"path-only:{label}", hashlib.sha256(f"path-only|{label}".encode()).digest()):
+        app = operations.held_app(unit, app_id)
+        paths = sorted(path for path, item in app.multimedia_map.items() if item.media_type == "CommCareImage")
+        assert paths, f"the app holds no image to point a logo entry at: {sorted(app.multimedia_map)}"
+        app.logo_refs = {SLOT: {"path": paths[0]}}
+        app.save()
+
+
+def _cleanup_update(unit, app_id, export):
+    """Nova's update over an app whose ``logo_refs`` holds a path-only entry alone: the captured update with
+    ``logo_refs`` set to what ``withoutPathOnlyLogoRefs`` leaves of that dict, an empty one."""
+    from proof.hq import operations
+
+    upload = operations.with_app_id(export.republish.upload(), app_id)
+    application = json.loads(operations.upload_field(upload, "app_file"))
+    assert "logo_refs" not in application, "Nova's update carries logo_refs over an app that holds none"
+    application["logo_refs"] = {}
+    fields = [
+        (name, operations.upload_field(upload, name).decode())
+        for name in operations.upload_field_names(upload)
+        if name != "app_file"
+    ]
+    body, content_type = _multipart(
+        "app_file", "app.json", json.dumps(application).encode(), "application/json", fields
+    )
+    result = operations.apply_upload(unit, operations.Upload(body, content_type))
+    assert result.status == 200 and result.response.get("success"), (result.status, result.response)
+
+
+def test_a_linked_copy_fails_over_a_path_only_logo_entry_and_succeeds_without_one(
     hq, core_runner, view_documents, published
 ):
     from corehq.apps.hqmedia.views import ProcessLogoFileUploadView
@@ -126,10 +170,12 @@ def test_a_linked_copy_fails_over_novas_logo_and_succeeds_over_the_one_hqs_uploa
         configuration,
         privileges=frozenset(configuration.privileges | {"RELEASE_MANAGEMENT", "COMMCARE_LOGO_UPLOADER"}),
     )
-    with published(document, "minimum", core_runner, configuration=configuration) as (unit, app_id, _):
-        logos = operations.held_app(unit, app_id).logo_refs
-        assert logos and all("m_id" not in ref for ref in logos.values()), logos
-        slot = sorted(logos)[0]
+    with published(document, "minimum", core_runner, configuration=configuration) as (unit, app_id, export):
+        assert not operations.held_app(unit, app_id).logo_refs
+        # Nova's media upload after the content, which maps the app's images.
+        with unit.operation("media", hashlib.sha256(b"linked-media").digest()):
+            media = operations.apply_media_upload(unit, app_id, export.content.media.upload())
+        assert media.status == 200, media.response
         downstream = another_project_space(TARGET, configuration.privileges)
         with downstream, hq_redis.shared(None), unit.committing():
             with unit.operation("downstream", hashlib.sha256(b"linked-downstream").digest()):
@@ -140,18 +186,34 @@ def test_a_linked_copy_fails_over_novas_logo_and_succeeds_over_the_one_hqs_uploa
                 person.save()
             cookie, token = _session(unit, person, "linker")
 
-            # Over Nova's own logo, path-only: HQ's pull reads a media object the reference does not name.
-            nova_build = _released(unit, app_id, "nova-logo")
-            refused = _copy_linked(unit, app_id, nova_build, cookie, token, "nova-logo")
+            def copied(label):
+                build = _released(unit, app_id, label)
+                return _copy_linked(unit, app_id, build, cookie, token, label)
+
+            # The app as Nova publishes it, with no logo entry: it links.
+            published_copy = copied("as-published")
+            assert published_copy.status == 302, (published_copy.status, published_copy.body[:400])
+
+            # Over a path-only entry: HQ's pull reads a media object the entry does not name.
+            _path_only_written(unit, app_id, "first")
+            refused = copied("path-only")
             assert refused.status == 500, (refused.status, refused.body[:400])
             assert b"m_id" in refused.body, refused.body[:400]
 
-            # Over the logo a person uploads through HQ's own uploader, the same app links.
+            # After the update Nova sends over it, which empties the dict: it links again.
+            _cleanup_update(unit, app_id, export)
+            assert operations.held_app(unit, app_id).logo_refs == {}
+            cleaned = copied("cleaned")
+            assert cleaned.status == 302, (cleaned.status, cleaned.body[:400])
+
+            # HQ's uploader, posted for the slot that holds a path-only entry, leaves its own record there, and
+            # the app links over it.
+            _path_only_written(unit, app_id, "again")
             body, content_type = _multipart("Filedata", "logo.png", LOGO, "image/png", [("csrfmiddlewaretoken", token)])
             uploaded = ask(
                 unit,
                 "POST",
-                reverse(ProcessLogoFileUploadView.urlname, args=[unit.domain, app_id, slot]),
+                reverse(ProcessLogoFileUploadView.urlname, args=[unit.domain, app_id, SLOT]),
                 body=body,
                 headers=(
                     ("Content-Type", content_type),
@@ -161,9 +223,8 @@ def test_a_linked_copy_fails_over_novas_logo_and_succeeds_over_the_one_hqs_uploa
                 label="upload-logo",
             )
             assert uploaded.status == 200, (uploaded.status, uploaded.body[:400])
-            assert "m_id" in operations.held_app(unit, app_id).logo_refs[slot]
-            uploader_build = _released(unit, app_id, "uploaded-logo")
-            linked = _copy_linked(unit, app_id, uploader_build, cookie, token, "uploaded-logo")
+            assert "m_id" in operations.held_app(unit, app_id).logo_refs[SLOT]
+            linked = copied("uploaded-logo")
             assert linked.status == 302, (linked.status, linked.body[:400])
             made = [app for app in _linked_apps() if app.name == "Linked uploaded-logo"]
-            assert made and all(slot in app.logo_refs and "m_id" in app.logo_refs[slot] for app in made), made
+            assert made and all(SLOT in app.logo_refs and "m_id" in app.logo_refs[SLOT] for app in made), made

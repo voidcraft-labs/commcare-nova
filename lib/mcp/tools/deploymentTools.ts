@@ -59,7 +59,7 @@ export function registerGetDeployment(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
-				"Report where an app has been published on CommCare HQ and what state each publication is in. `state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`; `incomplete` also carries `retry_from`, the phase a retry re-enters. Nova can import an app with an API key but cannot make a build or release one, because CommCare HQ allows those only from a signed-in browser session. So `built` and `released` are observed rather than performed, and `setup_artifact` states what a person must do on the project space. Reads only; call `refresh_deployment` to ask CommCare HQ again.",
+				"Report where an app has been published on CommCare HQ and what state each publication is in. `state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`; `incomplete` also carries `retry_from`, the phase a retry re-enters. Nova can import an app with an API key but cannot make a build or release one, because CommCare HQ allows those only from a signed-in browser session. So `built` and `released` are observed rather than performed, and `setup_artifact` states what a person must do on the project space. `deployment.confirmations` lists what a person confirmed about each project space for this app (a plan feature, the flat location list, a Connect forwarder); `withdraw_deployment_confirmation` takes one back, and the next upload there asks again. Reads only; call `refresh_deployment` to ask CommCare HQ again.",
 			inputSchema: z.object({
 				/* The same wire schema the browser boundary validates, so the
 				 * two surfaces cannot drift into accepting different things. */
@@ -125,7 +125,7 @@ export function registerRefreshDeployment(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Ask CommCare HQ again what has happened to an app Nova published, and update the stored deployment state. It reads CommCare HQ and writes Nova's own record, so it needs the HQ write scope and edit access to the app: it can move a deployment to `built`, `released`, or `runnable`, and can move it BACK when a build stops being released there. `runnable` means the released build served the file a device installs from. Use this after telling a user to make a version and release it on CommCare HQ.",
+				"Ask CommCare HQ again what has happened to an app Nova published, and update the stored deployment state. It reads CommCare HQ and writes Nova's own record, so it needs the HQ write scope and edit access to the app: it can move a deployment to `built`, `released`, or `runnable`, and can move it BACK when a build stops being released there. `runnable` means the released build served the file a device installs from. Its result carries the same `deployment.confirmations` as `get_deployment`. Use this after telling a user to make a version and release it on CommCare HQ.",
 			inputSchema: z.object({
 				/* The exact shapes `deploymentTargetSchema` validates on the
 				 * browser boundary, field by field, so the two surfaces cannot

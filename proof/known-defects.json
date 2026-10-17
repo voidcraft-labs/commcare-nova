@@ -195,114 +195,6 @@
 		"control": "targeted-time-ordering"
 	},
 	{
-		"id": "d12-custom-tile-app-case-tile-template",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "app.json@case list@*@CASE_LIST_TILE",
-		"path": "/modules/*/case_details/short/case_tile_template",
-		"values": {
-			"before": "custom",
-			"after": null
-		},
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-app-grid-x",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "app.json@case list@*@CASE_LIST_TILE",
-		"path": "/modules/*/case_details/short/columns/*/grid_x",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-app-grid-y",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "app.json@case list@*@CASE_LIST_TILE",
-		"path": "/modules/*/case_details/short/columns/*/grid_y",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-app-height",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "app.json@case list@*@CASE_LIST_TILE",
-		"path": "/modules/*/case_details/short/columns/*/height",
-		"values": {
-			"before": 1,
-			"after": null
-		},
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-app-width",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "app.json@case list@*@CASE_LIST_TILE",
-		"path": "/modules/*/case_details/short/columns/*/width",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-suite-style",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*@CASE_LIST_TILE",
-		"path": "/suite/detail[@id=*]/field[*]/style[*]",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-single-date-app-search-config-input",
-		"defect": 12,
-		"part": "single-date prompt",
-		"check": "proof4",
-		"artifact": "app.json@case list@*@minimum",
-		"path": "/modules/*/search_config/properties/*/input_",
-		"document": "navigation-search-day-range",
-		"control": "navigation-search-date-add"
-	},
-	{
-		"id": "d12-single-date-suite-prompt-input",
-		"defect": 12,
-		"part": "single-date prompt",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*@minimum",
-		"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/@input",
-		"document": "navigation-search-day-range",
-		"control": "navigation-search-date-add"
-	},
-	{
-		"id": "d14-logos-media-unmatched-logo-refs",
-		"defect": 14,
-		"part": "logos",
-		"check": "bar",
-		"artifact": "media@*",
-		"path": "/unmatched/*/logo_refs",
-		"document": "case-extension-followup",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d14-logos-app-path-not-from-uploader",
-		"defect": 14,
-		"part": "logos",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:Application.logo_refs/refused/path-not-from-uploader",
-		"document": "media-rich",
-		"control": "case-operation-sequence"
-	},
-	{
 		"id": "d26-a-link-names-no-case-soft-assert-casedb-base-get-case-from-case-update",
 		"defect": 26,
 		"part": "a link's case value names no case",
@@ -1881,16 +1773,6 @@
 		"control": "targeted-search-hq-compile"
 	},
 	{
-		"id": "d12-related-lookups-compile-flag",
-		"defect": 12,
-		"part": "related lookups",
-		"check": "intent",
-		"artifact": "csql@A",
-		"path": "/*/raised/XPathFunctionException/apps~1case_search~1filter_dsl.py::_require_related_lookups_flag",
-		"document": "targeted-search-related-lookups",
-		"control": "targeted-search-related-lookups"
-	},
-	{
 		"id": "d20-session-trace-step",
 		"defect": 20,
 		"part": "sync on form entry (the session)",
@@ -2000,16 +1882,6 @@
 		"control": "targeted-search-hq-compile"
 	},
 	{
-		"id": "d12-related-lookups-formplayer-a-app-aware-remote-search-400-you-cannot-query",
-		"defect": 12,
-		"part": "related lookups",
-		"check": "proof3",
-		"artifact": "formplayer@A",
-		"path": "/hq/app_aware_remote_search/400/you-cannot-query-related-cases-here",
-		"document": "targeted-search-related-lookups",
-		"control": "targeted-search-related-lookups"
-	},
-	{
 		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-asked",
 		"defect": 20,
 		"part": "sync on form entry (the session)",
@@ -2115,36 +1987,6 @@
 		"control": "targeted-sync-on-form-entry"
 	},
 	{
-		"id": "d12-custom-tile-formplayer-case-list-response-maxheight",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/maxHeight",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-response-numentitiesperrow",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/numEntitiesPerRow",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-response-tiles",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/tiles",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
 		"id": "d21-list-first-turned-search-fir-formplayer-case-list-response-type",
 		"defect": 21,
 		"part": "list-first turned search-first",
@@ -2155,46 +1997,6 @@
 		"control": "targeted-list-first-web-apps"
 	},
 	{
-		"id": "d12-custom-tile-formplayer-case-list-response-usescasetiles",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/usesCaseTiles",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-maxheight",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/maxHeight",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-numentitiesperrow",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/numEntitiesPerRow",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-tiles",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/tiles",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
 		"id": "d21-list-first-turned-search-fir-formplayer-case-list-submit-nextscreen-type",
 		"defect": 21,
 		"part": "list-first turned search-first",
@@ -2203,16 +2005,6 @@
 		"path": "/runs/*/steps/*/submit/nextScreen/type",
 		"document": "expander-form-links-emission-forwards-literal-condition-47c96355-0",
 		"control": "expander-form-links-emission-forwards-literal-condition-47c96355-0"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-usescasetiles",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/usesCaseTiles",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
 	},
 	{
 		"id": "d26-hidden-links-and-navigation--formplayer-form-settings-submit-nextscreen",
@@ -2415,189 +2207,6 @@
 		"control": "targeted-list-first-web-apps"
 	},
 	{
-		"id": "d12-custom-tile-webapps-case-list-list-headers",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/headers/*",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-webapps-case-list-cells-image",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/rows/*/cells/*/image",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-webapps-case-list-list-sort",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/sort/*",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-webapps-case-list-list-tiles",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/tiles",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-custom-tile-app-font-size",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "app.json@case list@*@CASE_LIST_TILE",
-		"path": "/modules/*/case_details/short/columns/*/font_size",
-		"kind": "removed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-app-horizontal-align",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "app.json@case list@*@CASE_LIST_TILE",
-		"path": "/modules/*/case_details/short/columns/*/horizontal_align",
-		"kind": "removed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-response-maxwidth",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/maxWidth",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-maxwidth",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/maxWidth",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-response-styles-fontsize",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/styles/*/fontSize",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-styles-fontsize",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/fontSize",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-response-styles-horizontalalign",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/styles/*/horizontalAlign",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-styles-horizontalalign",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/horizontalAlign",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-webapps-case-list-list-cells",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/cells/*",
-		"kind": "removed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-webapps-case-list-cells-hidden",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "webapps@case list@*",
-		"path": "/runs/*/screens/*/list/rows/*/cells/*/hidden",
-		"kind": "removed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-app-vertical-align",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "app.json@case list@*@CASE_LIST_TILE",
-		"path": "/modules/*/case_details/short/columns/*/vertical_align",
-		"kind": "removed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-response-styles-verticalalign",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/styles/*/verticalAlign",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
-		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-styles-verticalalign",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/verticalAlign",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile-explicit-cells"
-	},
-	{
 		"id": "d25-query-repeat-rewritten-into--webapps-vellum-alerts",
 		"defect": 25,
 		"part": "query repeat rewritten into model iteration",
@@ -2671,39 +2280,6 @@
 		"kind": "changed",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry"
-	},
-	{
-		"id": "d12-android-proof4-case-list-list-rowclass-changed",
-		"defect": 12,
-		"part": "custom tile",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/list/rowClass",
-		"kind": "changed",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-prompts-added",
-		"defect": 12,
-		"part": "single-date prompt",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/prompts/*",
-		"kind": "added",
-		"document": "navigation-search-date-add",
-		"control": "navigation-search-date-add"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-withanswer-getrawqueryparams-changed",
-		"defect": 12,
-		"part": "single-date prompt (what the search sends)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/withAnswer/RemoteQuerySessionManager.getRawQueryParams/*/*",
-		"kind": "changed",
-		"document": "navigation-search-date-add",
-		"control": "navigation-search-date-add"
 	},
 	{
 		"id": "d25-android-proof4-vellum-menuactivity-formentryactivity-formentryactivity-error-occurred-changed",
@@ -3441,116 +3017,6 @@
 		"kind": "changed",
 		"document": "container-query-conditional",
 		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-typed-getrawqueryparams-changed",
-		"defect": 12,
-		"part": "single-date prompt (what a typed search sends)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/typed/RemoteQuerySessionManager.getRawQueryParams/*/*",
-		"kind": "changed",
-		"document": "navigation-search-date-add",
-		"control": "navigation-search-date-add"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-typed-given-added",
-		"defect": 12,
-		"part": "single-date prompt (a prompt a worker can type into)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/typed/given/*",
-		"kind": "added",
-		"document": "navigation-search-date-add",
-		"control": "navigation-search-date-add"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-errorshown-changed",
-		"defect": 12,
-		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorShown",
-		"kind": "changed",
-		"document": "navigation-search-datetime-add",
-		"control": "navigation-search-datetime-add"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-errortext-changed",
-		"defect": 12,
-		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorText",
-		"kind": "changed",
-		"document": "navigation-search-datetime-add",
-		"control": "navigation-search-datetime-add"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-finishing-changed",
-		"defect": 12,
-		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/finishing",
-		"kind": "changed",
-		"document": "navigation-search-datetime-add",
-		"control": "navigation-search-datetime-add"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-resultcode-changed",
-		"defect": 12,
-		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/resultCode",
-		"kind": "changed",
-		"document": "navigation-search-datetime-add",
-		"control": "navigation-search-datetime-add"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-errorshown-changed",
-		"defect": 12,
-		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorShown",
-		"kind": "changed",
-		"document": "navigation-search-datetime-add",
-		"control": "navigation-search-datetime-add"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-errortext-changed",
-		"defect": 12,
-		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorText",
-		"kind": "changed",
-		"document": "navigation-search-datetime-add",
-		"control": "navigation-search-datetime-add"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-finishing-changed",
-		"defect": 12,
-		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/finishing",
-		"kind": "changed",
-		"document": "navigation-search-datetime-add",
-		"control": "navigation-search-datetime-add"
-	},
-	{
-		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-resultcode-changed",
-		"defect": 12,
-		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
-		"check": "proof4",
-		"artifact": "android@case list@*",
-		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/resultCode",
-		"kind": "changed",
-		"document": "navigation-search-datetime-add",
-		"control": "navigation-search-datetime-add"
 	},
 	{
 		"id": "d26-form-links-webapps-form-settings-breadcrumbs",

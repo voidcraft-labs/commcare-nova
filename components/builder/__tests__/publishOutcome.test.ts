@@ -12,8 +12,20 @@ import {
 	APP_PREVIEW_NOTE,
 	HQ_CHANGED_MESSAGE,
 } from "@/lib/deployment/remoteChanges";
-import type { DeploymentRecord } from "@/lib/deployment/types";
-import { type PublishResponseBody, publishOutcome } from "../publishOutcome";
+import type {
+	DeploymentConfirmationNeeded,
+	DeploymentRecord,
+} from "@/lib/deployment/types";
+import {
+	FLAT_LOCATION_FIXTURE,
+	PLAN_FEATURES,
+	webAppsOffText,
+} from "@/lib/publish/planFeatures";
+import {
+	landedWebAppsLine,
+	type PublishResponseBody,
+	publishOutcome,
+} from "../publishOutcome";
 
 const RECORD: DeploymentRecord = {
 	id: "dep-1",
@@ -60,6 +72,7 @@ const REFUSAL = {
 	},
 	resourceConflicts: [],
 	remoteChanges: [],
+	confirmationsNeeded: [],
 };
 
 describe("a publish that landed", () => {
@@ -80,7 +93,34 @@ describe("a publish that landed", () => {
 			warnings: ["media still processing"],
 			previewProjectSpace: "acme",
 			appPreviewNote: null,
+			webAppsEnabled: null,
+			logoStep: null,
 		});
+	});
+
+	it("carries whether Web Apps offers the app there, as the publish read it", () => {
+		// False is the one answer the dialog speaks to; the server read it
+		// after the import, and the client never guesses it.
+		expect(
+			publishOutcome(true, { success: true, web_apps_enabled: false }),
+		).toMatchObject({ kind: "landed", webAppsEnabled: false });
+		expect(
+			publishOutcome(true, { success: true, web_apps_enabled: true }),
+		).toMatchObject({ kind: "landed", webAppsEnabled: true });
+	});
+
+	it("carries the logo step the publish offers, and none for an app with no logo", () => {
+		const logoStep = {
+			assetId: "asset-1",
+			fileName: "logo.png",
+			changed: true,
+		};
+		expect(
+			publishOutcome(true, { success: true, logo_step: logoStep }),
+		).toMatchObject({ kind: "landed", logoStep });
+		expect(
+			publishOutcome(true, { success: true, logo_step: null }),
+		).toMatchObject({ kind: "landed", logoStep: null });
 	});
 
 	it("carries the App Preview line when the server sent it, and none otherwise", () => {
@@ -144,9 +184,15 @@ describe("a publish that was refused", () => {
 		).toStrictEqual({
 			kind: "refused",
 			deployment: null,
-			refusal: { message: REFUSAL.failure.message, items: [] },
+			refusal: {
+				code: "hq_not_connected",
+				message: REFUSAL.failure.message,
+				items: [],
+			},
+			hqAppUrl: null,
 			resourceConflicts: [conflict],
 			remoteChanges: [],
+			confirmationsNeeded: [],
 			warnings: ["Review target"],
 			previewProjectSpace: null,
 		});
@@ -174,6 +220,7 @@ describe("a publish that was refused", () => {
 				},
 				resourceConflicts: [],
 				remoteChanges: [change],
+				confirmationsNeeded: [],
 			},
 		});
 		expect(outcome).toMatchObject({
@@ -230,6 +277,7 @@ describe("a publish that was refused", () => {
 				},
 				resourceConflicts: [],
 				remoteChanges: [],
+				confirmationsNeeded: [],
 			},
 			preview_project_space: null,
 		});
@@ -239,6 +287,65 @@ describe("a publish that was refused", () => {
 				message: "This app isn't ready to publish yet.",
 				items: ["Give the module a case list column."],
 			},
+		});
+	});
+
+	it("preserves what the person has to confirm about the project space, so ticking each one can name it back", () => {
+		const needed: DeploymentConfirmationNeeded[] = [
+			{
+				kind: "plan-feature",
+				subject: "lookup-tables",
+				label: PLAN_FEATURES["lookup-tables"].label,
+				plans: PLAN_FEATURES["lookup-tables"].plans,
+				consequence: PLAN_FEATURES["lookup-tables"].consequence,
+				reasons: ["The app reads data from a lookup table."],
+			},
+			{
+				kind: "flat-location-fixture",
+				subject: "flat-location-fixture",
+				label: FLAT_LOCATION_FIXTURE.label,
+				plans: "",
+				consequence: FLAT_LOCATION_FIXTURE.consequence,
+				reasons: [
+					"Intake sets a case's owner from a place in your organization.",
+				],
+			},
+		];
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: {
+				...REFUSAL,
+				failure: {
+					code: "hq_confirmation_needed",
+					message: "Confirm what the project space has.",
+					details: [],
+				},
+				confirmationsNeeded: needed,
+			},
+		});
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			refusal: { code: "hq_confirmation_needed" },
+			confirmationsNeeded: needed,
+		});
+	});
+
+	it("carries the HQ app's address with the version floor's stop, so the person can raise the version there", () => {
+		const failure = {
+			code: "hq_app_version_below_floor" as const,
+			message:
+				"The app on “acme” is set to CommCare 2.53.0, and Nova's apps need 2.57 or later.",
+			details: [],
+		};
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: { ...REFUSAL, failure },
+			url: "https://www.commcarehq.org/a/acme/apps/view/hq-1/",
+		});
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			refusal: { code: "hq_app_version_below_floor", message: failure.message },
+			hqAppUrl: "https://www.commcarehq.org/a/acme/apps/view/hq-1/",
 		});
 	});
 
@@ -295,5 +402,33 @@ describe("nothing to show", () => {
 			kind: "failure",
 			blockedDetail: undefined,
 		});
+	});
+});
+
+describe("the landed Web Apps line", () => {
+	it("names the space published to when the publish read Web Apps as off, with or without a record in the answer", () => {
+		const outcome = publishOutcome(true, {
+			success: true,
+			hq_app_action: "created",
+			url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+			warnings: [],
+			deployment: null,
+			web_apps_enabled: false,
+			logo_step: { assetId: "asset-logo", fileName: "logo.png", changed: true },
+		});
+		if (outcome.kind !== "landed") throw new Error("Expected a landed publish");
+		expect(landedWebAppsLine(outcome.webAppsEnabled, "alpha")).toBe(
+			webAppsOffText("alpha"),
+		);
+		expect(outcome.logoStep).toEqual({
+			assetId: "asset-logo",
+			fileName: "logo.png",
+			changed: true,
+		});
+	});
+
+	it("says nothing where Web Apps offers the app or no read answered", () => {
+		expect(landedWebAppsLine(true, "alpha")).toBeNull();
+		expect(landedWebAppsLine(null, "alpha")).toBeNull();
 	});
 });

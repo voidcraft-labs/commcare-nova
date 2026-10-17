@@ -253,8 +253,7 @@ async function collectViolationsWithRegistry(
 /**
  * The one owner term that cannot cross an export boundary.
  *
- * The fixture is not what decides this, which is worth saying first
- * because it used to be half the stated reason. `owner-location-at-level`
+ * The fixture is not what decides this. `owner-location-at-level`
  * reads `instance('locations')`, and that is CommCare's own restore
  * fixture on every mode alike (`jr://fixture/locations`; Nova emits no
  * copy, and native compatibility scripts execute HQ's actual serializer). `fixed-location` reads no
@@ -268,9 +267,10 @@ async function collectViolationsWithRegistry(
  * `owner_id`, which is CommCare HQ's value at runtime. Every part of that
  * expression means the same thing over there, so it exports.
  *
- * What that expression DOES assume is three things about the target
- * project space, none of which Nova can see from here, and all of which a
- * publish to a space Nova pushed makes true. Each is stated because it
+ * What that expression DOES assume is four things about the target
+ * project space, none of which Nova can see from here. A publish to a space
+ * Nova pushed makes three of them true and asks the person about the
+ * fourth. Each is stated because it
  * cannot be closed from here, not as a note to somebody later:
  *
  *   * **It spells its levels the way Nova does.** A publish writes each
@@ -285,13 +285,11 @@ async function collectViolationsWithRegistry(
  *     since the location push takes a 403 without it, and a `.ccz` or
  *     import file cannot. This one is not quiet: with no fixture the
  *     device fails to resolve the instance rather than matching nobody.
- *
- *     Whether the project space's own
- *     `LocationFixtureConfiguration.sync_flat_fixture` row is on used to
- *     belong on this list and no longer does. `expander.ts` emits
- *     `location_fixture_restore: "both_fixtures"` on any app that reads
- *     the fixture, and `::should_sync_flat_fixture` returns True for that
- *     BEFORE it consults the row.
+ *   * **It sends its flat location list.** Every app carries
+ *     `project_default`, so `locations/fixtures.py::should_sync_flat_fixture`
+ *     asks the project space's `LocationFixtureConfiguration.sync_flat_fixture`,
+ *     which is on unless someone turned it off. A publish asks the person to
+ *     confirm it; a `.ccz` or import file cannot.
  *   * **Its tree has no second place under the same owner at the
  *     destination level.** What makes this expression yield ONE `@id`
  *     rather than a node-set is
@@ -304,12 +302,12 @@ async function collectViolationsWithRegistry(
  *     `ambiguousReverseHopsOnTarget`. A `.ccz` or an import file has no
  *     target to prove it against.
  *
- * A publish settles all three, and none is a reason to refuse an export:
+ * A publish settles three and asks about the fourth, and none is a reason to refuse an export:
  * they are the name-and-shape agreement every code-based binding Nova
  * emits already rests on, case types included, and refusing because a
  * target MIGHT disagree would refuse far more than this. What is left
  * unproved is the two modes that have no target to ask — and they are
- * named here rather than left to be noticed, because the first and third
+ * named here rather than left to be noticed, because the first and fourth
  * fail QUIETLY: a predicate that matches nobody, or matches two, is not a
  * runtime error.
  *

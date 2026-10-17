@@ -1,30 +1,34 @@
 "use client";
 
 import { Icon } from "@iconify/react/offline";
-import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
-import { InfoPopover } from "@/components/builder/InfoPopover";
+import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { useAppLogo } from "@/lib/doc/hooks/useAppLogo";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useUncarriedLogo } from "@/lib/doc/hooks/useUncarriedLogo";
 
 /**
- * App-level appearance: the logo image shown on the web-apps login and
- * home screens. A single optional image asset: no audio, no per-language
- * variants (Android-only logo slots are out of scope for Nova's web-apps
- * target). The change dispatches through `setAppLogo` so a clear rides
- * the JSON-safe `null` sentinel; the reducer maps `null → undefined` so
- * the cleared key drops off the doc rather than persisting as a literal
- * `null` the `.optional()` schema would reject.
+ * The line shown under every logo. A publish never sends the logo: HQ
+ * writes a logo into its builds and its Web Apps tile only from the record
+ * its own uploader stores, so the logo reaches Web Apps once a person adds
+ * it in the app's settings there. No sentence names a downloaded app,
+ * because no reader of a `.ccz` reads the key the local archive writes.
+ */
+export const APP_LOGO_NOTE =
+	"Your logo shows in Preview. Web Apps shows it once you add it in this app's settings in CommCare HQ.";
+
+/**
+ * App-level appearance: the logo image. A single optional image asset: no
+ * audio, no per-language variants (Android-only logo slots are out of
+ * scope for Nova's web-apps target). The change dispatches through
+ * `setAppLogo` so a clear rides the JSON-safe `null` sentinel; the reducer
+ * maps `null → undefined` so the cleared key drops off the doc rather than
+ * persisting as a literal `null` the `.optional()` schema would reject.
  *
- * When the logo image is used ONLY as the logo, it won't reach the device:
- * CommCare HQ's upload excludes app-level logos from its media-match set
- * (see `useUncarriedLogo`). We warn here, proactively, rather than letting
- * the user discover a blank banner after uploading.
+ * Whenever the app has a logo, the section says where it shows, before
+ * anyone publishes and wonders why Web Apps does not show it yet.
  */
 export function AppAppearanceSection() {
 	const logo = useAppLogo();
-	const uncarriedLogo = useUncarriedLogo();
 	const { setAppLogo } = useBlueprintMutations();
 
 	return (
@@ -41,37 +45,18 @@ export function AppAppearanceSection() {
 					ariaLabel="App logo"
 					onChange={(next) => setAppLogo(next ?? null)}
 				/>
-				{uncarriedLogo && <UncarriedLogoNotice />}
+				{logo !== undefined && (
+					<div className="mt-2 flex items-start gap-1.5">
+						<Icon
+							icon={tablerInfoCircle}
+							className="mt-px size-3.5 shrink-0 text-nova-text-muted"
+						/>
+						<p className="text-xs leading-snug text-nova-text-secondary">
+							{APP_LOGO_NOTE}
+						</p>
+					</div>
+				)}
 			</div>
-		</div>
-	);
-}
-
-/**
- * The proactive heads-up shown when the logo image is used nowhere else:
- * a small amber line plus an info popover explaining (in plain terms) why
- * it won't appear and what to do about it.
- */
-function UncarriedLogoNotice() {
-	return (
-		<div className="mt-2 flex items-start gap-1.5">
-			<Icon
-				icon={tablerAlertTriangle}
-				className="mt-px size-3.5 shrink-0 text-nova-amber"
-			/>
-			<p className="text-xs leading-snug text-nova-amber">
-				This logo won't appear on the device on its own.
-			</p>
-			<InfoPopover
-				title="Why won't my logo appear?"
-				ariaLabel="Why won't my logo appear?"
-			>
-				CommCare doesn't carry an app logo by itself when you upload. Logos are
-				set inside <span className="text-nova-text">CommCare HQ</span>. Your app
-				still works; it just won't show this logo until you add it there. Tip:
-				if you also use this image somewhere in a form, like a question or a
-				menu icon, it gets carried with the app automatically.
-			</InfoPopover>
 		</div>
 	);
 }

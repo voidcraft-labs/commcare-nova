@@ -351,7 +351,7 @@ describe("the corpus emitter", () => {
 		);
 	});
 
-	it("writes the media upload each publish sends after its content import, exactly the export's prepared assets, once per directory, named by the import's sidecar and the input manifest", async () => {
+	it("writes the media upload each publish sends after its content import, exactly the assets the bulk upload carries, once per directory, named by the import's sidecar and the input manifest", async () => {
 		const withMedia: string[] = [];
 		const without: string[] = [];
 		for (const entry of index?.documents ?? []) {

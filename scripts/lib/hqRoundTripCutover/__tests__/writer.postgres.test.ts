@@ -736,6 +736,42 @@ describe("the fleet transaction over the frozen fixtures", () => {
 		]);
 	});
 
+	it("names Locations for a deployment whose app stores a live place, and not once every place is archived", async () => {
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		const appId = "app-00-places";
+		await seedFixtureApp(
+			h.db(),
+			fixtureApp("navigation-base", {
+				appId,
+				projectId: PROJECT,
+				owner: OWNER,
+			}),
+		);
+		await seedDeployment(appId, "field-ops", 1);
+		await sql`
+			INSERT INTO app_locations (app_id, id, level_uuid, site_code, name, order_key)
+			VALUES (${appId}, '0199a000-0000-7000-8000-0000000000a1',
+				'0199a000-0000-7000-8000-0000000000a2', 'district-4', 'District 4', 'a')
+		`.execute(h.db());
+		const asksMore = async () => {
+			const planned = await readPlannedFleet(h.db(), { appId });
+			return planned.build.plan.apps
+				.flatMap((app) => app.deployments)
+				.flatMap((deployment) => deployment.notices)
+				.filter((notice) => notice.reason === "next-publish-asks-more");
+		};
+		expect(await asksMore()).toEqual([
+			{
+				reason: "next-publish-asks-more",
+				detail: { planFeatures: "organization" },
+			},
+		]);
+		await sql`UPDATE app_locations SET archived_at = now() WHERE app_id = ${appId}`.execute(
+			h.db(),
+		);
+		expect(await asksMore()).toEqual([]);
+	}, 60_000);
+
 	it("refuses a digest the rebuilt plan does not hold, with nothing written", async () => {
 		await seedFleet();
 		const image = await databaseImage(h.db());

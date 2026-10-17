@@ -1,22 +1,17 @@
 // lib/domain/__tests__/mediaRefDescribe.test.ts
 //
-// Coverage for the media-ref helpers the upload-outcome + app-settings
-// surfaces read: `describeCarrier` (carrier → person-readable phrase),
-// `carriesViaBulkUpload` (does this carrier ride HQ's bulk upload?), and
-// `uncarriedLogoAsset` (the standalone-logo predicate).
+// Coverage for the media-ref helpers the upload outcome and the bulk ZIP
+// read: `describeCarrier` (carrier → person-readable phrase) and
+// `carriesViaBulkUpload` (does this carrier ride HQ's bulk upload?).
 
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
-import type { MediaAssetId } from "@/lib/domain";
 import {
 	type AssetRef,
 	carriesViaBulkUpload,
 	describeCarrier,
 	type MediaRefLocation,
 	type MediaSlotKind,
-	uncarriedLogoAsset,
 } from "../mediaRefs";
 
 function ref(
@@ -129,54 +124,5 @@ describe("carriesViaBulkUpload", () => {
 				fieldId: "q",
 			}),
 		).toBe(true);
-	});
-});
-
-const LOGO = testMediaAssetId("logo-asset");
-function docWithLogo(extra?: { moduleIconAsset?: MediaAssetId }) {
-	const doc = buildDoc({
-		modules: [
-			{
-				name: "Survey",
-				forms: [
-					{
-						name: "Intake",
-						type: "survey",
-						fields: [f({ id: "note", kind: "text", label: "Note" })],
-					},
-				],
-			},
-		],
-	});
-	doc.logo = LOGO;
-	if (extra?.moduleIconAsset)
-		doc.modules[doc.moduleOrder[0]].icon = extra.moduleIconAsset;
-	return expectAdmittedDoc(doc);
-}
-
-describe("uncarriedLogoAsset", () => {
-	it("returns the logo asset id when it's used ONLY as the logo", () => {
-		expect(uncarriedLogoAsset(docWithLogo())).toBe(LOGO);
-	});
-
-	it("returns undefined when the logo image is reused by a carrier that carries", () => {
-		// Same image is also the module icon → the bulk upload matches it there,
-		// so the logo resolves and there's nothing to warn about.
-		expect(
-			uncarriedLogoAsset(docWithLogo({ moduleIconAsset: LOGO })),
-		).toBeUndefined();
-	});
-
-	it("does not count another module image as carrying the logo", () => {
-		expect(
-			uncarriedLogoAsset(
-				docWithLogo({ moduleIconAsset: testMediaAssetId("different-image") }),
-			),
-		).toBe(LOGO);
-	});
-
-	it("returns undefined when there's no logo", () => {
-		const noLogo = { ...docWithLogo(), logo: undefined };
-		expect(uncarriedLogoAsset(noLogo)).toBeUndefined();
 	});
 });

@@ -14,10 +14,12 @@ import {
 	recordCreatedRemoteApp,
 	recordRemoteResource,
 } from "@/lib/deployment/store";
+import { webAppsOffText } from "@/lib/publish/planFeatures";
 import {
 	registerGetDeployment,
 	registerRefreshDeployment,
 } from "../tools/deploymentTools";
+import { registerWithdrawDeploymentConfirmation } from "../tools/withdrawDeploymentConfirmation";
 import { withMcpClient } from "./client";
 import { resultText } from "./resultText";
 
@@ -43,7 +45,8 @@ const BUILD_PATH = "/a/clinic/api/application/v1/working-app/";
 const PROFILE_PATH = "/a/clinic/apps/download/released-build/profile.ccpr";
 const PROFILE = `<profile><suite><resource id="suite"><location authority="remote">${HOST}/a/clinic/apps/download/released-build/suite.xml</location></resource></suite></profile>`;
 const GET = "get_deployment",
-	REFRESH = "refresh_deployment";
+	REFRESH = "refresh_deployment",
+	WITHDRAW = "withdraw_deployment_confirmation";
 function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
@@ -53,6 +56,7 @@ function asUser<T>(
 		const ctx = { userId, scopes, authKind: "oauth" as const };
 		registerGetDeployment(server, ctx);
 		registerRefreshDeployment(server, ctx);
+		registerWithdrawDeploymentConfirmation(server, ctx);
 	}, run);
 }
 function call(
@@ -122,7 +126,11 @@ async function snapshot() {
 			.execute(),
 	};
 }
-async function record(remoteId = "working-app", target = TARGET) {
+async function record(
+	remoteId = "working-app",
+	target = TARGET,
+	targetWebAppsEnabled = false,
+) {
 	await foldDeploymentAttempt(
 		SCOPE,
 		target,
@@ -138,6 +146,7 @@ async function record(remoteId = "working-app", target = TARGET) {
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: "2026-09-01T00:00:00.000Z",
+		targetWebAppsEnabled,
 		baseline: {
 			origin: "unread",
 			remoteAppId: remoteId,
@@ -231,6 +240,7 @@ it("reports every stored target to a viewer with its current resource identity a
 						probe: null,
 					},
 					left_behind: [{ kind: "app", hq_id: "previous-app", hq_name: null }],
+					confirmations: [],
 					setup_artifact: expect.any(Object),
 				});
 				for (const deployment of body.deployments) {
@@ -705,4 +715,111 @@ it("keeps connection failures local to the caller and preserves the shared deplo
 		expect(await snapshot()).toEqual(before);
 		expect(urls(peer)).toEqual([]);
 	});
+});
+
+it("returns the Web Apps note a row holding off gives, without asking CommCare HQ", async () => {
+	await seed();
+	await withHttpPeer(async (peer) => {
+		await asUser(
+			async (client) => {
+				const body = JSON.parse(
+					resultText(await call(client, GET, { app_id: APP })),
+				);
+				const web = body.deployments[0].setup_artifact.sections.find(
+					(section: { id: string }) => section.id === "web-apps",
+				);
+				expect(web.summary).toBe(webAppsOffText("clinic"));
+				expect(web.steps).toHaveLength(1);
+			},
+			"viewer",
+			["nova.read", "nova.hq.read"],
+		);
+		expect(urls(peer)).toEqual([]);
+	});
+});
+
+it("lists the confirmations in force by name, and withdraws one so the next upload asks again", async () => {
+	await seed();
+	await foldDeploymentAttempt(
+		SCOPE,
+		TARGET,
+		"preflight",
+		{ status: "succeeded", at: "2026-09-02T00:00:00.000Z" },
+		{
+			confirmations: [
+				{ kind: "plan-feature", subject: "lookup-tables" },
+				{ kind: "connect-forwarder" },
+			],
+		},
+	);
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			const listed = JSON.parse(
+				resultText(await call(client, GET, { app_id: APP })),
+			);
+			expect(listed.deployments[0].confirmations).toEqual([
+				{
+					kind: "plan-feature",
+					subject: "lookup-tables",
+					label: "Lookup Tables",
+					confirmed_by: ACTOR,
+					confirmed_at: expect.any(String),
+				},
+				{
+					kind: "connect-forwarder",
+					subject: "connect-forwarder",
+					label: "A Connect forwarder",
+					confirmed_by: ACTOR,
+					confirmed_at: expect.any(String),
+				},
+			]);
+
+			const withdrawn = JSON.parse(
+				resultText(
+					await call(client, WITHDRAW, {
+						app_id: APP,
+						domain: "clinic",
+						kind: "plan-feature",
+						subject: "lookup-tables",
+					}),
+				),
+			);
+			expect(
+				withdrawn.confirmations.map((item: { kind: string }) => item.kind),
+			).toEqual(["connect-forwarder"]);
+			expect(
+				errorBody(
+					await call(client, WITHDRAW, {
+						app_id: APP,
+						kind: "plan-feature",
+						subject: "user_case",
+					}),
+				).error_type,
+			).toBe("invalid_input");
+		});
+		expect(urls(peer)).toEqual([]);
+	});
+	expect(
+		(await readDeployment(SCOPE, TARGET))?.confirmations.map(
+			(item) => item.subject,
+		),
+	).toEqual(["connect-forwarder"]);
+});
+
+it("refuses a withdrawal without the HQ write scope before any read", async () => {
+	await seed();
+	await asUser(
+		async (client) => {
+			expect(
+				errorBody(
+					await call(client, WITHDRAW, {
+						app_id: APP,
+						kind: "connect-forwarder",
+					}),
+				).error_type,
+			).toBe("scope_missing");
+		},
+		ACTOR,
+		["nova.read", "nova.hq.read"],
+	);
 });

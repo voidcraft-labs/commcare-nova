@@ -22,6 +22,11 @@ import { findOne } from "domutils";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { el } from "@/lib/commcare/elementBuilders";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
+import { buildPrimaryCaseUpdateMap } from "@/lib/commcare/formActions";
+import {
+	type FormLinkProjectionContext,
+	selectedCaseSessionDatum,
+} from "@/lib/commcare/formLinkProjection";
 import { alwaysCondition, ifCondition } from "@/lib/commcare/hqShells";
 import {
 	validatePropertyName,
@@ -50,7 +55,10 @@ import type {
 	UpdateCaseAction,
 } from "@/lib/commcare/types";
 import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
-import { subcaseIsWrittenInSource } from "@/lib/commcare/xform/sourceCaseWrites";
+import {
+	formUpdatesSelectedCasesInSource,
+	subcaseIsWrittenInSource,
+} from "@/lib/commcare/xform/sourceCaseWrites";
 import { spellPredicateSelf } from "@/lib/commcare/xpath/selfSteps";
 import { xpathStringLiteral } from "@/lib/commcare/xpath/stringLiteral";
 import {
@@ -70,6 +78,7 @@ import {
 	isCaptureField,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
+	moduleUuidOfForm,
 	orderedCaseOperations,
 	organizationLevelsOf,
 	type Uuid,
@@ -251,6 +260,93 @@ function conjunction(conditions: readonly string[]): string {
 		: conditions.map((condition) => `(${condition})`).join(" and ");
 }
 
+/**
+ * Where a close form's ordinary close stands in the source, when HQ's
+ * singular block cannot carry it: for every selected case of a several-case
+ * form, and for a condition HQ's Case Management tab cannot state.
+ * `undefined` where the close is HQ's basic action, or the form closes
+ * nothing.
+ */
+function ordinaryCloseInSource(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	severalCases: boolean,
+): "selected" | "own" | undefined {
+	if (doc.forms[formUuid]?.type !== "close") return undefined;
+	if (severalCases) return "selected";
+	return closeConditionPlacement(doc, formUuid) === "save-to-case"
+		? "own"
+		: undefined;
+}
+
+/**
+ * Whether `buildCaseOperations` writes at least one Save to Case block for
+ * the form, given what the compiler hands it: whether the entry selects
+ * several cases, the form's own update written per selected case, and the
+ * form's derived subcases. Every block comes from one of four writers: a
+ * case operation, an ordinary close the basic action cannot carry, the
+ * several-case update, and a subcase written in the source.
+ */
+function writesSaveToCaseBlocks(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	severalCases: boolean,
+	ordinaryPrimaryUpdate: UpdateCaseAction["update"],
+	ordinarySubcases: readonly OpenSubCaseAction[],
+): boolean {
+	return (
+		orderedCaseOperations(doc.forms[formUuid]).length > 0 ||
+		ordinaryCloseInSource(doc, formUuid, severalCases) !== undefined ||
+		Object.keys(ordinaryPrimaryUpdate).length > 0 ||
+		ordinarySubcases.some((subcase) =>
+			subcaseIsWrittenInSource(subcase, severalCases),
+		)
+	);
+}
+
+/**
+ * Whether the form's source holds a Save to Case block: true exactly when
+ * `buildCaseOperations` returns at least one for it, over the same inputs
+ * `expander.ts::expandDoc` derives and hands it. HQ's form builder keeps a
+ * Save to Case block's case binds only under the plan privilege
+ * `save_to_case` (`views/formdesigner.py::_get_vellum_plugins` loads
+ * Vellum's `saveToCase` plugin only then), so publish asks for that
+ * privilege for each form this answers for (`planPrivileges.ts`).
+ *
+ * `linkContext` is the document's form link context, built with the
+ * attachment target the emitter is handed (`expandDoc`'s), since a capture
+ * written as a link is a Save to Case write only when there is a link to
+ * write. The rest of the question reads only whether the entry selects
+ * several cases, which the entry's metadata holds, so a metadata-only
+ * context needs no lookup catalog.
+ */
+export function formEmitsSaveToCase(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	linkContext: FormLinkProjectionContext,
+): boolean {
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	if (moduleUuid === undefined || mod === undefined) return false;
+	const severalCases = formUpdatesSelectedCasesInSource(
+		selectedCaseSessionDatum(doc, linkContext, moduleUuid, formUuid),
+	);
+	return writesSaveToCaseBlocks(
+		doc,
+		formUuid,
+		severalCases,
+		severalCases
+			? buildPrimaryCaseUpdateMap(
+					doc,
+					formUuid,
+					mod.caseType,
+					linkContext.attachmentTarget,
+				)
+			: {},
+		linkContext.formActions(formUuid).subcases,
+	);
+}
+
 /** Build every operation block for one form. Pure: returned DOM nodes are
  * orphaned until `attachCaseOperationData` places them in the primary
  * instance tree.
@@ -273,29 +369,22 @@ export function buildCaseOperations(
 ): CaseOperationsEmission | null {
 	const form = doc.forms[formUuid];
 	const operations = orderedCaseOperations(form);
-	// A close form's ordinary close stands in the source when HQ's singular
-	// block cannot carry it: for every selected case of a several-case form,
-	// and for a condition HQ's Case Management tab cannot state.
+	const severalCases = selectedCasesInstanceId !== undefined;
+	const ordinaryCloseScope = ordinaryCloseInSource(doc, formUuid, severalCases);
 	const ordinaryClose =
-		form.type !== "close"
+		ordinaryCloseScope === undefined
 			? undefined
-			: selectedCasesInstanceId !== undefined
-				? {
-						scope: "selected" as const,
-						condition: formCloseCondition(doc, formUuid),
-					}
-				: closeConditionPlacement(doc, formUuid) === "save-to-case"
-					? {
-							scope: "own" as const,
-							condition: formCloseCondition(doc, formUuid),
-						}
-					: undefined;
+			: {
+					scope: ordinaryCloseScope,
+					condition: formCloseCondition(doc, formUuid),
+				};
 	if (
-		operations.length === 0 &&
-		ordinaryClose === undefined &&
-		Object.keys(ordinaryPrimaryUpdate).length === 0 &&
-		!ordinarySubcases.some((subcase) =>
-			subcaseIsWrittenInSource(subcase, selectedCasesInstanceId !== undefined),
+		!writesSaveToCaseBlocks(
+			doc,
+			formUuid,
+			severalCases,
+			ordinaryPrimaryUpdate,
+			ordinarySubcases,
 		)
 	)
 		return null;

@@ -5,8 +5,15 @@
 // a second manual step and lookup data is a third. So the archive mirrors
 // that shape: the app JSON (carrying its `jr://file/commcare/<hash><ext>`
 // references), the HQ bulk-upload `multimedia.zip` holding the bytes those
-// references resolve to, the fixture workbook holding the lookup tables the
-// app reads, and a README that walks a person through the steps that apply.
+// references resolve to, the app's logo as `logo<ext>`, the fixture workbook
+// holding the lookup tables the app reads, and a README that walks a person
+// through the steps that apply.
+//
+// The app JSON carries no `logo_refs`, and HQ's bulk upload maps no
+// app-level media (`hqmedia/models.py::ApplicationMediaMixin.all_media`), so
+// the logo's file rides beside `multimedia.zip` for a person to add in the
+// app's settings, and `multimedia.zip` leaves out a file only the logo uses,
+// by the filter the direct upload uses (`bulkUploadAssets`).
 //
 // The README is the rendered manual-import guide (`lib/publish/manualImportGuide.ts`),
 // which always holds at least the CommCare version step, so every app's file
@@ -24,6 +31,8 @@
 // over already-resolved inputs: no Postgres and no expand.
 
 import AdmZip from "adm-zip";
+import type { BlueprintDoc } from "@/lib/domain";
+import { carriesViaBulkUpload, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	MANUAL_IMPORT_LOOKUP_WORKBOOK,
 	MANUAL_IMPORT_MEDIA_ZIP,
@@ -31,10 +40,14 @@ import {
 	manualImportGuide,
 } from "@/lib/publish/manualImportGuide";
 import { sanitizeArchiveMemberName } from "@/lib/utils/sanitize";
+import { appEmitsConnectBlocks } from "../connectSlugs";
+import { readsLocationsFixture } from "../locations/readsLocationsFixture";
 import type { LookupWorkbook } from "../lookup/workbook";
+import { requiredPlanFeatures } from "../planPrivileges";
 import { requiredProjectSpaceCapabilities } from "../projectSpaceCompatibility";
 import type { HqApplication } from "../types";
 import { COMMCARE_VERSION_FLOOR } from "../versionFloor";
+import type { AttachmentUrlTarget } from "../xform/captureUrlNode";
 import type { AssetManifest } from "./assetWirePath";
 import { buildMediaBulkUploadZip } from "./bulkUploadZip";
 
@@ -55,48 +68,88 @@ function appFileName(appName: string): string {
 }
 
 /**
+ * The assets HQ's bulk upload carries: each one some carrier that rides the
+ * upload references (`lib/domain/mediaRefs.ts::carriesViaBulkUpload`). An
+ * image only the logo uses is left out; one the logo shares with a question
+ * stays, for the question. The direct upload's ZIP and the import file's
+ * `multimedia.zip` both read this filter.
+ */
+export function bulkUploadAssets(
+	doc: BlueprintDoc,
+	assets: AssetManifest,
+): AssetManifest {
+	const carried = new Set<string>();
+	for (const ref of walkAssetRefs(doc)) {
+		if (carriesViaBulkUpload(ref.location)) carried.add(ref.assetId);
+	}
+	return new Map([...assets].filter(([assetId]) => carried.has(assetId)));
+}
+
+/** The logo's file as the import file holds it, `logo<ext>`, or `undefined`
+ * for an app with no logo. */
+function logoMember(
+	doc: BlueprintDoc,
+	assets: AssetManifest,
+): { readonly name: string; readonly bytes: Buffer | undefined } | undefined {
+	const logo = doc.logo === undefined ? undefined : assets.get(doc.logo);
+	if (logo === undefined) return undefined;
+	return { name: `logo${logo.extension}`, bytes: logo.bytes };
+}
+
+/**
  * The manual-import steps for this file, from the same derivations a
- * publish's own checks read: the capabilities the document needs, the
- * workbook's tables and the prepared media.
+ * publish's own checks read: the capabilities and plan features the document
+ * needs, the workbook's tables, the media the bulk upload carries, the logo,
+ * whether the app reads places, and whether it sends forms to CommCare
+ * Connect. An import file has no target and sends no places.
  */
 export function hqImportFileGuide(input: {
 	readonly appName: string;
-	readonly doc: Parameters<typeof requiredProjectSpaceCapabilities>[0];
+	readonly doc: BlueprintDoc;
 	readonly assets: AssetManifest;
 	readonly lookupWorkbook: LookupWorkbook | undefined;
+	/** The target the app JSON beside it was written for (`expandDoc`'s). */
+	readonly attachmentTarget: AttachmentUrlTarget | null;
 }): readonly ManualImportStep[] {
+	const logo = logoMember(input.doc, input.assets);
 	return manualImportGuide({
 		appFileName: appFileName(input.appName),
 		lookupTags: input.lookupWorkbook?.tables.map((table) => table.tag) ?? [],
-		hasMedia: input.assets.size > 0,
+		hasMedia: bulkUploadAssets(input.doc, input.assets).size > 0,
 		versionFloor: `${COMMCARE_VERSION_FLOOR.major}.${COMMCARE_VERSION_FLOOR.minor}`,
 		capabilities: requiredProjectSpaceCapabilities(input.doc).map(
 			({ label, reasons }) => ({ label, reasons }),
 		),
-		planFeatures: [],
-		logo: null,
-		readsLocations: false,
-		sendsToConnect: false,
+		planFeatures: requiredPlanFeatures(
+			input.doc,
+			{ lookupTables: input.lookupWorkbook !== undefined, places: false },
+			input.attachmentTarget,
+		).map(({ label, plans, consequence }) => ({ label, plans, consequence })),
+		logo: logo === undefined ? null : { fileName: logo.name },
+		readsLocations: readsLocationsFixture(input.doc),
+		sendsToConnect: appEmitsConnectBlocks(input.doc),
 	});
 }
 
 /**
  * Build the `<app>.zip`: the app JSON, the HQ bulk-upload `multimedia.zip`
- * when the app has media, the fixture workbook when it reads lookup tables,
- * and `README.txt`, the rendered guide its caller derived with
+ * when the bulk upload carries any media, the logo as `logo<ext>` when the
+ * app has one, the fixture workbook when it reads lookup tables, and
+ * `README.txt`, the rendered guide its caller derived with
  * `hqImportFileGuide` over the same inputs.
  *
  * The JSON is pretty-printed: it lands as a file a person may open. The
  * `multimedia.zip` IS CommCare HQ's bulk-upload format (each entry at the
  * asset's bare `commcare/<hash><ext>` wire path), built by the one shared
- * `buildMediaBulkUploadZip` so a manual import and an API upload speak one
- * format. The caller resolves the manifest `withBytes: true` first: every
- * entry must carry its bytes or `buildMediaBulkUploadZip` throws. The workbook
- * arrives already built, from the same validated lookup generation the export
- * boundary measured.
+ * `buildMediaBulkUploadZip` over `bulkUploadAssets`, so a manual import and
+ * an API upload speak one format. The caller resolves the manifest
+ * `withBytes: true` first: every entry must carry its bytes or
+ * `buildMediaBulkUploadZip` throws. The workbook arrives already built, from
+ * the same validated lookup generation the export boundary measured.
  */
 export function buildHqJsonExportArchive(
 	appName: string,
+	doc: BlueprintDoc,
 	hqJson: HqApplication,
 	assets: AssetManifest,
 	lookupWorkbook: LookupWorkbook | undefined,
@@ -107,8 +160,19 @@ export function buildHqJsonExportArchive(
 		`${appFileName(appName)}.json`,
 		Buffer.from(JSON.stringify(hqJson, null, 2), "utf-8"),
 	);
-	if (assets.size > 0) {
-		bundle.addFile(MANUAL_IMPORT_MEDIA_ZIP, buildMediaBulkUploadZip(assets));
+	const bulk = bulkUploadAssets(doc, assets);
+	if (bulk.size > 0) {
+		bundle.addFile(MANUAL_IMPORT_MEDIA_ZIP, buildMediaBulkUploadZip(bulk));
+	}
+	const logo = logoMember(doc, assets);
+	if (logo !== undefined) {
+		if (logo.bytes === undefined) {
+			throw new Error(
+				`The HQ import file needs the logo's bytes, but "${logo.name}" arrived without any. ` +
+					"Resolve the manifest with `withBytes: true` before building the import file.",
+			);
+		}
+		bundle.addFile(logo.name, logo.bytes);
 	}
 	if (lookupWorkbook !== undefined) {
 		bundle.addFile(

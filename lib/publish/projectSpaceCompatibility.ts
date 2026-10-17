@@ -18,7 +18,10 @@ export type ProjectSpaceCapabilityId =
 	| "commcare-connect"
 	| "case-attachments"
 	| "attachment-links"
-	| "registration-after-empty-search";
+	| "registration-after-empty-search"
+	| "multi-select-case-lists"
+	| "related-case-search"
+	| "case-tiles";
 
 export type ProjectSpaceAdvisoryId = "large-search-performance";
 
@@ -72,6 +75,22 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		description:
 			"Lets a case list offer its registration form only when a search finds no matches.",
 	},
+	"multi-select-case-lists": {
+		id: "multi-select-case-lists",
+		label: "Choosing several cases at once",
+		description: "Lets workers pick more than one case from a case list.",
+	},
+	"related-case-search": {
+		id: "related-case-search",
+		label: "Search across related cases",
+		description:
+			"Lets a search filter on, or show, cases related to the ones it lists.",
+	},
+	"case-tiles": {
+		id: "case-tiles",
+		label: "Case tiles",
+		description: "Lets a case list draw each case as a tile.",
+	},
 };
 
 export const PROJECT_SPACE_ADVISORIES: Readonly<
@@ -102,8 +121,12 @@ export type ProjectSpaceCapabilityState =
 	| "unverified";
 
 /** Why an otherwise reachable project space could not be checked. Public and
- * semantic: clients can offer the right recovery without seeing HQ internals. */
-export type ProjectSpaceCompatibilityIssue = "connected-account-permission";
+ * semantic: clients can offer the right recovery without seeing HQ internals.
+ * `not-a-member` is a project space the connected account is no longer a
+ * member of: the stored list of spaces outlived the membership. */
+export type ProjectSpaceCompatibilityIssue =
+	| "connected-account-permission"
+	| "not-a-member";
 
 export interface ProjectSpaceCapabilityCheck extends ProjectSpaceCapabilityUse {
 	readonly state: ProjectSpaceCapabilityState;
@@ -136,6 +159,12 @@ export type ProjectSpaceCompatibilityStatus =
 export interface ProjectSpaceCompatibilityReport {
 	readonly status: ProjectSpaceCompatibilityStatus;
 	readonly target_domain?: string;
+	/**
+	 * Why the whole target could not be checked, when that is why the report
+	 * is blocked: `not-a-member` blocks every publish there, an app that
+	 * needs no capability included.
+	 */
+	readonly issue?: ProjectSpaceCompatibilityIssue;
 	readonly required_capabilities: readonly ProjectSpaceCapabilityCheck[];
 	readonly blockers: readonly ProjectSpaceCapabilityCheck[];
 	readonly advisories: readonly ProjectSpaceAdvisoryCheck[];
@@ -264,6 +293,45 @@ export function projectSpaceCompatibilityForTarget(
 	};
 }
 
+/**
+ * Compatibility information for a project space the connected account is no
+ * longer a member of. Nothing about it can be checked, and no publish there
+ * can go ahead, whatever the app needs.
+ */
+export function projectSpaceCompatibilityForNonMember(
+	domain: string,
+	required: readonly ProjectSpaceCapabilityUse[],
+	advisories: readonly ProjectSpaceAdvisoryUse[],
+): ProjectSpaceCompatibilityReport {
+	const requiredCapabilities: ProjectSpaceCapabilityCheck[] = required.map(
+		(capability) => ({
+			...capability,
+			state: "unverified",
+			issue: "not-a-member",
+		}),
+	);
+	return {
+		status: "blocked",
+		target_domain: domain,
+		issue: "not-a-member",
+		required_capabilities: requiredCapabilities,
+		blockers: requiredCapabilities,
+		advisories: advisories.map((advisory) => ({
+			...advisory,
+			state: "unverified",
+			message: advisoryMessage("unverified"),
+		})),
+		support_email: PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
+		docs_url: PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
+		message: notAMemberMessage(domain),
+	};
+}
+
+/** What a publish says where the connected account left the project space. */
+export function notAMemberMessage(domain: string): string {
+	return `Nova couldn't check “${domain}” because the connected CommCare HQ account is no longer a member of it. Once that account joins the project space again, or you connect a different account in Settings, publishing can continue.`;
+}
+
 /** Header-safe encoding for binary HTTP export responses. */
 export function encodeProjectSpaceCompatibilityReport(
 	report: ProjectSpaceCompatibilityReport,
@@ -331,6 +399,7 @@ const CAPABILITY_STATES = new Set<ProjectSpaceCapabilityState>([
 ]);
 const COMPATIBILITY_ISSUES = new Set<ProjectSpaceCompatibilityIssue>([
 	"connected-account-permission",
+	"not-a-member",
 ]);
 const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"deep-links",
@@ -339,6 +408,9 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"case-attachments",
 	"attachment-links",
 	"registration-after-empty-search",
+	"multi-select-case-lists",
+	"related-case-search",
+	"case-tiles",
 ]);
 const ADVISORY_IDS = new Set<ProjectSpaceAdvisoryId>([
 	"large-search-performance",
@@ -411,6 +483,11 @@ function isProjectSpaceCompatibilityReport(
 		) ||
 		(value.target_domain !== undefined &&
 			typeof value.target_domain !== "string") ||
+		(value.issue !== undefined &&
+			(typeof value.issue !== "string" ||
+				!COMPATIBILITY_ISSUES.has(
+					value.issue as ProjectSpaceCompatibilityIssue,
+				))) ||
 		!Array.isArray(value.required_capabilities) ||
 		!value.required_capabilities.every(isCapabilityCheck) ||
 		!Array.isArray(value.blockers) ||
@@ -465,7 +542,10 @@ function isProjectSpaceCompatibilityReport(
 				required.every((item) => item.state === "available")
 			);
 		case "blocked":
-			return typeof value.target_domain === "string" && blockers.length > 0;
+			return (
+				typeof value.target_domain === "string" &&
+				(blockers.length > 0 || value.issue === "not-a-member")
+			);
 	}
 	return false;
 }

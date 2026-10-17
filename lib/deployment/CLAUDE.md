@@ -112,8 +112,13 @@ reason it is a rung rather than a step inside the upload: the app's selects read
 those tables by name while somebody is using it, so content that arrived first
 would install and misbehave. On a first publish the empty app is made and read
 before any table or place is pushed: it holds no content, so nothing in it reads
-a table or a place, and CommCare HQ makes no build of it. A publish refused at
-`resources` sent none of the app's content, so its retry re-pushes the data and
+a table or a place, and CommCare HQ makes no build of it. The empty app comes
+first so that its CommCare version, which nothing can read before HQ makes the
+app, is held to the floor before any Project data is written
+(`lib/commcare/versionFloor.ts::compareToVersionFloor`, the refusal
+`hq_app_version_below_floor`): every stop a person could decide differently
+precedes that first write. The floor's stop folds at `resources` as well. A
+publish refused at `resources` sent none of the app's content, so its retry re-pushes the data and
 then sends the content once. A first publish refused there leaves the empty app,
 mapped with a null `pushed_revision`, and the retry fills that app and makes no
 second one. A create CommCare HQ refuses and a failed read after the create fold
@@ -243,9 +248,38 @@ serving the old one.
 A **blocking** edge is a real prerequisite: no connection, an app the export
 boundary refuses, Project data Nova may not write over, or a change made in
 CommCare HQ since Nova's last push that the person has not confirmed
-discarding. Failing one leaves
+discarding, an HQ app below CommCare 2.57, and a plan feature or project-space
+setting the app needs that the person has not confirmed (`plan-features`, which
+asks HQ nothing). Failing one leaves
 the deployment `incomplete` rather than succeeding with a warning attached, and
 nothing externally visible has happened.
+
+`plan-features`, titled "What this project space needs", asks CommCare HQ
+nothing and comes before every edge that does. No API key reads a project
+space's plan or its privileges, whether it still sends its flat location list
+(`LocationFixtureConfiguration.sync_flat_fixture`), or whether it holds a
+forwarder to CommCare Connect, so a person confirms each one the app needs:
+the plan features `lib/commcare/planPrivileges.ts::requiredPlanFeatures`
+derives from the document and from what this publish sends (a lookup table
+workbook, live places), the flat location list for an app that reads places,
+and a Connect forwarder for an app whose forms hold a Connect block
+(`confirmations.ts::requiredConfirmations`). The edge and the pre-publish
+check (`service.ts::projectSpaceConfirmations`, which lists nothing until a
+project space is chosen) read the needs through one helper,
+`preflight.ts::publishConfirmationNeeds`, so the rows a person ticks first are
+the ones the publish asks for. It mirrors adoption: the refusal,
+`hq_confirmation_needed`, names each need with its label, plans, consequence
+and reasons, and the caller comes back naming what the person confirmed in
+`confirm`. Confirmations live in `app_deployment_confirmations`, three kinds
+(`plan-feature`, `flat-location-fixture`, `connect-forwarder`), written only by
+the fold of a passed preflight (`foldDeploymentAttempt`'s `confirmations`), so
+a refused publish stores none and the caller resends them. One the app does
+not need is dropped. A confirmation stands until someone withdraws it
+(`withdrawDeploymentConfirmation`, from the deployment's card or MCP's
+`withdraw_deployment_confirmation`), because Nova cannot see a plan change; a
+withdrawn row is kept with who withdrew it and when. The `worker-record-access`
+attention edge keeps only the device half of the worker's own record; its plan
+half is the `worker-records` plan feature.
 
 `project-data`, `organization` and `target-app` are the three edges that TALK
 to CommCare HQ during preflight, and each appears only when the app carries that
@@ -255,7 +289,20 @@ edge that does. It is not the publish's only read of it: a first publish reads
 the source after it creates the empty app, and a publish that pushed a lookup
 table or a place reads it again before the import. Each of the three compares
 what it read with its baseline and collects what changed, and preflight gives
-one verdict over all of it, `hq_changed`, before any write.
+one verdict over all of it, `hq_changed`, before any write. `target-app` also
+holds the CommCare version that read carries to the floor
+(`hq_app_version_below_floor`).
+
+The floor is `lib/commcare/versionFloor.ts::compareToVersionFloor`, 2.57: the
+refusal below it carries the app's address in `hqAppUrl`, and an unreadable
+version is `hq_app_state_unknown`. The version floor reads the publish's first
+read of the source, the `target-app` read or the read after the shell create,
+and never the second read. A new app's
+version can be known only once it exists, so on a first publish the empty app
+is created, read, recorded and compared before any lookup table, place or
+content is written: the new app's version check also precedes the Project
+data. Below the floor that stops at `resources` with the mapping kept, so the
+next publish fills the same app once the version is raised.
 
 `project-data` reads the target's tables and plans the push
 (`lookupResourcePlan.ts`), refusing on any tag the target already uses for a
@@ -321,7 +368,10 @@ resource, because the imported app would not run as authored. The Search
 performance capability is different: it is advisory and controls only whether
 Nova adds its derived optimization, never whether the app may be published.
 Public deployment surfaces name semantic app capabilities, not the private HQ
-settings used to establish support.
+settings used to establish support. At publish only the publisher's key reads
+a space's flags. A project space the connected account has left is the
+`not-a-member` issue, and it stops every publish. The route to that state is a
+stored project-space list that outlived the membership.
 
 ## Ownership, and why superseded rows are kept
 
@@ -523,7 +573,25 @@ it was built: a key the body carries is replaced whole, with the target's part
 as the read held it, and a key the body leaves out keeps what HQ holds. Every
 publish also reads whether the target writes an empty-list text and stores
 the answer as `app_deployments.target_empty_case_list_text` with the
-`uploaded` fold; a read that fails leaves the column as it was.
+`uploaded` fold; a read that fails leaves the column as it was. While the
+baseline's origin is `create`, the fill is built over the shell's source with
+its profile settings emptied: they are whatever HQ's settings page wrote, so
+the filled app holds exactly Nova's own.
+
+The `logo_refs` cleanup is built on the publish's last read before the
+import, like the overlays. Publish writes no `logo_refs`; an update names the
+key only to take out an entry whose only key is `path`, which HQ's own
+uploader never stores (`lib/commcare/targetLogoRefs.ts`). The logo itself never
+goes in the bulk media upload. The landed outcome offers it as `logoStep`, its
+`changed` read against `app_deployments.offered_logo_content_hash`, a content
+hash (a Project move remaps asset ids), written with the `uploaded` fold.
+
+The Web Apps line reads the read after the import, or the last read before it
+when that read failed. That value is stored as
+`app_deployments.target_web_apps_enabled` with the `uploaded` fold and nowhere
+else, and the setup artifact reads it from the row: it says Web Apps is off
+where the last publish read it off, says nothing where it read it on, and keeps
+the general check where no publish has read it.
 
 A refused publish answers **200 with the refusal and whatever record the
 target has**, not a 4xx: the request succeeded and the answer names where
@@ -563,7 +631,10 @@ before any Project data goes: a create CommCare HQ refuses, or a read after
 the create that fails, stops the publish at `resources`. One stop after it is
 no answer to a write: a change made in CommCare HQ while the Project data is
 pushed. That publish offers no discard, and the next one's preflight lists the
-change and asks.
+change and asks. A first publish has one more stop preflight cannot hold, the
+CommCare version of an app HQ has not made yet. It is checked on the read after
+the create, before any Project data is pushed, so a target below the floor
+holds nothing of the publish but an empty app.
 
 ## No lock spans the CommCare HQ round trips
 
@@ -694,7 +765,7 @@ the strength of Nova having nothing to say.
 
 Builder (the App setup Publishing section and the publish dialog) and MCP
 (`check_project_space_compatibility`, `get_deployment`, `refresh_deployment`,
-`provision_workers`).
+`withdraw_deployment_confirmation`, `provision_workers`).
 **Deliberately not the Solutions Architect** — the same standing decision
 that keeps project-space compatibility checks off that surface. A deployment is
 durable state about somebody else's server, not authored vocabulary an
@@ -859,9 +930,11 @@ fold checks the remote account ID and retains the displaced password as an
 unconfirmed candidate. A lost browser response may follow a completed create;
 the panel invites checking HQ and explains that undelivered passwords need reset.
 
-`workerRecordRequirements.ts` projects form XPath/prose reads and admitted writes
-of the worker's own record for both preflight and setup. HQ requires the USERCASE
-privilege and a restored record. Read-only forms can silently get blank values;
-writers have a native entry assertion. Record-scope session expressions are not
-worker-record reads. Nova cannot verify the target privilege or device restore,
-so this is an explicit setup requirement, never a claimed successful probe.
+`lib/commcare/planPrivileges.ts::formsUsingWorkerRecord` names the forms that
+use the worker's own record, for preflight, setup and the `worker-records`
+confirmation alike: `lib/domain/workerRecordRequirements.ts`'s form XPath/prose
+reads and admitted writes, and each Connect deliver form whose entity the
+emitter defaults to the worker's username. HQ requires the USERCASE privilege,
+which the person confirms, and a restored record, which Nova cannot verify.
+Read-only forms can silently get blank values; writers have a native entry
+assertion. Record-scope session expressions are not worker-record reads.

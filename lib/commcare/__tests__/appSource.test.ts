@@ -71,6 +71,8 @@ describe("readHqAppSource", () => {
 			expect(source.langs).toEqual(body.langs);
 			expect(source.translations).toEqual(body.translations);
 			expect(source.addOns).toEqual(body.add_ons);
+			expect(source.cloudcareEnabled).toBe(body.cloudcare_enabled === true);
+			expect(source.logoRefs).toEqual(body.logo_refs ?? {});
 			expect(source.raw).toEqual(body);
 			expect(source.modules.length).toBeGreaterThan(0);
 			const attachments = body._attachments as Record<string, string>;
@@ -192,6 +194,12 @@ describe("readHqAppSource", () => {
 				delete body._attachments;
 			},
 		],
+		[
+			"a logo_refs that is not an object",
+			(body: Record<string, unknown>) => {
+				body.logo_refs = ["hq_logo_web_apps"];
+			},
+		],
 	])(
 		"refuses the live read with %s, never defaulting it",
 		async (_, change) => {
@@ -208,6 +216,28 @@ describe("readHqAppSource", () => {
 			});
 		},
 	);
+
+	it("reads Web Apps as off and no logo slot where HQ holds them so", async () => {
+		await withHttpPeer(async (peer) => {
+			peer
+				.get(HOST)
+				.intercept({ path: PATH, method: "GET" })
+				.reply(
+					200,
+					JSON.stringify(
+						liveWith((body) => {
+							body.cloudcare_enabled = false;
+							delete body.logo_refs;
+						}),
+					),
+				);
+			const result = await read();
+			if (!("kind" in result) || result.kind !== "source")
+				throw new Error(`Expected a source, got ${JSON.stringify(result)}`);
+			expect(result.source.cloudcareEnabled).toBe(false);
+			expect(result.source.logoRefs).toEqual({});
+		});
+	});
 
 	it("refuses a body one byte longer than its bound, and reads it at the bound", async () => {
 		const bytes = Buffer.byteLength(

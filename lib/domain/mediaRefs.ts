@@ -697,46 +697,19 @@ function remapMediaBundle(
  * Whether a carrier's bytes reach the device through CommCare HQ's bulk
  * multimedia upload. HQ matches each uploaded file against the app's
  * FORM and MENU media references only — `ApplicationMediaMixin.all_media`
- * deliberately EXCLUDES app-level media (the logo) from that set — so an
- * app-level carrier's file is reported unmatched by the bulk upload and
- * never installed. Every other carrier (module/form menu media, field
- * and option media, case-list detail images) DOES carry.
+ * leaves app-level media (the logo) out of that set — so an app-level
+ * carrier's file is left out of the bulk ZIP, and an image it shares with
+ * another carrier still uploads for that carrier. Every other carrier
+ * (module/form menu media, field and option media, case-list detail
+ * images) DOES carry.
  *
- * The single home for that one CommCare fact: both the proactive
- * app-settings warning (`uncarriedLogoAsset`) and the post-upload
- * reconciliation (`lib/media/uploadOutcome.ts`) read it, so the rule
- * can't drift across the two surfaces. Today only the app logo is
- * app-level; when CommCare adds another app-level surface, this is the
- * one place to teach.
+ * The single home for that one CommCare fact: the ZIP a publish uploads
+ * and the import file's `multimedia.zip` both filter by it. Today only the
+ * app logo is app-level; when CommCare adds another app-level surface,
+ * this is the one place to teach.
  */
 export function carriesViaBulkUpload(location: MediaRefLocation): boolean {
 	return location.kind !== "app_logo";
-}
-
-/**
- * The app logo's `MediaAssetId` IF it won't reach the device on its own —
- * otherwise `undefined`.
- *
- * An image used ONLY as the app logo is never carried by the bulk upload
- * (see `carriesViaBulkUpload`) — the web-apps banner stays blank. The
- * SAME image also used as a form/menu graphic DOES carry (it matches via
- * that reference and resolves to the shared path), so this returns
- * `undefined` whenever the logo asset is referenced by any carrier that
- * carries.
- *
- * This is the proactive (pre-upload) predicate the app-settings warning
- * reads; the upload route reconciles the same fact against HQ's actual
- * unmatched-file report (`lib/media/uploadOutcome.ts`).
- */
-export function uncarriedLogoAsset(doc: BlueprintDoc): string | undefined {
-	const logo = doc.logo;
-	if (!logo) return undefined;
-	for (const ref of walkAssetRefs(doc)) {
-		if (ref.assetId === logo && carriesViaBulkUpload(ref.location)) {
-			return undefined;
-		}
-	}
-	return logo;
 }
 
 /**

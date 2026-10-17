@@ -5,9 +5,17 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { connectWireFixtures } from "@/lib/commcare/__tests__/connectWireFixtures";
 import { decrypt } from "@/lib/commcare/encryption";
+import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { foldDeploymentAttempt } from "@/lib/deployment/store";
 import { plainColumn } from "@/lib/domain";
+import {
+	CONNECT_FORWARDER,
+	FLAT_LOCATION_FIXTURE,
+	PLAN_FEATURES,
+} from "@/lib/publish/planFeatures";
 import { loadAppBlueprint } from "../loadApp";
 import { registerCheckProjectSpaceCompatibility } from "../tools/checkProjectSpaceCompatibility";
 import { withMcpClient } from "./client";
@@ -141,6 +149,12 @@ const deepLinkCapability = {
 		"Lets an authenticated link open a named destination in the app.",
 	reasons: ["The app has named entry points for authenticated links."],
 };
+/** What an app with no plan feature and no project-space setting asks to confirm. */
+const NOTHING_TO_CONFIRM = {
+	plan_features: [],
+	flat_location_fixture: null,
+	connect_forwarder: null,
+};
 function report(state: "available" | "missing" | "unverified" | "not_checked") {
 	const requirement = { ...deepLinkCapability, state };
 	const checked = state !== "not_checked";
@@ -191,6 +205,7 @@ it("checks the selected deployment over HTTP and returns semantic compatibility"
 				app_id: APP,
 				app_name: "Clinic intake",
 				project_space_compatibility: report("available"),
+				...NOTHING_TO_CONFIRM,
 			});
 		});
 		expect(calls(peer)).toEqual(
@@ -253,6 +268,7 @@ it.each([
 					app_id: APP,
 					app_name: "Clinic intake",
 					project_space_compatibility: report(state),
+					...NOTHING_TO_CONFIRM,
 				}),
 			);
 			expect(calls(peer)).toHaveLength(2);
@@ -260,16 +276,26 @@ it.each([
 	},
 );
 
-it("treats revoked live HQ membership as unverified and performs no private setting probes", async () => {
+it("reads revoked live HQ membership as not-a-member and performs no private setting probes", async () => {
 	await seed();
 	await settings();
 	await withHttpPeer(async (peer) => {
 		reply(peer, "/api/user_domains/v1/?limit=100", empty);
-		await asUser(async (client) =>
-			expect((await payload(client)).project_space_compatibility).toEqual(
-				report("unverified"),
-			),
-		);
+		await asUser(async (client) => {
+			const requirement = {
+				...deepLinkCapability,
+				state: "unverified",
+				issue: "not-a-member",
+			};
+			expect((await payload(client)).project_space_compatibility).toEqual({
+				...report("unverified"),
+				issue: "not-a-member",
+				required_capabilities: [requirement],
+				blockers: [requirement],
+				message:
+					"Nova couldn't check “clinic” because the connected CommCare HQ account is no longer a member of it. Once that account joins the project space again, or you connect a different account in Settings, publishing can continue.",
+			});
+		});
 		expect(calls(peer)).toEqual([
 			{ method: "GET", fullUrl: `${HOST}/api/user_domains/v1/?limit=100` },
 		]);
@@ -454,3 +480,93 @@ it.each([200, 403])(
 		});
 	},
 );
+
+it("returns what an upload there asks to confirm, each with its state from the deployment's ledger", async () => {
+	const connect = connectWireFixtures().find(
+		(fixture) => fixture.name === "deliver-default",
+	)?.doc;
+	if (connect === undefined) throw new Error("No Connect fixture");
+	await h.seedAppWithBlueprint(connect, {
+		id: APP,
+		owner: "creator",
+		projectId: PROJECT,
+	});
+	await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+	await h.seedProjectMember("confirmer", PROJECT, "editor");
+	await settings();
+	await foldDeploymentAttempt(
+		{
+			appId: APP,
+			projectId: PROJECT,
+			role: "editor",
+			actorUserId: "confirmer",
+		},
+		{ server: "india", domain: "clinic" },
+		"preflight",
+		{ status: "succeeded", at: "2026-10-16T00:00:00.000Z" },
+		{
+			ensure: true,
+			confirmations: [{ kind: "plan-feature", subject: "data-forwarding" }],
+		},
+	);
+	await withHttpPeer(async () => {
+		await asUser(async (client) => {
+			const checked = await payload(client);
+			expect(checked.plan_features).toEqual([
+				{
+					id: "worker-records",
+					label: PLAN_FEATURES["worker-records"].label,
+					plans: PLAN_FEATURES["worker-records"].plans,
+					consequence: PLAN_FEATURES["worker-records"].consequence,
+					reasons: ["Activity reads worker information."],
+					state: "needs_confirmation",
+				},
+				{
+					id: "data-forwarding",
+					label: PLAN_FEATURES["data-forwarding"].label,
+					plans: PLAN_FEATURES["data-forwarding"].plans,
+					consequence: PLAN_FEATURES["data-forwarding"].consequence,
+					reasons: [
+						"Activity sends a deliver unit to CommCare Connect.",
+						"Record & review sends a task to CommCare Connect.",
+					],
+					state: "confirmed",
+					confirmed_by: "confirmer",
+					confirmed_at: expect.any(String),
+				},
+			]);
+			expect(checked.connect_forwarder).toEqual({
+				label: CONNECT_FORWARDER.label,
+				consequence: CONNECT_FORWARDER.consequence,
+				reasons: [
+					"Activity sends a deliver unit to CommCare Connect.",
+					"Record & review sends a task to CommCare Connect.",
+				],
+				state: "needs_confirmation",
+			});
+			expect(checked.flat_location_fixture).toBeNull();
+		});
+	});
+});
+
+it("asks about the flat location list for an app whose form sets an owner from a place", async () => {
+	await h.seedAppWithBlueprint(locationOwnerFixture("direct"), {
+		id: APP,
+		owner: "creator",
+		projectId: PROJECT,
+	});
+	await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+	await settings();
+	await withHttpPeer(async () => {
+		await asUser(async (client) => {
+			expect((await payload(client)).flat_location_fixture).toEqual({
+				label: FLAT_LOCATION_FIXTURE.label,
+				consequence: FLAT_LOCATION_FIXTURE.consequence,
+				reasons: [
+					"Transfer sets a case's owner from a place in your organization.",
+				],
+				state: "needs_confirmation",
+			});
+		});
+	});
+});

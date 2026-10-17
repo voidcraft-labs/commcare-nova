@@ -22,11 +22,14 @@
 import { type Kysely, sql, type Transaction } from "kysely";
 import { buildCaseTypeMap } from "@/lib/case-store/store";
 import { formLinkProjectionContext } from "@/lib/commcare/formLinkProjection";
+import { isCommCareServer } from "@/lib/commcare/servers";
 import { sourceBlockCaseWrites } from "@/lib/commcare/xform/sourceCaseWrites";
 import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
 import type { PersistedEntityRowText } from "@/lib/db/persistedJson";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import type { AppDatabase } from "@/lib/db/pg";
+import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
+import { plannedPlacesFor } from "@/lib/deployment/locationResourcePlan";
 import { deploymentDisplaysAsReached } from "@/lib/deployment/stateMachine";
 import {
 	deploymentPhaseSchema,
@@ -39,6 +42,7 @@ import {
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import {
+	asUuid,
 	type BlueprintDoc,
 	blueprintDocSchema,
 	type CaseType,
@@ -52,6 +56,7 @@ import {
 } from "@/lib/domain/questionId";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import type { LookupDataType } from "@/lib/lookup/types";
+import type { StoredLocation } from "@/lib/organization/types";
 import { formRootReadPositions } from "@/lib/preview/xpath/dependencies";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
@@ -262,6 +267,8 @@ export interface SourceApp {
 	readonly deployments: readonly SourceDeployment[];
 	/** Deployments with no live `app` mapping, which the plan does not hold. */
 	readonly deploymentsWithoutMapping: number;
+	/** The app's stored places, archived ones included. */
+	readonly places: readonly StoredLocation[];
 }
 
 export interface SourceProject {
@@ -600,6 +607,7 @@ export async function readFleetSource(
 		deploymentsByApp.set(row.app_id, list);
 	}
 
+	const placesByApp = await readAppPlaces(tx, appIds);
 	const members = await readMembers(tx);
 	const projects = new Map<string, SourceProject>();
 	for (const projectId of [
@@ -637,9 +645,49 @@ export async function readFleetSource(
 			activeSchemas: schemasByApp.get(root.id) ?? new Map(),
 			deployments: deploymentsByApp.get(root.id) ?? [],
 			deploymentsWithoutMapping: unmappedByApp.get(root.id) ?? 0,
+			places: placesByApp.get(root.id) ?? [],
 		};
 	});
 	return { apps, projects, privateWork: await readPrivateWorkCensus(tx) };
+}
+
+/**
+ * Each app's stored places, archived ones included, in the organization's
+ * order: what `lib/deployment/locationResourcePlan.ts::plannedPlacesFor`
+ * reads to decide which places a publish sends.
+ */
+export async function readAppPlaces(
+	tx: Transaction<AppDatabase>,
+	appIds: readonly string[],
+): Promise<Map<string, StoredLocation[]>> {
+	const byApp = new Map<string, StoredLocation[]>();
+	if (appIds.length === 0) return byApp;
+	const rows = await tx
+		.selectFrom("app_locations")
+		.selectAll()
+		.where("app_id", "in", [...appIds])
+		.orderBy("app_id")
+		.orderBy("order_key")
+		.orderBy("id")
+		.execute();
+	for (const row of rows) {
+		const list = byApp.get(row.app_id) ?? [];
+		list.push({
+			id: asUuid(row.id),
+			levelUuid: row.level_uuid,
+			parentId: row.parent_id === null ? null : asUuid(row.parent_id),
+			siteCode: row.site_code,
+			name: row.name,
+			externalId: row.external_id,
+			latitude: row.latitude,
+			longitude: row.longitude,
+			values: row.values,
+			archivedAt: row.archived_at,
+			orderKey: row.order_key,
+		});
+		byApp.set(row.app_id, list);
+	}
+	return byApp;
 }
 
 // ── Deployment classes ──────────────────────────────────────────────
@@ -1213,7 +1261,22 @@ export async function buildCutoverPlan(
 						notices:
 							judged.doc === undefined
 								? []
-								: deploymentNotices(classification, judged.doc),
+								: deploymentNotices(
+										{
+											...classification,
+											places:
+												plannedPlacesFor(judged.doc, app.places).length > 0,
+											/* The next publish points capture links at the
+											 * deployment's own project space. */
+											...(isCommCareServer(deployment.server) && {
+												attachmentTarget: attachmentUrlTarget({
+													server: deployment.server,
+													domain: deployment.domain,
+												}),
+											}),
+										},
+										judged.doc,
+									),
 					};
 				}),
 			});

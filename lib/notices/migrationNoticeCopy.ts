@@ -17,6 +17,15 @@ import {
 	isReservedName,
 	RESERVED_CONNECT_BLOCK_IDS,
 } from "@/lib/domain/questionId";
+import {
+	isPlanFeatureId,
+	PLAN_FEATURE_IDS,
+	PLAN_FEATURES,
+} from "@/lib/publish/planFeatures";
+import {
+	PROJECT_SPACE_CAPABILITIES,
+	type ProjectSpaceCapabilityId,
+} from "@/lib/publish/projectSpaceCompatibility";
 import type {
 	DeploymentNoticeEntry,
 	DocumentNoticeEntry,
@@ -74,6 +83,29 @@ export function entityPart(
 /** The project space a deployment entry is about, named by its domain. */
 function projectSpace(entry: DeploymentNoticeEntry): string {
 	return entry.deployment.domain;
+}
+
+/** Names joined as a sentence lists them: "a, b and c". */
+function joinedNames(names: readonly string[]): string {
+	if (names.length <= 1) return names[0] ?? "";
+	return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** A project space's name with its possessive: "field-ops'", "acme's". */
+function possessive(space: string): string {
+	return space.endsWith("s") ? `${space}'` : `${space}'s`;
+}
+
+/** The CommCare version Nova's apps need, as a person reads it. */
+const COMMCARE_VERSION_FLOOR_TEXT = "2.57";
+
+/** The ids a `detail` list stores, separated by commas. */
+function detailIds(value: string | undefined): string[] {
+	return value === undefined ? [] : value.split(",").filter(Boolean);
+}
+
+function isCapabilityId(value: string): value is ProjectSpaceCapabilityId {
+	return Object.hasOwn(PROJECT_SPACE_CAPABILITIES, value);
 }
 
 /** Entities joined as a sentence lists them: "Register, Visit and Follow-up". */
@@ -781,6 +813,69 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* `detail.planFeatures` holds the plan feature ids, `detail.settings`
+	 * `flat-location-fixture` and `connect-forwarder` where each is asked,
+	 * and `detail.capabilities` the capability ids the probe newly checks,
+	 * each comma-joined and absent where empty. Each is named in today's
+	 * words, in the order every surface lists them; an id Nova no longer
+	 * knows is left out. */
+	"next-publish-asks-more": (entry: DeploymentNoticeEntry) => {
+		const space = projectSpace(entry);
+		const planFeatures = new Set(
+			detailIds(entry.detail?.planFeatures).filter(isPlanFeatureId),
+		);
+		const settings = detailIds(entry.detail?.settings);
+		const fixture = settings.includes("flat-location-fixture");
+		const forwarder = settings.includes("connect-forwarder");
+		const capabilities = detailIds(entry.detail?.capabilities).filter(
+			isCapabilityId,
+		);
+		const labels = [
+			...PLAN_FEATURE_IDS.filter((id) => planFeatures.has(id)).map(
+				(id) => PLAN_FEATURES[id].label,
+			),
+			...(fixture ? ["the flat location list"] : []),
+			...(forwarder ? ["a Connect forwarder"] : []),
+			...capabilities.map((id) => PROJECT_SPACE_CAPABILITIES[id].label),
+		];
+		const sentences = [
+			labels.length === 0
+				? `The next publish to ${space} asks you to confirm what the project space has.`
+				: `The next publish to ${space} asks you to confirm what the project space has: ${joinedNames(labels)}.`,
+			...(fixture
+				? [
+						`Phones and Web Apps both take the location list by ${possessive(space)} own setting from then on, so Nova asks whether it still sends it. Until that publish, phones get the list whatever that setting says, so places working on phones today don't show that it's on. It's on unless someone turned it off in the project space's Location Fixture settings.`,
+					]
+				: []),
+			...(forwarder
+				? [
+						`This app's forms reach CommCare Connect only through CommCare HQ's data forwarding, so Nova asks whether ${space} has Data Forwarding and a Connect forwarder.`,
+					]
+				: []),
+		];
+		return noticeLine([text(sentences.join(" "))]);
+	},
+	/* `detail.version` is the CommCare version the cutover's read of the app
+	 * there gave, as CommCare HQ spells it. */
+	"commcare-version-below-floor": (entry: DeploymentNoticeEntry) => {
+		const space = projectSpace(entry);
+		const version = entry.detail?.version;
+		const setTo =
+			version === undefined
+				? `The app on ${space} is set to an older CommCare version`
+				: `The app on ${space} is set to CommCare ${version}`;
+		return noticeLine([
+			text(
+				`${setTo}, and Nova's apps now need ${COMMCARE_VERSION_FLOOR_TEXT} or later. The next publish there waits until you raise its CommCare version in that app's settings in CommCare HQ. Phones on an older CommCare can no longer install or update the app after that. Saving that page also sets the app's other settings there, so the publish after it first shows you what changed.`,
+			),
+		]);
+	},
+	"logo-upload-in-hq": (entry) =>
+		noticeLine([
+			text(
+				`From the next publish to ${projectSpace(entry)}, Nova doesn't send this app's logo with it. Apps built on CommCare HQ show the logo once it is added in that app's settings there; until then they carry none, and Web Apps shows its own icon. After that publish, Nova offers the logo to download.`,
+			),
+		]),
 	/* `detail.setting` is `saved` or `incomplete`, and `detail.readers` the
 	 * readers that gain the list there: `android`, or `android-and-webapps`.
 	 * Every entry is a list workers gain; none turns one off. */

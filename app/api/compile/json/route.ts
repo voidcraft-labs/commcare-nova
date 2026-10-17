@@ -91,9 +91,11 @@ export async function POST(req: NextRequest) {
 			doc,
 			assets,
 			lookupWorkbook,
+			attachmentTarget,
 		});
 		const archive = buildHqJsonExportArchive(
 			doc.appName,
+			doc,
 			hqJson,
 			assets,
 			lookupWorkbook,

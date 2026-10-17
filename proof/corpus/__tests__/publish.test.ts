@@ -66,13 +66,15 @@ it("sends under the document's minimum configuration and refuses without any one
 			],
 		]),
 	};
-	const minimum = minimumConfiguration([documentVerdict(document)]);
-	// Search and a URL-mode capture each need their flag, and Search needs
-	// case search on: the matrix below has something to take away.
-	expect(minimum.flags).toEqual([
-		"SYNC_SEARCH_CASE_CLAIM",
-		"VIEW_FORM_ATTACHMENT",
-	]);
+	const verdict = documentVerdict(document);
+	const minimum = minimumConfiguration([verdict]);
+	// Search needs its flag and case search on: the matrix below has something
+	// to take away. The URL-mode capture needs no flag, since no list shows its
+	// link.
+	expect(minimum.flags).toEqual(["SYNC_SEARCH_CASE_CLAIM"]);
+	// The plan privileges the publish asks to be confirmed, by the constant
+	// each gate entry's surface key names: the document reads a lookup table.
+	expect(verdict.planPrivileges).toEqual(["LOOKUP_TABLES"]);
 	expect(minimum.caseSearchEnabled).toBe(true);
 	expect(minimum.domain).toBe(PROOF_DOMAIN);
 
@@ -93,7 +95,6 @@ it("sends under the document's minimum configuration and refuses without any one
 	expect(outcomes).toEqual({
 		minimum: "sent",
 		"without SYNC_SEARCH_CASE_CLAIM": "refused",
-		"without VIEW_FORM_ATTACHMENT": "refused",
 		"without case search": "refused",
 	});
 });

@@ -531,6 +531,61 @@ it("hands each change to publish over to the lifecycle as it was named, and noth
 	).toEqual([]);
 });
 
+it.each([
+	{},
+	"plan-feature",
+	[{ kind: "plan-feature" }],
+	[{ kind: "plan-feature", subject: "user_case" }],
+	[{ kind: "settings" }],
+	[{ kind: "connect-forwarder", subject: "connect-forwarder" }],
+	[null],
+])(
+	"refuses a malformed list of confirmations %j before publish",
+	async (confirm) => {
+		const response = await POST(
+			req({ domain: DOMAIN, appName: "App", appId: "app-1", confirm }),
+		);
+		const { status, body } = await read(response);
+		expect(status).toBe(400);
+		expect(body).toMatchObject({
+			error:
+				"The confirmations sent with this publish have to be a list of what Nova asked about, each with its kind, and a plan feature's id for a plan feature.",
+		});
+		expect(publishAppToHq).not.toHaveBeenCalled();
+	},
+);
+
+it("hands each confirmation to the lifecycle as it was named, and none when none is", async () => {
+	await read(
+		await POST(
+			req({
+				domain: DOMAIN,
+				appName: "App",
+				appId: "app-1",
+				confirm: [
+					{ kind: "plan-feature", subject: "lookup-tables" },
+					{ kind: "flat-location-fixture" },
+					{ kind: "connect-forwarder" },
+				],
+			}),
+		),
+	);
+	expect(vi.mocked(publishAppToHq).mock.calls[0]?.[0].confirm).toEqual([
+		{ kind: "plan-feature", subject: "lookup-tables" },
+		{ kind: "flat-location-fixture" },
+		{ kind: "connect-forwarder" },
+	]);
+	for (const confirm of [undefined, null]) {
+		await read(
+			await POST(
+				req({ domain: DOMAIN, appName: "App", appId: "app-1", confirm }),
+			),
+		);
+	}
+	expect(vi.mocked(publishAppToHq).mock.calls[1]?.[0].confirm).toEqual([]);
+	expect(vi.mocked(publishAppToHq).mock.calls[2]?.[0].confirm).toEqual([]);
+});
+
 it("answers with the App Preview line a landed publish carries", async () => {
 	vi.mocked(publishAppToHq).mockResolvedValueOnce({
 		landed: true,

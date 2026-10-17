@@ -45,7 +45,6 @@ import {
 } from "@/lib/commcare/localization";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
-import { buildLogoRefs } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
 import { hqCaseActions } from "@/lib/commcare/subcaseWire";
@@ -70,7 +69,6 @@ import {
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
-import { walkExpressionTerms } from "@/lib/domain/predicate";
 import { buildConnectSlugMap } from "./connectSlugs";
 import {
 	caseListFormLabelUnit,
@@ -143,15 +141,14 @@ function toHqFormLink(
  * configuration.
  *
  * `opts.assets` is the resolved media manifest. When present, the
- * emitted XForms gain media itext values, the module/form/case-list
- * shells gain `media_image` / `media_audio` dicts, and the application
- * gains its `logo_refs` — everything CCHQ needs to regenerate a
- * media-bearing suite once the media upload maps the files. When absent,
- * media emission is off (validation loop, asset-free preview): the output
- * is structurally identical to the with-manifest shape but carries empty
- * `media_image` / `media_audio` and no `logo_refs` (absent, not empty —
- * see the assignment below). No mode writes a `multimedia_map`: HQ's
- * media upload writes it.
+ * emitted XForms gain media itext values and the module/form/case-list
+ * shells gain `media_image` / `media_audio` dicts: everything CCHQ needs
+ * to regenerate a media-bearing suite once the media upload maps the
+ * files. When absent, media emission is off (validation loop, asset-free
+ * preview): the output is structurally identical to the with-manifest
+ * shape but carries empty `media_image` / `media_audio`. No mode writes a
+ * `multimedia_map`, which HQ's media upload writes, or a `logo_refs`: a
+ * logo reaches an app built on CommCare HQ when a person adds it there.
  */
 export interface ExpandOptions {
 	readonly runtimeTarget?: RuntimeTarget;
@@ -553,7 +550,7 @@ export function expandDoc(
 	});
 
 	const derivedProfile = derivedProfileProperties(doc);
-	const app = applicationShell(doc.appName, modules, attachments, {
+	return applicationShell(doc.appName, modules, attachments, {
 		...appLevelValues(doc, localization),
 		addOns: addOnsNeededBy({ modules, _attachments: attachments }),
 		profileProperties: appProfileProperties(authoredDoc),
@@ -561,25 +558,6 @@ export function expandDoc(
 			profileCustomProperties: derivedProfile,
 		}),
 	});
-
-	// `logo_refs` (the web-apps banner) is assigned only when the app
-	// actually has a Nova-authored logo: CCHQ's in-place update is an
-	// overlay merge, so an emitted empty dict would remove a logo uploaded
-	// on CommCare HQ, while an absent field is retained. No
-	// `multimedia_map` is written: HQ's media upload maps each file by the
-	// path the app's content references and writes the map itself.
-	const logoRefs = buildLogoRefs(doc.logo, assets, "expandDoc logo");
-	if (Object.keys(logoRefs).length > 0) app.logo_refs = logoRefs;
-
-	/* Same conditional-assignment rule as `logo_refs`, for the same
-	 * reason: only an app that actually reads `instance('locations')`
-	 * gets an opinion, so a republish never overwrites a fixture choice
-	 * somebody made on CommCare HQ for an app that has no place rule. */
-	if (readsLocationsFixture(doc)) {
-		app.location_fixture_restore = "both_fixtures";
-	}
-
-	return app;
 }
 
 /**
@@ -646,7 +624,6 @@ export const APP_SHELL_KEYS = [
 	"application_version",
 	"name",
 	"langs",
-	"build_spec",
 	"translations",
 	"auto_gps_capture",
 	"modules",
@@ -660,9 +637,10 @@ export type HqAppShell = Pick<HqApplication, AppShellKey>;
 
 /**
  * The empty app a first publish creates before the ordinary in-place update
- * fills it: no menus, no attachments, no `logo_refs`, no `add_ons` and no
- * `profile`, which the update writes over the shell's source read, and no
- * `multimedia_map`, which Nova never sends. `auto_gps_capture` is there only
+ * fills it: no menus, no attachments, no `add_ons`, no `profile` and no
+ * `location_fixture_restore`, which the update writes over the shell's
+ * source read, and no `build_spec`, `logo_refs` or `multimedia_map`, which
+ * Nova never sends. `auto_gps_capture` is there only
  * for a Connect app. With no form there is
  * no form id for HQ to re-mint, and HQ refuses to build an app with no menus
  * (`helpers/validators.py::ApplicationValidator._check_modules`), so no
@@ -680,32 +658,4 @@ export function expandAppShell(doc: BlueprintDoc): HqAppShell {
 		if (Object.hasOwn(app, key)) shell[key] = app[key];
 	}
 	return shell as HqAppShell;
-}
-
-/**
- * Whether this app's wire reads `jr://fixture/locations`.
- *
- * Exactly one term does: `owner-location-at-level`, which
- * `predicate/termEmitter.ts::emitTerm` lowers to an
- * `instance('locations')` path, and which
- * `predicate/instances.ts::collectAstInstances` is the accumulator for.
- * `fixed-location` reads no instance — it prints a literal — so an app
- * whose only place rule is that one needs nothing from the restore.
- *
- * Read off the owner slots directly rather than off the instance
- * accumulator because this runs on the whole document at shell-assembly
- * time, before any per-expression emission context exists.
- */
-function readsLocationsFixture(doc: BlueprintDoc): boolean {
-	for (const form of Object.values(doc.forms)) {
-		for (const operation of form.caseOperations ?? []) {
-			if (operation.owner === undefined) continue;
-			let found = false;
-			walkExpressionTerms(operation.owner, (term) => {
-				if (term.kind === "owner-location-at-level") found = true;
-			});
-			if (found) return true;
-		}
-	}
-	return false;
 }

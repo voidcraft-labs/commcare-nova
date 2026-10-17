@@ -458,6 +458,42 @@ class Predicates(unittest.TestCase):
         same = self.reader.request("installs", archives=[str(SURVEY), str(SURVEY)])
         self.assertEqual([step["install"] for step in same["installs"]], ["Installed", "DuplicateApp"])
 
+    def test_an_archive_that_requires_a_newer_commcare_neither_installs_nor_updates(self):
+        """The version floor. Contract: a profile's ``requiredMajor`` and ``requiredMinor`` name the oldest CommCare
+        that may run the app, so an archive requiring 2.57, the floor Nova's apps are built to
+        (``lib/commcare/versionFloor.ts``), installs and updates, and one requiring a CommCare newer than the
+        device's neither installs nor stages as an update (``IncompatibleReqs``), the device staying on the version
+        it had. Failure it catches: a requirement Android does not read, so a build HQ makes below the floor, or
+        one above the device, reaches a worker."""
+
+        def requiring(version, base):
+            major, minor = version.split(".")
+            return f'{base} requiredMajor="{major}" requiredMinor="{minor}"'
+
+        installs, updates = {}, {}
+        for version in ("2.57", "2.99", "3.0"):
+            install = edited(
+                SURVEY,
+                self.work / f"requires-{version}.ccz",
+                "profile.ccpr",
+                [(PROFILE_VERSION_1, requiring(version, PROFILE_VERSION_1))],
+            )
+            update = edited(
+                SURVEY,
+                self.work / f"requires-{version}-update.ccz",
+                "profile.ccpr",
+                [(PROFILE_VERSION_1, requiring(version, PROFILE_VERSION_2))],
+            )
+            installed = self.reader.request("installs", archives=[str(install)])
+            installs[version] = [step["install"] for step in installed["installs"]]
+            answer = self.reader.request("update", archive=str(SURVEY), update=str(update))
+            updates[version] = answer
+        self.assertEqual(installs, {"2.57": ["Installed"], "2.99": ["IncompatibleReqs"], "3.0": ["IncompatibleReqs"]})
+        self.assertEqual((updates["2.57"]["staged"], updates["2.57"]["updated"]), ("UpdateStaged", "Installed"))
+        for version in ("2.99", "3.0"):
+            self.assertEqual(updates[version]["staged"], "IncompatibleReqs", version)
+            self.assertEqual(updates[version]["after"]["readers"], updates[version]["before"]["readers"], version)
+
     def test_a_forced_setting_overrides_a_workers_own_at_an_update(self):
         """Defect 40, the settings forced at every update. Contract: a setting the next profile forces replaces
         what a worker chose on the device when the device updates, and one it does not force leaves the worker's

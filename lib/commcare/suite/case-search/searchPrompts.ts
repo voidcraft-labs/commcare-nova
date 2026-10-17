@@ -482,6 +482,18 @@ function promptAttributeMapping(input: SearchInputDef): PromptAttributeMapping {
 }
 
 /**
+ * Whether the input's prompt takes one date: the prompt `searchPromptWire`
+ * writes carries `input="date"`. HQ's Case List page offers that format
+ * only under `CASE_SEARCH_ADVANCED`, and its save drops it without the flag
+ * (`templates/app_manager/partials/modules/bootstrap5/case_search_property.html`),
+ * so publish asks for the flag for such an input
+ * (`projectSpaceCompatibility.ts`).
+ */
+export function searchInputIsSingleDate(input: SearchInputDef): boolean {
+	return promptAttributeMapping(input).input === "date";
+}
+
+/**
  * Build the prompt's display-label locale id. Mirrors CCHQ's
  * `search_property_locale` pattern: `search_property.{moduleId}.{name}`.
  * The three child locale ids follow CCHQ's `id_strings.py` siblings

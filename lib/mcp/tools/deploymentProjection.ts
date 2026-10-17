@@ -24,6 +24,7 @@
  *     abandoned apps, tables, and places without ever being told.
  */
 
+import { confirmationLabel } from "@/lib/deployment/confirmations";
 import {
 	activeRemoteApp,
 	leftBehindResources,
@@ -83,6 +84,21 @@ export interface DeploymentProjection {
 	/** Remote resources this deployment once pointed at; a later publish
 	 * superseded them rather than updating them in place. */
 	readonly left_behind: readonly LeftBehindResource[];
+	/**
+	 * What a person confirmed about this project space that is still in
+	 * force, which a publish there does not ask again. `confirmed_by` is
+	 * the member's display name.
+	 */
+	readonly confirmations: readonly DeploymentConfirmationProjection[];
+}
+
+/** One confirmation in force on a deployment. */
+export interface DeploymentConfirmationProjection {
+	readonly kind: string;
+	readonly subject: string;
+	readonly label: string;
+	readonly confirmed_by: string;
+	readonly confirmed_at: string;
 }
 
 /**
@@ -146,5 +162,12 @@ export function describeDeployment(
 				hq_name: resource.pushedIdentity,
 			}),
 		),
+		confirmations: view.confirmations.map((confirmation) => ({
+			kind: confirmation.kind,
+			subject: confirmation.subject,
+			label: confirmationLabel(confirmation),
+			confirmed_by: confirmation.confirmedByName,
+			confirmed_at: confirmation.confirmedAt,
+		})),
 	};
 }

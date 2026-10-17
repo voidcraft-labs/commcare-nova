@@ -1,6 +1,6 @@
 /** Admitted document -> setup guidance. Proves the projection and its lifetime;
  * it does not claim that following these instructions executed anything on HQ. */
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { workerWireFixture } from "@/lib/commcare/__tests__/workerWireFixture";
@@ -8,6 +8,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	asMediaAssetId,
 	automationMessageText,
 	type BlueprintDoc,
 	blueprintDocSchema,
@@ -16,6 +17,10 @@ import {
 	type OrganizationLevel,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
+import {
+	LOGO_UPLOAD_STEP_TEXT,
+	webAppsOffText,
+} from "@/lib/publish/planFeatures";
 import {
 	previewProjectSpace,
 	resolvePreviewDeploymentTarget,
@@ -134,6 +139,7 @@ function artifact(overrides: Partial<SetupArtifactInput> = {}): SetupArtifact {
 		domain: "rhi-bihar",
 		hqAppId: "hq-abc",
 		locations: [],
+		targetWebAppsEnabled: null,
 		...overrides,
 	};
 	blueprintDocSchema.parse(toPersistableDoc(input.doc));
@@ -213,6 +219,61 @@ it("keeps manual build, release and Web App setup explicit", () => {
 	expect(web.steps[1]?.detail).toContain(
 		"You do not need to publish again. It is an ordinary app setting you can change at any time.",
 	);
+});
+
+describe("the Web Apps section", () => {
+	it("keeps the general check where no publish has read the setting", () => {
+		const web = section(artifact({ targetWebAppsEnabled: null }), "web-apps");
+		expect(web.steps.map(({ id }) => id)).toEqual([
+			"check-listed",
+			"enable-web-app",
+		]);
+		expect(web.caveats).toEqual([
+			"Nova reads that setting when it publishes and has no reading for this project space yet, so it reports what it can see: a released version that serves its install file. If the app still does not appear in Web Apps, the “Web App” setting is the first thing to check.",
+		]);
+	});
+
+	it("says Web Apps is off where the last publish read it off", () => {
+		const web = section(artifact({ targetWebAppsEnabled: false }), "web-apps");
+		expect(web.summary).toBe(webAppsOffText("rhi-bihar"));
+		expect(web.url).toBe(
+			"https://www.commcarehq.org/a/rhi-bihar/cloudcare/apps/v2/",
+		);
+		expect(web.steps).toEqual([
+			{
+				id: "enable-web-app",
+				text: "Once the project space's plan includes Web Apps, you can open the app's Settings on CommCare HQ and tick “Web App”.",
+				detail: [
+					"You do not need to publish again. It is an ordinary app setting you can change at any time.",
+				],
+			},
+		]);
+		expect(web.caveats).toEqual([
+			"Nova read this when it last published here. If Web Apps has been turned on in CommCare HQ since, this note stays until the next publish reads it.",
+		]);
+	});
+
+	it("is left out where the last publish read Web Apps on", () => {
+		expect(
+			artifact({ targetWebAppsEnabled: true }).sections.some(
+				(item) => item.id === "web-apps",
+			),
+		).toBe(false);
+	});
+});
+
+it("offers the app's logo for upload in CommCare HQ whenever the app has one", () => {
+	const doc = baseDoc();
+	expect(artifact({ doc }).sections.some((item) => item.id === "logo")).toBe(
+		false,
+	);
+	doc.logo = asMediaAssetId("11111111-1111-4111-8111-111111111111");
+	const logo = section(artifact({ doc }), "logo");
+	expect(logo.summary).toBe(LOGO_UPLOAD_STEP_TEXT);
+	expect(logo.url).toBe(
+		"https://www.commcarehq.org/a/rhi-bihar/apps/view/hq-abc/settings/",
+	);
+	expect(section(artifact({ doc, hqAppId: null }), "logo").url).toBeNull();
 });
 
 it("reports exact table ownership and push status before the app instructions", () => {

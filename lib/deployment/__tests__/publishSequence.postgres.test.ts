@@ -46,6 +46,7 @@ import {
 } from "@/lib/domain";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import { createLocation } from "@/lib/organization/service";
+import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { resolveDownloadTarget } from "../downloadTarget";
 import { getEntryPointLink } from "../entryPointLinks";
@@ -67,7 +68,7 @@ import {
 	setupArtifactFor,
 } from "../service";
 import { applyDeploymentObservation, readDeployment } from "../store";
-import type { RemoteChangeDiscard } from "../types";
+import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
 import { clinicVisitsDocument } from "./publishFixtures";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
@@ -127,6 +128,20 @@ async function seed(doc: BlueprintDoc = clinicVisitsDocument()) {
 	return doc;
 }
 
+/**
+ * Every confirmation a publish can ask for. The sequence's cases are about
+ * what a publish sends, so each says yes to all of them; preflight keeps
+ * only what the app needs. `publishGates.postgres.test.ts` holds the asking.
+ */
+const CONFIRM_ALL: readonly DeploymentConfirmationKey[] = [
+	...PLAN_FEATURE_IDS.map((subject) => ({
+		kind: "plan-feature" as const,
+		subject,
+	})),
+	{ kind: "flat-location-fixture" },
+	{ kind: "connect-forwarder" },
+];
+
 function publish(
 	doc: BlueprintDoc,
 	discardRemoteChanges?: readonly RemoteChangeDiscard[],
@@ -137,6 +152,7 @@ function publish(
 		doc,
 		compiledAtSeq: 0,
 		appName: doc.appName,
+		confirm: CONFIRM_ALL,
 		...(discardRemoteChanges && { discardRemoteChanges }),
 	});
 }
@@ -460,8 +476,9 @@ describe("a first publish", () => {
 
 		const [shell, update] = bodies;
 		expect(shell.appId).toBeNull();
-		// Eight keys: `auto_gps_capture` is written only for a Connect app, and
+		// Seven keys: `auto_gps_capture` is written only for a Connect app, and
 		// `add_ons` and `profile` arrive with the update over the shell's read.
+		// HQ keeps its own `build_spec`, so no body names one.
 		expect(Object.keys(shell.app)).toEqual(
 			APP_SHELL_KEYS.filter((key) => key !== "auto_gps_capture"),
 		);
@@ -473,6 +490,7 @@ describe("a first publish", () => {
 			"logo_refs",
 			"profile",
 			"location_fixture_restore",
+			"build_spec",
 		])
 			expect(shell.app).not.toHaveProperty(key);
 

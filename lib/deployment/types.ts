@@ -18,6 +18,16 @@ import {
 	type CommCareServer,
 } from "@/lib/commcare/servers";
 import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
+import {
+	PLAN_FEATURE_IDS,
+	type PlanFeatureId,
+} from "@/lib/publish/planFeatures";
+
+/* `z.enum` takes a non-empty tuple; the ids are a fixed, non-empty list. */
+export const PLAN_FEATURE_ID_LIST = PLAN_FEATURE_IDS as unknown as readonly [
+	PlanFeatureId,
+	...PlanFeatureId[],
+];
 
 export type { CommCareServer } from "@/lib/commcare/servers";
 
@@ -190,6 +200,17 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 * listed change by naming it back with the state they were shown.
 	 */
 	"hq_changed",
+	/**
+	 * The app needs something of the project space that no API key reads (a
+	 * plan feature, the flat location list, a Connect forwarder), and a person
+	 * has not confirmed it there. Nothing was sent.
+	 */
+	"hq_confirmation_needed",
+	/**
+	 * The app on CommCare HQ is set to a CommCare version below the one Nova's
+	 * apps need. Nothing of this publish's content was sent.
+	 */
+	"hq_app_version_below_floor",
 	/** The released build did not serve the profile a device installs from. */
 	"build_not_installable",
 ] as const;
@@ -260,6 +281,41 @@ export interface DeploymentAttemptRefusal {
 	 * afresh and lists the change with its current digest.
 	 */
 	readonly remoteChanges: readonly DeploymentRemoteChange[];
+	/**
+	 * Non-empty exactly for `hq_confirmation_needed`: what a person has to
+	 * confirm about the project space before this publish goes ahead.
+	 */
+	readonly confirmationsNeeded: readonly DeploymentConfirmationNeeded[];
+}
+
+/**
+ * What a caller names when a person confirmed it about the project space,
+ * sent back with the publish that the refusal asked for it.
+ */
+export type DeploymentConfirmationKey =
+	| { readonly kind: "plan-feature"; readonly subject: PlanFeatureId }
+	| { readonly kind: "flat-location-fixture" }
+	| { readonly kind: "connect-forwarder" };
+
+/**
+ * One thing a publish asks a person to confirm, with the words to ask it in:
+ * a plan feature's label, the current plans that include it (empty for a
+ * project-space setting no plan decides), what goes wrong without it, and
+ * why this app needs it.
+ */
+export interface DeploymentConfirmationNeeded {
+	readonly kind: DeploymentConfirmationKind;
+	/** A plan feature's id, or the kind's own name for the other two kinds. */
+	readonly subject: string;
+	readonly label: string;
+	readonly plans: string;
+	readonly consequence: string;
+	readonly reasons: readonly string[];
+}
+
+/** The subject a confirmation key is stored under. */
+export function confirmationSubject(key: DeploymentConfirmationKey): string {
+	return key.kind === "plan-feature" ? key.subject : key.kind;
 }
 
 /** Names one HQ table or place a baseline is kept for. */
@@ -681,6 +737,25 @@ export const deploymentTargetSchema = z.strictObject({
 	domain: z.string().trim().min(1).max(255),
 });
 export type DeploymentTarget = z.infer<typeof deploymentTargetSchema>;
+
+/** One confirmation key as a caller states it, in the vocabulary a refusal named. */
+export const deploymentConfirmationKeySchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("plan-feature"),
+		subject: z.enum(PLAN_FEATURE_ID_LIST),
+	}),
+	z.strictObject({ kind: z.literal("flat-location-fixture") }),
+	z.strictObject({ kind: z.literal("connect-forwarder") }),
+]);
+
+/** Withdraw one confirmation from the deployment on one target. */
+export const withdrawDeploymentConfirmationSchema =
+	deploymentTargetSchema.extend({
+		confirmation: deploymentConfirmationKeySchema,
+	});
+export type WithdrawDeploymentConfirmationRequest = z.infer<
+	typeof withdrawDeploymentConfirmationSchema
+>;
 
 /**
  * How many workers one provisioning call may ask for.

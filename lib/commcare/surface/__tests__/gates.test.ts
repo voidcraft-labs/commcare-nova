@@ -14,12 +14,18 @@
  * A gate entry's content links and an inventory entry's `gates` state one
  * relation from its two ends, authored apart, so the gate end is checked to
  * hold every link the inventory end states.
+ *
+ * The flag probe checks each gate where the manifest names it: content
+ * Nova holds (`HELD`) behind a toggle whose preflight is a precondition is
+ * content a publish sends, so the probe has to ask the project space for that
+ * toggle, or the publish goes out to a space whose editors drop the content.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { HQ_PRIVATE_FEATURE_FLAG_SYMBOLS } from "../../projectSpaceCompatibility";
 import { domainFeatureFlag, toggleGate } from "../gates";
 import {
 	gateEntriesFileSchema,
@@ -51,6 +57,7 @@ const INVENTORY = INVENTORY_AREAS.flatMap((area) =>
 		.array(
 			z.object({
 				id: inventoryEntryIdSchema,
+				disposition: z.string(),
 				gates: z.array(gateEntryIdSchema),
 				reasons: z
 					.array(
@@ -65,6 +72,8 @@ const INVENTORY = INVENTORY_AREAS.flatMap((area) =>
 		.parse(readJson(`entries/${area}.json`))
 		.map((entry) => ({
 			id: entry.id,
+			disposition: entry.disposition,
+			named: new Set(entry.gates),
 			gates: new Set([
 				...entry.gates,
 				...(entry.reasons ?? []).flatMap((reason) =>
@@ -146,6 +155,33 @@ describe("gate entries", () => {
 			}),
 		);
 		expect(unlinked).toEqual([]);
+	});
+});
+
+describe("the flag probe", () => {
+	it("checks each gate where the manifest names it", () => {
+		const probed = new Set<string>(
+			Object.values(HQ_PRIVATE_FEATURE_FLAG_SYMBOLS),
+		);
+		const byId = new Map(GATES.map((gate) => [gate.id, gate]));
+		const unprobed = INVENTORY.flatMap((entry) =>
+			entry.disposition !== "HELD"
+				? []
+				: [...entry.named].flatMap((id) => {
+						const gate = byId.get(id);
+						if (
+							gate?.kind !== "toggle" ||
+							gate.preflight.kind !== "precondition"
+						) {
+							return [];
+						}
+						const [symbol] = gate.symbols;
+						return symbol === undefined || probed.has(symbol)
+							? []
+							: [`${entry.id} names ${gate.id}, which the probe never asks`];
+					}),
+		);
+		expect(unprobed).toEqual([]);
 	});
 });
 

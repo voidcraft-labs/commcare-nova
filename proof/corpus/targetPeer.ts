@@ -181,11 +181,15 @@ const HQ_DEFAULTS_FOR_A_SHELL: Readonly<Record<string, unknown>> = {
 /**
  * The source HQ serves for the app a shell's create made
  * (`app_manager/views/apps.py::app_source`): each key of
- * `lib/commcare/expander.ts::APP_SHELL_KEYS` as the shell sent it, but the
- * CommCare version, which HQ never takes from the body
- * (`models/applications.py::_import_app` deletes `build_spec`, and the app
- * takes HQ's default, the configuration's version), and HQ's default for
- * each key the shell does not hold.
+ * `lib/commcare/expander.ts::APP_SHELL_KEYS` as the shell sent it, HQ's
+ * default for each key the shell does not hold, and the build HQ gives
+ * every app it creates (`models/applications.py::_import_app` deletes any
+ * `build_spec` a body names, and the app takes
+ * `builds/utils.py::get_default_build_spec`, the default build of the
+ * configuration's CommCare version, as the lane's HQ seeds it in
+ * `proof/hq/state.py`), serialized as HQ's `BuildSpec`. Nova's publish reads
+ * the version from it (`HqAppSource.buildSpecVersion`) and holds it to its
+ * floor.
  */
 export function shellSource(
 	shell: Readonly<Record<string, unknown>>,
@@ -197,10 +201,11 @@ export function shellSource(
 	for (const key of APP_SHELL_KEYS) {
 		if (Object.hasOwn(shell, key)) source[key] = structuredClone(shell[key]);
 	}
-	const buildSpec = source.build_spec;
 	source.build_spec = {
-		...(typeof buildSpec === "object" && buildSpec !== null ? buildSpec : {}),
+		doc_type: "BuildSpec",
 		version: commcareVersion,
+		build_number: null,
+		latest: true,
 	};
 	return source;
 }

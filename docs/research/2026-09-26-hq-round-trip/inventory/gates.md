@@ -120,6 +120,7 @@ Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTAC
 | `geocoder` | TARGET-OWNED · HELD-NEW (Search prompts geocoder, Appearances `address`) | n/a | confirmed at publish (+ CASE_SEARCH_ADVANCED) |
 | `show_enable_all_add_ons` | TARGET-OWNED · no content | n/a | none |
 | `public_webforms`, `view_app_diff`, `release_management`, `lite_release_management`, `login_as` | adjacent · no content | n/a | none |
+| `data_forwarding` | TARGET-OWNED · HELD (Question types Connect blocks) | n/a | HQ registers no repeat record without it (`corehq/motech/repeaters/models.py::domain_can_forward`), so a Connect app's forms never reach CommCare Connect; confirmed at publish, with a Connect forwarder |
 
 ### Build versions
 

@@ -96,7 +96,10 @@ import {
 	TARGET_PROFILE_WITH_DERIVED_KEY,
 } from "@/lib/deployment/__tests__/publishFixtures";
 import { publishAppToHq } from "@/lib/deployment/service";
-import type { RemoteChangeDiscard } from "@/lib/deployment/types";
+import type {
+	DeploymentConfirmationKey,
+	RemoteChangeDiscard,
+} from "@/lib/deployment/types";
 import { setFormDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
@@ -113,6 +116,7 @@ import {
 	replaceLookupRows,
 } from "@/lib/lookup/service";
 import { loadAppBlueprint } from "@/lib/mcp/loadApp";
+import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import type { HqSideSaves } from "../documents";
@@ -273,6 +277,21 @@ function lines(log: readonly PeerRequest[]): string[] {
 	return log.map((request) => `${request.method} ${request.path}`);
 }
 
+/**
+ * Every confirmation a publish can ask for. The capture publishes to the
+ * project space its configuration makes, which has each one, so the person
+ * here says yes to all of them; preflight keeps only what the app needs.
+ * `lib/deployment/__tests__/publishGates.postgres.test.ts` holds the asking.
+ */
+const CONFIRM_ALL: readonly DeploymentConfirmationKey[] = [
+	...PLAN_FEATURE_IDS.map((subject) => ({
+		kind: "plan-feature" as const,
+		subject,
+	})),
+	{ kind: "flat-location-fixture" },
+	{ kind: "connect-forwarder" },
+];
+
 /** Publish the stored app through the real lifecycle, as the MCP tool calls it, with what a person confirmed. */
 async function attempt(
 	confirmed: {
@@ -289,6 +308,7 @@ async function attempt(
 		appName: confirmed.appName ?? loaded.app.app_name,
 		server: "production",
 		domain: DOMAIN,
+		confirm: CONFIRM_ALL,
 		...(confirmed.discardRemoteChanges !== undefined && {
 			discardRemoteChanges: confirmed.discardRemoteChanges,
 		}),

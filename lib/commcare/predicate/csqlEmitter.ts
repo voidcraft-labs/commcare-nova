@@ -228,6 +228,53 @@ const PREC_AND = 2;
 type OperandPosition = "comparison-operand" | "value";
 
 /**
+ * The CSQL functions that read related cases, each of which HQ's case search
+ * refuses without `CASE_SEARCH_RELATED_LOOKUPS`
+ * (`case_search/filter_dsl.py::build_filter_from_ast` sends `subcase-exists`,
+ * `subcase-count` and `ancestor-exists` to `_require_related_lookups_flag`).
+ */
+export type CsqlRelatedCaseQuery =
+	| "ancestor-exists"
+	| "subcase-exists"
+	| "subcase-count";
+
+/**
+ * The open `collectRelatedCaseQueries` scope, if any. Emission is synchronous,
+ * so the scope a write lands in is the one that opened around it.
+ */
+let relatedCaseQueriesWritten: Set<CsqlRelatedCaseQuery> | undefined;
+
+/** Every site that writes a related-case function into CSQL names it here. */
+function writeRelatedCaseQuery(name: CsqlRelatedCaseQuery): void {
+	assertCsqlQueryFunction(name);
+	relatedCaseQueriesWritten?.add(name);
+}
+
+/**
+ * Run `emit` and report each related-case function the CSQL emitter wrote
+ * during it. The answer is the emitter's own: the sites that write
+ * `ancestor-exists(...)`, `subcase-exists(...)` or `subcase-count(...)` into
+ * a query record the call as they write it, so an ancestor case-id comparison
+ * (which the relation lift writes as `ancestor-exists`) counts, and a `count`
+ * the emitter inlines as an on-device number does not.
+ */
+export function collectRelatedCaseQueries<T>(emit: () => T): {
+	readonly result: T;
+	readonly written: ReadonlySet<CsqlRelatedCaseQuery>;
+} {
+	const outer = relatedCaseQueriesWritten;
+	const written = new Set<CsqlRelatedCaseQuery>();
+	relatedCaseQueriesWritten = written;
+	try {
+		const result = emit();
+		for (const name of written) outer?.add(name);
+		return { result, written };
+	} finally {
+		relatedCaseQueriesWritten = outer;
+	}
+}
+
+/**
  * Top-level entry point. Lifts vias, emits, wraps into the on-device
  * wrapper expression (see `emitLiftedResult` for the shapes).
  * The lift pass is total — every input AST reaches native segment
@@ -801,7 +848,7 @@ function emitOperandSegments(
 ): CsqlSegment[] {
 	if (expr.kind === "count") {
 		if (position === "comparison-operand" && expr.via.kind === "subcase") {
-			assertCsqlQueryFunction("subcase-count");
+			writeRelatedCaseQuery("subcase-count");
 			assertCsqlQueryFunction("match-all");
 			// CCHQ's `_is_subcase_count` recogniser only matches a
 			// `subcase-count(...)` function call sitting directly on a
@@ -1429,7 +1476,7 @@ function emitAncestorExistsCall(
 	where: Predicate | undefined,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	assertCsqlQueryFunction("ancestor-exists");
+	writeRelatedCaseQuery("ancestor-exists");
 	assertCsqlQueryFunction("match-all");
 	if (steps.some((step) => step.throughCaseType !== undefined)) {
 		return emitQualifiedAncestorExistsChain(steps, where, typeContext, 0);
@@ -1458,7 +1505,7 @@ function emitQualifiedAncestorExistsChain(
 	typeContext: TypeContext | undefined,
 	index: number,
 ): CsqlSegment[] {
-	assertCsqlQueryFunction("ancestor-exists");
+	writeRelatedCaseQuery("ancestor-exists");
 	assertCsqlQueryFunction("match-all");
 	const step = steps[index];
 	const inner =
@@ -1511,7 +1558,7 @@ function emitSubcaseExistsCall(
 	where: Predicate | undefined,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	assertCsqlQueryFunction("subcase-exists");
+	writeRelatedCaseQuery("subcase-exists");
 	assertCsqlQueryFunction("match-all");
 	const identifierLiteral = quoteLiteral(identifier, "csql");
 	if (where === undefined && ofCaseType === undefined) {

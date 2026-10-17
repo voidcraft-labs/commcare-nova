@@ -103,6 +103,26 @@ export function checkCompilerEvidence(doc: BlueprintDoc): void {
 	);
 	const hq = expandDoc(doc, { assets: manifest });
 	expect(validateHqJson(hq)).toEqual([]);
+	/* Every app leaves the flat location list to the project space's own
+	 * setting, which publish asks the person to confirm. */
+	expect(hq.location_fixture_restore).toBe("project_default");
+	/* HQ's version and the app's logo are the target's: a create stores the
+	 * server's default build and an update excludes the key, and a logo
+	 * reaches HQ through its own uploader. */
+	expect(hq).not.toHaveProperty("build_spec");
+	expect(hq).not.toHaveProperty("logo_refs");
+	/* A child case of its own menu's case type is content no document holds
+	 * (`deriveCaseWriteInventory` puts such a write in the primary bucket),
+	 * so HQ's `DONT_INDEX_SAME_CASETYPE` never applies to a Nova app. */
+	for (const module of hq.modules) {
+		for (const form of module.forms) {
+			expect(
+				form.actions.subcases.filter(
+					(subcase) => subcase.case_type === module.case_type,
+				),
+			).toEqual([]);
+		}
+	}
 	expect(checkCaseReferences(hq)).toEqual([]);
 	const sources = Object.entries(hq._attachments).filter(([path]) =>
 		path.endsWith(".xml"),

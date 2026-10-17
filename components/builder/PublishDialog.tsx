@@ -35,13 +35,22 @@ import {
 	useState,
 } from "react";
 import {
+	type ConfirmationRequest,
 	compactTargetRows,
+	confirmationRequests,
+	everyConfirmationGiven,
 	preseededDomainSelection,
+	sameConfirmationKey,
 	upsertDeploymentViews,
+	withLandedConfirmations,
 } from "@/components/builder/app-setup/publishingSectionModel";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
 import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
-import { publishOutcome } from "@/components/builder/publishOutcome";
+import {
+	landedWebAppsLine,
+	type PublishLogoStepBody,
+	publishOutcome,
+} from "@/components/builder/publishOutcome";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import {
@@ -79,6 +88,7 @@ import {
 	readDeploymentsAction,
 	readDownloadTargetsAction,
 } from "@/lib/deployment/actions";
+import type { ProjectSpaceConfirmationChecks } from "@/lib/deployment/confirmations";
 import {
 	type NextPublishAction,
 	nextPublishAction,
@@ -89,6 +99,9 @@ import {
 	SELECTION_HELD_FROM_HQ,
 } from "@/lib/deployment/runtimeTarget";
 import type {
+	DeploymentConfirmationKey,
+	DeploymentConfirmationNeeded,
+	DeploymentFailureCode,
 	DeploymentRemoteChange,
 	DeploymentResourceConflict,
 	RemoteChangeDiscard,
@@ -96,6 +109,12 @@ import type {
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
 import type { ManualImportStep } from "@/lib/publish/manualImportGuide";
+import {
+	CONNECT_FORWARDER,
+	FLAT_LOCATION_FIXTURE,
+	LOGO_UPLOAD_STEP_TEXT,
+	PLAN_FEATURE_CONFIRM_LABEL,
+} from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
 	useAccessPhase,
@@ -140,7 +159,12 @@ export type PublishDownloadOutcome =
 	| { readonly ok: false };
 
 export type PublishProjectSpaceCompatibilityOutcome =
-	| { readonly ok: true; readonly report: ProjectSpaceCompatibilityReport }
+	| {
+			readonly ok: true;
+			readonly report: ProjectSpaceCompatibilityReport;
+			/** What a publish there will ask the person to confirm. */
+			readonly confirmations: ProjectSpaceConfirmationChecks;
+	  }
 	| { readonly ok: false; readonly message: string };
 
 interface PublishDialogProps {
@@ -193,6 +217,11 @@ type PublishStatus =
 			/** The App Preview line, after a publish that wrote over the app
 			 *  without knowing it unchanged; null otherwise. */
 			appPreviewNote: string | null;
+			/** What the dialog says where Web Apps does not offer the app
+			 *  on the space published to; null otherwise. */
+			webAppsLine: string | null;
+			/** The logo the publish offers to add in CommCare HQ; null without one. */
+			logoStep: PublishLogoStepBody | null;
 			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 			/** Null when the response carried no record to point at. */
 			target: { server: string; domain: string } | null;
@@ -203,7 +232,15 @@ type PublishStatus =
 			 * in the shared deployments list, rather than a second copy
 			 * here that would drift from it. */
 			type: "refused";
-			refusal: { detail: string; items: readonly string[] };
+			refusal: {
+				code: DeploymentFailureCode;
+				detail: string;
+				items: readonly string[];
+			};
+			/** The HQ app, where the publish found it there; null otherwise. */
+			hqAppUrl: string | null;
+			/** What the person has to confirm about the project space. */
+			confirmationsNeeded: readonly DeploymentConfirmationNeeded[];
 			/** What the publish would have written over and did not. */
 			resourceConflicts: readonly DeploymentResourceConflict[];
 			/** What changed in CommCare HQ since Nova last published there. */
@@ -222,7 +259,12 @@ type PublishStatus =
 
 type ProjectSpaceCompatibilityState =
 	| { type: "loading" }
-	| { type: "ready"; report: ProjectSpaceCompatibilityReport }
+	| {
+			type: "ready";
+			report: ProjectSpaceCompatibilityReport;
+			/** Absent where the report came from a publish, which lists none. */
+			confirmations?: ProjectSpaceConfirmationChecks;
+	  }
 	| { type: "error"; message: string };
 
 function compatibilityAllowsDirectUpload(
@@ -334,6 +376,18 @@ export function PublishDialog({
 	const [discardRemoteChanges, setDiscardRemoteChanges] = useState<
 		readonly RemoteChangeDiscard[]
 	>([]);
+	/**
+	 * What this person has said the selected project space has: plan
+	 * features and settings no API key reads.
+	 *
+	 * Kept across a refused publish, because a refusal stores none of them
+	 * and the next try has to send them again; cleared whenever the target
+	 * changes, so an answer about acme is never sent for beta, and once a
+	 * publish lands, since the deployment then holds them.
+	 */
+	const [confirmations, setConfirmations] = useState<
+		readonly DeploymentConfirmationKey[]
+	>([]);
 	const [compatibilityState, setCompatibilityState] =
 		useState<ProjectSpaceCompatibilityState>({
 			type: "loading",
@@ -344,6 +398,7 @@ export function PublishDialog({
 		consentServerRef.current = connectionServer;
 		setAdoptResourceIds([]);
 		setDiscardRemoteChanges([]);
+		setConfirmations([]);
 	}, [connectionServer]);
 	const handleClose = useCallback(() => {
 		operationGenerationRef.current += 1;
@@ -409,6 +464,7 @@ export function PublishDialog({
 		if (!justOpened) return;
 		setAdoptResourceIds([]);
 		setDiscardRemoteChanges([]);
+		setConfirmations([]);
 		operationGenerationRef.current += 1;
 		setStatus({ type: "idle" });
 		setDownloadTargets({ type: "loading" });
@@ -583,7 +639,11 @@ export function PublishDialog({
 			compatibilityControllerRef.current = null;
 			setCompatibilityState(
 				outcome.ok
-					? { type: "ready", report: outcome.report }
+					? {
+							type: "ready",
+							report: outcome.report,
+							confirmations: outcome.confirmations,
+						}
 					: { type: "error", message: outcome.message },
 			);
 		});
@@ -622,6 +682,7 @@ export function PublishDialog({
 			operationGenerationRef.current += 1;
 			setAdoptResourceIds([]);
 			setDiscardRemoteChanges([]);
+			setConfirmations([]);
 			setTarget(next);
 			setStatus({ type: "idle" });
 		},
@@ -641,6 +702,7 @@ export function PublishDialog({
 			/* A choice about acme's tables says nothing about beta's. */
 			setAdoptResourceIds([]);
 			setDiscardRemoteChanges([]);
+			setConfirmations([]);
 		},
 		[compatibilityDomain, invalidateCompatibilityReport],
 	);
@@ -672,6 +734,17 @@ export function PublishDialog({
 							},
 						]
 					: rest;
+			});
+		},
+		[],
+	);
+	const handleConfirmChange = useCallback(
+		(key: DeploymentConfirmationKey, confirmed: boolean) => {
+			setConfirmations((current) => {
+				const rest = current.filter(
+					(entry) => !sameConfirmationKey(entry, key),
+				);
+				return confirmed ? [...rest, key] : rest;
 			});
 		},
 		[],
@@ -709,6 +782,9 @@ export function PublishDialog({
 		uploadControllerRef.current?.abort();
 		const controller = new AbortController();
 		uploadControllerRef.current = controller;
+		/* The space this request publishes to, whatever is selected by the
+		 * time it answers. */
+		const publishedDomain = selectedDomain;
 		setStatus({ type: "uploading" });
 
 		try {
@@ -716,11 +792,12 @@ export function PublishDialog({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					domain: selectedDomain,
+					domain: publishedDomain,
 					appName: appName.trim(),
 					appId: getAppId(),
 					adopt_resources: adoptResourceIds,
 					discard_remote_changes: discardRemoteChanges,
+					confirm: confirmations,
 				}),
 				signal: controller.signal,
 			});
@@ -742,10 +819,17 @@ export function PublishDialog({
 			 * earlier preflight refused the attempt before compatibility was checked,
 			 * so the earlier answer remains the gate for a corrected retry. */
 			if (serverCompatibility !== undefined) {
-				setCompatibilityState({
+				setCompatibilityState((current) => ({
 					type: "ready",
 					report: serverCompatibility,
-				});
+					/* A publish lists no confirmations; what the check listed
+					 * still stands for the same project space. */
+					confirmations:
+						current.type === "ready" &&
+						current.report.target_domain === serverCompatibility.target_domain
+							? current.confirmations
+							: undefined,
+				}));
 			}
 
 			/* One pure decision, kept out of here because getting it wrong is
@@ -776,11 +860,32 @@ export function PublishDialog({
 			setProjectSpace(outcome.previewProjectSpace);
 			if (outcome.kind === "landed") {
 				if (outcome.deployment !== null) upsertView(outcome.deployment);
+				/* The check's rows were read before this publish stored what
+				 * was ticked; read them as the deployment holds them now, so
+				 * publishing again from here asks only what is unanswered. */
+				const landedRecord = outcome.deployment?.deployment;
+				if (landedRecord !== undefined) {
+					setCompatibilityState((current) =>
+						current.type === "ready" &&
+						current.confirmations !== undefined &&
+						current.report.target_domain === landedRecord.deployment.domain
+							? {
+									...current,
+									confirmations: withLandedConfirmations(
+										current.confirmations,
+										landedRecord.confirmations,
+									),
+								}
+							: current,
+					);
+				}
 				/* Taking a table over happened; the ledger remembers it now, so
 				 * the next publish must not re-assert a choice nobody made
 				 * again. */
 				setAdoptResourceIds([]);
 				setDiscardRemoteChanges([]);
+				/* The deployment holds what was confirmed from now on. */
+				setConfirmations([]);
 				setLandedPublishes((count) => count + 1);
 				const record = outcome.deployment?.deployment.deployment;
 				setStatus({
@@ -789,6 +894,11 @@ export function PublishDialog({
 					appUrl: outcome.appUrl,
 					warnings: outcome.warnings,
 					appPreviewNote: outcome.appPreviewNote,
+					webAppsLine: landedWebAppsLine(
+						outcome.webAppsEnabled,
+						publishedDomain,
+					),
+					logoStep: outcome.logoStep,
 					projectSpaceCompatibility: serverCompatibility,
 					target:
 						record === undefined
@@ -811,9 +921,12 @@ export function PublishDialog({
 			setStatus({
 				type: "refused",
 				refusal: {
+					code: outcome.refusal.code,
 					detail: outcome.refusal.message,
 					items: outcome.refusal.items,
 				},
+				hqAppUrl: outcome.hqAppUrl,
+				confirmationsNeeded: outcome.confirmationsNeeded,
 				resourceConflicts: outcome.resourceConflicts,
 				remoteChanges: outcome.remoteChanges,
 				warnings: outcome.warnings,
@@ -841,6 +954,7 @@ export function PublishDialog({
 	}, [
 		adoptResourceIds,
 		discardRemoteChanges,
+		confirmations,
 		compatibilityState,
 		selectedDomain,
 		appName,
@@ -889,6 +1003,23 @@ export function PublishDialog({
 	const allRemoteChangesConfirmed = remoteChangesToConfirm.every((change) =>
 		discardRemoteChanges.some((entry) => sameRemoteChange(entry, change)),
 	);
+	/* What the person has to confirm about the selected project space: the
+	 * rows the check listed before the first press, and any a refusal named
+	 * since. Publish stays unavailable until each is ticked. */
+	const requestedConfirmations =
+		target === "hq" && status.type !== "landed"
+			? confirmationRequests(
+					compatibilityState.type === "ready" &&
+						compatibilityState.report.target_domain === selectedDomain
+						? (compatibilityState.confirmations ?? null)
+						: null,
+					status.type === "refused" ? status.confirmationsNeeded : [],
+				)
+			: [];
+	const allConfirmationsGiven = everyConfirmationGiven(
+		requestedConfirmations,
+		confirmations,
+	);
 	const canUpload =
 		canEdit &&
 		canUploadToHq &&
@@ -897,6 +1028,7 @@ export function PublishDialog({
 		!isWorking &&
 		compatibilityAllowsUpload &&
 		allRemoteChangesConfirmed &&
+		allConfirmationsGiven &&
 		appName.trim().length > 0;
 	const downloadTarget = target === "mobile" ? "mobile" : "web";
 	const downloadComplete =
@@ -1080,6 +1212,20 @@ export function PublishDialog({
 												{status.appPreviewNote}
 											</p>
 										) : null}
+										{/* Said, never asked: CommCare HQ decided it from the
+										    plan when it made the app, and Nova writes nothing
+										    to it. */}
+										{status.webAppsLine !== null ? (
+											<p className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-2.5 text-left text-xs leading-relaxed text-nova-text-secondary">
+												{status.webAppsLine}
+											</p>
+										) : null}
+										{status.logoStep?.changed ? (
+											<LogoStep
+												step={status.logoStep}
+												hqAppUrl={status.appUrl}
+											/>
+										) : null}
 										{/* The app is THERE, which is not the same as ready
 										    for workers. The record says which, so the
 										    celebration never outruns the facts. */}
@@ -1089,6 +1235,7 @@ export function PublishDialog({
 												view={landedView}
 												canRefresh={canEdit}
 												onUpdated={handleRefreshed}
+												onWithdrawn={upsertView}
 											/>
 										) : null}
 										{/* Workers are made in exactly one place — the
@@ -1150,6 +1297,23 @@ export function PublishDialog({
 														onDiscardChange={handleDiscardChange}
 													/>
 												) : null}
+												{status.refusal.code === "hq_app_version_below_floor" &&
+												status.hqAppUrl !== null ? (
+													<div className="mt-2 text-left">
+														<a
+															href={status.hqAppUrl}
+															target="_blank"
+															rel="noopener noreferrer"
+															className="nova-focusable inline-flex min-h-11 items-center gap-1 text-[13px] font-medium text-nova-violet-bright hover:underline"
+														>
+															Open the app in CommCare HQ
+															<Icon
+																icon={tablerExternalLink}
+																className="size-3.5"
+															/>
+														</a>
+													</div>
+												) : null}
 												{status.projectSpaceCompatibility?.status ===
 												"blocked" ? (
 													<div className="mt-2 flex justify-end">
@@ -1199,6 +1363,15 @@ export function PublishDialog({
 											status={status}
 											publishPlan={publishPlan}
 										/>
+										{requestedConfirmations.length > 0 && canEdit ? (
+											<ConfirmationChoice
+												requests={requestedConfirmations}
+												domain={selectedDomain}
+												given={confirmations}
+												onConfirmChange={handleConfirmChange}
+												disabled={isWorking}
+											/>
+										) : null}
 									</>
 								)
 							) : downloadComplete && status.type === "download-success" ? (
@@ -1918,6 +2091,153 @@ function ResourceConflictChoice({
 	);
 }
 
+/**
+ * What the selected project space needs that Nova can't read from it, and
+ * the one thing that lets the publish go ahead: a person saying it has it.
+ *
+ * Each row starts unticked and is ticked on its own, like a name clash:
+ * no API key reads a project space's plan or these settings, so the answer
+ * is the person's, and it stays on the deployment until someone withdraws
+ * it. Every row says why this app needs it and what happens without it, so
+ * nobody ticks a row they didn't expect without seeing why it is there.
+ */
+function ConfirmationChoice({
+	requests,
+	domain,
+	given,
+	onConfirmChange,
+	disabled,
+}: {
+	requests: readonly ConfirmationRequest[];
+	domain: string;
+	given: readonly DeploymentConfirmationKey[];
+	onConfirmChange: (key: DeploymentConfirmationKey, confirmed: boolean) => void;
+	disabled: boolean;
+}) {
+	const space = domain || "the project space";
+	return (
+		<section
+			aria-labelledby="publish-confirmations-heading"
+			className="mt-5 rounded-lg border border-nova-border bg-nova-elevated px-3 py-3"
+		>
+			<h4
+				id="publish-confirmations-heading"
+				className="text-[13px] font-semibold text-nova-text"
+			>
+				What this project space needs
+			</h4>
+			<p className="mt-1 text-xs leading-relaxed text-nova-text-secondary">
+				Nova can't read these from CommCare HQ. You can tick each one {space}{" "}
+				has, and Nova keeps your answer for the next publish there. Nova can't
+				see a later change to the plan either, so you can withdraw an answer in
+				App setup.
+			</p>
+			<ul className="mt-2.5 flex flex-col gap-2">
+				{requests.map((request) => {
+					const id = `confirm-${request.kind}-${request.key.kind === "plan-feature" ? request.key.subject : request.kind}`;
+					const setting =
+						request.kind === "flat-location-fixture"
+							? FLAT_LOCATION_FIXTURE
+							: request.kind === "connect-forwarder"
+								? CONNECT_FORWARDER
+								: null;
+					return (
+						<li
+							key={id}
+							className="rounded-lg border border-nova-border bg-nova-well px-3 py-2.5 text-xs leading-relaxed"
+						>
+							<p className="text-[13px] font-medium text-nova-text">
+								{request.label}
+							</p>
+							{setting !== null ? (
+								<p className="mt-1 text-nova-text">{setting.question(space)}</p>
+							) : request.plans !== "" ? (
+								<p className="mt-0.5 text-nova-text-muted">
+									Included in the {request.plans} plans.
+								</p>
+							) : null}
+							{request.reasons.length > 0 ? (
+								<ul className="mt-1.5 flex list-disc flex-col gap-0.5 pl-4 text-nova-text-secondary">
+									{request.reasons.map((reason, index) => (
+										// biome-ignore lint/suspicious/noArrayIndexKey: two forms of the same name give the same sentence, so the text is no key.
+										<li key={index}>{reason}</li>
+									))}
+								</ul>
+							) : null}
+							<p className="mt-1.5 text-nova-text-secondary">
+								{request.consequence}
+							</p>
+							<label
+								htmlFor={id}
+								className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
+							>
+								<Checkbox
+									id={id}
+									checked={given.some((key) =>
+										sameConfirmationKey(key, request.key),
+									)}
+									disabled={disabled}
+									onCheckedChange={(next) =>
+										onConfirmChange(request.key, next === true)
+									}
+								/>
+								<span>
+									{setting?.confirmLabel ?? PLAN_FEATURE_CONFIRM_LABEL}
+									<span className="sr-only"> {request.label}</span>
+								</span>
+							</label>
+							{setting !== null ? (
+								<p className="text-nova-text-muted">{setting.whereMissing}</p>
+							) : null}
+						</li>
+					);
+				})}
+			</ul>
+		</section>
+	);
+}
+
+/**
+ * The logo a publish never sends, offered for the person to add in
+ * CommCare HQ: the sentence every surface reads, the file to download, and
+ * the app to add it to. Shown only when this is not the logo the
+ * deployment already offered.
+ */
+function LogoStep({
+	step,
+	hqAppUrl,
+}: {
+	step: PublishLogoStepBody;
+	hqAppUrl: string;
+}) {
+	return (
+		<div className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-2.5 text-left text-xs leading-relaxed">
+			<p className="text-nova-text-secondary">{LOGO_UPLOAD_STEP_TEXT}</p>
+			<div className="mt-1 flex flex-wrap items-center gap-x-4">
+				<a
+					href={`/api/media/${encodeURIComponent(step.assetId)}`}
+					download={step.fileName}
+					className="nova-focusable inline-flex min-h-11 items-center gap-1 text-[13px] font-medium text-nova-violet-bright hover:underline"
+				>
+					<Icon icon={tablerDownload} className="size-3.5" />
+					Download {step.fileName}
+				</a>
+				{hqAppUrl ? (
+					<a
+						href={hqAppUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="nova-focusable inline-flex min-h-11 items-center gap-1 text-[13px] font-medium text-nova-violet-bright hover:underline"
+					>
+						Open the app in CommCare HQ
+						<Icon icon={tablerExternalLink} className="size-3.5" />
+					</a>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
 /** Whether a discard names this change in the state it was shown in. */
 function sameRemoteChange(
 	discard: RemoteChangeDiscard,
@@ -2021,8 +2341,10 @@ function ProjectSpaceCompatibilityNotice({
 	const targetObject = projectSpaceName
 		? `“${projectSpaceName}”`
 		: "this project space";
-	const title =
-		report.status === "not_needed"
+	const notAMember = report.issue === "not-a-member";
+	const title = notAMember
+		? `Nova couldn't check ${targetObject}`
+		: report.status === "not_needed"
 			? "This app doesn't need additional project-space support"
 			: report.status === "ready"
 				? "This project space can run the app"
@@ -2033,20 +2355,25 @@ function ProjectSpaceCompatibilityNotice({
 						? `Nova couldn't confirm that ${targetObject} can run the app`
 						: `${targetSubject} needs more support to run the app`
 					: "Choose a project space that can run this app";
-	const capabilities = blocked
-		? report.blockers
-		: notChecked
-			? report.required_capabilities
-			: [];
+	const capabilities = notAMember
+		? []
+		: blocked
+			? report.blockers
+			: notChecked
+				? report.required_capabilities
+				: [];
 	const missingCapabilities = report.blockers.filter(
 		(capability) => capability.state === "missing",
 	);
 	const visibleAdvisories = report.advisories.filter(
 		(advisory) => advisory.state !== "available",
 	);
-	const summary = blocked
-		? `Nothing has been sent to ${targetObject}. Review what it needs below, then check again.`
-		: report.message;
+	/* Where the connected account has left the project space, nothing about
+	 * it can be checked, so the report's own sentence says what to do. */
+	const summary =
+		blocked && !notAMember
+			? `Nothing has been sent to ${targetObject}. Review what it needs below, then check again.`
+			: report.message;
 
 	return (
 		<div className="mt-3 space-y-2">

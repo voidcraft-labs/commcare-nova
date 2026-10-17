@@ -22,10 +22,16 @@ import {
 	readHqLookupTableRows,
 } from "@/lib/commcare/hq/lookupTables";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
+import { formsUsingWorkerRecord } from "@/lib/commcare/planPrivileges";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
+import {
+	COMMCARE_VERSION_FLOOR,
+	compareToVersionFloor,
+} from "@/lib/commcare/versionFloor";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
@@ -34,11 +40,18 @@ import {
 } from "@/lib/domain";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
+import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { attachmentUrlTarget } from "./attachmentTarget";
+import {
+	confirmationNeededMessage,
+	requiredConfirmations,
+	settleConfirmations,
+} from "./confirmations";
+import { DeploymentError } from "./errors";
 import {
 	ABSENT_RESOURCE_DIGEST,
 	canonicalLookupTable,
@@ -54,6 +67,7 @@ import {
 	ambiguousReverseHopsOnTarget,
 	authoredReverseHops,
 	type PlacePushProblem,
+	type PlannedPlace,
 	type PlannedPlacePush,
 	planLocationResourcePush,
 	plannedPlacesFor,
@@ -73,11 +87,18 @@ import {
 	HQ_CHANGES_NONE_DETAIL,
 	HQ_CHANGES_NOTHING_TO_COMPARE_DETAIL,
 } from "./remoteChanges";
-import { readAppBaseline, readResourceBaselines } from "./store";
+import {
+	type DeploymentTargetKey,
+	readAppBaseline,
+	readResourceBaselines,
+} from "./store";
 import type {
 	AppBaseline,
 	CanonicalLookupTable,
 	CanonicalPlace,
+	DeploymentConfirmation,
+	DeploymentConfirmationKey,
+	DeploymentConfirmationNeeded,
 	DeploymentFailure,
 	DeploymentRemoteChange,
 	DeploymentResource,
@@ -86,10 +107,7 @@ import type {
 	ResourceBaseline,
 } from "./types";
 import { describeRequiredWorkerDataGaps } from "./workerProvisionPlan";
-import {
-	workerRecordRequirements,
-	workerRecordSetup,
-} from "./workerRecordRequirements";
+import { workerRecordSetup } from "./workerRecordRequirements";
 
 /**
  * The dependency graph Nova checks before anything externally visible
@@ -106,6 +124,10 @@ import {
  * contract truthful: refusing to publish an app because a persona has no
  * value for a required worker property would refuse a publish that would
  * have worked, since Nova creates no workers yet.
+ *
+ * `plan-features` asks CommCare HQ nothing: no API key reads a project
+ * space's plan, so the person confirms each plan feature the app needs, and
+ * the two project-space settings no API reads, once per project space.
  *
  * `project-data` and `organization` talk to CommCare HQ here, and both are
  * blocking for the same reason: each is the only thing standing between a
@@ -130,6 +152,7 @@ import {
 export const PREFLIGHT_CHECK_IDS = [
 	"hq-connection",
 	"app-readiness",
+	"plan-features",
 	"project-data",
 	"organization",
 	"project-space-compatibility",
@@ -223,6 +246,11 @@ export type PreflightResult =
 				 * exactly where HQ's build there does.
 				 */
 				readonly targetEmptyCaseListText: boolean | null;
+				/**
+				 * What the person confirmed with this publish that the app
+				 * needs, for the fold of this passed preflight to store.
+				 */
+				readonly confirmations: readonly DeploymentConfirmationKey[];
 			};
 			readonly projectSpaceCompatibility: ProjectSpaceCompatibilityReport;
 	  }
@@ -250,6 +278,8 @@ export type PreflightResult =
 			readonly remoteAppGone?: DeploymentResource;
 			/** What changed in CommCare HQ, listed exactly when the refusal is `hq_changed`. */
 			readonly remoteChanges?: readonly DeploymentRemoteChange[];
+			/** What a person has to confirm, listed exactly when the refusal is `hq_confirmation_needed`. */
+			readonly confirmationsNeeded?: readonly DeploymentConfirmationNeeded[];
 	  };
 
 /** The tables to push, and what Nova may claim about each. */
@@ -298,6 +328,16 @@ export interface PreflightInput {
 	 * attempt.
 	 */
 	readonly discardRemoteChanges: readonly RemoteChangeDiscard[];
+	/**
+	 * What the deployment already holds confirmed about this project space.
+	 * Empty for a project space this app has never reached.
+	 */
+	readonly confirmations: readonly DeploymentConfirmation[];
+	/**
+	 * What the caller says a person confirmed with this publish. Never
+	 * defaulted from an earlier attempt.
+	 */
+	readonly confirm: readonly DeploymentConfirmationKey[];
 	readonly access: {
 		/** The app whose organization this reads. Authorized by the caller. */
 		readonly appId: string;
@@ -308,6 +348,74 @@ export interface PreflightInput {
 	readonly server: CommCareServer;
 	readonly domain: string;
 	readonly now: string;
+}
+
+/**
+ * What a publish of `doc` to `target` asks a person to confirm, and the
+ * places it sends, with the organization snapshot they were planned from. The `plan-features` edge and the pre-publish check
+ * (`service.ts::projectSpaceConfirmations`) both read this, so the rows a
+ * person ticks before the first press are the ones the publish asks for.
+ *
+ * It asks CommCare HQ nothing. The places come from the app's organization,
+ * read authoritatively: everywhere else an unavailable organization read
+ * degrades to no places, because the artifact is still right without them,
+ * but here that reading would push nothing and then tell somebody their
+ * organization is on the project space. The `organization` edge plans the
+ * push from the same snapshot. The publish sends a lookup table workbook
+ * exactly when the app reads a table (the export boundary refuses an app
+ * whose tables it cannot push), and its capture links resolve against the
+ * target, as `attachmentUrlTarget` hands them to the emitter.
+ */
+export async function publishConfirmationNeeds(
+	access: PreflightInput["access"],
+	doc: BlueprintDoc,
+	target: DeploymentTargetKey,
+): Promise<{
+	readonly locations: readonly StoredLocation[];
+	readonly places: readonly PlannedPlace[];
+	readonly needed: DeploymentConfirmationNeeded[];
+}> {
+	const organized = Object.keys(organizationLevelsOf(doc)).length > 0;
+	const locations = organized ? await readAppLocations(access) : [];
+	const places = organized ? plannedPlacesFor(doc, locations) : [];
+	return {
+		locations,
+		places,
+		needed: requiredConfirmations(
+			doc,
+			{
+				lookupTables: extractLookupReferenceTargets(doc).tableIds.length > 0,
+				places: places.length > 0,
+			},
+			attachmentUrlTarget(target),
+		),
+	};
+}
+
+/**
+ * The app's places. An app this caller can no longer reach (moved to another
+ * Project, deleted, or its access withdrawn since the caller authorized it)
+ * is an expected rejection, said as one; any other failure is operational
+ * and stays as it is.
+ */
+async function readAppLocations(
+	access: PreflightInput["access"],
+): Promise<readonly StoredLocation[]> {
+	try {
+		return (
+			await readOrganization({
+				appId: access.appId,
+				projectId: access.projectId,
+				role: access.role,
+				actorUserId: access.actorUserId,
+			})
+		).locations;
+	} catch (error) {
+		if (error instanceof OrganizationError && error.code === "not_found") {
+			throw new DeploymentError("not_found", error.message, { cause: error });
+		}
+		throw error;
+	}
 }
 
 function blockedOutcome(
@@ -322,7 +430,9 @@ function blockedOutcome(
 		| "hq_organization_mismatch"
 		| "hq_app_state_unknown"
 		| "remote_app_missing"
-		| "hq_changed",
+		| "hq_changed"
+		| "hq_confirmation_needed"
+		| "hq_app_version_below_floor",
 	message: string,
 	details: readonly string[] = [],
 ): {
@@ -548,7 +658,55 @@ export async function runDeploymentPreflight(
 		items: [],
 	});
 
-	// ── 3. Is the data this app reads already on that project space? ─
+	/* The app's places and what this publish asks a person to confirm, read
+	 * before anything is asked of CommCare HQ, by the helper the pre-publish
+	 * check reads too. */
+	const { locations, places, needed } = await publishConfirmationNeeds(
+		input.access,
+		boundary.prepared.doc,
+		{ server: input.server, domain: input.domain },
+	);
+	const settled = settleConfirmations({
+		needed,
+		live: input.confirmations,
+		confirm: input.confirm,
+	});
+	if (settled.missing.length > 0) {
+		const detail = confirmationNeededMessage(input.domain);
+		const items = settled.missing.map((need) => need.label);
+		checks.push({
+			id: "plan-features",
+			title: "What this project space needs",
+			status: "blocked",
+			detail,
+			items,
+		});
+		return {
+			checks,
+			outcome: blockedOutcome(
+				input.now,
+				"hq_confirmation_needed",
+				detail,
+				items,
+			),
+			ready: null,
+			projectSpaceCompatibility: null,
+			conflicts: [],
+			confirmationsNeeded: settled.missing,
+		};
+	}
+	checks.push({
+		id: "plan-features",
+		title: "What this project space needs",
+		status: "passed",
+		detail:
+			needed.length === 0
+				? "This app needs nothing of the project space's plan or settings that Nova would ask about."
+				: "You confirmed that the project space has everything this app needs from its plan and settings.",
+		items: needed.map((need) => need.label),
+	});
+
+	// ── 4. Is the data this app reads already on that project space? ─
 	// Blocking, and it runs BEFORE anything is sent, because the fixture
 	// upload matches tables by tag: pushing without knowing what is there
 	// would take over a same-named table somebody else made.
@@ -713,221 +871,198 @@ export async function runDeploymentPreflight(
 		});
 	}
 
-	// ── 4. Can that project space hold this organization? ───────────
+	// ── 5. Can that project space hold this organization? ───────────
 	// Blocking, and everything knowable is decided here. A place push is
 	// a batch per level and each batch is atomic, so a tree refused
 	// partway has already left places behind; and the site code is a
 	// domain-unique identity, so pushing blind would take over a place
 	// somebody else made.
 	let locationPush: LocationPushPlan | null = null;
-	let locations: readonly StoredLocation[] = [];
-	if (Object.keys(organizationLevelsOf(boundary.prepared.doc)).length > 0) {
-		/* Read authoritatively. Everywhere else an unavailable organization
-		 * read degrades to no places, because the artifact is still right
-		 * without them; here that reading would push nothing and then tell
-		 * somebody their organization is on the project space. */
-		const snapshot = await readOrganization({
-			appId: input.access.appId,
-			projectId: input.access.projectId,
-			role: input.access.role,
-			actorUserId: input.access.actorUserId,
-		});
-		locations = snapshot.locations;
-		const places = plannedPlacesFor(boundary.prepared.doc, locations);
-		if (places.length > 0) {
-			/* Nova cannot tell its own places from anybody else's without
-			 * both answers, so a refusal is never read as "there is nothing
-			 * over there". Four separate things produce these statuses and
-			 * two of them are the same bodyless 403, so the sentence names
-			 * all of them rather than picking one and being confidently
-			 * wrong. */
-			const organizationUnreadable = (
-				error: CommCareApiError,
-			): PreflightResult => {
-				const detail =
-					error.status === 401 || error.status === 403
-						? `Nova can't read the organization on “${domain}”, so it won't push places over what's there. That project space needs the Organizations and API access features, and your CommCare HQ account needs the Edit Locations and Access APIs permissions. Ask a CommCare HQ administrator for whichever is missing.`
-						: `Nova couldn't ask “${domain}” about its organization, so it stopped rather than push places into it. Try publishing again in a moment.`;
-				checks.push({
-					id: "organization",
-					title: "Organization",
-					status: "blocked",
-					detail,
-					items: [],
-				});
-				return {
-					checks,
-					outcome: blockedOutcome(
-						input.now,
-						"hq_resource_state_unknown",
-						detail,
-					),
-					ready: null,
-					projectSpaceCompatibility: null,
-					conflicts: [],
-				};
-			};
-			const hqLevels = await listHqLocationTypes(creds, domain);
-			if ("success" in hqLevels) return organizationUnreadable(hqLevels);
-			const hqPlaces = await listHqLocations(creds, domain);
-			if ("success" in hqPlaces) return organizationUnreadable(hqPlaces);
-
-			/* The target's own tree can make a reverse owner hop ambiguous
-			 * in a way Nova's cannot see. `assertReverseHopTargetsUnambiguous`
-			 * proves the invariant over `app_locations`; CommCare HQ builds
-			 * the fixture from ITS rows, which may hold places Nova never
-			 * created. The emitted XPath selects `@id` from every match, so
-			 * two of them make owner choice depend on fixture order — and
-			 * quietly, since a predicate returning two nodes is not an
-			 * error. This is the one moment Nova can see that tree, and the
-			 * export boundary lets the rule through precisely because it
-			 * carries no Nova identity, so the check belongs here. */
-			const ambiguous = ambiguousReverseHopsOnTarget(
-				authoredReverseHops(boundary.prepared.doc),
-				hqPlaces,
-			);
-			if (ambiguous.length > 0) {
-				const detail = `Some case owner rules in this app pick a place beneath the current owner, and “${domain}” holds more than one place to pick. CommCare HQ would choose between them by fixture order rather than by the rule, so Nova stopped. Give each of these owners one place at that level over there, then publish again.`;
-				checks.push({
-					id: "organization",
-					title: "Organization",
-					status: "blocked",
-					detail,
-					items: ambiguous.map(
-						(hop) =>
-							`${hop.ownerName} holds ${hop.destinationNames.length} places at “${hop.destinationCode}”: ${hop.destinationNames.join(", ")}.`,
-					),
-				});
-				return {
-					checks,
-					outcome: blockedOutcome(
-						input.now,
-						"hq_organization_mismatch",
-						detail,
-					),
-					ready: null,
-					projectSpaceCompatibility: null,
-					conflicts: [],
-				};
-			}
-
-			const plan = planLocationResourcePush({
-				places,
-				mappings: input.mappings,
-				hqLevels,
-				hqPlaces,
-				appModelsPlaceInformation:
-					Object.keys(locationPropertiesOf(boundary.prepared.doc)).length > 0,
-				adoptLocationUuids: input.adoptResourceIds,
-			});
-			if (!plan.ok && plan.reason === "unpushable") {
-				const items = plan.problems.map(describePlaceProblem);
-				const detail = `CommCare HQ won't take some of these places as they stand. Change them in Organization, or set up the matching levels on “${domain}”, then publish again.`;
-				checks.push({
-					id: "organization",
-					title: "Organization",
-					status: "blocked",
-					detail,
-					items,
-				});
-				return {
-					checks,
-					outcome: blockedOutcome(
-						input.now,
-						"hq_organization_mismatch",
-						detail,
-						items,
-					),
-					ready: null,
-					projectSpaceCompatibility: null,
-					conflicts: [],
-				};
-			}
-			if (!plan.ok) {
-				const conflicts: readonly DeploymentResourceConflict[] =
-					plan.conflicts.map((conflict) => ({
-						kind: "location",
-						novaResourceId: conflict.locationUuid,
-						name: conflict.name,
-						identity: conflict.siteCode,
-						remoteId: conflict.remoteId,
-					}));
-				const items = plan.conflicts.map(
-					(conflict) =>
-						`${conflict.name} (${conflict.siteCode}), which “${domain}” calls ${conflict.remoteName}`,
-				);
-				const detail = `“${domain}” already has places with these site codes, and Nova didn't make them. Choose to use the existing places, or remove these from Organization and add them again with codes that are free.`;
-				checks.push({
-					id: "organization",
-					title: "Organization",
-					status: "blocked",
-					detail,
-					items,
-				});
-				return {
-					checks,
-					outcome: blockedOutcome(
-						input.now,
-						"hq_resource_conflict",
-						detail,
-						items,
-					),
-					ready: null,
-					projectSpaceCompatibility: null,
-					conflicts,
-				};
-			}
-			locationPush = { batches: plan.batches, placeCount: places.length };
-
-			/* Each planned place with a live mapping, by the mapping's id. A
-			 * mapped place the read no longer lists is `missing` whatever the
-			 * push plans in its stead. */
-			const mappingByPlace = new Map(
-				input.mappings
-					.filter((resource) => resource.kind === "location")
-					.map((resource) => [resource.novaResourceId, resource] as const),
-			);
-			const comparedPlaces = plan.batches.flat().flatMap((push) => {
-				const mapping = mappingByPlace.get(push.locationUuid);
-				return mapping === undefined
-					? []
-					: [{ push, remoteId: mapping.remoteId }];
-			});
-			if (comparedPlaces.length > 0) {
-				compared = true;
-				const baselines = baselinesByRemoteId(
-					await readResourceBaselines(
-						input.access,
-						target,
-						comparedPlaces.map(({ remoteId }) => ({
-							kind: "location",
-							remoteId,
-						})),
-					),
-				);
-				const placeById = new Map(
-					hqPlaces.map((place) => [place.locationId, place] as const),
-				);
-				for (const { push, remoteId } of comparedPlaces) {
-					const change = placeRemoteChange({
-						push,
-						current: placeById.get(remoteId) ?? null,
-						baseline: baselines.get(remoteId),
-					});
-					if (change !== null) observed.push(change);
-				}
-			}
+	if (places.length > 0) {
+		/* Nova cannot tell its own places from anybody else's without
+		 * both answers, so a refusal is never read as "there is nothing
+		 * over there". Four separate things produce these statuses and
+		 * two of them are the same bodyless 403, so the sentence names
+		 * all of them rather than picking one and being confidently
+		 * wrong. */
+		const organizationUnreadable = (
+			error: CommCareApiError,
+		): PreflightResult => {
+			const detail =
+				error.status === 401 || error.status === 403
+					? `Nova can't read the organization on “${domain}”, so it won't push places over what's there. That project space needs the Organizations and API access features, and your CommCare HQ account needs the Edit Locations and Access APIs permissions. Ask a CommCare HQ administrator for whichever is missing.`
+					: `Nova couldn't ask “${domain}” about its organization, so it stopped rather than push places into it. Try publishing again in a moment.`;
 			checks.push({
 				id: "organization",
 				title: "Organization",
-				status: "passed",
-				detail: `Nova will put ${describePlaceCount(places.length)} on “${domain}” before sending the app, parents first.`,
-				items: describePlacesByLevel(places),
+				status: "blocked",
+				detail,
+				items: [],
 			});
+			return {
+				checks,
+				outcome: blockedOutcome(input.now, "hq_resource_state_unknown", detail),
+				ready: null,
+				projectSpaceCompatibility: null,
+				conflicts: [],
+			};
+		};
+		const hqLevels = await listHqLocationTypes(creds, domain);
+		if ("success" in hqLevels) return organizationUnreadable(hqLevels);
+		const hqPlaces = await listHqLocations(creds, domain);
+		if ("success" in hqPlaces) return organizationUnreadable(hqPlaces);
+
+		/* The target's own tree can make a reverse owner hop ambiguous
+		 * in a way Nova's cannot see. `assertReverseHopTargetsUnambiguous`
+		 * proves the invariant over `app_locations`; CommCare HQ builds
+		 * the fixture from ITS rows, which may hold places Nova never
+		 * created. The emitted XPath selects `@id` from every match, so
+		 * two of them make owner choice depend on fixture order — and
+		 * quietly, since a predicate returning two nodes is not an
+		 * error. This is the one moment Nova can see that tree, and the
+		 * export boundary lets the rule through precisely because it
+		 * carries no Nova identity, so the check belongs here. */
+		const ambiguous = ambiguousReverseHopsOnTarget(
+			authoredReverseHops(boundary.prepared.doc),
+			hqPlaces,
+		);
+		if (ambiguous.length > 0) {
+			const detail = `Some case owner rules in this app pick a place beneath the current owner, and “${domain}” holds more than one place to pick. CommCare HQ would choose between them by fixture order rather than by the rule, so Nova stopped. Give each of these owners one place at that level over there, then publish again.`;
+			checks.push({
+				id: "organization",
+				title: "Organization",
+				status: "blocked",
+				detail,
+				items: ambiguous.map(
+					(hop) =>
+						`${hop.ownerName} holds ${hop.destinationNames.length} places at “${hop.destinationCode}”: ${hop.destinationNames.join(", ")}.`,
+				),
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(input.now, "hq_organization_mismatch", detail),
+				ready: null,
+				projectSpaceCompatibility: null,
+				conflicts: [],
+			};
 		}
+
+		const plan = planLocationResourcePush({
+			places,
+			mappings: input.mappings,
+			hqLevels,
+			hqPlaces,
+			appModelsPlaceInformation:
+				Object.keys(locationPropertiesOf(boundary.prepared.doc)).length > 0,
+			adoptLocationUuids: input.adoptResourceIds,
+		});
+		if (!plan.ok && plan.reason === "unpushable") {
+			const items = plan.problems.map(describePlaceProblem);
+			const detail = `CommCare HQ won't take some of these places as they stand. Change them in Organization, or set up the matching levels on “${domain}”, then publish again.`;
+			checks.push({
+				id: "organization",
+				title: "Organization",
+				status: "blocked",
+				detail,
+				items,
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(
+					input.now,
+					"hq_organization_mismatch",
+					detail,
+					items,
+				),
+				ready: null,
+				projectSpaceCompatibility: null,
+				conflicts: [],
+			};
+		}
+		if (!plan.ok) {
+			const conflicts: readonly DeploymentResourceConflict[] =
+				plan.conflicts.map((conflict) => ({
+					kind: "location",
+					novaResourceId: conflict.locationUuid,
+					name: conflict.name,
+					identity: conflict.siteCode,
+					remoteId: conflict.remoteId,
+				}));
+			const items = plan.conflicts.map(
+				(conflict) =>
+					`${conflict.name} (${conflict.siteCode}), which “${domain}” calls ${conflict.remoteName}`,
+			);
+			const detail = `“${domain}” already has places with these site codes, and Nova didn't make them. Choose to use the existing places, or remove these from Organization and add them again with codes that are free.`;
+			checks.push({
+				id: "organization",
+				title: "Organization",
+				status: "blocked",
+				detail,
+				items,
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(
+					input.now,
+					"hq_resource_conflict",
+					detail,
+					items,
+				),
+				ready: null,
+				projectSpaceCompatibility: null,
+				conflicts,
+			};
+		}
+		locationPush = { batches: plan.batches, placeCount: places.length };
+
+		/* Each planned place with a live mapping, by the mapping's id. A
+		 * mapped place the read no longer lists is `missing` whatever the
+		 * push plans in its stead. */
+		const mappingByPlace = new Map(
+			input.mappings
+				.filter((resource) => resource.kind === "location")
+				.map((resource) => [resource.novaResourceId, resource] as const),
+		);
+		const comparedPlaces = plan.batches.flat().flatMap((push) => {
+			const mapping = mappingByPlace.get(push.locationUuid);
+			return mapping === undefined
+				? []
+				: [{ push, remoteId: mapping.remoteId }];
+		});
+		if (comparedPlaces.length > 0) {
+			compared = true;
+			const baselines = baselinesByRemoteId(
+				await readResourceBaselines(
+					input.access,
+					target,
+					comparedPlaces.map(({ remoteId }) => ({
+						kind: "location",
+						remoteId,
+					})),
+				),
+			);
+			const placeById = new Map(
+				hqPlaces.map((place) => [place.locationId, place] as const),
+			);
+			for (const { push, remoteId } of comparedPlaces) {
+				const change = placeRemoteChange({
+					push,
+					current: placeById.get(remoteId) ?? null,
+					baseline: baselines.get(remoteId),
+				});
+				if (change !== null) observed.push(change);
+			}
+		}
+		checks.push({
+			id: "organization",
+			title: "Organization",
+			status: "passed",
+			detail: `Nova will put ${describePlaceCount(places.length)} on “${domain}” before sending the app, parents first.`,
+			items: describePlacesByLevel(places),
+		});
 	}
 
-	// ── 5. Can this project space run what the app uses? ────────────
+	// ── 6. Can this project space run what the app uses? ────────────
 	// This is the authoritative publish-time check. A prior dialog or MCP read
 	// is disclosure, not reusable authority: the target can change between that
 	// read and this publish. Required support that is missing or unverified
@@ -985,7 +1120,7 @@ export async function runDeploymentPreflight(
 		};
 	}
 
-	// ── 6. Is the app this publish updates still Nova's, and there? ──
+	// ── 7. Is the app this publish updates still Nova's, and there? ──
 	// Blocking, and read before any table, place or content is written. A
 	// gone app is created afresh by the next publish; an app Nova did not
 	// make is never written over. Absent on a first publish, which creates
@@ -1042,6 +1177,38 @@ export async function runDeploymentPreflight(
 				conflicts: [],
 			};
 		}
+		/* The floor reads this read, the publish's first of an app that is
+		 * there, and no later one: a stop after the tables and places are
+		 * pushed could not come before the first write of Project data. */
+		const floor = compareToVersionFloor(read.source.buildSpecVersion);
+		if (floor !== "at-or-above") {
+			const failure =
+				floor === "below"
+					? versionBelowFloorFailure(
+							domain,
+							read.source.buildSpecVersion,
+							false,
+						)
+					: hqAppSourceReadFailure(
+							{ success: false, status: 502, cause: "malformed" },
+							domain,
+							false,
+						);
+			checks.push({
+				id: "target-app",
+				title: "App on CommCare HQ",
+				status: "blocked",
+				detail: failure.message,
+				items: [],
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(input.now, failure.code, failure.message),
+				ready: null,
+				projectSpaceCompatibility,
+				conflicts: [],
+			};
+		}
 		targetApp = {
 			appId,
 			source: read.source,
@@ -1070,7 +1237,7 @@ export async function runDeploymentPreflight(
 		});
 	}
 
-	// ── 7. Has anything this app publishes changed in CommCare HQ? ──
+	// ── 8. Has anything this app publishes changed in CommCare HQ? ──
 	// The one verdict over every change the edges above collected. All or
 	// nothing, like a name clash: one change nobody chose to publish over
 	// stops the whole publish, before anything is written.
@@ -1114,7 +1281,7 @@ export async function runDeploymentPreflight(
 		items: verdict.confirmed.map((change) => change.name),
 	});
 
-	// ── 8. Will the workers you create there have what they need? ───
+	// ── 9. Will the workers you create there have what they need? ───
 	// Attention rather than blocking: a publish creates no workers, so
 	// refusing it over a gap would refuse a publish that would have
 	// worked. The same gap IS blocking on the call that provisions
@@ -1133,9 +1300,10 @@ export async function runDeploymentPreflight(
 		items: workerGaps,
 	});
 
-	// Target privileges and restored worker records are not observable through
-	// the API key. Both read and write dependencies need explicit setup.
-	const workerRecordForms = workerRecordRequirements(boundary.prepared.doc);
+	// A restored worker record is not observable through the API key. The
+	// plan half (user cases) is a confirmation of `plan-features`; this edge
+	// keeps the device half.
+	const workerRecordForms = formsUsingWorkerRecord(boundary.prepared.doc);
 	checks.push({
 		id: "worker-record-access",
 		title: workerRecordSetup.title,
@@ -1161,6 +1329,7 @@ export async function runDeploymentPreflight(
 			appBaseline,
 			confirmedChanges: verdict.confirmed,
 			targetEmptyCaseListText: compatibilityProbes.emptyCaseListText,
+			confirmations: settled.accepted,
 		},
 		projectSpaceCompatibility,
 	};
@@ -1412,6 +1581,31 @@ export function hqAppSourceReadFailure(
 		message: permissions
 			? `Nova couldn't read the current app on “${domain}”, so it left that app unchanged. Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again.`
 			: `Nova couldn't safely read the current app on “${domain}”, so it left that app unchanged. Check that the app still opens in CommCare HQ, then publish again.`,
+		details: [],
+	};
+}
+
+/**
+ * The refusal for an app on CommCare HQ set to a CommCare version below the
+ * one Nova's apps need. `createdApp` is true when this publish made the app
+ * moments before, which the next publish fills once the version is raised.
+ */
+export function versionBelowFloorFailure(
+	domain: string,
+	version: string,
+	createdApp: boolean,
+): {
+	readonly code: "hq_app_version_below_floor";
+	readonly message: string;
+	readonly details: readonly string[];
+} {
+	const floor = `${COMMCARE_VERSION_FLOOR.major}.${COMMCARE_VERSION_FLOOR.minor}`;
+	const opening = `The app on “${domain}” is set to CommCare ${version}, and Nova's apps need ${floor} or later. You can raise the CommCare version in that app's settings in CommCare HQ, then publish again. Phones on an older CommCare can no longer install or update the app after that.`;
+	return {
+		code: "hq_app_version_below_floor",
+		message: createdApp
+			? `${opening} Nova created the app there and will fill it in on the next publish.`
+			: `${opening} Saving that page can also set the app's other settings there, so Nova may show you what changed before it publishes.`,
 		details: [],
 	};
 }

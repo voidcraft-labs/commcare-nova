@@ -67,6 +67,7 @@ const view: DeploymentView = {
 		domain: "alpha",
 		hqAppId: null,
 		locations: [],
+		targetWebAppsEnabled: null,
 	}),
 	leftBehind: [],
 };

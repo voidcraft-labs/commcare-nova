@@ -49,7 +49,10 @@
 // string at evaluation time AND silently filter case data on the
 // server, so the inline shape is the only wire-correct option for
 // computed values.
-import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	inertLookupWireNaming,
+	type LookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
 import { type CaseListConfig, searchInputRuntimeValueType } from "@/lib/domain";
 import { and, effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
@@ -61,6 +64,7 @@ import {
 } from "@/lib/domain/searchRuntimeValidationMessages";
 import {
 	checkCsqlRepresentability,
+	collectRelatedCaseQueries,
 	dedupeRuntimeRejections,
 	emitCsql,
 	type RuntimeCsqlRejection,
@@ -545,4 +549,33 @@ function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 			);
 		}
 	}
+}
+
+/**
+ * Whether a search's own filter reads related cases, which HQ's case search
+ * refuses outright without `CASE_SEARCH_RELATED_LOOKUPS`
+ * (`case_search/filter_dsl.py::build_filter_from_ast` sends `subcase-exists`,
+ * `subcase-count` and `ancestor-exists` to `_require_related_lookups_flag`).
+ * It runs the composition the suite and the HQ JSON both write and asks the
+ * CSQL emitter which of those functions it wrote, so the answer is the wire's
+ * own: an ancestor case-id comparison, which the emitter writes as
+ * `ancestor-exists`, needs the flag, and a `count` the emitter inlines as an
+ * on-device number does not. Lookup names never decide a function call, so
+ * the inert naming stands in for the definitions snapshot.
+ */
+export function xpathQueryUsesRelatedLookup(
+	caseListConfig: CaseListConfig,
+	caseType: string | undefined,
+	typeContext?: TypeContext,
+): boolean {
+	return (
+		collectRelatedCaseQueries(() =>
+			composeXPathQueryEmission(
+				caseListConfig,
+				caseType,
+				typeContext,
+				inertLookupWireNaming(),
+			),
+		).written.size > 0
+	);
 }
