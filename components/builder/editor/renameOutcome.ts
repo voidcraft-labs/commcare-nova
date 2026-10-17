@@ -8,8 +8,7 @@
  * UI response:
  *
  *   - empty id → noop, nothing dispatched.
- *   - verdict rejected (XML-illegal name, reserved `__nova_` prefix,
- *     over-long case-property name, sibling-id conflict) → render the
+ *   - verdict rejected (XML-illegal name, sibling-id conflict) → render the
  *     error popover with the verdict's message and shake the input;
  *     nothing dispatched.
  *   - verdict ok → dispatch the rename and let `useCommitField` fire

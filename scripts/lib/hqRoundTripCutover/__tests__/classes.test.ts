@@ -161,6 +161,7 @@ describe("the credential order over HQ's refusals", () => {
 			expect(result.outcome).toBe("unreadable");
 			expect(deploymentNotices(result, target).map((n) => n.reason)).toEqual([
 				"ids-change-once-unreadable",
+				"data-paths-move-once",
 				"settings-unknown-unreadable",
 			]);
 		});

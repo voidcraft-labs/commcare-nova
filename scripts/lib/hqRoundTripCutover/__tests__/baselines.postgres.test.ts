@@ -451,11 +451,12 @@ describe("the cutover's baselines", () => {
 		const notices = await deploymentNotices(appId);
 		expect(notices.map((entry) => entry.reason)).toEqual([
 			"ids-change-once-unreadable",
+			"data-paths-move-once",
 			"next-publish-asks-before-overwriting",
 			"settings-unknown-unreadable",
 		]);
 		// The app's own baseline is the one not read, so the line names no table or place.
-		expect(notices[1]?.entities).toBeUndefined();
+		expect(notices[2]?.entities).toBeUndefined();
 	}, 60_000);
 
 	it("stores an unread baseline for a table whose rows HQ would not give, and names it", async () => {

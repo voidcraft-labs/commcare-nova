@@ -117,8 +117,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova's `__nova_*` scaffolding names are unproducible today; in-envelope: letter-initial names)",
-			"markers": ["unproducible"]
+			"cell": "— (in-envelope: Nova's generated names are letter-initial `nova_<purpose>…`)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -1172,8 +1172,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova's `__nova_operations`/`__nova_subcases` are unproducible)",
-			"markers": ["unproducible"]
+			"cell": "— (in-envelope: `nova_operations` and `nova_subcases` are groups)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -2830,7 +2830,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`@case_id` setvalue (live calculate only inside a repeat)",
+			"cell": "`@case_id` live calculate inside a repeat: an `idFrom` create's own repeat, or at the root a one-row `nova_keyed_` repeat",
 			"markers": []
 		},
 		"gates": []
@@ -2996,7 +2996,7 @@
 			}
 		},
 		"emission": {
-			"cell": "binds",
+			"cell": "`relevant` on `…/case`: a conditional create's condition",
 			"markers": []
 		},
 		"gates": []
@@ -3180,7 +3180,7 @@
 			}
 		},
 		"emission": {
-			"cell": "the in-envelope shape for a conditional operation",
+			"cell": "a conditional update's or close's block and every conditional operation's guards, in a `nova_condition_` group whose `relevant` is the condition",
 			"markers": []
 		},
 		"gates": []
@@ -3205,8 +3205,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova emits this today: save-breaking)",
-			"markers": ["save-breaking"]
+			"cell": "— (in-envelope: a create's condition is its Open Case Condition; an update's or a close's is its `nova_condition_` group's)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3332,8 +3332,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova's `idFrom` at the root: save-breaking)",
-			"markers": ["save-breaking"]
+			"cell": "— (in-envelope: a root create keyed by an answer stands in a one-row repeat, where the id is a live bind)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3382,8 +3382,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova's `__nova_guard_*` blocks: save-breaking)",
-			"markers": ["save-breaking"]
+			"cell": "— (in-envelope: each guard is an update-only Save to Case block)",
+			"markers": []
 		},
 		"gates": []
 	},

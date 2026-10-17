@@ -306,9 +306,9 @@ export const editFieldTool = {
 			// (sibling scope and id format don't depend on the kind, so
 			// checking against the pre-convert doc is equivalent). The shared
 			// verdict (`lib/doc/identifierVerdicts.ts`) covers XML-name
-			// legality, the reserved `__nova_` prefix, and the sibling-conflict
-			// scan — the same rules the UI commit guard applies, with the validator's
-			// DUPLICATE_FIELD_ID / INVALID_FIELD_ID rules as backstops.
+			// legality and the sibling-conflict scan — the same rules the UI
+			// commit guard applies, with the validator's DUPLICATE_FIELD_ID /
+			// INVALID_FIELD_ID rules as backstops.
 			if (newId && newId !== currentId) {
 				const verdict = renameFieldIdVerdict({
 					doc,

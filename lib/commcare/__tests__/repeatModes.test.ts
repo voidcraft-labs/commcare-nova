@@ -47,11 +47,6 @@ describe("repeat wire structure (actual entry and row identities checked by Cont
 					]
 				: [],
 		);
-		expect(
-			elements("bind").filter((e) =>
-				e.attribs.nodeset.includes("__nova_count_"),
-			),
-		).toEqual([]);
 		if (scenario !== "path")
 			for (const [index, path] of counts.entries()) {
 				expect(

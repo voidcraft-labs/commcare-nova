@@ -115,23 +115,6 @@ export const CASE_TYPE_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
  * XML itself also permits other characters; this is Nova's narrower vocabulary. */
 export const XML_ELEMENT_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
-/**
- * Reserved prefix for XForm data nodes the emitter SYNTHESIZES rather than
- * the author declares. Currently the hidden node a hoisted `count_bound`
- * repeat needs: a literal/expression `jr:count` is illegal on the wire
- * (JavaRosa requires a node path — see `lib/commcare/xform/countReference.ts`),
- * so the emitter materializes `__nova_count_<fieldId>` at form root and
- * points `jr:count` at it.
- *
- * `__nova_` is a perfectly legal XML element name, so the XML-name regex
- * can't keep authors out of it — the constraint is a Nova-domain
- * reservation, enforced by the field-validation rule that rejects an
- * authored field id under this prefix. Without that guard, an author field
- * named `__nova_count_x` could shadow a synthesized node and silently
- * corrupt a sibling repeat's cardinality.
- */
-export const RESERVED_XFORM_NODE_PREFIX = "__nova_";
-
 /** Maximum length for case type names (CommCare Core CaseXmlParser constraint). */
 export const MAX_CASE_TYPE_LENGTH = 255;
 

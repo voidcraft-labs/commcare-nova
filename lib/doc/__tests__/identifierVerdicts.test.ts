@@ -3,7 +3,7 @@
  * cases the rules hinge on:
  *
  *   - XML element-name legality (spaces, hyphens, leading digits, empty)
- *   - the reserved `__nova_` synthetic-node prefix
+ *   - a name that starts with `__nova_` is judged as any leading underscore
  *   - sibling-id uniqueness: siblings conflict, cousins share freely,
  *     a field re-checking its own id passes (excludeUuid), and in-flight
  *     batch ids count as siblings (pendingSiblingIds)
@@ -159,10 +159,26 @@ describe("fieldIdVerdict — format classes", () => {
 		}
 	});
 
-	it("rejects the reserved __nova_ prefix", () => {
-		const v = at("__nova_count_x");
-		expect(codeOf(v)).toBe("reserved_prefix");
-		expect(v.ok ? "" : v.message).toContain("__nova_");
+	it("judges a name that starts with __nova_ as any name with a leading underscore", () => {
+		expect(codeOf(at("__nova_x"))).toBe(codeOf(at("_x")));
+	});
+});
+
+describe("Nova reserves no generated-node prefix", () => {
+	/* A verdict's outcome for `__nova_x` equals its outcome for `_x`, for
+	 * every identifier an author names: the former prefix is no more and no
+	 * less than a leading underscore. */
+	const outcome = (verdict: { ok: boolean; code?: string }) =>
+		verdict.ok ? "ok" : verdict.code;
+
+	it("judges an operation id and a link identifier like any leading underscore", () => {
+		const taken = new Set<string>();
+		expect(outcome(caseOperationIdVerdict("__nova_x", taken))).toBe(
+			outcome(caseOperationIdVerdict("_x", taken)),
+		);
+		expect(outcome(caseOperationLinkIdentifierVerdict("__nova_x", taken))).toBe(
+			outcome(caseOperationLinkIdentifierVerdict("_x", taken)),
+		);
 	});
 });
 
@@ -252,7 +268,7 @@ describe("renameFieldIdVerdict", () => {
 		).toBe("illegal_xml_name");
 		expect(
 			codeOf(renameFieldIdVerdict({ doc, fieldUuid: AGE, newId: "__nova_x" })),
-		).toBe("reserved_prefix");
+		).toBe(codeOf(renameFieldIdVerdict({ doc, fieldUuid: AGE, newId: "_x" })));
 	});
 });
 

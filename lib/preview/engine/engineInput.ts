@@ -1,6 +1,8 @@
+import { planGeneratedNodes } from "@/lib/commcare/xform/generatedNodes";
 import {
 	type BlueprintDoc,
 	caseSelectionCardinality,
+	isContainer,
 	type LanguageTag,
 	materializableCaseTypes,
 	moduleUuidOfForm,
@@ -31,6 +33,7 @@ export function buildEngineInput(
 		form,
 		formUuid,
 		wireName: formWireName(doc, formUuid),
+		repeatCountNames: repeatCountNamesOf(doc, formUuid),
 		...(resolved === undefined ? {} : { language: resolved }),
 		fields:
 			resolved === undefined
@@ -50,4 +53,25 @@ export function buildEngineInput(
 				}
 			: {}),
 	};
+}
+
+/** Each count-bound repeat's count node name, from the form's plan of
+ * generated nodes, the allocator the emitter reads. */
+export function repeatCountNamesOf(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Record<string, string> {
+	if (doc.forms[formUuid] === undefined) return {};
+	const repeats: Uuid[] = [];
+	const stack = [...(doc.fieldOrder[formUuid] ?? [])];
+	for (let uuid = stack.pop(); uuid !== undefined; uuid = stack.pop()) {
+		const field = doc.fields[uuid];
+		if (field === undefined) continue;
+		if (field.kind === "repeat" && field.repeat_mode === "count_bound")
+			repeats.push(uuid);
+		if (isContainer(field)) stack.push(...(doc.fieldOrder[uuid] ?? []));
+	}
+	if (repeats.length === 0) return {};
+	const plan = planGeneratedNodes(doc, formUuid);
+	return Object.fromEntries(repeats.map((uuid) => [uuid, plan.count(uuid)]));
 }

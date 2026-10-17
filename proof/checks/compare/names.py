@@ -26,9 +26,12 @@ reader gives meaning to stays as it is. Each is decided from the readers:
     iteration names (Vellum ``src/modeliteration.js``, ``/item``), which Nova
     writes the same way (``lib/commcare/xform/formPath.ts``), and the row of
     Nova's selected-cases container (``caseOps.ts``);
-  - Nova's reserved ``__nova_`` names (``lib/commcare/constants.ts``,
-    ``RESERVED_XFORM_NODE_PREFIX``), kept without their minted part
-    (``NOVA_MINTED``).
+  - the names of the nodes Nova generates (``nova_name``): its fixed
+    container names kept, a minted name written as its family without its
+    minted part. Nova mints every one of them in one allocator
+    (``lib/commcare/xform/generatedNodes.ts::planGeneratedNodes``), and the
+    retained controls hold the ``__nova_`` names it wrote before that
+    allocator, which are read the same way.
 
   An element in another namespace belongs to that namespace's reader (the
   ``orx`` metadata HQ writes, ``app_manager/xform.py::XForm._add_meta_2``;
@@ -107,12 +110,44 @@ CASE_FIELDS = frozenset(
 CASEDB_CHILDREN = {"case_name": FOREIGN, "date_opened": FOREIGN, "last_modified": FOREIGN, "index": CASE_KEYED}
 CASEDB_CHILDREN["attachment"] = CASE_KEYED
 
-# Nova's reserved names (``lib/commcare/xform/caseOps.ts``): the containers it writes under fixed names, and the
-# names it mints, each a fixed prefix and what Nova minted after it (``NOVA_MINTED``, written ``*``): a guard's
-# operation uuid and kind (``__nova_guard_<uuid>_text``), a subcase's position (``__nova_subcase_<n>``), a field's
-# id (``constraintCollections.ts``'s ``__nova_constraint_<field>_<n>``, ``captureUrlNode.ts``'s
-# ``__nova_url_<name>``, ``datetimeCaseValue.ts``'s ``__nova_datetime_<field>``).
-NOVA_PREFIX = "__nova_"
+# The names of the nodes Nova generates (``lib/commcare/xform/generatedNodes.ts::planGeneratedNodes``): the
+# containers it writes under fixed names (``GENERATED_FIXED``), and the families it mints, each a fixed prefix and
+# what the allocator minted after it, the owner's id, a kind, an ordinal or a suffix (``GENERATED_FAMILIES``,
+# written ``<family>*``): a guard's operation id and kind (``nova_guard_<operation>_text``), a condition group's
+# operation id (``nova_condition_<operation>``), a subcase's position (``nova_subcase_<n>``), a field's id
+# (``nova_constraint_<field>_<n>``, ``nova_url_<field>``, ``nova_datetime_<field>``, ``nova_trimmed_<field>``).
+# A repeat's count node and a protected validation message's carrier (``nova_count_<repeat>``,
+# ``nova_constraint_message_<field>``) are written ``*``, as the app's own names are, so the paths defect 30's
+# entries hold do not move; they are read before the families, so a keyed create's count node
+# (``nova_count_nova_keyed_<operation>``) is one of them, and so is a constraint count of a field whose id starts
+# ``message_`` (``nova_constraint_message_x_0``). A question an author names like a family member is written as
+# that family: each loses only specificity.
+GENERATED_FIXED = frozenset(
+    {
+        "nova_operations",
+        "nova_subcases",
+        "nova_selected_cases",
+        "nova_update_selected_cases",
+        "nova_close_selected_cases",
+        "nova_close",
+    }
+)
+GENERATED_UNNAMED = ("nova_constraint_message_", "nova_count_")
+GENERATED_FAMILIES = (
+    "nova_url_",
+    "nova_datetime_",
+    "nova_constraint_",
+    "nova_trimmed_",
+    "nova_keyed_",
+    "nova_guard_",
+    "nova_condition_",
+    "nova_subcase_",
+)
+# The names Nova wrote before that allocator, which the retained controls hold (``proof/controls``): the containers
+# under fixed names, and each minted name a fixed prefix and what Nova minted after it (``NOVA_MINTED``, written
+# ``*``): a guard's operation uuid and kind (``__nova_guard_<uuid>_text``), a subcase's position
+# (``__nova_subcase_<n>``), a field's id (``__nova_constraint_<field>_<n>``, ``__nova_url_<name>``,
+# ``__nova_datetime_<field>``).
 NOVA_CONTAINERS = frozenset(
     {
         "__nova_operations",
@@ -132,17 +167,25 @@ META_NAMES = frozenset({"meta", "Meta"})
 
 
 def nova_name(name):
-    """How a path writes one of Nova's reserved names: its fixed part kept, its minted part ``*``."""
-    if name in NOVA_CONTAINERS:
+    """How a path writes the name of a node Nova generates: a fixed name kept, a minted name as its family with its
+    minted part ``*`` (``nova_guard_*``, ``__nova_guard_*``); None for every other name, a count node's and a
+    validation message carrier's among them, which are written as the app's own."""
+    if name in GENERATED_FIXED or name in NOVA_CONTAINERS:
         return name
+    if name.startswith(GENERATED_UNNAMED):
+        return None
+    family = next((family for family in GENERATED_FAMILIES if name.startswith(family)), None)
+    if family is not None:
+        return f"{family}*"
     minted = NOVA_MINTED.fullmatch(name)
-    return f"__nova_{minted.group(1)}_*" if minted else name
+    return f"__nova_{minted.group(1)}_*" if minted else None
 
 
 def data_name(local):
     """How a path writes the name of one element of a form's data in the data's own namespace."""
-    if local.startswith(NOVA_PREFIX):
-        return nova_name(local)
+    generated = nova_name(local)
+    if generated is not None:
+        return generated
     if SUBCASE.fullmatch(local):
         return "subcase_*"
     if local == MODEL_ITERATION_ROW or local in META_NAMES:
@@ -318,7 +361,7 @@ def block_path(keys):
     from its root, ``casexml/apps/case/xform.py::extract_case_blocks(..., include_path=True)``), each the local
     name of an element of the form's data (HQ's JSON drops namespaces, ``xml2json.get_tag_and_xmlns``), written
     as the data's naming writes it (``child_name``, ``Written``), then the block's own ``case``. A block at the
-    form's root is ``case``; a guard's is ``__nova_operations/__nova_guard_*/case``."""
+    form's root is ``case``; a guard's is ``nova_operations/nova_guard_*/case``."""
     shown = Written()
     context = DATA
     for key in keys:

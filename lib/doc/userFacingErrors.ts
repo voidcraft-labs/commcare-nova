@@ -770,8 +770,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} repeats over a list of records, but none is chosen yet. Pick the records it should repeat over.`,
 	INVALID_FIELD_ID: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} has an ID that won't work. Use letters, numbers, and underscores, starting with a letter.`,
-	RESERVED_FIELD_ID_PREFIX: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} uses an ID prefix that's reserved for fields Nova creates. Pick a different ID.`,
 	FIXTURE_REFERENCE_NOT_MODELED: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} pulls from a data source Nova doesn't support. For a fixed set of choices, add them as options on the field instead.`,
 	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: (e) =>

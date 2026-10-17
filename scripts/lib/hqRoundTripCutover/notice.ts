@@ -10,8 +10,10 @@
  * project space is written only for a class that has one (`read-in-full`,
  * `no-form-ids`, `unreadable`). The settings lines read the deployment's
  * `profile.properties` as the source read gave them, beside the migrated
- * document's `appSettings`. The two lines that are facts of the database
- * and the ledger rather than of the document come from the plan:
+ * document's `appSettings`. `data-paths-move-once` is a fact of the emitter,
+ * not of the document: every class with a next publish gets it. The two
+ * lines that are facts of the database and the ledger rather than of the
+ * document come from the plan:
  * `unsaved-assistant-work-discarded` from `discardsPrivateWork`, and
  * `ccz-needs-project-space` from whether any deployment still holds the
  * app's content once the cutover's ledger writes are made. The two drift
@@ -173,6 +175,9 @@ export function deploymentNotices(
 			entities: formIdsUnknown.map((uuid) => ({ kind: "form", uuid })),
 		});
 	}
+	// Every form's generated nodes take their new names at the next publish
+	// there, so every such deployment is told once, naming no form.
+	notices.push({ reason: "data-paths-move-once" });
 	if (entryPointInventory(target).length > 0) {
 		notices.push({ reason: "deep-links-need-republish" });
 	}

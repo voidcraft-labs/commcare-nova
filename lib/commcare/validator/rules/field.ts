@@ -13,11 +13,7 @@ import { directRepeatCountReference } from "@/lib/domain/repeatCount";
  * CommCare's field-kind taxonomy and stay stable.
  */
 
-import {
-	isReservedXFormNodeName,
-	RESERVED_XFORM_NODE_PREFIX,
-	XML_ELEMENT_NAME_REGEX,
-} from "@/lib/commcare";
+import { XML_ELEMENT_NAME_REGEX } from "@/lib/commcare";
 import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import {
@@ -495,31 +491,6 @@ function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 	];
 }
 
-/** Generated case operations and capture nodes still own the __nova_ namespace.
- * Live count helpers use collision-free sibling names instead. */
-function reservedFieldIdPrefix(
-	field: Field,
-	ctx: FieldContext,
-): ValidationError[] {
-	if (!isReservedXFormNodeName(field.id)) return [];
-	return [
-		validationError(
-			"RESERVED_FIELD_ID_PREFIX",
-			"field",
-			`Field "${field.id}" in "${ctx.formName}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes Nova generates behind the scenes (for example case operations and capture values). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}". Anything else, like dropping the leading "${RESERVED_XFORM_NODE_PREFIX}", works.`,
-			{
-				moduleUuid: ctx.moduleUuid,
-				moduleName: ctx.moduleName,
-				formUuid: ctx.formUuid,
-				formName: ctx.formName,
-				fieldUuid: field.uuid,
-				fieldId: field.id,
-			},
-			{ fieldUuid: field.uuid },
-		),
-	];
-}
-
 /**
  * A written choice needs a label in some language or media. HQ's form
  * builder drops an itext item blank in every language on save and keeps the
@@ -591,7 +562,6 @@ const FIELD_RULES = [
 	calculateOnVisibleInput,
 	unquotedStringLiteral,
 	invalidFieldId,
-	reservedFieldIdPrefix,
 	validationOnNonInputType,
 	emptyRepeatXPath,
 ];

@@ -107,9 +107,9 @@ function collectPredicateDependencies(
  * Multiplicity scopes in the order JavaRosa encounters their case-operation
  * groups in the submitted primary instance.
  *
- * The singular `/data/__nova_operations` group is prepended to the form data.
- * A repeated group is appended to the exact repeat iteration template after
- * that template's authored children. The resulting traversal is therefore
+ * The root `nova_operations` group is the first child of `/data`. A repeated
+ * group is appended to the exact repeat iteration template after that
+ * template's authored children. The resulting traversal is therefore
  * root first, then repeat scopes in post-order field traversal. This derived
  * order is shared by validation and move planning so the authored sequence —
  * the `caseOperations` array's own positions — can never promise a sequence the

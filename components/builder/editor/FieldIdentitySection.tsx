@@ -218,9 +218,8 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	/** Runs the shared identifier verdict and, on a clean verdict,
 	 * dispatches the field-id update. The update doesn't change UUID, so no
 	 * selection update is needed. The verdict (`renameFieldIdVerdict`) is the same
-	 * one the SA tools enforce: XML-name legality, the reserved
-	 * `__nova_` prefix, the case-property length cap, and the peer-aware
-	 * sibling-conflict scan, so UI and agent renames can't drift. The
+	 * one the SA tools enforce: XML-name legality and the sibling-conflict
+	 * scan, so UI and agent renames can't drift. The
 	 * outcome classification is owned by `classifyRenameOutcome` so the
 	 * branching is testable without mounting the section.
 	 *

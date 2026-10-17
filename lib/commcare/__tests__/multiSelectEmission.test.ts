@@ -21,7 +21,10 @@ import { literal, term } from "@/lib/domain/predicate";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 const target = { origin: "https://www.commcarehq.org", domain: "demo-project" };
-const scope = "/data/__nova_selected_cases/item/__nova_operations";
+const scope = "/data/nova_selected_cases/item/nova_operations";
+/** The shared update stands in the group whose relevance gates it. */
+const UPDATE =
+	"nova_condition_update_selected_cases/nova_update_selected_cases";
 function one(elements: Element[]): Element {
 	expect(elements).toHaveLength(1);
 	const element = elements[0];
@@ -47,8 +50,8 @@ function formTree(xml: string) {
 		"data",
 	);
 	const operations = child(
-		child(child(data, "__nova_selected_cases"), "item"),
-		"__nova_operations",
+		child(child(data, "nova_selected_cases"), "item"),
+		"nova_operations",
 	);
 	return {
 		model,
@@ -160,9 +163,11 @@ function artifacts(doc: ReturnType<typeof buildDoc>, published = true) {
 	};
 }
 function selectedIdentity(form: ReturnType<typeof formTree>, name: string) {
+	// A block inside a group reads the row's id one step further up.
+	const nested = "../".repeat(name.split("/").length - 1);
 	expect(form.bind(`${scope}/${name}/case/@case_id`)).toEqual({
 		nodeset: `${scope}/${name}/case/@case_id`,
-		calculate: "current()/../../../../@id",
+		calculate: `current()/../../../../${nested}@id`,
 	});
 	expect(
 		form.data.children.filter(isTag).filter((e) => e.name === "case"),
@@ -191,10 +196,13 @@ it("emits an ordinary shared update in both artifacts and limits multiple select
 	const output = artifacts(doc);
 	for (const form of output.forms) {
 		expect(form.operations.children.filter(isTag).map((e) => e.name)).toEqual([
-			"__nova_update_selected_cases",
+			"nova_condition_update_selected_cases",
 		]);
 		const transaction = child(
-			child(form.operations, "__nova_update_selected_cases"),
+			child(
+				child(form.operations, "nova_condition_update_selected_cases"),
+				"nova_update_selected_cases",
+			),
 			"case",
 		);
 		expect(
@@ -202,14 +210,17 @@ it("emits an ordinary shared update in both artifacts and limits multiple select
 				.children.filter(isTag)
 				.map((e) => e.name),
 		).toEqual(["note"]);
-		expect(
-			form.bind(`${scope}/__nova_update_selected_cases/case/update/note`),
-		).toEqual({
-			nodeset: `${scope}/__nova_update_selected_cases/case/update/note`,
+		expect(form.bind(`${scope}/${UPDATE}/case/update/note`)).toEqual({
+			nodeset: `${scope}/${UPDATE}/case/update/note`,
 			calculate: "/data/note",
 			relevant: "count(/data/note) > 0 and string(/data/note) != ''",
 		});
-		selectedIdentity(form, "__nova_update_selected_cases");
+		// An all-blank form sends no empty update to every selected case.
+		expect(form.bind(`${scope}/nova_condition_update_selected_cases`)).toEqual({
+			nodeset: `${scope}/nova_condition_update_selected_cases`,
+			relevant: "(count(/data/note) > 0 and string(/data/note) != '')",
+		});
+		selectedIdentity(form, UPDATE);
 	}
 	expect(output.hq.modules[0].case_details.short.multi_select).toBe(true);
 	expect(output.hq.modules[0].case_details.short.max_select_value).toBe(15);
@@ -271,22 +282,21 @@ for (const published of [true, false]) {
 			expect(form.operations.children.filter(isTag).map((e) => e.name)).toEqual(
 				[
 					"mark_selected",
-					"__nova_update_selected_cases",
-					"__nova_close_selected_cases",
+					"nova_condition_update_selected_cases",
+					"nova_close_selected_cases",
 				],
 			);
-			for (const name of [
-				"mark_selected",
-				"__nova_update_selected_cases",
-				"__nova_close_selected_cases",
-			])
+			for (const name of ["mark_selected", UPDATE, "nova_close_selected_cases"])
 				selectedIdentity(form, name);
 			expect(form.bind(`${scope}/mark_selected/case/update/reviewed`)).toEqual({
 				nodeset: `${scope}/mark_selected/case/update/reviewed`,
 				calculate: "'yes'",
 			});
 			const transaction = child(
-				child(form.operations, "__nova_update_selected_cases"),
+				child(
+					child(form.operations, "nova_condition_update_selected_cases"),
+					"nova_update_selected_cases",
+				),
 				"case",
 			);
 			expect(transaction.children.filter(isTag).map((e) => e.name)).toEqual([
@@ -323,40 +333,32 @@ for (const published of [true, false]) {
 					? [
 							[
 								"photo_url",
-								"/data/__nova_url_photo_link",
-								"/data/__nova_url_photo_link",
+								"/data/nova_url_photo_link",
+								"/data/nova_url_photo_link",
 							] as const,
 						]
 					: []),
 			] as const;
 			for (const [property, calculate, source] of writers)
-				expect(
-					form.bind(
-						`${scope}/__nova_update_selected_cases/case/update/${property}`,
-					),
-				).toEqual({
-					nodeset: `${scope}/__nova_update_selected_cases/case/update/${property}`,
-					calculate,
-					relevant: `count(${source}) > 0 and string(${calculate}) != ''`,
-				});
-			expect(
-				form.bind(
-					`${scope}/__nova_update_selected_cases/case/attachment/photo`,
-				),
-			).toEqual({
-				nodeset: `${scope}/__nova_update_selected_cases/case/attachment/photo`,
+				expect(form.bind(`${scope}/${UPDATE}/case/update/${property}`)).toEqual(
+					{
+						nodeset: `${scope}/${UPDATE}/case/update/${property}`,
+						calculate,
+						relevant: `count(${source}) > 0 and string(${calculate}) != ''`,
+					},
+				);
+			expect(form.bind(`${scope}/${UPDATE}/case/attachment/photo`)).toEqual({
+				nodeset: `${scope}/${UPDATE}/case/attachment/photo`,
 				relevant: "count(/data/photo) = 1 and string(/data/photo) != ''",
 			});
 			expect(
-				form.bind(
-					`${scope}/__nova_update_selected_cases/case/attachment/photo/@src`,
-				),
+				form.bind(`${scope}/${UPDATE}/case/attachment/photo/@src`),
 			).toEqual({
-				nodeset: `${scope}/__nova_update_selected_cases/case/attachment/photo/@src`,
+				nodeset: `${scope}/${UPDATE}/case/attachment/photo/@src`,
 				calculate: "/data/photo",
 			});
 			const close = child(
-				child(form.operations, "__nova_close_selected_cases"),
+				child(form.operations, "nova_close_selected_cases"),
 				"case",
 			);
 			expect(close.children.filter(isTag).map((e) => e.name)).toEqual([
@@ -402,22 +404,19 @@ it("allocates each child inside the selected-parent iteration without consuming 
 	});
 	for (const form of output.forms) {
 		expect(form.operations.children.filter(isTag).map((e) => e.name)).toEqual([
-			"__nova_subcase_0",
+			"nova_subcase_0",
 		]);
-		const transaction = child(
-			child(form.operations, "__nova_subcase_0"),
-			"case",
-		);
+		const transaction = child(child(form.operations, "nova_subcase_0"), "case");
 		expect(child(child(transaction, "index"), "parent").attribs).toEqual({
 			case_type: "patient",
 			relationship: "child",
 		});
-		expect(form.bind(`${scope}/__nova_subcase_0/case/@case_id`)).toEqual({
-			nodeset: `${scope}/__nova_subcase_0/case/@case_id`,
+		expect(form.bind(`${scope}/nova_subcase_0/case/@case_id`)).toEqual({
+			nodeset: `${scope}/nova_subcase_0/case/@case_id`,
 			calculate: "uuid()",
 		});
-		expect(form.bind(`${scope}/__nova_subcase_0/case/index/parent`)).toEqual({
-			nodeset: `${scope}/__nova_subcase_0/case/index/parent`,
+		expect(form.bind(`${scope}/nova_subcase_0/case/index/parent`)).toEqual({
+			nodeset: `${scope}/nova_subcase_0/case/index/parent`,
 			calculate: "current()/../../../../../@id",
 		});
 		expect(
@@ -450,8 +449,8 @@ it("leaves an earlier retype intact when the ordinary final action only closes",
 	for (const form of output.forms) {
 		expect(form.operations.children.filter(isTag).map((e) => e.name)).toEqual([
 			"archive_selected",
-			"__nova_guard_88888888_8888_4888_8888_888888888888_retype_identity",
-			"__nova_close_selected_cases",
+			"nova_guard_archive_selected_retype",
+			"nova_close_selected_cases",
 		]);
 		expect(
 			form.bind(`${scope}/archive_selected/case/update/case_type`),
@@ -460,11 +459,11 @@ it("leaves an earlier retype intact when the ordinary final action only closes",
 			calculate: "'archived_patient'",
 		});
 		expect(
-			child(child(form.operations, "__nova_close_selected_cases"), "case")
+			child(child(form.operations, "nova_close_selected_cases"), "case")
 				.children.filter(isTag)
 				.map((e) => e.name),
 		).toEqual(["close"]);
 		selectedIdentity(form, "archive_selected");
-		selectedIdentity(form, "__nova_close_selected_cases");
+		selectedIdentity(form, "nova_close_selected_cases");
 	}
 });

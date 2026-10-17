@@ -57,14 +57,15 @@ COPY = "proof_copy"
 
 
 def _copy(before):
-    """A node of the form's data set at load to the value the first setvalue of the model sets, by a setvalue
+    """A node of the form's data set at load to the value the model's first ``now()`` setvalue sets, by a setvalue
     written after that setvalue or ``before`` it."""
 
     def change(root):
         model = root.find(HEAD).find(f"{XF}model")
         data = model.find(f"{XF}instance")[0]
-        read = model.findall(f"{XF}setvalue")[0]
-        assert read.get("value") == "now()", read.attrib
+        clocks = [setvalue for setvalue in model.findall(f"{XF}setvalue") if setvalue.get("value") == "now()"]
+        assert clocks, "the form sets no node to now()"
+        read = clocks[0]
         etree.SubElement(data, etree.QName(data, COPY).text)
         path = f"/{etree.QName(data).localname}/{COPY}"
         copying = etree.Element(f"{XF}setvalue", event=read.get("event"), ref=path, value=read.get("ref"))

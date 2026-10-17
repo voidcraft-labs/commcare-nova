@@ -509,7 +509,16 @@ describe("constraint message emission", () => {
 				}),
 				f({ kind: "text", id: "nova_constraint_message_checked_1" }),
 			];
+			const connect = {
+				learn_module: {
+					id: "nova_constraint_message_checked_2",
+					name: "Lesson",
+					description: "Learn",
+					time_estimate: 1,
+				},
+			};
 			const doc = buildDoc({
+				connectType: "learn",
 				modules: [
 					{
 						name: "Work",
@@ -517,6 +526,7 @@ describe("constraint message emission", () => {
 							{
 								name: "Check",
 								type: "survey",
+								connect,
 								fields: reverse ? fields.reverse() : fields,
 							},
 						],
@@ -526,17 +536,7 @@ describe("constraint message emission", () => {
 			admitConstraintMessageFixture(doc);
 			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 			const root = readXmlEvidence(
-				buildXForm(doc, formUuid, {
-					xmlns: "urn:constraint",
-					connect: {
-						learn_module: {
-							id: "nova_constraint_message_checked_2",
-							name: "Lesson",
-							description: "Learn",
-							time_estimate: 1,
-						},
-					},
-				}),
+				buildXForm(doc, formUuid, { xmlns: "urn:constraint", connect }),
 			);
 			const data = onlyXml(
 				descendants(root, "instance").filter(

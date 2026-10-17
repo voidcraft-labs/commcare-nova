@@ -159,16 +159,14 @@ describe("editField — rename identifier guard", () => {
 		);
 	});
 
-	it("rejects a rename into the reserved __nova_ namespace", async () => {
+	it("accepts a rename to a name like one Nova generates, since Nova reserves none", async () => {
 		const h = makeToolWorkspaceHarness(expectAdmittedDoc(makeTwoFieldDoc()));
 		const result = await h.runTool(editFieldTool, {
 			...ADDRESS,
-			updates: { kind: "text", id: "__nova_count_x" },
+			updates: { kind: "text", id: "nova_count_x" },
 		});
 
-		expect("error" in result.result && result.result.error).toContain(
-			"__nova_",
-		);
+		expect(result.result).not.toHaveProperty("error");
 	});
 
 	it("accepts a legal rename and persists it", async () => {

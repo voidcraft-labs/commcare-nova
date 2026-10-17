@@ -80,18 +80,20 @@ describe("deployment notice reasons", () => {
 					{ outcome, profileProperties: SETTLED_PROFILE },
 					withEntryPoints,
 				).map((notice) => notice.reason),
-			).toEqual(["deep-links-need-republish"]);
+			).toEqual(["data-paths-move-once", "deep-links-need-republish"]);
 		}
 	});
 
 	it("tells an unreadable deployment its ids change once at the next publish", () => {
 		expect(deploymentNoticeReasons("unreadable", withEntryPoints)).toEqual([
 			"ids-change-once-unreadable",
+			"data-paths-move-once",
 			"deep-links-need-republish",
 			"settings-unknown-unreadable",
 		]);
 		expect(deploymentNoticeReasons("unreadable", withoutEntryPoints)).toEqual([
 			"ids-change-once-unreadable",
+			"data-paths-move-once",
 			"settings-unknown-unreadable",
 		]);
 	});
@@ -116,7 +118,7 @@ describe("deployment notice reasons", () => {
 				{ outcome: "read-in-full", profileProperties: SETTLED_PROFILE },
 				withoutEntryPoints,
 			),
-		).toEqual([]);
+		).toEqual([{ reason: "data-paths-move-once" }]);
 	});
 
 	it("names each entity left unpaired, and each form whose stored id no read gave", () => {
@@ -141,6 +143,7 @@ describe("deployment notice reasons", () => {
 		).toEqual([
 			{ reason: "menu-id-changes-once", entities: [menu] },
 			{ reason: "form-ids-change-once", entities: [form] },
+			{ reason: "data-paths-move-once" },
 		]);
 	});
 
@@ -155,7 +158,55 @@ describe("deployment notice reasons", () => {
 				},
 				withoutEntryPoints,
 			),
-		).toEqual([]);
+		).toEqual([{ reason: "data-paths-move-once" }]);
+	});
+
+	it("tells every deployment with a next publish, once and naming no form, that the data paths Nova adds move", () => {
+		const target = migratedFixtureDocument("case-operation-query");
+		const classes = [
+			"read-in-full",
+			"no-form-ids",
+			"unreadable",
+			"deleted",
+			"unsupported",
+			"transient",
+		] as const;
+		const entries = appNoticeEntries(
+			app({
+				deployments: classes.map((outcome, index) =>
+					deployment({
+						deploymentId: `00000000-0000-7000-8000-00000000d00${index + 1}`,
+						outcome,
+						notices: deploymentNotices(
+							{
+								outcome,
+								...(outcome === "read-in-full" || outcome === "no-form-ids"
+									? { profileProperties: SETTLED_PROFILE }
+									: {}),
+							},
+							target,
+						),
+					}),
+				),
+			}),
+			"Clinic",
+		);
+		const moved = entries.filter(
+			(entry) => entry.reason === "data-paths-move-once",
+		);
+		expect(
+			moved.map((entry) =>
+				entry.kind === "deployment" ? entry.deployment.deploymentId : null,
+			),
+		).toEqual([
+			"00000000-0000-7000-8000-00000000d001",
+			"00000000-0000-7000-8000-00000000d002",
+			"00000000-0000-7000-8000-00000000d003",
+		]);
+		for (const entry of moved) {
+			expect(entry).not.toHaveProperty("entities");
+			expect(entry).not.toHaveProperty("detail");
+		}
 	});
 });
 
@@ -489,6 +540,7 @@ describe("the settings lines a deployment's profile gives", () => {
 			);
 		expect(reasons("unreadable")).toEqual([
 			"ids-change-once-unreadable",
+			"data-paths-move-once",
 			"settings-unknown-unreadable",
 		]);
 		for (const outcome of ["read-in-full", "no-form-ids"] as const) {
@@ -497,7 +549,7 @@ describe("the settings lines a deployment's profile gives", () => {
 					{ outcome, profileProperties: SETTLED_PROFILE },
 					withSettings(true, true),
 				),
-			).toEqual([]);
+			).toEqual([{ reason: "data-paths-move-once" }]);
 		}
 		expect(reasons("deleted")).toEqual(["hq-app-deleted"]);
 		expect(reasons("unsupported")).toEqual(["hq-app-not-nova-made"]);
@@ -552,6 +604,15 @@ describe("the settings lines a deployment's profile gives", () => {
 			"Clinic",
 		);
 		expect(entries).toEqual([
+			{
+				kind: "deployment",
+				reason: "data-paths-move-once",
+				deployment: {
+					deploymentId: "00000000-0000-7000-8000-00000000d001",
+					server: "production",
+					domain: "field-ops",
+				},
+			},
 			{
 				kind: "deployment",
 				reason: "setting-changes-at-next-publish",

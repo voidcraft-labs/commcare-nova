@@ -34,7 +34,7 @@ import {
 	type XFormDataRootRuntimeAttributes,
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
-import { repeatCountNodeName } from "@/lib/commcare/xform/repeatCountNode";
+import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
 import type {
 	BlueprintDoc,
 	CaseOptionsSource,
@@ -280,6 +280,13 @@ export interface FormEngineInput {
 	 * wire name of an app in one language.
 	 */
 	wireName?: string;
+	/**
+	 * The name the form's XForm gives each count-bound repeat's count node, by
+	 * repeat uuid, from the form's plan of generated nodes
+	 * (`lib/commcare/xform/generatedNodes.ts`); a count's evaluation context
+	 * carries it. Absent, a count takes its base name, beside no collision.
+	 */
+	repeatCountNames?: Readonly<Record<string, string>>;
 	/** The form's uuid — used as the root key into `fieldOrder`. */
 	formUuid: Uuid;
 	/** Flat uuid→field map (the `doc.fields` slice). */
@@ -420,6 +427,17 @@ function printableDocOf(input: FormEngineInput): XPathPrintableDoc {
 	};
 }
 
+/** The count node's name from the form's plan of generated nodes, or, for an
+ *  input built without one, the name a count takes beside no collision. */
+function repeatCountNameOf(
+	planned: Readonly<Record<string, string>> | undefined,
+): (repeat: Field) => string {
+	return (repeat) =>
+		(planned !== undefined && Object.hasOwn(planned, repeat.uuid)
+			? planned[repeat.uuid]
+			: undefined) ?? repeatCountBaseName(repeat.id);
+}
+
 function caseWriteDocOf(
 	input: FormEngineInput,
 ): Pick<
@@ -511,6 +529,8 @@ export class FormEngine {
 		BlueprintDoc,
 		"fields" | "fieldOrder" | "caseTypes" | "userProperties"
 	>;
+	/** The name the form's XForm gives a count-bound repeat's count node. */
+	private repeatCountName: (repeat: Field) => string;
 	/** Rose-tree of the active form's fields. Rebuilt on schema refresh so
 	 *  every walker inside the engine agrees on the same snapshot. */
 	private tree: FieldTreeNode[];
@@ -623,6 +643,7 @@ export class FormEngine {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
+		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.asyncRuntime = runtimeOptions.stagedAsync === true;
 		this.restoredEntry = runtimeOptions.restoredEntry;
 		this.presentationLanguage = input.language;
@@ -2358,6 +2379,14 @@ export class FormEngine {
 	 * wasted work; submission still has to observe the new destination exactly. */
 	refreshCaseWriteDoc(input: FormEngineInput): void {
 		this.caseWriteDoc = caseWriteDocOf(input);
+		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
+	}
+
+	/** Adopt the count node names of the form's current plan of generated
+	 * nodes. Reordering siblings or editing a Connect id moves no path, so no
+	 * other refresh runs, yet either can rename a count node. */
+	refreshRepeatCountNames(names: Readonly<Record<string, string>>): void {
+		this.repeatCountName = repeatCountNameOf(names);
 	}
 
 	/**
@@ -2378,6 +2407,7 @@ export class FormEngine {
 		this.instance.refreshTemplate(this.tree);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
+		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.printDoc);
 		this.activeSectionUuid = resolveCurrentPage(
@@ -2820,6 +2850,7 @@ export class FormEngine {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
+		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.formType = input.form.type;
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.caseData = caseData;
@@ -2902,6 +2933,7 @@ export class FormEngine {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
+		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 
 		this.instance = new DataInstance(this.formRootAttributes);
 		this.instance.initFromFields(this.tree);
@@ -4036,7 +4068,7 @@ export class FormEngine {
 		const source =
 			expressionSource(field, "repeat_count", this.printDoc) ?? "0";
 		const parentPath = path.slice(0, path.lastIndexOf("/"));
-		const name = repeatCountNodeName(field.id, new Set());
+		const name = this.repeatCountName(field);
 		const result = yield { source, path, carrier: { parentPath, name } };
 		if (isAsyncNodesetValues(result))
 			throw new Error("Expected a scalar count.");

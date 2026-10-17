@@ -7,9 +7,9 @@
  * XPath references resolve against. Its case-storage destination is the
  * independent `caseWrite` pair. Field IDs therefore carry only form-path
  * constraints:
- * XML element-name legality, the reserved `__nova_` synthetic-node namespace,
- * and sibling-ID uniqueness (CommCare requires unique ids among siblings;
- * cousins may share).
+ * XML element-name legality and sibling-ID uniqueness (CommCare requires
+ * unique ids among siblings; cousins may share). Nova reserves no field IDs
+ * for the nodes it generates: its allocator steps around authored names.
  *
  * This module is the single home of those checks for the commit
  * boundary (the connect-slug pattern: one verdict, every caller). The
@@ -17,9 +17,8 @@
  * store-level rename pre-check (`useBlueprintMutations.renameField`),
  * and the SA/MCP tools (`addFields`, `editField`'s rename path) all
  * consume the same functions, so "rejected here, accepted there" can't
- * drift. The validator rules (`DUPLICATE_FIELD_ID`, `INVALID_FIELD_ID`,
- * `RESERVED_FIELD_ID_PREFIX`) stay as
- * backstops for docs that predate the guards.
+ * drift. The validator rules (`DUPLICATE_FIELD_ID`, `INVALID_FIELD_ID`) stay
+ * as backstops for docs that predate the guards.
  *
  * Pure — reads the doc, never mutates. Reducers stay total and never
  * call these: a degenerate historical event must still replay.
@@ -29,10 +28,8 @@ import {
 	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_CASE_TYPE_LENGTH,
-	RESERVED_XFORM_NODE_PREFIX,
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare/constants";
-import { isReservedXFormNodeName } from "@/lib/commcare/identifierValidation";
 import { RESERVED_CASE_TYPE_NAMES } from "@/lib/commcare/validator/reservedNamespaces";
 import {
 	authoredCasePropertyNameSchema,
@@ -48,10 +45,7 @@ import {
 /** Why an ID was rejected. Useful for tests and for callers that brand
  *  failure classes differently; human-facing copy rides `message` /
  *  `userMessage`. */
-export type FieldIdRejectionCode =
-	| "illegal_xml_name"
-	| "reserved_prefix"
-	| "sibling_conflict";
+export type FieldIdRejectionCode = "illegal_xml_name" | "sibling_conflict";
 
 /**
  * The one verdict shape every caller consumes — carrying TWO renderings
@@ -81,11 +75,8 @@ export type FieldIdVerdict =
 
 const OK: FieldIdVerdict = { ok: true };
 
-/** Format-class checks shared by the add and rename verdicts: XML element-name
- * legality and the reserved synthetic-node prefix. Sibling uniqueness lives
- * with each caller-shaped verdict below. */
 /** The format half of the id law alone — legal characters, no leading
- *  digit, no reserved prefix — with no sibling scan. For a caller whose
+ *  digit — with no sibling scan. For a caller whose
  *  sibling universe is not the document's current one (the section
  *  planner collides against the root its plan PRODUCES). */
 export function fieldIdFormatVerdict(proposedId: string): FieldIdVerdict {
@@ -109,14 +100,6 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 			code: "illegal_xml_name",
 			message: `"${proposedId}" can't be a field ID. IDs become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores, no spaces, hyphens, or special characters.`,
 			userMessage: `"${proposedId}" won't work as a field ID. Stick to letters, numbers, and underscores, starting with a letter, no spaces or punctuation.`,
-		};
-	}
-	if (isReservedXFormNodeName(proposedId)) {
-		return {
-			ok: false,
-			code: "reserved_prefix",
-			message: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an ID that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}".`,
-			userMessage: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved. Pick an ID that starts with something else.`,
 		};
 	}
 	return OK;
@@ -169,8 +152,7 @@ export interface FieldIdVerdictInput {
 
 /**
  * Verdict for placing a field with `proposedId` under `parentUuid`:
- * format legality, the reserved namespace, the case-property length
- * cap, and uniqueness among that parent's children. Cousins (same ID
+ * format legality and uniqueness among that parent's children. Cousins (same ID
  * under a different parent) pass — only siblings share an XML path.
  */
 export function fieldIdVerdict({
@@ -227,8 +209,7 @@ export interface RenameFieldIdVerdictInput {
 
 /**
  * Verdict for renaming `fieldUuid` to `newId`: a rename to the current
- * ID passes (no-op), then format legality, the reserved namespace, the
- * sibling-conflict scan.
+ * ID passes (no-op), then format legality, then the sibling-conflict scan.
  */
 export function renameFieldIdVerdict({
 	doc,
@@ -345,7 +326,7 @@ export {
 // emitted XForm node carries. It is therefore both a person-facing label
 // and an XML element name, and it must be unique within its form so two
 // changes can never be confused for one another in a refusal. The
-// validator enforces the same three rules as backstops
+// validator enforces the same rules as backstops
 // (`CASE_OPERATION_INVALID_ID`, `CASE_OPERATION_DUPLICATE_ID`); this
 // verdict lets the rename input refuse inline instead.
 
@@ -353,7 +334,6 @@ export {
 export type CaseOperationIdRejectionCode =
 	| "empty"
 	| "illegal_format"
-	| "reserved_prefix"
 	| "duplicate";
 
 export type CaseOperationIdVerdict =
@@ -385,13 +365,6 @@ export function caseOperationIdVerdict(
 			ok: false,
 			code: "illegal_format",
 			userMessage: CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
-		};
-	}
-	if (trimmed.startsWith(RESERVED_XFORM_NODE_PREFIX)) {
-		return {
-			ok: false,
-			code: "reserved_prefix",
-			userMessage: `Names starting with "${RESERVED_XFORM_NODE_PREFIX}" are reserved.`,
 		};
 	}
 	if (taken.has(trimmed)) {
@@ -506,13 +479,6 @@ export function caseOperationLinkIdentifierVerdict(
 			ok: false,
 			code: "illegal_format",
 			userMessage: CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
-		};
-	}
-	if (trimmed.startsWith(RESERVED_XFORM_NODE_PREFIX)) {
-		return {
-			ok: false,
-			code: "reserved_prefix",
-			userMessage: `Names starting with "${RESERVED_XFORM_NODE_PREFIX}" are reserved.`,
 		};
 	}
 	if (trimmed.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH) {

@@ -46,7 +46,7 @@ are compared as HQ applies them (``blocks_by_case``): keyed by case id, and
 each case's by where the form holds each block (the path the observation
 records, ``proof.observe.sessions.block_paths``, written as
 ``compare.names.block_path`` writes it, one JSON Pointer token: a guard's is
-``/runs/*/blocks/*/__nova_operations~1__nova_guard_*~1case``). The blocks a
+``/runs/*/blocks/*/nova_operations~1nova_guard_*~1case``). The blocks a
 repeat's rows write share HQ's path, so one key's blocks pair by position.
 So two blocks of two cases the forms write in another order are no
 difference, and a block one side holds and the other does not is that one
@@ -399,7 +399,7 @@ def _block_actions(block):
 
 def block_key(path):
     """A case block's key by where the form holds it: HQ's path to it (``proof.observe.sessions.block_paths``),
-    each key, then ``case``, joined by ``/`` (``__nova_operations/__nova_guard_<uuid>_text/case``)."""
+    each key, then ``case``, joined by ``/`` (``nova_operations/nova_guard_<operation>_text/case``)."""
     return "/".join([*path, "case"])
 
 

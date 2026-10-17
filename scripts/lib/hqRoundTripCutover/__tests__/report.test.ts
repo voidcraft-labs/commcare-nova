@@ -5,6 +5,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import { type BlueprintDoc, proseText } from "@/lib/domain";
 import type { DeploymentNoticeReason } from "@/lib/notices/migrationNotice";
 import type { HolderCensus } from "../holders";
 import { readRawDocument } from "../oldShape";
@@ -17,13 +21,19 @@ import type {
 } from "../plan";
 import {
 	CutoverReport,
+	debugDetails,
 	deploymentLines,
 	fleetLine,
+	generatedPathForms,
 	outcomeLine,
 	planInputs,
 	planSections,
 } from "../report";
-import { readFixtureCarriers } from "./fixtures/preStep";
+import {
+	migratedFixtureDocument,
+	readFixtureCarriers,
+	readFixtureProject,
+} from "./fixtures/preStep";
 
 const RAW = readRawDocument(
 	"navigation-base",
@@ -381,12 +391,13 @@ describe("the settings line of a run that read HQ", () => {
 		keyUses: [],
 		notices: reasons.map((reason) => ({ reason })),
 	});
+	const migrated = migratedFixtureDocument("navigation-base");
 	const target = (
 		showSavedForms: boolean,
 		showIncompleteForms: boolean,
-	): { raw: typeof RAW; doc: object | undefined } => ({
+	): { raw: typeof RAW; doc: BlueprintDoc | undefined } => ({
 		raw: RAW,
-		doc: { appSettings: { showSavedForms, showIncompleteForms } },
+		doc: { ...migrated, appSettings: { showSavedForms, showIncompleteForms } },
 	});
 	const build = {
 		plan: {
@@ -441,5 +452,250 @@ describe("the settings line of a run that read HQ", () => {
 			deploymentsWhoseSettingChanges: 1,
 			deploymentsWhoseWorkerSettingsReset: 2,
 		});
+	});
+});
+
+/** A corpus fixture's Project lookup tables, as the plan's context holds them. */
+function fixtureLookupContext(id: string): LookupValidationContext {
+	const lookup = readFixtureProject(id).lookup as
+		| {
+				definitions: Extract<
+					LookupValidationContext,
+					{ kind: "available" }
+				>["definitions"];
+		  }
+		| undefined;
+	return lookup === undefined
+		? { kind: "unavailable" }
+		: {
+				kind: "available",
+				projectId: "fixture-project",
+				projectRevision: 1 as never,
+				definitions: lookup.definitions,
+			};
+}
+
+/**
+ * Three forms: one whose protected validation message the one allocator
+ * names anew, because an authored sibling holds the message's base and an
+ * earlier constraint count of `message_x` its first suffix; one whose only
+ * generated node is a write-free close's Save to Case block; and one with a
+ * counted repeat, whose count node keeps its name and its path.
+ */
+function generatedNamesDoc(): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Generated paths",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Check",
+						type: "followup",
+						fields: [
+							f({ kind: "text", id: "other" }),
+							f({ kind: "text", id: "nova_constraint_message_x" }),
+							f({
+								kind: "text",
+								id: "message_x",
+								validate:
+									"count(#form/other[. = 'yes']) > 0 and count(#form/other[. = 'no']) = 0",
+							}),
+							f({
+								kind: "text",
+								id: "x",
+								validate: ". != ''",
+								// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal `${` is what makes a message protected
+								validate_msg: proseText("Write ${1}"),
+							}),
+						],
+					},
+					{
+						name: "Discharge",
+						type: "followup",
+						fields: [f({ kind: "text", id: "reason" })],
+					},
+					{
+						name: "Rounds",
+						type: "followup",
+						fields: [
+							f({
+								kind: "repeat",
+								id: "rounds",
+								repeat_mode: "count_bound",
+								repeat_count: "2",
+								children: [f({ kind: "text", id: "note" })],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const discharge = doc.formOrder[doc.moduleOrder[0]][1];
+	doc.forms[discharge].caseOperations = [
+		{
+			uuid: testUuid("discharge-operation"),
+			id: "discharge",
+			action: "close",
+			caseType: "patient",
+			target: { kind: "session" },
+		},
+	];
+	return doc;
+}
+
+describe("the forms whose generated data paths move", () => {
+	it("are each fixture's forms that hold a case operation, and no form whose only generated nodes are counts and messages", () => {
+		const moving = (id: string) =>
+			generatedPathForms(
+				migratedFixtureDocument(id),
+				fixtureLookupContext(id),
+			).moving.map((form) => form.name);
+		// A root create keyed by an answer, now inside its one-row repeat.
+		expect(moving("case-operation-key")).toEqual(["Edit"]);
+		expect(moving("case-operation-query")).toEqual(["Edit"]);
+		// A conditional update in a query repeat's row, now inside its group.
+		expect(moving("case-choice-attendance")).toEqual(["Attendance"]);
+		// A counted repeat's count node, and three message nodes, keep their paths.
+		expect(moving("container-live-count-entry")).toEqual([]);
+		expect(moving("xml-unicode")).toEqual([]);
+		expect(moving("navigation-base")).toEqual([]);
+		for (const id of [
+			"case-operation-key",
+			"container-live-count-entry",
+			"xml-unicode",
+		]) {
+			expect(
+				generatedPathForms(
+					migratedFixtureDocument(id),
+					fixtureLookupContext(id),
+				).countOrMessageNameMoves,
+			).toEqual([]);
+		}
+	});
+
+	it("count a form by its renamed nodes or by a block it holds, and apart from them a form whose message is named anew", () => {
+		const doc = generatedNamesDoc();
+		const [check, discharge, rounds] = doc.formOrder[doc.moduleOrder[0]];
+		const forms = generatedPathForms(doc, { kind: "unavailable" });
+		expect(forms.moving.map((form) => form.formUuid)).toEqual([
+			check,
+			discharge,
+		]);
+		expect(forms.countOrMessageNameMoves).toEqual([
+			{ formUuid: check, name: "Check" },
+		]);
+		expect(forms.moving.map((form) => form.formUuid)).not.toContain(rounds);
+	});
+
+	it("are counted per app in the generated-paths line, which names no form and lists each app no publish would emit", () => {
+		const doc = generatedNamesDoc();
+		const keyed = migratedFixtureDocument("case-operation-key");
+		const plain = migratedFixtureDocument("navigation-base");
+		const build = {
+			plan: {
+				format: "hq-round-trip-emission-1",
+				apps: [
+					appPlan("app-names"),
+					appPlan("app-keyed"),
+					appPlan("app-plain"),
+					appPlan("app-unparsed", {
+						blockers: [{ code: "target-parse", count: 1, findingCodes: [] }],
+					}),
+					appPlan("app-refused", {
+						blockers: [
+							{ code: "target-gate", count: 1, findingCodes: ["INVALID_REF"] },
+						],
+					}),
+					appPlan("app-unready", {
+						blockers: [
+							{
+								code: "target-export-readiness",
+								count: 1,
+								findingCodes: ["MEDIA_ASSET_NOT_FOUND"],
+							},
+						],
+					}),
+				],
+				lookupTagRenames: [],
+				projectBlockers: [],
+				digest: "d".repeat(64),
+			},
+			targets: new Map([
+				["app-names", { raw: RAW, doc }],
+				["app-keyed", { raw: RAW, doc: keyed }],
+				["app-plain", { raw: RAW, doc: plain }],
+				["app-unparsed", { raw: RAW, doc: undefined }],
+				["app-refused", { raw: RAW, doc: plain }],
+				["app-unready", { raw: RAW, doc: keyed }],
+			]),
+			apps: [],
+			deployments: [],
+			lookupContexts: new Map(),
+		} as unknown as CutoverPlanBuild;
+		const source: FleetSource = {
+			apps: [],
+			projects: new Map(),
+			privateWork: {
+				openWorkspaces: 0,
+				openChangeSets: 0,
+				activeCandidates: 0,
+				endingSessions: [],
+			},
+		};
+		const report = new CutoverReport("scan");
+		planSections(report, source, build, NO_HOLDERS);
+		const sections = report.all().map((line) => line.section);
+		expect(sections.indexOf("generated-paths")).toBe(
+			sections.indexOf("behavior") + 1,
+		);
+		expect(
+			report.all().find((line) => line.section === "generated-paths"),
+		).toEqual({
+			report: "hq-round-trip-emission",
+			mode: "scan",
+			section: "generated-paths",
+			apps: [
+				{
+					appId: "app-names",
+					formsMoving: 2,
+					formsWhoseCountOrMessageNameMoves: 1,
+				},
+				{
+					appId: "app-keyed",
+					formsMoving: 1,
+					formsWhoseCountOrMessageNameMoves: 0,
+				},
+			],
+			notCounted: ["app-unparsed", "app-refused", "app-unready"],
+		});
+		expect(report.text()).not.toContain("Check");
+
+		const [check, discharge] = doc.formOrder[doc.moduleOrder[0]];
+		expect(
+			debugDetails(build, "app-names", {
+				parse: [],
+				gate: [],
+				exportReadiness: [],
+				caseSchemas: [],
+			}),
+		).toEqual([
+			`App app-names: ${RAW.appName}`,
+			"  no blocker",
+			`  generated-paths-move ${check}: Check`,
+			`  generated-paths-move ${discharge}: Discharge`,
+			`  generated-count-or-message-name-moves ${check}: Check`,
+		]);
 	});
 });

@@ -1,4 +1,4 @@
-"""Fixtures for the Android reader's tests that read the corpus (``test_form_reads.py``).
+"""Fixtures for the Android reader's tests that read the corpus (``test_form_reads.py``, ``test_case_blocks.py``).
 
 ``DOCUMENTS`` names every corpus document these tests read, which is what a
 stored outcome of this package is keyed by (``proof.store.queue.PACKAGE_DATA``),
@@ -13,6 +13,12 @@ import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
+    "case-operation-conditional",
+    "case-operation-key",
+    "case-operation-query",
+    "case-operation-repeat",
+    "case-operation-retype",
+    "case-operation-sequence",
     "container-query-conditional",
     "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0",
     "localization-bilingual",

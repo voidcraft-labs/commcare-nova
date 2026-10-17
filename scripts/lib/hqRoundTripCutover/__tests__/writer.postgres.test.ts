@@ -496,6 +496,15 @@ describe("the fleet transaction over the frozen fixtures", () => {
 					},
 					{
 						kind: "deployment",
+						reason: "data-paths-move-once",
+						deployment: {
+							deploymentId: deployment,
+							server: "production",
+							domain: "field-ops",
+						},
+					},
+					{
+						kind: "deployment",
 						reason: "deep-links-need-republish",
 						deployment: {
 							deploymentId: deployment,

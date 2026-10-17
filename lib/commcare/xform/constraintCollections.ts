@@ -1,5 +1,4 @@
 import type { SyntaxNode } from "@lezer/common";
-import { RESERVED_XFORM_NODE_PREFIX } from "@/lib/commcare/constants";
 import { parser } from "@/lib/commcare/xpath/parser";
 import { spellPredicateSelf } from "@/lib/commcare/xpath/selfSteps";
 import { printWireXPathSource } from "@/lib/commcare/xpath/wireSource";
@@ -26,12 +25,15 @@ interface Calculation {
  * Count a different question's filtered answers outside that candidate context.
  * Only explicit scalar-field collections with context-independent predicates
  * qualify. The proposed answer and ambiguous/relative paths stay in validation.
+ * `nameFor` names the `ordinal`th count, asked in ordinal order from 0; the
+ * form's plan of generated nodes answers it (`generatedNodes.ts`).
  */
 export function planConstraintCollections(
 	expression: XPathExpression,
 	fieldUuid: Uuid,
 	doc: BlueprintDoc,
 	path: FormPath,
+	nameFor: (ordinal: number) => string,
 ): { source: string; calculations: Calculation[] } {
 	let source = "";
 	const references: ReferenceSpan[] = [];
@@ -96,7 +98,7 @@ export function planConstraintCollections(
 			const countSource = source.slice(node.from, node.to);
 			let calculation = bySource.get(countSource);
 			if (!calculation) {
-				const syntheticName = `${RESERVED_XFORM_NODE_PREFIX}constraint_${doc.fields[fieldUuid].id}_${calculations.length}`;
+				const syntheticName = nameFor(calculations.length);
 				calculation = {
 					name: syntheticName,
 					path: path.parent().child(syntheticName).toXPath(),

@@ -56,7 +56,7 @@ its caller), never by the message, which holds the app's values; where Core's
 case parser refused a case block missing an attribute it requires, by that
 attribute, the block's first action and where the block sits, written as
 proof 3 writes the block HQ refused
-(``/runs/*/trace/*/processing/<class>/case_id/update/__nova_operations~1__nova_guard_*~1case``).
+(``/runs/*/trace/*/processing/<class>/case_id/update/nova_operations~1nova_guard_*~1case``).
 A failure the runner records as text, which carries no exception, is named
 by the end it leaves its run with (``failure_cause``). The runner records a
 stop in place of what the step would have held past it and ends the run
@@ -374,7 +374,7 @@ def refusal_cause(step):
     the block's first action (``block_action``) and where the block sits
     (``compare.names.element_block_path``, one JSON Pointer token, as proof 3
     names the block HQ refused): an empty case id in a guard's block is
-    ``/<class>/case_id/update/__nova_operations~1__nova_guard_*~1case``. Any
+    ``/<class>/case_id/update/nova_operations~1nova_guard_*~1case``. Any
     other refusal is named by its exception (``exception_cause``).
     """
     failure = step.get(REFUSAL)

@@ -70,7 +70,7 @@ import {
 } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
-import { buildEngineInput } from "./engineInput";
+import { buildEngineInput, repeatCountNamesOf } from "./engineInput";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
 import {
@@ -1617,6 +1617,7 @@ export class EngineController {
 		this.setupAuthoredPathTopologySubscription(formUuid);
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
+		this.setupRepeatCountNameSubscription(formUuid);
 		this.setupMetadataSubscription();
 		this.setupUserPropertySubscription();
 		this.setupLocalizationSubscription();
@@ -1813,6 +1814,7 @@ export class EngineController {
 		this.setupAuthoredPathTopologySubscription(formUuid);
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
+		this.setupRepeatCountNameSubscription(formUuid);
 		this.setupMetadataSubscription();
 		this.setupUserPropertySubscription();
 		this.setupLocalizationSubscription();
@@ -3172,6 +3174,30 @@ export class EngineController {
 			{ equalityFn: shallow },
 		);
 
+		this.unsubscribers.push(unsub);
+	}
+
+	/**
+	 * Count node names come from the form's plan of generated nodes, which an
+	 * edit can change without moving any path: siblings reordered, or a
+	 * Connect id at the form root. Every other refresh carries the names too;
+	 * this keeps the engine on the current plan when none of them runs.
+	 */
+	private setupRepeatCountNameSubscription(formUuid: Uuid): void {
+		if (!this.docStore) return;
+		const store = this.docStore;
+		this.engine?.refreshRepeatCountNames(
+			repeatCountNamesOf(store.getState(), formUuid),
+		);
+		const unsub = store.subscribe(
+			(s) => repeatCountNamesOf(s, formUuid),
+			(names) => {
+				this.contain("document-update", formUuid, undefined, () =>
+					this.engine?.refreshRepeatCountNames(names),
+				);
+			},
+			{ equalityFn: shallow },
+		);
 		this.unsubscribers.push(unsub);
 	}
 

@@ -484,7 +484,28 @@ describe("case-operation activation and identity", () => {
 			create(),
 			update({ id: "create_visit" }),
 		]);
-		expectCode("CASE_OPERATION_INVALID_ID", [update({ id: "__nova_bad" })]);
+		expectCode("CASE_OPERATION_INVALID_ID", [update({ id: "1bad" })]);
+	});
+
+	it("judges an id or link identifier that starts with __nova_ as any other leading underscore", () => {
+		expect(codesFor([update({ id: "__nova_update" })])).toEqual(
+			codesFor([update({ id: "_update" })]),
+		);
+		expect(codesFor([update({ id: "__nova_update" })])).toEqual([]);
+		const linked = (identifier: string) =>
+			update({
+				links: [
+					{
+						identifier,
+						targetType: "visit",
+						target: null,
+						relationship: "child",
+					},
+				],
+			});
+		expect(codesFor([linked("__nova_link")])).toEqual(
+			codesFor([linked("_link")]),
+		);
 	});
 
 	it("accepts underscores but rejects hyphens and dots in emitted node names", () => {

@@ -18,9 +18,10 @@
 // question would therefore emit an attachment block on a domain that
 // silently drops it, and no property at all.
 
-import { RESERVED_XFORM_NODE_PREFIX } from "../constants";
+import type { Uuid } from "@/lib/domain";
 import { xpathStringLiteral } from "../xpath/stringLiteral";
 import type { FormPath } from "./formPath";
+import type { GeneratedNodePlan } from "./generatedNodes";
 
 /**
  * The two halves of an attachment URL that the deployment target supplies.
@@ -66,16 +67,15 @@ const FORM_ATTACHMENT_API_PATH = "/api/form_attachment/v1/";
  *
  * A sibling of the capture question rather than a node hoisted to the form
  * root, so a capture inside a repeat produces one URL per iteration and
- * lands in the same child-create bucket as the capture itself. Sibling ids
- * are unique within their container and `__nova_` is reserved from
- * authored ids (`validator/rules/field.ts`, `identifierValidation.ts`), so
- * the name cannot collide with an author's own question.
+ * lands in the same child-create bucket as the capture itself. Its name is
+ * the form's plan of generated nodes' (`generatedNodes.ts::url`), which steps
+ * around every authored sibling.
  */
-export function captureUrlNodeName(captureElementName: string): string {
-	return `${RESERVED_XFORM_NODE_PREFIX}url_${captureElementName}`;
-}
-
-export function captureUrlNodePath(capturePath: FormPath): FormPath {
+export function captureUrlNodePath(
+	plan: GeneratedNodePlan,
+	captureUuid: Uuid,
+	capturePath: FormPath,
+): FormPath {
 	const segments = capturePath.segments();
 	const last = segments[segments.length - 1];
 	if (last === undefined || last.kind !== "element") {
@@ -84,7 +84,7 @@ export function captureUrlNodePath(capturePath: FormPath): FormPath {
 				`The URL node is emitted as that element's sibling, so there is nowhere to put it.`,
 		);
 	}
-	return capturePath.parent().child(captureUrlNodeName(last.name));
+	return capturePath.parent().child(plan.url(captureUuid));
 }
 
 /**

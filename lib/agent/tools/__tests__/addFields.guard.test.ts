@@ -83,13 +83,13 @@ describe("addFields — identifier guard through admitted input and canonical wo
 		const h = makeToolWorkspaceHarness(makeDoc());
 		const result = await h.runTool(addFieldsTool, {
 			...ADDRESS,
-			fields: [textItem("age"), textItem("bad name"), textItem("__nova_x")],
+			fields: [textItem("age"), textItem("bad name"), textItem("1leading")],
 		});
 
 		const error = (result.result as { error: string }).error;
 		expect(error).toContain('"age"');
 		expect(error).toContain('"bad name"');
-		expect(error).toContain('"__nova_x"');
+		expect(error).toContain('"1leading"');
 	});
 
 	it("rejects two in-batch fields landing on the same parent with the same id", async () => {

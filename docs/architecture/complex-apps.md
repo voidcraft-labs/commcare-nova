@@ -864,8 +864,8 @@ Ordinary extension-case creation also rides the source XForm. HQ's basic
 `_create_casexml` ignores the relationship in an `OpenSubCaseAction`, so emitting
 that action alone would silently create a child relationship. Nova retains the
 extension action with condition `never` solely to preserve HQ's case ID datums
-and navigation matching, and emits the active extension under `__nova_subcases`
-at its exact root or repeat scope. The native redundant block is irrelevant;
+and navigation matching, and emits the active extension inside a `nova_subcases`
+group at its exact root or repeat scope. The native redundant block is irrelevant;
 local CCZ compilation omits it. Non-repeat source creates consume the retained
 session IDs, and repeat creates mint one ID per iteration. Several-case forms
 continue using the shared selected-parent iteration. `proof/native/`

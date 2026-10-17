@@ -56,6 +56,10 @@ import {
 } from "./xform/captureUrlNode";
 import { datetimeCaseValuePath } from "./xform/datetimeCaseValue";
 import { descendFormPathIntoField, FormPath } from "./xform/formPath";
+import {
+	type GeneratedNodePlan,
+	planGeneratedNodes,
+} from "./xform/generatedNodes";
 
 /** Find one stable field identity inside a specific form tree. */
 function findFieldPath(
@@ -102,8 +106,10 @@ function requireFieldPath(
  * An ordinary field's answer IS the case value, so the question path is the
  * field's own node. A capture's is not: the answer is a file name, and the
  * property carries an address built from it, which lives on the sibling node
- * `captureUrlNodePath` names. Routing the update at the capture node instead
- * would make HQ emit an `<attachment>` block rather than an `<update>` child.
+ * `captureUrlNodePath` names. Both sibling names are the form's plan of
+ * generated nodes', the one the XForm builder writes them from. Routing the
+ * update at the capture node instead would make HQ emit an `<attachment>`
+ * block rather than an `<update>` child.
  *
  * With no deployment target there is no origin and no project space to build
  * an address from, so a URL-mode write is dropped rather than emitted against
@@ -112,18 +118,35 @@ function requireFieldPath(
  */
 function caseUpdateQuestionPath(
 	doc: BlueprintDoc,
+	generatedNodes: () => GeneratedNodePlan,
 	binding: DerivedCasePropertyBinding,
 	field: Field,
 	attachmentTarget: AttachmentUrlTarget | null,
 ): string | null {
 	if (fieldValueType(field, effectiveCaseTypes(doc)) === "datetime")
-		return datetimeCaseValuePath(binding.path).toXPath();
+		return datetimeCaseValuePath(
+			generatedNodes(),
+			binding.fieldUuid,
+			binding.path,
+		).toXPath();
 	if (!isCaptureField(field)) return binding.path.toXPath();
 	if (field.caseWrite?.mode === "attachment") {
 		return binding.path.toXPath();
 	}
 	if (attachmentTarget === null) return null;
-	return captureUrlNodePath(binding.path).toXPath();
+	return captureUrlNodePath(
+		generatedNodes(),
+		binding.fieldUuid,
+		binding.path,
+	).toXPath();
+}
+
+/** The form's plan of generated nodes, read only when a path needs it. */
+function generatedNodesOf(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): () => GeneratedNodePlan {
+	return () => planGeneratedNodes(doc, formUuid);
 }
 
 function requireBindingField(
@@ -142,6 +165,7 @@ function requireBindingField(
 /** Domain `case_name` projects one-way to HQ FormActions' private `name`. */
 function projectPrimaryUpdateMap(
 	doc: BlueprintDoc,
+	generatedNodes: () => GeneratedNodePlan,
 	bindings: readonly DerivedCasePropertyBinding[] | undefined,
 	attachmentTarget: AttachmentUrlTarget | null,
 ): UpdateCaseAction["update"] {
@@ -151,6 +175,7 @@ function projectPrimaryUpdateMap(
 		const field = requireBindingField(doc, binding);
 		const questionPath = caseUpdateQuestionPath(
 			doc,
+			generatedNodes,
 			binding,
 			field,
 			attachmentTarget,
@@ -194,7 +219,12 @@ export function buildPrimaryCaseUpdateMap(
 	);
 	const projectedInventory = assertAndProjectCaseWriteInventory(inventory);
 	const { caseProperties } = deriveCaseConfig(doc, projectedInventory);
-	return projectPrimaryUpdateMap(doc, caseProperties, attachmentTarget);
+	return projectPrimaryUpdateMap(
+		doc,
+		generatedNodesOf(doc, formUuid),
+		caseProperties,
+		attachmentTarget,
+	);
 }
 
 /**
@@ -226,6 +256,7 @@ export function buildFormActions(
 		form.type,
 	);
 	const projectedInventory = assertAndProjectCaseWriteInventory(inventory);
+	const generatedNodes = generatedNodesOf(doc, formUuid);
 
 	// The worker's own record is filled in BEFORE the case-type early return,
 	// because it does not depend on one. `usercase_update` is a form action on
@@ -248,7 +279,11 @@ export function buildFormActions(
 						requireBindingField(doc, writer),
 						effectiveCaseTypes(doc),
 					) === "datetime"
-						? datetimeCaseValuePath(path).toXPath()
+						? datetimeCaseValuePath(
+								generatedNodes(),
+								writer.fieldUuid,
+								path,
+							).toXPath()
 						: path.toXPath(),
 				update_mode: "always",
 			};
@@ -287,6 +322,7 @@ export function buildFormActions(
 
 		const updateMap = projectPrimaryUpdateMap(
 			doc,
+			generatedNodes,
 			caseProperties?.filter((binding) => binding.property !== "external_id"),
 			attachmentTarget,
 		);
@@ -299,6 +335,7 @@ export function buildFormActions(
 	if (CASE_LOADING_FORM_TYPES.has(form.type)) {
 		const updateMap = projectPrimaryUpdateMap(
 			doc,
+			generatedNodes,
 			caseProperties,
 			attachmentTarget,
 		);
@@ -375,6 +412,7 @@ export function buildFormActions(
 				const field = requireBindingField(doc, binding);
 				const questionPath = caseUpdateQuestionPath(
 					doc,
+					generatedNodes,
 					binding,
 					field,
 					attachmentTarget,
