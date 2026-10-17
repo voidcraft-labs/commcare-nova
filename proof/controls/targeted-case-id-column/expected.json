@@ -1,0 +1,60 @@
+{
+	"intent": [
+		{
+			"id": "amina-record-id",
+			"export": "local",
+			"form": "e418e3b3-89ec-5517-a6d2-3c3148e94a63",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f0"
+				},
+				"caseList": {
+					"searchText": "Amina"
+				}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-amina"
+				},
+				{
+					"pointer": "/caseList/rows/0/fields/0",
+					"value": "Amina"
+				},
+				{
+					"pointer": "/caseList/rows/0/fields/1",
+					"value": "targeted-amina"
+				}
+			]
+		},
+		{
+			"id": "baraka-record-id",
+			"export": "local",
+			"form": "e418e3b3-89ec-5517-a6d2-3c3148e94a63",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f0"
+				},
+				"caseList": {
+					"searchText": "Baraka"
+				}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-baraka"
+				},
+				{
+					"pointer": "/caseList/rows/0/fields/0",
+					"value": "Baraka"
+				},
+				{
+					"pointer": "/caseList/rows/0/fields/1",
+					"value": "targeted-baraka"
+				}
+			]
+		}
+	]
+}

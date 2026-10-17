@@ -20,7 +20,11 @@ each with its problems:
    it is marked to.
 3. Register (``proof.checks.registers.verify_evidence``): the evidence of
    every counted block, with the cached groups' evidence read from the store
-   (``proof.lane.reader``), held to ``proof/known-defects.json``. A run over
+   (``proof.lane.reader``), held to ``proof/known-defects.json``, and every
+   fixed entry of ``proof/fixed-defects.json`` held on its control, each
+   failure named to the control's group. The section counts the fixed
+   entries it held and those it left (``fixedHeld``, ``fixedLeft``), and
+   notes where a live and a fixed entry share a class. A run over
    a sample of the corpus (its main queue names the documents the sample
    leaves out, ``unsampled``) holds each entry naming one of those on its
    control alone, and the section says how many entries it held so, which
@@ -39,15 +43,20 @@ each with its problems:
    on the corpus. A slice a person ran by path and ``-k`` writes a queue of
    its own that names no documents, so the gate is told them
    (``--documents``) and holds that run the same way; a document it is told
-   and the run did not run fails by name.
+   and the run did not run fails by name. Such a run holds the fixed entries
+   of the controls it ran (the ``control:`` groups its queues hold, run or
+   cached) and leaves the rest: a fixed entry names no document, so its
+   control's own run is what brings it into a slice.
 4. Walk stops (``proof.checks.stops.held_evidence``): the stops each
    document's and control's walks showed (the ``stops`` check's evidence,
    read as the register's is), held to ``proof/walk-stops.json``: a stop no
-   entry holds fails by name, and so does an entry whose document's run
-   showed no such stop. A run holds the entries of the readers it handed its
-   states to and says how many it left; an entry naming a document the run
-   left out of its sample, or one a run over documents named by hand did not
-   name, is left to the run that runs it.
+   entry holds fails by name, and so does an entry whose document's or
+   control's run showed no such stop. A run holds the entries of the readers
+   it handed its states to and says how many it left; an entry naming a
+   document the run left out of its sample, or one a run over documents
+   named by hand did not name, is left to the run that runs it, and so is a
+   ``control`` entry whose control such a run did not run. ``held`` and
+   ``leftToNightly`` count both kinds.
 5. Surface: the surface block's extraction (``blocks/<id>/surface/
    surface.json``), or the store's when the queues cache the surface, is byte
    for byte the committed ``lib/commcare/surface/surface.json``. The
@@ -205,6 +214,10 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, do
                 problems.append(problem)
                 fails(f"corpus:{document}", problem)
     register = registers.load_known_defects()
+    # The whole fixed register: an id is in one register only, and an unregistered difference is labelled with
+    # whichever fixed entry's class it is in.
+    fixed = registers.load_fixed_defects(known=register)
+    ran_controls = _ran_controls(queues)
     # A run over documents named by hand must see the entries naming one of them, and no other: every entry is
     # still a class its documents' differences may fall in.
     selected = None if selection is None else frozenset(selection.documents)
@@ -214,12 +227,18 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, do
     with tempfile.TemporaryDirectory(prefix="proof-gate-") as scratch:
         directories = [*verdict.chosen.values(), _cached_dir(records, Path(scratch))]
         for problem, groups in registers.held_evidence(
-            directories, register, unsampled=unsampled, readers=readers, selected=selected
+            directories,
+            register,
+            unsampled=unsampled,
+            readers=readers,
+            selected=selected,
+            fixed=fixed,
+            ran_controls=ran_controls,
         ):
             problems.append(problem)
             for group in groups:
                 fails(group, problem)
-        walk_stops = _stops(directories, unsampled, readers, fails, selected)
+        walk_stops = _stops(directories, unsampled, readers, fails, selected, ran_controls)
     held = registers.held_entries(entries, readers=readers)
     left = len(entries) - len(held)
     on_control_alone = sum(entry.document in unsampled for entry in held)
@@ -263,6 +282,8 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, do
             f" of {entries_held} name a document it did not run and were held on their controls alone; the other"
             f" {len(held) - on_control_alone} were held on their documents and controls."
         )
+    fixed_held = registers.held_fixed(fixed, readers=readers, selected=selected, ran_controls=ran_controls)
+    notes += _fixed_notes(register, fixed, fixed_held, readers)
     sample = next((queue.sample for _, queue in queues if queue.sample is not None), None)
     if sample is not None:
         chosen = (
@@ -279,6 +300,8 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, do
         heldOnControlAlone=on_control_alone,
         readers=lane_readers.to_record(readers),
         leftToNightly=left,
+        fixedHeld=len(fixed_held),
+        fixedLeft=len(fixed) - len(fixed_held),
         **({"outsideSelection": len(register) - len(entries)} if selection is not None else {}),
     )
     sections["stops"] = walk_stops
@@ -297,6 +320,50 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, do
             else {}
         ),
     }
+
+
+def _ran_controls(queues) -> frozenset[str]:
+    """The controls the run's queues hold a group of, run or cached (a control observed in pieces by its pieces'
+    groups too): the controls whose fixed entries and ``control`` stop entries a run over documents named by hand
+    holds."""
+    names = {group for _, queue in queues for group in queue.groups() | {entry.group for entry in queue.cached}}
+    return frozenset(name.partition(":")[2].partition("@")[0] for name in names if name.partition(":")[0] == "control")
+
+
+def _fixed_notes(register, fixed, held, readers) -> list[str]:
+    """What the register section says of the fixed register: how many entries it held on their controls, how many
+    the readers the run did not observe left to the nightly, how many name a control the run did not run, and each
+    live entry that shares a class with a fixed one."""
+    notes = []
+    if fixed:
+        by_readers = registers.held_entries(fixed, readers=readers)
+        left = []
+        if len(by_readers) < len(fixed):
+            left.append(
+                f"{len(fixed) - len(by_readers)} whose artifacts only readers this run did not observe write were"
+                " left to the nightly run with every reader"
+            )
+        if len(held) < len(by_readers):
+            left.append(
+                f"{len(by_readers) - len(held)} name a control this run did not run, and were left to the run that"
+                " runs it"
+            )
+        notes.append(
+            f"It held {len(held)} of the fixed register's {len(fixed)} entries, each on its control"
+            + "".join(f"; {part}" for part in left)
+            + "."
+        )
+    shared = [(live, gone) for live in register for gone in fixed if live.shares_class(gone)]
+    if shared:
+        pairs = ", ".join(f"{live.id} with {gone.id}" for live, gone in shared[:10])
+        more = f" and {len(shared) - 10} more" if len(shared) > 10 else ""
+        notes.append(
+            f"{len(shared)} live entries share a check, a path and artifacts with a fixed entry ({pairs}{more}). On a"
+            " document the live entry holds a difference of that class, so a return of the fixed defect there is"
+            " told apart only by the values or the document the live entry pins; each fixed entry is still held on"
+            " its control."
+        )
+    return notes
 
 
 def told(documents, queues):
@@ -327,38 +394,57 @@ def _documents(named: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(identifiers))
 
 
-def _stops(directories, unrun, readers, fails, selected=None) -> dict:
+def _stops(directories, unrun, readers, fails, selected=None, ran_controls=frozenset()) -> dict:
     """The walk-stops section: every stop the run's documents and controls showed is one ``proof/walk-stops.json``
-    holds, and every entry it holds was shown by its document (``proof.checks.stops.held_evidence``), each problem
-    named to the group a rerun of which shows it again (``fails``). A run holds the entries of the readers it
-    handed its states to, and leaves the rest to the run with every reader. A run over documents named by hand
-    (``selected``) ran no other document, so the entries naming another are left to the run that runs it, as a
-    sample's are; a stop one of its own documents shows is still held to the whole list. ``held`` and
-    ``leftToNightly`` count the entries this run held and the entries its readers, its sample or its selection
-    left."""
+    holds, and every entry it holds was shown by its document or its control
+    (``proof.checks.stops.held_evidence``), each problem named to the group a rerun of which shows it again
+    (``fails``). A run holds the entries of the readers it handed its states to, and leaves the rest to the run
+    with every reader. A run over documents named by hand (``selected``) ran no other document, so the
+    ``document`` entries naming another are left to the run that runs it, as a sample's are, and the ``control``
+    entries whose control it did not run (``ran_controls``) likewise; a stop one of its own documents or
+    controls shows is still held to the whole list. ``held`` and ``leftToNightly`` count the entries of both
+    kinds this run held and the entries its readers, its sample or its selection left."""
     try:
         entries = stops.load()
     except stops.StopsError as error:
         return _section([str(error)])
     held = stops.held_entries(entries, readers=readers)
+    documents = [entry for entry in held if entry.document is not None]
+    on_controls = [entry for entry in held if entry.control is not None]
     notes = []
-    unsampled = frozenset(unrun) & {entry.document for entry in held}
+    unsampled = frozenset(unrun) & {entry.document for entry in documents}
     if unsampled:
         notes.append(
-            f"This run checked a sample of the corpus, so the {sum(entry.document in unsampled for entry in held)}"
+            f"This run checked a sample of the corpus, so the {sum(entry.document in unsampled for entry in documents)}"
             f" stops the list holds on {len(unsampled)} documents it left out were left to the nightly and the weekly."
         )
+    unrun_controls = frozenset()
     if selected is not None:
-        outside = {entry.document for entry in held} - selected - unsampled
+        outside = {entry.document for entry in documents} - selected - unsampled
         unrun = frozenset(unrun) | outside
+        unrun_controls = {entry.control for entry in on_controls} - frozenset(ran_controls)
+        left = sum(entry.document in outside for entry in documents) + sum(
+            entry.control in unrun_controls for entry in on_controls
+        )
+        where = []
         if outside:
+            where.append(f"{len(outside)} other documents")
+        if unrun_controls:
+            where.append(f"{len(unrun_controls)} controls it did not run")
+        if left:
             notes.append(
-                "This run checked the documents named by hand, so the"
-                f" {sum(entry.document in outside for entry in held)} stops the list holds on {len(outside)} other"
-                " documents were left to the nightly and the weekly."
+                f"This run checked the documents named by hand, so the {left} stops the list holds on"
+                f" {' and '.join(where)} were left to the nightly and the weekly."
             )
-    # What this run held: the entries of its readers on the documents it ran.
-    its = [entry for entry in held if entry.document not in unrun]
+        ran = {entry.control for entry in on_controls} - unrun_controls
+        if ran:
+            notes.append(
+                f"It held the stops the list holds on the {len(ran)} controls it ran, whichever documents it named."
+            )
+    # What this run held: the entries of its readers on the documents and controls it ran.
+    its = [entry for entry in documents if entry.document not in unrun] + [
+        entry for entry in on_controls if entry.control not in unrun_controls
+    ]
     if len(held) != len(entries):
         notes.append(
             f"This run observed {lane_readers.described(readers)} ({lane_readers.VARIABLE}="
@@ -367,7 +453,8 @@ def _stops(directories, unrun, readers, fails, selected=None) -> dict:
             + (f"; the other {len(held)} were held." if len(its) == len(held) else ".")
         )
     problems = []
-    for problem, groups in stops.held_evidence(directories, entries, unrun=unrun, readers=readers):
+    found = stops.held_evidence(directories, entries, unrun=unrun, unrun_controls=unrun_controls, readers=readers)
+    for problem, groups in found:
         problems.append(problem)
         for group in groups:
             fails(group, problem)

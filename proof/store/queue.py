@@ -10,8 +10,9 @@ The early queue holds the groups whose tests read no corpus
 (``proof.lane.blocks.reads_corpus``): the surface block and every other
 package with tests. The main queue holds every document of the corpus
 (``corpus:<id>``; the corpus's ``native/`` is its products, not a document),
-every control the known-defect register names (``control:<id>``), and the
-packages in ``proof.lane.blocks.CORPUS_PACKAGES``. A group no test belongs to
+every control the known-defect and fixed-defect registers and the walk-stops
+list's ``control`` entries name (``control:<id>``), and the packages in
+``proof.lane.blocks.CORPUS_PACKAGES``. A group no test belongs to
 (``hq-selfchecks``) is never queued: the lane would find nothing of it.
 
 Each group is one of three classes, from the snapshots ``--store`` names
@@ -91,8 +92,9 @@ and the builder writes both into the job's summary where
 ``$GITHUB_STEP_SUMMARY`` is set.
 
 ``--documents only:<id>,<id>`` builds the main queue of a run over documents
-named by hand: those documents, and the controls of the register's entries
-naming them, and nothing else. It is for showing the lane's mechanics, or one
+named by hand: those documents, and the controls of the known-defect entries
+naming them, and nothing else (a fixed entry or a held stop on a control is
+held there only where one of those controls is its own). It is for showing the lane's mechanics, or one
 change, on a few documents (proof-audit.yml's ``mechanics`` dispatch), never a
 verdict on the corpus: the queue names the documents and every group it
 leaves out beside the other documents (``selection``: each other control,
@@ -120,8 +122,9 @@ inputs write the same bytes.
 its states to those readers alone (``proof.lane.readers``; ``0`` for none):
 every key names that set, no package whose every test starts a reader the
 set leaves out is queued (``readers.PACKAGES``), nor a control only those
-readers' register entries name (``proof.checks.registers.held_entries``),
-and the queue names the set (``readers``).
+readers' register entries and held stops name
+(``proof.checks.registers.held_entries``), and the queue names the set
+(``readers``).
 
 Standard library and git only.
 """
@@ -141,7 +144,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from proof.checks import registers, sharding
+from proof.checks import registers, sharding, stops
 from proof.lane import blocks as lane_blocks
 from proof.lane import readers as lane_readers
 from proof.store import disk, fingerprints, keys, pack
@@ -251,18 +254,42 @@ def package_groups(proof_dir: Path = PROOF_DIR) -> list[str]:
     return sorted(found)
 
 
-def control_groups(
-    known_defects: Path = KNOWN_DEFECTS, controls: Path = CONTROLS, *, readers=True, documents=None
-) -> list[str]:
-    """The controls the register's held entries name whose directories exist (``proof.checks.cases.control_params``):
-    every entry but those whose artifacts the readers a run leaves out write (``readers``, the set it observes;
-    ``proof.checks.registers.held_entries``); with ``documents``, only the entries naming one of those."""
+def _entries(path: Path | None) -> list[dict]:
+    """The objects of a register or list file, none where it is not named or does not exist."""
+    if path is None:
+        return []
     try:
-        entries = json.loads(known_defects.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
-    held = registers.held_entries([entry for entry in entries if isinstance(entry, dict)], readers=readers)
+    return [entry for entry in value if isinstance(entry, dict)] if isinstance(value, list) else []
+
+
+def stop_controls(walk_stops: Path | None, *, readers=True) -> set[str]:
+    """The controls the walk-stops list's ``control`` entries name whose reader a run observes (``readers``, the
+    set it observes, true for every one and false for none; ``proof.checks.stops.held_entries``)."""
+    return set(stops.control_names(stops.held_entries(_entries(walk_stops), readers=readers)))
+
+
+def control_groups(
+    known_defects: Path = KNOWN_DEFECTS,
+    controls: Path = CONTROLS,
+    *,
+    fixed_defects: Path | None = None,
+    walk_stops: Path | None = None,
+    readers=True,
+    documents=None,
+) -> list[str]:
+    """The controls a run holds something on whose directories exist: those the held entries of the known-defect
+    register and of the fixed one name (``proof.checks.cases.control_params``), and those the walk-stops list's
+    ``control`` entries name (``stop_controls``), each for the readers a run observes (``readers``;
+    ``proof.checks.registers.held_entries``). With ``documents``, only the controls of the known-defect entries
+    naming one of those: a fixed entry and a held stop on a control name no document."""
+    held = registers.held_entries(_entries(known_defects), readers=readers)
     named = {entry.get("control") for entry in held if documents is None or entry.get("document") in documents}
+    if documents is None:
+        named |= {entry.get("control") for entry in registers.held_entries(_entries(fixed_defects), readers=readers)}
+        named |= stop_controls(walk_stops, readers=readers)
     return sorted(f"control:{name}" for name in named if isinstance(name, str) and (controls / name).is_dir())
 
 
@@ -689,6 +716,18 @@ def package_data(name: str, corpus: Path, files: dict[str, str], checkout: Path)
     return found
 
 
+def _controls_of(proof_dir: Path, *, readers, documents=None) -> list[str]:
+    """``control_groups`` over the registers and the walk-stops list of ``proof_dir``."""
+    return control_groups(
+        proof_dir / "known-defects.json",
+        proof_dir / "controls",
+        fixed_defects=proof_dir / "fixed-defects.json",
+        walk_stops=proof_dir / "walk-stops.json",
+        readers=readers,
+        documents=documents,
+    )
+
+
 def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR, *, only=None) -> list[Group]:
     """The main queue's groups over the corpus as its index lists it; with ``only`` (the documents a run names by
     hand, which the index then lists alone), those documents and the controls of the entries naming them."""
@@ -698,8 +737,7 @@ def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR, *, 
     emitted = [*listed, *lane_blocks.unsampled_documents(corpus)]
     files = {identifier: keys.files_digest(corpus / identifier) for identifier in emitted}
     groups = [builder.document(f"corpus:{identifier}", corpus / identifier, files[identifier]) for identifier in listed]
-    register, controls = proof_dir / "known-defects.json", proof_dir / "controls"
-    for name in control_groups(register, controls, readers=builder.readers, documents=only):
+    for name in _controls_of(proof_dir, readers=builder.readers, documents=only):
         groups.append(builder.document(name, proof_dir / "controls" / name.partition(":")[2]))
     if only is not None:
         return groups
@@ -713,7 +751,7 @@ def selection_left(builder: Builder, groups: list[Group], proof_dir: Path = PROO
     """The groups a run over documents named by hand leaves out beside the other documents: each control it does
     not queue, and the packages that read the corpus."""
     queued = {group.name for group in groups}
-    every = control_groups(proof_dir / "known-defects.json", proof_dir / "controls", readers=builder.readers)
+    every = _controls_of(proof_dir, readers=builder.readers)
     every += [name for name in queued_packages(builder, proof_dir) if lane_blocks.reads_corpus(name)]
     return sorted(set(every) - queued)
 

@@ -43,6 +43,7 @@ CHECKOUT_FILES = {
     "proof/core/test_core.py": "def test_core():\n    pass\n",
     "proof/surface/test_surface.py": "def test_surface():\n    pass\n",
     "proof/known-defects.json": "[]\n",
+    "proof/fixed-defects.json": "[]\n",
     "proof/identity-moves.json": "[]\n",
     "lib/commcare/surface/surface.json": "{}\n",
     "lib/commcare/surface/entries/gates.json": "[]\n",

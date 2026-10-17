@@ -17,6 +17,32 @@
 					"value": "targeted-amina"
 				}
 			]
+		},
+		{
+			"id": "sorted-by-code",
+			"export": "local",
+			"form": "d08e3185-7ce8-5f19-ae4d-34af1da5fb75",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m1-f0"
+				},
+				"caseList": {}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-chausiku"
+				},
+				{
+					"pointer": "/caseList/rows/1/caseId",
+					"value": "targeted-amina"
+				},
+				{
+					"pointer": "/caseList/rows/2/caseId",
+					"value": "targeted-baraka"
+				}
+			]
 		}
 	]
 }

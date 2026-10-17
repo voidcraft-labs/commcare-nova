@@ -9,6 +9,7 @@
 
 import type { CorpusDocument } from "../corpus/documents";
 import { captureWidgets } from "./documents/captureWidgets";
+import { caseIdColumn } from "./documents/caseIdColumn";
 import {
 	closeConditions,
 	closeConditionUnparsable,
@@ -20,17 +21,22 @@ import {
 	connectLearnRename,
 } from "./documents/connectApps";
 import { customTile } from "./documents/customTile";
+import { datetimeOrdering } from "./documents/datetimeOrdering";
 import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
 import { formLinksHiddenFallback } from "./documents/formLinksHiddenFallback";
 import {
+	formRootRead,
 	invalidConnectIds,
 	invalidQuestionIds,
 	labelledGroupRepeat,
+	parsererrorNodeName,
 	reservedNodeNames,
+	reservedQuestionNames,
 	surveyMenu,
 } from "./documents/formShapes";
 import { hiddenColumn } from "./documents/hiddenColumn";
+import { hqSideLookup } from "./documents/hqSideLookup";
 import { hqSideState } from "./documents/hqSideState";
 import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
@@ -100,6 +106,12 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	mediaSlots,
 	captureWidgets,
 	noMatchesReturnIdentity,
+	hqSideLookup,
+	datetimeOrdering,
+	caseIdColumn,
+	reservedQuestionNames,
+	parsererrorNodeName,
+	formRootRead,
 ];
 
 /** Every targeted document, in a fixed order. */

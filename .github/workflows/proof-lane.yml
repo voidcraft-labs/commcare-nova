@@ -443,6 +443,11 @@ jobs:
         with:
           pattern: proof-out-${{ inputs.label }}-${{ github.run_attempt }}-*
           path: ${{ runner.temp }}/proof-shards
+      # A lane of one shard downloads one artifact, which download-artifact extracts loose into the path
+      # (src/download-artifact.ts, lines 185-194); proof/ci/shard-outputs.mjs gives it the directory a shard's
+      # output has when there are several, so every proof-shards/proof-out-* below reads it.
+      - name: Give a lone shard's output its directory
+        run: node proof/ci/shard-outputs.mjs --dir "$RUNNER_TEMP/proof-shards" --name "proof-out-$LABEL-$GITHUB_RUN_ATTEMPT-1"
       - uses: actions/download-artifact@v8
         with:
           pattern: proof-*queue-${{ inputs.label }}-${{ github.run_attempt }}.json

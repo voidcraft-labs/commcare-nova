@@ -933,6 +933,12 @@ jobs:
         with:
           pattern: proof-out-${{ github.run_attempt }}-*
           path: ${{ runner.temp }}/proof-shards
+      # A run of one shard downloads one artifact, which download-artifact extracts loose into the path
+      # (src/download-artifact.ts, lines 185-194); proof/ci/shard-outputs.mjs gives it the directory a
+      # shard's output has when there are several, so proof-shards/proof-out-* below reads it.
+      - name: Give a lone shard's output its directory
+        if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
+        run: node proof/ci/shard-outputs.mjs --dir "$RUNNER_TEMP/proof-shards" --name "proof-out-$GITHUB_RUN_ATTEMPT-1"
       # The early and main queues (proof-early-queue, proof-queue).
       - name: Download the queues
         if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
@@ -1015,6 +1021,11 @@ jobs:
         with:
           pattern: proof-out-${{ github.run_attempt }}-*
           path: ${{ runner.temp }}/proof-shards
+      # A run of one shard downloads one artifact, which download-artifact extracts loose into the path
+      # (src/download-artifact.ts, lines 185-194); proof/ci/shard-outputs.mjs gives it the directory a
+      # shard's output has when there are several, so proof-shards/proof-out-* below reads it.
+      - name: Give a lone shard's output its directory
+        run: node proof/ci/shard-outputs.mjs --dir "$RUNNER_TEMP/proof-shards" --name "proof-out-$GITHUB_RUN_ATTEMPT-1"
       # The queues name the key each package group's and the surface block's
       # outcome is kept under (proof/store/pack.py).
       - name: Download the queues

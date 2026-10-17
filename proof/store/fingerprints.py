@@ -23,9 +23,10 @@ directories the partitions cover (``walked_files``).
 - ``browser``: the editor driver's code, ``proof/editors/driver/**``, which
   node runs and the observation partition leaves out.
 - ``judge``: every file under ``proof/checks/`` the observation does not
-  hold, ``proof/rules/**``, both registers (``proof/identity-moves.json``,
-  and ``proof/known-defects.json``, which the sensitivity judge reads before
-  it writes its evidence: ``proof/checks/sensitivity.py::hold_flips``), the
+  hold, ``proof/rules/**``, the three registers (``proof/identity-moves.json``,
+  ``proof/known-defects.json``, which the sensitivity judge reads before it
+  writes its evidence: ``proof/checks/sensitivity.py::hold_flips``, and
+  ``proof/fixed-defects.json``, which holds a control's checks), the
   walk-stops list (``proof/walk-stops.json``, which the stops check holds a
   document's walks to), ``lib/commcare/surface/**``, and the test modules
   outside the checks whose items run in documents' groups
@@ -72,7 +73,15 @@ JUDGE_DIRECTORIES = ("proof/checks/", "proof/rules/", "lib/commcare/surface/")
 # collected item of a document's group to a module of this partition.
 DOCUMENT_GROUP_TESTS = frozenset({"proof/hq/test_branches.py"})
 JUDGE_FILES = (
-    frozenset({"proof/identity-moves.json", "proof/known-defects.json", "proof/walk-stops.json"}) | DOCUMENT_GROUP_TESTS
+    frozenset(
+        {
+            "proof/fixed-defects.json",
+            "proof/identity-moves.json",
+            "proof/known-defects.json",
+            "proof/walk-stops.json",
+        }
+    )
+    | DOCUMENT_GROUP_TESTS
 )
 HARNESS_DIRECTORIES = ("proof/", "lib/commcare/surface/")
 HARNESS_FILES = frozenset({"package.json", "package-lock.json", ".nvmrc"})

@@ -195,7 +195,7 @@
 		"check": "proof1",
 		"artifact": "project",
 		"path": "/lookup_tables/*/id",
-		"document": "targeted-hq-side-state",
+		"document": "targeted-hq-side-lookup",
 		"control": "targeted-hq-side-state",
 		"kind": "changed"
 	},
@@ -206,7 +206,7 @@
 		"check": "proof1",
 		"artifact": "project",
 		"path": "/lookup_tables/*/description",
-		"document": "targeted-hq-side-state",
+		"document": "targeted-hq-side-lookup",
 		"control": "targeted-hq-side-state",
 		"kind": "changed"
 	},
@@ -217,7 +217,7 @@
 		"check": "proof1",
 		"artifact": "project",
 		"path": "/lookup_tables/*/fields/*/properties/*",
-		"document": "targeted-hq-side-state",
+		"document": "targeted-hq-side-lookup",
 		"control": "targeted-hq-side-state",
 		"kind": "removed"
 	},
@@ -228,7 +228,7 @@
 		"check": "proof1",
 		"artifact": "project",
 		"path": "/lookup_tables/*/item_attributes/*",
-		"document": "targeted-hq-side-state",
+		"document": "targeted-hq-side-lookup",
 		"control": "targeted-hq-side-state",
 		"kind": "removed"
 	},
@@ -239,7 +239,7 @@
 		"check": "proof1",
 		"artifact": "project",
 		"path": "/lookup_tables/*/rows/*/id",
-		"document": "targeted-hq-side-state",
+		"document": "targeted-hq-side-lookup",
 		"control": "targeted-hq-side-state",
 		"kind": "changed"
 	},
@@ -250,7 +250,7 @@
 		"check": "proof1",
 		"artifact": "project",
 		"path": "/lookup_tables/*/rows/*/item_attributes/*",
-		"document": "targeted-hq-side-state",
+		"document": "targeted-hq-side-lookup",
 		"control": "targeted-hq-side-state",
 		"kind": "removed"
 	},
@@ -261,7 +261,7 @@
 		"check": "proof1",
 		"artifact": "project",
 		"path": "/lookup_tables/*/rows/*/owners/*",
-		"document": "targeted-hq-side-state",
+		"document": "targeted-hq-side-lookup",
 		"control": "targeted-hq-side-state",
 		"kind": "removed"
 	},
@@ -5485,26 +5485,6 @@
 		"control": "targeted-search-hq-compile"
 	},
 	{
-		"id": "d50-registration-alert-vellum-again-pre-save-alerts-registration-form-missing",
-		"defect": 50,
-		"part": "registration alert on a follow-up",
-		"check": "proof4",
-		"artifact": "editor:vellum again@*",
-		"path": "/modules/*/forms/*/pre_save_alerts/This registration form is missing a case name. Assign the <code>name<~1code> property to a question.<div> <button type=\"*\" class=\"*\"> Auto-assign case name <~1button> <~1div>",
-		"document": "nested-menu-previous",
-		"control": "nested-menu-previous"
-	},
-	{
-		"id": "d50-registration-alert-vellum-pre-save-alerts-registration-form-missing",
-		"defect": 50,
-		"part": "registration alert on a follow-up",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/pre_save_alerts/This registration form is missing a case name. Assign the <code>name<~1code> property to a question.<div> <button type=\"*\" class=\"*\"> Auto-assign case name <~1button> <~1div>",
-		"document": "nested-menu-previous",
-		"control": "nested-menu-previous"
-	},
-	{
 		"id": "d14-close-conditions-admission-unresolved-resource",
 		"defect": 14,
 		"part": "close conditions",
@@ -7523,77 +7503,6 @@
 		"control": "targeted-connect-deliver-rename"
 	},
 	{
-		"id": "d15-connect-ids-renamed-connect-b-edit-ids-deliver-moved",
-		"defect": 15,
-		"part": "Connect ids renamed under an opportunity",
-		"check": "proof4",
-		"artifact": "connect@B-edit@*",
-		"path": "/ids/deliver/moved",
-		"kind": "changed",
-		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename",
-		"values": {
-			"before": ["home_visit"],
-			"after": ["household_visit"]
-		}
-	},
-	{
-		"id": "d15-connect-ids-renamed-connect-b-edit-ids-task-moved",
-		"defect": 15,
-		"part": "Connect ids renamed under an opportunity",
-		"check": "proof4",
-		"artifact": "connect@B-edit@*",
-		"path": "/ids/task/moved",
-		"kind": "changed",
-		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename",
-		"values": {
-			"before": ["follow_up"],
-			"after": ["return_visit"]
-		}
-	},
-	{
-		"id": "d15-connect-ids-renamed-connect-b-edit-refused-400-payment-unit",
-		"defect": 15,
-		"part": "Connect ids renamed under an opportunity",
-		"check": "proof4",
-		"artifact": "connect@B-edit@*",
-		"path": "/runs/*/refused/400/payment-unit-is-not-configured-for-the-deliver-unit",
-		"kind": "error",
-		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename"
-	},
-	{
-		"id": "d15-connect-ids-renamed-connect-b-edit-ids-module-moved",
-		"defect": 15,
-		"part": "Connect ids renamed under an opportunity",
-		"check": "proof4",
-		"artifact": "connect@B-edit@*",
-		"path": "/ids/module/moved",
-		"kind": "changed",
-		"document": "targeted-connect-learn-rename",
-		"control": "targeted-connect-learn-rename",
-		"values": {
-			"before": ["hand_washing"],
-			"after": ["washing_hands"]
-		}
-	},
-	{
-		"id": "d15-connect-ids-renamed-connect-b-edit-catalog-learnmodules-added",
-		"defect": 15,
-		"part": "Connect ids renamed under an opportunity",
-		"check": "proof4",
-		"artifact": "connect@B-edit@*",
-		"path": "/runs/*/catalog/learnModules/added",
-		"kind": "error",
-		"document": "targeted-connect-learn-rename",
-		"control": "targeted-connect-learn-rename",
-		"values": {
-			"before": null,
-			"after": ["washing_hands"]
-		}
-	},
-	{
 		"id": "d1-android-proof1-b-update-reopened-changed",
 		"defect": 1,
 		"part": "ids and xmlns (an incomplete form after the next publish)",
@@ -7603,17 +7512,6 @@
 		"kind": "changed",
 		"document": "case-capture-followup",
 		"control": "case-capture-followup"
-	},
-	{
-		"id": "d67-android-proof1-b-update-reopened-session-changed",
-		"defect": 67,
-		"part": "grouped-tile parent ids in a stored session",
-		"check": "proof1",
-		"artifact": "android@B",
-		"path": "/update/reopened/*/session",
-		"kind": "changed",
-		"document": "tile-grouped-one",
-		"control": "tile-grouped-one"
 	},
 	{
 		"id": "d9-android-proof1-local-ccz-installs-changed",
@@ -7636,17 +7534,6 @@
 		"kind": "changed",
 		"document": "case-capture-followup",
 		"control": "case-capture-followup"
-	},
-	{
-		"id": "d67-android-proof1-local-ccz-update-reopened-session-changed",
-		"defect": 67,
-		"part": "grouped-tile parent ids in a stored session",
-		"check": "proof1",
-		"artifact": "android@local.ccz",
-		"path": "/update/reopened/*/session",
-		"kind": "changed",
-		"document": "tile-grouped-one",
-		"control": "tile-grouped-one"
 	},
 	{
 		"id": "d48-android-proof3-a-query-withanswer-sent-unquotable-search-error",
@@ -9314,5 +9201,323 @@
 		"path": "/runs/*/screens/*/title",
 		"document": "targeted-supply-point-read",
 		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d56-datetime-ordering-evaluate-answers",
+		"defect": 56,
+		"part": "datetime ordering",
+		"check": "intent",
+		"artifact": "evaluate:start-before-end-*",
+		"path": "/values/*/value",
+		"kind": "changed",
+		"values": {
+			"before": "start before end",
+			"after": "start not before end"
+		},
+		"document": "targeted-datetime-ordering",
+		"control": "targeted-datetime-ordering"
+	},
+	{
+		"id": "d56-datetime-ordering-evaluate-case-text",
+		"defect": 56,
+		"part": "datetime ordering",
+		"check": "intent",
+		"artifact": "evaluate:seen-before-due-*",
+		"path": "/values/*/value",
+		"kind": "changed",
+		"values": {
+			"before": "seen before due",
+			"after": "seen not before due"
+		},
+		"document": "targeted-datetime-ordering",
+		"control": "targeted-datetime-ordering"
+	},
+	{
+		"id": "d57-case-id-column-app-detailcolumn-field-property-name",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/schema:DetailColumn.field/refused/fails-the-editor-s-property-name-check-on-a-non-calculated-column",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-trace-casedetail-headers",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/caseDetail/tabs/*/headers/*",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-trace-casedetail-values",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/caseDetail/tabs/*/values/*",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-formplayer-local-ccz-endpointactions",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/endpointActions/*",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-formplayer-local-ccz-styles",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/styles/*",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-formplayer-local-ccz-widthhints",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/widthHints/*",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-formplayer-local-ccz-details-details",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/details/*/details/*",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-formplayer-local-ccz-details-headers",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/details/*/headers/*",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-formplayer-local-ccz-details-styles",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/details/*/styles/*",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-android-proof3-local-ccz-detail-tabs-fields-texts-changed",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/detail/tabs/*/fields/*/texts/*",
+		"kind": "changed",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-android-proof3-local-ccz-detail-tabs-fields-added",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/detail/tabs/*/fields/*",
+		"kind": "added",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-android-proof3-local-ccz-rows-children-text-changed",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/rows/*/children/*/children/*/text",
+		"kind": "changed",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-android-proof3-local-ccz-rows-drawn-texts-added",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/rows/*/drawn/texts/*",
+		"kind": "added",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-android-proof3-local-ccz-searches-asinstalled-added",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/searches/asInstalled/*",
+		"kind": "added",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-android-proof3-local-ccz-searches-fuzzyoff-added",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/searches/fuzzyOff/*",
+		"kind": "added",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-android-proof3-local-ccz-searches-fuzzyon-added",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/searches/fuzzyOn/*",
+		"kind": "added",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d57-case-id-column-editor-save-unsent",
+		"defect": 57,
+		"part": "case_id column and attribute-backed hidden carriers",
+		"check": "proof4",
+		"artifact": "editor:case list@*",
+		"path": "/modules/*/save/unsent/There are errors in your configuration. There is an error in your property name: @owner_id",
+		"kind": "refused",
+		"document": "targeted-case-id-column",
+		"control": "targeted-case-id-column"
+	},
+	{
+		"id": "d70-reserved-question-names-create-all-files-xformexception",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "bar",
+		"artifact": "create_all_files@*",
+		"path": "/raised/XFormException",
+		"kind": "error",
+		"document": "targeted-reserved-question-names",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d70-reserved-question-names-validate-app-error",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "bar",
+		"artifact": "validate_app@*",
+		"path": "/error",
+		"kind": "error",
+		"document": "targeted-reserved-question-names",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d70-reserved-question-names-case-management-view-form",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "proof4",
+		"artifact": "editor:case management@*",
+		"path": "/modules/*/forms/*/messages/view_form/You cannot use the Case Management UI if you already have a case block in your form.",
+		"kind": "error",
+		"document": "targeted-reserved-question-names",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d70-reserved-question-names-form-settings-view-form",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "proof4",
+		"artifact": "editor:form settings@*",
+		"path": "/modules/*/forms/*/messages/view_form/You cannot use the Case Management UI if you already have a case block in your form.",
+		"kind": "error",
+		"document": "targeted-reserved-question-names",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d70-reserved-question-names-vellum-reserved-name-warning",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-reserved-name-warning/The ID '*' may cause problems with form parsing. It is recommended to pick a different Question ID.",
+		"kind": "error",
+		"document": "targeted-reserved-question-names",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d70-reserved-question-names-vellum-again-reserved-name-warning",
+		"defect": 70,
+		"part": "question names HQ's editors warn about",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-reserved-name-warning/The ID '*' may cause problems with form parsing. It is recommended to pick a different Question ID.",
+		"kind": "error",
+		"document": "targeted-reserved-question-names",
+		"control": "targeted-reserved-question-names"
+	},
+	{
+		"id": "d43-parsererror-node-vellum-load-parsing-error",
+		"defect": 43,
+		"part": "a question named parsererror",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/load/Parsing Error. Please check that your form is valid XML.",
+		"kind": "refused",
+		"document": "targeted-parsererror-node-name",
+		"control": "targeted-parsererror-node-name"
+	},
+	{
+		"id": "d43-parsererror-node-vellum-page-errors-invalid-xml",
+		"defect": 43,
+		"part": "a question named parsererror",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/page_errors/Error: Invalid XML: <?xml version=\"*\"?> <h:xdoc xmlns:h=\"*\" xmlns:orx=\"*\" xmlns=\"*\" xmlns:xsd=\"*\" xmlns:jr=\"*\" xmlns:vellum=\"*\"><h:head><h:title>Named parsererror<~1h:title><model><instance><data xmlns=\"*\" xmlns:jrm=\"*\" uiVersion=\"*\" version=\"*\" name=\"*\"><parsererror~1><~1data><~1instance><bind vellum:nodeset=\"~1data~1*\"*\"~1data~1*\"*\"~1><itext><translation lang=\"*\" default=\"\"*\"><value>The parsererror<~1value><value form=\"*\">The parsererror<~1value><~1text><~1translation><~1itext><~1model><~1h:head><h:body><input ref=\"~1data~1*\"*\"~1><~1input><~1h:body><~1h:xdoc>",
+		"kind": "error",
+		"document": "targeted-parsererror-node-name",
+		"control": "targeted-parsererror-node-name"
+	},
+	{
+		"id": "d71-form-root-read-vellum-logic-bad-path-warning-form",
+		"defect": 71,
+		"part": "a read of the form's root",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/calculateAttr/logic-bad-path-warning/*",
+		"kind": "error",
+		"document": "targeted-form-root-read",
+		"control": "targeted-form-root-read"
+	},
+	{
+		"id": "d71-form-root-read-vellum-again-logic-bad-path-warning-form",
+		"defect": 71,
+		"part": "a read of the form's root",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/calculateAttr/logic-bad-path-warning/*",
+		"kind": "error",
+		"document": "targeted-form-root-read",
+		"control": "targeted-form-root-read"
 	}
 ]

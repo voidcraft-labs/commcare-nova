@@ -27,6 +27,17 @@ without the readers failing on the readers' entries or passing over another
 entry it never saw, and a shard with the readers counted in a run without
 them.
 
+Contract (the fixed register, ``proof/fixed-defects.json``, and a held stop
+on a control): the gate holds every fixed entry the run's readers hold on its
+control, counts the ones it held and left, fails by the control's group where
+the control no longer shows one or never ran its check, names the fixed
+defect whose class an unregistered difference is in, and notes a live entry
+sharing a fixed entry's class. Told a slice's documents, it holds the fixed
+entries and the ``control`` stop entries of the controls the run ran, strict
+both ways, and leaves and counts the rest. The plausible failures: a fixed
+entry no run holds, a slice failing on every control it never ran, and a
+slice passing over a control it ran that no longer shows its entry or stop.
+
 Contract (pieces, ``proof.lane.blocks``): a document observed in pieces is a
 block of its pieces and its own group, and the gate holds each of them as it
 holds any group: its block ran exactly once, each piece ran its one item and
@@ -565,6 +576,193 @@ def test_a_slice_run_by_hand_is_held_to_the_documents_the_gate_is_told(tmp_path,
     queue.write_text(json.dumps({**value, "selection": {"documents": ["a"], "left": []}}))
     assert gate.main([str(output), "--queue", str(queue), "--surface", str(committed), "--documents", "a"]) == 2
     assert "already names the documents it was built for (a)" in capsys.readouterr().err
+
+
+def _control_block(output, queue, control, *, differences=None, shown=None):
+    """A block of the group ``control:<control>`` in the run's output and its queue: its manifest, with what its
+    bar check showed (``differences``) and the stops its walks showed (``shown``, each a reader and a cause)."""
+    group = f"control:{control}"
+    block = lane_blocks.Block(lane_blocks.block_id([group]), 1.0, (lane_blocks.QueuedGroup(group),))
+    nodes = [f"checks/test_bar.py::test[control-{control}]"]
+    record = lane_blocks.group_record(
+        group=group, fresh=False, collected=nodes, outcomes={nodes[0]: "passed"}, worker=1
+    )
+    directory = lane_blocks.block_dir(output, block.id)
+    lane_blocks.write_json(
+        directory / lane_blocks.MANIFEST, lane_blocks.manifest(block, phase="main", shard="s1", groups=[record])
+    )
+    evidence = {"check": "bar", "document": control, "kind": "control"}
+    if differences is not None:
+        found = [{**difference, "document": control} for difference in differences]
+        lane_blocks.write_json(
+            directory / "checks" / "bar" / f"control-{control}.json", {**evidence, "differences": found}
+        )
+    if shown is not None:
+        stopped = {**evidence, "check": "stops", "differences": []}
+        stopped["stops"] = [{"reader": reader, "cause": cause} for reader, cause in shown]
+        lane_blocks.write_json(directory / "checks" / "stops" / f"control-{control}.json", stopped)
+    value = json.loads(queue.read_text())
+    value["blocks"].append(lane_blocks.queue_json(lane_blocks.Queue((block,)))["blocks"][0])
+    queue.write_text(json.dumps(value))
+    return directory
+
+
+SHOWN = {"check": "bar", "artifact": "upload", "path": "/x", "at": "/x", "kind": "changed", "before": 1, "after": 2}
+
+
+def _fixed(own_register, *entries):
+    """A fixed register of ``entries`` beside the run's own known-defect register
+    (``proof.checks.registers.fixed_defects_path``)."""
+    path = own_register.parent / "fixed-defects.json"
+    path.write_text(json.dumps(list(entries)), encoding="utf-8")
+    return path
+
+
+def test_the_gate_holds_each_fixed_entry_on_its_control_counts_them_and_names_the_control_where_one_fails(
+    tmp_path, own_register
+):
+    """Contract (``proof/fixed-defects.json``): a fixed entry is held on its control alone. The gate holds every
+    one a run's readers hold, counts what it held and left, fails by name under the control's group where the
+    control no longer shows the entry or never ran its check, labels a document's unregistered difference with
+    the fixed defect whose class it is in, and notes a live entry sharing a fixed entry's class. The plausible
+    failures: a fixed entry no run holds, so the control the fix kept runs and judges nothing; a regression on a
+    document passing because a fixed entry owns its class; and a run without the readers failing on a fixed
+    served-reader entry it could never show."""
+    from proof.checks import registers
+
+    control = next(path.name for path in sorted(registers.CONTROLS.iterdir()) if path.is_dir())
+    fixed = {"id": "fixed-bar", "defect": 9, "part": "a part", "check": "bar", "artifact": "upload", "path": "/x"}
+    _fixed(own_register, {**fixed, "control": control})
+    output, queue, committed = _lane(tmp_path)
+    _control_block(output, queue, control, differences=[SHOWN])
+    result = _run(output, queue, committed)
+    register = result["sections"]["register"]
+    assert result["holds"] and (register["fixedHeld"], register["fixedLeft"]) == (1, 0), register
+    assert register["notes"] == ["It held 1 of the fixed register's 1 entries, each on its control."]
+
+    # The control no longer shows the entry, and then never ran its check: each fails under the control's group.
+    shown_elsewhere = {**SHOWN, "path": "/y", "at": "/y"}
+    for name, differences, why in (
+        (
+            "moved",
+            [shown_elsewhere],
+            f"The fixed-defect entry fixed-bar's control {control} no longer shows bar upload /x.",
+        ),
+        ("unrun", None, f"The fixed-defect entry fixed-bar retains its control {control}, and no shard ran bar on it"),
+    ):
+        output, queue, committed = _lane(tmp_path / name)
+        _control_block(output, queue, control, differences=differences)
+        failed = _run(output, queue, committed)
+        [problem] = failed["sections"]["register"]["problems"]
+        assert problem.startswith(why), problem
+        assert [(entry["group"], entry["why"]) for entry in failed["failing"]] == [(f"control:{control}", [problem])]
+
+    # A difference of the fixed class on a document is a regression: no entry holds it, and the message names it.
+    output, queue, committed = _lane(tmp_path / "back", differences=[{**SHOWN, "document": "a"}])
+    _control_block(output, queue, control, differences=[SHOWN])
+    [back] = _run(output, queue, committed)["sections"]["register"]["problems"]
+    assert "no known-defect entry names" in back
+    assert "class of fixed defect 9 (fixed-bar: bar upload /x): the defect is back" in back
+
+    # A live entry of the class beside it holds the document's difference, and the gate says the two share it.
+    another = [path.name for path in sorted(registers.CONTROLS.iterdir()) if path.is_dir()][1]
+    live = {**fixed, "id": "live-bar", "defect": 20, "document": "a", "control": another}
+    own_register.write_text(json.dumps([live]), encoding="utf-8")
+    _control_block(output, queue, another, differences=[SHOWN])
+    shared = _run(output, queue, committed)["sections"]["register"]
+    assert shared["holds"], shared
+    assert shared["notes"][1].startswith(
+        "1 live entries share a check, a path and artifacts with a fixed entry (live-bar with fixed-bar)."
+    )
+
+    # A run without the readers leaves a fixed served-reader entry to the nightly, and holds the rest.
+    reader = {**fixed, "id": "fixed-reader", "check": "proof3", "artifact": "formplayer@B", "path": "/runs/*"}
+    _fixed(own_register, {**fixed, "control": control}, {**reader, "control": control})
+    own_register.write_text("[]\n", encoding="utf-8")
+    output, queue, committed = _lane(tmp_path / "without")
+    _control_block(output, queue, control, differences=[SHOWN])
+    serve = json.loads((output / lane_blocks.SERVE).read_text())
+    lane_blocks.write_json(output / lane_blocks.SERVE, {**serve, "readers": False})
+    queue.write_text(json.dumps({**json.loads(queue.read_text()), "readers": False}))
+    without = _run(output, queue, committed)["sections"]["register"]
+    assert without["holds"] and (without["fixedHeld"], without["fixedLeft"]) == (1, 1), without
+    assert without["notes"][-1] == (
+        "It held 1 of the fixed register's 2 entries, each on its control; 1 whose artifacts only readers this run"
+        " did not observe write were left to the nightly run with every reader."
+    )
+
+
+def test_a_slice_holds_the_fixed_entries_and_the_control_stops_of_the_controls_it_ran_and_leaves_the_rest(
+    tmp_path, own_register, own_stops
+):
+    """Contract: a fixed entry and a ``control`` stop entry name no document, so a slice told its documents holds
+    each whose control the run ran, strict both ways, and leaves and counts every other; a whole run holds them
+    all. The plausible failures: a slice failing on every control it never ran, so no slice can be read; a
+    slice passing over a control it ran that no longer shows its fixed entry or its stop; and a whole run passing
+    with a control entry's control never run."""
+    from proof.checks import registers
+
+    control = next(path.name for path in sorted(registers.CONTROLS.iterdir()) if path.is_dir())
+    fixed = {"id": "fixed-bar", "defect": 9, "part": "a part", "check": "bar", "artifact": "upload", "path": "/x"}
+    _fixed(own_register, {**fixed, "control": control})
+    held_stops = [
+        {"document": "a", "reader": "preview", "cause": "form-held", "reason": "Because."},
+        {"control": control, "reader": "formplayer", "cause": "search-refused", "reason": "Because."},
+    ]
+    own_stops.write_text(json.dumps(held_stops), encoding="utf-8")
+    output, queue, committed = _lane(tmp_path, with_surface_block=False)
+    _stopped(output, [("preview", "form-held")])
+
+    # The slice ran no group of the control: it leaves the fixed entry and the control's stop, and counts both.
+    left = _run(output, queue, committed, documents=("a",))
+    assert left["holds"], left["sections"]
+    register, walk_stops = left["sections"]["register"], left["sections"]["stops"]
+    assert (register["fixedHeld"], register["fixedLeft"]) == (0, 1)
+    assert "1 name a control this run did not run, and were left to the run that runs it" in register["notes"][-1]
+    assert (walk_stops["held"], walk_stops["leftToNightly"]) == (1, 1)
+    assert walk_stops["notes"] == [
+        "This run checked the documents named by hand, so the 1 stops the list holds on 1 controls it did not run"
+        " were left to the nightly and the weekly."
+    ]
+    # A whole run holds both, and fails on each by the control's name where the control never ran.
+    whole = _run(output, queue, committed)
+    assert {entry["group"] for entry in whole["failing"]} >= {f"control:{control}"}
+    assert any(
+        "holds stops of this control, and no shard ran the stops check on it" in p
+        for p in whole["sections"]["stops"]["problems"]
+    )
+
+    # The slice ran the control: it holds its fixed entry and its stop.
+    _control_block(output, queue, control, differences=[SHOWN], shown=[("formplayer", "search-refused")])
+    ran = _run(output, queue, committed, documents=("a",))
+    assert ran["holds"], ran["sections"]
+    assert (ran["sections"]["register"]["fixedHeld"], ran["sections"]["register"]["fixedLeft"]) == (1, 0)
+    walk_stops = ran["sections"]["stops"]
+    assert (walk_stops["held"], walk_stops["leftToNightly"]) == (2, 0)
+    assert walk_stops["notes"] == [
+        "It held the stops the list holds on the 1 controls it ran, whichever documents it named."
+    ]
+
+    # A control it ran that no longer shows its stop, or shows one no entry holds, fails by the control's group.
+    [directory] = [
+        d for d, record in lane_blocks.read_manifests(output) if record["groups"][0]["group"] == f"control:{control}"
+    ]
+    evidence = directory / "checks" / "stops" / f"control-{control}.json"
+    record = json.loads(evidence.read_text())
+    lane_blocks.write_json(evidence, {**record, "stops": []})
+    unshown = _run(output, queue, committed, documents=("a",))
+    [problem] = unshown["sections"]["stops"]["problems"]
+    assert problem == (
+        f"{control}: proof/walk-stops.json holds a stop of Formplayer's walk for search-refused, and no run of the"
+        " control stops so now. Remove the entry."
+    )
+    assert [entry["group"] for entry in unshown["failing"]] == [f"control:{control}"]
+    lane_blocks.write_json(
+        evidence, {**record, "stops": [{"reader": "webapps", "cause": "case-not-listed"}, *record["stops"]]}
+    )
+    [unheld] = _run(output, queue, committed, documents=("a",))["sections"]["stops"]["problems"]
+    assert unheld.startswith(f"{control}: a run of the Web Apps client stops for case-not-listed")
+    assert "add an entry naming the control" in unheld
 
 
 def test_the_gate_fails_cached_groups_it_has_no_reader_for(tmp_path):

@@ -12,7 +12,8 @@ store snapshot, and each week runs it whole and fresh, which is what proves the
 store's keys; a scheduled failure of either opens an issue.
 `proof/README.md` says what it proves, how to run it and read a failure, how
 to add a document, a targeted document, a spelling rule, a register entry and
-its control, and how a pin changes. These are the rules every change to the
+its control, how a fixed defect's control keeps running, and how a pin
+changes. These are the rules every change to the
 harness keeps, each with its reason.
 
 - **HQ's real code produces every observation.** The lane's claims are about
@@ -217,9 +218,26 @@ harness keeps, each with its reason.
   difference a check reports is held by an entry of `known-defects.json` or
   erased by a spelling rule, and every entry must hold some difference no
   other entry holds on its document and still show on its control (step 1's
-  decision 12, `proof/README.md`). A fix removes its entry in the same pull
-  request. Never skip, mark, loosen a comparator or widen a path to make the
-  lane pass. A skipped item holds at the gate, so a test never skips for
+  decision 12, `proof/README.md`). A fix moves its entries to
+  `fixed-defects.json` in the same pull request, where each must still show
+  on its control and is held on no document. A fixed entry is re-pathed only
+  when the check's vocabulary or pinned upstream text moved, deleted only
+  when upstream changed the behavior, a judge change deliberately stops
+  reporting the class on its control, or a change to how the lane runs a
+  control (the privileges its oracle grants it) takes the symptom off the
+  control with no configuration left that shows it, and its control is never
+  retained again, nor is a control a held stop's `control` entry names.
+  Every directory under `proof/controls/` is named by an entry of one of the
+  two registers or by a `control` entry of `proof/walk-stops.json`, so a
+  control never stops running unnoticed. Never skip, mark, loosen a comparator or widen a path to make the
+  lane pass; what HQ's own editors, CommCare's runtimes or Connect report on
+  an app Nova never touched is dropped only by a member of `HQ_OWN_REPORTS`
+  (`proof/checks/hq_own_reports.py`), a closed set whose every member has a
+  proof that runs that reader's own code over an app made in HQ's own
+  editors, as a spelling rule has: each member names its proof module, which
+  holds `test_<member id>` and runs no Nova export, and the check that reports
+  the class asks the set rather than carrying a condition of its own. A
+  skipped item holds at the gate, so a test never skips for
   what the image or the corpus should hold (a tool, a document every
   emission writes): it fails by name. The one skip is `under_determinism`
   where a lane leaves HQ's determinism off, which is that lane's purpose. A spelling rule erases exactly one spelling, and tests run both
@@ -244,9 +262,12 @@ harness keeps, each with its reason.
 - **A walk reaches its end or a held stop.** Proofs 3 and 4 compare two
   states' walks, so a run cut short alike on both sides passes with the rest
   of it unseen. `proof/checks/stops.py` reads each walk on its own, and
-  `walk-stops.json` holds every stop by its document, reader and cause,
-  strict both ways as the register is (`proof/README.md`, "Walk stops"). A
-  stop a worker would get past is never an entry: give the walk what a
+  `walk-stops.json` holds every stop by its document or its control, reader
+  and cause, strict both ways as the register is (`proof/README.md`, "Walk
+  stops"). A fix that takes a stop off its document moves the stop's entry
+  to the control that still shows it, or removes it where none does, in the
+  same pull request; an entry is never left naming a document the corpus
+  does not hold. A stop a worker would get past is never an entry: give the walk what a
   worker gives (the table's next answer, a question cleared, a repeat's Add,
   a search sent the way the client sends it, App Preview's own "Use one
   question per screen" switched off), on Formplayer's walk and the client's

@@ -68,7 +68,6 @@ DOCUMENTS = (
     "expander-expanddoc-hq-json-projection-sort-elements-1e1c54c0-0",
     "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0",
     "expander-form-hashtag-expansion-emits-the-editor-1daa5537-0",
-    "expander-form-hashtag-expansion-emits-validate-msg-as-an-fe6783cb-0",
     "nested-menu-parent",
     "nested-menu-same-multiple",
     "search-browse",

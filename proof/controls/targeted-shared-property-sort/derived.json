@@ -15,6 +15,10 @@
 						[
 							"phone",
 							"proof text"
+						],
+						[
+							"code",
+							"proof text"
 						]
 					]
 				},
@@ -30,6 +34,10 @@
 					"properties": [
 						[
 							"phone",
+							"10"
+						],
+						[
+							"code",
 							"10"
 						]
 					]
@@ -47,6 +55,50 @@
 						[
 							"phone",
 							"2"
+						],
+						[
+							"code",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "client-4",
+					"case_type": "client",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"phone",
+							"proof text"
+						],
+						[
+							"code",
+							"alpha"
+						]
+					]
+				},
+				{
+					"case_id": "client-5",
+					"case_type": "client",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"phone",
+							"10"
+						],
+						[
+							"code",
+							"bravo"
 						]
 					]
 				},
@@ -55,9 +107,9 @@
 					"case_type": "commcare-user",
 					"external_id": null,
 					"indices": [],
-					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"modified_on": "2025-12-01T08:05:00.000000Z",
 					"name": "proof-worker",
-					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"opened_on": "2025-12-01T08:05:00.000000Z",
 					"owner_id": "proof-worker-id",
 					"properties": [
 						[
@@ -93,6 +145,22 @@
 							"writes": {}
 						}
 					]
+				],
+				[
+					"client",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "client",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "d08e3185-7ce8-5f19-ae4d-34af1da5fb75",
+							"validations": {},
+							"writes": {}
+						}
+					]
 				]
 			]
 		},
@@ -110,6 +178,12 @@
 						"e3d59b20-5e29-56a4-a5a0-8586bd785170"
 					],
 					"uuid": "03b36d22-2378-5d4e-ab66-64a8885d76b2"
+				},
+				{
+					"forms": [
+						"d08e3185-7ce8-5f19-ae4d-34af1da5fb75"
+					],
+					"uuid": "9afd290b-0a74-51c7-ad92-eb5542f98b7b"
 				}
 			]
 		}

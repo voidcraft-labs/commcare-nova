@@ -379,17 +379,29 @@ final class Forms {
      * The location the saved form holds in its meta block (what PollSensorAction wrote from the device's fix),
      * read from the record's own instance file as Android saved it (encrypted under the record's key); null
      * where the record holds no file or the form no location.
+     *
+     * The file is opened once, with no check before it: a record's file can go while the reader lists the
+     * records. Home sends a form saved complete on a background task (HomeScreenBaseActivity
+     * .processReturnFromFormEntry's startUnsentFormsTask), and a send HQ took wipes the record
+     * (FormSubmissionHelper::sendForms, FormRecordCleanupTask::wipeRecord), which deletes the file before it
+     * removes the record. A record found in that moment is listed as Android still holds it, with no file.
      */
     static String metaLocation(FormRecord record) throws Exception {
-        if (record.getFilePath() == null || !new java.io.File(record.getFilePath()).isFile()) {
+        if (record.getFilePath() == null) {
             return null;
         }
         javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);
         org.w3c.dom.Document instance;
-        try (java.io.InputStream saved = org.commcare.models.encryption.EncryptionIO.getFileInputStream(
-                record.getFilePath(), new javax.crypto.spec.SecretKeySpec(record.getAesKey(), "AES"))) {
-            instance = factory.newDocumentBuilder().parse(saved);
+        java.io.InputStream saved;
+        try {
+            saved = org.commcare.models.encryption.EncryptionIO.getFileInputStream(
+                    record.getFilePath(), new javax.crypto.spec.SecretKeySpec(record.getAesKey(), "AES"));
+        } catch (java.io.FileNotFoundException gone) {
+            return null;
+        }
+        try (java.io.InputStream read = saved) {
+            instance = factory.newDocumentBuilder().parse(read);
         }
         // HQ's build writes the location into the meta block in its own namespace (xform.py::XForm._add_meta_2).
         org.w3c.dom.NodeList metas = instance.getElementsByTagNameNS(META, "meta");

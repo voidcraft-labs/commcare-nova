@@ -15,10 +15,33 @@
  *
  * Fixed values: Amina's phone is 100 and Baraka's 200, so the list, sorted by
  * phone, shows Amina first.
+ *
+ * The second menu is the one shape where the moved key changes what a search
+ * finds: its list shows an image map over `code` and orders by a hidden plain
+ * column over `code`. HQ gives the rule to the image map, the first column
+ * with that field, whose sort key is the mapping position, and leaves the
+ * hidden field no key; Nova's local archive leaves the image map no key and
+ * orders by the hidden field's stored value. The rows come in one order on
+ * both (the mapping's order is the values' order), so a near miss of a code
+ * finds its case on the local archive alone. Amina's code is `alpha`,
+ * Baraka's `bravo`, and Chausiku has none, so the second list, sorted by
+ * code with blanks first (Core's order for an ascending sort that names no
+ * `blanks`, `xml/DetailFieldParser.parseBlanksPreference`), shows Chausiku,
+ * Amina, then Baraka.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn, proseText } from "@/lib/domain";
+import {
+	mediaIds,
+	mediaManifest,
+} from "@/lib/commcare/__tests__/mediaWireFixtures";
+import {
+	imageMapColumn,
+	imageMapEntry,
+	plainColumn,
+	proseText,
+} from "@/lib/domain";
+import { uploadedMedia } from "../../corpus/documents";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
 
@@ -37,6 +60,7 @@ export function sharedPropertySort() {
 				properties: [
 					{ name: "case_name", label: proseText("Name") },
 					{ name: "phone", label: proseText("Phone"), data_type: "text" },
+					{ name: "code", label: proseText("Code"), data_type: "text" },
 				],
 			},
 		],
@@ -69,21 +93,59 @@ export function sharedPropertySort() {
 					},
 				],
 			},
+			{
+				uuid: uuid("codes-module"),
+				name: "Clients by code",
+				caseType: "client",
+				caseListConfig: caseListOf([
+					plainColumn(uuid("codes-name"), "case_name", "Name"),
+					imageMapColumn(uuid("codes-image"), "code", "Code", [
+						imageMapEntry("alpha", mediaIds.label),
+						imageMapEntry("bravo", mediaIds.label),
+					]),
+					plainColumn(uuid("codes-sort"), "code", "Code order", {
+						visibleInList: false,
+						sort: ASCENDING,
+					}),
+				]),
+				forms: [
+					{
+						uuid: uuid("codes-form"),
+						name: "Check",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								uuid: uuid("codes-notes"),
+								id: "notes",
+								label: proseText("Notes"),
+							}),
+						],
+					},
+				],
+			},
 		],
 	});
+	const media = uploadedMedia(mediaManifest());
 	const restore = restoreXml({
 		cases: [
 			{
 				id: "targeted-baraka",
 				type: "client",
 				name: "Baraka",
-				properties: { phone: "200" },
+				properties: { phone: "200", code: "bravo" },
 			},
 			{
 				id: "targeted-amina",
 				type: "client",
 				name: "Amina",
-				properties: { phone: "100" },
+				properties: { phone: "100", code: "alpha" },
+			},
+			{
+				id: "targeted-chausiku",
+				type: "client",
+				name: "Chausiku",
+				properties: { phone: "300" },
 			},
 		],
 	});
@@ -106,8 +168,24 @@ export function sharedPropertySort() {
 						{ pointer: "/caseList/rows/0/caseId", value: "targeted-amina" },
 					],
 				},
+				{
+					id: "sorted-by-code",
+					export: "local",
+					form: uuid("codes-form"),
+					restore: "restore.xml",
+					request: {
+						session: { command: "m1-f0" },
+						caseList: {},
+					},
+					expect: [
+						{ pointer: "/caseList/rows/0/caseId", value: "targeted-chausiku" },
+						{ pointer: "/caseList/rows/1/caseId", value: "targeted-amina" },
+						{ pointer: "/caseList/rows/2/caseId", value: "targeted-baraka" },
+					],
+				},
 			],
 		},
 		files: { "restore.xml": restore },
+		...(media !== undefined && { media }),
 	});
 }

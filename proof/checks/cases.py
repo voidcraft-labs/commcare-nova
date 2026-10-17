@@ -10,10 +10,10 @@ the document and the check must match one of them. That evidence, from
 every shard, is what ``python -m proof.checks.registers verify`` reads to
 hold the whole run to the register.
 
-A control (``proof/controls/<document id>/``, the retained inputs of one
-document, ``proof.checks.controls``) is run by each check a register entry
-naming it names (``control_params``), and there every such entry must match:
-the check keeps showing the symptom on the retained pre-fix inputs.
+A control (``proof/controls/<name>/``, the retained inputs of one document,
+``proof.checks.controls``) is run by each check a known-defect or fixed-defect
+entry naming it names (``control_params``), and there every such entry must
+match: the check keeps showing the symptom on the retained pre-fix inputs.
 
 A document heavy enough is observed in pieces (``proof.lane.blocks``): each
 configuration by an item of its own (``piece_params``, the items of
@@ -42,6 +42,18 @@ def load_corpus():
 
 
 @cache
+def _known_entries():
+    """The whole known-defect register, its entries held to every document the corpus emitted."""
+    documents = load_corpus().emitted
+    return registers.load_known_defects(
+        documents={document.id for document in documents},
+        targeted={document.id for document in documents if document.targeted},
+        # A fuzz document's source is ``fuzz:<generator>:<seed>:<index>`` (proof/corpus/entryWriter.ts::sourceName).
+        fuzz={document.id for document in documents if document.source.startswith("fuzz:")},
+    )
+
+
+@cache
 def load_register():
     """The register this run holds its checks to, its entries held to every document the corpus emitted: an entry
     naming one the run's sample leaves out is held on its control alone
@@ -50,14 +62,18 @@ def load_register():
     observe write, which it cannot show and the nightly holds (``registers.held_entries``)."""
     from proof.lane import readers
 
-    documents = load_corpus().emitted
-    entries = registers.load_known_defects(
-        documents={document.id for document in documents},
-        targeted={document.id for document in documents if document.targeted},
-        # A fuzz document's source is ``fuzz:<generator>:<seed>:<index>`` (proof/corpus/entryWriter.ts::sourceName).
-        fuzz={document.id for document in documents if document.source.startswith("fuzz:")},
-    )
-    return registers.held_entries(entries, readers=readers.named())
+    return registers.held_entries(_known_entries(), readers=readers.named())
+
+
+@cache
+def load_fixed():
+    """The fixed register's entries this run holds on their controls: every one but those whose artifacts the
+    readers it does not observe write (``registers.held_entries``), each checked against the whole known-defect
+    register, whose ids none may carry."""
+    from proof.lane import readers
+
+    fixed = registers.load_fixed_defects(known=_known_entries())
+    return registers.held_entries(fixed, readers=readers.named())
 
 
 def document_params():
@@ -65,12 +81,13 @@ def document_params():
 
 
 def control_params(check):
-    """The controls whose register entry this check shows, as parameters; none until an entry names one."""
-    by_control = {entry.control: entry for entry in load_register() if entry.check == check}
+    """The controls a held entry of this check names, known or fixed, as parameters; none until an entry names
+    one."""
+    named = {entry.control for entry in (*load_register(), *load_fixed()) if entry.check == check}
     return [
         pytest.param(document, id=f"control-{document.id}")
         for document in corpus.load_controls()
-        if document.id in by_control
+        if document.id in named
     ]
 
 
@@ -168,7 +185,9 @@ def evidence(check, document, differences, **extra):
 
 
 def hold(check, document, differences, entries, **extra):
-    """Hold one check's differences on one document (or control) to the register."""
+    """Hold one check's differences on one document (or control) to the register: on a control, the entries of
+    ``entries`` and of the fixed register (``load_fixed``) that name it must each still show; on a document, every
+    difference must fall in a class of ``entries``, and one in a fixed entry's class names that fixed defect."""
     if check not in registers.HELD_CHECKS:
         raise AssertionError(
             f"{check} holds its differences to the register, and registers.HELD_CHECKS does not list it, so the"
@@ -176,7 +195,7 @@ def hold(check, document, differences, entries, **extra):
         )
     evidence(check, document, differences, **extra)
     if document.kind == "control":
-        owners = [entry for entry in entries if entry.control == document.id and entry.check == check]
+        owners = [entry for entry in (*entries, *load_fixed()) if entry.control == document.id and entry.check == check]
         # A control retains its targeted document's inputs, so an entry's pinned values hold there too.
         unseen = [
             entry
@@ -189,5 +208,5 @@ def hold(check, document, differences, entries, **extra):
             " seeing each on the retained pre-fix inputs."
         )
         return
-    result = registers.reconcile(check, document.id, differences, entries)
+    result = registers.reconcile(check, document.id, differences, entries, fixed=load_fixed())
     assert result.holds, result.explain()

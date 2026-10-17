@@ -11,10 +11,11 @@ parts share inputs go into one block, unless dedupe is off; blocks are
 packed longest first. The audit sample is chosen by the seed alone, holds
 the number of (document, configuration) units asked for, and always runs.
 The early queue holds no group that reads the corpus, the main queue holds
-every document, the controls the register names, and the packages that read
-the corpus; ``sample:N`` keeps N documents in the corpus the lane collects,
-and the queue names the documents it leaves out. The same inputs write the
-same bytes.
+every document, the controls the two registers and the walk-stops list's
+``control`` entries name, and the packages that read the corpus;
+``sample:N`` keeps N documents in the corpus the lane collects, and the
+queue names the documents it leaves out. The same inputs write the same
+bytes.
 
 An edit of the browser's code alone leaves no document cached or judged:
 proof 4's parts name that code, and the queue reads a document's parts
@@ -486,6 +487,46 @@ def test_a_queue_without_the_readers_holds_nothing_only_a_reader_runs_and_keys_t
     assert {"control:plain", "control:reader"} <= set(android["classes"]["observed"])
     connect = _build(checkout, tmp_path / "connect.json", "--lane-env", "PROOF_READERS=connect", corpus=corpus)
     assert "proof/connect" in connect["classes"]["observed"]
+
+
+def test_a_control_only_a_fixed_entry_or_a_held_stop_names_is_queued_for_the_readers_that_hold_it(tmp_path, lane):
+    """A control runs while an entry of either register, or a held stop's ``control`` entry, names it, in each
+    profile whose readers hold that entry; a run over documents named by hand queues the controls of the known
+    entries naming them alone, and names the rest as left out. The plausible failures: a control whose entries all
+    moved to the fixed register, or whose stop moved to it, queued by nothing, so it runs nowhere and its entries
+    fail as never run; and a profile without the readers queuing a control only a served reader's entry names."""
+    checkout, corpus = lane
+    names = ("live", "fixed", "fixed-reader", "stop")
+    write_files(checkout, {f"proof/controls/{name}/document.json": "{}" for name in names})
+    entry = {"defect": 1, "part": "p", "check": "bar", "artifact": "upload", "path": "/x"}
+    write_files(
+        checkout,
+        {
+            "proof/known-defects.json": json.dumps([{**entry, "id": "d1", "document": "two", "control": "live"}]),
+            "proof/fixed-defects.json": json.dumps(
+                [
+                    {**entry, "id": "f1", "control": "fixed"},
+                    {**entry, "id": "f2", "control": "fixed-reader", "artifact": "formplayer@B"},
+                ]
+            ),
+            "proof/walk-stops.json": json.dumps(
+                [{"control": "stop", "reader": "formplayer", "cause": "c", "reason": "Because."}]
+            ),
+        },
+    )
+
+    def controls(*arguments):
+        built = _build(checkout, tmp_path / "queue.json", *arguments, corpus=corpus)
+        return built, sorted(name for name in _queued(built) if name.startswith("control:"))
+
+    assert controls()[1] == ["control:fixed", "control:fixed-reader", "control:live", "control:stop"]
+    assert controls("--lane-env", "PROOF_READERS=0")[1] == ["control:fixed", "control:live"]
+    formplayer = controls("--lane-env", "PROOF_READERS=formplayer")[1]
+    assert formplayer == ["control:fixed", "control:fixed-reader", "control:live", "control:stop"]
+    named, queued = controls("--documents", "only:two")
+    assert queued == ["control:live"]
+    left = [name for name in named["selection"]["left"] if name.startswith("control:")]
+    assert left == ["control:fixed", "control:fixed-reader", "control:stop"]
 
 
 def test_a_split_module_and_its_tests_are_queued_as_groups_of_their_own_keyed_by_their_packages_data(

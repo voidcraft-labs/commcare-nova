@@ -1,0 +1,20 @@
+[
+	{
+		"id": "d52-output-in-validation-form-alert",
+		"defect": 52,
+		"part": "validation message with an output",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/body[*]/input[*]/alert[*]",
+		"control": "expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0"
+	},
+	{
+		"id": "d52-output-in-validation-source-alert",
+		"defect": 52,
+		"part": "validation message with an output",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/body[*]/input[*]/alert[*]",
+		"control": "expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0"
+	}
+]

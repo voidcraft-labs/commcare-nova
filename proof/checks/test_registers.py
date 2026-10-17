@@ -12,6 +12,12 @@ register would pass without, an entry no check ever runs on (its check has
 no test, or never reached its document or control), and an entry on a fuzz
 document, which a change to the sample's size or seed would drop.
 
+The fixed register (``proof/fixed-defects.json``) holds the entries a fix
+moved: each must still show on its control, by every run that runs it, a
+difference of its class on a document fails as unregistered and names the
+fixed defect, an id is in one register only, and every directory under
+``proof/controls/`` is named by an entry of one of the two registers.
+
 The register's own files are loaded as the checks load them. Its strictness
 is shown on real differences whose every member is known (an update of HQ's
 own suite-test app that changes two identities, ``proof.checks.suite_app``):
@@ -31,7 +37,7 @@ from dataclasses import replace
 
 import pytest
 
-from proof.checks import cases, registers, suite_app
+from proof.checks import cases, registers, stops, suite_app
 from proof.checks.corpus import Document
 from proof.checks.differences import Difference
 from proof.checks.identity import compare_identities
@@ -44,6 +50,8 @@ def test_the_registers_hold_what_decision_12_needs():
     for entry in entries:
         assert documents[entry.document].exports, f"{entry.id}'s targeted document has no export to show it on"
     assert all(move.path.startswith("/") for move in moves)
+    # The fixed register loads beside it, every entry on its control alone and none of a live entry's id.
+    assert all(entry.document is None for entry in cases.load_fixed())
 
 
 def _write(path, value):
@@ -172,6 +180,254 @@ def test_an_entry_naming_a_kind_holds_only_that_kind_and_only_its_exact_path():
     elsewhere = _constraint("removed", path="/html/head[*]/model[*]/bind[@nodeset=/data/*/item]/@constraint")
     assert not entry.matches(elsewhere)
     assert not entry.matches(replace(removed, path="/html/head[1]/model[*]/bind[@nodeset=/data/*]/@constraint"))
+
+
+@pytest.mark.parametrize(
+    ("one", "other", "meet"),
+    [
+        ("form:*@vellum@*", "form:0.0@*", True),
+        ("connect@B-edit@*", "connect@*@minimum", True),
+        ("form:?.0@vellum", "form:0.?@vellum", True),
+        ("app.json", "app.json", True),
+        ("form:*@vellum", "form:*@formplayer", False),
+        ("connect@B-edit@*", "connect@A@*", False),
+        ("form:?@vellum", "form:00@vellum", False),
+    ],
+)
+def test_two_artifact_patterns_share_a_class_where_some_name_matches_both(one, other, meet):
+    """The gate's note on a live and a fixed entry of one class reads their artifacts as patterns that meet: two
+    globs can both match a name though neither matches the other as written."""
+    assert registers.globs_meet(one, other) is meet
+    assert registers.globs_meet(other, one) is meet
+    live = registers.Entry(
+        id="live", defect=20, part="a part", check="proof4", artifact=one, path="/x", document="a", control="c"
+    )
+    assert live.shares_class(replace(live, id="fixed", artifact=other)) is meet
+
+
+FIXED = {key: value for key, value in GOOD.items() if key != "document"}
+
+
+@pytest.mark.parametrize(
+    ("change", "refusal"),
+    [
+        ({"document": "targeted.defect-1"}, "names a document, and a fixed entry names none"),
+        ({"check": "proof9"}, "is not one of"),
+        ({"check": UNHELD}, "has no test holding its differences"),
+        ({"path": "modules/*/forms/*/unique_id"}, "structural path from the artifact's root"),
+        ({"control": "no-such-control"}, "does not exist"),
+        ({"values": {"before": "a"}}, "exactly before and after"),
+        ({"kind": "moved"}, "or left out for every kind"),
+        ({"fixed": 3}, "beyond them"),
+    ],
+    ids=["document", "unknown-check", "unheld-check", "relative-path", "missing-control", "values-shape", "kind", "pr"],
+)
+def test_the_fixed_register_loader_refuses_an_entry_it_cannot_hold_on_its_control(tmp_path, change, refusal, unheld):
+    """A fixed entry is a known-defect entry without its document, checked as one is: its check, path, kind and
+    values, and its control, the one place it is held. It carries no document (a fixed defect's class on a
+    document is a regression, never an owner's) and no field the known register does not carry."""
+    controls = tmp_path / "controls"
+    (controls / FIXED["control"]).mkdir(parents=True)
+    accepted = registers.load_fixed_defects(_write(tmp_path / "good.json", [FIXED]), controls=controls)
+    assert [(entry.id, entry.document) for entry in accepted] == [(FIXED["id"], None)]
+    with pytest.raises(registers.RegisterError) as refused:
+        registers.load_fixed_defects(_write(tmp_path / "bad.json", [{**FIXED, **change}]), controls=controls)
+    assert refusal in str(refused.value)
+
+
+def test_an_id_is_in_one_register_only_and_a_control_holds_one_fixed_class_once(tmp_path):
+    controls = tmp_path / "controls"
+    (controls / FIXED["control"]).mkdir(parents=True)
+    path = _write(tmp_path / "fixed.json", [FIXED])
+    known = registers.load_known_defects(_write(tmp_path / "known.json", [GOOD]), controls=controls)
+    with pytest.raises(registers.RegisterError, match="An id is in one register only"):
+        registers.load_fixed_defects(path, known=known, controls=controls)
+    for twice, refusal in (
+        ([FIXED, dict(FIXED)], "share the id"),
+        ([FIXED, {**FIXED, "id": "again"}], "holds the class"),
+    ):
+        with pytest.raises(registers.RegisterError, match=refusal):
+            registers.load_fixed_defects(_write(tmp_path / "twice.json", twice), controls=controls)
+    # The same class on another control, or pinned to other values, is another entry.
+    (controls / "elsewhere").mkdir()
+    pinned = {**FIXED, "id": "pinned", "values": {"before": "a", "after": "b"}}
+    found = registers.load_fixed_defects(
+        _write(tmp_path / "three.json", [FIXED, {**FIXED, "id": "elsewhere", "control": "elsewhere"}, pinned]),
+        controls=controls,
+    )
+    assert len(found) == 3
+
+
+def test_the_fixed_register_beside_a_named_register_is_empty_where_there_is_none(tmp_path, monkeypatch):
+    """A harness self-test names a register of its own (``PROOF_KNOWN_DEFECTS``) and writes no fixed one, so the
+    fixed register beside it reads as empty, never the lane's own, whose controls its corpus does not hold; the
+    lane's own must exist."""
+    known = _write(tmp_path / "known-defects.json", [])
+    monkeypatch.setenv("PROOF_KNOWN_DEFECTS", str(known))
+    assert registers.fixed_defects_path() == tmp_path / "fixed-defects.json"
+    assert registers.load_fixed_defects() == ()
+    controls = tmp_path / "controls"
+    (controls / FIXED["control"]).mkdir(parents=True)
+    _write(tmp_path / "fixed-defects.json", [FIXED])
+    assert [entry.id for entry in registers.load_fixed_defects(controls=controls)] == [FIXED["id"]]
+    monkeypatch.delenv("PROOF_KNOWN_DEFECTS")
+    assert registers.fixed_defects_path() == registers.FIXED_DEFECTS
+    with pytest.raises(registers.RegisterError, match="does not exist"):
+        registers.load_fixed_defects(tmp_path / "absent.json")
+
+
+def _named_controls(controls, known_defects, fixed_defects, walk_stops):
+    """The control directories under ``controls``, and the controls the registers' entries and the walk-stops
+    list's ``control`` entries name, each list loaded as a run loads it."""
+    directories = {path.name for path in controls.iterdir() if path.is_dir()}
+    known = registers.load_known_defects(known_defects, controls=controls)
+    fixed = registers.load_fixed_defects(fixed_defects, known=known, controls=controls)
+    held = stops.load(walk_stops, controls=directories)
+    return directories, {entry.control for entry in (*known, *fixed)}, stops.control_names(held)
+
+
+def test_every_control_directory_is_named_by_an_entry_of_one_of_the_two_registers_or_a_held_stop():
+    """The orphan test: a control runs only while an entry names it (``cases.control_params``,
+    ``proof.store.queue.control_groups``), an entry of either register or a ``control`` entry of the walk-stops
+    list (``test_stops._controls``), so a directory none of them names runs nowhere, silently, and a register entry
+    naming a directory that is gone is never held (the walk-stops list refuses such an entry as it loads)."""
+    directories, named, stopped = _named_controls(
+        registers.CONTROLS, registers.KNOWN_DEFECTS, registers.FIXED_DEFECTS, stops.WALK_STOPS
+    )
+    assert not directories - named - stopped, (
+        f"proof/controls holds {sorted(directories - named - stopped)}, which no entry of proof/known-defects.json"
+        " or proof/fixed-defects.json names, nor a control entry of proof/walk-stops.json, so no run reads it. Name"
+        " it from the entries it retains the symptom of, or remove the directory with the last entry that named it."
+    )
+    assert not named - directories
+
+
+def test_a_control_only_a_held_stop_names_is_named(tmp_path):
+    """A control whose every register entry is gone and whose walks still stop where its ``control`` entry holds
+    them runs for the stops check (``proof.store.queue.stop_controls``), so the orphan test counts it as named."""
+    controls = tmp_path / "controls"
+    (controls / "stopped").mkdir(parents=True)
+    walk_stops = _write(
+        tmp_path / "walk-stops.json",
+        [{"control": "stopped", "reader": "formplayer", "cause": "notification:x", "reason": "Because."}],
+    )
+    known, fixed = _write(tmp_path / "known.json", []), _write(tmp_path / "fixed.json", [])
+    directories, named, stopped = _named_controls(controls, known, fixed, walk_stops)
+    assert (directories, named, stopped) == ({"stopped"}, set(), {"stopped"})
+    _, _, stopped = _named_controls(controls, known, fixed, _write(tmp_path / "none.json", []))
+    assert directories - stopped == {"stopped"}
+
+
+ALERT = "/html/body[*]/input[*]/alert[*]"
+
+
+def _alert(document, artifact="form:0.0@vellum@B", after="<alert/>"):
+    return Difference("proof4", document, artifact, ALERT, "/html/body[1]/input[1]/alert[1]", "added", None, after)
+
+
+def _fixed_entry(**change):
+    entry = registers.Entry(
+        id="d52-form-alert",
+        defect=52,
+        part="validation message with an output",
+        check="proof4",
+        artifact="form:*@vellum@*",
+        path=ALERT,
+        document=None,
+        control="ctrl",
+    )
+    return replace(entry, **change)
+
+
+def _control_evidence(out, monkeypatch, differences, control="ctrl"):
+    monkeypatch.setenv("PROOF_OUT", str(out))
+    document = Document(id=control, source="control", root=out, kind="control")
+    cases.evidence("proof4", document, [replace(d, document=control) for d in differences])
+    return out
+
+
+def test_a_fixed_entry_is_held_on_its_control_and_fails_by_name_where_it_stops_showing(tmp_path, monkeypatch):
+    """The fixed entry's whole contract: it must still show on its control, by every run that runs it, and each
+    one is needed. Failures it catches: a fix that also blinds the check on the retained pre-fix inputs, a control
+    whose check never ran passing, and a fixed entry dropped with no run noticing."""
+    form, source = _fixed_entry(), _fixed_entry(id="d52-source-alert", artifact="source:form:*@vellum@*")
+    shown = [_alert("ctrl"), _alert("ctrl", artifact="source:form:0.0@vellum@B")]
+    held = _control_evidence(tmp_path / "held", monkeypatch, shown)
+    assert registers.verify_evidence([held], (), fixed=(form, source)) == []
+    # Removing any one fixed entry's evidence fails that entry alone, under its control's group.
+    for entry, kept in ((form, shown[1:]), (source, shown[:1])):
+        gone = _control_evidence(tmp_path / entry.id, monkeypatch, kept)
+        [(problem, groups)] = registers.held_evidence([gone], (), fixed=(form, source))
+        assert groups == ("control:ctrl",)
+        assert problem == (
+            f"The fixed-defect entry {entry.id}'s control ctrl no longer shows proof4 {entry.artifact} {ALERT}."
+        )
+    # A run in which the control's check never ran holds nothing there.
+    other = _control_evidence(tmp_path / "other", monkeypatch, shown, control="another")
+    problems = registers.verify_evidence([other], (), fixed=(form,))
+    assert problems == [
+        "The fixed-defect entry d52-form-alert retains its control ctrl, and no shard ran proof4 on it, so nothing"
+        " shows the check still sees the symptom there."
+    ]
+    # A run over documents named by hand holds the fixed entries of the controls it ran, and leaves the rest.
+    assert registers.verify_evidence([other], (), fixed=(form,), selected={"doc"}, ran_controls={"another"}) == []
+    assert registers.verify_evidence([other], (), fixed=(form,), selected={"doc"}, ran_controls={"ctrl"}) != []
+    assert registers.held_fixed((form, source), selected={"doc"}, ran_controls={"ctrl"}) == (form, source)
+    assert registers.held_fixed((form, source), selected={"doc"}, ran_controls=set()) == ()
+
+
+def test_a_pinned_fixed_entry_matches_its_values_on_its_control():
+    pinned = _fixed_entry(values={"before": None, "after": "<alert/>"})
+    assert pinned.matches(_alert("ctrl")) and pinned.matches(_alert("any document"))
+    assert not pinned.matches(_alert("ctrl", after="<alert ref='x'/>"))
+
+
+def test_a_fixed_class_on_a_document_fails_as_unregistered_and_says_which_fixed_defect_it_is(tmp_path, monkeypatch):
+    """A fixed entry is never an owner on a corpus document: a difference of its class there is a regression, or a
+    new symptom in the same class, and fails as one no live entry holds, with the fixed defect named. A live entry
+    of the class beside it holds the difference, and the fixed entry owns nothing."""
+    fixed = (_fixed_entry(),)
+    result = registers.reconcile("proof4", "producer.plain", [_alert("producer.plain")], (), fixed=fixed)
+    assert not result.holds and result.registered == {} and result.returned == list(fixed)
+    assert (
+        "Some of them are in the class of fixed defect 52 (d52-form-alert: proof4 form:*@vellum@* "
+        f"{ALERT}): the defect is back, or this is a new symptom in the same class."
+    ) in result.explain()
+    live = replace(fixed[0], id="d99-live", defect=99, document="producer.plain", control="live")
+    held = registers.reconcile("proof4", "producer.plain", [_alert("producer.plain")], (live,), fixed=fixed)
+    assert held.holds and set(held.registered) == {"d99-live"} and held.returned == []
+    # The evidence of a run reads the same: the document's difference fails, labelled, by the document's group.
+    out = tmp_path / "out"
+    monkeypatch.setenv("PROOF_OUT", str(out))
+    cases.evidence("proof4", Document(id="producer.plain", source="corpus", root=out), [_alert("producer.plain")])
+    _control_evidence(out, monkeypatch, [_alert("ctrl")])
+    [(problem, groups)] = registers.held_evidence([out], (), fixed=fixed)
+    assert groups == ("corpus:producer.plain",) and "class of fixed defect 52" in problem
+
+
+def test_a_control_holds_its_fixed_entries_beside_its_live_ones(tmp_path, monkeypatch):
+    """``cases.hold`` on a control holds the fixed entries naming it with the live ones it is given, so a check's
+    test module needs no second register; and on a document it names the fixed class of an unregistered
+    difference."""
+    monkeypatch.setenv("PROOF_OUT", str(tmp_path))
+    monkeypatch.setattr(cases, "load_fixed", lambda: (_fixed_entry(),))
+    control = Document(id="ctrl", source="control", root=tmp_path, kind="control")
+    cases.hold("proof4", control, [_alert("ctrl")], ())
+    with pytest.raises(AssertionError, match="no longer shows"):
+        cases.hold("proof4", control, [], ())
+    document = Document(id="producer.plain", source="corpus", root=tmp_path)
+    with pytest.raises(AssertionError, match="class of fixed defect 52"):
+        cases.hold("proof4", document, [_alert("producer.plain")], ())
+
+
+def test_a_run_without_the_readers_leaves_a_fixed_served_reader_entry_to_the_nightly(tmp_path, monkeypatch):
+    reader = _fixed_entry(id="d9-formplayer", check="proof3", artifact="formplayer@B", path="/runs/*/screen")
+    held = _control_evidence(tmp_path, monkeypatch, [_alert("ctrl")])
+    fixed = (_fixed_entry(), reader)
+    assert registers.verify_evidence([held], (), fixed=fixed, readers=False) == []
+    assert registers.held_fixed(fixed, readers=False) == (fixed[0],)
+    [problem] = registers.verify_evidence([held], (), fixed=fixed, readers=True)
+    assert "d9-formplayer retains its control ctrl, and no shard ran proof3 on it" in problem
 
 
 def test_two_entries_with_one_id_are_refused(tmp_path):

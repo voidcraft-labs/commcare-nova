@@ -195,6 +195,10 @@ CASES = {
         lambda checkout, corpus: (checkout / "proof/known-defects.json").write_text('[{"id": "x"}]\n'),
         {"judgment one"} | PACKAGES,
     ),
+    "the fixed-defect register": (
+        lambda checkout, corpus: (checkout / "proof/fixed-defects.json").write_text('[{"id": "x"}]\n'),
+        {"judgment one"} | PACKAGES,
+    ),
     "the surface manifest": (
         lambda checkout, corpus: (checkout / "lib/commcare/surface/surface.json").write_text('{"items": []}\n'),
         {"judgment one"} | PACKAGES,
