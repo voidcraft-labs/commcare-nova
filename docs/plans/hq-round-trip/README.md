@@ -12,7 +12,7 @@ changes" table.
 | Step | Plan | Depth |
 |---|---|---|
 | 1 | The manifest and the harness | done: [`proof/README.md`](../../../proof/README.md) |
-| 2 | [Emission and publish fixes](2-emission-and-publish.md) | planned in full |
+| 2 | Emission and publish fixes | done: [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`lib/deployment/CLAUDE.md`](../../../lib/deployment/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
 | 3 | [Expressions](3-expressions.md) | outline |
 | 4 | [Platforms](4-platforms.md) | outline |
 | 5 | [Case writes, forms and navigation](5-case-writes-forms-navigation.md) | outline |
@@ -68,16 +68,71 @@ read it needs (finding 68). `proof/README.md` ("What the lane does not
 observe") holds what is outside the lane, a behavior that depends on nothing
 in Nova's app; everything that depends on Nova's export is observed.
 
-Step 2 settles the two rows this paragraph names. Its work item H takes
-defect 3's unknown-question warning off `targeted-save-to-case-read` (pull
-request 6), and Nova's gate refuses the read "20, CommTrack" needs (finding
-68, pull request 10).
+Step 2 settled the two rows this paragraph names. Defect 3's unknown-question
+warning no longer shows on `targeted-save-to-case-read`: its two entries are in
+`proof/fixed-defects.json`, on the control of that name. And Nova's gate
+refuses the read "20, CommTrack" needs (finding 68).
+
+## Step 2 is done
+
+Step 2 fixed the emission and publish defects the harness showed, so the
+known-defect register holds no entry for defects 1 to 10 or 12 to 16 and
+none for a finding of the harness but finding 56. It also made a publish an
+update of an app Nova has read. Its plan has left this directory. What
+endures lives where it is read:
+
+- **Identity that holds across publishes**, `lib/commcare/wireIdentity.ts`
+  and the document's `localization.wireCodes`: a menu's and a form's HQ id
+  and a form's `xmlns` are derived from the Nova entity's UUID, and a
+  language's CommCare code is stored when the language is added
+  (`lib/commcare/CLAUDE.md`, `lib/domain/CLAUDE.md`). The ids a project
+  space held before ids were derived are in `app_deployment_identities`
+  (`lib/deployment/CLAUDE.md`, "Identities").
+- **The publish sequence and its ledger**, `lib/deployment/`: the empty app
+  a first publish makes before any Project data, the reads of the app's
+  source, the stop on a change made in CommCare HQ since Nova's last push,
+  the CommCare version floor, and the confirmations a publish asks a person
+  for (`lib/deployment/CLAUDE.md`; the tables in `lib/db/CLAUDE.md`;
+  `docs/architecture/contracts.md` for the drift rule).
+- **Emission HQ's editors keep**, `lib/commcare/`: generated nodes named by
+  one allocator, case operations as Save to Case blocks the form builder
+  writes back unchanged, `profile`, `translations` and `add_ons` projected
+  over what the project space holds, and one order plan for a case list
+  (`lib/commcare/CLAUDE.md`; `docs/architecture/complex-apps.md` for the
+  binding CommCare facts). The two HQ facts that bind every later step are
+  in `docs/architecture/contracts.md`, "Nova is not CommCare HQ.".
+- **The fixed-defect register**, `proof/fixed-defects.json`: every entry
+  step 2 fixed, each still showing on its retained control
+  (`proof/README.md`, "Fixed defects"). `proof/known-defects.json` holds
+  only what a later step owns, and
+  `proof/checks/registers.py::OPEN_DEFECTS` names the step for each.
+  `proof/walk-stops.json` holds each place a reader's walk still ends short
+  (`proof/README.md`, "Walk stops"), and `proof/hq-reads/` holds the
+  answers of HQ the drift comparison is proven over.
+- **What planning step 2 found**,
+  [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
+  "Found while planning step 2" and "What HQ does itself".
+- **The cutover's trace.** The cutover ran once, before the merge, and its
+  scripts, its Job and its runbook are removed. What it left is each app's
+  `fold-baseline:hq-round-trip-emission` row (`lib/db/CLAUDE.md`), each
+  app's notice (`lib/notices/`) and its evidence archive
+  (`docs/architecture/deployment.md`, "Historical repairs").
+  `docs/architecture/contracts.md`, "Direct maintenance cutover", holds the
+  rules it followed.
+
+Four findings belong to later steps and are held until then:
+finding 56 by register entries, for step 3
+([`3-expressions.md`](3-expressions.md), "Carried from step 2"); findings 72
+and 73 by walk stops, for step 3 (the same section); and finding 74 by one
+walk stop, for step 4 ([`4-platforms.md`](4-platforms.md), item 6). The
+register's other entries are defects 20, 21, 23 to 28 and 30, which
+`OPEN_DEFECTS` gives to steps 4 and 5.
 
 ## Why each later step is planned when the one before it exits
 
-Each defect part step 2 fixes that the lane reproduces is observed in the
-system it harms, by a register entry, before its fix is designed in detail,
-and step 2's proofs are written against the harness step 1 built rather than
+Each defect part step 2 fixed that the lane reproduces was observed in the
+system it harms, by a register entry, before its fix was designed in detail,
+and step 2's proofs were written against the harness step 1 built rather than
 one imagined in advance. Each later step is planned in full when the step
 before it exits, against the code as it then stands.
 
@@ -96,7 +151,7 @@ before it exits, against the code as it then stands.
 - Tests earn their boundary (`docs/testing.md`).
 - Every CommCare fact a plan relies on is settled at source, in local
   checkouts of the Dimagi repositories at the commits `proof/pins.json` names
-  when the plan is written, which the plan states. Step 2's plan reads
+  when the plan is written, which the plan states. Step 2's plan read
   commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`, commcare-android
   `7a5584475580`, commcare-connect `046c7fd78081` and formplayer
   `24383ac71bfb`, with Vellum `01215f251c57` (the build HQ vendors at that
@@ -115,7 +170,7 @@ before it exits, against the code as it then stands.
 
 ## Nova since the research
 
-The research reads Nova `main` at `982d2630`. Step 2's plan reads it at the
+The research reads Nova `main` at `982d2630`. Step 2's plan read it at the
 proof lane's merge onto `main`, which is `7b153dc3` or later. Between them:
 
 - #699 and #701 (dependency upgrades, MCP OAuth scope challenges on the HQ
@@ -148,8 +203,6 @@ proof lane's merge onto `main`, which is `7b153dc3` or later. Between them:
   select's choices from the worker's available cases, a casedb itemset on
   both export paths, `lib/commcare/caseOptions.ts`), #732 and #733.
 - #738, the proof lane's own pull request: every CommCare reader over Nova's
-  exports, with the registers and the pins step 2's plan reads.
+  exports, with the registers and the pins step 2's plan read.
 
 No defect the research lists changed behavior in that span but finding 52.
-Step 2's plan states, defect by defect, what it re-verified and where the
-code a fix touches has moved.

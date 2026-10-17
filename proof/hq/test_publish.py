@@ -27,10 +27,10 @@ create re-mints every form's ``unique_id`` and drops the upload's
 writes the upload's form ids verbatim while keeping the app's id, build spec
 and version history (``overwrite_app_from_source``).
 
-What HQ does with Nova's step 2 publish (part 01 of step 2's plan), each over
+What HQ does with Nova's publish, each over
 a corpus document's own capture (``proof/hq/conftest.py::DOCUMENTS``):
 
-- The publish sequence (A3): the empty shell is created and HQ refuses to
+- The publish sequence: the empty shell is created and HQ refuses to
   build it; the update that fills it leaves the update's ids, ``xmlns`` and
   attachments, and again moves nothing; HQ's two forms of an app that is gone
   (a soft delete and an id it never held) and their two neighbours (a linked
@@ -41,20 +41,20 @@ a corpus document's own capture (``proof/hq/conftest.py::DOCUMENTS``):
   failures: a shell HQ could build (a build would hold HQ-minted ids), an
   update that leaves another app than it describes, and a reading of "gone"
   HQ does not give.
-- No multimedia map (A4): an import with no map draws no warning under
+- No multimedia map: an import with no map draws no warning under
   ``CAUTIOUS_MULTIMEDIA`` and the media upload maps every file, and a build
   made before the upload names no medium and installs, where one made from
   a create carrying Nova's former map names a medium HQ does not hold.
-- A ``.ccz`` for one project space (A5): the working app serves every address
+- A ``.ccz`` for one project space: the working app serves every address
   a local archive names, and HQ answers an archive ahead of its app (a shell
   holding none of its forms) from what it holds: the restore, the receiver
   and the search context.
-- Derived ids (A1): two apps of one project space may hold the same form ids;
+- Derived ids: two apps of one project space may hold the same form ids;
   a keyword or a scheduled message resolves a form id a republish keeps in
   the next release; HQ keeps a form's validation verdict for 7 days under
   the app's and the form's id, and so a verdict cached before Nova's
   publish over a form still refuses HQ's download of the unbuilt app while a
-  new version builds (part 02's 7-day App Preview statement); and HQ mints
+  new version builds (the 7-day App Preview statement); and HQ mints
   the id shapes Nova derives.
 """
 
@@ -285,7 +285,7 @@ def test_a_media_upload_maps_each_file_the_app_references_into_that_app_with_its
     assert recorded["skipped"] == [] and recorded["errors"] == []
 
 
-# The publish sequence (part 01, A3): a shell create, then the update that fills it -----------------------------
+# The publish sequence: a shell create, then the update that fills it -----------------------------------------
 
 # ``lib/commcare/expander.ts::APP_SHELL_KEYS``, the keys of the empty shell a first publish creates, in its order:
 # no ``add_ons``, which the update's overlay writes, no ``build_spec``, which HQ takes from its own default build,
@@ -543,7 +543,7 @@ def test_an_update_carrying_case_sharing_and_web_apps_writes_both(hq, core_runne
     assert after.cloudcare_enabled is (not before.cloudcare_enabled)
 
 
-# No multimedia_map (part 01, A4): the media upload alone maps an app's media ----------------------------------
+# No multimedia_map: the media upload alone maps an app's media ----------------------------------------------
 
 MEDIA_DOCUMENT = "case-list-inline"
 CAUTIOUS_MULTIMEDIA = "CAUTIOUS_MULTIMEDIA"
@@ -703,7 +703,7 @@ def test_a_build_made_before_its_media_installs_on_android(builds_before_media, 
     assert installs == {"without": "Installed", "with-map": "MissingResourcesWithMessage"}
 
 
-# A .ccz made for one project space (part 01, A5) ------------------------------------------------------------
+# A .ccz made for one project space --------------------------------------------------------------------------
 
 ARCHIVE_DOCUMENT = "case-list-inline"
 WORKER_PASSWORD = "proof-worker-password"
@@ -901,7 +901,7 @@ def test_hq_answers_an_archive_ahead_of_its_app_from_what_it_holds(hq, core_runn
         assert not paths.get(case_type) and not child_case_types.get(case_type)
 
 
-# Derived ids (part 01, A1): what HQ does with the ids a publish sends -----------------------------------------
+# Derived ids: what HQ does with the ids a publish sends -----------------------------------------------------
 
 ID_DOCUMENT = "navigation-base"
 
@@ -1111,7 +1111,7 @@ def _new_version(state, app_id):
 
 
 def test_a_cached_form_verdict_outlives_an_import_and_a_new_version_checks_afresh(hq, core_runner, documents):
-    """The 7-day App Preview statement (part 02, Work item B): over ``navigation-base``, one state after another,
+    """The 7-day App Preview statement: over ``navigation-base``, one state after another,
     the form's own check (``FormBase.validate_form`` through ``validate_app``), HQ's download of the unbuilt app
     (``views/cli.py::direct_ccz``, ``latest=save``) and a new version (``ApplicationBase.make_build``):
 

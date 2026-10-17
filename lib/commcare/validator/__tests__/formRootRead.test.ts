@@ -8,9 +8,8 @@
  * below it meets: in a field's slots and the Connect expressions under
  * `INVALID_REF` with `ref` `/data`, in a form link's slots as a read of the
  * closed form, and in a catalog property's `required` and `validation` under
- * `CASE_PROPERTY_REFERENCE_INVALID`. The cutover's scan reads every carrier
- * `authoredXPathCarriers` lists, so the last test holds the gate to a finding
- * at each one, and a carrier the registry gains later fails it until it is
+ * `CASE_PROPERTY_REFERENCE_INVALID`. The last test holds the gate to a
+ * finding at every carrier `authoredXPathCarriers` lists, and a carrier the registry gains later fails it until it is
  * planted here.
  */
 

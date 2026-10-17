@@ -9,7 +9,7 @@
  * then `casedb`, then `fixture`), so a tag holding either word would read the
  * ledger or case database and offer nothing. Nova refuses such a tag
  * (`lib/lookup/constants.ts::reservedInstanceTagCause`), and these tags split
- * each word as the cutover's rename does (`case_db`, `ledger_db`), so each
+ * each word as the cutover's rename did (`case_db`, `ledger_db`), so each
  * select reads its table. The first tag is padded to `LOOKUP_MAX_TAG_LENGTH`, so
  * Nova's real push of a 32-character tag goes through HQ's upload, HQ's
  * restore serves it, and Core's sessions read it on both paths. The control

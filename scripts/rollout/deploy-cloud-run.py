@@ -28,7 +28,6 @@ DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMAGE_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 RESOURCE_PART_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 APP_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
-PLAN_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 SERVICE_READY_STATE = "CONDITION_SUCCEEDED"
 RETRYABLE_HTTP_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 @dataclass(frozen=True)
@@ -518,25 +517,6 @@ def _effective_execution_args(
         if requested[:1] and requested[0] in tools:
             if len(requested) == 1 or requested[1:] == ("--execute",):
                 return requested
-
-    if short_name == "commcare-nova-hq-round-trip-cutover":
-        tool = "hq-round-trip-cutover.cjs"
-        if requested in {
-            (tool,),
-            (tool, "--settle-holders"),
-            (tool, "--prove-decrypt"),
-            (tool, "--rehearse"),
-            (tool, "--rehearse", "--transient-as-unreadable"),
-        }:
-            return requested
-        execute = (tool, "--execute", "--expect-plan-digest")
-        if (
-            requested[: len(execute)] == execute
-            and len(requested) in (len(execute) + 1, len(execute) + 2)
-            and PLAN_DIGEST_RE.fullmatch(requested[len(execute)]) is not None
-            and requested[len(execute) + 1 :] in ((), ("--transient-as-unreadable",))
-        ):
-            return requested
 
     if short_name == "commcare-nova-legacy-preplan-repair" and requested == (
         "legacy-preplan-repair.cjs",

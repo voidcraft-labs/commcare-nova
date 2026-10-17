@@ -35,8 +35,8 @@ export function entryPointIdProblem(
 }
 
 /**
- * The one normalizer for a deep link ID, which the cutover's rename and
- * each refusal's offered replacement use; its result always passes
+ * The one normalizer for a deep link ID, which each refusal's offered
+ * replacement uses; its result always passes
  * `entryPointIdProblem`. The caller settles a collision with
  * `suffixUntilFree`.
  */

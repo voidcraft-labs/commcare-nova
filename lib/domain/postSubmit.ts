@@ -6,8 +6,8 @@
 // selection, whether it is off the menu), so every consumer reads it here
 // rather than pairing `form.postSubmit ?? defaultPostSubmit(form.type)` by
 // hand. The offered set is the one statement of which destinations a form
-// may hold; the validator, the reducers, the builder's pickers and the
-// cutover all read it.
+// may hold; the validator, the reducers and the builder's pickers all read
+// it.
 
 import type { BlueprintDoc } from "./blueprint";
 import {

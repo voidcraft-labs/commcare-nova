@@ -527,7 +527,7 @@ describe("a first publish", () => {
 			serve(peer, SOURCE, "source-live");
 			expect((await publish(doc)).landed).toBe(true);
 
-			// The rows a cutover writes from HQ's own reads of a deployment
+			// The rows the cutover wrote from HQ's own reads of a deployment
 			// the pre-step emitter made: the menu's id, and the form's xmlns
 			// with no id of its own recorded.
 			const deployment = (await state()) ?? fail();

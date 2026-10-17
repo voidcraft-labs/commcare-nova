@@ -1,7 +1,0 @@
-[
-	{
-		"seq": 2,
-		"batchId": "history:empty-menu-moved:2",
-		"mutationsText": "[{\"after\":null,\"kind\":\"moveModule\",\"uuid\":\"00000000-0000-4000-8000-0000000b0030\"}]"
-	}
-]

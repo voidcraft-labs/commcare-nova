@@ -1446,8 +1446,8 @@ export async function createSmokeBuilders(
 				randomUUID(),
 				{ name: APP_NOTICES_SEED.appName, status: "complete" },
 			);
-			/* Only a cutover writes these rows, as the migration role, so the
-			 * fixture writes them the same raw way. */
+			/* No serving code writes these rows (only a migration does, as the
+			 * migration role), so the fixture writes them as raw statements. */
 			await pool.query(
 				`INSERT INTO app_migration_notices (app_id, cutover, entries)
 				 VALUES ($1, $2, $3::jsonb)`,

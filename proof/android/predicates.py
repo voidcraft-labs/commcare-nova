@@ -105,7 +105,7 @@ PROFILE_VERSION_1 = '<profile xmlns="http://cihi.commcarehq.org/jad" version="1"
 PROFILE_VERSION_2 = '<profile xmlns="http://cihi.commcarehq.org/jad" version="2"'
 
 # The fifteen settings every Nova app states, at the value a device reads where a profile names none, each with the
-# force HQ's own settings give it (lib/commcare/appProfileSettings.ts::appProfileProperties; part 04, finding 40),
+# force HQ's own settings give it (lib/commcare/appProfileSettings.ts::appProfileProperties; finding 40),
 # and the reader that answers from it.
 NOVA_SETTINGS = (
     ("cc-fuzzy-search-enabled", "no", True, "MainConfigurablePreferences.isFuzzySearchEnabled"),
@@ -169,7 +169,7 @@ def planned(
     server: tuple = (),
     form_text: tuple | None = None,
 ) -> Path:
-    """The pre-fix archive with step 2's profile and versions written in (part 04, the local profile from step 2):
+    """The pre-fix archive with step 2's profile and versions written in (the local profile from step 2):
     the profile's ``uniqueid``, its ``version`` and both suite resources' at the archive's version (``version``,
     the sequence where none is given), the required version, ``cc-content-version`` and ``cc-app-version`` at the
     sequence, the server properties ``server`` names; ``<suite version>`` at the archive's version and every form

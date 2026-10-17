@@ -1,7 +1,7 @@
 /**
  * Which Connect block ids a document holds: the one reading every surface
  * that asks "is this Connect id taken?" shares, the validator, the emitter's
- * name planner, the agent tools and the cutover's report alike.
+ * name planner and the agent tools alike.
  *
  * A Connect block id is unique across the app (it keys the block on
  * Connect's side), and it is also the name of the block's wrapper in its

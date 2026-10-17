@@ -93,7 +93,7 @@ export const RESERVED_INSTANCE_TAGS = [
  * case database instead of its table, and every select over it lists nothing.
  * `contains` is case-sensitive, so the rule is too: `CaseDB` reads its table.
  */
-export const RESERVED_INSTANCE_TAG_WORDS = ["ledgerdb", "casedb"] as const;
+const RESERVED_INSTANCE_TAG_WORDS = ["ledgerdb", "casedb"] as const;
 
 export type ReservedInstanceTagWord =
 	(typeof RESERVED_INSTANCE_TAG_WORDS)[number];

@@ -539,12 +539,6 @@ def source_read(state, app_id, credential: ApiCredential) -> HqAnswer:
     return api_request(state, "GET", f"/a/{state.domain}/apps/source/{app_id}/", credential=credential)
 
 
-def form_id_read(state, app_id, credential: ApiCredential) -> HqAnswer:
-    """HQ's application API (``api/resources/v0_4.py::ApplicationResource``) for ``app_id``, as the cutover's
-    ``readHqApplicationFormIds`` reads it."""
-    return api_request(state, "GET", f"/a/{state.domain}/api/v0.4/application/{app_id}/", credential=credential)
-
-
 def import_request(state, upload: Upload, credential: ApiCredential) -> HqAnswer:
     """``app_manager/views/app_import_api.py::import_app_api`` with its decorators, as Nova's ``importApp`` sends
     it."""
@@ -645,15 +639,6 @@ def link_app_through_hq(state, app_id, master_id="nova-proof-master-app"):
 
     held = held_app(state, app_id).to_json()
     link_app(LinkedApplication.wrap({**held, "doc_type": "LinkedApplication"}), LINKED_MASTER_DOMAIN, master_id)
-
-
-def break_form_source(state, app_id):
-    """The app's first form's stored source replaced by text no XML parser reads, saved through HQ's own model:
-    the state an app whose form source does not parse is in."""
-    app = held_app(state, app_id)
-    form = next(iter(app.get_forms()))
-    app.lazy_put_attachment("<h:html", f"{form.unique_id}.xml")
-    app.save()
 
 
 # Build -------------------------------------------------------------------

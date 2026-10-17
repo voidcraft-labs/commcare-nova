@@ -13,7 +13,7 @@ export const APP_NOTICES_SEED = {
 		"Changes the assistant was still working on here were not saved before this update. The saved app is unchanged. Ask again to pick the work back up.",
 } as const;
 
-/** The entries the cutover would write for this app. */
+/** This app's notice entries, in the stored shape production holds. */
 export function appNoticesEntries(deploymentId: string): readonly unknown[] {
 	return [
 		{

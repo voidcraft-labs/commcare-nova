@@ -1,7 +1,0 @@
-{
-	"status": 200,
-	"headers": {
-		"Content-Type": "application/json; charset=utf-8"
-	},
-	"body": "{\"build_comment\": null, \"built_from_app_id\": null, \"built_on\": null, \"id\": \"3cc2d1fd50bd45e8ac3041675fb0832b\", \"is_released\": false, \"modules\": [{\"case_properties\": [\"name\"], \"case_type\": \"patient\", \"forms\": [{\"name\": {\"en\": \"Visit\"}, \"questions\": [{\"comment\": null, \"constraint\": null, \"group\": null, \"hashtagValue\": \"#form/note\", \"is_group\": false, \"label\": \"Note\", \"label_ref\": \"note-label\", \"relevant\": null, \"repeat\": null, \"required\": false, \"setvalue\": null, \"tag\": \"input\", \"translations\": {\"en\": \"Note\"}, \"type\": \"Text\", \"value\": \"/data/note\"}], \"unique_id\": \"ab53f46e2a82809a29f26137adccd9187e620aed\", \"xmlns\": \"http://openrosa.org/formdesigner/6d589420121f63ba\"}], \"name\": {\"en\": \"Patients\"}, \"unique_id\": \"963df3488a4bdb5874da6ac335f33810bbd66a93\"}], \"name\": \"Search HQ compiles\", \"resource_uri\": \"\", \"version\": 2, \"versions\": []}"
-}

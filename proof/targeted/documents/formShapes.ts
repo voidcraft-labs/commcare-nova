@@ -11,7 +11,7 @@
  *   (`proof/webapps/test_app_list.py`); `targeted-attribute-display-condition`
  *   holds the two the other way round.
  * - `targeted-invalid-question-ids` (defect 15): what the cutover's renames
- *   and Nova's minters write in place of the question and deep link ids HQ's
+ *   wrote and Nova's minters write in place of the question and deep link ids HQ's
  *   editors refuse, beside the other replacements the grammar must admit:
  *   `notes`, `q1st`, `qXMLcode` and `q_Meta` (Vellum refuses a leading
  *   underscore, a leading digit, a leading `XML` and `meta` in any case,
@@ -25,7 +25,7 @@
  *   the ids HQ's editors refuse.
  * - `targeted-invalid-connect-ids` (defect 15, Connect): a Connect learn
  *   app whose module id is 50 characters starting `q1st_lesson`, what the
- *   cutover makes of one starting `_1st_lesson`, and whose assessment is
+ *   cutover made of one starting `_1st_lesson`, and whose assessment is
  *   `qXMLquiz`. Its control keeps the ids Vellum refuses.
  * - `targeted-labelled-group-repeat` (defect 27): a user repeat inside a
  *   labelled group, which Nova writes as a field list
@@ -212,7 +212,7 @@ export function invalidConnectIds() {
 						type: "survey",
 						connect: {
 							learn_module: {
-								// What the cutover makes of a 50-character id that starts `_1st_lesson`.
+								// What the cutover made of a 50-character id that starts `_1st_lesson`.
 								id: "q1st_lesson".padEnd(50, "x"),
 								name: "Hand washing",
 								description: "Wash for twenty seconds.",

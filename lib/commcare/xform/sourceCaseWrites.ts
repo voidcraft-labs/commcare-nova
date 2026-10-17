@@ -16,8 +16,8 @@
  *
  * The emitter (`expander.ts`, `caseOps.ts`) asks the two predicates below
  * where it decides what to write, and `sourceBlockCaseWrites` is built from
- * the same two plus the operations' writes, so the emitter, the validator and
- * the cutover's scan cannot disagree about which writes the source holds.
+ * the same two plus the operations' writes, so the emitter and the validator
+ * cannot disagree about which writes the source holds.
  */
 
 import { buildPrimaryCaseUpdateMap } from "@/lib/commcare/formActions";

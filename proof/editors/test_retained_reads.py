@@ -1,11 +1,10 @@
 """HQ's own reads of an app after each of its pages is saved with nothing changed, retained byte for byte
 (``proof/hq-reads/``).
 
-Contract: decision 7 of part 02 (Work item B: the drift check and its
-baselines) states, page by page, what a save in CommCare HQ that changes no
-value leaves in the app's source, and Nova's drift comparison
-(``lib/deployment/hqSourceBaseline.ts::diffHqAppSource``) is proven to read
-each save as that table says over HQ's own answers
+Contract: Nova's drift comparison
+(``lib/deployment/hqSourceBaseline.ts::diffHqAppSource``) is proven to read,
+page by page, what a save in CommCare HQ that changes no value leaves in the
+app's source, over HQ's own answers
 (``lib/deployment/__tests__/hqSourceBaseline.test.ts``). This module makes
 those answers: ``navigation-base`` as Nova's first publish leaves it (one
 menu holding the follow-up form ``Visit`` and the registration form

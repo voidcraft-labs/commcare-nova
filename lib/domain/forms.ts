@@ -497,7 +497,7 @@ export function isConnectLearnConfig(
  * `form_receiver/processor.py::process_deliver_form`,
  * `_has_blocking_pending_task`), so the visit made in the form that also
  * completes the task is never paid. A task goes in a form of its own. The
- * validator, the builder, the tools and the cutover ask this one predicate;
+ * validator, the builder and the tools ask this one predicate;
  * it takes a stored config or a draft alike.
  */
 export function connectDeliverFormHoldsTask(

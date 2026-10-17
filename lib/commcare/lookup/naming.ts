@@ -115,7 +115,7 @@ export function inertLookupWireNaming(): LookupWireNaming {
 /**
  * Naming for a caller with no definitions snapshot that compares printed
  * expressions and reads nothing else from them: the case list order plan's
- * join texts on the validator, cutover and Preview paths. Every table and
+ * join texts on the validator and Preview paths. Every table and
  * column is named by its own id (`t_<id>`, `c_<id>`, hyphens as
  * underscores, so each name is an XML name), so two expressions print alike
  * under it exactly when they print alike under any real naming. Unlike

@@ -3,8 +3,8 @@
 // The one grammar for a question ID, and the names a form's source can never
 // hold. Every surface reads it: the validator (`INVALID_FIELD_ID`, the
 // Connect id rules, the case-operation id and link rules), the builder and
-// tool verdicts in `lib/doc/identifierVerdicts.ts`, the Connect id minter,
-// and the cutover's rename steps, which make every stored id pass it.
+// tool verdicts in `lib/doc/identifierVerdicts.ts`, and the Connect id
+// minter.
 //
 // What binds is HQ's form builder, which a person can open any Nova form in:
 // Vellum reports an error on a question ID that does not match
@@ -103,8 +103,8 @@ export function questionIdProblem(
 }
 
 /**
- * The one normalizer every minter, every refusal's offered replacement and
- * the cutover's rename use. Its result always passes `questionIdProblem`
+ * The one normalizer every minter and every refusal's offered replacement
+ * use. Its result always passes `questionIdProblem`
  * with the same `alsoReserved`: `_notes` → `notes`, `_1st` → `q1st`,
  * `XMLcode` → `qXMLcode`, `Meta` → `q_Meta`, `first name` → `first_name`.
  * The caller settles a collision with `suffixUntilFree`.

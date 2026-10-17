@@ -4,7 +4,7 @@
  * the normalization and the comparison are held to what HQ actually serves
  * and never to a hand-written app source.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -59,18 +59,10 @@ function diff(
 	});
 }
 
-/** What the cutover's legacy body wrote inside the overlay keys, read off the read. */
-function legacyOwnership(source: Source): AppOwnership {
-	return {
-		addOns: Object.keys(source.add_ons as Record<string, unknown>),
-		profileProperties: [],
-		profileCustomProperties: [],
-		autoGpsCapture: true,
-	};
-}
-
-/** `navigation-base` as HQ served it after the cutover's create, one menu holding `Visit` and `Register`. */
-const NAVIGATION_BASE = "cutover/navigation-base/after-create/app-source.json";
+/** `navigation-base` as HQ served it after Nova's first publish, one menu holding `Visit` and `Register`. */
+const NAVIGATION_BASE = "navigation-base/app-source.json";
+/** The ownership that publish's answer returned. */
+const NAVIGATION_BASE_OWNERSHIP = "navigation-base/ownership.json";
 
 function edited(edit: (source: Source) => void): Source {
 	const source = retainedRead(NAVIGATION_BASE);
@@ -79,30 +71,6 @@ function edited(edit: (source: Source) => void): Source {
 }
 
 describe("normalizing a read", () => {
-	/* Every document the cutover's lane read twice with nothing between:
-	 * HQ mints fresh form ids and attachment keys on each read. */
-	const pairs = readdirSync(path.join(READS, "cutover"), {
-		withFileTypes: true,
-	})
-		.filter((entry) => entry.isDirectory() && entry.name !== "answers")
-		.map((entry) => entry.name);
-
-	it.each(pairs)(
-		"gives two reads of unchanged %s one text and one digest",
-		(document) => {
-			const first = retainedRead(
-				`cutover/${document}/after-create/app-source.json`,
-			);
-			const again = retainedRead(
-				`cutover/${document}/after-create/app-source-again.json`,
-			);
-			expect(first).not.toEqual(again);
-			expect(normalized(again).text).toBe(normalized(first).text);
-			expect(normalized(again).digest).toBe(normalized(first).digest);
-			expect(diff(first, again, legacyOwnership(first))).toEqual([]);
-		},
-	);
-
 	it("keeps only the current forms' attachments, under their tokens, and no admin password", () => {
 		const source = retainedRead(NAVIGATION_BASE);
 		(source._attachments as Record<string, string>)["orphan.xml"] = "<h:html/>";
@@ -162,7 +130,7 @@ describe("normalizing a read", () => {
 
 describe("comparing two reads", () => {
 	const base = retainedRead(NAVIGATION_BASE);
-	const ownership = legacyOwnership(base);
+	const ownership = retainedOwnership(NAVIGATION_BASE_OWNERSHIP);
 
 	it("names a removed menu, and a menu added after or before the first, as the list of menus alone", () => {
 		const removed = edited((app) => {
@@ -290,29 +258,38 @@ describe("comparing two reads", () => {
 	});
 
 	it("reads add-ons and profile keys only under the baseline's ownership", () => {
+		const properties = (app: Source) =>
+			(app.profile as { properties: Record<string, string> }).properties;
 		const changed = edited((app) => {
-			(app.add_ons as Record<string, boolean>).not_nova_s = false;
-			app.profile = { properties: { "cc-foreign": "yes" } };
+			(app.add_ons as Record<string, boolean>).not_nova_s = true;
+			properties(app)["cc-foreign"] = "yes";
 			app.cloudcare_enabled = !app.cloudcare_enabled;
 			app.last_modified = "2030-01-01T00:00:00.000000Z";
 		});
 		expect(diff(base, changed, ownership)).toEqual([]);
-		const owned = edited((app) => {
-			app.profile = { properties: { "cc-foreign": "yes" } };
-		});
 		expect(
-			diff(base, owned, { ...ownership, profileProperties: ["cc-foreign"] }),
+			diff(base, changed, {
+				...ownership,
+				profileProperties: [...ownership.profileProperties, "cc-foreign"],
+			}),
 		).toEqual([{ kind: "settings" }]);
-		const addOn = edited((app) => {
-			(app.add_ons as Record<string, boolean>).advanced_itemsets = false;
+		const owned = edited((app) => {
+			properties(app)["cc-show-saved"] = "yes";
 		});
-		expect(diff(base, addOn, ownership)).toEqual([{ kind: "settings" }]);
+		expect(diff(base, owned, ownership)).toEqual([{ kind: "settings" }]);
+		const addOn = edited((app) => {
+			(app.add_ons as Record<string, boolean>).advanced_itemsets = true;
+		});
+		expect(diff(base, addOn, ownership)).toEqual([]);
+		expect(
+			diff(base, addOn, { ...ownership, addOns: ["advanced_itemsets"] }),
+		).toEqual([{ kind: "settings" }]);
 	});
 });
 
 describe("the schema-growth rule", () => {
 	const base = retainedRead(NAVIGATION_BASE);
-	const ownership = legacyOwnership(base);
+	const ownership = retainedOwnership(NAVIGATION_BASE_OWNERSHIP);
 	/* `Module.comment` (a declared StringProperty whose default is "") stands
 	 * in for a property a later HQ adds: the baseline is the read with the
 	 * key taken out, as a read made before HQ declared it would be. */
@@ -390,9 +367,8 @@ describe("a shell", () => {
 
 /*
  * The lane's retained reads for the drift comparator, written by
- * `proof/hq/test_retained_reads.py` and `proof/editors/test_retained_reads.py`
- * (part 02, The retained HQ reads), each compared under the ownership the
- * publish HQ answered returned.
+ * `proof/hq/test_retained_reads.py` and `proof/editors/test_retained_reads.py`,
+ * each compared under the ownership the publish HQ answered returned.
  */
 describe("HQ's reads after its own saves", () => {
 	const DOCUMENTS = [
@@ -408,6 +384,9 @@ describe("HQ's reads after its own saves", () => {
 		(document) => {
 			const first = retainedRead(`${document}/app-source.json`);
 			const again = retainedRead(`${document}/app-source-again.json`);
+			/* HQ mints fresh form ids and attachment keys on each read. */
+			expect(first).not.toEqual(again);
+			expect(normalized(again).text).toBe(normalized(first).text);
 			expect(normalized(again).digest).toBe(normalized(first).digest);
 			expect(
 				diff(first, again, retainedOwnership(`${document}/ownership.json`)),

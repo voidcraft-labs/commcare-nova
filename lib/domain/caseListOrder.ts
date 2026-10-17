@@ -156,7 +156,7 @@ export interface CaseListOrderCarrier {
 	readonly rule: CaseListOrderRule;
 }
 
-/** One authored rule, as the ownership rule and its cutover step read it. */
+/** One authored rule, as the ownership rule reads it. */
 export interface CaseListAuthoredRule {
 	/** The column the rule is authored on. */
 	readonly column: Uuid;

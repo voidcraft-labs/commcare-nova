@@ -8,7 +8,7 @@ holding ``&``, ``<``, ``>``, ``"`` or ``'`` as bad XML
 and, while one is held, disables its OK button and labels it "Fix errors"
 (``hqwebapp/partials/bootstrap3/key_value_mapping.html``). Nova refuses those
 five characters in an ID mapping value
-(``CASE_LIST_ID_MAPPING_KEY_CHARACTERS``) and its cutover removes such an
+(``CASE_LIST_ID_MAPPING_KEY_CHARACTERS``) and its cutover removed such an
 entry.
 
 Contract, on ``targeted-label-sort`` as Nova's publish leaves it in HQ, its

@@ -1,6 +1,6 @@
 """HQ's import page takes Nova's HQ import file the way the file's own guide tells a person to.
 
-Contract (part 01, A6): the HQ import file is always a ZIP holding the app
+Contract: the HQ import file is always a ZIP holding the app
 JSON, the lookup workbook and the media upload where the app has them, and a
 ``README.txt`` that renders the manual-import guide
 (``lib/publish/manualImportGuide.ts``). The corpus writes each document's

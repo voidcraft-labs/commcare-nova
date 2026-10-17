@@ -101,7 +101,6 @@ export const DEPLOYMENT_NOTICE_REASONS = [
 	"worker-settings-reset-at-next-publish",
 	"lookup-table-content-unsupported",
 ] as const;
-export type DeploymentNoticeReason = (typeof DEPLOYMENT_NOTICE_REASONS)[number];
 
 export const NOTICE_ENTITY_TYPES = [
 	"app",
@@ -118,7 +117,7 @@ export const NOTICE_ENTITY_TYPES = [
 export type NoticeEntityType = (typeof NOTICE_ENTITY_TYPES)[number];
 
 /** The longest `nameAtMigration` or `detail` value an entry stores. */
-export const NOTICE_TEXT_MAX = 200;
+const NOTICE_TEXT_MAX = 200;
 
 const noticeEntityRefSchema = z.strictObject({
 	type: z.enum(NOTICE_ENTITY_TYPES),
