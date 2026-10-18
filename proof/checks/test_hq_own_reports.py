@@ -222,7 +222,7 @@ def _xform(*blocks):
 
 
 def _forms(*blocks):
-    return hq_own_reports.connect_forms(
+    return connect.connect_forms(
         BuildOutcome("A", 1, [], {}, {"modules-0/forms-0.xml": _xform(*blocks).encode(), "suite.xml": b"<suite/>"})
     )
 
@@ -279,7 +279,7 @@ def _learn(blocks=LEARN_B):
 
 
 def test_the_five_reports_of_a_block_renamed_in_the_edit_are_connects_own():
-    assert hq_own_reports.renamed_blocks(_forms(*DELIVER_A), _forms(*DELIVER_B)) == {
+    assert connect.renamed_blocks(_forms(*DELIVER_A), _forms(*DELIVER_B)) == {
         ("deliver", "home_visit", "household_visit"),
         ("task", "follow_up", "return_visit"),
     }
@@ -297,7 +297,7 @@ def test_the_reports_stand_where_the_edit_renames_no_block():
 
 def test_a_block_added_beside_the_old_one_is_no_rename():
     beside = (*DELIVER_A, *DELIVER_B)
-    assert hq_own_reports.renamed_blocks(_forms(*DELIVER_A), _forms(*beside)) == frozenset()
+    assert connect.renamed_blocks(_forms(*DELIVER_A), _forms(*beside)) == frozenset()
     assert _beyond(_deliver(), DELIVER_CATALOG, DELIVER_A, beside) == DELIVER_REPORTS
     assert _beyond(_learn(), LEARN_CATALOG, LEARN_A, (*LEARN_A, *LEARN_B)) == LEARN_REPORTS
 
@@ -319,19 +319,17 @@ def test_a_place_where_more_than_one_block_of_a_kind_went_or_came_pairs_none():
     # The deliver unit went and two came in its place: which of the two is the renamed one the forms do not say,
     # and the other is a block added beside it.
     two_came = (("deliver", "household_visit"), ("deliver", "school_visit"), ("task", "return_visit"))
-    assert hq_own_reports.renamed_blocks(_forms(*DELIVER_A), _forms(*two_came)) == {
-        ("task", "follow_up", "return_visit")
-    }
+    assert connect.renamed_blocks(_forms(*DELIVER_A), _forms(*two_came)) == {("task", "follow_up", "return_visit")}
     assert _beyond(_deliver(), DELIVER_CATALOG, DELIVER_A, two_came) == DELIVER_REPORTS[:2]
     # Two learn modules went and one came.
-    assert hq_own_reports.renamed_blocks(_forms(*LEARN_A, ("module", "drying")), _forms(*LEARN_B)) == frozenset()
+    assert connect.renamed_blocks(_forms(*LEARN_A, ("module", "drying")), _forms(*LEARN_B)) == frozenset()
     assert _beyond(_learn(), LEARN_CATALOG, (*LEARN_A, ("module", "drying")), LEARN_B) == LEARN_REPORTS
 
 
 def _files(**forms):
     """A build of one form per file, each holding its Connect blocks (``forms-<n>``: blocks)."""
     files = {f"modules-0/{name.replace('_', '-')}.xml": _xform(*blocks).encode() for name, blocks in forms.items()}
-    return hq_own_reports.connect_forms(BuildOutcome("A", 1, [], {}, {**files, "suite.xml": b"<suite/>"}))
+    return connect.connect_forms(BuildOutcome("A", 1, [], {}, {**files, "suite.xml": b"<suite/>"}))
 
 
 def _task_run(task):
@@ -358,7 +356,7 @@ def test_a_renamed_task_in_a_form_of_its_own_completing_nothing_is_connects_own(
     # renames it there: Connect takes the payload and completes no task the worker was assigned under the old id.
     a = _files(forms_0=DELIVER_A[:1], forms_1=DELIVER_A[1:])
     b = _files(forms_0=DELIVER_B[:1], forms_1=DELIVER_B[1:])
-    assert hq_own_reports.renamed_blocks(a, b) == {
+    assert connect.renamed_blocks(a, b) == {
         ("deliver", "home_visit", "household_visit"),
         ("task", "follow_up", "return_visit"),
     }
@@ -382,7 +380,7 @@ def test_a_block_whose_id_changed_at_another_place_is_no_rename():
         f'<household_visit><deliver xmlns="{CONNECT_XMLNS}" id="household_visit"><name>v</name></deliver>'
         "</household_visit></visit></data></instance></model></h:head><h:body/></h:html>"
     )
-    after = hq_own_reports.connect_forms(
+    after = connect.connect_forms(
         BuildOutcome("B", 1, [], {}, {"modules-0/forms-0.xml": moved.encode(), "suite.xml": b"<suite/>"})
     )
-    assert hq_own_reports.renamed_blocks(_forms(("deliver", "home_visit")), after) == frozenset()
+    assert connect.renamed_blocks(_forms(("deliver", "home_visit")), after) == frozenset()

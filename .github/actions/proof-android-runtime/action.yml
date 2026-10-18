@@ -80,7 +80,7 @@ runs:
       env:
         PROOF_ANDROID_RUNTIME: ${{ steps.name.outputs.runtime }}
         TZ: UTC
-      run: python3 -m unittest proof.android.selfcheck proof.android.predicates -v
+      run: python3 -m unittest proof.android.test_standard_library proof.android.selfcheck proof.android.predicates -v
     - name: Save the runtime
       if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@v6

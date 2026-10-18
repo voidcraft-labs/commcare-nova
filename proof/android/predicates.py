@@ -63,6 +63,8 @@ RESERVED_TAGS = CONTROLS / "targeted-lookup-reserved-tags" / "local.ccz"
 # A follow-up form over a patient holding an image question and a File question; its patients are the operation
 # query's restore's.
 CAPTURE = CONTROLS / "case-capture-followup" / "local.ccz"
+# The control's two uploads share a field list that is relevant only where its first question is answered ``yes``.
+CAPTURES_SHOWN = {"/data/show": "yes"}
 # Nova's local archive of a form that names media in every slot, its files bundled.
 MEDIA_ONLY = CONTROLS / "media-only" / "local.ccz"
 # The edit's pre-fix archive of the control, which holds two suffixed language codes (defect 1's).
@@ -603,21 +605,23 @@ class Predicates(unittest.TestCase):
         """Defect 9. Contract: Android's update from a file compares versions alone, so an export at a higher
         sequence with a form changed stages and installs and the changed form opens, and one at the same sequence
         with the form changed answers ``UpToDate`` and keeps the old form; the profile's version is what makes a
-        download newer. Failure it catches: an update that reads anything else, so a later download a phone
-        cannot take, or one it takes though it is not newer."""
+        download newer. The change is the form's title, which the form left incomplete reopens under
+        (``FormController.getFormTitle``, the form's ``h:title``) before any question is drawn. Failure it
+        catches: an update that reads anything else, so a later download a phone cannot take, or one it takes
+        though it is not newer."""
         unique = "58454579-0000-4000-8000-000000000001"
-        changed = ("Head of household", "Head of the household")
+        changed = ("<h:title>Census</h:title>", "<h:title>Census again</h:title>")
         at_7 = planned(SURVEY, self.work / "seq-7.ccz", 7, unique_id=unique)
         at_8 = planned(SURVEY, self.work / "seq-8.ccz", 8, unique_id=unique, form_text=changed)
         again_7 = planned(SURVEY, self.work / "seq-7-changed.ccz", 7, unique_id=unique, form_text=changed)
         newer = self.reader.request("update", archive=str(at_7), update=str(at_8), incomplete="m0-f0")
         self.assertEqual((newer["staged"], newer["updated"]), ("UpdateStaged", "Installed"))
         self.assertEqual(newer["after"]["app"]["versionNumber"], 8)
-        self.assertIn(changed[1], json.dumps(newer["reopened"]))
+        self.assertEqual(newer["reopened"]["form"]["formTitle"], "Census again")
         equal = self.reader.request("update", archive=str(at_7), update=str(again_7), incomplete="m0-f0")
         self.assertEqual(equal["staged"], "UpToDate")
         self.assertEqual(equal["after"]["app"]["versionNumber"], 7)
-        self.assertNotIn(changed[1], json.dumps(equal["reopened"]))
+        self.assertEqual(equal["reopened"]["form"]["formTitle"], "Census")
 
     def test_an_update_from_a_file_takes_a_file_made_for_another_project_space(self):
         """Defect 9, the page's sentence on Offline Update (written from the reading of
@@ -716,7 +720,8 @@ class Predicates(unittest.TestCase):
             answer = self.reader.request("app", archive=str(archive), commands=["m0-f0"], answers=answers)
             self.assertEqual(answer["install"], "Installed", label)
             held = given(answer)
-            for reference in ("/data/code", "/data/pin"):
+            # A reference as Core's ``TreeReference`` writes it, each step under the data node with its multiplicity.
+            for reference in ("/data/code[1]", "/data/pin[1]"):
                 with self.subTest(archive=label, question=reference):
                     self.assertEqual(held[reference], expected)
 
@@ -976,9 +981,14 @@ class Predicates(unittest.TestCase):
         self.assertIn("Use ok", json.dumps(plain))
         self.assertEqual(held(with_media), plain)
 
-    def form_views(self, archive, restore=None) -> list:
-        """The view of every screen of the first form ``m0-f0`` opens, as Android laid it out."""
-        answer = self.walked(archive, restore, commands=["m0-f0"], views=True)
+    def form_views(self, archive, restore=None, questions=None) -> list:
+        """The view of every screen of the first form ``m0-f0`` opens, as Android laid it out, its questions given
+        the lane's answers and, by reference, ``questions``'s."""
+        options = {}
+        if questions is not None:
+            lane = json.loads(ANSWERS.read_text(encoding="utf-8"))
+            options["answers"] = {**lane, "questions": {**lane.get("questions", {}), **questions}}
+        answer = self.walked(archive, restore, commands=["m0-f0"], views=True, **options)
         forms = [step["form"] for step in answer["walks"]["m0-f0"]["steps"] if "form" in step]
         self.assertTrue(forms, f"The walk of {archive} opened no form")
         return [screen.get("view") for screen in forms[0]["screens"]]
@@ -989,7 +999,7 @@ class Predicates(unittest.TestCase):
         ``Constants.CONTROL_DOCUMENT_UPLOAD``: ``DocumentWidget``, its button reading "Choose Document"), and an
         image question with ``ImageWidget``. Failure it catches: a File question Android draws as a text box, the
         claim Nova's documentation made before."""
-        views = self.form_views(CAPTURE, OPERATION_QUERY_RESTORE)
+        views = self.form_views(CAPTURE, OPERATION_QUERY_RESTORE, CAPTURES_SHOWN)
         classes = set().union(*(view_classes(view) for view in views))
         self.assertIn("DocumentWidget", classes)
         self.assertIn("ImageWidget", classes)
@@ -1011,8 +1021,12 @@ class Predicates(unittest.TestCase):
                 )
             ],
         )
-        plain = set().union(*(view_classes(view) for view in self.form_views(CAPTURE, OPERATION_QUERY_RESTORE)))
-        faced = set().union(*(view_classes(view) for view in self.form_views(face, OPERATION_QUERY_RESTORE)))
+        plain = set().union(
+            *(view_classes(view) for view in self.form_views(CAPTURE, OPERATION_QUERY_RESTORE, CAPTURES_SHOWN))
+        )
+        faced = set().union(
+            *(view_classes(view) for view in self.form_views(face, OPERATION_QUERY_RESTORE, CAPTURES_SHOWN))
+        )
         self.assertIn("ImageWidget", plain)
         self.assertNotIn("FaceCaptureWidget", plain)
         self.assertIn("FaceCaptureWidget", faced)

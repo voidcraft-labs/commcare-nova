@@ -501,7 +501,11 @@ harness keeps, each with its reason.
   `proof.native.produce` run on a hosted runner's own `python3` (no workflow
   sets one up, and `ubuntu-24.04`'s is 3.12), `proof.store.fingerprints` on
   the host `npm run proof` starts from, and `registers verify` and
-  `sensitivity effects` wherever a person runs them. Each imports only the
+  `sensitivity effects` wherever a person runs them, and the Android
+  reader's own checks (`selfcheck.py`, `predicates.py`, and the judge
+  `proof.checks.android` as they import and call it) where its runtime is
+  built or restored (`proof/android/test_standard_library.py`, which that
+  job runs first). Each imports only the
   standard library and the proof's own standard-library modules, and uses no
   API newer than 3.12. `proof/lane/test_gate.py` holds the gate's imports to
   the standard library, but on the image's 3.13, so a 3.13-only API passes the
