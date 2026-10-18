@@ -7,24 +7,24 @@
  * only after a case-search request reaches the server. A name in one carrier
  * says nothing about another.
  *
- * Frozen upstream evidence (2026-08-15):
+ * Frozen upstream evidence (proof/pins.json, 2026-10-18):
  * - commcare-core 8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305
  *   ASTNodeFunctionCall.buildFuncExpr
- * - commcare-android 79d8418ab2dcd9846ae297c8f1edd189393b8e35
- *   EntitySelectActivity.installEvaluationFunctionHandlers
- * - formplayer 372832b36c715634d115b059eb561564885f4aae
- *   MenuSessionRunnerService.getEvaluationContext
- * - commcare-hq ef148302e5af566639779d76126de25064a55106
+ * - commcare-android 7a5584475580529392f7cb8853a87b2d414e9a6c
+ *   EntitySelectActivity.evalContext
+ * - formplayer 24383ac71bfbac9da8246afdfea8c2db22c8208b
+ *   MenuSessionRunnerService.addHereFuncHandler
+ * - commcare-hq d6c6e16d8ae12a5d0680fe6cce5c51a8b4c8708b
  *   corehq/apps/case_search/xpath_functions/__init__.py
- * - Vellum 8a1ef02df51fe1ce0d0ef1e83bfa04c032363e48
- *   src/parse.js / src/xpath.js (authoring round-trip, no runtime handlers)
+ * - Vellum 01215f251c5716d98cc49ed10b3dc63f0d50f36e
+ *   src/xpath.js::createParser (authoring round-trip, no runtime handlers)
  */
 
 import type { SyntaxNode } from "@lezer/common";
 import { parser } from "./parser";
 
 /** Functions constructed directly by commcare-core's parser dispatch. */
-export const JAVAROSA_NATIVE_FUNCTIONS: ReadonlySet<string> = new Set([
+export const JAVAROSA_NATIVE_FUNCTION_NAMES = [
 	"abs",
 	"acos",
 	"asin",
@@ -101,7 +101,13 @@ export const JAVAROSA_NATIVE_FUNCTIONS: ReadonlySet<string> = new Set([
 	"upper-case",
 	"uuid",
 	"weighted-checklist",
-]);
+] as const;
+
+export type JavaRosaFunction = (typeof JAVAROSA_NATIVE_FUNCTION_NAMES)[number];
+
+export const JAVAROSA_NATIVE_FUNCTIONS: ReadonlySet<string> = new Set(
+	JAVAROSA_NATIVE_FUNCTION_NAMES,
+);
 
 /** Nova spellings with a proven source-to-source JavaRosa lowering. */
 export const JAVAROSA_LOWERED_FUNCTIONS: ReadonlySet<string> = new Set([

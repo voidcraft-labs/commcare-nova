@@ -55,6 +55,10 @@ import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
+	type InstanceDecl,
+	InstanceSink,
+} from "@/lib/commcare/xpath/wire/instances";
+import {
 	type BlueprintDoc,
 	effectiveCaseTypes,
 	type Module,
@@ -124,10 +128,12 @@ export function buildLongDetail(args: {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly instances: readonly InstanceDecl[];
 } {
 	const { module: mod, moduleIndex } = args;
 	const target: DetailTarget = args.target ?? "case";
 	const detailId = `m${moduleIndex}_${target}_long`;
+	const instances = new InstanceSink();
 
 	// Early-exit shape: no caseListConfig OR no case type. The
 	// resulting detail still carries a title — CCHQ's
@@ -139,6 +145,7 @@ export function buildLongDetail(args: {
 			element: buildDetailShell(detailId, []),
 			strings: {},
 			translationUnits: {},
+			instances: [],
 		};
 	}
 
@@ -147,6 +154,7 @@ export function buildLongDetail(args: {
 		effectiveCaseTypes(args.doc).find((type) => type.name === mod.caseType)
 			?.properties ?? [];
 	const ctx: CaseListEmitContext = {
+		wire: { mode: { target: "suite" }, instances },
 		moduleIndex,
 		sortByUuid: EMPTY_SORT_DIRECTIVES,
 		detailKind: "long",
@@ -190,6 +198,7 @@ export function buildLongDetail(args: {
 		element: buildDetailShell(detailId, fields),
 		strings,
 		translationUnits,
+		instances: instances.declarations(),
 	};
 }
 
@@ -204,8 +213,9 @@ export function emitLongDetail(args: {
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
 }): CaseListEmission {
-	const { element, strings, translationUnits } = buildLongDetail(args);
-	return { xml: serializeXml(element), strings, translationUnits };
+	const { element, strings, translationUnits, instances } =
+		buildLongDetail(args);
+	return { xml: serializeXml(element), strings, translationUnits, instances };
 }
 
 /**

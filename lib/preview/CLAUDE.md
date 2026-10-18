@@ -726,8 +726,8 @@ In render paths, read repeat instance counts from `state.repeatCount` (via the e
 
 ## Lookup carriers — one printing path, one snapshot
 
-Carrier evaluation never grows a second AST interpreter: every surface prints
-the authored AST through the SAME on-device predicate emitter the wire uses
+Carrier evaluation never grows a second AST interpreter: every surface lowers
+the authored AST through `toWire`, prints the same tree with `serializeWire`,
 and evaluates the printed XPath with the preview evaluator
 (`lookupEvaluation.ts`). A lookup-backed select's row filter emits ONCE with
 the fixture-row scope — same-table columns print as bare wire names the
@@ -766,7 +766,7 @@ Navigation display conditions (`displayConditionEvaluation.ts`) evaluate at
 render through the same printing path: module conditions gate the home
 screen's module list; form conditions gate the case-list screen's
 post-selection form menu + single-form auto-continue (against the selected
-row's projection, with a private evaluator token for typed self reads) and the module
+row's projection, with a private context path for typed self reads) and the module
 screen's forms-first list. Raw absent-node semantics hold — absent
 string-unpacks to `""`, numeric ordering yields NaN, no presence guards.
 Visibility is three-valued: a carrier-bearing condition without loaded data

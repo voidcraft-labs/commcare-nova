@@ -9,9 +9,10 @@ import {
 	findOnDeviceDateAddIssueInPredicate,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
-import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	caseOperationTargetTypeOrderViolations,
 	caseOperationWireOrderViolationDetails,
@@ -847,12 +848,16 @@ function validateOnDeviceExpression(
 		return;
 	}
 	try {
-		emitOnDeviceExpression(expression, "casedb", typeContext, undefined, {
-			formFields: identityBindings(typeContext.formFields?.keys() ?? []),
-			operationIds: identityBindings(typeContext.operationIds ?? []),
-			lookup: {
-				naming: inertLookupWireNaming(),
-				instanceScope: "xform",
+		toWire(expression, {
+			target: "xform",
+			types: typeContext,
+			bindings: {
+				formFields: identityBindings(typeContext.formFields?.keys() ?? []),
+				operationIds: identityBindings(typeContext.operationIds ?? []),
+				lookup: {
+					naming: inertLookupWireNaming(),
+					instanceScope: "xform",
+				},
 			},
 		});
 	} catch (error) {
@@ -885,12 +890,16 @@ function validateOnDevicePredicate(
 		return;
 	}
 	try {
-		emitCaseListFilter(predicate, "casedb", typeContext, undefined, {
-			formFields: identityBindings(typeContext.formFields?.keys() ?? []),
-			operationIds: identityBindings(typeContext.operationIds ?? []),
-			lookup: {
-				naming: inertLookupWireNaming(),
-				instanceScope: "xform",
+		toWire(predicate, {
+			target: "xform",
+			types: typeContext,
+			bindings: {
+				formFields: identityBindings(typeContext.formFields?.keys() ?? []),
+				operationIds: identityBindings(typeContext.operationIds ?? []),
+				lookup: {
+					naming: inertLookupWireNaming(),
+					instanceScope: "xform",
+				},
 			},
 		});
 	} catch (error) {
@@ -926,8 +935,8 @@ function onDeviceDateAddOperationError(
 	);
 }
 
-function identityBindings(values: Iterable<Uuid>): ReadonlyMap<Uuid, string> {
-	return new Map([...values].map((uuid) => [uuid, `/data/__nova_${uuid}`]));
+function identityBindings(values: Iterable<Uuid>): ReadonlyMap<Uuid, WireExpr> {
+	return new Map([...values].map((uuid) => [uuid, w.form([`__nova_${uuid}`])]));
 }
 
 function errorMessage(error: unknown): string {

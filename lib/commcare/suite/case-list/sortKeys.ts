@@ -19,8 +19,15 @@
 // (`util.py::get_sort_and_sort_only_columns`, `index + 1`).
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import {
+	el,
+	type WireElementContext,
+	xel,
+} from "@/lib/commcare/elementBuilders";
 import { serializeXml } from "@/lib/commcare/serializeXml";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import { InstanceSink } from "@/lib/commcare/xpath/wire/instances";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type {
 	CaseListComparator,
 	CaseListOrderPlan,
@@ -30,8 +37,7 @@ import type {
 	SortDirection,
 	Uuid,
 } from "@/lib/domain";
-import { emitCasePropertyWirePath } from "../../casePropertyWire";
-import { quoteLiteral } from "../../predicate/stringQuoting";
+import { casePropertyPath } from "../wire";
 
 // ============================================================
 // Wire-vocab translation
@@ -92,7 +98,7 @@ interface SortRuleAttributes {
  */
 export type ResolvedSortDirective = SortRuleAttributes &
 	(
-		| { readonly kind: "property"; readonly xpath: string }
+		| { readonly kind: "property"; readonly xpath: WireExpr }
 		| { readonly kind: "calculated" }
 		| { readonly kind: "variables" }
 	);
@@ -115,13 +121,17 @@ export interface PlannedSortNodes {
  * mapping and an image map share it.
  */
 export function idMappingSortXpath(
-	path: string,
+	path: WireExpr,
 	mapping: readonly { readonly value: string }[],
-): string {
-	return mapping.reduceRight(
+): WireExpr {
+	return mapping.reduceRight<WireExpr>(
 		(elseArm, entry, index) =>
-			`if(selected(${path}, ${quoteLiteral(entry.value, "case-list-filter")}), ${index}, ${elseArm})`,
-		"''",
+			w.call("if", [
+				w.call("selected", [path, w.str(entry.value)]),
+				w.num(index),
+				elseArm,
+			]),
+		w.str(""),
 	);
 }
 
@@ -146,7 +156,7 @@ function keyDirective(
 			return {
 				...attributes,
 				kind: "property",
-				xpath: emitCasePropertyWirePath(key.property),
+				xpath: casePropertyPath(key.property),
 			};
 		case "mapping-position": {
 			if (column.kind !== "id-mapping" && column.kind !== "image-map") {
@@ -158,7 +168,7 @@ function keyDirective(
 				...attributes,
 				kind: "property",
 				xpath: idMappingSortXpath(
-					emitCasePropertyWirePath(column.field),
+					casePropertyPath(column.field),
 					column.mapping,
 				),
 			};
@@ -194,7 +204,7 @@ export function planSortNodes(plan: CaseListOrderPlan): PlannedSortNodes {
 		property: carrier.property,
 		directive: {
 			kind: "property" as const,
-			xpath: emitCasePropertyWirePath(carrier.property),
+			xpath: casePropertyPath(carrier.property),
 			type: carrier.comparator,
 			...ruleAttributes(carrier.rule),
 		},
@@ -217,7 +227,8 @@ export function planSortNodes(plan: CaseListOrderPlan): PlannedSortNodes {
  */
 export function buildSortBlock(
 	directive: SortRuleAttributes,
-	text: { readonly xpath: string; readonly variables: readonly Element[] },
+	text: { readonly xpath: WireExpr; readonly variables: readonly Element[] },
+	context: WireElementContext,
 ): Element {
 	const attributes: Record<string, string> = {
 		type: SORT_TYPE_WIRE_MAP[directive.type],
@@ -229,22 +240,27 @@ export function buildSortBlock(
 	if (directive.blanks !== undefined) attributes.blanks = directive.blanks;
 	return el("sort", attributes, [
 		el("text", {}, [
-			el("xpath", { function: text.xpath }, [...text.variables]),
+			xel("xpath", { xpath: { function: text.xpath } }, context, [
+				...text.variables,
+			]),
 		]),
 	]);
 }
 
 /** `$calculated_property` with its one variable: the sort text of a
  *  `calculated` directive, as HQ's `useXpathExpression` sort writes it. */
-export function calculatedPropertyText(expression: string): {
-	readonly xpath: string;
+export function calculatedPropertyText(
+	expression: WireExpr,
+	context: WireElementContext,
+): {
+	readonly xpath: WireExpr;
 	readonly variables: readonly Element[];
 } {
 	return {
-		xpath: "$calculated_property",
+		xpath: w.calculatedPropertyVar(),
 		variables: [
 			el("variable", { name: "calculated_property" }, [
-				el("xpath", { function: expression }),
+				xel("xpath", { xpath: { function: expression } }, context),
 			]),
 		],
 	};
@@ -258,6 +274,13 @@ export function emitSortBlock(
 	directive: Extract<ResolvedSortDirective, { kind: "property" }>,
 ): string {
 	return serializeXml(
-		buildSortBlock(directive, { xpath: directive.xpath, variables: [] }),
+		buildSortBlock(
+			directive,
+			{ xpath: directive.xpath, variables: [] },
+			{
+				mode: { target: "suite" },
+				instances: new InstanceSink(),
+			},
+		),
 	);
 }

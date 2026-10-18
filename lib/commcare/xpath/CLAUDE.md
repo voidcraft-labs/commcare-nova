@@ -1,8 +1,10 @@
 # lib/commcare/xpath
 
-CommCare's XPath dialect: the Lezer grammar + generated parser, the carrier capability contract, and the narrow production lowerer that turns explicitly proven Nova extensions into JavaRosa-safe XPath. Lives under `lib/commcare/` because XPath is the expression language CommCare defines — the "one-way emission boundary" rule for `lib/commcare/` is about wire-format emission (XForm XML, HqApplication JSON), not about shared parsing infrastructure that other layers legitimately read.
+CommCare's XPath dialect: the Lezer grammar + generated parser, the carrier capability contract, the resolved wire tree and its serializer, and the transitional form-logic lowerer. Lives under `lib/commcare/` because XPath is the expression language CommCare defines — the "one-way emission boundary" rule for `lib/commcare/` is about wire-format emission (XForm XML, HqApplication JSON), not about shared parsing infrastructure that other layers legitimately read.
 
 ## Layout
+
+- `wire/` — record expressions and generated scaffolding become `WireExpr` through `toWire` or `w`, then `serializeWire` prints the target spelling and the exact instance declarations it reads. No generated XPath string crosses an XML or HQ JSON slot. `wire/CLAUDE.md` owns modes, interpolation-safe literals, shadow eligibility and the finite temporary authored-text bridge.
 
 - `wireSource.ts` — projects stored XPath for form emission. Both authored field-reference spellings enter the same form-path resolver, so query-repeat identities address rows rather than their derived wrapper. Field slots and Connect bindings share this projection; human editing retains its original spelling.
 
@@ -13,9 +15,9 @@ CommCare's XPath dialect: the Lezer grammar + generated parser, the carrier capa
 - `functionCapabilities.ts` — exact, independently sourced function tables for JavaRosa, Nova Preview execution, and CCHQ CSQL. JavaRosa's executable XForm set is Nova's authoring floor, so every function or path initializer the authoring registry admits must also appear in Preview's execution contract. CSQL remains independently classified because only case-search carriers reach that server runtime. `instance()` and `current()` are path initializers, not ordinary JavaRosa function calls; each admitted `instance()` namespace also needs an explicit resolver in every owning Preview context. `here()` is a menu/detail runtime handler and is never valid in an XForm.
 - `carriers.ts` — the canonical walk of every persisted `XPathExpression`, paired with its closed execution profile. Field expressions are Preview-form-owned, form-link expressions are Preview-session-owned, Connect expressions are wire-form-only, and case-property catalog constraints are wire-catalog-only. Scanners and validators consume this inventory instead of maintaining their own slot lists.
 - `compatibility.ts` — the privacy-safe carrier admission verdict. Its source-only pass composes executable language checks with function, signature, and context capabilities for the carrier profile. Its instance pass admits only stable structural ids in raw XPath. Lookup tables stay in UUID-bearing typed carriers because their tags live outside `BlueprintDoc` and can be renamed. Both passes return stable codes and constant prose, never authored source.
-- `javaRosaLowering.ts` — the production raw-XPath wire lowerer. It walks the Lezer CST and lowers exactly two Nova extensions: `normalize-space(value)` to JavaRosa-native `replace()` calls over the XML whitespace set, and `is-blank(value)` to a `string-length` check. XForm real attributes, Vellum shadows, suite XPath, and XPath-bearing HQ JSON all cross this boundary before serialization.
+- `javaRosaLowering.ts` — the transitional form-authored raw-XPath lowerer. It walks the Lezer CST and lowers exactly two Nova extensions: `normalize-space(value)` to JavaRosa-native `replace()` calls over the XML whitespace set, and `is-blank(value)` to a `string-length` check. Record expressions and generated scaffolding use the wire tree; only existing authored form/link text still crosses this lowerer before its branded serialization boundary.
 - `detectUnquotedStringLiteral.ts` — standalone parser-backed check for the "bare word where a string literal was intended" authoring mistake. Used by the deep validator's form + field rules.
-- `index.ts` — public barrel: `parser`, parser term constants, `analyzeXPathCompatibility`, `lowerXPathForJavaRosa`, `detectUnquotedStringLiteral`.
+- `index.ts` — public barrel: the parser and its term constants, compatibility analysis, the transitional lowerer, `detectUnquotedStringLiteral`, and the wire types, constructors, serializer and declaration factories.
 
 ## Production compatibility boundary
 

@@ -7,7 +7,7 @@
 // emitters use (raw comparisons — an absent value string-unpacks to
 // "" and numeric-coerces to NaN; no presence guards), so preview and
 // device can't diverge; the one preview-specific arm is the
-// self-property leaf, printed to a private `#case/<prop>` evaluation token the
+// self-property leaf, printed to a private context path the
 // local context resolves against the selected row's projection. This is not
 // Nova authoring text; the typed Predicate remains the only stored input.
 //
@@ -23,7 +23,9 @@
 // other checker-gated impossibility throw loudly (a bug surface,
 // never a silently-shown item).
 
-import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { Predicate } from "@/lib/domain/predicate";
 import { displayConditionForEmission } from "@/lib/domain/predicate";
 import { toBoolean } from "../xpath/coerce";
@@ -114,7 +116,8 @@ function conditionVisibility(
 
 	const ctx = navigationEvalContext(args.session, args.caseProjection);
 	const emitSelfProperty = allowSelfProperty
-		? (property: { readonly property: string }) => `#case/${property.property}`
+		? (property: { readonly property: string }) =>
+				w.context([w.step("__nova_selected_case"), w.step(property.property)])
 		: undefined;
 	const folded =
 		data !== undefined
@@ -124,18 +127,19 @@ function conditionVisibility(
 					...(emitSelfProperty !== undefined && { emitSelfProperty }),
 				})
 			: effective;
-	const emitted = emitCaseListFilter(
-		folded,
-		"casedb",
-		{
-			...(args.currentCaseType !== undefined && {
-				currentCaseType: args.currentCaseType,
-			}),
-			userPropertySlugs: previewUserPropertySlugMap(args.session),
-		},
-		undefined,
-		emitSelfProperty === undefined ? {} : { emitSelfProperty },
-	);
+	const emitted = serializeWire(
+		toWire(folded, {
+			target: "suite",
+			types: {
+				...(args.currentCaseType !== undefined && {
+					currentCaseType: args.currentCaseType,
+				}),
+				userPropertySlugs: previewUserPropertySlugMap(args.session),
+			},
+			bindings: emitSelfProperty === undefined ? {} : { emitSelfProperty },
+		}),
+		{ target: "suite" },
+	).text;
 	return toBoolean(evaluate(emitted, ctx)) ? "shown" : "hidden";
 }
 
@@ -149,16 +153,16 @@ function navigationEvalContext(
 	return {
 		contextPath: "",
 		position: 1,
-		getValue: (path) => sessionInstancePathValue(path, session),
+		getValue: (path) =>
+			path.startsWith("/__nova_selected_case/")
+				? (caseProjection?.get(path.slice("/__nova_selected_case/".length)) ??
+					"")
+				: sessionInstancePathValue(path, session),
 		resolveInstance: (instanceId, path) =>
 			instanceId === "commcaresession"
 				? { kind: "supported", value: sessionInstancePathValue(path, session) }
 				: { kind: "unsupported" },
-		resolveHashtag: (ref) => {
-			const match = /^#case\/(.+)$/.exec(ref);
-			if (match) return caseProjection?.get(match[1]) ?? "";
-			return "";
-		},
+		resolveHashtag: () => "",
 		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 	};
 }

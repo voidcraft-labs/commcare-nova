@@ -4,8 +4,9 @@ import AdmZip from "adm-zip";
 import { arithmeticFixture } from "../../../lib/commcare/__tests__/arithmeticFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
-import { emitOnDeviceExpression } from "../../../lib/commcare/expression/onDeviceEmitter";
 import { runValidation } from "../../../lib/commcare/validator/runner";
+import { toWire } from "../../../lib/commcare/xpath/wire/fromExpression";
+import { serializeWire } from "../../../lib/commcare/xpath/wire/serialize";
 import { toPersistableDoc } from "../../../lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import { blueprintDocSchema } from "../../../lib/domain";
@@ -42,8 +43,15 @@ writeFileSync(
 		[-1, 0],
 		[0, 0],
 	]
-		.map(([a, b]) =>
-			emitOnDeviceExpression(arith("div", term(literal(a)), term(literal(b)))),
+		.map(
+			([a, b]) =>
+				serializeWire(
+					toWire(arith("div", term(literal(a)), term(literal(b))), {
+						target: "xform",
+						types: {},
+					}),
+					{ target: "xform", constraint: false },
+				).text,
 		)
 		.join("\n"),
 );

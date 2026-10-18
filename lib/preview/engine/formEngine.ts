@@ -35,6 +35,9 @@ import {
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
 import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type {
 	BlueprintDoc,
 	CaseOptionsSource,
@@ -4590,26 +4593,41 @@ export class FormEngine {
 				from[shared] === to[shared]
 			)
 				shared++;
-			return `current()/${[...Array<string>(from.length - shared).fill(".."), ...to.slice(shared)].join("/") || "."}`;
+			const steps = [
+				...Array.from({ length: from.length - shared }, () => w.parent()),
+				...to.slice(shared).map((name) => w.step(name)),
+			];
+			return w.current(steps.length === 0 ? [w.self()] : steps);
 		};
-		return caseOptionsNodeset(source, this.caseWriteDoc.caseTypes ?? [], {
-			formFields: new Map(
-				[...this.fieldPathsByUuid()].map(([uuid, path]) => [
-					uuid,
-					fieldReference(path),
-				]),
-			),
-			formCaseProperty: (caseType, property) => `#${caseType}/${property}`,
-			userPropertySlugs: previewUserPropertySlugMap(
-				previewSessionValues(this.previewIdentity),
-			),
-			...(this.lookupData && {
-				lookup: {
-					naming: this.lookupData.naming,
-					instanceScope: "xform" as const,
+		return serializeWire(
+			caseOptionsNodeset(source, this.caseWriteDoc.caseTypes ?? [], {
+				formFields: new Map(
+					[...this.fieldPathsByUuid()].map(([uuid, path]) => [
+						uuid,
+						fieldReference(path),
+					]),
+				),
+				formCaseProperty: (caseType, property) => {
+					const data = this.caseData.get(caseType);
+					const caseId = data?.get("case_id");
+					return caseId === undefined
+						? w.str(data?.get(property) ?? "")
+						: w.append(caseById(w.str(caseId), "casedb"), [
+								casePropertyStep(property),
+							]);
 				},
+				userPropertySlugs: previewUserPropertySlugMap(
+					previewSessionValues(this.previewIdentity),
+				),
+				...(this.lookupData && {
+					lookup: {
+						naming: this.lookupData.naming,
+						instanceScope: "xform" as const,
+					},
+				}),
 			}),
-		});
+			{ target: "xform", constraint: false },
+		).text;
 	}
 
 	private caseChoicesForIds(

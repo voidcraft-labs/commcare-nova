@@ -12,8 +12,8 @@ import { lookupTagSchema, parseLookupRevision } from "@/lib/lookup/schema";
 import { expandDoc } from "../expander";
 import { wireTable } from "../lookup/__tests__/lookupWireCorpus";
 import { lookupWireNaming } from "../lookup/naming";
-import { instanceSourceFor } from "../predicate/instances";
 import { runValidation } from "../validator/runner";
+import { lookupInstance } from "../xpath/wire/instances";
 
 const runtimeIds = [
 	"casedb",
@@ -77,7 +77,6 @@ describe("lookup and runtime instance names", () => {
 	it.each(runtimeIds)(
 		"reserves dispatched runtime name %s at authoring and existing-reference gates",
 		(id) => {
-			expect(instanceSourceFor(id)).toMatch(/^jr:\/\//);
 			for (const tag of [id, id.toUpperCase()]) {
 				expect(lookupTagSchema.safeParse(tag).success).toBe(false);
 				const { doc, context } = scenario(tag);
@@ -138,7 +137,7 @@ describe("lookup and runtime instance names", () => {
 			expect(runValidation(doc, context)).toEqual([]);
 		},
 	);
-	it("keeps valid fixture and selected-case declarations separate in an admitted form", () => {
+	it("declares the used fixture without an unread selected-case instance", () => {
 		const { doc, context, table } = scenario();
 		expect(runValidation(doc, context)).toEqual([]);
 		const xml = Object.values(
@@ -153,16 +152,15 @@ describe("lookup and runtime instance names", () => {
 		expect(instances.find((e) => e.attribs.id === "regions")?.attribs.src).toBe(
 			"jr://fixture/item-list:regions",
 		);
-		expect(
-			instances.find((e) => e.attribs.id === "selected_cases")?.attribs.src,
-		).toBe("jr://instance/selected-entities/selected_cases");
+		expect(instances.some((e) => e.attribs.id === "selected_cases")).toBe(
+			false,
+		);
 	});
 	it.each([
 		"results:inline",
 		"search-input:results",
 		"search-input:results:inline",
-	])("resolves non-tag wire id %s while tag syntax refuses it", (id) => {
-		expect(instanceSourceFor(id)).toMatch(/^jr:\/\//);
+	])("refuses the non-tag wire id %s as a lookup tag", (id) => {
 		expect(lookupTagSchema.safeParse(id).success).toBe(false);
 	});
 	it.each([
@@ -173,8 +171,8 @@ describe("lookup and runtime instance names", () => {
 		"selected_casesish",
 	])("admits ordinary tag %s and resolves its actual fixture", (tag) => {
 		const table = wireTable(tag, [{ name: "value", type: "text" }]);
-		expect(instanceSourceFor(tag, lookupWireNaming([table]))).toBe(
-			`jr://fixture/item-list:${tag}`,
-		);
+		expect(
+			lookupInstance(table.id, lookupWireNaming([table]), "xform").src,
+		).toBe(`jr://fixture/item-list:${tag}`);
 	});
 });

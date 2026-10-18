@@ -59,6 +59,7 @@ import {
 	type ValidationLocation,
 	validationError,
 } from "./errors";
+import { collectOracleInstanceRefs } from "./suiteOracle";
 import {
 	buildXFormDataModel,
 	localName,
@@ -1150,6 +1151,96 @@ function readElementText(el: Element): string {
 	return acc;
 }
 
+/** XForm definition attributes Core evaluates as XPath. Instance children
+ * are already excluded by the data model's definition walk. In particular,
+ * an instance-looking literal in an itext value or saved form data is not a
+ * read, and a Vellum shadow does not create a runtime dependency. */
+function checkUnreadInstances(
+	model: XFormModel,
+	formName: string,
+	loc: ValidationLocation,
+): ValidationError[] {
+	const reads = new Set<string>();
+	for (const element of model.definitionElements) {
+		const name = localName(element.name);
+		const attributes: string[] = [];
+		switch (name) {
+			case "bind":
+				attributes.push(
+					"nodeset",
+					"calculate",
+					"relevant",
+					"constraint",
+					"required",
+					"readonly",
+				);
+				break;
+			case "setvalue":
+				attributes.push("value");
+				if (getAttributeValue(element, "bind") === undefined)
+					attributes.push("ref");
+				break;
+			case "output":
+				// XFormParser.parseOutput evaluates ref when both are present.
+				attributes.push(
+					getAttributeValue(element, "ref") === undefined ? "value" : "ref",
+				);
+				break;
+			case "repeat":
+				attributes.push("jr:count");
+				if (getAttributeValue(element, "bind") === undefined)
+					attributes.push("nodeset");
+				break;
+			case "group":
+			case "input":
+			case "select":
+			case "select1":
+			case "upload":
+			case "secret":
+			case "trigger":
+			case "range":
+			case "pollsensor":
+				if (getAttributeValue(element, "bind") === undefined)
+					attributes.push("ref");
+				break;
+			case "itemset":
+				attributes.push("nodeset");
+				break;
+			case "label":
+			case "value":
+			case "copy":
+			case "sort":
+				if (
+					element.parent !== null &&
+					isTag(element.parent) &&
+					localName(element.parent.name) === "itemset"
+				)
+					attributes.push("ref");
+				break;
+			case "submission":
+				attributes.push("ref", "targetref");
+				break;
+		}
+		for (const attribute of attributes) {
+			const expression = getAttributeValue(element, attribute);
+			if (expression === undefined) continue;
+			for (const id of collectOracleInstanceRefs(expression)) reads.add(id);
+		}
+	}
+	return [...model.declaredInstanceIds].flatMap((id) =>
+		reads.has(id)
+			? []
+			: [
+					validationError(
+						"XFORM_UNREAD_INSTANCE",
+						"form",
+						`"${formName}" declares instance '${id}', but no emitted XPath reads it. Remove the declaration or include the missing expression dependency. This is a bug in the form generator.`,
+						loc,
+					),
+				],
+	);
+}
+
 // ── Public API ─────────────────────────────────────────────────────
 
 /**
@@ -1195,5 +1286,6 @@ export function validateXForm(
 		...checkOutputs(model, formName, loc),
 		...checkItextReferences(model, formName, loc),
 		...checkMediaValues(model, mediaManifest, formName, loc),
+		...checkUnreadInstances(model, formName, loc),
 	];
 }

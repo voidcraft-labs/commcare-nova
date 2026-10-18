@@ -78,10 +78,10 @@
 // This package is the source of truth for the AST shape; consumers
 // emit to wire formats from here:
 //
-//   - On-device XPath dialect via `lib/commcare/predicate` and
-//     `lib/commcare/expression`'s `emitOnDeviceExpression`.
-//   - CSQL dialect via the same packages' `emitCsql` /
-//     `emitCsqlExpressionSegments`.
+//   - On-device XPath dialect via `lib/commcare/xpath/wire`'s
+//     `toWire` lowering and `serializeWire` printing.
+//   - CSQL dialect via `lib/commcare/predicate`'s `emitCsql` and
+//     `lib/commcare/expression`'s `emitCsqlExpressionSegments`.
 //   - Postgres SQL via `lib/case-store/sql`'s compiler stack
 //     (`compilePredicate` / `compileExpression` / `compileTerm` /
 //     `compileRelationPath`).

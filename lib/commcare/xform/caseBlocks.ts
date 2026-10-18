@@ -44,7 +44,11 @@
 import { type ChildNode, Element } from "domhandler";
 import { findAll, findOne, getChildren } from "domutils";
 import type { FormActionCondition, FormActions } from "@/lib/commcare";
-import { el } from "@/lib/commcare/elementBuilders";
+import {
+	el,
+	type WireElementContext,
+	xel,
+} from "@/lib/commcare/elementBuilders";
 import {
 	validateCaseType,
 	validatePropertyName,
@@ -64,7 +68,11 @@ import {
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
-import { xpathStringLiteral } from "@/lib/commcare/xpath/stringLiteral";
+import { w } from "../xpath/wire/builders";
+import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
+import { caseById } from "../xpath/wire/rowScope";
+import { serializeWire } from "../xpath/wire/serialize";
+import type { WireExpr } from "../xpath/wire/tree";
 
 /**
  * CommCare case-transaction XML namespace. Every `<case>` element on the wire
@@ -119,11 +127,6 @@ function byWireName(
  *     caller merges `required="true()"` onto that node's bind, as
  *     `XFormCaseBlock.add_create_block` does; it is inert on a calculated
  *     node, and the question's own requirement is the source's (`builder.ts`).
- *   - `needsCasedbInstance` — true when a preload setvalue reads from `casedb`.
- *     The caller declares the `casedb` secondary instance if the form doesn't
- *     already carry it (`buildXForm`'s instance scan only sees field-level
- *     XPath, not these post-injection setvalues). Mirrors `add_case_preloads`'
- *     `add_casedb()` call.
  *
  * `null` is returned when the form has no case-management actions to emit —
  * the caller short-circuits without touching the DOM.
@@ -162,7 +165,6 @@ interface CaseBlocksEmission {
 	readonly binds: Element[];
 	readonly setvalues: Element[];
 	readonly requiredNamePaths?: string[];
-	readonly needsCasedbInstance?: boolean;
 }
 
 /**
@@ -222,7 +224,8 @@ function buildCaseBlocks(
 	actions: FormActions,
 	caseType: string | undefined,
 	attachmentPaths: () => ReadonlySet<string>,
-	selectedCaseIdRef: string,
+	selectedCaseIdRef: WireExpr,
+	context: WireElementContext,
 ): CaseBlocksEmission | null {
 	const openCase = actions.open_case;
 	const updateCase = actions.update_case;
@@ -287,8 +290,8 @@ function buildCaseBlocks(
 	const primaryCasePath = FormPath.root().child("case");
 	// Meta-block paths the case-attribute calculates read out of. The values
 	// reference the always-on meta block populated by `xform/metaBlock.ts`.
-	const metaTimeEnd = FormPath.root().child("meta").child("timeEnd").toXPath();
-	const metaUserID = FormPath.root().child("meta").child("userID").toXPath();
+	const metaTimeEnd = FormPath.root().child("meta").child("timeEnd").toWire();
+	const metaUserID = FormPath.root().child("meta").child("userID").toWire();
 
 	// Lazy, because a form whose only write is to the worker's record has no
 	// case type of its own and never reaches a branch that needs one. Eager
@@ -318,10 +321,16 @@ function buildCaseBlocks(
 		);
 		const primaryCreatePath = primaryCasePath.child("create");
 		binds.push(
-			el("bind", {
-				nodeset: primaryCreatePath.child("case_type").toXPath(),
-				calculate: `'${primaryCaseType()}'`,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: primaryCreatePath.child("case_type").toWire(),
+						calculate: w.str(primaryCaseType()),
+					},
+				},
+				context,
+			),
 		);
 		const namePath =
 			openCase.name_update?.question_path ||
@@ -330,10 +339,16 @@ function buildCaseBlocks(
 		// The action names the question's trimmed sibling, so the leaf binds
 		// it as it stands, as HQ's build does.
 		binds.push(
-			el("bind", {
-				nodeset: primaryCreatePath.child("case_name").toXPath(),
-				calculate: validatedNamePath,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: primaryCreatePath.child("case_name").toWire(),
+						calculate: FormPath.parse(validatedNamePath).toWire(),
+					},
+				},
+				context,
+			),
 		);
 		// `XFormCaseBlock.add_create_block` adds `required="true()"` to the
 		// bind of the path the name action names, here the trimmed sibling,
@@ -346,30 +361,52 @@ function buildCaseBlocks(
 		// equivalently but the fixture-shape calculate is what CCHQ Vellum emits
 		// and what the Vellum round-trip preserves.
 		binds.push(
-			el("bind", {
-				nodeset: primaryCreatePath.child("owner_id").toXPath(),
-				calculate: metaUserID,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: primaryCreatePath.child("owner_id").toWire(),
+						calculate: metaUserID,
+					},
+				},
+				context,
+			),
 		);
 		// Wire the form's `/data/case/@case_id` to the session datum
 		// `deriveSessionDatums` emits for this same `open_case` action.
 		// `xforms-ready` fires once at form load — the form-side and the
 		// session-side both pull their value from the same `uuid()`.
 		setvalues.push(
-			el("setvalue", {
-				ref: primaryCasePath.attr("case_id").toXPath(),
-				event: "xforms-ready",
-				value: `instance('commcaresession')/session/data/${newCaseIdDatumId(primaryCaseType())}`,
-			}),
+			xel(
+				"setvalue",
+				{
+					attributes: { event: "xforms-ready" },
+					xpath: {
+						ref: primaryCasePath.attr("case_id").toWire(),
+						value: w.instance(sessionInstance(), [
+							w.step("session"),
+							w.step("data"),
+							w.step(newCaseIdDatumId(primaryCaseType())),
+						]),
+					},
+				},
+				context,
+			),
 		);
 		// Conditional-open forms get a `<bind relevant>` on the case element.
 		// Same operator dispatch as the close condition below.
 		if (openMode === "if" && openCase.condition.question) {
 			binds.push(
-				el("bind", {
-					nodeset: primaryCasePath.toXPath(),
-					relevant: conditionToRelevantXPath(openCase.condition),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: primaryCasePath.toWire(),
+							relevant: conditionToRelevantXPath(openCase.condition),
+						},
+					},
+					context,
+				),
 			);
 		}
 	} else if (isUpdate || isClose || hasSubcases) {
@@ -377,10 +414,16 @@ function buildCaseBlocks(
 		// wires to the case-loading session datum so the case-update block on
 		// the wire knows which case it's editing.
 		binds.push(
-			el("bind", {
-				nodeset: primaryCasePath.attr("case_id").toXPath(),
-				calculate: selectedCaseIdRef,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: primaryCasePath.attr("case_id").toWire(),
+						calculate: selectedCaseIdRef,
+					},
+				},
+				context,
+			),
 		);
 	}
 
@@ -444,19 +487,36 @@ function buildCaseBlocks(
 				// asserted as bytes, so it stays theirs rather than being
 				// normalized to look like its neighbours.
 				binds.push(
-					el("bind", {
-						nodeset: primaryAttachmentPath.child(write.validProp).toXPath(),
-						relevant: `count(${write.resolvedQPath}) = 1`,
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: primaryAttachmentPath.child(write.validProp).toWire(),
+								relevant: w.eq(
+									w.call("count", [
+										FormPath.parse(write.resolvedQPath).toWire(),
+									]),
+									w.num(1),
+								),
+							},
+						},
+						context,
+					),
 				);
 				binds.push(
-					el("bind", {
-						nodeset: primaryAttachmentPath
-							.child(write.validProp)
-							.attr("src")
-							.toXPath(),
-						calculate: write.resolvedQPath,
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: primaryAttachmentPath
+									.child(write.validProp)
+									.attr("src")
+									.toWire(),
+								calculate: FormPath.parse(write.resolvedQPath).toWire(),
+							},
+						},
+						context,
+					),
 				);
 			}
 		}
@@ -473,11 +533,20 @@ function buildCaseBlocks(
 			// conditional-question flows. A name or an external id reads the
 			// question's trimmed sibling, which its action names.
 			binds.push(
-				el("bind", {
-					nodeset: primaryUpdatePath.child(validProp).toXPath(),
-					calculate: resolvedQPath,
-					relevant: `count(${resolvedQPath}) > 0`,
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: primaryUpdatePath.child(validProp).toWire(),
+							calculate: FormPath.parse(resolvedQPath).toWire(),
+							relevant: w.gt(
+								w.call("count", [FormPath.parse(resolvedQPath).toWire()]),
+								w.num(0),
+							),
+						},
+					},
+					context,
+				),
 			);
 		}
 	}
@@ -489,10 +558,16 @@ function buildCaseBlocks(
 		// default equality operator produces `path = 'answer'`.
 		if (closeMode === "if" && closeCase.condition.question) {
 			binds.push(
-				el("bind", {
-					nodeset: primaryCasePath.child("close").toXPath(),
-					relevant: conditionToRelevantXPath(closeCase.condition),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: primaryCasePath.child("close").toWire(),
+							relevant: conditionToRelevantXPath(closeCase.condition),
+						},
+					},
+					context,
+				),
 			);
 		}
 	}
@@ -502,9 +577,8 @@ function buildCaseBlocks(
 	// to read. The value XPath is the canonical case-loading shape — look up
 	// the case selected for this entry (`session/data/case_id`) in `casedb`
 	// and read the property. Mirrors `XForm.add_case_preloads`. These setvalues
-	// are spliced in AFTER `buildXForm`'s instance scan, so `addCaseBlocks`
-	// declares the `casedb` instance itself via `needsCasedbInstance` →
-	// `ensureCasedbInstance`. `<setvalue>` because the read happens once, at load.
+	// are spliced after source emission; their serialized trees contribute
+	// declarations to this splice's sink. `<setvalue>` reads once, at load.
 	if (hasPreload) {
 		for (const [questionPath, caseProperty] of Object.entries(
 			preloadAction.preload,
@@ -515,13 +589,22 @@ function buildCaseBlocks(
 			// HQ's add_case_preloads maps owner_id to the casedb attribute;
 			// update transactions still write the owner_id child, so this is a
 			// read-only projection rather than a change to the shared name mapper.
-			const propertyPath = property === "owner_id" ? "@owner_id" : property;
+			const propertyStep =
+				property === "owner_id" ? w.attr("owner_id") : w.step(property);
 			setvalues.push(
-				el("setvalue", {
-					ref: validateXFormPath(questionPath),
-					event: "xforms-ready",
-					value: `instance('casedb')/casedb/case[@case_id=${selectedCaseIdRef}]/${propertyPath}`,
-				}),
+				xel(
+					"setvalue",
+					{
+						attributes: { event: "xforms-ready" },
+						xpath: {
+							ref: FormPath.parse(validateXFormPath(questionPath)).toWire(),
+							value: w.append(caseById(selectedCaseIdRef, "casedb"), [
+								propertyStep,
+							]),
+						},
+					},
+					context,
+				),
 			);
 		}
 	}
@@ -540,17 +623,29 @@ function buildCaseBlocks(
 		// revalidate for timeEnd). The meta block ships with every Nova-emitted
 		// form, so these references resolve.
 		binds.push(
-			el("bind", {
-				nodeset: primaryCasePath.attr("date_modified").toXPath(),
-				type: "xsd:dateTime",
-				calculate: metaTimeEnd,
-			}),
+			xel(
+				"bind",
+				{
+					attributes: { type: "xsd:dateTime" },
+					xpath: {
+						nodeset: primaryCasePath.attr("date_modified").toWire(),
+						calculate: metaTimeEnd,
+					},
+				},
+				context,
+			),
 		);
 		binds.push(
-			el("bind", {
-				nodeset: primaryCasePath.attr("user_id").toXPath(),
-				calculate: metaUserID,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: primaryCasePath.attr("user_id").toWire(),
+						calculate: metaUserID,
+					},
+				},
+				context,
+			),
 		);
 	}
 
@@ -626,19 +721,31 @@ function buildCaseBlocks(
 		);
 		const subcaseCreatePath = subcaseCasePath.child("create");
 		binds.push(
-			el("bind", {
-				nodeset: subcaseCreatePath.child("case_type").toXPath(),
-				calculate: `'${validatedSubcaseType}'`,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: subcaseCreatePath.child("case_type").toWire(),
+						calculate: w.str(validatedSubcaseType),
+					},
+				},
+				context,
+			),
 		);
 		const namePath = validateXFormPath(
 			sc.name_update?.question_path || basePath.child("name").toXPath(),
 		);
 		binds.push(
-			el("bind", {
-				nodeset: subcaseCreatePath.child("case_name").toXPath(),
-				calculate: namePath,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: subcaseCreatePath.child("case_name").toWire(),
+						calculate: FormPath.parse(namePath).toWire(),
+					},
+				},
+				context,
+			),
 		);
 		// `add_create_block` runs the same `required="true()"` stamp on the
 		// subcase's name action path. Surface the path for the merge.
@@ -651,10 +758,16 @@ function buildCaseBlocks(
 		// advanced-module-only shape Nova never emits.) The `extension`
 		// relationship is carried solely on the `<index>` below.
 		binds.push(
-			el("bind", {
-				nodeset: subcaseCreatePath.child("owner_id").toXPath(),
-				calculate: metaUserID,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: subcaseCreatePath.child("owner_id").toWire(),
+						calculate: metaUserID,
+					},
+				},
+				context,
+			),
 		);
 
 		// Wire the subcase's `@case_id`. When the subcase lives in a repeat,
@@ -665,47 +778,76 @@ function buildCaseBlocks(
 		// `delay_case_id=True` branch in `XFormCaseBlock.add_create_block`,
 		// which routes `case_id='uuid()'` through `add_setvalue_or_bind` to emit
 		// a calculate bind.
-		const subcaseCaseIdAttr = subcaseCasePath.attr("case_id").toXPath();
+		const subcaseCaseIdAttr = subcaseCasePath.attr("case_id").toWire();
 		if (repeatCtxPath) {
 			binds.push(
-				el("bind", {
-					nodeset: subcaseCaseIdAttr,
-					calculate: "uuid()",
-				}),
+				xel(
+					"bind",
+					{ xpath: { nodeset: subcaseCaseIdAttr, calculate: w.call("uuid") } },
+					context,
+				),
 			);
 		} else {
 			setvalues.push(
-				el("setvalue", {
-					ref: subcaseCaseIdAttr,
-					event: "xforms-ready",
-					value: `instance('commcaresession')/session/data/${subcaseDatumId}`,
-				}),
+				xel(
+					"setvalue",
+					{
+						attributes: { event: "xforms-ready" },
+						xpath: {
+							ref: subcaseCaseIdAttr,
+							value: w.instance(sessionInstance(), [
+								w.step("session"),
+								w.step("data"),
+								w.step(subcaseDatumId),
+							]),
+						},
+					},
+					context,
+				),
 			);
 		}
 
 		// Subcase case-attribute binds — same shape as the primary case.
 		binds.push(
-			el("bind", {
-				nodeset: subcaseCasePath.attr("date_modified").toXPath(),
-				type: "xsd:dateTime",
-				calculate: metaTimeEnd,
-			}),
+			xel(
+				"bind",
+				{
+					attributes: { type: "xsd:dateTime" },
+					xpath: {
+						nodeset: subcaseCasePath.attr("date_modified").toWire(),
+						calculate: metaTimeEnd,
+					},
+				},
+				context,
+			),
 		);
 		binds.push(
-			el("bind", {
-				nodeset: subcaseCasePath.attr("user_id").toXPath(),
-				calculate: metaUserID,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: subcaseCasePath.attr("user_id").toWire(),
+						calculate: metaUserID,
+					},
+				},
+				context,
+			),
 		);
 
 		// Conditional subcase create — `<bind relevant>` on the subcase case
 		// element.
 		if (sc.condition.type === "if" && sc.condition.question) {
 			binds.push(
-				el("bind", {
-					nodeset: subcaseCasePath.toXPath(),
-					relevant: conditionToRelevantXPath(sc.condition),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: subcaseCasePath.toWire(),
+							relevant: conditionToRelevantXPath(sc.condition),
+						},
+					},
+					context,
+				),
 			);
 		}
 
@@ -761,19 +903,36 @@ function buildCaseBlocks(
 			);
 			for (const write of scAttachmentWrites) {
 				binds.push(
-					el("bind", {
-						nodeset: subcaseAttachmentPath.child(write.validProp).toXPath(),
-						relevant: `count(${write.resolvedQPath}) = 1`,
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: subcaseAttachmentPath.child(write.validProp).toWire(),
+								relevant: w.eq(
+									w.call("count", [
+										FormPath.parse(write.resolvedQPath).toWire(),
+									]),
+									w.num(1),
+								),
+							},
+						},
+						context,
+					),
 				);
 				binds.push(
-					el("bind", {
-						nodeset: subcaseAttachmentPath
-							.child(write.validProp)
-							.attr("src")
-							.toXPath(),
-						calculate: write.resolvedQPath,
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: subcaseAttachmentPath
+									.child(write.validProp)
+									.attr("src")
+									.toWire(),
+								calculate: FormPath.parse(write.resolvedQPath).toWire(),
+							},
+						},
+						context,
+					),
 				);
 			}
 		}
@@ -789,11 +948,20 @@ function buildCaseBlocks(
 			// preserves-existing-property-on-hidden-question guard the
 			// primary case-update path carries.
 			binds.push(
-				el("bind", {
-					nodeset: subcaseUpdatePath.child(validProp).toXPath(),
-					calculate: resolvedQPath,
-					relevant: `count(${resolvedQPath}) > 0`,
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: subcaseUpdatePath.child(validProp).toWire(),
+							calculate: FormPath.parse(resolvedQPath).toWire(),
+							relevant: w.gt(
+								w.call("count", [FormPath.parse(resolvedQPath).toWire()]),
+								w.num(0),
+							),
+						},
+					},
+					context,
+				),
 			);
 		}
 
@@ -812,10 +980,16 @@ function buildCaseBlocks(
 			scChildren.push(el("close", {}));
 			if (scCloseMode === "if" && sc.close_condition.question) {
 				binds.push(
-					el("bind", {
-						nodeset: subcaseCasePath.child("close").toXPath(),
-						relevant: conditionToRelevantXPath(sc.close_condition),
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: subcaseCasePath.child("close").toWire(),
+								relevant: conditionToRelevantXPath(sc.close_condition),
+							},
+						},
+						context,
+					),
 				);
 			}
 		}
@@ -838,10 +1012,16 @@ function buildCaseBlocks(
 		if (subcaseRel !== "child") parentAttribs.relationship = subcaseRel;
 		scChildren.push(el("index", {}, [el("parent", parentAttribs)]));
 		binds.push(
-			el("bind", {
-				nodeset: subcaseCasePath.child("index").child("parent").toXPath(),
-				calculate: primaryCasePath.attr("case_id").toXPath(),
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: subcaseCasePath.child("index").child("parent").toWire(),
+						calculate: primaryCasePath.attr("case_id").toWire(),
+					},
+				},
+				context,
+			),
 		);
 
 		// The subcase's `<case>` carries the same three attributes as the
@@ -925,24 +1105,42 @@ function buildCaseBlocks(
 		// datum is computed at entry (`requires_selection=False`), so the value
 		// is already in the session when the form opens and stays put.
 		binds.push(
-			el("bind", {
-				nodeset: usercaseCasePath.attr("case_id").toXPath(),
-				calculate: SESSION_USERCASE_ID,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: usercaseCasePath.attr("case_id").toWire(),
+						calculate: SESSION_USERCASE_ID,
+					},
+				},
+				context,
+			),
 		);
 		// `XFormCaseBlock.elem`'s own two binds, which every case block gets.
 		binds.push(
-			el("bind", {
-				nodeset: usercaseCasePath.attr("date_modified").toXPath(),
-				type: "xsd:dateTime",
-				calculate: metaTimeEnd,
-			}),
+			xel(
+				"bind",
+				{
+					attributes: { type: "xsd:dateTime" },
+					xpath: {
+						nodeset: usercaseCasePath.attr("date_modified").toWire(),
+						calculate: metaTimeEnd,
+					},
+				},
+				context,
+			),
 		);
 		binds.push(
-			el("bind", {
-				nodeset: usercaseCasePath.attr("user_id").toXPath(),
-				calculate: metaUserID,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: usercaseCasePath.attr("user_id").toWire(),
+						calculate: metaUserID,
+					},
+				},
+				context,
+			),
 		);
 		for (const { validProp: wireProperty, questionPath } of writes) {
 			// Same `count(...) > 0` guard every other update bind carries: a
@@ -950,11 +1148,20 @@ function buildCaseBlocks(
 			// without the guard its bind would fire with an empty calculate and
 			// erase the value already on the worker's record.
 			binds.push(
-				el("bind", {
-					nodeset: usercaseUpdatePath.child(wireProperty).toXPath(),
-					calculate: questionPath,
-					relevant: `count(${questionPath}) > 0`,
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: usercaseUpdatePath.child(wireProperty).toWire(),
+							calculate: FormPath.parse(questionPath).toWire(),
+							relevant: w.gt(
+								w.call("count", [FormPath.parse(questionPath).toWire()]),
+								w.num(0),
+							),
+						},
+					},
+					context,
+				),
 			);
 		}
 	}
@@ -964,7 +1171,6 @@ function buildCaseBlocks(
 		binds,
 		setvalues,
 		...(requiredNamePaths.length > 0 && { requiredNamePaths }),
-		...(hasPreload && { needsCasedbInstance: true }),
 	};
 }
 
@@ -999,19 +1205,19 @@ function buildCaseElement(children: Element[]): Element {
  *     where the answer is a token within the value list.
  *   - everything else → `<qPath> = '<answer>'` — equality compare.
  *
- * The answer flows through `xpathStringLiteral` so the emitted literal is
- * always a valid XPath string, regardless of which quote characters the
- * author used in the condition's `answer` field (e.g. names containing `'`).
+ * The answer is a wire string node, so the shared serializer handles every
+ * quote character and preserves the answer's literal value.
  * The schema declares `answer` as `z.string()` — free-form by design — so the
  * emitter must be total against every printable character.
  */
-function conditionToRelevantXPath(condition: FormActionCondition): string {
-	const qPath = validateXFormPath(condition.question ?? "");
-	const answer = xpathStringLiteral(condition.answer ?? "");
-	const op = condition.operator ?? "=";
-	return op === "selected"
-		? `selected(${qPath}, ${answer})`
-		: `${qPath} = ${answer}`;
+function conditionToRelevantXPath(condition: FormActionCondition): WireExpr {
+	const qPath = FormPath.parse(
+		validateXFormPath(condition.question ?? ""),
+	).toWire();
+	const answer = w.str(condition.answer ?? "");
+	return condition.operator === "selected"
+		? w.call("selected", [qPath, answer])
+		: w.eq(qPath, answer);
 }
 
 /**
@@ -1036,7 +1242,11 @@ export function addCaseBlocks(
 	xform: string,
 	actions: FormActions,
 	caseType: string | undefined,
-	selectedCaseIdRef = "instance('commcaresession')/session/data/case_id",
+	selectedCaseIdRef: WireExpr = w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("data"),
+		w.step("case_id"),
+	]),
 	defaultCaseManagement = true,
 ): string {
 	/* The upload-ref scan needs the parsed document, and the early return
@@ -1078,11 +1288,17 @@ export function addCaseBlocks(
 					},
 					subcases: [],
 				};
+	const instances = new InstanceSink();
+	const context: WireElementContext = {
+		mode: { target: "xform", constraint: false },
+		instances,
+	};
 	const emission = buildCaseBlocks(
 		effectiveActions,
 		caseType,
 		() => (uploadRefs ??= attachmentQuestionPaths(parsedXForm())),
 		selectedCaseIdRef,
+		context,
 	);
 	if (emission === null) return xform;
 
@@ -1128,15 +1344,8 @@ export function addCaseBlocks(
 	// just before it; otherwise we append. Both `<bind>` and `<setvalue>`
 	// groups go in together so they remain adjacent on the wire.
 	const modelEl = findModelElement(doc, "addCaseBlocks");
-	// Declare the `casedb` secondary instance when a preload setvalue reads
-	// from it. `buildXForm`'s instance scan runs over field-level XPath only,
-	// so a form that preloads but has no field-level `#case/` reference would
-	// otherwise carry a `casedb` read with no matching `<instance>`. Mirrors
-	// `add_case_preloads`'s `add_casedb()`. Idempotent: skip when the form
-	// already declares it (a field referenced `casedb`, so `buildXForm` did).
-	if (emission.needsCasedbInstance) {
-		ensureInstance(modelEl, "casedb", "jr://instance/casedb");
-	}
+	for (const { id, src } of instances.declarations())
+		ensureInstance(modelEl, id, src);
 
 	const inserted: ChildNode[] = [...emission.binds, ...emission.setvalues];
 	insertBeforeItext(modelEl, inserted);
@@ -1149,7 +1358,7 @@ export function addCaseBlocks(
 	// bind is a compiler-bug invariant (every node gets one), so append
 	// defensively.
 	for (const namePath of emission.requiredNamePaths ?? []) {
-		mergeRequiredOntoBind(modelEl, namePath);
+		mergeRequiredOntoBind(modelEl, namePath, context);
 	}
 
 	return serializeXForm(doc);
@@ -1215,7 +1424,11 @@ function resolveSpliceParent(dataEl: Element, path: FormPath): Element {
  * missing bind is a compiler-bug invariant (every node gets one), so a fresh
  * bind is appended defensively.
  */
-function mergeRequiredOntoBind(model: Element, namePath: string): void {
+function mergeRequiredOntoBind(
+	model: Element,
+	namePath: string,
+	context: WireElementContext,
+): void {
 	const existing = getChildren(model).find(
 		(child): child is Element =>
 			child instanceof Element &&
@@ -1223,10 +1436,22 @@ function mergeRequiredOntoBind(model: Element, namePath: string): void {
 			child.attribs.nodeset === namePath,
 	);
 	if (existing) {
-		existing.attribs.required = "true()";
+		existing.attribs.required = serializeWire(w.call("true"), {
+			target: "xform",
+			constraint: false,
+		}).text;
 		return;
 	}
 	insertBeforeItext(model, [
-		el("bind", { nodeset: namePath, required: "true()" }),
+		xel(
+			"bind",
+			{
+				xpath: {
+					nodeset: FormPath.parse(namePath).toWire(),
+					required: w.call("true"),
+				},
+			},
+			context,
+		),
 	]);
 }

@@ -1,50 +1,38 @@
-import type { SyntaxNode } from "@lezer/common";
 import { describe, expect, it } from "vitest";
 import { datetimeCaseValueExpression } from "@/lib/commcare/xform/datetimeCaseValue";
-import { parser } from "@/lib/commcare/xpath/parser";
-
-/** The blank test: the outermost `=` the calculate holds, as written. */
-function blankTest(calculate: string): string {
-	let found: SyntaxNode | undefined;
-	parser.parse(calculate).iterate({
-		enter(cursor) {
-			if (found !== undefined) return false;
-			if (cursor.name === "EqualsExpr") found = cursor.node;
-		},
-	});
-	if (found === undefined) throw new Error(`No comparison in ${calculate}`);
-	return calculate.slice(found.from, found.to);
-}
+import { w } from "../xpath/wire/builders";
 
 describe("datetimeCaseValueExpression", () => {
-	it("writes a path in the one spelling the datetime leaf takes", () => {
-		expect(datetimeCaseValueExpression("/data/visit_time")).toBe(
-			"if(/data/visit_time = '', '', format-date(coalesce(/data/visit_time, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))",
-		);
-	});
-
-	it("compares the whole value with blank when its outermost operator binds more loosely than =", () => {
+	it("preserves the whole typed operand in the blank guard and the coalesced clock value", () => {
 		for (const value of [
-			"/data/a or /data/b",
-			"/data/a and /data/b",
-			"if(/data/c, /data/a, /data/b) or now()",
+			w.form(["visit_time"]),
+			w.call("now"),
+			w.or(w.form(["a"]), w.form(["b"])),
 		]) {
-			expect(blankTest(datetimeCaseValueExpression(value))).toBe(
-				`(${value}) = ''`,
-			);
-		}
-	});
-
-	it("leaves a value that binds at least as tightly as = bare", () => {
-		for (const value of [
-			"now()",
-			"/data/a + 1",
-			"/data/a < /data/b",
-			"/data/a = /data/b",
-		]) {
-			expect(blankTest(datetimeCaseValueExpression(value))).toBe(
-				`${value} = ''`,
-			);
+			const result = datetimeCaseValueExpression(value);
+			expect(result.k).toBe("call");
+			if (result.k !== "call")
+				throw new Error("Expected the datetime blank guard.");
+			expect(result.fn).toBe("if");
+			expect(result.args[0]).toMatchObject({
+				k: "cmp",
+				op: "=",
+				right: { k: "str", value: "" },
+			});
+			const guard = result.args[0];
+			if (guard.k !== "cmp") throw new Error("Expected the blank comparison.");
+			expect(guard.left).toBe(value);
+			expect(result.args[1]).toEqual(w.str(""));
+			const formatted = result.args[2];
+			expect(formatted).toMatchObject({ k: "call", fn: "format-date" });
+			if (formatted.k !== "call") throw new Error("Expected clock formatting.");
+			expect(formatted.args[0]).toMatchObject({ k: "call", fn: "coalesce" });
+			const coalesced = formatted.args[0];
+			if (coalesced.k !== "call")
+				throw new Error("Expected blank-safe clock input.");
+			expect(coalesced.args[0]).toBe(value);
+			expect(coalesced.args[1]).toEqual(w.str(""));
+			expect(formatted.args[1]).toEqual(w.str("%Y-%m-%dT%H:%M:%S.%3%Z"));
 		}
 	});
 });

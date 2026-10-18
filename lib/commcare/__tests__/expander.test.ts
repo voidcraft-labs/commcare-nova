@@ -20,7 +20,6 @@ import {
 	expandDoc as projectUncheckedDoc,
 } from "@/lib/commcare/expander";
 import { expandCaseToWire } from "@/lib/commcare/hashtags";
-import { detailColumn } from "@/lib/commcare/hqShells";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
@@ -61,6 +60,7 @@ import { proseText } from "@/lib/domain/prose";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { captureExpanderEvidence } from "./expanderEvidence";
 import { noMatchesDoc } from "./noMatchesWireFixture";
+import { xpathContains, xpathEvidence } from "./xpathEvidence";
 
 function expandDoc(doc: BlueprintDoc) {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
@@ -68,6 +68,11 @@ function expandDoc(doc: BlueprintDoc) {
 	const hq = projectUncheckedDoc(doc);
 	captureExpanderEvidence(doc, hq);
 	return hq;
+}
+
+function expectXPath(actual: string | null | undefined, expected: string) {
+	expect(actual).toBeTypeOf("string");
+	expect(xpathEvidence(actual ?? "")).toEqual(xpathEvidence(expected));
 }
 
 function prose(...parts: ProseTemplate["parts"]): ProseTemplate {
@@ -194,7 +199,8 @@ describe("display-condition HQ projection", () => {
 		);
 		// A reserved attribute is read through the menu's selected case, the
 		// one spelling HQ builds; `#case/@status` fails its form filter parse.
-		expect(hq.modules[0].forms[0].form_filter).toBe(
+		expectXPath(
+			hq.modules[0].forms[0].form_filter,
 			"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/@status = 'open'",
 		);
 	});
@@ -269,7 +275,8 @@ describe("display-condition HQ projection: an item off the menu", () => {
 		const hq = expandDoc(hiddenDoc);
 		expect(hq.modules[0].module_filter).toBeNull();
 		expect(hq.modules[0].forms[0].form_filter).toBeNull();
-		expect(hq.modules[0].forms[1].form_filter).toBe(
+		expectXPath(
+			hq.modules[0].forms[1].form_filter,
 			"false() and (instance('commcaresession')/session/user/data/role = 'supervisor')",
 		);
 		expect(hq.modules[1].module_filter).toBe("false()");
@@ -762,9 +769,15 @@ describe("a case list with no column", () => {
 		blueprintDocSchema.parse(toPersistableDoc(doc));
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const details = projectUncheckedDoc(doc).modules[0].case_details;
-		expect(details.short.columns).toEqual([
-			detailColumn("name", { es: "Name", fr: "Name" }),
-		]);
+		expect(details.short.columns).toHaveLength(1);
+		expect(details.short.columns[0]).toMatchObject({
+			field: "name",
+			header: { es: "Name", fr: "Name" },
+			format: "plain",
+			model: "case",
+			useXpathExpression: false,
+			calc_xpath: ".",
+		});
 		expect(details.long.columns).toEqual([]);
 	});
 });
@@ -3714,20 +3727,27 @@ describe("form_links emission", () => {
 		expect(intake.post_form_workflow_fallback).toBe("module");
 		expect(intake.form_links).toEqual([
 			{
-				xpath: lowerXPathForJavaRosa(
-					"normalize-space(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/@status) = 'open'",
-				),
+				xpath: expect.any(String),
 				form_id: followup.unique_id,
 				form_module_id: module.unique_id,
 				datums: [
 					{
 						name: "case_id",
-						xpath:
-							"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username",
+						xpath: expect.any(String),
 					},
 				],
 			},
 		]);
+		expectXPath(
+			intake.form_links[0].xpath,
+			lowerXPathForJavaRosa(
+				"normalize-space(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/@status) = 'open'",
+			),
+		);
+		expectXPath(
+			intake.form_links[0].datums[0].xpath,
+			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username",
+		);
 		// The target form keeps the ordinary workflow: no links of its own.
 		expect(followup.post_form_workflow).toBe("previous_screen");
 		expect(followup.post_form_workflow_fallback).toBeNull();
@@ -3906,14 +3926,15 @@ describe("form_links emission", () => {
 			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/role";
 		const first = `${role} = 'chw' or ${role} = 'nurse'`;
 		const second = `${role} = 'super'`;
-		expect(form.form_links.map((link) => link.xpath)).toEqual([
-			// The first guard is the bare condition (byte-identical to HQ's
-			// own first frame); the second wraps its `or` before ANDing the
-			// negated prior; the terminal else is the negation of every prior.
-			first,
-			`(${second}) and not(${first})`,
-			`not(${first}) and not(${second})`,
-		]);
+		expect(form.form_links.map((link) => xpathEvidence(link.xpath))).toEqual(
+			[
+				// The first guard is the bare condition; the second excludes
+				// the first condition; the terminal else excludes every prior.
+				first,
+				`(${second}) and not(${first})`,
+				`not(${first}) and not(${second})`,
+			].map(xpathEvidence),
+		);
 		// A terminal unconditional link is the exhaustive else: HQ's
 		// fallback frame is suppressed by leaving the fallback null.
 		expect(form.post_form_workflow).toBe("form");
@@ -4742,7 +4763,8 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 			},
 		);
 
-		expect(expandDoc(doc).modules[0].case_details.short.filter).toBe(
+		expectXPath(
+			expandDoc(doc).modules[0].case_details.short.filter,
 			lowerXPathForJavaRosa(
 				"(region = 'North') and (normalize-space('owner-a') = '' or not(selected(normalize-space('owner-a'), @owner_id)))",
 			),
@@ -4791,11 +4813,13 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 				module.case_details.long,
 			]) {
 				expect(detail.columns[0]).toMatchObject({
-					field:
-						"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
 					format: "plain",
 					useXpathExpression: true,
 				});
+				expectXPath(
+					detail.columns[0].field,
+					"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
+				);
 			}
 		});
 
@@ -4820,11 +4844,13 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			).modules[0];
 
 			expect(module.case_details.short.columns[0]).toMatchObject({
-				field:
-					"current()/../case[@case_id=current()/index/parent and @case_type='household']/@case_id",
 				format: "plain",
 				useXpathExpression: true,
 			});
+			expectXPath(
+				module.case_details.short.columns[0].field,
+				"current()/../case[@case_id=current()/index/parent and @case_type='household']/@case_id",
+			);
 		});
 
 		it("does not change a parent calculation when Search is not part of the module", () => {
@@ -4870,11 +4896,13 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			// supporting cases it reads.
 			expect(module.search_config.include_all_related_cases).toBe(true);
 			expect(module.case_details.short.columns[0]).toMatchObject({
-				field:
-					"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
 				format: "invisible",
 				useXpathExpression: true,
 			});
+			expectXPath(
+				module.case_details.short.columns[0].field,
+				"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
+			);
 		});
 
 		it("joins a hidden parent-property sort to the typed calculation", () => {
@@ -4902,11 +4930,13 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 
 			expect(module.search_config.include_all_related_cases).toBe(true);
 			expect(module.case_details.short.columns[0]).toMatchObject({
-				field:
-					"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
 				format: "invisible",
 				useXpathExpression: true,
 			});
+			expectXPath(
+				module.case_details.short.columns[0].field,
+				"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
+			);
 			expect(module.case_details.short.sort_elements[0]).toMatchObject({
 				field: "_cc_calculated_0",
 				sort_calculation: "",
@@ -5325,9 +5355,9 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		// entries for the inlined on-device fragment.
 		expect(defaults).toHaveLength(1);
 		expect(defaults[0].property).toBe("_xpath_query");
-		// The arith's on-device emission `(18 + 1)` lands as a
+		// The arith's on-device expression lands as a
 		// runtime fragment inside the wrapper concat.
-		expect(defaults[0].defaultValue).toContain("(18 + 1)");
+		expect(xpathContains(defaults[0].defaultValue, "18 + 1")).toBe(true);
 		// The `_xpath_query` value never references a synthetic
 		// search-input ref — that shape would silently zero out at
 		// runtime per the CCHQ-side reasoning above.
@@ -5498,7 +5528,8 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		// Both always-on availability rules share
 		// `case_details.short.filter`; owner exclusion is not limited to the
 		// remote Search request.
-		expect(module.case_details.short.filter).toBe(
+		expectXPath(
+			module.case_details.short.filter,
 			lowerXPathForJavaRosa(
 				"(region = 'North') and (normalize-space('excluded') = '' or not(selected(normalize-space('excluded'), @owner_id)))",
 			),
@@ -5641,12 +5672,16 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		// string Literal — CCHQ's
 		// `_is_ancestor_path_expression` rejects the literal shape.
 		expect(xpathEntry?.defaultValue).toContain("ancestor-exists(parent,");
-		expect(xpathEntry?.defaultValue).toContain("@name='parent_region'");
+		expect(
+			xpathContains(xpathEntry?.defaultValue ?? "", "@name='parent_region'"),
+		).toBe(true);
 		// The bare-prompt-compatible input's name (`case_name`) does
 		// NOT appear in the derived `_xpath_query` predicate — it
 		// rides on its prompt binding alone, with CCHQ's runtime
 		// auto-match doing the comparison.
-		expect(xpathEntry?.defaultValue).not.toContain("@name='case_name'");
+		expect(
+			xpathContains(xpathEntry?.defaultValue ?? "", "@name='case_name'"),
+		).toBe(false);
 	});
 
 	// ── exclude="true()" / exclude: true bogus-auto-match suppression ──
@@ -5696,7 +5731,9 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		);
 		expect(xpathEntry).toBeDefined();
 		expect(xpathEntry?.defaultValue).toContain("case_name");
-		expect(xpathEntry?.defaultValue).toContain("@name='name_search'");
+		expect(
+			xpathContains(xpathEntry?.defaultValue ?? "", "@name='name_search'"),
+		).toBe(true);
 	});
 
 	it("omits the `exclude` field on a bare-prompt-compatible simple-arm input (`name === property`, self-walk, default exact)", () => {

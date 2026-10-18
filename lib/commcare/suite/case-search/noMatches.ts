@@ -4,9 +4,12 @@
  * drift (`docs/architecture/complex-apps.md` § Register when nothing matches).
  */
 
+import { w } from "../../xpath/wire/builders";
+import { resultsInstance } from "../../xpath/wire/instances";
+
 /** `module_filter` / `<menu relevant>` of the hidden module that owns the
  *  form (`menus.py::_generate_menu` lowers the one to the other). */
-export const NEVER_RELEVANT = "false()";
+export const NEVER_RELEVANT = w.call("false", []);
 
 /**
  * The Register action's relevancy: the inline search found nothing. Read
@@ -14,8 +17,15 @@ export const NEVER_RELEVANT = "false()";
  * detail shows), so the instance exists; an explicit comparison because
  * `Action.isRelevant` string-compares the evaluated result to "true".
  */
-export const NO_MATCHES_RELEVANCY =
-	"count(instance('results:inline')/results/case) = 0";
+export const NO_MATCHES_RELEVANCY = w.eq(
+	w.call("count", [
+		w.instance(resultsInstance("results:inline"), [
+			w.step("results"),
+			w.step("case"),
+		]),
+	]),
+	w.num(0),
+);
 
 /** The inline search's answers instance, `search-input:<storage>`
  *  (`VirtualInstances.makeSearchInputInstanceID`). */

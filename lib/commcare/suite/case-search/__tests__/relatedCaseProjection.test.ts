@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import { type Column, calculatedColumn } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -15,9 +16,24 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import {
-	classifyRelatedCaseSearchExpression,
+	classifyRelatedCaseSearchExpression as classify,
 	searchNeedsSupportingCases,
 } from "../relatedCaseProjection";
+
+function classifyRelatedCaseSearchExpression(
+	...args: Parameters<typeof classify>
+) {
+	const result = classify(...args);
+	return result.kind === "ancestor-property"
+		? {
+				...result,
+				hqExpression: serializeWire(result.hqExpression, {
+					target: "hq-json",
+					interpolation: "none",
+				}).text,
+			}
+		: result;
+}
 
 const PARENT_GRAPH: RelationEvaluationScopeContext = {
 	caseTypes: [
@@ -60,7 +76,7 @@ describe("classifyRelatedCaseSearchExpression", () => {
 		expect(classifyRelatedCaseSearchExpression(expression)).toEqual({
 			kind: "ancestor-property",
 			hqExpression:
-				"current()/../case[@case_id=current()/../case[@case_id=current()/index/parent and @case_type='household']/index/host and @case_type='organization']/@case_id",
+				"current()/../case[@case_id = current()/../case[@case_id = current()/index/parent and @case_type = 'household']/index/host and @case_type = 'organization']/@case_id",
 		});
 	});
 
@@ -78,7 +94,7 @@ describe("classifyRelatedCaseSearchExpression", () => {
 				),
 			).toEqual({
 				kind: "ancestor-property",
-				hqExpression: `current()/../case[@case_id=current()/index/parent and @case_type='household']/@${property}`,
+				hqExpression: `current()/../case[@case_id = current()/index/parent and @case_type = 'household']/@${property}`,
 			});
 		}
 	});
@@ -93,7 +109,7 @@ describe("classifyRelatedCaseSearchExpression", () => {
 		).toEqual({
 			kind: "ancestor-property",
 			hqExpression:
-				"current()/../case[@case_id=current()/index/parent and @case_type='household']/region",
+				"current()/../case[@case_id = current()/index/parent and @case_type = 'household']/region",
 		});
 	});
 
@@ -152,7 +168,7 @@ describe("classifyRelatedCaseSearchExpression", () => {
 		).toEqual({
 			kind: "ancestor-property",
 			hqExpression:
-				"current()/../case[@case_id=current()/index/user and @case_type='household']/case_name",
+				"current()/../case[@case_id = current()/index/user and @case_type = 'household']/case_name",
 		});
 	});
 });

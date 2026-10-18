@@ -13,6 +13,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { usercaseWriteFixture } from "./usercaseWriteFixture";
+import { xpathEvidence } from "./xpathEvidence";
 
 function one(elements: Element[]) {
 	expect(elements).toHaveLength(1);
@@ -84,11 +85,18 @@ it.each(["survey", "followup"] as const)(
 		expect(
 			children(session, "datum")
 				.filter((d) => d.attribs.id === "usercase_id")
-				.map((d) => d.attribs),
-		).toEqual([{ id: "usercase_id", function: `${selector}/@case_id` }]);
+				.map((d) => ({
+					...d.attribs,
+					function: xpathEvidence(d.attribs.function),
+				})),
+		).toEqual([
+			{ id: "usercase_id", function: xpathEvidence(`${selector}/@case_id`) },
+		]);
 		const assertions = child(output.entry, "assertions");
 		const assertion = child(assertions, "assert");
-		expect(assertion.attribs).toEqual({ test: `count(${selector}) = 1` });
+		expect(xpathEvidence(assertion.attribs.test)).toEqual(
+			xpathEvidence(`count(${selector}) = 1`),
+		);
 		const locale = child(child(assertion, "text"), "locale");
 		expect(locale.attribs).toEqual({
 			id: "case_autoload.usercase.case_missing",

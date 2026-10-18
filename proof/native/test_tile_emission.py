@@ -5,6 +5,7 @@ Contract: for each of the eight tile scenarios, the details HQ's own
 every field's grid position and size, alignment, font size, border and
 shading, header and template widths, value expression and sort (type,
 order, direction, expression), each detail's grouping and its action count.
+Known XPath values compare as HQ's parser's complete expression trees.
 ``TileSuiteRuntimeTest`` then parses both in Core, and
 ``TileGroupingRuntimeTest`` runs Nova's grouped tiles. The plausible
 failures: a style, width or sort HQ regenerates differently (a missing
@@ -14,13 +15,22 @@ missing from the corpus.
 
 from lxml import etree
 
-from proof.native.hq_support import hq_commit, sha256, write_evidence
+from proof.native.hq_support import attributes, hq_commit, parse_xml_xpaths, sha256, write_evidence
 
 FAMILIES = ("tile",)
-SCENARIOS = {"plain", "tile", "boxed", "persistent", "grouped-one", "grouped-two", "grouped-search", "grouped-browse"}
+SCENARIOS = {
+    "plain",
+    "tile",
+    "boxed",
+    "persistent",
+    "grouped-one",
+    "grouped-two",
+    "grouped-search",
+    "grouped-browse",
+}
 
 
-def detail_contract(root):
+def detail_contract(root, parsed):
     result = {}
     for detail in root.findall("detail"):
         fields = []
@@ -42,14 +52,14 @@ def detail_contract(root):
                     "style": style_contract,
                     "headerWidth": field.find("header").get("width"),
                     "templateWidth": field.find("template").get("width"),
-                    "value": field.find("template/text/xpath").get("function"),
+                    "value": attributes(field.find("template/text/xpath"), parsed)["function"],
                     "sort": None
                     if sort is None
                     else {
                         "type": sort.get("type"),
                         "order": sort.get("order"),
                         "direction": sort.get("direction"),
-                        "value": sort.find("text/xpath").get("function"),
+                        "value": attributes(sort.find("text/xpath"), parsed)["function"],
                     },
                 }
             )
@@ -57,7 +67,7 @@ def detail_contract(root):
         assert detail.attrib["id"] not in result, "Duplicate detail identity"
         result[detail.attrib["id"]] = {
             "fields": fields,
-            "group": None if group is None else dict(group.attrib),
+            "group": None if group is None else attributes(group, parsed),
             "actions": len(detail.findall("action")),
         }
     return result
@@ -68,8 +78,22 @@ def test_hq_details_keep_novas_tile_contract(native):
     assert set(result["sources"]) == SCENARIOS, "Missing or unexpected tile scenarios"
     scenarios = []
     for record in result["records"]:
-        native_contract = detail_contract(etree.fromstring(record["native"]))
-        assert detail_contract(etree.fromstring(record["local"])) == native_contract, record["scenario"]
+        local = etree.fromstring(record["local"])
+        hq = etree.fromstring(record["native"])
+        # Only the expression fields this projection has always compared.
+        carriers = [
+            node
+            for root in (local, hq)
+            for selector in (
+                "detail/field/template/text/xpath",
+                "detail/field/sort/text/xpath",
+                "detail/group",
+            )
+            for node in root.findall(selector)
+        ]
+        parsed = parse_xml_xpaths(*carriers)
+        native_contract = detail_contract(hq, parsed)
+        assert detail_contract(local, parsed) == native_contract, record["scenario"]
         scenarios.append(
             {
                 "scenario": record["scenario"],
@@ -86,7 +110,8 @@ def test_hq_details_keep_novas_tile_contract(native):
             "hqCommit": hq_commit(),
             "scenarios": scenarios,
             "limits": "Native Application.from_source and DetailContributor regeneration compared with actual CCZ "
-            "details, including grid/style values, hidden sorting, grouping values and actions. False/absent border "
+            "details, including grid/style values, hidden sorting, grouping values and actions. Known XPath "
+            "carriers compare through HQ's parser. False/absent border "
             "flags are equivalent. This is not a full HQ build or Android/Web Apps rendering. Every flag is off; "
             "network access is refused.",
         },

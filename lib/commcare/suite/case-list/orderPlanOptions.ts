@@ -28,10 +28,13 @@ import {
 	checkExpression,
 } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import { emitCasePropertyWirePath } from "../../casePropertyWire";
-import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import { moduleTypeContext } from "../../validator/rules/case-list/shared";
+import { w } from "../../xpath/wire/builders";
+import { toWire } from "../../xpath/wire/fromExpression";
+import { serializeWire } from "../../xpath/wire/serialize";
+import type { WireExpr } from "../../xpath/wire/tree";
 import { classifyRelatedCaseSearchExpression } from "../case-search/relatedCaseProjection";
+import { casePropertyPath } from "../wire";
 import {
 	intervalColumnDisplayXpath,
 	linkColumnDisplayXpath,
@@ -69,14 +72,14 @@ export function columnReadsCaseAttribute(column: Column): boolean {
  * no definitions snapshot prints through `identityLookupWireNaming()`, under
  * which two expressions print alike exactly when they do under any naming.
  */
-export function hqExpressionFieldText(
+export function hqExpressionField(
 	column: Column,
 	mod: Module,
 	doc: BlueprintDoc,
 	screen: "results" | "details",
 	lookupNaming?: LookupWireNaming,
 	typeContext: TypeContext = moduleTypeContext(mod, doc),
-): string {
+): WireExpr {
 	if (column.kind === "calculated") {
 		if (effectiveCaseSearchConfig(mod) !== undefined) {
 			const related = classifyRelatedCaseSearchExpression(column.expression, {
@@ -87,29 +90,18 @@ export function hqExpressionFieldText(
 			});
 			if (related.kind === "ancestor-property") return related.hqExpression;
 		}
-		try {
-			return emitOnDeviceExpression(
-				column.expression,
-				undefined,
-				typeContext,
-				undefined,
-				{
-					lookup: {
-						naming: lookupNaming ?? identityLookupWireNaming(),
-						instanceScope: "suite",
-					},
+		return toWire(column.expression, {
+			target: "hq-json",
+			types: typeContext,
+			bindings: {
+				lookup: {
+					naming: lookupNaming ?? identityLookupWireNaming(),
+					instanceScope: "suite",
 				},
-			);
-		} catch (error) {
-			// A document the validator refuses can hold an expression the
-			// on-device emitter has no spelling for, and the order plan is total
-			// (the validator reads the plan of a document it then refuses). An
-			// export never reaches this arm: it re-runs the validator first.
-			if (lookupNaming !== undefined) throw error;
-			return unprintableExpressionText(column.expression);
-		}
+			},
+		});
 	}
-	const path = emitCasePropertyWirePath(column.field);
+	const path = casePropertyPath(column.field);
 	if (screen === "results" && column.visibleInList === false) return path;
 	switch (column.kind) {
 		case "plain": {
@@ -119,19 +111,38 @@ export function hqExpressionFieldText(
 			if (property === undefined || !casePropertyShowsOptionLabels(property)) {
 				return path;
 			}
-			return plainSelectDisplayXpath(
-				path,
-				property,
-				doc,
-				(_option, index) => `$${hqEnumPlaceholder(index)}`,
+			return plainSelectDisplayXpath(path, property, doc, (_option, index) =>
+				w.hqEnumVar(index),
 			);
 		}
 		case "interval":
-			return intervalColumnDisplayXpath(column, `$${hqEnumPlaceholder(0)}`);
+			return intervalColumnDisplayXpath(column, w.hqEnumVar(0));
 		case "link":
 			return linkColumnDisplayXpath(path, column.linkText);
 		default:
 			return path;
+	}
+}
+
+/** The canonical HQ print used to join an expression column to its sort rule. */
+export function hqExpressionFieldText(
+	column: Column,
+	mod: Module,
+	doc: BlueprintDoc,
+	screen: "results" | "details",
+	lookupNaming?: LookupWireNaming,
+	typeContext: TypeContext = moduleTypeContext(mod, doc),
+): string {
+	try {
+		return serializeWire(
+			hqExpressionField(column, mod, doc, screen, lookupNaming, typeContext),
+			{ target: "hq-json", interpolation: "none" },
+		).text;
+	} catch (error) {
+		// The validator reads the order plan even for a refused calculation.
+		// Export supplies naming and never reaches this totality fallback.
+		if (column.kind !== "calculated" || lookupNaming !== undefined) throw error;
+		return unprintableExpressionText(column.expression);
 	}
 }
 

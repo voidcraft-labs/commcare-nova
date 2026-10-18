@@ -25,13 +25,19 @@ import type { HqApplication } from "@/lib/commcare/types";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { parser } from "@/lib/commcare/xpath/parser";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, proseText } from "@/lib/domain";
+import { fixedLocation, term } from "@/lib/domain/predicate";
 import {
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,
 	type PlanFeatureId,
 } from "@/lib/publish/planFeatures";
-import { locationOwnerFixture } from "../locations/__tests__/locationOwnerFixture";
+import {
+	LOCATION_FORM,
+	locationOwnerFixture,
+} from "../locations/__tests__/locationOwnerFixture";
+import { formsReadingLocationsFixture } from "../locations/readsLocationsFixture";
 import planPrivilegePlans from "../planPrivilegePlans.json";
 import {
 	CURRENT_PLANS,
@@ -42,6 +48,7 @@ import {
 	requiredPlanFeatures,
 	requiredPlanPrivileges,
 } from "../planPrivileges";
+import { runValidation } from "../validator/runner";
 import { assertGenerated, manifestFor } from "./compilerEvidence";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { extensionCaseFixture } from "./extensionCaseFixture";
@@ -474,6 +481,7 @@ describe("each privilege's reasons", () => {
 
 	it("names each form that sets an owner from a place, then the places a publish sends", () => {
 		const doc = locationOwnerFixture("direct");
+		expect(formsReadingLocationsFixture(doc)).toEqual([LOCATION_FORM]);
 		expect(reasonsOf(doc, "locations")).toEqual([
 			"Transfer sets a case's owner from a place in your organization.",
 		]);
@@ -486,6 +494,17 @@ describe("each privilege's reasons", () => {
 		expect(
 			reasonsOf(locationOwnerFixture("plain"), "locations"),
 		).toBeUndefined();
+	});
+	it("does not require the location fixture for a fixed place destination", () => {
+		const doc = locationOwnerFixture("plain");
+		const operation = doc.forms[LOCATION_FORM].caseOperations?.[0];
+		if (operation === undefined)
+			throw new Error("Missing location owner operation");
+		operation.owner = term(fixedLocation(testUuid("fixed-clinic")));
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(formsReadingLocationsFixture(doc)).toEqual([]);
+		expect(reasonsOf(doc, "locations")).toBeUndefined();
+		holdsWire(doc);
 	});
 });
 

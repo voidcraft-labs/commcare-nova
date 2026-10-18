@@ -284,7 +284,8 @@ export function requiredPlanPrivileges(
 	/* `locations`: without it no location list reaches a worker
 	 * (`domain/models.py::Domain.uses_locations`, read by
 	 * `locations/fixtures.py::should_sync_flat_fixture`), and HQ answers the
-	 * place push 403 (`locations/resources/v0_5.py::BaseLocationsResource.dispatch`). */
+	 * place push 403 (`locations/resources/v0_5.py::BaseLocationsResource.dispatch`).
+	 * The form list reads the shared wire serializer's instance dependencies. */
 	add("locations", [
 		...formsReadingLocationsFixture(doc).map(
 			(formUuid) =>

@@ -24,12 +24,13 @@ import {
 	type RelationEvaluationScopeContext,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { emitCasePropertyWirePath } from "../../casePropertyWire";
-import { quoteLiteral } from "../../predicate/stringQuoting";
+import { w } from "../../xpath/wire/builders";
+import type { WireExpr, WirePath } from "../../xpath/wire/tree";
+import { casePropertyPath } from "../wire";
 
 export type RelatedCaseSearchProjection =
 	| { readonly kind: "none" }
-	| { readonly kind: "ancestor-property"; readonly hqExpression: string }
+	| { readonly kind: "ancestor-property"; readonly hqExpression: WireExpr }
 	| { readonly kind: "unsupported" };
 
 /**
@@ -51,17 +52,22 @@ function emitHqContextRelativeAncestorProperty(
 		{ kind: "ancestor" }
 	>["via"],
 	property: string,
-): string {
-	let relatedCase = "current()";
+): WireExpr {
+	let relatedCase: WirePath = w.current();
 	for (const step of via) {
-		const caseId = `${relatedCase}/index/${step.identifier}`;
-		const typeFilter =
-			step.throughCaseType === undefined
-				? ""
-				: ` and @case_type=${quoteLiteral(step.throughCaseType, "case-list-filter")}`;
-		relatedCase = `current()/../case[@case_id=${caseId}${typeFilter}]`;
+		const caseId = w.append(relatedCase, [
+			w.step("index"),
+			w.step(step.identifier),
+		]);
+		const filters = [w.eq(w.context([w.attr("case_id")]), caseId)];
+		if (step.throughCaseType !== undefined) {
+			filters.push(
+				w.eq(w.context([w.attr("case_type")]), w.str(step.throughCaseType)),
+			);
+		}
+		relatedCase = w.current([w.parent(), w.step("case", [w.and(...filters)])]);
 	}
-	return `${relatedCase}/${emitCasePropertyWirePath(property)}`;
+	return w.append(relatedCase, casePropertyPath(property).steps);
 }
 
 /**

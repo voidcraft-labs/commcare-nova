@@ -2,7 +2,8 @@
 // acceptance is established separately by the CommCare wire fixtures.
 
 import { describe, expect, it } from "vitest";
-import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type {
 	LookupColumnId,
 	LookupOptionsSource,
@@ -165,18 +166,21 @@ describe("evaluateLookupChoices", () => {
 		expect(choices.map((c) => c.value)).toEqual(["a1", "c3"]);
 	});
 
-	it("resolves a form-answer term through formFields + the outer context", () => {
-		const filter = eq(
-			term(tableColumn(TABLE, COL_REGION)),
-			term(formField(FIELD_UUID)),
-		);
-		const bindings = {
-			outer: outerContext({ "/data/chosen_region": "south" }),
-			formFields: new Map([[FIELD_UUID, "/data/chosen_region"]]),
-		};
-		const choices = evaluateLookupChoices(source(filter), data(), bindings);
-		expect(choices.map((c) => c.value)).toEqual(["b2"]);
-	});
+	it.each(["/data/chosen_region", "/data/visits[2]/chosen_region"])(
+		"resolves the form-answer binding at %s",
+		(path) => {
+			const filter = eq(
+				term(tableColumn(TABLE, COL_REGION)),
+				term(formField(FIELD_UUID)),
+			);
+			const bindings = {
+				outer: outerContext({ [path]: "south" }),
+				formFields: new Map([[FIELD_UUID, path]]),
+			};
+			const choices = evaluateLookupChoices(source(filter), data(), bindings);
+			expect(choices.map((c) => c.value)).toEqual(["b2"]);
+		},
+	);
 
 	it("an unanswered form answer matches only blank cells", () => {
 		const filter = eq(
@@ -367,7 +371,14 @@ describe("foldTableLookupsInPredicate", () => {
 		expect(folded).toEqual(
 			arith("div", term(qualifiedLiteral("4", "int")), term(literal(3))),
 		);
-		expect(evaluate(emitOnDeviceExpression(folded), outerContext())).toBe(1);
+		expect(
+			evaluate(
+				serializeWire(toWire(folded, { target: "suite", types: {} }), {
+					target: "suite",
+				}).text,
+				outerContext(),
+			),
+		).toBe(1);
 	});
 	it("replaces a nested table-lookup with its literal result", () => {
 		const predicate = and(

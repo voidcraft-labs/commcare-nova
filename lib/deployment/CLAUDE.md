@@ -915,6 +915,13 @@ recording the observation. Resource URL normalization accepts only the known
 working/build IDs and preserves host/domain. A transient failure retains old
 observations as history but never returns a newly verified URL.
 
+Navigation signatures keep their canonical-JSON storage shape. At comparison,
+`endpointSignaturesMatch` validates both stored and freshly read signatures and
+parses their known XPath carriers with Lezer. Syntactic whitespace and quote
+choice do not change identity; literal contents, operators, operand grouping,
+URLs and the reachable definitions do. Unknown shapes and malformed XPath
+provide no release evidence, including in an older stored manifest.
+
 The returned HQ link names the working app. “Released build checked” describes
 copy-time evidence, not a pinned build or an atomic remote snapshot. HQ controls
 recipient authentication, available builds and claim/sync behavior. Never probe

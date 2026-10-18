@@ -255,12 +255,13 @@ async function collectViolationsWithRegistry(
  * The fixture is not what decides this. `owner-location-at-level`
  * reads `instance('locations')`, and that is CommCare's own restore
  * fixture on every mode alike (`jr://fixture/locations`; Nova emits no
- * copy, and native compatibility scripts execute HQ's actual serializer). `fixed-location` reads no
- * instance at all — `predicate/instances.ts` groups it with `literal`.
+ * copy, and native compatibility scripts execute HQ's actual serializer).
+ * `fixed-location` reads no instance: `xpath/wire/fromExpression.ts` builds
+ * only a string literal for that arm.
  * What decides this is WHOSE IDENTITIES the printed expression carries.
  *
  * `owner-location-at-level` carries none of Nova's.
- * `termEmitter.ts::emitTerm` prints level CODES, which a publish puts on
+ * `xpath/wire/fromExpression.ts` prints level CODES, which a publish puts on
  * the project space as `location_type_code` and which are therefore the
  * same word on both sides, and matches them against the case's own
  * `owner_id`, which is CommCare HQ's value at runtime. Every part of that

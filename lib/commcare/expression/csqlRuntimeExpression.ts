@@ -1,7 +1,8 @@
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { ValueExpression } from "@/lib/domain/predicate/types";
 import type { LookupWireNaming } from "../lookup/naming";
-import { emitOnDeviceExpression } from "./onDeviceEmitter";
+import { toWire } from "../xpath/wire/fromExpression";
+import type { WireExpr } from "../xpath/wire/tree";
 
 export interface CsqlEmissionContext extends TypeContext {
 	readonly lookupNaming?: LookupWireNaming;
@@ -11,16 +12,15 @@ export interface CsqlEmissionContext extends TypeContext {
 export function emitCsqlRuntimeExpression(
 	expr: ValueExpression,
 	context?: CsqlEmissionContext,
-): string {
-	return emitOnDeviceExpression(
-		expr,
-		undefined,
-		context ?? {},
-		undefined,
-		context?.lookupNaming === undefined
-			? {}
-			: {
-					lookup: { naming: context.lookupNaming, instanceScope: "suite" },
-				},
-	);
+): WireExpr {
+	return toWire(expr, {
+		target: "csql-runtime",
+		types: context ?? {},
+		bindings:
+			context?.lookupNaming === undefined
+				? {}
+				: {
+						lookup: { naming: context.lookupNaming, instanceScope: "suite" },
+					},
+	});
 }

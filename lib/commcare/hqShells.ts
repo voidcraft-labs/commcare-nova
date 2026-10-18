@@ -1,6 +1,14 @@
 /** Factory functions for boilerplate HQ JSON structures. */
 
 import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain";
+import {
+	type HqApplicationTree,
+	type HqFormLinkTree,
+	type HqFormTree,
+	type HqModuleTree,
+	type HqXPath,
+	hqXPath,
+} from "./hqJson/xpath";
 import type {
 	CaseSearchConfig,
 	DetailBase,
@@ -8,12 +16,9 @@ import type {
 	DetailPair,
 	FormActionCondition,
 	FormActions,
-	HqApplication,
 	HqCaseSaveReference,
-	HqForm,
-	HqFormLink,
-	HqModule,
 } from "./types";
+import { w } from "./xpath/wire/builders";
 
 // ── Condition factories ──────────────────────────────────────────────
 
@@ -99,7 +104,7 @@ export function emptyFormActions(): FormActions {
 
 // ── Detail / case list ───────────────────────────────────────────────
 
-function detailBase(): DetailBase {
+function detailBase(): DetailBase<HqXPath> {
 	return {
 		sort_elements: [],
 		tabs: [],
@@ -115,7 +120,7 @@ function detailBase(): DetailBase {
 		lookup_extras: [],
 		lookup_responses: [],
 		persist_case_context: null,
-		persistent_case_context_xml: "case_name",
+		persistent_case_context_xml: hqXPath(w.context([w.step("case_name")])),
 		persist_tile_on_forms: null,
 		persistent_case_tile_from_module: null,
 		pull_down_tile: null,
@@ -140,23 +145,24 @@ function detailBase(): DetailBase {
  * `"time-ago"`).
  */
 export function detailColumn(
-	field: string,
+	field: string | HqXPath,
 	header: string | Record<string, string>,
-): DetailColumn {
+): DetailColumn<HqXPath, "plain"> {
 	const headerRecord: Record<string, string> =
 		typeof header === "string" ? { en: header } : header;
 	return {
 		doc_type: "DetailColumn",
 		header: headerRecord,
-		field,
+		...(typeof field === "string"
+			? { field, useXpathExpression: false as const }
+			: { field, useXpathExpression: true as const }),
 		model: "case",
 		format: "plain",
-		calc_xpath: ".",
+		calc_xpath: hqXPath(w.context([w.self()])),
 		filter_xpath: "",
 		advanced: "",
 		late_flag: 30,
 		time_ago_interval: 365.25,
-		useXpathExpression: false,
 		hasNodeset: false,
 		hasAutocomplete: false,
 		isTab: false,
@@ -195,7 +201,7 @@ export function detailColumn(
  */
 export function caseSearchConfigShell(
 	languages: readonly string[],
-): CaseSearchConfig {
+): CaseSearchConfig<HqXPath> {
 	const blank = () =>
 		Object.fromEntries(languages.map((language) => [language, ""]));
 	return {
@@ -222,9 +228,9 @@ export function caseSearchConfigShell(
 
 /** Build a DetailPair from short columns and optional long (detail view) columns. */
 export function detailPair(
-	shortColumns: DetailColumn[],
-	longColumns?: DetailColumn[],
-): DetailPair {
+	shortColumns: DetailColumn<HqXPath>[],
+	longColumns?: DetailColumn<HqXPath>[],
+): DetailPair<HqXPath> {
 	return {
 		doc_type: "DetailPair",
 		short: {
@@ -246,7 +252,7 @@ export function detailPair(
 
 export function applicationShell(
 	appName: string,
-	modules: HqModule[],
+	modules: HqModuleTree[],
 	attachments: Record<string, string>,
 	options?: {
 		autoGpsCapture?: boolean;
@@ -261,7 +267,7 @@ export function applicationShell(
 		}[];
 		profileCustomProperties?: Readonly<Record<string, string>>;
 	},
-): HqApplication {
+): HqApplicationTree {
 	/* Only fields Nova AUTHORS go on a new-app wire document. CommCare HQ's import is an
 	 * overlay merge on the update path (`models/applications.py::
 	 * _merge_source_into_app`): every field present in the source
@@ -331,8 +337,8 @@ export function formShell(
 	caseRefsSave: Record<string, HqCaseSaveReference>,
 	postFormWorkflow: string,
 	postFormWorkflowFallback: string | null,
-	formLinks: HqFormLink[],
-): HqForm {
+	formLinks: HqFormLinkTree[],
+): HqFormTree {
 	return {
 		doc_type: "Form",
 		form_type: "module_form",
@@ -364,10 +370,10 @@ export function moduleShell(
 	uniqueId: string,
 	name: string | Record<string, string>,
 	caseType: string,
-	forms: HqForm[],
-	caseDetails: DetailPair,
+	forms: HqFormTree[],
+	caseDetails: DetailPair<HqXPath>,
 	languages: readonly string[],
-): HqModule {
+): HqModuleTree {
 	return {
 		doc_type: "Module",
 		module_type: "basic",

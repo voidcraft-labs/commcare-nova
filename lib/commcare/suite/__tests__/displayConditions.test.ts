@@ -1,6 +1,7 @@
 /** Private wire projection: these checks assert expression placement, not the
  * runtime truth values. Native navigation evidence evaluates exported rules. */
 import { describe, expect, it } from "vitest";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	and,
 	concat,
@@ -20,13 +21,35 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import {
-	emitFormDisplayConditionForHq,
-	emitFormDisplayConditionForSuite,
-	emitModuleDisplayCondition,
+	emitFormDisplayConditionForHq as formConditionForHq,
+	emitFormDisplayConditionForSuite as formConditionForSuite,
+	emitModuleDisplayCondition as moduleCondition,
 } from "../displayConditions";
 
+const emitFormDisplayConditionForHq = (
+	...args: Parameters<typeof formConditionForHq>
+) => {
+	const condition = formConditionForHq(...args);
+	return (
+		condition &&
+		serializeWire(condition, { target: "hq-json", interpolation: "case" }).text
+	);
+};
+const emitFormDisplayConditionForSuite = (
+	...args: Parameters<typeof formConditionForSuite>
+) => {
+	const condition = formConditionForSuite(...args);
+	return condition && serializeWire(condition, { target: "suite" }).text;
+};
+const emitModuleDisplayCondition = (
+	...args: Parameters<typeof moduleCondition>
+) => {
+	const condition = moduleCondition(...args);
+	return condition && serializeWire(condition, { target: "suite" }).text;
+};
+
 const anchor =
-	"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/selected_patient]";
+	"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/selected_patient]";
 
 describe("navigation expression projection", () => {
 	it("anchors nested properties to the supplied datum locally and HQ's case placeholder remotely", () => {
@@ -162,14 +185,14 @@ describe("navigation expression projection", () => {
 		}
 	});
 
-	it("writes an item off the menu as false() alone, or false() and (<rest>)", () => {
+	it("writes an item off the menu as false() alone or conjoined with its condition", () => {
 		for (const emit of emitters) {
 			expect(emit({ hiddenFromMenu: true })).toBe("false()");
 			expect(emit({ hiddenFromMenu: true, displayCondition: matchAll() })).toBe(
 				"false()",
 			);
 			expect(emit({ hiddenFromMenu: true, displayCondition: worker })).toBe(
-				`false() and (${workerText})`,
+				`false() and ${workerText}`,
 			);
 			expect(
 				emit({

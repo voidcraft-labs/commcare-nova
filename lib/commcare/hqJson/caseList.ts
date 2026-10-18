@@ -77,7 +77,6 @@ import {
 } from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import { emitCasePropertyWirePath } from "../casePropertyWire";
 import { caseSearchConfigShell, detailColumn, detailPair } from "../hqShells";
 import {
 	type CommCareLocalization,
@@ -88,8 +87,7 @@ import {
 	type AssetManifest,
 	requireAssetRef,
 } from "../multimedia/assetWirePath";
-import { emitCaseListFilter } from "../predicate/caseListFilterEmitter";
-import { imageMapEnumKey } from "../suite/case-list/columns";
+import { imageMapEnumExpression } from "../suite/case-list/columns";
 import {
 	emitExcludedOwnerFilterExpression,
 	emitNormalizedExcludedOwnerIdsExpression,
@@ -98,7 +96,7 @@ import {
 	caseListOrderOptions,
 	columnReadsCaseAttribute,
 	hqEnumPlaceholder,
-	hqExpressionFieldText,
+	hqExpressionField,
 } from "../suite/case-list/orderPlanOptions";
 import { SORT_DIRECTION_WIRE_MAP } from "../suite/case-list/sortKeys";
 import { TILE_VERTICAL_ALIGN_WIRE } from "../suite/case-list/tileStyle";
@@ -125,6 +123,10 @@ import type {
 	DetailColumn as WireDetailColumn,
 } from "../types";
 import { moduleTypeContext } from "../validator/rules/case-list/shared";
+import { w } from "../xpath/wire/builders";
+import { toWire } from "../xpath/wire/fromExpression";
+import type { WireExpr } from "../xpath/wire/tree";
+import { type HqXPath, hqXPath, hqXPathText } from "./xpath";
 
 // ============================================================
 // `DetailColumn` projection
@@ -181,34 +183,30 @@ function projectColumnToDetail(
 	column: Column,
 	ctx: ColumnProjectionContext,
 	screen: "results" | "details",
-): WireDetailColumn {
+): WireDetailColumn<HqXPath> {
 	const { doc, localization, mod } = ctx;
 	const headerRecord = localization.textMap(
 		makeTranslationUnitId("column", column.uuid, "header"),
 	);
 	const expressionField = () =>
-		hqExpressionFieldText(
-			column,
-			mod,
-			doc,
-			screen,
-			ctx.lookupNaming,
-			ctx.typeContext,
+		hqXPath(
+			hqExpressionField(
+				column,
+				mod,
+				doc,
+				screen,
+				ctx.lookupNaming,
+				ctx.typeContext,
+			),
 		);
 
 	if (column.kind === "calculated") {
-		return {
-			...detailColumn(expressionField(), headerRecord),
-			useXpathExpression: true,
-		};
+		return detailColumn(expressionField(), headerRecord);
 	}
 
 	const attribute = columnReadsCaseAttribute(column);
-	const base: WireDetailColumn = attribute
-		? {
-				...detailColumn(emitCasePropertyWirePath(column.field), headerRecord),
-				useXpathExpression: true,
-			}
+	const base = attribute
+		? detailColumn(hqXPath(w.context([w.attr(column.field)])), headerRecord)
 		: detailColumn(column.field, headerRecord);
 
 	switch (column.kind) {
@@ -273,7 +271,7 @@ function projectColumnToDetail(
 				...base,
 				format: "enum-image",
 				enum: column.mapping.map((entry) => ({
-					key: imageMapEnumKey(entry.value),
+					key: hqXPath(imageMapEnumExpression(entry.value), "enum-key"),
 					value: repeatForLanguages(
 						localization.languages,
 						requireAssetRef(
@@ -337,12 +335,23 @@ function projectColumnToDetail(
 function projectColumnForShortDetail(
 	field: CaseListShortField,
 	ctx: ColumnProjectionContext,
-): WireDetailColumn {
+): WireDetailColumn<HqXPath> {
 	const { column } = field;
-	const projected: WireDetailColumn = field.hidden
+	const projected: WireDetailColumn<HqXPath> = field.hidden
 		? {
 				...detailColumn(
-					field.joinText,
+					column.kind === "calculated" || columnReadsCaseAttribute(column)
+						? hqXPath(
+								hqExpressionField(
+									column,
+									ctx.mod,
+									ctx.doc,
+									"results",
+									ctx.lookupNaming,
+									ctx.typeContext,
+								),
+							)
+						: field.joinText,
 					column.visibleInDetail !== false
 						? ctx.localization.textMap(
 								makeTranslationUnitId("column", column.uuid, "header"),
@@ -350,13 +359,15 @@ function projectColumnForShortDetail(
 						: repeatForLanguages(ctx.localization.languages, column.header),
 				),
 				format: "invisible" satisfies DetailColumnFormat,
-				useXpathExpression:
-					column.kind === "calculated" || columnReadsCaseAttribute(column),
 			}
 		: projectColumnToDetail(column, ctx, "results");
-	if (projected.field !== field.joinText) {
+	const printedField =
+		typeof projected.field === "string"
+			? projected.field
+			: hqXPathText(projected.field);
+	if (printedField !== field.joinText) {
 		throw new Error(
-			`projectColumnForShortDetail: the short column ${column.uuid} writes the field ${JSON.stringify(projected.field)}, but the order plan joins it by ${JSON.stringify(field.joinText)}. HQ joins an order rule by that text alone, so the projection and caseListOrderPlan must print one string.`,
+			`projectColumnForShortDetail: the short column ${column.uuid} writes the field ${JSON.stringify(printedField)}, but the order plan joins it by ${JSON.stringify(field.joinText)}. HQ joins an order rule by that text alone, so the projection and caseListOrderPlan must print one string.`,
 		);
 	}
 	return projected;
@@ -396,7 +407,7 @@ function projectSortElements(
 	plan: CaseListOrderPlan,
 	firstLanguage: string,
 	caseProperties: readonly CaseProperty[],
-): SortElement[] {
+): SortElement<HqXPath>[] {
 	const dataTypeOf = (name: string) =>
 		caseProperties.find((property) => property.name === name)?.data_type;
 	const written: {
@@ -475,7 +486,7 @@ function projectCaseListFilter(
 	excludedOwnerIds: DomainCaseSearchConfig["excludedOwnerIds"],
 	typeContext?: TypeContext,
 	lookupNaming?: LookupWireNaming,
-): string | null {
+): HqXPath | null {
 	// This slot lands in CCHQ's ordinary case-loading datum nodeset
 	// (`EntriesHelper.get_filter_xpath`), which evaluates before any
 	// Search runs — so Search-input dependencies substitute to their
@@ -499,29 +510,25 @@ function projectCaseListFilter(
 	const authoredFilter =
 		effective === undefined
 			? undefined
-			: emitCaseListFilter(
-					effective,
-					undefined,
-					typeContext ?? {},
-					undefined,
-					lookupNaming === undefined
-						? {}
-						: {
-								lookup: {
-									naming: lookupNaming,
-									instanceScope: "suite",
-								},
-							},
-				);
+			: toWire(effective, {
+					target: "hq-json",
+					types: typeContext ?? {},
+					...(lookupNaming && {
+						bindings: {
+							lookup: { naming: lookupNaming, instanceScope: "suite" },
+						},
+					}),
+				});
 	const ownerFilter = emitExcludedOwnerFilterExpression(
 		excludedOwnerIds,
 		typeContext ?? {},
 		lookupNaming,
 	);
 
-	if (authoredFilter === undefined) return ownerFilter ?? null;
-	if (ownerFilter === undefined) return authoredFilter;
-	return `(${authoredFilter}) and (${ownerFilter})`;
+	if (authoredFilter === undefined)
+		return ownerFilter === undefined ? null : hqXPath(ownerFilter, "case");
+	if (ownerFilter === undefined) return hqXPath(authoredFilter, "case");
+	return hqXPath(w.and(authoredFilter, ownerFilter), "case");
 }
 
 // ============================================================
@@ -553,14 +560,14 @@ function projectSearchInput(
 	localization: CommCareLocalization,
 	relationContext: RelationEvaluationScopeContext,
 	lookupNaming?: LookupWireNaming,
-): CaseSearchProperty {
+): CaseSearchProperty<HqXPath> {
 	const wire = searchPromptWire(
 		input,
 		runtimeValidation,
 		relationContext,
 		lookupNaming,
 	);
-	const property: CaseSearchProperty = {
+	const property: CaseSearchProperty<HqXPath> = {
 		name: wire.key,
 		label: localization.textMapFor(wire.label.source),
 	};
@@ -570,7 +577,7 @@ function projectSearchInput(
 	if (wire.input !== undefined) property.input_ = wire.input;
 	if (wire.appearance !== undefined) property.appearance = wire.appearance;
 	if (wire.defaultValue !== undefined) {
-		property.default_value = wire.defaultValue;
+		property.default_value = hqXPath(wire.defaultValue);
 	}
 	// CCHQ stores `hidden` and `exclude` with `BooleanProperty(default=False)`
 	// semantics, so a `true` value persists and an absent key reads false.
@@ -579,22 +586,22 @@ function projectSearchInput(
 	if (wire.itemset !== undefined) {
 		property.itemset = {
 			instance_id: wire.itemset.instanceId,
-			nodeset: wire.itemset.nodeset,
-			label: wire.itemset.label,
-			value: wire.itemset.value,
-			sort: wire.itemset.sort,
+			nodeset: hqXPath(wire.itemset.nodeset),
+			label: hqXPath(wire.itemset.label),
+			value: hqXPath(wire.itemset.value),
+			sort: hqXPath(wire.itemset.sort),
 		};
 	}
 	if (wire.required !== undefined) {
 		property.required = {
-			test: wire.required.test,
+			test: hqXPath(wire.required.test, "no-case"),
 			text: localization.textMapFor(wire.required.message.source),
 		};
 	}
 	if (wire.validation !== undefined) {
 		property.validations = [
 			{
-				test: wire.validation.test,
+				test: hqXPath(wire.validation.test, "no-dots"),
 				text: localization.textMapFor(wire.validation.message.source),
 			},
 		];
@@ -616,8 +623,8 @@ function projectSearchProperties(
 	localization: CommCareLocalization,
 	typeContext?: TypeContext,
 	lookupNaming?: LookupWireNaming,
-): CaseSearchProperty[] {
-	const out: CaseSearchProperty[] = [];
+): CaseSearchProperty<HqXPath>[] {
+	const out: CaseSearchProperty<HqXPath>[] = [];
 	const relationContext = searchPromptRelationContext(
 		searchInputs,
 		typeContext ?? {},
@@ -666,14 +673,14 @@ function projectSearchProperties(
  * no input and no clause.
  */
 function projectDefaultProperties(
-	values: readonly string[],
-): DefaultCaseSearchProperty[] {
+	values: readonly WireExpr[],
+): DefaultCaseSearchProperty<HqXPath>[] {
 	// CCHQ's special `_xpath_query` key routes each value through the
 	// CSQL parser at search time; every value is one on-device
 	// expression that builds one CSQL query.
 	return values.map((value) => ({
 		property: "_xpath_query",
-		defaultValue: value,
+		defaultValue: hqXPath(value),
 	}));
 }
 
@@ -723,7 +730,7 @@ function buildSearchConfigDocument(
 	localization: CommCareLocalization,
 	typeContext?: TypeContext,
 	lookupNaming?: LookupWireNaming,
-): WireCaseSearchConfig {
+): WireCaseSearchConfig<HqXPath> {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
 	// `hqShells.ts`. Mutate the shell with authored overrides so the
 	// CCHQ-default baseline lives in one file (any future CCHQ
@@ -751,23 +758,29 @@ function buildSearchConfigDocument(
 			// boolean identity (e.g. a `match-all` left inside an authored
 			// `and`) so the condition doesn't emit a `true() and …`
 			// conjunct — same normalize the filter surfaces apply.
-			config.search_button_display_condition = emitCaseListFilter(
-				simplifyForEmission(caseSearchConfig.searchButtonDisplayCondition),
-				undefined,
-				typeContext ?? {},
-				undefined,
-				lookupNaming === undefined
-					? {}
-					: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+			config.search_button_display_condition = hqXPath(
+				toWire(
+					simplifyForEmission(caseSearchConfig.searchButtonDisplayCondition),
+					{
+						target: "hq-json",
+						types: typeContext ?? {},
+						...(lookupNaming && {
+							bindings: {
+								lookup: { naming: lookupNaming, instanceScope: "suite" },
+							},
+						}),
+					},
+				),
 			);
 		}
 		if (caseSearchConfig.excludedOwnerIds !== undefined) {
-			config.blacklisted_owner_ids_expression =
+			config.blacklisted_owner_ids_expression = hqXPath(
 				emitNormalizedExcludedOwnerIdsExpression(
 					caseSearchConfig.excludedOwnerIds,
 					typeContext ?? {},
 					lookupNaming,
-				);
+				),
+			);
 		}
 	}
 
@@ -844,7 +857,7 @@ const EMPTY_SHORT_LIST_HEADER = "Name";
  */
 export function emptyShortListColumns(
 	languages: readonly string[],
-): WireDetailColumn[] {
+): WireDetailColumn<HqXPath>[] {
 	return [
 		detailColumn(
 			EMPTY_SHORT_LIST_FIELD,
@@ -875,8 +888,8 @@ export function emptyShortListColumns(
  * `caseSearchConfig` is treated as no-search-chrome (CCHQ defaults).
  */
 export interface CaseListHqProjection {
-	readonly caseDetails: DetailPair;
-	readonly searchConfig: WireCaseSearchConfig;
+	readonly caseDetails: DetailPair<HqXPath>;
+	readonly searchConfig: WireCaseSearchConfig<HqXPath>;
 }
 
 export function projectCaseListForHq(
@@ -1007,7 +1020,7 @@ export function projectCaseListForHq(
  * screens exactly as the per-column placements do.
  */
 function applyTileLayoutToShortDetail(
-	shortDetail: Detail,
+	shortDetail: Detail<HqXPath>,
 	tile: CaseTileLayout | undefined,
 	fields: readonly CaseListShortField[],
 ): void {

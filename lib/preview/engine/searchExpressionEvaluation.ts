@@ -11,8 +11,8 @@
 // against a selected case. A property/relation read therefore resolves blank
 // here, matching a search screen before a case has been selected.
 
-import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
-import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	ownRecordValue,
 	type SearchInputDef,
@@ -82,9 +82,13 @@ export function evaluatePreviewSearchExpression(
 				});
 	return xpathToString(
 		evaluatePreviewSearchXPath(
-			emitOnDeviceExpression(folded, "casedb", {
-				userPropertySlugs: previewUserPropertySlugMap(session),
-			}),
+			serializeWire(
+				toWire(folded, {
+					target: "suite",
+					types: { userPropertySlugs: previewUserPropertySlugMap(session) },
+				}),
+				{ target: "suite" },
+			).text,
 			session,
 		),
 	);
@@ -156,9 +160,13 @@ export function emitPreviewSearchPredicate(
 					outer: searchSessionEvalContext(session),
 					userPropertySlugs: previewUserPropertySlugMap(session),
 				});
-	return emitCaseListFilter(folded, "casedb", {
-		userPropertySlugs: previewUserPropertySlugMap(session),
-	});
+	return serializeWire(
+		toWire(folded, {
+			target: "suite",
+			types: { userPropertySlugs: previewUserPropertySlugMap(session) },
+		}),
+		{ target: "suite" },
+	).text;
 }
 
 /** The bag with every hidden input it lacks resolved in, or the bag

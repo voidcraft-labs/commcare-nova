@@ -22,9 +22,8 @@
 //     Wire shape:
 //     `if({xpath} = '', '', format-date(date({xpath}), '<pattern>'))`.
 //     The empty-string short-circuit covers absent values; the
-//     pattern routes through `quoteLiteral` to escape any embedded
-//     single-quote authoring (the on-device XPath dialect's
-//     concat-fallback). Its sort key is the raw `{xpath}` (CCHQ's
+//     pattern is a string literal whose quotes the serializer escapes.
+//     Its sort key is the raw `{xpath}` (CCHQ's
 //     `Date.SORT_XPATH_FUNCTION = "{xpath}"`), so ISO-string order
 //     matches calendar order.
 //
@@ -108,8 +107,19 @@
 // short-circuit on `self.detail.display != 'short'`.
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import {
+	el,
+	type WireElementContext,
+	xel,
+} from "@/lib/commcare/elementBuilders";
 import { serializeXml } from "@/lib/commcare/serializeXml";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import {
+	toWire,
+	type WireBuildContext,
+} from "@/lib/commcare/xpath/wire/fromExpression";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type CaseProperty,
 	type Column,
@@ -123,19 +133,12 @@ import {
 	tileCellFor,
 } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
-import { emitCasePropertyWirePath } from "../../casePropertyWire";
-import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import {
 	type AssetManifest,
 	requireAssetRef,
 } from "../../multimedia/assetWirePath";
-import { quoteLiteral } from "../../predicate/stringQuoting";
-import type {
-	InstanceRoot,
-	OnDeviceTermEmissionContext,
-} from "../../predicate/termEmitter";
 import { escapeRegex } from "../../xml";
-import { lowerXPathForJavaRosa } from "../../xpath";
+import { casePropertyPath, normalizeSpace } from "../wire";
 import { keyAsVariable } from "./keyVariable";
 import {
 	buildSortBlock,
@@ -207,7 +210,7 @@ const DETAIL_LOCALE_TYPE: Readonly<
  */
 function instanceRootFor(
 	ctx: Pick<CaseListEmitContext, "target" | "caseSource">,
-): InstanceRoot {
+): "casedb" | "results" | "results:inline" {
 	if (ctx.target === "search") return "results";
 	return ctx.caseSource ?? "casedb";
 }
@@ -219,7 +222,7 @@ function instanceRootFor(
 /** Term-emission context carrying the run's lookup naming, when present. */
 function lookupTermContext(
 	ctx: CaseListEmitContext,
-): OnDeviceTermEmissionContext {
+): NonNullable<WireBuildContext["bindings"]> {
 	return {
 		...(ctx.lookupNaming === undefined
 			? {}
@@ -268,26 +271,9 @@ function relationContextFor(ctx: CaseListEmitContext) {
  * multiplies the user-authored unit count by the same divisor.
  * Centralising here keeps the two arms bit-identical on unit math.
  *
- * The fractional `30.4375` (month) emits via `formatTimeAgoDivisor`
- * below — JavaScript's `String(365.25 / 12)` produces
- * `"30.4375"` with no exponent, so a direct interpolation is
- * grammar-safe per the XPath grammar's decimal-literal rule
- * (`grammar.lezer.grammar::NumberLiteral`).
+ * The serializer prints every divisor as a finite numeric literal.
  */
 export const TIME_AGO_DIVISOR_DAYS = TIME_SINCE_UNIT_DAYS;
-
-/**
- * Render a `TIME_AGO_DIVISOR_DAYS` value as a wire-form decimal
- * literal. The `String(n)` round-trip is exponent-free for every
- * entry of `TIME_AGO_DIVISOR_DAYS` — the four constants are all
- * non-extreme decimals — so a direct stringification is enough.
- * The helper exists to centralize the rule so any future
- * additional unit (quarters, decades) routes through one
- * formatter rather than scattering string concatenation.
- */
-function formatTimeAgoDivisor(divisor: number): string {
-	return String(divisor);
-}
 
 /**
  * Header-locale-id composer for property-rooted columns. Matches
@@ -400,7 +386,7 @@ const IMAGE_MAP_WIDTH = "13%";
  * the literal display XPath for a column. The serializer XML-escapes
  * `&` / `<` / `>` / `"` / `'` in the attribute value exactly once at
  * render time, so any wire-form XPath emitted by
- * `lib/commcare/expression/onDeviceEmitter.ts` (single-quoted string
+ * `lib/commcare/xpath/wire/fromExpression.ts` (single-quoted string
  * literals, `>` comparison operators) round-trips correctly without
  * any local escaping pass.
  *
@@ -414,7 +400,8 @@ const IMAGE_MAP_WIDTH = "13%";
  * authoring vocabulary covers `phone` only at this surface.
  */
 function buildTemplateBlock(
-	xpathFunction: string,
+	xpathFunction: WireExpr,
+	context: WireElementContext,
 	form: string | undefined = undefined,
 	width: string | undefined = undefined,
 	variables: readonly Element[] = [],
@@ -423,25 +410,30 @@ function buildTemplateBlock(
 	if (form !== undefined) templateAttribs.form = form;
 	if (width !== undefined) templateAttribs.width = width;
 	return el("template", templateAttribs, [
-		el("text", {}, [el("xpath", { function: xpathFunction }, [...variables])]),
+		el("text", {}, [
+			xel("xpath", { xpath: { function: xpathFunction } }, context, [
+				...variables,
+			]),
+		]),
 	]);
 }
 
 interface LocalizedDisplayProjection {
-	readonly xpath: string;
+	readonly xpath: WireExpr;
 	readonly variables: readonly Element[];
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, TranslationUnitId>;
 }
 
 function localizedVariable(
-	name: string,
+	index: number,
 	localeId: string,
 	source: string,
 	unitId: TranslationUnitId,
 ): LocalizedDisplayProjection {
+	const name = `knova_text_${index}`;
 	return {
-		xpath: `$${name}`,
+		xpath: w.enumLabelVar(index),
 		variables: [el("variable", { name }, [el("locale", { id: localeId })])],
 		strings: { [localeId]: source },
 		translationUnits: { [localeId]: unitId },
@@ -464,22 +456,26 @@ function localizedVariable(
  *       </text>
  *     </template>
  *
- * The outer `$calculated_property` is a fixed string — XPath's
- * variable-reference syntax doesn't admit any character that would
- * need escaping. `calcXpath` flows raw into the inner attribute;
- * the serializer escapes the attribute value once at render time.
+ * Both expressions are typed trees. Their prints contribute reads to the
+ * detail's instance sink before XML attribute escaping.
  */
 function buildCalculatedTemplateBlock(
-	calcXpath: string,
+	calcXpath: WireExpr,
+	context: WireElementContext,
 	width?: string,
 ): Element {
 	return el("template", width === undefined ? {} : { width }, [
 		el("text", {}, [
-			el("xpath", { function: "$calculated_property" }, [
-				el("variable", { name: "calculated_property" }, [
-					el("xpath", { function: calcXpath }),
-				]),
-			]),
+			xel(
+				"xpath",
+				{ xpath: { function: w.calculatedPropertyVar() } },
+				context,
+				[
+					el("variable", { name: "calculated_property" }, [
+						xel("xpath", { xpath: { function: calcXpath } }, context),
+					]),
+				],
+			),
 		]),
 	]);
 }
@@ -498,7 +494,7 @@ function buildCalculatedTemplateBlock(
  * the `XPATH_FUNCTION = "{xpath}"` default from
  * `detail_screen.py::FormattedDetailColumn`).
  */
-function plainDisplayXpath(field: string): string {
+function plainDisplayXpath(field: WireExpr): WireExpr {
 	return field;
 }
 
@@ -509,14 +505,14 @@ function plainDisplayXpath(field: string): string {
  * Non-select plain columns never route through this helper.
  */
 export function plainSelectDisplayXpath(
-	field: string,
+	field: WireExpr,
 	property: CaseProperty,
 	doc: CaseListEmitContext["proseDoc"],
 	labelExpression?: (
 		option: NonNullable<CaseProperty["options"]>[number],
 		index: number,
-	) => string,
-): string {
+	) => WireExpr,
+): WireExpr {
 	const options = property.options ?? [];
 	if (options.length === 0) return plainDisplayXpath(field);
 	if (property.data_type === "single_select") {
@@ -528,12 +524,12 @@ export function plainSelectDisplayXpath(
 		// "north region") would win by chain order and render the wrong
 		// label — while Preview's projection matches the stored value
 		// exactly. Equality keeps the two surfaces identical.
-		return options.reduceRight((elseArm, option, index) => {
-			const value = quoteLiteral(option.value, "case-list-filter");
+		return options.reduceRight<WireExpr>((elseArm, option, index) => {
+			const value = w.str(option.value);
 			const label =
 				labelExpression?.(option, index) ??
-				quoteLiteral(printProseTemplate(option.label, doc), "case-list-filter");
-			return `if(${field} = ${value}, ${label}, ${elseArm})`;
+				w.str(printProseTemplate(option.label, doc));
+			return w.call("if", [w.eq(field, value), label, elseArm]);
 		}, field);
 	}
 
@@ -564,18 +560,17 @@ export function plainSelectDisplayXpath(
 	// ` tok ` window and the remainder holds only genuinely unknown tokens —
 	// duplicates of those included, matching Preview's projection. The final
 	// `normalize-space` collapses the leftover padding.
-	let unknownTokens = `concat('  ', replace(${lowerXPathForJavaRosa(
-		`normalize-space(${field})`,
-	)}, ' ', '  '), '  ')`;
+	let unknownTokens = w.call("concat", [
+		w.str("  "),
+		w.call("replace", [normalizeSpace(field), w.str(" "), w.str("  ")]),
+		w.str("  "),
+	]);
 	for (const { option } of tokenOptions) {
-		const pattern = quoteLiteral(
-			` ${escapeRegex(option.value)} `,
-			"case-list-filter",
-		);
-		unknownTokens = `replace(${unknownTokens}, ${pattern}, ' ')`;
+		const pattern = w.str(` ${escapeRegex(option.value)} `);
+		unknownTokens = w.call("replace", [unknownTokens, pattern, w.str(" ")]);
 	}
-	return lowerXPathForJavaRosa(
-		`normalize-space(concat(${knownLabels}, ' ', ${unknownTokens}))`,
+	return normalizeSpace(
+		w.call("concat", [knownLabels, w.str(" "), unknownTokens]),
 	);
 }
 
@@ -587,13 +582,15 @@ export function plainSelectDisplayXpath(
  *
  * The empty-string short-circuit suppresses formatter errors on
  * absent values (CCHQ's `format-date` rejects `date('')`). The
- * pattern routes through `quoteLiteral` against the
- * `case-list-filter` dialect so an embedded `'` flips to the
- * concat-fallback shape rather than producing broken XPath.
+ * pattern remains a string literal; the serializer chooses its quotes or
+ * concat fallback without treating authored text as an expression.
  */
-function dateDisplayXpath(field: string, pattern: string): string {
-	const quotedPattern = quoteLiteral(pattern, "case-list-filter");
-	return `if(${field} = '', '', format-date(date(${field}), ${quotedPattern}))`;
+function dateDisplayXpath(field: WireExpr, pattern: string): WireExpr {
+	return w.call("if", [
+		w.eq(field, w.str("")),
+		w.str(""),
+		w.call("format-date", [w.call("date", [field]), w.str(pattern)]),
+	]);
 }
 
 /**
@@ -611,25 +608,28 @@ function dateDisplayXpath(field: string, pattern: string): string {
  * (e.g. "3" for "3 weeks"). The empty-string outer guard keeps
  * absent values blank (CCHQ's stock `time-ago` shape).
  *
- * `text` routes through `quoteLiteral` so an embedded `'` flips to
- * concat-fallback rather than producing broken XPath.
+ * The serializer quotes `text` as a string literal.
  */
 function intervalAlwaysXpath(args: {
-	readonly field: string;
+	readonly field: WireExpr;
 	readonly threshold: number;
 	readonly unit: keyof typeof TIME_AGO_DIVISOR_DAYS;
 	readonly text: string;
-	readonly textExpression?: string;
-}): string {
+	readonly textExpression?: WireExpr;
+}): WireExpr {
 	const divisor = TIME_AGO_DIVISOR_DAYS[args.unit];
 	const thresholdDays = args.threshold * divisor;
-	const divisorWire = formatTimeAgoDivisor(divisor);
-	const thresholdWire = formatTimeAgoDivisor(thresholdDays);
-	const labelLiteral =
-		args.textExpression ?? quoteLiteral(args.text, "case-list-filter");
-	const intervalShape = `string(int((today() - date(${args.field})) div ${divisorWire}))`;
-	const overdueShape = `if(today() - date(${args.field}) > ${thresholdWire}, ${labelLiteral}, ${intervalShape})`;
-	return `if(${args.field} = '', '', ${overdueShape})`;
+	const label = args.textExpression ?? w.str(args.text);
+	const elapsed = w.sub(w.call("today", []), w.call("date", [args.field]));
+	const interval = w.call("string", [
+		w.call("int", [w.div(elapsed, w.num(divisor))]),
+	]);
+	const overdue = w.call("if", [
+		w.gt(elapsed, w.num(thresholdDays)),
+		label,
+		interval,
+	]);
+	return w.call("if", [w.eq(args.field, w.str("")), w.str(""), overdue]);
 }
 
 /**
@@ -639,7 +639,7 @@ function intervalAlwaysXpath(args: {
  *     if({xpath} = '', '<text>', if(today() - date({xpath}) > <thresholdDays>, '<text>', ''))
  *
  * CCHQ hardcodes the flag string to `'*'`; Nova substitutes the
- * author's `text` via `quoteLiteral`. The CCHQ shape surfaces the
+ * author's `text` as a string literal. The CCHQ shape surfaces the
  * flag in TWO conditions: the property is absent OR the property
  * is present and the day delta exceeds the threshold. The cell is
  * blank only when the property is present and within threshold.
@@ -659,18 +659,21 @@ function intervalAlwaysXpath(args: {
  * CCHQ's hidden-header magic.
  */
 function intervalFlagXpath(args: {
-	readonly field: string;
+	readonly field: WireExpr;
 	readonly threshold: number;
 	readonly unit: keyof typeof TIME_AGO_DIVISOR_DAYS;
 	readonly text: string;
-	readonly textExpression?: string;
-}): string {
+	readonly textExpression?: WireExpr;
+}): WireExpr {
 	const divisor = TIME_AGO_DIVISOR_DAYS[args.unit];
 	const thresholdDays = args.threshold * divisor;
-	const thresholdWire = formatTimeAgoDivisor(thresholdDays);
-	const flagLiteral =
-		args.textExpression ?? quoteLiteral(args.text, "case-list-filter");
-	return `if(${args.field} = '', ${flagLiteral}, if(today() - date(${args.field}) > ${thresholdWire}, ${flagLiteral}, ''))`;
+	const flag = args.textExpression ?? w.str(args.text);
+	const elapsed = w.sub(w.call("today", []), w.call("date", [args.field]));
+	return w.call("if", [
+		w.eq(args.field, w.str("")),
+		flag,
+		w.call("if", [w.gt(elapsed, w.num(thresholdDays)), flag, w.str("")]),
+	]);
 }
 
 /**
@@ -693,11 +696,14 @@ function intervalFlagXpath(args: {
  * room for a translated one.
  */
 export function linkColumnDisplayXpath(
-	field: string,
+	field: WireExpr,
 	linkText: string,
-): string {
-	const label = quoteLiteral(`[${linkText}](`, "case-list-filter");
-	return `if(${field} = '', '', concat(${label}, ${field}, ')'))`;
+): WireExpr {
+	return w.call("if", [
+		w.eq(field, w.str("")),
+		w.str(""),
+		w.call("concat", [w.str(`[${linkText}](`), field, w.str(")")]),
+	]);
 }
 
 /**
@@ -708,9 +714,9 @@ export function linkColumnDisplayXpath(
  */
 export function intervalColumnDisplayXpath(
 	column: Extract<Column, { kind: "interval" }>,
-	textExpression?: string,
-): string {
-	const field = emitCasePropertyWirePath(column.field);
+	textExpression?: WireExpr,
+): WireExpr {
+	const field = casePropertyPath(column.field);
 	return column.display === "always"
 		? intervalAlwaysXpath({
 				field,
@@ -737,7 +743,7 @@ export function intervalColumnDisplayXpath(
  * lives at the `<template>` element level via
  * `emitTemplateBlock`'s `form` parameter, not in the XPath.
  */
-function phoneDisplayXpath(field: string): string {
+function phoneDisplayXpath(field: WireExpr): WireExpr {
 	return field;
 }
 
@@ -762,27 +768,33 @@ function phoneDisplayXpath(field: string): string {
  * contains `<v>`. The `replace(join(...), '\s+', ' ')` collapse
  * trims double-space artifacts from the empty-arm fall-throughs.
  *
- * Each value AND label routes through `quoteLiteral` for the
- * embedded-quote escape. An empty mapping array short-circuits
+ * Each value and label is a string literal quoted by the serializer.
+ * An empty mapping array short-circuits
  * to an empty-string XPath (`''`) — the runtime renders nothing,
  * matching CCHQ's behavior on a zero-entry enum.
  */
 export function idMappingDisplayXpath(
-	field: string,
+	field: WireExpr,
 	mapping: ReadonlyArray<{
 		readonly value: string;
 		readonly label: string;
-		readonly labelExpression?: string;
+		readonly labelExpression?: WireExpr;
 	}>,
-): string {
-	if (mapping.length === 0) return `''`;
+): WireExpr {
+	if (mapping.length === 0) return w.str("");
 	const arms = mapping.map((entry) => {
-		const value = quoteLiteral(entry.value, "case-list-filter");
-		const label =
-			entry.labelExpression ?? quoteLiteral(entry.label, "case-list-filter");
-		return `if(selected(${field}, ${value}), ${label}, '')`;
+		const label = entry.labelExpression ?? w.str(entry.label);
+		return w.call("if", [
+			w.call("selected", [field, w.str(entry.value)]),
+			label,
+			w.str(""),
+		]);
 	});
-	return `replace(join(' ', ${arms.join(", ")}), '\\s+', ' ')`;
+	return w.call("replace", [
+		w.call("join", [w.str(" "), ...arms]),
+		w.str("\\s+"),
+		w.str(" "),
+	]);
 }
 
 /**
@@ -816,29 +828,31 @@ export function idMappingDisplayXpath(
  * manifest, or a missing manifest entry, is a compiler bug.
  */
 function imageMapDisplayXpath(
-	field: string,
+	field: WireExpr,
 	mapping: ReadonlyArray<{
 		readonly value: string;
 		readonly assetId: MediaAssetId;
 	}>,
 	assets: AssetManifest | undefined,
-): string {
+): WireExpr {
 	// Fold right so the first entry is the outermost `if`, matching the
 	// runtime's first-match-wins walk: the empty-string base is the final
 	// else (no value matched => no image).
-	return mapping.reduceRight((elseArm, entry) => {
-		const value = quoteLiteral(entry.value, "case-list-filter");
+	return mapping.reduceRight<WireExpr>((elseArm, entry) => {
 		if (assets === undefined) {
 			throw new Error(
 				"imageMapDisplayXpath: an image map with entries was written as images with no media manifest. `imageMapShowsImages` holds a map with entries to its image column only where the export carries one.",
 			);
 		}
-		const path = quoteLiteral(
+		const path = w.str(
 			requireAssetRef(entry.assetId, assets, "imageMapDisplayXpath"),
-			"case-list-filter",
 		);
-		return `if(selected(${field}, ${value}), ${path}, ${elseArm})`;
-	}, `''`);
+		return w.call("if", [
+			w.call("selected", [field, w.str(entry.value)]),
+			path,
+			elseArm,
+		]);
+	}, w.str(""));
 }
 
 /**
@@ -849,8 +863,15 @@ function imageMapDisplayXpath(
  * `enum` and the local suite's alt-text variable names both read it, so
  * the two paths name each key alike.
  */
+export function imageMapEnumExpression(value: string): WireExpr {
+	return w.call("selected", [w.context([w.self()]), w.str(value)]);
+}
+
 export function imageMapEnumKey(value: string): string {
-	return `selected(., ${quoteLiteral(value, "case-list-filter")})`;
+	return serializeWire(imageMapEnumExpression(value), {
+		target: "hq-json",
+		interpolation: "enum-key",
+	}).text;
 }
 
 /**
@@ -882,7 +903,7 @@ function imageMapAltText(
 	) {
 		return undefined;
 	}
-	const field = emitCasePropertyWirePath(column.field);
+	const field = casePropertyPath(column.field);
 	const idBase = detailColumnLocaleBase(
 		ctx.target,
 		ctx.detailKind,
@@ -891,24 +912,25 @@ function imageMapAltText(
 		position,
 	);
 	const keys = column.mapping.map((entry) => {
-		const value = quoteLiteral(entry.value, "case-list-filter");
 		const name = keyAsVariable(imageMapEnumKey(entry.value));
 		return {
-			condition: `selected(${field}, ${value})`,
+			condition: w.call("selected", [field, w.str(entry.value)]),
+			variable: w.imageAltVar(entry.value),
 			name,
 			localeId: `${idBase}.alt_text.${name}`,
 		};
 	});
-	const xpath = keys.reduceRight(
-		(elseArm, key) => `if(${key.condition}, $${key.name}, ${elseArm})`,
-		"''",
+	const xpath = keys.reduceRight<WireExpr>(
+		(elseArm, key) => w.call("if", [key.condition, key.variable, elseArm]),
+		w.str(""),
 	);
 	return {
 		element: el("alt_text", {}, [
 			el("text", {}, [
-				el(
+				xel(
 					"xpath",
-					{ function: xpath },
+					{ xpath: { function: xpath } },
+					ctx.wire,
 					keys.map((key) =>
 						el("variable", { name: key.name }, [
 							el("locale", { id: key.localeId }),
@@ -935,8 +957,8 @@ function propertyDisplayProjection(
 	ctx: CaseListEmitContext,
 	position: number,
 ): LocalizedDisplayProjection {
-	const field = emitCasePropertyWirePath(column.field);
-	const plain = (xpath: string): LocalizedDisplayProjection => ({
+	const field = casePropertyPath(column.field);
+	const plain = (xpath: WireExpr): LocalizedDisplayProjection => ({
 		xpath,
 		variables: [],
 		strings: {},
@@ -955,15 +977,10 @@ function propertyDisplayProjection(
 		source: string,
 		unitId: TranslationUnitId,
 	): LocalizedDisplayProjection =>
-		localizedVariable(
-			`knova_text_${index}`,
-			valueLocaleId(index),
-			source,
-			unitId,
-		);
+		localizedVariable(index, valueLocaleId(index), source, unitId);
 	const combineVariables = (
 		projections: readonly LocalizedDisplayProjection[],
-		xpath: string,
+		xpath: WireExpr,
 	): LocalizedDisplayProjection => ({
 		xpath,
 		variables: projections.flatMap((projection) => projection.variables),
@@ -1006,7 +1023,7 @@ function propertyDisplayProjection(
 					field,
 					property,
 					ctx.proseDoc,
-					(_option, index) => projections[index]?.xpath ?? "''",
+					(_option, index) => projections[index]?.xpath ?? w.str(""),
 				),
 			);
 		}
@@ -1124,28 +1141,33 @@ function resolveSortElement(
 	column: Column,
 	ctx: CaseListEmitContext,
 	fieldText: () => {
-		readonly xpath: string;
+		readonly xpath: WireExpr;
 		readonly variables: readonly Element[];
 	},
 ): Element | undefined {
 	if (ctx.detailKind === "long") return undefined;
 	const directive = ctx.sortByUuid.get(column.uuid);
 	if (directive === undefined) return undefined;
-	return buildSortBlock(directive, sortText(directive, fieldText));
+	return buildSortBlock(
+		directive,
+		sortText(directive, fieldText, ctx.wire),
+		ctx.wire,
+	);
 }
 
 function sortText(
 	directive: ResolvedSortDirective,
 	fieldText: () => {
-		readonly xpath: string;
+		readonly xpath: WireExpr;
 		readonly variables: readonly Element[];
 	},
-): { readonly xpath: string; readonly variables: readonly Element[] } {
+	context: WireElementContext,
+): { readonly xpath: WireExpr; readonly variables: readonly Element[] } {
 	switch (directive.kind) {
 		case "property":
 			return { xpath: directive.xpath, variables: [] };
 		case "calculated":
-			return calculatedPropertyText(fieldText().xpath);
+			return calculatedPropertyText(fieldText().xpath, context);
 		case "variables":
 			return fieldText();
 	}
@@ -1224,10 +1246,10 @@ export function buildColumnField(args: {
 	}
 
 	if (hidden) {
-		const raw = emitCasePropertyWirePath(column.field);
+		const raw = casePropertyPath(column.field);
 		const fieldChildren: Element[] = [
 			buildHiddenHeaderBlock(),
-			buildTemplateBlock(raw, undefined, "0"),
+			buildTemplateBlock(raw, ctx.wire, undefined, "0"),
 		];
 		const sortEl = resolveSortElement(column, ctx, () => ({
 			xpath: raw,
@@ -1259,6 +1281,7 @@ export function buildColumnField(args: {
 		buildHeaderBlock(headerLocaleId, width),
 		buildTemplateBlock(
 			display.xpath,
+			ctx.wire,
 			templateFormFor(column, ctx.detailKind, ctx.assets),
 			width,
 			display.variables,
@@ -1311,21 +1334,20 @@ function buildCalculatedField(args: {
 	readonly hidden?: boolean;
 }): CaseListFieldEmission {
 	const { column, position, ctx, hidden = false } = args;
-	// `emitOnDeviceExpression` lowers the AST against the surrounding
+	// `toWire` lowers the AST against the surrounding
 	// detail's storage-instance root — `instance('casedb')` for the
 	// case-target detail (default), `instance('results')` for the
 	// search-target detail. Property-rooted refs (no `via` walk) emit
 	// bare property names with no prefix, so the parameter is a no-op
 	// for them; cross-case `count(...)` calls and `via`-walked property
 	// refs both thread the root through to the relation-walk anchor
-	// builders in `lib/commcare/predicate/termEmitter.ts`.
-	const calcXpath = emitOnDeviceExpression(
-		column.expression,
-		instanceRootFor(ctx),
-		relationContextFor(ctx),
-		undefined,
-		lookupTermContext(ctx),
-	);
+	// builders in `lib/commcare/xpath/wire/fromExpression.ts`.
+	const calcXpath = toWire(column.expression, {
+		target: "suite",
+		root: instanceRootFor(ctx),
+		types: relationContextFor(ctx),
+		bindings: lookupTermContext(ctx),
+	});
 	const sortEl = resolveSortElement(column, ctx, () => ({
 		xpath: calcXpath,
 		variables: [],
@@ -1333,7 +1355,7 @@ function buildCalculatedField(args: {
 	if (hidden) {
 		const fieldChildren: Element[] = [
 			buildHiddenHeaderBlock(),
-			buildCalculatedTemplateBlock(calcXpath, "0"),
+			buildCalculatedTemplateBlock(calcXpath, ctx.wire, "0"),
 		];
 		if (sortEl !== undefined) fieldChildren.push(sortEl);
 		return {
@@ -1351,7 +1373,7 @@ function buildCalculatedField(args: {
 	const fieldChildren: Element[] = [
 		...tileStyleChildren(column, ctx),
 		buildHeaderBlock(headerLocaleId),
-		buildCalculatedTemplateBlock(calcXpath),
+		buildCalculatedTemplateBlock(calcXpath, ctx.wire),
 	];
 	if (sortEl !== undefined) fieldChildren.push(sortEl);
 
@@ -1374,14 +1396,16 @@ function buildCalculatedField(args: {
 export function buildCarrierField(
 	property: string,
 	directive: ResolvedSortDirective,
+	context: WireElementContext,
 ): Element {
-	const raw = emitCasePropertyWirePath(property);
+	const raw = casePropertyPath(property);
 	return el("field", {}, [
 		buildHiddenHeaderBlock(),
-		buildTemplateBlock(raw, undefined, "0"),
+		buildTemplateBlock(raw, context, undefined, "0"),
 		buildSortBlock(
 			directive,
-			sortText(directive, () => ({ xpath: raw, variables: [] })),
+			sortText(directive, () => ({ xpath: raw, variables: [] }), context),
+			context,
 		),
 	]);
 }
@@ -1398,5 +1422,10 @@ export function emitColumnField(args: {
 	readonly ctx: CaseListEmitContext;
 }): CaseListEmission {
 	const { element, strings, translationUnits } = buildColumnField(args);
-	return { xml: serializeXml(element), strings, translationUnits };
+	return {
+		xml: serializeXml(element),
+		strings,
+		translationUnits,
+		instances: args.ctx.wire.instances.declarations(),
+	};
 }

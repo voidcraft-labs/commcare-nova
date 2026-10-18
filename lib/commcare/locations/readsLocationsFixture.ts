@@ -1,16 +1,15 @@
 /**
  * Which forms of an app read `jr://fixture/locations`.
  *
- * Exactly one term does: `owner-location-at-level`, which
- * `predicate/termEmitter.ts::emitTerm` lowers to an
- * `instance('locations')` path, and which
- * `predicate/instances.ts::collectAstInstances` is the accumulator for.
- * `fixed-location` reads no instance (it prints a literal), so an app
- * whose only place rule is that one needs nothing from the restore.
+ * The wire serializer's returned dependencies decide whether a place
+ * destination reads the fixture. `validator/rules/caseOperations.ts::
+ * validateTextExpression` currently admits a location term only as the
+ * complete owner value, so these are the complete candidate expressions.
+ * Case-row anchoring changes the owner-id operand, never the location root.
+ * A fixed location prints a literal and contributes no declaration.
  *
- * Read off the owner slots directly rather than off the instance
- * accumulator, because publish asks this of the whole document before any
- * per-expression emission context exists.
+ * PR9's general location arms must broaden this to every admitted expression
+ * carrier when that gate changes; do not add another domain-term walker.
  *
  * A worker's restore holds the flat location list only where the project
  * space sends it (every app carries `location_fixture_restore:
@@ -20,24 +19,42 @@
  */
 
 import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { walkExpressionTerms } from "@/lib/domain/predicate";
+import {
+	type BlueprintDoc,
+	organizationLevelsOf,
+	type Uuid,
+} from "@/lib/domain";
+import { toWire } from "../xpath/wire/fromExpression";
+import { locationsInstance } from "../xpath/wire/instances";
+import { serializeWire } from "../xpath/wire/serialize";
 
 /** The forms whose case operations set an owner from a place at a level of
  * the organization, in the document's form order. */
 export function formsReadingLocationsFixture(doc: BlueprintDoc): Uuid[] {
 	const forms: Uuid[] = [];
+	const locationDeclaration = locationsInstance();
+	const types = { organizationLevels: organizationLevelsOf(doc) };
 	for (const moduleUuid of orderedModuleUuids(doc)) {
 		for (const formUuid of orderedFormUuids(doc, moduleUuid)) {
 			const form = doc.forms[formUuid];
 			if (form === undefined) continue;
 			const reads = (form.caseOperations ?? []).some((operation) => {
-				if (operation.owner === undefined) return false;
-				let found = false;
-				walkExpressionTerms(operation.owner, (term) => {
-					if (term.kind === "owner-location-at-level") found = true;
-				});
-				return found;
+				const owner = operation.owner;
+				if (
+					owner?.kind !== "term" ||
+					(owner.term.kind !== "owner-location-at-level" &&
+						owner.term.kind !== "fixed-location")
+				)
+					return false;
+				const printed = serializeWire(
+					toWire(owner, { target: "xform", types }),
+					{ target: "xform" },
+				);
+				return [...printed.instances].some(
+					(declaration) =>
+						declaration.id === locationDeclaration.id &&
+						declaration.src === locationDeclaration.src,
+				);
 			});
 			if (reads) forms.push(formUuid);
 		}

@@ -1,56 +1,15 @@
 // lib/commcare/suite/case-list/nodesetFilter.ts
 //
-// Suite-XML wire emission for the module-level case-list filter
-// (`caseListConfig.filter`). The emitter produces the bracketed
-// XPath fragment that appends to a case-loading entry's session-
-// datum nodeset, narrowing the case set the runtime selects from
-// when the user opens the case list.
-//
-// Wire shape: the surrounding session datum's nodeset starts as
-// `instance('casedb')/casedb/case[@case_type='X'][@status='open']`.
-// When the module carries an authored filter, this emitter builds
-// the third bracketed predicate so the full nodeset reads
-// `instance('casedb')/casedb/case[@case_type='X'][@status='open'][<filter>]`.
-// The CCHQ canonical builder at
-// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`
-// composes the same string by concatenating
-// `case_type_filter` / `[@status='open']` / `filter_xpath` in that
-// order; CCHQ's `EntriesHelper.get_filter_xpath` wraps the user
-// filter in `[...]` before the concat. Nova's wire emission
-// matches this precedence faithfully — the `@case_type` /
-// `@status` predicates come first; the user filter appends after.
-//
-// Predicate compilation reuses the shared on-device XPath
-// emitter at
-// `lib/commcare/predicate/caseListFilterEmitter.ts::emitCaseListFilter`.
-// That emitter targets the same case-list-filter slot CCHQ
-// describes, so the dialect lines up by construction.
-//
-// Match-all / match-none / absent semantics:
-//
-//   - Absent (`undefined`) and `match-all` collapse to the empty
-//     fragment. `match-all` is the AND-chain identity element
-//     (CCHQ's wire emission of `match-all` is `true()` per the
-//     on-device emitter); concatenating `[true()]` to the nodeset
-//     leaves the match set unchanged. Returning the empty fragment
-//     keeps the wire string clean — same observable behaviour, no
-//     tautological bracket pair.
-//   - `match-none` emits as the literal `[false()]` fragment. The
-//     authored intent of `match-none` is "match no cases"; the
-//     case list's match set must reflect that. Collapsing
-//     `match-none` to the empty fragment would silently widen the
-//     match set to every case, contradicting the AST. The wire
-//     `[false()]` is the closest CCHQ shape that preserves the
-//     authored emptiness.
-//   - Every other `Predicate` shape compiles via
-//     `emitCaseListFilter` and wraps in `[...]`. The compiled XPath
-//     is well-formed against CCHQ's query-function grammar by the
-//     emitter's contract.
+// The case-list filter is a bare WireExpr predicate. The session builder
+// attaches it to the case step after the case-type and open-status guards;
+// the serializer owns every bracket and operator spelling.
+// Absent and match-all filters return undefined, while match-none remains
+// false() so an authored empty list never widens to all cases.
 
-import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
-import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	effectiveFilterForEmission,
 	substituteUnansweredSearchInputsInExpression,
@@ -58,23 +17,18 @@ import {
 } from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
+import { normalizeSpace } from "../wire";
 
 /**
- * Compile a module-level `caseListConfig.filter` to the bracketed
- * XPath fragment that appends to a case-list session datum's
- * nodeset. Returns the empty string when no fragment should be
- * emitted (absent filter or `match-all` sentinel).
- *
- * The caller concatenates the result onto the existing case-type /
- * status nodeset; this function never builds the full nodeset
- * itself, so the case-type qualifier and status filter remain the
- * concern of the session-datum builder.
+ * Build the predicate attached to a case-list session datum's case step.
+ * An absent filter or match-all sentinel returns undefined. The caller owns
+ * the surrounding case-type and status predicates and the complete nodeset.
  */
 export function emitNodesetFilter(
 	filter: Predicate | undefined,
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
-): string {
+): WireExpr | undefined {
 	// The ordinary case list evaluates before any Search runs, so every
 	// Search-input dependency substitutes to its unanswered reading first
 	// (`when-input-present` envelopes → `match-all`, bare refs → '').
@@ -97,22 +51,18 @@ export function emitNodesetFilter(
 			? undefined
 			: substituteUnansweredSearchInputsInPredicate(filter),
 	);
-	if (effective === undefined) return "";
+	if (effective === undefined) return undefined;
 
-	// Every other predicate (including `match-none`) compiles via
-	// the shared on-device emitter and wraps in `[...]` at the
-	// nodeset position. `match-none` emits as `false()` — wrapped
-	// here as `[false()]`, the wire form that faithfully represents
-	// "match no cases" against the surrounding nodeset.
-	return `[${emitCaseListFilter(
-		effective,
-		undefined,
-		relationContext,
-		undefined,
-		lookupNaming === undefined
-			? {}
-			: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
-	)}]`;
+	// Every other predicate, including match-none, remains in the tree.
+	// The session builder attaches it at the case-step predicate position.
+	return toWire(effective, {
+		target: "suite",
+		types: relationContext,
+		bindings:
+			lookupNaming === undefined
+				? {}
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+	});
 }
 
 /**
@@ -153,7 +103,7 @@ export function emitExcludedOwnerFilterExpression(
 	excludedOwnerIds: ValueExpression | undefined,
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
-): string | undefined {
+): WireExpr | undefined {
 	if (excludedOwnerIds === undefined) return undefined;
 	const unanswered =
 		substituteUnansweredSearchInputsInExpression(excludedOwnerIds);
@@ -163,7 +113,10 @@ export function emitExcludedOwnerFilterExpression(
 		relationContext,
 		lookupNaming,
 	);
-	return `${expression} = '' or not(selected(${expression}, @owner_id))`;
+	return w.or(
+		w.eq(expression, w.str("")),
+		w.not(w.call("selected", [expression, w.context([w.attr("owner_id")])])),
+	);
 }
 
 /**
@@ -193,30 +146,28 @@ export function emitNormalizedExcludedOwnerIdsExpression(
 	excludedOwnerIds: ValueExpression,
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
-): string {
-	return lowerXPathForJavaRosa(
-		`normalize-space(${emitOnDeviceExpression(
-			excludedOwnerIds,
-			undefined,
-			relationContext,
-			undefined,
-			lookupNaming === undefined
-				? {}
-				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
-		)})`,
+): WireExpr {
+	return normalizeSpace(
+		toWire(excludedOwnerIds, {
+			target: "suite",
+			types: relationContext,
+			bindings:
+				lookupNaming === undefined
+					? {}
+					: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+		}),
 	);
 }
 
-/** Bracketed form appended directly to a case-loading datum's nodeset. */
+/** The owner predicate appended to a case-loading datum's case step. */
 export function emitExcludedOwnerNodesetFilter(
 	excludedOwnerIds: ValueExpression | undefined,
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
-): string {
-	const predicate = emitExcludedOwnerFilterExpression(
+): WireExpr | undefined {
+	return emitExcludedOwnerFilterExpression(
 		excludedOwnerIds,
 		relationContext,
 		lookupNaming,
 	);
-	return predicate === undefined ? "" : `[${predicate}]`;
 }

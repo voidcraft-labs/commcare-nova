@@ -7,6 +7,9 @@ import type {
 	ValueExpression,
 } from "@/lib/domain/predicate";
 import type { SearchInputInstanceId } from "@/lib/domain/predicate/typeChecker";
+import { w } from "../xpath/wire/builders";
+import { searchInputInstance } from "../xpath/wire/instances";
+import type { WireExpr } from "../xpath/wire/tree";
 import { STANDALONE_SEARCH_INPUT_INSTANCE_ID } from "./termEmitter";
 
 export type RuntimeCsqlNumericConstraint =
@@ -19,7 +22,7 @@ export type CsqlNumericValueClassification =
 			readonly kind: "runtime-input";
 			readonly inputName: string;
 			readonly inputUuid: Uuid;
-			readonly inputXPath: string;
+			readonly inputXPath: WireExpr;
 	  }
 	| { readonly kind: "unsupported" };
 
@@ -91,20 +94,30 @@ export function isRepresentableSubcaseCountBound(
 	);
 }
 
-export function invalidWholeNumberXPath(xpath: string): string {
-	return `not(number(${xpath}) = floor(number(${xpath})))`;
+export function invalidWholeNumberXPath(xpath: WireExpr): WireExpr {
+	const number = w.call("number", [xpath]);
+	return w.not(w.eq(number, w.call("floor", [number])));
 }
 
-export function invalidNonnegativeWholeNumberXPath(xpath: string): string {
-	return `not(number(${xpath}) = floor(number(${xpath})) and number(${xpath}) >= 0)`;
+export function invalidNonnegativeWholeNumberXPath(xpath: WireExpr): WireExpr {
+	const number = w.call("number", [xpath]);
+	return w.not(
+		w.and(w.eq(number, w.call("floor", [number])), w.gte(number, w.num(0))),
+	);
 }
 
 export function promptWholeNumberTest(
 	constraint: RuntimeCsqlNumericConstraint,
-): string {
-	return constraint === "whole-number"
-		? ". = '' or number(.) = floor(number(.))"
-		: ". = '' or (number(.) = floor(number(.)) and number(.) >= 0)";
+): WireExpr {
+	const value = w.context();
+	const number = w.call("number", [value]);
+	const whole = w.eq(number, w.call("floor", [number]));
+	return w.or(
+		w.eq(value, w.str("")),
+		constraint === "whole-number"
+			? whole
+			: w.and(whole, w.gte(number, w.num(0))),
+	);
 }
 
 /** Numeric prompt requirements from the exact normalized CSQL predicate. */
@@ -368,6 +381,14 @@ function finiteNumber(value: unknown): number | undefined {
 function searchInputXPath(
 	name: string,
 	searchInputInstanceId: SearchInputInstanceId | undefined,
-): string {
-	return `instance('${searchInputInstanceId ?? STANDALONE_SEARCH_INPUT_INSTANCE_ID}')/input/field[@name='${name}']`;
+): WireExpr {
+	return w.instance(
+		searchInputInstance(
+			searchInputInstanceId ?? STANDALONE_SEARCH_INPUT_INSTANCE_ID,
+		),
+		[
+			w.step("input"),
+			w.step("field", [w.eq(w.context([w.attr("name")]), w.str(name))]),
+		],
+	);
 }

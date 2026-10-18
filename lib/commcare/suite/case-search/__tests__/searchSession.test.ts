@@ -254,10 +254,7 @@ it("collects the input dependency inside a computed query value", () => {
 	];
 	f.admitted();
 	const query = buildSearchQuery(f.args);
-	expect([...query.instances].sort()).toEqual([
-		"casedb",
-		"search-input:results",
-	]);
+	expect(query.instances.map(({ id }) => id)).toEqual(["search-input:results"]);
 	expect(queries(f.args).map((node) => node.key)).toEqual([
 		"case_type",
 		"_xpath_query",
@@ -267,7 +264,7 @@ it("collects the input dependency inside a computed query value", () => {
 	).toEqual(f.config.filter);
 });
 it.each([false, true])(
-	"collects emitted calculation dependencies and supporting cases, sorted=%s",
+	"requests supporting cases without declaring instances only read by details, sorted=%s",
 	(sorted) => {
 		const f = fixture();
 		const hidden = calculatedColumn(
@@ -287,7 +284,7 @@ it.each([false, true])(
 		// A calculation hidden from both screens is still a field of the
 		// short detail, evaluated for every row, order rule or not.
 		const query = buildSearchQuery(f.args);
-		expect([...query.instances]).toEqual(["casedb"]);
+		expect(query.instances).toEqual([]);
 		// No input and no clause: the zero-input sentinel, as HQ's build sends.
 		expect(queries(f.args)).toEqual([
 			{ key: "case_type", ref: "'patient'" },
@@ -368,16 +365,12 @@ it.each([false, true])(
 		expect(onlyXml(xmlChildren(session, "datum")).attributes).toEqual({
 			id: "search_case_id",
 			nodeset:
-				"instance('results')/results/case[@case_type='patient'][not(commcare_is_related_case=true())]",
+				"instance('results')/results/case[@case_type = 'patient'][not(commcare_is_related_case = true())]",
 			value: "./@case_id",
 			"detail-select": "m0_search_short",
 			...(hasDetailScreen ? { "detail-confirm": "m0_search_long" } : {}),
 		});
-		expect([...result.instances]).toEqual([
-			"casedb",
-			"commcaresession",
-			"results",
-		]);
+		expect(result.instances.map(({ id }) => id)).toEqual(["results"]);
 	},
 );
 it("refuses bare input references and property-to-property CSQL after an explicit validator bypass", () => {

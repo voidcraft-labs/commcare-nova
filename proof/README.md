@@ -3642,9 +3642,7 @@ decoded text and child order.
 
 - `search`: twelve admitted apps cover inline, browse and remote search;
   single, multiple and parent selection; automatic, hidden, advanced and
-  defaulted prompts; and automatic and explicit registration links. Exactly
-  one difference is asserted present and set aside: Nova's ordinary
-  collection-instance declaration that no suite expression reads. A search
+  defaulted prompts; and automatic and explicit registration links. Nothing is set aside: Nova declares an instance only where something reads it. A search
   with no input and no filter sends the same `match-all()` `_xpath_query` on
   both paths (finding 53), so it is compared whole, and each session sends
   it. `SearchRuntimeTest` (seven methods) parses
@@ -3774,13 +3772,20 @@ paths and checks the Connect namespace in the submission.
 
 #### The rest
 
+The search, no-matches, endpoint, nested-menu, tile and worker comparisons
+parse their known XPath carriers with HQ's pinned js-xpath model. Canonical
+spacing and redundant parentheses may differ; operators, operands, paths,
+predicates and literal values must match. Every other attribute, meaningful
+text node, child order and instance declaration remains exact. The nested-menu
+check keeps its separately scoped unread-declaration exception.
+
 | Family | HQ | Core |
 | --- | --- | --- |
 | `case-list` | Suite contributors and authored app strings regenerate the eight case list scenarios for the Core class; no HQ check (the bar builds them, and no structural equivalence is claimed). | `CaseListRuntimeTest`: typed sort and ties, formatted templates, long-detail order and nodesets on both paths. `CaseListOrderRuntimeTest` reads no product of the family: Core's order of a checked-in control's rows (`core/resources/case-list-order/orders.json`) under each comparator, direction and blanks placement, which Preview's case store is held to as well. |
 | `container` | Each group and repeat scenario's form regenerated for the Core class; no HQ check (the bar builds them). | `ContainerRuntimeTest`: group relevance, repeat entry, live counts, per-row values, case effects, a default read from each of four placements and a registration form's default and calculation that read its own new case id on both paths; initialization snapshots, row insertion and field-list timing on the local forms; private wire counterexamples for count types. |
 | `endpoint` | `<endpoint>` and reached `<remote-request>` elements equal Nova's, with `SESSION_ENDPOINTS` on. | `EndpointRuntimeTest`: argument binding, refusing missing and unexpected keys. |
 | `expander` | HQ regenerates the suites and app strings the Core class reads; no HQ check (the bar publishes and builds every admitted expander document, and Core admits each build and CCZ). | `ExpanderRuntimeTest`: a case list column over eleven options shows `Tag 10` for `tag_10` on both paths, so HQ's enum key replacement keeps double-digit option keys apart. |
-| `expression` | None. | `InstantOrderingRuntimeTest`, zoned: in four device zones (`utc`, `new-york`, `kolkata`, `kiritimati`) and three Formplayer setups (a UTC JVM with a browser zone of New York or Kolkata, or New York's offset alone), each a test JVM of its own, Core's bare comparison of every pair of the instant table (`lib/commcare/__tests__/instantOrderingTable.ts`): a date and time held as text orders false both ways, two typed ones order by calendar day in the reader's zone, and `=` between two spellings of one instant is false. It builds no app. |
+| `expression` | HQ's `interpolate_xpath` (with a case, without one, and with `interpolate_dots=False`) and `get_instance_names` over the `hq-json` prints of literals HQ could misread, including interpolation tokens, instance-looking text, HTML references and trailing backslashes. Image mapping conditions also exercise `dot_interpolate` and `MappingItem.key_as_condition`; XForm instance discovery reads serialized XML, while decoded attributes are evaluated for their exact literal value (`test_hq_interpolation.py`). | `InstantOrderingRuntimeTest`, zoned: in four device zones (`utc`, `new-york`, `kolkata`, `kiritimati`) and three Formplayer setups (a UTC JVM with a browser zone of New York or Kolkata, or New York's offset alone), each a test JVM of its own, Core's bare comparison of every pair of the instant table (`lib/commcare/__tests__/instantOrderingTable.ts`): a date and time held as text orders false both ways, two typed ones order by calendar day in the reader's zone, and `=` between two spellings of one instant is false. It builds no app. |
 | `hq-oracle` | `Application.wrap` fails exactly where Nova's HQ-JSON oracle reports a fatal code; `RemoteApp` dispatch. | None. |
 | `localization`, `worker` | Every localization code passes HQ's `validate_lang`, which no build runs; forms, suites and each language's authored strings regenerated for the Core classes, with no stock translation catalog. | `LocalizationRuntimeTest`, `WorkerIdentityRuntimeTest`: language switching and prompts; worker data through form and suite expressions, and the built-in worker identity on the local form. |
 | `lookup` | HQ's workbook reader reads Nova's tables, a 50-column table, and strips exactly the padding Nova predicts; the lookup forms regenerated. | `LookupRuntimeTest`: fixture install and replacement, dynamic choices, labels, answers and case processing; a missing fixture cannot pass as an empty list. |
