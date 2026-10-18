@@ -1,7 +1,5 @@
 /** Real UUID-addressed commands, planners, gate and reducer with a controlled
  * writer receipt. No claim about SQL concurrency or device navigation. */
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -13,7 +11,6 @@ import {
 	xpIn,
 } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
-import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import type { BlueprintDoc, FormLink } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { makeToolWorkspaceHarness } from "../../../__tests__/fixtures";
@@ -197,9 +194,7 @@ describe("form-link author boundary", () => {
 		).toBe(false);
 	});
 
-	it("admits UUID commands and rejects positional aliases in emitted and canonical schemas", async () => {
-		const ajv = new Ajv({ strict: false });
-		addFormats(ajv);
+	it("admits UUID commands and rejects positional aliases in canonical schemas", () => {
 		const surfaces: ReadonlyArray<readonly [z.ZodType, object, object]> = [
 			[
 				addFormLinksInputSchema,
@@ -231,12 +226,8 @@ describe("form-link author boundary", () => {
 			],
 		];
 		for (const [schema, valid, invalid] of surfaces) {
-			const wire = wireToolSchema(schema);
-			const admits = ajv.compile(await wire.jsonSchema);
-			expect(admits(valid), JSON.stringify(admits.errors)).toBe(true);
-			expect((await wire.validate?.(valid))?.success).toBe(true);
-			expect(admits(invalid)).toBe(false);
-			expect((await wire.validate?.(invalid))?.success).toBe(false);
+			expect(schema.safeParse(valid).success).toBe(true);
+			expect(schema.safeParse(invalid).success).toBe(false);
 		}
 	});
 });

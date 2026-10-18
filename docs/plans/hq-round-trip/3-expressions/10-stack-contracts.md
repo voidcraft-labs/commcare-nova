@@ -190,6 +190,8 @@ they do, are named under their pull request.
 **Nova tests named outright**
 
 - `lib/agent/__tests__/wireSchemas.test.ts` (deleted)
+- `lib/agent/authoring/__tests__/schemaProjection.test.ts` (new: the family graph is replaced before canonical traversal, recursive authored positions retain their admission, and canonical metadata stays untouched)
+- `lib/agent/__tests__/planningSchemas.test.ts`, `lib/agent/tools/__tests__/caseProperties.test.ts` (retired catalog inputs are refused while existing stored rules survive unrelated edits and catalog extension)
 - `lib/agent/__tests__/lookupAuthorBoundary.test.ts` (the byte-reduction and grammar cases and the `buildExpressionReference` case leave)
 - `lib/agent/tools/__tests__/configureConnect.test.ts`, `renameCaseProperties.test.ts`, `setFormSections.test.ts` (their `wireToolSchema` Ajv cases leave)
 - `lib/agent/tools/form-links/__tests__/formLinkTools.test.ts`, `lib/agent/tools/case-operations/__tests__/caseOperationTools.test.ts` (the same)
@@ -197,7 +199,7 @@ they do, are named under their pull request.
 
 **Scripts**
 
-- `scripts/test-schema.ts` (the `wireToolSchema` import becomes `providerToolSchema`; `updateCaseProperty` registered, and each of `setFieldOptionsSource`, `addCaseOperations`, `updateCaseOperation` whose hash this pull request moves; their names join the header's "Known names")
+- `scripts/test-schema.ts` (the `wireToolSchema` import becomes `providerToolSchema`; every changed Solutions Architect tool missing from the script is registered, including `updateCaseProperty`, `addCaseOperations`, `updateCaseOperation`, `addAutomations` and `updateAutomation`; their names join the header's "Known names". The two automation tools' prose-family projection also moves their hashes. `setFieldOptionsSource` is registered only if its hash moves)
 - `scripts/inspect-tool-schema-hashes.ts` (new; read-only, prints one line per shared tool: its name and the SHA-256 of `authoringToolSchema(name, schema).inputSchema.jsonSchema`, and the set's hash; part 02 §3.6's probe made a repository tool, because every later pull request of the stack runs it at base and head)
 - `scripts/README.md` (the inspector's line)
 

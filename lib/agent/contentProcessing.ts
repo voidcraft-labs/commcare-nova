@@ -181,11 +181,10 @@ export function stripEmpty(q: PreparedFlatField): Partial<PreparedFlatField> & {
  *        - `kind` from `property.data_type` (defaulting to "text")
  *        - canonical `label` and choice `options` verbatim
  *
- * A catalog property's `hint`, `required`, `validation`, and
- * `validation_msg` do not seed a form field. Supporting copy, answer
- * requiredness, and validation belong to the workflow context and can
- * legitimately differ between registration and later editing forms that
- * write the same property.
+ * A catalog property's `hint` does not seed a form field. Supporting copy,
+ * answer requiredness, and validation are authored on fields in their
+ * workflow context and can legitimately differ between registration and
+ * later editing forms that write the same property.
  *
  * Case preload is NOT seeded here. A case-loading form's primary properties
  * are read back from the case at the wire layer — `xform/caseBlocks.ts`

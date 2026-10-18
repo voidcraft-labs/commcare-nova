@@ -43,9 +43,6 @@ describe("caseTypeRecordSchema", () => {
 					label: proseText("Client name"),
 					data_type: null,
 					hint: null,
-					required: null,
-					validation: null,
-					validation_msg: null,
 					options: null,
 				},
 			],
@@ -78,12 +75,8 @@ describe("caseTypeRecordSchema", () => {
 		).toBe(true);
 	});
 
-	it("rejects raw strings in typed prose and XPath slots", () => {
-		for (const overrides of [
-			{ label: "" },
-			{ hint: "" },
-			{ validation: "" },
-		] as const) {
+	it("rejects raw strings in typed prose slots", () => {
+		for (const overrides of [{ label: "" }, { hint: "" }] as const) {
 			const result = caseTypeRecordSchema.safeParse({
 				...validRecord,
 				properties: [{ name: "age", label: proseText("Age"), ...overrides }],
@@ -92,20 +85,24 @@ describe("caseTypeRecordSchema", () => {
 		}
 	});
 
-	it("rejects a validation_msg with no validation to accompany", () => {
-		const result = caseTypeRecordSchema.safeParse({
-			...validRecord,
-			properties: [
-				{
-					name: "age",
-					label: proseText("Age"),
-					validation_msg: proseText("Must be 0-150"),
-				},
-			],
-		});
-		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("validation");
-	});
+	it.each(["required", "validation", "validation_msg"])(
+		"rejects the retired catalog rule input %s, including explicit null",
+		(key) => {
+			for (const value of [
+				null,
+				key === "validation_msg" ? proseText("Enter an age.") : xp("true()"),
+			]) {
+				expect(
+					caseTypeRecordSchema.safeParse({
+						...validRecord,
+						properties: [
+							{ name: "age", label: proseText("Age"), [key]: value },
+						],
+					}).success,
+				).toBe(false);
+			}
+		},
+	);
 
 	it("rejects options on a non-select property — the live build's filler shape", () => {
 		const result = caseTypeRecordSchema.safeParse({
@@ -179,9 +176,6 @@ describe("cleanCaseTypeRecord", () => {
 					label: proseText("Age"),
 					data_type: "int",
 					hint: null,
-					required: xp("true()"),
-					validation: null,
-					validation_msg: null,
 					options: null,
 				},
 			],
@@ -197,7 +191,6 @@ describe("cleanCaseTypeRecord", () => {
 					name: "age",
 					label: proseText("Age"),
 					data_type: "int",
-					required: xp("true()"),
 				},
 			],
 		});

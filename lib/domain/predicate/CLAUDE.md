@@ -86,7 +86,12 @@ A `date-range` prompt is also target-type aware in Preview. CommCare represents 
 
 ## Named tool-schema definitions
 
-The AST family schemas carry registered ids (`z.globalRegistry.add`, end of `types.ts`), so every `z.toJSONSchema` emission — the SA tool wire, the MCP listing — extracts each one ONCE into `definitions` under a stable human name (`#/definitions/Predicate`, `Term`, `ValueExpression`, …) and `$ref`s it at every use site. Without the ids, each predicate-carrying tool re-inlines the term structure per operator arm (~28k tokens of duplication across the SA tool set) and the recursion-forced extractions get per-tool `__schemaN` names. Register via `globalRegistry.add` (attaches in place), never `.meta()` (clones, and double-serializes shared child nodes into stray micro-definitions). A new reused-or-recursive family member should get an id here too.
+The authoring projection (`lib/agent/authoring/schema.ts::authoringJsonSchema`)
+substitutes each family position with its family's string schema before Zod
+walks a tool's input, so the served bytes depend only on the authored surface
+and no change to this package moves them. The registry ids still name the
+leaves for any other `z.toJSONSchema` caller. Register via `globalRegistry.add`
+(attaches in place), never `.meta()`.
 
 ## Two simplification layers — opposite contracts
 

@@ -85,7 +85,7 @@ export const getCasePropertyTool = {
 
 export const updateCasePropertyTool = {
 	description:
-		"Edit one record property's wording, choices, or catalog rules. Omit settings to keep them; null clears optional settings. Existing form questions keep their own wording and rules. Property renames use renameCaseProperties; type conversions use editField.",
+		"Edit one record property's wording or choices. Omit settings to keep them; null clears optional settings. Existing form questions keep their own wording and rules. Property renames use renameCaseProperties; type conversions use editField.",
 	inputSchema: updateCasePropertyInputSchema,
 	async execute(
 		input: z.infer<typeof updateCasePropertyInputSchema>,
@@ -106,9 +106,17 @@ export const updateCasePropertyTool = {
 			}
 			// Check the complete resulting definition, including settings retained
 			// by a partial edit. The workspace still owns whole-app admission.
-			const property = casePropertySchema.parse(
-				casePropertyInputSchema.parse(merged),
-			);
+			const property = casePropertySchema.parse(merged);
+			// Stored catalog rules survive until the document-shape cutover, but
+			// no longer belong to authored input. Validate the retained authored
+			// settings too, including options against the property's stored type.
+			const {
+				required: _required,
+				validation: _validation,
+				validation_msg: _validationMsg,
+				...authored
+			} = property;
+			casePropertyInputSchema.parse(authored);
 			if (deepEqual(current, property))
 				return {
 					kind: "mutate" as const,

@@ -1,12 +1,9 @@
 /** Canonical commands over admitted documents and a controlled workspace host.
  * The actual gate and reducer run; persistence and SA/MCP transport are separate boundaries. */
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
-import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import {
 	mutationCommitVerdict,
 	type PreparedMutationCandidate,
@@ -440,25 +437,5 @@ describe("configureConnect exact target-state tool", () => {
 		expect(outcome.mutations).toEqual([]);
 		expect(harness.currentDoc()).toBe(doc);
 		expect(harness.recordMutations).not.toHaveBeenCalled();
-	});
-
-	it("emits an independently executable closed Connect schema", async () => {
-		const ajv = new Ajv({ strict: false });
-		addFormats(ajv);
-		const validate = ajv.compile(
-			await wireToolSchema(configureConnectInputSchema).jsonSchema,
-		);
-		const valid = {
-			mode: "learn",
-			participants: [{ formUuid: FIRST, connect: learnModule() }],
-		};
-		expect(validate(valid), JSON.stringify(validate.errors)).toBe(true);
-		expect(
-			validate({
-				...valid,
-				participants: [{ ...valid.participants[0], typo: true }],
-			}),
-		).toBe(false);
-		expect(validate({ ...valid, mode: "unknown" })).toBe(false);
 	});
 });
