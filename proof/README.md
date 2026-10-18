@@ -1391,8 +1391,10 @@ does not list them; their files remain available to the native reader.
 `targeted-list-first-places` adds a location question behind the list-first
 Web Apps search workflow. HQ's Case List save turns it into search-first
 (defect 21), which changes the runs that reach a location and the viewport
-each client replay uses. Its retained control holds those two proof 4
-classes beside the existing list-first symptoms.
+each client replay uses. Its retained control holds three proof 4 classes beside the existing list-first symptoms:
+added runs, changed viewport values, and a removed viewport member where the longer desktop
+run list displaces a small-screen run at the same position. The two viewport kinds are
+registered separately; R5 shows all three on the document and its unchanged control.
 
 To add one: write `proof/targeted/documents/<name>.ts` returning
 `targetedDocument({id, rows, doc, expected, ...})`, with its id
