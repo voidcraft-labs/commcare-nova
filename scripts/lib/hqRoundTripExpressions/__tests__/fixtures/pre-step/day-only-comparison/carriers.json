@@ -1,0 +1,33 @@
+{
+	"root": {
+		"app_name": "Day only comparison",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"patient\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}}]}]",
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "1cb018f7-15ee-5fba-87ce-0155d6b19447",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"1cb018f7-15ee-5fba-87ce-0155d6b19447\",\"id\":\"visit\",\"name\":\"Visit\",\"caseType\":\"patient\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"74ece789-a08c-5e9a-8c83-6df65c647962\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"74ece789-a08c-5e9a-8c83-6df65c647962\"],\"detailColumnOrder\":[\"74ece789-a08c-5e9a-8c83-6df65c647962\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "cbbc2726-cf65-5a56-83a5-3737229f789e",
+			"kind": "field",
+			"parent_uuid": "d567e0e0-867f-5db9-9c10-cfe1c3180fcd",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"cbbc2726-cf65-5a56-83a5-3737229f789e\",\"id\":\"day\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"instance('casedb')/casedb/case[@case_type='patient']/date_opened < now()\"}]}}"
+		},
+		{
+			"uuid": "d567e0e0-867f-5db9-9c10-cfe1c3180fcd",
+			"kind": "form",
+			"parent_uuid": "1cb018f7-15ee-5fba-87ce-0155d6b19447",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"d567e0e0-867f-5db9-9c10-cfe1c3180fcd\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\"}"
+		}
+	]
+}

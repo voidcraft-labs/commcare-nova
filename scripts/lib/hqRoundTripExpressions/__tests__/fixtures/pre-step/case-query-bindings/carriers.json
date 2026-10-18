@@ -1,0 +1,61 @@
+{
+	"root": {
+		"app_name": "Case query bindings",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"patient\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}},{\"name\":\"known\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Known\"}]}}]}]",
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "181237d8-12a6-5d7d-b373-611a7f1891fd",
+			"kind": "field",
+			"parent_uuid": "7e078101-6056-5d94-886a-cee7050b23e7",
+			"ordinal": 4,
+			"data_text": "{\"uuid\":\"181237d8-12a6-5d7d-b373-611a7f1891fd\",\"id\":\"selected\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"instance('commcaresession')/session/data/case_id\"}]}}"
+		},
+		{
+			"uuid": "2201cc53-6ef4-5c92-8b0b-866682678207",
+			"kind": "field",
+			"parent_uuid": "7e078101-6056-5d94-886a-cee7050b23e7",
+			"ordinal": 2,
+			"data_text": "{\"uuid\":\"2201cc53-6ef4-5c92-8b0b-866682678207\",\"id\":\"standard\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"instance('casedb')/casedb/case/@case_id\"}]}}"
+		},
+		{
+			"uuid": "5ae76c87-768b-51a2-ac22-f3735822e1f0",
+			"kind": "field",
+			"parent_uuid": "7e078101-6056-5d94-886a-cee7050b23e7",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"5ae76c87-768b-51a2-ac22-f3735822e1f0\",\"id\":\"typed\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"instance('casedb')/casedb/case[@case_type='patient']/known\"}]}}"
+		},
+		{
+			"uuid": "7e078101-6056-5d94-886a-cee7050b23e7",
+			"kind": "form",
+			"parent_uuid": "bd18bb62-c710-52bd-ba90-b00363bf2c8b",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"7e078101-6056-5d94-886a-cee7050b23e7\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "bd18bb62-c710-52bd-ba90-b00363bf2c8b",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"bd18bb62-c710-52bd-ba90-b00363bf2c8b\",\"id\":\"visit\",\"name\":\"Visit\",\"caseType\":\"patient\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"cdf22c81-2764-5468-b2ee-d12f01fde60f\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"cdf22c81-2764-5468-b2ee-d12f01fde60f\"],\"detailColumnOrder\":[\"cdf22c81-2764-5468-b2ee-d12f01fde60f\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "c500cfc8-799a-54e7-ae97-ee78f68db8cb",
+			"kind": "field",
+			"parent_uuid": "7e078101-6056-5d94-886a-cee7050b23e7",
+			"ordinal": 3,
+			"data_text": "{\"uuid\":\"c500cfc8-799a-54e7-ae97-ee78f68db8cb\",\"id\":\"by_id\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/known\"}]}}"
+		},
+		{
+			"uuid": "e23823eb-55eb-5d57-8584-3c70c7b94ec0",
+			"kind": "field",
+			"parent_uuid": "7e078101-6056-5d94-886a-cee7050b23e7",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"e23823eb-55eb-5d57-8584-3c70c7b94ec0\",\"id\":\"unique\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"instance('casedb')/casedb/case/known\"}]}}"
+		}
+	]
+}

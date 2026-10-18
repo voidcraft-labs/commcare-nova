@@ -1,0 +1,40 @@
+{
+	"root": {
+		"app_name": "Conflicting read types",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"patient\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}}]}]",
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "33e0c05d-4298-51ff-841f-44dfd08c7186",
+			"kind": "field",
+			"parent_uuid": "4ab8964f-b26d-532d-abac-d1dd0b63c4b0",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"33e0c05d-4298-51ff-841f-44dfd08c7186\",\"id\":\"moment\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"instance('casedb')/casedb/case[@case_type='patient']/unknown < now()\"}]}}"
+		},
+		{
+			"uuid": "4ab8964f-b26d-532d-abac-d1dd0b63c4b0",
+			"kind": "form",
+			"parent_uuid": "f3213531-cab3-5f6d-a112-d14268127771",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"4ab8964f-b26d-532d-abac-d1dd0b63c4b0\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "5e385481-c6f2-536c-9a48-4c3298ca63dc",
+			"kind": "field",
+			"parent_uuid": "4ab8964f-b26d-532d-abac-d1dd0b63c4b0",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"5e385481-c6f2-536c-9a48-4c3298ca63dc\",\"id\":\"number\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"instance('casedb')/casedb/case[@case_type='patient']/unknown + 1\"}]}}"
+		},
+		{
+			"uuid": "f3213531-cab3-5f6d-a112-d14268127771",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"f3213531-cab3-5f6d-a112-d14268127771\",\"id\":\"visit\",\"name\":\"Visit\",\"caseType\":\"patient\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"6c36f33f-f53b-5f3e-a65a-490a40e724e8\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"6c36f33f-f53b-5f3e-a65a-490a40e724e8\"],\"detailColumnOrder\":[\"6c36f33f-f53b-5f3e-a65a-490a40e724e8\"],\"searchInputs\":[]}}"
+		}
+	]
+}

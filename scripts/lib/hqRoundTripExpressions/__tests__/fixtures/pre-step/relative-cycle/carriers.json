@@ -1,0 +1,40 @@
+{
+	"root": {
+		"app_name": "Relative cycle",
+		"connect_type": null,
+		"case_types_text": null,
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "076fd419-7831-57a7-9b0a-08a31fd1aa7e",
+			"kind": "field",
+			"parent_uuid": "fb631c4b-732b-5f89-8894-7b05d1801068",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"076fd419-7831-57a7-9b0a-08a31fd1aa7e\",\"id\":\"second\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"../first\"}]}}"
+		},
+		{
+			"uuid": "24e9e433-0b85-5b2c-9726-906bf25cce54",
+			"kind": "field",
+			"parent_uuid": "fb631c4b-732b-5f89-8894-7b05d1801068",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"24e9e433-0b85-5b2c-9726-906bf25cce54\",\"id\":\"first\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"../second\"}]}}"
+		},
+		{
+			"uuid": "d9b1f3b1-66aa-5533-83ea-456714ac7e24",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"d9b1f3b1-66aa-5533-83ea-456714ac7e24\",\"id\":\"visit\",\"name\":\"Visit\"}"
+		},
+		{
+			"uuid": "fb631c4b-732b-5f89-8894-7b05d1801068",
+			"kind": "form",
+			"parent_uuid": "d9b1f3b1-66aa-5533-83ea-456714ac7e24",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"fb631c4b-732b-5f89-8894-7b05d1801068\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"survey\"}"
+		}
+	]
+}
