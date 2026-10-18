@@ -897,7 +897,7 @@ class Shape:
     readings: bool = False
     media: tuple = ()
     named: bool = True  # whether the class's entry names the key (False: a use of the class the check never sees)
-    case_types: dict | None = None  # declared types, supplied beside the recorded suite as a retained control's are
+    case_types: dict | None = None  # declared types, supplied beside the recorded export as a retained control's are
 
 
 def refused(export, source, key, where, **kw):
@@ -3183,6 +3183,48 @@ CASE_PROPERTY_SUITE = (
     )
     + "</session></entry></suite>"
 ).encode()
+# The same queries inside form logic must use their case row's declared types, rather than treating every
+# external read as unknown. Keep the case-property matrix identical across form and suite expressions.
+CASE_PROPERTY_FORM = _form(
+    data="".join(f"<query_{index}/>" for index in range(1, len(CASE_PROPERTY_PATHS) + 1)),
+    model="".join(
+        f'<bind nodeset="/data/query_{index}" calculate={quoteattr(f"count({path}) > 0")}/>'
+        for index, path in enumerate(CASE_PROPERTY_PATHS, start=1)
+    ),
+)
+CASE_QUERY_COUNT_FORM = _form(
+    data="<query/>",
+    model="""<bind nodeset="/data/query"
+      relevant="count(instance('casedb')/casedb/case[@case_type = 'visit'][count &lt; 2]) &gt; 0"/>""",
+)
+# A predicate's relative children belong to its own row, even when the outer bind's group contains children
+# with identical names and known numeric types. Unknown, nested and foreign rows must not borrow those types.
+CASE_PROPERTY_COLLISION_PATHS = (
+    "instance('casedb')/casedb/case[seen < due]",
+    "instance('casedb')/casedb/case[@case_type = 'unknown'][seen < due]",
+    "instance('casedb')/casedb/case[@case_type = 'visit'][count(child[seen < due]) > 0]",
+    "instance('casedb')/casedb/case[@case_type = 'visit']/child[seen < due]",
+    "instance('elsewhere')/casedb/case[@case_type = 'visit'][seen < due]",
+)
+CASE_PROPERTY_COLLISION_FORM = _form(
+    data="".join(
+        f"<query_{index}><seen/><due/></query_{index}>" for index in range(1, len(CASE_PROPERTY_COLLISION_PATHS) + 1)
+    ),
+    model="".join(
+        f'<bind nodeset="/data/query_{index}" relevant={quoteattr(f"count({path}) > 0")}/>'
+        for index, path in enumerate(CASE_PROPERTY_COLLISION_PATHS, start=1)
+    )
+    + "".join(
+        f'<bind nodeset="/data/query_{index}/{name}" type="xsd:int"/>'
+        for index in range(1, len(CASE_PROPERTY_COLLISION_PATHS) + 1)
+        for name in ("seen", "due")
+    ),
+    body="".join(
+        f'<group ref="/data/query_{index}"><input ref="/data/query_{index}/seen"/>'
+        f'<input ref="/data/query_{index}/due"/></group>'
+        for index in range(1, len(CASE_PROPERTY_COLLISION_PATHS) + 1)
+    ),
+)
 
 
 def _data_binds_and_itext():
@@ -3635,20 +3677,44 @@ def _data_binds_and_itext():
             unsettled("suite", SYSTEM_DATES_SUITE, "xpath-expr:XPathCmpExpr", "menu[2]/@relevant", readings=True),
             *(
                 Shape(
-                    "suite",
-                    CASE_PROPERTY_SUITE,
+                    export,
+                    source,
                     "xpath-expr:XPathCmpExpr",
-                    f"datum[{index}]/@nodeset",
+                    f"{element}[{index}]/@{attribute}",
                     verdict,
                     readings=True,
                     case_types=CASE_PROPERTY_TYPES,
+                )
+                for export, source, element, attribute in (
+                    ("suite", CASE_PROPERTY_SUITE, "datum", "nodeset"),
+                    ("form", CASE_PROPERTY_FORM, "bind", "calculate"),
                 )
                 for index, verdict in enumerate(
                     (True, True, False, False, None, None, None, False, None, None, None, None, True), start=1
                 )
             ),
+            accepted(
+                "form",
+                CASE_QUERY_COUNT_FORM,
+                "xpath-expr:XPathCmpExpr",
+                "bind[1]/@relevant",
+                readings=True,
+                case_types=CASE_PROPERTY_TYPES,
+            ),
+            *(
+                unsettled(
+                    "form",
+                    CASE_PROPERTY_COLLISION_FORM,
+                    "xpath-expr:XPathCmpExpr",
+                    f"bind[{index}]/@relevant",
+                    readings=True,
+                    case_types=CASE_PROPERTY_TYPES,
+                )
+                for index in range(1, len(CASE_PROPERTY_COLLISION_PATHS) + 1)
+            ),
             # An old control has no caseTypes metadata, so even the otherwise scoped read remains undecided.
             unsettled("suite", CASE_PROPERTY_SUITE, "xpath-token:LT", "datum[1]/@nodeset", readings=True),
+            unsettled("form", CASE_PROPERTY_FORM, "xpath-token:LT", "bind[1]/@calculate", readings=True),
             refused(
                 "suite",
                 CASE_PROPERTY_SUITE,
@@ -3736,7 +3802,8 @@ def _shape_uses(shape, manifest, readings=None):
         manifest_usage.app_json_uses(shape.source, manifest, artifact, found)
     else:
         manifest_usage.runtime_xml_uses(shape.source, "SuiteParser", manifest, artifact, found)
-        for document in found.documents:
+    for document in found.documents:
+        if isinstance(document, (classes.Form, classes.Runtime)):
             document.case_types = shape.case_types
     if readings is not None:
         manifest_usage.read_observed(found, manifest, readings)

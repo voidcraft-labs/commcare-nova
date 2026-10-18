@@ -1,4 +1,5 @@
 import {
+	nestedSessionReadFixture,
 	SESSION_READS,
 	sessionReadFixture,
 } from "@/lib/commcare/__tests__/sessionReadFixture";
@@ -8,7 +9,7 @@ import { restoreXml } from "../restore";
 
 function document(id: string, row: string, nested = false, linked = false) {
 	const intent: Expectation[] = (["local", "A"] as const).map((exportName) => ({
-		id: `selected-and-group-${exportName}`,
+		id: `selected-and-${nested ? "parent" : "group"}-${exportName}`,
 		export: exportName,
 		form: SESSION_READS.followup,
 		restore: "restore.xml",
@@ -18,10 +19,13 @@ function document(id: string, row: string, nested = false, linked = false) {
 				data: {
 					case_id: nested ? "selected-household" : "selected-visit",
 					...(nested ? { case_id_visit: "selected-visit" } : {}),
-					case_id_parent_ids: "selected-household",
+					...(!nested ? { case_id_parent_ids: "selected-household" } : {}),
 				},
 			},
-			expressions: ["/data/selected_id", "/data/group_parent_ids"],
+			expressions: [
+				"/data/selected_id",
+				nested ? "/data/parent_selected_id" : "/data/group_parent_ids",
+			],
 		},
 		expect: [
 			{ pointer: "/values/0/value", value: "selected-visit" },
@@ -31,7 +35,9 @@ function document(id: string, row: string, nested = false, linked = false) {
 	return targetedDocument({
 		id,
 		rows: [row],
-		doc: sessionReadFixture(nested, linked),
+		doc: nested
+			? nestedSessionReadFixture()
+			: sessionReadFixture(false, linked),
 		expected: { intent },
 		files: {
 			"restore.xml": restoreXml({

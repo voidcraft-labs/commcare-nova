@@ -116,6 +116,7 @@ class Form:
         self.artifact = artifact
         self.readings = None  # proof.checks.manifest_usage.Readings, once the check reads the observation's
         self.app_form = None  # (App, its form object) where an app JSON carries the form
+        self.case_types = None  # the document's declared types, or the optional metadata a control retained
 
     @cached_property
     def head(self):
@@ -4665,34 +4666,38 @@ def time_operand(use, manifest):
         return None
     context = _context_path(use)
     verdicts = set()
-    for node, case_type in _relational(tree):
-        verdicts |= {_time_kind(manifest, document, side, context, frozenset(), case_type) for side in node[2:]}
+    for node, case_type, in_predicate in _relational(tree):
+        verdicts |= {
+            _time_kind(manifest, document, side, context, frozenset(), case_type, in_predicate) for side in node[2:]
+        }
     if True in verdicts:
         return True
     return None if None in verdicts else False
 
 
-def _relational(tree, case_type=None):
+def _relational(tree, case_type=None, in_predicate=False):
     """Each relational comparison, and the case type a sibling predicate names where it is evaluated.
 
     A nested path establishes its own predicate context; an outer case's type never types a child node or a
-    different instance's properties. The observation records the instance argument before the step predicates.
+    different instance's properties. Nor can a predicate-relative read borrow a form bind's context:
+    Core's ``EvaluationContext.expandReference`` rescopes it to the candidate node. The observation records
+    the instance argument before the step predicates.
     """
     kind = tree[0]
     if kind == "binary":
         if tree[1] in ("<", "<=", ">", ">="):
-            yield tree, case_type
-        yield from _relational(tree[2], case_type)
-        yield from _relational(tree[3], case_type)
+            yield tree, case_type, in_predicate
+        yield from _relational(tree[2], case_type, in_predicate)
+        yield from _relational(tree[3], case_type, in_predicate)
     elif kind == "negative":
-        yield from _relational(tree[1], case_type)
+        yield from _relational(tree[1], case_type, in_predicate)
     elif kind == "call":
         for argument in tree[2]:
-            yield from _relational(argument, case_type)
+            yield from _relational(argument, case_type, in_predicate)
     elif kind == "path":
         scoped, first, end = _case_predicate_scope(tree)
         for index, predicate in enumerate(tree[3]):
-            yield from _relational(predicate, scoped if first <= index < end else None)
+            yield from _relational(predicate, scoped if first <= index < end else None, True)
 
 
 def _case_predicate_scope(tree):
@@ -4733,10 +4738,11 @@ def _context_path(use):
     return _node_path(form, form.node(at.element.get("nodeset")))
 
 
-def _time_kind(manifest, document, tree, context, seen, case_type=None):
+def _time_kind(manifest, document, tree, context, seen, case_type=None, in_predicate=False):
     """Whether a value is a time as a comparison reads it: True for a string holding ``:`` or a form node whose bind
     type is ``xsd:time`` (or whose calculate gives a time), False for a number, a date, a truth value or another
-    answer, None where this does not read it."""
+    answer, None where this does not read it. A case predicate reads the same ``CaseChildElement`` properties in
+    a form and a suite; its explicit case type and the document's catalog place a custom property's value."""
     kind = tree[0]
     if kind == "number":
         return False
@@ -4753,9 +4759,9 @@ def _time_kind(manifest, document, tree, context, seen, case_type=None):
         branches = arguments[1:] if name == "if" and len(arguments) == 3 else arguments if name == "coalesce" else None
         if not branches:
             return None
-        kinds = {_time_kind(manifest, document, branch, context, seen, case_type) for branch in branches}
+        kinds = {_time_kind(manifest, document, branch, context, seen, case_type, in_predicate) for branch in branches}
         return True if True in kinds else None if None in kinds else False
-    if kind == "path" and document.kind == "runtime":
+    if kind == "path" and (document.kind == "runtime" or case_type is not None):
         if _system_date_read(tree):
             return False
         property_name = _bare_read(tree, "child")
@@ -4764,8 +4770,11 @@ def _time_kind(manifest, document, tree, context, seen, case_type=None):
             return True  # Core reads a custom property's stored text; ':' makes FunctionUtils.toNumeric return NaN
         if data_type in ("date", "int", "decimal"):
             return False
-        return None
+        if document.kind == "runtime" or property_name is not None:
+            return None
     if kind == "path" and document.kind == "xform":
+        if tree[1] == "relative" and in_predicate:
+            return None  # this reader places only the explicitly typed case step's predicate-relative reads
         if tree[1] == "absolute":
             path = _resolved("/", tree[4])
         elif tree[1] in ("relative", "call:current") and context is not None:

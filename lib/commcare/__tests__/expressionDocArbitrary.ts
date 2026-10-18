@@ -4,6 +4,7 @@
 import * as fc from "fast-check";
 import {
 	type BlueprintDoc,
+	calculatedColumn,
 	type Field,
 	fieldKindCarriesValidation,
 	type Uuid,
@@ -11,6 +12,7 @@ import {
 import {
 	and,
 	arith,
+	dateCoerce,
 	dateLiteral,
 	datetimeLiteral,
 	type Expression,
@@ -18,6 +20,7 @@ import {
 	eq,
 	formField,
 	gt,
+	ifExpr,
 	input,
 	literal,
 	lt,
@@ -87,7 +90,18 @@ function read(field: Field, plan: Plan): Expression {
 		...(plan.spelling === undefined ? {} : { spelling: plan.spelling }),
 	});
 }
-function compare(plan: Plan, left: Expression, right: Expression): Expression {
+function compare(
+	plan: Plan,
+	left: Expression,
+	right: Expression,
+	datetime = false,
+): Expression {
+	// PR5–7 stage datetime comparisons as explicit day comparisons. PR8 removes
+	// this map when instant lowering lands; draws and source types stay.
+	if (datetime) {
+		left = dateCoerce(left);
+		right = dateCoerce(right);
+	}
 	return plan.operator % 3 === 0
 		? eq(left, right)
 		: plan.operator % 3 === 1
@@ -303,7 +317,7 @@ function applyPlan(doc: BlueprintDoc, plan: Plan): Landing | undefined {
 				form,
 				field.kind === "text"
 					? eq(read(field, plan), right)
-					: compare(plan, read(field, plan), right),
+					: compare(plan, read(field, plan), right, field.kind === "datetime"),
 				"boolean",
 				field,
 			);
@@ -331,9 +345,11 @@ function applyPlan(doc: BlueprintDoc, plan: Plan): Landing | undefined {
 					doc,
 					plan,
 					form,
-					eq(
+					compare(
+						{ ...plan, operator: 0 },
 						read(field, { ...plan, spelling: "relative" }),
 						read(field, { ...plan, spelling: "relative" }),
+						field.kind === "datetime",
 					),
 					"boolean",
 					field,
@@ -437,6 +453,7 @@ function applyPlan(doc: BlueprintDoc, plan: Plan): Landing | undefined {
 						plan,
 						read(field, plan),
 						field.kind === "date" ? today() : now(),
+						field.kind === "datetime",
 					),
 					"boolean",
 					field,
@@ -454,6 +471,7 @@ function applyPlan(doc: BlueprintDoc, plan: Plan): Landing | undefined {
 					plan,
 					term({ kind: "form-case", caseType: type, property: "last_seen" }),
 					now(),
+					true,
 				),
 				"boolean",
 			);
@@ -508,12 +526,50 @@ function applyPlan(doc: BlueprintDoc, plan: Plan): Landing | undefined {
 							plan,
 							term(prop(type, "last_seen")),
 							term(datetimeLiteral("2026-01-02T09:00:00Z")),
+							true,
 						)
 					: compare(
 							plan,
 							term(prop(type, "visit_date")),
 							term(dateLiteral("2026-01-02")),
 						);
+			if (plan.operator % 2 === 0) {
+				// A filter must also fit CSQL's bare-property query anchor. A
+				// calculated column can carry this comparison in a value's condition.
+				const target = pick(
+					module.caseListConfig.columns.filter(
+						(column) =>
+							module.caseListConfig?.tile === undefined ||
+							column.visibleInList !== false ||
+							column.sort === undefined,
+					),
+					plan.slot,
+				);
+				if (!target) return undefined;
+				const expression = ifExpr(
+					value,
+					target.kind === "calculated"
+						? target.expression
+						: term(literal("matches")),
+					term(literal("")),
+				);
+				module.caseListConfig.columns = module.caseListConfig.columns.map(
+					(column) =>
+						column.uuid === target.uuid
+							? calculatedColumn(target.uuid, target.header, expression, target)
+							: column,
+				);
+				return {
+					shape: plan.shape,
+					slot: {
+						entity: "module",
+						uuid: module.uuid,
+						slot: "case_list_column_expression",
+						member: { columnUuid: target.uuid },
+					},
+					expression: value,
+				};
+			}
 			module.caseListConfig.filter = module.caseListConfig.filter
 				? and(module.caseListConfig.filter, value)
 				: value;

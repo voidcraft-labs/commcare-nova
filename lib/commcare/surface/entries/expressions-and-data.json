@@ -3202,9 +3202,8 @@
 		"item": "`here()` in a case-list calculated column or sort",
 		"surfaceKeys": ["jr-handler:here"],
 		"valueClass": "case-list-row-context",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: row-context `here()`",
-		"slotChanges": [],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: row-context `here()` (admission and authoring land in pull request 6)",
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE in case-list rows and sorts (Core's São Paulo placeholder, `EntityScreen`), RUNS in the case detail with the browser's location, blank until granted (`MenuSessionRunnerService`, `FormplayerHereFunctionHandler`) / RUNS",
@@ -3630,7 +3629,7 @@
 			}
 		},
 		"emission": {
-			"cell": "HQ hashtags + expanded paths, the `#case/parent/` or `#case/grandparent/` hashtag only where HQ's parent-type map gives the case type that ancestor (`app_schemas/case_properties.py::get_parent_type_map`, from basic child-case actions and indexed advanced open actions in the app and its case-sharing apps), and otherwise the expanded path alone: a Vellum save writes a hashtag its schema does not know into the XForm unexpanded, which Core cannot parse, and keeps an expanded path (executed); Nova's XForms carry only `#case/<prop>` hashtags, on follow-up and close forms, and the expanded path alone for an ancestor (`lib/commcare/hashtags/formContext.ts::vellumShorthandInContext`), and HQ's parent-type map counts only indices named `parent` (`app_schemas/casedb_schema.py`)",
+			"cell": "HQ hashtags + expanded paths, the `#case/parent/` or `#case/grandparent/` hashtag only where HQ's parent-type map gives the case type that ancestor (`app_schemas/case_properties.py::get_parent_type_map`, from basic child-case actions and indexed advanced open actions in the app and its case-sharing apps), and otherwise the expanded path alone: a Vellum save writes a hashtag its schema does not know into the XForm unexpanded, which Core cannot parse, and keeps an expanded path (executed); Nova's XForms carry expanded paths alone for module and ancestor case reads (`lib/commcare/xpath/wire/fromExpression.ts::term` marks the case expansion and `wire/serialize.ts::shadowEligibility` withholds its Vellum shadow), and HQ's parent-type map counts only indices named `parent` (`app_schemas/casedb_schema.py`)",
 			"markers": []
 		},
 		"gates": []

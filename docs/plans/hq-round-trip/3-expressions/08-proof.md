@@ -60,7 +60,9 @@ R3's and R4's served verdicts are in (§6.4); R5 runs at pull request 5's branch
    closed instant range ends the search error, and its walk stop becomes its control's there;
    `OPEN_DEFECTS` drops 75 in the same pull request, and `test_every_live_defect_is_a_later_steps`
    asserts `step > 3`. The text equality of finding 75's HQ half is part 06's `csql` family scenario
-   `datetime-equality`, in pull request 10.
+   `datetime-equality`, in pull request 10. Pull request 5 also moves defect 25's one
+   `model-iteration-reading-a-blank-answer` entry: its identity gate refuses the old edit that
+   strands a repeat-row read (§3.7). Defect 25's other entries and `OPEN_DEFECTS` `25: 5` stay.
 6. **`targeted-datetime-ordering` stays admitted and unchanged.** Settled by reading (§3.2): its
    hidden values are `datetime` by inference from `#visit/seen` and `#visit/due` and held as text
    under their `xsd:string` bind (binds keep today's rule, part 03 §5.2), its two orderings are
@@ -95,7 +97,7 @@ R3's and R4's served verdicts are in (§6.4); R5 runs at pull request 5's branch
     text leaves unchanged); `targeted-expression-renames` carries an edit so proof 5 holds the
     reference index complete over every new reader, and the rename itself is held by part 02's
     gate tests.
-12. **Step 3 adds nine targeted documents** (§4.5), among them part 06's
+12. **Step 3 adds thirteen targeted documents** (§4.5), among them part 06's
     `targeted-datetime-equality` for finding 75 and `targeted-list-first-places` for defect 21's
     entries of §3.3. Each has explicit identities and values fixed by
     hand, and each lands in the pull request whose feature it shows: `targeted-session-reads` in
@@ -141,12 +143,12 @@ At `5cf6e327`:
 
 | Thing | At the base | What step 3 owns |
 |---|---|---|
-| `proof/known-defects.json` | 282 live entries | finding 56's two: `d56-datetime-ordering-evaluate-answers`, `d56-datetime-ordering-evaluate-case-text`, both intent, both on document and control `targeted-datetime-ordering`; the eleven pull request 1 adds, finding 56's five on `targeted-datetime-operands` (three `intent`, two `manifest`) and finding 75's six on `targeted-datetime-equality` (two `intent` for the device half, four `proof3` and `proof4` for the search error, §3.2, §7); and the two pull request 5 adds under defect 21, on `targeted-list-first-places`, which stay live for step 5 (§3.3) |
-| `proof/fixed-defects.json` | 720 entries on 85 controls | none |
+| `proof/known-defects.json` | 282 live entries | finding 56's two: `d56-datetime-ordering-evaluate-answers`, `d56-datetime-ordering-evaluate-case-text`, both intent, both on document and control `targeted-datetime-ordering`; the eleven pull request 1 adds, finding 56's five on `targeted-datetime-operands` (three `intent`, two `manifest`) and finding 75's six on `targeted-datetime-equality` (two `intent` for the device half, four `proof3` and `proof4` for the search error, §3.2, §7); the two pull request 5 adds under defect 21, on `targeted-list-first-places`, which stay live for step 5 (§3.3); and defect 25's one `d25-query-repeat-form-model-iteration-reading-a-blank-answer` entry, moved in pull request 5 (§3.7) |
+| `proof/fixed-defects.json` | 720 entries on 85 controls | the existing entries stay; gains defect 25's one in pull request 5, finding 56's seven and finding 75's device half's two in pull request 8, and finding 75's four search entries in pull request 10 |
 | `proof/controls/` | 105 directories | three: `targeted-datetime-operands` and `targeted-datetime-equality`, retained in pull request 1, and `targeted-list-first-places`, retained in pull request 5 |
 | `proof/walk-stops.json` | 29 entries | six: finding 72's five (`fuzz-suite-20260930-5`, `fuzz-suite-20260930-8`, `fuzz-xform-20260930-0`, `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`, all `notification:value-could-not-be-loaded-into-question`) and finding 73's one (`expander-output-references-in-labels-lowers-several-typed-e72b42c4-0`, `notification:invalid-data-type-in-setvalue-event-targetting`), all removed in pull request 5, the shape; and the one pull request 1 adds, Formplayer's `notification:n-internal-server-error` on `targeted-datetime-equality` (finding 75's search error), which pull request 10 turns into its control's (§3.2): 30 after pull request 1, 24 from pull request 5 to the exit |
 | `proof/checks/registers.py::OPEN_DEFECTS` | `{20: 4, 21: 5, 23: 5, 24: 5, 25: 5, 26: 5, 27: 5, 28: 5, 30: 5, 56: 3}` | `56: 3`, which leaves in pull request 8, and `75: 3`, which pull request 1 adds and pull request 10 removes |
-| Corpus | 371 documents | every one, because the stored shape changes; plus nine targeted documents (§4.5) and eight fuzz documents (§4.3) |
+| Corpus | 371 documents | every one, because the stored shape changes; plus thirteen targeted documents (§4.5) and eight fuzz documents (§4.3) |
 
 Three neighbouring stops are not step 3's and stay: `targeted-datetime-ordering`'s
 `submit-refused:validation-error` (finding 74, step 4), `fuzz-suite-20260930-8`'s `search-refused`,
@@ -421,14 +423,31 @@ declared `DOCUMENTS` for those three target trees; the regression holds their ef
 package key when a sampled index omits them. The dependency list stays limited to the trees this
 reader uses.
 
+The native witnesses cover the datum families together. The nested-menu target
+reads its selected parent and the selected child whose datum is renamed during
+menu alignment, plus the created primary case, created child case and worker
+record. The form-link target holds the create-to-selection transfer and its
+grouped-parent read; the tile target computes and reads the grouping companion.
+These are separate entry shapes, not a requirement to combine nested selection
+and grouped tiles in one entry. Each named read remains an explicit Core
+assertion against the actual local archive and HQ-regenerated form.
+The separate `targeted-session-reads` document retains all five datum kinds:
+its grouped read lives in a flat grouped entry, while its selected-parent
+entry gains a parent menu in D′. The edit renames both selected datums without
+changing the grouped entry, so all five reads stay present on both documents.
+
 ### 2.7 Cost
 
-`proof/native` is 15.9 box-seconds in the `no-readers` profile (`proof/timings.json`). The seven
-zone JVMs add their class runs: measured at 3.4 to 3.7 seconds each with the probe's cost loops,
-so at most about 26 worker-seconds, 6.5 box-seconds, about 22 in all. The longest group a lane
-runs stays under the 215 seconds of a worker that bounds a shard, so no shard count moves. A pull
-request that changes only the family is the 8.7-minute row ("A harness file no document's key
-names").
+The measured `no-readers` profile now records `proof/native` at 19.2 box-seconds and
+`proof/core` at 6.5, 25.7 together (`proof/timings.json`). These are observations from all
+15 shards of run 39126473734 on 2026-10-18, with four workers per box; the zoned JVMs are
+already included, so the planning probe's estimated 6.5 box-seconds is not added again.
+The run completed its observations but its gate reported failing judgments: the measurements
+hold elapsed work, not a passing verdict. Its longest group, `proof/checks`, took 65.0
+box-seconds, 260.1 worker-seconds, so the planning estimate that every group stays below
+215 worker-seconds no longer holds. The 8.7-minute harness-only row and 14-shard full-lane
+row of §6 remain the planning cost model; this measurement changes no authored execution
+budget, shard limit or runner configuration.
 
 ---
 
@@ -676,8 +695,8 @@ new print") at the commit gate, the boundary where the defect lives.
 
 | Register | Base | Exit |
 |---|---|---|
-| Live entries | 282 | 282 (pull request 1 adds eleven, 56's five and 75's six; pull request 5 adds defect 21's two of §3.3, which stay live for step 5; pull request 8 moves nine, 56's seven, the base's two among them, and 75's device half's two; pull request 10 moves 75's four search entries; 293 live after pull request 1, 295 after pull request 5, 286 after pull request 8) |
-| Fixed entries | 720 | 733 (729 after pull request 8) |
+| Live entries | 282 | 281 (pull request 1 adds eleven, 56's five and 75's six; pull request 5 adds defect 21's two of §3.3, which stay live for step 5, and moves defect 25's one of §3.7; pull request 8 moves nine, 56's seven, the base's two among them, and 75's device half's two; pull request 10 moves 75's four search entries; 293 live after pull request 1, 294 after pull request 5, 285 after pull request 8) |
+| Fixed entries | 720 | 734 (721 after pull request 5, 730 after pull request 8) |
 | Controls | 105 | 108 (`targeted-datetime-operands`, `targeted-datetime-equality`, `targeted-list-first-places`) |
 | Walk stops | 29 | 24 (pull request 1 adds finding 75's search error on `targeted-datetime-equality`, 30; pull request 5 removes six, 24; pull request 10 turns the added one into its control's, §3.2), plus any stop a reader run shows on a new document or past an opened form (§3.3, §6.4) |
 | `OPEN_DEFECTS` | ten defects | nine, every one a later step's: its values are steps, not entry counts, so `75: 3` (six entries) enters in pull request 1, `56: 3` leaves in pull request 8, and `75: 3` leaves in pull request 10 with the last of its entries |
@@ -735,6 +754,30 @@ count stops the cutover until the author resolves it in the app (part 09 §11).
 No item reaches the lane: a lifted document the gate refuses never commits, and an admitted one is
 an ordinary document whose shape the corpus's sources already write.
 
+### 3.7 Defect 25: the unsafe repeat conversion is refused in pull request 5
+
+The one entry `d25-query-repeat-form-model-iteration-reading-a-blank-answer` moves from
+`known-defects.json` to `fixed-defects.json` in pull request 5. Its check (`manifest`), artifact
+(`*form:*`), path (`/vellum-markup:model~1instance~1~1*@vellum:role/refused/model-iteration-reading-a-blank-answer`)
+and retained control (`container-nested-query`) stay unchanged; only its `document` key leaves.
+The control's D′ still shows the registered class, whose observed kind is `refused`.
+
+The old D′ batch converted the outer query repeat `items` into a group. That strands the
+`child_ids` calculation's `current()/..` read of the outer repeat's row id. With the read stored
+as `repeat-row` identity, the production commit gate refuses that exact batch with `INVALID_REF`
+(`unknown-form-field`, `dangling-identity`), before it can remove the repeat. The corpus edit
+planner therefore takes its next admitted `convertField` candidate, preserving its edit kind
+without creating that invalid D′. The old batch and the stranded reader are held by the
+production gate's regression; the frozen control retains the pre-fix witness.
+
+This is a per-entry gate effect of the shape cutover, not a change to HQ's behavior or to the
+manifest recognizer. The recognizer and the old emitter's `xforms-ready` / `jr-insert` choice
+already had these semantics when the entry was introduced. Defect 25's other entries and
+`OPEN_DEFECTS` `25: 5` remain for their owning step. A register entry moves when its documented
+repair removes the observed symptom from its named admitted document and the symptom still
+appears on its retained control; a defect number's later owning step does not keep that fixed
+entry live.
+
 ---
 
 ## 4. The corpus
@@ -791,6 +834,24 @@ mapped onto the drawn document, as `sessionReadDocArbitrary` composes `blueprint
 plan draws a slot, a shape, an operator, a spelling and index picks; the map resolves the picks
 modulo what the drawn document holds and builds the expression with the union's builders, typed by
 construction. A plan that finds no target is skipped and draws nothing more. Its shapes:
+
+**Implementation decision, 2026-10-18:** the datetime-comparison plans retain their
+drawn operands, source types and identities, but pull requests 5 through 7
+wrap **both operands** in `date-coerce`. This stages them as explicit day comparisons
+while finding 56's instant lowering is still absent. It changes no random draw, skips no
+plan and adds no register exception. Datetime record plans select an existing column with
+the drawn slot index and make it calculated, preserving its UUID, header, sort, visibility
+and tile slots. A hidden sorted column in a tile is excluded because a calculation cannot
+carry that order rule; the suite always keeps another shown column. The comparison
+becomes an `if` condition yielding text; an existing
+calculated expression stays in the then branch, preserving earlier landed comparisons.
+This permanent destination follows the table below: a calculated column admits the
+comparison, while a filter must also fit CSQL's bare-property query anchor and cannot
+wrap that property in `date-coerce`. Date record plans remain in the filter. Pull request
+8 removes the staging coercions when its instant lowering lands, so the same plans then
+compare the original datetime operands in the same calculated columns.
+`expressionSample.test.ts` holds the staged form and record comparisons to their date
+types while also proving that the underlying reads remain datetime-typed.
 
 | Shape | Builds | Slots |
 |---|---|---|
@@ -1039,6 +1100,10 @@ and `CSQL_FAMILIES` already record `csql-unit:<unit>` and `csql-metadata:<name>`
 ## 6. CI cost and the stack's order
 
 ### 6.1 The rows (`proof/README.md`, "Timings and what the lane is expected to take")
+
+The rows and stack arithmetic below are the planning baseline, not a new timing measurement.
+Pull request 5's measured refresh (§2.7) used 15 shards; it updates observed group costs only
+and leaves the authored execution settings unchanged.
 
 | The change | Groups | Shards | Expected end |
 |---|---|---|---|
@@ -1474,7 +1539,8 @@ served entries and its stop to the run with every reader.
   `proof/targeted/documents/expressionRenames.ts` and `sessionReads.ts` (the five `DatumRef`
   reads and their edit), `proof/targeted/documents/searchApps.ts` (`listFirstPlaces()`, new),
   `proof/targeted/index.ts`, `proof/controls/targeted-list-first-places/` (new),
-  `proof/known-defects.json` (defect 21's two entries), `proof/formplayer/walk.py` (`_fill` and
+  `proof/known-defects.json` (defect 21's two entries and defect 25's one moved),
+  `proof/fixed-defects.json` (that one defect-25 entry, §3.7), `proof/formplayer/walk.py` (`_fill` and
   `_reconcile`: no value sent that the question already holds) and `proof/formplayer/test_walk.py`,
   `proof/timings.json` (the new document and control), `proof/walk-stops.json` (six entries
   removed, 30 to 24), `proof/rules/conftest.py::DOCUMENTS` (only if a rule's reader test needs a
@@ -1539,12 +1605,13 @@ served entries and its stop to the run with every reader.
   `_instance_uses`.
 - `unzip` over the corpus's local archives for every `jr://fixture/locations` declaration: one, in
   `location-direct/local.ccz`'s `modules-0/forms-0.xml` (§5.2).
-- A read of `proof/timings.json`'s two profiles: `proof/native` 15.9 box-seconds without the
-  readers; `targeted-datetime-ordering` 8.5 and its control 7.4; finding 72's and 73's documents
+- At the planning baseline, a read of `proof/timings.json`'s two profiles: `proof/native` 15.9
+  box-seconds without the readers; `targeted-datetime-ordering` 8.5 and its control 7.4; finding 72's and 73's documents
   4.6 to 60 without the readers and 252 to 2,079 with them; fuzz documents 15.6 and 1,062 at the
   median; targeted 4.3 and 475; the cheapest edited documents with every reader
   `expander-empty-container-expansion-emits-an-empty-group-86a5cfc1-0` (3.3) and
   `navigation-conditions` (4.3).
+  Pull request 5's subsequent measured refresh is recorded in §2.7.
 - Read at the pins for this part: commcare-core `DateUtils.java::setTimezoneProvider`, `::timezone`,
   `EPOCH_DATE`, `::fractionalDaysSinceEpoch`; formplayer `BrowserValuesProvider.java`,
   `SetBrowserValuesAspect.java`; commcare-hq `form_processor/utils/xform.py::adjust_datetimes`.

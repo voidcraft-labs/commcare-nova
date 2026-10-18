@@ -176,8 +176,8 @@ export function caseRowToFormPreload(row: CaseRow): Map<string, string> {
  * depth d the (d−1)-th ancestor — flattened through
  * `caseRowToFormPreload`.
  *
- * Positional binding is the wire's semantic: `expandCaseToWire`
- * turns `#<type>/<prop>` into a blueprint-fixed
+ * Positional binding is the wire's semantic: typed form-case reads
+ * emit a blueprint-fixed
  * `index/parent × depth` casedb walk with NO case-type filter, so
  * when the live parent chain doesn't mirror the blueprint's
  * `parent_type` chain (a re-parented row, data predating a

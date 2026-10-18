@@ -2086,7 +2086,7 @@ def manifest_differences(document, records, manifest: Manifest | None = None):
     manifest = manifest or load_manifest()
     found = export_uses(document, records, manifest)
     for exported in found.documents:
-        if isinstance(exported, Runtime):
+        if isinstance(exported, (Form, Runtime)):
             exported.case_types = document.case_types(edit=exported.artifact.startswith("edit/"))
     return (
         unclassified(document.id, found.uses, manifest)

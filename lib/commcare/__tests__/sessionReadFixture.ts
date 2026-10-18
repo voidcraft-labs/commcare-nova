@@ -10,6 +10,8 @@ export const SESSION_READS = {
 	module: uuid("visits"),
 	followup: uuid("followup"),
 	registration: uuid("registration"),
+	groupedModule: uuid("grouped-visits"),
+	groupedFollowup: uuid("grouped-followup"),
 } as const;
 
 const read = (id: string, datum: DatumRef) =>
@@ -45,6 +47,40 @@ const list = (name: string, grouped = false) => {
 
 /** Every identity is explicit: adding this scenario consumes no fixture draws. */
 export function sessionReadFixture(nested = false, linked = false) {
+	return buildSessionReadFixture({ nested, linked, parentSelection: false });
+}
+
+/** The nested witness follows a selected parent into its selected child.
+ * Grouped-parent reads have their own standalone tile witness. */
+export function nestedSessionReadFixture() {
+	return buildSessionReadFixture({
+		nested: true,
+		linked: false,
+		parentSelection: true,
+	});
+}
+
+/** All datum kinds, with a flat grouped entry beside the selected-parent flow. */
+export function sessionIdentityFixture(nested = false) {
+	return buildSessionReadFixture({
+		nested,
+		linked: false,
+		parentSelection: true,
+		standaloneGrouping: true,
+	});
+}
+
+function buildSessionReadFixture({
+	nested,
+	linked,
+	parentSelection,
+	standaloneGrouping = false,
+}: {
+	readonly nested: boolean;
+	readonly linked: boolean;
+	readonly parentSelection: boolean;
+	readonly standaloneGrouping?: boolean;
+}) {
 	return buildDoc(
 		{
 			appId: "targeted-session-reads",
@@ -75,7 +111,7 @@ export function sessionReadFixture(nested = false, linked = false) {
 					uuid: SESSION_READS.module,
 					name: "Visits",
 					caseType: "visit",
-					caseListConfig: list("visit", true),
+					caseListConfig: list("visit", !parentSelection),
 					forms: [
 						{
 							uuid: SESSION_READS.followup,
@@ -86,10 +122,15 @@ export function sessionReadFixture(nested = false, linked = false) {
 									kind: "selected-case",
 									module: SESSION_READS.module,
 								}),
-								read("group_parent_ids", {
-									kind: "tile-group-parents",
-									module: SESSION_READS.module,
-								}),
+								parentSelection
+									? read("parent_selected_id", {
+											kind: "selected-case",
+											module: SESSION_READS.root,
+										})
+									: read("group_parent_ids", {
+											kind: "tile-group-parents",
+											module: SESSION_READS.module,
+										}),
 								f({
 									uuid: uuid("followup-note"),
 									kind: "text",
@@ -164,6 +205,39 @@ export function sessionReadFixture(nested = false, linked = false) {
 					caseListConfig: list("note"),
 					forms: [],
 				},
+				...(standaloneGrouping
+					? [
+							{
+								uuid: SESSION_READS.groupedModule,
+								name: "Visits by household",
+								caseType: "visit",
+								caseListConfig: list("standalone-visit", true),
+								forms: [
+									{
+										uuid: SESSION_READS.groupedFollowup,
+										name: "Read grouped visit",
+										type: "followup" as const,
+										fields: [
+											read("group_selected_id", {
+												kind: "selected-case",
+												module: SESSION_READS.groupedModule,
+											}),
+											read("group_parent_ids", {
+												kind: "tile-group-parents",
+												module: SESSION_READS.groupedModule,
+											}),
+											f({
+												uuid: uuid("group-followup-note"),
+												kind: "text",
+												id: "group_note",
+												label: "Grouped visit note",
+											}),
+										],
+									},
+								],
+							},
+						]
+					: []),
 			],
 		},
 		(doc) => {
@@ -179,6 +253,9 @@ export function sessionReadFixture(nested = false, linked = false) {
 			doc.userPropertyOrder = [property];
 			if (nested)
 				doc.modules[SESSION_READS.module].parentModuleUuid = SESSION_READS.root;
+			if (parentSelection)
+				doc.modules[SESSION_READS.module].parentCaseModuleUuid =
+					SESSION_READS.root;
 		},
 	);
 }

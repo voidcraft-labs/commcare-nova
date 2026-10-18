@@ -18,7 +18,6 @@ import {
 	expandAppShell,
 	expandDoc as projectUncheckedDoc,
 } from "@/lib/commcare/expander";
-import { expandCaseToWire } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
@@ -2280,7 +2279,9 @@ describe("#form/ hashtag expansion", () => {
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
 		const bind = one(xform, "bind", { nodeset: "/data/mother_code" });
-		expect(bind.attribs.calculate).toBe(expandCaseToWire(1, "household_code"));
+		expect(bind.attribs.calculate).toBe(
+			"instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/parent]/household_code",
+		);
 		expect(bind.attribs["vellum:calculate"]).toBeUndefined();
 		expect(one(xform, "instance", { id: "casedb" }).attribs.src).toBe(
 			"jr://instance/casedb",
@@ -2337,7 +2338,10 @@ describe("#form/ hashtag expansion", () => {
 			"Code: ",
 			{
 				element: "output",
-				attributes: { value: expandCaseToWire(1, "household_code") },
+				attributes: {
+					value:
+						"instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/parent]/household_code",
+				},
 			},
 		]);
 		expect(one(xform, "instance", { id: "casedb" }).attribs.src).toBe(
@@ -2402,7 +2406,7 @@ describe("#form/ hashtag expansion", () => {
 		).toMatchObject({
 			relevant:
 				"/data/selected_medication != '' and contains(lower-case(" +
-				expandCaseToWire(0, "allergen") +
+				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/allergen" +
 				"), 'penicillin')",
 		});
 		// The shadow carries `#form/` alone, so an expression that reads a case
@@ -2582,7 +2586,10 @@ describe("#form/ hashtag expansion", () => {
 			"Must match ",
 			{
 				element: "output",
-				attributes: { value: expandCaseToWire(1, "household_code") },
+				attributes: {
+					value:
+						"instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/parent]/household_code",
+				},
 			},
 		];
 		expect(
@@ -2592,7 +2599,9 @@ describe("#form/ hashtag expansion", () => {
 		).toEqual(["plain", "markdown"].map((form) => ({ form, parts })));
 		expect(
 			one(xform, "bind", { nodeset: "/data/code" }).attribs["jr:constraintMsg"],
-		).toContain(expandCaseToWire(1, "household_code"));
+		).toContain(
+			"instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/parent]/household_code",
+		);
 		expect(one(xform, "instance", { id: "casedb" }).attribs.src).toBe(
 			"jr://instance/casedb",
 		);

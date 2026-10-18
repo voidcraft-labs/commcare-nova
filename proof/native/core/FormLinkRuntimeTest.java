@@ -26,7 +26,7 @@ public class FormLinkRuntimeTest {
         var document = SessionReadAssertions.targeted("form-link", "targeted-form-link-session-reads");
         for (boolean hq : new boolean[]{false, true}) {
             SessionReadAssertions.createdAndWorker(document, hq, false, true);
-            SessionReadAssertions.selectedAndGroup(document, hq, false);
+            SessionReadAssertions.selectedAndGroup(document, hq);
         }
     }
     private static final class Parser extends SuiteParser {

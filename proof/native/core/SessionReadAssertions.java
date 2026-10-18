@@ -155,13 +155,23 @@ final class SessionReadAssertions {
         }
     }
 
-    static void selectedAndGroup(Path base, boolean hq, boolean nested) throws Exception {
+    static void selectedAndGroup(Path base, boolean hq) throws Exception {
         CommCareSession session = session(base, hq, "m1-f0");
         Runtime runtime = new Runtime(session);
-        supply(session, runtime, nested);
+        supply(session, runtime, false);
         FormDef form = form(base, hq, 0, runtime);
         assertEquals(base + " selected case hq=" + hq, "selected-visit", read(form, "string(/data/selected_id)"));
         assertEquals(base + " group parents hq=" + hq, "selected-household", read(form, "string(/data/group_parent_ids)"));
-        if (nested) assertEquals("selected-visit", session.getData().get("case_id_visit"));
+    }
+
+    static void selectedAndParent(Path base, boolean hq) throws Exception {
+        CommCareSession session = session(base, hq, "m1-f0");
+        Runtime runtime = new Runtime(session);
+        supply(session, runtime, true);
+        FormDef form = form(base, hq, 0, runtime);
+        assertEquals(base + " selected child hq=" + hq, "selected-visit", read(form, "string(/data/selected_id)"));
+        assertEquals(base + " selected parent hq=" + hq, "selected-household", read(form, "string(/data/parent_selected_id)"));
+        assertEquals("selected-household", session.getData().get("case_id"));
+        assertEquals("selected-visit", session.getData().get("case_id_visit"));
     }
 }

@@ -235,8 +235,9 @@ function renameWitness(properties: boolean) {
 		restore: "restore.xml",
 		request: {
 			session: { command: "m0-f0", data: { case_id: "visit-a" } },
-			answers: [{ path: "/data/visits[1]/q", value: "Baraka" }],
-			constraintChecks: [{ path: "/data/visits[1]/q", value: "blocked" }],
+			// Core's concrete question path positions every non-root step.
+			answers: [{ path: "/data/visits[1]/q[1]", value: "Baraka" }],
+			constraintChecks: [{ path: "/data/visits[1]/q[1]", value: "blocked" }],
 			expressions: [
 				"/data/absolute",
 				"/data/status",
@@ -253,7 +254,10 @@ function renameWitness(properties: boolean) {
 			],
 		},
 		expect: [
+			{ pointer: "/answers/0/path", value: "/data/visits[1]/q[1]" },
+			{ pointer: "/answers/0/value", value: "Baraka" },
 			{ pointer: "/answers/0/result", value: "ok" },
+			{ pointer: "/constraints/0/path", value: "/data/visits[1]/q[1]" },
 			{ pointer: "/constraints/0/result", value: "constraint" },
 			...[
 				"Amina",

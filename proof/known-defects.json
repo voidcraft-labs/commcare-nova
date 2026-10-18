@@ -1102,16 +1102,6 @@
 		"control": "container-nested-query"
 	},
 	{
-		"id": "d25-query-repeat-form-model-iteration-reading-a-blank-answer",
-		"defect": 25,
-		"part": "query repeat reading a blank answer",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/vellum-markup:model~1instance~1~1*@vellum:role/refused/model-iteration-reading-a-blank-answer",
-		"document": "container-nested-query",
-		"control": "container-nested-query"
-	},
-	{
 		"id": "d25-query-repeat-blocks-d47a",
 		"defect": 25,
 		"part": "query repeat rewritten into model iteration",

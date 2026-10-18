@@ -188,6 +188,70 @@ describe("admitted field conversion", () => {
 			label: proseText("Answer"),
 		});
 	});
+	it("refuses converting a query repeat to a group while a nested query reads its row identity", () => {
+		const before = fixture({
+			id: "items",
+			kind: "repeat",
+			repeat_mode: "query_bound",
+			data_source: { ids_query: "'a b'" },
+			children: [
+				f({
+					uuid: CHILD,
+					id: "child_ids",
+					kind: "hidden",
+					calculate: "if(current()/../@id = 'a', 'a1 a2', 'b1')",
+				}),
+				f({
+					id: "children",
+					kind: "repeat",
+					repeat_mode: "query_bound",
+					data_source: { ids_query: "#form/items/child_ids" },
+					children: [f({ id: "answer", kind: "text", label: "Answer" })],
+				}),
+			],
+		});
+		const reader = before.fields[CHILD];
+		if (reader.kind !== "hidden") throw new Error("The row reader is missing.");
+		expect(reader.calculate).toMatchObject({
+			kind: "if",
+			cond: {
+				left: {
+					kind: "term",
+					term: { kind: "repeat-row", repeat: Q, attribute: "id" },
+				},
+			},
+		});
+		const original = structuredClone(before);
+		const mutation = mutationSchema.parse(
+			JSON.parse(
+				JSON.stringify({ kind: "convertField", uuid: Q, toKind: "group" }),
+			),
+		);
+		const verdict = mutationCommitVerdict(
+			before,
+			[mutation],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict).toMatchObject({
+			ok: false,
+			findings: [
+				{
+					code: "INVALID_REF",
+					location: {
+						fieldUuid: CHILD,
+						fieldId: "child_ids",
+						field: "calculate",
+					},
+					details: {
+						checkCode: "unknown-form-field",
+						path: "if.cond.left",
+						storedRef: "dangling-identity",
+					},
+				},
+			],
+		});
+		expect(before).toEqual(original);
+	});
 	it("keeps the hidden value and visibility expression while removing visible control content", () => {
 		const before = fixture({
 			id: "answer",

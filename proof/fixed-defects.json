@@ -6933,5 +6933,14 @@
 		"path": "/walks/*/steps/*/query/withAnswer/sent-unquotable-search",
 		"kind": "error",
 		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d25-query-repeat-form-model-iteration-reading-a-blank-answer",
+		"defect": 25,
+		"part": "query repeat reading a blank answer",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/vellum-markup:model~1instance~1~1*@vellum:role/refused/model-iteration-reading-a-blank-answer",
+		"control": "container-nested-query"
 	}
 ]

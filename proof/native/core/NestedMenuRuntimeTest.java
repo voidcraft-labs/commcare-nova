@@ -26,7 +26,7 @@ public class NestedMenuRuntimeTest {
   var document=SessionReadAssertions.targeted("nested-menu","targeted-nested-menu-session-reads");
   for(boolean hq:new boolean[]{false,true}){
    SessionReadAssertions.createdAndWorker(document,hq,true,false);
-   SessionReadAssertions.selectedAndGroup(document,hq,true);
+   SessionReadAssertions.selectedAndParent(document,hq);
   }
  }
  private static TreeElement node(String name,String value,int multiplicity){TreeElement n=new TreeElement(name,multiplicity);if(value!=null)n.setValue(new StringData(value));return n;}
