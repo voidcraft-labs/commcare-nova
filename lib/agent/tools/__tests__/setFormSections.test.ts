@@ -1,7 +1,5 @@
 /** Canonical commands over admitted documents and a controlled workspace host.
  * The actual gate and reducer run; persistence and SA/MCP transport are separate boundaries. */
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 /**
  * Sections at the SA/MCP boundary: the desired-state `setFormSections` tool
@@ -16,7 +14,6 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import { generateToolSchemas } from "@/lib/agent/toolSchemaGenerator";
-import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	FIELD_PLACEMENT_MESSAGES,
@@ -28,10 +25,7 @@ import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
 import { getFormTool } from "../getForm";
 import { moveFieldTool } from "../moveField";
-import {
-	setFormSectionsInputSchema,
-	setFormSectionsTool,
-} from "../setFormSections";
+import { setFormSectionsTool } from "../setFormSections";
 
 const MOD = testUuid("mod-visits");
 const FORM = testUuid("frm-visit");
@@ -151,34 +145,6 @@ describe("section at the tool boundary", () => {
 			item.safeParse({ id: "intro", kind: "section", hint: proseText("h") })
 				.success,
 		).toBe(false);
-	});
-
-	it("publishes the desired-state shape on the wire", async () => {
-		const wire = wireToolSchema(setFormSectionsInputSchema);
-		const ajv = new Ajv({ strict: false });
-		addFormats(ajv);
-		const validate = ajv.compile(await wire.jsonSchema);
-		const valid = {
-			...address,
-			sections: [{ sectionUuid: S1, label: null, fields: [A] }],
-		};
-		expect(validate(valid), JSON.stringify(validate.errors)).toBe(true);
-		expect(
-			validate({
-				...valid,
-				sections: [
-					{ sectionUuid: S1, label: null, fields: ["not-an-identity"] },
-				],
-			}),
-		).toBe(false);
-		expect(
-			validate({ ...valid, sections: [{ ...valid.sections[0], typo: true }] }),
-		).toBe(false);
-		const accepted = await wire.validate?.({
-			...address,
-			sections: [{ sectionUuid: S1, label: null, fields: [A] }],
-		});
-		expect(accepted?.success).toBe(true);
 	});
 });
 

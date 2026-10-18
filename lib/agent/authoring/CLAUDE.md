@@ -58,8 +58,11 @@ a later reporting step fails. Automation writes return setup requirements;
 `getAutomations` supplies one full guide on request.
 
 `schema.ts` projects explicit canonical content families to authored values. It
-follows Zod's preserved refinement lineage, emits reusable definitions once, and it never identifies content by a
-property named `parts` or `label`. The schema walker binds values before the full
+follows Zod's preserved refinement lineage, emits reusable definitions once, and
+it never identifies content by a property named `parts` or `label`.
+`authoringJsonSchema` substitutes each family position with that family's
+authored string schema before Zod walks the input schema, so the served bytes
+depend only on the authored surface. The schema walker binds values before the full
 canonical schema runs its refinements. Null and omission keep their existing
 meaning. Localized values need the current translation unit's `valueKind` to
 choose plain text or reference-bearing prose; do not guess from the string.

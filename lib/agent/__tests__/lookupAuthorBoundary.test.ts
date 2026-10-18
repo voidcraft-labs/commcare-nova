@@ -1,10 +1,9 @@
-/** Actual author schemas, independent JSON Schema validation, and the SA
- * runtime validator. Paired inputs differ only in lookup identities, so an
+/** Actual author schemas and independent JSON Schema validation.
+ * Paired inputs differ only in lookup identities, so an
  * obsolete module/form address cannot accidentally explain the refusal. */
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { buildExpressionReference } from "../expressionReference";
 import { addCaseListColumnsTool } from "../tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "../tools/case-list-config/addSearchInputs";
 import { setCaseListFilterTool } from "../tools/case-list-config/setCaseListFilter";
@@ -15,7 +14,6 @@ import { setCaseSearchDisplayTool } from "../tools/case-search-config/setCaseSea
 import { setFieldOptionsSourceTool } from "../tools/setFieldOptionsSource";
 import { updateFormTool } from "../tools/updateForm";
 import { updateModuleTool } from "../tools/updateModule";
-import { wireToolSchema } from "../wireSchemas";
 
 const MODULE_UUID = "11111111-1111-4111-8111-111111111111";
 const FORM_UUID = "22222222-2222-4222-8222-222222222222";
@@ -316,39 +314,5 @@ describe("lookup author identity boundary", () => {
 			).toBe(true);
 			expect(validate(toolCase.legacyInput)).toBe(false);
 		});
-
-		it(`${toolCase.name} keeps chat wire compact while validating canonical input`, async () => {
-			const full = JSON.stringify(
-				z.toJSONSchema(toolCase.schema, { target: "draft-7", io: "input" }),
-			);
-			const wire = wireToolSchema(toolCase.schema);
-			const json = JSON.stringify(await wire.jsonSchema);
-
-			// This finite corpus measures emitted byte reduction. Runtime validation
-			// below owns acceptance; the compact provider projection is intentionally permissive.
-			expect(json.length).toBeLessThan(full.length);
-
-			/* Compaction never widens what is accepted: the untouched Zod schema
-			 * is still the validator on both sides. */
-			expect((await wire.validate?.(toolCase.canonicalInput))?.success).toBe(
-				true,
-			);
-			expect((await wire.validate?.(toolCase.legacyInput))?.success).toBe(
-				false,
-			);
-		});
 	}
-});
-
-describe("generated expression grammar", () => {
-	it("prints every primitive union as its members, never as a bare object", () => {
-		/* The model reads this text to learn what a literal may carry. A
-		 * JSON-schema union of primitives reaches the printer either as
-		 * `anyOf` or compacted to a `type` array, and both must print the
-		 * same members; a printer that misses one shape degrades the slot to
-		 * `object`, which nothing else notices. */
-		const grammar = buildExpressionReference();
-		expect(grammar).toContain("value: string | number | boolean | null;");
-		expect(grammar).not.toMatch(/: object;/);
-	});
 });

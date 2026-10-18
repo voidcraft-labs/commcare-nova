@@ -81,6 +81,16 @@ Every LLM call uses the direct OpenAI API with `store: false` and logs token cou
 - **Batch size.** Large clusters retain the existing ~140K input-token batching target. This is a pipeline bound, not the model's context limit.
 - **Tag-based clustering.** The LLM clusters *tags*, not pages. Page-to-cluster assignment is deterministic tag-overlap counting — this is what prevents the LLM from hallucinating page IDs.
 
+## Tool schema hashes
+
+`inspect-tool-schema-hashes.ts` prints the SHA-256 of every shared tool's served
+input schema and the set's hash. Compare its output at a pull request's base and
+head to identify changed schemas. It makes no model calls or database reads.
+
+```bash
+npx tsx --conditions=react-server scripts/inspect-tool-schema-hashes.ts
+```
+
 ## XPath carrier compatibility inventory
 
 The XPath carrier scanner is read-only. It loads schema-admitted historical

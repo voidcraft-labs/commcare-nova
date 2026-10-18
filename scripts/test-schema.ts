@@ -16,7 +16,9 @@
  *     tool-input acceptance is the same across models).
  *   - Pass a schema name to test only that schema; omit to test every
  *     registered schema. Known names: `evaluateForm`, `createLocation`,
- *     `updateLocation`, `addFields`,
+ *     `updateLocation`, `addFields`, `addAutomations`, `updateAutomation`,
+ *     `addCaseOperations`, `updateCaseOperation`, `updateCaseProperty`,
+ *     `setFieldOptionsSource`,
  *     `configureCaseList`, `addCaseListColumns`, `updateCaseListColumn`,
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
  *     `setCaseListFilter`, `setCaseListTile`, `addSearchInputs`, `updateSearchInput`,
@@ -40,6 +42,10 @@ import type { z } from "zod";
 import { authoringToolSchema } from "../lib/agent/authoring/toolSchema";
 import { SHARED_TOOL_REGISTRY } from "../lib/agent/sharedToolRegistry";
 import { addFieldsTool } from "../lib/agent/tools/addFields";
+import {
+	addAutomationsTool,
+	updateAutomationTool,
+} from "../lib/agent/tools/automations";
 import { addCaseListColumnsTool } from "../lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "../lib/agent/tools/case-list-config/addSearchInputs";
 import { configureCaseListTool } from "../lib/agent/tools/case-list-config/configureCaseList";
@@ -51,8 +57,11 @@ import { setCaseListFilterTool } from "../lib/agent/tools/case-list-config/setCa
 import { setCaseListTileTool } from "../lib/agent/tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "../lib/agent/tools/case-list-config/updateSearchInput";
+import { addCaseOperationsTool } from "../lib/agent/tools/case-operations/addCaseOperations";
+import { updateCaseOperationTool } from "../lib/agent/tools/case-operations/updateCaseOperation";
 import { setCaseSearchAdvancedTool } from "../lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/setCaseSearchDisplay";
+import { updateCasePropertyTool } from "../lib/agent/tools/caseProperties";
 import { configureConnectTool } from "../lib/agent/tools/configureConnect";
 import { createFormTool } from "../lib/agent/tools/createForm";
 import { createModuleTool } from "../lib/agent/tools/createModule";
@@ -93,13 +102,14 @@ import {
 	updateLocationTool,
 } from "../lib/agent/tools/organization";
 import { renameCasePropertiesTool } from "../lib/agent/tools/renameCaseProperties";
+import { setFieldOptionsSourceTool } from "../lib/agent/tools/setFieldOptionsSource";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
 import { updateFormTool } from "../lib/agent/tools/updateForm";
 import {
 	updateModuleInputSchema,
 	updateModuleTool,
 } from "../lib/agent/tools/updateModule";
-import { wireToolSchema } from "../lib/agent/wireSchemas";
+import { providerToolSchema } from "../lib/agent/wireSchemas";
 import { uploadMediaAssetInputSchema } from "../lib/mcp/tools/uploadMediaAsset";
 import { MODEL_ROLES, OPENAI_BASE_OPTIONS } from "../lib/models";
 
@@ -144,6 +154,48 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: addFieldsTool.inputSchema,
 		prompt:
 			'Use addFields with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add two fields: patient_name (a text field with caseWrite {caseType: "patient", property: "case_name"}) and age (an int field with caseWrite {caseType: "patient", property: "age"}).',
+	},
+	{
+		name: "addAutomations",
+		description: addAutomationsTool.description,
+		schema: addAutomationsTool.inputSchema,
+		prompt:
+			'Use addAutomations to add a record-update automation named "Close inactive patients" for patient records. Match records whose status property equals inactive, close the matching record, and make no property updates or setup-only criteria.',
+	},
+	{
+		name: "updateAutomation",
+		description: updateAutomationTool.description,
+		schema: updateAutomationTool.inputSchema,
+		prompt:
+			'Use updateAutomation to replace automation 11111111-1111-4111-8111-111111111111 with a record-update rule named "Close archived patients" for patient records. Match records whose status property equals archived, close the matching record, and make no property updates or setup-only criteria.',
+	},
+	{
+		name: "addCaseOperations",
+		description: addCaseOperationsTool.description,
+		schema: addCaseOperationsTool.inputSchema,
+		prompt:
+			'Use addCaseOperations on the form "Follow-up visit" in the module "Patients" to add an update operation named record_visit for the selected patient record. Write visits as the authored expression "#case/visits + 1".',
+	},
+	{
+		name: "updateCaseOperation",
+		description: updateCaseOperationTool.description,
+		schema: updateCaseOperationTool.inputSchema,
+		prompt:
+			'Use updateCaseOperation on the form "Follow-up visit" in the module "Patients" to replace operation 33333333-3333-4333-8333-333333333333. Keep its id record_visit and update the selected patient record, writing visits as the authored expression "#case/visits + 2".',
+	},
+	{
+		name: "updateCaseProperty",
+		description: updateCasePropertyTool.description,
+		schema: updateCasePropertyTool.inputSchema,
+		prompt:
+			'Use updateCaseProperty to set the label of the patient record property age to "Age in years", keeping its other settings.',
+	},
+	{
+		name: "setFieldOptionsSource",
+		description: setFieldOptionsSourceTool.description,
+		schema: setFieldOptionsSourceTool.inputSchema,
+		prompt:
+			'Use setFieldOptionsSource for the field patient in the form "Follow-up visit" in the module "Patients". Offer patient records, label each with case_name, and filter with the authored condition "#case/active = true()".',
 	},
 	{
 		name: "updateModule",
@@ -510,7 +562,7 @@ console.log(`Testing with ${model}...`);
 			(entry) => entry.saName === test.name,
 		)
 			? authoringToolSchema(test.name, test.schema).inputSchema
-			: wireToolSchema(test.schema);
+			: providerToolSchema(test.schema);
 		const size = JSON.stringify(inputSchema.jsonSchema).length;
 		console.log(`\n${test.name}: ${size} chars`);
 

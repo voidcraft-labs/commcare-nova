@@ -200,6 +200,12 @@ to a shared read tool's result with no change to the tool's name, description
 or input. Keep completed tool results and reasoning items intact on resume;
 encrypted reasoning is not human-readable reasoning.
 
+A served input schema changes only through the authored surface: the authoring
+projection substitutes each expression family position before Zod walks the
+schema, so a change to the canonical expression model moves no served byte. A
+pull request finds what it moved by hashing every shared tool's served schema
+at its base and head, never by a committed snapshot.
+
 ## Inspection and evidence
 
 `/agents` separates composition from code, current local app state, and recorded

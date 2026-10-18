@@ -159,26 +159,162 @@ export function pruneDefinitions(json: Json) {
 const projected = new WeakMap<z.core.$ZodType, z.ZodType>();
 const jsonSchemas = new WeakMap<z.core.$ZodType, Json>();
 
+/** Replace content before Zod visits it. An override runs after that visit,
+ * when canonical children have already consumed reusable-definition numbers.
+ *
+ * Preserve the source graph's sharing and refinement parents, but point every
+ * edge into the projected graph. Metadata belongs to a private registry: the
+ * canonical domain's registered ids must keep naming its original schemas.
+ */
+function projectAuthoringGraph(root: z.core.$ZodType) {
+	const metadata = z.registry<z.core.JSONSchemaMeta>();
+	const schemas = new Map<z.core.$ZodType, z.core.$ZodType>();
+	const map = (source: z.core.$ZodType): z.core.$ZodType => {
+		const prior = schemas.get(source);
+		if (prior) return prior;
+		const family = familyOf(source);
+		const definition = family
+			? undefined
+			: mapDefinition((source as z.core.$ZodTypes)._zod.def);
+		// Supplying a definition prevents clone from attaching the canonical
+		// template as its parent. Zod's JSON emitter walks that edge too.
+		const result = family
+			? copyFamily(valueSchemas[family])
+			: z.core.clone(source, definition);
+		schemas.set(source, result);
+		if (!family && source._zod.parent)
+			result._zod.parent = map(source._zod.parent);
+		const originalMetadata = z.globalRegistry.get(source);
+		const projectedMetadata = family
+			? {
+					...z.globalRegistry.get(valueSchemas[family]),
+					...(originalMetadata?.id !== undefined && {
+						id: originalMetadata.id,
+					}),
+				}
+			: originalMetadata;
+		// Registry.get intentionally omits an inherited id. Copying a parent's
+		// id onto described/refined children would create duplicate definitions.
+		if (projectedMetadata) metadata.add(result, projectedMetadata);
+		return result;
+	};
+	const mapDefinition = (
+		definition: z.core.$ZodTypes["_zod"]["def"],
+		child: (schema: z.core.$ZodType) => z.core.$ZodType = map,
+	): z.core.$ZodTypeDef & Record<string, unknown> => {
+		switch (definition.type) {
+			case "object": {
+				let shape: z.core.$ZodShape | undefined;
+				// Keep shape resolution lazy so recursive getter-based objects can
+				// refer back to the clone after it has entered the graph map.
+				return {
+					...definition,
+					get shape() {
+						shape ??= Object.fromEntries(
+							Reflect.ownKeys(definition.shape).map((key) => [
+								key,
+								child(Reflect.get(definition.shape, key) as z.core.$ZodType),
+							]),
+						);
+						return shape;
+					},
+					...(definition.catchall && { catchall: child(definition.catchall) }),
+				};
+			}
+			case "lazy": {
+				// Zod 4 caches the resolved getter on the shared definition. A
+				// previously parsed lazy must not reconnect its canonical child.
+				const copied = {
+					...definition,
+					getter: () => child(definition.getter()),
+				};
+				Reflect.deleteProperty(copied, "_cachedInner");
+				return copied;
+			}
+			case "array":
+				return { ...definition, element: child(definition.element) };
+			case "union":
+				return { ...definition, options: definition.options.map(child) };
+			case "intersection":
+				return {
+					...definition,
+					left: child(definition.left),
+					right: child(definition.right),
+				};
+			case "tuple":
+				return {
+					...definition,
+					items: definition.items.map(child),
+					...(definition.rest && { rest: child(definition.rest) }),
+				};
+			case "record":
+			case "map":
+				return {
+					...definition,
+					keyType: child(definition.keyType),
+					valueType: child(definition.valueType),
+				};
+			case "set":
+				return { ...definition, valueType: child(definition.valueType) };
+			case "pipe":
+				return {
+					...definition,
+					in: child(definition.in),
+					out: child(definition.out),
+				};
+			case "optional":
+			case "nullable":
+			case "default":
+			case "prefault":
+			case "nonoptional":
+			case "readonly":
+			case "catch":
+			case "promise":
+			case "success":
+				return { ...definition, innerType: child(definition.innerType) };
+			case "template_literal":
+				return {
+					...definition,
+					parts: definition.parts.map((part) =>
+						part instanceof z.core.$ZodType ? child(part) : part,
+					),
+				};
+			case "function":
+				return {
+					...definition,
+					...(definition.input && { input: child(definition.input) }),
+					...(definition.output && { output: child(definition.output) }),
+				};
+			default:
+				return { ...definition };
+		}
+	};
+	// A replaced family has no canonical parent or shared canonical children.
+	// Each authored body is independent, as the old override emitted it; reuse
+	// remains at the source family node, not at its primitive union members.
+	const copyFamily = (template: z.core.$ZodType): z.core.$ZodType => {
+		const result = z.core.clone(
+			template,
+			mapDefinition((template as z.core.$ZodTypes)._zod.def, copyFamily),
+		);
+		const meta = z.globalRegistry.get(template);
+		if (meta) metadata.add(result, meta);
+		return result;
+	};
+	return { schema: map(root), metadata };
+}
+
 /** Shared input grammar for model tools and MCP. Canonical refinements run only
  * after names have been bound; this schema validates the authored representation. */
 export function authoringJsonSchema(schema: z.core.$ZodType): Json {
 	const prior = jsonSchemas.get(schema);
 	if (prior) return prior;
-	const json = z.toJSONSchema(schema, {
+	const graph = projectAuthoringGraph(schema);
+	const json = z.toJSONSchema(graph.schema, {
 		io: "input",
 		target: "draft-7",
 		reused: "ref",
-		override({ zodSchema, jsonSchema }) {
-			const family = familyOf(zodSchema);
-			if (!family) return;
-			for (const key of Object.keys(jsonSchema))
-				delete (jsonSchema as Json)[key];
-			Object.assign(
-				jsonSchema,
-				z.toJSONSchema(valueSchemas[family], { target: "draft-7" }),
-			);
-			delete jsonSchema.$schema;
-		},
+		metadata: graph.metadata,
 	}) as Json;
 	pruneDefinitions(json);
 	jsonSchemas.set(schema, json);

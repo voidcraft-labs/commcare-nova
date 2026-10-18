@@ -1,11 +1,8 @@
 /** Canonical commands over admitted documents and a controlled workspace host.
  * The actual gate and reducer run; persistence and SA/MCP transport are separate boundaries. */
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
-import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import { type BlueprintDoc, fieldCaseWrite } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
@@ -204,21 +201,5 @@ describe("renameCaseProperties shared SA/MCP tool", () => {
 				],
 			}).success,
 		).toBe(false);
-	});
-
-	it("emits a closed rename relation that an independent JSON-schema consumer accepts", async () => {
-		const ajv = new Ajv({ strict: false });
-		addFormats(ajv);
-		const validate = ajv.compile(
-			await wireToolSchema(renameCasePropertiesInputSchema).jsonSchema,
-		);
-		const valid = {
-			renames: [{ caseType: "patient", from: "phone", to: "primary_phone" }],
-		};
-		expect(validate(valid), JSON.stringify(validate.errors)).toBe(true);
-		expect(
-			validate({ renames: [{ ...valid.renames[0], field: "contact_number" }] }),
-		).toBe(false);
-		expect(validate({ renames: [] })).toBe(false);
 	});
 });

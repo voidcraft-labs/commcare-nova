@@ -100,24 +100,6 @@ export const casePropertyInputSchema = z
 			.describe(
 				"Hint text shown below fields collecting this property. null when there is none.",
 			),
-		required: xpathExpressionSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Canonical XPath AST for the required condition. null if optional.",
-			),
-		validation: xpathExpressionSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Canonical XPath AST for the validation rule. null when any value is acceptable.",
-			),
-		validation_msg: proseTemplateSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Error message when validation fails. Only alongside `validation`; null otherwise.",
-			),
 		options: z
 			.array(selectOptionDescribed)
 			.min(1)
@@ -128,13 +110,6 @@ export const casePropertyInputSchema = z
 			),
 	})
 	.superRefine((prop, ctx) => {
-		if (prop.validation_msg && !prop.validation) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["validation_msg"],
-				message: `Property "${prop.name}" has a validation_msg but no validation expression for it to accompany. Set \`validation\` to the rule the message explains, or pass null for the message.`,
-			});
-		}
 		const isSelect = prop.data_type && SELECT_DATA_TYPES.has(prop.data_type);
 		if (prop.options && !isSelect) {
 			ctx.addIssue({

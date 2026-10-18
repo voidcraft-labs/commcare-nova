@@ -17,6 +17,7 @@ async function fixture() {
 						label: proseText("Beds"),
 						data_type: "int" as const,
 						hint: proseText("Original hint"),
+						required: xp("true()"),
 						validation: xp(". >= 1"),
 						validation_msg: proseText("Enter at least one bed."),
 					},
@@ -106,7 +107,7 @@ describe("record property authoring", () => {
 		});
 		expect(h.currentDoc()).toEqual(before);
 	});
-	it("reads and patches one exact definition while preserving other records and form content", async () => {
+	it("edits wording while preserving stored rules, other records, and form content", async () => {
 		const h = await fixture();
 		const before = structuredClone(h.currentDoc());
 		expect(
@@ -117,6 +118,7 @@ describe("record property authoring", () => {
 				name: "beds",
 				label: "Beds",
 				data_type: "int",
+				required: "true()",
 				validation: ". >= 1",
 				validation_msg: "Enter at least one bed.",
 			},
@@ -128,8 +130,6 @@ describe("record property authoring", () => {
 				updates: {
 					label: "Number of beds",
 					hint: null,
-					validation: ". >= 1 and . <= 50",
-					validation_msg: "Enter 1 to 50.",
 				},
 			}),
 		).toMatchObject({ ok: true });
@@ -141,8 +141,9 @@ describe("record property authoring", () => {
 				name: "beds",
 				label: "Number of beds",
 				data_type: "int",
-				validation: ". >= 1 and . <= 50",
-				validation_msg: "Enter 1 to 50.",
+				required: "true()",
+				validation: ". >= 1",
+				validation_msg: "Enter at least one bed.",
 			},
 		});
 		expect(
@@ -150,58 +151,28 @@ describe("record property authoring", () => {
 		).toEqual(before.caseTypes?.find((record) => record.name === "garden"));
 		expect(h.currentDoc().forms).toEqual(before.forms);
 		expect(h.currentDoc().fields).toEqual(before.fields);
-		expect(
-			await h.call("updateCaseProperty", {
-				caseType: "plot",
-				property: "beds",
-				updates: { required: "#case/beds > 0" },
-			}),
-		).toMatchObject({ ok: true });
-		expect(
-			h.currentDoc().caseTypes?.find((record) => record.name === "plot")
-				?.properties[0].required?.parts,
-		).toContainEqual({ kind: "case-ref", caseType: "plot", property: "beds" });
-		expect(
-			await h.call("updateCaseProperty", {
-				caseType: "plot",
-				property: "beds",
-				updates: { validation: null, validation_msg: null },
-			}),
-		).toMatchObject({ ok: true });
-		const read = await h.call("getCaseProperty", {
-			caseType: "plot",
-			property: "beds",
-		});
-		expect(read).not.toHaveProperty("property.validation");
-		expect(read).not.toHaveProperty("property.validation_msg");
 		const writes = h.recordMutations.mock.calls.length;
 		expect(
 			await h.call("updateCaseProperty", {
 				caseType: "plot",
 				property: "beds",
-				updates: { validation: null, validation_msg: null },
+				updates: { label: "Number of beds", hint: null },
 			}),
 		).toMatchObject({ ok: true });
 		expect(h.recordMutations).toHaveBeenCalledTimes(writes);
 	});
 
-	it("refuses missing targets, inconsistent partial edits, and invalid expressions without changing the app", async () => {
+	it("refuses missing targets and options inconsistent with the stored type without changing the app", async () => {
 		const h = await fixture();
 		const before = structuredClone(h.currentDoc());
-		for (const updates of [
-			{ validation: null },
-			{ options: [{ value: "one", label: "One" }] },
-			{ validation: "between(., 1, 50)" },
-		]) {
-			expect(
-				await h.call("updateCaseProperty", {
-					caseType: "plot",
-					property: "beds",
-					updates,
-				}),
-			).toHaveProperty("error");
-			expect(h.currentDoc()).toEqual(before);
-		}
+		expect(
+			await h.call("updateCaseProperty", {
+				caseType: "plot",
+				property: "beds",
+				updates: { options: [{ value: "one", label: "One" }] },
+			}),
+		).toHaveProperty("error");
+		expect(h.currentDoc()).toEqual(before);
 		for (const name of ["getCaseProperty", "updateCaseProperty"]) {
 			expect(
 				await h.call(name, {
@@ -228,4 +199,109 @@ describe("record property authoring", () => {
 				}),
 			).rejects.toThrow();
 	});
+
+	it.each(["required", "validation", "validation_msg"])(
+		"refuses authoring the retired catalog rule %s through creation or update",
+		async (key) => {
+			const h = await fixture();
+			const before = structuredClone(h.currentDoc());
+			for (const value of [
+				null,
+				key === "validation_msg" ? "Enter an age." : "true()",
+			]) {
+				await expect(
+					h.call("generateSchema", {
+						caseTypes: [
+							{
+								name: "visit",
+								properties: [{ name: "age", label: "Age", [key]: value }],
+							},
+						],
+					}),
+				).rejects.toThrow();
+				await expect(
+					h.call("updateCaseProperty", {
+						caseType: "plot",
+						property: "beds",
+						updates: { [key]: value },
+					}),
+				).rejects.toThrow();
+				expect(h.currentDoc()).toEqual(before);
+			}
+		},
+	);
+
+	it.each([
+		{ required: xp("true()") },
+		{
+			validation: xp(". >= 1"),
+			validation_msg: proseText("Enter at least one bed."),
+		},
+	])(
+		"preserves stored rules when extending an otherwise bare catalog",
+		async (rules) => {
+			const h = makeAuthoringHarness(
+				{},
+				buildDoc({
+					caseTypes: [
+						{
+							name: "plot",
+							properties: [
+								{
+									name: "beds",
+									label: proseText("beds"),
+									data_type: "int",
+									...rules,
+								},
+							],
+						},
+					],
+					modules: [
+						{
+							name: "Observations",
+							forms: [
+								{
+									name: "Record an observation",
+									type: "survey",
+									fields: [f({ kind: "text", id: "notes" })],
+								},
+							],
+						},
+					],
+				}),
+			);
+			const before = structuredClone(h.currentDoc());
+			expect(
+				await h.call("generateSchema", {
+					caseTypes: [
+						{
+							name: "plot",
+							properties: [{ name: "beds", label: "beds", data_type: "int" }],
+						},
+					],
+				}),
+			).toHaveProperty("error");
+			expect(h.currentDoc()).toEqual(before);
+			expect(
+				await h.call("generateSchema", {
+					caseTypes: [
+						{
+							name: "plot",
+							properties: [
+								{ name: "area", label: "Area", data_type: "decimal" },
+							],
+						},
+					],
+				}),
+			).toMatchObject({ ok: true, extended: ["plot"] });
+			expect(
+				h.currentDoc().caseTypes?.find((record) => record.name === "plot")
+					?.properties,
+			).toEqual([
+				...(before.caseTypes?.find((record) => record.name === "plot")
+					?.properties ?? []),
+				{ name: "area", label: proseText("Area"), data_type: "decimal" },
+			]);
+		},
+	);
 });
