@@ -34,7 +34,7 @@ import zipfile
 
 import pytest
 
-from proof.checks import casedata, hq_own_reports
+from proof.checks import casedata
 from proof.checks import connect as judge
 from proof.hq import operations
 from proof.hq.check import hq_check
@@ -218,11 +218,7 @@ def renamed(hq, connect_runtime, editor_driver, lane_services):
 def _reported(app, *, own):
     """What the Connect judge reports of B-edit beyond A (``proof.checks.proof4.connect_beyond_a``), with the two
     releases' forms where ``own``."""
-    forms = (
-        (B_EDIT, hq_own_reports.connect_forms(app["first"]), hq_own_reports.connect_forms(app["second"]))
-        if own
-        else None
-    )
+    forms = (B_EDIT, judge.connect_forms(app["first"]), judge.connect_forms(app["second"])) if own else None
     found = judge.absolute_differences(
         app["B-edit"],
         app["catalog"],
@@ -245,9 +241,10 @@ def test_connect_block_renamed(renamed):
     """The renaming HQ's own form builder made is the member's: the judge reports what Connect did of each app's
     renamed blocks, and leaves every report out once it reads the two releases' forms."""
     deliver, learn = renamed["deliver"], renamed["learn"]
-    assert hq_own_reports.renamed_blocks(
-        hq_own_reports.connect_forms(deliver["first"]), hq_own_reports.connect_forms(deliver["second"])
-    ) == {("deliver", "home_visit", "household_visit"), ("task", "follow_up", "return_visit")}
+    assert judge.renamed_blocks(judge.connect_forms(deliver["first"]), judge.connect_forms(deliver["second"])) == {
+        ("deliver", "home_visit", "household_visit"),
+        ("task", "follow_up", "return_visit"),
+    }
     assert sorted(_reported(deliver, own=False)) == [
         "/ids/deliver/moved",
         "/ids/task/moved",
