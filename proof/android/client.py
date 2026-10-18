@@ -447,8 +447,8 @@ class AndroidReader:
 
 
 class PeerFailed(AndroidReaderError):
-    """What answered the device's network raised, which ends the request: the harness's refusal, never HQ's
-    answer (HQ's own views answer what they refuse)."""
+    """The harness could not answer the device's network, which ends the request; never HQ's answer
+    (HQ's own views answer what they refuse)."""
 
 
 def _java(tool: str) -> str:
