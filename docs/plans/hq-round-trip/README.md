@@ -13,7 +13,7 @@ changes" table.
 |---|---|---|
 | 1 | The manifest and the harness | done: [`proof/README.md`](../../../proof/README.md) |
 | 2 | Emission and publish fixes | done: [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`lib/deployment/CLAUDE.md`](../../../lib/deployment/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
-| 3 | [Expressions](3-expressions.md) | outline |
+| 3 | [Expressions](3-expressions.md) | planned in full |
 | 4 | [Platforms](4-platforms.md) | outline |
 | 5 | [Case writes, forms and navigation](5-case-writes-forms-navigation.md) | outline |
 | 6 | [Import](6-import.md) | outline |
@@ -122,8 +122,9 @@ endures lives where it is read:
 
 Four findings belong to later steps and are held until then:
 finding 56 by register entries, for step 3
-([`3-expressions.md`](3-expressions.md), "Carried from step 2"); findings 72
-and 73 by walk stops, for step 3 (the same section); and finding 74 by one
+([`3-expressions.md`](3-expressions.md), "The baseline this plan was written
+against"); findings 72 and 73 by walk stops, for step 3 (the same section);
+and finding 74 by one
 walk stop, for step 4 ([`4-platforms.md`](4-platforms.md), item 6). The
 register's other entries are defects 20, 21, 23 to 28 and 30, which
 `OPEN_DEFECTS` gives to steps 4 and 5.
@@ -151,9 +152,9 @@ before it exits, against the code as it then stands.
 - Tests earn their boundary (`docs/testing.md`).
 - Every CommCare fact a plan relies on is settled at source, in local
   checkouts of the Dimagi repositories at the commits `proof/pins.json` names
-  when the plan is written, which the plan states. Step 2's plan read
-  commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`, commcare-android
-  `7a5584475580`, commcare-connect `046c7fd78081` and formplayer
+  when the plan is written, which the plan states. Step 2's and step 3's
+  plans read commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`,
+  commcare-android `7a5584475580`, commcare-connect `046c7fd78081` and formplayer
   `24383ac71bfb`, with Vellum `01215f251c57` (the build HQ vendors at that
   pin). The research cites commcare-hq `f57e85e02913` (with `525becc2963`
   where it names it), commcare-android `fd79cac4a0f1` and commcare-connect
@@ -205,4 +206,21 @@ proof lane's merge onto `main`, which is `7b153dc3` or later. Between them:
 - #738, the proof lane's own pull request: every CommCare reader over Nova's
   exports, with the registers and the pins step 2's plan read.
 
-No defect the research lists changed behavior in that span but finding 52.
+Step 3's plan reads `main` at `5cf6e327`. After `7b153dc3`:
+
+- #727, step 2's plan, and #740, #741 and #748 (dependency upgrades with the
+  docs search and editor popovers, the proof nightly's cold-cache start and
+  shard failure reports, error evidence and authoring refusals).
+- #749 to #767, step 2's stack, merged together ("Step 2 is done", above).
+  Step 2 changed no stored expression vocabulary: what step 3 builds on is its
+  rules over expressions (the time-of-day ordering refusal, the three system
+  dates in CSQL with the blank-comparand guard, the both-quote-marks
+  `'match-none()'` sentinel), `xpathQueryUsesRelatedLookup`, the case list's
+  order plan, the question id grammar and `hiddenFromMenu`
+  ([`3-expressions.md`](3-expressions.md), "The baseline this plan was written
+  against").
+
+No defect the research lists changed behavior before `7b153dc3` but finding 52.
+After it, #749 to #767 are step 2, which fixed defects 1 to 10 and 12 to 16 and
+every finding of the harness it registered but finding 56; no other pull
+request in that span changed a defect's behavior.

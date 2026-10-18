@@ -6,10 +6,17 @@ links", "Case lists and search", and defects 21 to 30.
 
 ## What it builds
 
-1. **Case writes as one concept** (defect 22). A form's case writes are its case
-   operations; a field's `caseWrite` is that field's view of a write. `via` and
-   `onlyIfChanged` belong to the write. A registration may close the case it
-   creates, with open and close conditions.
+1. **Case writes as one concept** (defect 22). A form's case writes are its
+   case operations; a field's `caseWrite` is that field's view of a write.
+   `via` and `onlyIfChanged` belong to the write. A registration may close the
+   case it creates, with open and close conditions. A close condition's answer
+   (`Form.closeCondition.answer`) is a literal compared with a field, and step
+   3 leaves it one, so editing that option's value does not reprint it. This
+   step holds it as a `choice` of the field's options when the field is a
+   static select, as step 3 holds every other literal opposite a static select
+   (`lib/domain/expression`), because a close condition is a case write, which
+   this step makes one concept; the option editor's who-reads-this-choice
+   refusal then covers it too.
 2. **Placement.** Each operation has a placement: a basic form action slot, an
    advanced action and its tag, or a Save to Case block. A new operation takes
    the simplest placement that can express it. The publish that first carries an
@@ -28,8 +35,17 @@ links", "Case lists and search", and defects 21 to 30.
    once published.
 7. **Repeat counts as integers** (defect 30), with the integer type added to
    Nova's expression types.
-8. **The search workflow setting** (defect 21): list first, search first, or skip
-   to default results, with list first only in Android-only apps.
+8. **The search workflow setting** (defect 21): list first, search first, or
+   skip to default results, with list first only in Android-only apps. Step 3's
+   Preview plays a search's claim without storing it: choosing a result the
+   worker's restore does not hold adds it to that worker's claims, which last
+   while the worker, the app's Project and the page stay (`lib/session`'s
+   `previewClaims`), or while an App Test journey runs
+   (`AppTestSessionState.claimedCaseIds`), and seed the restore scope as HQ's
+   `commcare-case-claim` extension does. A durable claim, a place in the case
+   store for a case type no author declares and a way to release it, belongs to
+   this step's search workflow, which decides when a claim is made and how long
+   it lasts; until then Preview writes no claim row.
 9. **Form links with CommCare's semantics** (defect 26): every matching
    destination runs, in the author's order, with "otherwise", self-links as
    "start this form again", and the validator refusing link targets HQ does not
