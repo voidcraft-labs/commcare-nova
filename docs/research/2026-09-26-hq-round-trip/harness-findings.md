@@ -1048,7 +1048,13 @@ planned ("Found while planning step 2").
     `proof/webapps/observe.py::submitted_alike` holds the two alike).
     *Documents:* `targeted-datetime-ordering`, whose survey form asks two
     date and time questions and nothing else (finding 56), which holds the
-    stop Formplayer, `submit-refused:validation-error`.
+    stop Formplayer, `submit-refused:validation-error`; and
+    `fuzz-xform-20260930-0`, whose "Form 1-0" opens with both selects already
+    answered and leaves that placeholder at its required `/data/itext`
+    datetime question. R5 run 39129168950 at `5447da59` shows the same
+    refusal in all four baseline states after the walk stopped resending
+    unchanged answers; the earlier R3/R4 request had masked it. Pull request
+    5 adds that second finding-74 stop, whose fix remains step 4's.
     `fuzz-xform-20260930-10` held it too, in a repetition added last, until
     step 2 drew the repeat that follows it over the open cases (finding 71),
     so the walk answers its rows after the repetition and Formplayer's next

@@ -71,14 +71,15 @@ R3's and R4's served verdicts are in (§6.4); R5 runs at pull request 5's branch
 7. **The six walk stops of findings 72 and 73 are removed with no control**, both in pull request
    5, the shape, which takes each off its document: finding 72's five with
    `SELECT_DEFAULT_NOT_AN_OPTION` and the generator's mapped default, finding 73's one with
-   `casedata.py` reading the effective catalog; `walk-stops.json` goes from 30 entries (pull request
-   1's one among them) to 24. Each
-   refusal is held by its validator's tests, refusal beside accepted neighbour. Production meets
+   `casedata.py` reading the effective catalog. R5 then exposes finding 74 on
+   `fuzz-xform-20260930-0`, whose added stop leaves 25 entries: 30 after pull request 1, six
+   removed, one added (§3.3). Each refusal behind the six removed stops
+   is held by its validator's tests, refusal beside accepted neighbour. Production meets
    neither: it holds no literal choice default outside its options and no case row a typed preload
    fails to cast. The removal is proved by the host emission, those tests and the served readers
-   of run 39064336028 (§3.3, §6.4): no opened form reaches a reader's own end, and what the run
-   showed past them is two things pull request 5 carries, a fix to the Formplayer walk's model of
-   an answer a question already holds, and two live entries under defect 21 with the targeted
+   of run 39064336028 (§3.3, §6.4): under its then-current walk, no opened form reaches a reader's
+   own end, and what the run showed past them is two things pull request 5 carries, a fix to the
+   Formplayer walk's model of an answer a question already holds, and two live entries under defect 21 with the targeted
    document `targeted-list-first-places` that shows them.
 8. **Every source that builds a document speaks the union in pull request 5, the shape.** Fuzz draws
    are mapped after the draw and never drawn again, so the 24 fuzz ids and every other draw stay.
@@ -146,7 +147,7 @@ At `5cf6e327`:
 | `proof/known-defects.json` | 282 live entries | finding 56's two: `d56-datetime-ordering-evaluate-answers`, `d56-datetime-ordering-evaluate-case-text`, both intent, both on document and control `targeted-datetime-ordering`; the eleven pull request 1 adds, finding 56's five on `targeted-datetime-operands` (three `intent`, two `manifest`) and finding 75's six on `targeted-datetime-equality` (two `intent` for the device half, four `proof3` and `proof4` for the search error, §3.2, §7); the two pull request 5 adds under defect 21, on `targeted-list-first-places`, which stay live for step 5 (§3.3); and defect 25's one `d25-query-repeat-form-model-iteration-reading-a-blank-answer` entry, moved in pull request 5 (§3.7) |
 | `proof/fixed-defects.json` | 720 entries on 85 controls | the existing entries stay; gains defect 25's one in pull request 5, finding 56's seven and finding 75's device half's two in pull request 8, and finding 75's four search entries in pull request 10 |
 | `proof/controls/` | 105 directories | three: `targeted-datetime-operands` and `targeted-datetime-equality`, retained in pull request 1, and `targeted-list-first-places`, retained in pull request 5 |
-| `proof/walk-stops.json` | 29 entries | six: finding 72's five (`fuzz-suite-20260930-5`, `fuzz-suite-20260930-8`, `fuzz-xform-20260930-0`, `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`, all `notification:value-could-not-be-loaded-into-question`) and finding 73's one (`expander-output-references-in-labels-lowers-several-typed-e72b42c4-0`, `notification:invalid-data-type-in-setvalue-event-targetting`), all removed in pull request 5, the shape; and the one pull request 1 adds, Formplayer's `notification:n-internal-server-error` on `targeted-datetime-equality` (finding 75's search error), which pull request 10 turns into its control's (§3.2): 30 after pull request 1, 24 from pull request 5 to the exit |
+| `proof/walk-stops.json` | 29 entries | six: finding 72's five (`fuzz-suite-20260930-5`, `fuzz-suite-20260930-8`, `fuzz-xform-20260930-0`, `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`, all `notification:value-could-not-be-loaded-into-question`) and finding 73's one (`expander-output-references-in-labels-lowers-several-typed-e72b42c4-0`, `notification:invalid-data-type-in-setvalue-event-targetting`), all removed in pull request 5, the shape; and the one pull request 1 adds, Formplayer's `notification:n-internal-server-error` on `targeted-datetime-equality` (finding 75's search error), which pull request 10 turns into its control's (§3.2); R5 adds Formplayer's `submit-refused:validation-error` on `fuzz-xform-20260930-0`, existing finding 74 (§3.3): 30 after pull request 1, 25 from pull request 5 to the exit |
 | `proof/checks/registers.py::OPEN_DEFECTS` | `{20: 4, 21: 5, 23: 5, 24: 5, 25: 5, 26: 5, 27: 5, 28: 5, 30: 5, 56: 3}` | `56: 3`, which leaves in pull request 8, and `75: 3`, which pull request 1 adds and pull request 10 removes |
 | Corpus | 371 documents | every one, because the stored shape changes; plus thirteen targeted documents (§4.5) and eight fuzz documents (§4.3) |
 
@@ -627,8 +628,9 @@ Both removals were applied on R3 and R4's scratch branch (`walk-stops.json` 29 e
 formatting kept) and dispatched with every reader over the 26 documents they move (run
 39064336028, §6.4). Removing a stop that ended a walk lets the walk go on; what a reader shows past
 an opened form becomes a walk stop in pull request 5 (a reader's own end) or a finding. The run
-showed neither. `fuzz-suite-20260930-8`, `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7` and
-finding 73's document open, submit and reach the end of every walk on Formplayer, the Web Apps
+showed neither with its then-current walk. `fuzz-suite-20260930-8`, `fuzz-xform-20260930-1`,
+`fuzz-xform-20260930-7` and finding 73's document open, submit and reach the end of every walk
+on Formplayer, the Web Apps
 client and Android, and the stopped forms of `fuzz-suite-20260930-5` and `fuzz-xform-20260930-0`
 open and submit on Formplayer. It showed two other things, both carried by pull request 5:
 
@@ -672,6 +674,17 @@ open and submit on Formplayer. It showed two other things, both carried by pull 
   on every document. They are served entries, so the pull request lane leaves them to the run with
   every reader; R5 holds them on the document and its control before the stack is cut (§6.4).
 
+**R5 correction, finding 74 past the repaired opening.** Run 39129168950 at `5447da59`
+shows `fuzz-xform-20260930-0`'s "Form 1-0" opening with both selects already holding the
+walk's answers. The corrected walk sends no unchanged answer, as the Web Apps client does, so
+the required datetime at `/data/itext` retains `UnsupportedEntry`'s "Not Supported by Web Entry"
+placeholder. Formplayer refuses Submit with `validation-error` and `illegal-argument` in all four
+baseline states. R3 and R4's unnecessary answer request had replaced that placeholder, masking
+this later stop. Pull request 5 adds the document's Formplayer `submit-refused:validation-error`
+entry under existing finding 74, owned by step 4. Its stop on `targeted-datetime-ordering` stays
+unchanged; no new defect or control is added. The post-shape list holds 25 stops (30 minus six,
+plus this one).
+
 ### 3.4 Defect 17: a witness with its fix
 
 Defect 17 (research README, "Form-logic references stored as text") is not in the register and
@@ -698,7 +711,7 @@ new print") at the commit gate, the boundary where the defect lives.
 | Live entries | 282 | 281 (pull request 1 adds eleven, 56's five and 75's six; pull request 5 adds defect 21's two of §3.3, which stay live for step 5, and moves defect 25's one of §3.7; pull request 8 moves nine, 56's seven, the base's two among them, and 75's device half's two; pull request 10 moves 75's four search entries; 293 live after pull request 1, 294 after pull request 5, 285 after pull request 8) |
 | Fixed entries | 720 | 734 (721 after pull request 5, 730 after pull request 8) |
 | Controls | 105 | 108 (`targeted-datetime-operands`, `targeted-datetime-equality`, `targeted-list-first-places`) |
-| Walk stops | 29 | 24 (pull request 1 adds finding 75's search error on `targeted-datetime-equality`, 30; pull request 5 removes six, 24; pull request 10 turns the added one into its control's, §3.2), plus any stop a reader run shows on a new document or past an opened form (§3.3, §6.4) |
+| Walk stops | 29 | 25 (pull request 1 adds finding 75's search error on `targeted-datetime-equality`, 30; pull request 5 removes six and adds finding 74's stop on `fuzz-xform-20260930-0`, 25; pull request 10 turns finding 75's search stop into its control's, §3.2), plus any stop a reader run shows on a new document or past an opened form (§3.3, §6.4) |
 | `OPEN_DEFECTS` | ten defects | nine, every one a later step's: its values are steps, not entry counts, so `75: 3` (six entries) enters in pull request 1, `56: 3` leaves in pull request 8, and `75: 3` leaves in pull request 10 with the last of its entries |
 | `identity-moves.json` | empty | empty: the cutover's one-time changes (§3.6) are held by its own tests, dry run and notice, and the lane never sees a document from before the cutover |
 
@@ -1293,7 +1306,8 @@ merged with it.
   "every block ran exactly once" section held.
 - **R3 and R4, run 39064336028: held but for two things pull request 5 carries.** The Android
   reader runtime job passed (49 tests, OK), and no job failed on infrastructure. With the six stops
-  removed, no opened form reaches a reader's own end (§3.3): `fuzz-suite-20260930-8`,
+  removed, no opened form reaches a reader's own end under that run's then-current walk (§3.3):
+  `fuzz-suite-20260930-8`,
   `fuzz-xform-20260930-1`, `-7` and finding 73's document run clean on Formplayer, the Web Apps
   client and Android, and the stopped forms of `fuzz-suite-20260930-5` and `fuzz-xform-20260930-0`
   open and submit on Formplayer. The three `int` expander documents pass (11 of 11 items), and 7 of
@@ -1304,6 +1318,13 @@ merged with it.
   two live entries on a new targeted document (both in §3.3). Not in hand: Android, Connect and the
   B and B-edit states on the five documents of the walk's gap, and whether
   `fuzz-xform-20260930-0`'s module 1 form opens on any reader; R5 reads them after the walk fix.
+- **R5, run 39129168950 at `5447da59`, completed shard 2: one newly reached held stop.**
+  `fuzz-xform-20260930-0`'s "Form 1-0" opens, and the corrected walk exposes existing finding 74
+  in all four baseline states (§3.3). Pull request 5 adds its Formplayer
+  `submit-refused:validation-error` entry; step 4 owns its fix beside the unchanged stop on
+  `targeted-datetime-ordering`. The shard's original unheld-stop finding is reproduced from its
+  retained records and clears with the entry. This is that shard's evidence, not a verdict on
+  the still-running R5 dispatch.
 
 What a run shows is written into the pull request that carries its change: a reader's end past an
 opened form becomes a walk stop in pull request 5, a served difference on a new document an entry
@@ -1543,7 +1564,8 @@ served entries and its stop to the run with every reader.
   `proof/fixed-defects.json` (that one defect-25 entry, §3.7), `proof/formplayer/walk.py` (`_fill` and
   `_reconcile`: no value sent that the question already holds) and `proof/formplayer/test_walk.py`,
   `proof/timings.json` (the new document and control), `proof/walk-stops.json` (six entries
-  removed, 30 to 24), `proof/rules/conftest.py::DOCUMENTS` (only if a rule's reader test needs a
+  removed and finding 74's `fuzz-xform-20260930-0` stop added, 30 to 25),
+  `proof/rules/conftest.py::DOCUMENTS` (only if a rule's reader test needs a
   new document).
 - Pull request 7, Preview: `proof/native/core/CoreDateParityRuntimeTest.java` and its rows in
   `families.py` and the producer (part 07 §2.4).

@@ -18,6 +18,12 @@
 		"reason": "The search's one prompt is required and this run leaves the screen as it opens, so the client keeps its Search from being sent (menus/views/query.js) and the walk sends none; the run that types into the prompt sends it."
 	},
 	{
+		"document": "fuzz-xform-20260930-0",
+		"reader": "formplayer",
+		"cause": "submit-refused:validation-error",
+		"reason": "Form 1-0 opens with both selects already holding the walk's answers, so no answer request replaces the date-and-time question's UnsupportedEntry placeholder before Submit (entries.js::UnsupportedEntry; finding 74). The client submits \"Not Supported by Web Entry\" for /data/itext, which Formplayer refuses as an illegal argument on every baseline state."
+	},
+	{
 		"document": "fuzz-xform-20260930-4",
 		"reader": "formplayer",
 		"cause": "submit-refused:validation-error",

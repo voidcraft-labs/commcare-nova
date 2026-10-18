@@ -2842,6 +2842,14 @@ gives the proof case's writer-derived property its date type. These six
 stops need no retained controls; their fixes are held at the authoring,
 generator and case-data boundaries.
 
+The corrected walk then reaches finding 74 on `fuzz-xform-20260930-0`: its
+"Form 1-0" opens with both selects already answered, so no later answer
+request replaces the datetime question's `UnsupportedEntry` placeholder.
+Formplayer refuses that submission. Its `submit-refused:validation-error`
+entry joins the unchanged one on `targeted-datetime-ordering`; both belong
+to step 4. The list now holds 25 entries: 30 before these six removals,
+plus this newly reached stop (R5 run 39129168950).
+
 ```json
 {"document": "tile-grouped-one", "reader": "webapps", "cause": "case-not-listed",
  "reason": "<one line a reviewer can check at the reader's source or in the record>"}
