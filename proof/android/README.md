@@ -63,6 +63,13 @@ test application's local requester, and the worker the restore registers
 becomes the device's worker (the reader's own checks and the spelling rules'
 predicates run so).
 
+If the proxy cannot write an answer while the device is running, the request
+fails with `PeerFailed`, retaining the JVM log and the original socket error.
+Its diagnostic names the bounded method and path, HTTP status, response byte
+count and elapsed time answering the request. It includes no query, host,
+headers or content. The proxy stops and reaps the device before the reader
+removes the request's temporary files.
+
 The requests (`Reader.java`):
 
 - **`app`**: the install's status; each of Android's profile readers on the
