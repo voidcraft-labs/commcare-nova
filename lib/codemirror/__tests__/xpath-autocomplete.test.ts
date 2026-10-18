@@ -17,7 +17,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import type { ReachableCaseTypeIndex } from "@/lib/domain";
 import { hashtagSource } from "../xpath-autocomplete";
 import { xpath } from "../xpath-language";
-import type { XPathLintContext } from "../xpath-lint";
+import type { XPathReferenceContext } from "../xpath-lint";
 
 /**
  * Build a CompletionContext at the end of `doc` against an EditorState
@@ -41,13 +41,13 @@ function patientIndex(
 }
 
 function makeLintContext(
-	formType: XPathLintContext["formType"],
+	formType: XPathReferenceContext["formType"],
 	properties: Array<[string, { label?: string }]> = [
 		["case_id", { label: "case id" }],
 		["age", { label: "Age" }],
 		["weight", { label: "Weight" }],
 	],
-): XPathLintContext {
+): XPathReferenceContext {
 	return {
 		formUuid: "test-form",
 		validPaths: new Set(),

@@ -3,13 +3,7 @@
  * Never escape a value before constructing its element or text node. */
 
 import { type ChildNode, Element, Text } from "domhandler";
-import {
-	type LegacyAuthoredXPath,
-	type LegacyFormLinkXPath,
-	legacyAuthoredXPathText,
-	legacyFormLinkXPathText,
-} from "./xform/legacyAuthoredXPath";
-import type { InstanceDecl, InstanceSink } from "./xpath/wire/instances";
+import type { InstanceSink } from "./xpath/wire/instances";
 import { serializeWire } from "./xpath/wire/serialize";
 import type { WireExpr, WireMode } from "./xpath/wire/tree";
 
@@ -69,68 +63,20 @@ const XPATH_ATTRIBUTES = {
 	menu: ["relevant"],
 } as const;
 
-const AUTHORED_ATTRIBUTES = {
-	bind: [
-		"relevant",
-		"required",
-		"constraint",
-		"calculate",
-		"jr:constraintMsg",
-		"vellum:relevant",
-		"vellum:requiredCondition",
-		"vellum:constraint",
-		"vellum:calculate",
-	],
-	setvalue: ["value"],
-	output: ["ref", "value", "vellum:value"],
-	repeat: ["jr:count"],
-} as const;
-
-const FORM_LINK_ATTRIBUTES = {
-	create: ["if"],
-	push: ["if"],
-	clear: ["if"],
-	datum: ["value"],
-} as const;
-
 type XPathElementName = keyof typeof XPATH_ATTRIBUTES;
 type XPathAttribute<Name extends string> = Name extends XPathElementName
 	? (typeof XPATH_ATTRIBUTES)[Name][number]
 	: never;
-type AuthoredAttribute<Name extends string> =
-	Name extends keyof typeof AUTHORED_ATTRIBUTES
-		? (typeof AUTHORED_ATTRIBUTES)[Name][number]
-		: never;
-type FormLinkAttribute<Name extends string> =
-	Name extends keyof typeof FORM_LINK_ATTRIBUTES
-		? (typeof FORM_LINK_ATTRIBUTES)[Name][number]
-		: never;
 type RawAttributes<Name extends string> = Record<string, string> &
 	Partial<Record<XPathAttribute<Name>, never>>;
-type SlotMap<Keys extends string, Value> = [Keys] extends [never]
-	? never
-	: Partial<Record<Keys, Value>>;
-
 export interface WireElementContext {
 	readonly mode: WireMode;
 	readonly instances: InstanceSink;
-	/** The sole temporary text reader; removed with the form-logic transition. */
-	readonly resolveLegacyInstances?: (
-		value: LegacyAuthoredXPath | LegacyFormLinkXPath,
-	) => Iterable<InstanceDecl>;
 }
 
 export interface WireElementSpec<Name extends XPathElementName> {
 	readonly attributes?: RawAttributes<Name>;
 	readonly xpath?: Partial<Record<XPathAttribute<Name>, WireExpr>>;
-	readonly authoredXPath?: SlotMap<
-		AuthoredAttribute<Name>,
-		LegacyAuthoredXPath
-	>;
-	readonly legacyFormLinkXPath?: SlotMap<
-		FormLinkAttribute<Name>,
-		LegacyFormLinkXPath
-	>;
 }
 
 function includesAttribute(
@@ -198,36 +144,6 @@ export function xel<const Name extends XPathElementName>(
 		attributes[attribute] = printed.text;
 		context.instances.add(printed.instances);
 	}
-	const legacy = <Legacy extends LegacyAuthoredXPath | LegacyFormLinkXPath>(
-		table: Readonly<Record<string, readonly string[]>>,
-		values: Readonly<Record<string, Legacy | undefined>>,
-		textOf: (value: Legacy) => string,
-	) => {
-		for (const [attribute, expression] of Object.entries(values)) {
-			if (expression === undefined) continue;
-			if (!includesAttribute(table, name, attribute))
-				throw new Error(
-					`The <${name}> ${attribute} attribute is not a legacy authored slot.`,
-				);
-			claim(attribute);
-			if (context.resolveLegacyInstances === undefined)
-				throw new Error(
-					"An authored XPath slot needs its temporary instance resolver.",
-				);
-			attributes[attribute] = textOf(expression);
-			context.instances.add(context.resolveLegacyInstances(expression));
-		}
-	};
-	legacy(
-		AUTHORED_ATTRIBUTES,
-		spec.authoredXPath ?? {},
-		legacyAuthoredXPathText,
-	);
-	legacy(
-		FORM_LINK_ATTRIBUTES,
-		spec.legacyFormLinkXPath ?? {},
-		legacyFormLinkXPathText,
-	);
 	return new Element(name, attributes, children);
 }
 

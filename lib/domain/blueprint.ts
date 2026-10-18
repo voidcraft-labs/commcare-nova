@@ -30,7 +30,6 @@ import { ownRecordSchema } from "./records";
 import type { ReferenceIndex } from "./referenceIndex";
 import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
 import { type Uuid, uuidSchema } from "./uuid";
-import { xpathExpressionSchema } from "./xpath";
 
 // Re-exports — `casePropertyDataTypes` / `CasePropertyDataType` /
 // `casePropertyDataTypeSchema` live at the leaf
@@ -52,9 +51,6 @@ export const casePropertySchema = z.strictObject({
 	label: proseTemplateSchema,
 	data_type: casePropertyDataTypeSchema.optional(),
 	hint: proseTemplateSchema.optional(),
-	required: xpathExpressionSchema.optional(),
-	validation: xpathExpressionSchema.optional(),
-	validation_msg: proseTemplateSchema.optional(),
 	options: z
 		.array(z.strictObject({ value: z.string(), label: proseTemplateSchema }))
 		.optional(),

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { type BlueprintDoc, fieldCaseWrite } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import {

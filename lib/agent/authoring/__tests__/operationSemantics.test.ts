@@ -14,7 +14,7 @@ const record = z.object({
 	identity: z.string().optional(),
 });
 const read = z.object({
-	caseType: z.string(),
+	caseType: z.string().optional(),
 	property: z.string(),
 	record,
 	slot: z.string(),
@@ -437,13 +437,10 @@ it("keeps keyed creates as possible aliases and reports contextual XPath and rel
 	]);
 	expect(contextual.readWriteOverlaps).toMatchObject([
 		{ readFrom: "condition", identity: "may-alias" },
+		{ readFrom: "value", identity: "may-alias" },
 	]);
 	expect(contextual.unresolvedReads).toEqual(
 		expect.arrayContaining([
-			expect.objectContaining({
-				reason: "xpath-text-not-inventoried",
-				slot: "write:phase",
-			}),
 			expect.objectContaining({
 				reason: "related-record-set",
 				slot: "operation",
@@ -454,6 +451,44 @@ it("keeps keyed creates as possible aliases and reports contextual XPath and rel
 	expect(relationOnly.conditionReads).toEqual([]);
 	expect(relationOnly.unresolvedReads).toEqual([
 		{ reason: "related-record-set", slot: "operation" },
+	]);
+});
+
+it("keeps an untyped query's built-in property read as a possible alias", async () => {
+	const { call } = await fixture();
+	await call("addFields", {
+		formUuid: "Change entry",
+		fields: [
+			{
+				kind: "hidden",
+				id: "queried_names",
+				calculate: "string(instance('casedb')/casedb/case/case_name)",
+			},
+		],
+	});
+	const result = feedback.parse(
+		await call("addCaseOperations", {
+			formUuid: "Change entry",
+			operations: [
+				{
+					operation: {
+						id: "rename_from_query",
+						action: "update",
+						caseType: "entry",
+						target: { kind: "session" },
+						rename: "#form/queried_names",
+					},
+				},
+			],
+		}),
+	);
+	const operation = result.operationSemantics.operations[0];
+	expect(operation.valueReads).toMatchObject([
+		{ property: "case_name", record: { kind: "runtime-record" } },
+	]);
+	expect(operation.valueReads[0].caseType).toBeUndefined();
+	expect(operation.readWriteOverlaps).toMatchObject([
+		{ property: "case_name", readFrom: "value", identity: "may-alias" },
 	]);
 });
 

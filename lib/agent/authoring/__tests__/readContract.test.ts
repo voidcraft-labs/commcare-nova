@@ -392,7 +392,7 @@ it("keeps literal hashtags distinct from explicit answer, case and worker insert
 			fieldUuid: source.uuid,
 			updates: { hint: "{{missing_answer}}" },
 		}),
-	).rejects.toThrow("Unknown or ambiguous reference");
+	).rejects.toThrow("must name one answer or record property");
 	expect(h.currentDoc()).toEqual(before);
 	expect(
 		await h.call("editField", {

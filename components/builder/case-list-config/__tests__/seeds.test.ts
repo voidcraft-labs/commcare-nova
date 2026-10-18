@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import type { CaseProperty, CaseType } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import { eq, literal, prop } from "@/lib/domain/expression";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import {
 	pickSeedProperty,

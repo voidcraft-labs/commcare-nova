@@ -19,6 +19,7 @@ import type { SourceDocumentRuntime } from "@/lib/agent/sourceDocuments";
 import type { ConversionImpact } from "@/lib/case-store";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import type { OrdinaryAuthoringAuthority } from "@/lib/db/authoringAuthority";
+import type { PreparedFormRecordName } from "@/lib/doc/formRecordName";
 import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
@@ -121,6 +122,9 @@ export type ConversionImpactFn = (args: {
  * write twice.
  */
 export interface ToolInvocationContext {
+	/** Internal identity preparation, shared by decoding and canonical execution
+	 * within this invocation; never part of the served tool input. */
+	preparedRecordNames?: Map<string, PreparedFormRecordName>;
 	/** Current app id. Every CANONICAL tool operates against one app; a
 	 * genesis change set has no app row yet, so the change-set host widens
 	 * this to `null` there. Tools whose behavior genuinely needs the app's

@@ -1,7 +1,7 @@
 /**
  * The corpus's fixed-seed sample of the compiler fuzz generators.
  *
- * The two generators are the XForm oracle's
+ * The original generators are the XForm oracle's
  * (`lib/commcare/__tests__/xformDocArbitrary.ts::blueprintDocArbitrary`) and
  * the suite oracle's (`suiteDocArbitrary.ts::suiteDocArbitrary`). Each draw
  * is taken as its fuzz test takes it: the suite fuzz makes the second module
@@ -21,6 +21,7 @@
  */
 
 import * as fc from "fast-check";
+import { expressionDocArbitrary } from "@/lib/commcare/__tests__/expressionDocArbitrary";
 import { suiteDocArbitrary } from "@/lib/commcare/__tests__/suiteDocArbitrary";
 import { blueprintDocArbitrary } from "@/lib/commcare/__tests__/xformDocArbitrary";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
@@ -47,6 +48,7 @@ export type ManifestFor = (doc: BlueprintDoc) => AssetManifest;
 const ARBITRARIES: Record<FuzzGenerator, fc.Arbitrary<BlueprintDoc>> = {
 	xform: blueprintDocArbitrary,
 	suite: suiteDocArbitrary,
+	expression: expressionDocArbitrary,
 };
 
 /** The suite fuzz's own step after each draw: the second module nests under the first. */
@@ -87,8 +89,8 @@ export interface SampledDocument {
 }
 
 /**
- * The first `size` documents of the fixed-seed sample (`fuzzSplit` says how
- * many from each generator), each admitted, with its uploaded media.
+ * The first `size` original-stream documents and the separate expression
+ * sample (`fuzzSplit` says how many from each generator), each admitted, with its uploaded media.
  */
 export function sampleFuzzDocuments(options: {
 	readonly size: number;

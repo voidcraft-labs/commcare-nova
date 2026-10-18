@@ -8,7 +8,7 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { matchAll, today } from "@/lib/domain/predicate";
+import { matchAll, today } from "@/lib/domain/expression";
 import { addCaseListColumnsTool } from "../addCaseListColumns";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 

@@ -2,30 +2,21 @@
 //
 // A link's condition, edited in SESSION scope.
 //
-// CommCare evaluates it after the form has closed, so the editor is
-// mounted with `buildSessionLintContext`: the same readable case types as
-// the form's own slots, no form paths, and a linter that explains a form
-// read as "this runs after the form has closed" rather than as an unknown
-// field, and `XPathField`'s save gate reads those same diagnostics. The
-// save path here adds the two refusals the doc gate would make, in the
-// author's words: an emptied condition (a link needs one; the otherwise
-// link is a different kind of link) and a form read the parser resolved
-// to a field.
+// The actual link member supplies the after-submit profile and parser.
+// Shared lint and admission findings explain why closed-form answers cannot
+// be read; an empty condition stays a separate local refusal.
 
 "use client";
 
 import { XPathField } from "@/components/builder/XPathField";
-import { buildSessionLintContext } from "@/lib/codemirror/buildSessionLintContext";
-import { SESSION_FORM_READ_MESSAGE } from "@/lib/codemirror/xpath-lint";
-import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
-	useParseXPathForForm,
-	useXPathProjection,
+	useFormExpressionLintContext,
+	useFormExpressionProjection,
+	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
 import type { CommitOutcome, FormLink } from "@/lib/domain";
 import { EMPTY_CONDITION_REFUSAL } from "./afterSubmitCopy";
-import { readsForm } from "./sessionExpression";
 
 export function LinkConditionEditor({
 	formUuid,
@@ -42,18 +33,21 @@ export function LinkConditionEditor({
 	readonly autoEdit?: boolean;
 	readonly onCommit: (next: FormLink) => CommitOutcome;
 }) {
-	const docApi = useBlueprintDocApi();
-	const parse = useParseXPathForForm(formUuid);
-	const projection = useXPathProjection(link.condition);
+	const slot = {
+		entity: "form" as const,
+		uuid: formUuid,
+		slot: "form_link_condition" as const,
+		member: { linkUuid: link.uuid },
+	};
+	const parse = useParseFormExpression(slot);
+	const projection = useFormExpressionProjection(link.condition, slot);
+	const getLintContext = useFormExpressionLintContext(slot);
 
 	const save = (text: string): CommitOutcome | undefined => {
 		if (text.trim().length === 0) {
 			return { ok: false, messages: [EMPTY_CONDITION_REFUSAL] };
 		}
 		const condition = parse(text);
-		if (readsForm(condition)) {
-			return { ok: false, messages: [SESSION_FORM_READ_MESSAGE] };
-		}
 		return onCommit({ ...link, condition });
 	};
 
@@ -62,9 +56,7 @@ export function LinkConditionEditor({
 			<XPathField
 				value={projection.text}
 				onSave={canEdit ? save : undefined}
-				getLintContext={() =>
-					buildSessionLintContext(docApi.getState(), formUuid)
-				}
+				getLintContext={getLintContext}
 				autoEdit={autoEdit === true && canEdit}
 			/>
 			{!projection.ok && (

@@ -21,7 +21,7 @@ import {
 	switchCase,
 	switchExpr,
 	term,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { expect, makeCaseRow, test } from "../../sql/__tests__/setup";

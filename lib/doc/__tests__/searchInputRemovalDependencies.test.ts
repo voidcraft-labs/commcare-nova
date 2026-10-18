@@ -20,7 +20,7 @@ import {
 	sessionContext,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const targetUuid = testUuid("00000000-0000-4000-8000-000000000011");

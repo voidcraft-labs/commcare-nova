@@ -11,7 +11,7 @@ import {
 	setAttachmentEntryAuthority,
 } from "@/components/preview/form/fields/attachment/attachmentClient";
 import { InteractiveFormRenderer } from "@/components/preview/form/InteractiveFormRenderer";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { proseText } from "@/lib/domain";
@@ -221,7 +221,7 @@ const defaultDoc = admittedControllerDoc(
 								name: "Visit",
 								type: "survey",
 								fields: [
-									f({ kind: "hidden", id: "audit", calculate: xp("1") }),
+									f({ kind: "hidden", id: "audit", calculate: "1" }),
 									...["first", "second"].map((id) =>
 										f({
 											kind: "group",
@@ -245,13 +245,13 @@ const defaultDoc = admittedControllerDoc(
 											f({
 												kind: "hidden",
 												id: "computed",
-												calculate: xp("1"),
+												calculate: "1",
 											}),
 											f({
 												kind: "text",
 												id: "extra",
 												label: proseText("Extra detail"),
-												relevant: xp("/data/visits/size > 1"),
+												relevant: "/data/visits/size > 1",
 											}),
 											f({
 												kind: "text",

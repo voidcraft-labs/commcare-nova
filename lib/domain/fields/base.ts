@@ -50,6 +50,7 @@ import {
 	type AuthoredCasePropertyName,
 	authoredCasePropertyNameSchema,
 } from "../casePropertyName";
+import { type Expression, formLogicSchema } from "../expression/types";
 import { type Media, mediaSchema } from "../multimedia";
 import {
 	type ProseTemplate,
@@ -58,13 +59,12 @@ import {
 	proseText,
 } from "../prose";
 import { type Uuid, uuidSchema } from "../uuid";
-import { type XPathExpression, xpathExpressionSchema } from "../xpath";
 
 // Re-exported so the per-kind schema files (which extend the bases
 // here) can attach the prose schema to their `validate_msg` and the
 // expression-AST schema to their `validate` / `default_value` without each
 // reaching across to the owning modules directly.
-export { proseTemplateSchema, xpathExpressionSchema };
+export { formLogicSchema, proseTemplateSchema };
 
 /**
  * Minimum shape every field carries: stable uuid + semantic id. Hidden
@@ -197,8 +197,8 @@ export type InputFieldBase = FieldBase & {
 	hint?: ProseTemplate;
 	help?: ProseTemplate;
 	help_media?: Media;
-	required?: XPathExpression; // an expression, or the "true()" sentinel
-	relevant?: XPathExpression;
+	required?: Expression; // an expression, or the "true()" sentinel
+	relevant?: Expression;
 	caseWrite?: CaseWrite;
 };
 
@@ -206,8 +206,8 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	hint: proseTemplateSchema.optional(),
 	help: proseTemplateSchema.optional(),
 	help_media: mediaSchema.optional(),
-	required: xpathExpressionSchema.optional(),
-	relevant: xpathExpressionSchema.optional(),
+	required: formLogicSchema.optional(),
+	relevant: formLogicSchema.optional(),
 	caseWrite: caseWriteSchema.optional(),
 });
 

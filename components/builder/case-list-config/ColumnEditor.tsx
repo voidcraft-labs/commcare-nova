@@ -14,13 +14,13 @@
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	CONSOLE_MENU_ITEM_CLS,
 	CONSOLE_TRIGGER_CLS,
 	InspectorSection,
 } from "@/components/builder/inspector/inspectorChrome";
-import { PredicateEditProvider } from "@/components/builder/shared/editorContext";
+import { EditorVocabularyProvider } from "@/components/builder/shared/editorContext";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import {
 	AlertDialog,
@@ -38,8 +38,15 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { useExpressionSlotContextBuilder } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import type { CaseType, Column, ColumnKind, UserProperty } from "@/lib/domain";
+import type {
+	CaseType,
+	Column,
+	ColumnKind,
+	UserProperty,
+	Uuid,
+} from "@/lib/domain";
 import { columnKindPropertyRequirement } from "@/lib/domain";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import {
@@ -68,6 +75,7 @@ import { NO_SEARCH_INPUTS } from "./searchInputResolution";
 const EMPTY_VALIDITY_INDEX = new Map<string, readonly string[]>();
 
 interface ColumnEditorProps {
+	readonly moduleUuid: Uuid | undefined;
 	/** Current column AST node. */
 	readonly value: Column;
 	/** Fired with the next AST whenever the user mutates the
@@ -99,6 +107,7 @@ interface ColumnEditorProps {
  * Column inspector body: display kind and the selected kind's own properties.
  */
 export function ColumnEditor({
+	moduleUuid,
 	value,
 	onChange,
 	caseTypes,
@@ -109,8 +118,26 @@ export function ColumnEditor({
 	onValidityChange,
 }: ColumnEditorProps) {
 	const projectProse = useProseProjection();
+	const buildContext = useExpressionSlotContextBuilder();
+	const expressionContextForColumn = useCallback(
+		(column: Column) =>
+			moduleUuid === undefined
+				? undefined
+				: buildContext(
+						{
+							entity: "module",
+							uuid: moduleUuid,
+							slot: "case_list_column_expression",
+							member: { columnUuid: column.uuid },
+						},
+						{ entity: "column", value: column },
+					),
+		[moduleUuid, buildContext],
+	);
 	const ctx = useMemo<ColumnEditContext>(
 		() => ({
+			moduleUuid,
+			expressionContextForColumn,
 			caseTypes,
 			currentCaseType,
 			userProperties,
@@ -118,6 +145,8 @@ export function ColumnEditor({
 			ordersByMapping,
 		}),
 		[
+			moduleUuid,
+			expressionContextForColumn,
 			caseTypes,
 			currentCaseType,
 			userProperties,
@@ -180,7 +209,7 @@ export function ColumnEditor({
 	}>;
 
 	return (
-		<PredicateEditProvider
+		<EditorVocabularyProvider
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={NO_SEARCH_INPUTS}
@@ -202,7 +231,7 @@ export function ColumnEditor({
 					errors={applicabilityErrors}
 				/>
 			</InspectorSection>
-		</PredicateEditProvider>
+		</EditorVocabularyProvider>
 	);
 }
 

@@ -49,7 +49,7 @@ import {
 	usercaseValuesBySlug,
 	userPropertiesOf,
 } from "@/lib/domain";
-import type { SessionContextField } from "@/lib/domain/predicate";
+import type { SessionContextField } from "@/lib/domain/expression";
 
 /**
  * The session slices a preview expression can read on the device: the

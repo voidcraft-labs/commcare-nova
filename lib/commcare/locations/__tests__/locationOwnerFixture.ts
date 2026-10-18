@@ -4,7 +4,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, type OrganizationLevel } from "@/lib/domain";
-import { term } from "@/lib/domain/predicate";
+import { term } from "@/lib/domain/expression";
 
 export const LOCATION_FORM = testUuid("location-owner-form");
 export const LOCATION_LEVELS = ["region", "district", "clinic"].map(

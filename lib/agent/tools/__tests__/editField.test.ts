@@ -17,8 +17,15 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Field } from "@/lib/domain";
+import {
+	concat,
+	literal,
+	matchAll,
+	term,
+	today,
+} from "@/lib/domain/expression";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
@@ -420,7 +427,10 @@ describe("editField — a hidden field carries one value source", () => {
 		);
 		const result = await h.runTool(editFieldTool, {
 			...HIDDEN_ADDRESS,
-			updates: { kind: "hidden", calculate: xp("concat('a', 'b')") },
+			updates: {
+				kind: "hidden",
+				calculate: concat(term(literal("a")), term(literal("b"))),
+			},
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());
@@ -447,7 +457,7 @@ describe("editField — a hidden field carries one value source", () => {
 		);
 		const result = await h.runTool(editFieldTool, {
 			...HIDDEN_ADDRESS,
-			updates: { kind: "hidden", default_value: xp("today()") },
+			updates: { kind: "hidden", default_value: today() },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());
@@ -475,7 +485,10 @@ describe("editField — a hidden field carries one value source", () => {
 		);
 		const result = await h.runTool(editFieldTool, {
 			...HIDDEN_ADDRESS,
-			updates: { kind: "hidden", calculate: xp("concat('a', 'b')") },
+			updates: {
+				kind: "hidden",
+				calculate: concat(term(literal("a")), term(literal("b"))),
+			},
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());
@@ -502,7 +515,7 @@ describe("editField — a hidden field carries one value source", () => {
 			...HIDDEN_ADDRESS,
 			updates: {
 				kind: "hidden",
-				calculate: xp("concat('a', 'b')"),
+				calculate: concat(term(literal("a")), term(literal("b"))),
 				default_value: null,
 			},
 		});
@@ -528,7 +541,7 @@ describe("editField — a hidden field carries one value source", () => {
 		);
 		const result = await h.runTool(editFieldTool, {
 			...HIDDEN_ADDRESS,
-			updates: { kind: "hidden", relevant: xp("true()") },
+			updates: { kind: "hidden", relevant: matchAll() },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(valueSlotsOf(h.currentDoc())).toEqual({
@@ -561,7 +574,7 @@ it("changes repeat modes without replacing its children or retaining the old mod
 									kind: "repeat",
 									label: proseText("Parcels"),
 									repeat_mode: "count_bound",
-									repeat_count: xp("2"),
+									repeat_count: term(literal(2)),
 									children: [
 										f({
 											uuid: AGE,
@@ -582,8 +595,8 @@ it("changes repeat modes without replacing its children or retaining the old mod
 	const child = doc.fields[AGE];
 	for (const repeat of [
 		{ mode: "user_controlled" as const },
-		{ mode: "count_bound" as const, count: xp("3") },
-		{ mode: "query_bound" as const, ids_query: xp("''") },
+		{ mode: "count_bound" as const, count: term(literal(3)) },
+		{ mode: "query_bound" as const, ids_query: term(literal("")) },
 		{ mode: "user_controlled" as const },
 	]) {
 		const result = await h.runTool(editFieldTool, {

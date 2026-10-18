@@ -10,6 +10,7 @@
 // `[..., "values", i]` path.
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerPlus from "@iconify-icons/tabler/plus";
@@ -26,14 +27,15 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
+	type Expression,
 	type Literal,
 	literal,
 	multiSelectAny,
-	type Predicate,
 	type PropertyRef,
 	prop,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { removeAndRestoreFocus } from "../focusAfterRemoval";
@@ -45,6 +47,7 @@ import {
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { isLiteralList } from "../recordCardShape";
 import {
 	type StableListOperation,
 	useStableListIdentity,
@@ -67,7 +70,7 @@ const MULTI_SELECT_PROPERTY_FILTER = (p: { data_type?: string }): boolean =>
  */
 export function multiSelectContainsDefault(
 	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "multi-select-contains" }> {
+): ExpressionOfKind<"multi-select-contains"> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find((p) => p.data_type === "multi_select");
 	const propName = property?.name ?? "";
@@ -79,24 +82,53 @@ export function multiSelectContainsDefault(
 }
 
 interface MultiSelectContainsCardProps {
-	readonly value: Extract<Predicate, { kind: "multi-select-contains" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"multi-select-contains">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
-export function MultiSelectContainsCard({
+export function MultiSelectContainsCard(props: MultiSelectContainsCardProps) {
+	if (
+		props.value.property.kind !== "prop" ||
+		!isLiteralList(props.value.values)
+	)
+		return (
+			<p role="status">This saved expression cannot be edited here yet.</p>
+		);
+	return (
+		<EditableMultiSelectContainsCard
+			{...props}
+			value={{
+				...props.value,
+				property: props.value.property,
+				values: props.value.values,
+			}}
+		/>
+	);
+}
+
+function EditableMultiSelectContainsCard({
 	value,
 	onChange,
 	path,
-}: MultiSelectContainsCardProps) {
+}: Omit<MultiSelectContainsCardProps, "value"> & {
+	readonly value: Omit<
+		MultiSelectContainsCardProps["value"],
+		"property" | "values"
+	> & {
+		readonly property: PropertyRef;
+		readonly values: [Literal, ...Literal[]];
+	};
+}) {
 	const ctx = usePredicateEditContext();
 	const projectProse = useProseProjection();
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
 	const rowIdentity = useStableListIdentity(value.values);
 
 	const property = useMemo(
-		() => multiSelectProperty(value.property, ctx.caseTypes),
-		[value.property, ctx.caseTypes],
+		() =>
+			multiSelectProperty(value.property, ctx.caseTypes, ctx.currentCaseType),
+		[value.property, ctx.caseTypes, ctx.currentCaseType],
 	);
 
 	const allOptions =
@@ -117,7 +149,12 @@ export function MultiSelectContainsCard({
 		// the new property's tokens. The `next` ref carries the
 		// preserved `via` walk (if any) verbatim: `PropertyRefPicker`'s
 		// canonical-edit branch rebuilds via `prop(caseType, name, via)`.
-		const nextValue = replaceMultiSelectProperty(value, next, ctx.caseTypes);
+		const nextValue = replaceMultiSelectProperty(
+			value,
+			next,
+			ctx.caseTypes,
+			ctx.currentCaseType,
+		);
 		rowIdentity.stage(nextValue.values, { kind: "reset" });
 		onChange(nextValue);
 	};

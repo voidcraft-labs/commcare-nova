@@ -15,7 +15,7 @@ import {
 	sessionUser,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 
 export const navigationScenarios = [
 	"base",

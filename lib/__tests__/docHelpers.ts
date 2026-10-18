@@ -13,11 +13,8 @@
  */
 
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { parseXPathExpression } from "@/lib/commcare/xpath";
-import {
-	resolvableUserPropertySlug,
-	resolveCloseFieldRef,
-} from "@/lib/doc/expressionText";
+import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
+import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
 	type AppSettings,
@@ -27,49 +24,49 @@ import {
 	type ConnectType,
 	type Field,
 	type FieldKind,
-	FORM_REFERENCE_SLOTS,
 	type Form,
 	type FormLink,
-	fieldPathResolver,
 	isContainerKindName,
 	type Module,
 	NEW_APP_SETTINGS,
 	type ProseTemplate,
 	plainColumn,
 	proseText,
-	rewriteSlotValues,
 	type UserCollections,
 	type Uuid,
-	type XPathExpression,
 } from "@/lib/domain";
+import {
+	type FormStructure,
+	formStructure,
+} from "@/lib/domain/expression/formStructure";
+import type {
+	Expression,
+	ExpressionSlotRef,
+} from "@/lib/domain/expression/types";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import {
+	type ExpressionCarrierRef,
+	expressionSlotKey,
+	expressionSlotValue,
+	rewriteExpressionSlotValues,
+} from "@/lib/domain/referenceSlots";
 
-/**
- * Parse expression text to its stored AST with NO form resolution —
- * unresolved form-namespace tokens stay inert text (case/user refs classify
- * without a doc). For fixtures whose form refs must resolve to identity
- * leaves, use `xpIn` or author the slot as a string in a `buildDoc` spec
- * (converted against the complete doc).
- */
-export function xp(text: string): XPathExpression {
-	return parseXPathExpression(
-		text,
-		() => undefined,
-		() => undefined,
-	);
-}
-
-/** Parse expression text against a built doc, scoped to a form — the
- *  same resolution every live commit surface performs. */
-export function xpIn(
+/** Parse source only in the actual slot that will store it. */
+export function parseFixtureExpression(
 	doc: BlueprintDoc,
-	formUuid: Uuid,
+	slot: ExpressionSlotRef,
 	text: string,
-): XPathExpression {
-	return parseXPathExpression(
-		text,
-		fieldPathResolver(doc, formUuid),
-		resolvableUserPropertySlug(doc),
-	);
+): Expression {
+	const parsed = parseFormExpression(text, {
+		doc: { ...doc },
+		slot,
+		lookup: "unavailable",
+	});
+	if (!parsed.ok)
+		throw new Error(parsed.issues.map((issue) => issue.message).join("\n"));
+	if (parsed.expression === undefined)
+		throw new Error("A fixture expression cannot be empty.");
+	return parsed.expression;
 }
 
 /** Monotonic counter keeps auto-assigned uuids stable + readable per test run. */
@@ -129,9 +126,12 @@ export interface FormSpec {
 	 *  `uuid` is auto-minted when the spec omits it, like a field's. */
 	formLinks?: Array<{
 		uuid?: string;
-		condition?: string;
+		condition?: string | Expression;
 		target: FormLink["target"];
-		datums?: Array<{ name: string; xpath: string }>;
+		datums?: Array<{
+			name: NonNullable<FormLink["datums"]>[number]["name"];
+			xpath: string | Expression;
+		}>;
 	}>;
 	fields?: FieldSpec[];
 }
@@ -259,15 +259,9 @@ export interface DocSpec {
 }
 
 type FixtureProse = string | ProseTemplate;
-type FixtureCaseProperty = Omit<
-	CaseProperty,
-	"label" | "hint" | "required" | "validation" | "validation_msg" | "options"
-> & {
+type FixtureCaseProperty = Omit<CaseProperty, "label" | "hint" | "options"> & {
 	label: FixtureProse;
 	hint?: FixtureProse;
-	required?: string | CaseProperty["required"];
-	validation?: string | CaseProperty["validation"];
-	validation_msg?: FixtureProse;
 	options?: Array<
 		Omit<NonNullable<CaseProperty["options"]>[number], "label"> & {
 			label: FixtureProse;
@@ -289,7 +283,10 @@ type FixtureCaseType = Omit<CaseType, "properties"> & {
  * child relationships are captured in `fieldOrder`. Container kinds carry
  * a (possibly empty) `fieldOrder` entry; leaves do not.
  */
-export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
+export function buildDoc(
+	spec: DocSpec = {},
+	configure?: (doc: BlueprintDoc) => void,
+): BlueprintDoc {
 	const modules: BlueprintDoc["modules"] = {};
 	const forms: BlueprintDoc["forms"] = {};
 	const fields: BlueprintDoc["fields"] = {};
@@ -373,6 +370,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 		fieldOrder,
 		fieldParent: {},
 	};
+	configure?.(doc);
 	rebuildFieldParent(doc);
 	resolveDocExpressions(doc);
 	for (const [formUuid, form] of Object.entries(doc.forms)) {
@@ -392,29 +390,11 @@ function normalizeFixtureCaseTypes(
 	return caseTypes.map((caseType) => ({
 		...caseType,
 		properties: caseType.properties.map((property) => {
-			const {
-				label,
-				hint,
-				required,
-				validation,
-				validation_msg,
-				options,
-				...rest
-			} = property;
+			const { label, hint, options, ...rest } = property;
 			return {
 				...rest,
 				label: fixtureProse(label),
 				...(hint !== undefined && { hint: fixtureProse(hint) }),
-				...(required !== undefined && {
-					required: typeof required === "string" ? xp(required) : required,
-				}),
-				...(validation !== undefined && {
-					validation:
-						typeof validation === "string" ? xp(validation) : validation,
-				}),
-				...(validation_msg !== undefined && {
-					validation_msg: fixtureProse(validation_msg),
-				}),
 				...(options !== undefined && {
 					options: options.map((option) => {
 						const { label: optionLabel, ...optionRest } = option;
@@ -442,59 +422,83 @@ function fixtureProse(value: FixtureProse): ProseTemplate {
  * mutates in place and returns the doc for inline wrapping.
  */
 export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
-	const AST_SLOTS = [
-		"relevant",
-		"validate",
-		"calculate",
-		"default_value",
-		"required",
-		"repeat_count",
-	] as const;
-	for (const [formUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
-		if (doc.forms[formUuid] === undefined) continue;
-		const resolve = fieldPathResolver(doc, formUuid);
-		const resolveUserProperty = resolvableUserPropertySlug(doc);
-		const stack = [...fieldUuids];
-		while (stack.length > 0) {
-			const uuid = stack.pop();
-			if (uuid === undefined) continue;
-			const field = doc.fields[uuid] as unknown as Record<string, unknown>;
-			if (!field) continue;
-			for (const slot of AST_SLOTS) {
-				const value = field[slot];
-				if (typeof value === "string") {
-					field[slot] = parseXPathExpression(
-						value,
-						resolve,
-						resolveUserProperty,
-					);
-				}
-			}
-			const dataSource = field.data_source as
-				| { ids_query?: unknown }
-				| undefined;
-			if (dataSource && typeof dataSource.ids_query === "string") {
-				dataSource.ids_query = parseXPathExpression(
-					dataSource.ids_query,
-					resolve,
-					resolveUserProperty,
+	// Cache structural facts only on this call-local identity. Fixture callers may
+	// deliberately mutate the returned document after assembly.
+	const parsingDoc = { ...doc };
+	const owners: ExpressionCarrierRef[] = [
+		...Object.values(doc.fields).map(({ uuid }) => ({
+			entity: "field" as const,
+			uuid,
+		})),
+		...Object.values(doc.forms).map(({ uuid }) => ({
+			entity: "form" as const,
+			uuid,
+		})),
+		...Object.values(doc.modules).map(({ uuid }) => ({
+			entity: "module" as const,
+			uuid,
+		})),
+	];
+	const pending = new Map<string, { ref: ExpressionSlotRef; source: string }>();
+	for (const owner of owners) {
+		rewriteExpressionSlotValues(doc, owner, (value, ref) => {
+			if (typeof value === "string")
+				pending.set(expressionSlotKey(ref), { ref, source: value });
+			return value;
+		});
+	}
+	const resolved = new Map<string, Expression>();
+	const resolving = new Set<string>();
+	const structures = new Map<Uuid, FormStructure>();
+	const read = (ref: ExpressionSlotRef): Expression | undefined => {
+		const key = expressionSlotKey(ref);
+		const source = pending.get(key);
+		if (source === undefined) return expressionSlotValue(parsingDoc, ref);
+		const existing = resolved.get(key);
+		if (existing !== undefined) return existing;
+		if (resolving.has(key))
+			throw new Error(`Fixture expression dependency cycle at ${key}.`);
+		resolving.add(key);
+		try {
+			const form =
+				ref.entity === "module"
+					? undefined
+					: [...structures.values()].find((candidate) =>
+							ref.entity === "form"
+								? candidate.formUuid === ref.uuid
+								: candidate.fields.has(ref.uuid),
+						);
+			const parsed = parseFormExpression(source.source, {
+				doc: parsingDoc,
+				slot: ref,
+				lookup: "unavailable",
+				...(form === undefined ? {} : { form }),
+			});
+			if (!parsed.ok)
+				throw new Error(
+					`Fixture expression ${key}: ${parsed.issues.map((issue) => issue.message).join("\n")}`,
 				);
-			}
-			for (const child of doc.fieldOrder[uuid] ?? []) stack.push(child);
+			if (parsed.expression === undefined)
+				throw new Error(
+					`Fixture expression ${key} is empty; omit an optional slot instead.`,
+				);
+			resolved.set(key, parsed.expression);
+			return parsed.expression;
+		} finally {
+			resolving.delete(key);
 		}
+	};
+	for (const formUuid of Object.keys(doc.forms) as Uuid[]) {
+		if (moduleUuidOfForm(parsingDoc, formUuid) === undefined) continue;
+		const base = formStructure(parsingDoc, formUuid);
+		if (base !== undefined)
+			structures.set(formUuid, { ...base, expressionAt: read });
 	}
-	for (const [formUuid, form] of Object.entries(doc.forms)) {
-		const resolve = fieldPathResolver(doc, formUuid);
-		const resolveUserProperty = resolvableUserPropertySlug(doc);
-		for (const entry of FORM_REFERENCE_SLOTS) {
-			if ((entry.kind as string) !== "xpath-ast") continue;
-			rewriteSlotValues(form, entry.path, (value) =>
-				typeof value === "string"
-					? parseXPathExpression(value, resolve, resolveUserProperty)
-					: value,
-			);
-		}
-	}
+	for (const { ref } of pending.values()) read(ref);
+	for (const owner of owners)
+		rewriteExpressionSlotValues(doc, owner, (value, ref) =>
+			typeof value === "string" ? resolved.get(expressionSlotKey(ref)) : value,
+		);
 	return doc;
 }
 

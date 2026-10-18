@@ -53,7 +53,7 @@ import {
 	tileCellFor,
 	tileGroupHeaderRowChoices,
 } from "@/lib/domain";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/predicate/types";
+import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { useMissingConnectionCount } from "@/lib/preview/hooks/useCaseDataBinding";
 import { groupingReopenNotice } from "./tileModel";
 

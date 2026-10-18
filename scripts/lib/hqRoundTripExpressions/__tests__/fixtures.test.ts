@@ -1,8 +1,7 @@
 /**
  * These bytes are the pre-step input to the one-off lift, not documents rebuilt
- * by the head's factories. Keep their digests and coverage checks after the old
- * expression model leaves in PR5. Only the final admission describe block and
- * its production-model imports leave in that PR.
+ * by the head's factories. Their digests and coverage checks remain after the
+ * old expression model leaves; the cutover consumes these raw carriers.
  *
  * A failure the old gate cannot admit is a fault over an admitted carrier, or
  * surrounding-state metadata. PR13 applies those explicitly in its guard tests;
@@ -12,14 +11,10 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { availableLookupContext } from "@/lib/__tests__/lookupFixtures";
-import {
-	assemblePersistedBlueprintJsonText,
-	type PersistedBlueprintRootText,
-	type PersistedEntityRowText,
+import type {
+	PersistedBlueprintRootText,
+	PersistedEntityRowText,
 } from "@/lib/db/persistedJson";
-import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 
 interface Fixture {
 	readonly id: string;
@@ -388,21 +383,4 @@ describe("frozen pre-step carriers", () => {
 			census: "unexplained",
 		});
 	});
-});
-
-// PR5 removes only this validity half: its schema and gate are the old model.
-describe("pre-step capture admission", () => {
-	it.each(fixtures)(
-		"$id parses and passes the current empty-batch gate",
-		({ id }) => {
-			const { root, rows } = capture(id).carriers;
-			const persisted = assemblePersistedBlueprintJsonText(id, root, rows);
-			const verdict = mutationCommitVerdict(
-				hydratePersistedBlueprint(persisted),
-				[],
-				availableLookupContext([]),
-			);
-			expect(verdict.ok ? [] : verdict.findings, id).toEqual([]);
-		},
-	);
 });

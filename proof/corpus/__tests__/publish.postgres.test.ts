@@ -109,7 +109,7 @@ import {
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { eq, literal, sessionContext } from "@/lib/domain/predicate";
+import { eq, literal, sessionContext } from "@/lib/domain/expression";
 import {
 	createLookupTable,
 	getLookupFixtureData,

@@ -16,7 +16,7 @@ import {
 	prop,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { runValidation } from "../validator/runner";
 import { searchEmissionFixture } from "./searchEmissionFixture";
 

@@ -27,7 +27,7 @@ import {
 	sessionUser,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { mediaIds, mediaManifest } from "./mediaWireFixtures";
 
 export const caseListEmissionScenarios = [

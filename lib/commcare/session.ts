@@ -40,8 +40,8 @@ import type {
 	PostSubmitDestination,
 } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
-import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
+import type { Expression } from "@/lib/domain/expression/types";
+import type { ModuleExpressionContexts } from "./expressionContext";
 import type { MatchedChild, ProjectedFormLinks } from "./formLinkProjection";
 import { validateCaseType } from "./identifierValidation";
 import type { LookupWireNaming } from "./lookup/naming";
@@ -57,12 +57,6 @@ import {
 	USERCASE_MISSING_ASSERT_TEST,
 	USERCASE_MISSING_LOCALE_ID,
 } from "./usercaseWire";
-import {
-	type FormLinkXPathValue,
-	isLegacyFormLinkXPath,
-	legacyFormLinkGroupedParents,
-	legacyFormLinkXPathInstances,
-} from "./xform/legacyAuthoredXPath";
 import { w } from "./xpath/wire/builders";
 import {
 	caseDbInstance,
@@ -145,10 +139,10 @@ export interface SessionDatum {
 	 * string.
 	 */
 	renderFunction?: (sessionRef: (datumId: string) => WireExpr) => WireExpr;
-	/** PR4 bridge for a grouped companion that reads an authored manual link datum. */
+	/** A grouped companion regenerated through the matched manual datum tree. */
 	renderFormLinkFunction?: (
-		sessionRef: (datumId: string) => FormLinkXPathValue,
-	) => FormLinkXPathValue;
+		sessionRef: (datumId: string) => WireExpr,
+	) => WireExpr;
 	/** Structural regeneration hook used when HQ-style root-menu alignment
 	 * renames a datum. Never rendered. */
 	renderNodeset?: (parentSelection?: SessionDatum) => WireExpr;
@@ -236,7 +230,7 @@ export interface StackQueryData {
 /** A child element of a <create> or <push> operation. */
 export type StackChild =
 	| { type: "command"; value: WireExpr }
-	| { type: "datum"; id: string; value: FormLinkXPathValue }
+	| { type: "datum"; id: string; value: WireExpr }
 	/** A frame step that fetches cases into a search-first module's
 	 *  results instance before the datum that selects one (HQ
 	 *  `WorkflowQueryMeta.to_stack_datum`). */
@@ -259,7 +253,7 @@ export interface StackOperation {
 	/** The operation type. */
 	op: "create" | "push" | "clear";
 	/** XPath condition — operation executes only when this is true. Omit = always. */
-	ifClause?: FormLinkXPathValue;
+	ifClause?: WireExpr;
 	/** Commands and datums. Must be empty for 'clear' operations. */
 	children: StackChild[];
 }
@@ -331,19 +325,19 @@ export interface EntryDefinition {
  */
 export function caseLoadingNodeset(
 	caseType: string,
-	caseListFilter: Predicate | undefined,
-	excludedOwnerIds: ValueExpression | undefined,
-	relationContext: RelationEvaluationScopeContext = {},
+	caseListFilter: Expression | undefined,
+	excludedOwnerIds: Expression | undefined,
+	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 ): WireExpr {
 	const filter = emitNodesetFilter(
 		caseListFilter,
-		relationContext,
+		expressions({ slot: "case_list_filter" }),
 		lookupNaming,
 	);
 	const owners = emitExcludedOwnerNodesetFilter(
 		excludedOwnerIds,
-		relationContext,
+		expressions({ slot: "excluded_owner_ids" }),
 		lookupNaming,
 	);
 	return w.instance(caseDbInstance(), [
@@ -359,13 +353,13 @@ export function caseLoadingNodeset(
 
 export function inlineSearchNodeset(
 	caseType: string,
-	caseListFilter: Predicate | undefined,
-	relationContext: RelationEvaluationScopeContext = {},
+	caseListFilter: Expression | undefined,
+	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 ): WireExpr {
 	const filter = emitNodesetFilter(
 		caseListFilter,
-		relationContext,
+		expressions({ slot: "case_list_filter" }),
 		lookupNaming,
 	);
 	return w.instance(resultsInstance("results:inline"), [
@@ -406,9 +400,9 @@ export function deriveCaseSelectionDatum(args: {
 	readonly id: string;
 	readonly caseType: string;
 	readonly moduleIndex: number;
-	readonly caseListFilter?: Predicate;
-	readonly excludedOwnerIds?: ValueExpression;
-	readonly relationContext?: RelationEvaluationScopeContext;
+	readonly caseListFilter?: Expression;
+	readonly excludedOwnerIds?: Expression;
+	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
 	readonly parentSelection?: SessionDatum;
@@ -434,14 +428,14 @@ export function deriveCaseSelectionDatum(args: {
 		? inlineSearchNodeset(
 				args.caseType,
 				args.caseListFilter,
-				args.relationContext,
+				args.expressions,
 				args.lookupNaming,
 			)
 		: caseLoadingNodeset(
 				args.caseType,
 				args.caseListFilter,
 				args.excludedOwnerIds,
-				args.relationContext,
+				args.expressions,
 				args.lookupNaming,
 			);
 	const renderNodeset = (parentSelection?: SessionDatum): WireExpr => {
@@ -545,7 +539,7 @@ export interface SessionDatumsInput {
 	 * selects from. Meaningful only on case-loading form types: a
 	 * registration or survey form emits no case-loading datum to narrow.
 	 */
-	readonly caseListFilter?: Predicate;
+	readonly caseListFilter?: Expression;
 	/**
 	 * The form's `FormActions`, post-expansion. `open_case.condition` and
 	 * `subcases` decide which case-create datums are emitted. Omitted, only
@@ -558,8 +552,8 @@ export interface SessionDatumsInput {
 	 * case-loading nodeset whether or not the module has an effective remote
 	 * Search action.
 	 */
-	readonly excludedOwnerIds?: ValueExpression;
-	readonly relationContext?: RelationEvaluationScopeContext;
+	readonly excludedOwnerIds?: Expression;
+	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
 	readonly tileGrouping?: CaseTileGrouping;
@@ -576,7 +570,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		caseListFilter,
 		actions,
 		excludedOwnerIds,
-		relationContext = {},
+		expressions,
 		lookupNaming,
 		persistentDetailId,
 		tileGrouping,
@@ -596,7 +590,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 					moduleIndex,
 					caseListFilter,
 					excludedOwnerIds,
-					relationContext,
+					expressions,
 					lookupNaming,
 					persistentDetailId,
 				}),
@@ -717,13 +711,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 			id: `${caseSelectDatum.id}_parent_ids`,
 			function: renderFunction(sessionRef),
 			renderFunction,
-			renderFormLinkFunction: (read) =>
-				caseSelectDatum.maxSelectValue === undefined
-					? legacyFormLinkGroupedParents(
-							read(caseSelectDatum.id),
-							tileGrouping.identifier,
-						)
-					: renderFunction(sessionRef),
+			renderFormLinkFunction: renderFunction,
 		});
 	}
 
@@ -1017,10 +1005,10 @@ export function deriveEntryDefinition(
 export function deriveCaseListEntryDefinition(
 	moduleIndex: number,
 	caseType: string,
-	caseListFilter?: Predicate,
+	caseListFilter: Expression | undefined,
 	hasDetailScreen = true,
-	excludedOwnerIds?: ValueExpression,
-	relationContext: RelationEvaluationScopeContext = {},
+	excludedOwnerIds: Expression | undefined,
+	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	persistentDetailId?: string,
 	projectedDatums?: readonly SessionDatum[],
@@ -1039,7 +1027,7 @@ export function deriveCaseListEntryDefinition(
 						moduleIndex,
 						caseListFilter,
 						excludedOwnerIds,
-						relationContext,
+						expressions,
 						lookupNaming,
 						persistentDetailId,
 						detailConfirm: hasDetailScreen,
@@ -1086,7 +1074,6 @@ function wireContext(instances: InstanceSink): WireElementContext {
 	return {
 		mode: { target: "suite" },
 		instances,
-		resolveLegacyInstances: (value) => legacyFormLinkXPathInstances(value),
 	};
 }
 
@@ -1140,11 +1127,7 @@ function buildStackOperationElement(
 	return xel(
 		op.op,
 		{
-			...(op.ifClause === undefined
-				? {}
-				: isLegacyFormLinkXPath(op.ifClause)
-					? { legacyFormLinkXPath: { if: op.ifClause } }
-					: { xpath: { if: op.ifClause } }),
+			...(op.ifClause === undefined ? {} : { xpath: { if: op.ifClause } }),
 		},
 		context,
 		op.op === "clear"
@@ -1165,9 +1148,7 @@ function buildStackChildElement(
 				"datum",
 				{
 					attributes: { id: child.id },
-					...(isLegacyFormLinkXPath(child.value)
-						? { legacyFormLinkXPath: { value: child.value } }
-						: { xpath: { value: child.value } }),
+					xpath: { value: child.value },
 				},
 				context,
 			);

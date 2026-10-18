@@ -8,14 +8,14 @@
 // that another editor removed it while it was open.
 
 import type { SearchInputDef } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import type { SearchConditionSlot } from "./workspaceSelection";
 
 /** The predicate a field carries in `slot`, if any. */
 export function searchInputConditionAt(
 	input: SearchInputDef,
 	slot: SearchConditionSlot,
-): Predicate | undefined {
+): Expression | undefined {
 	if (input.kind === "hidden") return undefined;
 	switch (slot) {
 		case "match":
@@ -35,7 +35,7 @@ export function searchInputConditionAt(
 export function withSearchInputCondition(
 	input: SearchInputDef,
 	slot: SearchConditionSlot,
-	predicate: Predicate,
+	predicate: Expression,
 ): SearchInputDef {
 	if (input.kind === "hidden") return input;
 	switch (slot) {

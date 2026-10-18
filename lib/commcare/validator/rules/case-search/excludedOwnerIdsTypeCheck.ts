@@ -1,14 +1,15 @@
+import { slotContext } from "@/lib/domain/expression/context";
 /**
  * Rule: `caseSearchConfig.excludedOwnerIds` (the value expression evaluating
  * to a space-separated list of owner ids excluded from Results) is global and
  * text-typed.
  *
  * Mirrors the case-list `calculatedColumnTypeCheck` pattern —
- * dispatches `checkValueExpression(expression, ctx, expectedType)`
+ * dispatches `checkExpression(expression, ctx, expectedType)`
  * and lifts each `CheckError` into a structured `ValidationError`.
  * The slot is a `ValueExpression` (not a Predicate), so the rule
  * consumes the value-expression entry point rather than
- * `checkPredicate`.
+ * `checkExpression`.
  *
  * CommCare Search and Nova Preview both resolve this value before a case is
  * selected. The ordinary case-list wire then reuses the resolved global intent
@@ -28,16 +29,14 @@
  */
 
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
-import {
-	checkValueExpression,
-	expressionReadsCaseData,
-} from "@/lib/domain/predicate";
+import { checkExpression } from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
 import {
+	checkErrorDetails,
 	type LookupTypeIndex,
 	semanticCheckErrors,
 } from "../../lookupTypeContext";
-import { formatPath, moduleTypeContext } from "../case-list/shared";
+import { formatPath } from "../case-list/shared";
 
 export function excludedOwnerIdsTypeCheck(
 	mod: Module,
@@ -47,7 +46,15 @@ export function excludedOwnerIdsTypeCheck(
 ): ValidationError[] {
 	const expression = mod.caseSearchConfig?.excludedOwnerIds;
 	if (!expression) return [];
-	if (expressionReadsCaseData(expression)) {
+	const ctx = slotContext(
+		doc,
+		{ entity: "module", uuid: moduleUuid, slot: "excluded_owner_ids" },
+		lookupTables ?? new Map(),
+	);
+	if (ctx === undefined)
+		throw new Error("A saved Search expression has no owning slot.");
+	const allErrors = semanticCheckErrors(checkExpression(expression, ctx));
+	if (allErrors.some((error) => error.code === "case-data-unavailable")) {
 		return [
 			validationError(
 				"CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE",
@@ -62,9 +69,8 @@ export function excludedOwnerIdsTypeCheck(
 		];
 	}
 
-	const ctx = moduleTypeContext(mod, doc, lookupTables);
-	const errors = semanticCheckErrors(
-		checkValueExpression(expression, ctx, "text"),
+	const errors = allErrors.filter(
+		(error) => error.code !== "case-data-unavailable",
 	);
 	if (errors.length === 0) return [];
 
@@ -74,10 +80,10 @@ export function excludedOwnerIdsTypeCheck(
 		return validationError(
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			"module",
-			`Module "${mod.name}" assigned-cases expression has a type error${suffix}: ${err.message}. The value must resolve to text because it is parsed as a space-separated list of owner ids. Open \`caseSearchConfig.excludedOwnerIds\` and use a text literal, current-user/session value, Search answer, or text calculation over those global values; otherwise remove the slot.`,
+			`Module "${mod.name}" assigned-cases expression has a type error${suffix}: ${err.message.replace(/\.$/, "")}. The value must resolve to text because it is parsed as a space-separated list of owner ids. Open \`caseSearchConfig.excludedOwnerIds\` and use a text literal, current-user/session value, Search answer, or text calculation over those global values; otherwise remove the slot.`,
 			{ moduleUuid, moduleName: mod.name },
 			{
-				path: at,
+				...checkErrorDetails(err),
 				slot: "caseSearchConfig.excludedOwnerIds",
 				surface: "excluded-owner-ids",
 			},

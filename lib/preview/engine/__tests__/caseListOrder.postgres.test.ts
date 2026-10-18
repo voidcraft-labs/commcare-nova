@@ -17,7 +17,7 @@ import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import { proseText } from "@/lib/domain";
-import { prop, term } from "@/lib/domain/predicate";
+import { prop, term } from "@/lib/domain/expression";
 
 interface ControlOrder {
 	readonly comparator: "text" | "integer" | "decimal";

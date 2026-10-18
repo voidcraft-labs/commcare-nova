@@ -2,6 +2,9 @@
  * execution remain in compiler, nested-menu and Core evidence suites. */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
+import { calculatedColumn, simpleSearchInputDef } from "@/lib/domain";
 import {
 	and,
 	concat,
@@ -12,8 +15,8 @@ import {
 	prop,
 	sessionUser,
 	term,
-} from "@/lib/domain/predicate";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression";
+import type { Expression } from "@/lib/domain/expression/types";
 import type { MatchedChild, ProjectedFormLinks } from "../formLinkProjection";
 import { alwaysCondition, emptyFormActions } from "../hqShells";
 import { serializeXml } from "../serializeXml";
@@ -34,7 +37,7 @@ import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
-const base: EntryDefinitionInput = {
+const base: Omit<EntryDefinitionInput, "expressions"> = {
 	formXmlns: "urn:nova:projection",
 	moduleIndex: 2,
 	formIndex: 3,
@@ -55,17 +58,74 @@ const column = concat(
 	term(literal(": ")),
 	term(prop("patient", "case_name")),
 );
-function printedInstances(expression: Predicate | ValueExpression) {
+const COLUMN = testUuid("session-column");
+function contexts(
+	options: Partial<EntryDefinitionInput> = {},
+	value: Expression = column,
+) {
+	const doc = buildDoc({
+		appName: "Session dependencies",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "region", label: "Region", data_type: "text" },
+					{ name: "city", label: "City", data_type: "text" },
+				],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [],
+				displayCondition: display,
+				caseListConfig: {
+					columns: [calculatedColumn(COLUMN, "Region", value)],
+					listColumnOrder: [COLUMN],
+					detailColumnOrder: [COLUMN],
+					filter: options.caseListFilter,
+					searchInputs: [
+						simpleSearchInputDef(
+							testUuid("city"),
+							"city",
+							"City",
+							"text",
+							"city",
+						),
+					],
+				},
+				caseSearchConfig: { excludedOwnerIds: options.excludedOwnerIds },
+			},
+		],
+	});
+	return moduleExpressionContexts(doc, doc.moduleOrder[0]);
+}
+function printedInstances(expression: Expression) {
+	const expressions = contexts({}, expression);
 	return [
-		...serializeWire(toWire(expression, { target: "suite", types: {} }), {
-			target: "suite",
-		}).instances,
+		...serializeWire(
+			toWire(expression, {
+				target: "suite",
+				types: expressions({
+					slot: "case_list_column_expression",
+					member: { columnUuid: COLUMN },
+				}),
+			}),
+			{ target: "suite" },
+		).instances,
 	];
 }
 function entryXml(options: Partial<EntryDefinitionInput> = {}) {
 	return readXmlEvidence(
 		serializeXml(
-			buildEntryElement(deriveEntryDefinition({ ...base, ...options })),
+			buildEntryElement(
+				deriveEntryDefinition({
+					...base,
+					...options,
+					expressions: contexts(options),
+				}),
+			),
 		),
 	);
 }
@@ -124,7 +184,10 @@ describe("entry instance dependencies", () => {
 						filter,
 						false,
 						term(region),
-						{},
+						contexts({
+							caseListFilter: filter,
+							excludedOwnerIds: term(region),
+						}),
 						undefined,
 						undefined,
 						undefined,

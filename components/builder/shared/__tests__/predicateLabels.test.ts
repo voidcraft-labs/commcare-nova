@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { literal, match, neq, prop, term } from "@/lib/domain/predicate";
+import { literal, match, neq, prop, term } from "@/lib/domain/expression";
 import { currentVerbLabel } from "../cards/PredicateVerbMenu";
 import { predicateCardSchemas } from "../editorSchemas";
 import { predicateFocusTitle } from "../RuleFocusContext";

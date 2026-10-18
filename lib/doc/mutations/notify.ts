@@ -18,3 +18,11 @@ import { showActiveProjectToast } from "@/lib/ui/toastStore";
 export function notifyRejectedCommit(lines: string[]): void {
 	showActiveProjectToast("error", "Change not applied", undefined, { lines });
 }
+
+/** Announce automatic value preservation only after its batch commits. */
+export function notifyPreservedChoices(count: number): void {
+	showActiveProjectToast(
+		"info",
+		`Kept ${count} choice ${count === 1 ? "value" : "values"} in your rules.`,
+	);
+}

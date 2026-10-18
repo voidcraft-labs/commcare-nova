@@ -98,9 +98,9 @@ it("uses scoped short names for nested questions, wording, conditions, edits and
 		kind: "field-ref",
 		uuid: date.uuid,
 	});
-	expect(confirmation.relevant?.parts).toContainEqual({
-		kind: "field-ref",
-		uuid: date.uuid,
+	expect(confirmation.relevant).toMatchObject({
+		kind: "neq",
+		left: { kind: "term", term: { kind: "field", uuid: date.uuid } },
 	});
 	await expect(
 		h.call("editField", {
@@ -108,7 +108,7 @@ it("uses scoped short names for nested questions, wording, conditions, edits and
 			fieldUuid: "confirmation",
 			updates: { relevant: "/data/check_date != ''" },
 		}),
-	).rejects.toThrow("Unknown or ambiguous reference");
+	).rejects.toThrow("doesn't reach an available value");
 	expect(h.currentDoc()).toBe(doc);
 	await h.call("editField", {
 		formUuid: "Weekly check",
@@ -117,7 +117,11 @@ it("uses scoped short names for nested questions, wording, conditions, edits and
 	});
 	expect(h.currentDoc().fields[confirmation.uuid]).toMatchObject({
 		relevant: {
-			parts: expect.arrayContaining([{ kind: "path-ref", uuid: date.uuid }]),
+			kind: "neq",
+			left: {
+				kind: "term",
+				term: { kind: "field", uuid: date.uuid, spelling: "absolute" },
+			},
 		},
 	});
 	await h.call("addFields", {
@@ -603,7 +607,7 @@ it("binds named Connect participants and their score expressions to each form", 
 		const scoreUuid = doc.fieldOrder[form.uuid][0];
 		expect(form.connect).toMatchObject({
 			assessment: {
-				user_score: { parts: [{ kind: "field-ref", uuid: scoreUuid }] },
+				user_score: { kind: "term", term: { kind: "field", uuid: scoreUuid } },
 			},
 		});
 	}

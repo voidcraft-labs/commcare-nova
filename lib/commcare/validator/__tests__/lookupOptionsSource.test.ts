@@ -14,26 +14,26 @@ import {
 	simpleSearchInputDef,
 	type Uuid,
 } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	and,
 	arith,
 	concat,
 	dateAdd,
+	type Expression,
 	eq,
 	formField,
 	gt,
 	input,
 	literal,
 	matchAll,
-	type Predicate,
 	prop,
 	sessionContext,
 	tableColumn,
 	tableLookup,
 	term,
 	today,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
 import { lookupTypeIndex } from "../lookupTypeContext";
@@ -99,7 +99,7 @@ const LOOKUP_CONTEXT: LookupValidationContext = {
 };
 
 function optionsSource(
-	filter: Predicate,
+	filter: Expression,
 	tableId: LookupTableId = TABLE_A,
 	valueColumnId: LookupColumnId = TEXT_A,
 	labelColumnId: LookupColumnId = TEXT_A,
@@ -116,7 +116,7 @@ function optionsSource(
 function select(
 	uuid: Uuid,
 	id: string,
-	filter: Predicate,
+	filter: Expression,
 	order = "b",
 ): FieldSpec {
 	return f({

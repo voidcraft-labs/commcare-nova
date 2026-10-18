@@ -349,6 +349,29 @@ describe("path spelling and shadow eligibility", () => {
 		);
 	});
 
+	it("spells self reads inside nested predicate expressions without changing other paths or values", () => {
+		const self = w.context([w.self()]);
+		const tree = w.form([
+			w.step("a", [
+				w.gt(w.call("string-length", [self]), w.num(0)),
+				w.eq(
+					w.context([w.step("b")]),
+					w.form([w.step("c", [w.eq(self, w.str("y"))])]),
+				),
+				w.eq(w.context([w.self(), w.step("b")]), w.num(1)),
+				w.eq(w.context([w.step("b"), w.self()]), w.num(1)),
+				w.eq(w.context([w.parent()]), w.num(1)),
+				w.eq(w.context([w.attr("x")]), w.num(1.5)),
+				w.eq(w.str("."), w.num(0.5)),
+			]),
+		]);
+		expect(
+			serializeWire(tree, { target: "xform", constraint: false }).text,
+		).toBe(
+			"/data/a[string-length(./.) > 0][b = /data/c[./. = 'y']][./b = 1][b/. = 1][.. = 1][@x = 1.5]['.' = 0.5]",
+		);
+	});
+
 	it("prints only complete Vellum shadows and uses the same tree in the real attribute", () => {
 		const field = w.form(["visits", "seen"], "hashtag");
 		expect(
@@ -372,6 +395,36 @@ describe("path spelling and shadow eligibility", () => {
 				}),
 			).toBeUndefined();
 		}
+	});
+
+	it("requires an actual hashtag field read before emitting a Vellum shadow", () => {
+		const mode = { target: "vellum", constraint: false } as const;
+		for (const value of [
+			w.num(1),
+			w.call("true"),
+			w.str("#form/answer"),
+			w.form(["answer"]),
+			w.form([], "hashtag"),
+			w.context([w.parent(), w.step("answer")]),
+			w.current([w.parent(), w.step("answer")]),
+			w.instance(sessionInstance(), [w.step("session"), w.step("user_id")]),
+		])
+			expect(serializeWire(value, mode)).toBeUndefined();
+		const field = w.form(["answer"], "hashtag");
+		expect(serializeWire(w.add(field, field), mode)?.text).toBe(
+			"#form/answer + #form/answer",
+		);
+		const nested = w.instance(caseDbInstance(), [
+			w.step("casedb"),
+			w.step("case", [w.eq(w.context([w.attr("case_id")]), field)]),
+		]);
+		expect(serializeWire(nested, mode)).toEqual({
+			text: "instance('casedb')/casedb/case[@case_id = #form/answer]",
+			instances: new Set([caseDbInstance()]),
+		});
+		expect(
+			serializeWire(w.add(field, w.expansion("worker", w.num(1))), mode),
+		).toBeUndefined();
 	});
 
 	it("refuses dot paths in dot-interpolated slots and limits the HQ shortcut to its slot", () => {

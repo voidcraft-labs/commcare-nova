@@ -30,7 +30,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 	type WireStringSource,
 } from "@/lib/domain";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import type { ModuleExpressionContexts } from "../../expressionContext";
 import {
 	buildClaimPost,
 	SEARCH_CASE_ID_REF,
@@ -74,7 +74,7 @@ export function buildRemoteRequest(args: {
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleIndex: number;
 	readonly platformContext?: PlatformContext;
-	readonly typeContext?: TypeContext;
+	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	/** Printed reads from the short and long details this request references. */
 	readonly detailInstances?: Iterable<InstanceDecl>;
@@ -128,7 +128,7 @@ export function buildRemoteRequest(args: {
 		hasDetailScreen: caseListConfig.columns.some(
 			(column) => column.visibleInDetail !== false,
 		),
-		typeContext: args.typeContext,
+		expressions: args.expressions,
 		lookupNaming: args.lookupNaming,
 		runtimeTarget: args.runtimeTarget,
 	});

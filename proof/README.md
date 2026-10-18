@@ -515,7 +515,7 @@ named here, rather than by every document's checks:
 | Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, its Case List page holds the control for each only under the flag, and Nova's publish asks for the flag before it sends any of them |
 | Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | every app Nova publishes carries `project_default`, so a device's restore and Web Apps' agree: both hold the places where the project space syncs its flat list and neither does where it does not, and on a plan without Locations neither does; `both_fixtures`, written into the stored app, still gives a device the list whatever the project space says while Web Apps follows the project space (finding 69); HQ's Location Fixture page answers 404 without `HIERARCHICAL_LOCATION_FIXTURE` and, with it, turns the list off and on |
 | "12, same-type child" | `proof/targeted/__tests__/unproducedInputs.test.ts` | Nova's gate admits a case type that is its own parent, and a write of the menu's own type from its own menu exports no `subcases` action: there is no such child case to index |
-| "20, CommTrack" | `proof/targeted/__tests__/unproducedInputs.test.ts`; the control `targeted-supply-point-read`, the manifest check and proof 4 | Nova's gate refuses a read of the session's supply point, which no menu of a Nova app supplies, and admits a read of a datum the form's entry declares (finding 68) |
+| "20, CommTrack" | `proof/targeted/__tests__/unproducedInputs.test.ts`; the control `targeted-supply-point-read`, the manifest check and proof 4 | Nova's parser refuses the session's `supply_point_id` as an unknown datum, which no menu of a Nova app supplies, and a read of a datum the form's entry declares is admitted (finding 68) |
 | Defect 20's `product_id` datum | `proof/targeted/__tests__/unproducedInputs.test.ts` | HQ adds it only to an advanced module; a document holding both features HQ's branches read (a case list menu item, a form that loads a case) exports a basic module with basic actions, so no export reaches it |
 | Defect 23 without `MM_CASE_PROPERTIES` | the same vitest file | Nova's publish check, given HQ's own domain list for the flag, refuses a target without it, naming the capability, and passes the same target with it |
 | Defect 12's `VIEW_FORM_ATTACHMENT` | `proof/views/test_form_attachment.py` | a link write's file, submitted by a worker through HQ's receiver, is served by HQ's attachment view to the worker only under the flag, to an administrator either way, and to a web user without Submission History only under the flag |
@@ -1077,8 +1077,13 @@ feed it:
   `lib/commcare/__tests__/expander.test.ts`;
 - **the targeted documents** (`proof/targeted/`), below;
 - **a fixed-seed sample of the compiler fuzz generators**
-  (`proof/corpus/fuzzSample.ts`: the XForm oracle's and the suite oracle's),
-  whose size the lane's time budget sets (24 by default). A document's id
+  (`proof/corpus/fuzzSample.ts`: the XForm oracle's and the suite oracle's,
+  24 documents by default, plus eight of the expression generator). The
+  expression family has its own sample: it adds plans to an already drawn
+  suite document and never redraws because a target is absent. The original
+  24 keep their draws; a select's default maps onto its first drawn option
+  after the draw, so the default is offered without changing another draw.
+  A document's id
   names its generator, seed and index, so a smaller sample is a prefix of a
   larger one.
 
@@ -1115,7 +1120,10 @@ reads it. Per document, under its id:
 
 - `document.json`: D as Nova stores it, its lookup snapshot and media, its
   source, and where its modules, forms and languages sit on the wire
-  (`wire.modules`, `wire.languages`);
+  (`wire.modules`, `wire.languages`); beside them, `catalog` is
+  `materializableCaseTypes(D)`: each type's name, parent, relationship and
+  properties' names, effective data types and options. It includes properties
+  derived from writers and omits standard properties no author declared;
 - `configurations.json`, `verdict.json` (Nova's publish verdict for D);
 - `export/<configuration>/`: the captured requests, each a body and a JSON
   sidecar: `create` (the shell), `content` (the update that fills it, naming
@@ -1255,7 +1263,8 @@ against it and against a property an ordinary field writes, so HQ's form
 builder warns about the first read and not the second.
 The control `targeted-supply-point-read` keeps a form that reads the
 session's supply point in a project space with CommTrack on (finding 68); its
-document left the corpus when Nova's gate began refusing the read.
+document left the corpus when Nova's gate began refusing the read. The form
+parser now refuses it as `unknown-datum` before a document can hold it.
 `targeted-media-slots` holds a question's
 label image, sound and video inside a group, beside a hint and a validation
 message that carry text alone (defect 16 took media off a hint, a validation
@@ -1362,6 +1371,28 @@ and no text, and a choice with media and no text, which two saves in HQ's
 form builder leave as they are and HQ builds. The focused
 `stableWitnesses.test.ts` holds every emitted byte to an emission after an
 unrelated document advances the fixture counter and changes that balance.
+
+`targeted-expression-renames` holds relative, current and absolute question
+paths, typed case queries and case queries whose property identifies one
+type, and static choice identities across one batch that renames, moves and
+changes an option value. `targeted-expression-property-renames` holds the
+same case-query references across the separate command that renames their
+case properties. `targeted-session-reads` holds session datum
+identities: a selected case, a new case, a new child case, the worker's
+record and a tile group's parents. Its edit gives the source menu a parent,
+so a datum's physical name changes while the reference keeps its identity.
+`targeted-form-link-session-reads`, `targeted-nested-menu-session-reads` and
+`targeted-tile-session-reads` hold the corresponding native runtime scenarios.
+Their Core families read these targeted archives on both export paths, so
+the added scenarios do not change another fixed document's balanced edit.
+The native package's cache key includes the three target directories
+(`proof/store/queue.py::PACKAGE_DATA`), including when a sampled corpus index
+does not list them; their files remain available to the native reader.
+`targeted-list-first-places` adds a location question behind the list-first
+Web Apps search workflow. HQ's Case List save turns it into search-first
+(defect 21), which changes the runs that reach a location and the viewport
+each client replay uses. Its retained control holds those two proof 4
+classes beside the existing list-first symptoms.
 
 To add one: write `proof/targeted/documents/<name>.ts` returning
 `targetedDocument({id, rows, doc, expected, ...})`, with its id
@@ -1599,7 +1630,13 @@ to each request's clock, and every id the runtime generates is marked, so two
 traces name each generated id by the first place both hold it. Each document's
 sessions run over its case database (`proof/observe/casedata.py`): cases of
 each of its case types with values whose text and numeric orders differ ("10"
-and "2"), written as a restore by HQ's own code; a remote search is answered
+and "2"), with each property's values drawn from the emitted effective
+`catalog`, then from the literals the document's module, form and field
+expressions compare. Python infers no property type; an untyped property
+stays text, and standard properties stay the case's own attributes. Custom
+worker-record reads seed the same user data as session reads, while the
+worker case keeps its managed identity even when session data uses one of
+those names. HQ's own code writes the restore; a remote search is answered
 with every case of the requested type. A session's bounds (400 screens and 64
 choices of a run, 5,000 derived runs) are safety nets no app the lane walks
 comes near: a run that reaches one fails the request by the bound's name,
@@ -2566,8 +2603,9 @@ against, it keeps showing the symptom after the emitter that made it is
 fixed. It keeps no `document.json`, whose `doc` is Nova's persistable shape,
 which a later cutover changes: what the checks derive from D and D' (the
 wire layout and languages, the intent, the lookup tags, the case database
-and each case property's type) is written beside its files when it is
-retained (`derived.json`, `proof/checks/controls.py`), and each check reads
+and each case property's effective type from the emitted `catalog`) is
+written beside its files when it is retained (`derived.json`,
+`proof/checks/controls.py`), and each check reads
 it there; a control retained before the case types were kept reads no type,
 which the manifest's readers answer as undecided, as they did when it was
 retained. Nor does it keep
@@ -2665,7 +2703,10 @@ a targeted document.
 One row is not reproduced: "12, same-type child", whose input no Nova document
 holds ("Claims held outside a document's checks", above). "20, CommTrack", which step 1
 left out the same way, is a row again: its supply-point part is a read Nova's
-gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its control.
+parser refuses as an unknown session datum (`unknown-datum`, finding 68), still
+shown by its control. Recognized identity-bearing session reads reach the
+commit gate, which refuses a datum the form's entry does not supply
+(`SESSION_DATUM_NOT_SUPPLIED`).
 
 | Defect, part | Symptom | Shown by | Documents |
 |---|---|---|---|
@@ -2682,7 +2723,7 @@ gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its cont
 | 5, the upload's answers | without the Lookup Tables privilege HQ's upload API answers Nova's push with its "Upgrade Required" page, status 200, and writes nothing; it takes a 32-character tag and fails with a 500 on a 33-character one. Fixed in step 2: Nova's own client reports that page as an upload that wrote nothing and a plan without Lookup Tables (`upgradeRequired`), and a 32-character tag pushes, since Nova's cap is the 32 HQ's column holds | `proof/views/test_lookup_upload.py` (HQ's view, to Nova's captured request), and `proof/views/__tests__/lookupUploadAnswer.test.ts` for Nova's side | fixed; `lookup-app`; `targeted-lookup-reserved-tags` pushes a 32-character tag |
 | 12, what no editor offers | HQ's Case List page holds the control for an inline search, a multi-select list and an excluded search input only under `CASE_SEARCH_ADVANCED`, which Nova's publish did not ask for. Fixed in step 2: the publish asks for the flag before it sends any of them | `proof/views/test_case_list_offers.py` (HQ's page in Chromium), `proof/editors/test_gated_pages.py` | `case-list-inline`, `search-multiple`, an expander search document |
 | 14, `both_fixtures` | a device restores the flat location fixture by the app's own choice, and Web Apps by the project space's setting, so with that setting off the same app has its places on Android and none in Web Apps, where its form moves no case (finding 69). Fixed in step 2: every app carries `project_default`, so both follow the project space's setting, which a publish asks the person to confirm | `proof/views/test_location_fixture.py` (HQ's restore view, as a device and as Formplayer ask it) | `location-direct` |
-| 20, CommTrack | Nova's gate admitted a read of the session's `supply_point_id`; no session of a Nova app holds it, so the form does not open; under CommTrack HQ's build gives the form the datum only once a save in HQ's form builder has respelled the source, and then a worker without a supply point is refused the form (finding 68). Fixed in step 2, its supply-point part: Nova's gate refuses a read of a session datum the form's entry does not declare (`SESSION_DATUM_NOT_SUPPLIED`) | manifest; proof 4, then 2 and 3 | fixed; still shown by the control `targeted-supply-point-read` |
+| 20, CommTrack | Nova's gate admitted a read of the session's `supply_point_id`; no session of a Nova app holds it, so the form does not open; under CommTrack HQ's build gives the form the datum only once a save in HQ's form builder has respelled the source, and then a worker without a supply point is refused the form (finding 68). Fixed in step 2, its supply-point part: the gate refused an undeclared session datum. The unified expression parser now refuses `supply_point_id` as an unknown datum (`unknown-datum`), while the gate still checks that recognized session identities are supplied by the form's entry (`SESSION_DATUM_NOT_SUPPLIED`) | manifest; proof 4, then 2 and 3 | fixed; still shown by the control `targeted-supply-point-read` |
 | 5, reserved substrings | a select over a table whose tag contains `casedb` reads the case database, and one containing `ledgerdb` the ledger database, not the table (`CommCareInstanceInitializer.generateRoot` tests `ledgerdb`, then `casedb`, before `fixture`). Fixed in step 2: Nova refuses a tag that contains either word, case-sensitively, and the cutover renamed each stored one | intent (Core); manifest (the instance source Core gives the table) | fixed; still shown by the control `targeted-lookup-reserved-tags`; the document, rewritten with the split tags and one of 32 characters, holds the fix on every runtime |
 | 6, CSQL | HQ's compiler raises `CaseFilterError` for an ordering against a time of day, and for `''` or a number compared with `date_opened`, `closed_on` or `last_modified`, and HQ's search view answers Formplayer's search 400. Fixed in step 2: Nova's gate refuses an ordering on a time (`XPATH_TIME_ORDERING`, and the type checker's `time-ordering`) and, on a system date, `is-blank` and the null literal; a comparison with a runtime value is guarded, so a blank one sends `match-none()`; and the document orders `date_opened` against a date turned into a date and time | intent (HQ): each CSQL string a run sends, compiled by HQ (`build_filter_from_xpath`); manifest: each search's CSQL, read by HQ's CSQL parser, falls in those comparisons' REFUSED classes; proof 3 (Formplayer's search) | fixed; still shown by the control `targeted-search-hq-compile`; the document, whose every search HQ compiles, holds the fix |
 | 6, Core | `'14:30' < '15:00'` is false on the device while the document orders it. Fixed in step 2: Nova's gate refuses an ordering on a time, so no admitted document holds one, and the cutover rewrote each stored one as never true | intent (Core); manifest | fixed; still shown by the controls `targeted-time-ordering`, whose document left the corpus, and `targeted-search-hq-compile` |
@@ -2712,7 +2753,7 @@ gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its cont
 | 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). What Connect does with a Connect id renamed under an opportunity that holds it is Connect's own, the same for an id renamed in HQ's form builder ("Connect in the unit"). Fixed in step 2: a question id and a Connect id start with a letter, hold letters, digits and underscores, never start with `XML`, and are none of the names CommCare keeps (`lib/domain/questionId.ts`), and a deep link ID is a `slugify` fixed point (`lib/domain/entryPoints.ts::ENTRY_POINT_ID_PATTERN`, held to HQ's own function by `proof/hq/test_endpoint_ids.py`) | proof 4; the bar | fixed; still shown by the controls `targeted-invalid-question-ids` and `targeted-invalid-question-ids-after-9`; `targeted-invalid-question-ids` and `targeted-invalid-connect-ids` hold the replacements |
 | 16, hidden columns | a case list search did not match a hidden column's values, because Nova dropped the column (`EntitySortUtil.sortEntities`). Fixed in step 2: in a list with no case tile a column hidden from Results is HQ's `invisible` column on both paths | intent (Core) | fixed; still shown by the control `targeted-hidden-column`; `targeted-hidden-calculated-column` holds a hidden calculated column |
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`) | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | a module that offers search; `targeted-sync-on-form-entry` |
-| 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps` |
+| 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps`, `targeted-list-first-places` (the location question's runs and viewports) |
 | 23 | a Vellum save drops the Save to Case attachment | proof 4, then 3 | an attachment-mode capture |
 | 24 | a Case Management save turns the inert subcase's relationship from extension to child; and the local archive placed a repeat's single subcase block after the item's other children, where HQ's build places it first, so Formplayer listed the item's ids in another order. Step 2 fixed the repeat item's position (finding 37): the block is the item's first child on both paths | proof 4; proof 3 across the two paths | an extension child case; the item's position is fixed and still shown by the control `case-capture-query` |
 | 25 | a Vellum save rewrites a query repeat into model iteration, whose rows are built by setvalues that run as the form loads. Where that breaks is a REFUSED class of the model-iteration entries (`lib/commcare/surface/entries/questions.json`): a repeat nested in another; a query reading an answer still blank where those setvalues run; and a repeat under a group that Core's load has already left not relevant there (its condition reads what an earlier load-time setvalue wrote) and that becomes relevant later: the repeat stays empty. Otherwise a group relevant later costs no rows: `FormDef.initialize` runs the load-time setvalues before it evaluates the form's conditions (`initAllTriggerables`), and a group whose condition nothing has evaluated yet reads as relevant (`XFormParser` leaves it so), so for a query that reads no form answer the repeat keeps its rows after the save, and one under a group never relevant submits none either way (correction 7) | proof 4, then 3; manifest | query repeats in those places, `targeted-query-repeat-places` |
@@ -2789,6 +2830,14 @@ cutover's tests and notices.
 short of the app's own end (`proof/checks/stops.py` loads and enforces it;
 `proof/checks/test_stops.py` is the check):
 
+The five choice-default stops of finding 72 are removed: Nova refuses a
+literal default outside the field's static options, and the fuzz generators
+map each drawn default to its first drawn option without another draw. The
+date-preload stop of finding 73 is removed too: the emitted effective catalog
+gives the proof case's writer-derived property its date type. These six
+stops need no retained controls; their fixes are held at the authoring,
+generator and case-data boundaries.
+
 ```json
 {"document": "tile-grouped-one", "reader": "webapps", "cause": "case-not-listed",
  "reason": "<one line a reviewer can check at the reader's source or in the record>"}
@@ -2857,6 +2906,10 @@ lane does:
 - a question that refuses every value the answer table holds is cleared, as
   a worker leaves a question they cannot satisfy, so a validation message is
   no end of a form (`walk.py::CLEARED`);
+- a question already showing the table's answer sends nothing, as the
+  client's unchanged widget does. The walk reconciles only a changed
+  answer, so an unnecessary request cannot make Formplayer reread and trim
+  an earlier text answer (`walk.py::_fill`, `_reconcile`);
 - a repeat a worker adds to is added to, as many times as the table says
   (`repeats.add`), so its repetition and the case it creates are submitted
   (`walk.py::addable`);
@@ -3598,7 +3651,7 @@ These are native text-value checks, not browser or Android typography checks.
 
 #### Case tiles (`tile`)
 
-Eight admitted documents cover row and tile layouts, visible borders and
+Eight admitted native documents cover row and tile layouts, visible borders and
 shading, hidden placement and sort, explicit one- and two-row groups, search,
 persistent tiles and a formless browser. HQ's `DetailContributor` regenerates
 every detail from the HQ JSON, and the check compares decoded grid and style,
@@ -3614,7 +3667,9 @@ hidden sorting, each cell's explicit style, and group header depth; local
 suites also resolve the form and browse entries and the entity and computed
 datums of persistent details and group companion data.
 `TileGroupingRuntimeTest` completes case selection in three grouped variants
-and checks the computed parent ids; the retained pre-fix suite
+and checks the computed parent ids; it also reads
+`targeted-tile-session-reads`'s selected case and computed group-parent
+companion through authored expressions on both archive paths. The retained pre-fix suite
 (`core/resources/tile/before-grouped-tile-instances.suite.xml`) must throw for
 its missing session instance. Neither is a renderer test.
 
@@ -3694,9 +3749,12 @@ decoded text and child order.
   (`core/resources/static-quote/before-static-quote-branches.suite.xml`,
   exported before the admission fix at Nova `06f097e1`; never regenerate it
   past current validation) with four safe queries on each current path.
-- `form-link`: seven admitted apps. `FormLinkRuntimeTest` checks ordered stack
+- `form-link`: seven admitted native apps. `FormLinkRuntimeTest` checks ordered stack
   frames, conditions and selection values; a missing source raises, and an
-  empty source never prompts for the target case.
+  empty source never prompts for the target case. The separate
+  `targeted-form-link-session-reads` form binds
+  the created case, child and worker identities to the actual submitted case
+  blocks on both paths.
 
 None of these sends a search, a claim or an HTTP request.
 
@@ -3789,13 +3847,19 @@ check keeps its separately scoped unread-declaration exception.
 | `hq-oracle` | `Application.wrap` fails exactly where Nova's HQ-JSON oracle reports a fatal code; `RemoteApp` dispatch. | None. |
 | `localization`, `worker` | Every localization code passes HQ's `validate_lang`, which no build runs; forms, suites and each language's authored strings regenerated for the Core classes, with no stock translation catalog. | `LocalizationRuntimeTest`, `WorkerIdentityRuntimeTest`: language switching and prompts; worker data through form and suite expressions, and the built-in worker identity on the local form. |
 | `lookup` | HQ's workbook reader reads Nova's tables, a 50-column table, and strips exactly the padding Nova predicts; the lookup forms regenerated. | `LookupRuntimeTest`: fixture install and replacement, dynamic choices, labels, answers and case processing; a missing fixture cannot pass as an empty list. |
-| `nested-menu` | Entries and menus equal Nova's for eight shapes; the two shapes Nova's HQ export refuses reproduce their losses. Which instances an element reads comes from HQ's own XPath parser (js-xpath, which HQ's build runs on every filter), never from pattern matching. | `NestedMenuRuntimeTest`: all ten shapes on both paths, reproducing HQ's two losses. |
+| `nested-menu` | Entries and menus equal Nova's for eight native shapes; the two shapes Nova's HQ export refuses reproduce their losses. Which instances an element reads comes from HQ's own XPath parser (js-xpath, which HQ's build runs on every filter), never from pattern matching. | `NestedMenuRuntimeTest`: all ten native shapes on both paths, reproducing HQ's two losses; the separate `targeted-nested-menu-session-reads` archive binds the form's identities to its actual submitted case blocks. |
 | `no-matches` | Case list action, entry stacks and menus equal Nova's. | `NoMatchesRuntimeTest`: result-count relevance, registration action and navigation state. |
 | `arithmetic` | None. | `ArithmeticRuntimeTest`: integer quotients, signed remainders, a decimal holding `10` and a literal beyond int4 stored through case processing; zero division keeps Infinity and NaN. |
 | `standard-case-reads` | None. | `StandardCaseReadsRuntimeTest`: identity, name, owner, status, external id and dates read from a selected record and a closed parent in native case storage. |
 | `oracle` | None. | `XFormOracleRuntimeTest`, `SuiteOracleRuntimeTest`: Core's verdicts on deliberately corrupted private XML corpora, and detail text evaluation. Not admitted apps. |
-| `predicate` | None. | `PredicateRuntimeTest`: 52 schema-parsed predicate programs on instance trees. No app admission is claimed. |
-| `xpath` | None. | `XPathCarrierCompatibilityTest`: the production lowerer's output against Core's dispatch and arities; raw `normalize-space()` stays unhandled. |
+| `predicate` | None. | `PredicateRuntimeTest`: 52 programs built with the unified expression builders, parsed by `conditionSchema`, and emitted through the production suite wire path in the fixture's actual case-list filter context, then evaluated on Core's instance trees. No app admission is claimed. |
+| `xpath` | None. | `XPathCarrierCompatibilityTest`: expressions parsed in the fixture's actual `/data/normalized` calculate slot and emitted through the production wire path, evaluated in Core at that same context. Each claimed native function keeps Core's exact dispatch class, and authored arities match Core's parser. Raw `normalize-space()` stays unhandled. |
+
+The XPath producer keeps each native function's authored and canonical
+spelling in `native-functions.tsv`; `native-signatures.tsv` also keeps the
+canonical print of every accepted arity. `raw-core-path-controls.tsv` holds
+the root attribute and two wildcard paths separately: Core reads those
+controls, and the producer asserts that Nova's authored parser refuses them.
 
 The arithmetic and standard-case-read families prove the local CCZ path only:
 HQ's import and server case processing do not run, and numeric precision is

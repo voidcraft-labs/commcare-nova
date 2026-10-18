@@ -26,15 +26,15 @@ import {
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { XPathField } from "@/components/builder/XPathField";
 import { Button } from "@/components/shadcn/button";
-import { useXPathProjection } from "@/lib/doc/hooks/useXPathSlots";
+import { useFormExpressionProjection } from "@/lib/doc/hooks/useXPathSlots";
+import type { Field } from "@/lib/domain";
 import type {
-	Field,
-	XPathExpression,
-	XPathProjectionResult,
-} from "@/lib/domain";
+	Expression,
+	FieldExpressionSlotRef,
+} from "@/lib/domain/expression/types";
 import type {
 	FieldEditorComponentProps,
-	XPathExpressionKeys,
+	FormExpressionKeys,
 } from "@/lib/domain/kinds";
 
 const PRELOADED_VALUE_HINT = "Opens with this case's current value.";
@@ -54,7 +54,7 @@ export function PreloadedValueRow({
 	/** The slot this row stands in for (`default_value`); becomes `data-field-id`. */
 	readonly keyName: string;
 	/** The projection of an authored expression that never runs here, when one is stored. */
-	readonly stored?: XPathProjectionResult;
+	readonly stored?: { readonly ok: boolean; readonly text: string };
 	/** Clears the stored expression. */
 	readonly onRemoveStored: () => void;
 }) {
@@ -93,10 +93,14 @@ export function PreloadedValueRow({
  */
 export function PreloadedDefaultValueEditor<
 	F extends Field,
-	K extends XPathExpressionKeys<F>,
->({ value, onChange, label, keyName }: FieldEditorComponentProps<F, K>) {
-	const expression = value as XPathExpression | undefined;
-	const projection = useXPathProjection(expression);
+	K extends FormExpressionKeys<F>,
+>({ field, value, onChange, label, keyName }: FieldEditorComponentProps<F, K>) {
+	const expression = value as Expression | undefined;
+	const projection = useFormExpressionProjection(expression, {
+		entity: "field",
+		uuid: field.uuid,
+		slot: keyName as FieldExpressionSlotRef["slot"],
+	});
 	return (
 		<PreloadedValueRow
 			label={label}

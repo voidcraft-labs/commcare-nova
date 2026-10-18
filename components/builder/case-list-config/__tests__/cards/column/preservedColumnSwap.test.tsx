@@ -16,7 +16,7 @@ import {
 	plainColumn,
 	tileCell,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { preservedColumnSwap } from "../../../columnDisplayState";
 import { admittedWorkspace, commitWorkspace } from "../../admittedWorkspace";

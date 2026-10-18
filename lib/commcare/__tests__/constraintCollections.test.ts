@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { fieldExpressionValue } from "@/lib/domain";
+import { expressionSlotValue } from "@/lib/domain";
 import { planConstraintCollections } from "../xform/constraintCollections";
 import { FormPath } from "../xform/formPath";
-import { printWireXPathSource } from "../xpath/wireSource";
 
 function plan(validate: string) {
 	const doc = buildDoc({
@@ -26,10 +25,14 @@ function plan(validate: string) {
 	});
 	const field = Object.values(doc.fields).find((f) => f.id === "confirm");
 	if (!field) throw new Error("Missing confirmation");
-	const expression = fieldExpressionValue(field, "validate");
+	const expression = expressionSlotValue(doc, {
+		entity: "field",
+		uuid: field.uuid,
+		slot: "validate",
+	});
 	if (!expression) throw new Error("Missing validation");
 	return {
-		original: printWireXPathSource(expression, doc),
+		original: expression,
 		...planConstraintCollections(
 			expression,
 			field.uuid,
@@ -53,7 +56,8 @@ describe("validation collection evaluation scope", () => {
 		(validate) => {
 			const result = plan(validate);
 			expect(result.calculations).toEqual([]);
-			expect(result.source).toBe(result.original);
+			expect(result.expression).toBe(result.original);
+			expect(result.overrides.size).toBe(0);
 		},
 	);
 
@@ -63,10 +67,11 @@ describe("validation collection evaluation scope", () => {
 		);
 		expect(result.calculations).toHaveLength(1);
 		const calculation = result.calculations[0];
-		expect(result.source).toBe(
-			`. = 'yes' and ${calculation.path.toXPath()} = 1 and ${calculation.path.toXPath()} < 2`,
-		);
-		expect(calculation.source).toBe("count(#form/choice[./. = 'yes'])");
+		expect(result.expression).toBe(result.original);
+		expect(result.overrides.size).toBe(2);
+		expect(calculation.expression.kind).toBe("count");
+		for (const replacement of result.overrides.values())
+			expect(replacement).toEqual(calculation.path.toWire());
 		expect(calculation.path.parent().equals(FormPath.root())).toBe(true);
 	});
 });

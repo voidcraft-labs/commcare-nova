@@ -35,7 +35,7 @@ import {
 	tableColumn,
 	tableLookup,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import {

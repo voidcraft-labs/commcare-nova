@@ -112,10 +112,9 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import {
+	type Expression,
 	effectiveFilterForEmission,
-	type Predicate,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
@@ -890,7 +889,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		[commitMany, moduleUuid, searchConfig],
 	);
 	const updateExcludedOwnerIds = useCallback(
-		(next: ValueExpression | undefined) => {
+		(next: Expression | undefined) => {
 			if (next !== undefined) {
 				if (
 					searchConfig === undefined ||
@@ -1398,7 +1397,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			toIndex,
 		);
 	const clearFilter = useCallback(
-		(nextFilter: Predicate | undefined) => {
+		(nextFilter: Expression | undefined) => {
 			const mutations: Mutation[] = [
 				{
 					kind: "setCaseListMeta",
@@ -1413,7 +1412,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		[commitMany, moduleUuid],
 	);
 	const updateFilter = useCallback(
-		(nextFilter: Predicate | undefined) =>
+		(nextFilter: Expression | undefined) =>
 			commitMany([
 				{
 					kind: "setCaseListMeta",
@@ -1973,6 +1972,21 @@ function useController(target: CaseListWorkspaceTarget | null) {
 							: undefined;
 					searchConditionSurface = (
 						<SearchConditionCanvas
+							expressionSlot={
+								moduleUuid === undefined
+									? undefined
+									: {
+											entity: "module",
+											uuid: moduleUuid,
+											slot:
+												slot === "match"
+													? "search_input_predicate"
+													: slot === "required"
+														? "search_input_required_when"
+														: "search_input_validation_rule",
+											member: { searchInputUuid: input.uuid },
+										}
+							}
 							context={{
 								kind: "input",
 								slot,
@@ -2012,6 +2026,15 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			) {
 				searchConditionSurface = (
 					<SearchConditionCanvas
+						expressionSlot={
+							moduleUuid === undefined
+								? undefined
+								: {
+										entity: "module",
+										uuid: moduleUuid,
+										slot: "search_button_display_condition",
+									}
+						}
 						context={{ kind: "search-button" }}
 						value={searchConfig.searchButtonDisplayCondition}
 						onChange={(searchButtonDisplayCondition) =>
@@ -2649,6 +2672,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 				title: input.label || labelFromProperty(input.name) || "Untitled field",
 				body: (
 					<SearchInputInspectorBody
+						moduleUuid={args.moduleUuid}
 						input={input}
 						index={index}
 						siblings={sortedInputs}
@@ -2713,6 +2737,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 					: "Search action",
 				body: (
 					<SearchPanelInspectorBody
+						moduleUuid={args.moduleUuid}
 						value={effectiveSearch}
 						onChange={args.onSearchConfigChange}
 						caseTypes={args.caseTypes}
@@ -2801,6 +2826,7 @@ function ColumnInspectorBody({
 	return (
 		<>
 			<ColumnEditor
+				moduleUuid={moduleUuid}
 				key={column.uuid}
 				value={column}
 				onChange={onChange}
@@ -2884,6 +2910,7 @@ function ColumnInspectorBody({
 }
 
 function SearchInputInspectorBody({
+	moduleUuid,
 	input,
 	index,
 	siblings,
@@ -2904,6 +2931,7 @@ function SearchInputInspectorBody({
 	onReviewRemovalDependency,
 	onRemove,
 }: {
+	readonly moduleUuid: Uuid | undefined;
 	readonly input: SearchInputDef;
 	readonly index: number;
 	readonly siblings: readonly SearchInputDef[];
@@ -2990,6 +3018,7 @@ function SearchInputInspectorBody({
 	return (
 		<>
 			<SearchInputEditor
+				moduleUuid={moduleUuid}
 				value={input}
 				index={index}
 				siblings={siblings}

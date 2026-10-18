@@ -21,7 +21,7 @@
 // reducer deletes the stored slot before readers and validation observe it.
 
 import type { Uuid } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression/types";
 import { updateModuleMutation } from "./addModuleMutation";
 import type { Mutation } from "./types";
 
@@ -31,7 +31,7 @@ import type { Mutation } from "./types";
  */
 export function setModuleDisplayConditionMutation(
 	uuid: Uuid,
-	next: Predicate | undefined,
+	next: Expression | undefined,
 ): Mutation {
 	return updateModuleMutation(uuid, { displayCondition: next ?? null });
 }
@@ -46,7 +46,7 @@ export function setModuleDisplayConditionMutation(
  */
 export function setFormDisplayConditionMutation(
 	uuid: Uuid,
-	next: Predicate | undefined,
+	next: Expression | undefined,
 ): Mutation {
 	return {
 		kind: "updateForm",

@@ -1,69 +1,75 @@
 # lib/commcare/xpath
 
-CommCare's XPath dialect: the Lezer grammar + generated parser, the carrier capability contract, the resolved wire tree and its serializer, and the transitional form-logic lowerer. Lives under `lib/commcare/` because XPath is the expression language CommCare defines — the "one-way emission boundary" rule for `lib/commcare/` is about wire-format emission (XForm XML, HqApplication JSON), not about shared parsing infrastructure that other layers legitimately read.
+This directory owns Nova's form-expression parser and CommCare's resolved XPath
+emission boundary. Authors enter XPath, but documents store the domain
+`Expression` union. Parsing infrastructure can be read by the editor and
+validator; emitted wire shapes remain behind `lib/commcare`.
 
-## Layout
+## Parsing and identity
 
-- `wire/` — record expressions and generated scaffolding become `WireExpr` through `toWire` or `w`, then `serializeWire` prints the target spelling and the exact instance declarations it reads. No generated XPath string crosses an XML or HQ JSON slot. `wire/CLAUDE.md` owns modes, interpolation-safe literals, shadow eligibility and the finite temporary authored-text bridge.
+`grammar.lezer.grammar` defines the syntax. `parser.ts` and `parser.terms.ts` are
+committed generated files; regenerate them with `scripts/build-xpath-parser.ts`.
+`hashtagGuard.ts` keeps a hashtag contiguous and stays aligned with the domain
+hashtag matchers through the divergence corpus.
 
-- `wireSource.ts` — projects stored XPath for form emission. Both authored field-reference spellings enter the same form-path resolver, so query-repeat identities address rows rather than their derived wrapper. Field slots and Connect bindings share this projection; human editing retains its original spelling.
+`formSyntax.ts` converts the Lezer tree into a finite syntax tree. It retains
+source spans for diagnostics, never as saved executable text. `expressionAst.ts`
+then binds every operator and reference into `Expression`, or returns bounded
+issues. Blank source returns no expression. There is no raw-text fallback,
+unknown call, arbitrary path or unresolved name in a successful result.
 
-- `grammar.lezer.grammar` — grammar source.
-- `parser.ts` + `parser.terms.ts` — committed, regenerated via `scripts/build-xpath-parser.ts`.
-- `expressionAst.ts` — the human-editor parser half of the stored-expression pair: source text → `XPathExpression` (the typed AST in `lib/domain/xpath`, whose printer + walks live domain-side because the field/form schemas store the shape). Total over any input. Text between identity leaves stays byte-exact, while reference leaves print canonically. A `path-ref` stores only its field UUID and always prints the absolute `/data/<current path>` spelling; migration rejects a noncanonical legacy path rather than persisting separator bytes. Parsing also receives the app's custom worker-property slug resolver: one exact unique `#user/<slug>` match becomes `user-property-ref { userPropertyUuid }`, while built-in, external, missing, or ambiguous names remain the distinct name-backed `user-ref`. Printing resolves an identity leaf through the property's CURRENT slug, so a rename rewrites no AST.
-- `hashtagGuard.ts` — external tokenizer emitting the zero-width adjacency guards `HashtagRef` requires between its tokens (a hashtag is one contiguous span; an open-ended skipless rule is inexpressible in LR). Kept in lockstep with the regex matchers built from `lib/domain/hashtagSegments.ts` by the divergence-corpus test.
-- `functionCapabilities.ts` — exact, independently sourced function tables for JavaRosa, Nova Preview execution, and CCHQ CSQL. JavaRosa's executable XForm set is Nova's authoring floor, so every function or path initializer the authoring registry admits must also appear in Preview's execution contract. CSQL remains independently classified because only case-search carriers reach that server runtime. `instance()` and `current()` are path initializers, not ordinary JavaRosa function calls; each admitted `instance()` namespace also needs an explicit resolver in every owning Preview context. `here()` is a menu/detail runtime handler and is never valid in an XForm.
-- `carriers.ts` — the canonical walk of every persisted `XPathExpression`, paired with its closed execution profile. Field expressions are Preview-form-owned, form-link expressions are Preview-session-owned, Connect expressions are wire-form-only, and case-property catalog constraints are wire-catalog-only. Scanners and validators consume this inventory instead of maintaining their own slot lists.
-- `compatibility.ts` — the privacy-safe carrier admission verdict. Its source-only pass composes executable language checks with function, signature, and context capabilities for the carrier profile. Its instance pass admits only stable structural ids in raw XPath. Lookup tables stay in UUID-bearing typed carriers because their tags live outside `BlueprintDoc` and can be renamed. Both passes return stable codes and constant prose, never authored source.
-- `javaRosaLowering.ts` — the transitional form-authored raw-XPath lowerer. It walks the Lezer CST and lowers exactly two Nova extensions: `normalize-space(value)` to JavaRosa-native `replace()` calls over the XML whitespace set, and `is-blank(value)` to a `string-length` check. Record expressions and generated scaffolding use the wire tree; only existing authored form/link text still crosses this lowerer before its branded serialization boundary.
-- `detectUnquotedStringLiteral.ts` — standalone parser-backed check for the "bare word where a string literal was intended" authoring mistake. Used by the deep validator's form + field rules.
-- `index.ts` — public barrel: the parser and its term constants, compatibility analysis, the transitional lowerer, `detectUnquotedStringLiteral`, and the wire types, constructors, serializer and declaration factories.
+Every parse receives a `FormParseScope` with the real `ExpressionSlotRef` and an
+authoritative rows-free lookup catalog. `formScopeContext` derives the slot's
+expected value and evaluation node. An optional complete `FormStructure` supplies
+pending declarations during atomic authoring; it is not a partial document.
+`formPathBinding.ts` resolves relative paths, `current()`, secondary instances
+and logical field paths through the same finite form graph. Predicate context
+moves to the addressed node while `current()` retains the source carrier.
 
-## Production compatibility boundary
+A field, choice, worker property, text unit, lookup table or column is saved by
+identity. Case reads retain their case type and property; selected-record reads
+and query-row reads stay distinct. `referenceBindings.ts` also binds prose
+insertions directly to the separate prose-reference union. No expression parser
+is used to manufacture prose parts.
 
-The shared agent-authoring boundary uses `expressionAst.ts` through
-`lib/doc/expressionText.ts::parseAuthoredXPath`. Its `requireBoundNames` mode
-rejects unresolved names before mutation; `selectedCaseType` binds `#case`
-to the selected record type. A separate `resolveFormReference` can accept short
-`#form` names while `/data/...` paths retain exact path resolution. Builder
-parsing keeps its existing resolver. Instance- and current-rooted paths retain
-literal path semantics.
+The domain printer projects current names and locations. A relative reference
+retains its target identity across a move, so its parent steps are derived when
+printed. During edits, only a structurally matching source occurrence can reuse
+an existing identity hint, and that identity must remain available in the new
+declarations. Grouping and whitespace are presentation, never storage.
+`sourceProjection` exists only for the raw-snapshot lift's old physical names;
+normal authoring always uses the current declared structure.
 
-An absolute path names a field of the form. The root alone, `/data`, names
-none and is refused under `INVALID_REF`
-(`lib/preview/xpath/dependencies.ts::formRootReadPositions`): HQ's form
-builder shows it as an unknown question.
+## Emission and capabilities
 
-The domain `expressionFunctions.ts` signatures may admit only functions classified as JavaRosa native,
-proven-lowered, or path initializers used in their required path-root position,
-and every admitted call shape must have a faithful Preview execution path. Do
-not infer compatibility from an XPath version or a familiar function name:
-JavaRosa omits some XPath 1.0 functions and adds its own, while CCHQ CSQL
-exposes a separate value/query whitelist. Independent capability evidence is
-still necessary, but an authorable JavaRosa/Preview mismatch is an invariant
-failure rather than a supported carrier distinction.
+`wire/` turns a typed `Expression` and its actual slot-derived context into
+`WireExpr`, then `serializeWire` returns target text and the exact instance
+declarations it reads. Generated scaffolding uses `w` directly. All authored
+form slots, including Connect and after-submit links, use this boundary; no
+stored or branded authored string crosses an executable XML or HQ JSON slot.
+`wire/CLAUDE.md` owns target modes, literals, shadow eligibility and declarations.
 
-Form-link XPath is a distinct carrier context: Core evaluates it from the
-suite entry after the XForm has closed, with no main/current reference. The
-boundary expands typed case/user refs against the session stack, rejects every
-main-context dependency and empty datum expression, and declares every
-projected structural secondary instance on the entry. Raw expressions may name
-only `casedb` and `commcaresession`; a lookup wire tag is a mutable projection
-with no stable identity leaf, so lookup-backed behavior remains on Nova's typed
-table carriers. The canonical profile resolver supplies this same closed set to
-the validator and fleet scanner.
+`functionCapabilities.ts` records independently sourced runtime capabilities.
+JavaRosa's executable XForm set is the authoring floor, and an admitted form
+function also needs Preview execution support. CSQL is classified separately
+for Search. `instance()` and `current()` initialize typed paths; `here()` belongs
+to menu/detail runtime contexts. A function's signature lives in
+`lib/domain/expressionFunctions.ts`; the parser does not maintain another list.
 
-The source tables are pinned to upstream SHAs in `functionCapabilities.ts`.
-Update a table only after reading the owning runtime dispatch and exercising the
-behavior against that frozen source. A native or lowered function cannot enter
-the authoring registry without Preview execution proof. A new lowering also
-needs XForm-initialization proof and artifact tests that find no unlowered call;
-CSQL needs an explicit decision only when the expression can reach a CSQL
-carrier.
+After-submit links run from the suite entry after the form closes. Their real
+slot context excludes main-form answers and requires a nonempty datum value.
+Session reads bind to the exact target selection member. A Project table tag
+resolves through the authorized catalog into stable table and column identities;
+printing and emission derive its current name. A loading catalog cannot establish
+that a table is missing.
 
-`lowerXPathForJavaRosa` preserves all source bytes outside the replacement ranges and applies nested edits from the CST; never replace function text with regex. Malformed input passes through because the commit validator owns syntax. An additional source transformation requires its own native runtime equivalence proof; unrelated arithmetic rewrites change already-valid app semantics.
+Native or lowered functions need proof against the pinned owning runtime before
+admission. `normalize-space` and `is-blank` lower through the wire tree.
+`is-blank` means missing or empty; zero, false and whitespace are values.
+Emitted XPath is never rewritten after serialization. Never rewrite XPath with
+regex.
 
-`is-blank(value)` has the same meaning in forms and record expressions: missing
-and empty are blank; zero, false and whitespace are not. At the wire boundary it
-lowers to a string-length check. Native corpus tests exercise nested calls, scalar
-types and missing answers against Core, not just the emitted spelling.
+The parser tests distinguish syntax, identity binding, exact context and strict
+refusals. Property tests cover parse/print stability and totality over arbitrary
+input. Wire tests inspect structure and declarations; pinned Core and HQ readers
+establish executable and editor compatibility.

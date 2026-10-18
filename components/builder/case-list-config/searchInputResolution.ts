@@ -46,11 +46,11 @@ import {
 } from "@/lib/domain";
 import {
 	compatibleTypesFor,
+	type Expression,
 	eq,
 	input,
 	literal,
 	match,
-	type Predicate,
 	prop,
 	type RelationPath,
 	type ResolvedType,
@@ -58,10 +58,9 @@ import {
 	type SlotConstraint,
 	term,
 	today,
-	type ValueExpression,
 	whenInput,
-} from "@/lib/domain/predicate";
-import { checkRelationPath } from "@/lib/domain/predicate/typeChecker";
+} from "@/lib/domain/expression";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import { MATCH_MODE_VOCABULARY } from "../shared/matchModeVocabulary";
 import type { EditorSearchInputDecl } from "../shared/searchInputPresentation";
@@ -327,20 +326,12 @@ export function resolveDestinationCaseType(
 	via: RelationPath | undefined,
 	currentCaseType: string,
 ): string | undefined {
-	if (via === undefined || via.kind === "self") return currentCaseType;
-	const errors: Parameters<typeof checkRelationPath>[3] = [];
-	const destination = checkRelationPath(
+	const destination = resolveRelationDestination(
 		via,
 		currentCaseType,
-		{
-			caseTypes: [...caseTypes],
-			knownInputs: [],
-			currentCaseType,
-		},
-		errors,
-		["search-input", "via"],
+		caseTypes,
 	);
-	return errors.length === 0 ? destination : undefined;
+	return destination.ok ? destination.caseType : undefined;
 }
 
 /**
@@ -410,16 +401,14 @@ export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 // `when-input-present(input(name), …)` envelope that both
 // `seedCustomCondition` and the wire-emit `deriveSimpleArmPredicate`
 // produce, so a row referencing its own input is the canonical shape,
-// not a self-reference to forbid. This mirrors the validator's
-// `moduleTypeContext`, which builds `knownInputs` from the full
-// `caseListConfig.searchInputs` list: editor, preview gate, commit
-// gate, and wire emitter all resolve `input(...)` against ONE scope,
-// so none can flag a reference the others accept.
+// not a self-reference to forbid. `slotContext` derives the same
+// full search-input catalog for the expression checker. This list
+// provides editor vocabulary; the actual slot context decides which
+// answers are available at that point in the search workflow.
 //
-// Slots that run BEFORE the search screen opens: default values,
-// calculated columns, the search-button condition: see NO inputs at
-// all (`NO_SEARCH_INPUTS`): an `input(...)` ref there resolves to the
-// empty string and the commit gate rejects it.
+// Slots that run BEFORE the search screen opens, including default
+// values and the search-button condition, see no answers. Calculated
+// columns use the case-list's configured search stage.
 
 export function deriveSearchInputDecl(
 	row: SearchInputDef,
@@ -460,12 +449,10 @@ export function expectedTypeForDefault(
 /**
  * The default-value slot's `SlotConstraint`: the editor's
  * valid-by-construction surface for the default expression. A value
- * compatible with the input's `expectedTypeForDefault`. The
- * config-validity gate keeps using `expectedTypeForDefault` directly
- * (a single-type `checkValueExpression` arm); this is its set-valued
- * twin for the editor's pickers. Frozen module-level entries so the
- * constraint identity stays stable across renders (the editor memoizes
- * on it).
+ * compatible with the input's `expectedTypeForDefault`. This guides
+ * the editor's pickers; admission uses the complete candidate input's
+ * slot context. Frozen module-level entries keep the constraint
+ * identity stable across renders (the editor memoizes on it).
  */
 export type ScalarDefaultSearchInputType = Exclude<
 	SearchInputType,
@@ -491,7 +478,7 @@ export function constraintForDefault(
 
 export function seedDefaultExpression(
 	type: ScalarDefaultSearchInputType,
-): ValueExpression {
+): Expression {
 	switch (type) {
 		case "date":
 			return today();
@@ -511,12 +498,12 @@ export function seedDefaultExpression(
 
 /**
  * Whether the simple row's effective match behavior has an equivalent
- * Predicate AST shape that can keep reading this row's runtime input.
+ * Expression AST shape that can keep reading this row's runtime input.
  *
  * Equality and the four text/date match functions accept a runtime
  * `input(...)` value, so their simple-arm semantics can move into a custom
  * condition without changing. A range input is two runtime bindings while
- * the Predicate AST has no range-input term. That mode therefore needs an
+ * the Expression AST has no range-input term. That mode therefore needs an
  * explicit consequence confirmation before the UI calls
  * `seedCustomCondition`'s exact-match recovery seed.
  */
@@ -538,7 +525,7 @@ export function canSeedCustomConditionFaithfully(
 /**
  * Seed the custom condition with the row's effective behavior. Exact mode
  * becomes `property = typed value`; fuzzy, starts-with, phonetic, and
- * fuzzy-date become the corresponding `match` Predicate. The author edits
+ * fuzzy-date become the corresponding `match` Expression. The author edits
  * forward from something working instead of starting from a blank. Rows with
  * no property yet seed `match-all()`: the canonical always-true starting
  * point.
@@ -563,7 +550,7 @@ export function canSeedCustomConditionFaithfully(
 export function seedCustomCondition(
 	row: SimpleSearchInputDef,
 	currentCaseType: string,
-): Predicate {
+): Expression {
 	const viaForRef =
 		row.via === undefined || row.via.kind === "self" ? undefined : row.via;
 	const propertyRef = prop(currentCaseType, row.property, viaForRef);
@@ -580,7 +567,7 @@ export function seedCustomCondition(
 				return match(propertyRef, inputRef, modeKind);
 			case "range":
 				// Range cannot carry its runtime values into the current
-				// Predicate AST. The caller must gate this branch with
+				// Expression AST. The caller must gate this branch with
 				// `canSeedCustomConditionFaithfully` and confirm that the custom
 				// condition will begin as an exact comparison.
 				return eq(propertyRef, inputRef);
@@ -602,7 +589,7 @@ export function seedCustomCondition(
  * way a hand-authored bare comparison does.
  */
 export function recoverAnchoredProperty(
-	predicate: Predicate,
+	predicate: Expression,
 ): string | undefined {
 	const inner =
 		predicate.kind === "when-input-present" ? predicate.clause : predicate;

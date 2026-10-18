@@ -1,11 +1,10 @@
-import type { Field, XPathExpression } from "@/lib/domain";
+import type { Field } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 import { RequiredEditor } from "./fields/RequiredEditor";
 import { ALWAYS_REQUIRED_EXPRESSION } from "./fields/requiredState";
 
 /** The required property is born enabled when its Add pill is selected. */
-export function requiredEntry<
-	F extends Field & { required?: XPathExpression },
->(): {
+export function requiredEntry<F extends Field & { required?: Expression }>(): {
 	key: "required";
 	component: typeof RequiredEditor;
 	label: string;

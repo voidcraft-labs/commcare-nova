@@ -1,152 +1,149 @@
-// lib/doc/expressionText.ts
-//
-// The doc-aware text ⇄ AST bridge for Builder editors and agent authoring.
-// The operator
-// repair helper also uses this boundary on its private clone; the
-// canonical-identity-foundation migration owns a frozen parser copy instead.
-//
-// Parsing is total as a projection: a reference-shaped span that does not
-// resolve remains text, and a syntax-broken source stays one opaque text run.
-// The machine-authoring gate rejects hidden/reference-looking text and syntax
-// findings before commit; no unresolved reference enters the stored leaf
-// vocabulary.
-
+// The doc-aware form-source bridge shared by Builder, SA and MCP.
+import { AuthoringInputError } from "@/lib/agent/authoring/errors";
 import {
-	parseXPathExpression,
-	parseXPathExpressionWithIssues,
-} from "@/lib/commcare/xpath";
-import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
-import { findContainingForm } from "@/lib/doc/mutations/helpers";
+	type FormParseResult,
+	type FormParseScope,
+	parseFormExpression,
+} from "@/lib/commcare/xpath/expressionAst";
+import { formPrintContext } from "@/lib/commcare/xpath/formPrintContext";
+import { readFormSyntax } from "@/lib/commcare/xpath/formSyntax";
+import { formUserProperty } from "@/lib/commcare/xpath/referenceBindings";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import {
-	fieldPathResolver,
-	moduleUuidOfForm,
-	printXPath,
-	type ResolveFieldPath,
-	type ResolveSearchInputName,
-	type ResolveUserPropertySlug,
-	searchInputNameResolver,
-	userPropertySlugResolver,
-	type XPathExpression,
-	type XPathPrintableDoc,
-	xpathPrintContext,
-} from "@/lib/domain";
+	type FormStructure,
+	formStructure,
+} from "@/lib/domain/expression/formStructure";
+import {
+	type FormExpressionProjection,
+	printFormExpression,
+} from "@/lib/domain/expression/print";
+import type {
+	Expression,
+	ExpressionSlotRef,
+} from "@/lib/domain/expression/types";
+import { type ProseReferencePart, prosePartSchema } from "@/lib/domain/prose";
+import { expressionSlotValue } from "@/lib/domain/referenceSlots";
+import { asUuid } from "@/lib/domain/uuid";
 
-const NO_CLAIMED_USER_PROPERTY_SLUGS: ReadonlySet<string> = new Set();
+export interface FormExpressionOptions {
+	readonly form?: FormStructure;
+}
 
-/** Agent text authoring. The caller supplies the
- * complete name scope, including fields created in the same atomic call.
- * Canonical admission still owns validity. */
-export function parseAuthoredXPath(
-	doc: BlueprintDoc,
-	formUuid: Uuid | undefined,
-	resolveField: ResolveFieldPath,
-	source: string,
-	selectedCaseType?: string,
-	resolveSearchInput?: ResolveSearchInputName,
-	options: {
-		allowExternalFormPaths?: boolean;
-		resolveFormReference?: ResolveFieldPath;
-	} = {},
-): XPathExpression {
-	const form = formUuid ? doc.forms[formUuid] : undefined;
-	const moduleUuid = formUuid ? moduleUuidOfForm(doc, formUuid) : undefined;
-	const boundCaseType =
-		selectedCaseType ??
-		((form?.type === "followup" || form?.type === "close") && moduleUuid
-			? doc.modules[moduleUuid]?.caseType
-			: undefined);
-	const parsed = parseXPathExpressionWithIssues(
-		source,
-		resolveField,
-		resolvableUserPropertySlug(doc),
-		resolveSearchInput ?? searchInputNameResolver(doc, formUuid),
-		{
-			requireBoundNames: true,
-			selectedCaseType: boundCaseType,
-			resolveFormReference: options.resolveFormReference,
-		},
-	);
-	const issues = parsed.issues.filter(
-		(issue) =>
-			!(
-				options.allowExternalFormPaths &&
-				issue.kind === "unresolved-reference" &&
-				(issue.source.startsWith("/data/") || issue.source.startsWith("#form/"))
-			),
-	);
-	if (issues.length) {
-		throw new Error(
-			issues
-				.map((issue) =>
-					issue.kind === "syntax"
-						? `Invalid expression: ${issue.source}`
-						: `Unknown or ambiguous reference: ${issue.source}. Use #form/<full-path> for an answer, #case/<property> for the selected record, or #<record-type>/<property> for an ancestor. Read the form for its available record types.`,
-				)
-				.join("\n"),
+export interface ProseReferenceScope {
+	readonly doc: BlueprintDoc;
+	readonly formUuid?: Uuid;
+	readonly form?: FormStructure;
+	readonly authoring?: FormParseScope["authoring"];
+}
+
+/** Interpolation binds a reference directly; it is never executable source. */
+export function parseProseReference(
+	scope: ProseReferenceScope,
+	name: string,
+): ProseReferencePart {
+	const source = name.startsWith("#") ? name : `#form/${name}`;
+	const parsed = readFormSyntax(source);
+	const fail = (): never => {
+		throw new AuthoringInputError(
+			`{{${name}}} must name one answer or record property.`,
 		);
+	};
+	if (!parsed.ok || parsed.node?.kind !== "hashtag") return fail();
+	const { namespace, segments } = parsed.node;
+	let result: ProseReferencePart;
+	if (namespace === "form") {
+		const form =
+			scope.form ??
+			(scope.formUuid === undefined
+				? undefined
+				: formStructure(scope.doc, scope.formUuid));
+		let uuid = scope.authoring?.resolveFormExactName?.(segments);
+		if (uuid === undefined && form !== undefined) {
+			let parent = form.formUuid;
+			for (const segment of segments) {
+				const matches = (form.fieldOrder.get(parent) ?? []).filter(
+					(id) => form.fields.get(id)?.id === segment,
+				);
+				if (matches.length !== 1) {
+					uuid = undefined;
+					break;
+				}
+				uuid = matches[0];
+				parent = matches[0];
+			}
+		}
+		uuid ??= scope.authoring?.resolveFormShortName(segments);
+		if (uuid === undefined || form?.fields.has(asUuid(uuid)) !== true)
+			return fail();
+		result = { kind: "field-ref", uuid: asUuid(uuid) };
+	} else {
+		if (segments.length !== 1) return fail();
+		const property = segments[0];
+		if (namespace === "user") {
+			const worker = formUserProperty(scope, property, "worker-record");
+			if (worker.kind === "session-user-property")
+				result = {
+					kind: "user-property-ref",
+					userPropertyUuid: worker.userPropertyUuid,
+				};
+			else if (worker.kind === "session-user")
+				result = { kind: "user-ref", property: worker.field };
+			else return fail();
+		} else {
+			const caseType =
+				namespace === "case" ? scope.authoring?.selectedCaseType : namespace;
+			if (caseType === undefined || namespace === "search") return fail();
+			result = { kind: "case-ref", caseType, property };
+		}
 	}
+	const valid = prosePartSchema.safeParse(result);
+	return valid.success && valid.data.kind !== "text" ? valid.data : fail();
+}
+
+/** Empty text clears an optional slot. Requiredness is owned by the caller's
+ * schema/commit contract, so no empty expression is ever constructed here. */
+export function parseFormExpressionForSlot(
+	doc: BlueprintDoc,
+	slot: ExpressionSlotRef,
+	text: string,
+	lookup: LookupDefinitionIndex | "unavailable",
+	options: FormExpressionOptions = {},
+): FormParseResult {
+	const current =
+		options.form !== undefined && slot.entity !== "module"
+			? options.form.expressionAt(slot)
+			: expressionSlotValue(doc, slot);
+	return parseFormExpression(text, { doc, slot, lookup, current, ...options });
+}
+
+export function parseAuthoredFormExpression(
+	scope: FormParseScope,
+	text: string,
+): Expression | undefined {
+	const parsed = parseFormExpression(text, scope);
+	if (!parsed.ok)
+		throw new AuthoringInputError(
+			parsed.issues.map((issue) => issue.message).join("\n"),
+		);
 	return parsed.expression;
 }
 
-/**
- * Resolve only one exact, case-insensitively unambiguous, CommCare-valid
- * custom worker-property slug. Everything else remains the final
- * external-name `user-ref` arm.
- */
-export function resolvableUserPropertySlug(
-	doc: Pick<XPathPrintableDoc, "userProperties">,
-): ResolveUserPropertySlug {
-	return userPropertySlugResolver(
-		doc,
-		(slug) => userPropertySlugVerdict(slug, NO_CLAIMED_USER_PROPERTY_SLUGS).ok,
-	);
-}
-
-/**
- * Parse expression text authored for `fieldUuid`'s slot, resolving
- * form-local references against the field's containing form. A field
- * not reachable from any form resolves nothing — its reference-shaped spans
- * remain text and the commit gate rejects them.
- */
-export function parseXPathForField(
+export function projectFormExpression(
 	doc: BlueprintDoc,
-	fieldUuid: Uuid,
-	text: string,
-): XPathExpression {
-	const formUuid = findContainingForm(doc, fieldUuid);
-	return parseXPathExpression(
-		text,
-		fieldPathResolver(doc, formUuid),
-		resolvableUserPropertySlug(doc),
-		searchInputNameResolver(doc, formUuid),
-	);
-}
-
-/**
- * Parse expression text scoped to a form (form-level slots, and field
- * slots whose field hasn't landed on the doc yet).
- */
-export function parseXPathForForm(
-	doc: BlueprintDoc,
-	formUuid: Uuid | undefined,
-	text: string,
-): XPathExpression {
-	return parseXPathExpression(
-		text,
-		fieldPathResolver(doc, formUuid),
-		resolvableUserPropertySlug(doc),
-		searchInputNameResolver(doc, formUuid),
-	);
-}
-
-/** Print an expression against a doc — the read-side convenience for
- *  callers without a longer-lived print context. */
-export function printXPathInDoc(
-	doc: BlueprintDoc,
-	expr: XPathExpression,
-): string {
-	return printXPath(expr, xpathPrintContext(doc));
+	slot: ExpressionSlotRef,
+	expression: Expression,
+	lookup: LookupDefinitionIndex | "unavailable",
+	options: FormExpressionOptions = {},
+): FormExpressionProjection {
+	const context = formPrintContext({ doc, slot, lookup, ...options });
+	const projection = printFormExpression(expression, context);
+	return context === undefined
+		? {
+				...projection,
+				unresolved: [...projection.unresolved, { path: [], reason: "context" }],
+			}
+		: projection;
 }
 
 /** The structural slice the close-field resolver needs — both the doc

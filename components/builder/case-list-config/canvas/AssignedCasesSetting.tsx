@@ -26,11 +26,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
-import {
-	sessionContext,
-	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+import { type Expression, sessionContext, term } from "@/lib/domain/expression";
 import { LIST_ROW_INTERACTIVE_CLS } from "@/lib/styles";
 
 export type AssignedCasesMode = "all" | "current-user" | "custom";
@@ -45,7 +41,7 @@ const MODE_LABELS: Record<AssignedCasesMode, string> = {
 };
 
 export function assignedCasesMode(
-	value: ValueExpression | undefined,
+	value: Expression | undefined,
 ): AssignedCasesMode {
 	if (value === undefined) return "all";
 	if (
@@ -70,8 +66,8 @@ export function AssignedCasesSetting({
 	hasError = false,
 	reviewRequest,
 }: {
-	readonly value: ValueExpression | undefined;
-	readonly onChange: (next: ValueExpression | undefined) => void;
+	readonly value: Expression | undefined;
+	readonly onChange: (next: Expression | undefined) => void;
 	readonly canEdit: boolean;
 	readonly hasError?: boolean;
 	/** Repeated semantic requests must reopen a manually collapsed disclosure

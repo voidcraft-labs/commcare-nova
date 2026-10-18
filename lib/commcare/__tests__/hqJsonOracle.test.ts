@@ -44,10 +44,6 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
-import {
 	eq,
 	input,
 	isBlank,
@@ -57,8 +53,11 @@ import {
 	prop,
 	sessionUser,
 	term,
-	toValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { lookupRevisionSchema } from "@/lib/lookup/schema";
 import {
@@ -249,7 +248,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 		const age = calculatedColumn(
 			testUuid("00000000-0000-4000-8000-000000000092"),
 			"Age",
-			toValueExpression(prop("patient", "age")),
+			term(prop("patient", "age")),
 			{
 				sort: { direction: "asc", priority: 0 },
 			},

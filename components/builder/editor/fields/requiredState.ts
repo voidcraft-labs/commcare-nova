@@ -19,17 +19,15 @@
  * `ALWAYS_REQUIRED` means.
  */
 
-import type { XPathExpression } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 
 /** Printed expression used for the always-required state. */
 export const ALWAYS_REQUIRED = "true()";
 
-/** The sentinel in its stored shape: one verbatim text run. The slot
+/** The sentinel in its stored shape: the always-true condition. The slot
  *  stores the expression AST; this constant is what the add-pill and
  *  the toggle-on transition write. */
-export const ALWAYS_REQUIRED_EXPRESSION: XPathExpression = {
-	parts: [{ kind: "text", text: ALWAYS_REQUIRED }],
-};
+export const ALWAYS_REQUIRED_EXPRESSION: Expression = { kind: "match-all" };
 
 /** Derived UI state describing what the editor should render for a given
  *  raw `required` value. */

@@ -1,12 +1,12 @@
 // lib/case-store/sql/compilePredicate.ts
 //
-// Compile a `Predicate` to an `Expression<SqlBool>` the case-list
+// Compile a `DomainExpression` to an `Expression<SqlBool>` the case-list
 // query layer feeds into `where(...)`. Per-arm dispatch over the
-// `Predicate` discriminated union; term emission delegates to
+// `DomainExpression` discriminated union; term emission delegates to
 // `./compileTerm`; relation-path subqueries delegate to
 // `./compileRelationPath`.
 //
-// Operand dispatch routes every `ValueExpression` slot through one
+// Operand dispatch routes every `DomainExpression` slot through one
 // helper (`compileValueExprOperand`) — term arm → `compileTerm`;
 // every other arm → `compileExpression` with a thunk-wired
 // callback. The cycle break is the runtime callback; neither
@@ -42,25 +42,25 @@ import type {
 	SqlBool,
 } from "kysely";
 import { expressionBuilder, sql } from "kysely";
-import { distanceToMeters } from "@/lib/domain/predicate/distance";
+import { distanceToMeters } from "@/lib/domain/expression/distance";
 import {
 	compilerBugMessage,
 	typeCheckerBypassMessage,
 	unhandledKindMessage,
-} from "@/lib/domain/predicate/errors";
+} from "@/lib/domain/expression/errors";
 import {
 	canonicalizeRelationPath,
 	normalizeRelationEvaluationScopes,
-} from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+} from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import type {
 	ComparisonKind,
+	Expression as DomainExpression,
 	MultiSelectQuantifier,
-	Predicate,
 	PropertyRef,
 	Term,
-	ValueExpression,
-} from "@/lib/domain/predicate/types";
-import { walkPropertyRefs } from "@/lib/domain/predicate/walk";
+} from "@/lib/domain/expression/types";
+import { isConditionArm } from "@/lib/domain/expression/types";
+import { walkPropertyRefs } from "@/lib/domain/expression/walk";
 import {
 	type CompilePredicateThunk,
 	compileExpression,
@@ -105,11 +105,16 @@ const GEOPOINT_CENTER_PATTERN = `^${GEOPOINT_NUMBER_PATTERN} ${GEOPOINT_NUMBER_P
 const SQL_ASCII_WHITESPACE = "[ \t\n\u000b\f\r]";
 const GEOPOINT_RAW_CENTER_PATTERN = `^(?:${SQL_ASCII_WHITESPACE}*${GEOPOINT_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_NUMBER_PATTERN}(?:${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN})?${SQL_ASCII_WHITESPACE}*|${SQL_ASCII_WHITESPACE}*${GEOPOINT_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*,${SQL_ASCII_WHITESPACE}*${GEOPOINT_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*)$`;
 
-/** Compile a `Predicate` to a Kysely `Expression<SqlBool>`. */
+/** Compile a `DomainExpression` to a Kysely `Expression<SqlBool>`. */
 export function compilePredicate(
-	pred: Predicate,
+	pred: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	if (!isConditionArm(pred))
+		return compileExpression(
+			pred,
+			expressionContextFor(ctx),
+		) as Expression<SqlBool>;
 	const normalizedSubject = normalizeRelationEvaluationScopes(pred, {
 		caseTypes: [...ctx.caseTypeSchemas.values()],
 		...(ctx.currentCaseType === undefined
@@ -172,7 +177,7 @@ export function compilePredicate(
 			throw new Error(
 				unhandledKindMessage({
 					where: "compilePredicate",
-					family: "Predicate",
+					family: "DomainExpression",
 					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
 					knownKinds: [
 						"match-all",
@@ -210,7 +215,9 @@ export function compilePredicate(
  * from falling back to an arbitrary scalar subquery row or inventing
  * cross-product semantics that CommCare Core does not implement.
  */
-function assertNoUnnormalizedRelationPropertyRefs(pred: Predicate): void {
+function assertNoUnnormalizedRelationPropertyRefs(
+	pred: DomainExpression,
+): void {
 	let survivingProperty: PropertyRef | undefined;
 	walkPropertyRefs(pred, (property) => {
 		if (
@@ -234,8 +241,8 @@ function assertNoUnnormalizedRelationPropertyRefs(pred: Predicate): void {
 }
 
 /**
- * Single-source dispatch for every `ValueExpression` operand slot
- * in the Predicate AST. Term-arm → `compileTerm`; non-term arm →
+ * Single-source dispatch for every `DomainExpression` operand slot
+ * in the DomainExpression AST. Term-arm → `compileTerm`; non-term arm →
  * `compileExpression` with the thunk-wired callback so the
  * expression compiler's `if.cond` / `count.where` arms recurse
  * back through `compilePredicate`. The runtime callback is the
@@ -243,7 +250,7 @@ function assertNoUnnormalizedRelationPropertyRefs(pred: Predicate): void {
  * value-position edge.
  */
 function compileValueExprOperand(
-	expr: ValueExpression,
+	expr: DomainExpression,
 	ctx: PredicateCompileContext,
 ): AliasableExpression<unknown> {
 	if (expr.kind === "term") {
@@ -278,7 +285,7 @@ export function expressionContextFor(
  * C` as `A OR (B AND C)` because conjunction binds tighter).
  */
 function compileAnd(
-	pred: Extract<Predicate, { kind: "and" }>,
+	pred: Extract<DomainExpression, { kind: "and" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	const compiled = pred.clauses.map(
@@ -289,7 +296,7 @@ function compileAnd(
 
 /** `(c1) OR (c2) OR ... OR (cN)`. Same paren-wrapping rationale as `compileAnd`. */
 function compileOr(
-	pred: Extract<Predicate, { kind: "or" }>,
+	pred: Extract<DomainExpression, { kind: "or" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	const compiled = pred.clauses.map(
@@ -300,12 +307,12 @@ function compileOr(
 
 /**
  * `NOT (clause)`. The builder layer collapses double-negation at
- * construction (`lib/domain/predicate/reduction.ts`), but a
+ * construction (`lib/domain/expression/reduction.ts`), but a
  * directly-constructed nested `not` is still correct — Postgres
  * collapses `NOT (NOT (...))` internally.
  */
 function compileNot(
-	pred: Extract<Predicate, { kind: "not" }>,
+	pred: Extract<DomainExpression, { kind: "not" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	return eb.not(compilePredicate(pred.clause, ctx) as Expression<SqlBool>);
@@ -317,7 +324,7 @@ function compileNot(
 
 /** `<left> <op> <right>`. Operator picked from `COMPARISON_OPS`. */
 function compileComparison(
-	pred: Extract<Predicate, { kind: ComparisonKind }>,
+	pred: Extract<DomainExpression, { kind: ComparisonKind }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	return compileOrderedComparison(
@@ -331,9 +338,9 @@ function compileComparison(
 /** Preserve the worker's midnight when typed SQL compares a portable calendar
  * read with a datetime. The default server comparison retains its raw values. */
 function compileOrderedComparison(
-	left: ValueExpression,
+	left: DomainExpression,
 	operator: ComparisonOperator,
-	right: ValueExpression,
+	right: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	const [a, b] = compileTemporalValues(
@@ -349,7 +356,7 @@ function compileOrderedComparison(
  * here evaluates against one related row at a time.
  */
 function compileIn(
-	pred: Extract<Predicate, { kind: "in" }>,
+	pred: Extract<DomainExpression, { kind: "in" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	return eb.or(
@@ -371,7 +378,7 @@ function compileIn(
  * standard interval notation.
  */
 function compileBetween(
-	pred: Extract<Predicate, { kind: "between" }>,
+	pred: Extract<DomainExpression, { kind: "between" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	const lowerOp: ComparisonOperator = pred.lowerInclusive ? ">=" : ">";
@@ -418,17 +425,24 @@ function compileBetween(
  * all-null lists at parse.
  */
 function compileMultiSelectContains(
-	pred: Extract<Predicate, { kind: "multi-select-contains" }>,
+	pred: Extract<DomainExpression, { kind: "multi-select-contains" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	// `pred.property` carries `kind: "prop"` per `propertyRefSchema`;
 	// passing the shape directly avoids TypeScript's spread-overwrite
 	// warning. `compileTerm` inherits the JSONB read + `::jsonb` cast
 	// for `multi_select` properties.
-	const left = compileTerm(pred.property, ctx);
+	const left =
+		pred.property.kind === "prop"
+			? compileTerm(pred.property, ctx)
+			: compileValueExprOperand(pred.property, ctx);
 
 	const stringValues: string[] = [];
 	for (const v of pred.values) {
+		if (v.kind !== "literal")
+			throw new Error(
+				"compilePredicate: resolve selection values to literal tokens before compiling a server query.",
+			);
 		if (v.value === null) {
 			continue;
 		}
@@ -506,12 +520,15 @@ function quantifierToOperator(
  *   `query_functions.py::date_permutations`.
  */
 function compileMatch(
-	pred: Extract<Predicate, { kind: "match" }>,
+	pred: Extract<DomainExpression, { kind: "match" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	const propRead = compilePropertyAsText(pred.property, ctx);
+	const propRead =
+		pred.property.kind === "prop"
+			? compilePropertyAsText(pred.property, ctx)
+			: eb.cast<string>(compileValueExprOperand(pred.property, ctx), "text");
 
-	// `checkMatch` admits the full ValueExpression family: authored search can
+	// `checkMatch` admits the full DomainExpression family: authored search can
 	// normalize a prefix with `concat`, choose one with `if`, or read the
 	// authenticated session. Route the whole value through the shared operand
 	// dispatcher so SQL has the same admission surface as the domain and wire
@@ -762,7 +779,7 @@ function compileLiteralFuzzyDate(
  * `date_permutations` builds sixteen strings by swapping month/day digits and
  * the last two year digits, then drops candidates that do not parse as a
  * strict `%Y-%m-%d` calendar date. This is that same algorithm expressed as
- * SQL, so a valid non-literal ValueExpression never reaches a compiler-only
+ * SQL, so a valid non-literal DomainExpression never reaches a compiler-only
  * literal guard.
  *
  * The outer source value and every generated candidate are calendar-gated.
@@ -973,13 +990,13 @@ function isValidDate(year: string, month: string, day: string): boolean {
  * Distance unit converts to meters at compile time via
  * the domain's shared conversion; `ST_DWithin` takes meters directly.
  *
- * `pred.center` is a `ValueExpression` — `compileValueExprOperand`
+ * `pred.center` is a `DomainExpression` — `compileValueExprOperand`
  * dispatches term-arm vs expression-arm so a literal, search-input
  * ref, or computed expression all flow into the same downstream
  * split shape.
  */
 function compileWithinDistance(
-	pred: Extract<Predicate, { kind: "within-distance" }>,
+	pred: Extract<DomainExpression, { kind: "within-distance" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	// `compileTerm` already reads `geopoint` as text per
@@ -997,6 +1014,10 @@ function compileWithinDistance(
 	const centerLat = splitNumericComponent(centerText, 1);
 	const centerLon = splitNumericComponent(centerText, 2);
 
+	if (typeof pred.distance !== "number" || typeof pred.unit !== "string")
+		throw new Error(
+			"compilePredicate: runtime distance values are unavailable in server queries.",
+		);
 	const distanceMeters = distanceToMeters(pred.distance, pred.unit);
 	const validShapes = eb.and([
 		eb(propText, "~", eb.val(GEOPOINT_PROPERTY_PATTERN)),
@@ -1110,7 +1131,7 @@ function splitNumericComponent(
 
 /** Compile `exists` / `missing`. See file header for strategy + collapse cases. */
 function compileExistsOrMissing(
-	pred: Extract<Predicate, { kind: "exists" | "missing" }>,
+	pred: Extract<DomainExpression, { kind: "exists" | "missing" }>,
 	ctx: PredicateCompileContext,
 	mode: "exists" | "missing",
 ): Expression<SqlBool> {
@@ -1178,7 +1199,7 @@ function compileExistsOrMissing(
 
 /** AST-level collapse for self-via `exists` / `missing` — no relation-path subquery. */
 function compileSelfViaQuantifier(
-	where: Predicate | undefined,
+	where: DomainExpression | undefined,
 	ctx: PredicateCompileContext,
 	mode: "exists" | "missing",
 ): Expression<SqlBool> {
@@ -1208,7 +1229,7 @@ function compileSelfViaQuantifier(
  * passing bindings.
  */
 function compileWhenInputPresent(
-	pred: Extract<Predicate, { kind: "when-input-present" }>,
+	pred: Extract<DomainExpression, { kind: "when-input-present" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	const isBound =
@@ -1224,7 +1245,7 @@ function compileWhenInputPresent(
  * `?`-key-existence; non-property operands use SQL null-or-empty.
  */
 function compileAbsenceCheck(
-	left: ValueExpression,
+	left: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
 	if (left.kind === "term" && left.term.kind === "prop") {

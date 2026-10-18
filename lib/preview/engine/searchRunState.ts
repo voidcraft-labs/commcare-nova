@@ -1,9 +1,9 @@
 // Search draft, submission and blueprint reconciliation state.
 import type { SearchInputDef } from "@/lib/domain";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
-import type { PreviewLookupData } from "@/lib/preview/engine/lookupEvaluation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import {
+	type PreviewSearchEnvironment,
 	resolveSearchHiddenValues,
 	resolveSearchInputDefaults,
 } from "@/lib/preview/engine/searchExpressionEvaluation";
@@ -90,7 +90,7 @@ export function buildSearchRunState(
 	scopeKey: string,
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
-	lookupData?: PreviewLookupData,
+	environment: PreviewSearchEnvironment,
 ): SearchRunState {
 	const allowedKeys = new Set<string>();
 	const keyShapes = new Map<string, string>();
@@ -115,7 +115,7 @@ export function buildSearchRunState(
 	const defaults = resolveSearchInputDefaults(
 		searchInputs,
 		session,
-		lookupData,
+		environment,
 	);
 	const hiddenRevision = JSON.stringify(
 		searchInputs
@@ -135,7 +135,7 @@ export function buildSearchRunState(
 		revision,
 		hiddenRevision,
 		resolveHidden: () =>
-			resolveSearchHiddenValues(searchInputs, session, lookupData),
+			resolveSearchHiddenValues(searchInputs, session, environment),
 		allowedKeys,
 		keyShapes,
 		defaults,

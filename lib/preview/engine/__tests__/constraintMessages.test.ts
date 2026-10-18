@@ -110,6 +110,7 @@ function input(
 	admitConstraintMessageFixture(doc);
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 	return {
+		doc,
 		formUuid,
 		form: doc.forms[formUuid],
 		fields: doc.fields,

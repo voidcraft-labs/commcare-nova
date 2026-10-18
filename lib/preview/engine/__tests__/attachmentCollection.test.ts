@@ -16,7 +16,8 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FieldSpec } from "@/lib/__tests__/docHelpers";
-import type { Field, ProseTemplate, XPathExpression } from "@/lib/domain";
+import type { Field, ProseTemplate } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
@@ -28,7 +29,7 @@ type Spec = {
 	id: string;
 	kind: Field["kind"];
 	label?: ProseTemplate;
-	relevant?: XPathExpression | string;
+	relevant?: Expression | string;
 	repeat_mode?: string;
 	children?: Spec[];
 };
@@ -61,6 +62,7 @@ function input(fields: Spec[]): FormEngineInput {
 	assertAdmittedPreviewDoc(doc);
 	const formUuid = testUuid("form");
 	return {
+		doc,
 		form: doc.forms[formUuid],
 		formUuid,
 		fields: doc.fields,

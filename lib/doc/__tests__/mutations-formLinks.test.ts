@@ -7,7 +7,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -23,6 +23,7 @@ import {
 	entityTargetKey,
 	type FormLink,
 } from "@/lib/domain";
+import { eq, literal, sessionUser } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -61,12 +62,12 @@ function fixture(): BlueprintDoc {
 						formLinks: [
 							{
 								uuid: "lnk-1",
-								condition: "#user/username = 'a'",
+								condition: eq(sessionUser("username"), literal("a")),
 								target: { type: "form", moduleUuid: M1, formUuid: TARGET_A },
 							},
 							{
 								uuid: "lnk-2",
-								condition: "#user/username = 'b'",
+								condition: eq(sessionUser("username"), literal("b")),
 								target: { type: "module", moduleUuid: M1 },
 							},
 						],
@@ -119,7 +120,7 @@ const linkOrder = (doc: BlueprintDoc) =>
 
 const newLink = (): FormLink => ({
 	uuid: L3,
-	condition: xp("#user/username = 'c'"),
+	condition: eq(sessionUser("username"), literal("c")),
 	target: { type: "form", moduleUuid: M1, formUuid: TARGET_B },
 });
 
@@ -459,12 +460,12 @@ describe("document diff", () => {
 			const [first, second] = form.formLinks;
 			// Patch the conditional link, clear nothing, add a third, then
 			// reorder so the else stays last.
-			first.condition = xp("#user/username = 'b'");
+			first.condition = eq(sessionUser("username"), literal("b"));
 			form.formLinks = [
 				first,
 				{
 					uuid: L3,
-					condition: xp("#user/username = 'c'"),
+					condition: eq(sessionUser("username"), literal("c")),
 					target: { type: "form", moduleUuid: M1, formUuid: TARGET_B },
 				},
 				second,
@@ -518,7 +519,12 @@ describe("reference index", () => {
 				kind: "updateFormLink",
 				formUuid: SOURCE,
 				uuid: L1,
-				patch: { condition: xp("#patient/status = 'open'") },
+				patch: {
+					condition: eq(
+						{ kind: "form-case", caseType: "patient", property: "status" },
+						literal("open"),
+					),
+				},
 			},
 		]);
 		const key = casePropertyTargetKey("patient", "status");
@@ -529,7 +535,7 @@ describe("reference index", () => {
 				kind: "updateFormLink",
 				formUuid: SOURCE,
 				uuid: L1,
-				patch: { condition: xp("true()") },
+				patch: { condition: { kind: "match-all" } },
 			},
 		]);
 		expect(referencingCarrierUuids(cleared, key)).not.toContain(SOURCE);
@@ -540,7 +546,10 @@ describe("reference index", () => {
 				formUuid: SOURCE,
 				link: {
 					uuid: L3,
-					condition: xp("#patient/status = 'open'"),
+					condition: eq(
+						{ kind: "form-case", caseType: "patient", property: "status" },
+						literal("open"),
+					),
 					target: { type: "module", moduleUuid: M1 },
 				},
 				after: L1,

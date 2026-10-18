@@ -12,17 +12,15 @@
  * exclusively from the normalized `BlueprintDocState` (Uuid-indexed
  * maps + adjacency list).
  *
- * `buildSessionLintContext.ts` builds the SESSION-scoped sibling (an
- * after-submit link's condition or carried value): the same readable case
- * types, no form paths at all.
+ * The actual expression slot determines form or after-submit scope;
+ * after-submit slots expose case data without form-answer completions.
  */
 
-import {
-	findTimeOrderingComparisons,
-	orderingSpans,
-} from "@/lib/commcare/validator/timeOrdering";
-import { parseXPathForForm } from "@/lib/doc/expressionText";
-import type { BlueprintDocState } from "@/lib/doc/store";
+import { lookupTypeIndex } from "@/lib/doc/commitVerdicts";
+import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
+import { lookupExpressionDefinitions } from "@/lib/doc/lookupExpressionContext";
+import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import type { BlueprintDoc } from "@/lib/domain";
 import {
 	asUuid,
 	type Field,
@@ -36,8 +34,11 @@ import {
 	toReachableIndex,
 	type Uuid,
 } from "@/lib/domain";
+import { slotContext } from "@/lib/domain/expression/context";
+import type { FormStructure } from "@/lib/domain/expression/formStructure";
+import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
 import { VALUE_PRODUCING_TYPES } from "@/lib/references/provider";
-import type { XPathLintContext } from "./xpath-lint";
+import type { XPathLintContext, XPathReferenceContext } from "./xpath-lint";
 
 /**
  * The case types a form can READ — its owning module's case type plus that
@@ -52,7 +53,7 @@ import type { XPathLintContext } from "./xpath-lint";
  * after-submit slots can never disagree about which case types exist.
  */
 export function formReachableCaseTypes(
-	state: BlueprintDocState,
+	state: BlueprintDoc,
 	formUuid: Uuid,
 ): ReachableCaseTypeIndex | undefined {
 	// Find the module that owns this form so we can resolve its caseType.
@@ -79,9 +80,9 @@ export function formReachableCaseTypes(
  * (caller decides what to render in that case).
  */
 export function buildLintContext(
-	state: BlueprintDocState,
+	state: BlueprintDoc,
 	formUuid: Uuid,
-): XPathLintContext | undefined {
+): XPathReferenceContext | undefined {
 	const form = state.forms[formUuid] as Form | undefined;
 	if (!form) return undefined;
 
@@ -125,36 +126,36 @@ export function buildLintContext(
 		formEntries: formEntries.filter((e) => VALUE_PRODUCING_TYPES.has(e.kind)),
 		userProperties: Object.values(state.userProperties ?? {}),
 		formType: form.type,
-		timeOrderings: formTimeOrderings(state, formUuid),
 	};
 }
 
-/**
- * The lint context's `timeOrderings` for one form: the text parsed to the
- * stored expression the save would write, read by the validator's own
- * function. An expression the parse cannot take has no ordering to report;
- * the validator's other findings name what is wrong with it.
- */
-export function formTimeOrderings(
-	state: BlueprintDocState,
-	formUuid: Uuid,
-): (text: string) => ReadonlyArray<{ from: number; to: number }> {
-	return (text) => {
-		let expression: ReturnType<typeof parseXPathForForm>;
-		try {
-			expression = parseXPathForForm(state, formUuid, text);
-		} catch {
-			return [];
-		}
-		/* The findings are spans of the stored expression's printed text, and
-		 * a reference typed as `/data/ q` prints as `/data/q`, so each is
-		 * placed by its ordinal on the orderings of the text as typed. Were the
-		 * two to hold different orderings, the whole text is marked, so the
-		 * refusal the commit gate makes is never left without an underline. */
-		const typed = orderingSpans(text);
-		return findTimeOrderingComparisons(expression, {
-			doc: state,
-			formUuid,
-		}).map(({ ordinal }) => typed[ordinal] ?? { from: 0, to: text.length });
+/** Derive editing semantics from the actual owner and slot, never a form default. */
+export function buildExpressionLintContext(
+	doc: BlueprintDoc,
+	slot: ExpressionSlotRef,
+	lookupContext: LookupValidationContext,
+	options: { readonly form?: FormStructure } = {},
+): XPathLintContext | undefined {
+	const context = slotContext(
+		doc,
+		slot,
+		lookupTypeIndex(lookupContext),
+		options,
+	);
+	const form = context?.form;
+	if (context === undefined || form === undefined) return undefined;
+	const references = buildLintContext(doc, form.formUuid);
+	if (references === undefined) return undefined;
+	const lookup = lookupExpressionDefinitions(lookupContext);
+	return {
+		...references,
+		...(context.profile.formAnswers
+			? {}
+			: { validPaths: new Set<string>(), formEntries: [] }),
+		...(context.profile.caseData ? {} : { reachableCaseTypes: undefined }),
+		scope: context.profile.scope === "session" ? "session" : "form",
+		expressionContext: context,
+		parse: (source) =>
+			parseFormExpressionForSlot(doc, slot, source, lookup, options),
 	};
 }

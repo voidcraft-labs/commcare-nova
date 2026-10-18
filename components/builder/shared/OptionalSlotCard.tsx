@@ -70,8 +70,8 @@ export interface OptionalSlotCardProps<T> {
 	readonly onChange: (next: T | undefined) => void;
 	/** Add-seed value. Cloned by reference into `onChange` when the
 	 *  author clicks the dashed Add CTA, so consumers can pass a
-	 *  pre-built typed AST node (e.g., `matchAll()` for Predicate,
-	 *  `term(literal(""))` for ValueExpression). The primitive treats
+	 *  pre-built typed AST node (e.g., `matchAll()` for Expression,
+	 *  `term(literal(""))` for Expression). The primitive treats
 	 *  this as opaque and never inspects its shape. */
 	readonly addSeed: T;
 	/** Editor render prop: mounted whenever `value !== undefined`.

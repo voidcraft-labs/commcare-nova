@@ -15,7 +15,8 @@
 // `currentCaseType` changes to the relation walk's destination so
 // nested property dropdowns show the destination's properties (per
 // the type-checker's `checkInDestinationScope` contract). The
-// `WithCurrentCaseType` helper handles the rebind.
+// `WithExpressionContext` helper derives that scope;
+// `WithCurrentCaseType` updates only the labels and menus.
 
 "use client";
 import {
@@ -29,23 +30,20 @@ import {
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	type CheckError,
-	checkExpression,
-	type ResolvedType,
-	type TypeContext,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+	type Expression,
+	type ExpressionContext,
+	expressionContextAtPath,
+	type ScalarType,
+	scalarDataType,
+	typeOf,
+} from "@/lib/domain/expression";
 import { presentCheckErrorForEditor } from "./checkErrorPresentation";
-import {
-	type CaseDataScope,
-	caseDataScopeAdmission,
-	type EvaluationTarget,
-	type PredicateEditContext as PredicateEditContextShape,
+import type {
+	CaseDataScope,
+	EvaluationTarget,
+	PredicateEditContext as PredicateEditContextShape,
 } from "./editorSchemas";
-import {
-	buildEditorTypeContext,
-	EMPTY_FORM_FIELDS,
-	EMPTY_USER_PROPERTIES,
-} from "./editorTypeContext";
+import { EMPTY_FORM_FIELDS, EMPTY_USER_PROPERTIES } from "./editorTypeContext";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import type {
@@ -57,9 +55,9 @@ import { serializePath } from "./path";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 /** Re-exported from its dependency-free home so the pure cascade-reseed
- *  helpers can build the same context without importing this React
+ *  helpers can read the same context without importing this React
  *  module: see `editorTypeContext.ts` for why that separation exists. */
-export { buildEditorTypeContext } from "./editorTypeContext";
+export { editorExpressionContext } from "./editorTypeContext";
 
 /**
  * Per-path user-facing diagnostic list. Raw `CheckError.message`
@@ -82,10 +80,14 @@ export type ExpressionChangeAdmission =
 
 export type AdmitExpressionChange = (
 	path: EditorPath,
-	next: ValueExpression,
+	next: Expression,
 ) => ExpressionChangeAdmission;
 
-interface PredicateEditContextValue {
+interface EditorVocabularyValue {
+	readonly expressionPath: EditorPath;
+	readonly expression?: Expression;
+	readonly rootExpressionContext?: ExpressionContext;
+	readonly expressionContext?: ExpressionContext;
 	/** Blueprint case-type definitions. Drives property dropdowns. */
 	readonly caseTypes: readonly CaseType[];
 	/**
@@ -162,11 +164,15 @@ interface PredicateEditContextValue {
 	readonly expressionFocusTargets: Map<string, HTMLElement>;
 }
 
-const PredicateEditContext = createContext<PredicateEditContextValue | null>(
-	null,
-);
+type PredicateEditContextValue = EditorVocabularyValue & {
+	readonly expression: Expression;
+	readonly rootExpressionContext: ExpressionContext;
+	readonly expressionContext: ExpressionContext;
+};
 
-interface PredicateEditProviderProps {
+const PredicateEditContext = createContext<EditorVocabularyValue | null>(null);
+
+interface EditorVocabularyProviderProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
@@ -187,21 +193,23 @@ interface PredicateEditProviderProps {
 	readonly children: ReactNode;
 }
 
-/**
- * Top-level provider: mounted once by `PredicateCardEditor` per
- * editor instance. The `validityIndex` is recomputed by the editor
- * on every onChange (via the type checker) and threaded through
- * here.
- *
- * In a `"global"` scope the provider composes the case-data admission
- * oracle IN FRONT of any caller-supplied oracle, so every value-source
- * and calculated-kind menu that consults `admitExpressionChange`
- * disables case reads with one shared reason: no per-surface wiring.
- * A `"selected-case"` scope composes the narrower twin: the chosen
- * case's own properties stay available while relationship walks,
- * relationship counts, and presence tests do not.
- */
-export function PredicateEditProvider({
+/** The root expression and its slot context stay fixed as nested cards derive
+ * lexical scopes. Catalog-only controls use EditorVocabularyProvider directly. */
+export function PredicateEditProvider(
+	props: EditorVocabularyProviderProps & {
+		readonly expression: Expression;
+		readonly expressionContext: ExpressionContext;
+		readonly expressionPath?: EditorPath;
+	},
+) {
+	return <EditorVocabularyProvider {...props} />;
+}
+
+/** Property-only controls need catalogs, but do not own an expression slot. */
+export function EditorVocabularyProvider({
+	expression,
+	expressionContext,
+	expressionPath = [],
 	caseTypes,
 	currentCaseType,
 	knownInputs,
@@ -219,18 +227,30 @@ export function PredicateEditProvider({
 	validityIndex,
 	admitExpressionChange,
 	children,
-}: PredicateEditProviderProps) {
+}: EditorVocabularyProviderProps & {
+	readonly expression?: Expression;
+	readonly expressionContext?: ExpressionContext;
+	readonly expressionPath?: EditorPath;
+}) {
 	const expressionFocusTargets = useRef(new Map<string, HTMLElement>()).current;
-	const effectiveAdmit = useMemo<AdmitExpressionChange | undefined>(() => {
-		if (caseDataScope === "per-case") return admitExpressionChange;
-		return (path, next) => {
-			const scoped = caseDataScopeAdmission(caseDataScope, next);
-			if (!scoped.admitted) return scoped;
-			return admitExpressionChange?.(path, next) ?? { admitted: true };
-		};
-	}, [caseDataScope, admitExpressionChange]);
-	const value = useMemo<PredicateEditContextValue>(
+	const effectiveAdmit = admitExpressionChange;
+	const currentContext = useMemo(
+		() =>
+			expression === undefined || expressionContext === undefined
+				? undefined
+				: expressionContextAtPath(
+						expression,
+						expressionContext,
+						expressionPath,
+					),
+		[expression, expressionContext, expressionPath],
+	);
+	const value = useMemo<EditorVocabularyValue>(
 		() => ({
+			expression,
+			expressionPath,
+			rootExpressionContext: expressionContext,
+			expressionContext: currentContext,
 			caseTypes,
 			currentCaseType,
 			knownInputs,
@@ -250,6 +270,10 @@ export function PredicateEditProvider({
 			expressionFocusTargets,
 		}),
 		[
+			expression,
+			expressionContext,
+			currentContext,
+			expressionPath,
 			caseTypes,
 			currentCaseType,
 			knownInputs,
@@ -269,6 +293,7 @@ export function PredicateEditProvider({
 			expressionFocusTargets,
 		],
 	);
+	if (expression !== undefined && currentContext === undefined) return null;
 	return <PredicateEditContext value={value}>{children}</PredicateEditContext>;
 }
 
@@ -333,6 +358,32 @@ export function useExpressionFocusTarget(path: EditorPath): {
 	return useMemo(
 		() => ({ register, resolve, focusAfterReplacement }),
 		[register, resolve, focusAfterReplacement],
+	);
+}
+
+/** Every nested node reads the same context derivation as the checker. */
+export function WithExpressionContext({
+	path,
+	children,
+}: {
+	readonly path: EditorPath;
+	readonly children: ReactNode;
+}) {
+	const outer = usePredicateEditContext();
+	const expressionContext = expressionContextAtPath(
+		outer.expression,
+		outer.rootExpressionContext,
+		path,
+	);
+	const value = useMemo(
+		() =>
+			expressionContext === undefined
+				? undefined
+				: { ...outer, expressionContext, expressionPath: path },
+		[outer, expressionContext, path],
+	);
+	return value === undefined ? null : (
+		<PredicateEditContext value={value}>{children}</PredicateEditContext>
 	);
 }
 
@@ -405,6 +456,7 @@ export function predicateEditContextFrom(
 	ctx: PredicateEditContextValue,
 ): PredicateEditContextShape {
 	return {
+		expressionContext: ctx.expressionContext,
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
@@ -422,7 +474,7 @@ export function predicateEditContextFrom(
 	};
 }
 
-export function usePredicateEditContext(): PredicateEditContextValue {
+export function useEditorVocabulary(): EditorVocabularyValue {
 	const ctx = useContext(PredicateEditContext);
 	if (ctx === null) {
 		throw new Error(
@@ -430,6 +482,20 @@ export function usePredicateEditContext(): PredicateEditContextValue {
 		);
 	}
 	return ctx;
+}
+
+export function usePredicateEditContext(): PredicateEditContextValue {
+	const ctx = useEditorVocabulary();
+	if (
+		ctx.expression === undefined ||
+		ctx.rootExpressionContext === undefined ||
+		ctx.expressionContext === undefined
+	) {
+		throw new Error(
+			"The expression editor needs its owning document slot context.",
+		);
+	}
+	return ctx as PredicateEditContextValue;
 }
 
 /**
@@ -447,66 +513,21 @@ export function usePredicateEditContext(): PredicateEditContextValue {
  * as "no narrowing" so an incomplete subject never disables a choice.
  */
 export function useResolvedType(
-	expr: ValueExpression | undefined,
-): ResolvedType | undefined {
-	const typeContext = useEditorTypeContext();
-	return useMemo(() => {
-		if (expr === undefined) return undefined;
-		return checkExpression(expr, typeContext, [], []);
-	}, [expr, typeContext]);
-}
-
-/**
- * The `TypeContext` this editor's scope resolves against. Every editor
- * that runs the checker: the workbench, the expression editor,
- * `useResolvedType`, and the cascade-reseed helpers a card runs inside
- * an event handler: goes through the shared `buildEditorTypeContext`
- * rather than assembling its own literal (`editorTypeContext.ts` records
- * what an omitted axis silently costs).
- */
-export function useEditorTypeContext(): TypeContext {
-	const {
-		caseTypes,
-		currentCaseType,
-		knownInputs,
-		userProperties,
-		formFields,
-		formCaseTypes,
-		lookupTables,
-		tableScope,
-		operationScope,
-		ownerValues,
-		patternMatching,
-	} = usePredicateEditContext();
+	expr: Expression | undefined,
+): ScalarType | undefined {
+	const context = useEditorExpressionContext();
 	return useMemo(
 		() =>
-			buildEditorTypeContext({
-				caseTypes,
-				currentCaseType,
-				knownInputs,
-				userProperties,
-				formFields,
-				formCaseTypes,
-				lookupTables,
-				tableScope,
-				operationScope,
-				ownerValues,
-				...(patternMatching && { patternMatching: true }),
-			}),
-		[
-			caseTypes,
-			currentCaseType,
-			knownInputs,
-			userProperties,
-			formFields,
-			formCaseTypes,
-			lookupTables,
-			tableScope,
-			operationScope,
-			ownerValues,
-			patternMatching,
-		],
+			expr === undefined
+				? undefined
+				: scalarDataType(typeOf(expr, context)?.data),
+		[expr, context],
 	);
+}
+
+/** The current node's context, already derived from its actual owning slot. */
+export function useEditorExpressionContext(): ExpressionContext {
+	return usePredicateEditContext().expressionContext;
 }
 
 /**
@@ -516,7 +537,7 @@ export function useEditorTypeContext(): TypeContext {
  * next to the offending input.
  */
 export function useEditorErrorsAt(path: EditorPath): EditorPathErrors {
-	const { validityIndex } = usePredicateEditContext();
+	const { validityIndex } = useEditorVocabulary();
 	const key = serializePath(path);
 	return validityIndex.get(key) ?? [];
 }
@@ -547,7 +568,7 @@ export function useEditorErrorsAt(path: EditorPath): EditorPathErrors {
  * preserves the message ordering authors see.
  */
 export function useEditorErrorsBelow(path: EditorPath): EditorPathErrors {
-	const { validityIndex } = usePredicateEditContext();
+	const { validityIndex } = useEditorVocabulary();
 	const prefix = serializePath(path);
 	// Strict-descendant: only the prefix-with-separator form matches.
 	// Exact-key match is excluded structurally by the trailing `\0`

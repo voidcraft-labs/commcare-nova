@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
-	checkPredicate,
+	checkExpression,
 	dateLiteral,
 	isIn,
 	literal,
 	prop,
 	relationStep,
 	sessionContext,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
-import { buildEditorTypeContext } from "../editorTypeContext";
+import { editorExpressionContext } from "../editorTypeContext";
 import { membershipLiteralContext } from "../membershipLiteralContext";
 
 const caseTypes: CaseType[] = [
@@ -40,15 +41,17 @@ describe("membership literal property context", () => {
 			dateLiteral("2026-01-01"),
 		);
 		expect(
-			checkPredicate(
+			checkExpression(
 				value,
-				buildEditorTypeContext({
-					caseTypes,
-					currentCaseType: "patient",
-					knownInputs: [],
-				}),
+				editorExpressionContext(
+					expressionEditorFixture("case-filter", {
+						caseTypes,
+						currentCaseType: "patient",
+						knownInputs: [],
+					}).context,
+				),
 			),
-		).toEqual({ ok: true });
+		).toMatchObject({ errors: [] });
 		expect(membershipLiteralContext(value, "patient", caseTypes)).toEqual({
 			caseTypeName: "household",
 			propertyName: "started",

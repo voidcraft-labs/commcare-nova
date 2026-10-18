@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { possibleFinalSessionCaseTypes } from "@/lib/doc/caseOperationOrder";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { CaseOperation } from "@/lib/domain";
-import { eq, formField, literal, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	formField,
+	literal,
+	neq,
+	sessionUser,
+	term,
+} from "@/lib/domain/expression/builders";
+import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../runner";
 
@@ -139,8 +148,8 @@ function codes(doc: ReturnType<typeof buildDoc>): string[] {
 const FANOUT_CHILD_DATUM = "case_id_new_visit_0";
 
 function fanoutExpressionDoc(options: {
-	condition?: string;
-	datumXpath?: string;
+	condition?: Expression;
+	datumXpath?: Expression;
 }) {
 	const doc = buildDoc({
 		caseTypes: [
@@ -193,7 +202,7 @@ function fanoutExpressionDoc(options: {
 								...(options.datumXpath !== undefined && {
 									datums: [
 										{
-											name: "case_id_new_next_case_0",
+											name: { kind: "selected-case", module: TARGET_MODULE },
 											xpath: options.datumXpath,
 										},
 									],
@@ -213,8 +222,8 @@ function fanoutExpressionDoc(options: {
 				forms: [
 					{
 						uuid: TARGET_FORM,
-						name: "Create next case",
-						type: "registration",
+						name: "Review next case",
+						type: "followup",
 						fields: [
 							f({
 								kind: "text",
@@ -359,7 +368,11 @@ describe("multi-select absolute validation", () => {
 									kind: "text",
 									id: "note",
 									caseWrite: { caseType: "patient", property: "note" },
-									default_value: xp("#patient/case_name"),
+									default_value: term({
+										kind: "form-case",
+										caseType: "patient",
+										property: "case_name",
+									}),
 								}),
 							],
 						},
@@ -678,7 +691,13 @@ describe("multi-select absolute validation", () => {
 
 	it("rejects a form-link condition that observes the scalar fanout-child datum", () => {
 		const doc = fanoutExpressionDoc({
-			condition: `instance('commcaresession')/session/data/${FANOUT_CHILD_DATUM} != ''`,
+			condition: neq(
+				{
+					kind: "session-datum",
+					datum: { kind: "new-child-case", caseType: "visit" },
+				},
+				literal(""),
+			),
 		});
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(finding) => finding.code === "MULTI_SELECT_FANOUT_CHILD_DATUM",
@@ -688,7 +707,7 @@ describe("multi-select absolute validation", () => {
 			expect.objectContaining({
 				details: expect.objectContaining({
 					surface: "condition",
-					datumId: FANOUT_CHILD_DATUM,
+					datumRef: "new-child-case:visit",
 				}),
 			}),
 		]);
@@ -696,7 +715,10 @@ describe("multi-select absolute validation", () => {
 
 	it("rejects a manual carried value that observes the scalar fanout-child datum", () => {
 		const doc = fanoutExpressionDoc({
-			datumXpath: `instance('commcaresession')/session/data/${FANOUT_CHILD_DATUM}`,
+			datumXpath: term({
+				kind: "session-datum",
+				datum: { kind: "new-child-case", caseType: "visit" },
+			}),
 		});
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(finding) => finding.code === "MULTI_SELECT_FANOUT_CHILD_DATUM",
@@ -706,110 +728,46 @@ describe("multi-select absolute validation", () => {
 			expect.objectContaining({
 				details: expect.objectContaining({
 					surface: "carried value",
-					datumId: FANOUT_CHILD_DATUM,
+					datumRef: "new-child-case:visit",
 				}),
 			}),
 		]);
 	});
 
-	it("rejects a condition that observes every session datum", () => {
-		const doc = fanoutExpressionDoc({
-			condition: "count(instance('commcaresession')/session/data/*) > 0",
-		});
-		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(finding) => finding.code === "MULTI_SELECT_FANOUT_CHILD_DATUM",
-		);
-
-		expect(findings).toEqual([
-			expect.objectContaining({
-				details: expect.objectContaining({
-					surface: "condition",
-					access: "broad",
-				}),
-			}),
-		]);
-	});
-
-	it("rejects a manual carried value that observes every session datum", () => {
-		const doc = fanoutExpressionDoc({
-			datumXpath: "instance('commcaresession')/session/data/*",
-		});
-		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(finding) => finding.code === "MULTI_SELECT_FANOUT_CHILD_DATUM",
-		);
-
-		expect(findings).toEqual([
-			expect.objectContaining({
-				details: expect.objectContaining({
-					surface: "carried value",
-					access: "broad",
-				}),
-			}),
-		]);
-	});
-
-	it("rejects a condition that escapes an exact datum through a sibling axis", () => {
-		const doc = fanoutExpressionDoc({
-			condition:
-				"count(instance('commcaresession')/session/data/unrelated/following-sibling::*) > 0",
-		});
-		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(finding) => finding.code === "MULTI_SELECT_FANOUT_CHILD_DATUM",
-		);
-
-		expect(findings).toEqual([
-			expect.objectContaining({
-				details: expect.objectContaining({
-					surface: "condition",
-					access: "broad",
-				}),
-			}),
-		]);
-	});
-
-	it("rejects a filtered session path whose relative predicate observes session data", () => {
-		const doc = fanoutExpressionDoc({
-			condition:
-				"count(instance('commcaresession')/session/context/userid[../../data[count(*) = 2]]) > 0",
-		});
-		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(finding) => finding.code === "MULTI_SELECT_FANOUT_CHILD_DATUM",
-		);
-
-		expect(findings).toEqual([
-			expect.objectContaining({
-				details: expect.objectContaining({
-					surface: "condition",
-					access: "broad",
-				}),
-			}),
-		]);
-	});
-
-	it("rejects a filtered carried value whose relative predicate reaches a generated datum sibling", () => {
-		const doc = fanoutExpressionDoc({
-			datumXpath: `instance('commcaresession')/session/context/userid[../../data/${FANOUT_CHILD_DATUM}/following-sibling::*]`,
-		});
-		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(finding) => finding.code === "MULTI_SELECT_FANOUT_CHILD_DATUM",
-		);
-
-		expect(findings).toEqual([
-			expect.objectContaining({
-				details: expect.objectContaining({
-					surface: "carried value",
-					access: "broad",
-				}),
-			}),
-		]);
-	});
+	it.each([
+		"count(instance('commcaresession')/session/data/*) > 0",
+		"instance('commcaresession')/session/data/*",
+		"count(instance('commcaresession')/session/data/unrelated/following-sibling::*) > 0",
+		"count(instance('commcaresession')/session/context/userid[../../data[count(*) = 2]]) > 0",
+		`instance('commcaresession')/session/context/userid[../../data/${FANOUT_CHILD_DATUM}/following-sibling::*]`,
+	])(
+		"refuses broad or filtered session access before storage: %s",
+		(source) => {
+			const doc = fanoutExpressionDoc({});
+			const link = doc.forms[SOURCE_FORM].formLinks?.[0];
+			if (link === undefined) throw new Error("Fixture requires a form link");
+			const result = parseFormExpression(source, {
+				doc,
+				lookup: "unavailable",
+				slot: {
+					entity: "form",
+					uuid: SOURCE_FORM,
+					slot: "form_link_condition",
+					member: { linkUuid: link.uuid },
+				},
+			});
+			expect(result.ok).toBe(false);
+		},
+	);
 
 	it("allows plain unrelated exact session reads without filters", () => {
 		const doc = fanoutExpressionDoc({
-			condition: "instance('commcaresession')/session/context/userid != ''",
-			datumXpath: "instance('commcaresession')/session/context/userid",
+			condition: neq(sessionUser("user_id"), literal("")),
 		});
 
+		const link = doc.forms[SOURCE_FORM].formLinks?.[0];
+		if (link === undefined) throw new Error("Fixture requires a form link");
+		link.target = { type: "module", moduleUuid: TARGET_MODULE };
 		expectAdmittedDoc({ ...doc });
 	});
 
@@ -835,7 +793,12 @@ describe("multi-select absolute validation", () => {
 							fields: [f({ kind: "text", id: "note" })],
 							formLinks: [
 								{
-									datums: [{ name: "case_id", xpath: "'household-id'" }],
+									datums: [
+										{
+											name: { kind: "selected-case", module: TARGET_MODULE },
+											xpath: term(literal("household-id")),
+										},
+									],
 									target: {
 										type: "form",
 										moduleUuid: TARGET_MODULE,

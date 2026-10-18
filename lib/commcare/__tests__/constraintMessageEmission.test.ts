@@ -2,7 +2,11 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	f,
+	parseFixtureExpression,
+} from "@/lib/__tests__/docHelpers";
 import {
 	makeTranslationUnitId,
 	type ProseTemplate,
@@ -252,12 +256,13 @@ describe("constraint message emission", () => {
 			expect(expression).toContain("/data/checked");
 			expect(expression).not.toContain(CONSTRAINT_VALUE);
 		}
-		delete fixture.doc.fields[CONSTRAINT_VALUE];
-		fixture.doc.fieldOrder[fixture.formUuid] = fixture.doc.fieldOrder[
+		const missingReference = structuredClone(fixture.doc);
+		delete missingReference.fields[CONSTRAINT_VALUE];
+		missingReference.fieldOrder[fixture.formUuid] = missingReference.fieldOrder[
 			fixture.formUuid
 		].filter((uuid) => uuid !== CONSTRAINT_VALUE);
 		expect(() =>
-			buildXForm(fixture.doc, fixture.formUuid, {
+			buildXForm(missingReference, fixture.formUuid, {
 				xmlns: "urn:constraint",
 				moduleCaseType: "patient",
 				assets: fixture.assets,
@@ -545,7 +550,11 @@ describe("constraint message emission", () => {
 			const doc = containerWireFixture(scenario);
 			for (const field of Object.values(doc.fields))
 				if (field.kind === "text") {
-					field.validate = xp(". = 'ok'");
+					field.validate = parseFixtureExpression(
+						doc,
+						{ entity: "field", uuid: field.uuid, slot: "validate" },
+						". = 'ok'",
+					);
 					field.validate_msg = proseText("${0}");
 				}
 			admitConstraintMessageFixture(doc, mediaManifest());

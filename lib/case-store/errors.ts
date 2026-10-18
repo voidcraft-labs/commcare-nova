@@ -4,7 +4,7 @@
 // discrimination so API routes and Server Actions can map them to
 // typed result arms; every other throw across `lib/case-store/**`
 // is an internal-invariant violation that reuses the helpers from
-// `lib/domain/predicate/errors.ts`.
+// `lib/domain/expression/errors.ts`.
 //
 // `CaseNotFoundError` collapses three causes into one shape (row
 // never created, row removed out of band, row outside the bound

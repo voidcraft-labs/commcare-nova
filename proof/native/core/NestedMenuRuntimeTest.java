@@ -22,6 +22,13 @@ import static org.junit.Assert.*;
 /** Native case selection and form calculations under real nested suite entries.
  * Storage is Core's in-memory Case implementation, not Nova's evaluator. */
 public class NestedMenuRuntimeTest {
+ @Test public void authoredSessionReadsFollowTheAlignedEntryDatum()throws Exception{
+  var document=SessionReadAssertions.targeted("nested-menu","targeted-nested-menu-session-reads");
+  for(boolean hq:new boolean[]{false,true}){
+   SessionReadAssertions.createdAndWorker(document,hq,true,false);
+   SessionReadAssertions.selectedAndGroup(document,hq,true);
+  }
+ }
  private static TreeElement node(String name,String value,int multiplicity){TreeElement n=new TreeElement(name,multiplicity);if(value!=null)n.setValue(new StringData(value));return n;}
  private static final class Parser extends SuiteParser{Parser(InputStream in)throws IOException{super(in,null,"nested-proof",null,true,true,false);}}
  private static final class Runtime extends TestInstanceInitializer {

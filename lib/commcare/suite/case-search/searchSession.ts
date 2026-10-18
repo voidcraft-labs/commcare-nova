@@ -28,7 +28,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 	type WireStringSource,
 } from "@/lib/domain";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import type { ModuleExpressionContexts } from "../../expressionContext";
 import { validateCaseType } from "../../identifierValidation";
 import type { LookupWireNaming } from "../../lookup/naming";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../case-list/nodesetFilter";
@@ -120,7 +120,7 @@ export interface SearchQueryArgs {
 	readonly wire: WireShape;
 	readonly caseType: string;
 	readonly moduleIndex: number;
-	readonly typeContext?: TypeContext;
+	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	/**
 	 * For a search-first module whose cases sit under a selected parent
@@ -219,13 +219,6 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// the standalone post-and-query roundtrip. Every `input(...)` read in
 	// the body prints through the matching answer instance.
 	const storageInstance = searchStorageInstance(wire);
-	const typeContext: TypeContext | undefined =
-		args.typeContext === undefined
-			? undefined
-			: {
-					...args.typeContext,
-					searchInputInstanceId: searchInputInstanceId(wire),
-				};
 
 	// `<data>` slot order matches CCHQ's canonical order at
 	// `commcare-hq/.../suite_xml/post_process/remote_requests.py::_remote_request_query_datums`:
@@ -278,8 +271,9 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	const xpathQueryEmission = composeXPathQueryEmission(
 		caseListConfig,
 		caseType,
-		typeContext,
+		args.expressions({ slot: "case_list_filter" }),
 		args.lookupNaming,
+		searchInputInstanceId(wire),
 	);
 	// A search with no input and no clause sends the zero-input sentinel,
 	// as HQ's build of the same search does.
@@ -310,8 +304,9 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	if (caseSearchConfig.excludedOwnerIds !== undefined) {
 		const excludedOwnerIds = emitNormalizedExcludedOwnerIdsExpression(
 			caseSearchConfig.excludedOwnerIds,
-			typeContext ?? {},
+			args.expressions({ slot: "excluded_owner_ids" }),
 			args.lookupNaming,
+			searchInputInstanceId(wire),
 		);
 		dataElements.push(
 			xel(
@@ -325,12 +320,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		);
 	}
 
-	if (
-		searchNeedsSupportingCases(caseListConfig, {
-			...(typeContext ?? {}),
-			currentCaseType: caseType,
-		})
-	) {
+	if (searchNeedsSupportingCases(caseListConfig, args.expressions)) {
 		dataElements.push(
 			xel(
 				"data",
@@ -368,8 +358,9 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		[...caseListConfig.searchInputs],
 		moduleId,
 		buildRuntimeCsqlPromptValidations(xpathQueryEmission),
-		typeContext ?? {},
+		args.expressions,
 		args.lookupNaming,
+		searchInputInstanceId(wire),
 	);
 	instances.add(promptEmission.instances);
 

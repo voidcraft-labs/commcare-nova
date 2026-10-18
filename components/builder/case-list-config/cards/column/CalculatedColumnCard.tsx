@@ -1,7 +1,7 @@
 // components/builder/case-list-config/cards/column/CalculatedColumnCard.tsx
 //
 // Renders the `calculated` Column kind: an author-defined
-// `ValueExpression` that yields a derived per-row value
+// `Expression` that yields a derived per-row value
 // (e.g. "days since last visit", "concatenated full name").
 // Calculated columns have NO `field` slot; the expression is the
 // source. The wire emitter lowers the expression into a Postgres
@@ -9,9 +9,9 @@
 //
 // Slots:
 //   - `header`: column display label.
-//   - `expression`: a `ValueExpression` AST edited through the
+//   - `expression`: a `Expression` AST edited through the
 //     shared `ExpressionCardEditor`. Cross-family recursion (`if.cond`
-//     / `count.where` carrying Predicate operands) flows naturally
+//     / `count.where` carrying Expression operands) flows naturally
 //     through that editor's existing context plumbing.
 //
 // Header + expression are the only authored fields. The card mounts
@@ -21,12 +21,11 @@
 
 "use client";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
-import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
+import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
-import { caseSearchCalculatedExpressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { Column } from "@/lib/domain";
 import { calculatedColumn } from "@/lib/domain";
-import type { ValueExpression } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 
 interface CalculatedColumnCardProps {
@@ -41,7 +40,7 @@ interface CalculatedColumnCardProps {
  * `calculatedColumn` so the constructed shape always matches the
  * schema. Mounts the shared `ExpressionCardEditor` for the
  * expression slot: the same editor surface every other
- * ValueExpression authoring site uses, so a calc-column's
+ * Expression authoring site uses, so a calc-column's
  * expression UI is identical to (e.g.) a search-input's default
  * value editor.
  */
@@ -55,7 +54,7 @@ export function CalculatedColumnCard({
 		onChange(
 			calculatedColumn(value.uuid, next, value.expression, slotsFrom(value)),
 		);
-	const setExpression = (next: ValueExpression) =>
+	const setExpression = (next: Expression) =>
 		onChange(
 			calculatedColumn(value.uuid, value.header, next, slotsFrom(value)),
 		);
@@ -79,18 +78,24 @@ export function CalculatedColumnCard({
 			</div>
 			<div className="space-y-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 p-3.5">
 				<div className={INSPECTOR_LABEL_CLS}>Calculation</div>
-				<ExpressionCardEditor
-					value={value.expression}
-					onChange={setExpression}
-					caseTypes={ctx.caseTypes}
-					currentCaseType={ctx.currentCaseType}
-					userProperties={ctx.userProperties}
-					candidateEditVerdict={
-						ctx.searchIsEffective
-							? caseSearchCalculatedExpressionEditVerdict
-							: undefined
-					}
-				/>
+				{ctx.moduleUuid === undefined ? (
+					<p role="status">This field is no longer available.</p>
+				) : (
+					<ExpressionSlotEditor
+						slot={{
+							entity: "module",
+							uuid: ctx.moduleUuid,
+							slot: "case_list_column_expression",
+							member: { columnUuid: value.uuid },
+						}}
+						candidate={{ entity: "column", value }}
+						value={value.expression}
+						onChange={setExpression}
+						caseTypes={ctx.caseTypes}
+						currentCaseType={ctx.currentCaseType}
+						userProperties={ctx.userProperties}
+					/>
+				)}
 			</div>
 		</div>
 	);

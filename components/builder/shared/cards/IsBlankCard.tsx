@@ -5,14 +5,16 @@
 // dialect.
 
 "use client";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
+
 import {
 	absenceSubjectConstraint,
+	type Expression,
 	isBlank,
-	type Predicate,
 	prop,
 	sessionContext,
 	tableColumn,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	caseDataInScope,
 	type PredicateEditContext,
@@ -24,7 +26,7 @@ import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 export function isBlankDefault(
 	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "is-blank" }> {
+): ExpressionOfKind<"is-blank"> {
 	if (tableRowInScope(ctx)) {
 		const column = ctx.tableScope?.columns[0];
 		if (ctx.tableScope === undefined || column === undefined) {
@@ -45,8 +47,8 @@ export function isBlankDefault(
 }
 
 interface IsBlankCardProps {
-	readonly value: Extract<Predicate, { kind: "is-blank" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"is-blank">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 

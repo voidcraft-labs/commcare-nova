@@ -11,7 +11,7 @@ import {
 	selectOptionSchema,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { opaqueXPathExpression } from "../xpath";
+import { matchAll } from "../expression/builders";
 
 const NEUTRAL_MEDIA = {
 	image: "00000000-0000-4000-8000-000000000001",
@@ -43,7 +43,7 @@ describe("field schema — media slots", () => {
 			label: proseText("Patient name"),
 			help: proseText("Enter the legal name shown on their ID document."),
 			help_media: { image: "00000000-0000-4000-8000-000000000001" },
-			required: opaqueXPathExpression("true()"),
+			required: matchAll(),
 		});
 		expect(parsed.kind).toBe("text");
 		if (parsed.kind === "text") {
@@ -78,7 +78,7 @@ describe("field schema — media slots", () => {
 			id: "name",
 			label: proseText("Name"),
 			hint: proseText("Full name"),
-			validate: opaqueXPathExpression(". != ''"),
+			validate: matchAll(),
 			validate_msg: proseText("Write a name."),
 		};
 		expect(fieldSchema.safeParse(text).success).toBe(true);

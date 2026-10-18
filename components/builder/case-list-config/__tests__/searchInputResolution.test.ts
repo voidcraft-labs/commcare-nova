@@ -10,13 +10,14 @@ import {
 import {
 	ancestorPath,
 	anyRelationPath,
-	checkPredicate,
+	checkExpression,
 	eq,
 	input,
 	prop,
 	relationStep,
+	slotContext,
 	subcasePath,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import {
 	canSeedCustomConditionFaithfully,
@@ -142,20 +143,28 @@ describe("Search custom-condition conversion", () => {
 				data_type: "text",
 			},
 		]);
+		const context = slotContext(
+			next,
+			{
+				entity: "module",
+				uuid: moduleUuid,
+				slot: "search_input_predicate",
+				member: { searchInputUuid: row.uuid },
+			},
+			new Map(),
+		);
+		if (context === undefined)
+			throw new Error("Missing saved search input context");
+		expect(checkExpression(predicate, context).errors).toEqual([]);
 		expect(
-			checkPredicate(predicate, {
-				caseTypes,
-				knownInputs: [...decls],
-				currentCaseType: "patient",
-			}).ok,
-		).toBe(true);
-		expect(
-			checkPredicate(predicate, {
-				caseTypes,
-				knownInputs: [],
-				currentCaseType: "patient",
-			}).ok,
-		).toBe(false);
+			checkExpression(
+				eq(
+					prop("patient", "case_name"),
+					input(testUuid("missing-search-answer")),
+				),
+				context,
+			).errors.length,
+		).toBeGreaterThan(0);
 		expect(recoverAnchoredProperty(predicate)).toBe("case_name");
 	});
 	it.each([undefined, { kind: "range" }] as const)(

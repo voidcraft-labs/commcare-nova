@@ -3,8 +3,11 @@
 // is established separately by the independent wire corpus.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain";
-import { asUuid, lookupRowIdSchema } from "@/lib/domain";
+import { asUuid, lookupRowIdSchema, proseText } from "@/lib/domain";
 import {
 	and,
 	eq,
@@ -19,15 +22,16 @@ import {
 	tableColumn,
 	tableLookup,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { slotContext } from "@/lib/domain/expression/context";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import {
-	formDisplayVisibility,
-	moduleDisplayVisibility,
+	formDisplayVisibility as evaluateFormDisplayVisibility,
+	moduleDisplayVisibility as evaluateModuleDisplayVisibility,
 } from "../displayConditionEvaluation";
 import {
 	type PreviewSearchSessionValues,
@@ -35,6 +39,72 @@ import {
 } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import type { PreviewLookupStatus } from "../useLookupPreviewData";
+
+type FormVisibilityArgs = Omit<
+	Parameters<typeof evaluateFormDisplayVisibility>[0],
+	"types"
+>;
+function visibilityContext(args: FormVisibilityArgs, form: boolean) {
+	const moduleUuid = testUuid("visibility-module"),
+		formUuid = testUuid("visibility-form");
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "status", data_type: "text", label: proseText("Status") },
+					{ name: "region", data_type: "text", label: proseText("Region") },
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: moduleUuid,
+				name: "Patients",
+				caseType: "patient",
+				...(form ? {} : { displayCondition: args.condition }),
+				forms: [
+					{
+						uuid: formUuid,
+						name: "Visit",
+						type: "followup",
+						...(form ? { displayCondition: args.condition } : {}),
+					},
+				],
+			},
+		],
+	});
+	const context = slotContext(
+		doc,
+		form
+			? { entity: "form", uuid: formUuid, slot: "form_display_condition" }
+			: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "module_display_condition",
+				},
+		lookupTypeIndexFromNaming(
+			args.lookup.kind === "data" ? args.lookup.data.naming : undefined,
+		) ?? new Map(),
+	);
+	if (context === undefined)
+		throw new Error("The visibility fixture has no owning slot.");
+	return context;
+}
+function formDisplayVisibility(args: FormVisibilityArgs) {
+	return evaluateFormDisplayVisibility({
+		...args,
+		types: visibilityContext(args, true),
+	});
+}
+function moduleDisplayVisibility(
+	args: Omit<Parameters<typeof evaluateModuleDisplayVisibility>[0], "types">,
+) {
+	return evaluateModuleDisplayVisibility({
+		...args,
+		types: visibilityContext(args, false),
+	});
+}
 
 const SESSION: PreviewSearchSessionValues = {
 	context: { userid: "u1", username: "ada" },
@@ -338,7 +408,6 @@ describe("formDisplayVisibility", () => {
 				formDisplayVisibility({
 					condition,
 					session: SESSION,
-					currentCaseType: "patient",
 					caseProjection: new Map([["region", region]]),
 					lookup: LOOKUP_DATA,
 				}),
@@ -351,7 +420,6 @@ describe("formDisplayVisibility", () => {
 			formDisplayVisibility({
 				condition: statusOpen,
 				session: SESSION,
-				currentCaseType: "patient",
 				caseProjection: new Map([["status", "open"]]),
 				lookup: NO_LOOKUP,
 			}),
@@ -360,7 +428,6 @@ describe("formDisplayVisibility", () => {
 			formDisplayVisibility({
 				condition: statusOpen,
 				session: SESSION,
-				currentCaseType: "patient",
 				caseProjection: new Map([["status", "closed"]]),
 				lookup: NO_LOOKUP,
 			}),
@@ -372,7 +439,6 @@ describe("formDisplayVisibility", () => {
 			formDisplayVisibility({
 				condition: eq(prop("patient", "status"), literal("")),
 				session: SESSION,
-				currentCaseType: "patient",
 				caseProjection: new Map(),
 				lookup: NO_LOOKUP,
 			}),

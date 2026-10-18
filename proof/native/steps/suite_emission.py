@@ -22,6 +22,10 @@ registration.
 - ``localizations(family)``: the localization and worker corpora, each form
   regenerated and, for localization, each language's app strings
   (``<scenario>.hq.<lang>.strings.txt``).
+
+Form-link and nested-menu also load their session-read targeted documents
+through ``session_reads``. Those archives and captured app contents come
+from the targeted corpus and do not join either family's fixture records.
 """
 
 from proof.native.hq_support import (
@@ -33,6 +37,7 @@ from proof.native.hq_support import (
     regenerate_form,
     sha256,
 )
+from proof.native.steps.session_reads import session_reads
 
 SEARCH_DOMAIN = "nova-search-evidence"
 SEARCH_APP_ID = "search-evidence"
@@ -112,6 +117,8 @@ def searches(family):
                         "native": suite,
                     }
                 )
+        if family == "form-link":
+            session_reads(session, family, "targeted-form-link-session-reads", SEARCH_DOMAIN)
         return {"sources": [source.stem for source in sources], "records": records}
 
     return run
@@ -138,6 +145,8 @@ def _child_menu_step(family, pattern, app_id, form_module):
                         "native": suite,
                     }
                 )
+        if family == "nested-menu":
+            session_reads(session, family, "targeted-nested-menu-session-reads", ENDPOINT_DOMAIN, endpoints=True)
         return records
 
     return run

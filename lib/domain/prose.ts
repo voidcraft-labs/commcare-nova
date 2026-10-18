@@ -8,8 +8,8 @@
 import { z } from "zod";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import { externalUserPropertyNameSchema } from "./externalUserProperty";
+import { type ReferenceNamesDoc, referenceNames } from "./referenceNames";
 import { uuidSchema } from "./uuid";
-import { type XPathPrintableDoc, xpathPrintContext } from "./xpath/print";
 
 export const proseTextPartSchema = z.strictObject({
 	kind: z.literal("text"),
@@ -173,9 +173,9 @@ export function proseReferenceParts(
  */
 export function projectProseTemplate(
 	template: ProseTemplate,
-	doc: XPathPrintableDoc,
+	doc: ReferenceNamesDoc,
 ): ProseProjectionResult {
-	const ctx = xpathPrintContext(doc);
+	const ctx = referenceNames(doc);
 	let out = "";
 	const unresolved: UnresolvedProseProjection[] = [];
 	for (const part of template.parts) {
@@ -226,7 +226,7 @@ export function projectProseTemplate(
 /** Strict projection for wire/runtime consumers. */
 export function printProseTemplate(
 	template: ProseTemplate,
-	doc: XPathPrintableDoc,
+	doc: ReferenceNamesDoc,
 ): string {
 	const projected = projectProseTemplate(template, doc);
 	if (!projected.ok) throw new ProseProjectionError(projected.unresolved);
@@ -240,11 +240,11 @@ export function printProseTemplate(
  */
 export function resolveProseTemplate(
 	template: ProseTemplate,
-	doc: XPathPrintableDoc,
+	doc: ReferenceNamesDoc,
 	evaluate: (expression: string) => string,
 ): string | undefined {
 	if (!template.parts.some((part) => part.kind !== "text")) return undefined;
-	const ctx = xpathPrintContext(doc);
+	const ctx = referenceNames(doc);
 	let out = "";
 	for (const part of template.parts) {
 		switch (part.kind) {

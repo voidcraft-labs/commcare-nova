@@ -8,7 +8,7 @@ import { formFieldEntriesFor } from "@/lib/doc/formFieldEntries";
 import type { FormFieldEntry } from "@/lib/doc/hooks/useFormFieldEntries";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import type { CaseOperation } from "@/lib/domain";
-import { formField, literal, term } from "@/lib/domain/predicate";
+import { formField, literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	identityKeyFieldDecls,

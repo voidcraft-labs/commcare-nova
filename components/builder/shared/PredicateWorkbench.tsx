@@ -1,4 +1,4 @@
-// Focus-and-context authoring for the complete recursive Predicate AST.
+// Focus-and-context authoring for the complete recursive Expression AST.
 // Only the focused structure and its immediate children render at once;
 // deeper structures are semantic rows that open full-width. This keeps deeply
 // nested rules legible without flattening or discarding their authored shape.
@@ -35,13 +35,17 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
-	checkPredicate,
+	checkExpression,
+	type Expression,
+	type ExpressionContext,
+	type ExpressionOfKind,
 	exists,
+	expressionContextAtPath,
+	isConditionArm,
+	matchAll,
 	missing,
-	type Predicate,
 	type RelationPath,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	ChildPredicateEditor,
 	PredicateKindReplaceMenu,
@@ -49,7 +53,6 @@ import {
 import { firstComparisonDefault } from "./cards/comparisonSeed";
 import { SearchInputMenu } from "./cards/WhenInputPresentCard";
 import {
-	buildEditorTypeContext,
 	buildValidityIndex,
 	PredicateEditProvider,
 	useEditorErrorsAt,
@@ -234,7 +237,7 @@ export function buildStructure(
 
 interface AddConditionMenuProps {
 	readonly ctx: PredicateEditContext;
-	readonly onAdd: (value: Predicate) => void;
+	readonly onAdd: (value: Expression) => void;
 	readonly disabled?: boolean;
 	readonly className?: string;
 	readonly triggerLabel?: string;
@@ -263,7 +266,7 @@ export function AddConditionMenu({
 	const comparisonSchema = predicateCardSchemas.eq;
 	const comparisonApplicable = comparisonSchema.applicable(ctx);
 	const addedConditionRef = useRef(false);
-	const add = (next: Predicate) => {
+	const add = (next: Expression) => {
 		addedConditionRef.current = true;
 		onAdd(next);
 	};
@@ -348,8 +351,9 @@ export function AddConditionMenu({
 }
 
 export interface PredicateWorkbenchProps {
-	readonly value: Predicate;
-	readonly onChange: (next: Predicate) => void;
+	readonly expressionContext: ExpressionContext;
+	readonly value: Expression;
+	readonly onChange: (next: Expression) => void;
 	readonly onRemoveRoot?: () => void;
 	readonly removeRootLabel?: string;
 	readonly caseTypes: readonly CaseType[];
@@ -397,6 +401,7 @@ export interface PredicateWorkbenchProps {
 
 export function PredicateWorkbench({
 	value,
+	expressionContext,
 	onChange,
 	onRemoveRoot,
 	removeRootLabel = "Delete condition",
@@ -429,8 +434,14 @@ export function PredicateWorkbench({
 	const returnScrollPositionsRef = useRef(new Map<string, number>());
 	const activeHeadingId = `${useId()}-active-condition`;
 	const navigationContext = useMemo<RuleNavigationContext>(
-		() => ({ caseTypes, currentCaseType, knownInputs, rootLabel }),
-		[caseTypes, currentCaseType, knownInputs, rootLabel],
+		() => ({
+			caseTypes,
+			currentCaseType,
+			knownInputs,
+			rootLabel,
+			expressionContext,
+		}),
+		[caseTypes, currentCaseType, knownInputs, rootLabel, expressionContext],
 	);
 	// Canonical AST reductions can remove the node that was open. Relation edits
 	// can also make a nested destination temporarily unknowable. In both cases,
@@ -445,39 +456,16 @@ export function PredicateWorkbench({
 		knownInputs,
 	);
 
-	const typeContext = useMemo(
-		() =>
-			buildEditorTypeContext({
-				caseTypes,
-				knownInputs,
-				currentCaseType,
-				userProperties,
-				formFields,
-				formCaseTypes,
-				lookupTables: effectiveLookupTables,
-				tableScope,
-				operationScope,
-				...(patternMatching && { patternMatching }),
-			}),
-		[
-			caseTypes,
-			currentCaseType,
-			knownInputs,
-			userProperties,
-			formFields,
-			formCaseTypes,
-			effectiveLookupTables,
-			tableScope,
-			operationScope,
-			patternMatching,
-		],
+	const focusedContext = useMemo(
+		() => expressionContextAtPath(value, expressionContext, activePath),
+		[value, expressionContext, activePath],
 	);
 	const validity = useMemo(
-		() => checkPredicate(value, typeContext),
-		[value, typeContext],
+		() => checkExpression(value, expressionContext),
+		[value, expressionContext],
 	);
 	const validityIndex = useMemo(
-		() => buildValidityIndex(validity.ok ? [] : validity.errors),
+		() => buildValidityIndex(validity.errors),
 		[validity],
 	);
 
@@ -486,23 +474,28 @@ export function PredicateWorkbench({
 	// above already carries it, so omitting it here made the validity
 	// index and the verb menu resolve a saved worker-information read
 	// against two different vocabularies: the menu's the narrower one.
-	const editContext = useMemo<PredicateEditContext>(
-		() => ({
-			caseTypes,
-			currentCaseType: focusedCaseType,
-			knownInputs,
-			formFields,
-			formCaseTypes,
-			lookupTables: effectiveLookupTables,
-			tableScope,
-			operationScope,
-			caseDataScope,
-			allowsNeverMatch,
-			userProperties,
-			evaluationTarget,
-			...(patternMatching && { patternMatching }),
-		}),
+	const editContext = useMemo<PredicateEditContext | undefined>(
+		() =>
+			focusedContext === undefined
+				? undefined
+				: {
+						expressionContext: focusedContext,
+						caseTypes,
+						currentCaseType: focusedCaseType,
+						knownInputs,
+						formFields,
+						formCaseTypes,
+						lookupTables: effectiveLookupTables,
+						tableScope,
+						operationScope,
+						caseDataScope,
+						allowsNeverMatch,
+						userProperties,
+						evaluationTarget,
+						...(patternMatching && { patternMatching }),
+					},
 		[
+			focusedContext,
 			caseTypes,
 			focusedCaseType,
 			knownInputs,
@@ -519,18 +512,12 @@ export function PredicateWorkbench({
 		],
 	);
 	const admitRuntimeExpression = useCallback(
-		(path: EditorPath, next: ValueExpression) =>
-			workbenchExpressionAdmission(
-				value,
-				path,
-				next,
-				evaluationTarget,
-				typeContext,
-			),
-		[value, evaluationTarget, typeContext],
+		(path: EditorPath, next: Expression) =>
+			workbenchExpressionAdmission(value, path, next, expressionContext),
+		[value, expressionContext],
 	);
 
-	const updateFocusedPredicate = (next: Predicate) => {
+	const updateFocusedPredicate = (next: Expression) => {
 		onChange(
 			replaceRuleNodeAtPath(value, activePath, {
 				family: "predicate",
@@ -538,7 +525,7 @@ export function PredicateWorkbench({
 			}),
 		);
 	};
-	const updateFocusedExpression = (next: ValueExpression) => {
+	const updateFocusedExpression = (next: Expression) => {
 		// Re-check inside the callback: TypeScript does not retain the JSX
 		// branch's discriminant narrowing across an event-handler closure.
 		if (location.node.family !== "expression") return;
@@ -556,7 +543,7 @@ export function PredicateWorkbench({
 	) => {
 		focusWorkbenchAfterRemoval(workbenchRef.current, preferredPath, fallback);
 	};
-	const addPeer = (next: Predicate) => {
+	const addPeer = (next: Expression) => {
 		if (location.node.family !== "predicate") return;
 		updateFocusedPredicate({
 			kind: "and",
@@ -662,8 +649,12 @@ export function PredicateWorkbench({
 		});
 	}, [activePath, focusRequest, navigationContext, value]);
 
+	if (editContext === undefined) return null;
 	return (
 		<PredicateEditProvider
+			expression={value}
+			expressionContext={expressionContext}
+			expressionPath={activePath}
 			caseTypes={caseTypes}
 			currentCaseType={focusedCaseType}
 			knownInputs={knownInputs}
@@ -857,7 +848,7 @@ function FocusedStructure({
 }: {
 	readonly value: StructuralPredicate;
 	readonly path: EditorPath;
-	readonly onChange: (next: Predicate) => void;
+	readonly onChange: (next: Expression) => void;
 	readonly onFocus: (path: EditorPath) => void;
 	readonly onRestoreAfterRemoval: (
 		preferredPath: EditorPath | undefined,
@@ -970,7 +961,7 @@ function FocusedStructureBody({
 }: {
 	readonly value: StructuralPredicate;
 	readonly path: EditorPath;
-	readonly onChange: (next: Predicate) => void;
+	readonly onChange: (next: Expression) => void;
 	readonly onFocus: (path: EditorPath) => void;
 	readonly onRestoreAfterRemoval: (
 		preferredPath: EditorPath | undefined,
@@ -1058,9 +1049,9 @@ function FocusedLogicalGroup({
 	onRestoreAfterRemoval,
 	editContext,
 }: {
-	readonly value: Extract<Predicate, { kind: "and" | "or" }>;
+	readonly value: ExpressionOfKind<"and" | "or">;
 	readonly path: EditorPath;
-	readonly onChange: (next: Predicate) => void;
+	readonly onChange: (next: Expression) => void;
 	readonly onFocus: (path: EditorPath) => void;
 	readonly onRestoreAfterRemoval: (
 		preferredPath: EditorPath | undefined,
@@ -1070,7 +1061,7 @@ function FocusedLogicalGroup({
 }) {
 	const rowIdentity = useStableListIdentity(value.clauses);
 	const updateClauses = (
-		clauses: readonly Predicate[],
+		clauses: readonly Expression[],
 		operation: StableListOperation,
 	) => {
 		rowIdentity.stage(clauses, operation);
@@ -1087,7 +1078,7 @@ function FocusedLogicalGroup({
 		if (restoreFocus)
 			onRestoreAfterRemoval(appendKindIndex(path, value.kind, plan.focusIndex));
 	};
-	const updateAt = (index: number, next: Predicate) =>
+	const updateAt = (index: number, next: Expression) =>
 		editGroup({ kind: "replace", index, value: next }, false);
 	const move = (index: number, direction: -1 | 1) =>
 		editGroup({ kind: "move", index, direction });
@@ -1228,9 +1219,9 @@ function ImmediatePredicate({
 	onFocus,
 	actions,
 }: {
-	readonly value: Predicate;
+	readonly value: Expression;
 	readonly path: EditorPath;
-	readonly onChange: (next: Predicate) => void;
+	readonly onChange: (next: Expression) => void;
 	readonly onRemove?: () => void;
 	readonly onFocus: (path: EditorPath) => void;
 	readonly actions?: RowActions;
@@ -1416,9 +1407,9 @@ function FocusedRelation({
 	onRestoreAfterRemoval,
 	editContext,
 }: {
-	readonly value: Extract<Predicate, { kind: "exists" | "missing" }>;
+	readonly value: ExpressionOfKind<"exists" | "missing">;
 	readonly path: EditorPath;
-	readonly onChange: (next: Predicate) => void;
+	readonly onChange: (next: Expression) => void;
 	readonly onFocus: (path: EditorPath) => void;
 	readonly onRestoreAfterRemoval: (
 		preferredPath: EditorPath | undefined,
@@ -1437,16 +1428,25 @@ function FocusedRelation({
 		if (admitVia(via).admitted) onChange(replaceRelatedPath(value, via));
 	};
 
-	const setWhere = (where: Predicate | undefined) => {
+	const setWhere = (where: Expression | undefined) => {
 		const builder = value.kind === "exists" ? exists : missing;
 		onChange(
 			where === undefined ? builder(value.via) : builder(value.via, where),
 		);
 	};
+	const whereContext = expressionContextAtPath(
+		{ ...value, where: value.where ?? matchAll() },
+		editContext.expressionContext,
+		[value.kind, "where"],
+	);
 	const destinationContext =
-		destination === undefined
+		destination === undefined || whereContext === undefined
 			? undefined
-			: { ...editContext, currentCaseType: destination };
+			: {
+					...editContext,
+					expressionContext: whereContext,
+					currentCaseType: destination,
+				};
 
 	return (
 		<div className="space-y-4">
@@ -1488,7 +1488,11 @@ function FocusedRelation({
 					<div className="flex items-start gap-3 rounded-xl border border-nova-amber/30 bg-nova-amber/[0.05] px-4 py-3">
 						<span className="grid size-9 shrink-0 place-items-center rounded-lg bg-nova-amber/[0.10] text-nova-amber">
 							<Icon
-								icon={predicateCardSchemas[value.where.kind].icon}
+								icon={
+									isConditionArm(value.where)
+										? predicateCardSchemas[value.where.kind].icon
+										: tablerAlertCircle
+								}
 								width="16"
 								height="16"
 							/>
@@ -1531,7 +1535,7 @@ function WorkbenchAddActions({
 	menuLabel,
 	focusFallback,
 }: {
-	readonly onAdd: (next: Predicate) => void;
+	readonly onAdd: (next: Expression) => void;
 	readonly editContext: PredicateEditContext;
 	readonly triggerLabel?: string;
 	readonly menuLabel?: string;
@@ -1581,7 +1585,9 @@ function workbenchBreadcrumb(
 		case "missing":
 			return "No related case";
 		default:
-			return predicateCardSchemas[value.kind].label;
+			return isConditionArm(value)
+				? predicateCardSchemas[value.kind].label
+				: "Saved expression";
 	}
 }
 
@@ -1615,7 +1621,7 @@ function structuralActionContext(
 }
 
 function structureLabel(
-	value: Predicate,
+	value: Expression,
 	knownInputs: readonly EditorSearchInputDecl[] = [],
 ): string {
 	switch (value.kind) {
@@ -1634,7 +1640,9 @@ function structureLabel(
 		case "missing":
 			return "Has no related case";
 		default:
-			return predicateCardSchemas[value.kind].label;
+			return isConditionArm(value)
+				? predicateCardSchemas[value.kind].label
+				: "Saved expression";
 	}
 }
 

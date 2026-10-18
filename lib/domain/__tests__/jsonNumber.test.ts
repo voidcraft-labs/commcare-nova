@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { timedEventTimingSchema } from "../automations";
+import { literalSchema } from "../expression/types";
 import {
 	isPersistableJsonNumber,
 	persistableJsonIntegerSchema,
@@ -9,7 +10,6 @@ import {
 	persistableJsonPositiveNumberSchema,
 } from "../jsonNumber";
 import { columnSortSchema, tileCellSchema } from "../modules";
-import { literalSchema } from "../predicate/types";
 
 const schemas = [
 	persistableJsonNumberSchema,

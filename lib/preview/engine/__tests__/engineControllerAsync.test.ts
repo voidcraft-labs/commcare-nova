@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { caseListConfig, xp } from "@/lib/__tests__/docHelpers";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import {
 	type CaseOperation,
@@ -10,8 +10,13 @@ import {
 	materializableCaseTypes,
 	type Uuid,
 } from "@/lib/domain";
-import type { PersistableDoc } from "@/lib/domain/blueprint";
-import { literal, term } from "@/lib/domain/predicate";
+import {
+	literal,
+	matchAll,
+	matchNone,
+	sessionUserProperty,
+	term,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import type { XPathWorkerFactory } from "../../xpath/workerClient";
@@ -26,6 +31,8 @@ import { previewLookupData } from "../lookupEvaluation";
 import {
 	admittedControllerDoc,
 	applyControllerEdit,
+	type ControllerDocSource,
+	type ControllerFieldSource,
 } from "./fixtures/controllerDoc";
 
 import { sectionEntryDoc } from "./fixtures/sectionEntry";
@@ -66,7 +73,7 @@ const REPEAT_CHILD_UUID = testUuid("async-repeat-child-field");
 const OTHER_FORM_UUID = testUuid("async-other-form");
 const OPERATION_UUID = testUuid("async-case-operation");
 
-function docWith(...fields: Field[]): PersistableDoc {
+function docWith(...fields: ControllerFieldSource[]): ControllerDocSource {
 	return {
 		appId: "app",
 		appName: "App",
@@ -91,7 +98,7 @@ function docWith(...fields: Field[]): PersistableDoc {
 	};
 }
 
-function controller(...fields: Field[]): EngineController {
+function controller(...fields: ControllerFieldSource[]): EngineController {
 	const store = createBlueprintDocStore();
 	store.getState().load(admittedControllerDoc(docWith(...fields)));
 	store.getState().startTracking();
@@ -104,7 +111,7 @@ function controller(...fields: Field[]): EngineController {
 }
 
 function controllerForDoc(
-	doc: PersistableDoc,
+	doc: ControllerDocSource,
 	evaluate?: Parameters<typeof createInProcessXPathWorkerFactory>[0],
 	requests?: XPathWorkerEvaluateRequest[],
 ): EngineController {
@@ -136,8 +143,8 @@ describe("EngineController async runtime", () => {
 			id: "name",
 			kind: "text",
 			label: proseText("Name"),
-			required: xp("true()"),
-			validate: xp(". = 'Ada'"),
+			required: matchAll(),
+			validate: ". = 'Ada'",
 			validate_msg: proseText("Enter Ada"),
 		});
 		await ctrl.activateFormAsync(FORM_UUID);
@@ -187,7 +194,7 @@ describe("EngineController async runtime", () => {
 				uuid: RESULT_FIELD_UUID,
 				id: "combined",
 				kind: "hidden",
-				calculate: xp("sleep(0, concat(/data/first, '-', /data/second))"),
+				calculate: "sleep(0, concat(/data/first, '-', /data/second))",
 			},
 		);
 		await ctrl.activateFormAsync(FORM_UUID);
@@ -210,13 +217,13 @@ describe("EngineController async runtime", () => {
 				id: "count",
 				kind: "int",
 				label: proseText("Count"),
-				default_value: xp("0"),
+				default_value: "0",
 			},
 			{
 				uuid: RESULT_FIELD_UUID,
 				id: "count_is_true",
 				kind: "hidden",
-				calculate: xp("boolean(/data/count)"),
+				calculate: "boolean(/data/count)",
 			},
 		);
 
@@ -234,7 +241,7 @@ describe("EngineController async runtime", () => {
 			id: "answer",
 			kind: "text",
 			label: proseText("Answer"),
-			default_value: xp("'original'"),
+			default_value: "'original'",
 		});
 		try {
 			await ctrl.activateFormAsync(FORM_UUID);
@@ -258,8 +265,8 @@ describe("EngineController async runtime", () => {
 			id: "answer",
 			kind: "text",
 			label: proseText("Answer"),
-			default_value: xp("'original'"),
-			required: xp("true()"),
+			default_value: "'original'",
+			required: matchAll(),
 		});
 		try {
 			await ctrl.activateFormAsync(FORM_UUID);
@@ -290,7 +297,7 @@ describe("EngineController async runtime", () => {
 				uuid: RESULT_FIELD_UUID,
 				id: "copy",
 				kind: "hidden",
-				calculate: xp("sleep(0, /data/first)"),
+				calculate: "sleep(0, /data/first)",
 			},
 		);
 		await ctrl.activateFormAsync(FORM_UUID);
@@ -323,7 +330,7 @@ describe("EngineController async runtime", () => {
 				id: "name",
 				kind: "text",
 				label: proseText("Name"),
-				default_value: xp("sleep(1, 'ready')"),
+				default_value: "sleep(1, 'ready')",
 			},
 		);
 		doc.fieldOrder = {
@@ -374,7 +381,7 @@ describe("EngineController async runtime", () => {
 				id: "name",
 				kind: "text",
 				label: proseText("Name"),
-				default_value: xp("sleep(0, 'ready')"),
+				default_value: "sleep(0, 'ready')",
 			},
 		);
 		doc.fieldOrder = {
@@ -410,7 +417,7 @@ describe("EngineController async runtime", () => {
 				id: "name",
 				kind: "text",
 				label: proseText("Name"),
-				default_value: xp("sleep(1, 'ready')"),
+				default_value: "sleep(1, 'ready')",
 			},
 		);
 		doc.fieldOrder = {
@@ -459,13 +466,13 @@ describe("EngineController async runtime", () => {
 					uuid: RESULT_FIELD_UUID,
 					id: "copy",
 					kind: "hidden",
-					calculate: xp("/data/answer"),
+					calculate: "/data/answer",
 				},
 				{
 					uuid: SECOND_FIELD_UUID,
 					id: "result",
 					kind: "hidden",
-					calculate: xp("/data/copy"),
+					calculate: "/data/copy",
 				},
 			),
 			undefined,
@@ -493,14 +500,14 @@ describe("EngineController async runtime", () => {
 				uuid: FIELD_UUID,
 				id: "answer",
 				kind: "hidden",
-				calculate: xp("sleep(0, 'ready')"),
+				calculate: "sleep(0, 'ready')",
 				caseWrite: { caseType: "patient", property: "age" },
 			},
 			{
 				uuid: SECOND_FIELD_UUID,
 				id: "case_name",
 				kind: "hidden",
-				calculate: xp("'Patient'"),
+				calculate: "'Patient'",
 				caseWrite: { caseType: "patient", property: "case_name" },
 			},
 		);
@@ -607,7 +614,7 @@ describe("EngineController async runtime", () => {
 						uuid: RESULT_FIELD_UUID,
 						id: "copy",
 						kind: "hidden",
-						calculate: xp("sleep(20, /data/answer)"),
+						calculate: "sleep(20, /data/answer)",
 					},
 				),
 			),
@@ -666,14 +673,14 @@ describe("EngineController async runtime", () => {
 				uuid: RESULT_FIELD_UUID,
 				id: "score",
 				kind: "hidden",
-				calculate: xp("sleep(20, /data/source)"),
+				calculate: "sleep(20, /data/source)",
 				caseWrite: { caseType: "patient", property: "score" },
 			},
 			{
 				uuid: SECOND_FIELD_UUID,
 				id: "case_name",
 				kind: "hidden",
-				calculate: xp("'Patient'"),
+				calculate: "'Patient'",
 				caseWrite: { caseType: "patient", property: "case_name" },
 			},
 		);
@@ -862,7 +869,7 @@ describe("EngineController async runtime", () => {
 			id: "answer",
 			kind: "text",
 			label: proseText("Answer"),
-			default_value: xp("sleep(0, 'ready')"),
+			default_value: "sleep(0, 'ready')",
 		});
 
 		const activation = ctrl.activateFormAsync(FORM_UUID);
@@ -887,7 +894,7 @@ describe("EngineController async runtime", () => {
 					id: "answer",
 					kind: "text",
 					label: proseText("Answer"),
-					default_value: xp("sleep(10, 'old-default')"),
+					default_value: "sleep(10, 'old-default')",
 				}),
 			),
 		);
@@ -903,7 +910,13 @@ describe("EngineController async runtime", () => {
 				kind: "updateField",
 				uuid: FIELD_UUID,
 				targetKind: "text",
-				patch: { default_value: xp("sleep(0, 'new-default')") },
+				patch: {
+					default_value: {
+						kind: "call",
+						fn: "sleep",
+						args: [term(literal(0)), term(literal("new-default"))],
+					},
+				},
 			},
 		]);
 		await vi.runAllTimersAsync();
@@ -921,9 +934,10 @@ describe("EngineController async runtime", () => {
 			id: "region",
 			kind: "text",
 			label: proseText("Region"),
-			default_value: {
-				parts: [{ kind: "user-property-ref", userPropertyUuid: propertyUuid }],
-			},
+			default_value: term({
+				...sessionUserProperty(propertyUuid),
+				source: "worker-record",
+			}),
 		});
 		doc.userProperties = {
 			[propertyUuid]: {
@@ -992,7 +1006,13 @@ describe("EngineController async runtime", () => {
 				kind: "updateField",
 				uuid: FIELD_UUID,
 				targetKind: "text",
-				patch: { default_value: xp("sleep(0, 'edited-default')") },
+				patch: {
+					default_value: {
+						kind: "call",
+						fn: "sleep",
+						args: [term(literal(0)), term(literal("edited-default"))],
+					},
+				},
 			},
 		]);
 		await ctrl.awaitSettled();
@@ -1014,7 +1034,11 @@ describe("EngineController async runtime", () => {
 					id: "added",
 					kind: "text",
 					label: proseText("Added"),
-					default_value: xp("sleep(0, 'added-default')"),
+					default_value: {
+						kind: "call",
+						fn: "sleep",
+						args: [term(literal(0)), term(literal("added-default"))],
+					},
 				},
 			},
 		]);
@@ -1056,7 +1080,7 @@ describe("EngineController async runtime", () => {
 				uuid: RESULT_FIELD_UUID,
 				id: "copy",
 				kind: "hidden",
-				calculate: xp("sleep(0, /data/name)"),
+				calculate: "sleep(0, /data/name)",
 			},
 		);
 		const store = createBlueprintDocStore();
@@ -1127,9 +1151,8 @@ describe("EngineController async runtime", () => {
 			uuid: RESULT_FIELD_UUID,
 			id: "status",
 			kind: "hidden",
-			calculate: xp(
+			calculate:
 				"string(instance('casedb')/casedb/case[@case_id='closed-1']/@status)",
-			),
 		});
 		const closedCase = {
 			case_id: "closed-1",
@@ -1169,7 +1192,7 @@ describe("EngineController async runtime", () => {
 			id: "answer",
 			kind: "text",
 			label: proseText("Answer"),
-			default_value: xp("sleep(60000, 'late')"),
+			default_value: "sleep(60000, 'late')",
 		});
 		const activation = ctrl.activateFormAsync(FORM_UUID);
 		await vi.advanceTimersByTimeAsync(0);
@@ -1190,7 +1213,7 @@ describe("EngineController async runtime", () => {
 			id: "answer",
 			kind: "text",
 			label: proseText("Answer"),
-			required: xp("sleep(0, true())"),
+			required: "sleep(0, true())",
 		});
 		await ctrl.activateFormAsync(FORM_UUID);
 		const entryKey = ctrl.entryKey;
@@ -1222,9 +1245,9 @@ it.each(["visibility", "count"] as const)(
 				id: "rows",
 				kind: "repeat",
 				repeat_mode: "count_bound",
-				repeat_count: xp(trigger === "count" ? "/data/page/gate" : "1"),
+				repeat_count: trigger === "count" ? "/data/page/gate" : "1",
 				...(trigger === "visibility"
-					? { relevant: xp("/data/page/gate = 'yes'") }
+					? { relevant: "/data/page/gate = 'yes'" }
 					: {}),
 			},
 			{
@@ -1232,7 +1255,7 @@ it.each(["visibility", "count"] as const)(
 				id: "note",
 				kind: "text",
 				label: proseText("Note"),
-				default_value: xp("sleep(100, 'ready')"),
+				default_value: "sleep(100, 'ready')",
 			},
 		);
 		doc.fieldOrder = {
@@ -1275,7 +1298,7 @@ it.each(["visibility", "count"] as const)(
 );
 
 it("keeps pending page snapshots reachable after an authored section rename", async () => {
-	const doc = sectionEntryDoc();
+	const doc: ControllerDocSource = sectionEntryDoc();
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 	const section = Object.values(doc.fields).find(
 		(field) => field.id === "second",
@@ -1309,7 +1332,7 @@ it("keeps pending page snapshots reachable after an authored section rename", as
 it.each([false, true])(
 	"preserves entered query rows while same-entry context heals (worker=%s)",
 	async (worker) => {
-		const doc = sectionEntryDoc();
+		const doc: ControllerDocSource = sectionEntryDoc();
 		const form = doc.formOrder[doc.moduleOrder[0]][0];
 		const second = Object.values(doc.fields).find(
 			(field) => field.id === "second",
@@ -1324,14 +1347,14 @@ it.each([false, true])(
 			uuid: selected,
 			id: "selected",
 			kind: "hidden",
-			calculate: xp("current()/../@id"),
+			calculate: "current()/../@id",
 		};
 		doc.fields[who] = {
 			uuid: who,
 			id: "who",
 			kind: "text",
 			label: proseText("Worker"),
-			default_value: xp("#user/username"),
+			default_value: "#user/username",
 		};
 		doc.fieldOrder[assets.uuid].push(selected, who);
 		const store = createBlueprintDocStore();
@@ -1380,7 +1403,7 @@ it.each([false, true])(
 );
 
 it("creates newly relevant page rows after a live document edit before validation", async () => {
-	const doc = sectionEntryDoc();
+	const doc: ControllerDocSource = sectionEntryDoc();
 	const form = doc.formOrder[doc.moduleOrder[0]][0];
 	const fields = Object.values(doc.fields);
 	const first = fields.find((field) => field.id === "first");
@@ -1393,7 +1416,7 @@ it("creates newly relevant page rows after a live document edit before validatio
 	doc.fieldOrder[form] = [first.uuid];
 	delete doc.fields[second.uuid];
 	delete doc.fieldOrder[second.uuid];
-	rounds.relevant = xp("false()");
+	rounds.relevant = matchNone();
 	delete note.default_value;
 	const store = createBlueprintDocStore();
 	store.getState().load(admittedControllerDoc(doc));
@@ -1409,7 +1432,7 @@ it("creates newly relevant page rows after a live document edit before validatio
 			kind: "updateField",
 			uuid: rounds.uuid,
 			targetKind: "repeat",
-			patch: { relevant: xp("true()") },
+			patch: { relevant: matchAll() },
 		},
 	]);
 	await ctrl.awaitSettled();
@@ -1422,7 +1445,7 @@ it("creates newly relevant page rows after a live document edit before validatio
 });
 
 it("discards queued page navigation when another form replaces its entry", async () => {
-	const doc = sectionEntryDoc();
+	const doc: ControllerDocSource = sectionEntryDoc();
 	const form = doc.formOrder[doc.moduleOrder[0]][0];
 	const second = Object.values(doc.fields).find(
 		(field) => field.id === "second",
@@ -1458,7 +1481,7 @@ it("discards queued page navigation when another form replaces its entry", async
 it.each([false, true])(
 	"cold context refreshes only unvisited query membership (visited=%s)",
 	async (visited) => {
-		const doc = sectionEntryDoc();
+		const doc: ControllerDocSource = sectionEntryDoc();
 		const form = doc.formOrder[doc.moduleOrder[0]][0];
 		const second = Object.values(doc.fields).find(
 			(field) => field.id === "second",
@@ -1472,7 +1495,7 @@ it.each([false, true])(
 			id: "rounds",
 			kind: "repeat",
 			repeat_mode: "query_bound",
-			data_source: { ids_query: xp("if(#user/username = '', '', 'round')") },
+			data_source: { ids_query: "if(#user/username = '', '', 'round')" },
 		};
 		const ctrl = controllerForDoc(doc);
 		await ctrl.activateFormAsync(form);
@@ -1495,7 +1518,7 @@ it("applies a cold identity arriving alongside a presentation rebuild", async ()
 		id: "who",
 		kind: "text",
 		label: proseText("Worker"),
-		default_value: xp("#user/username"),
+		default_value: "#user/username",
 	});
 	await ctrl.activateFormAsync(FORM_UUID);
 	const entry = ctrl.entryKey;
@@ -1512,7 +1535,7 @@ it("applies a cold identity arriving alongside a presentation rebuild", async ()
 });
 
 it("reconciles questions added and renamed during a presentation rebuild", async () => {
-	const doc = sectionEntryDoc();
+	const doc: ControllerDocSource = sectionEntryDoc();
 	const form = doc.formOrder[doc.moduleOrder[0]][0];
 	const fields = Object.values(doc.fields);
 	const first = fields.find((field) => field.id === "first");
@@ -1522,7 +1545,7 @@ it("reconciles questions added and renamed during a presentation rebuild", async
 		uuid: RESULT_FIELD_UUID,
 		id: "trigger",
 		kind: "hidden",
-		calculate: xp("'ready'"),
+		calculate: term(literal("ready")),
 	};
 	doc.fieldOrder[first.uuid].push(RESULT_FIELD_UUID);
 	const store = createBlueprintDocStore();
@@ -1548,7 +1571,7 @@ it("reconciles questions added and renamed during a presentation rebuild", async
 										id: "added",
 										kind: "text",
 										label: proseText("Added question"),
-										required: xp("true()"),
+										required: matchAll(),
 									},
 								},
 								{
@@ -1595,7 +1618,7 @@ it("reconciles questions added and renamed during a presentation rebuild", async
 it.each([false, true])(
 	"keeps the entry when its active page is removed, refusing queued navigation (worker=%s)",
 	async (worker) => {
-		const doc = sectionEntryDoc();
+		const doc: ControllerDocSource = sectionEntryDoc();
 		const form = doc.formOrder[doc.moduleOrder[0]][0];
 		const second = Object.values(doc.fields).find(
 			(field) => field.id === "second",

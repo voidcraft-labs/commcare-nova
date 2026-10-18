@@ -1,4 +1,4 @@
-// Valid-by-construction related-case seeds shared by Predicate cards and
+// Valid-by-construction related-case seeds shared by Expression cards and
 // registry admission. A case type can relate upward to its declared parent or
 // downward to any case type that declares it as a parent. The authoring menu
 // must not pretend an arbitrary `parent` connection exists when neither does.
@@ -9,7 +9,7 @@ import {
 	relationStep,
 	selfPath,
 	subcasePath,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { PredicateEditContext } from "./editorSchemas";
 
 /** Return the first real connection authors can use, preferring the current

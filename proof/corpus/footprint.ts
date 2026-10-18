@@ -101,6 +101,7 @@ import { addOnsNeededBy } from "@/lib/commcare/addOns";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import { emissionPlan } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
 	caseListSessionDatums,
 	commonPrefixById,
@@ -108,6 +109,7 @@ import {
 	entrySessionDatums,
 	type FormLinkProjectionContext,
 	formLinkProjectionContext,
+	formLinkTargetDatumIds,
 } from "@/lib/commcare/formLinkProjection";
 import { planLanguageWire } from "@/lib/commcare/languageWire";
 import {
@@ -117,7 +119,6 @@ import {
 import type { SessionDatum } from "@/lib/commcare/session";
 import { moduleIsSearchFirst } from "@/lib/commcare/suite/case-search/inlineSearch";
 import { searchNeedsSupportingCases } from "@/lib/commcare/suite/case-search/relatedCaseProjection";
-import { moduleTypeContext } from "@/lib/commcare/validator/rules/case-list/shared";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { InstanceSink } from "@/lib/commcare/xpath/wire/instances";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
@@ -153,11 +154,11 @@ import {
 	type Uuid,
 	userPropertyTargetKey,
 } from "@/lib/domain";
-import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import {
-	substituteUnansweredSearchInputsInExpression,
-	substituteUnansweredSearchInputsInPredicate,
-} from "@/lib/domain/predicate";
+	type ExpressionContext,
+	substituteUnansweredSearchInputs,
+} from "@/lib/domain/expression";
+import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 
 /** One module on the wire, in the expander's order. */
@@ -655,7 +656,7 @@ const inlineSearch: ModuleDerivation = {
 			prompts: caseList.searchInputs.map(promptSettings),
 			supportingCases: searchNeedsSupportingCases(
 				caseList,
-				moduleTypeContext(module, side.wire),
+				moduleExpressionContexts(side.wire, module.uuid, side.lookupNaming),
 			),
 		};
 	},
@@ -746,7 +747,7 @@ const groupingConnection: ModuleDerivation = {
  * - the search button's display condition's, on a module that does not
  *   open on Search (`compileCcz` drops it on one that does);
  * - each emitted calculated column's, under the module's search input
- *   instance (`moduleTypeContext`).
+ *   instance (through its own column expression slot).
  *
  * Each comes from the wire serializer with the document's lookup naming,
  * as `compileCcz` passes it. A module's search input instance changes only
@@ -757,8 +758,15 @@ const ownEntryInstances: ModuleDerivation = {
 		const naming = side.lookupNaming;
 		const filter = module.caseListConfig?.filter;
 		const owners = module.caseSearchConfig?.excludedOwnerIds;
-		const types = moduleTypeContext(module, side.wire);
-		const instances = (expression: Parameters<typeof toWire>[0]) =>
+		const expressions = moduleExpressionContexts(
+			side.wire,
+			module.uuid,
+			naming,
+		);
+		const instances = (
+			expression: Parameters<typeof toWire>[0],
+			types: ExpressionContext,
+		) =>
 			new InstanceSink(
 				serializeWire(
 					toWire(expression, {
@@ -787,7 +795,13 @@ const ownEntryInstances: ModuleDerivation = {
 			) {
 				continue;
 			}
-			for (const id of instances(column.expression)) {
+			for (const id of instances(
+				column.expression,
+				expressions({
+					slot: "case_list_column_expression",
+					member: { columnUuid: column.uuid },
+				}),
+			)) {
 				calculated.add(id);
 			}
 		}
@@ -795,12 +809,24 @@ const ownEntryInstances: ModuleDerivation = {
 			filter:
 				filter === undefined
 					? []
-					: instances(substituteUnansweredSearchInputsInPredicate(filter)),
+					: instances(
+							substituteUnansweredSearchInputs(filter),
+							expressions({ slot: "case_list_filter" }),
+						),
 			excludedOwnerIds:
 				owners === undefined
 					? []
-					: instances(substituteUnansweredSearchInputsInExpression(owners)),
-			searchButton: searchButton === undefined ? [] : instances(searchButton),
+					: instances(
+							substituteUnansweredSearchInputs(owners),
+							expressions({ slot: "excluded_owner_ids" }),
+						),
+			searchButton:
+				searchButton === undefined
+					? []
+					: instances(
+							searchButton,
+							expressions({ slot: "search_button_display_condition" }),
+						),
 			calculatedColumns: [...calculated],
 		};
 	},
@@ -1152,6 +1178,26 @@ export function batchFootprint(
 
 	// Every entity that reads a touched one, on either side.
 	const entities = new Set<string>([...touched, ...decided]);
+	let datumSides: readonly WireSide[] | undefined;
+	const linkDatumNamesChanged = (reader: string): boolean => {
+		datumSides ??= [d, dPrime].map((doc) =>
+			wireSide(
+				doc,
+				lookup === undefined ? undefined : lookupWireNaming(lookup.definitions),
+			),
+		);
+		const [beforeNames, afterNames] = datumSides.map((side) =>
+			side.wire.forms[reader as Uuid]?.formLinks?.map((link) => ({
+				link: link.uuid,
+				// A named datum reads its target's identity-to-id projection. A
+				// filter changes the selection nodeset, which a link never carries.
+				names: formLinkTargetDatumIds(side.wire, side.links, link.target).map(
+					(datum) => ({ id: datum.id, refs: datum.refs }),
+				),
+			})),
+		);
+		return !isDeepStrictEqual(beforeNames, afterNames);
+	};
 	const readersOf = (uuids: Iterable<string>): Set<string> => {
 		const found = new Set<string>();
 		for (const uuid of uuids) {
@@ -1161,7 +1207,12 @@ export function batchFootprint(
 					userPropertyTargetKey(uuid),
 					locationTargetKey(uuid),
 				]) {
-					for (const reader of referencingCarrierUuids(doc, key)) {
+					for (const [reader, slots] of referencingSlotsOf(doc, key)) {
+						if (
+							slots.every((slot) => slot === "form_link_datum_name") &&
+							!linkDatumNamesChanged(reader)
+						)
+							continue;
 						found.add(reader);
 					}
 				}

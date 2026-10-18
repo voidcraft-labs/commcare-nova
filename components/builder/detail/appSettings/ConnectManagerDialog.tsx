@@ -10,13 +10,16 @@ import {
 	DialogContent,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
-import { parseXPathForForm, printXPathInDoc } from "@/lib/doc/expressionText";
+import { projectFormExpression } from "@/lib/doc/expressionText";
+import { prepareFormConnectStructure } from "@/lib/doc/formExpressionStructure";
 import { useRootFieldIdsByForm } from "@/lib/doc/hooks/useAppConnectIds";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
-import type { BlueprintDoc, XPathExpression } from "@/lib/domain";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
+import { lookupExpressionDefinitions } from "@/lib/doc/lookupExpressionContext";
+import type { BlueprintDoc } from "@/lib/domain";
 import {
 	asUuid,
 	CONNECT_TYPE_LABELS,
@@ -24,6 +27,7 @@ import {
 	type ConnectConfig,
 	type ConnectType,
 } from "@/lib/domain";
+import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import { useLastConnectType, useSwitchConnectMode } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { FormSubConfigs, RejectionNoticeBlock } from "./ConnectEnableDialog";
@@ -39,6 +43,7 @@ import {
 	EMPTY_DRAFT,
 	hasDraftConnectParticipant,
 } from "./connectDraft";
+import { connectDraftParser } from "./connectDraftExpressions";
 
 /**
  * App-wide CommCare Connect manager: the single surface that owns the
@@ -108,7 +113,7 @@ function seedModeDrafts(
 	stash: Record<ConnectType, Record<string, ConnectConfig>>,
 	mode: ConnectType,
 	currentType: ConnectType | undefined,
-	printExpr: (expr: XPathExpression) => string,
+	lookup: LookupDefinitionIndex | "unavailable",
 ): Record<string, BlockDraft> {
 	const out: Record<string, BlockDraft> = {};
 	for (const f of forms) {
@@ -116,7 +121,27 @@ function seedModeDrafts(
 			currentType === mode
 				? doc.forms[f.formUuid]?.connect
 				: stash[mode]?.[f.formUuid];
-		out[f.formUuid] = src ? configToDraft(src, printExpr) : { ...EMPTY_DRAFT };
+		if (src === undefined) {
+			out[f.formUuid] = { ...EMPTY_DRAFT };
+			continue;
+		}
+		const prepared = prepareFormConnectStructure(
+			doc,
+			asUuid(f.formUuid),
+			mode,
+			src,
+		);
+		out[f.formUuid] = configToDraft(
+			src,
+			(expression, slot) =>
+				projectFormExpression(
+					doc,
+					{ entity: "form", uuid: asUuid(f.formUuid), slot },
+					expression,
+					lookup,
+					{ form: prepared },
+				).text,
+		);
 	}
 	return out;
 }
@@ -127,18 +152,11 @@ function seedDrafts(
 	doc: BlueprintDoc,
 	stash: Record<ConnectType, Record<string, ConnectConfig>>,
 	currentType: ConnectType | undefined,
-	printExpr: (expr: XPathExpression) => string,
+	lookup: LookupDefinitionIndex | "unavailable",
 ): ModeDrafts {
 	const drafts = {} as ModeDrafts;
 	for (const mode of CONNECT_TYPES) {
-		drafts[mode] = seedModeDrafts(
-			forms,
-			doc,
-			stash,
-			mode,
-			currentType,
-			printExpr,
-		);
+		drafts[mode] = seedModeDrafts(forms, doc, stash, mode, currentType, lookup);
 	}
 	return drafts;
 }
@@ -215,6 +233,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 	const sessionApi = useBuilderSessionApi();
 
 	const enabled = !!connectType;
+	const { lookupContext } = useLookupCommitState();
 
 	const forms = useFormRows();
 	const rootFieldIds = useRootFieldIdsByForm();
@@ -228,7 +247,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			doc,
 			sessionApi.getState().connectStash,
 			connectType,
-			(expr) => printXPathInDoc(doc, expr),
+			lookupExpressionDefinitions(lookupContext),
 		);
 	})[0];
 	const [drafts, setDrafts] = useState<ModeDrafts>(initialDrafts);
@@ -343,7 +362,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			sessionApi.getState().connectStash,
 			selectedMode,
 			(doc.connectType ?? undefined) as ConnectType | undefined,
-			(expr) => printXPathInDoc(doc, expr),
+			lookupExpressionDefinitions(lookupContext),
 		);
 		setDrafts((prev) => ({ ...prev, [selectedMode]: fresh }));
 		setSeeded((prev) => ({ ...prev, [selectedMode]: fresh }));
@@ -351,35 +370,50 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 
 	const apply = () => {
 		const doc = docApi.getState();
-		const blocks: Record<string, ConnectConfig> = {};
-		for (const f of forms) {
-			if (!draftParticipates(draftOf(f.formUuid), selectedMode)) continue;
-			// A same-mode participating form the user never touched (its draft is
-			// still the exact object we seeded) commits its STORED block verbatim,
-			// so re-deriving (which trims names + re-canonicalizes XPath) can't
-			// emit a redundant updateForm that bumps `updated_at` on an untouched
-			// form. A touched form, a switch, or an enable always re-derives.
-			const untouched =
-				isCurrentMode &&
-				drafts[selectedMode][f.formUuid] === seeded[selectedMode][f.formUuid];
-			const stored = doc.forms[f.formUuid]?.connect;
-			blocks[f.formUuid] =
-				untouched && stored
-					? stored
-					: draftToConfig(
-							draftOf(f.formUuid),
-							selectedMode,
-							(text) => parseXPathForForm(doc, asUuid(f.formUuid), text),
-							idHelpers[f.formUuid].derivedId,
-						);
+		try {
+			const blocks: Record<string, ConnectConfig> = {};
+			for (const f of forms) {
+				if (!draftParticipates(draftOf(f.formUuid), selectedMode)) continue;
+				// A same-mode participating form the user never touched (its draft is
+				// still the exact object we seeded) commits its STORED block verbatim,
+				// so re-deriving (which trims names + re-canonicalizes XPath) can't
+				// emit a redundant updateForm that bumps `updated_at` on an untouched
+				// form. A touched form, a switch, or an enable always re-derives.
+				const untouched =
+					isCurrentMode &&
+					drafts[selectedMode][f.formUuid] === seeded[selectedMode][f.formUuid];
+				const stored = doc.forms[f.formUuid]?.connect;
+				blocks[f.formUuid] =
+					untouched && stored
+						? stored
+						: draftToConfig(
+								draftOf(f.formUuid),
+								selectedMode,
+								connectDraftParser(
+									doc,
+									asUuid(f.formUuid),
+									draftOf(f.formUuid),
+									selectedMode,
+									idHelpers[f.formUuid].derivedId,
+									lookupExpressionDefinitions(lookupContext),
+								),
+								idHelpers[f.formUuid].derivedId,
+							);
+			}
+			const outcome = switchMode(selectedMode, blocks, { announce: false });
+			if (outcome.ok) {
+				reseed();
+				setRejectionMessages([]);
+				return;
+			}
+			setRejectionMessages(outcome.messages);
+		} catch (error) {
+			setRejectionMessages([
+				error instanceof Error
+					? error.message
+					: "This Connect expression could not be saved. Check its references and try again.",
+			]);
 		}
-		const outcome = switchMode(selectedMode, blocks, { announce: false });
-		if (outcome.ok) {
-			reseed();
-			setRejectionMessages([]);
-			return;
-		}
-		setRejectionMessages(outcome.messages);
 	};
 
 	const turnOff = () => {

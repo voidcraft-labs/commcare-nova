@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store";
 import type { CaseOperation } from "@/lib/domain";
-import { formField, literal, term } from "@/lib/domain/predicate";
+import { formField, literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";

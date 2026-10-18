@@ -11,7 +11,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
 import { orderedCaseOperations } from "@/lib/domain";
-import { eq, idOf, literal, term } from "@/lib/domain/predicate";
+import { eq, idOf, literal, term } from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const CREATE = testUuid("11111111-1111-4111-8111-111111111111");

@@ -1,7 +1,7 @@
 // components/builder/shared/ExpressionCardEditor.tsx
 //
-// Top-level ValueExpression AST authoring surface. Renders an
-// arbitrary `ValueExpression` as a tree of cards via the registry-
+// Top-level Expression AST authoring surface. Renders an
+// arbitrary `Expression` as a tree of cards via the registry-
 // driven dispatch in `expressionEditorSchemas.ts`. Symmetric with
 // `PredicateCardEditor` (the boolean-side editor): both editors
 // share the same `PredicateEditProvider` context, so a card from
@@ -17,7 +17,7 @@
 //      `knownInputs`) plus the precomputed `validityIndex`:
 //      cards look up their own path's errors via the context.
 //
-//   2. Runs `checkValueExpression` (the public-API wrapper around
+//   2. Runs `checkExpression` (the public-API wrapper around
 //      the recursive `checkExpression` walker) on every onChange
 //      to refresh the validity index. Propagates `valid: boolean`
 //      to the parent's `onValidityChange` so the parent can
@@ -31,7 +31,7 @@
 //      per-level hacks.
 //
 // Every mutation flows through the typed builders in
-// `lib/domain/predicate/builders.ts`. Builders apply the per-arm
+// `lib/domain/expression/builders.ts`. Builders apply the per-arm
 // invariants the schema requires (non-empty `concat.parts`,
 // `coalesce.values`, `switch.cases`; ordered numeric promotion at
 // `arith`; absent-not-undefined contract on optional `count.where`
@@ -44,21 +44,17 @@ import { useCallback, useMemo } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/catalogContext";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import {
+	expressionEditVerdict,
 	type PredicateEditVerdict,
-	valueExpressionRuntimeEditVerdict,
 } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
+	type Expression,
+	type ExpressionContext,
 	type SlotConstraint,
-	type TypeContext,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
-import {
-	buildEditorTypeContext,
-	buildValidityIndex,
-	PredicateEditProvider,
-} from "./editorContext";
+} from "@/lib/domain/expression";
+import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
 import type { CaseDataScope, EvaluationTarget } from "./editorSchemas";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import { expressionEditorErrors } from "./expressionEditorValidity";
@@ -73,10 +69,11 @@ import { replaceExpressionNodeAtPath } from "./ruleNavigation";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 interface ExpressionCardEditorProps {
+	readonly expressionContext: ExpressionContext;
 	/** Current AST. */
-	readonly value: ValueExpression;
+	readonly value: Expression;
 	/** Fired with the next AST whenever the user mutates the tree. */
-	readonly onChange: (next: ValueExpression) => void;
+	readonly onChange: (next: Expression) => void;
 	/** Blueprint case-type definitions. */
 	readonly caseTypes: readonly CaseType[];
 	/**
@@ -121,8 +118,8 @@ interface ExpressionCardEditorProps {
 	readonly constraint?: SlotConstraint;
 	/** Optional whole-candidate admission owned by the mounting surface. */
 	readonly candidateEditVerdict?: (
-		candidate: ValueExpression,
-		context: TypeContext,
+		candidate: Expression,
+		context: ExpressionContext,
 	) => PredicateEditVerdict;
 	/**
 	 * Surfaces the boolean validity verdict to the parent on every
@@ -135,13 +132,14 @@ interface ExpressionCardEditorProps {
 }
 
 /**
- * Top-level ValueExpression card editor. Composes
+ * Top-level Expression card editor. Composes
  * `PredicateEditProvider` + `ExpressionPicker`. The dispatch shell
- * handles every ValueExpression kind via the registry; this file's
+ * handles every Expression kind via the registry; this file's
  * job is the type-check pass + context plumbing.
  */
 export function ExpressionCardEditor({
 	value,
+	expressionContext,
 	onChange,
 	caseTypes,
 	currentCaseType,
@@ -162,69 +160,36 @@ export function ExpressionCardEditor({
 	const effectiveLookupTables =
 		lookupTables ??
 		(lookupCatalog.kind === "ready" ? lookupCatalog.tables : []);
-	// Build the type-check context from props. The same context
-	// reaches both the validation pass below and the per-card
-	// helpers (`PropertyRefPicker`, `LiteralValueInput`, etc.) via
-	// the React context provider.
-	const typeCtx = useMemo<TypeContext>(
-		() =>
-			buildEditorTypeContext({
-				caseTypes,
-				knownInputs,
-				currentCaseType,
-				userProperties,
-				formFields,
-				lookupTables: effectiveLookupTables,
-				tableScope,
-				operationScope,
-				ownerValues,
-			}),
-		[
-			caseTypes,
-			knownInputs,
-			currentCaseType,
-			userProperties,
-			formFields,
-			effectiveLookupTables,
-			tableScope,
-			operationScope,
-			ownerValues,
-		],
-	);
 
 	// Run the type checker on every value change (pure: running
 	// inside `useMemo` is the right shape). The per-node verdict comes
-	// from `checkValueExpression`; the root-constraint backstop adds a
+	// from `checkExpression`; the root-constraint backstop adds a
 	// root error when the whole expression resolves to a type the slot
 	// won't accept. Valid-by-construction editing can't reach that
 	// backstop: the kind menu + value sources only offer admissible
 	// values, but a checker-invalid in-memory draft still surfaces it.
 	const errors = useMemo(
-		() => expressionEditorErrors(value, typeCtx, constraint),
-		[value, typeCtx, constraint],
+		() => expressionEditorErrors(value, expressionContext, constraint),
+		[value, expressionContext, constraint],
 	);
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
 	const admitRuntimeExpression = useCallback(
-		(path: readonly (string | number)[], next: ValueExpression) => {
+		(path: readonly (string | number)[], next: Expression) => {
 			const candidate = replaceExpressionNodeAtPath(value, path, {
 				family: "expression",
 				value: next,
 			});
-			const verdict = valueExpressionRuntimeEditVerdict(
-				candidate,
-				evaluationTarget,
-				typeCtx,
-			);
+			const verdict = expressionEditVerdict(candidate, expressionContext);
 			const surfaceVerdict = verdict.ok
-				? candidateEditVerdict?.(candidate, typeCtx)
+				? candidateEditVerdict?.(candidate, expressionContext)
 				: undefined;
 			const finalVerdict = verdict.ok ? surfaceVerdict : verdict;
 			return finalVerdict === undefined || finalVerdict.ok
 				? ({ admitted: true } as const)
 				: ({ admitted: false, reason: finalVerdict.reason } as const);
 		},
-		[value, evaluationTarget, typeCtx, candidateEditVerdict],
+		[value, expressionContext, candidateEditVerdict],
 	);
 
 	// Standardized parent-validity propagation: fires on mount + on
@@ -236,6 +201,8 @@ export function ExpressionCardEditor({
 
 	return (
 		<PredicateEditProvider
+			expression={value}
+			expressionContext={expressionContext}
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={knownInputs}

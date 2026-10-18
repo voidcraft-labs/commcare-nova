@@ -39,6 +39,10 @@ import { addOnsNeededBy } from "@/lib/commcare/addOns";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import {
+	moduleExpressionContexts,
+	requireExpressionContext,
+} from "@/lib/commcare/expressionContext";
+import {
 	type CommCareLocalization,
 	commCareLocalization,
 	repeatForLanguages,
@@ -67,7 +71,6 @@ import {
 	moduleParent,
 	projectedModulePreorder,
 	type Uuid,
-	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { buildConnectSlugMap } from "./connectSlugs";
 import {
@@ -80,6 +83,8 @@ import {
 	buildPrimaryCaseUpdateMap,
 } from "./formActions";
 import {
+	entryDatumIdResolver,
+	entryDatumIds,
 	formLinkProjectionContext,
 	moduleCaseTypeForActions,
 	type ProjectedFormLink,
@@ -94,10 +99,6 @@ import {
 	serializeHqApplication,
 } from "./hqJson/xpath";
 import { buildXFormSource } from "./xform/builder";
-import {
-	type FormLinkXPathValue,
-	isLegacyFormLinkXPath,
-} from "./xform/legacyAuthoredXPath";
 import { formUpdatesSelectedCasesInSource } from "./xform/sourceCaseWrites";
 
 /**
@@ -121,13 +122,11 @@ function toHqFormLink(
 			`Cannot emit form link: target module ${target.moduleUuid} is missing`,
 		);
 	}
-	const linkXPath = (value: FormLinkXPathValue) =>
-		isLegacyFormLinkXPath(value) ? value : hqXPath(value);
 	const datums = link.datums.map((datum) => ({
 		name: datum.name,
-		xpath: linkXPath(datum.xpath),
+		xpath: hqXPath(datum.xpath),
 	}));
-	const xpath = link.guard === undefined ? "" : linkXPath(link.guard);
+	const xpath = link.guard === undefined ? "" : hqXPath(link.guard);
 	if (target.type === "form") {
 		const formId = formUniqueIdOf.get(target.formUuid);
 		if (formId === undefined) {
@@ -206,7 +205,6 @@ export function expandDoc(
 	const doc = plan.doc;
 	const attachments: Record<string, string> = {};
 	const assets = opts.assets;
-	const userPropertySlugs = userPropertySlugsByUuid(doc);
 	const localization = commCareLocalization(authoredDoc);
 	const identity = opts.identity ?? DERIVED_WIRE_IDENTITY;
 
@@ -253,6 +251,7 @@ export function expandDoc(
 	// context builds them once (cached) and the shells below consume the
 	// same objects — the projection and the emitted `actions` cannot drift.
 	const linkContext = formLinkProjectionContext(doc, {
+		expressionDoc: authoredDoc,
 		runtimeTarget: opts.runtimeTarget,
 		attachmentTarget: opts.attachmentTarget ?? null,
 		...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
@@ -268,6 +267,11 @@ export function expandDoc(
 
 	const modules = sortedModuleUuids.map((moduleUuid, mIdx) => {
 		const mod = doc.modules[moduleUuid];
+		const expressions = moduleExpressionContexts(
+			doc,
+			moduleUuid,
+			opts.lookupNaming,
+		);
 		const formUuids = sortedFormOrder[moduleUuid] ?? [];
 		const synthetic = plan.synthetic.get(moduleUuid);
 		const noMatches = plan.noMatchesFormOf.get(moduleUuid);
@@ -314,6 +318,10 @@ export function expandDoc(
 
 			const source = buildXFormSource(doc, formUuid, {
 				xmlns,
+				expressionDoc: authoredDoc,
+				datumId: entryDatumIdResolver(
+					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+				),
 				// Raw `mod.caseType` (not the case-activity-gated `caseType`) so the
 				// reachable-case-type depth map matches the deep validator's accept
 				// map, which builds from `mod.caseType` directly.
@@ -379,9 +387,12 @@ export function expandDoc(
 				form.entryPoint?.ignoreDisplayConditions !== true;
 			const formFilter = emitFormDisplayConditionForHq(
 				form,
-				mod.caseType,
+				requireExpressionContext(
+					authoredDoc,
+					{ entity: "form", uuid: formUuid, slot: "form_display_condition" },
+					opts.lookupNaming,
+				),
 				opts.lookupNaming,
-				userPropertySlugs,
 				ownCaseDatumId,
 			);
 			formShellObj.form_filter =
@@ -478,9 +489,8 @@ export function expandDoc(
 				? NEVER_RELEVANT
 				: emitModuleDisplayCondition(
 						mod,
-						mod.caseType,
+						expressions({ slot: "module_display_condition" }),
 						opts.lookupNaming,
-						userPropertySlugs,
 					);
 		shell.module_filter =
 			moduleFilter === undefined ? null : hqXPath(moduleFilter, "no-case");

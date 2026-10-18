@@ -30,18 +30,17 @@
 
 import {
 	findOnDeviceDateAddIssue,
-	findOnDeviceDateAddIssueInPredicate,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
 import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import { slotContext } from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
 import type { LookupTypeIndex } from "../../lookupTypeContext";
 import {
 	collectModuleWireSlotFindings,
 	type ModuleWireSlotIdentity,
 } from "./moduleWireSlots";
-import { moduleTypeContext } from "./shared";
 
 export function dateAddOnDeviceCompatibility(
 	mod: Module,
@@ -49,24 +48,28 @@ export function dateAddOnDeviceCompatibility(
 	doc: BlueprintDoc,
 	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
-	const ctx = moduleTypeContext(mod, doc, lookupTables);
-
 	return collectModuleWireSlotFindings(mod, moduleUuid, {
 		judgePredicate(predicate, slot) {
-			const offender = findOnDeviceDateAddIssueInPredicate(predicate, ctx);
+			const ctx = slotContext(doc, slot.ref, lookupTables ?? new Map());
+			if (ctx === undefined) return undefined;
+			const offender = findOnDeviceDateAddIssue(predicate, ctx);
 			return offender === undefined ? undefined : buildError(slot, offender);
 		},
 		judgeCsqlPredicate(predicate, slot) {
+			const ctx = slotContext(doc, slot.ref, lookupTables ?? new Map());
+			if (ctx === undefined) return undefined;
 			let offender: OnDeviceDateAddIssue | undefined;
-			walkCsqlOnDeviceNodes(predicate, {
-				visitExpression(node) {
+			walkCsqlOnDeviceNodes(predicate, ctx, {
+				visitExpression(node, lexicalContext) {
 					if (offender === undefined)
-						offender = findOnDeviceDateAddIssue(node, ctx);
+						offender = findOnDeviceDateAddIssue(node, lexicalContext);
 				},
 			});
 			return offender === undefined ? undefined : buildError(slot, offender);
 		},
 		judgeExpression(expression, slot) {
+			const ctx = slotContext(doc, slot.ref, lookupTables ?? new Map());
+			if (ctx === undefined) return undefined;
 			const offender = findOnDeviceDateAddIssue(expression, ctx);
 			return offender === undefined ? undefined : buildError(slot, offender);
 		},

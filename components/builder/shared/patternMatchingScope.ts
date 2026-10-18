@@ -13,7 +13,7 @@ import type { PredicateEditContext } from "./editorSchemas";
 /** Whether a pattern match can run in this slot: only where the device's
  *  Pattern engine evaluates the rule. */
 export function patternMatchingInScope(ctx: PredicateEditContext): boolean {
-	return ctx.patternMatching === true;
+	return ctx.expressionContext.profile.patternMatching;
 }
 
 /** Why a pattern match is withheld everywhere else. Shared by the verb

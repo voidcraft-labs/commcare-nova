@@ -12,7 +12,7 @@ import {
 	rangeMode,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { arith, eq, literal, prop, term } from "@/lib/domain/predicate";
+import { arith, eq, literal, prop, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 
 // ── Fixture identifiers ──────────────────────────────────────────

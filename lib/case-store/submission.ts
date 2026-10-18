@@ -30,7 +30,7 @@ import type {
 	OrganizationLevel,
 	Uuid,
 } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
 import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { JsonObject } from "./sql/database";
 import type { DeviceCaseDatabase } from "./store";
@@ -164,7 +164,7 @@ export interface EnvelopeCaseOperation {
 	 * a skipped conditional create thereby suppresses every consumer of
 	 * its identity, exactly as the emitted wrapper relevance does.
 	 */
-	readonly guardConditions: ReadonlyArray<Predicate>;
+	readonly guardConditions: ReadonlyArray<DomainExpression>;
 	/**
 	 * Immutable pre-submission lookup types for runtime EXPRESSION
 	 * targets, from `caseOperationExpressionSnapshotTypes` — kept

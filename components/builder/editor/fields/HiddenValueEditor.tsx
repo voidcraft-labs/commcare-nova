@@ -50,8 +50,8 @@ import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
-	useParseXPathForField,
-	useXPathProjection,
+	useFormExpressionProjection,
+	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import {
 	type CommitOutcome,
@@ -106,9 +106,10 @@ export function HiddenValueEditor({
 		(chosen ?? (field.default_value === undefined && !preloads));
 	const mode: HiddenValueMode = awaitingCalculation ? "calculate" : storedMode;
 	const expression = mode === storedMode ? field[storedMode] : undefined;
-	const projection = useXPathProjection(expression);
-	const parseForField = useParseXPathForField(field.uuid);
-	const getLintContext = useFormLintContext(field.uuid);
+	const slot = { entity: "field" as const, uuid: field.uuid, slot: mode };
+	const projection = useFormExpressionProjection(expression, slot);
+	const parseForField = useParseFormExpression(slot);
+	const getLintContext = useFormLintContext(slot);
 	const focusHint = useSessionFocusHint();
 	const {
 		inline: { updateField },

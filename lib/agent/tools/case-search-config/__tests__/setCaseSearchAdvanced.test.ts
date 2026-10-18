@@ -11,7 +11,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 	type OwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
-import { matchAll, prop, term } from "@/lib/domain/predicate";
+import { matchAll, prop, term } from "@/lib/domain/expression";
 import { setCaseSearchAdvancedTool } from "../setCaseSearchAdvanced";
 import { MOD_A, makeCaseSearchDoc, makeCaseSearchFixture } from "./fixtures";
 

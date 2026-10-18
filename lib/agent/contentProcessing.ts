@@ -192,50 +192,68 @@ export function stripEmpty(q: PreparedFlatField): Partial<PreparedFlatField> & {
  * `casedb`. Stamping a case-preload `default_value` here was a redundant
  * second channel for the same effect; the structural preload owns it.
  */
+/** Select the catalog defaults once, independently of expression decoding and
+ * identity allocation. The authoring preparer stages these before parsing. */
+export function catalogFieldDefaults(
+	input: {
+		readonly kind?: unknown;
+		readonly caseWrite?: unknown;
+		readonly label?: unknown;
+		readonly optionsSource?: unknown;
+	},
+	caseTypes: readonly CaseType[],
+) {
+	const write = input.caseWrite;
+	if (
+		typeof write !== "object" ||
+		write === null ||
+		!("caseType" in write) ||
+		!("property" in write)
+	)
+		return {};
+	const property = caseTypes
+		.find((type) => type.name === write.caseType)
+		?.properties.find((property) => property.name === write.property);
+	if (property === undefined) return {};
+	const kind = input.kind ?? property.data_type ?? "text";
+	const declares = (key: string) =>
+		isFieldKind(kind) ? fieldKindDeclaresKey(kind, key) : true;
+	return {
+		...(input.kind === undefined ? { kind } : {}),
+		...(declares("label") && isUnset(input.label)
+			? { label: property.label }
+			: {}),
+		...(declares("optionsSource") &&
+		isUnset(input.optionsSource) &&
+		property.options !== undefined
+			? { options: property.options }
+			: {}),
+	};
+}
+
 export function applyDefaults<E extends object = object>(
 	q: Partial<PreparedFlatField> & E,
 	caseTypes: CaseTypes,
 ): Partial<PreparedFlatField> & E {
-	const result = { ...q };
-
-	if (result.caseWrite && caseTypes) {
-		const ct = caseTypes.find((c) => c.name === result.caseWrite?.caseType);
-		const prop = ct?.properties.find(
-			(p) => p.name === result.caseWrite?.property,
-		);
-		if (prop) {
-			// Seed the kind first — every other default depends on knowing it.
-			result.kind ??= prop.data_type ?? "text";
-			const kind = result.kind;
-
-			// A catalog default applies only when (a) the field left the slot
-			// unset — and `""` / `[]` count as unset, so the single- and
-			// batch-add paths (the latter pre-collapses empties via
-			// `stripEmpty`) seed IDENTICALLY — AND (b) the resolved kind's
-			// schema actually DECLARES the slot. Without (b), a computed
-			// `hidden` field that writes to a property declared as a select
-			// would inherit that property's `options` / `label`, and the
-			// strict per-kind schema in `flatFieldToField` would then reject
-			// the whole field (the kind doesn't carry those keys).
-			const declares = (key: string): boolean =>
-				isFieldKind(kind) ? fieldKindDeclaresKey(kind, key) : true;
-
-			if (declares("label") && isUnset(result.label)) {
-				result.label = prop.label;
-			}
-			if (declares("optionsSource") && isUnset(result.optionsSource)) {
-				const options = prop.options?.map((option) => ({
-					...option,
-					uuid: uuidSchema.parse(crypto.randomUUID()),
-				}));
-				if (options !== undefined) {
-					result.optionsSource = { kind: "inline", options };
-				}
-			}
-		}
-	}
-
-	return result;
+	const defaults = catalogFieldDefaults(q, caseTypes ?? []);
+	return {
+		...q,
+		...(defaults.kind === undefined
+			? {}
+			: { kind: defaults.kind as FieldKind }),
+		...(defaults.label === undefined ? {} : { label: defaults.label }),
+		...(defaults.options === undefined
+			? {}
+			: {
+					optionsSource: {
+						kind: "inline" as const,
+						options: defaults.options.map((option) => ({
+							...option,
+							uuid: uuidSchema.parse(crypto.randomUUID()),
+						})),
+					},
+				}),
+	};
 }
 
 // ── Flat → Field assembly ────────────────────────────────────────────

@@ -28,7 +28,7 @@ import type { SyntaxNode } from "@lezer/common";
 import { caseRefAcceptMap } from "@/lib/domain";
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import { USER_PROPERTIES } from "@/lib/references/provider";
-import type { XPathLintContext } from "./xpath-lint";
+import type { XPathReferenceContext } from "./xpath-lint";
 
 // ── Static data ────────────────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ function functionSource(ctx: CompletionContext): CompletionResult | null {
  * `xpathAutocomplete` extension below.
  */
 export function hashtagSource(
-	getContext: () => XPathLintContext | undefined,
+	getContext: () => XPathReferenceContext | undefined,
 ): (ctx: CompletionContext) => CompletionResult | null {
 	return (ctx) => {
 		const { state, pos } = ctx;
@@ -271,7 +271,7 @@ export function hashtagSource(
 
 /** /data/... path completions — uses Child/Descendant + NameTest tree nodes. */
 function dataPathSource(
-	getContext: () => XPathLintContext | undefined,
+	getContext: () => XPathReferenceContext | undefined,
 ): (ctx: CompletionContext) => CompletionResult | null {
 	return (ctx) => {
 		const { state, pos } = ctx;
@@ -307,7 +307,7 @@ function dataPathSource(
 
 /** Create a CodeMirror autocomplete extension for CommCare XPath. */
 export function xpathAutocomplete(
-	getContext: () => XPathLintContext | undefined,
+	getContext: () => XPathReferenceContext | undefined,
 ): Extension {
 	// Suppress functions inside hashtag refs (#patient/prop) and path steps.
 	const wrappedFunctionSource = ifNotIn(

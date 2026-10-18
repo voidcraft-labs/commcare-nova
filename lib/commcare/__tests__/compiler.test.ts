@@ -19,7 +19,7 @@ import {
 	literal,
 	matchNone,
 	sessionUser,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	compilerNavigationFixture,
 	temporalSearchFixture,

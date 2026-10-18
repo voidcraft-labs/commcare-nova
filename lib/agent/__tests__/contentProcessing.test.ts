@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	asMediaAssetId,
 	type CaseType,
 	fieldKinds,
 	proseTemplateText,
 } from "@/lib/domain";
+import {
+	formField,
+	gte,
+	literal,
+	matchAll,
+	matchNone,
+	neq,
+	term,
+	today,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	applyDefaults,
@@ -30,9 +39,6 @@ const testCaseType: CaseType = {
 			name: "age",
 			label: proseText("Patient Age"),
 			data_type: "int",
-			required: xp("true()"),
-			validation: xp(". > 0 and . < 150"),
-			validation_msg: proseText("Age must be between 1 and 149"),
 		},
 		{
 			name: "gender",
@@ -183,7 +189,7 @@ describe("applyDefaults", () => {
 		);
 	});
 
-	it("does not leak record-level validation or requiredness into a form", () => {
+	it("does not invent validation or requiredness when applying catalog defaults", () => {
 		const result = applyDefaults(
 			{
 				id: "reported_age",
@@ -203,9 +209,9 @@ describe("applyDefaults", () => {
 				kind: "int",
 				caseWrite: { caseType: "patient", property: "age" },
 				hint: proseText("Enter the age measured today."),
-				required: xp("true()"),
+				required: matchAll(),
 				validate: {
-					expr: xp(". >= 0"),
+					expr: gte(formField(TEST_UUID), literal(0)),
 					msg: proseText("Age cannot be negative."),
 				},
 			},
@@ -214,9 +220,9 @@ describe("applyDefaults", () => {
 		expect(result.hint && proseTemplateText(result.hint)).toBe(
 			"Enter the age measured today.",
 		);
-		expect(result.required).toEqual(xp("true()"));
+		expect(result.required).toEqual(matchAll());
 		expect(result.validate).toEqual({
-			expr: xp(". >= 0"),
+			expr: gte(formField(TEST_UUID), literal(0)),
 			msg: proseText("Age cannot be negative."),
 		});
 	});
@@ -266,8 +272,8 @@ describe("applyDefaults", () => {
 
 	it("does not seed contextual behavior onto a different field kind", () => {
 		const result = applyDefaults(
-			// Neither record-level validation nor requiredness belongs to this
-			// form question, even if its field kind could carry requiredness.
+			// Defaults never invent validation or requiredness, even if this
+			// question kind can carry them.
 			{
 				id: "location",
 				kind: "geopoint",
@@ -394,11 +400,11 @@ describe("applyDefaults", () => {
 				id: "age",
 				kind: "int",
 				caseWrite: { caseType: "patient", property: "age" },
-				default_value: xp("today()"),
+				default_value: today(),
 			},
 			[testCaseType],
 		);
-		expect(result.default_value).toEqual(xp("today()"));
+		expect(result.default_value).toEqual(today());
 	});
 });
 
@@ -407,7 +413,7 @@ describe("applyDefaults", () => {
 // optional label; selects need ≥2 options; repeat needs a mode.
 function validFlatPayload(kind: string): PreparedFlatField {
 	const p: Record<string, unknown> = { id: `f_${kind}`, kind };
-	if (kind === "hidden") p.calculate = xp("today()");
+	if (kind === "hidden") p.calculate = today();
 	else if (kind === "repeat") {
 		p.label = proseText("Items");
 		p.repeat = { mode: "user_controlled" };
@@ -454,7 +460,7 @@ describe("flatFieldToField — schema-admitted witnesses and failure reasons", (
 				kind: "text",
 				label: proseText("T"),
 				validate: {
-					expr: xp(". != ''"),
+					expr: neq(formField(TEST_UUID), literal("")),
 					msg: proseText("Required"),
 				},
 			} as unknown as PreparedFlatField,
@@ -462,13 +468,13 @@ describe("flatFieldToField — schema-admitted witnesses and failure reasons", (
 				id: "r1",
 				kind: "repeat",
 				label: proseText("R"),
-				repeat: { mode: "count_bound", count: xp("3") },
+				repeat: { mode: "count_bound", count: term(literal(3)) },
 			} as unknown as PreparedFlatField,
 			{
 				id: "r2",
 				kind: "repeat",
 				label: proseText("R"),
-				repeat: { mode: "query_bound", ids_query: xp("#form/ids") },
+				repeat: { mode: "query_bound", ids_query: term(literal("ids")) },
 			} as unknown as PreparedFlatField,
 		];
 		for (const c of cases) {
@@ -489,7 +495,7 @@ describe("flatFieldToField — schema-admitted witnesses and failure reasons", (
 				id: "t",
 				kind: "text",
 				label: proseText("T"),
-				calculate: xp("today()"),
+				calculate: today(),
 			} as unknown as PreparedFlatField,
 			TEST_UUID,
 		);
@@ -531,8 +537,8 @@ describe("flatFieldToField — schema-admitted witnesses and failure reasons", (
 
 describe("add-path empty normalization", () => {
 	it("drops only top-level empty sentinels and preserves zero/false AST values", () => {
-		const required = xp("false()");
-		const default_value = xp("0");
+		const required = matchNone();
+		const default_value = term(literal(0));
 		const input = {
 			kind: "text" as const,
 			id: "",

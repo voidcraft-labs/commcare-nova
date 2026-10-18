@@ -1,3 +1,5 @@
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
+import { scalarDataType, typeOf } from "@/lib/domain/expression";
 // components/builder/shared/__tests__/runtimeMatchModes.test.ts
 //
 // Which match modes a surface may offer is decided by WHICH RUNTIME
@@ -16,16 +18,15 @@ import {
 	verbEntryAdmitted,
 } from "@/components/builder/shared/cards/PredicateVerbMenu";
 import type { PredicateEditContext } from "@/components/builder/shared/editorSchemas";
-import { buildEditorTypeContext } from "@/components/builder/shared/editorTypeContext";
+import { editorExpressionContext } from "@/components/builder/shared/editorTypeContext";
 import type { CaseType } from "@/lib/domain";
 import {
-	checkExpression,
+	type Expression,
 	eq,
 	literal,
-	type Predicate,
 	prop,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 
 const CASE_TYPES: readonly CaseType[] = [
@@ -41,18 +42,25 @@ const CASE_TYPES: readonly CaseType[] = [
 function context(
 	evaluationTarget: PredicateEditContext["evaluationTarget"],
 ): PredicateEditContext {
-	return {
-		caseTypes: CASE_TYPES,
-		currentCaseType: "patient",
-		knownInputs: [],
-		caseDataScope: "per-case",
-		...(evaluationTarget === undefined ? {} : { evaluationTarget }),
-	};
+	return expressionEditorFixture(
+		evaluationTarget === "case-search"
+			? "search-predicate"
+			: evaluationTarget === "on-device-and-case-search"
+				? "search-case-filter"
+				: "case-filter",
+		{
+			caseTypes: CASE_TYPES,
+			currentCaseType: "patient",
+			knownInputs: [],
+			caseDataScope: "per-case",
+			...(evaluationTarget === undefined ? {} : { evaluationTarget }),
+		},
+	).context;
 }
 
 /** A filled comparison: the real starting point for a verb switch, and
  *  one that carries a value so the carry gate is satisfied. */
-const CURRENT: Predicate = eq(
+const CURRENT: Expression = eq(
 	term(prop("patient", "nickname")),
 	term(literal("ali")),
 );
@@ -61,12 +69,12 @@ function admittedModes(
 	evaluationTarget: PredicateEditContext["evaluationTarget"],
 ): readonly string[] {
 	const ctx = context(evaluationTarget);
-	const typeCtx = buildEditorTypeContext(ctx);
+	const typeCtx = editorExpressionContext(ctx);
 	const subject = subjectOf(CURRENT);
 	const subjectType =
 		subject === undefined
 			? undefined
-			: checkExpression(subject, typeCtx, [], []);
+			: scalarDataType(typeOf(subject, typeCtx)?.data);
 	return VERB_ENTRIES.filter(
 		(entry) =>
 			entry.id.startsWith("match:") &&
@@ -89,10 +97,8 @@ describe("match modes follow the carrier's runtime", () => {
 		expect(admittedModes("on-device-and-case-search")).toEqual(["starts-with"]);
 	});
 
-	// The axis is optional on the type, so a surface that never passes it
-	// gets whatever the default is. That default must be the STRICT one:
-	// a forgotten axis then offers less than it could, which is visible
-	// and repairable, rather than offering a choice the gate refuses.
+	// The existing device carrier remains authoritative when presentation
+	// metadata is absent.
 	it("fails closed when a surface states no runtime at all", () => {
 		expect(admittedModes(undefined)).toEqual(["starts-with"]);
 	});

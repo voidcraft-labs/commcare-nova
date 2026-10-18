@@ -11,8 +11,8 @@ import {
 	type Column,
 	TIME_SINCE_UNIT_DAYS,
 } from "@/lib/domain";
-import type { TypeContext } from "@/lib/domain/predicate";
-import { resolveCaseListTemporalType } from "@/lib/domain/predicate/temporalType";
+import type { ExpressionContext } from "@/lib/domain/expression";
+import { resolveCaseListTemporalType } from "@/lib/domain/expression/temporalType";
 import {
 	caseRowDisplaySourceValue,
 	caseRowDisplayValue,
@@ -51,7 +51,7 @@ export type ColumnDisplayContext = {
 /** Resolve the authored expression type once per calculated column. */
 export function resolveCalculatedTemporalType(
 	column: Column,
-	context: TypeContext,
+	context: ExpressionContext,
 ): CalculatedTemporalType | undefined {
 	if (column.kind !== "calculated") return undefined;
 	return resolveCaseListTemporalType(column.expression, context);

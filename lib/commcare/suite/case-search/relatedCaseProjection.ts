@@ -3,7 +3,7 @@
  * case shape CommCare Search can preserve across both Nova's direct suite and
  * an HQ-regenerated suite.
  *
- * Nova stores one typed `ValueExpression`; it never stores CommCare's detail
+ * Nova stores one typed `Expression`; it never stores CommCare's detail
  * field path or related-case query keys. CCHQ can discover a supporting-case
  * relationship from an HQ `DetailColumn` when the column is a native ancestor
  * path, but that path drops every relation case-type qualifier. Nova instead
@@ -19,11 +19,13 @@
 
 import { type CaseListConfig, caseListColumnRuns } from "@/lib/domain";
 import {
-	canonicalizeRelationPath,
-	expressionReadsRelatedCaseData,
-	type RelationEvaluationScopeContext,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+	activeRowScope,
+	type ExpressionContext,
+} from "@/lib/domain/expression/context";
+import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import type { Expression } from "@/lib/domain/expression/types";
+import { expressionReadsRelatedCaseData } from "@/lib/domain/expression/walk";
+import type { ModuleExpressionContexts } from "../../expressionContext";
 import { w } from "../../xpath/wire/builders";
 import type { WireExpr, WirePath } from "../../xpath/wire/tree";
 import { casePropertyPath } from "../wire";
@@ -78,8 +80,8 @@ function emitHqContextRelativeAncestorProperty(
  * could make a particular authored value smaller.
  */
 export function classifyRelatedCaseSearchExpression(
-	expression: ValueExpression,
-	context: RelationEvaluationScopeContext = {},
+	expression: Expression,
+	context: ExpressionContext,
 ): RelatedCaseSearchProjection {
 	if (!expressionReadsRelatedCaseData(expression)) return { kind: "none" };
 
@@ -96,8 +98,8 @@ export function classifyRelatedCaseSearchExpression(
 	}
 
 	const canonical = canonicalizeRelationPath(via, {
-		...context,
-		currentCaseType: property.caseType,
+		caseTypes: context.facts.caseTypes,
+		currentCaseType: property.caseType ?? activeCaseType(context),
 	}).via;
 	if (canonical.kind !== "ancestor") return { kind: "unsupported" };
 
@@ -119,13 +121,27 @@ export function classifyRelatedCaseSearchExpression(
  */
 export function searchNeedsSupportingCases(
 	config: Pick<CaseListConfig, "columns" | "tile">,
-	context: RelationEvaluationScopeContext = {},
+	expressions: ModuleExpressionContexts,
 ): boolean {
 	return config.columns.some(
 		(column) =>
 			column.kind === "calculated" &&
 			caseListColumnRuns(column, config) &&
-			classifyRelatedCaseSearchExpression(column.expression, context).kind !==
-				"none",
+			classifyRelatedCaseSearchExpression(
+				column.expression,
+				expressions({
+					slot: "case_list_column_expression",
+					member: { columnUuid: column.uuid },
+				}),
+			).kind !== "none",
 	);
+}
+
+function activeCaseType(context: ExpressionContext): string | undefined {
+	const row = activeRowScope(context);
+	return row?.kind === "case"
+		? row.caseType
+		: row?.kind === "table"
+			? row.capturedCase?.caseType
+			: undefined;
 }

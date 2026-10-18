@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, useMemo } from "react";
-import { buildEditorTypeContext } from "@/components/builder/shared/editorTypeContext";
 import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
 import type { EditorLookupTableDecl } from "@/components/builder/shared/lookupTablePresentation";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
@@ -32,19 +31,21 @@ import {
 } from "@/lib/domain";
 import {
 	and,
-	checkPredicate,
+	checkExpression,
+	type Expression,
+	type ExpressionContext,
 	eq,
 	exists,
 	matchAll,
-	type Predicate,
 	prop,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import { useCanEdit } from "@/lib/session/hooks";
 import { freshCaseSource } from "./optionsSourceModel";
 
 export function CaseOptionsEditor({
+	expressionContext,
 	source,
 	caseTypes,
 	formContext,
@@ -56,6 +57,7 @@ export function CaseOptionsEditor({
 	onCommit,
 	onCancel,
 }: {
+	expressionContext: ExpressionContext | undefined;
 	source: CaseOptionsSource;
 	caseTypes: readonly CaseType[];
 	formContext: { form: Form; module: Module } | null;
@@ -90,25 +92,17 @@ export function CaseOptionsEditor({
 			),
 		[selectedType, caseTypes],
 	);
-	const setFilter = (filter: Predicate | undefined) => {
+	const setFilter = (filter: Expression | undefined) => {
 		const { filter: _old, ...identity } = source;
 		onChange(filter === undefined ? identity : { ...identity, filter });
 	};
-	const typeContext = buildEditorTypeContext({
-		caseTypes,
-		currentCaseType: source.caseType,
-		formCaseTypes,
-		formFields,
-		userProperties,
-		knownInputs: [],
-		lookupTables: tables,
-	});
 	const valid =
+		expressionContext !== undefined &&
 		type?.properties.some(
 			(property) => property.name === source.labelProperty,
 		) &&
 		(source.filter === undefined ||
-			checkPredicate(source.filter, typeContext).ok);
+			checkExpression(source.filter, expressionContext).errors.length === 0);
 	return (
 		<FieldGroup>
 			<FieldDescription>
@@ -171,8 +165,13 @@ export function CaseOptionsEditor({
 				</FieldDescription>
 			</Field>
 			<div className="space-y-3 rounded-lg border border-nova-border bg-nova-elevated p-3">
-				{source.filter ? (
+				{expressionContext === undefined ? (
+					<p role="status">
+						This question is no longer available for a case-choice rule.
+					</p>
+				) : source.filter ? (
 					<PredicateWorkbench
+						expressionContext={expressionContext}
 						value={source.filter}
 						onChange={setFilter}
 						onRemoveRoot={() => setFilter(undefined)}

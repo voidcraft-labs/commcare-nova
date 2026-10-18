@@ -22,7 +22,7 @@ import {
 	type Module,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/predicate";
+import { eq, literal, sessionUser } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../../runner";
 

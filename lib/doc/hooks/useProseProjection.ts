@@ -10,7 +10,7 @@
 // one, so the repair state stops carrying information. Every user-visible
 // surface therefore projects through here.
 //
-// The five subscribed families are exactly what `xpathPrintContext` reads:
+// The five subscribed families are exactly what `referenceNames` reads:
 // paths come from `fieldParent`/`fieldOrder` up to a `forms` root, worker slugs
 // from `userProperties`. Subscribing narrowly keeps a label edit from
 // re-rendering every projecting surface in the app.
@@ -23,7 +23,7 @@
 import { useCallback } from "react";
 import type { ProseTemplate } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
-import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
+import type { ReferenceNamesDoc } from "@/lib/domain/referenceNames";
 import { useBlueprintDocEq, useBlueprintDocShallow } from "./useBlueprintDoc";
 
 /** Project a template to its current spelling against the live document. */
@@ -46,7 +46,7 @@ export function useProjectedProseTemplate(
 }
 
 export function useProseProjection(): ProseProjector {
-	const doc = useBlueprintDocShallow<XPathPrintableDoc>((s) => ({
+	const doc = useBlueprintDocShallow<ReferenceNamesDoc>((s) => ({
 		fields: s.fields,
 		forms: s.forms,
 		fieldOrder: s.fieldOrder,

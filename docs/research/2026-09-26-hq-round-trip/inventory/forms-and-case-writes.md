@@ -63,7 +63,7 @@ Part of the surface inventory of the HQ round-trip research. Section names in qu
 | `form_links[]` target the current form, or a link cycle | **HELD-NEW**: self and cyclic links (today refused: `FORM_LINK_SELF_REFERENCE`, `FORM_LINK_CIRCULAR`; HQ's picker offers the current form) | RUNS / RUNS | same |
 | `form_links[]` target a top-level or child-matched module that does not show its forms in its parent (`views/forms.py::_get_linkable_forms_context` never offers a display-only-forms menu) | **HELD**: `formLinks[].target {type: module}` | RUNS / RUNS | `{xpath, module_unique_id}` |
 | `form_links[]` target any other module | **REFUSED**: retiring (FORM_LINK_ADVANCED_MODE) for a child menu HQ does not match; not HQ-editable for a display-only-forms menu, which HQ never offers | — | — |
-| `form_links[].xpath` | **HELD**: `formLinks[].condition` (`XPathExpression`, session profile) | RUNS / RUNS | `xpath` |
+| `form_links[].xpath` | **HELD**: `formLinks[].condition` (`Expression`, form-link profile) | RUNS / RUNS | `xpath` |
 | two or more `form_links` conditions true at once | **HELD-NEW**: link-chain semantics: every true link pushes a frame, last created runs first (`CommCareSession::createFrame`); Nova emits exclusive guards today | RUNS / RUNS | each link's own condition, no exclusivity guards |
 | `form_links[].datums` on a form target, names among the target's selection datums, the only ones HQ offers (`views/forms.py::_get_form_datums`) | **HELD**: `formLinks[].datums` | RUNS / RUNS | `datums[]` |
 | `form_links[].datums` that leave the target's case id empty | **REFUSED**: broken at runtime: the target form opens with no case, and its case reads and writes fail | — | — |

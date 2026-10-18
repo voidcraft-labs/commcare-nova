@@ -26,11 +26,11 @@ import type { StoredLookupColumnDataType } from "@/lib/db/pg";
 import {
 	missingPredicateThunkMessage,
 	typeCheckerBypassMessage,
-} from "@/lib/domain/predicate/errors";
+} from "@/lib/domain/expression/errors";
 import type {
+	Expression as DomainExpression,
 	TableColumnTerm,
-	ValueExpression,
-} from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/types";
 import type { ExpressionCompileContext } from "./compileExpression";
 import type { TermCompileContext } from "./compileTerm";
 import type { Database } from "./database";
@@ -59,7 +59,7 @@ const eb = expressionBuilder<Database, keyof Database>();
 
 /** Compile a `table-lookup` expression to its first-match scalar subquery. */
 export function compileTableLookup(
-	expr: Extract<ValueExpression, { kind: "table-lookup" }>,
+	expr: Extract<DomainExpression, { kind: "table-lookup" }>,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const compilePredicate = ctx.compilePredicate;
@@ -68,7 +68,7 @@ export function compileTableLookup(
 			missingPredicateThunkMessage({
 				where: "compileLookup",
 				arm: "table-lookup",
-				slot: "`table-lookup` carries a `Predicate` row filter (`where`)",
+				slot: "`table-lookup` carries a `DomainExpression` row filter (`where`)",
 			}),
 		);
 	}

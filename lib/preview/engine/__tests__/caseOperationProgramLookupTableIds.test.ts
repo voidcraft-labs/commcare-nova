@@ -16,7 +16,7 @@ import {
 	tableColumn,
 	tableLookup,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { caseOperationProgramLookupTableIds } from "../lookupTableReferences";
 

@@ -4,17 +4,13 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
-import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
 import {
 	actingUser,
 	ancestorPath,
 	and,
 	count,
 	dateAdd,
+	type Expression,
 	eq,
 	formField,
 	gt,
@@ -24,7 +20,6 @@ import {
 	match,
 	matchAll,
 	matchNone,
-	type Predicate,
 	prop,
 	relationStep,
 	selfPath,
@@ -33,7 +28,12 @@ import {
 	tableLookup,
 	term,
 	unowned,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { runValidation } from "../validator/runner";
@@ -76,14 +76,14 @@ function admitted(doc: Parameters<typeof runValidation>[0]) {
 }
 
 function validateModule(
-	condition: Predicate,
+	condition: Expression,
 	options: { readonly hiddenFromMenu?: true } = {},
 ) {
 	return validateModuleFindings(condition, options).map((error) => error.code);
 }
 
 function validateModuleFindings(
-	condition: Predicate,
+	condition: Expression,
 	options: { readonly hiddenFromMenu?: true } = {},
 ) {
 	const doc = buildDoc({
@@ -109,14 +109,14 @@ function validateModuleFindings(
 }
 
 function validateForm(
-	condition: Predicate,
+	condition: Expression,
 	formType: "followup" | "survey" = "followup",
 ) {
 	return validateFormFindings(condition, formType).map((error) => error.code);
 }
 
 function validateFormFindings(
-	condition: Predicate,
+	condition: Expression,
 	formType: "followup" | "survey" = "followup",
 ) {
 	const doc = buildDoc({
@@ -171,7 +171,7 @@ function validateFormFindings(
 
 const CASE_OPERATION_ONLY_CONDITIONS: readonly (readonly [
 	string,
-	Predicate,
+	Expression,
 ])[] = [
 	[
 		"form field",
@@ -258,6 +258,44 @@ describe("case-operation-only display-condition values", () => {
 });
 
 describe("form display-condition validation", () => {
+	it("keeps a followup's selected-case condition when its module has a no-matches registration", () => {
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					caseSearchConfig: { searchFirst: true },
+					forms: [
+						{
+							name: "Register patient",
+							type: "registration",
+							entry: { kind: "search-no-matches" },
+							fields: [
+								f({
+									id: "patient_name",
+									kind: "text",
+									label: "Name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+						{
+							name: "Visit",
+							type: "followup",
+							displayCondition: eq(prop("patient", "status"), literal("open")),
+							fields: [f({ id: "note", kind: "text", label: "Note" })],
+						},
+					],
+				},
+			],
+		});
+		admitted(doc);
+	});
+
 	it("allows a direct selected-case read in a case-first module", () => {
 		expect(
 			validateForm(eq(prop("patient", "status"), literal("open"))),

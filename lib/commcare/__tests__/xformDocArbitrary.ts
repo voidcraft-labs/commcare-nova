@@ -23,29 +23,28 @@
 
 import * as fc from "fast-check";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
-	entrySessionDatums,
-	formLinkProjectionContext,
-} from "@/lib/commcare/formLinkProjection";
+	resolveCaseListConfig,
+	resolveDocExpressions,
+} from "@/lib/__tests__/docHelpers";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDoc,
 	type CaseType,
 	type ConnectConfig,
 	type ConnectType,
-	connectConfigSchema,
 	type Field,
 	type Form,
 	fieldKindCarriesValidation,
 	type Media,
 	type Module,
 	NEW_APP_SETTINGS,
-	opaqueXPathExpression,
 	plainColumn,
 	suffixUntilFree,
 	type Uuid,
 } from "@/lib/domain";
+import { entryDatumSupplies } from "@/lib/domain/entryDatumSupplies";
+import { type DatumRef, type Expression, term } from "@/lib/domain/expression";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
@@ -179,8 +178,6 @@ const DEFAULT_VALUE_BY_KIND: Record<string, string> = {
 	date: "today()",
 	time: "'12:00'",
 	datetime: "now()",
-	single_select: "'a'",
-	multi_select: "'a'",
 	// barcode serializes as xsd:string (a scanned default the device can
 	// overwrite); geopoint takes a "lat lon alt accuracy" string. Both lower
 	// to a `<setvalue>` like the others — covering their setvalue path.
@@ -206,13 +203,34 @@ const SPICY_LABELS = [
 
 // ── Field generation ───────────────────────────────────────────────
 
+/** Drawn source is bound only after every referenced declaration exists. */
+type UnparsedExpressions<T> = T extends Expression
+	? Expression | string
+	: T extends string | number | boolean | null | undefined
+		? T
+		: T extends object
+			? { [Key in keyof T]: UnparsedExpressions<T[Key]> }
+			: T;
+export type FieldDraft = UnparsedExpressions<Field>;
+type DocumentDraft = Omit<BlueprintDoc, "fields" | "forms"> & {
+	fields: Record<Uuid, FieldDraft>;
+	forms: Record<Uuid, UnparsedExpressions<Form>>;
+};
+
+/** The source-bearing draft never escapes the parser boundary as a document. */
+export function resolveArbitraryDocument(draft: DocumentDraft): BlueprintDoc {
+	const doc = draft as BlueprintDoc;
+	rebuildFieldParent(doc);
+	return resolveDocExpressions(doc);
+}
+
 /**
  * The accumulator a single form-tree build threads: the flat `fields` map and
  * `fieldOrder` adjacency the normalized doc needs, plus the minter.
  */
 export interface FieldBuildCtx {
 	readonly minter: IdMinter;
-	readonly fields: Record<Uuid, Field>;
+	readonly fields: Record<Uuid, FieldDraft>;
 	readonly fieldOrder: Record<Uuid, Uuid[]>;
 }
 
@@ -257,11 +275,9 @@ export function buildField(
 			id,
 			label: proseText(spec.label),
 			optionsSource: { kind: "inline", options },
-			// Selects are validatable kinds; a type-matched `'a'` default exercises
-			// the setvalue path for the select shape too.
-			...(spec.wantsDefault
-				? { default_value: opaqueXPathExpression(DEFAULT_VALUE_BY_KIND[kind]) }
-				: {}),
+			// Mapping after the draw keeps the random stream and every identity.
+			// A choice default must name one of this question's own options.
+			...(spec.wantsDefault ? { default_value: `'${options[0].value}'` } : {}),
 			...(labelMedia ? { label_media: labelMedia } : {}),
 		};
 		return;
@@ -273,9 +289,8 @@ export function buildField(
 			uuid,
 			kind: "hidden",
 			id,
-			// Opaque AST — prints byte-identically, so emission over the
-			// generated text is unchanged.
-			calculate: opaqueXPathExpression(spec.calculate),
+			// The completed document binds this drawn source to its actual slot.
+			calculate: spec.calculate,
 		};
 		return;
 	}
@@ -315,20 +330,20 @@ export function buildField(
 			id,
 			label: proseText(spec.label),
 		};
-		let field: Field;
+		let field: FieldDraft;
 		if (spec.mode === "user_controlled") {
 			field = { ...base, repeat_mode: "user_controlled" };
 		} else if (spec.mode === "count_bound") {
 			field = {
 				...base,
 				repeat_mode: "count_bound",
-				repeat_count: opaqueXPathExpression(spec.count),
+				repeat_count: spec.count,
 			};
 		} else {
 			field = {
 				...base,
 				repeat_mode: "query_bound",
-				data_source: { ids_query: opaqueXPathExpression(spec.idsQuery) },
+				data_source: { ids_query: spec.idsQuery },
 			};
 		}
 		ctx.fields[uuid] = field;
@@ -347,9 +362,7 @@ export function buildField(
 			kind: "label",
 			id,
 			label: proseText(spec.label),
-			...(spec.relevant
-				? { relevant: opaqueXPathExpression(spec.relevant) }
-				: {}),
+			...(spec.relevant ? { relevant: spec.relevant } : {}),
 			...(media ? { label_media: media } : {}),
 		};
 		return;
@@ -368,12 +381,8 @@ export function buildField(
 			kind: spec.kind,
 			id,
 			label: proseText(spec.label),
-			...(spec.relevant
-				? { relevant: opaqueXPathExpression(spec.relevant) }
-				: {}),
-			...(spec.required
-				? { required: opaqueXPathExpression(spec.required) }
-				: {}),
+			...(spec.relevant ? { relevant: spec.relevant } : {}),
+			...(spec.required ? { required: spec.required } : {}),
 			...(spec.hint ? { hint: proseText(spec.hint) } : {}),
 			...(media ? { label_media: media } : {}),
 		};
@@ -418,16 +427,12 @@ export function buildField(
 		kind: spec.kind,
 		id,
 		label: proseText(spec.label),
-		...(spec.relevant
-			? { relevant: opaqueXPathExpression(spec.relevant) }
-			: {}),
-		...(spec.required
-			? { required: opaqueXPathExpression(spec.required) }
-			: {}),
+		...(spec.relevant ? { relevant: spec.relevant } : {}),
+		...(spec.required ? { required: spec.required } : {}),
 		...(spec.hint ? { hint: proseText(spec.hint) } : {}),
 		...(validatable && spec.validate
 			? {
-					validate: opaqueXPathExpression(spec.validate),
+					validate: spec.validate,
 					validate_msg:
 						spec.validateMsg === undefined
 							? undefined
@@ -436,9 +441,7 @@ export function buildField(
 			: {}),
 		// `default_value` is type-matched per kind (DEFAULT_VALUE_BY_KIND); a
 		// kind with no entry simply gets none.
-		...(typedDefault
-			? { default_value: opaqueXPathExpression(typedDefault) }
-			: {}),
+		...(typedDefault ? { default_value: typedDefault } : {}),
 		...(labelMedia ? { label_media: labelMedia } : {}),
 		...(helpMedia ? { help_media: helpMedia } : {}),
 	};
@@ -471,23 +474,21 @@ function injectSubcaseRepeat(
 		id: "children",
 		label: proseText("Children"),
 	};
-	let repeatField: Field;
+	let repeatField: FieldDraft;
 	if (spec.mode === "user_controlled") {
 		repeatField = { ...repeatBase, repeat_mode: "user_controlled" };
 	} else if (spec.mode === "count_bound") {
 		repeatField = {
 			...repeatBase,
 			repeat_mode: "count_bound",
-			repeat_count: opaqueXPathExpression("3"),
+			repeat_count: "3",
 		};
 	} else {
 		repeatField = {
 			...repeatBase,
 			repeat_mode: "query_bound",
 			data_source: {
-				ids_query: opaqueXPathExpression(
-					`instance('casedb')/casedb/case[@case_type='${spec.childCaseType}']/@case_id`,
-				),
+				ids_query: `instance('casedb')/casedb/case[@case_type='${spec.childCaseType}']/@case_id`,
 			},
 		};
 	}
@@ -963,11 +964,11 @@ const deliverFormArb: fc.Arbitrary<ConnectFormSpec> = subConfigPairArb.map(
 function buildConnectConfig(
 	minter: IdMinter,
 	spec: ConnectFormSpec,
-): ConnectConfig {
+): UnparsedExpressions<ConnectConfig> {
 	const connectId = (prefix: string): string => minter.wireId(prefix);
 
 	if (spec.connectType === "learn") {
-		return connectConfigSchema.parse({
+		return {
 			...(spec.learnModule
 				? {
 						learn_module: {
@@ -985,13 +986,13 @@ function buildConnectConfig(
 							// A quoted literal: a valid XPath the bind emitter renders as
 							// `calculate="'100'"` (a bare `100` would also parse, but a quoted
 							// value mirrors how the SA pins a fixed score).
-							user_score: opaqueXPathExpression("'100'"),
+							user_score: "'100'",
 						},
 					}
 				: {}),
-		});
+		};
 	}
-	return connectConfigSchema.parse({
+	return {
 		...(spec.deliverUnit
 			? {
 					deliver_unit: {
@@ -1010,7 +1011,7 @@ function buildConnectConfig(
 					},
 				}
 			: {}),
-	});
+	};
 }
 
 // ── Form + module + doc assembly ───────────────────────────────────
@@ -1234,8 +1235,8 @@ const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc
 function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	const minter = new IdMinter();
 	const modules: Record<Uuid, Module> = {};
-	const forms: Record<Uuid, Form> = {};
-	const fields: Record<Uuid, Field> = {};
+	const forms: Record<Uuid, UnparsedExpressions<Form>> = {};
+	const fields: Record<Uuid, FieldDraft> = {};
 	const moduleOrder: Uuid[] = [];
 	const formOrder: Record<Uuid, Uuid[]> = {};
 	const fieldOrder: Record<Uuid, Uuid[]> = {};
@@ -1416,7 +1417,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// it doesn't collide with field-mint id sequencing.
 	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
-	return {
+	return resolveArbitraryDocument({
 		appId: "fuzz-app",
 		appName: "Fuzz App",
 		connectType: spec.connectType,
@@ -1428,17 +1429,15 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		moduleOrder,
 		formOrder,
 		fieldOrder,
-		// fieldParent is rebuilt by the caller via rebuildFieldParent — the
-		// fuzz test owns that step so this stays a pure lowering.
+		// Resolution builds ancestry before binding the drawn expression source.
 		fieldParent: {},
 		...(logo ? { logo } : {}),
-	};
+	});
 }
 
 /**
- * The public arbitrary: a normalized `BlueprintDoc`. `fieldParent` is left
- * empty here; the fuzz test calls `rebuildFieldParent` before validating, which
- * is the same bootstrap `buildDoc` performs.
+ * The public arbitrary: a normalized `BlueprintDoc`, with all drawn source
+ * parsed against the complete document and its actual slot identities.
  */
 export const blueprintDocArbitrary: fc.Arbitrary<BlueprintDoc> =
 	docGenSpecArb.map(lowerToDoc);
@@ -1464,20 +1463,22 @@ export function hasFormItextMedia(doc: BlueprintDoc): boolean {
 	return false;
 }
 
-/** A datum no Nova menu ever supplies. */
-export const UNSUPPLIED_SESSION_DATUM = "supply_point_id";
+/** A valid datum kind that the generated forms never supply: no form writes a worker record. */
+export const UNSUPPLIED_SESSION_DATUM: DatumRef = {
+	kind: "worker-record",
+};
 
-/** A drawn document holding one raw session read, and whether the form's
+/** A drawn document holding one typed session read, and whether the form's
  * entry declares the datum it reads. */
 export interface SessionReadDoc {
 	readonly doc: BlueprintDoc;
-	readonly datumId: string;
+	readonly datumRef: DatumRef;
 	readonly declared: boolean;
 }
 
 /**
  * A drawn document whose one form gains a Hidden Value that reads
- * `instance('commcaresession')/session/data/<id>`: a datum the form's entry
+ * a typed session datum: a datum the form's entry
  * declares when the entry declares one and the draw asks for it, else one no
  * menu supplies. The read is added after `blueprintDocArbitrary`'s draws, so
  * the documents that arbitrary draws (and the corpus samples) are unchanged.
@@ -1504,17 +1505,21 @@ export const sessionReadDocArbitrary: fc.Arbitrary<SessionReadDoc> = fc
 		);
 		const target = forms[formPick % forms.length];
 		if (target === undefined) {
-			return { doc, datumId: UNSUPPLIED_SESSION_DATUM, declared: false };
+			return { doc, datumRef: UNSUPPLIED_SESSION_DATUM, declared: false };
 		}
-		const declaredIds = entrySessionDatums(
-			doc,
-			formLinkProjectionContext(doc),
-			target.moduleUuid,
-			target.formUuid,
-		).flatMap((datum) => (datum.projectionOnlySelection ? [] : [datum.id]));
-		const declared = wantsDeclared && declaredIds.length > 0;
-		const datumId = declared
-			? (declaredIds[datumPick % declaredIds.length] as string)
+		const declaredRefs = entryDatumSupplies(doc, {
+			kind: "form",
+			module: target.moduleUuid,
+			form: target.formUuid,
+		}).refs.flatMap((datum) => (datum.scalar ? [datum.ref] : []));
+		if (declaredRefs.some((ref) => ref.kind === "worker-record")) {
+			throw new Error(
+				"The session-read generator needs an unsupplied worker datum, but this form now writes a worker record.",
+			);
+		}
+		const declared = wantsDeclared && declaredRefs.length > 0;
+		const datumRef = declared
+			? (declaredRefs[datumPick % declaredRefs.length] as DatumRef)
 			: UNSUPPLIED_SESSION_DATUM;
 		// A sectioned root admits only sections, so the read goes on the
 		// first page there.
@@ -1529,11 +1534,9 @@ export const sessionReadDocArbitrary: fc.Arbitrary<SessionReadDoc> = fc
 			uuid,
 			kind: "hidden",
 			id: "session_read",
-			calculate: opaqueXPathExpression(
-				`instance('commcaresession')/session/data/${datumId}`,
-			),
+			calculate: term({ kind: "session-datum", datum: datumRef }),
 		};
 		doc.fieldOrder[parentUuid] = [...(doc.fieldOrder[parentUuid] ?? []), uuid];
 		rebuildFieldParent(doc);
-		return { doc, datumId, declared };
+		return { doc, datumRef, declared };
 	});

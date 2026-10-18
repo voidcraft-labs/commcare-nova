@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
-	checkPredicate,
+	ancestorPath,
+	checkExpression,
 	eq,
 	exists,
+	expressionContextAtPath,
 	input,
 	literal,
+	matchAll,
 	prop,
+	relationStep,
 	subcasePath,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { whenInputPresentDefault } from "../cards/WhenInputPresentCard";
 import { relatedConditionSeed } from "../conditionSeed";
@@ -48,56 +53,62 @@ const EMPTY_CASE_TYPES: readonly CaseType[] = [
 describe("actual structural condition seeds", () => {
 	it("starts a new search-answer wrapper with an editable Is condition", () => {
 		expect(
-			whenInputPresentDefault({
-				caseTypes: CASE_TYPES,
-				currentCaseType: "patient",
-				knownInputs: KNOWN_INPUTS,
-				caseDataScope: "per-case",
-			}),
+			whenInputPresentDefault(
+				expressionEditorFixture("case-filter", {
+					caseTypes: CASE_TYPES,
+					currentCaseType: "patient",
+					knownInputs: KNOWN_INPUTS,
+					caseDataScope: "per-case",
+				}).context,
+			),
 		).toEqual(whenInput(input(testUuid("query")), PATIENT_FIRST));
 	});
 
-	it("resolves nested row scope under a global mounting surface", () => {
-		const seed = relatedConditionSeed(
-			{
-				caseTypes: CASE_TYPES,
-				currentCaseType: "patient",
-				knownInputs: KNOWN_INPUTS,
-				caseDataScope: "global",
-			},
-			"household",
-		);
+	it("derives the related row through the owning expression slot", () => {
+		const ctx = expressionEditorFixture("case-filter", {
+			caseTypes: CASE_TYPES,
+			currentCaseType: "patient",
+			knownInputs: [],
+			caseDataScope: "per-case",
+		}).context;
+		const via = ancestorPath(relationStep("parent", "household"));
+		const seed = relatedConditionSeed(ctx, "household", via);
 		expect(seed).toEqual(HOUSEHOLD_FIRST);
 		if (seed === undefined) throw new Error("Expected available condition");
-		expect(
-			checkPredicate(seed, {
-				caseTypes: [...CASE_TYPES],
-				currentCaseType: "household",
-				knownInputs: [...KNOWN_INPUTS],
-			}),
-		).toEqual({ ok: true });
+		const nested = expressionContextAtPath(
+			exists(via, matchAll()),
+			ctx.expressionContext,
+			["exists", "where"],
+		);
+		if (nested === undefined) throw new Error("Expected a related row context");
+		expect(checkExpression(seed, nested)).toMatchObject({ errors: [] });
 	});
 	it("offers a real relation where the destination has no own properties", () => {
 		expect(
 			relatedConditionSeed(
-				{
+				expressionEditorFixture("case-filter", {
 					caseDataScope: "per-case",
 					caseTypes: RELATION_ONLY_CASE_TYPES,
 					currentCaseType: "patient",
 					knownInputs: [],
-				},
+				}).context,
 				"household",
+				ancestorPath(relationStep("parent", "household")),
 			),
 		).toEqual(RELATION_ONLY_FIRST);
 	});
 	it("refuses an unresolved destination or an empty isolated catalog", () => {
-		const ctx = {
+		const ctx = expressionEditorFixture("case-filter", {
 			caseDataScope: "per-case" as const,
 			caseTypes: EMPTY_CASE_TYPES,
 			currentCaseType: "orphan",
 			knownInputs: [],
-		};
-		expect(relatedConditionSeed(ctx, undefined)).toBeUndefined();
-		expect(relatedConditionSeed(ctx, "orphan")).toBeUndefined();
+		}).context;
+		expect(
+			relatedConditionSeed(ctx, undefined, subcasePath("parent", "missing")),
+		).toBeUndefined();
+		expect(
+			relatedConditionSeed(ctx, "orphan", subcasePath("parent", "orphan")),
+		).toBeUndefined();
 	});
 });

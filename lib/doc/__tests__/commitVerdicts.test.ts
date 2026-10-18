@@ -15,15 +15,16 @@ import { assertAdmittedDoc } from "./admittedDoc";
  */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { validationError } from "@/lib/commcare/validator/errors";
 import {
 	describeCommitFindings,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
-import { parseXPathForField } from "@/lib/doc/expressionText";
+import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { formField, term } from "@/lib/domain/expression/builders";
 
 /** Minimal valid doc: one registration module/form writing two properties. */
 function minDoc(): BlueprintDoc {
@@ -110,14 +111,8 @@ describe("mutationCommitVerdict", () => {
 	});
 
 	it("accepts a case-ref expression whose object keys admission re-sorts", () => {
-		// Admission (`admitMutationBatch`) re-serializes every mutation with
-		// sorted object keys, and `case-ref` is the one XPath part whose
-		// sorted spelling ({caseType, kind, property}) differs from its
-		// authored spelling ({kind, caseType, property}). The candidate doc
-		// therefore stores the sorted shape, and the deep validator's
-		// parse-and-print round trip must compare ASTs structurally rather
-		// than byte-wise. Regression: a live build rejected every faithful
-		// construction of a case-reading guard as INVALID_REF.
+		// Admission re-serializes object keys. Typed case reads remain structural
+		// expressions regardless of the serialized key order.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -154,10 +149,11 @@ describe("mutationCommitVerdict", () => {
 			],
 		});
 		assertAdmittedDoc(doc);
-		const caseRead = xp("#patient/village");
-		expect(caseRead.parts).toEqual([
-			{ kind: "case-ref", caseType: "patient", property: "village" },
-		]);
+		const caseRead = term({
+			kind: "form-case",
+			caseType: "patient",
+			property: "village",
+		});
 
 		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
@@ -264,29 +260,14 @@ describe("mutationCommitVerdict", () => {
 			(field) => field.id === "village",
 		);
 		if (!target) throw new Error("fixture must have a village field");
-		const parsed = parseXPathForField(doc, target.uuid, "#case/age > 0");
-		expect(parsed.parts).toEqual([{ kind: "text", text: "#case/age > 0" }]);
-
-		assertAdmittedDoc(doc);
-		const verdict = mutationCommitVerdict(
+		const parsed = parseFormExpressionForSlot(
 			doc,
-			[
-				{
-					kind: "updateField",
-					uuid: target.uuid,
-					targetKind: "text",
-					patch: { relevant: parsed },
-				},
-			],
-			LOOKUP_CONTEXT_UNAVAILABLE,
+			{ entity: "field", uuid: target.uuid, slot: "relevant" },
+			"#case/age > 0",
+			"unavailable",
 		);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.length).toBeGreaterThan(0);
-			expect(describeCommitFindings(verdict.findings)).toMatch(
-				/XPath|expression|reference/i,
-			);
-		}
+		expect(parsed.ok).toBe(false);
+
 		expect(Reflect.get(doc.fields[target.uuid], "relevant")).toBeUndefined();
 	});
 
@@ -339,10 +320,10 @@ describe("mutationCommitVerdict", () => {
 				kind: "updateField",
 				uuid: target.uuid,
 				targetKind: "text",
-				// An unparseable XPath — XPATH_SYNTAX, soundness class.
-				// Text fields carry relevant conditions, so this reaches the
-				// expression validator after strict mutation admission.
-				patch: { relevant: xp("if(") },
+				// A typed reference can be structurally valid while its identity is absent.
+				patch: {
+					relevant: term(formField(testUuid("missing-expression-target"))),
+				},
 			},
 		];
 
@@ -355,7 +336,7 @@ describe("mutationCommitVerdict", () => {
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.findings.map((finding) => finding.code)).toContain(
-				"XPATH_SYNTAX",
+				"INVALID_REF",
 			);
 			expect(verdict.findings.every((e) => typeof e.message === "string")).toBe(
 				true,

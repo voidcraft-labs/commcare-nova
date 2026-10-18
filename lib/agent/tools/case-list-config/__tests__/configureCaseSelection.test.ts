@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { toolDetail } from "@/lib/chat/toolSummary";
 import { type BlueprintDoc, plainColumn, tileCell } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	type ConfigureCaseSelectionResult,
@@ -95,10 +96,8 @@ function linkedFollowupDoc(args?: {
 						...(args?.authoredDatums === true && {
 							datums: [
 								{
-									name: "case_id",
-									xpath: {
-										parts: [{ kind: "text", text: "'case-id'" }],
-									},
+									name: { kind: "selected-case", module: TARGET_MODULE },
+									xpath: term(literal("case-id")),
 								},
 							],
 						}),

@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { hiddenSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
-import { input, literal, matchesPattern, term } from "@/lib/domain/predicate";
+import { input, literal, matchesPattern, term } from "@/lib/domain/expression";
 import { evaluateSearch } from "../evaluateForm";
 import { previewAsMe } from "../identity";
 

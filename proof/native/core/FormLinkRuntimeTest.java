@@ -22,6 +22,13 @@ import static org.junit.Assert.*;
 /** Actual Core completion, stack operations, session state and next required datum
  * over seven admitted Nova apps and independently regenerated HQ entries. */
 public class FormLinkRuntimeTest {
+    @Test public void authoredSessionReadsMatchCreatedCasesAndTheLinkedSelection() throws Exception {
+        var document = SessionReadAssertions.targeted("form-link", "targeted-form-link-session-reads");
+        for (boolean hq : new boolean[]{false, true}) {
+            SessionReadAssertions.createdAndWorker(document, hq, false, true);
+            SessionReadAssertions.selectedAndGroup(document, hq, false);
+        }
+    }
     private static final class Parser extends SuiteParser {
         Parser(InputStream stream) throws IOException { super(stream, null, "nova-links", null, true, true, false); }
     }

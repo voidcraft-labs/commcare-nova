@@ -42,7 +42,7 @@ import { materializableCaseTypes } from "../../lib/domain/effectiveCaseTypes";
 import {
 	type CaseTypePropertyJsonSchema,
 	caseTypeToJsonSchema,
-} from "../../lib/domain/predicate/jsonSchema";
+} from "../../lib/domain/expression/jsonSchema";
 
 export interface RetypedProperty {
 	readonly property: string;
@@ -81,7 +81,7 @@ export interface CaseTypeDrift {
 /**
  * Invert a stored per-property JSON Schema spec back to the
  * `CasePropertyDataType` that emitted it — the inverse of
- * `propertyToSchema` in `lib/domain/predicate/jsonSchema.ts`, widened
+ * `propertyToSchema` in `lib/domain/expression/jsonSchema.ts`, widened
  * to the LEGACY stored shape: rows written while the generator still
  * emitted option-value enums carry `enum`, and reading it keeps a
  * legacy select row inverting to `single_select` — so the enum-drop

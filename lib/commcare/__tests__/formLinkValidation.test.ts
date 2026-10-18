@@ -1,8 +1,8 @@
 /**
  * The after-submit link rules beyond target existence: reachability, the
  * explicit "otherwise", datum completeness, unused datums, the graph-backed
- * cycle rule, and the `linkUuid` / destination details every finding
- * carries so a surface can point at the link and name where it goes.
+ * cycle rule, and the link identity that lets a surface point at the
+ * affected route.
  */
 
 import { describe, expect, it } from "vitest";
@@ -15,8 +15,16 @@ import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
 	blueprintDocSchema,
+	type FormLinkDatumName,
 	type PostSubmitDestination,
 } from "@/lib/domain";
+import {
+	type Expression,
+	eq,
+	formField,
+	literal,
+	term,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 
 const INTAKE = testUuid("mod-intake");
@@ -27,7 +35,7 @@ const NOTE = testUuid("frm-note");
 
 interface LinkSpec {
 	uuid: string;
-	condition?: string;
+	condition?: string | Expression;
 	target:
 		| {
 				type: "form";
@@ -35,7 +43,7 @@ interface LinkSpec {
 				formUuid: typeof VISIT | typeof NOTE;
 		  }
 		| { type: "module"; moduleUuid: typeof CARE | typeof INTAKE };
-	datums?: Array<{ name: string; xpath: string }>;
+	datums?: Array<{ name: FormLinkDatumName; xpath: string | Expression }>;
 }
 
 /**
@@ -173,11 +181,6 @@ describe("FORM_LINK_NO_FALLBACK", () => {
 		});
 		expect(linkFindings(doc)).toEqual([]);
 	});
-
-	it("treats an empty condition as unconditional", () => {
-		const doc = docWith([{ uuid: "lnk", condition: "", target: toNote }]);
-		expect(linkFindings(doc)).toEqual([]);
-	});
 });
 
 describe("FORM_LINK_DATUMS_INCOMPLETE", () => {
@@ -211,25 +214,82 @@ describe("FORM_LINK_DATUMS_INCOMPLETE", () => {
 			{
 				uuid: "lnk",
 				target: toVisit,
-				datums: [{ name: "case_id", xpath: "'patient-7'" }],
+				datums: [
+					{
+						name: { kind: "selected-case", module: CARE },
+						xpath: "'patient-7'",
+					},
+				],
 			},
 		]);
 		expect(linkFindings(doc)).toEqual([]);
 	});
 
 	it("refuses explicit datums that leave a selection datum unnamed", () => {
-		const doc = docWith([
-			{
-				uuid: "lnk",
-				target: toVisit,
-				datums: [{ name: "other", xpath: "'x'" }],
-			},
-		]);
+		const household = testUuid("mod-household");
+		const doc = buildDoc({
+			caseTypes: [
+				{ name: "household", properties: [] },
+				{ name: "patient", parent_type: "household", properties: [] },
+			],
+			modules: [
+				{
+					uuid: INTAKE,
+					name: "Intake",
+					forms: [
+						{
+							uuid: SOURCE,
+							name: "Source",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q" })],
+							formLinks: [
+								{
+									uuid: "lnk",
+									target: toVisit,
+									datums: [
+										{
+											name: { kind: "selected-case", module: CARE },
+											xpath: "'patient-7'",
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+				{
+					uuid: household,
+					name: "Households",
+					caseType: "household",
+					caseListOnly: true,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+				},
+				{
+					uuid: CARE,
+					name: "Care",
+					caseType: "patient",
+					parentCaseModuleUuid: household,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: VISIT,
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "answer" })],
+						},
+					],
+				},
+			],
+		});
 		expect(
 			linkFindings(doc)
 				.map((e) => e.code)
 				.sort(),
-		).toEqual(["FORM_LINK_DATUMS_INCOMPLETE", "FORM_LINK_DATUM_UNUSED"]);
+		).toEqual(["FORM_LINK_DATUMS_INCOMPLETE"]);
 	});
 
 	it("never fires for a module target — the person picks a case on arrival", () => {
@@ -238,23 +298,38 @@ describe("FORM_LINK_DATUMS_INCOMPLETE", () => {
 	});
 });
 
-describe("FORM_LINK_DATUM_UNUSED", () => {
-	it("names a value the destination never reads", () => {
-		const doc = docWith([
-			{
-				uuid: "lnk",
-				target: toNote,
-				datums: [{ name: "worker", xpath: "'w'" }],
-			},
-		]);
-		const findings = linkFindings(doc);
-		expect(findings.map((e) => e.code)).toEqual(["FORM_LINK_DATUM_UNUSED"]);
-		expect(findings[0].details).toMatchObject({
-			linkUuid: testUuid("lnk"),
-			datumName: "worker",
-		});
-		expect(userFacingError(findings[0])).toContain('"worker"');
-	});
+describe("unrequested form-link selections", () => {
+	it.each([
+		{ target: toVisit, module: INTAKE },
+		{ target: toNote, module: CARE },
+	])(
+		"refuses a selected record the destination never requests: $target.formUuid",
+		({ target, module }) => {
+			const doc = docWith([
+				{
+					uuid: "lnk",
+					target,
+					datums: [
+						{
+							name: { kind: "selected-case", module },
+							xpath: term(literal("patient-7")),
+						},
+					],
+				},
+			]);
+			const findings = linkFindings(doc);
+			expect(findings.map((e) => e.code)).toEqual(["FORM_LINK_DATUM_UNUSED"]);
+			expect(findings[0].details).toMatchObject({
+				linkUuid: testUuid("lnk"),
+				checkCode: "datum-not-supplied",
+				slot: "form_link_datum_xpath",
+				reason: "target-not-requested",
+			});
+			expect(userFacingError(findings[0])).toContain(
+				"carries a case its destination no longer asks for",
+			);
+		},
+	);
 });
 
 describe("targets, self references, and the cycle rule", () => {
@@ -358,11 +433,16 @@ describe("targets, self references, and the cycle rule", () => {
 	});
 });
 
-describe("deep XPath findings on a link", () => {
-	it("carry the link uuid and name the destination", () => {
-		const doc = docWith([
-			{ uuid: "lnk", condition: "#form/q = 'yes'", target: toCare },
-		]);
+describe("expression findings on a link", () => {
+	it("carry the link uuid and the exact condition slot", () => {
+		const doc = docWith([{ uuid: "lnk", condition: "true()", target: toCare }]);
+		const field = Object.values(doc.fields).find(
+			(candidate) => candidate.id === "q",
+		);
+		const link = doc.forms[SOURCE]?.formLinks?.[0];
+		if (field === undefined || link === undefined)
+			throw new Error("Missing source field or link");
+		link.condition = eq(formField(field.uuid), literal("yes"));
 		const all = linkFindings(doc);
 		expect(all.map((e) => e.code)).toEqual([
 			"FORM_LINK_NO_FALLBACK",
@@ -370,11 +450,14 @@ describe("deep XPath findings on a link", () => {
 		]);
 		const findings = all.filter((e) => e.code !== "FORM_LINK_NO_FALLBACK");
 		expect(findings[0].message).toContain(
-			'the link to the "Care" module, condition',
+			"This runs after the form has closed, so it can't read the form's answers.",
 		);
 		expect(findings[0].details).toMatchObject({
-			destination: "Care",
-			destinationKind: "module",
+			linkUuid: testUuid("lnk"),
+		});
+		expect(findings[0].location).toMatchObject({
+			formUuid: SOURCE,
+			field: "form_link_condition",
 		});
 	});
 });

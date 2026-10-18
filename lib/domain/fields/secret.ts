@@ -9,16 +9,16 @@ import tablerLock from "@iconify-icons/tabler/lock";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
+	formLogicSchema,
 	inputFieldBaseSchema,
 	proseTemplateSchema,
-	xpathExpressionSchema,
 } from "./base";
 
 export const secretFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("secret"),
-	validate: xpathExpressionSchema.optional(),
+	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
-	default_value: xpathExpressionSchema.optional(),
+	default_value: formLogicSchema.optional(),
 });
 
 export type SecretField = z.infer<typeof secretFieldSchema>;

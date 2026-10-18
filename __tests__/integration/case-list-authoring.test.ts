@@ -43,7 +43,7 @@ import {
 	matchAll,
 	prop,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	APP_ID,

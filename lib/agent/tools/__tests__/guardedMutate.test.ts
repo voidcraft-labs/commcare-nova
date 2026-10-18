@@ -7,10 +7,11 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { eq, formField, literal } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import {
@@ -93,7 +94,9 @@ function badRelevantMutation(doc: BlueprintDoc): Mutation[] {
 			kind: "updateField",
 			uuid: villageAddress(doc).fieldUuid,
 			targetKind: "text",
-			patch: { relevant: xp("if(") },
+			patch: {
+				relevant: eq(formField(testUuid("missing-answer")), literal("yes")),
+			},
 		},
 	];
 }
@@ -191,7 +194,10 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 		const out = await h.runTool(editFieldTool, {
 			...villageAddress(doc),
-			updates: { kind: "text", relevant: xp("if(") },
+			updates: {
+				kind: "text",
+				relevant: eq(formField(testUuid("missing-answer")), literal("yes")),
+			},
 		});
 
 		expect(out.kind).toBe("mutate");
@@ -205,7 +211,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 	it("an ID-changing edit is atomic — a bad sibling property leaves zero committed prefix", async () => {
 		// The ID change alone is valid; the relevant expression introduces
-		// XPATH_SYNTAX. The whole updateField patch gates as ONE candidate,
+		// a missing field reference. The whole updateField patch gates as ONE candidate,
 		// so the ID change must NOT commit — nothing persists, the doc is untouched,
 		// and the agent can re-issue the corrected call from the original
 		// state ("a rejected call saved nothing" holds with no asterisk).
@@ -217,7 +223,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 			updates: {
 				kind: "text",
 				id: "village_name",
-				relevant: xp("if("),
+				relevant: eq(formField(testUuid("missing-answer")), literal("yes")),
 			},
 		});
 

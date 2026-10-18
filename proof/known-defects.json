@@ -1952,6 +1952,28 @@
 		"control": "tile-grouped-search"
 	},
 	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-runs",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*",
+		"kind": "added",
+		"document": "targeted-list-first-places",
+		"control": "targeted-list-first-places"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-runs-viewport",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/viewport",
+		"kind": "changed",
+		"document": "targeted-list-first-places",
+		"control": "targeted-list-first-places"
+	},
+	{
 		"id": "d21-list-first-turned-search-fir-webapps-case-list-screens-kind",
 		"defect": 21,
 		"part": "list-first turned search-first",

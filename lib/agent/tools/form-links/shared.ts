@@ -13,12 +13,13 @@ import type { FormLinkRefusal } from "@/lib/doc/formLinkMutations";
 import {
 	type BlueprintDoc,
 	type FormLink,
+	formLinkDatumNameSchema,
 	formLinkDestination,
 	formLinkSchema,
 	formLinkTargetSchema,
+	formLogicSchema,
 	type Uuid,
 	uniqueFormLinkDatumNames,
-	xpathExpressionSchema,
 } from "@/lib/domain";
 
 /**
@@ -36,13 +37,10 @@ export {
 } from "../shared/entityAddresses";
 
 const datumInputSchema = z.strictObject({
-	name: z
-		.string()
-		.min(1)
-		.describe(
-			"The session value the target reads, usually its case id datum such as case_id.",
-		),
-	xpath: xpathExpressionSchema.describe(
+	name: formLinkDatumNameSchema.describe(
+		"The session value the target reads, usually its case id datum such as case_id.",
+	),
+	xpath: formLogicSchema.describe(
 		"Session-scope XPath that supplies the value after the form has closed, such as a case-ref or #user value. Never a form answer.",
 	),
 });
@@ -53,7 +51,7 @@ const datumInputSchema = z.strictObject({
  */
 export const formLinkInputSchema = z
 	.strictObject({
-		condition: xpathExpressionSchema
+		condition: formLogicSchema
 			.nullable()
 			.optional()
 			.describe(

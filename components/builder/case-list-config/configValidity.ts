@@ -1,76 +1,13 @@
-// components/builder/case-list-config/configValidity.ts
-//
-// Pure whole-config verdicts for `CaseListConfig`. The workspace
-// mounts at most one editor (the inspected entity), so every verdict
-// is derived from the config alone. Callers pass the EFFECTIVE case
-// types (`useEffectiveCaseTypes`: the same view the commit gate's
-// validator resolves against), so these verdicts can't disagree with
-// the gate.
-//
-// Each check mirrors the corresponding editor's own verdict source so
-// the derivation can't disagree with what the inspector shows:
-//
-//   - columns: the per-kind applicability predicate from
-//     `columnEditorSchemas` (what `ColumnEditor` surfaces inline, and
-//     the same domain predicate the gate's kind-vs-type rule runs);
-//     calculated columns run `checkValueExpression` with the same
-//     bare context `CalculatedColumnCard`'s editor builds.
-//   - filter: `checkPredicate` with the full search-input list as
-//     known inputs: the context Results' Cases available
-//     `PredicateCardEditor` receives.
-//   - search inputs: the structural row resolution from
-//     `searchInputResolution` plus per-row default-expression (no
-//     inputs in scope) / advanced-predicate (every named row in scope)
-//     checks: exactly the editors `SearchInputEditor` mounts.
-//   - tile placement: `tileLayoutIssues`, which mirrors
-//     `lib/commcare/validator/rules/case-list/caseTileLayout.ts` rule
-//     for rule: the same geometry-always / coverage-while-on split.
-//
-// ONE walk produces three answers, because they gate different
-// surfaces:
-//
-//   - `errorAreas`, which tabs carry the error dot: every finding,
-//     including search-input problems and column-kind applicability
-//     mismatches. A broken column badges only the screen that shows it;
-//     off-screen sort carriers belong to Results because Default order uses
-//     them. A fully hidden definition is still validated and included in
-//     `brokenColumns`, but has no screen tab to badge.
-//   - `brokenColumns`: the per-column set behind the in-canvas
-//     error marks (a tab dot must point at something findable).
-//   - `filterBroken`: used to mark Results' Cases available composer
-//     directly so every tab dot leads somewhere.
-//   - `tileIssues`: per-column tile-placement problems, kept OUT of
-//     `brokenColumns` on purpose: a tile problem is a Results problem,
-//     and folding it into the shared set would badge the same field on
-//     Details, where nothing about it is wrong. Results unions the two
-//     itself.
-
-import { caseSearchPredicateVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+/** Project the real document gate into workspace marks; local checks only cover presentation structure. */
 import type { CaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
-import {
-	type CaseListConfig,
-	type CaseType,
-	type Column,
-	searchInputDefault,
-	type Uuid,
-} from "@/lib/domain";
-import {
-	checkPredicate,
-	checkValueExpression,
-	type TypeContext,
-} from "@/lib/domain/predicate";
+import type { CaseListConfig, CaseType, Column, Uuid } from "@/lib/domain";
+
 import {
 	columnCardSchemas,
 	resolveColumnProperty,
 } from "./columnEditorSchemas";
-import {
-	expectedTypeForDefault,
-	NO_SEARCH_INPUTS,
-	resolveRows,
-	rowHasStructuralError,
-	searchInputDecls,
-} from "./searchInputResolution";
+import { resolveRows, rowHasStructuralError } from "./searchInputResolution";
 import { tileIssuesByColumn, tileLayoutIssues } from "./tile/tileModel";
 
 /** Which workspace tabs currently host a configuration error, the
@@ -101,33 +38,18 @@ export interface CaseListConfigVerdicts {
 export interface CaseListConfigVerdictOptions {
 	readonly caseSearchEnabled?: boolean;
 	/** Absolute module-rule findings projected from the live BlueprintDoc. */
-	readonly boundary?: CaseWorkspaceBoundaryVerdicts;
+	readonly boundary: CaseWorkspaceBoundaryVerdicts;
 }
-
-const CLEAN_BOUNDARY: CaseWorkspaceBoundaryVerdicts = {
-	filterBroken: false,
-	searchInputsBroken: false,
-	searchButtonConditionBroken: false,
-	excludedOwnerIdsBroken: false,
-	brokenColumnUuids: [],
-};
 
 export function caseListConfigVerdicts(
 	config: CaseListConfig,
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
 	project: ProseProjector,
-	options: CaseListConfigVerdictOptions = {},
+	options: CaseListConfigVerdictOptions,
 ): CaseListConfigVerdicts {
-	const caseSearchEnabled =
-		options.caseSearchEnabled ?? config.searchInputs.length > 0;
-	const boundary = options.boundary ?? CLEAN_BOUNDARY;
+	const boundary = options.boundary;
 	const editCtx = { caseTypes, currentCaseType };
-	const bareCtx: TypeContext = {
-		caseTypes: [...caseTypes],
-		knownInputs: [],
-		currentCaseType,
-	};
 
 	// ── Columns: one pass feeds the marks and tab dots. ──
 	const brokenColumns = new Set<Uuid>();
@@ -141,11 +63,7 @@ export function caseListConfigVerdicts(
 		if (column.visibleInDetail !== false) detailColumnsBroken = true;
 	};
 	for (const col of config.columns) {
-		if (col.kind === "calculated") {
-			if (checkValueExpression(col.expression, bareCtx).ok) continue;
-			markBrokenColumn(col);
-			continue;
-		}
+		if (col.kind === "calculated") continue;
 		const applicable = columnCardSchemas[col.kind].applicableForProperty(
 			resolveColumnProperty(editCtx, col.field),
 		);
@@ -162,45 +80,7 @@ export function caseListConfigVerdicts(
 	// it; coverage only while it is on. Both mirror the validator rule.
 	const tileIssues = tileIssuesByColumn(tileLayoutIssues(config));
 
-	// Search widgets expose their runtime scalar type, not the targeted case
-	// property's type. This is the same domain mapping the gate and Preview use.
-	const inputDecls = searchInputDecls(config.searchInputs);
-
-	// ── Filter ──
-	let filterIsBroken = boundary.filterBroken;
-	if (config.filter !== undefined) {
-		const filterCtx: TypeContext = {
-			caseTypes: [...caseTypes],
-			knownInputs: [...inputDecls],
-			currentCaseType,
-		};
-		filterIsBroken =
-			filterIsBroken ||
-			!checkPredicate(config.filter, filterCtx).ok ||
-			(caseSearchEnabled && !caseSearchPredicateVerdict(config.filter).ok);
-	}
-
-	// ── Search inputs ──
-	// Both per-row check contexts are row-invariant, so they build once.
-	// Default values run BEFORE the search screen opens, so they resolve
-	// NO `input(...)` ref: mirror the editor's NO_SEARCH_INPUTS scope
-	// (and the commit gate's forbids-input-ref rule); session / user-data
-	// refs still resolve without it. An advanced predicate resolves
-	// `input(...)` against EVERY named row: the full scope the
-	// validator's `moduleTypeContext` and the wire emitter use.
-	const defaultCtx: TypeContext = {
-		caseTypes: [...caseTypes],
-		knownInputs: [...NO_SEARCH_INPUTS],
-		currentCaseType,
-	};
-	const predicateCtx: TypeContext = {
-		caseTypes: [...caseTypes],
-		knownInputs: [...inputDecls],
-		currentCaseType,
-	};
-	// The two device-evaluated slots admit a pattern match; the gate's
-	// `searchInputScreenPredicateTypeCheck` types them under this context.
-	const screenCtx: TypeContext = { ...predicateCtx, patternMatching: true };
+	const filterIsBroken = boundary.filterBroken;
 	let search =
 		boundary.searchInputsBroken || boundary.searchButtonConditionBroken;
 	const resolved = resolveRows(
@@ -215,47 +95,6 @@ export function caseListConfigVerdicts(
 		if (row === undefined || rowResolved === undefined) continue;
 		if (rowHasStructuralError(rowResolved)) {
 			search = true;
-			continue;
-		}
-
-		if (row.kind === "hidden") {
-			// A hidden value evaluates before the screen opens, like a default,
-			// and binds whatever text its expression prints; any scalar type
-			// is admissible, so only resolution is checked here.
-			if (!checkValueExpression(row.value, defaultCtx).ok) search = true;
-			continue;
-		}
-		const rowDefault = searchInputDefault(row);
-		if (rowDefault !== undefined) {
-			const verdict = checkValueExpression(
-				rowDefault,
-				defaultCtx,
-				expectedTypeForDefault(row.type),
-			);
-			if (!verdict.ok) search = true;
-		}
-		// The required condition and the check rule evaluate on the Search
-		// screen itself, where every sibling answer is readable: the same
-		// scope an advanced predicate resolves `input(...)` against.
-		if (
-			row.required?.when !== undefined &&
-			!checkPredicate(row.required.when, screenCtx).ok
-		) {
-			search = true;
-		}
-		if (
-			row.validation !== undefined &&
-			!checkPredicate(row.validation.rule, screenCtx).ok
-		) {
-			search = true;
-		}
-		if (row.kind === "advanced") {
-			if (
-				!checkPredicate(row.predicate, predicateCtx).ok ||
-				!caseSearchPredicateVerdict(row.predicate).ok
-			) {
-				search = true;
-			}
 		}
 	}
 

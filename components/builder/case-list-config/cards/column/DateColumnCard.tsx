@@ -13,11 +13,11 @@
 //     (`primitives/CustomDatePatternInput.tsx`): segmented preset
 //     toggle row + free-text custom input + empty-pattern signal.
 //     The primitive is mounted by both this card and the
-//     ValueExpression-side `FormatDateCard` so polish-passes apply
+//     Expression-side `FormatDateCard` so polish-passes apply
 //     once.
 //
 // Preset commits: this card reads the shared domain preset table and commits
-// the concrete JavaRosa pattern. The ValueExpression-side card retains the
+// the concrete JavaRosa pattern. The Expression-side card retains the
 // semantic preset id and resolves it at each runtime boundary.
 
 "use client";
@@ -32,7 +32,7 @@ import {
 	DATE_FORMAT_PRESET_DEFINITIONS,
 	dateColumn,
 } from "@/lib/domain";
-import { FORMAT_DATE_PRESETS } from "@/lib/domain/predicate";
+import { FORMAT_DATE_PRESETS } from "@/lib/domain/expression";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 

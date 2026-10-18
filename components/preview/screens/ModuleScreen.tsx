@@ -38,6 +38,7 @@ import {
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { caseDatabaseToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
+import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { previousTaskFormSelectors } from "@/lib/preview/engine/previousTask";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -153,13 +154,21 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 								condition: form.displayCondition,
 								hiddenFromMenu: form.hiddenFromMenu === true,
 								session,
-								...(mod?.caseType ? { currentCaseType: mod.caseType } : {}),
+								types: previewExpressionContext(
+									menuSource.doc,
+									{
+										entity: "form",
+										uuid: form.uuid,
+										slot: "form_display_condition",
+									},
+									lookup.kind === "data" ? lookup.data : undefined,
+								),
 								caseProjection: selectedCaseProjection,
 								lookup,
 							}),
 				]),
 			),
-		[forms, mode, session, lookup, mod?.caseType, selectedCaseProjection],
+		[forms, mode, session, lookup, menuSource.doc, selectedCaseProjection],
 	);
 	const hiddenForms = useMemo(
 		() =>
@@ -179,7 +188,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		[forms, formVisibility, projectProse, localizedValues],
 	);
 	const moduleVisibility = useMemo(() => {
-		return previewModuleVisibility(menuSource, {
+		return previewModuleVisibility(menuSource.doc, {
 			authoring: mode === "edit",
 			session,
 			lookup,

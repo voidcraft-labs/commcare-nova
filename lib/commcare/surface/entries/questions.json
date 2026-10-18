@@ -8222,7 +8222,7 @@
 		"surfaceKeys": ["xform:model/itext/translation/text/value/output@value"],
 		"valueClass": "any-other-expression",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: prose expression part (`XPathExpression`)",
+		"dispositionCell": "**HELD-NEW**: prose expression part (`Expression`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

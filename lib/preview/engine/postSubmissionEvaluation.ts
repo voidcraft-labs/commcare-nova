@@ -88,7 +88,7 @@ export async function evaluatePostSubmissionSnapshot(
 			parentCaseIds: ids,
 		}),
 	};
-	const menuSource = { ...doc, caseTypes: doc.caseTypes ?? [] };
+	const menuSource = { ...doc, doc, caseTypes: doc.caseTypes ?? [] };
 	const selectedCases = new Map<Uuid, SelectedCaseSessionValue>();
 	for (const uuid of doc.moduleOrder) {
 		const selected = previewMenuCaseContext(
@@ -105,6 +105,7 @@ export async function evaluatePostSubmissionSnapshot(
 	}
 	const input = {
 		doc,
+		formUuid: args.formUuid,
 		session: previewSessionValues(context.identity),
 		usercase: context.identity.usercase,
 		sessionDatums: sourceSessionDatums(

@@ -8,16 +8,16 @@ import tablerClock from "@iconify-icons/tabler/clock";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
+	formLogicSchema,
 	inputFieldBaseSchema,
 	proseTemplateSchema,
-	xpathExpressionSchema,
 } from "./base";
 
 export const datetimeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("datetime"),
-	validate: xpathExpressionSchema.optional(),
+	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
-	default_value: xpathExpressionSchema.optional(),
+	default_value: formLogicSchema.optional(),
 });
 
 export type DatetimeField = z.infer<typeof datetimeFieldSchema>;

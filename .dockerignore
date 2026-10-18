@@ -40,11 +40,7 @@ scripts/infra/*
 scripts/lib/*
 !scripts/lib/caseTypeSchemaRetirement.ts
 !scripts/lib/caseParentRelationshipRepair.ts
-!scripts/lib/caseStatusFilterRepair.ts
-!scripts/lib/xpathCarrierCompatibilityRepair.ts
-!scripts/lib/xpathCompatibilityScan.ts
 !scripts/lib/languageIdentityRepair.ts
-!scripts/lib/selectOptionValueRepair.ts
 !scripts/lib/loadPersistedBlueprint.ts
 !scripts/lib/loadEnv.ts
 !scripts/lib/main.ts
@@ -54,8 +50,6 @@ scripts/lib/*
 # BuildKit's named cache context is supplied separately from the source tree.
 .nova-build-cache
 !scripts/migrate-language-identity.ts
-!scripts/migrate-case-status-filters.ts
-!scripts/migrate-select-option-values.ts
 !scripts/lib/prodDb.ts
 
 # Cloud Build control files are generated between artifact exports.

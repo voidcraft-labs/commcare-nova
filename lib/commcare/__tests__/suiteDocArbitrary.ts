@@ -60,7 +60,6 @@ import {
 	calculatedColumn,
 	caseListSortKeysMatch,
 	dateColumn,
-	type Field,
 	type Form,
 	hiddenSearchInputDef,
 	idMappingColumn,
@@ -84,22 +83,22 @@ import {
 	tileGroupHeaderRowChoices,
 	type Uuid,
 } from "@/lib/domain";
-import { asMediaAssetId } from "@/lib/domain/multimedia";
 import {
 	concat,
+	type Expression,
 	eq,
 	input,
 	isBlank,
 	literal,
 	matchesPattern,
 	now,
-	type Predicate,
 	prop,
 	sessionContext,
 	sessionUser,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import {
 	caseListOrderOptions,
@@ -108,11 +107,13 @@ import {
 import {
 	buildField,
 	type FieldBuildCtx,
+	type FieldDraft,
 	type FieldGenSpec,
 	fieldSpecArb,
 	hasFormItextMedia,
 	IdMinter,
 	pickSiblingId,
+	resolveArbitraryDocument,
 } from "./xformDocArbitrary";
 
 // ── Typed case-property pool ───────────────────────────────────────
@@ -427,13 +428,13 @@ function lowerPromptSlots(
 	sibling: Uuid | undefined,
 ): {
 	hint?: string;
-	required?: { when?: Predicate; message?: string };
-	validation?: { rule: Predicate; message: string };
+	required?: { when?: Expression; message?: string };
+	validation?: { rule: Expression; message: string };
 } {
 	const out: ReturnType<typeof lowerPromptSlots> = {};
 	if (spec.hint) out.hint = "Helper text for this field";
 	if (spec.required !== "none") {
-		const required: { when?: Predicate; message?: string } = {};
+		const required: { when?: Expression; message?: string } = {};
 		if (spec.required === "sibling" && sibling !== undefined) {
 			required.when = isBlank(input(sibling));
 		} else if (spec.required === "session") {
@@ -677,7 +678,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	const minter = new IdMinter();
 	const modules: Record<Uuid, Module> = {};
 	const forms: Record<Uuid, Form> = {};
-	const fields: Record<Uuid, Field> = {};
+	const fields: Record<Uuid, FieldDraft> = {};
 	const moduleOrder: Uuid[] = [];
 	const formOrder: Record<Uuid, Uuid[]> = {};
 	const fieldOrder: Record<Uuid, Uuid[]> = {};
@@ -968,22 +969,24 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// App-level logo (web-apps banner) — minted only when the spec asks for it.
 	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
-	return orderRulesTheGateAdmits({
-		appId: "suite-fuzz-app",
-		appName: "Suite Fuzz App",
-		connectType: null,
-		appSettings: { ...NEW_APP_SETTINGS },
-		caseTypes,
-		modules,
-		forms,
-		fields,
-		moduleOrder,
-		formOrder,
-		fieldOrder,
-		// fieldParent is rebuilt by the caller via rebuildFieldParent.
-		fieldParent: {},
-		...(logo ? { logo } : {}),
-	});
+	return orderRulesTheGateAdmits(
+		resolveArbitraryDocument({
+			appId: "suite-fuzz-app",
+			appName: "Suite Fuzz App",
+			connectType: null,
+			appSettings: { ...NEW_APP_SETTINGS },
+			caseTypes,
+			modules,
+			forms,
+			fields,
+			moduleOrder,
+			formOrder,
+			fieldOrder,
+			// Expression resolution binds against the completed ancestry.
+			fieldParent: {},
+			...(logo ? { logo } : {}),
+		}),
+	);
 }
 
 /** A copy of the module with each column's order rule set by `sortOf`. */

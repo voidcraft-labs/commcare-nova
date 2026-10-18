@@ -20,7 +20,7 @@ import {
 	prop,
 	tableColumn,
 	tableLookup,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";

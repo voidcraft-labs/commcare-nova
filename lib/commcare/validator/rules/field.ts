@@ -13,12 +13,10 @@ import { directRepeatCountReference } from "@/lib/domain/repeatCount";
  * CommCare's field-kind taxonomy and stay stable.
  */
 
-import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import {
 	duplicateSelectOptionValues,
 	effectiveAppLocalization,
-	expressionInspectionSource,
 	fieldKindCarriesValidation,
 	filledProse,
 	formConnectIds,
@@ -41,44 +39,12 @@ import {
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type ValidationError, validationError } from "../errors";
 
-/**
- * Keys on a Field that carry XPath expressions. We read via a helper that
- * tolerates missing keys on variants that don't declare them (e.g. `label`
- * has no `validate`), so the list is a superset of any one variant's
- * property set.
- */
-const XPATH_FIELDS = [
-	"relevant",
-	"validate",
-	"calculate",
-	"default_value",
-	"required",
-] as const;
-
-type XPathFieldKey = (typeof XPATH_FIELDS)[number];
-
-/** Map a field key to its human-facing description used in error messages. */
-const FIELD_DESCRIPTIONS: Record<XPathFieldKey, string> = {
-	relevant: "display condition (relevant)",
-	validate: "validation rule",
-	calculate: "calculated value",
-	default_value: "default value",
-	required: "required condition",
-};
-
-/**
- * Read an XPath-bearing slot's TEXT off a Field union member — the
- * shared accessor projects AST-stored slots to their printed form and
- * passes string-stored slots through. Returns the text only when
- * non-empty, keeping the per-rule code free of manual type guards.
- */
-function readXPath(
+/** Presence is structural; a parsed expression cannot be an empty source string. */
+function readExpression(
 	field: Field,
-	key: XPathFieldKey | "repeat_count" | "ids_query",
-	ctx: FieldContext,
-): string | undefined {
-	const value = expressionInspectionSource(field, key, ctx.doc);
-	return value !== undefined && value.length > 0 ? value : undefined;
+	key: "required" | "calculate" | "validate" | "repeat_count" | "ids_query",
+): unknown {
+	return (field as unknown as Record<string, unknown>)[key];
 }
 
 /** Context passed to each per-field rule so errors carry full provenance. */
@@ -267,7 +233,7 @@ function hiddenValueBothSources(
  */
 function requiredOnHidden(field: Field, ctx: FieldContext): ValidationError[] {
 	if (field.kind !== "hidden") return [];
-	const required = readXPath(field, "required", ctx);
+	const required = readExpression(field, "required");
 	if (!required) return [];
 	return [
 		validationError(
@@ -302,7 +268,7 @@ function calculateOnVisibleInput(
 	ctx: FieldContext,
 ): ValidationError[] {
 	if (field.kind === "hidden") return [];
-	const calculate = readXPath(field, "calculate", ctx);
+	const calculate = readExpression(field, "calculate");
 	if (!calculate) return [];
 	return [
 		validationError(
@@ -321,38 +287,6 @@ function calculateOnVisibleInput(
 	];
 }
 
-function unquotedStringLiteral(
-	field: Field,
-	ctx: FieldContext,
-): ValidationError[] {
-	const errors: ValidationError[] = [];
-	for (const key of XPATH_FIELDS) {
-		const value = readXPath(field, key, ctx);
-		if (!value) continue;
-		const bare = detectUnquotedStringLiteral(value);
-		if (!bare) continue;
-		const desc = FIELD_DESCRIPTIONS[key];
-		errors.push(
-			validationError(
-				"UNQUOTED_STRING_LITERAL",
-				"field",
-				`Field "${field.id}" in "${ctx.formName}" has ${desc} set to: ${bare}, this looks like a text value, not an XPath expression. If you meant the literal string "${bare}", wrap it in quotes: '${bare}'.`,
-				{
-					moduleUuid: ctx.moduleUuid,
-					moduleName: ctx.moduleName,
-					formUuid: ctx.formUuid,
-					formName: ctx.formName,
-					fieldUuid: field.uuid,
-					fieldId: field.id,
-					field: key,
-				},
-				{ bareWord: bare, field: key },
-			),
-		);
-	}
-	return errors;
-}
-
 /**
  * Validation (`validate` + `validate_msg`) only makes sense on input
  * fields — the user must enter a value AND see an error. We flag either
@@ -364,7 +298,7 @@ function validationOnNonInputType(
 	ctx: FieldContext,
 ): ValidationError[] {
 	if (fieldKindCarriesValidation(field.kind)) return [];
-	const validateExpr = readXPath(field, "validate", ctx);
+	const validateExpr = readExpression(field, "validate");
 	const validateMsg = (field as unknown as Record<string, unknown>)
 		.validate_msg;
 	if (!validateExpr && !validateMsg) return [];
@@ -415,8 +349,8 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 	};
 
 	if (field.repeat_mode === "count_bound") {
-		const expr = readXPath(field, "repeat_count", ctx);
-		if (expr === undefined || expr.trim().length === 0) {
+		const expr = field.repeat_count;
+		if (expr === undefined) {
 			errors.push(
 				validationError(
 					"EMPTY_REPEAT_COUNT",
@@ -426,10 +360,13 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 					{ field: "repeat_count" },
 				),
 			);
+			return errors;
 		}
 		const target = directRepeatCountReference(
-			field.repeat_count,
-			ctx.doc.fields,
+			expr,
+			new Map(
+				Object.values(ctx.doc.fields).map((field) => [field.uuid, field]),
+			),
 		);
 		if (target !== undefined && ctx.doc.fields[target]?.kind !== "int") {
 			errors.push(
@@ -443,8 +380,8 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 			);
 		}
 	} else if (field.repeat_mode === "query_bound") {
-		const expr = readXPath(field, "ids_query", ctx);
-		if (expr === undefined || expr.trim().length === 0) {
+		const expr = field.data_source?.ids_query;
+		if (expr === undefined) {
 			errors.push(
 				validationError(
 					"EMPTY_IDS_QUERY",
@@ -617,7 +554,6 @@ const FIELD_RULES = [
 	hiddenValueBothSources,
 	requiredOnHidden,
 	calculateOnVisibleInput,
-	unquotedStringLiteral,
 	invalidFieldId,
 	validationOnNonInputType,
 	emptyRepeatXPath,

@@ -1,6 +1,6 @@
 // components/builder/shared/cards/expression/TermCard.tsx
 //
-// Term-arm card for the ValueExpression editor: the universal value
+// Term-arm card for the Expression editor: the universal value
 // carrier. Edits the six authorable Term variants:
 //
 //   - `prop`: case property reference (with optional `via:
@@ -20,7 +20,7 @@
 //   - `table-column`: stable lookup-column identity. Offered only in an
 //     explicit table-row scope whose table/column catalog admits it.
 //
-// The card edits ONLY Term-shaped values: non-Term ValueExpression
+// The card edits ONLY Term-shaped values: non-Term Expression
 // arms route through their own dedicated cards (ArithCard / IfCard /
 // etc.) at the `ExpressionPicker` shell's registry-driven dispatch.
 //
@@ -84,11 +84,13 @@ import {
 	type UserProperty,
 	type Uuid,
 } from "@/lib/domain";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	ANY_CONSTRAINT,
 	acceptsType,
 	dateLiteral,
 	datetimeLiteral,
+	type Expression,
 	formField,
 	input,
 	type Literal,
@@ -102,9 +104,8 @@ import {
 	type Term,
 	tableColumn,
 	timeLiteral,
-	type ValueExpression,
 	term as wrapTerm,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	type AdmitExpressionChange,
 	useEditorErrorsAt,
@@ -124,6 +125,13 @@ import { InlineError } from "../../primitives/CardShell";
 import { FormCasePropertyPicker } from "../../primitives/FormCasePropertyPicker";
 import { PropertyRefPicker } from "../../primitives/PropertyRefPicker";
 import { searchInputDisplayLabel } from "../../searchInputPresentation";
+import {
+	type EditableSessionContextField,
+	SESSION_CONTEXT_CHOICES,
+	type SessionUserReference,
+	sessionContextPresentation,
+	sessionUserPresentation,
+} from "../../sessionContextPresentation";
 import {
 	buildLiteralForShape,
 	buildTermDefault,
@@ -155,7 +163,7 @@ import { finiteLiteralDraft, planLiteralDraft } from "../../literalDraft";
  *  Term variant flip the mode menu. */
 export function termDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "term" }> {
+): ExpressionOfKind<"term"> {
 	return wrapTerm(literal(""));
 }
 
@@ -176,8 +184,8 @@ interface PendingTermModeChange {
 }
 
 interface TermCardProps {
-	readonly value: Extract<ValueExpression, { kind: "term" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"term">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 	/** The slot's type constraint: gates the value sources and the
 	 *  literal shape menu. Defaults to `ANY_CONSTRAINT`. */
@@ -204,8 +212,51 @@ interface TermCardProps {
  * therefore looks up errors at its own path, not at a deeper
  * sub-segment.
  */
+const EDITABLE_TERM_KINDS: ReadonlySet<string> = new Set([
+	"form-case",
+	"literal",
+	"prop",
+	"field",
+	"input",
+	"session-context",
+	"session-user",
+	"session-user-property",
+	"table-column",
+]);
+
 export function TermCard(props: TermCardProps) {
+	if (!EDITABLE_TERM_KINDS.has(props.value.term.kind))
+		return <p role="status">This saved value cannot be edited here yet.</p>;
+	if (props.value.term.kind === "session-context") {
+		const presentation = sessionContextPresentation(props.value.term.field);
+		if (presentation.kind === "preserved")
+			return <PreservedSessionContext label={presentation.label} />;
+	}
+	if (
+		props.value.term.kind === "session-user" ||
+		props.value.term.kind === "session-user-property"
+	)
+		return <SessionUserTermCard {...props} reference={props.value.term} />;
 	return <EditableTermCard {...props} />;
+}
+
+function SessionUserTermCard({
+	reference,
+	...props
+}: TermCardProps & { readonly reference: SessionUserReference }) {
+	const { userProperties } = usePredicateEditContext();
+	const presentation = sessionUserPresentation(reference, userProperties);
+	if (presentation.kind === "preserved")
+		return <PreservedSessionContext label={presentation.label} />;
+	return <EditableTermCard {...props} />;
+}
+
+function PreservedSessionContext({ label }: { readonly label: string }) {
+	return (
+		<p role="status">
+			{label}. This saved app value cannot be edited here yet.
+		</p>
+	);
 }
 
 function EditableTermCard({
@@ -925,14 +976,18 @@ function TermBodyInput({
 					invalid={invalid}
 				/>
 			);
-		case "session-context":
+		case "session-context": {
+			const presentation = sessionContextPresentation(term.field);
+			if (presentation.kind === "preserved")
+				return <PreservedSessionContext label={presentation.label} />;
 			return (
 				<SessionContextMenu
-					value={term.field}
+					value={presentation.field}
 					onChange={(field) => onChange(sessionContext(field))}
 					invalid={invalid}
 				/>
 			);
+		}
 		case "session-user":
 			return (
 				<UserFieldInput
@@ -1380,32 +1435,19 @@ function FormFieldRefMenu({
 	);
 }
 
-/** Closed-namespace session field menu. The four fields come from
- *  `SESSION_CONTEXT_FIELDS` in the predicate package; widening the
- *  set requires a parallel edit there + here so the type stays
- *  closed at compile time. */
+/** Only the supported authoring choices enter this menu. Other stored session
+ * values retain their own names in the read-only presentation above. */
 function SessionContextMenu({
 	value,
 	onChange,
 	invalid,
 }: {
-	readonly value: "userid" | "username" | "deviceid" | "appversion";
-	readonly onChange: (
-		field: "userid" | "username" | "deviceid" | "appversion",
-	) => void;
+	readonly value: EditableSessionContextField;
+	readonly onChange: (field: EditableSessionContextField) => void;
 	readonly invalid: boolean;
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const items: readonly {
-		field: "userid" | "username" | "deviceid" | "appversion";
-		label: string;
-	}[] = [
-		{ field: "userid", label: "Current user's ID" },
-		{ field: "username", label: "Current user's name" },
-		{ field: "deviceid", label: "This device's ID" },
-		{ field: "appversion", label: "App version" },
-	];
-	const current = items.find((i) => i.field === value) ?? items[0];
+	const current = sessionContextPresentation(value);
 	const triggerClass = [
 		"group min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50",
 		invalid
@@ -1440,7 +1482,7 @@ function SessionContextMenu({
 					style={{ minWidth: "var(--anchor-width)" }}
 				>
 					<DropdownMenuPopup className="min-w-0">
-						{items.map((it) => {
+						{SESSION_CONTEXT_CHOICES.map((it) => {
 							const isActive = it.field === value;
 							return (
 								<DropdownMenuItem

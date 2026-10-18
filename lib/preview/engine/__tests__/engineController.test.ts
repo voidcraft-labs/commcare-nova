@@ -10,7 +10,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { caseListConfig, xp } from "@/lib/__tests__/docHelpers";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
@@ -22,6 +22,13 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import {
+	literal,
+	matchAll,
+	matchNone,
+	sessionUserProperty,
+	term,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
 import { FormEngine } from "../formEngine";
@@ -29,6 +36,8 @@ import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
 import {
 	admittedControllerDoc,
 	applyControllerEdit,
+	type ControllerDocSource,
+	type ControllerFieldSource,
 } from "./fixtures/controllerDoc";
 
 const controllers = new Set<EngineController>();
@@ -53,7 +62,7 @@ const Q2_UUID = testUuid("aaaaaaaa-0002-0002-0002-000000000002");
 
 /** Build a minimal survey doc with the given fields attached to a single form. */
 function makeDoc(
-	fields: Record<string, Field> = {
+	fields: Record<string, ControllerFieldSource> = {
 		[Q1_UUID]: {
 			uuid: Q1_UUID,
 			id: "name",
@@ -70,7 +79,7 @@ function makeDoc(
 	fieldOrder: Record<string, Uuid[]> = {
 		[FORM_UUID]: [Q1_UUID, Q2_UUID],
 	},
-): PersistableDoc {
+): ControllerDocSource {
 	return {
 		appId: "test-app",
 		appName: "Test App",
@@ -101,11 +110,11 @@ function makeDoc(
 
 /** Create a doc store loaded with the given doc. Undo tracking is resumed
  *  so mutations create live state changes. */
-function createLoadedStore(doc: PersistableDoc = makeDoc()) {
+function createLoadedStore(doc: ControllerDocSource = makeDoc()) {
 	return loadRuntimeFixture(admittedControllerDoc(doc));
 }
 
-/** Fault containment deliberately bypasses the document gate. */
+/** Load the canonical document after whole-app admission. */
 function loadRuntimeFixture(doc: PersistableDoc) {
 	const store = createBlueprintDocStore();
 	store.getState().load(doc);
@@ -151,7 +160,7 @@ describe("EngineController", () => {
 						kind: "text",
 						label: proseText("Name"),
 						caseWrite: { caseType: "patient", property: "case_name" },
-						default_value: xp("'Shared starting name'"),
+						default_value: term(literal("Shared starting name")),
 					},
 				},
 				{ [FORM_UUID]: [Q1_UUID] },
@@ -196,20 +205,13 @@ describe("EngineController", () => {
 		});
 
 		it("contains an impossible runtime activation fault and can open a valid form afterward", () => {
-			const invalidStore = loadRuntimeFixture(
-				makeDoc(
-					{
-						[Q1_UUID]: {
-							uuid: Q1_UUID,
-							id: "name",
-							kind: "text",
-							label: proseText("Name"),
-							default_value: xp("definitely-not-a-function()"),
-						},
-					},
-					{ [FORM_UUID]: [Q1_UUID] },
-				),
-			);
+			const invalidStore = createLoadedStore();
+			vi.spyOn(
+				FormEngine.prototype,
+				"enterFirstSection",
+			).mockImplementationOnce(() => {
+				throw new Error("The runtime failed while entering its first section.");
+			});
 			const ctrl = ownedController();
 			const report = vi.fn();
 			ctrl.setFaultReporter(report);
@@ -262,22 +264,13 @@ describe("EngineController", () => {
 			ctrl.setFaultReporter(() => {
 				throw new Error("telemetry unavailable");
 			});
-			ctrl.setDocStore(
-				loadRuntimeFixture(
-					makeDoc(
-						{
-							[Q1_UUID]: {
-								uuid: Q1_UUID,
-								id: "name",
-								kind: "text",
-								label: proseText("Name"),
-								default_value: xp("definitely-not-a-function()"),
-							},
-						},
-						{ [FORM_UUID]: [Q1_UUID] },
-					),
-				),
-			);
+			ctrl.setDocStore(createLoadedStore());
+			vi.spyOn(
+				FormEngine.prototype,
+				"enterFirstSection",
+			).mockImplementationOnce(() => {
+				throw new Error("The runtime failed while entering its first section.");
+			});
 
 			expect(() => ctrl.activateForm(FORM_UUID)).not.toThrow();
 			expect(ctrl.entryStore.getState().fault).toEqual({
@@ -328,7 +321,7 @@ describe("EngineController", () => {
 				id: "age",
 				label: proseText("Age"),
 				kind: "int",
-				validate: xp("false()"),
+				validate: matchNone(),
 				validate_msg: proseText("Try again"),
 			};
 			const store = createLoadedStore(doc);
@@ -516,7 +509,7 @@ describe("EngineController", () => {
 							id: "signature",
 							kind: "signature",
 							label: proseText("Signature"),
-							relevant: xp("false()"),
+							relevant: matchNone(),
 						},
 					},
 					{ [FORM_UUID]: [Q1_UUID, captureUuid] },
@@ -533,7 +526,7 @@ describe("EngineController", () => {
 					kind: "updateField",
 					uuid: captureUuid,
 					targetKind: "signature",
-					patch: { relevant: xp("true()") },
+					patch: { relevant: matchAll() },
 				},
 			]);
 			await vi.waitFor(() =>
@@ -651,7 +644,7 @@ describe("EngineController", () => {
 			 * state at all. The controller's unknown-form guard still covers
 			 * a stale route, while hydration rejects a structurally detached
 			 * entity before the engine can observe it. */
-			const orphanDoc = makeDoc();
+			const orphanDoc = admittedControllerDoc(makeDoc());
 			orphanDoc.formOrder = { [MODULE_UUID]: [] };
 			const store = createBlueprintDocStore();
 			expect(() => store.getState().load(orphanDoc)).toThrow(
@@ -679,7 +672,7 @@ describe("EngineController", () => {
 					kind: "updateField",
 					uuid: Q1_UUID,
 					targetKind: "text",
-					patch: { relevant: xp("false()") },
+					patch: { relevant: matchNone() },
 				},
 			]);
 
@@ -917,7 +910,7 @@ describe("EngineController", () => {
 			const groupUuid = testUuid("eeeeeeee-0004-0004-0004-000000000001");
 			const childNameUuid = testUuid("eeeeeeee-0004-0004-0004-000000000002");
 			const noteUuid = testUuid("eeeeeeee-0005-0005-0005-000000000001");
-			const doc: PersistableDoc = {
+			const doc: ControllerDocSource = {
 				appId: "test-app",
 				appName: "Test App",
 				connectType: null,
@@ -960,7 +953,7 @@ describe("EngineController", () => {
 						uuid: childNameUuid,
 						id: "entry_name",
 						kind: "hidden",
-						calculate: xp("'Note entry'"),
+						calculate: term(literal("Note entry")),
 						caseWrite: {
 							caseType: "note_entry",
 							property: "case_name",
@@ -1102,7 +1095,7 @@ describe("EngineController", () => {
 
 		/** The doc with a root label beside its containers, so a form whose
 		 * last question leaves still holds one (`EMPTY_FORM`). */
-		function withRootNote(doc: PersistableDoc): PersistableDoc {
+		function withRootNote(doc: ControllerDocSource): ControllerDocSource {
 			const noteUuid = testUuid("eeeeeeee-0000-0000-0000-00000000aaaa");
 			doc.fields[noteUuid] = {
 				uuid: noteUuid,
@@ -1117,7 +1110,7 @@ describe("EngineController", () => {
 			return doc;
 		}
 
-		function repeatDoc(): PersistableDoc {
+		function repeatDoc(): ControllerDocSource {
 			return makeDoc(
 				{
 					[repeatUuid]: {
@@ -1143,7 +1136,7 @@ describe("EngineController", () => {
 
 		function captureContainerDoc(
 			containerKind: "group" | "repeat" = "repeat",
-		): PersistableDoc {
+		): ControllerDocSource {
 			const doc = repeatDoc();
 			doc.fields[repeatUuid] =
 				containerKind === "repeat"
@@ -1797,7 +1790,7 @@ describe("EngineController", () => {
 			const doc = withRootNote(repeatDoc());
 			doc.fields[nameUuid] = {
 				...doc.fields[nameUuid],
-				required: xp("true()"),
+				required: matchAll(),
 			} as Field;
 			const store = createLoadedStore(doc);
 			const ctrl = ownedController();
@@ -1821,7 +1814,7 @@ describe("EngineController", () => {
 				uuid: tagUuid,
 				id: "tag",
 				kind: "hidden",
-				calculate: xp("'A'"),
+				calculate: term(literal("A")),
 			} as Field;
 			doc.fieldOrder[repeatUuid] = [nameUuid, tagUuid];
 			const store = createLoadedStore(doc);
@@ -1836,7 +1829,7 @@ describe("EngineController", () => {
 					kind: "updateField",
 					uuid: tagUuid,
 					targetKind: "hidden",
-					patch: { calculate: xp("'B'") },
+					patch: { calculate: term(literal("B")) },
 				},
 			]);
 
@@ -1857,7 +1850,7 @@ describe("EngineController", () => {
 				uuid: patientNameUuid,
 				id: "patient_name",
 				kind: "hidden",
-				calculate: xp("'Patient'"),
+				calculate: term(literal("Patient")),
 				caseWrite: { caseType: "patient", property: "case_name" },
 			};
 			const nameField = doc.fields[nameUuid];
@@ -1948,7 +1941,7 @@ describe("EngineController", () => {
 			const formUuid = testUuid("form-2-uuid");
 			const nameUuid = testUuid("cccccccc-0001-0001-0001-000000000001");
 			const ageUuid = testUuid("cccccccc-0002-0002-0002-000000000002");
-			const doc: PersistableDoc = {
+			const doc: ControllerDocSource = {
 				appId: "test-app",
 				appName: "Test App",
 				connectType: null,
@@ -2043,7 +2036,7 @@ describe("EngineController", () => {
 		const ME = { id: "worker-1", email: "amina@example.org" };
 
 		/** Standard two-field doc plus a hidden `#user/username` calculate. */
-		function docWithUserCalc(): PersistableDoc {
+		function docWithUserCalc(): ControllerDocSource {
 			return makeDoc(
 				{
 					[Q1_UUID]: {
@@ -2056,8 +2049,8 @@ describe("EngineController", () => {
 						uuid: WHO_UUID,
 						id: "who",
 						kind: "hidden",
-						calculate: xp("#user/username"),
-					} as Field,
+						calculate: "#user/username",
+					},
 				},
 				{ [FORM_UUID]: [Q1_UUID, WHO_UUID] },
 			);
@@ -2159,15 +2152,11 @@ describe("EngineController", () => {
 						uuid: WHO_UUID,
 						id: "region",
 						kind: "hidden",
-						calculate: {
-							parts: [
-								{
-									kind: "user-property-ref",
-									userPropertyUuid: REGION_UUID,
-								},
-							],
-						},
-					} as Field,
+						calculate: term({
+							...sessionUserProperty(REGION_UUID),
+							source: "worker-record",
+						}),
+					},
 				},
 				{ [FORM_UUID]: [Q1_UUID, WHO_UUID] },
 			);
@@ -2240,7 +2229,7 @@ describe("count node names", () => {
 			kind: "repeat",
 			label: proseText("Rows"),
 			repeat_mode: "count_bound",
-			repeat_count: xp("2"),
+			repeat_count: term(literal(2)),
 		});
 		const note = (uuid: Uuid): Field => ({
 			uuid,

@@ -134,7 +134,13 @@ export function classifyIdentity(
 	if (
 		property === "moduleUuid" ||
 		property === "confirmedModuleUuids" ||
-		property === "parentCaseModuleUuid"
+		property === "parentCaseModuleUuid" ||
+		(property === "module" &&
+			discriminators.some((kind) =>
+				["selected-case", "selected-cases", "tile-group-parents"].includes(
+					kind,
+				),
+			))
 	) {
 		return "module";
 	}
@@ -147,7 +153,20 @@ export function classifyIdentity(
 	/* `move_module` anchors on the module it now follows. The slot is named
 	 * for the mutation it emits, so the family comes from the tool. */
 	if (property === "after" && tool === "move_module") return "module";
-	if (property === "formUuid") return "form";
+	if (
+		property === "formUuid" ||
+		(property === "form" &&
+			discriminators.some((kind) =>
+				[
+					"form-root",
+					"connect-learn",
+					"connect-assessment",
+					"connect-delivery",
+					"connect-task",
+				].includes(kind),
+			))
+	)
+		return "form";
 	if (property === "entryPointUuid") return "entry-point";
 	if (property === "automationUuid" || property === "afterAutomationUuid") {
 		return "automation";
@@ -177,12 +196,18 @@ export function classifyIdentity(
 		property === "parentUuid" ||
 		property === "afterFieldUuid" ||
 		property === "beforeFieldUuid" ||
+		property === "idFrom" ||
 		property === "field" ||
 		property === "repeat"
 	) {
 		return "field";
 	}
-	if (property === "optionUuid") return "select-option";
+	if (
+		property === "optionUuid" ||
+		(property === "options" && discriminators.includes("choice")) ||
+		(property === "option" && discriminators.includes("itext"))
+	)
+		return "select-option";
 	if (
 		property === "columnUuid" ||
 		property === "columnUuids" ||
@@ -201,7 +226,11 @@ export function classifyIdentity(
 	if (property === "userPropertyUuid") return "worker-property";
 	if (property === "userTypeUuid") return "user-type";
 	if (property === "personaUuid") return "persona";
-	if (property === "locationPropertyUuid") return "location-property";
+	if (
+		property === "locationPropertyUuid" ||
+		(property === "property" && discriminators.includes("location-field"))
+	)
+		return "location-property";
 	if (
 		property === "levelUuid" ||
 		property === "levelUuids" ||
@@ -209,7 +238,8 @@ export function classifyIdentity(
 		property === "parentLevelUuid" ||
 		property === "downToLevelUuid" ||
 		property === "alsoIncludeTopDownToLevelUuid" ||
-		property === "fromLevelUuid"
+		property === "fromLevelUuid" ||
+		(property === "level" && discriminators.includes("location-field"))
 	) {
 		return "organization-level";
 	}
@@ -225,8 +255,7 @@ export function classifyIdentity(
 	if (
 		property === "operationUuid" ||
 		property === "afterOperationUuid" ||
-		property === "opUuid" ||
-		property === "idFrom"
+		property === "opUuid"
 	) {
 		return "case-operation";
 	}

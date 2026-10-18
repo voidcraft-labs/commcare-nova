@@ -25,16 +25,15 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import { useState } from "react";
 import { XPathField } from "@/components/builder/XPathField";
 import { Button } from "@/components/shadcn/button";
-import { buildSessionLintContext } from "@/lib/codemirror/buildSessionLintContext";
-import { SESSION_FORM_READ_MESSAGE } from "@/lib/codemirror/xpath-lint";
-import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { FormLinksView } from "@/lib/doc/hooks/useFormLinks";
 import {
-	useParseXPathForForm,
-	useXPathProjection,
+	useFormExpressionLintContext,
+	useFormExpressionProjection,
+	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
 import type { CommitOutcome, FormLink, FormLinkDatum } from "@/lib/domain";
+import { datumRefKey } from "@/lib/domain/expression/types";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import {
 	CARRIED_VALUE_HINT,
@@ -47,7 +46,6 @@ import {
 } from "./afterSubmitCopy";
 import { carryValuesModel } from "./carryValuesModel";
 import { SEED_CARRIED_VALUE_TEXT, seedCarriedValues } from "./seeds";
-import { readsForm } from "./sessionExpression";
 
 export function CarryValuesSection({
 	formUuid,
@@ -62,7 +60,6 @@ export function CarryValuesSection({
 	readonly canEdit: boolean;
 	readonly onCommit: (next: FormLink) => CommitOutcome;
 }) {
-	const parse = useParseXPathForForm(formUuid);
 	const carry = view.carryVerdict(link.target);
 	const required = view.requiredDatums(link.target);
 	const manualCarry = view.manualCarryVerdict(link);
@@ -77,7 +74,7 @@ export function CarryValuesSection({
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingAutomatic);
 
 	const workItOutHere = () =>
-		onCommit({ ...link, datums: seedCarriedValues(required, parse) });
+		onCommit({ ...link, datums: seedCarriedValues(required) });
 	const carryAutomatically = () => {
 		const { datums: _dropped, ...rest } = link;
 		onCommit(rest);
@@ -173,15 +170,23 @@ export function CarryValuesSection({
 				<div className="space-y-3">
 					{(link.datums ?? []).map((datum) => (
 						<CarriedValueRow
-							key={datum.name}
+							key={datumRefKey(datum.name)}
 							formUuid={formUuid}
+							linkUuid={link.uuid}
+							label={
+								required.find(
+									(item) => datumRefKey(item.name) === datumRefKey(datum.name),
+								)?.caseType ?? "Selected record"
+							}
 							datum={datum}
 							canEdit={canEdit}
 							onSave={(xpath) =>
 								onCommit({
 									...link,
 									datums: (link.datums ?? []).map((held) =>
-										held.name === datum.name ? { ...held, xpath } : held,
+										datumRefKey(held.name) === datumRefKey(datum.name)
+											? { ...held, xpath }
+											: held,
 									),
 								})
 							}
@@ -201,7 +206,7 @@ export function CarryValuesSection({
 										...link,
 										datums: [
 											...(link.datums ?? []),
-											...seedCarriedValues(missing, parse),
+											...seedCarriedValues(missing),
 										],
 									})
 								}
@@ -281,24 +286,34 @@ function ChoiceCard({
 
 function CarriedValueRow({
 	formUuid,
+	linkUuid,
+	label,
 	datum,
 	canEdit,
 	onSave,
 }: {
 	readonly formUuid: Uuid;
+	readonly linkUuid: Uuid;
+	readonly label: string;
 	readonly datum: FormLinkDatum;
 	readonly canEdit: boolean;
 	readonly onSave: (xpath: FormLinkDatum["xpath"]) => CommitOutcome;
 }) {
-	const docApi = useBlueprintDocApi();
-	const parse = useParseXPathForForm(formUuid);
-	const projection = useXPathProjection(datum.xpath);
+	const slot = {
+		entity: "form" as const,
+		uuid: formUuid,
+		slot: "form_link_datum_xpath" as const,
+		member: { linkUuid, datum: datum.name },
+	};
+	const parse = useParseFormExpression(slot);
+	const projection = useFormExpressionProjection(datum.xpath, slot);
+	const getLintContext = useFormExpressionLintContext(slot);
 	const untouched = projection.text.trim() === SEED_CARRIED_VALUE_TEXT;
 
 	return (
 		<div className="rounded-xl border border-white/[0.07] bg-nova-deep/30 p-3 @sm:p-4">
 			<p className="mb-2 font-mono text-[13px] font-semibold text-nova-text">
-				{datum.name}
+				{label}
 			</p>
 			<XPathField
 				value={projection.text}
@@ -309,16 +324,11 @@ function CarriedValueRow({
 									return { ok: false, messages: [EMPTY_CARRIED_VALUE_REFUSAL] };
 								}
 								const xpath = parse(text);
-								if (readsForm(xpath)) {
-									return { ok: false, messages: [SESSION_FORM_READ_MESSAGE] };
-								}
 								return onSave(xpath);
 							}
 						: undefined
 				}
-				getLintContext={() =>
-					buildSessionLintContext(docApi.getState(), formUuid)
-				}
+				getLintContext={getLintContext}
 			/>
 			<p className="mt-2 text-[13px] leading-relaxed text-nova-text-muted">
 				{untouched

@@ -4,8 +4,8 @@
  * commit gate, exports and publish check.
  *
  * Contract: a claim that Nova cannot produce an input is true only where
- * Nova's own gate or exports say so. The plausible failure is a row dropped
- * from the lane on a belief about the gate that the gate does not share.
+ * Nova's own parser, gate or exports say so. The plausible failure is a row
+ * dropped from the lane on a belief its production boundary does not share.
  *
  * - **A basic child case of its own menu's case type** (defect 12, under
  *   `DONT_INDEX_SAME_CASETYPE`). HQ's basic child case is a form's
@@ -18,8 +18,8 @@
  *   counterpart is a field that writes another type, which exports one.
  * - **A form that reads the session's `supply_point_id`** (defect 20,
  *   under CommTrack). No menu of a Nova app supplies that datum, so the
- *   form could never open, and Nova's gate refuses the read
- *   (`SESSION_DATUM_NOT_SUPPLIED`, finding 68); a read of a datum the form's
+ *   form could never open, and Nova's parser refuses the unknown datum
+ *   (the unknown session value, finding 68); a read of a datum the form's
  *   entry declares is admitted. The path written as text, in a string or a
  *   label, reads nothing and is admitted, and what keeps HQ's substring test
  *   (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`) from
@@ -188,7 +188,8 @@ describe("a basic child case of its own menu's case type", () => {
 });
 
 describe("a form that reads the session's supply point", () => {
-	const escaped = SUPPLY_POINT_PATH.replaceAll("'", "&apos;");
+	const escapedSuffix =
+		"(&apos;commcaresession&apos;)/session/data/supply_point_id";
 
 	function visit(field: ReturnType<typeof f>): BlueprintDoc {
 		return buildDoc({
@@ -225,9 +226,9 @@ describe("a form that reads the session's supply point", () => {
 		return f({ kind: "hidden", uuid: uuid("held"), id: "held", calculate });
 	}
 
-	it("is refused by Nova's gate where a hidden value reads the path, since no menu supplies the datum", () => {
-		expect(() => exported(visit(held(SUPPLY_POINT_PATH)))).toThrow(
-			/SESSION_DATUM_NOT_SUPPLIED/,
+	it("is refused by Nova's parser where a hidden value reads the unknown datum", () => {
+		expect(() => visit(held(SUPPLY_POINT_PATH))).toThrow(
+			/session value named "supply_point_id"/,
 		);
 	});
 
@@ -255,7 +256,7 @@ describe("a form that reads the session's supply point", () => {
 			const sources = Object.values(exported(visit(field))._attachments);
 			expect(sources).toHaveLength(1);
 			for (const source of sources) {
-				expect(source).toContain(escaped);
+				expect(source).toContain(escapedSuffix);
 				expect(source).not.toContain(SUPPLY_POINT_PATH);
 			}
 		},

@@ -1,88 +1,17 @@
-/**
- * Shared helpers for case-list-config validation rules.
- *
- * Two cross-cutting concerns live here:
- *
- *   1. **Property resolution** — every case-list-config rule that
- *      reads a property by name routes through the same admission
- *      set, so a property that exists for one rule exists for
- *      every rule and vice versa. Single source of truth at
- *      `validationContextFor(doc)` below: one memoized augmented
- *      case-type list per `BlueprintDoc` reference, consumed by
- *      every consumer (per-rule resolvers + the predicate AST type
- *      checker via `moduleTypeContext`).
- *   2. **TypeContext composition** — predicate / value-expression
- *      checks (`filterTypeCheck`, `calculatedColumnTypeCheck`)
- *      consume a `TypeContext` whose `caseTypes` carry the
- *      augmented admission set so the predicate AST type checker
- *      sees writer-derived + standard properties as declared. The
- *      `moduleTypeContext` helper wires this up with the module's
- *      search-input declarations included.
- *
- * ## Property resolution model (rule-set-wide contract)
- *
- * The admission set IS the domain's effective case-type view —
- * `lib/domain/effectiveCaseTypes.ts::effectiveCaseTypes(doc)`: declared
- * properties (with writer-derived `data_type` filled where the
- * declaration is silent), the CommCare standard set, and writer-derived
- * entries, in that priority order. The builder workspace consumes the
- * SAME function for its verdicts and pickers, which is what keeps the
- * gate and the UI structurally unable to disagree about what a
- * property is.
- *
- * A property whose type nothing resolves carries `data_type: undefined`
- * in the view (honest unknown). The `resolvePropertyDataType` helper
- * below still collapses that to `"text"` via `effectiveDataType` —
- * the value-semantics convention the type checker, search-input
- * rules, and sort derivation share. Rules that must distinguish
- * unknown from text (`columnKindPropertyType`) read the entry's raw
- * `data_type` off the view instead.
- *
- * Every case-list-config rule consults this same admission set:
- *
- *   - `columnReferences` — `propertyExists` (existence only; no type
- *     check). Skips calculated columns (no `field` slot — their
- *     property references live inside the expression AST).
- *   - `searchInputModeMatchesPropertyType` — `resolvePropertyDataType`
- *     for `SEARCH_MODE_PROPERTY_TYPES` admission on simple inputs;
- *     advanced inputs delegate to the predicate AST type checker.
- *   - `filterTypeCheck` / `calculatedColumnTypeCheck` — delegate to
- *     `checkPredicate` / `checkValueExpression`, which resolve only
- *     against `ct.properties[]`. Routing through `moduleTypeContext`
- *     supplies the augmented list so writer-derived + standard
- *     properties resolve to their effective data types as if
- *     declared. This keeps the predicate-AST type checker
- *     semantically aligned with the case-store runtime (which
- *     accepts every property the case-store actually emits) without
- *     modifying the type checker itself.
- *
- * ## Memoization
- *
- * The effective admission set is memoized per `BlueprintDoc` reference inside
- * `effectiveCaseTypes`. The doc store replaces the doc reference on every
- * mutation, so the cache cannot become stale.
- */
+/** Shared property catalog and display labels for case-list validation. Expression
+ * admission is always built from the actual stored slot with slotContext. */
 
-import {
-	type BlueprintDoc,
-	type CaseType,
-	type Column,
-	effectiveCaseSearchConfig,
-	type Module,
-	searchInputRuntimeValueType,
-	userPropertiesOf,
-} from "@/lib/domain";
+import type { BlueprintDoc, CaseType, Column } from "@/lib/domain";
 import {
 	type CasePropertyDataType,
 	effectiveDataType,
 } from "@/lib/domain/casePropertyTypes";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
-import type {
-	CheckPath,
-	SearchInputDecl,
-	TypeContext,
-} from "@/lib/domain/predicate";
-import type { LookupTypeIndex } from "../../lookupTypeContext";
+import {
+	activeRowScope,
+	type CheckPath,
+	type ExpressionContext,
+} from "@/lib/domain/expression";
 
 /**
  * Per-doc validation context. Carries the augmented case-type list —
@@ -115,73 +44,17 @@ export function validationContextFor(doc: BlueprintDoc): ValidationContext {
 	return context;
 }
 
-/**
- * Build the `TypeContext` a per-module type-checker call runs against.
- *
- * `caseTypes` is the augmented case-type list from the cached
- * `ValidationContext`, so the predicate AST type checker resolves
- * writer-derived + standard properties as if declared on
- * `ct.properties[]`. Rules that delegate to the type checker
- * (`filterTypeCheck`, `calculatedColumnTypeCheck`) thus consume the
- * same admission set as the per-rule property resolvers
- * (`searchInputModeMatchesPropertyType`, `columnReferences`).
- *
- * `knownInputs` is derived from each input's widget type through
- * `SEARCH_INPUT_RUNTIME_VALUE_TYPES`. This models what a UUID-linked input reads
- * at runtime under its current wire name, independent of authoring arm or
- * target property: date widgets bind dates; text/select/barcode widgets bind
- * text; date-range widgets bind the encoded `__range__<from>__<to>` text
- * scalar. A simple date input targeting a datetime property still reads as
- * date, and an advanced date input is not silently widened to text merely
- * because it has no target property.
- *
- * `currentCaseType` is set to the module's case type so the
- * relational quantifiers (`exists` / `missing`) and the destination-
- * scope pin inside their `where` clauses can resolve property
- * references against the surrounding `via`'s destination scope.
- *
- * `lookupTables`, when supplied by the runner, is the rows-free type index
- * derived from the exact structural lookup-validation snapshot. Every
- * module-level Predicate/ValueExpression checker receives the same index.
- */
-export function moduleTypeContext(
-	mod: Module,
-	doc: BlueprintDoc,
-	lookupTables?: LookupTypeIndex,
-): TypeContext {
-	const inputs = mod.caseListConfig?.searchInputs ?? [];
-	const moduleCaseType = mod.caseType;
-	const { augmentedCaseTypes } = validationContextFor(doc);
-
-	const knownInputs: SearchInputDecl[] = inputs.map((input) => ({
-		uuid: input.uuid,
-		name: input.name,
-		data_type: searchInputRuntimeValueType(input),
-	}));
-
-	return {
-		// `TypeContext.caseTypes` is typed as a mutable array
-		// (`CaseType[]`) by the predicate-AST type checker. The
-		// validation context's `augmentedCaseTypes` is `readonly` so it
-		// can be safely shared across rules — copy into a fresh mutable
-		// array at the boundary. The contents (the `CaseType` objects
-		// themselves) stay shared by reference.
-		caseTypes: [...augmentedCaseTypes],
-		knownInputs,
-		userPropertySlugs: new Map(
-			Object.values(userPropertiesOf(doc)).map((property) => [
-				property.uuid,
-				property.slug,
-			]),
-		),
-		...(moduleCaseType !== undefined && { currentCaseType: moduleCaseType }),
-		...(lookupTables !== undefined && { lookupTables }),
-		// A search-first module's answers live under its inline results
-		// instance on both wire paths (`VirtualInstances.makeSearchInputInstanceID`).
-		...(effectiveCaseSearchConfig(mod)?.searchFirst === true && {
-			searchInputInstanceId: "search-input:results:inline" as const,
-		}),
-	};
+/** A purpose-specific row projection for relation normalization; it never changes
+ * or synthesizes the slot's checker context. */
+export function relationEvaluationContext(ctx: ExpressionContext) {
+	const row = activeRowScope(ctx);
+	const caseRow =
+		row?.kind === "case"
+			? row
+			: row?.kind === "table"
+				? row.capturedCase
+				: undefined;
+	return { caseTypes: ctx.facts.caseTypes, currentCaseType: caseRow?.caseType };
 }
 
 /**

@@ -144,8 +144,11 @@ test("carried values use real single-case admission and retain native confirmati
 		.poll(async () => JSON.parse(await saved.innerText()).datums)
 		.toEqual([
 			{
-				name: "case_id",
-				xpath: { parts: [{ kind: "text", text: "''" }] },
+				name: {
+					kind: "selected-case",
+					module: JSON.parse(original).target.moduleUuid,
+				},
+				xpath: { kind: "term", term: { kind: "literal", value: "" } },
 			},
 		]);
 	const automatic = page.getByRole("button", {
@@ -1958,7 +1961,9 @@ test("the inspector says what a case-bound field does when a one-case form opens
 		"Opens with this case's current value",
 	);
 	await page.getByRole("button", { name: "Undo", exact: true }).click();
-	await expect(saved).toContainText("'none'");
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).default_value)
+		.toEqual({ kind: "term", term: { kind: "literal", value: "none" } });
 	await expect(defaultRow.locator(".cm-content")).toContainText("'none'");
 
 	// A child-type writer creates a case per submission and opens blank, so
@@ -2055,37 +2060,43 @@ test("the inspector says what a case-bound field does when a one-case form opens
 	await expect(code).toHaveText("");
 	await code.pressSequentially("1 + 1");
 	await code.press("ControlOrMeta+Enter");
-	await expect(saved).toContainText(
-		'"calculate":{"parts":[{"kind":"text","text":"1 + 1"}]}',
-	);
+	const sum = {
+		kind: "arith",
+		op: "+",
+		left: { kind: "term", term: { kind: "literal", value: 1 } },
+		right: { kind: "term", term: { kind: "literal", value: 1 } },
+	};
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).calculate)
+		.toEqual(sum);
 	await expect(saved).not.toContainText('"default_value"');
 	await setOnce.click();
-	await expect(saved).toContainText(
-		'"default_value":{"parts":[{"kind":"text","text":"1 + 1"}]}',
-	);
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).default_value)
+		.toEqual(sum);
 	await expect(saved).not.toContainText('"calculate"');
 	await expect(
 		inspector.locator('[data-field-id="default_value"] .cm-content'),
 	).toContainText("1 + 1");
 	await expect(inspector.locator('[data-field-id="calculate"]')).toHaveCount(0);
 	await keepInStep.click();
-	await expect(saved).toContainText(
-		'"calculate":{"parts":[{"kind":"text","text":"1 + 1"}]}',
-	);
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).calculate)
+		.toEqual(sum);
 	await expect(saved).not.toContainText('"default_value"');
 	await expect(
 		inspector.locator('[data-field-id="default_value"]'),
 	).toHaveCount(0);
 	await page.getByRole("button", { name: "Undo", exact: true }).click();
 	await expect(setOnce).toHaveAttribute("aria-pressed", "true");
-	await expect(saved).toContainText(
-		'"default_value":{"parts":[{"kind":"text","text":"1 + 1"}]}',
-	);
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).default_value)
+		.toEqual(sum);
 	await page.getByRole("button", { name: "Undo", exact: true }).click();
 	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
-	await expect(saved).toContainText(
-		'"calculate":{"parts":[{"kind":"text","text":"1 + 1"}]}',
-	);
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).calculate)
+		.toEqual(sum);
 	await expect(saved).not.toContainText('"default_value"');
 
 	// Emptying a calculation has one honest spelling in the document: neither

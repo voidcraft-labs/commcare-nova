@@ -23,12 +23,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
-	type Predicate,
+	type Expression,
 	type Term,
-	type ValueExpression,
 	walkExpressionTerms,
-	walkTerms,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 
 function declOf(entry: FormFieldEntry): EditorFormFieldDecl {
 	return {
@@ -113,11 +111,8 @@ export function referencedFieldUuids(
 	const visitTerm = (term: Term) => {
 		if (term.kind === "field") found.add(term.uuid);
 	};
-	const expression = (value: ValueExpression | undefined) => {
+	const expression = (value: Expression | undefined) => {
 		if (value !== undefined) walkExpressionTerms(value, visitTerm);
-	};
-	const predicate = (value: Predicate | undefined) => {
-		if (value !== undefined) walkTerms(value, visitTerm);
 	};
 	const target = (value: CaseOperation["target"] | null) => {
 		if (value === null) return;
@@ -128,13 +123,13 @@ export function referencedFieldUuids(
 	};
 
 	target(operation.target);
-	predicate(operation.condition);
+	expression(operation.condition);
 	expression(operation.name);
 	expression(operation.owner);
 	expression(operation.rename);
 	for (const write of operation.writes ?? []) {
 		expression(write.value);
-		predicate(write.condition);
+		expression(write.condition);
 	}
 	for (const link of operation.links ?? []) target(link.target);
 	return [...found];

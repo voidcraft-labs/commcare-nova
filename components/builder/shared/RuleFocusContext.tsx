@@ -4,7 +4,7 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import { Button } from "@/components/shadcn/button";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import type { EditorPath } from "./path";
 import {
 	type EditorSearchInputDecl,
@@ -93,7 +93,7 @@ export function RuleFocusSummary({
 	);
 }
 
-export function expressionFocusTitle(value: ValueExpression): string {
+export function expressionFocusTitle(value: Expression): string {
 	switch (value.kind) {
 		case "term":
 			return "Value";
@@ -130,11 +130,19 @@ export function expressionFocusTitle(value: ValueExpression): string {
 		case "format-date":
 			return "Formatted date";
 		case "table-lookup":
-			return "Unavailable value";
+			return "Table value";
+		case "negate":
+			return "Negative value";
+		case "here":
+			return "This value";
+		case "value-list":
+			return "Values";
+		default:
+			return "Saved expression";
 	}
 }
 
-export function expressionFocusDescription(value: ValueExpression): string {
+export function expressionFocusDescription(value: Expression): string {
 	switch (value.kind) {
 		case "term":
 			return "A case value, search answer, or entered value";
@@ -173,11 +181,19 @@ export function expressionFocusDescription(value: ValueExpression): string {
 		case "format-date":
 			return "Writes a date in the chosen style";
 		case "table-lookup":
-			return "This saved value cannot be opened in the editor yet";
+			return "Uses a value from a Project data table";
+		case "negate":
+			return "Reverses the sign of a number";
+		case "here":
+			return "Uses the value being evaluated";
+		case "value-list":
+			return `${value.items.length} saved values`;
+		default:
+			return "This saved expression is preserved";
 	}
 }
 
-export function predicateFocusTitle(value: Predicate): string {
+export function predicateFocusTitle(value: Expression): string {
 	switch (value.kind) {
 		case "and":
 			return "All conditions match";
@@ -223,11 +239,13 @@ export function predicateFocusTitle(value: Predicate): string {
 			return "Include every case";
 		case "match-none":
 			return "Exclude every case";
+		default:
+			return expressionFocusTitle(value);
 	}
 }
 
 export function predicateFocusDescription(
-	value: Predicate,
+	value: Expression,
 	knownInputs: readonly EditorSearchInputDecl[] = [],
 ): string {
 	switch (value.kind) {
@@ -273,5 +291,7 @@ export function predicateFocusDescription(
 			return "This condition always matches";
 		case "match-none":
 			return "This condition never matches";
+		default:
+			return expressionFocusDescription(value);
 	}
 }

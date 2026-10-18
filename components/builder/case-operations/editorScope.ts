@@ -13,7 +13,7 @@ import type { OperationValueScope } from "@/components/builder/shared/expression
 import {
 	type SlotConstraint,
 	storageAssignmentConstraint,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 
 /**
  * What an operation slot may read against a case row.

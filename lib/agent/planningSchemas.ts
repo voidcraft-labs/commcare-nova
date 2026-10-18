@@ -33,10 +33,10 @@ import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import {
 	authoredCasePropertyNameSchema,
 	connectDeliverFormHoldsTask,
+	formLogicSchema,
 	proseTemplateSchema,
 	selectOptionValueSchema,
 	uuidSchema,
-	xpathExpressionSchema,
 } from "@/lib/domain";
 
 // ── Reserved case properties (CommCare platform list) ───────────────
@@ -297,7 +297,7 @@ const connectFormConfigShape = z.strictObject({
 				.nullable()
 				.optional()
 				.describe(CONNECT_ID_FIELD_DESCRIPTION),
-			user_score: xpathExpressionSchema,
+			user_score: formLogicSchema,
 		})
 		.nullable()
 		.optional()
@@ -313,13 +313,13 @@ const connectFormConfigShape = z.strictObject({
 				.optional()
 				.describe(CONNECT_ID_FIELD_DESCRIPTION),
 			name: z.string().min(1),
-			entity_id: xpathExpressionSchema
+			entity_id: formLogicSchema
 				.nullable()
 				.optional()
 				.describe(
 					"XPath dedup key grouping submissions into one paid delivery (CompletedWork). Omit for the daily-aggregate default; override per the Connect guidance in your instructions.",
 				),
-			entity_name: xpathExpressionSchema
+			entity_name: formLogicSchema
 				.nullable()
 				.optional()
 				.describe(

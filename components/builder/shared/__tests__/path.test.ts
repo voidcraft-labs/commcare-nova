@@ -1,7 +1,8 @@
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 // components/builder/shared/__tests__/path.test.ts
 //
 // Path-encoding round-trips. Mirrors the walker shape in
-// `lib/domain/predicate/typeChecker.ts`: the editor's path-build
+// `lib/domain/expression/typeChecker.ts`: the editor's path-build
 // helpers must reproduce the walker's emitted paths exactly so the
 // validity index lookups land on the right cards.
 
@@ -26,7 +27,7 @@ import {
 	tableLookup,
 	term,
 	today,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	appendKind,
@@ -60,11 +61,14 @@ const CASE_TYPES: CaseType[] = [
 	},
 ];
 
-const NAVIGATION_CONTEXT: RuleNavigationContext = {
-	caseTypes: CASE_TYPES,
-	currentCaseType: "patient",
-	knownInputs: [],
-};
+const NAVIGATION_CONTEXT: RuleNavigationContext = expressionEditorFixture(
+	"case-filter",
+	{
+		caseTypes: CASE_TYPES,
+		currentCaseType: "patient",
+		knownInputs: [],
+	},
+).context;
 
 describe("path helpers — append shapes", () => {
 	it("appendSlot pushes a slot name", () => {
@@ -111,7 +115,7 @@ describe("path helpers — append shapes", () => {
 
 	it("nested compositions reproduce the walker's path shape", () => {
 		// Mirrors the walker's `[...path, "and", 0, "or", 1]`
-		// pattern from `lib/domain/predicate/typeChecker.ts`.
+		// pattern from `lib/domain/expression/typeChecker.ts`.
 		const inAnd = appendKindIndex([], "and", 0);
 		const inOr = appendKindIndex(inAnd, "or", 1);
 		const inComparison = appendSlot(inOr, "left");
@@ -368,8 +372,8 @@ describe("focused expression constraints mirror inline branch rules", () => {
 	});
 });
 
-describe("stale and wrong-family paths", () => {
-	it("refuses deleted indices and wrong node families without modifying the source", () => {
+describe("replacement paths", () => {
+	it("refuses deleted indices without modifying the source", () => {
 		const root = eq(
 			prop("patient", "score"),
 			coalesce(term(literal(1)), term(literal(2))),
@@ -385,18 +389,26 @@ describe("stale and wrong-family paths", () => {
 				}),
 			).toThrow("editable node");
 		}
-		expect(() =>
-			replaceRuleNodeAtPath(root, ["right"], {
-				family: "predicate",
-				value: matchAll(),
-			}),
-		).toThrow("Cannot replace a expression");
-		expect(() =>
-			replaceRuleNodeAtPath(root, [], {
-				family: "expression",
-				value: term(literal(9)),
-			}),
-		).toThrow("Cannot replace a predicate");
+
 		expect(root).toEqual(before);
+	});
+
+	it("replaces conditions through either presentation without changing siblings", () => {
+		const before = eq(prop("patient", "score"), literal(1));
+		const after = eq(prop("patient", "score"), literal(2));
+		expect(
+			replaceRuleNodeAtPath(before, [], { family: "expression", value: after }),
+		).toBe(after);
+		const yes = term(literal(3));
+		const no = term(literal(4));
+		const root = ifExpr(before, yes, no);
+		const updated = replaceExpressionNodeAtPath(root, ["if", "cond"], {
+			family: "expression",
+			value: after,
+		});
+		expect(updated).toEqual(ifExpr(after, yes, no));
+		if (updated.kind !== "if") throw new Error("Expected the same conditional");
+		expect(updated.then).toBe(yes);
+		expect(updated.else).toBe(no);
 	});
 });

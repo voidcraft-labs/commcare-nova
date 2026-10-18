@@ -12,6 +12,7 @@ import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { blueprintDocSchema, fieldCaseWrite } from "@/lib/domain";
 import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
+import { literal, term, today } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -299,7 +300,7 @@ describe("case-write projection watermark", () => {
 			uuid: testUuid(fieldUuid),
 			kind: "hidden",
 			id: "answer",
-			calculate: { parts: [{ kind: "text", text: "'initial'" }] },
+			calculate: term(literal("initial")),
 		};
 		const store = createBlueprintDocStore();
 		assertAdmittedDoc(doc);
@@ -312,7 +313,7 @@ describe("case-write projection watermark", () => {
 				kind: "updateField",
 				uuid: testUuid(fieldUuid),
 				targetKind: "hidden",
-				patch: { calculate: { parts: [{ kind: "text", text: "today()" }] } },
+				patch: { calculate: today() },
 			},
 		]);
 
@@ -325,7 +326,7 @@ describe("case-write projection watermark", () => {
 			uuid: testUuid(fieldUuid),
 			kind: "hidden",
 			id: "answer",
-			calculate: { parts: [{ kind: "text", text: "'initial'" }] },
+			calculate: term(literal("initial")),
 			caseWrite: { caseType: "patient", property: "old_value" },
 		};
 		const store = createBlueprintDocStore();
@@ -345,7 +346,7 @@ describe("case-write projection watermark", () => {
 					uuid: testUuid(fieldUuid),
 					targetKind: "hidden",
 					patch: {
-						calculate: { parts: [{ kind: "text", text: "today()" }] },
+						calculate: today(),
 					},
 				},
 			]),

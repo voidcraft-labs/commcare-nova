@@ -33,10 +33,12 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { ClearConditionButton } from "@/components/builder/shared/ClearConditionButton";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
-import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
+import {
+	ConditionSlotEditor,
+	ExpressionSlotEditor,
+} from "@/components/builder/shared/ExpressionSlotEditors";
 import type { CaseDataScope } from "@/components/builder/shared/editorSchemas";
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
-import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import {
 	Select,
@@ -55,6 +57,7 @@ import {
 } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import {
 	useOrganizationLevels,
@@ -70,15 +73,15 @@ import {
 	type CasePropertyDataType,
 	levelOwnsCases,
 } from "@/lib/domain";
+import type { ExpressionSlotRef } from "@/lib/domain/expression";
 import {
 	actingUser,
+	type Expression,
 	fixedLocation,
 	ownerLocationAtLevel,
-	type Predicate,
 	storageAssignmentConstraint,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	fixedLocationOwnerIssue,
 	reverseLocationOwnerIssue,
@@ -132,6 +135,13 @@ export function CaseOperationDetailCanvas({
 	const headingRef = useRef<HTMLHeadingElement>(null);
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 	const targetDraft = useCaseTargetDraft(formUuid, operationUuid);
+	const conditionSlot = {
+		entity: "form",
+		uuid: formUuid,
+		slot: "case_operation_condition",
+		member: { operationUuid },
+	} as const;
+	const conditionContext = useExpressionSlotContext(conditionSlot);
 
 	const operations = view.operations;
 	const index = operations.findIndex(
@@ -188,7 +198,7 @@ export function CaseOperationDetailCanvas({
 
 	const backToList = () => navigate.openFormOperations(moduleUuid, formUuid);
 
-	if (operation === undefined) {
+	if (operation === undefined || conditionContext === undefined) {
 		/* The recovery effect scrubs a stale uuid on the next tick; until it
 		 * does, say what happened rather than rendering a blank. */
 		return (
@@ -345,6 +355,7 @@ export function CaseOperationDetailCanvas({
 								commit({
 									...operation,
 									condition: firstComparisonDefault({
+										expressionContext: conditionContext,
 										caseTypes,
 										currentCaseType: expressionCaseType,
 										knownInputs: [],
@@ -357,9 +368,10 @@ export function CaseOperationDetailCanvas({
 							}
 						/>
 					) : (
-						<PredicateWorkbench
+						<ConditionSlotEditor
+							slot={conditionSlot}
 							value={operation.condition}
-							onChange={(condition: Predicate) =>
+							onChange={(condition: Expression) =>
 								commit({ ...operation, condition })
 							}
 							rootLabel="when this runs"
@@ -389,9 +401,22 @@ export function CaseOperationDetailCanvas({
 							) : undefined
 						}
 					>
-						<ExpressionCardEditor
+						<ExpressionSlotEditor
+							slot={{
+								entity: "form",
+								uuid: formUuid,
+								slot: "case_operation_target_expression",
+								member: { operationUuid },
+							}}
+							candidate={{
+								entity: "case-operation",
+								value: {
+									...operation,
+									target: { kind: "expression", expr: runtimeTargetExpression },
+								},
+							}}
 							value={runtimeTargetExpression}
-							onChange={(expr: ValueExpression) => {
+							onChange={(expr: Expression) => {
 								if (operation.target.kind === "expression") {
 									commit({
 										...operation,
@@ -423,11 +448,15 @@ export function CaseOperationDetailCanvas({
 						title="The case's name"
 						description="What people will see this case called in lists."
 					>
-						<ExpressionCardEditor
+						<ExpressionSlotEditor
+							slot={{
+								entity: "form",
+								uuid: formUuid,
+								slot: "case_operation_name",
+								member: { operationUuid },
+							}}
 							value={operation.name}
-							onChange={(name: ValueExpression) =>
-								commit({ ...operation, name })
-							}
+							onChange={(name: Expression) => commit({ ...operation, name })}
 							constraint={caseOperationTextConstraint()}
 							{...editorScope}
 						/>
@@ -436,6 +465,12 @@ export function CaseOperationDetailCanvas({
 
 				{operation.action === "update" && (
 					<OptionalExpressionSection
+						slot={{
+							entity: "form",
+							uuid: formUuid,
+							slot: "case_operation_rename",
+							member: { operationUuid },
+						}}
 						title="Give the case a new name"
 						description="Changes what people see this case called."
 						addLabel="Set a new name"
@@ -453,6 +488,12 @@ export function CaseOperationDetailCanvas({
 
 				{operation.action !== "close" && (
 					<CaseOwnerSection
+						slot={{
+							entity: "form",
+							uuid: formUuid,
+							slot: "case_operation_owner",
+							member: { operationUuid },
+						}}
 						action={operation.action}
 						value={operation.owner}
 						canEdit={operationCanEdit}
@@ -477,6 +518,8 @@ export function CaseOperationDetailCanvas({
 						)}
 						{(operation.writes ?? []).map((write, writeIndex) => (
 							<WriteRow
+								formUuid={formUuid}
+								operationUuid={operationUuid}
 								key={write.property}
 								write={write}
 								canEdit={operationCanEdit}
@@ -536,6 +579,7 @@ export function CaseOperationDetailCanvas({
 						description="How this case relates to another one. A connection can also be broken here, that is what an author reaches for when a temporary grouping has served its purpose."
 					>
 						<CaseOperationLinks
+							formUuid={formUuid}
 							operation={operation}
 							canEdit={operationCanEdit}
 							defaultTargetType={
@@ -580,7 +624,7 @@ export function CaseOperationDetailCanvas({
 	);
 }
 
-type LocationOwnerExpression = Extract<ValueExpression, { kind: "term" }> & {
+type LocationOwnerExpression = Extract<Expression, { kind: "term" }> & {
 	readonly term:
 		| { readonly kind: "fixed-location"; readonly locationUuid: Uuid }
 		| {
@@ -591,7 +635,7 @@ type LocationOwnerExpression = Extract<ValueExpression, { kind: "term" }> & {
 };
 
 function locationOwnerExpression(
-	value: ValueExpression | undefined,
+	value: Expression | undefined,
 ): LocationOwnerExpression | undefined {
 	if (
 		value?.kind !== "term" ||
@@ -610,6 +654,7 @@ function locationOwnerExpression(
  * app-scoped store it otherwise never needs.
  */
 export function CaseOwnerSection({
+	slot,
 	action,
 	value,
 	canEdit,
@@ -617,9 +662,10 @@ export function CaseOwnerSection({
 	editorScope,
 }: {
 	readonly action: "create" | "update";
-	readonly value: ValueExpression | undefined;
+	readonly slot: ExpressionSlotRef;
+	readonly value: Expression | undefined;
 	readonly canEdit: boolean;
-	readonly onChange: (next: ValueExpression | undefined) => void;
+	readonly onChange: (next: Expression | undefined) => void;
 	readonly editorScope: EditorScope;
 }) {
 	const appId = useAppId();
@@ -917,7 +963,8 @@ export function CaseOwnerSection({
 							</p>
 						</div>
 					) : (
-						<ExpressionCardEditor
+						<ExpressionSlotEditor
+							slot={slot}
 							value={value}
 							onChange={onChange}
 							constraint={caseOperationTextConstraint()}
@@ -1022,6 +1069,7 @@ interface EditorScope {
 /** A slot that is either absent or a full expression, with one gesture
  *  each way. Absence is a real authored state, so removing is confirmed. */
 function OptionalExpressionSection({
+	slot,
 	title,
 	description,
 	addLabel,
@@ -1036,16 +1084,17 @@ function OptionalExpressionSection({
 	editorScope,
 	ownerValues = false,
 }: {
+	readonly slot: ExpressionSlotRef;
 	readonly title: string;
 	readonly description: string;
 	readonly addLabel: string;
 	readonly clearLabel: string;
 	readonly clearTitle: string;
 	readonly clearConsequence: string;
-	readonly value: ValueExpression | undefined;
+	readonly value: Expression | undefined;
 	readonly canEdit: boolean;
-	readonly seed: () => ValueExpression;
-	readonly onChange: (next: ValueExpression | undefined) => void;
+	readonly seed: () => Expression;
+	readonly onChange: (next: Expression | undefined) => void;
 	readonly constraint: ReturnType<typeof storageAssignmentConstraint>;
 	readonly editorScope: EditorScope;
 	readonly ownerValues?: boolean;
@@ -1078,7 +1127,8 @@ function OptionalExpressionSection({
 					onClick={() => onChange(seed())}
 				/>
 			) : (
-				<ExpressionCardEditor
+				<ExpressionSlotEditor
+					slot={slot}
 					value={value}
 					onChange={onChange}
 					constraint={constraint}
@@ -1091,6 +1141,8 @@ function OptionalExpressionSection({
 }
 
 function WriteRow({
+	formUuid,
+	operationUuid,
 	write,
 	canEdit,
 	editorScope,
@@ -1099,6 +1151,8 @@ function WriteRow({
 	onRemove,
 	removeRef,
 }: {
+	readonly formUuid: Uuid;
+	readonly operationUuid: Uuid;
 	readonly write: CaseOperationWrite;
 	readonly canEdit: boolean;
 	readonly editorScope: EditorScope;
@@ -1111,6 +1165,15 @@ function WriteRow({
 	readonly removeRef?: React.Ref<HTMLButtonElement>;
 }) {
 	const conditionCleared = useClearedSlotFocus(write.condition);
+	const conditionSlot = {
+		entity: "form",
+		uuid: formUuid,
+		slot: "case_operation_write_condition",
+		member: { operationUuid, property: write.property },
+	} as const;
+	const expressionContext = useExpressionSlotContext(conditionSlot);
+	if (expressionContext === undefined)
+		return <p role="status">This saved-value rule is no longer available.</p>;
 	return (
 		<div className="rounded-xl border border-white/[0.07] bg-nova-deep/30 p-3 @sm:p-4">
 			<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1130,9 +1193,15 @@ function WriteRow({
 					</Button>
 				)}
 			</div>
-			<ExpressionCardEditor
+			<ExpressionSlotEditor
+				slot={{
+					entity: "form",
+					uuid: formUuid,
+					slot: "case_operation_write_value",
+					member: { operationUuid, property: write.property },
+				}}
 				value={write.value}
-				onChange={(value: ValueExpression) => onChange({ ...write, value })}
+				onChange={(value: Expression) => onChange({ ...write, value })}
 				constraint={storageAssignmentConstraint(
 					destinationType === undefined ? [] : [destinationType],
 				)}
@@ -1148,6 +1217,7 @@ function WriteRow({
 							onChange({
 								...write,
 								condition: firstComparisonDefault({
+									expressionContext,
 									...editorScope,
 									knownInputs: [],
 								}),
@@ -1173,9 +1243,10 @@ function WriteRow({
 								/>
 							)}
 						</div>
-						<PredicateWorkbench
+						<ConditionSlotEditor
+							slot={conditionSlot}
 							value={write.condition}
-							onChange={(condition: Predicate) =>
+							onChange={(condition: Expression) =>
 								onChange({ ...write, condition })
 							}
 							rootLabel={`when ${write.property} is saved`}

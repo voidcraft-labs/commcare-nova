@@ -13,11 +13,11 @@ import {
 	acceptsType,
 	type SlotConstraint,
 	type Term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import {
 	type ExpressionChangeAdmission,
-	usePredicateEditContext,
+	useEditorVocabulary,
 } from "../editorContext";
 
 type FormRecordProperty = Extract<Term, { kind: "form-case" }>;
@@ -35,7 +35,7 @@ export function FormCasePropertyPicker({
 	invalid: boolean;
 	admit: (value: FormRecordProperty) => ExpressionChangeAdmission;
 }) {
-	const context = usePredicateEditContext();
+	const context = useEditorVocabulary();
 	const project = useProseProjection();
 	const choices = context.caseTypes
 		.filter((type) => context.formCaseTypes?.has(type.name))

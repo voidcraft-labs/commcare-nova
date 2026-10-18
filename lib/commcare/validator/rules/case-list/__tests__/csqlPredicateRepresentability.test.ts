@@ -20,6 +20,7 @@ import {
 	concat,
 	count,
 	dateAdd,
+	type Expression,
 	eq,
 	exists,
 	gt,
@@ -30,14 +31,14 @@ import {
 	matchNone,
 	multiSelectAny,
 	or,
-	type Predicate,
 	prop,
 	relationStep,
 	selfPath,
+	slotContext,
 	subcasePath,
 	term,
 	today,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { classifyError, evaluateBoundary } from "../../../gate";
 import { runValidation } from "../../../runner";
 
@@ -78,7 +79,7 @@ const standardCaseTypes = [
 ];
 
 function docWithFilter(
-	filter: Predicate,
+	filter: Expression,
 	options: { readonly searchEnabled?: boolean } = {},
 ) {
 	return buildDoc({
@@ -110,7 +111,7 @@ function csqlFindings(doc: ReturnType<typeof docWithFilter>) {
 	return hits;
 }
 
-function docWithAdvancedPredicate(predicate: Predicate) {
+function docWithAdvancedPredicate(predicate: Expression) {
 	return buildDoc({
 		appName: "Clinic",
 		modules: [
@@ -140,8 +141,8 @@ function docWithAdvancedPredicate(predicate: Predicate) {
 }
 
 function docWithFilterAndAdvanced(
-	filter: Predicate,
-	advancedPredicate: Predicate,
+	filter: Expression,
+	advancedPredicate: Expression,
 ) {
 	const doc = docWithAdvancedPredicate(advancedPredicate);
 	const moduleUuid = doc.moduleOrder[0];
@@ -253,7 +254,15 @@ describe("csqlPredicateRepresentability", () => {
 		// Defense in depth remains load-bearing for callers that bypass the
 		// document gate; the friendly finding above prevents this throw in the
 		// normal compile/export path.
-		expect(() => emitCsql(predicate)).toThrow("no portable escape");
+		const context = slotContext(
+			doc,
+			{ entity: "module", uuid: doc.moduleOrder[0], slot: "case_list_filter" },
+			new Map(),
+		);
+		if (context === undefined) throw new Error("Missing filter context");
+		expect(() => emitCsql(predicate, { types: context })).toThrow(
+			"no portable escape",
+		);
 	});
 
 	it("checks every fixed value emitted by literal-list operators", () => {

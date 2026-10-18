@@ -1,7 +1,7 @@
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -12,6 +12,7 @@ import {
 	mutationSchema,
 } from "@/lib/doc/types";
 import { type FieldKind, proseText } from "@/lib/domain";
+import { literal, matchAll, term } from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const Q = testUuid("conversion-subject");
@@ -81,8 +82,8 @@ describe("admitted field conversion", () => {
 			const before = fixture({
 				id: "answer",
 				kind,
-				required: xp("true()"),
-				relevant: xp("true()"),
+				required: matchAll(),
+				relevant: matchAll(),
 				hint: proseText("Instructions"),
 			});
 			const next = convert(before, toKind);
@@ -201,8 +202,8 @@ describe("admitted field conversion", () => {
 			uuid: Q,
 			id: "answer",
 			kind: "hidden",
-			relevant: xp("true()"),
-			default_value: xp("'unnamed'"),
+			relevant: matchAll(),
+			default_value: term(literal("unnamed")),
 		});
 	});
 	it("leaves the same kind unchanged", () => {

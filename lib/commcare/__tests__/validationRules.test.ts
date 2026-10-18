@@ -15,12 +15,21 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	concat,
+	eq,
+	gt,
+	literal,
+	matchAll,
+	term,
+	today,
+} from "@/lib/domain/expression/builders";
+import {
 	buildDoc,
 	caseListConfig,
 	type FieldSpec,
-	xp,
 } from "../../__tests__/docHelpers";
 import { runValidation } from "../validator/runner";
+import { parseFormExpression } from "../xpath/expressionAst";
 
 // These tests exercise Nova's complete validator verdict. Wire execution is
 // covered by the native suites in proof/native; a clean verdict here is
@@ -403,16 +412,16 @@ describe("strict field shape and semantic backstops", () => {
 		);
 	});
 	it.each([
-		["hidden", "required", xp("true()"), "REQUIRED_ON_HIDDEN"],
+		["hidden", "required", matchAll(), "REQUIRED_ON_HIDDEN"],
 		[
 			"hidden",
 			"validate_msg",
 			proseText("Wrong"),
 			"VALIDATION_ON_NON_INPUT_KIND",
 		],
-		["label", "validate", xp("true()"), "VALIDATION_ON_NON_INPUT_KIND"],
-		["group", "validate", xp("true()"), "VALIDATION_ON_NON_INPUT_KIND"],
-		["text", "calculate", xp("1"), "CALCULATE_ON_VISIBLE_INPUT"],
+		["label", "validate", matchAll(), "VALIDATION_ON_NON_INPUT_KIND"],
+		["group", "validate", matchAll(), "VALIDATION_ON_NON_INPUT_KIND"],
+		["text", "calculate", term(literal(1)), "CALCULATE_ON_VISIBLE_INPUT"],
 	] as const)(
 		"rejects undeclared %s.%s at schema and backstop boundaries",
 		(kind, slot, value, code) => {
@@ -459,7 +468,7 @@ describe("strict field shape and semantic backstops", () => {
 			survey([{ ...plain, kind: "hidden", default_value: "today()" }]),
 		);
 		const doc = candidate(hidden(), (d) => {
-			fieldPatch(d, { default_value: xp("today()") });
+			fieldPatch(d, { default_value: today() });
 		});
 		/* Schema-legal: both slots are optional so historical documents
 		 * hydrate. The rule is what refuses the pair. */
@@ -474,22 +483,33 @@ describe("strict field shape and semantic backstops", () => {
 			assertAdmittedDoc(repeatDoc(mode));
 		},
 	);
-	it.each(["", "   "])(
-		"rejects blank count/query repeat expressions (%j)",
+	it.each(["", "   ", { parts: [] }])(
+		"refuses a raw or fragment repeat expression at the schema (%j)",
 		(source) => {
 			for (const mode of ["count_bound", "query_bound"] as const) {
-				const doc = candidate(repeatDoc(mode), (d) => {
-					fieldPatch(
-						d,
-						mode === "count_bound"
-							? { repeat_count: xp(source) }
-							: { data_source: { ids_query: xp(source) } },
-					);
-				});
-				findings(doc, [
-					mode === "count_bound" ? "EMPTY_REPEAT_COUNT" : "EMPTY_IDS_QUERY",
-				]);
+				const field = repeatDoc(mode).fields[q];
+				const candidate =
+					mode === "count_bound"
+						? { ...field, repeat_count: source }
+						: { ...field, data_source: { ids_query: source } };
+				expect(fieldSchema.safeParse(candidate).success).toBe(false);
 			}
+		},
+	);
+	it.each(["count_bound", "query_bound"] as const)(
+		"keeps a missing %s expression behind the semantic gate too",
+		(mode) => {
+			const doc = candidate(repeatDoc(mode), (d) => {
+				fieldPatch(
+					d,
+					mode === "count_bound"
+						? { repeat_count: undefined }
+						: { data_source: { ids_query: undefined } },
+				);
+			});
+			findings(doc, [
+				mode === "count_bound" ? "EMPTY_REPEAT_COUNT" : "EMPTY_IDS_QUERY",
+			]);
 		},
 	);
 });
@@ -898,7 +918,14 @@ describe("POST_SUBMIT_NOT_OFFERED", () => {
 				{
 					uuid: testUuid("rules-link"),
 					target: { type: "module", moduleUuid: m },
-					condition: xp("#user/username = 'reviewer'"),
+					condition: eq(
+						{
+							kind: "session-user",
+							field: "username",
+							source: "worker-record",
+						},
+						literal("reviewer"),
+					),
 				},
 			];
 		};
@@ -942,7 +969,14 @@ describe("POST_SUBMIT_NOT_OFFERED", () => {
 						{
 							uuid: testUuid("rules-link"),
 							target: { type: "form", moduleUuid: m, formUuid: a },
-							condition: xp("#user/username = 'reviewer'"),
+							condition: eq(
+								{
+									kind: "session-user",
+									field: "username",
+									source: "worker-record",
+								},
+								literal("reviewer"),
+							),
 						},
 					];
 					d.forms[a].postSubmit = "module";
@@ -1026,7 +1060,17 @@ describe("form navigation admission", () => {
 	it("requires an explicit fallback for conditional session-scope links", () => {
 		const doc = candidate(linkedBase(), (d) => {
 			d.forms[a].formLinks = [
-				{ ...link(b), condition: xp("#user/username = 'reviewer'") },
+				{
+					...link(b),
+					condition: eq(
+						{
+							kind: "session-user",
+							field: "username",
+							source: "worker-record",
+						},
+						literal("reviewer"),
+					),
+				},
 			];
 		});
 		findings(doc, ["FORM_LINK_NO_FALLBACK"]);
@@ -1133,14 +1177,20 @@ describe("case reads in expressions and prose", () => {
 			]);
 			const doc = candidate(base, (d) => {
 				fieldPatch(d, {
-					[slot]: xp(
+					[slot]:
 						slot === "calculate" || slot === "default_value"
-							? "#patient/age"
-							: "#patient/age > 0",
-					),
+							? term({
+									kind: "form-case",
+									caseType: "patient",
+									property: "age",
+								})
+							: gt(
+									{ kind: "form-case", caseType: "patient", property: "age" },
+									literal(0),
+								),
 				});
 			});
-			findings(doc, ["CASE_HASHTAG_ON_CREATE_FORM", "INVALID_CASE_REF"]);
+			findings(doc, ["CASE_HASHTAG_ON_CREATE_FORM"]);
 		},
 	);
 	it("admits the created case id, a typed form answer, and existing-case reads on followup", () => {
@@ -1169,9 +1219,15 @@ describe("case reads in expressions and prose", () => {
 		});
 		findings(
 			candidate(base, (d) => {
-				fieldPatch(d, { default_value: xp("#patient/case_id_extra") });
+				fieldPatch(d, {
+					default_value: term({
+						kind: "form-case",
+						caseType: "patient",
+						property: "case_id_extra",
+					}),
+				});
 			}),
-			["CASE_HASHTAG_ON_CREATE_FORM", "INVALID_CASE_REF"],
+			["CASE_HASHTAG_ON_CREATE_FORM"],
 		);
 	});
 	const ref = (property: string): ProseTemplate => ({
@@ -1235,36 +1291,28 @@ describe("case reads in expressions and prose", () => {
 			candidate(patient(), (d) => {
 				fieldPatch(d, { label: ref("note") });
 			}),
-			["CASE_HASHTAG_ON_CREATE_FORM", "INVALID_CASE_REF"],
+			["CASE_HASHTAG_ON_CREATE_FORM"],
 		);
 	});
-	it.each(["item-list:lookup", "commcare:reports", "commcare-reports:abc"])(
-		"rejects an unavailable instance %s on the authored carrier",
+	it.each([
+		"item-list:lookup",
+		"commcare:reports",
+		"commcare-reports:abc",
+		"missing",
+	])(
+		"refuses an unavailable instance %s before it enters a stored expression",
 		(instance) => {
-			const doc = candidate(
-				survey([{ ...plain, kind: "hidden", calculate: "1" }]),
-				(d) => {
-					fieldPatch(d, {
-						calculate: xp(`instance('${instance}')/items/item`),
-					});
-				},
-			);
-			expect(findings(doc, ["XPATH_INSTANCE_UNAVAILABLE"])).toMatchObject([
-				{ scope: "app", details: { slot: "calculate" } },
-			]);
-		},
-	);
-	it.each(["default_value", "relevant", "validate", "required"])(
-		"checks unavailable instances in %s too",
-		(slot) => {
-			const doc = candidate(survey(), (d) => {
-				fieldPatch(d, {
-					[slot]: xp("count(instance('missing')/items/item) > 0"),
-				});
+			const doc = survey([{ ...plain, kind: "hidden", calculate: "1" }]);
+			const result = parseFormExpression(`instance('${instance}')/items/item`, {
+				doc,
+				slot: { entity: "field", uuid: q, slot: "calculate" },
+				lookup: new Map(),
 			});
-			expect(findings(doc, ["XPATH_INSTANCE_UNAVAILABLE"])).toMatchObject([
-				{ details: { slot } },
-			]);
+			expect(result.ok).toBe(false);
+			if (result.ok)
+				throw new Error("Unavailable source entered the expression model");
+			expect(result.issues).toHaveLength(1);
+			expect(result.issues[0]).toMatchObject({ code: "instance-unknown" });
 		},
 	);
 	it("admits declared case and session instances", () => {
@@ -1487,38 +1535,59 @@ describe("Connect participant admission", () => {
 		).toMatchObject([{ details: { suggestedId: "visit_2" } }]);
 	});
 	it.each(["entity_id", "entity_name"] as const)(
-		"rejects explicit empty deliver %s and admits absent defaults",
+		"refuses raw or fragment deliver %s and admits absent defaults",
 		(slot) => {
 			const base = connect("deliver", {
 				deliver_unit: {
 					id: "visit",
 					name: "Visit",
-					entity_id: xp("concat(#user/username, '-', today())"),
-					entity_name: xp("#user/username"),
+					entity_id: concat(
+						term({
+							kind: "session-user",
+							field: "username",
+							source: "worker-record",
+						}),
+						term(literal("-")),
+						today(),
+					),
+					entity_name: term({
+						kind: "session-user",
+						field: "username",
+						source: "worker-record",
+					}),
 				},
 			});
 			assertAdmittedDoc(base);
-			findings(
-				candidate(base, (d) => {
-					const block = d.forms[a].connect;
-					if (!block || !("deliver_unit" in block) || !block.deliver_unit)
-						throw new Error("missing deliver unit");
-					block.deliver_unit[slot] = xp("");
-				}),
-				["CONNECT_EMPTY_XPATH"],
+			const form = base.forms[a];
+			const block = form.connect?.deliver_unit;
+			if (block === undefined) throw new Error("Missing deliver unit");
+			for (const source of ["", "   ", { parts: [] }]) {
+				expect(
+					formSchema.safeParse({
+						...form,
+						connect: { deliver_unit: { ...block, [slot]: source } },
+					}).success,
+				).toBe(false);
+			}
+			assertAdmittedDoc(
+				connect("deliver", { deliver_unit: { id: "visit", name: "Visit" } }),
 			);
 		},
 	);
-	it("rejects an explicitly empty score", () => {
+	it("refuses raw or fragment scores and admits the default", () => {
 		const base = connect("learn", {
-			assessment: { id: "quiz", user_score: xp("1") },
+			assessment: { id: "quiz", user_score: term(literal(1)) },
 		});
-		findings(
-			candidate(base, (d) => {
-				d.forms[a].connect = { assessment: { id: "quiz", user_score: xp("") } };
-			}),
-			["CONNECT_EMPTY_XPATH"],
-		);
+		assertAdmittedDoc(base);
+		for (const source of ["", "   ", { parts: [] }]) {
+			expect(
+				formSchema.safeParse({
+					...base.forms[a],
+					connect: { assessment: { id: "quiz", user_score: source } },
+				}).success,
+			).toBe(false);
+		}
+		assertAdmittedDoc(connect("learn", { assessment: { id: "quiz" } }));
 	});
 });
 

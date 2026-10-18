@@ -34,7 +34,7 @@
  * `fuzzy-date` admits only validated `YYYY-MM-DD` shapes;
  * whitespace is structurally impossible inside a valid date literal.
  *
- * The rule walks every authored `Predicate` slot wire-emitted to
+ * The rule walks every authored `Expression` slot wire-emitted to
  * CSQL: `caseListConfig.filter`, every advanced-arm
  * `caseListConfig.searchInputs[i].predicate`, and
  * `caseSearchConfig.searchButtonDisplayCondition`. The simple-arm
@@ -51,7 +51,7 @@ import {
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
 
 interface WhitespaceMatch {
@@ -153,13 +153,13 @@ function buildError(args: {
 	);
 }
 
-function collectMatches(predicate: Predicate): WhitespaceMatch[] {
+function collectMatches(predicate: Expression): WhitespaceMatch[] {
 	const matches: WhitespaceMatch[] = [];
 	walkPredicateNodes(predicate, {
 		visitMatch: (node) => {
 			if (node.mode !== "fuzzy" && node.mode !== "phonetic") return;
 			// Only literal-string values are statically inspectable. Other
-			// `ValueExpression` shapes (search-input refs, arithmetic, etc.)
+			// `Expression` shapes (search-input refs, arithmetic, etc.)
 			// resolve at runtime; the validator has no static value to
 			// check. The bare-input-ref rule covers the input-ref shape
 			// elsewhere.
@@ -169,7 +169,10 @@ function collectMatches(predicate: Predicate): WhitespaceMatch[] {
 			matches.push({
 				operator: "match",
 				mode: node.mode,
-				property: node.property.property,
+				property:
+					node.property.kind === "prop"
+						? node.property.property
+						: "a calculated value",
 				value: literal,
 			});
 		},
@@ -179,13 +182,21 @@ function collectMatches(predicate: Predicate): WhitespaceMatch[] {
 			// `selected-any` are the SAME runtime function; both tokenize
 			// their value argument. Flag every whitespace-bearing value.
 			for (const literal of node.values) {
-				if (typeof literal.value !== "string") continue;
-				if (!/\s/.test(literal.value)) continue;
+				const value =
+					literal.kind === "literal"
+						? literal.value
+						: literal.kind === "choice"
+							? undefined
+							: extractLiteralStringValue(literal);
+				if (typeof value !== "string" || !/\s/.test(value)) continue;
 				matches.push({
 					operator: "multi-select-contains",
 					mode: node.quantifier,
-					property: node.property.property,
-					value: literal.value,
+					property:
+						node.property.kind === "prop"
+							? node.property.property
+							: "a calculated value",
+					value,
 				});
 			}
 		},
@@ -210,9 +221,9 @@ function extractLiteralStringValue(
 	return expression.term.value;
 }
 
-type MatchPredicate = Extract<Predicate, { kind: "match" }>;
+type MatchPredicate = Extract<Expression, { kind: "match" }>;
 type MultiSelectPredicate = Extract<
-	Predicate,
+	Expression,
 	{ kind: "multi-select-contains" }
 >;
 
@@ -222,54 +233,11 @@ interface PredicateVisitor {
 }
 
 function walkPredicateNodes(
-	predicate: Predicate,
+	expression: Expression,
 	visitor: PredicateVisitor,
 ): void {
-	switch (predicate.kind) {
-		case "match":
-			visitor.visitMatch(predicate);
-			return;
-		case "multi-select-contains":
-			visitor.visitMultiSelect(predicate);
-			return;
-		case "and":
-		case "or":
-			for (const clause of predicate.clauses)
-				walkPredicateNodes(clause, visitor);
-			return;
-		case "not":
-			walkPredicateNodes(predicate.clause, visitor);
-			return;
-		case "when-input-present":
-			walkPredicateNodes(predicate.clause, visitor);
-			return;
-		case "exists":
-		case "missing":
-			if (predicate.where !== undefined) {
-				walkPredicateNodes(predicate.where, visitor);
-			}
-			return;
-		case "match-all":
-		case "match-none":
-		case "eq":
-		case "neq":
-		case "gt":
-		case "gte":
-		case "lt":
-		case "lte":
-		case "in":
-		case "within-distance":
-		case "is-blank":
-		case "matches-pattern":
-		case "between":
-			return;
-		default: {
-			const _exhaustive: never = predicate;
-			throw new Error(
-				`matchModeWhitespaceInValue: unhandled predicate kind ${String(
-					_exhaustive,
-				)}`,
-			);
-		}
-	}
+	walkExpressionNodes(expression, (node) => {
+		if (node.kind === "match") visitor.visitMatch(node);
+		if (node.kind === "multi-select-contains") visitor.visitMultiSelect(node);
+	});
 }

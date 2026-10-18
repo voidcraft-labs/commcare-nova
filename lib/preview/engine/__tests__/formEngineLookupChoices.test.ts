@@ -8,21 +8,15 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import type { FieldSpec } from "@/lib/__tests__/docHelpers";
 import type {
-	Field,
-	FieldKind,
-	Form,
 	FormType,
 	LookupColumnId,
 	LookupOptionsSource,
 	LookupTableId,
-	ProseTemplate,
-	Uuid,
-	XPathExpression,
 } from "@/lib/domain";
-import { fieldSchema } from "@/lib/domain";
+import { eq, formField, tableColumn, term } from "@/lib/domain/expression";
 import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
-import { eq, formField, tableColumn, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type {
@@ -31,6 +25,7 @@ import type {
 } from "@/lib/lookup/types";
 import { FormEngine, type FormEngineInput } from "../formEngine";
 import { type PreviewLookupData, previewLookupData } from "../lookupEvaluation";
+import { engineFixtureInput } from "./fixtures/engineInput";
 
 const TABLE = "018f0000-0000-7000-8000-000000000001" as LookupTableId;
 const COL_CODE = "018f0000-0000-7000-8000-0000000000c1" as LookupColumnId;
@@ -75,39 +70,16 @@ function lookupData(): PreviewLookupData {
 	});
 }
 
-interface DField {
-	id: string;
-	kind: FieldKind;
-	label?: ProseTemplate;
-	calculate?: XPathExpression;
-	optionsSource?: LookupOptionsSource;
-}
+type DField = FieldSpec & { optionsSource?: LookupOptionsSource };
 
 function dTree(
 	fields: DField[],
 	formType: FormType = "survey",
 ): FormEngineInput {
-	const formUuid = testUuid("test-form-uuid");
-	const form: Form = {
-		uuid: formUuid,
-		id: "test-form",
-		name: "Test Form",
-		type: formType,
-	};
-	const fieldMap: Record<string, Field> = {};
-	const order: Uuid[] = [];
-	for (const n of fields) {
-		const uuid = testUuid(`form.${n.id}`);
-		order.push(uuid);
-		fieldMap[uuid as string] = fieldSchema.parse({ uuid, ...n });
-	}
-	return {
-		form,
-		formUuid,
-		fields: fieldMap,
-		fieldOrder: { [formUuid as string]: order },
-		caseTypes: [],
-	};
+	return engineFixtureInput(fields, {
+		formUuid: testUuid("test-form-uuid"),
+		formType,
+	});
 }
 
 const REGION_FIELD_UUID = testUuid("form.region");
@@ -209,9 +181,7 @@ describe("lookup-backed choices in the engine", () => {
 				{
 					id: "echo",
 					kind: "hidden",
-					calculate: {
-						parts: [{ kind: "field-ref", uuid: testUuid("form.clinic") }],
-					},
+					calculate: term(formField(testUuid("form.clinic"))),
 				},
 			]),
 			undefined,

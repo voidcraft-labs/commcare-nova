@@ -80,10 +80,7 @@ import {
 } from "@/components/shadcn/dialog";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
-import {
-	useEffectiveCaseTypes,
-	useMaterializableCaseTypes,
-} from "@/lib/doc/hooks/useCaseTypes";
+import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
 	useOrderedForms,
 	useOrderedMenuForms,
@@ -105,15 +102,11 @@ import {
 	orderedColumns,
 	reachableCaseTypes,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
-	searchInputRuntimeValueType,
 	visibleSearchInputs,
 } from "@/lib/domain";
+import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import type { Expression } from "@/lib/domain/expression/types";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
-import {
-	effectiveFilterForEmission,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import {
@@ -149,10 +142,14 @@ import type {
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
+import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { predicateLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
-import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
+import {
+	evaluatePreviewSearchPredicate,
+	type PreviewSearchEnvironment,
+} from "@/lib/preview/engine/searchExpressionEvaluation";
 import { searchOutcomeFromLoad } from "@/lib/preview/engine/searchPhase";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -241,7 +238,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * so the list sorts/filters with the same casts and the sample
 	 * generator emits keys the row validation accepts. */
 	const caseTypes = useMaterializableCaseTypes();
-	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const appId = useAppId() ?? "";
 	const canEdit = useCanEdit();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -353,11 +349,13 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const localizedValues = useLocalizedValues();
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
+	const canonicalConfig = menuSource.doc.modules[moduleUuid]?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
 	const columnDisplayContext = useColumnDisplayContext(
 		config,
 		mod?.caseType,
 		caseType?.properties ?? NO_CASE_PROPERTIES,
+		{ doc: menuSource.doc, moduleUuid },
 	);
 	const projectProse = useProseProjection();
 	const { signIn } = useAuth();
@@ -386,6 +384,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		[engine, moduleUuid, searchSession],
 	);
 	const lookupStatus = usePreviewLookupStatus();
+	const searchEnvironment = useMemo<PreviewSearchEnvironment>(
+		() => ({
+			doc: menuSource.doc,
+			moduleUuid,
+			...(lookupStatus.kind === "data" && { lookup: lookupStatus.data }),
+		}),
+		[menuSource.doc, moduleUuid, lookupStatus],
+	);
+
 	/* Case-first form conditions evaluate at THIS screen, against the
 	 * SELECTED row's projection: the wire's `<command relevant>` locus
 	 * (a case-first module's form menu renders after selection). The
@@ -401,13 +408,23 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					condition: form.displayCondition,
 					hiddenFromMenu: form.hiddenFromMenu === true,
 					session: searchSession,
-					...(caseType !== undefined && { currentCaseType: caseType.name }),
+					types: previewExpressionContext(
+						menuSource.doc,
+						{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
+						searchEnvironment.lookup,
+					),
 					caseProjection: projection,
 					lookup: lookupStatus,
 				}),
 			}));
 		},
-		[caseLoadingForms, searchSession, caseType, lookupStatus],
+		[
+			caseLoadingForms,
+			searchSession,
+			menuSource.doc,
+			lookupStatus,
+			searchEnvironment.lookup,
+		],
 	);
 	/* A several-case form menu uses the same three-valued display-condition
 	 * projection as the ordinary post-selection menu. Valid-by-construction
@@ -422,23 +439,21 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					condition: form.displayCondition,
 					hiddenFromMenu: form.hiddenFromMenu === true,
 					session: searchSession,
-					...(caseType !== undefined && { currentCaseType: caseType.name }),
+					types: previewExpressionContext(
+						menuSource.doc,
+						{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
+						searchEnvironment.lookup,
+					),
 					lookup: lookupStatus,
 				}),
 			})),
-		[caseLoadingForms, searchSession, caseType, lookupStatus],
-	);
-	const searchTypeContext = useMemo<TypeContext>(
-		() => ({
-			caseTypes: [...effectiveCaseTypes],
-			knownInputs: (config?.searchInputs ?? []).map((input) => ({
-				uuid: input.uuid,
-				name: input.name,
-				data_type: searchInputRuntimeValueType(input),
-			})),
-			...(caseType !== undefined && { currentCaseType: caseType.name }),
-		}),
-		[caseType, config?.searchInputs, effectiveCaseTypes],
+		[
+			caseLoadingForms,
+			searchSession,
+			menuSource.doc,
+			lookupStatus,
+			searchEnvironment.lookup,
+		],
 	);
 
 	// ── Responsive split: the canvas's own width decides ──
@@ -467,7 +482,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		scopeKey: `${scopeEpoch}:${moduleUuid ?? ""}`,
 		searchInputs: config?.searchInputs ?? [],
 		session: searchSession,
-		...(lookupStatus.kind === "data" && { lookupData: lookupStatus.data }),
+		environment: searchEnvironment,
 	});
 	/* Hidden inputs are answered by the system at submit, so only visible
 	 * prompts decide whether a worker has a Search screen to fill in; the wire
@@ -497,10 +512,19 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					false
 				: evaluatePreviewSearchPredicate(
 						searchButtonCondition,
+						previewExpressionContext(
+							menuSource.doc,
+							{
+								entity: "module",
+								uuid: moduleUuid,
+								slot: "search_button_display_condition",
+							},
+							searchEnvironment.lookup,
+						),
+						searchEnvironment,
 						config?.searchInputs ?? [],
 						searchSession,
 						EMPTY_SEARCH_INPUT_VALUES,
-						lookupStatus.kind === "data" ? lookupStatus.data : undefined,
 					)));
 	/* A module that opens on Search shows the Search screen alone until a
 	 * search completes; Results exist only after (the running app's inline
@@ -570,7 +594,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		readonly caseTypeName: string | undefined;
 		readonly config: CaseListConfig | undefined;
 		readonly submitted: typeof activeSearchInputValues;
-		readonly excludedOwnerIdsExpression: ValueExpression | undefined;
+		readonly excludedOwnerIdsExpression: Expression | undefined;
 		readonly replacementRevision: number;
 		readonly index: number;
 	}>({
@@ -909,7 +933,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		 * until the worker's search completes. */
 		caseType: step === "search" ? undefined : caseType?.name,
 		...(registeredCaseIds === undefined ? {} : { caseIds: registeredCaseIds }),
-		caseListConfig: config,
+		caseListConfig: canonicalConfig,
+		blueprint: menuSource.doc,
 		...(moduleUuid === undefined ? {} : { moduleUuid }),
 		language: language.language,
 		/* The registered case is the whole population (the wire's frame keys
@@ -1006,7 +1031,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		caseId: routeCaseId,
 		parentCase: parentCaseConstraint,
 		ancestorDepth: 0,
-		caseListConfig: config,
+		moduleUuid,
+		caseListConfig: canonicalConfig,
+		blueprint: menuSource.doc,
 		caseTypes,
 		// A canonical Details URL loads its case by identity rather than off
 		// the page, so this is the one read that could otherwise open a case
@@ -1858,10 +1885,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						caseType={caseType}
 						session={searchSession}
 						evaluateOnDevice={evaluateSearchScreenXPath}
-						typeContext={searchTypeContext}
-						{...(lookupStatus.kind === "data" && {
-							lookupData: lookupStatus.data,
-						})}
+						environment={searchEnvironment}
 						value={searchRun.draft}
 						onChange={searchRun.changeDraft}
 						onSubmit={submitSearch}

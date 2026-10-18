@@ -1,4 +1,4 @@
-import type { BlueprintDoc, CaseProperty } from "./blueprint";
+import type { BlueprintDoc } from "./blueprint";
 import { castCanFail, effectiveDataType } from "./casePropertyTypes";
 import { materializableCaseTypes } from "./effectiveCaseTypes";
 import { CASE_SCALAR_PROPERTY_NAMES } from "./standardCaseProperties";
@@ -16,7 +16,6 @@ export interface CaseRetypePlan {
 	readonly retained: readonly string[];
 	readonly conversions: readonly CaseRetypeConversion[];
 	readonly parked: readonly string[];
-	readonly missingRequired: readonly string[];
 	readonly reviewRequired: boolean;
 	readonly safe: boolean;
 	/** True only when CommCare's case_type-only wire preserves Nova's data view. */
@@ -30,15 +29,11 @@ export interface CaseRetypePlan {
  * execute the richer conversion/parking plan atomically; `wirePortable` means
  * CommCare's case_type-only update already has identical data semantics (no
  * conversion or parking). Authored operations currently require the latter.
- * `writtenProperties` contains only values the enclosing operation guarantees
- * to write; callers must not count a conditionally relevant write as satisfying
- * a requirement.
  */
 export function planCaseRetype(
 	doc: BlueprintDoc,
 	fromType: string,
 	toType: string,
-	writtenProperties: ReadonlySet<string> = new Set(),
 ): CaseRetypePlan {
 	const types = new Map(
 		materializableCaseTypes(doc).map((caseType) => [caseType.name, caseType]),
@@ -53,9 +48,6 @@ export function planCaseRetype(
 	);
 	const destinationByName = new Map(
 		destinationProperties.map((property) => [property.name, property]),
-	);
-	const sourceNames = new Set(
-		sourceProperties.map((property) => property.name),
 	);
 	const retained: string[] = [];
 	const conversions: CaseRetypeConversion[] = [];
@@ -80,37 +72,16 @@ export function planCaseRetype(
 		}
 	}
 
-	const missingRequired = destinationProperties
-		.filter(isRequiredCaseProperty)
-		.map((property) => property.name)
-		.filter(
-			(property) =>
-				!sourceNames.has(property) && !writtenProperties.has(property),
-		);
-
-	const safe =
-		source !== undefined &&
-		destination !== undefined &&
-		missingRequired.length === 0;
+	const safe = source !== undefined && destination !== undefined;
 	return {
 		fromType,
 		toType,
 		retained,
 		conversions,
 		parked,
-		missingRequired,
 		reviewRequired:
 			parked.length > 0 || conversions.some((conversion) => conversion.canPark),
 		safe,
 		wirePortable: safe && conversions.length === 0 && parked.length === 0,
 	};
-}
-
-function isRequiredCaseProperty(property: CaseProperty): boolean {
-	// `required` is an authored XPath, not a static boolean. This plan holds no
-	// case snapshot with which to prove a conditional requirement false, so any
-	// non-empty requirement is conservatively treated as active. Refining that
-	// verdict takes a real snapshot and the shared evaluator — never a weakening
-	// of atomic safety by guessing from expression text here.
-	return property.required !== undefined && property.required.parts.length > 0;
 }

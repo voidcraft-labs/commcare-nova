@@ -4,8 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { xp } from "@/lib/__tests__/docHelpers";
 import { caseTypeSchema } from "@/lib/domain/blueprint";
+import { matchAll } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	caseTypeRecordSchema,
@@ -90,7 +90,7 @@ describe("caseTypeRecordSchema", () => {
 		(key) => {
 			for (const value of [
 				null,
-				key === "validation_msg" ? proseText("Enter an age.") : xp("true()"),
+				key === "validation_msg" ? proseText("Enter an age.") : matchAll(),
 			]) {
 				expect(
 					caseTypeRecordSchema.safeParse({
@@ -244,16 +244,20 @@ describe("connectFormConfigSchema", () => {
 	});
 
 	it("publishes time_estimate as whole hours in the tool schema", () => {
-		const schema = JSON.stringify(
-			z.toJSONSchema(connectFormConfigSchema, {
+		const schema = z.toJSONSchema(
+			connectFormConfigSchema.shape.learn_module.unwrap().unwrap().shape
+				.time_estimate,
+			{
 				target: "draft-7",
 				io: "input",
-			}),
+			},
 		);
-		expect(schema).toContain(
-			"Estimated whole hours to complete the module's content; round up and use at least 1.",
-		);
-		expect(schema).not.toMatch(/\bminutes?\b/i);
+		expect(schema).toMatchObject({
+			type: "integer",
+			minimum: 1,
+			description:
+				"Estimated whole hours to complete the module's content; round up and use at least 1.",
+		});
 	});
 
 	it("accepts null sub-configs beside a real one", () => {

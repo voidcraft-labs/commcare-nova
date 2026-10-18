@@ -19,7 +19,7 @@
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, plainColumn } from "@/lib/domain";
-import { formField, term } from "@/lib/domain/predicate";
+import { formField, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 

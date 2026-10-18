@@ -1,29 +1,68 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
-import { type Column, calculatedColumn } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	type CaseType,
+	type Column,
+	calculatedColumn,
+} from "@/lib/domain";
 import {
 	ancestorPath,
 	anyRelationPath,
 	count,
 	double,
+	type Expression,
 	prop,
-	type RelationEvaluationScopeContext,
 	relationStep,
 	selfPath,
 	subcasePath,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { moduleExpressionContexts } from "../../../expressionContext";
 import {
 	classifyRelatedCaseSearchExpression as classify,
-	searchNeedsSupportingCases,
+	searchNeedsSupportingCases as needsSupport,
 } from "../relatedCaseProjection";
 
+const PARENT_GRAPH: CaseType[] = [
+	{ name: "patient", properties: [], parent_type: "household" },
+	{ name: "household", properties: [] },
+	{ name: "organization", properties: [] },
+];
+function contextsFor(config: CaseListConfig, caseTypes: CaseType[]) {
+	const doc = buildDoc({
+		caseTypes,
+		modules: [
+			{
+				name: "Records",
+				caseType: caseTypes[0].name,
+				caseListConfig: config,
+				caseSearchConfig: {},
+				forms: [],
+			},
+		],
+	});
+	return moduleExpressionContexts(doc, doc.moduleOrder[0]);
+}
 function classifyRelatedCaseSearchExpression(
-	...args: Parameters<typeof classify>
+	expression: Expression,
+	caseTypes: CaseType[] = PARENT_GRAPH,
 ) {
-	const result = classify(...args);
+	const column = calculatedColumn(
+		testUuid("projection-column"),
+		"Value",
+		expression,
+	);
+	const contexts = contextsFor(configWith([column]), caseTypes);
+	const result = classify(
+		expression,
+		contexts({
+			slot: "case_list_column_expression",
+			member: { columnUuid: column.uuid },
+		}),
+	);
 	return result.kind === "ancestor-property"
 		? {
 				...result,
@@ -34,13 +73,12 @@ function classifyRelatedCaseSearchExpression(
 			}
 		: result;
 }
-
-const PARENT_GRAPH: RelationEvaluationScopeContext = {
-	caseTypes: [
-		{ name: "patient", properties: [], parent_type: "household" },
-		{ name: "household", properties: [] },
-	],
-};
+function searchNeedsSupportingCases(
+	config: CaseListConfig,
+	caseTypes: CaseType[],
+) {
+	return needsSupport(config, contextsFor(config, caseTypes));
+}
 
 function configWith(columns: Column[]) {
 	return resolveCaseListConfig({ columns, searchInputs: [] });
@@ -115,15 +153,13 @@ describe("classifyRelatedCaseSearchExpression", () => {
 
 	it("keeps child, ambiguous, and calculated relation reads unsupported", () => {
 		const parent = ancestorPath(relationStep("parent", "household"));
-		const childGraph: RelationEvaluationScopeContext = {
-			caseTypes: [
-				{ name: "household", properties: [] },
-				{ name: "patient", properties: [], parent_type: "household" },
-			],
-		};
-		const recursiveGraph: RelationEvaluationScopeContext = {
-			caseTypes: [{ name: "person", properties: [], parent_type: "person" }],
-		};
+		const childGraph: CaseType[] = [
+			{ name: "household", properties: [] },
+			{ name: "patient", properties: [], parent_type: "household" },
+		];
+		const recursiveGraph: CaseType[] = [
+			{ name: "person", properties: [], parent_type: "person" },
+		];
 
 		expect(
 			classifyRelatedCaseSearchExpression(

@@ -1,3 +1,5 @@
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
+import { scalarDataType, typeOf } from "@/lib/domain/expression";
 // components/builder/shared/__tests__/verbMenuBuildFuzz.test.ts
 //
 // The valid-by-construction GLUE invariant: the EDITOR's own build
@@ -30,12 +32,14 @@ import {
 	ancestorPath,
 	and,
 	checkExpression,
-	checkPredicate,
 	coalesce,
 	dateLiteral,
 	datetimeLiteral,
+	type Expression,
+	type ExpressionContext,
 	eq,
 	exists,
+	expressionSchema,
 	input,
 	isBlank,
 	isIn,
@@ -46,17 +50,14 @@ import {
 	multiSelectAny,
 	not,
 	or,
-	type Predicate,
-	predicateSchema,
 	prop,
-	type ResolvedType,
 	relationStep,
-	type TypeContext,
+	type ScalarType,
 	term,
 	timeLiteral,
 	whenInput,
 	within,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	STRUCTURE_ENTRIES,
@@ -108,17 +109,23 @@ const KNOWN_INPUTS = [
 	{ uuid: testUuid("q"), name: "q", data_type: "text" as const },
 ];
 
-const EDIT_CTX: PredicateEditContext = {
-	caseTypes: CASE_TYPES,
-	currentCaseType: "ct",
-	knownInputs: KNOWN_INPUTS,
-	caseDataScope: "per-case",
-};
-const TYPE_CTX: TypeContext = {
-	caseTypes: CASE_TYPES,
-	currentCaseType: "ct",
-	knownInputs: KNOWN_INPUTS,
-};
+const EDIT_CTX: PredicateEditContext = expressionEditorFixture(
+	"search-predicate",
+	{
+		caseTypes: CASE_TYPES,
+		currentCaseType: "ct",
+		knownInputs: KNOWN_INPUTS,
+		caseDataScope: "per-case",
+	},
+).context;
+const TYPE_CTX: ExpressionContext = expressionEditorFixture(
+	"search-predicate",
+	{
+		caseTypes: CASE_TYPES,
+		currentCaseType: "ct",
+		knownInputs: KNOWN_INPUTS,
+	},
+).context.expressionContext;
 
 const P = (dt: CasePropertyDataType) => prop("ct", `p_${dt}`);
 
@@ -145,7 +152,7 @@ function eqValue(dt: CasePropertyDataType) {
 
 // Representative CURRENT predicates: an `eq` per subject type, plus one
 // of every predicate shape on a fitting subject.
-const CURRENTS: Predicate[] = [
+const CURRENTS: Expression[] = [
 	...casePropertyDataTypes.map((dt) => eq(P(dt), eqValue(dt))),
 	// Null can sit opposite every scalar type, but list-shaped transitions
 	// must replace an all-null candidate because the persisted schemas reject
@@ -177,10 +184,10 @@ const CURRENTS: Predicate[] = [
 
 const ALL_ENTRIES = [...VERB_ENTRIES, ...STRUCTURE_ENTRIES];
 
-function subjectTypeOf(p: Predicate): ResolvedType | undefined {
+function subjectTypeOf(p: Expression): ScalarType | undefined {
 	const s = subjectOf(p);
 	if (s === undefined) return undefined;
-	return checkExpression(s, TYPE_CTX, [], []);
+	return scalarDataType(typeOf(s, TYPE_CTX)?.data);
 }
 
 // ── 1. Verb-menu builds ────────────────────────────────────────────────
@@ -192,11 +199,11 @@ describe("valid by construction — every admitted verb build type-checks", () =
 			// fixtures are themselves schema-valid and type-valid before
 			// transitioning from them.
 			expect(
-				predicateSchema.safeParse(current).success,
+				expressionSchema.safeParse(current).success,
 				`fixture current does not parse: ${current.kind}`,
 			).toBe(true);
 			expect(
-				checkPredicate(current, TYPE_CTX).ok,
+				checkExpression(current, TYPE_CTX).errors.length === 0,
 				`fixture current is invalid: ${current.kind}`,
 			).toBe(true);
 			const subjectType = subjectTypeOf(current);
@@ -204,12 +211,12 @@ describe("valid by construction — every admitted verb build type-checks", () =
 				if (!verbEntryAdmitted(entry, current, subjectType, EDIT_CTX)) continue;
 				const next = entry.build(current, EDIT_CTX);
 				expect(
-					predicateSchema.safeParse(next).success,
+					expressionSchema.safeParse(next).success,
 					`${entry.id} from ${current.kind} produced a schema-invalid AST`,
 				).toBe(true);
-				const result = checkPredicate(next, TYPE_CTX);
-				expect(result, `${entry.id} from ${current.kind}`).toEqual({
-					ok: true,
+				const result = checkExpression(next, TYPE_CTX);
+				expect(result, `${entry.id} from ${current.kind}`).toMatchObject({
+					errors: [],
 				});
 			}
 		}
@@ -240,22 +247,28 @@ describe("valid by construction — every admitted verb build type-checks", () =
 				{ name: "place", label: proseText("Place"), data_type: "geopoint" },
 			],
 		};
-		const editCtx: PredicateEditContext = {
-			caseTypes: [origin, destination],
-			currentCaseType: "child",
-			knownInputs: [],
-			caseDataScope: "per-case",
-		};
-		const typeCtx: TypeContext = {
-			caseTypes: [origin, destination],
-			currentCaseType: "child",
-			knownInputs: [],
-		};
+		const editCtx: PredicateEditContext = expressionEditorFixture(
+			"search-predicate",
+			{
+				caseTypes: [origin, destination],
+				currentCaseType: "child",
+				knownInputs: [],
+				caseDataScope: "per-case",
+			},
+		).context;
+		const typeCtx: ExpressionContext = expressionEditorFixture(
+			"search-predicate",
+			{
+				caseTypes: [origin, destination],
+				currentCaseType: "child",
+				knownInputs: [],
+			},
+		).context.expressionContext;
 		const via = ancestorPath(relationStep("parent", "parent"));
 		const cases: ReadonlyArray<{
-			current: Predicate;
+			current: Expression;
 			entryId: string;
-			expectedKind: Predicate["kind"];
+			expectedKind: Expression["kind"];
 		}> = [
 			{
 				current: eq(prop("child", "display_name", via), literal("A")),
@@ -281,15 +294,15 @@ describe("valid by construction — every admitted verb build type-checks", () =
 			if (entry === undefined) throw new Error(`Missing ${fixture.entryId}`);
 			const subject = subjectOf(fixture.current);
 			if (subject === undefined) throw new Error("Expected a sentence subject");
-			const subjectType = checkExpression(subject, typeCtx, [], []);
+			const subjectType = scalarDataType(typeOf(subject, typeCtx)?.data);
 			expect(
 				verbEntryAdmitted(entry, fixture.current, subjectType, editCtx),
 				fixture.entryId,
 			).toBe(true);
 			const next = entry.build(fixture.current, editCtx);
 			expect(next.kind).toBe(fixture.expectedKind);
-			expect(predicateSchema.safeParse(next).success).toBe(true);
-			expect(checkPredicate(next, typeCtx).ok).toBe(true);
+			expect(expressionSchema.safeParse(next).success).toBe(true);
+			expect(checkExpression(next, typeCtx).errors.length === 0).toBe(true);
 		}
 	});
 
@@ -322,29 +335,36 @@ describe("valid by construction — every registry default seeds a valid AST", (
 				parent_type: "parent_ct",
 				properties: ordered.map(propOf),
 			};
-			const editCtx: PredicateEditContext = {
-				caseTypes: [PARENT, ct],
-				currentCaseType: "ct",
-				knownInputs: KNOWN_INPUTS,
-				caseDataScope: "per-case",
-			};
-			const typeCtx: TypeContext = {
-				caseTypes: [PARENT, ct],
-				currentCaseType: "ct",
-				knownInputs: KNOWN_INPUTS,
-			};
+			const editCtx: PredicateEditContext = expressionEditorFixture(
+				"search-predicate",
+				{
+					caseTypes: [PARENT, ct],
+					currentCaseType: "ct",
+					knownInputs: KNOWN_INPUTS,
+					caseDataScope: "per-case",
+				},
+			).context;
+			const typeCtx: ExpressionContext = expressionEditorFixture(
+				"search-predicate",
+				{
+					caseTypes: [PARENT, ct],
+					currentCaseType: "ct",
+					knownInputs: KNOWN_INPUTS,
+				},
+			).context.expressionContext;
 			for (const schema of predicateCardSchemaList) {
 				// Only the kinds the editor would actually offer here.
 				if (!schema.applicable(editCtx)) continue;
 				const seed = schema.defaultValue(editCtx);
 				expect(
-					predicateSchema.safeParse(seed).success,
+					expressionSchema.safeParse(seed).success,
 					`${schema.kind} default (first=${firstType}) does not parse`,
 				).toBe(true);
-				const result = checkPredicate(seed, typeCtx);
-				expect(result, `${schema.kind} default (first=${firstType})`).toEqual({
-					ok: true,
-				});
+				const result = checkExpression(seed, typeCtx);
+				expect(
+					result,
+					`${schema.kind} default (first=${firstType})`,
+				).toMatchObject({ errors: [] });
 			}
 		}
 	});

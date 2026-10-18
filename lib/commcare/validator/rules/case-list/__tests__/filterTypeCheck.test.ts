@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 import { f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
-import { eq, gt, literal, type Predicate, prop } from "@/lib/domain/predicate";
+import {
+	type Expression,
+	eq,
+	gt,
+	literal,
+	prop,
+} from "@/lib/domain/expression";
 import { admittedCaseListDoc, findings } from "./caseListRuleFixture";
 
-function candidate(filter: Predicate) {
+function candidate(filter: Expression) {
 	const base = admittedCaseListDoc({
 		fields: [
 			f({

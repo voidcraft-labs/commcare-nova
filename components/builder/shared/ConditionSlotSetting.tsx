@@ -22,7 +22,7 @@ import { summarizeFilter } from "@/components/builder/case-list-config/predicate
 import { Button } from "@/components/shadcn/button";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseType } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression, ExpressionContext } from "@/lib/domain/expression";
 import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
 import { ClearConditionButton } from "./ClearConditionButton";
 import { firstComparisonDefault } from "./cards/comparisonSeed";
@@ -30,12 +30,13 @@ import type { CaseDataScope } from "./editorSchemas";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 export interface ConditionSlotSettingProps {
+	readonly expressionContext: ExpressionContext | undefined;
 	/** Omitted when the surrounding panel already titles the setting. */
 	readonly title?: string;
 	readonly description: string;
-	readonly value: Predicate | undefined;
+	readonly value: Expression | undefined;
 	/** `undefined` removes the condition. */
-	readonly onChange: (next: Predicate | undefined) => void;
+	readonly onChange: (next: Expression | undefined) => void;
 	/**
 	 * Open the centre-canvas editor. `true` says this row just created
 	 * the condition, so the editor can land the author on it. What that
@@ -63,6 +64,7 @@ export interface ConditionSlotSettingProps {
 }
 
 export function ConditionSlotSetting({
+	expressionContext,
 	title,
 	description,
 	value,
@@ -88,8 +90,10 @@ export function ConditionSlotSetting({
 	const projectProse = useProseProjection();
 
 	const add = () => {
+		if (expressionContext === undefined) return;
 		onChange(
 			firstComparisonDefault({
+				expressionContext,
 				caseTypes,
 				currentCaseType,
 				knownInputs,
@@ -117,7 +121,7 @@ export function ConditionSlotSetting({
 					ref={addButtonRef}
 					type="button"
 					variant="ghost"
-					disabled={!canEdit}
+					disabled={!canEdit || expressionContext === undefined}
 					onClick={add}
 					className="nova-add-slot w-full"
 				>

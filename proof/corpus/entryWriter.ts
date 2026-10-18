@@ -46,6 +46,7 @@ import {
 	blueprintDocSchema,
 	type PersistableDoc,
 } from "@/lib/domain";
+import { materializableCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
 	type ConfigurationFlags,
 	configurationFlags,
@@ -194,8 +195,10 @@ function storedInputs(publish: PublishDocument) {
 
 /**
  * A document as `document.json` holds it: the inputs `./publish.ts` takes,
- * its source, and where its modules, forms and languages sit on the wire
- * (`wire.modules`, `wire.languages`: `./footprint.ts`).
+ * its source, its effective materializable case catalog, and where its
+ * modules, forms and languages sit on the wire (`wire.modules`,
+ * `wire.languages`: `./footprint.ts`). Python consumes the catalog's derived
+ * property types without interpreting the document's writers itself.
  */
 function documentJson(
 	id: string,
@@ -208,6 +211,18 @@ function documentJson(
 		source,
 		...storedInputs(publish),
 		wire: { modules: wireLayout(doc), languages: wireLanguages(doc) },
+		catalog: materializableCaseTypes(doc).map(
+			({ name, parent_type, relationship, properties }) => ({
+				name,
+				parent_type,
+				relationship,
+				properties: properties.map(({ name, data_type, options }) => ({
+					name,
+					data_type,
+					options,
+				})),
+			}),
+		),
 	};
 }
 

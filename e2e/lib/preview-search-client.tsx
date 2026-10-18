@@ -10,7 +10,7 @@ import { DatePicker } from "@/components/shadcn/date-picker";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { proseText, simpleSearchInputDef } from "@/lib/domain";
+import { plainColumn, proseText, simpleSearchInputDef } from "@/lib/domain";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import {
 	previewAsMe,
@@ -18,30 +18,6 @@ import {
 } from "@/lib/preview/engine/identity";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 
-const doc = buildDoc({
-	appId: "native-search",
-	modules: [
-		{
-			name: "Search",
-			forms: [
-				{
-					name: "Visit",
-					type: "survey",
-					fields: [{ kind: "text", id: "notes", label: "Notes" }],
-				},
-			],
-		},
-	],
-});
-doc.localization = {
-	sourceLanguage: "eng",
-	defaultLanguage: "eng",
-	languageOrder: ["eng", "spa", "eng-GB"],
-	wireCodes: { eng: "en", spa: "es", "eng-GB": "eng-gb" },
-	translations: { spa: {}, "eng-GB": {} },
-};
-const docStore = createBlueprintDocStore();
-docStore.getState().load(admittedControllerDoc(doc));
 const languageJourney = new URLSearchParams(window.location.search).has(
 	"language",
 );
@@ -63,7 +39,7 @@ const inputs = [
 	),
 	simpleSearchInputDef(
 		testUuid("search-period"),
-		"period",
+		"registered",
 		"Registered",
 		"date-range",
 		"registered",
@@ -85,12 +61,49 @@ const caseType = {
 		},
 	],
 };
+const moduleUuid = testUuid("native-search-module");
+const doc = buildDoc({
+	appId: "native-search",
+	caseTypes: [caseType],
+	modules: [
+		{
+			uuid: moduleUuid,
+			name: "Search",
+			caseType: caseType.name,
+			caseListConfig: {
+				columns: [
+					plainColumn(testUuid("native-search-name"), "case_name", "Name"),
+				],
+				searchInputs: inputs,
+			},
+			forms: [
+				{
+					name: "Visit",
+					type: "followup",
+					fields: [{ kind: "text", id: "notes", label: "Notes" }],
+				},
+			],
+		},
+	],
+});
+doc.localization = {
+	sourceLanguage: "eng",
+	defaultLanguage: "eng",
+	languageOrder: ["eng", "spa", "eng-GB"],
+	wireCodes: { eng: "en", spa: "es", "eng-GB": "eng-gb" },
+	translations: { spa: {}, "eng-GB": {} },
+};
+const docStore = createBlueprintDocStore();
+docStore.getState().load(admittedControllerDoc(doc));
+const environment = { doc, moduleUuid };
+
 function Surface({ revision }: { revision: number }) {
 	const { selectLanguage } = useBuilderLanguage();
 	const [authoringDate, setAuthoringDate] = useState("2024-01-15");
 	const run = useSearchInputRunState({
 		scopeKey: "native-search",
 		searchInputs: inputs,
+		environment,
 		session: previewSessionValues(
 			previewAsMe({
 				id: "worker",
@@ -122,6 +135,7 @@ function Surface({ revision }: { revision: number }) {
 			<SearchInputForm
 				caseType={caseType}
 				searchInputs={inputs}
+				environment={environment}
 				value={run.draft}
 				onChange={run.changeDraft}
 				onSubmit={run.submit}

@@ -39,12 +39,7 @@ import {
 	orderedCaseOperations,
 	type Uuid,
 } from "@/lib/domain";
-import {
-	type Predicate,
-	type ValueExpression,
-	walkExpressionNodes,
-	walkPredicateExpressionNodes,
-} from "@/lib/domain/predicate";
+import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
 import {
 	type CaseOperationDependencyKind,
 	moveCaseOperationMutation,
@@ -141,34 +136,23 @@ function referenceSlots(
 		}
 		if (
 			write.condition !== undefined &&
-			predicateReferences(write.condition, uuid)
+			expressionReferences(write.condition, uuid)
 		) {
 			slots.push({ kind: "write-condition", property: write.property });
 		}
 	}
 	if (
 		operation.condition !== undefined &&
-		predicateReferences(operation.condition, uuid)
+		expressionReferences(operation.condition, uuid)
 	) {
 		slots.push({ kind: "condition" });
 	}
 	return slots;
 }
 
-function expressionReferences(
-	expression: ValueExpression,
-	uuid: Uuid,
-): boolean {
+function expressionReferences(expression: Expression, uuid: Uuid): boolean {
 	let found = false;
 	walkExpressionNodes(expression, (node) => {
-		if (node.kind === "id-of" && node.opUuid === uuid) found = true;
-	});
-	return found;
-}
-
-function predicateReferences(predicate: Predicate, uuid: Uuid): boolean {
-	let found = false;
-	walkPredicateExpressionNodes(predicate, (node) => {
 		if (node.kind === "id-of" && node.opUuid === uuid) found = true;
 	});
 	return found;

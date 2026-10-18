@@ -6,8 +6,8 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { parseXPathForForm } from "@/lib/doc/expressionText";
 import type { FormLink } from "@/lib/domain";
+import { eq, literal, term } from "@/lib/domain/expression/builders";
 import {
 	carriedValuesFor,
 	retargetDropsCarriedValues,
@@ -16,22 +16,20 @@ import {
 	seedConditionalLink,
 	seedOtherwiseLink,
 } from "../seeds";
-import { fixture, SOURCE, toInspect, toNote, toVisit } from "./fixture";
+import { HOUSEHOLDS, toInspect, toNote, toVisit } from "./fixture";
 
-const doc = fixture();
-const parse = (text: string) => parseXPathForForm(doc, SOURCE, text);
-const required = [{ id: "case_id", caseType: "household" }];
+const datumName = { kind: "selected-case", module: HOUSEHOLDS } as const;
+const required = [{ name: datumName, id: "case_id", caseType: "household" }];
 
 describe("seeds", () => {
 	it("a conditional link starts from a condition that never fires", () => {
 		const link = seedConditionalLink(
 			{ target: toNote, carry: { kind: "nothing-needed" }, required: [] },
-			parse,
 			testUuid("c"),
 		);
 		expect(link).toStrictEqual({
 			uuid: testUuid("c"),
-			condition: parse("false()"),
+			condition: { kind: "match-none" },
 			target: toNote,
 		});
 	});
@@ -43,7 +41,6 @@ describe("seeds", () => {
 				carry: { kind: "automatic", carried: [] },
 				required: [],
 			},
-			parse,
 			testUuid("o"),
 		);
 		expect(link).toStrictEqual({ uuid: testUuid("o"), target: toVisit });
@@ -56,47 +53,49 @@ describe("seeds", () => {
 			carriedValuesFor(
 				{ kind: "manual-required", datumIds: ["case_id"] },
 				required,
-				parse,
 			),
-		).toStrictEqual([{ name: "case_id", xpath: parse("''") }]);
+		).toStrictEqual([{ name: datumName, xpath: term(literal("")) }]);
 		expect(
-			carriedValuesFor({ kind: "automatic", carried: [] }, required, parse),
+			carriedValuesFor({ kind: "automatic", carried: [] }, required),
 		).toBeUndefined();
-		expect(
-			carriedValuesFor({ kind: "nothing-needed" }, [], parse),
-		).toBeUndefined();
-		expect(seedCarriedValues([], parse)).toStrictEqual([]);
+		expect(carriedValuesFor({ kind: "nothing-needed" }, [])).toBeUndefined();
+		expect(seedCarriedValues([])).toStrictEqual([]);
 	});
 
 	it("retargeting reseeds values for the destination and reports what it drops", () => {
 		const held: FormLink = {
 			uuid: testUuid("l"),
-			condition: parse("1 = 1"),
+			condition: eq(literal(1), literal(1)),
 			target: toInspect,
-			datums: [{ name: "case_id", xpath: parse("#patient/case_id") }],
+			datums: [
+				{
+					name: datumName,
+					xpath: term({
+						kind: "form-case",
+						caseType: "patient",
+						property: "case_id",
+					}),
+				},
+			],
 		};
-		const next = retargetLink(
-			held,
-			{ target: toNote, carry: { kind: "nothing-needed" }, required: [] },
-			parse,
-		);
+		const next = retargetLink(held, {
+			target: toNote,
+			carry: { kind: "nothing-needed" },
+			required: [],
+		});
 		expect(next).toStrictEqual({
 			uuid: testUuid("l"),
-			condition: parse("1 = 1"),
+			condition: eq(literal(1), literal(1)),
 			target: toNote,
 		});
 		expect(retargetDropsCarriedValues(held, next)).toBe(true);
-		const back = retargetLink(
-			next,
-			{
-				target: toInspect,
-				carry: { kind: "manual-required", datumIds: ["case_id"] },
-				required,
-			},
-			parse,
-		);
+		const back = retargetLink(next, {
+			target: toInspect,
+			carry: { kind: "manual-required", datumIds: ["case_id"] },
+			required,
+		});
 		expect(back.datums).toStrictEqual([
-			{ name: "case_id", xpath: parse("''") },
+			{ name: datumName, xpath: term(literal("")) },
 		]);
 		expect(retargetDropsCarriedValues(next, back)).toBe(false);
 	});

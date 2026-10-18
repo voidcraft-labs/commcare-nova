@@ -1,38 +1,81 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import {
+	and,
 	arith,
 	dateAdd,
 	eq,
 	literal,
+	matchNone,
 	now,
 	prop,
 	term,
 	today,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
-import { buildEditorTypeContext } from "../editorTypeContext";
+import { editorExpressionContext } from "../editorTypeContext";
 import { workbenchExpressionAdmission } from "../workbenchAdmission";
 
-const context = buildEditorTypeContext({
-	caseTypes: [
-		{
-			name: "patient",
-			properties: [
-				{ name: "age", label: proseText("Age"), data_type: "int" },
-				{ name: "score", label: proseText("Score"), data_type: "int" },
-				{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
-				{
-					name: "last_seen",
-					label: proseText("Last seen"),
-					data_type: "datetime",
-				},
-			],
-		},
-	],
-	currentCaseType: "patient",
-	knownInputs: [],
-});
+function context(
+	target: "case-search" | "on-device-and-case-search" | "on-device",
+) {
+	return editorExpressionContext(
+		expressionEditorFixture(
+			target === "case-search"
+				? "search-predicate"
+				: target === "on-device-and-case-search"
+					? "search-case-filter"
+					: "case-filter",
+			{
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{ name: "age", label: proseText("Age"), data_type: "int" },
+							{ name: "score", label: proseText("Score"), data_type: "int" },
+							{
+								name: "dob",
+								label: proseText("Date of birth"),
+								data_type: "date",
+							},
+							{
+								name: "last_seen",
+								label: proseText("Last seen"),
+								data_type: "datetime",
+							},
+						],
+					},
+				],
+				currentCaseType: "patient",
+				knownInputs: [],
+			},
+		).context,
+	);
+}
 describe("whole-rule expression admission used by the workbench", () => {
+	it("checks condition menu candidates at the root and inside a group", () => {
+		const first = eq(prop("patient", "age"), literal(1));
+		const sibling = eq(prop("patient", "score"), literal(2));
+		const replacement = eq(prop("patient", "age"), literal(3));
+		const slot = context("on-device");
+		expect(workbenchExpressionAdmission(first, [], replacement, slot)).toEqual({
+			admitted: true,
+		});
+		expect(workbenchExpressionAdmission(first, [], matchNone(), slot)).toEqual({
+			admitted: true,
+		});
+		expect(
+			workbenchExpressionAdmission(
+				and(first, sibling),
+				["and", 0],
+				replacement,
+				slot,
+			),
+		).toEqual({ admitted: true });
+		expect(
+			workbenchExpressionAdmission(first, [], term(literal(3)), slot).admitted,
+		).toBe(false);
+	});
 	it.each(["case-search", "on-device-and-case-search"] as const)(
 		"refuses a second case source in %s but permits a literal correction",
 		(target) => {
@@ -42,8 +85,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 					source,
 					["right"],
 					term(prop("patient", "score")),
-					target,
-					context,
+					context(target),
 				),
 			).toEqual({
 				admitted: false,
@@ -54,8 +96,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 					source,
 					["right"],
 					term(literal(2)),
-					target,
-					context,
+					context(target),
 				),
 			).toEqual({ admitted: true });
 			expect(
@@ -63,8 +104,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 					source,
 					["right"],
 					term(prop("patient", "score")),
-					"on-device",
-					context,
+					context("on-device"),
 				),
 			).toEqual({ admitted: true });
 		},
@@ -79,8 +119,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 				source,
 				["right", "left"],
 				term(prop("patient", "score")),
-				"case-search",
-				context,
+				context("case-search"),
 			).admitted,
 		).toBe(false);
 		expect(
@@ -88,8 +127,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 				source,
 				["right", "left"],
 				term(literal(3)),
-				"case-search",
-				context,
+				context("case-search"),
 			),
 		).toEqual({ admitted: true });
 	});
@@ -100,8 +138,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 				source,
 				["right"],
 				term(prop("patient", "score")),
-				"case-search",
-				context,
+				context("case-search"),
 			).admitted,
 		).toBe(false);
 		expect(
@@ -109,8 +146,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 				source,
 				["right"],
 				term(literal(2)),
-				"case-search",
-				context,
+				context("case-search"),
 			),
 		).toEqual({ admitted: true });
 	});
@@ -122,8 +158,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 				source,
 				["right"],
 				months,
-				"case-search",
-				context,
+				context("case-search"),
 			),
 		).toEqual({ admitted: true });
 		expect(
@@ -131,8 +166,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 				source,
 				["right"],
 				months,
-				"on-device",
-				context,
+				context("on-device"),
 			),
 		).toEqual({
 			admitted: false,
@@ -143,8 +177,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 				source,
 				["right"],
 				dateAdd(today(), "days", term(literal(1))),
-				"on-device",
-				context,
+				context("on-device"),
 			),
 		).toEqual({ admitted: true });
 		expect(
@@ -152,8 +185,7 @@ describe("whole-rule expression admission used by the workbench", () => {
 				eq(prop("patient", "last_seen"), now()),
 				["right"],
 				dateAdd(now(), "days", term(literal(1))),
-				"on-device",
-				context,
+				context("on-device"),
 			),
 		).toEqual({
 			admitted: false,

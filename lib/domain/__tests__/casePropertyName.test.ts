@@ -7,10 +7,9 @@ import {
 	fieldSchema,
 	proseTemplateSchema,
 	searchInputDefSchema,
-	xpathExpressionSchema,
 } from "@/lib/domain";
-import { predicateSchema } from "@/lib/domain/predicate";
-import { literal, term } from "@/lib/domain/predicate/builders";
+import { expressionSchema } from "@/lib/domain/expression";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 
 const RETIRED = ["name", "external-id", "date-opened"] as const;
@@ -25,8 +24,8 @@ const carriers = [
 		}),
 	},
 	{
-		name: "Predicate",
-		schema: predicateSchema,
+		name: "record expression",
+		schema: expressionSchema,
 		input: (property: string) => ({
 			kind: "eq",
 			left: {
@@ -37,10 +36,11 @@ const carriers = [
 		}),
 	},
 	{
-		name: "XPath",
-		schema: xpathExpressionSchema,
+		name: "form expression",
+		schema: expressionSchema,
 		input: (property: string) => ({
-			parts: [{ kind: "case-ref", caseType: "patient", property }],
+			kind: "term",
+			term: { kind: "form-case", caseType: "patient", property },
 		}),
 	},
 	{

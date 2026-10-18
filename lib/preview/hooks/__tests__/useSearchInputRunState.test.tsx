@@ -2,8 +2,10 @@
 import { act, renderHook } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import type { SearchInputDef } from "@/lib/domain";
 import { hiddenSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
-import { sessionContext, term } from "@/lib/domain/predicate";
+import { sessionContext, term } from "@/lib/domain/expression";
 import {
 	previewAsMe,
 	previewSessionValues,
@@ -28,6 +30,7 @@ const session = previewSessionValues(
 );
 
 it("keeps the query reference stable across draft renders and masks an old scope during render", () => {
+	const environment = runEnvironment(searchInputs);
 	const observed: { scope: string; submitted: ReadonlyMap<string, string> }[] =
 		[];
 	const { result, rerender } = renderHook(
@@ -36,6 +39,7 @@ it("keeps the query reference stable across draft renders and masks an old scope
 				scopeKey: scope,
 				searchInputs,
 				session,
+				environment,
 			});
 			observed.push({ scope, submitted: state.submitted });
 			return state;
@@ -64,12 +68,14 @@ it("validates a prospective search with the latest identity while preserving the
 			term(sessionContext("username")),
 		),
 	];
+	const environment = runEnvironment(inputs);
 	const { result, rerender } = renderHook(
 		({ identity }) =>
 			useSearchInputRunState({
 				scopeKey: "module",
 				searchInputs: inputs,
 				session: identity,
+				environment,
 			}),
 		{ initialProps: { identity: session } },
 	);
@@ -89,3 +95,17 @@ it("validates a prospective search with the latest identity while preserving the
 	act(() => result.current.submit(new Map([["name", "Ada"]])));
 	expect(result.current.submitted.get("run_by")).toBe("next@example.org");
 });
+
+function runEnvironment(inputs: readonly SearchInputDef[]) {
+	const doc = buildDoc({
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "People",
+				caseType: "person",
+				caseListConfig: { ...caseListConfig([]), searchInputs: [...inputs] },
+			},
+		],
+	});
+	return { doc, moduleUuid: doc.moduleOrder[0] };
+}

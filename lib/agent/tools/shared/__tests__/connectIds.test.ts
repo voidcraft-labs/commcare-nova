@@ -8,13 +8,14 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	appConnectIds,
 	type BlueprintDoc,
 	type ConnectConfig,
 	connectConfigSchema,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression";
 import { expectAdmittedDoc } from "../../../__tests__/admittedFixture";
 import { enforceConnectIds, reserveExplicitConnectIds } from "../connectIds";
 
@@ -57,7 +58,7 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 				description: "x",
 				time_estimate: 5,
 			},
-			assessment: { id: "dup", user_score: xp("100") },
+			assessment: { id: "dup", user_score: term(literal(100)) },
 		};
 		const result = enforceConnectIds(
 			config,
@@ -79,7 +80,7 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 				description: "x",
 				time_estimate: 5,
 			},
-			assessment: { id: "as", user_score: xp("100") },
+			assessment: { id: "as", user_score: term(literal(100)) },
 		};
 		const result = enforceConnectIds(
 			config,
@@ -101,7 +102,7 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 					description: "x",
 					time_estimate: 5,
 				},
-				assessment: { id: "learning", user_score: xp("100") },
+				assessment: { id: "learning", user_score: term(literal(100)) },
 			},
 			"learn",
 			"Learning",
@@ -121,20 +122,18 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 describe("reserveExplicitConnectIds — complete target preflight", () => {
 	it("reserves every present id and reports duplicates without rewriting them", () => {
 		const taken = new Set<string>();
-		expect(
-			reserveExplicitConnectIds(
-				{
-					learn_module: {
-						id: "same",
-						name: "L",
-						description: "x",
-						time_estimate: 5,
-					},
-					assessment: { id: "same", user_score: xp("100") },
-				},
-				taken,
-			),
-		).toEqual([expect.stringContaining('"same" is already used')]);
+		const config: ConnectConfig = {
+			learn_module: {
+				id: "same",
+				name: "L",
+				description: "x",
+				time_estimate: 5,
+			},
+			assessment: { id: "same", user_score: term(literal(100)) },
+		};
+		expect(reserveExplicitConnectIds(config, taken)).toEqual([
+			expect.stringContaining('"same" is already used'),
+		]);
 		expect(taken).toEqual(new Set(["same"]));
 	});
 });
@@ -193,7 +192,7 @@ describe("appConnectIds — final config scope", () => {
 										description: "x",
 										time_estimate: 5,
 									},
-									assessment: { id: "quiz", user_score: xp("100") },
+									assessment: { id: "quiz", user_score: term(literal(100)) },
 								},
 							},
 							{

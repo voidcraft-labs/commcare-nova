@@ -1,17 +1,21 @@
 /** Private expression controls for Core and HQ. This family constructs no app. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { testUuid } from "../../../__tests__/helpers/uuid";
+import { buildDoc, f } from "../../../lib/__tests__/docHelpers";
 import {
 	instantFixedClock,
 	instantOrderingPairs,
 } from "../../../lib/commcare/__tests__/instantOrderingTable";
 import { xel } from "../../../lib/commcare/elementBuilders";
+import { requireExpressionContext } from "../../../lib/commcare/expressionContext";
 import { serializeXml } from "../../../lib/commcare/serializeXml";
 import { w } from "../../../lib/commcare/xpath/wire/builders";
 import { toWire } from "../../../lib/commcare/xpath/wire/fromExpression";
 import { InstanceSink } from "../../../lib/commcare/xpath/wire/instances";
 import { serializeWire } from "../../../lib/commcare/xpath/wire/serialize";
-import { concat, literal, term } from "../../../lib/domain/predicate/builders";
+import type { Expression } from "../../../lib/domain/expression";
+import { concat, literal, term } from "../../../lib/domain/expression/builders";
 
 const output = process.argv[2];
 if (!output)
@@ -62,11 +66,36 @@ const interpolationValues = [
 	["entity-dropped-delete", "inst&#x7f;ance('literal')"],
 	["entity-dropped-vertical-tab", "inst&#11;ance('literal')"],
 ] as const;
+/** Each scalar probe is emitted from a real hidden field's calculate slot. */
+function contextFor(expression: Expression) {
+	const uuid = testUuid("native-interpolation-value");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Values",
+				forms: [
+					{
+						name: "Values",
+						type: "survey",
+						fields: [
+							f({ uuid, id: "value", kind: "hidden", calculate: expression }),
+						],
+					},
+				],
+			},
+		],
+	});
+	return requireExpressionContext(doc, {
+		entity: "field",
+		uuid,
+		slot: "calculate",
+	});
+}
 const interpolation = interpolationValues.flatMap(([id, value]) => {
 	const expression = concat(term(literal(value)), term(literal(".")));
 	return (["none", "case", "no-case", "no-dots"] as const).map((mode) => {
 		const text = serializeWire(
-			toWire(expression, { target: "hq-json", types: {} }),
+			toWire(expression, { target: "hq-json", types: contextFor(expression) }),
 			{ target: "hq-json", interpolation: mode },
 		).text;
 		return { id, mode, value: `${value}.`, text };
@@ -74,7 +103,10 @@ const interpolation = interpolationValues.flatMap(([id, value]) => {
 });
 const xforms = interpolationValues.map(([id, value]) => {
 	const expression = concat(term(literal(value)), term(literal(".")));
-	const wire = toWire(expression, { target: "xform", types: {} });
+	const wire = toWire(expression, {
+		target: "xform",
+		types: contextFor(expression),
+	});
 	const text = serializeWire(wire, { target: "xform", constraint: false }).text;
 	return {
 		id,

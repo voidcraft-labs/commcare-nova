@@ -83,15 +83,14 @@ import {
 	type SearchInputDef,
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import type { Expression } from "@/lib/domain/expression/types";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
-import type {
-	LookupChoice,
-	PreviewLookupData,
-} from "@/lib/preview/engine/lookupEvaluation";
+import type { LookupChoice } from "@/lib/preview/engine/lookupEvaluation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
-import { resolveSearchInputChoices } from "@/lib/preview/engine/searchExpressionEvaluation";
+import {
+	type PreviewSearchEnvironment,
+	resolveSearchInputChoices,
+} from "@/lib/preview/engine/searchExpressionEvaluation";
 import {
 	searchInputRequiredMarks,
 	searchInputRequiredMarksOnDevice,
@@ -138,7 +137,7 @@ interface SearchInputFormProps {
 	readonly searchInputs: ReadonlyArray<SearchInputDef>;
 	/** The always-on filter joins the input predicates in exported CSQL. It is
 	 * needed only to derive which prompt values require quote validation. */
-	readonly filter?: Predicate;
+	readonly filter?: Expression;
 	/** The module's case type supplies the expression-evaluation context. */
 	readonly caseType: CaseType | undefined;
 	/** Session-backed values used by computed search expressions in the exact
@@ -151,13 +150,8 @@ interface SearchInputFormProps {
 	 * such a constraint is left unjudged, as the server leaves it.
 	 */
 	readonly evaluateOnDevice?: (source: string) => Promise<boolean>;
-	/** Full schema context keeps date/datetime expression emission identical to
-	 * the compiler when the search predicate crosses case relations. */
-	readonly typeContext?: TypeContext;
-	/** The builder session's lookup snapshot. Choice prompts read their rows
-	 * from it; while it does not cover a prompt's table the prompt shows its
-	 * loading state rather than an empty list. */
-	readonly lookupData?: PreviewLookupData;
+	/** The actual module and held lookup snapshot own every evaluated slot. */
+	readonly environment: PreviewSearchEnvironment;
 	/** Controlled per-input value bag. `<name>:from` / `<name>:to`
 	 *  for range bounds; bare `<name>` otherwise. Mirrors the
 	 *  runtime-bindings layer's input-value contract verbatim. */
@@ -189,8 +183,7 @@ export function SearchInputForm({
 	caseType,
 	session,
 	evaluateOnDevice,
-	typeContext,
-	lookupData,
+	environment,
 	value,
 	onChange,
 	onSubmit,
@@ -251,16 +244,15 @@ export function SearchInputForm({
 								caseType?.name,
 								candidate,
 								session,
-								typeContext,
-								{ lookupData },
+								environment,
 							)
 						: await validation.searchInputSubmissionErrorsOnDevice(
 								caseListConfig,
 								caseType?.name,
 								candidate,
 								session,
-								typeContext,
-								{ lookupData, evaluateOnDevice },
+								environment,
+								{ evaluateOnDevice },
 							);
 			} catch (error) {
 				// A rejection from a request a later draft has already superseded
@@ -284,11 +276,10 @@ export function SearchInputForm({
 			caseType?.name,
 			evaluateOnDevice,
 			filter,
-			lookupData,
+			environment,
 			scopeKey,
 			searchInputs,
 			session,
-			typeContext,
 		],
 	);
 
@@ -337,8 +328,8 @@ export function SearchInputForm({
 		() =>
 			session === undefined
 				? undefined
-				: searchInputRequiredMarks(searchInputs, draft, session, lookupData),
-		[draft, lookupData, searchInputs, session],
+				: searchInputRequiredMarks(searchInputs, draft, session, environment),
+		[draft, environment, searchInputs, session],
 	);
 	const [deviceMarks, setDeviceMarks] = useState<
 		| {
@@ -363,7 +354,7 @@ export function SearchInputForm({
 			searchInputs,
 			draft,
 			session,
-			lookupData,
+			environment,
 			{ evaluateOnDevice },
 		).then(
 			(marks) => {
@@ -379,7 +370,7 @@ export function SearchInputForm({
 	}, [
 		draft,
 		evaluateOnDevice,
-		lookupData,
+		environment,
 		needsDeviceMarks,
 		searchInputs,
 		session,
@@ -507,7 +498,7 @@ export function SearchInputForm({
 								required={requiredNow(input)}
 								choices={
 									"options" in input && session !== undefined
-										? resolveSearchInputChoices(input, session, lookupData)
+										? resolveSearchInputChoices(input, session, environment)
 										: undefined
 								}
 								error={

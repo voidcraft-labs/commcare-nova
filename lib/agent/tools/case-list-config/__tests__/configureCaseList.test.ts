@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import { eq, literal, prop } from "@/lib/domain/expression";
 import {
 	configureCaseListInputSchema,
 	configureCaseListTool,

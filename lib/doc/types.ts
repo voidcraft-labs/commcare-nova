@@ -71,7 +71,7 @@ import {
 	entryPointTargetSchema,
 	formEntryPointSchema,
 } from "@/lib/domain/entryPoints";
-import { predicateSchema } from "@/lib/domain/predicate";
+import { conditionSchema } from "@/lib/domain/expression/types";
 
 /**
  * The two field message slots a `Media` bundle attaches to: the ones a
@@ -620,7 +620,7 @@ const finalMutationFamily = {
 	formLinkPatch: canonicalFormLinkPatchSchema,
 	column: columnSchema,
 	searchInput: searchInputDefSchema,
-	predicate: predicateSchema,
+	condition: conditionSchema,
 } as const;
 
 type MutationSchemaFamily = typeof finalMutationFamily;
@@ -707,7 +707,7 @@ function createMutationSchema({
 	formLinkPatch: mutationFormLinkPatchSchema,
 	column: mutationColumnSchema,
 	searchInput: mutationSearchInputSchema,
-	predicate: mutationPredicateSchema,
+	condition: mutationConditionSchema,
 }: MutationSchemaFamily) {
 	const mutationArms = [
 		z.strictObject({
@@ -1347,7 +1347,7 @@ function createMutationSchema({
 			kind: z.literal("setCaseListMeta"),
 			uuid: uuidSchema,
 			patch: z.strictObject({
-				filter: mutationPredicateSchema.nullable().optional(),
+				filter: mutationConditionSchema.nullable().optional(),
 				selection: caseSelectionSchema.nullable().optional(),
 				icon: moduleIconRefSchema.nullable().optional(),
 				audioLabel: mediaAssetIdSchema.nullable().optional(),

@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
@@ -140,7 +140,7 @@ function captureDoc() {
 										kind: "repeat",
 										label: "Visits",
 										repeat_mode: "count_bound",
-										repeat_count: xp("2"),
+										repeat_count: "2",
 										children: [
 											f({
 												id: "details",

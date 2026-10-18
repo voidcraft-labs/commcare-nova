@@ -17,7 +17,7 @@ import { useOperationLabelInputs } from "@/lib/doc/hooks/useCaseOperationFacts";
 import type { Uuid } from "@/lib/doc/types";
 import { orderedCaseOperations } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
-import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
+import type { ReferenceNamesDoc } from "@/lib/domain/referenceNames";
 
 /**
  * Resolve operation / repeat / field uuids to the author's own words for
@@ -38,7 +38,7 @@ export function useOperationSentenceContext(
 				operation.id,
 			]),
 		);
-		const printDoc: XPathPrintableDoc = {
+		const printDoc: ReferenceNamesDoc = {
 			fields,
 			fieldOrder,
 			fieldParent,

@@ -16,7 +16,8 @@
  * calculation, not a write.
  */
 
-import type { HiddenField, XPathExpression } from "@/lib/domain";
+import type { HiddenField } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 
 export type HiddenValueMode = "calculate" | "default_value";
 
@@ -42,8 +43,8 @@ export function activeHiddenValueMode(
 
 /** The one-write patch shape every Value gesture dispatches. */
 export type HiddenValuePatch = {
-	calculate: XPathExpression | null;
-	default_value: XPathExpression | null;
+	calculate: Expression | null;
+	default_value: Expression | null;
 };
 
 /** The patch that leaves a hidden field with nothing authored. */
@@ -60,7 +61,7 @@ export const HIDDEN_VALUE_EMPTY_PATCH: HiddenValuePatch = {
  */
 export function hiddenValueSavePatch(
 	mode: HiddenValueMode,
-	expression: XPathExpression | undefined,
+	expression: Expression | undefined,
 ): HiddenValuePatch {
 	if (expression === undefined) return HIDDEN_VALUE_EMPTY_PATCH;
 	return mode === "calculate"

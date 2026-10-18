@@ -13,7 +13,7 @@ import {
 	prop,
 	relationStep,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	buildCaseSearchRelatedCalculationScanReport,
 	renderCaseSearchRelatedCalculationScanReport,

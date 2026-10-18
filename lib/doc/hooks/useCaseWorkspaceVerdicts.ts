@@ -7,7 +7,7 @@ import {
 	caseListOrderChoiceRefusal,
 	caseWorkspaceBoundaryVerdicts,
 } from "../commitVerdicts";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
+import { useLookupCommitState } from "../lookupCommitContext";
 import type { Uuid } from "../types";
 import { useBlueprintDoc, useBlueprintDocEq } from "./useBlueprintDoc";
 
@@ -39,15 +39,12 @@ function equalVerdicts(
 export function useCaseWorkspaceBoundaryVerdicts(
 	moduleUuid: Uuid | undefined,
 ): CaseWorkspaceBoundaryVerdicts {
+	const { lookupContext } = useLookupCommitState();
 	return useBlueprintDocEq(
 		(doc) =>
 			moduleUuid === undefined
 				? CLEAN_VERDICTS
-				: caseWorkspaceBoundaryVerdicts(
-						doc,
-						moduleUuid,
-						LOOKUP_CONTEXT_UNAVAILABLE,
-					),
+				: caseWorkspaceBoundaryVerdicts(doc, moduleUuid, lookupContext),
 		equalVerdicts,
 	);
 }

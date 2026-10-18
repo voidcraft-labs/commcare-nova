@@ -24,7 +24,7 @@
 
 import type { AliasableExpression } from "kysely";
 import { expressionBuilder } from "kysely";
-import type { Literal } from "@/lib/domain/predicate/types";
+import type { Literal } from "@/lib/domain/expression/types";
 import type { Database } from "./database";
 import {
 	NAIVE_TEMPORAL_TEXT_RE,

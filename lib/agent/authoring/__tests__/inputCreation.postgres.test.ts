@@ -51,6 +51,7 @@ it("creates and edits record names without making the author construct name writ
 		const doc = await h.currentDoc();
 		const engine = new FormEngine(
 			{
+				doc,
 				form: doc.forms[form.uuid],
 				formUuid: form.uuid,
 				fields: doc.fields,
@@ -116,6 +117,7 @@ it("creates and edits record names without making the author construct name writ
 	const doc = await h.currentDoc();
 	const engine = new FormEngine(
 		{
+			doc,
 			form: quick,
 			formUuid: quick.uuid,
 			fields: doc.fields,
@@ -227,7 +229,8 @@ it("binds Search rules to renamed answers and seeds a new no-matches form from t
 	const fieldId = (await h.currentDoc()).fieldOrder[seeded.uuid][0];
 	expect((await h.currentDoc()).fields[fieldId]).toMatchObject({
 		default_value: {
-			parts: [{ kind: "search-answer-ref", searchInputUuid: input.uuid }],
+			kind: "term",
+			term: { kind: "input", searchInputUuid: input.uuid },
 		},
 	});
 	const result = await h.call("getModule", { moduleUuid: "Clients" });

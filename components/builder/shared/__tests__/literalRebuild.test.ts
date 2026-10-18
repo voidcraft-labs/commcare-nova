@@ -3,7 +3,7 @@ import {
 	type Literal,
 	literal,
 	qualifiedLiteral,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { rebuildLiteralPreservingDataType } from "../literalRebuild";
 
 describe("literal value rebuilding", () => {

@@ -5,7 +5,7 @@ import type { CaseType } from "@/lib/domain";
 import {
 	dateRangeSearchPredicate,
 	exactDateSearchPredicate,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	ancestorPath,
 	and,
@@ -41,13 +41,14 @@ import {
 	term,
 	whenInput,
 	within,
-} from "@/lib/domain/predicate/builders";
-import { checkPredicate } from "@/lib/domain/predicate/typeChecker";
+} from "@/lib/domain/expression/builders";
+import { inferRecordQuery } from "@/lib/domain/expression/typeChecker";
 import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,
 	type PredicateCompileContext,
 } from "../compilePredicate";
+import { recordQueryContextFor } from "../compileTerm";
 import { expect, makeCaseRow, test } from "./setup";
 
 // ---------------------------------------------------------------
@@ -113,6 +114,7 @@ function makeCtx(
 		appId: APP_ID,
 		projectId: OWNER_ID,
 		anchorAlias: "c",
+		currentCaseType: "patient",
 		caseTypeSchemas: SCHEMAS,
 		bindings: {},
 		...overrides,
@@ -198,11 +200,7 @@ describe("compilePredicate — calendar-day search UTC boundaries", () => {
 			])
 			.execute();
 
-		const typeContext = {
-			caseTypes: [PATIENT_SCHEMA, HOUSEHOLD_SCHEMA, VILLAGE_SCHEMA],
-			knownInputs: [],
-			currentCaseType: "patient",
-		};
+		const typeContext = recordQueryContextFor(makeCtx(db));
 		const exact = exactDateSearchPredicate({
 			caseType: "patient",
 			property: "last_seen",
@@ -347,7 +345,7 @@ describe("compilePredicate — round-trip — match", () => {
 		["fuzzy", "Ali", "se"],
 		["phonetic", "Sm", "ith"],
 	] as const) {
-		test(`${mode} executes a computed ValueExpression match value`, async ({
+		test(`${mode} executes a computed DomainExpression match value`, async ({
 			db,
 		}) => {
 			await db
@@ -545,7 +543,7 @@ describe("compilePredicate — round-trip — match", () => {
 	test("fuzzy with a search-input ref drives the match value at runtime", async ({
 		db,
 	}) => {
-		// The widened `match.value: ValueExpression` (per the schema
+		// The widened `match.value: DomainExpression` (per the schema
 		// at types.ts § matchSchema) lets a search-input ref drive
 		// the match value at runtime. The search-input modes
 		// (fuzzy / phonetic / starts-with) bind the field worker's
@@ -1040,7 +1038,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: HOUSEHOLD_BIG,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1048,7 +1046,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_2_CASE_ID,
 					ancestor_id: HOUSEHOLD_SMALL,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1114,7 +1112,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: HOUSEHOLD_BIG,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1122,7 +1120,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_2_CASE_ID,
 					ancestor_id: HOUSEHOLD_SMALL,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1169,7 +1167,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 		// Graph:
 		//   patient_1 --[parent]--> household_north --[parent]--> village_north
 		//   patient_2 --[parent]--> household_south --[parent]--> village_south
-		// Predicate:
+		// DomainExpression:
 		//   exists(parent: household, where:
 		//     exists(parent: village, where: name = "North"))
 		// Expected match set: patient_1 only — the only patient whose
@@ -1231,7 +1229,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: HOUSEHOLD_NORTH,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1239,7 +1237,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_2_CASE_ID,
 					ancestor_id: HOUSEHOLD_SOUTH,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1247,7 +1245,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: HOUSEHOLD_NORTH,
 					ancestor_id: VILLAGE_NORTH,
-					target_case_type: "test",
+					target_case_type: "village",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1255,7 +1253,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: HOUSEHOLD_SOUTH,
 					ancestor_id: VILLAGE_SOUTH,
-					target_case_type: "test",
+					target_case_type: "village",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1289,7 +1287,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 		// nested-EXISTS depth uniquification, the inner term-level
 		// via produces an alias that does not shadow the outer one.
 		//
-		// Same graph as the previous test. Predicate:
+		// Same graph as the previous test. DomainExpression:
 		//   exists(parent: household, where:
 		//     eq(prop(household, "name", via=parent: village), "North"))
 		//
@@ -1353,7 +1351,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: HOUSEHOLD_NORTH,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1361,7 +1359,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_2_CASE_ID,
 					ancestor_id: HOUSEHOLD_SOUTH,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1369,7 +1367,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: HOUSEHOLD_NORTH,
 					ancestor_id: VILLAGE_NORTH,
-					target_case_type: "test",
+					target_case_type: "village",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1377,7 +1375,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: HOUSEHOLD_SOUTH,
 					ancestor_id: VILLAGE_SOUTH,
-					target_case_type: "test",
+					target_case_type: "village",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1436,12 +1434,9 @@ test("is-blank on an arithmetic value matches missing operands without casting b
 		arith("+", term(prop("patient", "age")), term(literal(1))),
 	);
 	expect(
-		checkPredicate(predicate, {
-			caseTypes: [...SCHEMAS.values()],
-			currentCaseType: "patient",
-			knownInputs: [],
-		}),
-	).toEqual({ ok: true });
+		inferRecordQuery(predicate, recordQueryContextFor(makeCtx(db)), "condition")
+			.errors,
+	).toEqual([]);
 	expect(
 		await executeAgainstPredicate(db, compilePredicate(predicate, makeCtx(db))),
 	).toEqual([{ case_id: "missing-age" }]);

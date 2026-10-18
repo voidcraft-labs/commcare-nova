@@ -4,10 +4,10 @@
 // search-by-distance demo spreads visibly on a city map rather
 // than scattering across continents. Wire shape: CCHQ's
 // space-separated `lat lon alt acc` per `GEOPOINT_PATTERN` at
-// `lib/domain/predicate/jsonSchema.ts`. Altitude / accuracy default
+// `lib/domain/expression/jsonSchema.ts`. Altitude / accuracy default
 // to plausible-low values; the demo path doesn't vary them.
 
-import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import { compilerBugMessage } from "@/lib/domain/expression/errors";
 
 /** Mixed across continents for global variety. `name` is for docs only — not emitted. */
 export const CITY_CENTERS: readonly {

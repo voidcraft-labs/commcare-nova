@@ -46,7 +46,7 @@ import {
 	prop,
 	relationStep,
 	subcasePath,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK" as const;

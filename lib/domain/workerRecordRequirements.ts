@@ -1,12 +1,13 @@
 import type { BlueprintDoc } from "./blueprint";
 import { deriveCaseWriteInventory } from "./caseWriteInventory";
+import { isExpression } from "./expression/types";
+import { walkExpressionTerms } from "./expression/walk";
 import { isProseTemplate } from "./prose";
 import {
 	FORM_REFERENCE_SLOTS,
 	fieldReferenceSlotsFor,
 	readSlotValues,
 } from "./referenceSlots";
-import { isXPathExpression } from "./xpath/ast";
 
 /** One form that reads or saves to the worker's own record. */
 export interface WorkerRecordRequirement {
@@ -18,12 +19,22 @@ export interface WorkerRecordRequirement {
 }
 
 function readsWorkerRecord(value: unknown): boolean {
-	return (
-		(isXPathExpression(value) || isProseTemplate(value)) &&
-		value.parts.some(
+	if (isProseTemplate(value))
+		return value.parts.some(
 			(part) => part.kind === "user-ref" || part.kind === "user-property-ref",
+		);
+	if (!isExpression(value)) return false;
+	let reads = false;
+	walkExpressionTerms(value, (term) => {
+		if (
+			((term.kind === "session-user" ||
+				term.kind === "session-user-property") &&
+				term.source === "worker-record") ||
+			(term.kind === "session-datum" && term.datum.kind === "worker-record")
 		)
-	);
+			reads = true;
+	});
+	return reads;
 }
 
 /**
@@ -46,7 +57,7 @@ export function workerRecordRequirements(
 					field.kind,
 					field.kind === "repeat" ? field.repeat_mode : undefined,
 				)
-					.filter((slot) => slot.kind === "xpath-ast" || slot.kind === "prose")
+					.filter((slot) => slot.kind === "expression" || slot.kind === "prose")
 					.some((slot) =>
 						readSlotValues(field, slot.path).some(({ value }) =>
 							readsWorkerRecord(value),
@@ -63,7 +74,7 @@ export function workerRecordRequirements(
 			if (!form) continue;
 			const reads =
 				fieldsRead(formUuid) ||
-				FORM_REFERENCE_SLOTS.filter((slot) => slot.kind === "xpath-ast").some(
+				FORM_REFERENCE_SLOTS.filter((slot) => slot.kind === "expression").some(
 					(slot) =>
 						readSlotValues(form, slot.path).some(({ value }) =>
 							readsWorkerRecord(value),

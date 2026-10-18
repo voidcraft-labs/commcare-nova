@@ -14,7 +14,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	availableLookupContext,
 	DESTINATIONS_LOOKUP,
@@ -27,6 +27,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { blueprintDocSchema, type ConnectConfig } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import type { Event } from "@/lib/log/types";
 import { toastStore } from "@/lib/ui/toastStore";
@@ -646,7 +647,7 @@ describe("BuilderSession connect stash", () => {
 				},
 			},
 			[formB]: {
-				assessment: { id: "form_b_assessment", user_score: xp("100") },
+				assessment: { id: "form_b_assessment", user_score: term(literal(100)) },
 			},
 		};
 	}

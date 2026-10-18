@@ -279,7 +279,7 @@ naming that id. The rules:
   scalar `uuid()` child datum HQ emits on a multi-select form, which Nova's batch XForm does not
   consume (`deriveSessionDatums`, the comment on HQ's multi-select parity datum).
 
-Survey forms and forms with no menu supply nothing. `entryDatumIds` is memoised per context like
+Forms with no menu supply nothing. A survey supplies no selected or newly created primary case, but supplies the worker-record datum when it saves worker information, and retains copied root computed datums that have a live worker-record or tile-group identity. `entryDatumIds` is memoised per context like
 `entrySessionDatums`, and `entryDatumSupplies` per document. The two halves agree by test: for every
 entry of the corpus and of the fuzz documents, the refs the id half's rows list are exactly the
 domain half's set at the form's own point (§5).
@@ -384,6 +384,12 @@ query and the cutover lifts none.
   `matchFrameToManual` matches on the printed id, so its HQ arm is unchanged.
 - `uniqueFormLinkDatumNames` compares refs, not strings. `FORM_LINK_DATUM_UNUSED` is a ref no target
   frame datum lists; `FORM_LINK_DATUMS_INCOMPLETE` is unchanged.
+- **Implementation decision, 2026-10-18:** distinct refs can name one root-aligned target datum.
+  A witness with parent and child selection refs passed the schema and gate, but both printed as
+  `case_id`; HQ's name-keyed manual matcher silently kept the child's value. Keep semantic ref
+  uniqueness, and separately refuse two assignments to one derived target with soundness
+  `FORM_LINK_DATUM_TARGET_COLLISION` before projection, even if their values agree. Each alias
+  remains valid on its own. This changes no stored or served input shape and stores no wire id.
 - SA and MCP: `lib/agent/tools/form-links/shared.ts::datumInputSchema.name` is the `datum` family's
   position (part 01 §6.3), which lands in pull request 5 serving today's bytes: the schema keeps
   `name: string` and its description, so no served hash moves. The boundary resolves the string

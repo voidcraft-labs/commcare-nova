@@ -14,7 +14,6 @@ import {
 	hiddenSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	eq,
 	literal,
@@ -22,7 +21,8 @@ import {
 	tableColumn,
 	tableLookup,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
 import { evaluateCommit } from "../gate";
@@ -293,7 +293,7 @@ describe("lookup reference validation", () => {
 				code: "LOOKUP_COLUMN_NOT_AVAILABLE",
 				slot: "search_input_options",
 				carrier: selectUuid,
-				subpath: "/k:filter/k:left/k:term/k:columnId",
+				subpath: "/k:filter/k:left/k:columnId",
 			},
 			{
 				code: "LOOKUP_COLUMN_NOT_AVAILABLE",

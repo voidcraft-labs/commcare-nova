@@ -17,7 +17,7 @@
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, inject } from "vitest";
-import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import { compilerBugMessage } from "@/lib/domain/expression/errors";
 
 /**
  * Stable handle returned by `setupPerTestDatabase`. Field values

@@ -1,193 +1,120 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
-	expectAdmittedDoc,
-	surveyFixture,
-} from "@/lib/agent/__tests__/admittedFixture";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { lookupTableIdSchema, proseText } from "@/lib/domain";
-import { parseLookupRevision } from "@/lib/lookup/schema";
-import { runValidation } from "../runner";
-import { validateXPath } from "../xpathValidator";
+	formFixture,
+	ids,
+	requireContext,
+} from "@/lib/domain/expression/__tests__/formFixture";
+import { checkExpression } from "@/lib/domain/expression/typeChecker";
+import type { Expression } from "@/lib/domain/expression/types";
+import { checkFormLogicSlot, formLogicFindings } from "../formLogicFindings";
 
-// Exercises Nova's source validator and document admission, not a native JavaRosa execution.
-describe("XPath compatibility diagnostics", () => {
-	it.each([
-		"/data/x[p]/@id",
-		"../x",
-		"current()/../@id",
-		"child::*",
-		"attribute::id",
-		"self::node()",
-	])("accepts supported syntax: %s", (source) => {
-		expect(validateXPath(source)).toEqual([]);
+describe("stored expression profile admission", () => {
+	const ctx = requireContext(formFixture(), {
+		entity: "field",
+		uuid: ids.hidden,
+		slot: "calculate",
 	});
-
-	it.each([
-		["left | right", "XPATH_UNSUPPORTED_UNION"],
-		["//case", "XPATH_UNSUPPORTED_DESCENDANT"],
-		["(case)[1]", "XPATH_UNSUPPORTED_FILTER"],
-		["descendant::case", "XPATH_UNSUPPORTED_AXIS"],
-		["@*", "XPATH_UNSUPPORTED_NODE_TEST"],
-		["a/../b", "XPATH_UNSUPPORTED_PATH"],
-		["$value", "XPATH_UNBOUND_VARIABLE"],
-	] as const)("reports unsupported syntax: %s", (source, code) => {
-		expect(validateXPath(source)).toEqual([expect.objectContaining({ code })]);
-	});
-
-	it("accepts the nodeset overload under form carrier profiles", () => {
-		expect(validateXPath("concat(/data/items)")).toEqual([]);
+	it.each([true, null, `both ' and "`])(
+		"refuses an unspellable form literal %s",
+		(value) => {
+			expect(
+				checkExpression({ kind: "term", term: { kind: "literal", value } }, ctx)
+					.errors,
+			).toContainEqual(
+				expect.objectContaining({
+					code: "arm-unavailable",
+					reason: "literal-not-spellable",
+				}),
+			);
+		},
+	);
+	it.each(["here", "choice-name"] as const)(
+		"presents the held %s arm through the shared checker",
+		(kind) => {
+			const expression = (
+				kind === "here"
+					? { kind }
+					: {
+							kind,
+							value: { kind: "term", term: { kind: "literal", value: "yes" } },
+							field: ids.choice,
+						}
+			) as Expression;
+			expect(formLogicFindings(expression, ctx)).toContainEqual(
+				expect.objectContaining({
+					code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+					checkCode: "arm-unavailable",
+					reason: kind,
+				}),
+			);
+		},
+	);
+	it("checks function arity without storing source syntax", () => {
 		expect(
-			validateXPath(
-				"concat(/data/items)",
-				undefined,
-				undefined,
-				false,
-				"form",
-				"wire-form",
+			checkExpression({ kind: "call", fn: "round", args: [] }, ctx).errors,
+		).toContainEqual(
+			expect.objectContaining({
+				code: "arm-unavailable",
+				reason: "function-arity",
+			}),
+		);
+	});
+	it("refuses a removed static choice default and accepts its current value", () => {
+		const defaults = requireContext(formFixture(), {
+			entity: "field",
+			uuid: ids.choice,
+			slot: "default_value",
+		});
+		expect(
+			formLogicFindings(
+				{ kind: "term", term: { kind: "literal", value: "missing" } },
+				defaults,
 			),
+		).toContainEqual(
+			expect.objectContaining({ code: "SELECT_DEFAULT_NOT_AN_OPTION" }),
+		);
+		expect(
+			checkExpression(
+				{ kind: "term", term: { kind: "literal", value: "yes" } },
+				defaults,
+			).errors,
 		).toEqual([]);
 	});
-
-	it("gates catalog constraints through the canonical carrier inventory", () => {
-		const doc = {
-			...expectAdmittedDoc(surveyFixture()),
-			caseTypes: [
-				{
-					name: "person",
-					properties: [
-						{
-							name: "age",
-							label: proseText("Age"),
-							validation: xp("left | right"),
-						},
-					],
-				},
-			],
-		};
-		expectAdmittedDoc({
-			...doc,
-			caseTypes: [
-				{
-					name: "person",
-					properties: [
-						{ name: "age", label: proseText("Age"), validation: xp(". >= 0") },
-					],
-				},
-			],
-		});
-		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(finding) => finding.code === "CASE_PROPERTY_XPATH_INCOMPATIBLE",
+	it("names a removed choice without claiming its question disappeared", () => {
+		const doc = formFixture();
+		const field = doc.fields[ids.choice];
+		if (field.kind !== "single_select" || field.optionsSource.kind !== "inline")
+			throw new Error("The choice fixture is missing.");
+		field.optionsSource.options[0].uuid = testUuid("replacement-choice");
+		const findings = checkFormLogicSlot(
+			doc,
+			{
+				entity: "field",
+				uuid: ids.hidden,
+				slot: "calculate",
+			},
+			{
+				kind: "term",
+				term: { kind: "choice", field: ids.choice, options: [ids.option] },
+			},
 		);
-		expect(findings).toEqual([
-			expect.objectContaining({
-				scope: "app",
-				details: expect.objectContaining({
-					profile: "wire-catalog",
-					findingCode: "XPATH_UNSUPPORTED_UNION",
-				}),
-			}),
-		]);
-	});
-
-	it("gates raw instance ids independently of mutable lookup wire names", () => {
-		const withInstance = (id: string) =>
-			buildDoc({
-				modules: [
-					{
-						name: "Module",
-						forms: [
-							{
-								name: "Form",
-								type: "survey",
-								fields: [
-									f({
-										kind: "hidden",
-										id: "value",
-										calculate: `instance('${id}')/rows/row`,
-									}),
-								],
-							},
-						],
-					},
-				],
-			});
-		expectAdmittedDoc(withInstance("commcaresession"));
-		expect(
-			runValidation(withInstance("missing"), LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(finding) => finding.code === "XPATH_INSTANCE_UNAVAILABLE",
-			),
-		).toBe(true);
-
-		const availableLookup = {
-			kind: "available" as const,
-			projectId: "project",
-			projectRevision: parseLookupRevision("1"),
-			definitions: [
-				{
-					id: lookupTableIdSchema.parse("01912d68-783e-7000-8000-00000000a001"),
-					name: "People",
-					tag: "people",
-					definitionRevision: parseLookupRevision("1"),
-					columns: [],
-				},
-			],
-		};
-		expect(
-			runValidation(withInstance("people"), availableLookup).some(
-				(finding) => finding.code === "XPATH_INSTANCE_UNAVAILABLE",
-			),
-		).toBe(true);
-		expect(
-			runValidation(withInstance("item-list:people"), availableLookup).some(
-				(finding) => finding.code === "XPATH_INSTANCE_UNAVAILABLE",
-			),
-		).toBe(true);
-
-		const targetModuleUuid = testUuid("target-module");
-		const withSessionInstance = (id: string) =>
-			buildDoc({
-				modules: [
-					{
-						name: "Source",
-						forms: [
-							{
-								name: "Source form",
-								type: "survey",
-								postSubmit: "app_home",
-								fields: [f({ kind: "text", id: "note", label: "Note" })],
-								formLinks: [
-									{
-										condition: `instance('${id}')/people_list/people[1]/enabled = 'yes'`,
-										target: {
-											type: "module",
-											moduleUuid: targetModuleUuid,
-										},
-									},
-								],
-							},
-						],
-					},
-					{
-						uuid: targetModuleUuid,
-						name: "Target",
-						forms: [
-							{
-								name: "Target survey",
-								type: "survey",
-								fields: [f({ kind: "text", id: "note", label: "Note" })],
-							},
-						],
-					},
-				],
-			});
-		expectAdmittedDoc(withSessionInstance("commcaresession"), availableLookup);
-		expect(
-			runValidation(
-				withSessionInstance("item-list:people"),
-				availableLookup,
-			).some((finding) => finding.code === "XPATH_INSTANCE_UNAVAILABLE"),
-		).toBe(true);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]).toMatchObject({
+			code: "INVALID_REF",
+			details: {
+				storedRef: "dangling-identity",
+				identity: "choice",
+				choiceFieldName: "choice",
+			},
+		});
+		expect(findings[0].message).toContain(
+			'uses a choice that "choice" no longer has',
+		);
+		expect(userFacingError(findings[0])).toContain(
+			'uses a choice that "choice" no longer has',
+		);
+		expect(findings[0].message).not.toContain(ids.option);
 	});
 });

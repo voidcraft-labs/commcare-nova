@@ -9,11 +9,6 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
-	lookupColumnIdSchema,
-	lookupRowIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
-import {
 	and,
 	concat,
 	count,
@@ -35,7 +30,12 @@ import {
 	term,
 	whenInput,
 	within,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import {
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { buildLookupFixtures } from "../lookup/fixtures";

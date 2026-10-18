@@ -28,7 +28,7 @@
 // ── The one place Nova cannot match the wire ──
 //
 // A `time` case property compiles to `{format: "time"}` and a `datetime` to
-// `{format: "date-time"}` (`lib/domain/predicate/jsonSchema.ts`), which
+// `{format: "date-time"}` (`lib/domain/expression/jsonSchema.ts`), which
 // ajv-formats reads as RFC 3339 — where an offset is REQUIRED. So the naive
 // wall clock `14:30:00.000` cannot be stored as-is. Nova therefore appends a
 // `Z` STORAGE TAG to a time. The tag is a label on a wall clock, not a claim

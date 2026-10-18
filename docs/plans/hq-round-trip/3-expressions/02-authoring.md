@@ -1289,9 +1289,10 @@ because a case query is a text run and `lib/domain/xpath/walk.ts::mapCasePropert
 
 - **Field rename.** Nothing is rewritten; every spelling re-derives at print, relative ones included.
   The executed stranding (§1.1) cannot happen.
-- **Field move.** A move changes the print of reads of the moved field and of reads inside it; a read
-  whose `climb` is no longer a common ancestor cannot print, and a read that crosses into or out of a
-  repeat changes cardinality. `lib/doc/formSectionVerdicts.ts::fieldPlacementVerdict` gains a fifth
+- **Field move.** A move changes the print of reads of the moved field and of reads inside it.
+  Relative paths derive their common ancestor from identity on the moved document; no stored
+  `climb` can become stale. A retained filter step can lose its target, and a read that crosses into
+  or out of a repeat changes cardinality. `lib/doc/formSectionVerdicts.ts::fieldPlacementVerdict` gains a fifth
   refusal beside its four, computed from the index (`referencingCarrierUuids` for the moved field and
   its descendants) and the printer: "Moving {question} here would leave {reader}'s {slot label}
   without a path to it." The drag gate, the keyboard move, the inspector's move menu and the SA's
@@ -1300,6 +1301,11 @@ because a case query is a text run and `lib/domain/xpath/walk.ts::mapCasePropert
   moved out of a repeat, or a field moved into one) is refused before the drop with the checker's
   `many-values` sentence, as part 03 §3.4 asks of the move verdicts (`lib/doc/navigation.ts` and
   `fieldPlacementVerdict`); the gate refuses the same batch from the SA and MCP.
+  **Implementation sequencing, 2026-10-18:** pull request 5 installs the candidate-document
+  preflight over indexed readers, their paths and the current slot checker. The structural-many
+  refusal becomes active in pull request 6, which owns part 03 §3.4, `XPATH_MANY_VALUES` and its
+  presentation; that pull request adds both move cases to the same verdict test file. This resolves
+  the original stack rows' conflict without duplicating a checker rule in the move preview.
 - **Option value edit and removal.** §4.6. The gate's dangling-identity rule
   (`lib/commcare/validator/index.ts`) covers an option UUID like any other.
 - **Module removal.** A datum read of a module (`u:<module>`), in form logic or, from pull request
@@ -1350,9 +1356,12 @@ the read (part 10, "Ordering constraints").
 
 `lib/domain/expressionSource.ts` is the one read accessor for expression slots; today every accessor
 prints (`expressionSource`, `formExpressionSource`, `expressionSurfaceReads`) and consumers re-parse
-the text. From step 3 it offers `expressionAt(entity, slot)` (the tree) and keeps
-`expressionDisplayText(doc, entity, slot)` (the print) for two consumers: blueprint search and the
-read-only inspector, which match and show what a person reads. Every other consumer reads the tree:
+the text. From step 3 it offers `expressionAt(doc, slotRef)` (the tree) and
+`expressionDisplayText(expression, formPrintContext)` (the print) for two consumers: blueprint search and the
+read-only inspector, which match and show what a person reads. The slot reference names its
+actual owner and stable member identities; the form print context comes from that slot and the
+lookup snapshot. Prose uses separate `proseSource`, `proseSourceEntries` and `proseSurfaceReads`
+accessors. Every other expression consumer reads the tree:
 
 | Consumer | Today | From step 3 | Owner |
 |---|---|---|---|

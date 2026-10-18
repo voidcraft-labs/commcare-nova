@@ -4,6 +4,7 @@
 import { DomUtils, parseDocument } from "htmlparser2";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { rowMatchesFilterText } from "@/components/preview/shared/listFilter";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
@@ -27,9 +28,9 @@ import {
 	prop,
 	relationStep,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { projectProseTemplate, proseText } from "@/lib/domain/prose";
-import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
+import type { ReferenceNamesDoc } from "@/lib/domain/referenceNames";
 import {
 	type ColumnDisplayContext,
 	formatDateForPreview,
@@ -47,7 +48,7 @@ import { admittedWorkspace } from "./admittedWorkspace";
 const originalTimeZone = process.env.TZ;
 const COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000001");
 const TODAY = new Date("2026-07-17T12:00:00.000Z");
-const EMPTY_DOC: XPathPrintableDoc = { fields: {}, forms: {}, fieldOrder: {} };
+const EMPTY_DOC: ReferenceNamesDoc = { fields: {}, forms: {}, fieldOrder: {} };
 const EMPTY_CONTEXT: ColumnDisplayContext = {
 	calculatedTemporalTypes: new Map(),
 	caseProperties: [],
@@ -400,14 +401,14 @@ describe("case-list Preview cell formatting", () => {
 				data_type: "datetime" as const,
 			}),
 		);
-		const context = {
+		const context = expressionEditorFixture("calculated-column", {
 			caseTypes: [
 				{ name: "visit", parent_type: "household", properties },
 				{ name: "household", properties },
 			],
 			currentCaseType: "visit",
 			knownInputs: [],
-		};
+		}).context.expressionContext;
 		const opened = term(prop("visit", "date_opened"));
 		const modified = term(prop("visit", "last_modified"));
 		const custom = term(prop("visit", "attempt_at"));
@@ -495,7 +496,7 @@ describe("case-list Preview cell formatting", () => {
 	});
 
 	it("resolves a calculated temporal type from the authored expression", () => {
-		const context = {
+		const context = expressionEditorFixture("calculated-column", {
 			caseTypes: [
 				{
 					name: "patient",
@@ -510,7 +511,7 @@ describe("case-list Preview cell formatting", () => {
 			],
 			knownInputs: [],
 			currentCaseType: "patient",
-		};
+		}).context.expressionContext;
 		expect(
 			resolveCalculatedTemporalType(
 				calculatedColumn(COLUMN_UUID, "Today", { kind: "today" }),

@@ -8,10 +8,10 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { TIME_ORDERING_MESSAGE } from "@/lib/commcare/validator/timeOrdering";
-import { createBlueprintDocStore } from "@/lib/doc/store";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { TIME_ORDERING_MESSAGE } from "@/lib/domain/expression/ruleSets";
 import { proseText } from "@/lib/domain/prose";
-import { buildLintContext } from "../buildLintContext";
+import { buildExpressionLintContext } from "../buildLintContext";
 import { xpathDiagnostics } from "../xpath-lint";
 
 function context() {
@@ -33,11 +33,13 @@ function context() {
 			},
 		],
 	});
-	const store = createBlueprintDocStore();
-	store.getState().load(doc);
-	const form = Object.values(doc.forms)[0];
-	if (form === undefined) throw new Error("Missing form fixture");
-	const ctx = buildLintContext(store.getState(), form.uuid);
+	const field = Object.values(doc.fields).find((entry) => entry.id === "end");
+	if (field === undefined) throw new Error("Missing field fixture");
+	const ctx = buildExpressionLintContext(
+		doc,
+		{ entity: "field", uuid: field.uuid, slot: "relevant" },
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
 	if (ctx === undefined) throw new Error("Missing lint context");
 	return ctx;
 }

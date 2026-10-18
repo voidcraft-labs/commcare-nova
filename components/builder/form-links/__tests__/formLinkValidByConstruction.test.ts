@@ -8,7 +8,6 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { planKeyboardReorder } from "@/components/builder/shared/keyboardReorderPlan";
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { parseXPathForForm } from "@/lib/doc/expressionText";
 import {
 	type FormLinkCommitPlan,
 	planFormLinkAdd,
@@ -31,18 +30,13 @@ import type {
 	FormLinkTarget,
 	Uuid,
 } from "@/lib/domain";
+import { eq, formField, literal } from "@/lib/domain/expression/builders";
 import {
 	moveRefusal,
 	otherwiseUnavailableReason,
 	targetRefusal,
 } from "../refusalCopy";
-import {
-	retargetLink,
-	SEED_CONDITION_TEXT,
-	seedConditionalLink,
-	seedOtherwiseLink,
-} from "../seeds";
-import { readsForm } from "../sessionExpression";
+import { retargetLink, seedConditionalLink, seedOtherwiseLink } from "../seeds";
 import {
 	CARE,
 	fixture,
@@ -93,9 +87,6 @@ const seedFor = (doc: BlueprintDoc, source: Uuid, target: FormLinkTarget) => ({
 	required: formLinkRequiredDatums(doc, source, target),
 });
 
-const parserFor = (doc: BlueprintDoc, source: Uuid) => (text: string) =>
-	parseXPathForForm(doc, source, text);
-
 describe("every destination the picker offers lands a link the gate accepts", () => {
 	const doc = fixture();
 	const nameOf = (uuid: Uuid) => doc.forms[uuid]?.name;
@@ -117,7 +108,6 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 
 	for (const source of [SOURCE, VISIT]) {
 		it(`from ${source === SOURCE ? "the registration form" : "the follow-up form"}: conditional and otherwise seeds both pass`, () => {
-			const parse = parserFor(doc, source);
 			let offered = 0;
 			for (const target of pickerTargets(doc, source)) {
 				const verdict = formLinkTargetVerdict(doc, source, undefined, target);
@@ -132,13 +122,13 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 				const seed = seedFor(doc, source, target);
 				const conditional = seedConditionalLink(
 					seed,
-					parse,
+
 					testUuid(`c-${offered}`),
 				);
 				commit(doc, planFormLinkAdd(doc, source, conditional));
 				const otherwise = seedOtherwiseLink(
 					seed,
-					parse,
+
 					testUuid(`o-${offered}`),
 				);
 				commit(doc, planFormLinkAdd(doc, source, otherwise));
@@ -200,7 +190,6 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 			manualVerdict,
 		);
 
-		const parse = parserFor(nested, SOURCE);
 		let offered = 0;
 		for (const target of pickerTargets(nested)) {
 			if (!formLinkTargetVerdict(nested, SOURCE, undefined, target).ok)
@@ -212,7 +201,7 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 				planFormLinkAdd(
 					nested,
 					SOURCE,
-					seedConditionalLink(seed, parse, testUuid(`nested-c-${offered}`)),
+					seedConditionalLink(seed, testUuid(`nested-c-${offered}`)),
 				),
 			);
 			commit(
@@ -220,7 +209,7 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 				planFormLinkAdd(
 					nested,
 					SOURCE,
-					seedOtherwiseLink(seed, parse, testUuid(`nested-o-${offered}`)),
+					seedOtherwiseLink(seed, testUuid(`nested-o-${offered}`)),
 				),
 			);
 		}
@@ -287,7 +276,6 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 		);
 		const link = seedConditionalLink(
 			seedFor(multiple, VISIT, toInspect),
-			parserFor(multiple, VISIT),
 			testUuid("incompatible-selection"),
 		);
 		expect(planFormLinkAdd(multiple, VISIT, link)).toEqual({
@@ -300,19 +288,32 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 describe("a conditional seed never fires until edited, and never reads the form", () => {
 	it("seeds false() and a link that reads the form is refused before the gate", () => {
 		const doc = fixture();
-		const parse = parserFor(doc, SOURCE);
-		const link = seedConditionalLink(seedFor(doc, SOURCE, toNote), parse);
-		expect(link.condition).toStrictEqual(parse("false()"));
-		expect(readsForm(parse("#form/case_name = 'x'"))).toBe(true);
-		expect(readsForm(parse("/data/case_name = 'x'"))).toBe(true);
-		expect(readsForm(parse("#patient/mood = 'good'"))).toBe(false);
-		expect(readsForm(parse("#user/username = 'a'"))).toBe(false);
+
+		const link = seedConditionalLink(seedFor(doc, SOURCE, toNote));
+		expect(link.condition).toStrictEqual({ kind: "match-none" });
+		const answer = Object.values(doc.fields).find(
+			(field) => field.id === "case_name",
+		);
+		if (answer === undefined) throw new Error("Fixture needs an answer");
+		const candidate = {
+			...link,
+			condition: eq(formField(answer.uuid), literal("x")),
+		};
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "addFormLink", formUuid: SOURCE, link: candidate }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) throw new Error("A closed form cannot supply answers");
+		expect(verdict.findings.map((finding) => finding.code)).toContain(
+			"INVALID_REF",
+		);
 	});
 });
 
 describe("the add control offers the otherwise intent exactly when the planner admits it", () => {
 	it("is on offer without an otherwise link and refused with one", () => {
-		const parse = parserFor(fixture(), SOURCE);
 		const bare = fixture(
 			[{ uuid: "lnk-1", condition: "1 = 1", target: toNote }],
 			{ postSubmit: "app_home" },
@@ -326,7 +327,7 @@ describe("the add control offers the otherwise intent exactly when the planner a
 			planFormLinkAdd(
 				bare,
 				SOURCE,
-				seedOtherwiseLink(seedFor(bare, SOURCE, toVisit), parse, testUuid("o")),
+				seedOtherwiseLink(seedFor(bare, SOURCE, toVisit), testUuid("o")),
 			),
 		);
 		const withElse = fixture([
@@ -342,7 +343,7 @@ describe("the add control offers the otherwise intent exactly when the planner a
 				SOURCE,
 				seedOtherwiseLink(
 					seedFor(withElse, SOURCE, toNote),
-					parse,
+
 					testUuid("o2"),
 				),
 			).ok,
@@ -356,12 +357,12 @@ describe("the rail's retarget reseeds carried values for the new destination", (
 			[{ uuid: "lnk-1", condition: "1 = 1", target: toVisit }],
 			{ postSubmit: "app_home" },
 		);
-		const parse = parserFor(doc, SOURCE);
+
 		const link = doc.forms[SOURCE]?.formLinks?.[0] as FormLink;
 		// automatic → manual-required: seeded values appear.
-		const toManual = retargetLink(link, seedFor(doc, SOURCE, toInspect), parse);
+		const toManual = retargetLink(link, seedFor(doc, SOURCE, toInspect));
 		expect(toManual.datums?.map((d) => d.name)).toEqual(
-			formLinkRequiredDatums(doc, SOURCE, toInspect).map((d) => d.id),
+			formLinkRequiredDatums(doc, SOURCE, toInspect).map((d) => d.name),
 		);
 		const manualDoc = commit(
 			doc,
@@ -369,19 +370,11 @@ describe("the rail's retarget reseeds carried values for the new destination", (
 		);
 		// manual-required → nothing-needed: values dropped.
 		const held = manualDoc.forms[SOURCE]?.formLinks?.[0] as FormLink;
-		const toNothing = retargetLink(
-			held,
-			seedFor(manualDoc, SOURCE, toNote),
-			parse,
-		);
+		const toNothing = retargetLink(held, seedFor(manualDoc, SOURCE, toNote));
 		expect(toNothing.datums).toBeUndefined();
 		commit(manualDoc, planFormLinkUpdate(manualDoc, SOURCE, toNothing, held));
 		// nothing-needed → automatic: still nothing stored.
-		const toAuto = retargetLink(
-			held,
-			seedFor(manualDoc, SOURCE, toVisit),
-			parse,
-		);
+		const toAuto = retargetLink(held, seedFor(manualDoc, SOURCE, toVisit));
 		expect(toAuto.datums).toBeUndefined();
 		commit(manualDoc, planFormLinkUpdate(manualDoc, SOURCE, toAuto, held));
 	});
@@ -406,12 +399,12 @@ describe("the rail's conversions pass the gate where they are offered", () => {
 			{ uuid: "lnk-1", condition: "1 = 1", target: toNote },
 			{ uuid: "lnk-else", target: toVisit },
 		]);
-		const parse = parserFor(doc, SOURCE);
+
 		const elseLink = doc.forms[SOURCE]?.formLinks?.[1] as FormLink;
 		const plan = planFormLinkUpdate(
 			doc,
 			SOURCE,
-			{ ...elseLink, condition: parse(SEED_CONDITION_TEXT) },
+			{ ...elseLink, condition: { kind: "match-none" } },
 			elseLink,
 		);
 		expect(plan.ok && plan.pinsFallback).toBe("app_home");
@@ -427,7 +420,9 @@ describe("keyboard decisions consume actual link move verdicts", () => {
 			{
 				uuid: "lnk-else",
 				target: toInspect,
-				datums: [{ name: "case_id", xpath: "''" }],
+				datums: [
+					{ name: { kind: "selected-case", module: HOUSEHOLDS }, xpath: "''" },
+				],
 			},
 		]);
 		const links = doc.forms[SOURCE]?.formLinks ?? [];

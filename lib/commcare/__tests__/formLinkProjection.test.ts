@@ -9,16 +9,14 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	entryFrameDatums,
 	type FrameChild,
 	type FrameDatum,
 	formFrameChildren,
 	formLinkActionsBuildable,
-	formLinkExpressionProjectable,
 	formLinkProjectionContext,
-	formLinksProjectable,
 	type GuardPlan,
 	type GuardPlanLink,
 	matchFrameToManual,
@@ -33,23 +31,17 @@ import {
 	targetSelectionDatums,
 } from "@/lib/commcare/formLinkProjection";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import {
-	type FormLinkXPathValue,
-	isLegacyFormLinkXPath,
-	legacyProjectedFormLinkXPath,
-} from "@/lib/commcare/xform/legacyAuthoredXPath";
 import { serializeWire, type WireExpr, w } from "@/lib/commcare/xpath";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema, tileCell } from "@/lib/domain";
+import { and, eq, literal, neq, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 
-function wireText(value: FormLinkXPathValue | undefined): string | undefined {
+function wireText(value: WireExpr | undefined): string | undefined {
 	return value === undefined
 		? undefined
-		: isLegacyFormLinkXPath(value)
-			? value.text
-			: serializeWire(value, { target: "suite" }).text;
+		: serializeWire(value, { target: "suite" }).text;
 }
 function fallbackText(fallback: GuardPlan["fallback"]) {
 	return fallback.kind === "guarded"
@@ -193,15 +185,16 @@ const datum = (
 });
 
 describe("planFormLinkGuards", () => {
-	const L = (uuid: string, condition?: string) => ({
+	const equalOne = (name: string) => w.eq(w.context([w.step(name)]), w.num(1));
+	const L = (uuid: string, condition?: WireExpr) => ({
 		uuid: testUuid(uuid),
 		...(condition !== undefined && {
-			condition: legacyProjectedFormLinkXPath(condition),
+			condition,
 		}),
 	});
 
 	it("leaves the first guard bare, byte-identical to HQ's first frame", () => {
-		expect(planFormLinkGuards([L("a", "x = 1")])).toEqual({
+		expect(planFormLinkGuards([L("a", equalOne("x"))])).toEqual({
 			links: [{ uuid: testUuid("a"), guard: "x = 1" }],
 			fallback: { kind: "guarded", guard: "not(x = 1)" },
 		});
@@ -209,28 +202,28 @@ describe("planFormLinkGuards", () => {
 
 	it("makes later guards exclusive by negating every conditional prior", () => {
 		const plan = planFormLinkGuards([
-			L("a", "x = 1"),
-			L("b", "y = 1 or z = 1"),
-			L("c", "w = 1"),
+			L("a", equalOne("x")),
+			L("b", w.or(equalOne("y"), equalOne("z"))),
+			L("c", equalOne("w")),
 		]);
 		expect(plan.links.map((link) => link.guard)).toEqual([
 			"x = 1",
 			// The positive operand is parenthesized so a top-level `or`
 			// cannot leak past the conjunction.
 			"(y = 1 or z = 1) and not(x = 1)",
-			"(w = 1) and not(x = 1) and not(y = 1 or z = 1)",
+			"w = 1 and not(x = 1) and not(y = 1 or z = 1)",
 		]);
 		// The fallback negates the EMITTED guards — HQ's literal
 		// `' and '.join(f'not({xpath})')` over what Nova sends it.
 		expect(plan.fallback).toEqual({
 			kind: "guarded",
 			guard:
-				"not(x = 1) and not((y = 1 or z = 1) and not(x = 1)) and not((w = 1) and not(x = 1) and not(y = 1 or z = 1))",
+				"not(x = 1) and not((y = 1 or z = 1) and not(x = 1)) and not(w = 1 and not(x = 1) and not(y = 1 or z = 1))",
 		});
 	});
 
 	it("treats a terminal unconditional link as the exhaustive else", () => {
-		const plan = planFormLinkGuards([L("a", "x = 1"), L("b")]);
+		const plan = planFormLinkGuards([L("a", equalOne("x")), L("b")]);
 		expect(plan.links).toEqual([
 			{ uuid: testUuid("a"), guard: "x = 1" },
 			{ uuid: testUuid("b"), guard: "not(x = 1)" },
@@ -248,7 +241,7 @@ describe("planFormLinkGuards", () => {
 	it("stays total over an unconditional link that is not last", () => {
 		// The validator refuses this document (FORM_LINK_UNREACHABLE); the
 		// plan still answers so every consumer stays total.
-		const plan = planFormLinkGuards([L("a"), L("b", "x = 1")]);
+		const plan = planFormLinkGuards([L("a"), L("b", equalOne("x"))]);
 		expect(plan.links).toEqual([
 			{ uuid: testUuid("a") },
 			{ uuid: testUuid("b"), guard: "x = 1" },
@@ -497,10 +490,10 @@ describe("datum matching", () => {
 				},
 			],
 			[
-				{ name: "case_id", xpath: legacyProjectedFormLinkXPath("'frog-7'") },
+				{ name: "case_id", xpath: w.str("frog-7") },
 				{
 					name: "nothing_reads_this",
-					xpath: legacyProjectedFormLinkXPath("'x'"),
+					xpath: w.str("x"),
 				},
 			],
 			new Set(),
@@ -514,7 +507,7 @@ describe("datum matching", () => {
 			{
 				type: "datum",
 				id: "case_id",
-				value: legacyProjectedFormLinkXPath("'frog-7'"),
+				value: w.str("frog-7"),
 			},
 			// A function datum nobody names keeps its function.
 			{ type: "datum", id: "case_id_new_visit_1", value: w.call("uuid") },
@@ -580,7 +573,7 @@ describe("projectFormLinks", () => {
 	it.each([false, true])(
 		"substitutes an earlier grouped-tile case datum (manual: %s)",
 		(manual) => {
-			const doc = frogDoc();
+			const doc = structuredClone(frogDoc());
 			const config = caseListConfig([
 				{ field: "case_name", header: "Name" },
 				{ field: "mood", header: "Mood" },
@@ -596,7 +589,12 @@ describe("projectFormLinks", () => {
 					uuid: LINK_VISIT,
 					target: { type: "form", moduleUuid: CARE, formUuid: VISIT },
 					...(manual && {
-						datums: [{ name: "case_id", xpath: xp("'frog-7'") }],
+						datums: [
+							{
+								name: { kind: "selected-case" as const, module: CARE },
+								xpath: term(literal("frog-7")),
+							},
+						],
 					}),
 				},
 			];
@@ -613,10 +611,9 @@ describe("projectFormLinks", () => {
 			expect(companion?.type).toBe("datum");
 			if (companion?.type !== "datum")
 				throw new Error("Missing grouped companion datum");
-			expect(isLegacyFormLinkXPath(companion.value)).toBe(manual);
 			expect(wireText(companion.value)).toBe(
 				manual
-					? "join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = ('frog-7')]/index/parent))"
+					? "join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = 'frog-7']/index/parent))"
 					: "join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id_new_frog_0]/index/parent))",
 			);
 		},
@@ -633,7 +630,7 @@ describe("projectFormLinks", () => {
 		if (projected === undefined) return;
 		expect(projected.links.map((link) => wireText(link.guard))).toEqual([
 			"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice'",
-			"(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'bea') and not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice')",
+			"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'bea' and not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice')",
 		]);
 		expect(projected.links[0]).toMatchObject({
 			uuid: LINK_VISIT,
@@ -662,7 +659,7 @@ describe("projectFormLinks", () => {
 		expect(fallbackText(projected.fallback)).toEqual({
 			kind: "guarded",
 			guard:
-				"not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice') and not((instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'bea') and not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice'))",
+				"not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice') and not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'bea' and not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice'))",
 		});
 	});
 
@@ -676,7 +673,16 @@ describe("projectFormLinks", () => {
 		reg.formLinks = [
 			{
 				...reg.formLinks[0],
-				condition: xp("#frog/mood = 'happy' and #frog/case_id != ''"),
+				condition: and(
+					eq(
+						{ kind: "form-case", caseType: "frog", property: "mood" },
+						literal("happy"),
+					),
+					neq(
+						{ kind: "form-case", caseType: "frog", property: "case_id" },
+						literal(""),
+					),
+				),
 			},
 		];
 		const projected = projectFormLinks(
@@ -697,7 +703,10 @@ describe("projectFormLinks", () => {
 		visit.formLinks = [
 			{
 				uuid: testUuid("lnk-back"),
-				condition: xp("#frog/case_id != ''"),
+				condition: neq(
+					{ kind: "form-case", caseType: "frog", property: "case_id" },
+					literal(""),
+				),
 				target: { type: "module", moduleUuid: INTAKE },
 			},
 			{
@@ -824,58 +833,6 @@ describe("totality predicates", () => {
 		expect(moduleCaseTypeForActions(doc, testUuid("mod-viewer"))).toBe(
 			"patient",
 		);
-	});
-
-	it("formLinkExpressionProjectable refuses form-local reads and raw #case/", () => {
-		const doc = frogDoc();
-		expect(formLinkExpressionProjectable(doc, xp("1 = 1"))).toBe(true);
-		expect(formLinkExpressionProjectable(doc, xp("#frog/mood = 'calm'"))).toBe(
-			true,
-		);
-		expect(formLinkExpressionProjectable(doc, xp("#user/username = 'a'"))).toBe(
-			true,
-		);
-		expect(formLinkExpressionProjectable(doc, xp("#form/x = 'a'"))).toBe(false);
-		expect(formLinkExpressionProjectable(doc, xp("#case/mood = 'a'"))).toBe(
-			false,
-		);
-		expect(
-			formLinkExpressionProjectable(doc, {
-				parts: [
-					{ kind: "field-ref", uuid: testUuid("some-field") },
-					{ kind: "text", text: " = 'a'" },
-				],
-			}),
-		).toBe(false);
-		expect(
-			formLinkExpressionProjectable(doc, {
-				parts: [
-					{
-						kind: "user-property-ref",
-						userPropertyUuid: testUuid("missing-user-property"),
-					},
-				],
-			}),
-		).toBe(false);
-	});
-
-	it("formLinksProjectable covers conditions and datum expressions", () => {
-		const doc = frogDoc();
-		const target = { type: "module" as const, moduleUuid: CARE };
-		expect(
-			formLinksProjectable(doc, [
-				{ uuid: testUuid("l"), condition: xp("1 = 1"), target },
-			]),
-		).toBe(true);
-		expect(
-			formLinksProjectable(doc, [
-				{
-					uuid: testUuid("l"),
-					target,
-					datums: [{ name: "case_id", xpath: xp("#form/x") }],
-				},
-			]),
-		).toBe(false);
 	});
 
 	it("formLinkActionsBuildable says no when a form the frame reads has no buildable actions", () => {

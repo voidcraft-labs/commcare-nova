@@ -1,74 +1,110 @@
-/**
- * Hooks for components that edit AST-stored XPath slots.
- *
- * Display is a live PROJECTION: `useXPathText` subscribes to the doc
- * and prints the expression per render-relevant change, so a rename of
- * a referenced field updates the shown text with no slot write.
- * Commit is the inverse: `useParseXPathForField` parses the authored
- * text against the CURRENT doc at commit time (non-subscribing — a
- * commit reads the moment's truth, it doesn't re-render on it).
- */
-
+/** Text projections and parse callbacks for one actual expression slot. */
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
+import { buildExpressionLintContext } from "@/lib/codemirror/buildLintContext";
 import {
-	parseXPathForField,
-	parseXPathForForm,
+	parseFormExpressionForSlot,
+	projectFormExpression,
 } from "@/lib/doc/expressionText";
+import { lookupExpressionDefinitions } from "@/lib/doc/lookupExpressionContext";
+import type { FormStructure } from "@/lib/domain/expression/formStructure";
+import type {
+	Expression,
+	ExpressionSlotRef,
+} from "@/lib/domain/expression/types";
+import { useLookupCommitState } from "../lookupCommitContext";
+import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
 import {
-	useBlueprintDocApi,
-	useBlueprintDocShallow,
-} from "@/lib/doc/hooks/useBlueprintDoc";
-import type { Uuid } from "@/lib/doc/types";
-import {
-	projectXPath,
-	type XPathExpression,
-	type XPathProjectionResult,
-	xpathPrintContext,
-} from "@/lib/domain";
+	type ExpressionSlotCandidate,
+	expressionCandidateDoc,
+} from "./useExpressionSlotContext";
 
-/** Structured human projection of an AST-stored slot. Callers that own an
- * editor should render the unresolved arm as a repair state rather than
- * treating its marker text as an ordinary authored expression. */
-export function useXPathProjection(
-	expr: XPathExpression | undefined,
-): XPathProjectionResult {
-	return useBlueprintDocShallow((doc) => {
-		if (expr === undefined) return { ok: true, text: "" };
-		return projectXPath(expr, xpathPrintContext(doc));
-	});
+export function useFormExpressionProjection(
+	expression: Expression | undefined,
+	slot: ExpressionSlotRef | undefined,
+	candidate?: ExpressionSlotCandidate,
+	form?: FormStructure,
+) {
+	const doc = useBlueprintDoc((current) => current);
+	const { lookupContext } = useLookupCommitState();
+	return useMemo(() => {
+		if (expression === undefined) return { ok: true, text: "" };
+		const current =
+			slot === undefined
+				? undefined
+				: expressionCandidateDoc(doc, slot, candidate);
+		if (current === undefined || slot === undefined)
+			return { ok: false, text: "Unresolved expression" };
+		const projection = projectFormExpression(
+			current,
+			slot,
+			expression,
+			lookupExpressionDefinitions(lookupContext),
+			{ form },
+		);
+		return { ...projection, ok: projection.unresolved.length === 0 };
+	}, [doc, slot, expression, candidate, lookupContext, form]);
 }
 
-/** The printed text of an AST-stored slot value, kept current against
- *  doc changes (renames/moves of referenced fields re-print). An
- *  absent slot reads as `""` — the editor's empty state. Compact
- *  read-only callers may use this convenience; editors should consume
- *  `useXPathProjection` so they preserve the repair discriminator. */
-export function useXPathText(expr: XPathExpression | undefined): string {
-	return useXPathProjection(expr).text;
+export function useFormExpressionText(
+	expression: Expression | undefined,
+	slot: ExpressionSlotRef | undefined,
+	candidate?: ExpressionSlotCandidate,
+	form?: FormStructure,
+): string {
+	return useFormExpressionProjection(expression, slot, candidate, form).text;
 }
 
-/** A committer-side parser scoped to one field: text → stored AST,
- *  resolved against the doc as of the commit. */
-export function useParseXPathForField(
-	fieldUuid: Uuid,
-): (text: string) => XPathExpression {
+/** Missing context or invalid source refuses the save; text never becomes stored fallback. */
+export function useParseFormExpression(
+	slot: ExpressionSlotRef | undefined,
+	candidate?: ExpressionSlotCandidate,
+	form?: FormStructure,
+): (text: string) => Expression {
 	const api = useBlueprintDocApi();
+	const { lookupContext } = useLookupCommitState();
 	return useCallback(
-		(text: string) => parseXPathForField(api.getState(), fieldUuid, text),
-		[api, fieldUuid],
+		(text: string) => {
+			const doc =
+				slot === undefined
+					? undefined
+					: expressionCandidateDoc(api.getState(), slot, candidate);
+			if (doc === undefined || slot === undefined)
+				throw new Error(
+					"This expression's place in the app changed. Reopen it to use the latest version.",
+				);
+			const parsed = parseFormExpressionForSlot(
+				doc,
+				slot,
+				text,
+				lookupExpressionDefinitions(lookupContext),
+				{ form },
+			);
+			if (!parsed.ok)
+				throw new Error(parsed.issues.map((issue) => issue.message).join(" "));
+			if (parsed.expression === undefined)
+				throw new Error("Enter an expression before saving.");
+			return parsed.expression;
+		},
+		[api, slot, candidate, lookupContext, form],
 	);
 }
 
-/** The form-scoped twin — for form-level expression slots (the
- *  Connect-block bindings). */
-export function useParseXPathForForm(
-	formUuid: Uuid,
-): (text: string) => XPathExpression {
+export function useFormExpressionLintContext(
+	slot: ExpressionSlotRef | undefined,
+	candidate?: ExpressionSlotCandidate,
+	form?: FormStructure,
+) {
 	const api = useBlueprintDocApi();
-	return useCallback(
-		(text: string) => parseXPathForForm(api.getState(), formUuid, text),
-		[api, formUuid],
-	);
+	const { lookupContext } = useLookupCommitState();
+	return useCallback(() => {
+		const doc =
+			slot === undefined
+				? undefined
+				: expressionCandidateDoc(api.getState(), slot, candidate);
+		return doc === undefined || slot === undefined
+			? undefined
+			: buildExpressionLintContext(doc, slot, lookupContext, { form });
+	}, [api, slot, candidate, lookupContext, form]);
 }

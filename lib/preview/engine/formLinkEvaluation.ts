@@ -11,12 +11,10 @@
  * Three things this module decides, all pure:
  *
  *   - **Which link fires** (`evaluateFormLinks`): first true wins; a link
- *     whose condition is absent or prints to nothing is unconditional. A
- *     condition is printed through `printXPath` (unresolved references
- *     throw, because the commit gate refuses them and reaching one here
- *     means the gate was bypassed) and evaluated as Nova text by the
- *     preview evaluator, so `#patient/mood` resolves through this module's
- *     own context rather than through a lowered casedb walk.
+ *     whose condition is absent is unconditional. Each stored tree lowers
+ *     through the shared wire emitter with its exact source form and link
+ *     slot. Selected-record reads therefore use the same projected session
+ *     datums and case-database paths as the device.
  *   - **What the evaluation can see** (`formLinkEvalContext`): the device
  *     evaluates a link after the XForm has closed, in the entry's session
  *     scope. So `instance('commcaresession')/session/...` reads the
@@ -40,18 +38,21 @@
  */
 
 import {
+	entryDatumIdResolver,
 	entryFrameDatums,
 	entrySelectionDatumSources,
 	type FrameDatum,
 	formLinkIsConditional,
 	formLinkProjectionContext,
+	formLinkTargetDatumIds,
 	matchFrameToSource,
 	moduleCaseTypeForActions,
 	owningModuleOf,
+	projectFormLinkSessionExpression,
 	selectedCaseDatumId,
 	targetFrameChildren,
 } from "@/lib/commcare/formLinkProjection";
-import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	type BlueprintDoc,
 	deriveCaseWriteInventory,
@@ -59,11 +60,13 @@ import {
 	type FormLinkDatum,
 	materializableCaseTypes,
 	type PostSubmitDestination,
-	printXPath,
 	type Uuid,
-	type XPathExpression,
-	xpathPrintContext,
 } from "@/lib/domain";
+import type {
+	Expression,
+	FormExpressionSlotRef,
+} from "@/lib/domain/expression/types";
+import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
@@ -74,9 +77,10 @@ import {
 	xpathWorkerHashtagReferences,
 } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import { expressionReadsCaseDatabase } from "./expressionCaseReads";
 import type { PreviewSearchSessionValues } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
-import { xpathReferencesInstance } from "./xpathInstanceReferences";
+import { previewWorkerPropertyBinding } from "./workerExpressionBindings";
 import {
 	type CaseDatabaseSnapshot,
 	caseDatabaseXPathInstance,
@@ -128,6 +132,7 @@ export interface CarriedSubmission {
 /** Everything a link condition or datum can read. */
 export interface FormLinkEvaluationInput {
 	readonly doc: BlueprintDoc;
+	readonly formUuid: Uuid;
 	readonly session: PreviewSearchSessionValues;
 	/** The worker's usercase, which `#user/<prop>` reads. */
 	readonly usercase: Readonly<Record<string, string>>;
@@ -156,11 +161,53 @@ export interface FormLinkWorkerWorld {
 }
 
 export function formLinksRequireCaseDatabase(doc: BlueprintDoc): boolean {
-	return authoredXPathCarriers(doc).some(
-		(carrier) =>
-			carrier.profile === "preview-session" &&
-			xpathReferencesInstance(carrier.source, "casedb"),
+	return Object.values(doc.forms).some((form) =>
+		expressionSlotValues(doc, { entity: "form", uuid: form.uuid }).some(
+			({ ref, expression }) =>
+				(ref.slot === "form_link_condition" ||
+					ref.slot === "form_link_datum_xpath") &&
+				expressionReadsCaseDatabase(expression),
+		),
 	);
+}
+
+/** The native session projector owns case/datum bindings and actual slot context. */
+function formLinkSource(
+	input: FormLinkEvaluationInput,
+	expression: Expression,
+	slot: FormExpressionSlotRef,
+): string {
+	return serializeWire(
+		projectFormLinkSessionExpression(
+			input.doc,
+			formLinkProjectionContext(input.doc, {
+				entryMetadataOnly: true,
+				lookupNaming: input.lookupData?.naming,
+				workerProperty: previewWorkerPropertyBinding(
+					input.session.context.userid,
+					input.usercase,
+					input.caseDatabase,
+				),
+			}),
+			input.formUuid,
+			expression,
+			slot,
+		),
+		{ target: "preview" },
+	).text;
+}
+
+function conditionSource(
+	input: FormLinkEvaluationInput,
+	link: FormLink,
+): string {
+	if (link.condition === undefined) return "true()";
+	return formLinkSource(input, link.condition, {
+		entity: "form",
+		uuid: input.formUuid,
+		slot: "form_link_condition",
+		member: { linkUuid: link.uuid },
+	});
 }
 
 export type AfterSubmitChoice =
@@ -326,15 +373,12 @@ export function evaluateFormLinks(args: {
 	readonly fallback: PostSubmitDestination;
 	readonly input: FormLinkEvaluationInput;
 }): AfterSubmitChoice {
-	const printCtx = xpathPrintContext(args.input.doc);
-	const print = (expression: XPathExpression): string =>
-		printXPath(expression, printCtx).trim();
 	const evalCtx = formLinkEvalContext(args.input);
 	for (const [index, link] of args.links.entries()) {
-		if (!formLinkIsConditional(link, print) || link.condition === undefined) {
+		if (!formLinkIsConditional(link) || link.condition === undefined) {
 			return { kind: "link", link, index };
 		}
-		if (toBoolean(evaluate(print(link.condition), evalCtx))) {
+		if (toBoolean(evaluate(conditionSource(args.input, link), evalCtx))) {
 			return { kind: "link", link, index };
 		}
 	}
@@ -348,14 +392,11 @@ export async function evaluateFormLinksAsync(args: {
 	readonly evaluate: FormLinkAsyncEvaluator;
 	readonly world?: FormLinkWorkerWorld;
 }): Promise<AfterSubmitChoice> {
-	const printCtx = xpathPrintContext(args.input.doc);
-	const print = (expression: XPathExpression): string =>
-		printXPath(expression, printCtx).trim();
 	for (const [index, link] of args.links.entries()) {
-		if (!formLinkIsConditional(link, print) || link.condition === undefined) {
+		if (!formLinkIsConditional(link) || link.condition === undefined) {
 			return { kind: "link", link, index };
 		}
-		const source = print(link.condition);
+		const source = conditionSource(args.input, link);
 		const result = await args.evaluate(
 			source,
 			formLinkWorkerInstances(args.input, source, args.world),
@@ -369,10 +410,16 @@ export async function evaluateFormLinksAsync(args: {
 export function evaluateLinkDatum(
 	datum: FormLinkDatum,
 	input: FormLinkEvaluationInput,
+	linkUuid: Uuid,
 ): string {
 	return xpathToString(
 		evaluate(
-			printXPath(datum.xpath, xpathPrintContext(input.doc)),
+			formLinkSource(input, datum.xpath, {
+				entity: "form",
+				uuid: input.formUuid,
+				slot: "form_link_datum_xpath",
+				member: { linkUuid, datum: datum.name },
+			}),
 			formLinkEvalContext(input),
 		),
 	);
@@ -381,10 +428,16 @@ export function evaluateLinkDatum(
 export async function evaluateLinkDatumAsync(
 	datum: FormLinkDatum,
 	input: FormLinkEvaluationInput,
+	linkUuid: Uuid,
 	evaluateAsync: FormLinkAsyncEvaluator,
 	world?: FormLinkWorkerWorld,
 ): Promise<string> {
-	const source = printXPath(datum.xpath, xpathPrintContext(input.doc));
+	const source = formLinkSource(input, datum.xpath, {
+		entity: "form",
+		uuid: input.formUuid,
+		slot: "form_link_datum_xpath",
+		member: { linkUuid, datum: datum.name },
+	});
 	const value = await evaluateAsync(
 		source,
 		formLinkWorkerInstances(input, source, world),
@@ -600,6 +653,9 @@ export function projectTargetCaseSelections(
 		);
 	}
 	const targetChildren = targetFrameChildren(doc, ctx, link.target);
+	const targetDatumId = entryDatumIdResolver(
+		formLinkTargetDatumIds(doc, ctx, link.target),
+	);
 	const targetSelections = targetChildren.flatMap((child) =>
 		child.type === "datum" &&
 		child.datum.requiresSelection &&
@@ -624,10 +680,10 @@ export function projectTargetCaseSelections(
 		let held: SessionDatumValue | undefined;
 		if (link.datums !== undefined) {
 			const manual = link.datums.find(
-				(candidate) => candidate.name === datum.id,
+				(candidate) => targetDatumId(candidate.name) === datum.id,
 			);
 			const value =
-				manual === undefined ? "" : evaluateLinkDatum(manual, input);
+				manual === undefined ? "" : evaluateLinkDatum(manual, input, link.uuid);
 			const knownName = [...input.sessionDatums.values()].find(
 				(candidate) =>
 					candidate.value === value && candidate.caseName !== undefined,
@@ -667,6 +723,9 @@ export async function projectTargetCaseSelectionsAsync(
 		throw new Error("Cannot follow a form link whose source has no module.");
 	}
 	const targetChildren = targetFrameChildren(doc, ctx, link.target);
+	const targetDatumId = entryDatumIdResolver(
+		formLinkTargetDatumIds(doc, ctx, link.target),
+	);
 	const targetSelections = targetChildren.flatMap((child) =>
 		child.type === "datum" &&
 		child.datum.requiresSelection &&
@@ -691,12 +750,18 @@ export async function projectTargetCaseSelectionsAsync(
 		let held: SessionDatumValue | undefined;
 		if (link.datums !== undefined) {
 			const manual = link.datums.find(
-				(candidate) => candidate.name === datum.id,
+				(candidate) => targetDatumId(candidate.name) === datum.id,
 			);
 			const value =
 				manual === undefined
 					? ""
-					: await evaluateLinkDatumAsync(manual, input, evaluateAsync, world);
+					: await evaluateLinkDatumAsync(
+							manual,
+							input,
+							link.uuid,
+							evaluateAsync,
+							world,
+						);
 			const knownName = [...input.sessionDatums.values()].find(
 				(candidate) =>
 					candidate.value === value && candidate.caseName !== undefined,

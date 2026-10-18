@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CheckError } from "@/lib/domain/predicate";
+import type { CheckError } from "@/lib/domain/expression";
 import { presentCheckErrorForEditor } from "../checkErrorPresentation";
 
 describe("PredicateCardEditor — user-facing diagnostics", () => {

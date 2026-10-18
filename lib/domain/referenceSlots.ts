@@ -3,13 +3,12 @@
 // The reference-slot registry: one declarative enumeration of every
 // blueprint slot that can carry a reference to another part of the
 // app. A "reference" here is anything that names an entity, a case
-// property, or a case type — an XPath expression with hashtag refs, a
-// prose template whose typed atoms name references, a predicate/value-expression
-// AST whose typed leaves name case properties, an entity pointer, an
+// property, or a case type — an Expression tree, a prose template whose typed atoms name references,
+// an entity pointer, an
 // entity uuid, or a bare case-type/case-property name.
 //
 // The registry is shared vocabulary: the validator's per-surface
-// unions (`XPathSurface` / `ProseSurface` / `ConnectXPathSlot` in
+// unions (`FormLogicSurface` / `ProseSurface` / Connect slots in
 // `lib/commcare/validator/index.ts`) are asserted equal to projections
 // of this data by `lib/commcare/validator/__tests__/referenceSlotUnions.test.ts`.
 // One enumeration, no drift surface.
@@ -42,27 +41,32 @@
 //     They are classified `media` in the non-reference maps so the
 //     audit stays total without duplicating that registry.
 
+import type { BlueprintDoc } from "./blueprint";
+import {
+	datumRefKey,
+	type Expression,
+	type ExpressionSlotRef,
+	isExpression,
+} from "./expression/types";
 import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
 import { FORM_TYPES, type FormType } from "./forms";
 import type { ColumnKind, SearchInputDef } from "./modules";
+import { ownRecordValue } from "./records";
+import type { Uuid } from "./uuid";
 
 /**
  * How a slot carries its reference — the dispatch key consumers use to
  * pick an extraction/rewrite strategy:
  *
- *   - `xpath-ast` — an XPath expression stored as the typed AST
- *     (`lib/domain/xpath`): references are identity leaves walked
- *     structurally; source text is a PROJECTION (`printXPath`), so
- *     consumers that speak text read the printed form and consumers
- *     that follow references walk the leaves — never a re-parse.
+ *   - `expression` — the single typed Expression vocabulary. Stable identities
+ *     are walked structurally; authored source is a projection, never storage.
  *   - `prose` — a `ProseTemplate` whose reference atoms carry stable
  *     identity. Hashtag-looking text is ordinary authored text; friendly
  *     `#form/...` and `#<case_type>/...` spellings are projections of the
  *     typed atoms, never reparsed storage.
- *   - `predicate-ast` — a structured AST from `lib/domain/predicate`
- *     (`Predicate`, `ValueExpression`, or `RelationPath`); references
- *     live on typed leaves (`PropertyRef`, relation steps' case-type
- *     hints) and are walked structurally, never as strings.
+ *   - `relation-path` — a typed relation path whose declared type hints are
+ *     references; property destinations resolve through the actual catalog.
+ *   - `datum-ref` — a typed entry-datum identity, never an emitted wire name.
  *   - `options-source` — a whole identity-bearing lookup or case choice source.
  *     Table/column identities belong to the lookup-reference registry; case
  *     types, label properties, and optional predicates are walked by the
@@ -75,9 +79,10 @@ import type { ColumnKind, SearchInputDef } from "./modules";
  *   - `case-type-ref` — names a case type by bare name.
  */
 const REFERENCE_SURFACE_KINDS = [
-	"xpath-ast",
+	"expression",
 	"prose",
-	"predicate-ast",
+	"relation-path",
+	"datum-ref",
 	"options-source",
 	"entity-uuid",
 	"case-property-ref",
@@ -274,21 +279,21 @@ export const FIELD_REFERENCE_SLOTS = [
 		entity: "field",
 		slot: "relevant",
 		path: "relevant",
-		kind: "xpath-ast",
+		kind: "expression",
 		appliesTo: RELEVANT_KINDS,
 	},
 	{
 		entity: "field",
 		slot: "validate",
 		path: "validate",
-		kind: "xpath-ast",
+		kind: "expression",
 		appliesTo: VALIDATED_INPUT_KINDS,
 	},
 	{
 		entity: "field",
 		slot: "calculate",
 		path: "calculate",
-		kind: "xpath-ast",
+		kind: "expression",
 		// Computed values live on hidden fields only — a `calculate` bind
 		// makes a control read-only, so visible kinds carry `default_value`
 		// (a one-shot seed) instead.
@@ -298,21 +303,21 @@ export const FIELD_REFERENCE_SLOTS = [
 		entity: "field",
 		slot: "default_value",
 		path: "default_value",
-		kind: "xpath-ast",
+		kind: "expression",
 		appliesTo: [...VALIDATED_INPUT_KINDS, "geopoint", "hidden"],
 	},
 	{
 		entity: "field",
 		slot: "required",
 		path: "required",
-		kind: "xpath-ast",
+		kind: "expression",
 		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS],
 	},
 	{
 		entity: "field",
 		slot: "repeat_count",
 		path: "repeat_count",
-		kind: "xpath-ast",
+		kind: "expression",
 		appliesTo: ["repeat"],
 		repeatModes: ["count_bound"],
 	},
@@ -320,7 +325,7 @@ export const FIELD_REFERENCE_SLOTS = [
 		entity: "field",
 		slot: "ids_query",
 		path: "data_source.ids_query",
-		kind: "xpath-ast",
+		kind: "expression",
 		appliesTo: ["repeat"],
 		repeatModes: ["query_bound"],
 	},
@@ -397,7 +402,7 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "form_display_condition",
 		path: "displayCondition",
-		kind: "predicate-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -413,7 +418,7 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "form_link_condition",
 		path: "formLinks[].condition",
-		kind: "xpath-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -428,30 +433,37 @@ export const FORM_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "form",
+		slot: "form_link_datum_name",
+		path: "formLinks[].datums[].name",
+		kind: "datum-ref",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "form_link_datum_xpath",
 		path: "formLinks[].datums[].xpath",
-		kind: "xpath-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
 		entity: "form",
 		slot: "assessment_user_score",
 		path: "connect.assessment.user_score",
-		kind: "xpath-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
 		entity: "form",
 		slot: "deliver_entity_id",
 		path: "connect.deliver_unit.entity_id",
-		kind: "xpath-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
 		entity: "form",
 		slot: "deliver_entity_name",
 		path: "connect.deliver_unit.entity_name",
-		kind: "xpath-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -486,7 +498,7 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "case_operation_target_expression",
 		path: "caseOperations[].target.expr",
-		kind: "predicate-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -500,28 +512,28 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "case_operation_condition",
 		path: "caseOperations[].condition",
-		kind: "predicate-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
 		entity: "form",
 		slot: "case_operation_name",
 		path: "caseOperations[].name",
-		kind: "predicate-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
 		entity: "form",
 		slot: "case_operation_owner",
 		path: "caseOperations[].owner",
-		kind: "predicate-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
 		entity: "form",
 		slot: "case_operation_rename",
 		path: "caseOperations[].rename",
-		kind: "predicate-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -535,14 +547,14 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "case_operation_write_value",
 		path: "caseOperations[].writes[].value",
-		kind: "predicate-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
 		entity: "form",
 		slot: "case_operation_write_condition",
 		path: "caseOperations[].writes[].condition",
-		kind: "predicate-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -570,7 +582,7 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "case_operation_link_target_expression",
 		path: "caseOperations[].links[].target.expr",
-		kind: "predicate-ast",
+		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
 ] as const satisfies readonly FormReferenceSlot[];
@@ -594,7 +606,7 @@ export const MODULE_REFERENCE_SLOTS = [
 		entity: "module",
 		slot: "module_display_condition",
 		path: "displayCondition",
-		kind: "predicate-ast",
+		kind: "expression",
 	},
 	{
 		entity: "module",
@@ -623,14 +635,14 @@ export const MODULE_REFERENCE_SLOTS = [
 		entity: "module",
 		slot: "case_list_column_expression",
 		path: "caseListConfig.columns[].expression",
-		kind: "predicate-ast",
+		kind: "expression",
 		columnKinds: ["calculated"],
 	},
 	{
 		entity: "module",
 		slot: "case_list_filter",
 		path: "caseListConfig.filter",
-		kind: "predicate-ast",
+		kind: "expression",
 	},
 	{
 		entity: "module",
@@ -643,7 +655,7 @@ export const MODULE_REFERENCE_SLOTS = [
 		entity: "module",
 		slot: "search_input_via",
 		path: "caseListConfig.searchInputs[].via",
-		kind: "predicate-ast",
+		kind: "relation-path",
 		// A bare `RelationPath` — the same structured walk shape the
 		// predicate AST embeds, so it shares the AST surface kind and the
 		// structural (never string) traversal contract.
@@ -653,7 +665,7 @@ export const MODULE_REFERENCE_SLOTS = [
 		entity: "module",
 		slot: "search_input_default",
 		path: "caseListConfig.searchInputs[].default",
-		kind: "predicate-ast",
+		kind: "expression",
 		searchInputKinds: ["simple", "advanced"],
 		// Scalar and choice widgets. A date-range input owns its range mode and
 		// never carries a scalar default, so the two date-range arms declare no key.
@@ -663,7 +675,7 @@ export const MODULE_REFERENCE_SLOTS = [
 		entity: "module",
 		slot: "search_input_predicate",
 		path: "caseListConfig.searchInputs[].predicate",
-		kind: "predicate-ast",
+		kind: "expression",
 		searchInputKinds: ["advanced"],
 	},
 	{
@@ -678,34 +690,34 @@ export const MODULE_REFERENCE_SLOTS = [
 		entity: "module",
 		slot: "search_input_required_when",
 		path: "caseListConfig.searchInputs[].required.when",
-		kind: "predicate-ast",
+		kind: "expression",
 		searchInputKinds: ["simple", "advanced"],
 	},
 	{
 		entity: "module",
 		slot: "search_input_validation_rule",
 		path: "caseListConfig.searchInputs[].validation.rule",
-		kind: "predicate-ast",
+		kind: "expression",
 		searchInputKinds: ["simple", "advanced"],
 	},
 	{
 		entity: "module",
 		slot: "search_input_hidden_value",
 		path: "caseListConfig.searchInputs[].value",
-		kind: "predicate-ast",
+		kind: "expression",
 		searchInputKinds: ["hidden"],
 	},
 	{
 		entity: "module",
 		slot: "search_button_display_condition",
 		path: "caseSearchConfig.searchButtonDisplayCondition",
-		kind: "predicate-ast",
+		kind: "expression",
 	},
 	{
 		entity: "module",
 		slot: "excluded_owner_ids",
 		path: "caseSearchConfig.excludedOwnerIds",
-		kind: "predicate-ast",
+		kind: "expression",
 	},
 ] as const satisfies readonly ModuleReferenceSlot[];
 
@@ -723,9 +735,9 @@ type ModuleSlotEntry = (typeof MODULE_REFERENCE_SLOTS)[number];
 /** Field slot ids carrying an XPath expression (AST-stored) — the
  *  registry side of the validator's `XPathSurface` union; the read
  *  surface is the printed TEXT. */
-export type FieldXPathSlotId = Extract<
+export type FieldFormLogicSlotId = Extract<
 	FieldSlotEntry,
-	{ kind: "xpath-ast" }
+	{ kind: "expression" }
 >["slot"];
 
 /** Field slot ids carrying prose — the registry side of the
@@ -737,16 +749,16 @@ export type FieldProseSlotId = Extract<
 
 /** Connect-block XPath slot ids — the registry side of the validator's
  *  `ConnectXPathSlot` union. */
-export type ConnectXPathSlotId = Extract<
+export type ConnectExpressionSlotId = Extract<
 	FormSlotEntry,
 	{ path: `connect.${string}` }
 >["slot"];
 
 /** Form-link XPath slot ids — fan-out form carriers validated and emitted
  *  once per link (and, for datum XPath, once per datum). */
-export type FormLinkXPathSlotId = Extract<
+export type FormLinkExpressionSlotId = Extract<
 	FormSlotEntry,
-	{ kind: "xpath-ast"; path: `formLinks[]${string}` }
+	{ kind: "expression"; path: `formLinks[]${string}` }
 >["slot"];
 
 export type FieldSlotId = FieldSlotEntry["slot"];
@@ -785,6 +797,297 @@ export function fieldReferenceSlotsFor(
 	return FIELD_REFERENCE_SLOTS.filter((slot) =>
 		fieldSlotApplies(slot, kind, repeatMode),
 	);
+}
+
+/** The stored entities needed to resolve an expression address. */
+export type ExpressionReadableDoc = Pick<
+	BlueprintDoc,
+	"fields" | "forms" | "modules"
+>;
+
+export interface ExpressionCarrierRef {
+	readonly entity: "field" | "form" | "module";
+	readonly uuid: Uuid;
+}
+
+export interface ExpressionSlotValue {
+	readonly ref: ExpressionSlotRef;
+	readonly expression: Expression;
+}
+
+type ExpressionRegistryEntry = Extract<
+	FieldSlotEntry | FormSlotEntry | ModuleSlotEntry,
+	{ kind: "expression" | "options-source" }
+>;
+
+/** A stable address key. Collection positions are never part of identity. */
+export function expressionSlotKey(ref: ExpressionSlotRef): string {
+	const base = [ref.entity, ref.uuid, ref.slot];
+	if (!("member" in ref)) return JSON.stringify(base);
+	const member = ref.member;
+	if ("datum" in member) {
+		return JSON.stringify([
+			...base,
+			member.linkUuid,
+			datumRefKey(member.datum),
+		]);
+	}
+	if ("linkUuid" in member) return JSON.stringify([...base, member.linkUuid]);
+	if ("property" in member) {
+		return JSON.stringify([...base, member.operationUuid, member.property]);
+	}
+	if ("identifier" in member) {
+		return JSON.stringify([...base, member.operationUuid, member.identifier]);
+	}
+	if ("operationUuid" in member) {
+		return JSON.stringify([...base, member.operationUuid]);
+	}
+	if ("columnUuid" in member) {
+		return JSON.stringify([...base, member.columnUuid]);
+	}
+	return JSON.stringify([...base, member.searchInputUuid]);
+}
+
+/**
+ * Resolve the registry walk's array positions to stable member identities.
+ * This is the one address implementation used by both enumeration and reads.
+ */
+function expressionRefForEntry(
+	doc: ExpressionReadableDoc,
+	owner: ExpressionCarrierRef,
+	entry: ExpressionRegistryEntry,
+	indices: readonly number[],
+): ExpressionSlotRef | undefined {
+	const uuid = owner.uuid;
+	if (entry.entity === "field") {
+		return { entity: "field", uuid, slot: entry.slot };
+	}
+	if (entry.entity === "module") {
+		const mod = ownRecordValue(doc.modules, uuid);
+		if (mod === undefined) return undefined;
+		switch (entry.slot) {
+			case "module_display_condition":
+			case "case_list_filter":
+			case "search_button_display_condition":
+			case "excluded_owner_ids":
+				return { entity: "module", uuid, slot: entry.slot };
+			case "case_list_column_expression": {
+				const column = mod.caseListConfig?.columns[indices[0] ?? -1];
+				return column === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { columnUuid: column.uuid },
+						};
+			}
+			case "search_input_default":
+			case "search_input_predicate":
+			case "search_input_options":
+			case "search_input_required_when":
+			case "search_input_validation_rule":
+			case "search_input_hidden_value": {
+				const input = mod.caseListConfig?.searchInputs?.[indices[0] ?? -1];
+				return input === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { searchInputUuid: input.uuid },
+						};
+			}
+			default: {
+				const exhaustive: never = entry;
+				return exhaustive;
+			}
+		}
+	}
+	const form = ownRecordValue(doc.forms, uuid);
+	if (form === undefined) return undefined;
+	switch (entry.slot) {
+		case "form_display_condition":
+		case "assessment_user_score":
+		case "deliver_entity_id":
+		case "deliver_entity_name":
+			return { entity: "form", uuid, slot: entry.slot };
+		case "form_link_condition": {
+			const link = form.formLinks?.[indices[0] ?? -1];
+			return link === undefined
+				? undefined
+				: {
+						entity: "form",
+						uuid,
+						slot: entry.slot,
+						member: { linkUuid: link.uuid },
+					};
+		}
+		case "form_link_datum_xpath": {
+			const link = form.formLinks?.[indices[0] ?? -1];
+			const datum = link?.datums?.[indices[1] ?? -1];
+			return link === undefined || datum === undefined
+				? undefined
+				: {
+						entity: "form",
+						uuid,
+						slot: entry.slot,
+						member: { linkUuid: link.uuid, datum: datum.name },
+					};
+		}
+		case "case_operation_target_expression":
+		case "case_operation_condition":
+		case "case_operation_name":
+		case "case_operation_owner":
+		case "case_operation_rename": {
+			const operation = form.caseOperations?.[indices[0] ?? -1];
+			return operation === undefined
+				? undefined
+				: {
+						entity: "form",
+						uuid,
+						slot: entry.slot,
+						member: { operationUuid: operation.uuid },
+					};
+		}
+		case "case_operation_write_value":
+		case "case_operation_write_condition": {
+			const operation = form.caseOperations?.[indices[0] ?? -1];
+			const write = operation?.writes?.[indices[1] ?? -1];
+			return operation === undefined || write === undefined
+				? undefined
+				: {
+						entity: "form",
+						uuid,
+						slot: entry.slot,
+						member: { operationUuid: operation.uuid, property: write.property },
+					};
+		}
+		case "case_operation_link_target_expression": {
+			const operation = form.caseOperations?.[indices[0] ?? -1];
+			const link = operation?.links?.[indices[1] ?? -1];
+			return operation === undefined || link === undefined
+				? undefined
+				: {
+						entity: "form",
+						uuid,
+						slot: entry.slot,
+						member: {
+							operationUuid: operation.uuid,
+							identifier: link.identifier,
+						},
+					};
+		}
+		default: {
+			const exhaustive: never = entry;
+			return exhaustive;
+		}
+	}
+}
+
+function visitExpressionSlots(
+	doc: ExpressionReadableDoc,
+	owner: ExpressionCarrierRef,
+	visit: (
+		holder: Record<string, unknown>,
+		key: string,
+		value: unknown,
+		ref: ExpressionSlotRef,
+	) => void,
+	onlySlot?: ExpressionSlotRef["slot"],
+): void {
+	const entity =
+		owner.entity === "field"
+			? ownRecordValue(doc.fields, owner.uuid)
+			: owner.entity === "form"
+				? ownRecordValue(doc.forms, owner.uuid)
+				: ownRecordValue(doc.modules, owner.uuid);
+	if (entity === undefined) return;
+	const entries =
+		owner.entity === "field"
+			? FIELD_REFERENCE_SLOTS
+			: owner.entity === "form"
+				? FORM_REFERENCE_SLOTS
+				: MODULE_REFERENCE_SLOTS;
+	for (const entry of entries) {
+		if (entry.kind !== "expression" && entry.kind !== "options-source") {
+			continue;
+		}
+		if (onlySlot !== undefined && entry.slot !== onlySlot) continue;
+		if (entry.entity === "field" && owner.entity === "field") {
+			const field = ownRecordValue(doc.fields, owner.uuid);
+			if (
+				field === undefined ||
+				!fieldSlotApplies(
+					entry,
+					field.kind,
+					field.kind === "repeat" ? field.repeat_mode : undefined,
+				)
+			) {
+				continue;
+			}
+		}
+		const path =
+			entry.kind === "options-source" ? `${entry.path}.filter` : entry.path;
+		walkSlotValues(
+			entity,
+			path.split("."),
+			[],
+			(holder, key, value, indices) => {
+				const ref = expressionRefForEntry(doc, owner, entry, indices);
+				if (ref !== undefined) visit(holder, key, value, ref);
+			},
+		);
+	}
+}
+
+/** Present expressions on one owner, in registry and collection order. */
+export function expressionSlotValues(
+	doc: ExpressionReadableDoc,
+	owner: ExpressionCarrierRef,
+): readonly ExpressionSlotValue[] {
+	const values: ExpressionSlotValue[] = [];
+	visitExpressionSlots(doc, owner, (_holder, _key, value, ref) => {
+		if (isExpression(value)) values.push({ ref, expression: value });
+	});
+	return values;
+}
+
+/** Read one stored expression without parsing or a second address vocabulary. */
+export function expressionSlotValue(
+	doc: ExpressionReadableDoc,
+	ref: ExpressionSlotRef,
+): Expression | undefined {
+	let expression: Expression | undefined;
+	const key = expressionSlotKey(ref);
+	visitExpressionSlots(
+		doc,
+		ref,
+		(_holder, _key, value, at) => {
+			if (expressionSlotKey(at) === key && isExpression(value))
+				expression = value;
+		},
+		ref.slot,
+	);
+	return expression;
+}
+
+/** Rewrite present registered expression values by their stable address.
+ * Shape-changing migrations and fixture assembly can inspect raw source before
+ * admission; normal consumers use the typed expression readers above. */
+export function rewriteExpressionSlotValues(
+	doc: ExpressionReadableDoc,
+	owner: ExpressionCarrierRef,
+	rewrite: (value: unknown, ref: ExpressionSlotRef) => unknown,
+): number {
+	let changed = 0;
+	visitExpressionSlots(doc, owner, (holder, key, value, ref) => {
+		const next = rewrite(value, ref);
+		if (next === value) return;
+		holder[key] = next;
+		changed++;
+	});
+	return changed;
 }
 
 // ── Slot-path value walker ────────────────────────────────────────
@@ -861,7 +1164,7 @@ export interface SlotValueEntry {
 /**
  * Read every present value a registry slot `path` resolves to,
  * whatever its shape. Absent keys resolve to zero visits; the caller
- * owns narrowing the value (`isXPathExpression` et al).
+ * owns narrowing the value (`isExpression` et al).
  */
 export function readSlotValues(
 	entity: unknown,
@@ -1014,7 +1317,6 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"closeCondition.answer": "data-literal",
 	"closeCondition.operator": "config",
 	"formLinks[].uuid": "identity",
-	"formLinks[].datums[].name": "wire-token",
 	"caseOperations[].uuid": "identity",
 	"caseOperations[].id": "declaration",
 	"caseOperations[].action": "discriminator",

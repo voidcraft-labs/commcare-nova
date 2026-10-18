@@ -9,29 +9,26 @@
 import { Icon } from "@iconify/react/offline";
 import tablerUser from "@iconify-icons/tabler/user";
 import tablerUserOff from "@iconify-icons/tabler/user-off";
-import {
-	actingUser,
-	unowned,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
+import { actingUser, type Expression, unowned } from "@/lib/domain/expression";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import type { EditorPath } from "../../path";
 
 export function actingUserDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "acting-user" }> {
+): ExpressionOfKind<"acting-user"> {
 	return actingUser();
 }
 
 export function unownedDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "unowned" }> {
+): ExpressionOfKind<"unowned"> {
 	return unowned();
 }
 
 interface OwnerValueCardProps<K extends "acting-user" | "unowned"> {
-	readonly value: Extract<ValueExpression, { kind: K }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<K>;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 

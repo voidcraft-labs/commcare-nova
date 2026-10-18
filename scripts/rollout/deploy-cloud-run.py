@@ -510,10 +510,7 @@ def _effective_execution_args(
         return requested
 
     if short_name == "commcare-nova-historical-repair":
-        tools = {
-            "language-identity-repair.cjs", "case-status-filter-repair.cjs",
-            "select-option-value-repair.cjs",
-        }
+        tools = {"language-identity-repair.cjs"}
         if requested[:1] and requested[0] in tools:
             if len(requested) == 1 or requested[1:] == ("--execute",):
                 return requested

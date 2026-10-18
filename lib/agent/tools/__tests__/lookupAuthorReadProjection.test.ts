@@ -8,16 +8,16 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
-import {
 	eq,
 	literal,
 	prop,
 	tableColumn,
 	tableLookup,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LookupDefinitionsSnapshot } from "@/lib/lookup/types";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";

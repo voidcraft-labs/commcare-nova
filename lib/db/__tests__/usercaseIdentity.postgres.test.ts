@@ -135,6 +135,7 @@ async function submit(app: Awaited<ReturnType<typeof create>>, answer: string) {
 	const form = Object.values(app.doc.forms)[0];
 	const engine = new FormEngine(
 		{
+			doc: app.doc,
 			form,
 			formUuid: form.uuid,
 			fields: app.doc.fields,
@@ -367,6 +368,7 @@ it("does not write a normal case whose id happens to equal the worker id", async
 	});
 	const form = Object.values(doc.forms)[0];
 	const engine = new FormEngine({
+		doc,
 		form,
 		formUuid: form.uuid,
 		fields: doc.fields,

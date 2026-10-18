@@ -1,65 +1,104 @@
-// Concrete source projections from structurally admitted fields/forms. Registry
-// completeness is a separate schema audit; these witnesses do not use registry
-// paths to manufacture their own expected reads.
+// Stored trees are read through their real registry address. Display text and
+// prose projections have separate contracts; neither is an executable reader.
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
-	expressionInspectionSource,
-	expressionSource,
-	expressionSourceEntries,
-	expressionSurfaceReads,
+	formField,
+	literal,
+	matchAll,
+	matchNone,
+	neq,
+	term,
+} from "../expression";
+import { printFormExpression } from "../expression/print";
+import type { ExpressionSlotRef } from "../expression/types";
+import {
+	expressionAt,
+	expressionDisplayText,
 	fieldProseTemplate,
-	formExpressionSource,
-	formExpressionSourceEntries,
-	formExpressionValue,
-	isScalarFieldExpressionSlotId,
+	proseSource,
+	proseSourceEntries,
+	proseSurfaceReads,
 } from "../expressionSource";
-import { fieldSchema } from "../fields";
-import { formSchema } from "../forms";
+import { type Field, fieldSchema } from "../fields";
 import { proseText } from "../prose";
-import { opaqueXPathExpression as xp } from "../xpath";
+import { referenceNames } from "../referenceNames";
+import { expressionSlotValues } from "../referenceSlots";
 
 const FIELD = testUuid("expression-field");
 const FORM = testUuid("expression-form");
-const EMPTY_DOC = { forms: {}, fields: {}, fieldOrder: {} };
 const base = {
 	uuid: FIELD,
 	id: "answer",
-	kind: "text",
+	kind: "text" as const,
 	label: proseText("Answer"),
 };
+function docWith(field: Field) {
+	return buildDoc({
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						uuid: FORM,
+						name: "Intake",
+						type: "survey",
+						fields: [field],
+					},
+				],
+			},
+		],
+	});
+}
+const fieldRef = (
+	slot:
+		| "relevant"
+		| "validate"
+		| "default_value"
+		| "required"
+		| "calculate"
+		| "repeat_count"
+		| "ids_query",
+): ExpressionSlotRef => ({ entity: "field", uuid: FIELD, slot });
 
-describe("field expression source", () => {
-	it("reads each authored input expression and prose slot with its original value", () => {
+describe("stored field expressions and prose", () => {
+	it("reads each executable tree by address and projects prose independently", () => {
 		const field = fieldSchema.parse({
 			...base,
-			relevant: xp("true()"),
-			validate: xp(". != ''"),
-			default_value: xp("'Ada'"),
-			required: xp("false()"),
+			relevant: matchAll(),
+			validate: neq(formField(FIELD), literal("")),
+			default_value: term(literal("Ada")),
+			required: matchNone(),
 			hint: proseText("A hint"),
 			help: proseText("More help"),
 			validate_msg: proseText("Try again"),
 		});
-		expect(expressionSurfaceReads(field, "xpath", EMPTY_DOC)).toEqual([
-			{ slot: "relevant", indices: [], text: "true()", expr: xp("true()") },
-			{ slot: "validate", indices: [], text: ". != ''", expr: xp(". != ''") },
-			{ slot: "default_value", indices: [], text: "'Ada'", expr: xp("'Ada'") },
-			{ slot: "required", indices: [], text: "false()", expr: xp("false()") },
-		]);
+		const doc = docWith(field);
+		if (field.kind !== "text") throw new Error("Expected a text fixture");
 		expect(
-			expressionSurfaceReads(field, "prose", EMPTY_DOC).map(
-				({ slot, text }) => ({ slot, text }),
+			expressionSlotValues(doc, { entity: "field", uuid: FIELD }).map(
+				({ ref, expression }) => ({ slot: ref.slot, expression }),
 			),
+		).toEqual([
+			{ slot: "relevant", expression: field.relevant },
+			{ slot: "validate", expression: field.validate },
+			{ slot: "default_value", expression: field.default_value },
+			{ slot: "required", expression: field.required },
+		]);
+		const stored = doc.fields[FIELD];
+		if (stored.kind !== "text") throw new Error("Expected a stored text field");
+		expect(expressionAt(doc, fieldRef("default_value"))).toBe(
+			stored.default_value,
+		);
+		expect(
+			proseSurfaceReads(field, doc).map(({ slot, text }) => ({ slot, text })),
 		).toEqual([
 			{ slot: "label", text: "Answer" },
 			{ slot: "hint", text: "A hint" },
 			{ slot: "help", text: "More help" },
 			{ slot: "validate_msg", text: "Try again" },
 		]);
-		expect(expressionSource(field, "default_value", EMPTY_DOC)).toBe("'Ada'");
 		expect(fieldProseTemplate(field, "hint")).toEqual(proseText("A hint"));
 	});
 
@@ -69,26 +108,14 @@ describe("field expression source", () => {
 			kind: "single_select",
 			optionsSource: {
 				kind: "inline",
-				options: [
-					{
-						uuid: testUuid("expression-option-1"),
-						value: "a",
-						label: proseText("First"),
-					},
-					{
-						uuid: testUuid("expression-option-2"),
-						value: "b",
-						label: proseText(""),
-					},
-					{
-						uuid: testUuid("expression-option-3"),
-						value: "c",
-						label: proseText("Third"),
-					},
-				],
+				options: ["First", "", "Third"].map((label, i) => ({
+					uuid: testUuid(`expression-option-${i}`),
+					value: String(i),
+					label: proseText(label),
+				})),
 			},
 		});
-		expect(expressionSourceEntries(field, "option_label", EMPTY_DOC)).toEqual([
+		expect(proseSourceEntries(field, "option_label", docWith(field))).toEqual([
 			{ indices: [0], text: "First" },
 			{ indices: [1], text: "" },
 			{ indices: [2], text: "Third" },
@@ -98,18 +125,18 @@ describe("field expression source", () => {
 	it.each([
 		{ raw: { repeat_mode: "user_controlled" }, expected: [] },
 		{
-			raw: { repeat_mode: "count_bound", repeat_count: xp("3") },
-			expected: [{ slot: "repeat_count", text: "3" }],
+			raw: { repeat_mode: "count_bound", repeat_count: term(literal(3)) },
+			expected: ["repeat_count"],
 		},
 		{
 			raw: {
 				repeat_mode: "query_bound",
-				data_source: { ids_query: xp("'case-id'") },
+				data_source: { ids_query: term(literal("case-id")) },
 			},
-			expected: [{ slot: "ids_query", text: "'case-id'" }],
+			expected: ["ids_query"],
 		},
 	])(
-		"reads the active $raw.repeat_mode repeat carrier",
+		"reads only the active $raw.repeat_mode repeat carrier",
 		({ raw, expected }) => {
 			const field = fieldSchema.parse({
 				uuid: FIELD,
@@ -118,45 +145,53 @@ describe("field expression source", () => {
 				...raw,
 			});
 			expect(
-				expressionSurfaceReads(field, "xpath", EMPTY_DOC).map(
-					({ slot, text }) => ({ slot, text }),
-				),
+				expressionSlotValues(docWith(field), {
+					entity: "field",
+					uuid: FIELD,
+				}).map(({ ref }) => ref.slot),
 			).toEqual(expected);
 		},
 	);
 
-	it("distinguishes an absent slot from a stored empty expression", () => {
-		const absent = fieldSchema.parse(base);
-		const empty = fieldSchema.parse({ ...base, relevant: xp("") });
-		expect(expressionSource(absent, "relevant", EMPTY_DOC)).toBeUndefined();
-		expect(expressionSourceEntries(absent, "relevant", EMPTY_DOC)).toEqual([]);
-		expect(expressionSource(empty, "relevant", EMPTY_DOC)).toBe("");
-		expect(expressionSourceEntries(empty, "relevant", EMPTY_DOC)).toEqual([
-			{ indices: [], text: "" },
-		]);
+	it("keeps absence distinct from a stored false condition and refuses empty text", () => {
+		const absent = docWith(fieldSchema.parse(base));
+		const falseCondition = docWith(
+			fieldSchema.parse({ ...base, relevant: matchNone() }),
+		);
+		expect(expressionAt(absent, fieldRef("relevant"))).toBeUndefined();
+		expect(expressionAt(falseCondition, fieldRef("relevant"))).toEqual(
+			matchNone(),
+		);
+		expect(fieldSchema.safeParse({ ...base, relevant: "" }).success).toBe(
+			false,
+		);
 	});
 
-	it("does not interpret raw strings as stored AST or prose", () => {
-		const field = fieldSchema.parse(base);
-		Object.assign(field, { relevant: "true()", label: "Raw label" });
-		expect(fieldSchema.safeParse(field).success).toBe(false);
-		expect(expressionSource(field, "relevant", EMPTY_DOC)).toBeUndefined();
-		expect(expressionSurfaceReads(field, "xpath", EMPTY_DOC)).toEqual([]);
-		expect(expressionSurfaceReads(field, "prose", EMPTY_DOC)).toEqual([]);
+	it("does not read raw strings as stored expressions or prose", () => {
+		const doc = docWith(fieldSchema.parse(base));
+		Object.assign(doc.fields[FIELD], {
+			relevant: "true()",
+			label: "Raw label",
+		});
+		expect(fieldSchema.safeParse(doc.fields[FIELD]).success).toBe(false);
+		expect(expressionAt(doc, fieldRef("relevant"))).toBeUndefined();
+		expect(expressionSlotValues(doc, { entity: "field", uuid: FIELD })).toEqual(
+			[],
+		);
+		expect(proseSurfaceReads(doc.fields[FIELD], doc)).toEqual([]);
 	});
 
-	it("gates an otherwise readable AST by field kind in the surface walk", () => {
-		const field = fieldSchema.parse(base);
-		Object.assign(field, { calculate: xp("1 + 1") });
-		expect(fieldSchema.safeParse(field).success).toBe(false);
-		// The scalar accessor reads a named carrier; the surface walk decides
-		// which carriers this kind may execute. An AST isolates applicability
-		// from the unrelated raw-string shape refusal.
-		expect(expressionSource(field, "calculate", EMPTY_DOC)).toBe("1 + 1");
-		expect(expressionSurfaceReads(field, "xpath", EMPTY_DOC)).toEqual([]);
+	it("ignores a carrier the owning field kind does not execute", () => {
+		const doc = docWith(fieldSchema.parse(base));
+		Object.assign(doc.fields[FIELD], { calculate: term(literal(2)) });
+		expect(fieldSchema.safeParse(doc.fields[FIELD]).success).toBe(false);
+		expect(expressionAt(doc, fieldRef("calculate"))).toBeUndefined();
+		expect(expressionSlotValues(doc, { entity: "field", uuid: FIELD })).toEqual(
+			[],
+		);
 	});
 
-	it("prints field identities against the current name without altering the stored reference", () => {
+	it("projects the current field name without rewriting the stored identity", () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -166,7 +201,7 @@ describe("field expression source", () => {
 							name: "Intake",
 							type: "survey",
 							fields: [
-								f({ uuid: FIELD, id: "answer", kind: "text", label: "Answer" }),
+								f({ ...base }),
 								f({ id: "copy", kind: "hidden", calculate: "#form/answer" }),
 							],
 						},
@@ -174,11 +209,14 @@ describe("field expression source", () => {
 				},
 			],
 		});
-		expectAdmittedDoc(doc);
-		const copy = Object.values(doc.fields).find((field) => field.id === "copy");
-		if (!copy) throw new Error("Missing copy fixture");
-		const stored = structuredClone(copy);
-		expect(expressionSource(copy, "calculate", doc)).toBe("#form/answer");
+		const copy = Object.values(doc.fields).find(
+			(field) => field.kind === "hidden",
+		);
+		if (copy?.kind !== "hidden") throw new Error("Missing copy fixture");
+		const stored = structuredClone(copy.calculate);
+		expect(expressionDisplayText(copy.calculate, referenceNames(doc))).toBe(
+			"#form/answer",
+		);
 		const renamed = {
 			...doc,
 			fields: {
@@ -186,28 +224,19 @@ describe("field expression source", () => {
 				[FIELD]: { ...doc.fields[FIELD], id: "renamed" },
 			},
 		};
-		expectAdmittedDoc(renamed);
-		expect(expressionSource(copy, "calculate", renamed)).toBe("#form/renamed");
-		expect(copy).toEqual(stored);
+		expect(expressionDisplayText(copy.calculate, referenceNames(renamed))).toBe(
+			"#form/renamed",
+		);
+		expect(copy.calculate).toEqual(stored);
 	});
 
-	it("keeps unresolved identities as inspection state and refuses strict execution text", () => {
-		const expr = {
-			parts: [{ kind: "field-ref", uuid: testUuid("missing-source-field") }],
-		};
-		const field = fieldSchema.parse({ ...base, relevant: expr });
-		expect(() => expressionSource(field, "relevant", EMPTY_DOC)).toThrow();
-		expect(expressionInspectionSource(field, "relevant", EMPTY_DOC)).toContain(
-			"reference needs repair",
-		);
-		expect(expressionSurfaceReads(field, "xpath", EMPTY_DOC)).toEqual([
-			{
-				slot: "relevant",
-				indices: [],
-				text: expect.stringContaining("reference needs repair"),
-				expr,
-			},
-		]);
+	it("retains unresolved identity as a tree and reports it in display projection", () => {
+		const expression = term(formField(testUuid("missing-source-field")));
+		const doc = docWith(fieldSchema.parse({ ...base, relevant: expression }));
+		expect(expressionAt(doc, fieldRef("relevant"))).toEqual(expression);
+		const projected = printFormExpression(expression, referenceNames(doc));
+		expect(projected.text).toContain("reference needs repair");
+		expect(projected.unresolved).toEqual([{ path: [], reason: "identity" }]);
 	});
 
 	it("keeps hashtag-looking prose literal", () => {
@@ -215,125 +244,109 @@ describe("field expression source", () => {
 			...base,
 			label: proseText("Ask #form/answer"),
 		});
-		expect(expressionSource(field, "label", EMPTY_DOC)).toBe(
+		expect(proseSource(field, "label", docWith(field))).toBe(
 			"Ask #form/answer",
 		);
 	});
 });
 
-describe("form expression source", () => {
-	const formBase = { uuid: FORM, id: "intake", name: "Intake", type: "survey" };
-	it("reads the separate Connect expression carriers", () => {
-		const assessment = formSchema.parse({
-			...formBase,
-			connect: { assessment: { id: "assessment", user_score: xp("7") } },
-		});
-		const deliver = formSchema.parse({
-			...formBase,
-			connect: {
-				deliver_unit: {
-					id: "unit",
-					name: "Unit",
-					entity_id: xp("'id'"),
-					entity_name: xp("'Name'"),
-				},
-			},
-		});
-		expect(
-			formExpressionSource(assessment, "assessment_user_score", EMPTY_DOC),
-		).toBe("7");
-		expect(formExpressionValue(assessment, "assessment_user_score")).toEqual(
-			xp("7"),
-		);
-		expect(formExpressionSource(deliver, "deliver_entity_id", EMPTY_DOC)).toBe(
-			"'id'",
-		);
-		expect(
-			formExpressionSource(deliver, "deliver_entity_name", EMPTY_DOC),
-		).toBe("'Name'");
-		const absent = formSchema.parse(formBase);
-		expect(
-			formExpressionSource(absent, "assessment_user_score", EMPTY_DOC),
-		).toBeUndefined();
-		expect(formExpressionValue(absent, "deliver_entity_name")).toBeUndefined();
-	});
-
-	it("preserves both link and datum indices while skipping absent carriers", () => {
-		const target = {
-			type: "module",
-			moduleUuid: testUuid("expression-target-module"),
-		};
-		const form = formSchema.parse({
-			...formBase,
-			formLinks: [
+describe("stored form expressions", () => {
+	it("reads separate Connect carriers by their owning form", () => {
+		const doc = buildDoc({
+			connectType: "deliver",
+			modules: [
 				{
-					uuid: testUuid("expression-link-1"),
-					target,
-					condition: xp("true()"),
-					datums: [
-						{ name: "a", xpath: xp("'first'") },
-						{ name: "b", xpath: xp("'second'") },
+					name: "Deliver",
+					forms: [
+						{
+							uuid: FORM,
+							name: "Delivery",
+							type: "survey",
+							fields: [],
+							connect: {
+								deliver_unit: {
+									id: "unit",
+									name: "Unit",
+									entity_id: term(literal("id")),
+									entity_name: term(literal("Name")),
+								},
+							},
+						},
 					],
-				},
-				{ uuid: testUuid("expression-link-2"), target },
-				{
-					uuid: testUuid("expression-link-3"),
-					target,
-					condition: xp("false()"),
-					datums: [{ name: "c", xpath: xp("'third'") }],
 				},
 			],
 		});
 		expect(
-			formExpressionSourceEntries(form, "form_link_condition", EMPTY_DOC),
-		).toEqual([
-			{
-				slot: "form_link_condition",
-				indices: [0],
-				text: "true()",
-				expr: xp("true()"),
-			},
-			{
-				slot: "form_link_condition",
-				indices: [2],
-				text: "false()",
-				expr: xp("false()"),
-			},
-		]);
+			expressionAt(doc, {
+				entity: "form",
+				uuid: FORM,
+				slot: "deliver_entity_id",
+			}),
+		).toEqual(term(literal("id")));
 		expect(
-			formExpressionSourceEntries(form, "form_link_datum_xpath", EMPTY_DOC),
-		).toEqual([
-			{
-				slot: "form_link_datum_xpath",
-				indices: [0, 0],
-				text: "'first'",
-				expr: xp("'first'"),
-			},
-			{
-				slot: "form_link_datum_xpath",
-				indices: [0, 1],
-				text: "'second'",
-				expr: xp("'second'"),
-			},
-			{
-				slot: "form_link_datum_xpath",
-				indices: [2, 0],
-				text: "'third'",
-				expr: xp("'third'"),
-			},
-		]);
+			expressionAt(doc, {
+				entity: "form",
+				uuid: FORM,
+				slot: "deliver_entity_name",
+			}),
+		).toEqual(term(literal("Name")));
+		expect(
+			expressionAt(doc, {
+				entity: "form",
+				uuid: FORM,
+				slot: "assessment_user_score",
+			}),
+		).toBeUndefined();
 	});
-});
 
-it.each([
-	["relevant", true],
-	["ids_query", true],
-	["calculate", true],
-	["label", true],
-	["option_label", false],
-	["caseWrite", false],
-	["id", false],
-	["options", false],
-])("classifies scalar source key %s", (key, expected) => {
-	expect(isScalarFieldExpressionSlotId(String(key))).toBe(expected);
+	it("addresses link members by link and datum identity across reordering", () => {
+		const module = testUuid("expression-target-module");
+		const link = testUuid("expression-link");
+		const datum = { kind: "selected-case" as const, module };
+		const doc = buildDoc({
+			modules: [
+				{
+					uuid: module,
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: FORM,
+							name: "Visit",
+							type: "followup",
+							fields: [],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+		doc.forms[FORM].formLinks = [
+			{
+				uuid: link,
+				target: { type: "form", moduleUuid: module, formUuid: FORM },
+				condition: matchAll(),
+				datums: [{ name: datum, xpath: term(literal("patient-1")) }],
+			},
+			{
+				uuid: testUuid("expression-else"),
+				target: { type: "module", moduleUuid: module },
+			},
+		];
+		const slot = {
+			entity: "form" as const,
+			uuid: FORM,
+			slot: "form_link_datum_xpath" as const,
+			member: { linkUuid: link, datum },
+		};
+		const before = expressionAt(doc, slot);
+		doc.forms[FORM].formLinks.reverse();
+		expect(expressionAt(doc, slot)).toBe(before);
+		expect(before).toEqual(term(literal("patient-1")));
+		expect(
+			expressionSlotValues(doc, { entity: "form", uuid: FORM }).map(
+				({ ref }) => ref.slot,
+			),
+		).toEqual(["form_link_condition", "form_link_datum_xpath"]);
+	});
 });

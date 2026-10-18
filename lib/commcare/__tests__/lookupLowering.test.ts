@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { requireExpressionContext } from "@/lib/commcare/expressionContext";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import {
@@ -9,7 +12,7 @@ import { sessionInstance } from "@/lib/commcare/xpath/wire/instances";
 import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr, WirePath } from "@/lib/commcare/xpath/wire/tree";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { calculatedColumn } from "@/lib/domain";
 import {
 	ancestorPath,
 	and,
@@ -25,7 +28,8 @@ import {
 	subcasePath,
 	tableColumn,
 	tableLookup,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupRevision } from "@/lib/lookup/types";
 
 // One hand-built table, tag "regions", with the four columns the
@@ -53,6 +57,82 @@ const naming = lookupWireNaming([
 	},
 ]);
 
+const MODULE = testUuid("lookup-lowering-module");
+const FORM = testUuid("lookup-lowering-form");
+const COLUMN = testUuid("lookup-lowering-column");
+const OPERATION = testUuid("lookup-lowering-operation");
+
+/** Each target uses the same complete declarations and the expression's
+ * actual carrier: a Results calculation or an operation's saved value. */
+function contextFor(
+	expression: Parameters<typeof toWire>[0],
+	target: "xform" | "suite",
+) {
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				parent_type: "household",
+				properties: [{ name: "village", label: "Village", data_type: "text" }],
+			},
+			{ name: "household", properties: [] },
+			{
+				name: "visit",
+				parent_type: "patient",
+				properties: [{ name: "outcome", label: "Outcome", data_type: "text" }],
+			},
+		],
+		modules: [
+			{
+				uuid: MODULE,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					...caseListConfig([{ field: "case_name", header: "Name" }]),
+					columns: [calculatedColumn(COLUMN, "Result", expression)],
+					listColumnOrder: [COLUMN],
+					detailColumnOrder: [COLUMN],
+				},
+				forms: [
+					{
+						uuid: FORM,
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "answer" })],
+					},
+				],
+			},
+		],
+	});
+	doc.forms[FORM].caseOperations = [
+		{
+			uuid: OPERATION,
+			id: "update_village",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes: [{ property: "village", value: expression }],
+		},
+	];
+	return requireExpressionContext(
+		doc,
+		target === "suite"
+			? {
+					entity: "module",
+					uuid: MODULE,
+					slot: "case_list_column_expression",
+					member: { columnUuid: COLUMN },
+				}
+			: {
+					entity: "form",
+					uuid: FORM,
+					slot: "case_operation_write_value",
+					member: { operationUuid: OPERATION, property: "village" },
+				},
+		naming,
+	);
+}
+
 function lower(
 	expression: Parameters<typeof toWire>[0],
 	target: "xform" | "suite" = "suite",
@@ -60,7 +140,7 @@ function lower(
 ): WireExpr {
 	return toWire(expression, {
 		target,
-		types: { currentCaseType: "patient" },
+		types: contextFor(expression, target),
 		bindings: { lookup: { naming, instanceScope: target }, ...bindings },
 	});
 }
@@ -268,10 +348,11 @@ describe("lookup wire coordinates", () => {
 
 describe("lookup wire admission backstops", () => {
 	it("refuses a lookup without its Project naming catalog", () => {
+		const expression = tableLookup(REGIONS, NAME, matchAll());
 		expect(() =>
-			toWire(tableLookup(REGIONS, NAME, matchAll()), {
+			toWire(expression, {
 				target: "suite",
-				types: {},
+				types: contextFor(expression, "suite"),
 			}),
 		).toThrow(/lookup naming catalog/i);
 	});

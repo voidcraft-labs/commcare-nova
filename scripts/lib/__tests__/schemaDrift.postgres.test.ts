@@ -6,7 +6,7 @@ import {
 	test,
 } from "@/lib/case-store/sql/__tests__/setup";
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
-import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { proseText } from "@/lib/domain/prose";
 import { computeSchemaDrift } from "../schemaDrift";
 

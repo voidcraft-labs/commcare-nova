@@ -16,7 +16,7 @@ import {
 	prop,
 	sessionContext,
 	sessionUser,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { compileTerm, type TermCompileContext } from "../compileTerm";
 import type { Database } from "../database";
@@ -77,11 +77,6 @@ for (const { name, term, descriptor } of [
 		descriptor: /Missing binding for session user field 'region'/,
 	},
 	{
-		name: "session context",
-		term: sessionContext("userid"),
-		descriptor: /Missing binding for session context field 'userid'/,
-	},
-	{
 		name: "form field",
 		term: formField(key),
 		descriptor: /Missing binding for form field/,
@@ -128,4 +123,11 @@ it("binds runtime values in their own namespaces and keeps SQL-like text in para
 	)) {
 		expect(compiled.sql).not.toContain(value);
 	}
+});
+
+it("binds an unavailable session context value as the device's blank value", () => {
+	const query = db
+		.selectNoFrom(compileTerm(sessionContext("deviceid"), ctx).as("value"))
+		.compile();
+	expect(query.parameters).toEqual([""]);
 });

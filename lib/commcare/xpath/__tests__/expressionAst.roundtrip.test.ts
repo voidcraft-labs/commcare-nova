@@ -1,206 +1,143 @@
-/**
- * The expression canonicality law: parsing a printed expression reproduces
- * the identical stored AST. Non-reference text stays byte-identical; identity
- * leaves use their one canonical projection. Migration separately rejects
- * legacy noncanonical absolute paths.
- *
- * Three layers:
- *   1. a curated corpus of every reference spelling, whitespace shape,
- *      quoting style, and known-degenerate input,
- *   2. a fast-check fuzz over grammar-shaped composites (refs +
- *      operators + literals + predicates + gratuitous whitespace),
- *   3. a fuzz over arbitrary unicode strings (the law holds for inputs
- *      the grammar rejects too — they parse to one opaque text run).
- */
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import {
-	fieldPathResolver,
-	printXPath,
-	type XPathExpression,
-	type XPathPrintableDoc,
-	xpathPrintContext,
-} from "@/lib/domain";
-import { parseXPathExpression } from "../expressionAst";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { projectFormExpression } from "@/lib/doc/expressionText";
+import { expressionSchema } from "@/lib/domain/expression/types";
+import { parseFormExpression } from "../expressionAst";
 
-const FORM = testUuid("form-1");
-const AGE = testUuid("f-age");
-const GROUP = testUuid("f-grp");
-const INNER = testUuid("f-inner");
-const NAME = testUuid("f-name");
-
-/** A form with a top-level field, a group with a nested field, and a
- *  sibling-of-group leaf — enough structure for every resolution
- *  shape (top-level, nested, dangling, prefix-only). */
-const doc: XPathPrintableDoc = {
-	forms: { [FORM]: {} },
-	fields: {
-		[AGE]: { id: "age" },
-		[GROUP]: { id: "grp" },
-		[INNER]: { id: "inner" },
-		[NAME]: { id: "name" },
-	},
-	fieldOrder: {
-		[FORM]: [AGE, GROUP, NAME],
-		[GROUP]: [INNER],
-	},
-};
-
-const resolve = fieldPathResolver(doc, FORM);
-const printCtx = () => xpathPrintContext(doc);
-
-function parse(source: string): XPathExpression {
-	return parseXPathExpression(source, resolve, () => undefined);
-}
-
-function print(expression: XPathExpression): string {
-	return printXPath(expression, printCtx());
-}
-
-function canonical(source: string): string {
-	return print(parse(source));
-}
-
-function expectCanonicalLaw(source: string): void {
-	const expression = parse(source);
-	expect(parse(print(expression))).toEqual(expression);
-}
-
-const CORPUS: string[] = [
-	"",
-	"#form/age",
-	"#form/grp/inner",
-	"#form/gone",
-	"#form/grp/gone",
-	"#form/gone/inner",
-	"/data/age",
-	"/data/grp/inner",
-	"/data/gone",
-	"/data/grp",
-	"/data",
-	"//data//age",
-	"/ data / grp / inner",
-	"/data/age + /data/grp/inner",
-	"#mother/age",
-	"#mother/age/extra",
-	"#patient/age",
-	"#patient/parent/age",
-	"#patient/case_id",
-	"#user/role",
-	"#user/role/extra",
-	"today() - #form/age > 7",
-	"if(#form/age >= 18, 'adult', \"minor\")",
-	"concat('#form/age', \"/data/age\")",
-	"count(/data/grp) > 0 and #form/name != ''",
-	"/data/grp[1]/inner",
-	"/data/grp[#form/age > 2]/inner",
-	"  #form/age  ",
-	"#form/age+#form/grp/inner",
-	"not(selected(#form/name, 'x'))",
-	"../age",
-	"./age",
-	"string-length(#form/name) > 0",
-	"date('2024-01-01') < today()",
-	"3.14 * .5",
-	"$var + 1",
-	"child::age",
-	"@attr",
-	"instance('casedb')/casedb/case[@case_id = #form/age]/name",
-	"if(", // broken — stays opaque
-	"((",
-	"'unterminated",
-	"#form/",
-	"#form",
-	"# form/age",
-	"#form /age",
-	"#form/ age",
-	"a | b",
-	"-#form/age",
-	"/data/age[1]",
-];
-
-describe("expression round-trip law", () => {
-	it("holds over the curated corpus", () => {
-		for (const source of CORPUS) {
-			expectCanonicalLaw(source);
-		}
+const form = testUuid("roundtrip-form");
+const age = testUuid("roundtrip-age");
+const inner = testUuid("roundtrip-inner");
+const doc = buildDoc({
+	modules: [
+		{
+			name: "People",
+			caseType: "person",
+			forms: [
+				{
+					uuid: form,
+					name: "Visit",
+					type: "followup",
+					fields: [
+						{ uuid: age, id: "age", kind: "int" },
+						{ id: "name", kind: "text" },
+						{
+							id: "group",
+							kind: "group",
+							children: [{ uuid: inner, id: "inner", kind: "int" }],
+						},
+					],
+				},
+			],
+		},
+	],
+	caseTypes: [
+		{
+			name: "person",
+			properties: [{ name: "age", label: "Age", data_type: "int" }],
+		},
+	],
+});
+const slot = { entity: "field", uuid: inner, slot: "relevant" } as const;
+function roundTrip(source: string) {
+	const first = parseFormExpression(source, { doc, slot, lookup: new Map() });
+	expect(first.ok, source).toBe(true);
+	if (!first.ok || first.expression === undefined)
+		throw new Error(`Expected a parsed expression: ${source}`);
+	expect(expressionSchema.safeParse(first.expression).success, source).toBe(
+		true,
+	);
+	const printed = projectFormExpression(doc, slot, first.expression, new Map());
+	expect(printed.unresolved, source).toEqual([]);
+	const second = parseFormExpression(printed.text, {
+		doc,
+		slot,
+		lookup: new Map(),
+		current: first.expression,
 	});
+	expect(second.ok, printed.text).toBe(true);
+	if (second.ok) expect(second.expression, source).toEqual(first.expression);
+}
 
-	it("normalizes admitted absolute identities and preserves rejected spelling as text", () => {
-		expect(canonical("//data//age")).toBe("//data//age");
-		expect(canonical("/ data / grp / inner")).toBe("/data/grp/inner");
-	});
-
-	it("holds over grammar-shaped composites", async () => {
-		const ref = fc.constantFrom(
+describe("structured form expression canonicality", () => {
+	it("round-trips every supported path root and structural operator family", () => {
+		for (const source of [
 			"#form/age",
-			"#form/grp/inner",
-			"#form/gone",
-			"#mother/age",
-			"#patient/age",
-			"#user/role",
 			"/data/age",
-			"/data/grp/inner",
-			"/data/gone",
-			"/ data /grp/ inner",
-			"//data/age",
-		);
-		const atom = fc.oneof(
-			ref,
-			fc.constantFrom(
-				"1",
-				"3.14",
-				"'text'",
-				'"two words"',
-				"today()",
-				"$v",
-				"../sibling",
-				".",
-				"random_node",
-			),
-		);
-		const ws = fc.constantFrom("", " ", "  ", "\n", "\t ");
-		const op = fc.constantFrom(
-			"+",
-			"-",
-			"*",
-			"div",
-			"mod",
-			"=",
-			"!=",
-			"<",
-			">=",
-			"and",
-			"or",
-			"|",
-		);
-		const binary = fc
-			.tuple(atom, ws, op, ws, atom)
-			.map(([a, w1, o, w2, b]) => `${a}${w1} ${o} ${w2}${b}`);
-		const call = fc
-			.tuple(fc.constantFrom("if", "concat", "count", "not"), atom, binary)
-			.map(([fn, a, b]) => `${fn}(${a}, ${b})`);
-		const predicated = fc.tuple(ref, binary).map(([r, p]) => `${r}[${p}]`);
-		const expr = fc.oneof(atom, binary, call, predicated);
-		const composite = fc
-			.tuple(ws, expr, ws)
-			.map(([lead, e, trail]) => `${lead}${e}${trail}`);
-
-		await fc.assert(
-			fc.property(composite, (source) => {
-				expectCanonicalLaw(source);
-			}),
-			{ numRuns: 500, seed: 20260611 },
-		);
+			"../../age",
+			"current()/../../age",
+			".",
+			"..",
+			"#person/age",
+			"#user/username",
+			"instance('commcaresession')/session/context/deviceid",
+			"instance('casedb')/casedb/case[@case_type = 'person'][age > 1]/age",
+			"/data/group[../age > 1]/inner",
+			"#form/group[../age > 1]/inner",
+			"count(/data/group)",
+			"sum(/data/group/inner)",
+			"#form/age div 3",
+			"#form/age - (#form/group/inner - 2)",
+			"-(#form/age + 1)",
+			"(#form/age > 1 and #form/age < 8) and #form/name != ''",
+			"#form/age > 1 and (#form/age < 8 and #form/name != '')",
+			"not(#form/age = 1)",
+			"if(#form/age > 1, 'yes', 'no')",
+			"concat('a', #form/name, 'b')",
+			"format-date(today(), '%Y-%m-%d')",
+			"selected(#form/name, 'a')",
+			"starts-with(#form/name, 'a')",
+			"true()",
+			"false()",
+		])
+			roundTrip(source);
 	});
-
-	it("holds over arbitrary Unicode strings (opaque passthrough included)", async () => {
+	it("preserves literal bytes and arithmetic topology across generated source", async () => {
+		const atom = fc.constantFrom(
+			"#form/age",
+			"/data/age",
+			"../../age",
+			"1",
+			"2.5",
+			"-7",
+		);
+		const source = fc
+			.tuple(
+				atom,
+				fc.constantFrom("+", "-", "*", "div", "mod"),
+				atom,
+				fc.constantFrom("+", "-", "*", "div", "mod"),
+				atom,
+			)
+			.map(([a, op, b, right, c]) => `${a} ${op} (${b} ${right} ${c})`);
+		await fc.assert(fc.property(source, roundTrip), {
+			numRuns: 160,
+			seed: 68420,
+		});
+	});
+	it("refuses unsupported input without throwing or producing an opaque tree", async () => {
 		await fc.assert(
-			fc.property(fc.string({ unit: "grapheme", maxLength: 80 }), (source) => {
-				expectCanonicalLaw(source);
+			fc.property(fc.string({ maxLength: 90 }), (source) => {
+				const parsed = parseFormExpression(source, {
+					doc,
+					slot,
+					lookup: new Map(),
+				});
+				if (parsed.ok) {
+					if (parsed.expression !== undefined)
+						expect(expressionSchema.safeParse(parsed.expression).success).toBe(
+							true,
+						);
+				} else {
+					expect(parsed.issues.length).toBeGreaterThan(0);
+					for (const issue of parsed.issues) {
+						expect(issue.from).toBeGreaterThanOrEqual(0);
+						expect(issue.to).toBeLessThanOrEqual(source.length);
+					}
+				}
 			}),
-			{ numRuns: 500, seed: 20260611 },
+			{ numRuns: 200, seed: 68421 },
 		);
 	});
 });

@@ -1,7 +1,7 @@
 // components/builder/shared/PredicateCardEditor.tsx
 //
-// Top-level Predicate AST authoring surface. Renders an arbitrary
-// `Predicate` as a tree of cards via the registry-driven dispatch
+// Top-level Expression AST authoring surface. Renders an arbitrary
+// `Expression` as a tree of cards via the registry-driven dispatch
 // in `editorSchemas.ts`. The editor:
 //
 //   1. Mounts a `PredicateEditProvider` carrying the schema-driven
@@ -9,7 +9,7 @@
 //      `knownInputs`) plus the precomputed `validityIndex`:
 //      cards look up their own path's errors via the context.
 //
-//   2. Runs `checkPredicate` on every onChange to refresh the
+//   2. Runs `checkExpression` on every onChange to refresh the
 //      validity index, propagates `valid: boolean` to the parent's
 //      `onValidityChange` so the parent can disable save until
 //      every diagnostic is resolved.
@@ -21,7 +21,7 @@
 //      reads as one tree without per-level hacks.
 //
 // Every mutation flows through the typed builders in
-// `lib/domain/predicate/builders.ts`. Builders apply boolean-algebra
+// `lib/domain/expression/builders.ts`. Builders apply boolean-algebra
 // reductions on every `and(...)` / `or(...)` / `not(...)` call
 // (`and([])` → `match-all`, `and([single])` → single, `not(not(x))`
 // → x, etc.) so the saved AST is always in canonical reduced form.
@@ -31,25 +31,27 @@
 // card.
 
 "use client";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	type CheckError,
-	checkPredicate,
-	type Predicate,
-	type TypeContext,
-} from "@/lib/domain/predicate";
+	checkExpression,
+	type Expression,
+	type ExpressionContext,
+} from "@/lib/domain/expression";
 import { ChildPredicateEditor } from "./cards/ChildPredicateEditor";
 import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
 import { ROOT_PATH } from "./path";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
+import { workbenchExpressionAdmission } from "./workbenchAdmission";
 
 interface PredicateCardEditorProps {
+	readonly expressionContext: ExpressionContext;
 	/** Current AST. */
-	readonly value: Predicate;
+	readonly value: Expression;
 	/** Fired with the next AST whenever the user mutates the tree. */
-	readonly onChange: (next: Predicate) => void;
+	readonly onChange: (next: Expression) => void;
 	/** Blueprint case-type definitions. */
 	readonly caseTypes: readonly CaseType[];
 	/**
@@ -82,13 +84,14 @@ interface PredicateCardEditorProps {
 }
 
 /**
- * Top-level Predicate card editor. Composes `PredicateEditProvider`
+ * Top-level Expression card editor. Composes `PredicateEditProvider`
  * + `ChildPredicateEditor`. The dispatch shell handles every
  * predicate kind via the registry; this file's job is the type-
  * check pass + context plumbing.
  */
 export function PredicateCardEditor({
 	value,
+	expressionContext,
 	onChange,
 	caseTypes,
 	currentCaseType,
@@ -97,35 +100,17 @@ export function PredicateCardEditor({
 	onValidityChange,
 	onRemove,
 }: PredicateCardEditorProps) {
-	// Build the type-check context from props. The same context
-	// reaches both the validation pass below and the per-card
-	// helpers (`PropertyPicker`, `LiteralValueInput`, etc.) via the
-	// React context provider.
-	const typeCtx = useMemo<TypeContext>(
-		() => ({
-			caseTypes: [...caseTypes],
-			knownInputs: [...knownInputs],
-			currentCaseType,
-			userPropertySlugs: new Map(
-				userProperties.map((property) => [property.uuid, property.slug]),
-			),
-		}),
-		[caseTypes, knownInputs, currentCaseType, userProperties],
-	);
-
 	// Run the type checker on every value change. The checker is
 	// pure (no I/O, no allocations beyond the error list), so
 	// running it inside `useMemo` is the right shape: the
 	// validity index is a derived value driven by `value` and the
 	// context.
 	const validityResult = useMemo(
-		() => checkPredicate(value, typeCtx),
-		[value, typeCtx],
+		() => checkExpression(value, expressionContext),
+		[value, expressionContext],
 	);
 
-	const errors: readonly CheckError[] = validityResult.ok
-		? []
-		: validityResult.errors;
+	const errors: readonly CheckError[] = validityResult.errors;
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
 
@@ -135,11 +120,19 @@ export function PredicateCardEditor({
 	// parent's save state initializes correctly. The helper ref-
 	// stashes the callback internally so a fresh-each-render parent
 	// identity doesn't trip the effect on non-transitions.
+	const admitExpression = useCallback(
+		(path: readonly (string | number)[], next: Expression) =>
+			workbenchExpressionAdmission(value, path, next, expressionContext),
+		[value, expressionContext],
+	);
 	const isValid = errors.length === 0;
 	useValidityPropagator({ isValid, onValidityChange });
 
 	return (
 		<PredicateEditProvider
+			expression={value}
+			expressionContext={expressionContext}
+			admitExpressionChange={admitExpression}
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={knownInputs}

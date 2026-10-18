@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import {
 	count,
 	dateAdd,
@@ -14,16 +14,17 @@ import {
 	subcasePath,
 	term,
 	today,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { csqlFixtureContext } from "../../__tests__/csqlFunctionFixture";
 import { walkCsqlOnDeviceNodes } from "../csqlRuntimeWalk";
 
-function visitedKinds(predicate: Predicate): {
-	readonly expressions: readonly ValueExpression["kind"][];
-	readonly predicates: readonly Predicate["kind"][];
+function visitedKinds(predicate: Expression): {
+	readonly expressions: readonly Expression["kind"][];
+	readonly predicates: readonly Expression["kind"][];
 } {
-	const expressions: ValueExpression["kind"][] = [];
-	const predicates: Predicate["kind"][] = [];
-	walkCsqlOnDeviceNodes(predicate, {
+	const expressions: Expression["kind"][] = [];
+	const predicates: Expression["kind"][] = [];
+	walkCsqlOnDeviceNodes(predicate, csqlFixtureContext().types, {
 		visitExpression(expression) {
 			expressions.push(expression.kind);
 		},
@@ -58,7 +59,15 @@ describe("walkCsqlOnDeviceNodes", () => {
 			),
 		);
 		expect(visitedKinds(predicate)).toEqual({
-			expressions: ["if", "term", "date-add", "today", "term", "today"],
+			expressions: [
+				"if",
+				"match",
+				"term",
+				"date-add",
+				"today",
+				"term",
+				"today",
+			],
 			predicates: ["match"],
 		});
 	});
@@ -75,7 +84,7 @@ describe("walkCsqlOnDeviceNodes", () => {
 			),
 		);
 		expect(visitedKinds(predicate)).toEqual({
-			expressions: ["if", "date-add", "today", "term", "today"],
+			expressions: ["if", "match-all", "date-add", "today", "term", "today"],
 			predicates: ["match-all"],
 		});
 	});
@@ -105,7 +114,7 @@ describe("walkCsqlOnDeviceNodes", () => {
 		);
 		const visited = visitedKinds(predicate);
 		expect(visited).toEqual({
-			expressions: ["count", "term", "date-add", "today", "term"],
+			expressions: ["count", "eq", "term", "date-add", "today", "term"],
 			predicates: ["eq"],
 		});
 	});
@@ -158,7 +167,7 @@ describe("walkCsqlOnDeviceNodes", () => {
 		);
 		const visited = visitedKinds(predicate);
 		expect(visited).toEqual({
-			expressions: ["if", "date-add", "today", "term", "today"],
+			expressions: ["if", "match-all", "date-add", "today", "term", "today"],
 			predicates: ["match-all"],
 		});
 	});

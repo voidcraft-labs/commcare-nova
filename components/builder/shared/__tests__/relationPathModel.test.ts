@@ -5,7 +5,7 @@ import {
 	relationStep,
 	selfPath,
 	subcasePath,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	ancestorRemovalConsequence,
 	ancestorStepContexts,

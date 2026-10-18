@@ -8,48 +8,19 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
-import type {
-	Field,
-	Form,
-	ProseTemplate,
-	Uuid,
-	XPathExpression,
-} from "@/lib/domain";
-import { fieldSchema } from "@/lib/domain";
+import type { FieldSpec } from "@/lib/__tests__/docHelpers";
+import type { Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { FormEngine, type FormEngineInput } from "../formEngine";
+import { engineFixtureInput } from "./fixtures/engineInput";
 
-type Spec = {
-	id: string;
-	kind: Field["kind"];
-	label?: ProseTemplate;
-	relevant?: XPathExpression;
-	required?: XPathExpression;
-	repeat_mode?: string;
-	children?: Spec[];
-};
-
-/** Lower-level page projection: schema-shaped fields, including deliberately
- * empty/hidden-only sections to exercise defensive page skipping. */
-function input(fields: Spec[]): FormEngineInput {
-	const formUuid = testUuid("form");
-	const form: Form = { uuid: formUuid, id: "f", name: "F", type: "survey" };
-	const fieldMap: Record<string, Field> = {};
-	const fieldOrder: Record<string, Uuid[]> = {};
-	const walk = (nodes: Spec[], parentUuid: Uuid, prefix: string) => {
-		const order: Uuid[] = [];
-		for (const node of nodes) {
-			const uuid = testUuid(`${prefix}.${node.id}`);
-			order.push(uuid);
-			const { children, ...rest } = node;
-			fieldMap[uuid as string] = fieldSchema.parse({ uuid, ...rest });
-			if (children) walk(children, uuid, `${prefix}.${node.id}`);
-		}
-		fieldOrder[parentUuid as string] = order;
-	};
-	walk(fields, formUuid, "form");
-	return { form, formUuid, fields: fieldMap, fieldOrder, caseTypes: [] };
+/** Lower-level page projection includes deliberately empty/hidden-only sections
+ * to exercise defensive page skipping in a complete document topology. */
+function input(fields: FieldSpec[]): FormEngineInput {
+	return engineFixtureInput(fields, {
+		formUuid: testUuid("form"),
+		formType: "survey",
+	});
 }
 
 const u = (path: string): Uuid => testUuid(`form.${path}`);
@@ -66,7 +37,7 @@ function sectionedForm(): FormEngine {
 						id: "name",
 						kind: "text",
 						label: proseText("Name"),
-						required: xp("true()"),
+						required: "true()",
 					},
 					{ id: "gate", kind: "text", label: proseText("Gate") },
 				],
@@ -79,8 +50,8 @@ function sectionedForm(): FormEngine {
 						id: "age",
 						kind: "int",
 						label: proseText("Age"),
-						relevant: xp("/data/intro/gate = 'yes'"),
-						required: xp("true()"),
+						relevant: "/data/intro/gate = 'yes'",
+						required: "true()",
 					},
 				],
 			},

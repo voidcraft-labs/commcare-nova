@@ -6,10 +6,10 @@ import {
 } from "@/lib/commcare/constants";
 import {
 	findOnDeviceDateAddIssue,
-	findOnDeviceDateAddIssueInPredicate,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
 import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
@@ -24,7 +24,6 @@ import {
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
-	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
@@ -39,30 +38,31 @@ import {
 	type Module,
 	operationCanReadFormField,
 	orderedCaseOperations,
-	organizationLevelsOf,
 	planCaseRetype,
 	prepareCaseScalarTextValue,
 	RESERVED_CASE_OPERATION_TYPES,
 	type Uuid,
-	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import {
-	checkPredicate,
-	checkValueAssignmentExpression,
-	checkValueExpression,
-	type PredicateAstPath,
-	type Term,
-	type TypeContext,
-	type ValueExpression,
+	activeRowScope,
+	type ExpressionContext,
+	slotContext,
+} from "@/lib/domain/expression/context";
+import {
+	checkExpression,
+	expressionContextAtPath,
+} from "@/lib/domain/expression/typeChecker";
+import type {
+	Expression,
+	FormExpressionSlotRef,
+	Term,
+} from "@/lib/domain/expression/types";
+import {
+	walkExpression,
 	walkExpressionNodes,
-	walkExpressionPredicateNodes,
 	walkExpressionTerms,
-	walkExpressionTermsWithPaths,
-	walkPredicateExpressionNodes,
-	walkPredicateNodes,
-	walkTerms,
-	walkTermsWithPaths,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/walk";
+
 import {
 	caseOperationIdNameProblem,
 	caseOperationLinkNameProblem,
@@ -276,25 +276,14 @@ function validateOperation(
 				),
 			);
 		}
-		const plan = planCaseRetype(
-			ctx.doc,
-			operation.caseType,
-			operation.retype,
-			new Set(
-				(operation.writes ?? [])
-					// A conditional write cannot prove a destination requirement:
-					// its false branch would retype the case without the value.
-					.filter((write) => write.condition === undefined)
-					.map((write) => write.property),
-			),
-		);
+		const plan = planCaseRetype(ctx.doc, operation.caseType, operation.retype);
 		if (!plan.safe) {
 			errors.push(
 				opError(
 					ctx,
 					operation,
 					"CASE_OPERATION_RETYPE_UNSAFE",
-					`Retyping ${operation.caseType} to ${operation.retype} cannot complete atomically; required destination values are missing: ${plan.missingRequired.join(", ") || "unknown schema"}.`,
+					`Retyping ${operation.caseType} to ${operation.retype} cannot complete because its source or destination schema is missing.`,
 				),
 			);
 		} else if (!plan.wirePortable) {
@@ -333,13 +322,12 @@ function validateOperation(
 		);
 	}
 
-	const typeContext = expressionContext(ctx, priorCreates);
 	validateTarget(
 		ctx,
 		operation,
 		operation.target,
 		priorCreates,
-		typeContext,
+		operationSlot(ctx, operation, "case_operation_target_expression"),
 		errors,
 	);
 	if (
@@ -372,7 +360,7 @@ function validateOperation(
 		ctx,
 		operation,
 		operation.condition,
-		typeContext,
+		operationSlot(ctx, operation, "case_operation_condition"),
 		errors,
 	);
 	validateTextExpression(
@@ -380,7 +368,7 @@ function validateOperation(
 		operation,
 		operation.name,
 		"create name",
-		typeContext,
+		operationSlot(ctx, operation, "case_operation_name"),
 		errors,
 	);
 	validateTextExpression(
@@ -388,7 +376,7 @@ function validateOperation(
 		operation,
 		operation.owner,
 		"owner",
-		{ ...typeContext, ownerValues: true },
+		operationSlot(ctx, operation, "case_operation_owner"),
 		errors,
 	);
 	validateTextExpression(
@@ -396,17 +384,11 @@ function validateOperation(
 		operation,
 		operation.rename,
 		"rename",
-		typeContext,
+		operationSlot(ctx, operation, "case_operation_rename"),
 		errors,
 	);
 
 	const destination = operation.retype ?? operation.caseType;
-	const effectiveProperties = new Map(
-		(ctx.caseTypesByName.get(destination)?.properties ?? []).map((property) => [
-			property.name,
-			property,
-		]),
-	);
 	const persistedProperties = new Map(
 		(
 			(ctx.doc.caseTypes ?? []).find(
@@ -458,7 +440,6 @@ function validateOperation(
 			);
 		}
 		seenWrites.add(write.property);
-		const expected = effectiveProperties.get(write.property)?.data_type;
 		const writerTypes = ctx.writerTypes.get(destination)?.get(write.property);
 		if ((writerTypes?.size ?? 0) > 1) {
 			errors.push(
@@ -470,12 +451,30 @@ function validateOperation(
 				),
 			);
 		}
-		const storageTypes = new Set<CasePropertyDataType>(writerTypes ?? []);
-		if (expected !== undefined) storageTypes.add(expected);
-		validateExpressionSlot(ctx, operation, write.value, typeContext, errors, {
-			storageTypes: [...storageTypes],
-		});
-		validatePredicateSlot(ctx, operation, write.condition, typeContext, errors);
+		validateExpressionSlot(
+			ctx,
+			operation,
+			write.value,
+			{
+				entity: "form",
+				uuid: ctx.formUuid,
+				slot: "case_operation_write_value",
+				member: { operationUuid: operation.uuid, property: write.property },
+			},
+			errors,
+		);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			write.condition,
+			{
+				entity: "form",
+				uuid: ctx.formUuid,
+				slot: "case_operation_write_condition",
+				member: { operationUuid: operation.uuid, property: write.property },
+			},
+			errors,
+		);
 	}
 
 	const linkIds = new Set<string>();
@@ -539,7 +538,15 @@ function validateOperation(
 					operation,
 					link.target,
 					priorCreates,
-					typeContext,
+					{
+						entity: "form",
+						uuid: ctx.formUuid,
+						slot: "case_operation_link_target_expression",
+						member: {
+							operationUuid: operation.uuid,
+							identifier: link.identifier,
+						},
+					},
 					errors,
 				);
 			}
@@ -605,7 +612,7 @@ function validateTarget(
 		| Exclude<CaseOperation["target"], { kind: "new" }>
 		| CaseOperation["target"],
 	priorCreates: ReadonlyMap<Uuid, CaseOperation>,
-	typeContext: TypeContext,
+	slot: FormExpressionSlotRef,
 	errors: ValidationError[],
 ): void {
 	switch (target.kind) {
@@ -654,9 +661,7 @@ function validateTarget(
 					),
 				);
 			}
-			validateExpressionSlot(ctx, operation, target.expr, typeContext, errors, {
-				storageTypes: ["text"],
-			});
+			validateExpressionSlot(ctx, operation, target.expr, slot, errors);
 			return;
 		case "op": {
 			const producer = priorCreates.get(target.opUuid);
@@ -677,31 +682,47 @@ function validateTarget(
 	}
 }
 
+type OperationScalarSlot =
+	| "case_operation_target_expression"
+	| "case_operation_condition"
+	| "case_operation_name"
+	| "case_operation_owner"
+	| "case_operation_rename";
+function operationSlot(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	slot: OperationScalarSlot,
+): FormExpressionSlotRef {
+	return {
+		entity: "form",
+		uuid: ctx.formUuid,
+		slot,
+		member: { operationUuid: operation.uuid },
+	};
+}
+
 function validateExpressionSlot(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
-	expression: ValueExpression,
-	typeContext: TypeContext,
+	expression: Expression,
+	slot: FormExpressionSlotRef,
 	errors: ValidationError[],
-	expectation: {
-		readonly compatibleType?: CasePropertyDataType;
-		readonly storageTypes?: readonly CasePropertyDataType[];
-	} = {},
 ): void {
-	const result =
-		expectation.storageTypes === undefined
-			? checkValueExpression(
-					expression,
-					typeContext,
-					expectation.compatibleType,
-				)
-			: checkValueAssignmentExpression(
-					expression,
-					typeContext,
-					expectation.storageTypes,
-				);
+	const typeContext = slotContext(ctx.doc, slot, ctx.lookupTables ?? new Map());
+	if (typeContext === undefined) {
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_EXPRESSION_TYPE",
+				`An expression in case operation "${operation.id}" has no valid owning slot.`,
+			),
+		);
+		return;
+	}
+	const result = checkExpression(expression, typeContext);
 	const typeErrors = semanticCheckErrors(result);
-	if (typeErrors.length > 0) {
+	if (typeErrors.length > 0)
 		errors.push(
 			opError(
 				ctx,
@@ -710,31 +731,38 @@ function validateExpressionSlot(
 				`An expression in case operation "${operation.id}" is not valid here: ${typeErrors.map((error) => error.message).join("; ")}`,
 			),
 		);
-	} else if (result.ok) {
+	else if (result.errors.length === 0)
 		validateOnDeviceExpression(ctx, operation, expression, typeContext, errors);
-	}
 	validateCaseSnapshotUse(
 		ctx,
 		operation,
-		expressionUsesCaseSnapshot(expression),
+		expressionUsesCaseSnapshot(expression, typeContext),
 		errors,
 	);
-	walkExpressionNodes(expression, (node) => {
-		if (node.kind === "id-of") {
-			validateIdOfReference(ctx, operation, node.opUuid, typeContext, errors);
-		}
-	});
-	walkExpressionTermsWithPaths(expression, (term, path) => {
-		validateOperationTerm(ctx, operation, term, path, errors);
+	walkExpression(expression, {
+		visitExpression(node) {
+			if (node.kind === "id-of")
+				validateIdOfReference(ctx, operation, node.opUuid, typeContext, errors);
+		},
+		visitTerm(term, path) {
+			validateOperationTerm(
+				ctx,
+				operation,
+				term,
+				activeRowScope(expressionContextAtPath(expression, typeContext, path))
+					?.kind === "table",
+				errors,
+			);
+		},
 	});
 }
 
 function validateTextExpression(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
-	expression: ValueExpression | undefined,
+	expression: Expression | undefined,
 	facet: "create name" | "owner" | "rename",
-	typeContext: TypeContext,
+	slot: FormExpressionSlotRef,
 	errors: ValidationError[],
 ): void {
 	if (expression === undefined) return;
@@ -763,9 +791,7 @@ function validateTextExpression(
 			),
 		);
 	}
-	validateExpressionSlot(ctx, operation, expression, typeContext, errors, {
-		storageTypes: ["text"],
-	});
+	validateExpressionSlot(ctx, operation, expression, slot, errors);
 	if (
 		expression.kind !== "term" ||
 		expression.term.kind !== "literal" ||
@@ -790,39 +816,12 @@ function validateTextExpression(
 function validatePredicateSlot(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
-	predicate: CaseOperation["condition"],
-	typeContext: TypeContext,
+	predicate: Expression | undefined,
+	slot: FormExpressionSlotRef,
 	errors: ValidationError[],
 ): void {
-	if (predicate === undefined) return;
-	const result = checkPredicate(predicate, typeContext);
-	const typeErrors = semanticCheckErrors(result);
-	if (typeErrors.length > 0) {
-		errors.push(
-			opError(
-				ctx,
-				operation,
-				"CASE_OPERATION_EXPRESSION_TYPE",
-				`A condition in case operation "${operation.id}" is not valid here: ${typeErrors.map((error) => error.message).join("; ")}`,
-			),
-		);
-	} else if (result.ok) {
-		validateOnDevicePredicate(ctx, operation, predicate, typeContext, errors);
-	}
-	validateCaseSnapshotUse(
-		ctx,
-		operation,
-		predicateUsesCaseSnapshot(predicate),
-		errors,
-	);
-	walkPredicateExpressionNodes(predicate, (node) => {
-		if (node.kind === "id-of") {
-			validateIdOfReference(ctx, operation, node.opUuid, typeContext, errors);
-		}
-	});
-	walkTermsWithPaths(predicate, (term, path) => {
-		validateOperationTerm(ctx, operation, term, path, errors);
-	});
+	if (predicate !== undefined)
+		validateExpressionSlot(ctx, operation, predicate, slot, errors);
 }
 
 /**
@@ -831,13 +830,13 @@ function validatePredicateSlot(
  * relation cardinality, and future guarded arms), not the semantic source for
  * facts such as whether a property-backed date calculation starts from a
  * datetime. The canonical AST carries property identity, not its resolved
- * type, so only the shared TypeContext-aware classifier can make that decision.
+ * type, so only the shared ExpressionContext-aware classifier can make that decision.
  */
 function validateOnDeviceExpression(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
-	expression: ValueExpression,
-	typeContext: TypeContext,
+	expression: Expression,
+	typeContext: ExpressionContext,
 	errors: ValidationError[],
 ): void {
 	const compatibilityIssue = findOnDeviceDateAddIssue(expression, typeContext);
@@ -851,9 +850,12 @@ function validateOnDeviceExpression(
 		toWire(expression, {
 			target: "xform",
 			types: typeContext,
+			...(typeContext.form === undefined
+				? {}
+				: { form: formNodeProjection(ctx.doc, typeContext.form) }),
 			bindings: {
-				formFields: identityBindings(typeContext.formFields?.keys() ?? []),
-				operationIds: identityBindings(typeContext.operationIds ?? []),
+				formFields: identityBindings(typeContext.form?.fields.keys() ?? []),
+				operationIds: identityBindings(typeContext.profile.operationIds),
 				lookup: {
 					naming: inertLookupWireNaming(),
 					instanceScope: "xform",
@@ -867,48 +869,6 @@ function validateOnDeviceExpression(
 				operation,
 				"CASE_OPERATION_EXPRESSION_TYPE",
 				`An expression in case operation "${operation.id}" cannot run on device: ${errorMessage(error)}`,
-			),
-		);
-	}
-}
-
-function validateOnDevicePredicate(
-	ctx: OperationRuleContext,
-	operation: CaseOperation,
-	predicate: NonNullable<CaseOperation["condition"]>,
-	typeContext: TypeContext,
-	errors: ValidationError[],
-): void {
-	const compatibilityIssue = findOnDeviceDateAddIssueInPredicate(
-		predicate,
-		typeContext,
-	);
-	if (compatibilityIssue !== undefined) {
-		errors.push(
-			onDeviceDateAddOperationError(ctx, operation, compatibilityIssue),
-		);
-		return;
-	}
-	try {
-		toWire(predicate, {
-			target: "xform",
-			types: typeContext,
-			bindings: {
-				formFields: identityBindings(typeContext.formFields?.keys() ?? []),
-				operationIds: identityBindings(typeContext.operationIds ?? []),
-				lookup: {
-					naming: inertLookupWireNaming(),
-					instanceScope: "xform",
-				},
-			},
-		});
-	} catch (error) {
-		errors.push(
-			opError(
-				ctx,
-				operation,
-				"CASE_OPERATION_EXPRESSION_TYPE",
-				`A condition in case operation "${operation.id}" cannot run on device: ${errorMessage(error)}`,
 			),
 		);
 	}
@@ -947,13 +907,13 @@ function validateOperationTerm(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
 	term: Term,
-	path: PredicateAstPath,
+	insideLookup: boolean,
 	errors: ValidationError[],
 ): void {
 	if (term.kind !== "field") return;
 	const field = ctx.fields.get(term.uuid);
 	if (field === undefined) return;
-	if (isInsideTableLookupWhere(path)) {
+	if (insideLookup) {
 		validateLookupFilterFieldCorrelation(ctx, operation, field, errors);
 		return;
 	}
@@ -982,15 +942,6 @@ function validateOperationTerm(
 			),
 		);
 	}
-}
-
-function isInsideTableLookupWhere(path: PredicateAstPath): boolean {
-	for (let index = 0; index + 1 < path.length; index++) {
-		if (path[index] === "table-lookup" && path[index + 1] === "where") {
-			return true;
-		}
-	}
-	return false;
 }
 
 function repeatPathIsPrefix(
@@ -1065,36 +1016,36 @@ function validateCaseSnapshotUse(
 	);
 }
 
-function expressionUsesCaseSnapshot(expression: ValueExpression): boolean {
-	let usesSnapshot = false;
-	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "prop" || term.kind === "owner-location-at-level") {
-			usesSnapshot = true;
-		}
-	});
-	walkExpressionNodes(expression, (node) => {
-		if (node.kind === "count") usesSnapshot = true;
-	});
-	walkExpressionPredicateNodes(expression, (node) => {
-		if (node.kind === "exists" || node.kind === "missing") usesSnapshot = true;
-	});
-	return usesSnapshot;
-}
-
-function predicateUsesCaseSnapshot(
-	predicate: NonNullable<CaseOperation["condition"]>,
+function expressionUsesCaseSnapshot(
+	expression: Expression,
+	typeContext: ExpressionContext,
 ): boolean {
 	let usesSnapshot = false;
-	walkTerms(predicate, (term) => {
-		if (term.kind === "prop" || term.kind === "owner-location-at-level") {
-			usesSnapshot = true;
-		}
-	});
-	walkPredicateNodes(predicate, (node) => {
-		if (node.kind === "exists" || node.kind === "missing") usesSnapshot = true;
-	});
-	walkPredicateExpressionNodes(predicate, (node) => {
-		if (node.kind === "count") usesSnapshot = true;
+	const root = activeRowScope(typeContext);
+	walkExpression(expression, {
+		visitTerm(term, path) {
+			if (
+				term.kind !== "prop" &&
+				term.kind !== "owner-location-at-level" &&
+				term.kind !== "case-row-type" &&
+				term.kind !== "case-index"
+			)
+				return;
+			if (
+				activeRowScope(
+					expressionContextAtPath(expression, typeContext, path),
+				) === root
+			)
+				usesSnapshot = true;
+		},
+		visitRelation(_relation, path) {
+			if (
+				activeRowScope(
+					expressionContextAtPath(expression, typeContext, path),
+				) === root
+			)
+				usesSnapshot = true;
+		},
 	});
 	return usesSnapshot;
 }
@@ -1103,10 +1054,10 @@ function validateIdOfReference(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
 	opUuid: Uuid,
-	typeContext: TypeContext,
+	typeContext: ExpressionContext,
 	errors: ValidationError[],
 ): void {
-	if (!typeContext.operationIds?.has(opUuid)) {
+	if (!typeContext.profile.operationIds.has(opUuid)) {
 		errors.push(
 			opError(
 				ctx,
@@ -1156,31 +1107,6 @@ function validateRepeatReference(
 	}
 }
 
-function expressionContext(
-	ctx: OperationRuleContext,
-	priorCreates: ReadonlyMap<Uuid, CaseOperation>,
-): TypeContext {
-	return {
-		caseTypes: [...ctx.caseTypes],
-		knownInputs: [],
-		currentCaseType: ctx.module.caseType,
-		userPropertySlugs: userPropertySlugsByUuid(ctx.doc),
-		organizationLevels: organizationLevelsOf(ctx.doc),
-		formFields: new Map(
-			[...ctx.fields]
-				.filter(
-					([, field]) =>
-						field.dataType !== undefined || field.kind === "hidden",
-				)
-				.map(([uuid, field]) => [uuid, field.dataType]),
-		),
-		operationIds: new Set(priorCreates.keys()),
-		...(ctx.lookupTables !== undefined && {
-			lookupTables: ctx.lookupTables,
-		}),
-	};
-}
-
 function targetsOperationCase(
 	operation: CaseOperation,
 	target: CaseOperation["target"],
@@ -1203,7 +1129,7 @@ function targetsOperationCase(
 	}
 }
 
-function expressionContainsIdOf(expression: ValueExpression): boolean {
+function expressionContainsIdOf(expression: Expression): boolean {
 	let found = false;
 	walkExpressionNodes(expression, (node) => {
 		if (node.kind === "id-of") found = true;

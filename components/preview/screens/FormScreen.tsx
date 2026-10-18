@@ -53,7 +53,7 @@ import {
 	type PostSubmitDestination,
 	reachableCaseTypes,
 } from "@/lib/domain";
-import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
+import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import {
 	afterSubmitRoute,
 	automaticLinkedCaseCollection,
@@ -1235,6 +1235,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		try {
 			const doc = submitted.doc;
 			const routeMenuSource = {
+				doc,
 				modules: doc.modules,
 				moduleOrder: doc.moduleOrder,
 				caseTypes: doc.caseTypes ?? [],
@@ -1292,6 +1293,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			}
 			const input = {
 				doc,
+				formUuid: sourceFormUuid,
 				session: previewSessionValues(previewIdentity),
 				usercase: postSubmissionUsercase,
 				sessionDatums: sourceSessionDatums(
@@ -2712,6 +2714,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 		mod?.caseListConfig?.tile?.persistOnForms === true &&
 		effectiveCaseId !== undefined ? (
 			<PersistentCaseTile
+				blueprint={menuSource.doc}
+				moduleUuid={moduleUuid}
 				appId={appId}
 				caseType={mod.caseType}
 				caseId={effectiveCaseId}

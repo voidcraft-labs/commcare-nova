@@ -47,7 +47,10 @@
 
 import { z } from "zod";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
-import { planKindConversion } from "@/lib/doc/kindConversionCascade";
+import {
+	planChoicePreservation,
+	planKindConversion,
+} from "@/lib/doc/kindConversionCascade";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
@@ -121,6 +124,7 @@ export type EditFieldResult =
 	| (MutationSuccess & {
 			field: { uuid: string; id: string; kind: FieldKind };
 			options?: CreatedOptionIdentity[];
+			preservedChoiceCount?: number;
 			conversion?: FieldConversionResult;
 			valueSource?: {
 				set: "calculate" | "default_value";
@@ -650,6 +654,24 @@ export const editFieldTool = {
 				}
 			}
 
+			const changedFieldUuids = stages.flatMap((stage) =>
+				stage.mutations.flatMap((mutation) =>
+					mutation.kind === "convertField" || mutation.kind === "updateField"
+						? [mutation.uuid]
+						: [],
+				),
+			);
+			const preservation = planChoicePreservation(
+				doc,
+				workingDoc,
+				changedFieldUuids,
+			);
+			if (preservation.mutations.length > 0)
+				stages.push({
+					mutations: preservation.mutations,
+					stage: `edit:${resolved.formUuid}`,
+				});
+
 			// Gate the WHOLE edit as one candidate; persist the stage batches
 			// only after it passes. A rejection leaves zero committed prefix —
 			// the agent re-issues the corrected call from the original state.
@@ -690,6 +712,9 @@ export const editFieldTool = {
 					ok: true,
 					field: { uuid: fieldUuid, id: postField.id, kind: postField.kind },
 					...(conversion && { conversion }),
+					...(preservation.preservedChoiceCount > 0 && {
+						preservedChoiceCount: preservation.preservedChoiceCount,
+					}),
 					...(valueSourceSwap && { valueSource: valueSourceSwap }),
 					...(note !== undefined && { note }),
 					...(preparedOptionsSource?.kind === "inline" && {

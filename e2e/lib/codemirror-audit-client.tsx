@@ -8,7 +8,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useXPathText } from "@/lib/doc/hooks/useXPathSlots";
+import { useFormExpressionText } from "@/lib/doc/hooks/useXPathSlots";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { blueprintDocSchema } from "@/lib/domain";
@@ -54,7 +54,10 @@ function Editor() {
 	const { inline } = useBlueprintMutations();
 	const [commits, setCommits] = useState(0);
 	const [mounted, setMounted] = useState(true);
-	const text = useXPathText("calculate" in field ? field.calculate : undefined);
+	const text = useFormExpressionText(
+		"calculate" in field ? field.calculate : undefined,
+		{ entity: "field", uuid: RESULT, slot: "calculate" },
+	);
 	if (field.kind !== "hidden") throw new Error("Missing calculated field");
 	return (
 		<>

@@ -69,7 +69,7 @@ import {
 	prop,
 	relationStep,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -84,6 +84,7 @@ function searchApp(
 		}[];
 		readonly parentType?: string;
 	},
+	withLocation = false,
 ): { doc: BlueprintDoc; form: ReturnType<typeof targetedUuid> } {
 	const uuid = (name: string) => targetedUuid(id, name);
 	const form = uuid("form");
@@ -138,6 +139,16 @@ function searchApp(
 								id: "note",
 								label: proseText("Note"),
 							}),
+							...(withLocation
+								? [
+										f({
+											kind: "geopoint",
+											uuid: uuid("place"),
+											id: "place",
+											label: proseText("Place"),
+										}),
+									]
+								: []),
 						],
 					},
 				],
@@ -225,6 +236,37 @@ export function listFirstWebApps() {
 			],
 		}),
 	}));
+	return targetedDocument({
+		id,
+		rows: ["21"],
+		doc,
+		expected: noteHeld(form),
+		privileges: ["CLOUDCARE"],
+	});
+}
+
+/** A location question keeps a phone-place walk behind the list-first menu. */
+export function listFirstPlaces() {
+	const id = "targeted-list-first-places";
+	const { doc, form } = searchApp(
+		id,
+		"List first with places",
+		(uuid) => ({
+			properties: [],
+			list: caseListOf([plainColumn(uuid("name"), "case_name", "Name")], {
+				searchInputs: [
+					simpleSearchInputDef(
+						uuid("input"),
+						"case_name",
+						"Name",
+						"text",
+						"case_name",
+					),
+				],
+			}),
+		}),
+		true,
+	);
 	return targetedDocument({
 		id,
 		rows: ["21"],

@@ -30,6 +30,7 @@ it("admits and evaluates implicit metadata on the selected record and its parent
 	);
 	const engine = new FormEngine(
 		{
+			doc,
 			form: doc.forms[formUuid],
 			formUuid,
 			fields: doc.fields,

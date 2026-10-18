@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { serializeWire } from "../xpath/wire/serialize";
+
+const editorPath = (path: FormPath) =>
+	serializeWire(path.toWire("hashtag"), { target: "vellum", constraint: false })
+		?.text;
 
 describe("structural XForm paths", () => {
 	it("branches immutable paths and exposes the exact walker and editor projections", () => {
@@ -9,7 +14,7 @@ describe("structural XForm paths", () => {
 		const casePath = item.child("subcase_0").child("case");
 		const attribute = casePath.attr("case_id");
 		expect(root.toXPath()).toBe("/data");
-		expect(root.toVellum()).toBe("#form");
+		expect(editorPath(root)).toBeUndefined();
 		expect(children.toXPath()).toBe("/data/children");
 		expect(item.child("child_name").toXPath()).toBe(
 			"/data/children/item/child_name",
@@ -17,9 +22,7 @@ describe("structural XForm paths", () => {
 		expect(attribute.toXPath()).toBe(
 			"/data/children/item/subcase_0/case/@case_id",
 		);
-		expect(attribute.toVellum()).toBe(
-			"#form/children/item/subcase_0/case/@case_id",
-		);
+		expect(editorPath(attribute)).toBeUndefined();
 		expect(attribute.segments()).toEqual([
 			{ kind: "element", name: "data" },
 			{ kind: "element", name: "children" },
@@ -34,7 +37,7 @@ describe("structural XForm paths", () => {
 	});
 
 	it.each([
-		["/data", "#form", [{ kind: "element", name: "data" }]],
+		["/data", undefined, [{ kind: "element", name: "data" }]],
 		[
 			"/data/_A2",
 			"#form/_A2",
@@ -45,7 +48,7 @@ describe("structural XForm paths", () => {
 		],
 		[
 			"/data/case/@case_id",
-			"#form/case/@case_id",
+			undefined,
 			[
 				{ kind: "element", name: "data" },
 				{ kind: "element", name: "case" },
@@ -58,7 +61,7 @@ describe("structural XForm paths", () => {
 			const path = FormPath.parse(raw);
 			expect(path.segments()).toEqual(segments);
 			expect(path.toXPath()).toBe(raw);
-			expect(path.toVellum()).toBe(editor);
+			expect(editorPath(path)).toBe(editor);
 		},
 	);
 

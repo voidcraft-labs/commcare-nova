@@ -1,14 +1,15 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema, proseText } from "@/lib/domain";
+import { formField, term } from "@/lib/domain/expression/builders";
 import {
 	buildDoc,
 	caseListConfig,
 	f,
 	type ModuleSpec,
-	xp,
 } from "../../../__tests__/docHelpers";
 import { evaluateBoundary } from "../gate";
 
@@ -102,7 +103,7 @@ describe("complete validation of a large app", () => {
 		const broken = produce(doc, (draft) => {
 			draft.fields[lastField.uuid] = {
 				...lastField,
-				calculate: xp("#form/missing"),
+				calculate: term(formField(testUuid("missing"))),
 			};
 		});
 		blueprintDocSchema.parse(toPersistableDoc(broken));

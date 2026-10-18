@@ -56,11 +56,15 @@ import {
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
-import { type CaseListConfig, searchInputRuntimeValueType } from "@/lib/domain";
-import { and, effectiveFilterForEmission } from "@/lib/domain/predicate";
-import { compilerBugMessage } from "@/lib/domain/predicate/errors";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
+import type { CaseListConfig } from "@/lib/domain";
+import { and, effectiveFilterForEmission } from "@/lib/domain/expression";
+import {
+	type ExpressionNode,
+	expressionChildren,
+} from "@/lib/domain/expression/children";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import { compilerBugMessage } from "@/lib/domain/expression/errors";
+import type { Expression } from "@/lib/domain/expression/types";
 import {
 	type SearchRuntimeValidationKind,
 	searchRuntimeValidationMessage,
@@ -240,8 +244,9 @@ export function buildRuntimeCsqlPromptValidations(
 export function composeXPathQueryEmission(
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
-	typeContext?: TypeContext,
+	typeContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
+	searchInputInstanceId?: `search-input:${string}`,
 ): ComposedXPathQuery | undefined {
 	const composed = composeXPathQueryPredicate(
 		caseListConfig,
@@ -249,17 +254,16 @@ export function composeXPathQueryEmission(
 		typeContext,
 	);
 	if (composed === undefined) return undefined;
-	const emissionTypeContext: TypeContext = {
-		...(typeContext ?? { caseTypes: [] }),
-		knownInputs: caseListConfig.searchInputs.map((input) => ({
-			uuid: input.uuid,
-			name: input.name,
-			data_type: searchInputRuntimeValueType(input),
-		})),
-	};
 	const csqlContext = {
-		...emissionTypeContext,
-		...(lookupNaming === undefined ? {} : { lookupNaming }),
+		types: typeContext,
+		bindings: {
+			searchInputInstanceId,
+			...(lookupNaming === undefined
+				? {}
+				: {
+						lookup: { naming: lookupNaming, instanceScope: "suite" as const },
+					}),
+		},
 	};
 
 	// Defense in depth — the validator rule
@@ -276,7 +280,7 @@ export function composeXPathQueryEmission(
 	// `lib/commcare/predicate/csqlEmitter.ts::emitComparisonOperandSegments`
 	// for `count` arms the hoist pass should have lifted.
 	assertNoBareSearchInputRefs(composed);
-	assertCsqlRepresentable(composed);
+	assertCsqlRepresentable(composed, typeContext);
 
 	// One clause per top-level conjunct. `composeXPathQueryPredicate`
 	// AND-composes the sources and `effectiveFilterForEmission` already
@@ -306,9 +310,9 @@ export function composeXPathQueryEmission(
 export function composeXPathQueryPredicate(
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
-	typeContext?: TypeContext,
-): Predicate | undefined {
-	const clauses: Predicate[] = [];
+	typeContext: ExpressionContext,
+): Expression | undefined {
+	const clauses: Expression[] = [];
 	if (caseListConfig.filter !== undefined) {
 		clauses.push(caseListConfig.filter);
 	}
@@ -364,8 +368,11 @@ export function composeXPathQueryPredicate(
  * emitting a wider Nova predicate as CSQL would otherwise create a package
  * that Preview accepts but CCHQ rejects (or, worse, interprets differently).
  */
-function assertCsqlRepresentable(predicate: Predicate): void {
-	const issues = checkCsqlRepresentability(predicate);
+function assertCsqlRepresentable(
+	predicate: Expression,
+	context: ExpressionContext,
+): void {
+	const issues = checkCsqlRepresentability(predicate, context);
 	if (issues.length === 0) return;
 
 	const detail = issues
@@ -398,169 +405,27 @@ function assertCsqlRepresentable(predicate: Predicate): void {
  * shape is a `compilerBugMessage` because reaching it means the
  * validator was bypassed at authoring time.
  */
-function assertNoBareSearchInputRefs(predicate: Predicate): void {
-	visitPredicate(predicate, new Set<string>());
-}
-
-function visitPredicate(p: Predicate, gated: Set<string>): void {
-	switch (p.kind) {
-		case "match-all":
-		case "match-none":
-			return;
-		case "eq":
-		case "neq":
-		case "gt":
-		case "gte":
-		case "lt":
-		case "lte":
-			visitExpression(p.left, gated);
-			visitExpression(p.right, gated);
-			return;
-		case "in":
-			visitExpression(p.left, gated);
-			// `in.values` are Literals — they cannot syntactically carry
-			// a search-input ref.
-			return;
-		case "between":
-			visitExpression(p.left, gated);
-			if (p.lower !== undefined) visitExpression(p.lower, gated);
-			if (p.upper !== undefined) visitExpression(p.upper, gated);
-			return;
-		case "is-blank":
-		case "matches-pattern":
-			visitExpression(p.left, gated);
-			return;
-		case "match":
-			// `match.value` is a `ValueExpression` (per `matchSchema`),
-			// not a bare literal — the type checker admits term-arm
-			// shapes including `term(input(...))` / `term(session-*(...))`,
-			// and the simple-arm derivation pipeline at
-			// `simpleArmDerivation.ts` produces exactly that shape for
-			// every non-`exact` mode. Walk the value to catch every
-			// reachable input ref.
-			visitExpression(p.value, gated);
-			return;
-		case "multi-select-contains":
-			// `property` is a `PropertyRef`; `values` is `[Literal, ...]`.
-			// No search-input refs reachable through this arm.
-			return;
-		case "within-distance":
-			// `property` is a `PropertyRef`; `center` is a
-			// `ValueExpression` that can carry a `term(input(...))` ref.
-			visitExpression(p.center, gated);
-			return;
-		case "and":
-		case "or":
-			for (const clause of p.clauses) {
-				visitPredicate(clause, gated);
-			}
-			return;
-		case "not":
-			visitPredicate(p.clause, gated);
-			return;
-		case "exists":
-		case "missing":
-			// The relation walk's outer context is the casedb root; the
-			// optional inner `where` predicate's input refs gate against
-			// the same enclosing envelope set.
-			if (p.where !== undefined) visitPredicate(p.where, gated);
-			return;
-		case "when-input-present": {
-			// Push the gate, recurse, pop — but ONLY pop if this
-			// envelope was the one that added it. An outer envelope
-			// that already gated the same input name still expects the
-			// gate after the inner envelope exits; unconditionally
-			// deleting would break a `whenInput("x", and(whenInput("x",
-			// …), eq(other, input("x"))))` shape by removing the
-			// outer's gate when the inner exits. Mirrors the validator
-			// walker's `wasAlreadyGated` preserve at
-			// `searchInputRefUsesWhenInputPresent.ts::visitPredicate`.
-			const triggerUuid = p.input.searchInputUuid;
-			const wasAlreadyGated = gated.has(triggerUuid);
-			gated.add(triggerUuid);
-			visitPredicate(p.clause, gated);
-			if (!wasAlreadyGated) gated.delete(triggerUuid);
-			return;
-		}
-		default: {
-			const _exhaustive: never = p;
+function assertNoBareSearchInputRefs(expression: Expression): void {
+	const visit = (node: ExpressionNode, gated: ReadonlySet<string>): void => {
+		if (node.kind === "input" && !gated.has(node.searchInputUuid)) {
 			throw new Error(
-				`composeXPathQueryEmission.assertNoBareSearchInputRefs: unhandled Predicate kind ${String(_exhaustive)}`,
+				compilerBugMessage({
+					where: "composeXPathQueryEmission",
+					invariant: `the composed query carries the search-input reference ${node.searchInputUuid} outside its when-input-present envelope`,
+					detail:
+						"The expression checker should have rejected this reference before emission.",
+				}),
 			);
 		}
-	}
-}
-
-function visitExpression(expr: ValueExpression, gated: Set<string>): void {
-	switch (expr.kind) {
-		case "term":
-			if (expr.term.kind === "input" && !gated.has(expr.term.searchInputUuid)) {
-				throw new Error(
-					compilerBugMessage({
-						where: "composeXPathQueryEmission",
-						invariant: `the composed _xpath_query predicate carries a bare search-input reference (\`input("${expr.term.searchInputUuid}")\`) outside any when-input-present envelope`,
-						detail:
-							"The validator rule `searchInputRefUsesWhenInputPresent` rejects this shape at authoring time. Reaching this throw means the validator was bypassed. Typically through an AST constructed at runtime, an `as any` cast, or a partial discriminated-union widening. Run validation before invoking the compile pipeline; the validator surfaces the offending slot so the author can wrap the subtree in a `when-input-present` envelope or remove the input reference.",
-					}),
-				);
-			}
-			return;
-		case "today":
-		case "now":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-			return;
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-			visitExpression(expr.value, gated);
-			return;
-		case "arith":
-			visitExpression(expr.left, gated);
-			visitExpression(expr.right, gated);
-			return;
-		case "concat":
-			for (const part of expr.parts) visitExpression(part, gated);
-			return;
-		case "coalesce":
-			for (const value of expr.values) visitExpression(value, gated);
-			return;
-		case "if":
-			visitPredicate(expr.cond, gated);
-			visitExpression(expr.then, gated);
-			visitExpression(expr.else, gated);
-			return;
-		case "switch":
-			visitExpression(expr.on, gated);
-			for (const c of expr.cases) {
-				// `c.when` is a `Literal` per `switchCaseSchema` — no
-				// search-input ref can reach this slot. Only the `then`
-				// branch recurses into the value-expression walker.
-				visitExpression(c.then, gated);
-			}
-			visitExpression(expr.fallback, gated);
-			return;
-		case "format-date":
-			visitExpression(expr.date, gated);
-			return;
-		case "count":
-			if (expr.where !== undefined) visitPredicate(expr.where, gated);
-			return;
-		case "date-add":
-			visitExpression(expr.date, gated);
-			visitExpression(expr.quantity, gated);
-			return;
-		case "table-lookup":
-			visitPredicate(expr.where, gated);
-			return;
-		default: {
-			const _exhaustive: never = expr;
-			throw new Error(
-				`composeXPathQueryEmission.assertNoBareSearchInputRefs: unhandled ValueExpression kind ${String(_exhaustive)}`,
-			);
+		const next =
+			node.kind === "when-input-present"
+				? new Set([...gated, node.input.searchInputUuid])
+				: gated;
+		for (const child of expressionChildren(node)) {
+			if (child.kind !== "relation") visit(child.value, next);
 		}
-	}
+	};
+	visit(expression, new Set());
 }
 
 /**
@@ -578,7 +443,7 @@ function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 export function xpathQueryUsesRelatedLookup(
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
-	typeContext?: TypeContext,
+	typeContext: ExpressionContext,
 ): boolean {
 	return (
 		collectRelatedCaseQueries(() =>

@@ -65,8 +65,8 @@ import {
 	orderedColumns,
 	type TranslationUnitId,
 	type Uuid,
-	userPropertySlugsByUuid,
 } from "@/lib/domain";
+import { moduleExpressionContexts } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildColumnField } from "./columns";
 import type { ResolvedSortDirective } from "./sortKeys";
@@ -161,10 +161,13 @@ export function buildLongDetail(args: {
 		target,
 		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
 		caseProperties,
+		caseType: mod.caseType,
 		proseDoc: args.doc,
-		caseTypes: effectiveCaseTypes(args.doc),
-		currentCaseType: mod.caseType,
-		userPropertySlugs: userPropertySlugsByUuid(args.doc),
+		expressions: moduleExpressionContexts(
+			args.doc,
+			mod.uuid,
+			args.lookupNaming,
+		),
 		...(args.assets && { assets: args.assets }),
 		...(args.lookupNaming && { lookupNaming: args.lookupNaming }),
 	};

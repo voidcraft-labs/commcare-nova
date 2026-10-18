@@ -6,17 +6,17 @@
 import { describe, expect, it } from "vitest";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain";
 import {
-	caseListConfigSchema,
-	emptyCaseListConfig,
-} from "@/lib/domain/modules";
-import {
 	eq,
 	literal,
 	prop,
 	tableColumn,
 	tableLookup,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import {
+	caseListConfigSchema,
+	emptyCaseListConfig,
+} from "@/lib/domain/modules";
 import { collectConfigLookupTableIds } from "../lookupTableReferences";
 
 const TABLE_A = "018f0000-0000-7000-8000-00000000000a" as LookupTableId;

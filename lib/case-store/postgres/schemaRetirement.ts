@@ -1,7 +1,7 @@
 /** Dependency-light transactional retirement and maintenance index drain. */
 
 import { type Kysely, sql, type Transaction } from "kysely";
-import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import type { Database, JsonObject } from "../sql/database";
 import type { ApplyCaseTypeSchemaRetirementArgs } from "../store";

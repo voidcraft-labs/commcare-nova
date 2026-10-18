@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { collectTranslationUnits, makeTranslationUnitId } from "@/lib/domain";
+import { literal, matchNone, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import {
@@ -202,7 +203,7 @@ function fixture(sectioned = false) {
 		id: "answer",
 		kind: "text",
 		label: proseText("Other answer"),
-		default_value: xp("'New entry'"),
+		default_value: term(literal("New entry")),
 	};
 	doc.formOrder[doc.moduleOrder[0]].push(otherForm);
 	doc.fieldOrder[otherForm] = [otherField];
@@ -518,11 +519,15 @@ describe("same-entry runtime publication", () => {
 						})
 					: undefined,
 			);
+			const runtimeFaults: unknown[] = [];
+			ctrl.setFaultReporter((_, error) => runtimeFaults.push(error));
 			ctrl.setDocStore(store);
 			ctrl.setPresentationLanguage("spa");
 			try {
-				expect(await ctrl.activateFormAsync(form)).toBe(true);
-				expect(await ctrl.onValueChangeAsync(spaces, "   ")).toBe(true);
+				const activated = await ctrl.activateFormAsync(form);
+				expect(activated, runtimeFaults.map(String).join("\n")).toBe(true);
+				const changed = await ctrl.onValueChangeAsync(spaces, "   ");
+				expect(changed, runtimeFaults.map(String).join("\n")).toBe(true);
 				expect(await ctrl.validateSectionAsync(answers)).toMatchObject({
 					kind: "invalid",
 				});
@@ -931,7 +936,7 @@ describe("same-entry runtime publication", () => {
 										kind: "updateField",
 										uuid: fields.photo.uuid,
 										targetKind: "image",
-										patch: { relevant: xp("false()") },
+										patch: { relevant: matchNone() },
 									},
 								],
 				);
@@ -1271,7 +1276,7 @@ describe("same-entry runtime publication", () => {
 						id: "added",
 						kind: "text",
 						label: proseText("Added"),
-						default_value: xp("'new default'"),
+						default_value: term(literal("new default")),
 					},
 				},
 			]);

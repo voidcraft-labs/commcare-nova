@@ -1,9 +1,14 @@
-/** Section placement prechecks only; the full commit gate also checks form
- * ownership, identifiers, references, and other domain constraints. */
+/** Section and expression prechecks agree with the real move's commit gate. */
 
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import {
+	parseFormExpressionForSlot,
+	projectFormExpression,
+} from "@/lib/doc/expressionText";
 import {
 	fieldPlacementVerdict,
 	formIsSectioned,
@@ -13,7 +18,11 @@ import {
 	sectionOf,
 	subtreeHasUserRepeat,
 } from "@/lib/doc/formSectionVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutation } from "@/lib/doc/mutations";
+import { mutationSchema } from "@/lib/doc/types";
 import { proseText } from "@/lib/domain/prose";
+import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const FORM = testUuid("frm-sectioned");
@@ -28,6 +37,70 @@ const VISIT_DATE = testUuid("fld-visit-date");
 const FLAT_A = testUuid("fld-flat-a");
 const FLAT_GROUP = testUuid("fld-flat-group");
 const FLAT_REPEAT = testUuid("fld-flat-repeat");
+const DETAILS = testUuid("fld-move-details");
+const SUMMARY = testUuid("fld-move-summary");
+const summarySlot = {
+	entity: "field",
+	uuid: SUMMARY,
+	slot: "calculate",
+} as const;
+
+function expressionMoveFixture(source: string) {
+	const doc = buildDoc({
+		appName: "Expression moves",
+		modules: [
+			{
+				name: "M",
+				forms: [
+					{
+						uuid: FLAT,
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								kind: "repeat",
+								uuid: FLAT_REPEAT,
+								id: "visits",
+								repeat_mode: "user_controlled",
+								children: [
+									f({
+										kind: "group",
+										uuid: DETAILS,
+										id: "details",
+										children: [
+											f({ kind: "date", uuid: VISIT_DATE, id: "visited_on" }),
+										],
+									}),
+								],
+							}),
+							f({ kind: "group", uuid: FLAT_GROUP, id: "other", children: [] }),
+							f({ kind: "hidden", uuid: SUMMARY, id: "summary" }),
+						],
+					},
+				],
+			},
+		],
+	});
+	const parsed = parseFormExpressionForSlot(
+		doc,
+		summarySlot,
+		source,
+		"unavailable",
+	);
+	if (!parsed.ok || parsed.expression === undefined)
+		throw new Error("The move fixture must parse.");
+	const expression = parsed.expression;
+	const saved = produce(doc, (draft) => {
+		applyMutation(draft, {
+			kind: "updateField",
+			uuid: SUMMARY,
+			targetKind: "hidden",
+			patch: { calculate: expression },
+		});
+	});
+	assertAdmittedDoc(saved);
+	return saved;
+}
 
 /**
  * Sectioned: [S1: name, group(phone)] [S2: age]
@@ -125,6 +198,98 @@ describe("section readers", () => {
 });
 
 describe("fieldPlacementVerdict", () => {
+	it.each([
+		"../visits[1]/details/visited_on",
+		"/data/visits[1]/details/visited_on",
+	])(
+		"refuses moving a descendant out of the filtered path %s before drop",
+		(source) => {
+			const doc = expressionMoveFixture(source);
+			const move = mutationSchema.parse(
+				JSON.parse(
+					JSON.stringify({
+						kind: "moveField",
+						uuid: DETAILS,
+						toParentUuid: FLAT,
+						after: null,
+					}),
+				),
+			);
+			const verdict = fieldPlacementVerdict(doc, {
+				uuid: DETAILS,
+				kind: "group",
+				toParentUuid: FLAT,
+			});
+			expect(verdict).toMatchObject({
+				ok: false,
+				reason: "expression-no-path",
+			});
+			if (verdict.ok) throw new Error("Expected the move precheck to refuse.");
+			expect(verdict.message).toContain('"details"');
+			expect(verdict.message).toContain('"summary"');
+			expect(verdict.message).toContain("calculated value");
+			const committed = mutationCommitVerdict(
+				doc,
+				[move],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(committed.ok).toBe(false);
+			if (committed.ok)
+				throw new Error("Expected the actual move to be refused.");
+			expect(committed.nextDoc.fieldParent[DETAILS]).toBe(FLAT);
+			expect(committed.findings).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code: "INVALID_REF",
+						details: expect.objectContaining({
+							checkReason: "form-filter-step",
+						}),
+					}),
+				]),
+			);
+			expect(doc.fieldParent[DETAILS]).toBe(FLAT_REPEAT);
+		},
+	);
+
+	it.each([FLAT_REPEAT, SUMMARY])(
+		"keeps a reachable relative path when moving %s",
+		(uuid) => {
+			const doc = expressionMoveFixture("../visits[1]/details/visited_on");
+			const field = doc.fields[uuid];
+			expect(
+				fieldPlacementVerdict(doc, {
+					uuid,
+					kind: field.kind,
+					toParentUuid: FLAT_GROUP,
+				}),
+			).toEqual({ ok: true });
+			const committed = mutationCommitVerdict(
+				doc,
+				[{ kind: "moveField", uuid, toParentUuid: FLAT_GROUP, after: null }],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(committed).toMatchObject({ ok: true });
+			const expression = expressionSlotValue(committed.nextDoc, summarySlot);
+			if (expression === undefined)
+				throw new Error("Expected the saved calculation.");
+			expect(
+				projectFormExpression(
+					committed.nextDoc,
+					summarySlot,
+					expression,
+					"unavailable",
+				),
+			).toMatchObject({
+				text:
+					uuid === FLAT_REPEAT
+						? "../other/visits[1]/details/visited_on"
+						: "../../visits[1]/details/visited_on",
+				unresolved: [],
+			});
+			expect(expression).toBe(expressionSlotValue(doc, summarySlot));
+		},
+	);
+
 	it("lets a question land inside a section, and refuses it at a sectioned root", () => {
 		const doc = fixture();
 		expect(

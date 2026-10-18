@@ -17,13 +17,18 @@ import {
 	type DocSpec,
 	type FieldSpec,
 	f,
+	parseFixtureExpression,
 	withUserSequences,
-	xp,
 } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { parseXPathForForm } from "@/lib/doc/expressionText";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { FormLink } from "@/lib/domain";
+import type { FormLink, FormLinkDatum, Uuid } from "@/lib/domain";
+import {
+	eq,
+	literal,
+	sessionUserProperty,
+	term,
+} from "@/lib/domain/expression";
 import {
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
@@ -41,7 +46,7 @@ import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerCl
 import { XPathRuntime } from "../../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
 import {
-	carriedCaseFor,
+	carriedCaseFor as carriedCaseForProduction,
 	createFormLinkWorkerWorld,
 	evaluateFormLinks,
 	evaluateFormLinksAsync,
@@ -50,7 +55,7 @@ import {
 	type FormLinkEvaluationInput,
 	formLinkEvalContext,
 	formLinkWorkerInstances,
-	projectTargetCaseSelections,
+	projectTargetCaseSelections as projectTargetCaseSelectionsProduction,
 	sourceSessionDatums as sourceSessionDatumsProduction,
 } from "../formLinkEvaluation";
 import type { PreviewSearchSessionValues } from "../identity";
@@ -74,13 +79,7 @@ function buildDoc(input: DocSpec) {
 		...buildDocProduction(input),
 		userProperties: { [role]: { uuid: role, slug: "role", label: "Role" } },
 	});
-	const first = doc.forms[testUuid("frm-register")].formLinks?.[0];
-	if (first)
-		first.condition = parseXPathForForm(
-			doc,
-			testUuid("frm-register"),
-			"#user/role = 'supervisor'",
-		);
+
 	return assertAdmittedPreviewDoc(doc);
 }
 function sourceSessionDatums(
@@ -151,7 +150,13 @@ function spec(args: { readonly patientsInRepeat?: boolean } = {}): DocSpec {
 						formLinks: [
 							{
 								uuid: "lnk-visit",
-								condition: "#user/role = 'supervisor'",
+								condition: eq(
+									{
+										...sessionUserProperty(testUuid("worker-role")),
+										source: "worker-record",
+									},
+									literal("supervisor"),
+								),
 								target: { type: "form", moduleUuid: PATIENTS, formUuid: VISIT },
 							},
 							{
@@ -232,8 +237,14 @@ function spec(args: { readonly patientsInRepeat?: boolean } = {}): DocSpec {
 								uuid: "lnk-survey",
 								target: { type: "form", moduleUuid: PATIENTS, formUuid: VISIT },
 								datums: [
-									{ name: "case_id", xpath: "'p-manual'" },
-									{ name: "parent_id", xpath: "'h-manual'" },
+									{
+										name: { kind: "selected-case", module: PATIENTS },
+										xpath: "'p-manual'",
+									},
+									{
+										name: { kind: "selected-case", module: HOUSEHOLDS },
+										xpath: "'h-manual'",
+									},
 								],
 							},
 						],
@@ -254,6 +265,7 @@ function inputFor(
 	assertAdmittedPreviewDoc(doc);
 	return {
 		doc,
+		formUuid: REGISTER,
 		session: SESSION,
 		usercase: { role: "supervisor" },
 		sessionDatums: new Map(),
@@ -272,8 +284,14 @@ function nestedPatientDoc(): ReturnType<typeof buildDoc> {
 	const surveyLink = doc.forms[FEEDBACK].formLinks?.[0];
 	if (surveyLink)
 		surveyLink.datums = [
-			{ name: "case_id", xpath: xp("'h-manual'") },
-			{ name: "case_id_patient", xpath: xp("'p-manual'") },
+			{
+				name: { kind: "selected-case", module: HOUSEHOLDS },
+				xpath: term(literal("h-manual")),
+			},
+			{
+				name: { kind: "selected-case", module: PATIENTS },
+				xpath: term(literal("p-manual")),
+			},
 		];
 	return assertAdmittedPreviewDoc(doc);
 }
@@ -301,6 +319,11 @@ describe("form-link worker instances", () => {
 		const doc = buildDoc(spec());
 		const caseId = "household-1";
 		const input = inputFor(doc, {
+			formUuid: UPDATE,
+			sessionDatums: sourceSessionDatums(doc, UPDATE, {
+				caseId,
+				childCases: [],
+			}),
 			caseData: new Map([
 				[
 					"household",
@@ -429,20 +452,43 @@ describe("evaluateFormLinks", () => {
 	it("reads case properties as they are after the submission", () => {
 		const doc = buildDoc(spec());
 		const links = linksOf(doc, "frm-update");
+		const submittedHousehold = (village: string) =>
+			inputFor(doc, {
+				formUuid: UPDATE,
+				sessionDatums: sourceSessionDatums(doc, UPDATE, {
+					caseId: "household-1",
+					childCases: [],
+				}),
+				caseDatabase: {
+					rows: [
+						{
+							case_id: "household-1",
+							app_id: doc.appId,
+							case_type: "household",
+							owner_id: "u1",
+							status: "open",
+							opened_on: null,
+							modified_on: null,
+							closed_on: null,
+							case_name: "Household",
+							external_id: null,
+							parent_case_id: null,
+							properties: { village },
+						},
+					],
+					indices: [],
+				},
+			});
 		const north = evaluateFormLinks({
 			links,
 			fallback: "module",
-			input: inputFor(doc, {
-				caseData: new Map([["household", new Map([["village", "north"]])]]),
-			}),
+			input: submittedHousehold("north"),
 		});
 		expect(north.kind === "link" && north.link.uuid).toBe(LINK_CLOSE);
 		const south = evaluateFormLinks({
 			links,
 			fallback: "module",
-			input: inputFor(doc, {
-				caseData: new Map([["household", new Map([["village", "south"]])]]),
-			}),
+			input: submittedHousehold("south"),
 		});
 		expect(south).toEqual({ kind: "fallback", destination: "module" });
 	});
@@ -452,20 +498,21 @@ describe("evaluateFormLinks", () => {
 		const choice = evaluateFormLinks({
 			links: linksOf(doc, "frm-update"),
 			fallback: "module",
-			input: inputFor(doc),
+			input: inputFor(doc, { formUuid: UPDATE }),
 		});
 		expect(choice).toEqual({ kind: "fallback", destination: "module" });
 	});
 
-	it("treats a condition that prints to nothing as unconditional", () => {
+	it("treats an absent condition as unconditional", () => {
 		const doc = buildDoc(spec());
 		const [first] = linksOf(doc, "frm-update");
 		if (first === undefined) throw new Error("fixture has no link");
-		const blank: FormLink = { ...first, condition: xp("   ") };
+		const blank: FormLink = { ...first, condition: undefined };
+		doc.forms[UPDATE].formLinks = [blank];
 		const choice = evaluateFormLinks({
 			links: [blank],
 			fallback: "module",
-			input: inputFor(doc),
+			input: inputFor(doc, { formUuid: UPDATE }),
 		});
 		expect(choice).toMatchObject({ kind: "link", index: 0 });
 	});
@@ -476,7 +523,7 @@ describe("evaluateFormLinks", () => {
 			evaluateFormLinksAsync({
 				links: linksOf(doc, "frm-update"),
 				fallback: "module",
-				input: inputFor(doc),
+				input: inputFor(doc, { formUuid: UPDATE }),
 				evaluate: async () => {
 					throw new Error("worker failed");
 				},
@@ -486,14 +533,19 @@ describe("evaluateFormLinks", () => {
 
 	it("propagates an async manual-datum failure instead of returning blank", async () => {
 		const doc = buildDoc(spec());
+		const datum: FormLinkDatum = {
+			name: { kind: "selected-case", module: PATIENTS },
+			xpath: term(literal("patient-1")),
+		};
+		const link = linkNamed(doc, "frm-feedback", "lnk-survey");
+		const input = withFixtureLink(inputFor(doc), FEEDBACK, {
+			...link,
+			datums: [datum],
+		});
 		await expect(
-			evaluateLinkDatumAsync(
-				{ name: "case_id", xpath: xp("'patient-1'") },
-				inputFor(doc),
-				async () => {
-					throw new Error("worker failed");
-				},
-			),
+			evaluateLinkDatumAsync(datum, input, link.uuid, async () => {
+				throw new Error("worker failed");
+			}),
 		).rejects.toThrow("worker failed");
 	});
 });
@@ -519,27 +571,31 @@ describe("formLinkEvalContext", () => {
 		expect(ctx.resolveXPathInstance?.("casedb")).toBeDefined();
 	});
 
-	it("supports structural session predicates and functions after close", () => {
+	it("evaluates functions over named session values after close", () => {
 		const doc = buildDoc(spec());
 		const input = inputFor(doc, {
 			sessionDatums: new Map([
-				["case_id", { value: "h1" }],
-				["patient_id", { value: "p1" }],
+				["case_id_new_household_0", { value: "h1" }],
+				["case_id_new_patient_1", { value: "p1" }],
 			]),
 		});
-		const [link] = linksOf(doc, "frm-update");
+		const [link] = linksOf(doc, "frm-register");
 		if (link === undefined) throw new Error("fixture has no link");
+		const candidate = withFixtureLink(input, REGISTER, link);
+		link.condition = parseFixtureExpression(
+			candidate.doc,
+			{
+				entity: "form",
+				uuid: REGISTER,
+				slot: "form_link_condition",
+				member: { linkUuid: link.uuid },
+			},
+			"count(instance('commcaresession')/session/data/case_id_new_patient_1) = 1 and starts-with(instance('commcaresession')/session/data/case_id_new_patient_1, 'p')",
+		);
 		const choice = evaluateFormLinks({
-			links: [
-				{
-					...link,
-					condition: xp(
-						"count(instance('commcaresession')/session/data/*[starts-with(., 'p')]) = 1",
-					),
-				},
-			],
+			links: [link],
 			fallback: "module",
-			input,
+			input: candidate,
 		});
 		expect(choice).toMatchObject({ kind: "link", index: 0 });
 	});
@@ -687,7 +743,12 @@ describe("carriedCaseFor", () => {
 		const manual: FormLink = {
 			...automatic,
 			uuid: testUuid("nested-manual-link"),
-			datums: [{ name: "case_id_patient", xpath: xp("'p-manual'") }],
+			datums: [
+				{
+					name: { kind: "selected-case", module: PATIENTS },
+					xpath: term(literal("p-manual")),
+				},
+			],
 		};
 		expect(carriedCaseFor(input, VISIT, manual)).toEqual({
 			kind: "carried",
@@ -784,7 +845,15 @@ describe("carriedCaseFor", () => {
 		});
 		const unnamed: FormLink = {
 			...manual,
-			datums: [{ name: "other", xpath: xp("'x'") }],
+			datums: [
+				{
+					name: {
+						kind: "selected-case",
+						module: testUuid("unmatched-selection"),
+					},
+					xpath: term(literal("x")),
+				},
+			],
 		};
 		expect(carriedCaseFor(inputFor(doc), FEEDBACK, unnamed)).toEqual({
 			kind: "carried",
@@ -800,38 +869,56 @@ describe("carriedCaseFor", () => {
 				childCases: [{ caseType: "patient", caseId: "p1" }],
 			}),
 		});
-		expect(
-			evaluateLinkDatum(
-				{
-					name: "case_id",
-					xpath: xp(
-						"instance('commcaresession')/session/data/case_id_new_patient_1",
-					),
-				},
-				input,
-			),
-		).toBe("p1");
+		const link = linkNamed(doc, "frm-register", "lnk-visit");
+		const datum: FormLinkDatum = {
+			name: { kind: "selected-case", module: PATIENTS },
+			xpath: term(literal("")),
+		};
+		const candidate = withFixtureLink(input, REGISTER, {
+			...link,
+			datums: [datum],
+		});
+		datum.xpath = parseFixtureExpression(
+			candidate.doc,
+			{
+				entity: "form",
+				uuid: REGISTER,
+				slot: "form_link_datum_xpath",
+				member: { linkUuid: link.uuid, datum: datum.name },
+			},
+			"instance('commcaresession')/session/data/case_id_new_patient_1",
+		);
+		expect(evaluateLinkDatum(datum, candidate, link.uuid)).toBe("p1");
 	});
 
-	it("lets a manual datum aggregate structurally selected session data", () => {
+	it("lets a manual datum aggregate named session values", () => {
 		const doc = buildDoc(spec());
 		const input = inputFor(doc, {
 			sessionDatums: new Map([
-				["case_id", { value: "h9" }],
-				["patient_id", { value: "p1" }],
+				["case_id_new_household_0", { value: "h9" }],
+				["case_id_new_patient_1", { value: "p1" }],
 			]),
 		});
-		expect(
-			evaluateLinkDatum(
-				{
-					name: "summary",
-					xpath: xp(
-						"concat(instance('commcaresession')/session/data/case_id, '-', count(instance('commcaresession')/session/data/*))",
-					),
-				},
-				input,
-			),
-		).toBe("h9-2");
+		const link = linkNamed(doc, "frm-register", "lnk-visit");
+		const datum: FormLinkDatum = {
+			name: { kind: "selected-case", module: PATIENTS },
+			xpath: term(literal("")),
+		};
+		const candidate = withFixtureLink(input, REGISTER, {
+			...link,
+			datums: [datum],
+		});
+		datum.xpath = parseFixtureExpression(
+			candidate.doc,
+			{
+				entity: "form",
+				uuid: REGISTER,
+				slot: "form_link_datum_xpath",
+				member: { linkUuid: link.uuid, datum: datum.name },
+			},
+			"concat(instance('commcaresession')/session/data/case_id_new_household_0, '-', count(instance('commcaresession')/session/data/case_id_new_household_0) + count(instance('commcaresession')/session/data/case_id_new_patient_1))",
+		);
+		expect(evaluateLinkDatum(datum, candidate, link.uuid)).toBe("h9-2");
 	});
 });
 
@@ -851,7 +938,12 @@ describe("projectTargetCaseSelections", () => {
 		const link: FormLink = {
 			uuid: testUuid("nested-module-manual-link"),
 			target: { type: "module", moduleUuid: PATIENTS },
-			datums: [{ name: "case_id", xpath: xp("'h-manual'") }],
+			datums: [
+				{
+					name: { kind: "selected-case", module: HOUSEHOLDS },
+					xpath: term(literal("h-manual")),
+				},
+			],
 		};
 
 		expect(projectTargetCaseSelections(inputFor(doc), FEEDBACK, link)).toEqual([
@@ -904,8 +996,14 @@ describe("projectTargetCaseSelections", () => {
 			uuid: testUuid("nested-manual-cases-link"),
 			target: { type: "form", moduleUuid: PATIENTS, formUuid: VISIT },
 			datums: [
-				{ name: "case_id", xpath: xp("'h-manual'") },
-				{ name: "case_id_patient", xpath: xp("'p-manual'") },
+				{
+					name: { kind: "selected-case", module: HOUSEHOLDS },
+					xpath: term(literal("h-manual")),
+				},
+				{
+					name: { kind: "selected-case", module: PATIENTS },
+					xpath: term(literal("p-manual")),
+				},
 			],
 		};
 
@@ -925,3 +1023,42 @@ describe("projectTargetCaseSelections", () => {
 		]);
 	});
 });
+
+/** Hand-authored projection scenarios include deliberately missing selections.
+ * Install the candidate link in the actual form without claiming whole-app admission. */
+function withFixtureLink(
+	input: FormLinkEvaluationInput,
+	formUuid: Uuid,
+	link: FormLink,
+): FormLinkEvaluationInput {
+	const doc = {
+		...input.doc,
+		forms: {
+			...input.doc.forms,
+			[formUuid]: { ...input.doc.forms[formUuid], formLinks: [link] },
+		},
+	};
+	return { ...input, doc, formUuid };
+}
+function carriedCaseFor(
+	input: FormLinkEvaluationInput,
+	formUuid: Uuid,
+	link: FormLink,
+) {
+	return carriedCaseForProduction(
+		withFixtureLink(input, formUuid, link),
+		formUuid,
+		link,
+	);
+}
+function projectTargetCaseSelections(
+	input: FormLinkEvaluationInput,
+	formUuid: Uuid,
+	link: FormLink,
+) {
+	return projectTargetCaseSelectionsProduction(
+		withFixtureLink(input, formUuid, link),
+		formUuid,
+		link,
+	);
+}

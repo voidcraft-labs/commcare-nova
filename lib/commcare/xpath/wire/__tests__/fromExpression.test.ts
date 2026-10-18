@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	type CaseType,
+	type SearchInputDef,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import {
 	ancestorPath,
 	anyRelationPath,
@@ -13,6 +19,7 @@ import {
 	datetimeLiteral,
 	eq,
 	exists,
+	formatDate,
 	gt,
 	ifExpr,
 	input,
@@ -28,9 +35,10 @@ import {
 	switchExpr,
 	term,
 	today,
-} from "@/lib/domain/predicate/builders";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
-import { predicateSchema } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/builders";
+import { slotContext } from "@/lib/domain/expression/context";
+import type { Expression } from "@/lib/domain/expression/types";
+import { expressionSchema } from "@/lib/domain/expression/types";
 import { w } from "../builders";
 import { toWire, type WireBuildContext } from "../fromExpression";
 import {
@@ -41,9 +49,40 @@ import {
 import { casePropertyStep } from "../rowScope";
 import { serializeWire } from "../serialize";
 
-const context: WireBuildContext = { target: "suite", types: {} };
-const lower = (expression: Predicate | ValueExpression) =>
-	toWire(expression, context);
+const MODULE = testUuid("wire-module");
+function wireContext(
+	caseTypes: readonly CaseType[] = [
+		{ name: "patient", parent_type: "household", properties: [] },
+		{ name: "household", properties: [] },
+		{ name: "visit", parent_type: "household", properties: [] },
+	],
+	searchInputs: readonly SearchInputDef[] = [],
+): WireBuildContext {
+	const doc = buildDoc({
+		caseTypes: [...caseTypes],
+		modules: [
+			{
+				uuid: MODULE,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					...caseListConfig([]),
+					searchInputs: [...searchInputs],
+				},
+			},
+		],
+	});
+	const types = slotContext(
+		doc,
+		{ entity: "module", uuid: MODULE, slot: "case_list_filter" },
+		new Map(),
+	);
+	if (types === undefined)
+		throw new Error("The wire fixture has no list-filter context.");
+	return { target: "suite", types };
+}
+const context = wireContext();
+const lower = (expression: Expression) => toWire(expression, context);
 
 // These observations belong to lowering: identity resolution, scalar admission,
 // scope and operation choice. Grammar spelling and native answers have separate
@@ -60,13 +99,79 @@ describe("domain expressions become typed wire trees", () => {
 	});
 
 	it("keeps integer division's zero branch and signed remainder lowering", () => {
-		expect(lower(arith("div", term(literal(-7)), term(literal(2))))).toEqual(
+		expect(
+			lower(arith("quotient", term(literal(-7)), term(literal(2)))),
+		).toEqual(
 			w.call("if", [
 				w.eq(w.num(2), w.num(0)),
 				w.div(w.num(-7), w.num(2)),
 				w.div(w.sub(w.num(-7), w.mod(w.num(-7), w.num(2))), w.num(2)),
 			]),
 		);
+	});
+
+	it("keeps div real even when both literals are integers", () => {
+		expect(lower(arith("div", term(literal(-7)), term(literal(2))))).toEqual(
+			w.div(w.num(-7), w.num(2)),
+		);
+	});
+
+	it("preserves literal date patterns and evaluates computed patterns", () => {
+		expect(lower(formatDate(today(), "short"))).toEqual(
+			w.call("format-date", [w.call("today"), w.str("%m/%d/%Y")]),
+		);
+		expect(lower(formatDate(today(), term(literal("short"))))).toEqual(
+			w.call("format-date", [w.call("today"), w.str("short")]),
+		);
+		expect(
+			lower(
+				formatDate(today(), concat(term(literal("%Y")), term(literal("-%m")))),
+			),
+		).toEqual(
+			w.call("format-date", [
+				w.call("today"),
+				w.call("concat", [w.str("%Y"), w.str("-%m")]),
+			]),
+		);
+	});
+
+	it("keeps query filters and index projection in their own lexical row", () => {
+		const expression: Expression = {
+			kind: "project",
+			of: {
+				kind: "cases",
+				source: "casedb",
+				where: [
+					eq(term({ kind: "prop", property: "case_name" }), literal("Sam")),
+				],
+			},
+			value: { kind: "case-index", identifier: "parent" },
+		};
+		const tree = toWire(expression, {
+			...context,
+			bindings: {
+				caseProperty: () => w.str("outer selected case"),
+				emitSelfProperty: () => w.str("outer property"),
+			},
+		});
+		expect(tree).toEqual(
+			w.instance(caseDbInstance(), [
+				w.step("casedb"),
+				w.step("case", [w.eq(w.context([w.step("case_name")]), w.str("Sam"))]),
+				w.step("index"),
+				w.step("parent"),
+			]),
+		);
+	});
+
+	it("retains explicit generated overrides when their count identity normalizes", () => {
+		const originalCount = count(anyRelationPath("parent", "household"));
+		const generated = w.form(["held_count"]);
+		const tree = toWire(gt(originalCount, literal(0)), {
+			...context,
+			overrides: new Map([[originalCount, generated]]),
+		});
+		expect(tree).toEqual(w.gt(generated, w.num(0)));
 	});
 
 	it("resolves identity bindings to their exact trees without parsing text", () => {
@@ -94,19 +199,21 @@ describe("domain expressions become typed wire trees", () => {
 	it("uses current search names and preserves the contextual instance declaration", () => {
 		const uuid = testUuid("search");
 		const tree = toWire(term(input(uuid)), {
-			...context,
-			types: {
-				knownInputs: [{ uuid, name: "current_name", data_type: "text" }],
-				searchInputInstanceId: "search-input:custom",
-			},
+			...wireContext(undefined, [
+				simpleSearchInputDef(uuid, "current_name", "Name", "text", "case_name"),
+			]),
+			bindings: { searchInputInstanceId: "search-input:custom" },
 		});
 		expect(tree).toEqual(
-			w.instance(searchInputInstance("search-input:custom"), [
-				w.step("input"),
-				w.step("field", [
-					w.eq(w.context([w.attr("name")]), w.str("current_name")),
+			w.expansion(
+				"search",
+				w.instance(searchInputInstance("search-input:custom"), [
+					w.step("input"),
+					w.step("field", [
+						w.eq(w.context([w.attr("name")]), w.str("current_name")),
+					]),
 				]),
-			]),
+			),
 		);
 		expect([...serializeWire(tree, { target: "suite" }).instances]).toEqual([
 			searchInputInstance("search-input:custom"),
@@ -116,16 +223,10 @@ describe("domain expressions become typed wire trees", () => {
 	it("narrows a graph-proven parent relation and holds its destination case type", () => {
 		const tree = toWire(
 			term(prop("patient", "district", anyRelationPath("parent", "household"))),
-			{
-				...context,
-				types: {
-					currentCaseType: "patient",
-					caseTypes: [
-						{ name: "patient", parent_type: "household", properties: [] },
-						{ name: "household", properties: [] },
-					],
-				},
-			},
+			wireContext([
+				{ name: "patient", parent_type: "household", properties: [] },
+				{ name: "household", properties: [] },
+			]),
 		);
 		expect(tree).toEqual(
 			w.instance(caseDbInstance(), [
@@ -205,7 +306,7 @@ describe("domain expressions become typed wire trees", () => {
 		const uuid = testUuid("worker-property");
 		const tree = toWire(term(sessionUserProperty(uuid)), {
 			...context,
-			types: { userPropertySlugs: new Map([[uuid, "region"]]) },
+			bindings: { userPropertySlugs: new Map([[uuid, "region"]]) },
 		});
 		expect(tree).toEqual(
 			w.instance(sessionInstance(), [
@@ -281,15 +382,7 @@ describe("wire lowering preserves the prior defensive refusals", () => {
 			);
 		},
 	);
-	it.each([
-		term(prop("patient", "visit_date", subcasePath("parent", "visit"))),
-		concat(
-			term(literal("Status: ")),
-			term(prop("patient", "status", anyRelationPath("parent", "visit"))),
-		),
-	])("refuses a multi-valued scalar read", (expression) => {
-		expect(() => lower(expression)).toThrow(/several values.*scalar/i);
-	});
+
 	it("refuses a child count below a multi-case candidate scope", () => {
 		const expression = ifExpr(
 			exists(
@@ -299,7 +392,16 @@ describe("wire lowering preserves the prior defensive refusals", () => {
 			term(literal("yes")),
 			term(literal("no")),
 		);
-		expect(() => lower(expression)).toThrow(
+		expect(() =>
+			toWire(
+				expression,
+				wireContext([
+					{ name: "patient", properties: [] },
+					{ name: "visit", parent_type: "patient", properties: [] },
+					{ name: "followup", parent_type: "visit", properties: [] },
+				]),
+			),
+		).toThrow(
 			/child-case count is nested under a relation scope that CommCare Core cannot name/i,
 		);
 	});
@@ -323,7 +425,7 @@ describe("wire lowering preserves the prior defensive refusals", () => {
 			lowerInclusive: true,
 			upperInclusive: true,
 		};
-		expect(predicateSchema.safeParse(bypassed).success).toBe(false);
-		expect(() => lower(bypassed)).toThrow(/between/);
+		expect(expressionSchema.safeParse(bypassed).success).toBe(false);
+		expect(() => lower(bypassed)).toThrow(/range without a bound/);
 	});
 });

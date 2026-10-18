@@ -42,16 +42,19 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
+import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import {
 	CASE_SEARCH_BUTTON_LABEL,
 	type CaseType,
 	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
+	type Uuid,
 } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 
 export interface SearchPanelInspectorBodyProps {
+	readonly moduleUuid: Uuid | undefined;
 	/** Current case-search configuration. `undefined` means the module
 	 *  has no caseSearchConfig authored yet: first edit seeds the slot
 	 *  with the changed sub-slot on top of an otherwise-empty config. */
@@ -80,6 +83,7 @@ export interface SearchPanelInspectorBodyProps {
 }
 
 export function SearchPanelInspectorBody({
+	moduleUuid,
 	value,
 	onChange,
 	caseTypes,
@@ -92,6 +96,15 @@ export function SearchPanelInspectorBody({
 	searchSettingsHasError = false,
 	canOpenOnSearch = false,
 }: SearchPanelInspectorBodyProps) {
+	const expressionContext = useExpressionSlotContext(
+		moduleUuid === undefined
+			? undefined
+			: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "search_button_display_condition",
+				},
+	);
 	const setTitle = (next: string | undefined) => {
 		const authored = next === DEFAULT_CASE_SEARCH_TITLE ? undefined : next;
 		// Clearing an untouched default should only restore that default in the
@@ -102,7 +115,7 @@ export function SearchPanelInspectorBody({
 	};
 	const setSubtitle = (next: string | undefined) =>
 		onChange(setOptionalSlot(value, "searchScreenSubtitle", next));
-	const setDisplayCondition = (next: Predicate | undefined) =>
+	const setDisplayCondition = (next: Expression | undefined) =>
 		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));
 	const searchFirst = value?.searchFirst === true;
 	const setSearchFirst = (next: boolean) =>
@@ -179,6 +192,7 @@ export function SearchPanelInspectorBody({
 					</p>
 				) : (
 					<ConditionSlotSetting
+						expressionContext={expressionContext}
 						title="When Search is available"
 						description="Offer the Search action only when a condition matches"
 						value={value?.searchButtonDisplayCondition}

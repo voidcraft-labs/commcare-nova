@@ -13,7 +13,7 @@ import {
 	prop,
 	sessionContext,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { setCaseSearchAdvancedTool } from "../setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
 

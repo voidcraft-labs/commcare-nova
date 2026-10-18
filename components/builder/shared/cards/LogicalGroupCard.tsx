@@ -16,6 +16,7 @@
 // inner card.
 
 "use client";
+
 import {
 	draggable,
 	dropTargetForElements,
@@ -49,14 +50,15 @@ import {
 	DropdownMenuPositioner,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import type { ConditionArm, ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	and,
+	type Expression,
 	matchAll,
 	matchNone,
 	not,
 	or,
-	type Predicate,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { firstConditionSeed } from "../conditionSeed";
 import {
 	asDragPayload,
@@ -89,9 +91,7 @@ import { ChildPredicateEditor } from "./ChildPredicateEditor";
 // builders WILL collapse `and([single])` → `single` on the next
 // onChange: the user adds a second clause to keep the group around.
 
-export function andDefault(
-	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "and" }> {
+export function andDefault(ctx: PredicateEditContext): ExpressionOfKind<"and"> {
 	const inner = firstConditionSeed(ctx);
 	const second = firstConditionSeed(ctx);
 	if (inner === undefined || second === undefined) {
@@ -101,16 +101,14 @@ export function andDefault(
 		return { kind: "and", clauses: [matchAll(), matchAll()] };
 	}
 	// `and(p1, p2, ...)` resolves through the two-or-more overload
-	// to `Extract<Predicate, { kind: "and" }>` directly, the
+	// to `ExpressionOfKind<"and">` directly, the
 	// non-reducing path. Both inputs are non-sentinel comparison
 	// shapes, so the reductions do not collapse and the envelope
 	// shape is the contracted return type.
 	return and(inner, second);
 }
 
-export function orDefault(
-	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "or" }> {
+export function orDefault(ctx: PredicateEditContext): ExpressionOfKind<"or"> {
 	const a = firstConditionSeed(ctx);
 	const b = firstConditionSeed(ctx);
 	if (a === undefined || b === undefined) {
@@ -119,9 +117,7 @@ export function orDefault(
 	return or(a, b);
 }
 
-export function notDefault(
-	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "not" }> {
+export function notDefault(ctx: PredicateEditContext): ExpressionOfKind<"not"> {
 	// The wrapper flips the truth, so the inner placeholder takes the
 	// OPPOSITE polarity: a fresh "Exclude when" at the root of a global
 	// slot excludes nothing (not(false) = true) until the author fills it.
@@ -131,19 +127,19 @@ export function notDefault(
 	});
 	if (inner === undefined) return { kind: "not", clause: matchAll() };
 	// Route through the builder so the reductions in
-	// `lib/domain/predicate/reduction.ts` apply on every
+	// `lib/domain/expression/reduction.ts` apply on every
 	// construction call (per the file-level JSDoc on
-	// `PredicateCardEditor`). The `inner` widens to `Predicate` at
-	// the call boundary, which selects the catch-all `not(Predicate)
-	// → Extract<Predicate, { kind: "not" }>` overload.
+	// `PredicateCardEditor`). The `inner` widens to `Expression` at
+	// the call boundary, which selects the catch-all `not(Expression)
+	// → ExpressionOfKind<"not">` overload.
 	return not(inner);
 }
 
 // ── Card implementation ────────────────────────────────────────────────
 
 interface LogicalGroupCardProps {
-	readonly value: Extract<Predicate, { kind: "and" | "or" | "not" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"and" | "or" | "not">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
@@ -159,13 +155,13 @@ export function LogicalGroupCard({
 }
 
 interface NotBodyProps {
-	readonly value: Extract<Predicate, { kind: "not" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"not">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
 function NotBody({ value, onChange, path }: NotBodyProps) {
-	const setClause = (next: Predicate) => {
+	const setClause = (next: Expression) => {
 		// `not(...)` builder applies double-negation elimination and
 		// sentinel collapsing; the construction is canonical.
 		onChange(not(next));
@@ -186,8 +182,8 @@ function NotBody({ value, onChange, path }: NotBodyProps) {
 }
 
 interface AndOrBodyProps {
-	readonly value: Extract<Predicate, { kind: "and" | "or" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"and" | "or">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
@@ -342,7 +338,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	);
 
 	const updateClause = useCallback(
-		(index: number, next: Predicate) => {
+		(index: number, next: Expression) => {
 			const updated = value.clauses.map((clause, clauseIndex) =>
 				clauseIndex === index ? next : clause,
 			);
@@ -353,7 +349,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	);
 
 	const addClause = useCallback(
-		(schema: PredicateCardSchema<Predicate["kind"]>) => {
+		(schema: PredicateCardSchema<ConditionArm["kind"]>) => {
 			const next = schema.defaultValue(editCtx);
 			const clauses = [...value.clauses, next];
 			rowIdentity.stage(clauses, {
@@ -391,12 +387,12 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 }
 
 interface ClauseRowProps {
-	readonly clause: Predicate;
+	readonly clause: Expression;
 	readonly itemKey: string;
 	readonly clauseIndex: number;
 	readonly containerKey: string;
 	readonly groupKind: "and" | "or";
-	readonly onChange: (next: Predicate) => void;
+	readonly onChange: (next: Expression) => void;
 	readonly onRemove: () => void;
 	readonly path: EditorPath;
 	readonly pendingDrop: { itemKey: string } | null;
@@ -408,8 +404,10 @@ interface ClauseRowProps {
  *  see what's being moved. The preview shows the matching kind
  *  icon + label so the dragged identity is unambiguous. Mirrors
  *  `DragPreviewPill` in the form-list pattern. */
-function ClauseDragPreview({ kind }: { readonly kind: Predicate["kind"] }) {
-	const schema = predicateCardSchemas[kind];
+function ClauseDragPreview({ kind }: { readonly kind: Expression["kind"] }) {
+	const schema = Object.hasOwn(predicateCardSchemas, kind)
+		? predicateCardSchemas[kind as ConditionArm["kind"]]
+		: undefined;
 	return (
 		<div className="inline-flex items-center gap-1.5 rounded-lg border border-nova-violet/40 bg-nova-surface/95 px-3 py-1.5 text-sm text-nova-text shadow-lg backdrop-blur-sm">
 			<Icon
@@ -419,12 +417,14 @@ function ClauseDragPreview({ kind }: { readonly kind: Predicate["kind"] }) {
 				className="text-nova-text-muted"
 			/>
 			<Icon
-				icon={schema.icon}
+				icon={schema?.icon ?? tablerGripVertical}
 				width="14"
 				height="14"
 				className="text-nova-violet-bright"
 			/>
-			<span className="max-w-[240px] truncate">{schema.label}</span>
+			<span className="max-w-[240px] truncate">
+				{schema?.label ?? "Saved expression"}
+			</span>
 		</div>
 	);
 }
@@ -586,7 +586,7 @@ function ClauseRow({
 }
 
 interface AddClauseMenuProps {
-	readonly onAdd: (schema: PredicateCardSchema<Predicate["kind"]>) => void;
+	readonly onAdd: (schema: PredicateCardSchema<ConditionArm["kind"]>) => void;
 }
 
 function AddClauseMenu({ onAdd }: AddClauseMenuProps) {

@@ -24,7 +24,8 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { type ComponentProps, useMemo, useRef, useState } from "react";
 import { CaseTypePicker } from "@/components/builder/shared/CaseTypePicker";
-import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
+import type { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
+import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -38,12 +39,13 @@ import {
 import { FieldError } from "@/components/shadcn/field";
 import { retargetCaseOperationLink } from "@/lib/doc/caseOperationIntents";
 import { caseOperationLinkIdentifierVerdict } from "@/lib/doc/identifierVerdicts";
+import type { Uuid } from "@/lib/domain";
 import {
 	type CaseOperation,
 	type CaseOperationLink,
 	RESERVED_CASE_OPERATION_TYPES,
 } from "@/lib/domain";
-import { literal, term, type ValueExpression } from "@/lib/domain/predicate";
+import { type Expression, literal, term } from "@/lib/domain/expression";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { CaseTargetPicker, type TargetChoiceContext } from "./CaseTargetPicker";
 import {
@@ -80,6 +82,7 @@ const RELATIONSHIP_DETAIL = {
 } as const;
 
 export function CaseOperationLinks({
+	formUuid,
 	operation,
 	targetContext,
 	defaultTargetType,
@@ -90,6 +93,7 @@ export function CaseOperationLinks({
 	editVerdict,
 	onChange,
 }: {
+	readonly formUuid: Uuid;
 	readonly operation: CaseOperation;
 	readonly targetContext: LinkTargetContext;
 	/** The rolling session-case type at this operation's exact insertion point,
@@ -138,6 +142,8 @@ export function CaseOperationLinks({
 			)}
 			{links.map((link, index) => (
 				<LinkRow
+					formUuid={formUuid}
+					operation={operation}
 					key={link.identifier}
 					link={link}
 					siblings={identifiers}
@@ -193,6 +199,8 @@ export function CaseOperationLinks({
 }
 
 function LinkRow({
+	formUuid,
+	operation,
 	link,
 	siblings,
 	targetContext,
@@ -206,6 +214,8 @@ function LinkRow({
 	onRemove,
 	removeRef,
 }: {
+	readonly formUuid: Uuid;
+	readonly operation: CaseOperation;
 	readonly removeRef?: React.Ref<HTMLButtonElement>;
 	readonly link: CaseOperationLink;
 	readonly siblings: ReadonlySet<string>;
@@ -224,7 +234,7 @@ function LinkRow({
 	readonly onRemove: () => void;
 }) {
 	const [rejection, setRejection] = useState<string | undefined>(undefined);
-	const [targetDraft, setTargetDraft] = useState<ValueExpression | undefined>();
+	const [targetDraft, setTargetDraft] = useState<Expression | undefined>();
 	const taken = useMemo(() => {
 		const others = new Set(siblings);
 		others.delete(link.identifier);
@@ -322,7 +332,33 @@ function LinkRow({
 								</Button>
 							)}
 						</div>
-						<ExpressionCardEditor
+						<ExpressionSlotEditor
+							slot={{
+								entity: "form",
+								uuid: formUuid,
+								slot: "case_operation_link_target_expression",
+								member: {
+									operationUuid: operation.uuid,
+									identifier: link.identifier,
+								},
+							}}
+							candidate={{
+								entity: "case-operation",
+								value: {
+									...operation,
+									links: (operation.links ?? []).map((item) =>
+										item.identifier === link.identifier
+											? {
+													...item,
+													target: {
+														kind: "expression",
+														expr: runtimeTargetExpression,
+													},
+												}
+											: item,
+									),
+								},
+							}}
 							value={runtimeTargetExpression}
 							onChange={(expr) => {
 								if (link.target?.kind === "expression") {

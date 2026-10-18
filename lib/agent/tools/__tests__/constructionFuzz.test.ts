@@ -25,7 +25,17 @@ import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseListConfig, Uuid } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import {
+	arith,
+	eq,
+	formField,
+	gt,
+	literal,
+	matchAll,
+	prop,
+	term,
+	today,
+} from "@/lib/domain/expression";
 import type { CanonicalMutationHost } from "../../workspace/canonicalHost";
 import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
 import type { ToolInvocationContext } from "../../workspace/types";
@@ -136,27 +146,26 @@ const formIndexArb = fc.constantFrom(0, 0, 0, 0, 1, 2);
 
 const LABEL_POOL = ["Name", "Notes", "A label", "Status"];
 
-/* Mostly reference-free: a `#form/<id>` reference is only valid when
- * that sibling exists, which random sequences rarely arrange — the one
- * referencing entry keeps INVALID_REF rejections in play without
- * starving the run of commits. */
-const CLEAN_XPATH = [
-	"today() > '2020-01-01'",
-	"1 = 1",
-	"2 > 1",
-	"true()",
-	"",
-	"string-length(#form/village) > 2",
+/* Canonical tool calls receive typed trees. Parser spelling and syntax refusal
+ * belong to the authoring/parser suites; these pools exercise both schema
+ * refusal and reference admission without reducing the commit coverage. */
+const CLEAN_EXPRESSIONS = [
+	gt(today(), term(literal("2020-01-01"))),
+	eq(literal(1), literal(1)),
+	gt(literal(2), literal(1)),
+	matchAll(),
+	term(literal("")),
+	eq(formField(testUuid("construction-missing-answer")), literal("yes")),
 ];
-const GARBAGE_XPATH = [
-	"Today() > '2020-01-01'", // case-mismatched function → UNKNOWN_FUNCTION
-	"round(2.4, 2) = 2", // wrong arity → WRONG_ARITY
-	"approved", // bare word → UNQUOTED_STRING_LITERAL
-	"if(", // unparseable → XPATH_SYNTAX
+const MALFORMED_EXPRESSIONS = [
+	{ kind: "call", fn: "Today", args: [] },
+	{ kind: "call", fn: "round", args: [term(literal(2.4)), term(literal(2))] },
+	{ kind: "term", term: { kind: "field", uuid: "not-a-uuid" } },
+	{ kind: "if", cond: matchAll() },
 ];
-const xpathArb = fc.oneof(
-	{ arbitrary: fc.constantFrom(...CLEAN_XPATH), weight: 8 },
-	{ arbitrary: fc.constantFrom(...GARBAGE_XPATH), weight: 2 },
+const expressionArb = fc.oneof(
+	{ arbitrary: fc.constantFrom(...CLEAN_EXPRESSIONS), weight: 8 },
+	{ arbitrary: fc.constantFrom(...MALFORMED_EXPRESSIONS), weight: 2 },
 );
 
 const KIND_POOL = [
@@ -199,8 +208,8 @@ const malformedMixFieldArb = fc
 		id: idArb,
 		label: fc.constantFrom(...LABEL_POOL),
 		withOptions: fc.boolean(),
-		withRelevant: fc.option(xpathArb, { nil: undefined }),
-		withCalculate: fc.option(xpathArb, {
+		withRelevant: fc.option(expressionArb, { nil: undefined }),
+		withCalculate: fc.option(expressionArb, {
 			nil: undefined,
 		}),
 		withCaseProp: fc.option(fc.constantFrom(...FIELD_CASE_BINDING_POOL), {
@@ -241,12 +250,11 @@ const malformedMixFieldArb = fc
 				}),
 			...(kind === "hidden"
 				? {
-						calculate: {
-							parts: [{ kind: "text", text: withCalculate ?? "1 + 1" }],
-						},
+						calculate:
+							withCalculate ?? arith("+", term(literal(1)), term(literal(1))),
 					}
 				: withRelevant !== undefined && {
-						relevant: { parts: [{ kind: "text", text: withRelevant }] },
+						relevant: withRelevant,
 					}),
 			// Deliberately also generated for media kinds, whose arms exclude
 			// the slot — those items become schema refusals, which is the
@@ -278,7 +286,7 @@ const cleanFieldArb = fc
 		kind,
 		id: `question_${suffix}`,
 		...(kind === "hidden"
-			? { calculate: { parts: [{ kind: "text", text: "1 + 1" }] } }
+			? { calculate: arith("+", term(literal(1)), term(literal(1))) }
 			: { label: proseText(label) }),
 		...(kind === "single_select"
 			? {
@@ -331,7 +339,7 @@ const opArb = fc.oneof(
 			formIndex: formIndexArb,
 			fieldPick: fc.nat({ max: 5 }),
 			newId: fc.option(idArb, { nil: undefined }),
-			relevant: fc.option(xpathArb, { nil: undefined }),
+			relevant: fc.option(expressionArb, { nil: undefined }),
 			label: fc.option(fc.constantFrom(...LABEL_POOL), { nil: undefined }),
 			// Kind conversion attempt — targets drawn across the
 			// string-compatible tier. Most picks against a random source
@@ -747,14 +755,12 @@ async function applyOp(
 							},
 						}),
 						...(op.convertTo === "hidden" && {
-							calculate: { parts: [{ kind: "text", text: "1 + 1" }] },
+							calculate: arith("+", term(literal(1)), term(literal(1))),
 						}),
 						...(op.newId !== undefined && { id: op.newId }),
 						...(op.relevant !== undefined &&
 							effectiveKind !== "hidden" && {
-								relevant: {
-									parts: [{ kind: "text", text: op.relevant }],
-								},
+								relevant: op.relevant,
 							}),
 						...(op.label !== undefined &&
 							effectiveKind !== "hidden" && {
@@ -1059,10 +1065,9 @@ function assertZeroFindings(doc: BlueprintDoc, context: string): void {
  * The persisted-shape invariant, asserted beside the zero-findings one:
  * every doc the tools grow must round-trip the SAME Zod gate the next
  * load runs (`appDocSchema` parses the stored blueprint through
- * `blueprintDocSchema`). The validator can't see this class — a raw
- * string parked in an AST-typed slot validates clean (the total reader
- * projects it as text) but bricks the app on its next load, which is
- * how the creation tools' unparsed `assessment.user_score` shipped.
+ * `blueprintDocSchema`). This independent shape check catches a tool or reducer bypass that could
+ * otherwise leave an expression the next load cannot read. The contextual
+ * validator and persisted schema are both required admission boundaries.
  */
 function assertPersistedShapeParses(doc: BlueprintDoc, context: string): void {
 	const parsed = blueprintDocSchema.safeParse(toPersistableDoc(doc));

@@ -15,8 +15,8 @@ import {
 	relationStep,
 	subcasePath,
 	term,
-} from "@/lib/domain/predicate";
-import type { Predicate } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression";
+import type { Expression } from "@/lib/domain/expression/types";
 import {
 	projectSpaceAdvisoryUse,
 	projectSpaceCapabilityUse,
@@ -462,7 +462,7 @@ function relationFilter(
 	doc: BlueprintDoc,
 	module: Module,
 	shape: FilterShape,
-): Predicate | undefined {
+): Expression | undefined {
 	const caseType = module.caseType;
 	if (caseType === undefined) return undefined;
 	const types = doc.caseTypes ?? [];
@@ -475,11 +475,11 @@ function relationFilter(
 		case "ancestor-case-id":
 			return parentType === undefined
 				? undefined
-				: eq(term(prop(parentType, "case_id", parent)), literal("abc"));
+				: eq(term(prop(caseType, "case_id", parent)), literal("abc"));
 		case "ancestor-property":
 			return parentType === undefined
 				? undefined
-				: eq(term(prop(parentType, "age", parent)), literal(18));
+				: eq(term(prop(caseType, "age", parent)), literal(18));
 		case "subcase-exists":
 			return childType === undefined
 				? undefined

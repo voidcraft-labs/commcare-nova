@@ -10,6 +10,7 @@
 
 import type { BlueprintDoc } from "./blueprint";
 import { fieldCaseWrite } from "./caseTypes";
+import type { FormStructure } from "./expression/formStructure";
 import { type Field, isCaptureFieldKind } from "./fields";
 import type { FormType } from "./forms";
 import type { Module } from "./modules";
@@ -159,7 +160,70 @@ export function deriveCaseWriteInventory(
 		}
 	};
 	walk(formUuid, [], undefined, undefined, undefined);
+	return classifyCaseWriters(writers, doc, module, formType);
+}
 
+/** Prepared authoring uses the same writer classification as a saved form. */
+export function deriveCaseWriteInventoryForStructure(
+	doc: Pick<BlueprintDoc, "caseTypes" | "userProperties">,
+	form: FormStructure,
+	module: Pick<Module, "caseType">,
+): CaseWriteInventory {
+	const writers: CaseWriteField[] = [];
+	const visiting = new Set<Uuid>();
+	const walk = (
+		parentUuid: Uuid,
+		parentPath: readonly CaseWritePathSegment[],
+		repeat?: { uuid: Uuid; id: string; path: readonly CaseWritePathSegment[] },
+	): void => {
+		if (visiting.has(parentUuid))
+			throw new Error("A prepared form's field ancestry contains a cycle.");
+		visiting.add(parentUuid);
+		for (const uuid of form.fieldOrder.get(parentUuid) ?? []) {
+			const field = form.fields.get(uuid);
+			if (field === undefined)
+				throw new Error("A prepared form's field order names a missing field.");
+			const path = [
+				...parentPath,
+				{
+					fieldUuid: uuid,
+					fieldId: field.id,
+					queryBoundIteration:
+						field.kind === "repeat" && field.repeatMode === "query_bound",
+				},
+			];
+			const nextRepeat =
+				field.kind === "repeat" ? { uuid, id: field.id, path } : repeat;
+			if (field.caseWrite !== undefined)
+				writers.push({
+					fieldUuid: uuid,
+					fieldId: field.id,
+					fieldKind: field.kind,
+					caseType: field.caseWrite.caseType,
+					property: field.caseWrite.property,
+					path,
+					...(nextRepeat === undefined
+						? {}
+						: {
+								repeatUuid: nextRepeat.uuid,
+								repeatId: nextRepeat.id,
+								repeatPath: nextRepeat.path,
+							}),
+				});
+			if (form.fieldOrder.has(uuid)) walk(uuid, path, nextRepeat);
+		}
+		visiting.delete(parentUuid);
+	};
+	walk(form.formUuid, []);
+	return classifyCaseWriters(writers, doc, module, form.type);
+}
+
+function classifyCaseWriters(
+	writers: CaseWriteField[],
+	doc: Pick<BlueprintDoc, "caseTypes" | "userProperties">,
+	module: Pick<Module, "caseType">,
+	formType: FormType,
+): CaseWriteInventory {
 	// The worker's own record is split off BEFORE the module's case type is
 	// consulted, because it does not depend on one. HQ's `usercase_update` is a
 	// form action like any other on a module form, so a form with no case type

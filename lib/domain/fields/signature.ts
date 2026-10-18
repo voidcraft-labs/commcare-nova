@@ -19,15 +19,15 @@ import type { FieldKindMetadata } from "../kinds";
 import {
 	captureCaseWriteSchema,
 	fieldBaseSchema,
+	formLogicSchema,
 	proseTemplateSchema,
-	xpathExpressionSchema,
 } from "./base";
 
 export const signatureFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("signature"),
 	hint: proseTemplateSchema.optional(),
-	required: xpathExpressionSchema.optional(),
-	relevant: xpathExpressionSchema.optional(),
+	required: formLogicSchema.optional(),
+	relevant: formLogicSchema.optional(),
 	caseWrite: captureCaseWriteSchema.optional(),
 });
 

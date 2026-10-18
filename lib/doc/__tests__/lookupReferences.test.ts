@@ -25,20 +25,19 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	type Expression,
+	eq,
+	literal,
+	prop,
+	tableColumn,
+	tableLookup,
+} from "@/lib/domain/expression";
+import {
 	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import {
-	eq,
-	literal,
-	type Predicate,
-	prop,
-	tableColumn,
-	tableLookup,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -89,7 +88,7 @@ function surveyDoc() {
 	return doc;
 }
 
-function lookupExpression(seed: number): ValueExpression {
+function lookupExpression(seed: number): Expression {
 	const table = tableId(String(seed));
 	return tableLookup(
 		table,
@@ -101,7 +100,7 @@ function lookupExpression(seed: number): ValueExpression {
 	);
 }
 
-function lookupPredicate(seed: number): Predicate {
+function lookupPredicate(seed: number): Expression {
 	return eq(lookupExpression(seed), literal(`result-${seed}`));
 }
 
@@ -131,7 +130,7 @@ function expectedExpressionOccurrences(
 		[
 			registrySlot,
 			carrierUuid,
-			`${prefix}/k:where/k:left/k:term/k:columnId`,
+			`${prefix}/k:table-lookup/k:where/k:left/k:columnId`,
 			table,
 			columnId(String(seed * 10 + 2)),
 		],
@@ -355,7 +354,7 @@ describe("lookup reference extraction", () => {
 			[
 				"lookup_options_source",
 				fieldUuid,
-				"/k:filter/k:left/k:term/k:columnId",
+				"/k:filter/k:left/k:columnId",
 				sourceTable,
 				columnId("13"),
 			],
@@ -408,7 +407,7 @@ describe("lookup reference extraction", () => {
 			[
 				"search_input_options",
 				selectInputUuid,
-				"/k:filter/k:left/k:term/k:columnId",
+				"/k:filter/k:left/k:columnId",
 				choiceTable,
 				columnId("33"),
 			],

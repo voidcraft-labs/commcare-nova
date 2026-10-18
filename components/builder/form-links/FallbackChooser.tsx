@@ -34,7 +34,6 @@ import {
 } from "@/components/shadcn/popover";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormLinks } from "@/lib/doc/hooks/useFormLinks";
-import { useParseXPathForForm } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
 import type { FormLinkTarget, PostSubmitDestination } from "@/lib/domain";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
@@ -94,8 +93,7 @@ export function FallbackChooser({
 }: FallbackChooserProps) {
 	const view = useFormLinks(formUuid);
 	const parentName = useModule(useModule(moduleUuid)?.parentModuleUuid)?.name;
-	const sentence = useLinkSentenceContext();
-	const parse = useParseXPathForForm(formUuid);
+	const sentence = useLinkSentenceContext(formUuid);
 	const [open, setOpen] = useState(false);
 	const [stage, setStage] = useState<"choices" | "pick-target">("choices");
 	const [pending, setPending] = useState<PostSubmitDestination | null>(null);
@@ -155,7 +153,7 @@ export function FallbackChooser({
 		};
 		if (currentElse !== undefined) {
 			report(
-				view.update(retargetLink(currentElse, seed, parse), currentElse),
+				view.update(retargetLink(currentElse, seed), currentElse),
 				fallbackChangedAnnouncement(
 					{ kind: "else-link", target },
 					sentence.destinationOf,
@@ -168,7 +166,7 @@ export function FallbackChooser({
 		 * bare else-link arm cannot, and an unconditional add lands last the
 		 * same way. */
 		const uuid = newUuid();
-		const outcome = view.add(seedOtherwiseLink(seed, parse, uuid));
+		const outcome = view.add(seedOtherwiseLink(seed, uuid));
 		report(
 			outcome,
 			fallbackChangedAnnouncement(

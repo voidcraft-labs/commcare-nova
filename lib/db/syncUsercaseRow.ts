@@ -30,7 +30,7 @@ import {
 	usercaseChangedFields,
 	usercaseRecord,
 } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import { eq, literal, prop } from "@/lib/domain/expression/builders";
 
 /** New records are stable per app and worker. Existing rows are always found
  * by hq_user_id, so their historical case identity is preserved. Project is

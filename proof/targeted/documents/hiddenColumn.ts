@@ -20,7 +20,7 @@ import {
 	wireTable,
 } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import { calculatedColumn, plainColumn, proseText } from "@/lib/domain";
-import { eq, prop, tableColumn, tableLookup } from "@/lib/domain/predicate";
+import { eq, prop, tableColumn, tableLookup } from "@/lib/domain/expression";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";

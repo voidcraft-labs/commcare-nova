@@ -11,7 +11,7 @@ import {
 	prop,
 	sessionContext,
 	subcasePath,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	admittedCaseListDoc,
 	findings,
@@ -43,7 +43,10 @@ describe("Search action condition admission", () => {
 			condition: eq(prop("patient", "case_name"), literal("A")),
 			codes: [caseData],
 		},
-		{ condition: exists(subcasePath("parent", "visit")), codes: [caseData] },
+		{
+			condition: exists(subcasePath("parent", "visit")),
+			codes: ["CASE_LIST_EXPRESSION_NOT_ON_DEVICE", caseData],
+		},
 		{
 			condition: gt(sessionContext("username"), literal("M")),
 			codes: [typeError],

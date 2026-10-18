@@ -125,15 +125,12 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MUTATION_TARGET_INVALID: "soundness",
 	MUTATION_CASE_PROPERTY_RENAME_INVALID: "soundness",
 	MUTATION_WIRE_CANONICALITY_INVALID: "soundness",
-	CASE_PROPERTY_REFERENCE_INVALID: "soundness",
 	// A catalog choice value holding whitespace or a quote reaches the suite
 	// as an XPath literal (`field = 'value'`) and the device as a select
 	// value it refuses; the wire cannot carry it.
 	CASE_PROPERTY_OPTION_VALUE_INVALID: "soundness",
 	// A saved value of a catalog with two equal choices can't say which.
 	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: "soundness",
-	CASE_PROPERTY_XPATH_INCOMPATIBLE: "soundness",
-	XPATH_INSTANCE_UNAVAILABLE: "soundness",
 	AUTOMATION_INVALID: "soundness",
 	TRANSLATION_UNIT_UNKNOWN: "soundness",
 	TRANSLATION_VALUE_KIND_MISMATCH: "soundness",
@@ -288,6 +285,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_LINK_UNREACHABLE: "soundness",
 	FORM_LINK_DATUMS_INCOMPLETE: "soundness",
 	FORM_LINK_DATUM_UNUSED: "soundness",
+	FORM_LINK_DATUM_TARGET_COLLISION: "soundness",
 	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: "soundness",
 	FORM_LINK_SELECTION_CARDINALITY: "soundness",
 	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: "soundness",
@@ -297,8 +295,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MULTI_SELECT_AUTHORED_KEY_CREATE: "soundness",
 	MULTI_SELECT_SESSION_OPERATION_LINK: "soundness",
 	MULTI_SELECT_OPERATION_ORDER: "soundness",
-	CONNECT_UNQUOTED_XPATH: "soundness",
-	CONNECT_EMPTY_XPATH: "soundness",
 	CONNECT_MODE_MISMATCH: "soundness",
 	CONNECT_ID_INVALID_FORMAT: "soundness",
 	CONNECT_ID_TOO_LONG: "soundness",
@@ -342,6 +338,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_OPERATION_LINK_INVALID: "soundness",
 	CASE_OPERATION_RETYPE_UNSAFE: "soundness",
 	// ── Field-level ──────────────────────────────────────────────────
+	SELECT_DEFAULT_NOT_AN_OPTION: "soundness",
 	SELECT_NO_OPTIONS: "shape",
 	// `options.length < 2` reached in place by a granular `removeOption` the
 	// reducer applies without re-parsing the field through `fieldSchema`'s
@@ -365,7 +362,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	HIDDEN_VALUE_BOTH_SOURCES: "soundness",
 	REQUIRED_ON_HIDDEN: "shape",
 	CALCULATE_ON_VISIBLE_INPUT: "shape",
-	UNQUOTED_STRING_LITERAL: "soundness",
 	INVALID_FIELD_ID: "soundness",
 	VALIDATION_ON_NON_INPUT_KIND: "shape",
 	REPEAT_COUNT_TYPE: "soundness",
@@ -529,22 +525,10 @@ export const VALIDITY_CLASS_BY_CODE = {
 	HQ_NESTED_SELECTION_UNREPRESENTABLE: "environment",
 	LOOKUP_TAG_RESERVED_BY_HQ: "environment",
 	// ── XPath deep validation ────────────────────────────────────────
-	XPATH_SYNTAX: "soundness",
-	XPATH_UNBOUND_VARIABLE: "soundness",
-	XPATH_UNSUPPORTED_UNION: "soundness",
-	XPATH_UNSUPPORTED_DESCENDANT: "soundness",
-	XPATH_UNSUPPORTED_FILTER: "soundness",
-	XPATH_UNSUPPORTED_AXIS: "soundness",
-	XPATH_UNSUPPORTED_NODE_TEST: "soundness",
-	XPATH_UNSUPPORTED_PATH: "soundness",
 	XPATH_CARRIER_CONTEXT_UNAVAILABLE: "soundness",
-	XPATH_FUNCTION_UNAVAILABLE: "soundness",
-	XPATH_FUNCTION_SIGNATURE_UNAVAILABLE: "soundness",
 	XPATH_FUNCTION_CONTEXT_UNAVAILABLE: "soundness",
 	// Core orders by number and a time of day is NaN: never true.
 	XPATH_TIME_ORDERING: "soundness",
-	UNKNOWN_FUNCTION: "soundness",
-	WRONG_ARITY: "soundness",
 	INVALID_REF: "soundness",
 	INVALID_CASE_REF: "soundness",
 	INVALID_SEARCH_REF: "soundness",

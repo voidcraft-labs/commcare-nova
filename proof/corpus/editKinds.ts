@@ -143,7 +143,6 @@ import {
 	languageTag,
 	locationPropertiesOf,
 	type Module,
-	opaqueXPathExpression,
 	organizationLevelsOf,
 	type ProseTemplate,
 	personasOf,
@@ -163,9 +162,10 @@ import {
 	eq,
 	formField,
 	literal,
+	neq,
 	sessionUser,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import {
 	docAfter,
@@ -1610,7 +1610,7 @@ function planLinkBirth(
 			const attempt = planFormLinkAdd(doc, formUuid, {
 				uuid: ctx.mint.uuid(),
 				target,
-				...(conditional && { condition: opaqueXPathExpression("1 = 1") }),
+				...(conditional && { condition: eq(literal(1), literal(1)) }),
 			});
 			if (attempt.ok) return attempt;
 		}
@@ -1672,7 +1672,7 @@ const updateFormLink: KindGenerator = (ctx) =>
 				? { ...structuredClone(link), target: retarget }
 				: {
 						...structuredClone(link),
-						condition: opaqueXPathExpression("2 = 2"),
+						condition: eq(literal(2), literal(2)),
 					};
 		const plan = planFormLinkUpdate(subject.doc, formUuid, next, link);
 		return withPrefix(
@@ -1878,12 +1878,7 @@ function fieldPatch(ctx: GenContext, at: FieldAt): FieldPatchFor<FieldKind> {
 		ctx.rng.next() < 0.5
 	) {
 		const patch: Record<string, unknown> = {
-			relevant: {
-				parts: [
-					{ kind: "field-ref", uuid: reads.field.uuid },
-					{ kind: "text", text: " != ''" },
-				],
-			},
+			relevant: neq(formField(reads.field.uuid), literal("")),
 		};
 		return patch as FieldPatchFor<FieldKind>;
 	}

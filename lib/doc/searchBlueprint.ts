@@ -12,12 +12,14 @@
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
 	childModuleUuids,
-	expressionInspectionSource,
-	expressionSurfaceReads,
 	fieldCaseWrite,
 	isContainer,
 	projectedModulePreorder,
+	proseSource,
+	proseSurfaceReads,
 } from "@/lib/domain";
+import { expressionSlotValue } from "@/lib/domain/referenceSlots";
+import { projectFormExpression } from "./expressionText";
 import { orderedFieldUuids, orderedFormUuids } from "./fieldWalk";
 
 interface SearchMatch {
@@ -220,7 +222,7 @@ function searchFields(
 		if (field.id.toLowerCase().includes(query)) {
 			matchFields.push({ field: "id", value: field.id });
 		}
-		const label = expressionInspectionSource(field, "label", doc);
+		const label = proseSource(field, "label", doc);
 		if (label?.toLowerCase().includes(query)) {
 			matchFields.push({ field: "label", value: label });
 		}
@@ -235,18 +237,25 @@ function searchFields(
 				value: savesTo,
 			});
 		}
-		// The expression slots this search surface covers — a UX choice of
-		// which slots are worth surfacing, not a slot-resolution list (the
-		// accessor owns that).
+		// Search projects each executable slot with its actual source coordinate.
 		for (const key of [
 			"validate",
 			"relevant",
 			"calculate",
 			"default_value",
-			"validate_msg",
-			"hint",
 		] as const) {
-			const v = expressionInspectionSource(field, key, doc);
+			const slot = { entity: "field" as const, uuid: fieldUuid, slot: key };
+			const expression = expressionSlotValue(doc, slot);
+			const v =
+				expression === undefined
+					? undefined
+					: projectFormExpression(doc, slot, expression, "unavailable").text;
+			if (v?.toLowerCase().includes(query)) {
+				matchFields.push({ field: key, value: v });
+			}
+		}
+		for (const key of ["validate_msg", "hint"] as const) {
+			const v = proseSource(field, key, doc);
 			if (v?.toLowerCase().includes(query)) {
 				matchFields.push({ field: key, value: v });
 			}
@@ -260,7 +269,7 @@ function searchFields(
 				: [];
 		if (opts.length > 0) {
 			const labelByOption = new Map<number, string>();
-			for (const entry of expressionSurfaceReads(field, "prose", doc)) {
+			for (const entry of proseSurfaceReads(field, doc)) {
 				if (entry.slot !== "option_label") continue;
 				const index = entry.indices[0];
 				if (index !== undefined) labelByOption.set(index, entry.text);

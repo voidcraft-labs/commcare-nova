@@ -1,7 +1,7 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain";
-import { actingUser, formField, term } from "@/lib/domain/predicate";
+import { actingUser, formField, term } from "@/lib/domain/expression";
 
 /** Later row insertion reads earlier answers; the outer count is constant. This same authored document is used by the browser, journey
  * and independent Core consumer. */

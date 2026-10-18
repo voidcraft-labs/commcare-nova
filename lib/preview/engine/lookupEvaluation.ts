@@ -44,21 +44,27 @@ import {
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type {
-	CasePropertyDataType,
 	LookupColumnId,
 	LookupOptionsSource,
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
-import type { AstMapHooks } from "@/lib/domain/predicate";
 import {
 	literal,
-	mapExpressionAst,
-	mapPredicateAst,
 	qualifiedLiteral,
 	typeCheckerBypassMessage,
-} from "@/lib/domain/predicate";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression";
+import {
+	activeRowScope,
+	type ExpressionContext,
+	pushRowScope,
+} from "@/lib/domain/expression/context";
+import {
+	type AstMapHooks,
+	mapExpressionAst,
+} from "@/lib/domain/expression/mapAst";
+import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
+import type { Expression } from "@/lib/domain/expression/types";
 import type {
 	LookupColumn,
 	LookupFixtureRow,
@@ -115,9 +121,9 @@ export type { LookupChoice } from "./types";
  * `outer.getValue`.
  */
 export interface LookupEvaluationBindings {
+	readonly types: ExpressionContext;
 	readonly outer: EvalContext;
 	readonly formFields?: ReadonlyMap<Uuid, string>;
-	readonly formFieldTypes?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	readonly emitSelfProperty?: (property: {
 		readonly property: string;
@@ -250,7 +256,7 @@ function emissionContext(
 function matchingRows(
 	data: PreviewLookupData,
 	tableId: LookupTableId,
-	filter: Predicate | undefined,
+	filter: Expression | undefined,
 	bindings: LookupEvaluationBindings,
 	caller: string,
 ): {
@@ -262,11 +268,11 @@ function matchingRows(
 	if (filter === undefined) {
 		return { table, rows, matches: () => true };
 	}
-	const folded = foldTableLookupsInPredicate(filter, data, bindings);
+	const folded = foldTableLookupsInExpression(filter, data, bindings);
 	const emitted = serializeWire(
 		toWire(folded, {
 			target: "suite",
-			types: { formFields: bindings.formFieldTypes },
+			types: bindings.types,
 			anchor: { kind: "unaddressable" },
 			bindings: emissionContext(data, tableId, bindings),
 		}),
@@ -307,15 +313,30 @@ function matchingRows(
  * unpack of the wire's empty node-set.
  */
 export function evaluateTableLookup(
-	expr: Extract<ValueExpression, { kind: "table-lookup" }>,
+	expr: Extract<Expression, { kind: "table-lookup" }>,
 	data: PreviewLookupData,
 	bindings: LookupEvaluationBindings,
 ): string {
+	const active = activeRowScope(bindings.types);
+	const capturedCase =
+		active?.kind === "case"
+			? active
+			: active?.kind === "table"
+				? active.capturedCase
+				: undefined;
 	const { table, rows, matches } = matchingRows(
 		data,
 		expr.tableId,
 		expr.where,
-		bindings,
+		{
+			...bindings,
+			types: pushRowScope(bindings.types, {
+				kind: "table",
+				root: "table",
+				tableId: expr.tableId,
+				...(capturedCase === undefined ? {} : { capturedCase }),
+			}),
+		},
 		"evaluateTableLookup",
 	);
 	const resultColumn = requireColumn(
@@ -339,28 +360,29 @@ export function evaluateTableLookup(
  * downstream emission and evaluation never meet the carrier kinds.
  */
 export function foldTableLookupsInPredicate(
-	predicate: Predicate,
+	predicate: Expression,
 	data: PreviewLookupData,
 	bindings: LookupEvaluationBindings,
-): Predicate {
-	return mapPredicateAst(predicate, foldHooks(data, bindings));
+): Expression {
+	return mapExpressionAst(predicate, foldHooks(data, bindings, predicate));
 }
 
-/** Expression twin of {@link foldTableLookupsInPredicate}. */
+/** Expression twin of {@link foldTableLookupsInExpression}. */
 export function foldTableLookupsInExpression(
-	expression: ValueExpression,
+	expression: Expression,
 	data: PreviewLookupData,
 	bindings: LookupEvaluationBindings,
-): ValueExpression {
-	return mapExpressionAst(expression, foldHooks(data, bindings));
+): Expression {
+	return mapExpressionAst(expression, foldHooks(data, bindings, expression));
 }
 
 function foldHooks(
 	data: PreviewLookupData,
 	bindings: LookupEvaluationBindings,
+	root: Expression,
 ) {
 	return {
-		mapExpression: (expr: ValueExpression) => {
+		mapExpression: (expr: Expression, path: readonly (string | number)[]) => {
 			if (expr.kind !== "table-lookup") return undefined;
 			const { table } = requireTable(data, expr.tableId, "foldHooks");
 			const { dataType } = requireColumn(
@@ -368,7 +390,12 @@ function foldHooks(
 				expr.resultColumnId,
 				"foldHooks",
 			);
-			const value = evaluateTableLookup(expr, data, bindings);
+			const types = expressionContextAtPath(root, bindings.types, path);
+			if (types === undefined)
+				throw new Error(
+					"A lookup expression has no typed context at its stored operand path.",
+				);
+			const value = evaluateTableLookup(expr, data, { ...bindings, types });
 			return {
 				kind: "term" as const,
 				term:
@@ -423,6 +450,7 @@ function coverageHooks(collector: LookupIdentityCollector): AstMapHooks {
 			if (expr.kind === "table-lookup") {
 				collector.check(expr.tableId, expr.resultColumnId);
 			}
+			if (expr.kind === "table-rows") collector.check(expr.tableId);
 			// Descend — nested `where`s carry the table-column terms.
 			return undefined;
 		},
@@ -440,17 +468,17 @@ function coverageHooks(collector: LookupIdentityCollector): AstMapHooks {
  * references? `undefined` data covers exactly the carrier-free case.
  */
 export function predicateLookupsCovered(
-	predicate: Predicate,
+	predicate: Expression,
 	data: PreviewLookupData | undefined,
 ): boolean {
 	const collector = identityCollector(data);
-	mapPredicateAst(predicate, coverageHooks(collector));
+	mapExpressionAst(predicate, coverageHooks(collector));
 	return collector.covered;
 }
 
 /** Expression twin of {@link predicateLookupsCovered}. */
 export function expressionLookupsCovered(
-	expression: ValueExpression,
+	expression: Expression,
 	data: PreviewLookupData | undefined,
 ): boolean {
 	const collector = identityCollector(data);
@@ -472,7 +500,7 @@ export function lookupOptionsSourceCovered(
 	collector.check(source.tableId, source.labelColumnId);
 	if (sortColumnId !== undefined) collector.check(source.tableId, sortColumnId);
 	if (source.filter !== undefined) {
-		mapPredicateAst(source.filter, coverageHooks(collector));
+		mapExpressionAst(source.filter, coverageHooks(collector));
 	}
 	return collector.covered;
 }

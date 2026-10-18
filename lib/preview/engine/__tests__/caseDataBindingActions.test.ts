@@ -16,17 +16,20 @@ import {
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	advancedSearchInputDef,
+	type BlueprintDoc,
 	type CaseListConfig,
 	type CaseOperation,
 	type CaseType,
 	calculatedColumn,
 	type LookupColumnId,
 	type LookupTableId,
+	type Module,
 	plainColumn,
 	simpleSearchInputDef,
 	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression";
 import {
 	and,
 	between,
@@ -52,7 +55,7 @@ import {
 	term,
 	today,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -423,6 +426,39 @@ function buildBlueprint(caseTypes: CaseType[]) {
 			})),
 		}),
 	);
+}
+
+/** The action receives the actual candidate module that owns its settings. */
+function caseListCandidate(
+	config: CaseListConfig,
+	blueprint: BlueprintDoc = buildBlueprint([PATIENT_CASE_TYPE]),
+	excludedOwnerIdsExpression?: Expression,
+) {
+	const module = Object.values(blueprint.modules).find(
+		(candidate) => candidate.caseType === "patient",
+	);
+	if (module === undefined) throw new Error("Patient module is missing.");
+	const candidateModule: Module = {
+		...module,
+		caseListConfig: config,
+		...(excludedOwnerIdsExpression !== undefined && {
+			caseSearchConfig: {
+				...module.caseSearchConfig,
+				excludedOwnerIds: excludedOwnerIdsExpression,
+			},
+		}),
+	};
+	return {
+		blueprint: assertAdmittedPreviewDoc({
+			...blueprint,
+			modules: { ...blueprint.modules, [module.uuid]: candidateModule },
+		}),
+		moduleUuid: module.uuid,
+		caseListConfig: config,
+		...(excludedOwnerIdsExpression !== undefined && {
+			excludedOwnerIdsExpression,
+		}),
+	};
 }
 
 function buildSyntheticRow(properties: JsonObject): CaseRow {
@@ -2172,7 +2208,7 @@ describe("loadCasesAction", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const doc = finalSubmissionDoc();
+		const doc = buildBlueprint([PATIENT_CASE_TYPE]);
 		doc.userProperties = {
 			[propertyUuid]: {
 				uuid: propertyUuid,
@@ -2192,16 +2228,19 @@ describe("loadCasesAction", () => {
 		await loadCasesAction({
 			appId: APP_ID,
 			caseType: "patient",
-			caseListConfig: resolveCaseListConfig({
-				columns: [
-					calculatedColumn(
-						columnUuid,
-						"Supervision area",
-						term(sessionUserProperty(propertyUuid)),
-					),
-				],
-				searchInputs: [],
-			}),
+			...caseListCandidate(
+				resolveCaseListConfig({
+					columns: [
+						calculatedColumn(
+							columnUuid,
+							"Supervision area",
+							term(sessionUserProperty(propertyUuid)),
+						),
+					],
+					searchInputs: [],
+				}),
+				doc,
+			),
 			caseTypes: [PATIENT_CASE_TYPE],
 		});
 
@@ -2218,6 +2257,48 @@ describe("loadCasesAction", () => {
 			"view",
 		);
 	});
+
+	it.each([
+		"missing-document",
+		"missing-module",
+		"different-settings",
+	] as const)(
+		"refuses a list with %s before querying its cases",
+		async (mismatch) => {
+			const { getSession } = await import("@/lib/auth-utils");
+			const { withProjectContext } = await import("@/lib/case-store");
+			vi.mocked(getSession).mockResolvedValueOnce({
+				user: { id: OWNER_A },
+			} as unknown as Awaited<ReturnType<typeof getSession>>);
+			const store = actionStore({ query: appCaseQuery() });
+			vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+			const candidate = caseListCandidate(
+				makeCaseListConfig({
+					columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+				}),
+			);
+
+			const { loadCasesAction } = await import("../caseDataBinding");
+			const result = await loadCasesAction({
+				appId: APP_ID,
+				caseType: "patient",
+				...candidate,
+				...(mismatch === "missing-document" && { blueprint: undefined }),
+				...(mismatch === "missing-module" && {
+					moduleUuid: testUuid("missing-menu"),
+				}),
+				...(mismatch === "different-settings" && {
+					caseListConfig: { ...candidate.caseListConfig, filter: matchNone() },
+				}),
+			});
+
+			expect(result).toMatchObject({
+				kind: "invalid-search",
+				repair: "settings",
+			});
+			expect(appCaseQueryArg(vi.mocked(store.query))).toBeUndefined();
+		},
+	);
 
 	it("returns an honest typed refusal when a selected persona disappeared", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
@@ -2397,12 +2478,14 @@ describe("loadCasesAction", () => {
 		);
 	});
 
-	it("rejects an invalid calendar quantity before opening the case store", async () => {
+	it("rejects an invalid calendar quantity before querying cases", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = actionStore({ query: appCaseQuery() });
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 		const monthInputUuid = testUuid("month-input");
 		const predicate = whenInput(
 			input(monthInputUuid),
@@ -2417,18 +2500,33 @@ describe("loadCasesAction", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypes: [PATIENT_CASE_TYPE],
-			caseListConfig: resolveCaseListConfig({
-				columns: [],
-				searchInputs: [
-					advancedSearchInputDef(
-						monthInputUuid,
-						"months",
-						"Months",
-						"text",
-						predicate,
-					),
-				],
-			}),
+			...caseListCandidate(
+				resolveCaseListConfig({
+					columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+					searchInputs: [
+						advancedSearchInputDef(
+							monthInputUuid,
+							"months",
+							"Months",
+							"text",
+							predicate,
+						),
+					],
+				}),
+				buildBlueprint([
+					{
+						...PATIENT_CASE_TYPE,
+						properties: [
+							...PATIENT_CASE_TYPE.properties,
+							{
+								name: "due_date",
+								label: proseText("Due date"),
+								data_type: "date",
+							},
+						],
+					},
+				]),
+			),
 			inputValues: { months: "1.5" },
 		});
 
@@ -2437,7 +2535,9 @@ describe("loadCasesAction", () => {
 			message: expect.stringContaining("whole number"),
 			repair: "inputs",
 		});
-		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
+		expect(stubStore.query).not.toHaveBeenCalledWith(
+			expect.objectContaining({ caseType: "patient" }),
+		);
 	});
 
 	it("evaluates a session-backed excluded-owner expression before querying", async () => {
@@ -2461,7 +2561,13 @@ describe("loadCasesAction", () => {
 		const result = await loadCasesAction({
 			appId: APP_ID,
 			caseType: "patient",
-			excludedOwnerIdsExpression: term(sessionContext("userid")),
+			...caseListCandidate(
+				makeCaseListConfig({
+					columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+				}),
+				undefined,
+				term(sessionContext("userid")),
+			),
 		});
 
 		expect(result).toEqual({
@@ -2495,7 +2601,13 @@ describe("loadCasesAction", () => {
 		const result = await loadCasesAction({
 			appId: APP_ID,
 			caseType: "patient",
-			excludedOwnerIdsExpression: term(literal("")),
+			...caseListCandidate(
+				makeCaseListConfig({
+					columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+				}),
+				undefined,
+				term(literal("")),
+			),
 		});
 
 		expect(result).toEqual({
@@ -2526,7 +2638,7 @@ describe("loadCasesAction", () => {
 
 		const rangeInput = simpleSearchInputDef(
 			testUuid("range-action"),
-			"visit_dates",
+			"dob",
 			"Visit dates",
 			"date-range",
 			"dob",
@@ -2541,13 +2653,17 @@ describe("loadCasesAction", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypes: [FORMATTED_PROPS_CASE_TYPE],
-			caseListConfig: resolveCaseListConfig({
-				columns: [],
-				searchInputs: [rangeInput],
-			}),
+			...caseListCandidate(
+				resolveCaseListConfig({
+					columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+					searchInputs: [rangeInput],
+				}),
+				buildBlueprint([FORMATTED_PROPS_CASE_TYPE]),
+				excludedOwnerIdsExpression,
+			),
 			inputValues: {
-				"visit_dates:from": "2025-01-02",
-				"visit_dates:to": "2025-03-04",
+				"dob:from": "2025-01-02",
+				"dob:to": "2025-03-04",
 			},
 			excludedOwnerIdsExpression,
 		});
@@ -2572,7 +2688,7 @@ describe("loadCasesAction", () => {
 		);
 	});
 
-	it("rejects an incomplete date-range request before querying the store", async () => {
+	it("rejects an incomplete date-range request before querying matching cases", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -2587,7 +2703,7 @@ describe("loadCasesAction", () => {
 
 		const rangeInput = simpleSearchInputDef(
 			testUuid("range-action"),
-			"visit_dates",
+			"dob",
 			"Visit dates",
 			"date-range",
 			"dob",
@@ -2597,11 +2713,14 @@ describe("loadCasesAction", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypes: [FORMATTED_PROPS_CASE_TYPE],
-			caseListConfig: resolveCaseListConfig({
-				columns: [],
-				searchInputs: [rangeInput],
-			}),
-			inputValues: { "visit_dates:from": "2025-01-02" },
+			...caseListCandidate(
+				resolveCaseListConfig({
+					columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+					searchInputs: [rangeInput],
+				}),
+				buildBlueprint([FORMATTED_PROPS_CASE_TYPE]),
+			),
+			inputValues: { "dob:from": "2025-01-02" },
 		});
 
 		expect(result).toEqual({
@@ -2609,7 +2728,9 @@ describe("loadCasesAction", () => {
 			message: "Choose both a start date and an end date",
 			repair: "inputs",
 		});
-		expect(stubStore.query).not.toHaveBeenCalled();
+		expect(stubStore.query).not.toHaveBeenCalledWith(
+			expect.objectContaining({ caseType: "patient" }),
+		);
 	});
 
 	it("collapses a Project-membership denial to the not-found arm without binding a store", async () => {
@@ -2973,12 +3094,7 @@ describe("loadCaseDataAction session projection", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 		const calculatedUuid = testUuid("00000000-0000-0000-0000-000000000d03");
 
-		const { loadCaseDataAction } = await import("../caseDataBinding");
-		const result = await loadCaseDataAction(
-			APP_ID,
-			"patient",
-			ALICE_CASE_ID,
-			0,
+		const candidate = caseListCandidate(
 			resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
@@ -2990,13 +3106,78 @@ describe("loadCaseDataAction session projection", () => {
 				],
 				searchInputs: [],
 			}),
+		);
+
+		const { loadCaseDataAction } = await import("../caseDataBinding");
+		const result = await loadCaseDataAction(
+			APP_ID,
+			"patient",
+			ALICE_CASE_ID,
+			0,
+			candidate.caseListConfig,
 			[PATIENT_CASE_TYPE],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			candidate.blueprint,
+			candidate.moduleUuid,
 		);
 
 		expect(result.kind).toBe("row");
 		const queryArg = appCaseQueryArg(stubStore.query);
 		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
 		expect(queryArg?.bindings?.sessionUserFallback).toBe("");
+	});
+
+	it("refuses a Details calculation detached from its candidate module", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const store = actionStore({ query: appCaseQuery() });
+		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+		const candidate = caseListCandidate(
+			makeCaseListConfig({
+				columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+			}),
+		);
+		const detachedConfig = resolveCaseListConfig({
+			columns: [
+				calculatedColumn(
+					testUuid("detached-details-column"),
+					"Age",
+					term(prop("patient", "age")),
+				),
+			],
+			searchInputs: [],
+		});
+
+		const { loadCaseDataAction } = await import("../caseDataBinding");
+		const result = await loadCaseDataAction(
+			APP_ID,
+			"patient",
+			ALICE_CASE_ID,
+			0,
+			detachedConfig,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			candidate.blueprint,
+			candidate.moduleUuid,
+		);
+
+		expect(result).toEqual({
+			kind: "error",
+			message:
+				"These settings changed while the cases were loading. Try again.",
+		});
+		expect(appCaseQueryArg(vi.mocked(store.query))).toBeUndefined();
 	});
 
 	it("uses the persona owner for a selected row while membership stays on the member", async () => {
@@ -3051,7 +3232,7 @@ describe("loadCaseDataAction session projection", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const doc = finalSubmissionDoc();
+		const doc = buildBlueprint([PATIENT_CASE_TYPE]);
 		doc.userProperties = {
 			[propertyUuid]: {
 				uuid: propertyUuid,
@@ -3074,12 +3255,7 @@ describe("loadCaseDataAction session projection", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
 		const columnUuid = testUuid("worker-detail-column");
 
-		const { loadCaseDataAction } = await import("../caseDataBinding");
-		await loadCaseDataAction(
-			APP_ID,
-			"patient",
-			ALICE_CASE_ID,
-			0,
+		const candidate = caseListCandidate(
 			resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
@@ -3091,10 +3267,24 @@ describe("loadCaseDataAction session projection", () => {
 				],
 				searchInputs: [],
 			}),
+			doc,
+		);
+
+		const { loadCaseDataAction } = await import("../caseDataBinding");
+		await loadCaseDataAction(
+			APP_ID,
+			"patient",
+			ALICE_CASE_ID,
+			0,
+			candidate.caseListConfig,
 			[PATIENT_CASE_TYPE],
 			undefined,
 			undefined,
 			personaUuid,
+			undefined,
+			undefined,
+			candidate.blueprint,
+			candidate.moduleUuid,
 		);
 
 		const bindings = appCaseQueryArg(vi.mocked(store.query))?.bindings;
@@ -3213,11 +3403,11 @@ describe("loadFilterPreviewAction", () => {
 			],
 		};
 
-		const { loadFilterPreviewAction } = await import("../caseDataBinding");
-		const result = await loadFilterPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: assertAdmittedPreviewDoc(
+		const candidate = caseListCandidate(
+			makeCaseListConfig({
+				columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Case name")],
+			}),
+			assertAdmittedPreviewDoc(
 				buildDoc({
 					caseTypes: [canonicalPatientCaseType],
 					modules: [
@@ -3244,9 +3434,13 @@ describe("loadFilterPreviewAction", () => {
 					],
 				}),
 			),
-			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Case name")],
-			}),
+		);
+
+		const { loadFilterPreviewAction } = await import("../caseDataBinding");
+		const result = await loadFilterPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			...candidate,
 		});
 		// Filter preview returns a single `rows` arm even when empty. The
 		// load-bearing assertion is the negative: NOT `invalid-blueprint`.
@@ -3296,17 +3490,19 @@ describe("loadFilterPreviewAction", () => {
 		await loadFilterPreviewAction({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: candidate,
-			caseListConfig: resolveCaseListConfig({
-				columns: [
-					calculatedColumn(
-						testUuid("candidate-worker-column"),
-						"Candidate area",
-						term(sessionUserProperty(propertyUuid)),
-					),
-				],
-				searchInputs: [],
-			}),
+			...caseListCandidate(
+				resolveCaseListConfig({
+					columns: [
+						calculatedColumn(
+							testUuid("candidate-worker-column"),
+							"Candidate area",
+							term(sessionUserProperty(propertyUuid)),
+						),
+					],
+					searchInputs: [],
+				}),
+				candidate,
+			),
 		});
 
 		const bindings = appCaseQueryArg(vi.mocked(store.query))?.bindings;

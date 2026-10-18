@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { caseOperationFixture } from "./caseOperationFixture";
 
 function linkDocument(): { doc: BlueprintDoc; operation: CaseOperation } {

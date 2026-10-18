@@ -40,10 +40,11 @@ and a second menu (``case-operation-query``).
 from __future__ import annotations
 
 import pytest
+from lxml import etree
 
 from proof.formplayer import apps, canonical
 from proof.formplayer import walk as walk_module
-from proof.formplayer.walk import REPEAT, screen_kind, script_of, shown_inputs
+from proof.formplayer.walk import REPEAT, questions, screen_kind, script_of, shown_inputs
 from proof.observe import walks
 
 
@@ -70,6 +71,48 @@ def _walked(document, core_runner, formplayer_runner):
     with apps.published(document, core_runner) as published:
         with apps.served(published, formplayer_runner) as served:
             return apps.walked(formplayer_runner, served)
+
+
+def _with_starting_answer(source, value):
+    """A form with text followed by an integer's starting answer, written through HQ's own app and save."""
+    xforms = "{http://www.w3.org/2002/xforms}"
+    root = etree.fromstring(source.encode())
+    (instance,) = [node for node in root.iter(f"{xforms}instance") if node.get("id") is None]
+    namespace = etree.QName(instance[0]).namespace
+    return f'''<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml"
+        xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+      <h:head><h:title>Starting answers</h:title><model>
+        <instance><data xmlns="{namespace}"><text/><number>{value}</number></data></instance>
+        <bind nodeset="/data/text" type="xsd:string"/><bind nodeset="/data/number" type="xsd:int"/>
+      </model></h:head><h:body>
+        <input ref="/data/text"><label>Text</label></input>
+        <input ref="/data/number"><label>Number</label></input>
+      </h:body></h:html>'''
+
+
+@pytest.mark.parametrize("starting", [7, 3])
+def test_a_question_already_holding_the_tables_answer_sends_nothing(
+    starting, hq, core_runner, formplayer_runner, formplayer_documents
+):
+    """An unchanged widget sends no request. Sending the same integer again would make Formplayer reread the
+    earlier padded text and make the walk reconcile it to trimmed text, unlike the client's unchanged widget.
+    A different starting integer still takes the table's answer and causes that ordinary reconciliation."""
+    with apps.published(formplayer_documents["xpath-context"], core_runner) as published:
+        change = apps.form_written(published, {"0.0": lambda source: _with_starting_answer(source, starting)})
+        with apps.served(published, formplayer_runner, change=change) as served:
+            walked = apps.walked(formplayer_runner, served)
+    [run] = walked["runs"]
+    assert run["end"] == "submitted"
+    [opened] = [step["response"] for step in run["steps"] if screen_kind(step.get("response")) == "form"]
+    nodes = {node["caption"]: node for node in questions(opened["tree"]) if node.get("type") == "question"}
+    number, text = nodes["Number"]["ix"], nodes["Text"]["ix"]
+    assert nodes["Number"]["answer"] == starting
+    [filled] = [step for step in run["steps"] if "answers" in step]
+    sent_number = [attempt["value"] for attempt in filled["answers"] if attempt["ix"] == number]
+    assert sent_number == ([] if starting == 7 else ["7"])
+    assert filled["submitted"]["answers"][number] == 7
+    assert filled["submitted"]["answers"][text] == ("  proof  " if starting == 7 else "proof")
+    assert [entry["value"] for entry in filled["resent"] if entry["ix"] == text] == ([] if starting == 7 else ["proof"])
 
 
 def _search(run):

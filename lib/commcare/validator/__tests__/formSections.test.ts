@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, type FieldSpec, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
@@ -129,7 +129,7 @@ describe("form sections", () => {
 					id: "r",
 					label: proseText("R"),
 					repeat_mode: "count_bound",
-					repeat_count: xp("2"),
+					repeat_count: "2",
 					children: [section("in_repeat", [])],
 				}),
 			]),
@@ -204,7 +204,7 @@ describe("form sections", () => {
 						id: "fixed",
 						label: proseText("Fixed"),
 						repeat_mode: "count_bound",
-						repeat_count: xp("3"),
+						repeat_count: "3",
 						children: [text("a")],
 					}),
 					f({
@@ -213,7 +213,7 @@ describe("form sections", () => {
 						label: proseText("Per case"),
 						repeat_mode: "query_bound",
 						data_source: {
-							ids_query: xp("instance('casedb')/casedb/case/@case_id"),
+							ids_query: "instance('casedb')/casedb/case/@case_id",
 						},
 						children: [text("b")],
 					}),

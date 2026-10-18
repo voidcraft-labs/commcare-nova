@@ -32,11 +32,7 @@
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import {
-	caseWriteSchema,
-	structuralFieldBase,
-	xpathExpressionSchema,
-} from "./base";
+import { caseWriteSchema, formLogicSchema, structuralFieldBase } from "./base";
 
 export const hiddenFieldSchema = structuralFieldBase.extend({
 	kind: z.literal("hidden"),
@@ -44,9 +40,9 @@ export const hiddenFieldSchema = structuralFieldBase.extend({
 	// `default_value` (a one-shot seed), or from neither (it stays blank).
 	// The pair is refused by the validator rather than the schema so
 	// historical documents hydrate.
-	calculate: xpathExpressionSchema.optional(),
-	default_value: xpathExpressionSchema.optional(),
-	relevant: xpathExpressionSchema.optional(),
+	calculate: formLogicSchema.optional(),
+	default_value: formLogicSchema.optional(),
+	relevant: formLogicSchema.optional(),
 	caseWrite: caseWriteSchema.optional(),
 });
 

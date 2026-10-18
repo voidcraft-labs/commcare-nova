@@ -34,8 +34,8 @@ import {
 	literal,
 	multiSelectAny,
 	prop,
-} from "@/lib/domain/predicate/builders";
-import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+} from "@/lib/domain/expression/builders";
+import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { runStoreContract } from "../../__tests__/storeContract";

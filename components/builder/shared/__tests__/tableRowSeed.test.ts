@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import {
 	firstConditionSeed,
@@ -10,19 +11,19 @@ import {
 	predicateCardSchemas,
 	predicateUnavailableReason,
 } from "@/components/builder/shared/editorSchemas";
-import { buildEditorTypeContext } from "@/components/builder/shared/editorTypeContext";
+import { editorExpressionContext } from "@/components/builder/shared/editorTypeContext";
 import { expressionCardSchemas } from "@/components/builder/shared/expressionEditorSchemas";
 import { defaultExpressionForSlot } from "@/components/builder/shared/primitives/ExpressionPicker";
 import { lookupColumnIdSchema, lookupTableIdSchema } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
-	checkPredicate,
+	checkExpression,
 	eq,
+	expressionSchema,
 	literal,
-	predicateSchema,
 	tableColumn,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 
 const TABLE = lookupTableIdSchema.parse("018f3e8a-7b2c-7def-8abc-1234567890ab");
 const OTHER_TABLE = lookupTableIdSchema.parse(
@@ -46,38 +47,41 @@ const COLUMNS = [
 	},
 ] as const;
 
-const TABLE_ROW_CONTEXT: PredicateEditContext = {
-	caseTypes: [],
-	currentCaseType: "",
-	knownInputs: [],
-	caseDataScope: "table-row",
-	lookupTables: [
-		{
-			id: TABLE,
-			name: "Facilities",
+const TABLE_ROW_CONTEXT: PredicateEditContext = expressionEditorFixture(
+	"table-filter",
+	{
+		caseTypes: [],
+		currentCaseType: "",
+		knownInputs: [],
+		caseDataScope: "table-row",
+		lookupTables: [
+			{
+				id: TABLE,
+				name: "Facilities",
+				columns: COLUMNS,
+			},
+		],
+		tableScope: {
+			tableId: TABLE,
 			columns: COLUMNS,
 		},
-	],
-	tableScope: {
-		tableId: TABLE,
-		columns: COLUMNS,
 	},
-};
+).context;
 
 describe("table-row comparison seeds", () => {
 	it("starts from the active table's first column UUID with a type-correct literal", () => {
 		const seed = firstComparisonDefault(TABLE_ROW_CONTEXT);
 		expect(seed).toEqual(eq(tableColumn(TABLE, CODE), literal(0)));
 
-		const verdict = checkPredicate(
+		const verdict = checkExpression(
 			seed,
-			buildEditorTypeContext(TABLE_ROW_CONTEXT),
+			editorExpressionContext(TABLE_ROW_CONTEXT),
 		);
-		expect(verdict.ok).toBe(true);
+		expect(verdict.errors.length === 0).toBe(true);
 	});
 
 	it("makes every offered condition's exact default schema-valid and checker-valid", () => {
-		const typeContext = buildEditorTypeContext(TABLE_ROW_CONTEXT);
+		const typeContext = editorExpressionContext(TABLE_ROW_CONTEXT);
 		const offered = predicateCardSchemaList.filter((schema) =>
 			schema.applicable(TABLE_ROW_CONTEXT),
 		);
@@ -85,11 +89,11 @@ describe("table-row comparison seeds", () => {
 		expect(offered.length).toBeGreaterThan(0);
 		for (const schema of offered) {
 			const seed = schema.defaultValue(TABLE_ROW_CONTEXT);
-			expect(predicateSchema.safeParse(seed), schema.kind).toMatchObject({
+			expect(expressionSchema.safeParse(seed), schema.kind).toMatchObject({
 				success: true,
 			});
-			expect(checkPredicate(seed, typeContext), schema.kind).toMatchObject({
-				ok: true,
+			expect(checkExpression(seed, typeContext), schema.kind).toMatchObject({
+				errors: [],
 			});
 		}
 	});
@@ -166,15 +170,16 @@ describe("table-row comparison seeds", () => {
 	});
 
 	it("admits the same table/column pair and rejects the same column UUID under another table", () => {
-		const typeContext = buildEditorTypeContext(TABLE_ROW_CONTEXT);
+		const typeContext = editorExpressionContext(TABLE_ROW_CONTEXT);
 		expect(
-			checkPredicate(eq(tableColumn(TABLE, CODE), literal(0)), typeContext).ok,
+			checkExpression(eq(tableColumn(TABLE, CODE), literal(0)), typeContext)
+				.errors.length === 0,
 		).toBe(true);
 		expect(
-			checkPredicate(
+			checkExpression(
 				eq(tableColumn(OTHER_TABLE, CODE), literal(0)),
 				typeContext,
-			).ok,
+			).errors.length === 0,
 		).toBe(false);
 	});
 

@@ -23,7 +23,6 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	captureFieldKinds,
 	type Field,
@@ -31,6 +30,13 @@ import {
 	type HiddenField,
 	type TextField,
 } from "@/lib/domain";
+import {
+	arith,
+	literal,
+	matchAll,
+	matchNone,
+	term,
+} from "@/lib/domain/expression/builders";
 import type { FieldEditorContext, FieldEditorEntry } from "@/lib/domain/kinds";
 import { proseText } from "@/lib/domain/prose";
 import { fieldEditorSchemas } from "../fieldEditorSchemas";
@@ -174,15 +180,6 @@ describe("the default value entry", () => {
 		).toBe("pill");
 	});
 
-	it("is an active row wherever a stored expression exists", () => {
-		expect(
-			defaultValuePlacement(
-				textField({ default_value: xp("'none'") }),
-				NO_CONTEXT,
-			),
-		).toBe("row");
-	});
-
 	it("does not exist on the capture kinds", () => {
 		for (const kind of captureFieldKinds) {
 			const field = {
@@ -197,20 +194,37 @@ describe("the default value entry", () => {
 	});
 });
 
+it.each([
+	["default_value", term(literal(""))],
+	["relevant", matchNone()],
+	["validate", matchAll()],
+] as const)(
+	"keeps a stored %s expression in its active row",
+	(slot, expression) => {
+		const field = textField({ [slot]: expression });
+		const { visible, pills } = partitionEditorEntries(
+			field,
+			schemaOf(field).logic,
+			NO_CONTEXT,
+		);
+		expect(visible.map(({ entry }) => entry.key)).toContain(slot);
+		expect(pills.map((entry) => entry.key)).not.toContain(slot);
+	},
+);
+
 describe("the hidden field's Logic section", () => {
 	it("is exactly the Value control and Show when", () => {
 		const hidden: HiddenField = {
 			kind: "hidden",
 			uuid: FIELD_UUID,
 			id: "total",
-			calculate: xp("1 + 1"),
+			calculate: arith("+", term(literal(1)), term(literal(1))),
 		};
 		expect(schemaOf(hidden).logic.map((entry) => entry.key)).toEqual([
 			"calculate",
 			"relevant",
 		]);
-		// The Value control is always an active row: a hidden field with no
-		// value is refused before it can exist, so there is nothing to add.
+		// The Value control remains an active row so its calculation can be edited.
 		const { visible, pills } = partitionEditorEntries(
 			hidden,
 			schemaOf(hidden).logic,

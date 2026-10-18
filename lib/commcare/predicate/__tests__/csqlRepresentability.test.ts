@@ -18,6 +18,7 @@ import {
 	datetimeCoerce,
 	datetimeLiteral,
 	double,
+	type Expression,
 	eq,
 	exists,
 	formatDate,
@@ -42,7 +43,6 @@ import {
 	not,
 	now,
 	or,
-	type Predicate,
 	prop,
 	relationStep,
 	selfPath,
@@ -52,10 +52,10 @@ import {
 	term,
 	today,
 	unowned,
-	type ValueExpression,
 	whenInput,
 	within,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { csqlFixtureContext } from "../../__tests__/csqlFunctionFixture";
 import {
 	checkCsqlRepresentability,
 	normalizeCsqlPredicate,
@@ -67,14 +67,15 @@ const badLiteral = literal(`it's "quoted"`);
 const bad = term(badLiteral);
 const safe = term(literal("safe"));
 const dynamic = eq(query, literal("yes"));
-// This private analysis has no document/type context. Its output proves only
-// diagnostics and normalization; admitted export/runtime evidence lives below
-// and in the native function, quote and search corpora.
-const issues = (predicate: Predicate) =>
-	checkCsqlRepresentability(predicate).map(({ reason, path }) => ({
-		reason,
-		path,
-	}));
+// These diagnostics use a real Search carrier; complete admission and native
+// execution evidence lives in the function, quote, and search corpora.
+const issues = (predicate: Expression) =>
+	checkCsqlRepresentability(predicate, csqlFixtureContext().types).map(
+		({ reason, path }) => ({
+			reason,
+			path,
+		}),
+	);
 
 it("rejects all four unsafe native branches and admits their safe counterparts through the full gate", () => {
 	const unsafe = csqlStaticQuoteFixture("unsafe");
@@ -402,7 +403,7 @@ describe("static branch reachability", () => {
 			),
 			true,
 		],
-	] satisfies readonly (readonly [string, ValueExpression, boolean])[])(
+	] satisfies readonly (readonly [string, Expression, boolean])[])(
 		"handles %s",
 		(_name, value, rejected) => {
 			expect(issues(eq(field("name"), value))).toEqual(
@@ -483,10 +484,9 @@ describe("the three system dates", () => {
 				between(field(name), { lower: nullValue }),
 			]) {
 				expect(
-					checkCsqlRepresentability(predicate).map((issue) => [
-						issue.reason,
-						issue.details,
-					]),
+					checkCsqlRepresentability(predicate, csqlFixtureContext().types).map(
+						(issue) => [issue.reason, issue.details],
+					),
 				).toEqual([
 					["system-datetime-value", { property: name, shape: "null-value" }],
 				]);
@@ -516,7 +516,7 @@ describe("the three system dates", () => {
 });
 
 describe("the system dates at the gate", () => {
-	function searchFiltering(filter: Predicate) {
+	function searchFiltering(filter: Expression) {
 		const doc = structuredClone(searchEmissionFixture("remote"));
 		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
 		if (!config) throw new Error("Search fixture needs a case list");

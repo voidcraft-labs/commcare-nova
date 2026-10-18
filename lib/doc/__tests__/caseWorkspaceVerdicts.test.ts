@@ -24,10 +24,6 @@ import {
 import { DATE_FORMAT_PRESET_DEFINITIONS } from "@/lib/domain/dateFormats";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
-import {
 	ancestorPath,
 	dateAdd,
 	double,
@@ -36,13 +32,17 @@ import {
 	literal,
 	matchAll,
 	now,
-	type Predicate,
 	prop,
 	relationStep,
 	sessionContext,
 	tableLookup,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/builders";
+import type { Expression } from "@/lib/domain/expression/types";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { columnSnapshotBatchMutations } from "../caseListColumnMutations";
 import {
@@ -83,7 +83,7 @@ function docWith({
 	columns = [plainColumn(testUuid("name-column"), "case_name", "Name")],
 	caseTypes,
 }: {
-	readonly filter?: Predicate;
+	readonly filter?: Expression;
 	readonly searchInputs?: SearchInputDef[];
 	readonly caseSearchConfig?: CaseSearchConfig;
 	readonly columns?: Column[];

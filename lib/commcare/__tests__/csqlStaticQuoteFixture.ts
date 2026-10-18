@@ -10,7 +10,7 @@ import {
 	switchCase,
 	switchExpr,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { searchEmissionFixture } from "./searchEmissionFixture";
 
 /** Opposite branches under the same four native equality conditions. The unsafe

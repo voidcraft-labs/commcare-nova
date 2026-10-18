@@ -26,7 +26,6 @@ import {
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormLinkTargetVisibility } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useFormLinks } from "@/lib/doc/hooks/useFormLinks";
-import { useParseXPathForForm } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
 import type { CommitOutcome, FormLink, FormLinkTarget } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
@@ -36,11 +35,7 @@ import { hiddenTargetLine, pinsFallbackSentence } from "./afterSubmitCopy";
 import { LinkTargetPickerContent } from "./LinkTargetPicker";
 import { linkLead } from "./linkSentence";
 import { makeOtherwiseUnavailableReason, removalQuestion } from "./refusalCopy";
-import {
-	retargetDropsCarriedValues,
-	retargetLink,
-	SEED_CONDITION_TEXT,
-} from "./seeds";
+import { retargetDropsCarriedValues, retargetLink } from "./seeds";
 import { useLinkSentenceContext } from "./useLinkSentenceContext";
 
 export function FormLinkInspectorBody({
@@ -54,8 +49,7 @@ export function FormLinkInspectorBody({
 }) {
 	const view = useFormLinks(formUuid);
 	const form = useForm(formUuid);
-	const sentence = useLinkSentenceContext();
-	const parse = useParseXPathForForm(formUuid);
+	const sentence = useLinkSentenceContext(formUuid);
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
@@ -138,15 +132,11 @@ export function FormLinkInspectorBody({
 						lead={lead}
 						canEdit={canEdit}
 						onChoose={(target) => {
-							const next = retargetLink(
-								link,
-								{
-									target,
-									carry: view.carryVerdict(target),
-									required: view.requiredDatums(target),
-								},
-								parse,
-							);
+							const next = retargetLink(link, {
+								target,
+								carry: view.carryVerdict(target),
+								required: view.requiredDatums(target),
+							});
 							const dropped = retargetDropsCarriedValues(link, next);
 							commit(
 								next,
@@ -183,7 +173,7 @@ export function FormLinkInspectorBody({
 							className="w-full"
 							onClick={() => {
 								commit(
-									{ ...link, condition: parse(SEED_CONDITION_TEXT) },
+									{ ...link, condition: { kind: "match-none" } },
 									"Added a condition. Write it on the screen beside this panel.",
 								);
 							}}

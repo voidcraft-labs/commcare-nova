@@ -1,14 +1,22 @@
 import { v7 as uuidv7 } from "uuid";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
-import { parseAuthoredXPath } from "@/lib/doc/expressionText";
+import {
+	parseAuthoredFormExpression,
+	parseProseReference,
+} from "@/lib/doc/expressionText";
 import { type CaseType, proseText } from "@/lib/domain";
+import {
+	checkExpression,
+	inferRecordQuery,
+	slotContext,
+} from "@/lib/domain/expression";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { checkPredicate, checkValueExpression } from "@/lib/domain/predicate";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { AuthoringScope } from "../bindings";
 import { AuthoringInputError } from "../errors";
@@ -32,9 +40,30 @@ const patient: CaseType = {
 };
 
 it("binds unique short field names without changing exact paths or accepting ambiguous names", () => {
-	const doc = makeCanonicalGenesisDoc();
 	const date = testUuid("check-date");
 	const otherDate = testUuid("other-check-date");
+	const formUuid = testUuid("field-binding-form");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						uuid: formUuid,
+						name: "Visit",
+						type: "registration",
+						fields: [
+							{
+								id: "details",
+								kind: "group",
+								children: [{ uuid: date, id: "check_date", kind: "date" }],
+							},
+						],
+					},
+				],
+			},
+		],
+	});
 	const scope = new AuthoringScope({
 		doc,
 		fields: [
@@ -42,37 +71,47 @@ it("binds unique short field names without changing exact paths or accepting amb
 			{ uuid: date, path: "details/visit_date", kind: "date" },
 		],
 	});
+	const authoring = {
+		resolveFormExactName: scope.resolveFieldPath,
+		resolveFormShortName: scope.resolveField,
+	};
 	const xpath = (source: string) =>
-		parseAuthoredXPath(
-			doc,
-			undefined,
-			scope.resolveFieldPath,
+		parseAuthoredFormExpression(
+			{
+				doc,
+				slot: { entity: "field", uuid: date, slot: "relevant" },
+				lookup: new Map(),
+				authoring,
+			},
 			source,
-			undefined,
-			undefined,
-			{ resolveFormReference: scope.resolveField },
 		);
 	expect(parseQueryValue("#form/check_date", scope)).toEqual({
 		kind: "term",
 		term: { kind: "field", uuid: date },
 	});
-	expect(xpath("#form/visit_date != ''").parts).toContainEqual({
-		kind: "field-ref",
-		uuid: date,
+	expect(xpath("#form/visit_date != ''")).toMatchObject({
+		kind: "neq",
+		left: { kind: "term", term: { kind: "field", uuid: date } },
 	});
 	expect(
-		normalizeText("Checked on {{check_date}}", xpath).parts,
+		normalizeText("Checked on {{check_date}}", (name) =>
+			parseProseReference({ doc, formUuid, authoring }, name),
+		).parts,
 	).toContainEqual({ kind: "field-ref", uuid: date });
 	expect(() => xpath("/data/check_date != ''")).toThrow(
-		"Unknown or ambiguous reference",
+		"check_date doesn't reach an available value",
 	);
-	expect(xpath("/data/details/check_date != ''").parts).toContainEqual({
-		kind: "path-ref",
-		uuid: date,
+	expect(xpath("/data/details/check_date != ''")).toMatchObject({
+		kind: "neq",
+		left: { kind: "term", term: { kind: "field", uuid: date } },
 	});
-	expect(
-		xpath("concat('/data/check_date', #form/check_date)").parts,
-	).toContainEqual({ kind: "text", text: "concat('/data/check_date', " });
+	expect(xpath("concat('/data/check_date', #form/check_date)")).toMatchObject({
+		kind: "concat",
+		parts: [
+			{ kind: "term", term: { kind: "literal", value: "/data/check_date" } },
+			{ kind: "term", term: { kind: "field", uuid: date } },
+		],
+	});
 	const ambiguous = new AuthoringScope({
 		doc,
 		fields: [
@@ -98,7 +137,18 @@ it("binds unique short field names without changing exact paths or accepting amb
 });
 
 it("binds related names on their destination while preserving the canonical origin", () => {
-	const doc = { ...makeCanonicalGenesisDoc(), caseTypes: [household, patient] };
+	const moduleUuid = testUuid("household-query-module");
+	const doc = buildDoc({
+		caseTypes: [household, patient],
+		modules: [
+			{
+				uuid: moduleUuid,
+				name: "Households",
+				caseType: "Household",
+				caseListConfig: caseListConfig([]),
+			},
+		],
+	});
 	const scope = new AuthoringScope({ doc, currentCaseType: "Patient" });
 	const printer = queryPrinter(scope);
 	expect(() => parseQueryValue("#record/Patient/age/typo", scope)).toThrow(
@@ -114,7 +164,7 @@ it("binds related names on their destination while preserving the canonical orig
 			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
 		},
 	});
-	expect(checkValueExpression(value, scope.typeContext)).toEqual({ ok: true });
+	expect(inferRecordQuery(value, scope.typeContext).errors).toEqual([]);
 	expect(parseQueryValue(printer.value(value), scope)).toEqual(value);
 	expect(() =>
 		parseQueryValue("via(ancestor('parent'), #case/age)", scope),
@@ -130,9 +180,14 @@ it("binds related names on their destination while preserving the canonical orig
 		"exists(children('Patient'), #case/age >= 18)",
 		householdScope,
 	);
-	expect(checkPredicate(condition, householdScope.typeContext)).toEqual({
-		ok: true,
-	});
+	const conditionContext = slotContext(
+		doc,
+		{ entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
+		new Map(),
+	);
+	if (conditionContext === undefined)
+		throw new Error("The household filter fixture has no expression context.");
+	expect(checkExpression(condition, conditionContext).errors).toEqual([]);
 	expect(
 		parseQueryPredicate(
 			queryPrinter(householdScope).predicate(condition),
@@ -166,9 +221,7 @@ it("resolves identically named columns within the requested table and preserves 
 				left: { term: { tableId: table.id, columnId: table.columns[0].id } },
 			},
 		});
-		expect(checkValueExpression(value, scope.typeContext)).toEqual({
-			ok: true,
-		});
+		expect(inferRecordQuery(value, scope.typeContext).errors).toEqual([]);
 		expect(parseQueryValue(queryPrinter(scope).value(value), scope)).toEqual(
 			value,
 		);
@@ -331,9 +384,7 @@ it("keeps literal opening braces separate from an adjacent prose or message refe
 		};
 		const printed = printAuthoringText(prose, doc);
 		expect(
-			normalizeText(printed, (source) =>
-				parseAuthoredXPath(doc, undefined, () => undefined, source),
-			),
+			normalizeText(printed, (source) => parseProseReference({ doc }, source)),
 		).toEqual(prose);
 		const message = {
 			parts: [

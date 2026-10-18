@@ -24,7 +24,10 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
-import { DEFAULT_CORPUS_SEED } from "../defaults";
+import {
+	DEFAULT_CORPUS_SEED,
+	DEFAULT_EXPRESSION_SAMPLE_SIZE,
+} from "../defaults";
 import { writtenDocument } from "../documents";
 import { type SampledDocument, sampleFuzzDocuments } from "../fuzzSample";
 
@@ -69,7 +72,7 @@ describe("the corpus's fuzz sample", () => {
 	});
 
 	it("admits every document, read back from what the writer writes", () => {
-		expect(sample).toHaveLength(size);
+		expect(sample).toHaveLength(size + DEFAULT_EXPRESSION_SAMPLE_SIZE);
 		for (const sampled of sample) {
 			const written = asWritten(sampled) as { doc: unknown };
 			const parsed = blueprintDocSchema.safeParse(written.doc);
@@ -98,7 +101,14 @@ describe("the corpus's fuzz sample", () => {
 			draw(4).map((sampled) => [sampled.document.id, asWritten(sampled)]),
 		);
 		const smaller = draw(2);
-		expect(smaller.map((s) => s.generator)).toEqual(["xform", "suite"]);
+		expect(smaller.map((s) => s.generator)).toEqual([
+			"xform",
+			"suite",
+			...Array.from(
+				{ length: DEFAULT_EXPRESSION_SAMPLE_SIZE },
+				() => "expression",
+			),
+		]);
 		for (const document of smaller) {
 			expect(larger.has(document.document.id), document.document.id).toBe(true);
 			expect(larger.get(document.document.id), document.document.id).toEqual(
@@ -110,7 +120,11 @@ describe("the corpus's fuzz sample", () => {
 	afterAll(() => {
 		// A sample that could not be drawn in full is not written; the
 		// failing test says why.
-		if (destination === undefined || sample.length !== size) return;
+		if (
+			destination === undefined ||
+			sample.length !== size + DEFAULT_EXPRESSION_SAMPLE_SIZE
+		)
+			return;
 		mkdirSync(destination, { recursive: true });
 		for (const sampled of sample) {
 			writeFileSync(
@@ -125,7 +139,7 @@ describe("the corpus's fuzz sample", () => {
 			JSON.stringify(
 				{
 					seed,
-					size,
+					size: sample.length,
 					documents: sample.map((sampled) => ({
 						id: sampled.document.id,
 						generator: sampled.generator,

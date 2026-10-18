@@ -11,7 +11,7 @@ import {
 	plainColumn,
 	tileCell,
 } from "@/lib/domain";
-import { prop, term } from "@/lib/domain/predicate";
+import { prop, term } from "@/lib/domain/expression";
 import { runValidation } from "../../../runner";
 
 const caseTypes = [

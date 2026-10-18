@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildRuntimeCsqlPromptValidations } from "@/lib/commcare/suite/case-search/xpathQuery";
+import { advancedSearchInputDef } from "@/lib/domain";
 import {
 	between,
 	dateLiteral,
@@ -10,11 +11,16 @@ import {
 	input,
 	isIn,
 	literal,
+	matchAll,
 	prop,
 	sessionUserProperty,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
+import {
+	csqlFixtureContext,
+	csqlInputContext,
+} from "../../__tests__/csqlFunctionFixture";
 import { w } from "../../xpath/wire/builders";
 import {
 	searchInputInstance,
@@ -34,16 +40,12 @@ const answer = w.instance(searchInputInstance("search-input:results"), [
 ]);
 const blank = w.eq(answer, w.str(""));
 const sessionContext = {
-	caseTypes: [],
-	knownInputs: [],
-	userPropertySlugs: new Map([[worker, "visit_day"]]),
+	...csqlFixtureContext(),
+	bindings: { userPropertySlugs: new Map([[worker, "visit_day"]]) },
 };
-const inputContext = {
-	caseTypes: [],
-	knownInputs: [
-		{ uuid: day, name: "day", label: "Day", data_type: "date" as const },
-	],
-};
+const inputContext = csqlInputContext([
+	advancedSearchInputDef(day, "day", "Day", "date", matchAll()),
+]);
 const opened = prop("patient", "date_opened");
 
 describe("the blank-comparand guard", () => {
@@ -112,10 +114,16 @@ describe("the blank-comparand guard", () => {
 
 	it("writes no runtime guard for a fixed date or membership", () => {
 		expect(
-			emitCsql(gte(opened, datetimeCoerce(term(dateLiteral("2026-01-01"))))),
+			emitCsql(
+				gte(opened, datetimeCoerce(term(dateLiteral("2026-01-01")))),
+				csqlFixtureContext(),
+			),
 		).toEqual({ wrapper: w.str("date_opened >= datetime('2026-01-01')") });
 		expect(
-			emitCsql(isIn(prop("patient", "age"), literal(3), literal(4))),
+			emitCsql(
+				isIn(prop("patient", "age"), literal(3), literal(4)),
+				csqlFixtureContext(),
+			),
 		).toEqual({ wrapper: w.str("(age = 3 or age = 4)") });
 	});
 
