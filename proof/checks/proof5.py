@@ -56,7 +56,8 @@ What is compared is Nova's emitted wire, never what HQ makes of it:
   parts by position (``m<i>``, ``m<i>-f<j>``, ``m<i>_case_short``, the keys
   of their app strings, and a stack step's command, an XPath literal), so
   D''s are mapped to D's: a menu's and an entry's id by the entity Core says
-  it is, a detail's by the datum of the paired entry that names it, an app
+  it is, a detail's by its module's paired menu and Nova's four exact detail
+  names (``<menu>_<case|search>_<short|long>``, ``_detail_pairs``), an app
   strings key by the place of its ``locale`` in the paired elements, and a
   stack step's value by the string Core reads it as (the ``local`` record's
   ``stackValues``; a step whose value Core reads as one string is compared as
@@ -755,35 +756,64 @@ def _relative_paths(element):
     return found
 
 
+def _detail_pairs(before, after, ids_before, ids_after):
+    """Pair only Nova's four declared detail roles under an independently placed module menu.
+
+    ``compiler.ts`` passes the same module index to its menu and to
+    ``suite/case-list/{shortDetail,longDetail}.ts``, which emit exactly
+    ``<menu>_<case|search>_<short|long>``. Core places the menu through the
+    forms its commands open (``_owned``); the closed spelling identifies
+    the detail's role, even when no datum reads it. A datum's id or target
+    cannot establish detail identity: nesting reuses datum ids, and a real
+    retarget can select another retained detail, also while a module moves.
+
+    This is a naming contract for Nova's own emitted suite, not an inference
+    about arbitrary detail ids. A module without exactly one menu on each
+    side contributes no pair; missing definitions and ambiguous mappings
+    stay unmapped. Definitions and references remain compared in full.
+    """
+    candidates, reverse = {}, {}
+    for entity in sorted(set(ids_before) & set(ids_after), key=str):
+        if entity[0] != "module":
+            continue
+        menus_before, menus_after = ids_before[entity].get("menus", []), ids_after[entity].get("menus", [])
+        if len(menus_before) != 1 or len(menus_after) != 1:
+            continue
+        for target in ("case", "search"):
+            for screen in ("short", "long"):
+                name_before = f"{menus_before[0]['id']}_{target}_{screen}"
+                name_after = f"{menus_after[0]['id']}_{target}_{screen}"
+                if ("detail", name_before) in before.elements and ("detail", name_after) in after.elements:
+                    candidates.setdefault(name_after, set()).add(name_before)
+                    reverse.setdefault(name_before, set()).add(name_after)
+    return {
+        name_after: next(iter(names_before))
+        for name_after, names_before in candidates.items()
+        if len(names_before) == 1 and len(reverse[next(iter(names_before))]) == 1
+    }
+
+
 def _pairs(before, after, ids_before, ids_after, owned_before, owned_after, xmlns_pairs):
     """D''s positional ids mapped to D's, from the entities both hold (``_owned``)."""
     mapping = dict(xmlns_pairs)
     paired_elements = []
-    for entity in set(ids_before) & set(ids_after):
+    for entity in sorted(set(ids_before) & set(ids_after), key=str):
         held_before, held_after = ids_before[entity], ids_after[entity]
         for key in ("commands", "views", "remotes"):
             for command_after, command_before in zip(held_after.get(key, []), held_before.get(key, []), strict=False):
                 mapping[command_after] = command_before
         for menu_after, menu_before in zip(held_after.get("menus", []), held_before.get("menus", []), strict=False):
             mapping[menu_after["id"]] = menu_before["id"]
-    for entity in set(owned_before) & set(owned_after):
-        for element_after, element_before in zip(owned_after[entity], owned_before[entity], strict=False):
+    for entity in sorted(set(owned_before) & set(owned_after), key=str):
+        elements_before = [element for element in owned_before[entity] if qname(element.tag)[1] != "detail"]
+        elements_after = [element for element in owned_after[entity] if qname(element.tag)[1] != "detail"]
+        for element_after, element_before in zip(elements_after, elements_before, strict=False):
             if qname(element_after.tag)[1] != qname(element_before.tag)[1]:
                 continue
             paired_elements.append((element_before, element_after))
-            # A detail is D's when the datum of the same id names it in the paired element.
-            datums_before = {
-                node.get("id"): node
-                for node in element_before.iter()
-                if isinstance(node.tag, str) and any(node.get(attribute) for attribute in DETAIL_REFERENCES)
-            }
-            for node in element_after.iter():
-                if not isinstance(node.tag, str) or node.get("id") not in datums_before:
-                    continue
-                for attribute in DETAIL_REFERENCES:
-                    named_after, named_before = node.get(attribute), datums_before[node.get("id")].get(attribute)
-                    if named_after and named_before:
-                        mapping.setdefault(named_after, named_before)
+    for name_after, name_before in _detail_pairs(before, after, ids_before, ids_after).items():
+        mapping[name_after] = name_before
+        paired_elements.append((before.elements[("detail", name_before)], after.elements[("detail", name_after)]))
     for element_before, element_after in paired_elements:
         locales_before = _relative_paths(element_before)
         for path, key in _relative_paths(element_after).items():

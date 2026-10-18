@@ -1231,7 +1231,7 @@ issue with each group's rerun line. A merge early in the week gets that verdict 
 
 ## 7. Pull request 1, the lane mechanics
 
-It changes nothing Nova emits and moves no existing document's key. Its only file under `lib` is
+It changes nothing Nova emits and moves no existing document's observation key. Its only file under `lib` is
 the test table `lib/commcare/__tests__/instantOrderingTable.ts`. The cutover's pre-step half (frozen
 fixtures, frozen printer, normalizer, base emitter) is not here: it is pull request 2, the cutover
 skeleton (part 09 §3). Every entry below is the one the executed run held (R1 without readers, run
@@ -1380,10 +1380,31 @@ showed (run 39078199859, §6.4).
     document carries one, `item_group` of an item carrying the parameter `_first_document_with_forms()`
     builds is `proof/checks/test_alignment.py`, as `proof/hq/test_branches.py`'s case for a left-out
     document reads its items.
+11. **Suite locality maps Nova's four detail roles through paired module menus**, a generic lane-mechanics
+    correction in `proof/checks/proof5.py`, with a pure regression in
+    `proof/checks/test_proof5_locality.py`. A nested-menu edit can reuse `case_id` for the parent
+    selection after it named the child selection. Pairing details by that raw datum id aliases
+    the unchanged parent's details to the child's and reports changes the emitted bytes do not
+    hold. Module ownership plus a reference role also cannot distinguish a module move combined
+    with retargeting to a retained, unread detail. Instead, Core's independently placed, paired
+    module menu ids anchor a complete closed map of Nova's four generated detail roles:
+    `${menuId}_${case|search}_${short|long}`. Each exact detail definition must exist on both
+    sides, and every pair must be globally unique and one-to-one. No datum or reference pairs
+    details; no case-type, order or content fallback does; arbitrary detail ids remain unmapped.
+    Detail locales pair only through this accepted map. This narrowly amends the locality
+    contract's "never from an id's text" rule for these four Nova-owned names, whose templates
+    `lib/commcare/suite/case-list/shortDetail.ts` and `longDetail.ts` emit. It changes neither HQ
+    comparison nor emitted wire. The regression keeps the unchanged parent stable and exposes
+    real retargets and detail changes outside the footprint, including retained unread details.
+    Pull request 5's `targeted-session-reads` exposed the
+    pre-existing mapper defect; that document and its edit remain in pull request 5. This
+    correction changes the judge and harness fingerprints only, preserving observations,
+    footprint rules, spelling rules and registers.
 
 Its own checks: the slice of §6.3 with the gate told the three datetime documents;
 `proof/checks/test_registers.py`, `test_controls.py`, `test_manifest_value_classes.py`,
-`test_alignment.py`; `test_core_runtime.py`; and its pull request lane, which leaves item 7's four
+`test_alignment.py`, the pure suite-mapping regression in `test_proof5_locality.py`;
+`test_core_runtime.py`; and its pull request lane, which leaves item 7's four
 served entries and its stop to the run with every reader.
 
 ---
@@ -1397,6 +1418,7 @@ served entries and its stop to the run with every reader.
   `datetimeEquality.ts` (part 06's), `proof/targeted/index.ts`, `proof/controls/targeted-datetime-operands/`,
   `proof/controls/targeted-datetime-equality/`, `proof/known-defects.json` (eleven entries),
   `proof/walk-stops.json` (one entry, 29 to 30), `proof/checks/test_alignment.py` (§7 item 10),
+  `proof/checks/proof5.py` and `proof/checks/test_proof5_locality.py` (§7 item 11),
   `proof/checks/registers.py` (`75: 3`), `proof/checks/manifest_value_classes.py` (`_time_kind`'s
   type reader), `proof/checks/manifest_usage.py` (handing the case types to the suite documents),
   `proof/checks/controls.py` and `proof/checks/corpus.py` (the optional derived `caseTypes`),
