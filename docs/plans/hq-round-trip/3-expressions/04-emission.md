@@ -1091,15 +1091,17 @@ Finding 75's device half is observed the same way. `targeted-datetime-equality` 
 carries Core `evaluate` expectations of its case lists on the device, and pull request 1 registers,
 as live entries on its retained control, the two the executed verdict shows (the operands run,
 39061011794, over the scratch branch's version of the document, whose "Visits" and "Other visits"
-are the plan's; the plan's document first runs in R1's second dispatch, run 39064331941, part 08
-§6.4): the equality and inequality case-list rows (`equal-visits-listed`,
+are the plan's; the plan's document held them with every reader in run 39078199859, part 08 §6.4):
+the equality and inequality case-list rows (`equal-visits-listed`,
 `other-visits-listed`), because today's device filter compares the restored
 `…T04:30:00.000000Z` with the filter's literal by text, and `OPEN_DEFECTS` gains `75: 3`. "Opened
 visits" (`date_opened`) sits in an advanced Search input (part 06), so no device evaluates it, and
 "Log visit" writes its date and time through a Hidden Value with `now()`, so finding 74's stop
 never meets it. The equality lowering of §3.3 is what lists the cases, so those entries move to
-`proof/fixed-defects.json` in pull request 8, and `OPEN_DEFECTS` loses `75: 3`; part 06's `csql`
-family scenario `datetime-equality` holds the HQ half in pull request 10, CSQL.
+`proof/fixed-defects.json` in pull request 8. Finding 75's HQ half is not this part's: its search
+error on "Opened visits", which pull request 1 holds in four entries and a walk stop, and `75: 3`
+leave in pull request 10, CSQL, whose `csql` family scenario `datetime-equality` holds the HQ half
+(part 06 §3.13, part 08 §3.2).
 
 No served reader runs on a local machine (part 08 §6.4). Pull request 8's reader run is a dispatch
 on GitHub's runners, started by the person:
@@ -1113,10 +1115,10 @@ without served readers held (the operands run, 39061011794: nothing unregistered
 classes above; the spellings witness run, 39061476968: clean). With issue 768's fix beneath (#771), the second
 dispatches pass that job, and the spellings witness held with every reader (run 39064333759):
 Formplayer, the Web Apps client and Android read the planning lowering's text in UTC as Core does.
-The operands run's second dispatch (39064331941), which gives the readers' pre-fix values on
-`targeted-datetime-operands` and `targeted-datetime-equality`, is part 08 §6.4's to report. What
-no run has read with every reader is the shipped `instantMicros` text, which this pull request's
-dispatch reads; part 10's "Written and not yet run" carries it.
+The operands run's dispatches with every reader (39064331941 and 39078199859), which give the
+readers' pre-fix values on `targeted-datetime-operands` and `targeted-datetime-equality`, are part
+08 §6.4's to report. What no run has read with every reader is the shipped `instantMicros` text,
+which this pull request's dispatch reads (part 08 §6.4, R2's row).
 
 ---
 
@@ -1143,7 +1145,7 @@ dispatch reads; part 10's "Written and not yet run" carries it.
 | `proof/native/producers/emit-expression-evidence.ts`, `core/InstantOrderingRuntimeTest.java` | the `expression` family's lowered half (§6); the family, its zones and its control half are pull request 1's, lane mechanics (part 08 §7) |
 | `proof/native/test_hq_interpolation.py`, and `emit-expression-evidence.ts`'s `interpolation.json` | new HQ check (§6) |
 | `proof/native/test_search_emission.py` | in pull request 4: it asserts present, and sets aside, one unread collection-instance declaration (`remote-multiple`'s selected cases) that §5.2 stops writing; that recorded difference leaves |
-| `proof/known-defects.json`, `proof/fixed-defects.json`, `proof/checks/registers.py` (`OPEN_DEFECTS`), `proof/checks/test_registers.py` | finding 56's seven entries and finding 75's two move; `OPEN_DEFECTS` loses `56: 3` and `75: 3` (§6; part 08 §3.1) |
+| `proof/known-defects.json`, `proof/fixed-defects.json`, `proof/checks/registers.py` (`OPEN_DEFECTS`) | finding 56's seven entries and finding 75's device half's two move; `OPEN_DEFECTS` loses `56: 3` (§6; part 08 §3.1); `75: 3` and `proof/checks/test_registers.py`'s `step > 3` are pull request 10's |
 | `proof/targeted/documents/datetimeOrdering.ts` | header comment: the document is the fix's witness (part 08 §3.1) |
 | `lib/commcare/CLAUDE.md`, `lib/commcare/xpath/CLAUDE.md` | rewritten: one tree, one serializer, the modes, the canonical spacing and why it is Vellum's, the lowering, derived instances; "Vellum dual-attribute pattern" keeps "No shadow carries `#case/`" and its reasons, now as `vellum` mode's rule over the tree |
 | `content/docs/building-with-nova.mdx` | "XPath that will run in CommCare": comparing two dates and times compares the moments on every device; on a device a case's opened and last-changed dates are days, and in search results the opened date is a day; checking a date and time against `''` still asks whether it is blank; `date()` of a date and time gives the device's day for an answer and the written day for text; if you open such a form in CommCare HQ's form builder, a comparison of two dates and times shows as a longer formula that compares the moments, and it keeps its meaning if you leave it as it is (Nova reads the lowered shape back only from step 6). Each sentence lands in the pull request whose behavior it describes, as part 10's "Public docs that change" gives them: the dates paragraph in 8, the search-results day in 9, the standard spelling in 5 |
@@ -1176,8 +1178,9 @@ person starts; none runs on a local machine.
   `local*.ccz/suite.xml` registered under finding 56, and `manifest_value_classes.py::_time_kind`'s
   reader of a property's type (the declared `data_type` at pull request 1, `catalog` from pull
   request 5); `targeted-datetime-equality` with its control and finding 75's device-half entries,
-  the equality and inequality case-list rows (§6); seven live entries in all, and `OPEN_DEFECTS`
-  gains `75: 3`. No product byte moves. This part contributes nothing to it beyond §3's
+  the equality and inequality case-list rows (§6), and part 06's four entries and walk stop for
+  its search error on a system date; eleven live entries in all, and `OPEN_DEFECTS` gains `75: 3`.
+  No product byte moves. This part contributes nothing to it beyond §3's
   requirements.
 - **Pull request 2, the cutover skeleton** (part 09): the frozen pre-step fixtures, the frozen
   printer, the emission normalizer and the base emitter, whose `lib` still equals production's. The
@@ -1231,8 +1234,8 @@ Preview (§3.7).
 
 Finding 56, its equality half and `datetime-coerce`: `instant.ts`, §3.2 to §3.8, the day rule's
 checker finding with part 03 (part 03 §3.2) over `casedb` rows, the family's lowered half (§6),
-finding 56's seven entries and finding 75's two moved, nine in all, and `OPEN_DEFECTS` losing
-`56: 3` and `75: 3` (§6). Its reader dispatch is §6's, over the shipped `instantMicros` bytes.
+finding 56's seven entries and finding 75's device half's two moved, nine in all, and
+`OPEN_DEFECTS` losing `56: 3` (§6). Its reader dispatch is §6's, over the shipped `instantMicros` bytes.
 
 ### 8.5 Pull request 9, the new reads with part 05
 
@@ -1404,8 +1407,7 @@ working tree left clean; they are not committed. The lane runs were dispatched o
   (issue 768). With that issue's fix beneath (part 08 §6.4), the spellings witness's second
   dispatch, run 39064333759, held with every reader: Formplayer, the Web Apps client and Android
   read the planning `instantDays` text as Core does. Not run: the readers over the shipped
-  `instantMicros` text, which pull request 8's dispatch reads (§6); part 10's "Written and not yet
-  run" carries it.
+  `instantMicros` text, which pull request 8's dispatch reads (§6; part 08 §6.4, R2's row).
 
 Read for this part (Nova): `lib/commcare/xform/builder.ts` (`InstanceTracker`, `expand`,
 `expandDefault`, `shorthand`, the datetime sibling guard), `hashtags/formContext.ts`

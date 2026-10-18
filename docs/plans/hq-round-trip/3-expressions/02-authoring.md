@@ -1665,8 +1665,9 @@ paid call, no Docker):
 On GitHub's runners, without the served readers, on a scratch branch cut from `main` and never
 merged: a document of every form spelling step 3 reads, through two HQ form-builder saves (runs
 39060796573 and 39061476968, the second clean). It showed that the canonical form-XPath spacing is
-Vellum's normal form, so an HQ form-builder save leaves canonical text unchanged (§4.1). What the
-served readers show on that document is in the plan's "Written and not yet run".
+Vellum's normal form, so an HQ form-builder save leaves canonical text unchanged (§4.1). With every
+reader (run 39064333759, part 08 §6.4) Formplayer, the Web Apps client and Android read it as Core
+does.
 
 Two read-only production scans over every live app, content-free (closed labels and counts only),
 each in one `REPEATABLE READ, READ ONLY` transaction through `scripts/lib/prodDb.ts::targetProdDb`:

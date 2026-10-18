@@ -102,8 +102,8 @@ what it showed; the runs that decided the plan:
   and never merged: the two new targeted documents before any fix, `targeted-datetime-equality` in
   the scratch branch's version (a date-and-time question in "Log visit", a third case list on
   `date_opened`). The differences that version showed on "Visits" and "Other visits", and
-  `targeted-datetime-operands`' intent and manifest differences, are the seven entries pull request
-  1 registers (part 08 §6.4, §7). And a document of every form spelling step 3 reads, through two HQ form builder saves, which showed that Vellum's
+  `targeted-datetime-operands`' intent and manifest differences, are seven of the eleven entries
+  pull request 1 registers (part 08 §6.4, §7). And a document of every form spelling step 3 reads, through two HQ form builder saves, which showed that Vellum's
   only rewrite of canonical text is spacing Nova's canonical print now writes itself (parts 01, 04).
 - **Host emission of the whole corpus** at base and head for finding 72's mapped defaults and
   finding 73's catalog-seeded case data (part 08 §3.3, §4.4).
@@ -120,27 +120,30 @@ what it showed; the runs that decided the plan:
   as two live entries under defect 21 on a new targeted document, `targeted-list-first-places`,
   since the register refuses an entry on a fuzz document (part 08 §3.3). R1 (run 39064331941)
   showed on its first shard every served reader reproducing finding 56's literal case-list half,
-  and nothing unregistered but the manifest classes pull request 1 registers.
+  and nothing unregistered but the manifest classes pull request 1 registers; its second shard lost
+  its runner, and R1 run 39078199859 read that shard's three documents with every reader.
+  `targeted-datetime-equality`, as this plan writes it, shows finding 75's two device-half entries
+  on document and control and meets no finding 74 stop. And HQ's search for "Opened visits", a
+  `date_opened` equality with the builder's minute-precision literal, answers 500 because
+  Elasticsearch refuses the raw term: Formplayer's walk stops there on every state, and proofs 3
+  and 4 show four classes of difference from that one error. Pull request 1 holds them in one walk
+  stop and four live entries under finding 75, and pull request 10's closed instant range moves
+  them to the retained control (part 06 §3.13, part 08 §3.2). Runs 39064336028 and 39082895745
+  (#771's) showed a lane-mechanics fault unrelated to step 3, the renamespacing check filed under a
+  document no dispatch over named documents runs, which pull request 1 fixes (part 08 §7 item 10).
 
 **Written and not yet run.** Each part states its design as the plan's and says in place where a
 run is outstanding; this list is every such place.
 
-- **R1's second shard** (part 08 §6.4): in run 39064331941 it lost its hosted runner, with no log
-  and no artifact, so `targeted-datetime-equality`, the `targeted-datetime-ordering` document and
-  `navigation-conditions` were not observed with the served readers; the second attempt of the
-  failed jobs is running. Until its verdict is in, that `targeted-datetime-equality` as planned (the
-  Hidden Value "Log visit", "Opened visits" as an advanced Search input) shows exactly finding 75's
-  two entries and meets no finding 74 stop is predicted from the scratch version's run, not
-  observed.
 - **R5** runs at pull request 5's branch, over the new fuzz generator's documents,
   `targeted-expression-renames`, `targeted-session-reads` and `targeted-list-first-places`, and,
   with the walk model fixed, over the five documents of its gap (`fuzz-xform-20260930-0`, `-3`,
   `-4`, `-9` and `fuzz-suite-20260930-5`), whose Android, Connect and B and B-edit observations
   run 39064336028 did not reach, and `fuzz-suite-20260930-8`, where defect 21's two new entries
   hold.
-- **HQ's search half of finding 75** cannot show in the lane (Elasticsearch answers a malformed term
-  only at search time); the `csql` native family's `datetime-equality` scenario holds it, written
-  with pull request 10.
+- **The closed instant range on HQ's search** (part 06 §3.13) was read, not executed; the `csql`
+  native family's `datetime-equality` scenario executes it in pull request 10 before the emitter
+  changes, and holds the text equality of finding 75's HQ half, which no lane check compares.
 
 ## What changed from the outline, and why
 
@@ -298,11 +301,17 @@ Part 08 holds this in full.
 
 - **Finding 56 and finding 75's device half move to `proof/fixed-defects.json`** in pull request 8,
   the lowering: nine entries (finding 56's two of the base and the five pull request 1 adds, finding
-  75's two), each still showing on its control. `OPEN_DEFECTS` drops both, and the register test
-  then asserts every live defect is a later step's.
+  75's two), each still showing on its control. `OPEN_DEFECTS` drops 56.
+- **Finding 75's search error on a system date is held, then moved.** With every reader, HQ's
+  search for `targeted-datetime-equality`'s "Opened visits" answers 500 on the raw minute-precision
+  term; pull request 1 holds it in one walk stop and four live `proof3` and `proof4` entries, and
+  pull request 10, CSQL, whose closed instant range HQ parses, moves the four to
+  `proof/fixed-defects.json` and the stop to the retained control, which keeps showing both.
+  `OPEN_DEFECTS` drops 75 there, and the register test then asserts every live defect is a later
+  step's.
 - **The six walk stops of findings 72 and 73 leave** in pull request 5, the shape, with no control:
   each refusal is held by its validator's tests beside an accepted neighbour, and production meets
-  neither. `proof/walk-stops.json` goes from 29 to 23. In the same pull request the Formplayer walk
+  neither. `proof/walk-stops.json` goes from 29 to 30 in pull request 1 and to 24 here. In the same pull request the Formplayer walk
   stops sending a value a question already holds, as the Web Apps client does, and defect 21's
   knock-on on a list-first form with a location question, which an opened form showed, gets two
   live entries on the new targeted document `targeted-list-first-places` and its control; they stay
@@ -310,8 +319,10 @@ Part 08 holds this in full.
 - **Finding 74's stop stays** (step 4's), and `targeted-datetime-ordering` stays admitted with its
   bytes of source.
 - **At the exit** `proof/known-defects.json` holds 282 entries (the base's 282, less finding 56's
-  two, plus defect 21's two) and `proof/fixed-defects.json` 729; `proof/controls/` goes from 105
-  directories to 108; no spelling rule is added or retired.
+  two, plus defect 21's two; 293 after pull request 1) and `proof/fixed-defects.json` 733 (the
+  base's 720, finding 56's seven and finding 75's six); `proof/walk-stops.json` holds 24, finding
+  75's on its control; `proof/controls/` goes from 105 directories to 108; no spelling rule is added
+  or retired.
 - **Defect 17 gets a witness, not an entry**: no lane check can observe a stranded reference, so
   `targeted-expression-renames` carries an edit for proof 5 and the rename is held by the gate's
   tests.
@@ -327,7 +338,7 @@ transform steps, lane cost and checks.
 
 | # | Pull request | Parts |
 |---|---|---|
-| 1 | Lane mechanics: the zoned harness, the `expression` family's control half, `targeted-datetime-operands` and `targeted-datetime-equality` with controls retained before any fix, seven live entries, the manifest's property-type reader | 08, 06 |
+| 1 | Lane mechanics: the zoned harness, the `expression` family's control half, `targeted-datetime-operands` and `targeted-datetime-equality` with controls retained before any fix, eleven live entries and one walk stop, the manifest's property-type reader, the renamespacing check kept in its module's group | 08, 06 |
 | 2 | Cutover skeleton: frozen pre-step fixtures, the frozen printer, the emission normalizer, the base emitter | 09 |
 | 3 | Projection: the served schemas' pre-substitution, the catalog's three tool inputs removed | 02, 01 |
 | 4 | Wire tree for the record family and the scaffolding | 04 |
@@ -336,7 +347,7 @@ transform steps, lane cost and checks.
 | 7 | Preview: Core parity, two-valued predicates, a search's population and the claim, the entry's session map, the Preview target, protocol 8 | 07, 05, 04 |
 | 8 | Lowering: finding 56, its equality half, the day rule; nine register moves | 04, 03, 07, 08 |
 | 9 | Instances and session: the new reads with their Preview supplies | 05, 07, 04, 03, 02 |
-| 10 | CSQL, with finding 75's HQ half and the chosen case in record slots | 06, 01, 02, 03, 04, 05, 07, 08 |
+| 10 | CSQL, with finding 75's HQ half (four register moves, its walk stop to its control) and the chosen case in record slots | 06, 01, 02, 03, 04, 05, 07, 08 |
 | 11 | Builder | 02 |
 | 12 | Authoring; the billed `npm run test:schema` asked once at this head | 02 |
 | 13 | Cutover | 09 |
@@ -411,8 +422,8 @@ Part 10 gives each sentence as it reads today and its replacement. In brief:
   every reference by identity.
 - A date and time orders and compares by instant on every device, in every zone, and in HQ's search;
   the register holds no entry for findings 56 or 75, and every fixed entry shows on its control.
-- Every walk reaches its end or one of the 23 stops `proof/walk-stops.json` holds by name; none is
-  finding 72's or 73's.
+- Every walk reaches its end or one of the 24 stops `proof/walk-stops.json` holds by name; none is
+  finding 72's or 73's, and finding 75's is held on its control alone.
 - Proofs 1 to 5 pass on every Nova export, and every control directory is named by a register.
 - Every existing app is valid under the new schema and validator, and carries its notice.
 - The first nightly over `main` after the deploy, the whole lane with every reader over the merged

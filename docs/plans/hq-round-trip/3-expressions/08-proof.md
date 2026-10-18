@@ -19,9 +19,8 @@ holds the stack in full.
 Where production holds a shape this part proves, it says so in words, and no production count
 enters this part: the cutover's dry run counts each at the window (§3.6, part 09). The runs this
 part relies on are named in "Executed during planning": scratch branches cut from `main` and run on
-GitHub's runners (R1 to R4), host emissions of the whole corpus, and read-only probes. R2's and R3
-and R4's served verdicts are in, and so is R1's first shard (§6.4); R1's second shard is
-outstanding, and each place that depends on it says so in one marked sentence.
+GitHub's runners (R1 to R4), host emissions of the whole corpus, and read-only probes. R1's, R2's,
+R3's and R4's served verdicts are in (§6.4); R5 runs at pull request 5's branch.
 
 ## Decisions in brief
 
@@ -48,16 +47,20 @@ outstanding, and each place that depends on it says so in one marked sentence.
    `proof/checks/manifest_value_classes.py::_time_kind`, and two new targeted documents, each with a
    control retained before any fix: `targeted-datetime-operands`, whose five pre-fix classes (three
    `intent`, two `manifest`) are registered under finding 56, and part 06's
-   `targeted-datetime-equality`, whose device half is registered under finding 75 in two entries
-   (`OPEN_DEFECTS` gains `75: 3`). Every entry is the one the executed run held (§7). It adds no
-   walk stop. It costs the 10.2-minute row. The cutover's pre-step half is not here: it is pull
-   request 2, the cutover skeleton (part 09).
-5. **Finding 56's seven entries and finding 75's two move to `fixed-defects.json` in pull request
-   8, the lowering**: the two of `targeted-datetime-ordering`, the five of
+   `targeted-datetime-equality`, whose device half is registered under finding 75 in two entries and
+   whose search error on a system date, which the served readers meet, in four entries and one walk
+   stop (`OPEN_DEFECTS` gains `75: 3`). Every entry and the stop are what the executed runs showed
+   (§7). It also keeps the renamespacing check in its module's group, a lane-mechanics fix every
+   dispatch over named documents needs (§7 item 10). It costs the 10.2-minute row. The cutover's
+   pre-step half is not here: it is pull request 2, the cutover skeleton (part 09).
+5. **Finding 56's seven entries and finding 75's device half's two move to `fixed-defects.json` in
+   pull request 8, the lowering**: the two of `targeted-datetime-ordering`, the five of
    `targeted-datetime-operands` and the two of `targeted-datetime-equality`, on their controls;
-   `OPEN_DEFECTS` drops 56 and 75, and `test_every_live_defect_is_a_later_steps` asserts
-   `step > 3`. Finding 75's HQ half is part 06's `csql` family scenario `datetime-equality`, in pull
-   request 10, CSQL.
+   `OPEN_DEFECTS` drops 56. Finding 75's four search entries move in pull request 10, CSQL, whose
+   closed instant range ends the search error, and its walk stop becomes its control's there;
+   `OPEN_DEFECTS` drops 75 in the same pull request, and `test_every_live_defect_is_a_later_steps`
+   asserts `step > 3`. The text equality of finding 75's HQ half is part 06's `csql` family scenario
+   `datetime-equality`, in pull request 10.
 6. **`targeted-datetime-ordering` stays admitted and unchanged.** Settled by reading (§3.2): its
    hidden values are `datetime` by inference from `#visit/seen` and `#visit/due` and held as text
    under their `xsd:string` bind (binds keep today's rule, part 03 §5.2), its two orderings are
@@ -66,7 +69,8 @@ outstanding, and each place that depends on it says so in one marked sentence.
 7. **The six walk stops of findings 72 and 73 are removed with no control**, both in pull request
    5, the shape, which takes each off its document: finding 72's five with
    `SELECT_DEFAULT_NOT_AN_OPTION` and the generator's mapped default, finding 73's one with
-   `casedata.py` reading the effective catalog; `walk-stops.json` goes from 29 entries to 23. Each
+   `casedata.py` reading the effective catalog; `walk-stops.json` goes from 30 entries (pull request
+   1's one among them) to 24. Each
    refusal is held by its validator's tests, refusal beside accepted neighbour. Production meets
    neither: it holds no literal choice default outside its options and no case row a typed preload
    fails to cast. The removal is proved by the host emission, those tests and the served readers
@@ -112,8 +116,10 @@ outstanding, and each place that depends on it says so in one marked sentence.
     form, and two things pull request 5 carries: the walk's model of an answer a question already
     holds, and two defect 21 entries (§3.3). R1's first shard showed every served reader
     reproducing finding 56's literal case-list half and nothing unregistered but the manifest
-    classes §7 registers (§6.4). **Outstanding:** R1's second shard, which lost its hosted runner,
-    and with it `targeted-datetime-equality`'s served verdict. R5 runs at pull request 5's branch
+    classes §7 registers; its second shard lost its hosted runner, and R1 run 39078199859 read its
+    three documents with every reader: finding 75's two entries held on document and control with
+    no finding 74 stop, and HQ's search for "Opened visits" answered 500, which pull request 1
+    holds in four entries and a walk stop (§3.2, §6.4, §7). R5 runs at pull request 5's branch
     over the eight `fuzz-expression-20260930-*` documents, `targeted-expression-renames`,
     `targeted-session-reads` and `targeted-list-first-places`, and over the five documents of the
     walk model's gap after its fix (§6.4). No reader run is required before the merge; the first night after it
@@ -133,11 +139,11 @@ At `5cf6e327`:
 
 | Thing | At the base | What step 3 owns |
 |---|---|---|
-| `proof/known-defects.json` | 282 live entries | finding 56's two: `d56-datetime-ordering-evaluate-answers`, `d56-datetime-ordering-evaluate-case-text`, both intent, both on document and control `targeted-datetime-ordering`; the seven pull request 1 adds, finding 56's five on `targeted-datetime-operands` (three `intent`, two `manifest`) and finding 75's two on `targeted-datetime-equality` (§7); and the two pull request 5 adds under defect 21, on `targeted-list-first-places`, which stay live for step 5 (§3.3) |
+| `proof/known-defects.json` | 282 live entries | finding 56's two: `d56-datetime-ordering-evaluate-answers`, `d56-datetime-ordering-evaluate-case-text`, both intent, both on document and control `targeted-datetime-ordering`; the eleven pull request 1 adds, finding 56's five on `targeted-datetime-operands` (three `intent`, two `manifest`) and finding 75's six on `targeted-datetime-equality` (two `intent` for the device half, four `proof3` and `proof4` for the search error, §3.2, §7); and the two pull request 5 adds under defect 21, on `targeted-list-first-places`, which stay live for step 5 (§3.3) |
 | `proof/fixed-defects.json` | 720 entries on 85 controls | none |
 | `proof/controls/` | 105 directories | three: `targeted-datetime-operands` and `targeted-datetime-equality`, retained in pull request 1, and `targeted-list-first-places`, retained in pull request 5 |
-| `proof/walk-stops.json` | 29 entries | six: finding 72's five (`fuzz-suite-20260930-5`, `fuzz-suite-20260930-8`, `fuzz-xform-20260930-0`, `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`, all `notification:value-could-not-be-loaded-into-question`) and finding 73's one (`expander-output-references-in-labels-lowers-several-typed-e72b42c4-0`, `notification:invalid-data-type-in-setvalue-event-targetting`), all removed in pull request 5, the shape (29 to 23); none added (§3.2) |
-| `proof/checks/registers.py::OPEN_DEFECTS` | `{20: 4, 21: 5, 23: 5, 24: 5, 25: 5, 26: 5, 27: 5, 28: 5, 30: 5, 56: 3}` | `56: 3`, and `75: 3`, which pull request 1 adds |
+| `proof/walk-stops.json` | 29 entries | six: finding 72's five (`fuzz-suite-20260930-5`, `fuzz-suite-20260930-8`, `fuzz-xform-20260930-0`, `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`, all `notification:value-could-not-be-loaded-into-question`) and finding 73's one (`expander-output-references-in-labels-lowers-several-typed-e72b42c4-0`, `notification:invalid-data-type-in-setvalue-event-targetting`), all removed in pull request 5, the shape; and the one pull request 1 adds, Formplayer's `notification:n-internal-server-error` on `targeted-datetime-equality` (finding 75's search error), which pull request 10 turns into its control's (§3.2): 30 after pull request 1, 24 from pull request 5 to the exit |
+| `proof/checks/registers.py::OPEN_DEFECTS` | `{20: 4, 21: 5, 23: 5, 24: 5, 25: 5, 26: 5, 27: 5, 28: 5, 30: 5, 56: 3}` | `56: 3`, which leaves in pull request 8, and `75: 3`, which pull request 1 adds and pull request 10 removes |
 | Corpus | 371 documents | every one, because the stored shape changes; plus nine targeted documents (§4.5) and eight fuzz documents (§4.3) |
 
 Three neighbouring stops are not step 3's and stay: `targeted-datetime-ordering`'s
@@ -363,9 +369,10 @@ corpus through `producers.ts`, so the rule of §2.6 applies. Its scenario `datet
 (part 06 §3.13) holds finding 75's HQ half: cases saved through HQ's receiver, so every stored
 datetime is HQ's own spelling, and HQ's search over the closed instant range returns the fixture's
 ids; it lands with the CSQL emitter change in pull request 10, CSQL, fails on today's emitter and
-passes on the fix. No lane check reads HQ's search results (`csql@A`,
-`proof/checks/intent.py::search_compiles`, is a refusal check), so the family is that half's only
-witness.
+passes on the fix. No lane check compares what HQ's search finds with Nova's meaning (`csql@A`,
+`proof/checks/intent.py::search_compiles`, is a refusal check, and proof 3 compares the readers with
+each other), so the family is the only witness of that half's text equality. The search error a
+minute-precision term meets on a system date is the lane's too, with every reader (§3.2).
 
 ### 2.6 Part 05's reads in existing families
 
@@ -428,13 +435,15 @@ In pull request 8, the lowering (part 04's), the nine entries move unchanged, `d
 The two `manifest` entries leave the document with the lowering because a lowered ordering's sides
 are arithmetic, which `_time_kind` reads as no time (a `binary` node is `False`, §5.2), so the
 suite holds no `refused/time-operand` use; the control keeps the pre-fix suite and its derived case
-types (§7), so both keep showing there. Finding 75's entries move here, not in pull request 10,
-CSQL, because the equality lowering of part 04 §3.3 is what lists the cases on the device; its HQ
-half has no register entry and is the `csql` family's (§2.5).
+types (§7), so both keep showing there. Finding 75's device-half entries move here, not in pull
+request 10, CSQL, because the equality lowering of part 04 §3.3 is what lists the cases on the
+device; its four search entries and its walk stop stay on the document until pull request 10
+(§3.2), and the text equality of its HQ half is the `csql` family's (§2.5).
 
-In the same pull request: `OPEN_DEFECTS` loses `56: 3` and `75: 3`;
+In the same pull request: `OPEN_DEFECTS` loses `56: 3`, and keeps `75: 3`, since finding 75's four
+search entries stay live (pull request 10 removes it, and there
 `proof/checks/test_registers.py::test_every_live_defect_is_a_later_steps` asserts
-`all(step > 3 …)` and its docstring says "Step 3's exit"; `proof/README.md`, "The defect rows",
+`all(step > 3 …)` and its docstring says "Step 3's exit"); `proof/README.md`, "The defect rows",
 gives the 56 row "Fixed in step 3: each operand is lowered by its type
 (`lib/commcare/xpath/wire/instant.ts`); still shown by the controls `targeted-datetime-ordering`
 and `targeted-datetime-operands`" and the 75 row its device half fixed, still shown by the control
@@ -494,9 +503,41 @@ proof 4 holds that two Vellum saves keep it, and step 6 recognises the shape on 
 **`targeted-datetime-equality` does not meet finding 74.** Part 06's document (§3.13 there) writes
 `seen` in "Log visit" through a Hidden Value `seen_at` whose calculate is `now()`, whose `datetime`
 destination gives it the same `nova_datetime_seen_at` sibling a question would get. It asks no
-date-and-time question, so no walk of it meets finding 74's `submit-refused:validation-error`, and
-`walk-stops.json` gains no entry for it. The case lists the `d75-…` entries read are Core
-`evaluate` reads over the fixed restore, which no walk stop touches.
+date-and-time question, so no walk of it meets finding 74's `submit-refused:validation-error`
+(observed with every reader, run 39078199859). The case lists the `d75-…` intent entries read are
+Core `evaluate` reads over the fixed restore, which no walk stop touches.
+
+**Finding 75's search error: held in pull request 1, moved in pull request 10.** The same run
+showed it for "Opened visits" (part 06 §3.13): its search sends
+`_xpath_query` `date_opened = '2026-01-02T09:30'`, HQ sends the system date's minute-precision value
+to Elasticsearch as a raw term, the index's formats refuse it, and HQ's case search answers 500
+(`ESError`, `RequestError(400)`, "failed to parse date field [2026-01-02T09:30]"). Formplayer's
+walk stops there (`notification:n-internal-server-error`, 8 runs across all four states, document
+and control), the Web Apps client shows HQ's error alert, and Android "Server-side error (code
+500)". It is a reader's own end, since every way the walk sends the search carries the advanced
+input's predicate, and it is Nova's defect, finding 75's HQ half on a system date. Pull request 1
+holds it on the document:
+
+- one walk stop, `{"document": "targeted-datetime-equality", "reader": "formplayer", "cause":
+  "notification:n-internal-server-error", …}`, with part 06 §3.13's reason; a `document` entry holds
+  the control of the same name too, which shows it, so one entry holds both;
+- four live entries under defect 75, part "search on a system date", for the classes the one error
+  gives proofs 3 and 4 (the text of HQ's 500 page differs between the two states each compares),
+  held by no other entry: `proof3` `formplayer@A`
+  `/hq/app_aware_remote_search/500/corehq.apps.es.exceptions.ESError` (`error`, 4 differences),
+  `proof3` `formplayer@local.ccz` `/runs/*/steps/*/response/exception` (`changed`, 4), and `proof4`
+  `formplayer@app settings@*` (`changed`, 2 on each configuration's B) and `formplayer@case list@*`
+  (`changed`, 4 on each) at `/runs/*/steps/*/response/exception`; their ids are in §7 item 7. The
+  control is retained for `intent`, `proof3` and `proof4`, so it keeps the upload bodies and the
+  local archive those checks read.
+
+Every one is a served reader's, so the pull request lane leaves them to the run with every reader.
+Pull request 8's lowering leaves HQ's search as it is, so they stay live through it. Pull request
+10's closed instant range (part 06 §3.13) sends `date_opened` to HQ's range query, which parses the
+value, so the document's walks reach their end: the four entries move to `fixed-defects.json` on
+the control, and the stop's entry becomes `{"control": "targeted-datetime-equality", …}`, reader and
+cause unchanged, its reason saying the control keeps the pre-fix search (`proof/README.md`, "Walk
+stops": a held stop moves with its fix).
 
 ### 3.3 Findings 72 and 73: six stops removed, no control
 
@@ -616,11 +657,11 @@ new print") at the commit gate, the boundary where the defect lives.
 
 | Register | Base | Exit |
 |---|---|---|
-| Live entries | 282 | 282 (pull request 1 adds seven, 56's five and 75's two; pull request 5 adds defect 21's two of §3.3, which stay live for step 5; pull request 8 moves all nine of 56 and 75, the base's two among them; 289 live after pull request 1, 291 after pull request 5) |
-| Fixed entries | 720 | 729 |
+| Live entries | 282 | 282 (pull request 1 adds eleven, 56's five and 75's six; pull request 5 adds defect 21's two of §3.3, which stay live for step 5; pull request 8 moves nine, 56's seven, the base's two among them, and 75's device half's two; pull request 10 moves 75's four search entries; 293 live after pull request 1, 295 after pull request 5, 286 after pull request 8) |
+| Fixed entries | 720 | 733 (729 after pull request 8) |
 | Controls | 105 | 108 (`targeted-datetime-operands`, `targeted-datetime-equality`, `targeted-list-first-places`) |
-| Walk stops | 29 | 23 (pull request 5 removes six; pull request 1 adds none, §3.2), plus any stop a reader run shows on a new document or past an opened form (§3.3, §6.4) |
-| `OPEN_DEFECTS` | ten defects | nine, every one a later step's: its values are steps, not entry counts, so `75: 3` (two entries) enters in pull request 1 and leaves with `56: 3` in pull request 8 |
+| Walk stops | 29 | 24 (pull request 1 adds finding 75's search error on `targeted-datetime-equality`, 30; pull request 5 removes six, 24; pull request 10 turns the added one into its control's, §3.2), plus any stop a reader run shows on a new document or past an opened form (§3.3, §6.4) |
+| `OPEN_DEFECTS` | ten defects | nine, every one a later step's: its values are steps, not entry counts, so `75: 3` (six entries) enters in pull request 1, `56: 3` leaves in pull request 8, and `75: 3` leaves in pull request 10 with the last of its entries |
 | `identity-moves.json` | empty | empty: the cutover's one-time changes (§3.6) are held by its own tests, dry run and notice, and the lane never sees a document from before the cutover |
 
 ### 3.6 What only the cutover's dry run holds
@@ -831,7 +872,7 @@ None of the nine asks a date-and-time question, so none meets finding 74's stop 
 | Document | Pull request | Shows | Expectations (Core `evaluate`, `local` and `A`) | Edit |
 |---|---|---|---|---|
 | `targeted-datetime-operands` (`datetimeOperands.ts`) | 1, lane mechanics | finding 56 on the operand classes `targeted-datetime-ordering` lacks, over a fixed restore of two `visit` cases (Amina seen 10:00 and due 11:00 UTC on 2026-03-01, Baraka seen 12:00 and due 11:00): "Check" copies `seen` into a Hidden Value and orders it against `now()` under the clock `2026-03-01T11:00:00.000Z`; "Seen before eleven" is a case list filter `lt(prop(visit, seen), term(datetimeLiteral("2026-03-01T11:00:00")))`, the literal row, since form logic already refuses a date and time written as text in an ordering (`XPATH_TIME_ORDERING`); "Seen before due" is a case list filter `lt(prop(visit, seen), prop(visit, due))` (the suite target, both properties declared `datetime`) | `seen-before-now-local` and `seen-before-now-a` (`/values/0/value` `seen before now`), `listed-before-literal-local` and `listed-before-due-local` (case lists, `local` only: `/caseList/rows/0/caseId` Amina) | none |
-| `targeted-datetime-equality` (`datetimeEquality.ts`, part 06 §3.13) | 1, lane mechanics | finding 75's device half: "Visits" (whose "Log visit" writes `seen` through a Hidden Value with `now()`) with `caseListConfig.filter` `eq` of the `datetime` property `seen` and a naive literal, "Other visits" with `neq` of the same, "Opened visits" with `date_opened` equality in an advanced Search input's predicate (refused in a case list filter from pull request 8, the lowering, `day-only-on-device`), over a fixed restore of three `visit` cases in HQ's stored spelling (`…T04:30:00.000000Z`, an hour later, and one without `seen`); rows `["75"]` | `equal-visits-listed-local` (Amina) and `other-visits-listed-local` (Baraka, then Chidi), case lists from `local`; "Opened visits" has none, since no device reads it | none |
+| `targeted-datetime-equality` (`datetimeEquality.ts`, part 06 §3.13) | 1, lane mechanics | finding 75's device half and, with every reader, its search error on a system date: "Visits" (whose "Log visit" writes `seen` through a Hidden Value with `now()`) with `caseListConfig.filter` `eq` of the `datetime` property `seen` and a naive literal, "Other visits" with `neq` of the same, "Opened visits" with `date_opened` equality in an advanced Search input's predicate (refused in a case list filter from pull request 8, the lowering, `day-only-on-device`), over a fixed restore of three `visit` cases in HQ's stored spelling (`…T04:30:00.000000Z`, an hour later, and one without `seen`), where HQ's search for "Opened visits" answers 500 until pull request 10 (§3.2); rows `["75"]` | `equal-visits-listed-local` (Amina) and `other-visits-listed-local` (Baraka, then Chidi), case lists from `local`; "Opened visits" has none, since no device reads it | none |
 | `targeted-expression-renames` (`expressionRenames.ts`) | 5, the shape | defect 17's witness: relative reads inside a repeat (`../q`, `.`), a `current()/..` read in a query-bound repeat, an absolute `/data/` read, a casedb query reading a property in a predicate and a projection, a query with no `@case_type` whose property one case type declares (bound to it and stored, part 01 §1.3), a `cases` query used as one value through `@case_id` (admitted, part 03 §3.4), a static select's literal default and comparison (`choice`) | each read's value over a fixed restore and answers | D′, one batch: rename a field read relatively and by hashtag, `renameCaseProperties` of the queried property and of the untyped query's bound property, `updateOption` of the default's option value, and move a read field within its repeat |
 | `targeted-session-reads` (`sessionReads.ts`) | 5, the shape, with session datum identity (part 05 §1) and the Core session-read scenarios of §2.6; pull request 9 adds its batch form | one read of each `DatumRef` kind (`selected-case`, `new-case`, `new-child-case`, `worker-record`, `tile-group-parents`); from pull request 9, instances and session, a batch form's `count(instance('selected_cases')/results/value)` (part 05 §2.5), which lands with the other new instance reads, so by the exit the document reads every session datum kind and a batch form's selected cases | each value equals the id the session or the case block holds | D′: the read's source module gains a parent menu, which renames the entry's datum; the read reprints, and proof 5 holds it inside the footprint (`u:<module>`) |
 | `targeted-list-first-places` (`searchApps.ts`, `listFirstPlaces()` beside `listFirstWebApps()`) | 5, the shape, with its control | defect 21 past an opened list-first form (§3.3): the app of `targeted-list-first-web-apps` (a list-first menu that offers search, Web Apps on, the `CLOUDCARE` privilege, `SYNC_SEARCH_CASE_CLAIM`), whose follow-up form also asks a location question, so Formplayer's walk before HQ's Case List save has a run of a phone's own places and the walk after it none; rows `["21"]`; the document and control of the two entries §3.3 adds | the follow-up form's note holds the text the worker enters, as in `targeted-list-first-web-apps` (`./echo.ts`) | none |
@@ -843,9 +884,11 @@ None of the nine asks a date-and-time question, so none meets finding 74's stop 
 Finding 75 is observed in the lane as finding 56 is: its device half on
 `targeted-datetime-equality`, with a retained control and the live entries
 `d75-datetime-equality-case-list` and `d75-datetime-inequality-case-list` that pull request 1 adds
-(§7) and pull request 8 moves (§3.1); its HQ half (HQ matches `value.exact` text, so an instant in
-another spelling finds nothing, part 06 §3.13) in the `csql` family's `datetime-equality` scenario
-(§2.5), because no lane check reads HQ's search results. Production holds no `eq`, `neq` or `in` on
+(§7) and pull request 8 moves (§3.1); its search error on a system date on the same document, with
+every reader, in four entries and a walk stop that pull request 1 adds and pull request 10 moves
+(§3.2); and its HQ half's text equality (HQ matches `value.exact` text, so an instant in another
+spelling finds nothing, part 06 §3.13) in the `csql` family's `datetime-equality` scenario (§2.5),
+because no lane check compares what HQ's search finds with Nova's meaning. Production holds no `eq`, `neq` or `in` on
 a `datetime` anchor in any `_xpath_query`, case list filter or advanced predicate (part 06 §10), so
 the fix moves no stored app's bytes.
 
@@ -990,7 +1033,7 @@ store does not hold.
 
 | # | Pull request | Row | Shards | Why that row |
 |---|---|---|---|---|
-| 1 | Lane mechanics (§7) | 10.2 min | 6 | a judge's files (`known-defects.json`, `registers.py`, `manifest_value_classes.py`, `controls.py`) and `proof/native`, with two new documents and their controls observed; no existing document's key moves, so every other record is judged from main's store |
+| 1 | Lane mechanics (§7) | 10.2 min | 6 | a judge's files (`known-defects.json`, `walk-stops.json`, `registers.py`, `manifest_value_classes.py`, `controls.py`, `test_alignment.py`) and `proof/native`, with two new documents and their controls observed; no existing document's key moves, so every other record is judged from main's store |
 | 2 | Cutover skeleton (part 09) | 10.2 min | 6 | no lane input of its own (`scripts/` only), but pull request 1's documents, controls and entries are not in main's store, so they are observed and every record judged again |
 | 3 | Projection | 10.2 min | 6 | the same: served tool schemas are no lane input, and pull request 1's records are not in main's store |
 | 4 | Wire tree for the record family and the scaffolding | 12.9 min | 14 | moves most documents' bytes (part 04 §5.1, §5.2): the first fresh lane |
@@ -1094,7 +1137,7 @@ and stops to the run with them), and R3 and R4's branch was read on the host:
 
 | Run | Without readers | What it showed |
 |---|---|---|
-| R1 | run 39061011794 | both documents admitted, emitted and their controls retained; every one of the branch's eight entries naming the four documents held on document and control; the one failure, `targeted-datetime-operands`'s manifest classes, which §7 registers; `csql@A` compiled all three equality queries; `targeted-datetime-equality`'s proof 4 (HQ's search `auto_launch` after a save) and sensitivity (the `sync_cases_on_form_entry` claim post) differences failed no check; all 30 of the branch's stops were left to the run with readers. That run held the scratch branch's version of `targeted-datetime-equality`, with a date-and-time question in "Log visit" and a third entry on a `date_opened` case list, `d75-date-opened-equality-case-list`. The plan's document has neither: "Log visit" writes its date and time through a Hidden Value and "Opened visits" is an advanced Search input. It first runs in R1's second dispatch, run 39064331941, on the shard whose verdict is outstanding, so the third entry is not registered and the absence of a finding 74 stop is predicted, not observed (§3.2, §7) |
+| R1 | run 39061011794 | both documents admitted, emitted and their controls retained; every one of the branch's eight entries naming the four documents held on document and control; the one failure, `targeted-datetime-operands`'s manifest classes, which §7 registers; `csql@A` compiled all three equality queries; `targeted-datetime-equality`'s proof 4 (HQ's search `auto_launch` after a save) and sensitivity (the `sync_cases_on_form_entry` claim post) differences failed no check; all 30 of the branch's stops were left to the run with readers. That run held the scratch branch's version of `targeted-datetime-equality`, with a date-and-time question in "Log visit" and a third entry on a `date_opened` case list, `d75-date-opened-equality-case-list`. The plan's document has neither: "Log visit" writes its date and time through a Hidden Value and "Opened visits" is an advanced Search input, so the third entry is not registered; the plan's document ran with every reader in run 39078199859 (below), which observed no finding 74 stop (§3.2, §7) |
 | R2 | runs 39060796573 and 39061476968 | the first failed only its scratch document's own expectation `stamp-clock-local` (Core raised `XPathTypeMismatchException`: the request opened a registration form without its new-case datum `case_id_new_visit_0`); the second, with the request corrected, was clean: bar, intent, proof 4's two Vellum saves of every spelling and the lowering's text, every check. Vellum's save writes one space after each comma and either side of each binary operator and leaves the structure, which is the canonical print (part 01 §2.5). With every reader, run 39064333759 held (below) |
 | R3, R4 | none; the host emission only | §3.3 and §4.4: 16 fuzz documents' bytes move under the default map, 40 select defaults in 19 documents of which 20 in 12 are none of their options, 15 of 371 case databases change with `materializableCaseTypes`, `walk-stops.json` 29 to 23, and the dispatch list of 26 documents (the 21 fuzz documents the map or `saved_prop` moves, the four expander documents of §4.4 and `navigation-conditions`) |
 
@@ -1133,13 +1176,26 @@ merged with it.
   stop of `targeted-datetime-ordering`'s control (Formplayer, `submit-refused:validation-error` on
   the "Visit instants" form, finding 74) holds. Proof 3 compares the readers with each other, and
   all are wrong alike, so no register entry holds the readers' symptom; the `intent` entries hold
-  the finding, and the readers add coverage, not a gap. **Outstanding:** the run's second shard
-  lost its hosted runner (no log, no artifact, no gate failure), so `targeted-datetime-equality`
-  (its first run as the plan writes it, whether its differences are exactly the two entries pull
-  request 1 registers, its served pre-fix values, where its walks end, and whether a served walk
-  of "Opened visits" meets HQ's search error before pull request 10), the
-  `targeted-datetime-ordering` document and `navigation-conditions` await the second attempt of the
-  failed jobs.
+  the finding, and the readers add coverage, not a gap. The run's second shard lost its hosted
+  runner (no log, no artifact, no gate failure), so its three documents were read again in a run
+  of their own.
+- **R1 again, run 39078199859: the three documents of that shard, with every reader.** On the
+  scratch branch at `1a6ccfa9` (`main`, issue 768's fix and the two documents as this plan writes
+  them), `mechanics` `navigation-conditions,targeted-datetime-equality,targeted-datetime-ordering`,
+  two shards. `targeted-datetime-ordering`'s two `d56-…` entries held on document and control, and
+  its finding 74 stop held; `navigation-conditions` was clean. On `targeted-datetime-equality` and
+  its control the two `d75-…` intent entries held, and no walk met finding 74. The Web Apps client
+  and Android show the device half too ("Visits" lists none of the lane's cases, though one holds
+  the filter's instant; "Other visits" lists all four), and HQ's own search agrees; the readers are
+  wrong alike, so no check compares them and no entry is needed. "Opened visits" met HQ's search
+  error (part 06 §3.13): HQ answered its `date_opened = '2026-01-02T09:30'` search with a
+  500 (Elasticsearch's `RequestError(400)`, "failed to parse date field [2026-01-02T09:30] with
+  format [yyyy-MM-dd||…'T'HH:mm:ss…]"), Formplayer's walk stopped with
+  `notification:n-internal-server-error` on 8 runs across all four states on document and control,
+  the Web Apps client showed HQ's error alert and Android "Server-side error (code 500)". The gate
+  failed on that alone: proof 3, 8 differences in 2 classes, proof 4, 12 in 4 (§3.2), and the stop
+  unheld on document and control. Pull request 1 holds all of it (§3.2, §7 item 7). Its
+  "every block ran exactly once" section held.
 - **R3 and R4, run 39064336028: held but for two things pull request 5 carries.** The Android
   reader runtime job passed (49 tests, OK), and no job failed on infrastructure. With the six stops
   removed, no opened form reaches a reader's own end (§3.3): `fuzz-suite-20260930-8`,
@@ -1178,7 +1234,8 @@ skeleton (part 09 §3). Every entry below is the one the executed run held (R1 w
 39061011794, over the documents and register entries of the scratch branch
 `proof/plan-step3-operands`): its register section held every one of the eight live entries naming
 the four documents, on document and control, and its one failure is the manifest classes item 5
-registers.
+registers. The served entries and the walk stop of item 7 are the ones R1's run with every reader
+showed (run 39078199859, §6.4).
 
 1. **The zoned harness and the `expression` family's control half** (§2.1, §2.2): `families.py`
    (`ZONES`, `DEVICE_ZONES`, and `ZONED_CLASSES` with `InstantOrderingRuntimeTest` alone),
@@ -1198,7 +1255,7 @@ registers.
    datetime literal at second precision, which `datetime-literal-precision`, from pull request 6,
    the checker, admits).
 3. **Its control, retained before any fix**, from the corpus emitted on the host at this pull
-   request's head: `python3 -m proof.checks.controls <corpus> targeted-datetime-operands intent manifest`
+   request's head: `python3 -m proof.checks.controls <corpus> targeted-datetime-operands intent,manifest`
    (the manifest check reads its archives, so the control keeps them, `controls.py::ARCHIVE_READERS`,
    and its derived case types, item 6).
 4. **Its three `intent` entries** under defect 56, part "datetime ordering", kind `changed`, document
@@ -1258,19 +1315,35 @@ registers.
    visit" writes `seen` through a Hidden Value `seen_at` with `now()`, not a date-and-time question,
    so finding 74's stop never meets it; and "Opened visits" holds its `date_opened` equality in an
    advanced Search input's predicate, which no device evaluates, not in a case list filter, so it
-   carries no `intent` expectation. Its control is retained before any fix
-   (`python3 -m proof.checks.controls <corpus> targeted-datetime-equality intent`). Its two live
-   entries under defect 75, part "datetime equality", check `intent`, path
-   `/caseList/rows/*/caseId`, kind `changed`, document and control `targeted-datetime-equality`:
+   carries no `intent` expectation. Its control is retained before any fix, for every check its
+   entries name (`python3 -m proof.checks.controls <corpus> targeted-datetime-equality
+   intent,proof3,proof4`). Its two live entries for the device half under defect 75, part "datetime
+   equality", check `intent`, path `/caseList/rows/*/caseId`, kind `changed`, document and control
+   `targeted-datetime-equality`:
 
    | Entry | Artifact | Values | Differences it held |
    |---|---|---|---|
    | `d75-datetime-equality-case-list` | `evaluate:equal-visits-listed-*` | `targeted-visit-amina` → `{"absent": "Core's result holds nothing at this pointer."}` | `evaluate:equal-visits-listed-local@local` at `/caseList/rows/0/caseId` |
    | `d75-datetime-inequality-case-list` | `evaluate:other-visits-listed-*` | none: its two differences carry different values, which one pin cannot name | `evaluate:other-visits-listed-local@local` at `/caseList/rows/0/caseId` (`targeted-visit-baraka` → `targeted-visit-amina`) and `/caseList/rows/1/caseId` (`targeted-visit-chidi` → `targeted-visit-baraka`) |
 
-   `OPEN_DEFECTS` gains `75: 3`. `walk-stops.json` gains nothing: "Log visit" asks no date-and-time
-   question (§3.2). The manifest check finds no difference on this document (equality is no
-   relational comparison).
+   Its four live entries for the search error (§3.2), after those two, under defect 75, part
+   "search on a system date", document and control `targeted-datetime-equality`, no `values` (each
+   class holds HQ's 500 page, which differs between the states), each holding the differences of
+   one class run 39078199859 showed:
+
+   | Entry | Check | Artifact | Path | Kind | Differences it held |
+   |---|---|---|---|---|---|
+   | `d75-system-date-search-formplayer-a-app-aware-remote-search-500-eserror` | `proof3` | `formplayer@A` | `/hq/app_aware_remote_search/500/corehq.apps.es.exceptions.ESError` | `error` | 4 |
+   | `d75-system-date-search-formplayer-local-runs-steps-response-exception` | `proof3` | `formplayer@local.ccz` | `/runs/*/steps/*/response/exception` | `changed` | 4 |
+   | `d75-system-date-search-formplayer-app-settings-runs-steps-response-exception` | `proof4` | `formplayer@app settings@*` | `/runs/*/steps/*/response/exception` | `changed` | 4 (`@B@maximum` and `@B@minimum`, 2 each) |
+   | `d75-system-date-search-formplayer-case-list-runs-steps-response-exception` | `proof4` | `formplayer@case list@*` | `/runs/*/steps/*/response/exception` | `changed` | 8 (`@B@maximum` and `@B@minimum`, 4 each) |
+
+   Its one walk stop, appended to `proof/walk-stops.json` (30 entries): `{"document":
+   "targeted-datetime-equality", "reader": "formplayer", "cause":
+   "notification:n-internal-server-error", "reason": …}`, with the reason part 06 §3.13 gives; it
+   holds the control's walks too. `OPEN_DEFECTS` gains `75: 3`. No walk meets finding 74: "Log
+   visit" asks no date-and-time question (§3.2). The manifest check finds no difference on this
+   document (equality is no relational comparison).
 8. **Docs**: `harness-findings.md` finding 56's *Documents* gains `targeted-datetime-operands`, and
    finding 75 is added under "Found while planning step 3" in the form of finding 74 (part 06
    §3.13); README "The defect rows" names both documents and gives finding 75 its row; README
@@ -1279,10 +1352,35 @@ registers.
    profile, from this pull request's own lane on GitHub's runners (R1's run measured each
    document's configurations at 10 to 44 worker-seconds); the `readers` profile's from the first
    run with every reader.
+10. **The renamespacing check stays in its module's group**, a lane-mechanics fix unrelated to
+    step 3. `proof/checks/test_alignment.py::test_renamespacing_moves_only_the_data_namespace` is
+    parametrized by `_first_document_with_forms()`, the first document of
+    `cases.load_corpus().emitted` (the documents the run checks, then those its sample or selection
+    leaves out, `proof/checks/corpus.py::Corpus.emitted`) whose first export carries a form source,
+    and its parameter is that `Document`, whose `group` `proof/checks/sharding.py::item_group`
+    reads. Where no named document's first export carries one, the item falls through to a left-out
+    document and is filed under `corpus:<that id>`, which no queue runs, and the gate's "every block
+    ran exactly once" fails on a dispatch over named documents (`corpus:targeted-lookup-reserved-tags`
+    on runs 39064336028 and 39082895745, #771's). The fix: the parameter is the document's id
+    (`pytest.param(document.id, id=document.id)`), and the test reads the document with
+    `cases.load_corpus().document(<id>)`, so the parameter carries no group and `item_group` files
+    the item in its module's own group, `proof/checks/test_alignment.py` (a `sharding.SPLIT`
+    module), beside the module's other test, on every run. That group reads the corpus
+    (`proof/lane/blocks.py::CORPUS_PACKAGES`) and its outcome is keyed by every document
+    (`proof/store/queue.py::PACKAGE_DATA["proof/checks"]`), so a change to the chosen document's
+    emission still runs it again, and a dispatch over named documents leaves it with the packages
+    that read the corpus. Held by a new test in the same file,
+    `test_the_renamespacing_check_runs_in_this_modules_group_whichever_document_it_reads`, with
+    `cases.load_corpus` and `_sources` monkeypatched: over a corpus whose checked documents carry no
+    form source and whose left-out one does (the runs' shape), and over one whose first checked
+    document carries one, `item_group` of an item carrying the parameter `_first_document_with_forms()`
+    builds is `proof/checks/test_alignment.py`, as `proof/hq/test_branches.py`'s case for a left-out
+    document reads its items.
 
 Its own checks: the slice of §6.3 with the gate told the three datetime documents;
-`proof/checks/test_registers.py`, `test_controls.py`, `test_manifest_value_classes.py`;
-`test_core_runtime.py`; and its pull request lane.
+`proof/checks/test_registers.py`, `test_controls.py`, `test_manifest_value_classes.py`,
+`test_alignment.py`; `test_core_runtime.py`; and its pull request lane, which leaves item 7's four
+served entries and its stop to the run with every reader.
 
 ---
 
@@ -1293,13 +1391,13 @@ Its own checks: the slice of §6.3 with the gate told the three datetime documen
   `proof/native/producers/emit-expression-evidence.ts`, `lib/commcare/__tests__/instantOrderingTable.ts`,
   `proof/native/core/InstantOrderingRuntimeTest.java`, `proof/targeted/documents/datetimeOperands.ts`,
   `datetimeEquality.ts` (part 06's), `proof/targeted/index.ts`, `proof/controls/targeted-datetime-operands/`,
-  `proof/controls/targeted-datetime-equality/`, `proof/known-defects.json` (seven entries),
+  `proof/controls/targeted-datetime-equality/`, `proof/known-defects.json` (eleven entries),
+  `proof/walk-stops.json` (one entry, 29 to 30), `proof/checks/test_alignment.py` (§7 item 10),
   `proof/checks/registers.py` (`75: 3`), `proof/checks/manifest_value_classes.py` (`_time_kind`'s
   type reader), `proof/checks/manifest_usage.py` (handing the case types to the suite documents),
   `proof/checks/controls.py` and `proof/checks/corpus.py` (the optional derived `caseTypes`),
   `proof/checks/test_manifest_value_classes.py`, `proof/checks/test_controls.py`,
   `proof/timings.json`, `proof/README.md`, `docs/research/2026-09-26-hq-round-trip/harness-findings.md`.
-  No `walk-stops.json` change.
 - Pull request 4, the wire tree: `proof/native/test_search_emission.py` (it asserts one unread
   collection-instance declaration, `remote-multiple`'s selected cases, which pull request 4 stops
   writing; the recorded difference leaves), beside part 04's `test_hq_interpolation.py`; and the
@@ -1324,13 +1422,13 @@ Its own checks: the slice of §6.3 with the gate told the three datetime documen
   `proof/known-defects.json` (defect 21's two entries), `proof/formplayer/walk.py` (`_fill` and
   `_reconcile`: no value sent that the question already holds) and `proof/formplayer/test_walk.py`,
   `proof/timings.json` (the new document and control), `proof/walk-stops.json` (six entries
-  removed, 29 to 23), `proof/rules/conftest.py::DOCUMENTS` (only if a rule's reader test needs a
+  removed, 30 to 24), `proof/rules/conftest.py::DOCUMENTS` (only if a rule's reader test needs a
   new document).
 - Pull request 7, Preview: `proof/native/core/CoreDateParityRuntimeTest.java` and its rows in
   `families.py` and the producer (part 07 §2.4).
 - Pull request 8, lowering: `proof/fixed-defects.json`, `proof/known-defects.json` (56's seven and
-  75's two moved), `proof/checks/registers.py` (`OPEN_DEFECTS` loses 56 and 75),
-  `proof/checks/test_registers.py`, `InstantOrderingRuntimeTest.java` and
+  75's device half's two moved), `proof/checks/registers.py` (`OPEN_DEFECTS` loses 56),
+  `InstantOrderingRuntimeTest.java` and
   `emit-expression-evidence.ts` (the lowered half), `datetimeOrdering.ts` (header comment), README
   "The defect rows", `harness-findings.md`.
 - Pull request 9, instances and session, and pull request 10, CSQL: their targeted documents
@@ -1341,7 +1439,11 @@ Its own checks: the slice of §6.3 with the gate told the three datetime documen
   request 10: §2.5), surface entries and inventory rows (§5.1),
   `manifest_value_classes.py::hierarchical_locations` and its pair (§5.2, pull request 9);
   pull request 10's `csql` family with its `datetime-equality` scenario and
-  `CsqlCompositionRuntimeTest`'s zones, and `harness-findings.md` finding 75 recorded fixed.
+  `CsqlCompositionRuntimeTest`'s zones; pull request 10's `proof/fixed-defects.json` and
+  `proof/known-defects.json` (75's four search entries moved), `proof/walk-stops.json` (the stop's
+  `document` key becomes `control`, 24 entries), `proof/checks/registers.py` (`OPEN_DEFECTS` loses
+  75) and `proof/checks/test_registers.py` (`step > 3`, "Step 3's exit"), README "The defect rows",
+  and `harness-findings.md` finding 75 recorded fixed.
 - Pull request 14, contracts and public docs: no public docs page of this part's (each `content/docs`
   row lands with its behavior, part 10); `proof/timings.json` (both profiles: `no-readers` from a
   fresh dispatch, `readers` from the first night, in a pull request after it), README tables that
@@ -1439,18 +1541,32 @@ Its own checks: the slice of §6.3 with the gate told the three datetime documen
   ten `SubmittedOtherwise` pieces on five fuzz documents and the 24 unregistered proof 4
   differences on `fuzz-suite-20260930-8` as its only failures (§3.3, §4.4). R1's
   run 39064331941, attempt 1: its first shard's gate log and verdict (§6.4); its second shard lost
-  its hosted runner, with no log and no artifact, and the second attempt of the failed jobs was
-  started. **Outstanding:** that second attempt's verdict.
+  its hosted runner, with no log and no artifact.
+- **R1 again with readers**, run 39078199859 on `proof/plan-step3-operands` at `1a6ccfa9`, over
+  `navigation-conditions`, `targeted-datetime-equality` and `targeted-datetime-ordering`, read from
+  its two shards' outputs and its gate's verdict file: 323 items, 4 failed, all on
+  `targeted-datetime-equality` and its control (proofs 3 and 4 on the document, the stops check on
+  both); the register's unregistered classes of §3.2 with their counts, the stop's evidence
+  (`checks/stops/corpus-targeted-datetime-equality.json` and the control's: one stop, Formplayer,
+  `notification:n-internal-server-error`, 8 runs over `maximum/A`, `maximum/B`, `minimum/A`,
+  `minimum/B`, its example script the "Opened visits" search `search_command.m2_results`); the d75
+  and d56 entries and `targeted-datetime-ordering`'s stop held; "every block ran exactly once"
+  held (§3.2, §6.4, §7).
 - **Read for the run's two findings**, at `main`: `proof/formplayer/walk.py::_fill` and
   `::_reconcile`, `proof/editors/driver/steps/webapps/answer.js` (each widget's "unchanged"),
   `proof/observe/walks.py::window_of` and `::runs_for` (a phone's own run is one given a phone's
   places), `proof/webapps/observe.py::shown` (the windows each run is replayed in),
   `proof/checks/registers.py` (module docstring and loader: an entry never names a fuzz document)
   and the 34 live entries of defect 21 in `proof/known-defects.json` (§3.3).
-- **A lane-mechanics observation in R1's run, unrelated to step 3**: the gate's "every block ran
-  exactly once" section reported `corpus:targeted-lookup-reserved-tags` collected by both shards
-  when only that document's control was queued. Observed on that run alone and not confirmed on
-  `main`; no part of this plan depends on it.
+- **A lane-mechanics failure unrelated to step 3**: the gate's "every block ran exactly once"
+  section reported items of `corpus:targeted-lookup-reserved-tags` collected where no queue runs
+  that group, on R3 and R4's run 39064336028 and on #771's run 39082895745 (over
+  `navigation-conditions` alone). Read for it at `main`: `proof/checks/test_alignment.py::_first_document_with_forms`,
+  `proof/checks/corpus.py::Corpus.emitted` and `::document`, `proof/checks/sharding.py::item_group`
+  and `SPLIT`, `proof/lane/blocks.py::CORPUS_PACKAGES`, `proof/store/queue.py::PACKAGE_DATA`, and
+  `proof/hq/test_branches.py::_documents`, whose left-out documents' items run in the module's
+  group. The item filed under a left-out document's group is the renamespacing check's; pull
+  request 1 fixes it (§7 item 10).
 - **The stack's cost model** (§6.2): arithmetic over §6.1's rows and `proof/README.md`, "Timings and
   what the lane is expected to take" (twenty jobs at once, the shards' late starts), and
   `proof/CLAUDE.md`, "Three lanes" (fourteen runners for a scheduled lane). Nothing was run for it.

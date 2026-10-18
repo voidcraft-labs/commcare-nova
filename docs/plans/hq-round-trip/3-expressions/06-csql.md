@@ -90,7 +90,9 @@ name (the plan, "The stack"): this part is pull request 10, CSQL, and its builde
     `datetime` operands lower to instant equality wherever orderings lower (part 04 §3.3).
     `datetime-literal-precision` (milliseconds) is new. The lane observes finding 75 as it observes
     finding 56: pull request 1, the lane mechanics, registers the two case-list entries the executed
-    run shows (equality and inequality), and pull request 8, the lowering, moves them (§3.13,
+    run shows (equality and inequality), and pull request 8, the lowering, moves them; with every
+    reader it also shows HQ's search failing on the raw minute-precision term, which pull request 1
+    holds in four entries and a walk stop and this part's range moves to the control (§3.13,
     "Register").
 16. **CSQL text is a tree with one printer.** The emitter builds a `CsqlNode` tree and `printCsql` is
     the only place CSQL text is assembled; the `_xpath_query` wrapper is a `WireExpr` (part 04 §2.5).
@@ -117,11 +119,12 @@ name (the plan, "The stack"): this part is pull request 10, CSQL, and its builde
     `lib/commcare/predicate/` (§2.3), and its builder cards and pickers (`DateCoerceCard`,
     `MultiSelectContainsCard`, `WithinDistanceCard`, `ConditionChoiceCard`, the new
     `CaseTypeValuePicker`, and the picker rows of §3.1 and §3.9), so pull request 11, the builder,
-    carries none of this part's cards. Four pieces land elsewhere: finding 75's
-    document, control, two live entries and `proof/checks/registers.py::OPEN_DEFECTS` value `75: 3`
-    in pull request 1, the lane mechanics; their move, and the removal of `75: 3`, in pull request 8,
-    the lowering (an `OPEN_DEFECTS` value is the step that fixes a finding, whatever its entry count);
-    and the three type-checker findings this part relies on in every slot,
+    carries none of this part's cards, and it moves finding 75's four search entries and its walk
+    stop to the control and removes `proof/checks/registers.py::OPEN_DEFECTS` value `75: 3` (an
+    `OPEN_DEFECTS` value is the step that fixes a finding, whatever its entry count). Three pieces
+    land elsewhere: finding 75's document, control, six live entries, walk stop and `75: 3` in pull
+    request 1, the lane mechanics; the device half's two entries' move in pull request 8, the
+    lowering; and the three type-checker findings this part relies on in every slot,
     `datetime-literal-precision`, `format-date-pattern-not-fixed` and `number-of-date`, which are part
     03 §3.10's and land in pull request 6, the checker (part 03 §10). §7's `reference.ts` sentences
     ride pull request 10 itself, with its `MODEL_CONTEXT_VERSION` bump to
@@ -949,12 +952,14 @@ Executed (the same run): `dt = '2026-01-02T09:30:00.000+05'` finds none of the t
 that instant and `dt = '2026-01-02T04:30:00.000000Z'` finds all twelve; every ordering in every Core
 spelling finds by instant; `date_opened = '2026-01-01T20:01:00Z'` finds its case; the bound
 `2026-01-02T09:30:00.000000+05:30` is refused by Elasticsearch's parse (`parse_exception`, the
-mapping's formats); a date-only bound on a datetime property compares the UTC day. Read, not
-executed: the case search index's date fields (`opened_on`, `modified_on`, `closed_on`,
-`case_properties.value.date`) carry `corehq/pillows/core.py::DATE_FORMATS_STRING`
-(`es/mappings/case_search_mapping.py`; the list the run's error prints), every pattern of which with
-a time requires seconds, so a minute-precision raw term (`date_opened = '2026-01-02T09:30'`, the
-spelling the builder's date-and-time picker writes) is a parse failure, and the search fails.
+mapping's formats); a date-only bound on a datetime property compares the UTC day. The case search
+index's date fields (`opened_on`, `modified_on`, `closed_on`, `case_properties.value.date`) carry
+`corehq/pillows/core.py::DATE_FORMATS_STRING` (`es/mappings/case_search_mapping.py`; the list the
+run's error prints), every pattern of which with a time requires seconds, so a minute-precision raw
+term (`date_opened = '2026-01-02T09:30'`, the spelling the builder's date-and-time picker writes) is
+a parse failure, and the search fails. That was read here and then observed with every reader on
+`targeted-datetime-equality` (run 39078199859, "What the served readers showed", below): HQ's search
+answers it with a 500.
 
 **What Nova does today** (executed during planning, a local script over today's checker and
 emitter): `lib/commcare/predicate/csqlEmitter.ts::emitComparisonSegments` emits every comparison as
@@ -1023,7 +1028,7 @@ today's emission returns no case for "Visits", every case for "Other visits", an
 case opened at that instant. The error is Elasticsearch's, at search time: HQ's compiler accepts all
 three queries (`csql@A` compiled `seen = '2026-01-02T04:30:00'`, `seen != '2026-01-02T04:30:00'` and
 `date_opened = '2026-01-02T09:30'` in GitHub Actions run 39061011794), and the raw minute-precision
-term then meets the index's date formats (read, above; not yet executed).
+term then meets the index's date formats, which refuse it (run 39078199859, below).
 
 **Decision.** From step 3, in a `query` position, a comparison `eq`, `neq` or `in` whose anchor
 resolves to `datetime` emits as a closed instant range. The anchors
@@ -1100,7 +1105,9 @@ request 6), and the system-date equality of the day rule is refused in device-ev
 builder's picker writes minutes, which pass. The record dialect is unchanged.
 
 **Register.** The device half is the lane's: `targeted-datetime-equality`'s `intent` case-list
-expectations differ on today's emission.
+expectations differ on today's emission. So is the search error on a system date: the served
+readers meet HQ's 500 for "Opened visits", which stops Formplayer's walk and differs between the
+states proofs 3 and 4 compare (below).
 
 *What the run showed* (GitHub Actions run 39061011794, the lane without readers on a scratch branch
 holding the document). The scratch document is the one above with two differences: "Log visit" wrote
@@ -1128,13 +1135,40 @@ as the reading above predicts. The fourth row is the scratch document's own thir
 group failing in the run is `targeted-datetime-operands`'s manifest classes, part 08's, not this
 document.
 
+*What the served readers showed* (GitHub Actions run 39078199859, every served reader, on the
+scratch branch `proof/plan-step3-operands` at `1a6ccfa9`: `main`, issue 768's fix and the two new
+documents as this plan writes them; `mechanics` `navigation-conditions,targeted-datetime-equality,targeted-datetime-ordering`).
+On the plan's document and its control the intent check shows exactly the differences of the two
+entries below, and no walk meets finding 74's stop. The served readers show the device half too:
+on the Web Apps client and on Android the "Visits" list holds none of the lane's cases, though one
+holds the filter's instant, and "Other visits" holds all four; HQ's own search for each agrees.
+Proof 3 compares the readers with each other, and all are wrong alike, so no check reports it and
+no entry is needed beside the `intent` entries. "Opened visits" is new: its search sends
+`_xpath_query` `date_opened = '2026-01-02T09:30'`, the minute-precision literal as written, and HQ's
+case search answers 500, an `ESError` around Elasticsearch's `RequestError(400)`, "failed to parse
+date field [2026-01-02T09:30] with format [yyyy-MM-dd||…'T'HH:mm:ss…]". Formplayer's walk stops
+there with `notification:n-internal-server-error` on 8 runs across all four states (`minimum` and
+`maximum`, A and B), on document and control; the Web Apps client shows HQ's error alert and Android
+"Server-side error (code 500)". From that one error the gate showed differences no entry holds:
+proof 3, 8 in 2 classes, the HQ error record on `formplayer@A`
+(`/hq/app_aware_remote_search/500/corehq.apps.es.exceptions.ESError`, kind `error`, 4) and
+Formplayer's response on the local archive (`formplayer@local.ccz`,
+`/runs/*/steps/*/response/exception`, `changed`, 4); proof 4, 12 in 4 classes, Formplayer's
+response after HQ's App Settings save (`formplayer@app settings@B@maximum` and `@minimum`, 2 each)
+and after its Case List save (`formplayer@case list@B@maximum` and `@minimum`, 4 each), each at
+`/runs/*/steps/*/response/exception`, `changed`: the text of HQ's 500 page differs between the two
+states each compares. The other differences of proof 4 (HQ's Case List save turning on the search's
+`auto_launch`, and what follows from it) are held by the base's entries. So pull request 1 holds the
+HQ half's search error on the document: a walk stop, and live entries for the four classes.
+
 *What pull request 1, the lane mechanics, carries* beside the document (part 08 §7):
 
 1. its control, retained before any fix, from the corpus emitted on the host at that pull request's
-   head: `python3 -m proof.checks.controls <corpus> targeted-datetime-equality intent`;
-2. two live entries in `proof/known-defects.json`, each defect 75, part "datetime equality", check
-   `intent`, path `/caseList/rows/*/caseId`, kind `changed`, document and control
-   `targeted-datetime-equality`, as the run's register held them:
+   head, for every check an entry of it names:
+   `python3 -m proof.checks.controls <corpus> targeted-datetime-equality intent,proof3,proof4`;
+2. two live entries in `proof/known-defects.json` for the device half, each defect 75, part
+   "datetime equality", check `intent`, path `/caseList/rows/*/caseId`, kind `changed`, document and
+   control `targeted-datetime-equality`, as the run's register held them:
    - `d75-datetime-equality-case-list`, artifact `evaluate:equal-visits-listed-*`, values
      `{"before": "targeted-visit-amina", "after": {"absent": "Core's result holds nothing at this
      pointer."}}`;
@@ -1144,41 +1178,67 @@ document.
 
    inserted after finding 56's entries, as the run's register inserted them. Together they hold
    every `intent` difference the plan's document shows, which no other entry holds on it;
-3. `proof/checks/registers.py::OPEN_DEFECTS` gains `75: 3`;
-4. finding 75 in `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (below) and its row in
+3. four live entries for the search error, inserted after those two, each defect 75, part "search
+   on a system date", document and control `targeted-datetime-equality`, no `values` (HQ's 500 page
+   is not one value), holding exactly the run's four classes:
+
+   | Entry | Check | Artifact | Path | Kind |
+   |---|---|---|---|---|
+   | `d75-system-date-search-formplayer-a-app-aware-remote-search-500-eserror` | `proof3` | `formplayer@A` | `/hq/app_aware_remote_search/500/corehq.apps.es.exceptions.ESError` | `error` |
+   | `d75-system-date-search-formplayer-local-runs-steps-response-exception` | `proof3` | `formplayer@local.ccz` | `/runs/*/steps/*/response/exception` | `changed` |
+   | `d75-system-date-search-formplayer-app-settings-runs-steps-response-exception` | `proof4` | `formplayer@app settings@*` | `/runs/*/steps/*/response/exception` | `changed` |
+   | `d75-system-date-search-formplayer-case-list-runs-steps-response-exception` | `proof4` | `formplayer@case list@*` | `/runs/*/steps/*/response/exception` | `changed` |
+
+   Each is a served reader's, so the pull request lane leaves it to the run with every reader;
+4. one walk stop in `proof/walk-stops.json`, the document's (`proof/README.md`, "Walk stops"; a
+   `document` entry also holds the control of the same name, which shows the same stop):
+   `{"document": "targeted-datetime-equality", "reader": "formplayer", "cause":
+   "notification:n-internal-server-error", "reason": "HQ's case search answers the Opened visits
+   search with a 500: its date_opened equality reaches Elasticsearch as a raw minute-precision term
+   (case_search/xpath_functions/comparison.py::_create_system_datetime_query), which the index's date
+   formats refuse, each with a time requiring seconds (corehq/pillows/core.py::DATE_FORMATS_STRING;
+   finding 75), so Formplayer answers with its internal-server-error notification on every state."}`.
+   A worker at that screen cannot get past it: every way the walk sends the search carries the
+   advanced input's predicate;
+5. `proof/checks/registers.py::OPEN_DEFECTS` gains `75: 3`;
+6. finding 75 in `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (below) and its row in
    `proof/README.md`, "The defect rows".
 
-`walk-stops.json` gains no entry for the document. The run's branch held a predicted finding 74 stop
-on "Log visit"'s date and time question (Formplayer, `submit-refused:validation-error`), left
-unobserved because no reader ran; the plan's "Log visit" asks no date and time question, so finding
-74 never meets it. For "Visits" and "Other visits" an empty or longer list is no stop.
+No walk meets finding 74: "Log visit" asks no date and time question, and run 39078199859 showed
+none. For "Visits" and "Other visits" an empty or longer list is no stop.
 
-Pull request 8, the lowering, which lowers device equality, moves both entries unchanged to
-`proof/fixed-defects.json` (`document` dropped), where they keep showing on the control, and
-`OPEN_DEFECTS` loses `75: 3`; the pull request lane holds the move without a reader, as it does
-finding 56's (the intent check runs Core, no served reader).
+Pull request 8, the lowering, which lowers device equality, moves the device half's two entries
+unchanged to `proof/fixed-defects.json` (`document` dropped), where they keep showing on the
+control; the pull request lane holds the move without a reader, as it does finding 56's (the intent
+check runs Core, no served reader). The four search entries and the stop stay, and so does `75: 3`,
+because HQ's search still meets the raw term.
 
-The HQ half no lane check reads. `csql@A` (`proof/checks/intent.py::search_compiles`) is a refusal
-check, and in the run it compiled all three queries (`seen = '2026-01-02T04:30:00'`,
+Pull request 10, CSQL, fixes the search error: the equality becomes the closed range
+`(date_opened >= '2026-01-02T09:30' and date_opened <= '2026-01-02T09:30')`, which HQ's range query
+parses (`filters.date_range`) rather than sending as a raw term. In the same pull request the four
+entries move unchanged to `proof/fixed-defects.json`, held on the control, which keeps the pre-fix
+upload bodies and archives and so keeps meeting the 500; the stop's entry becomes
+`{"control": "targeted-datetime-equality", …}` with reader and cause unchanged and a reason saying
+the control keeps the pre-fix search, so the control keeps showing it while the document's walks
+reach their end; and `OPEN_DEFECTS` loses `75: 3`. The move is a served reader's, so the pull
+request lane leaves it to the run with every reader: pull request 10's reader dispatch, started by
+the person on GitHub's runners (`gh workflow run proof-audit.yml --ref <branch> -f nightly=false -f
+mechanics=targeted-datetime-equality,navigation-conditions`), or the first night after the merge.
+
+The text-equality half no lane check compares. `csql@A` (`proof/checks/intent.py::search_compiles`)
+is a refusal check, and it compiled all three queries (`seen = '2026-01-02T04:30:00'`,
 `seen != '2026-01-02T04:30:00'`, `date_opened = '2026-01-02T09:30'`, each `compiled: true` over case
-type `visit`, the `csql` records of the run's stored observations); proofs 3 and 4 compare Nova's
-export with HQ's build, which find nothing alike. So the HQ half is held by the `csql` family's
-`datetime-equality` scenario, which lands with this part's emitter change in pull request 10, CSQL,
-fails on today's emitter and passes on the fix.
-
-What the served readers show is not in hand. The first dispatch with every reader died in the
-Android reader runtime job (issue 768); the second, run 39064331941 with the issue's fix beneath the
-scratch change, passes that job, and its served readers' verdict on this document is outstanding
-(part 08 §6.4). Whether a served reader's walk of "Opened visits" meets HQ's search error before
-pull request 10 is therefore unobserved, and the plan lists it under "Written and not yet run". If the first run with every reader shows such a stop, pull request 1 holds it on the document
-(reader, cause: HQ's search refusing the raw minute-precision term), and pull request 10, which fixes
-it, moves it to the retained control that still shows it.
+type `visit`, the `csql` records of run 39061011794's stored observations); what HQ's search finds
+for "Visits" and "Other visits" is the same on every state and reader, so proofs 3 and 4 see no
+difference. So that half is held by the `csql` family's `datetime-equality` scenario, which lands
+with this part's emitter change in pull request 10, CSQL, fails on today's emitter and passes on the
+fix.
 
 **Harness findings.** Pull request 1, the lane mechanics, adds finding 75 to
 `docs/research/2026-09-26-hq-round-trip/harness-findings.md` under a new "Found while planning step 3"
 heading, in the form of finding 74: the shape, HQ's text equality at `case_property_query`, the
-receiver's rewrite, the device's text equality, the harm, and the document
-`targeted-datetime-equality`. Pull request 8, the lowering, records the device half fixed; pull
+receiver's rewrite, the raw term on a system date and the 500 it meets, the device's text equality,
+the harm, and the document `targeted-datetime-equality`. Pull request 8, the lowering, records the device half fixed; pull
 request 10, CSQL, records the finding fixed and names the `csql` family's scenario.
 
 **Changes at the next publish.** A search whose effective `_xpath_query` holds such a comparison
@@ -1196,8 +1256,9 @@ did." The dry run reports the count (§10).
 `seen`; `eq` with a naive literal, a `Z` literal, a minute literal, `now()`-free runtime values in a
 `+05` and a `Z` spelling, `neq`, `in`, and `date_opened` / `last_modified` equality with a minute
 literal in an advanced predicate; HQ's search returns the fixture's expected ids, and
-`csqlComposition.postgres.test.ts` returns the same. The lane: `targeted-datetime-equality`, its
-two register entries on document and control, proofs 1 to 5, every walk to its end.
+`csqlComposition.postgres.test.ts` returns the same. The lane: from pull request 10,
+`targeted-datetime-equality` passes proofs 1 to 5 with no entry and every walk reaching its end, and
+its control shows finding 75's six fixed entries and holds its one stop.
 
 ---
 
@@ -1372,17 +1433,20 @@ filter reads the chosen household, so HQ's build renames the short filter's `par
 root's `case_id` through root alignment and proof 3 compares that nodeset with the local suite's. `csql@A` stays a refusal check; meaning is the native family's. The
 `csql-metadata:closed_on` and `csql-unit:<unit>` items appear in the usage record (already recorded,
 §6) and are held. A second targeted document, `targeted-datetime-equality` (§3.13), lands in pull
-request 1, the lane mechanics, with its retained control and its two live entries under defect 75
-(`d75-datetime-equality-case-list`, `d75-datetime-inequality-case-list`); pull request 8, the
-lowering, moves them to `fixed-defects.json`. `csqlComposition.ts` lands in pull request 10. Both
+request 1, the lane mechanics, with its retained control, its six live entries under defect 75 (the
+device half's `d75-datetime-equality-case-list` and `d75-datetime-inequality-case-list`, and the four
+`d75-system-date-search-…` entries of "Opened visits"' search error) and that error's walk stop;
+pull request 8, the lowering, moves the first two to `fixed-defects.json`, and pull request 10 moves
+the four and turns the stop into its control's. `csqlComposition.ts` lands in pull request 10. Both
 documents are written with explicit identities and admitted through the production gates at every
 pull request of the stack.
 
 **Finding 56.** Its register entries are part 04's and part 08's (pull request 8); §3.10's zone run is
 this part's contribution to the seventh requirement inside CSQL runtime segments.
 
-**Finding 75.** Its device half is the lane's (two entries, §3.13), its HQ half the `csql` family's
-`datetime-equality` scenario, in pull request 10.
+**Finding 75.** Its device half is the lane's (two entries, §3.13), and so is its HQ half's search
+error on a system date (four entries and a walk stop, seen by the served readers); its HQ half's text
+equality is the `csql` family's `datetime-equality` scenario, in pull request 10.
 
 ---
 
@@ -1537,7 +1601,7 @@ pinned image, and read-only production reads (no paid call, no write, no repo fi
   bound on a datetime property compares the UTC day.
 - **The `targeted-datetime-equality` lane slice without readers**: GitHub Actions run 39061011794 on
   a scratch branch that carried its version of the document (the two differences above; the plan's
-  document first runs in R1's second dispatch, run 39064331941, part 08 §6.4), its retained control, three predicted `d75-…` entries,
+  document ran with every reader in run 39078199859, below), its retained control, three predicted `d75-…` entries,
   `OPEN_DEFECTS` `75: 3` and a predicted finding 74 walk stop, beside part 08's
   `targeted-datetime-operands`; documents run: `navigation-conditions`, `targeted-datetime-equality`,
   `targeted-datetime-operands`, `targeted-datetime-ordering`; `PROOF_READERS=0`. Its verdict holds
@@ -1549,7 +1613,19 @@ pinned image, and read-only production reads (no paid call, no write, no repo fi
   question and the third module's case list filter (§3.13); the two case-list entries the plan
   registers are the run's equality and inequality entries unchanged. Of the dispatches with every
   reader, the first died in the Android reader runtime job (issue 768) and the second (run
-  39064331941, part 08 §6.4) passes it, with its served readers' verdict outstanding.
+  39064331941, part 08 §6.4) passed it but lost the shard that held this document.
+- **The `targeted-datetime-equality` run with every reader**: GitHub Actions run 39078199859 on the
+  scratch branch `proof/plan-step3-operands` at `1a6ccfa9` (`main`, issue 768's fix, and the two new
+  documents as this plan writes them), `mechanics`
+  `navigation-conditions,targeted-datetime-equality,targeted-datetime-ordering`, read from its shard
+  outputs and its gate's verdict. The two `d75-…` intent entries held on document and control; no
+  finding 74 stop; the Web Apps client's and Android's lists and HQ's own search showed the device
+  half alike; and "Opened visits"' search met HQ's 500 (`ESError`, Elasticsearch's
+  `RequestError(400)` "failed to parse date field [2026-01-02T09:30]"), which stopped Formplayer's
+  walk (`notification:n-internal-server-error`, 8 runs, all four states, document and control) and
+  gave proof 3 8 differences in 2 classes and proof 4 12 in 4, each class named in §3.13's table of
+  pull request 1's entries. `targeted-datetime-ordering`'s two `d56-…` entries and its finding 74
+  stop held, and `navigation-conditions` was clean.
 
 Read at the pins: HQ `case_search/filter_dsl.py` (whole), `xpath_functions/comparison.py` (whole),
 `xpath_functions/value_functions.py` (whole, with `::now`, `::datetime_`, `::_value_to_datetime`),
