@@ -80,11 +80,11 @@ from lxml import etree
 
 from proof.checks import hq_own_reports
 from proof.checks.compare.json_tree import compare_json
+from proof.checks.compare.names import XFORMS
 from proof.checks.compare.xml_tree import parse_xml
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.hq_own_reports import NEW, OLD
 
-XFORMS = "http://www.w3.org/2002/xforms"
 CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
 GENERATED_MARK = re.compile(r"@generated:uuid:[0-9]+")
 GENERATED = "@generated"

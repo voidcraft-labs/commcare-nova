@@ -986,7 +986,8 @@ class Predicates(unittest.TestCase):
         the lane's answers and, by reference, ``questions``'s."""
         options = {}
         if questions is not None:
-            options["answers"] = {**json.loads(ANSWERS.read_text(encoding="utf-8")), "questions": questions}
+            lane = json.loads(ANSWERS.read_text(encoding="utf-8"))
+            options["answers"] = {**lane, "questions": {**lane.get("questions", {}), **questions}}
         answer = self.walked(archive, restore, commands=["m0-f0"], views=True, **options)
         forms = [step["form"] for step in answer["walks"]["m0-f0"]["steps"] if "form" in step]
         self.assertTrue(forms, f"The walk of {archive} opened no form")
