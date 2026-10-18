@@ -84,6 +84,12 @@
 		"reason": "The control retains the document from before step 2 wrote its close condition as a Save to Case close: Core does not parse the close condition its form's case block carries (UnresolvedResourceException), so Formplayer cannot install the app and the walk ends at its first request."
 	},
 	{
+		"document": "targeted-datetime-equality",
+		"reader": "formplayer",
+		"cause": "notification:n-internal-server-error",
+		"reason": "HQ's case search answers the Opened visits search with a 500: its date_opened equality reaches Elasticsearch as a raw minute-precision term (case_search/xpath_functions/comparison.py::_create_system_datetime_query), which the index's date formats refuse, each with a time requiring seconds (corehq/pillows/core.py::DATE_FORMATS_STRING; finding 75), so Formplayer answers with its internal-server-error notification on every state."
+	},
+	{
 		"document": "targeted-datetime-ordering",
 		"reader": "formplayer",
 		"cause": "submit-refused:validation-error",

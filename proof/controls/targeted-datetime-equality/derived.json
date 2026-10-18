@@ -1,0 +1,210 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "visit-1",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"seen",
+							"2026-01-10T08:00:00.000Z"
+						]
+					]
+				},
+				{
+					"case_id": "visit-2",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"seen",
+							"2001-02-03T04:05:06.000Z"
+						]
+					]
+				},
+				{
+					"case_id": "visit-3",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"seen",
+							"2099-06-15T14:30:00.000Z"
+						]
+					]
+				},
+				{
+					"case_id": "visit-4",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"seen",
+							"2026-01-02T04:30:00"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"caseTypes": {
+			"visit": {
+				"case_name": null,
+				"seen": "datetime"
+			}
+		},
+		"intent": {
+			"appName": "Visit times",
+			"modules": [
+				[
+					"visit",
+					[
+						{
+							"creates": [
+								"visit"
+							],
+							"fieldWrites": {
+								"visit": {
+									"seen": "value"
+								}
+							},
+							"formType": "registration",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "401dad58-cf2b-55dc-a582-202ac6632aa8",
+							"validations": {},
+							"writes": {
+								"visit": {
+									"seen": "value"
+								}
+							}
+						},
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "d947ef55-c44b-5109-a0dc-6baf69f9ca85",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"visit",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "636746c0-dd5c-54ec-a626-0c0ac9ecf990",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"visit",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "03efc08a-d92f-5626-a35e-f498439e5c9a",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			],
+			"sequence": 1,
+			"settings": {
+				"showIncompleteForms": false,
+				"showSavedForms": false
+			}
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"401dad58-cf2b-55dc-a582-202ac6632aa8",
+						"d947ef55-c44b-5109-a0dc-6baf69f9ca85"
+					],
+					"uuid": "e86852f1-e76e-5145-af1f-64138dd83661"
+				},
+				{
+					"forms": [
+						"636746c0-dd5c-54ec-a626-0c0ac9ecf990"
+					],
+					"uuid": "c7c76234-6b08-5080-ab41-2d6e456a6804"
+				},
+				{
+					"forms": [
+						"03efc08a-d92f-5626-a35e-f498439e5c9a"
+					],
+					"uuid": "090ae1ee-546a-5f8a-a4cc-ff4c512b113e"
+				}
+			]
+		}
+	}
+}

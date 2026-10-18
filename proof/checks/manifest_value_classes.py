@@ -833,6 +833,7 @@ class Runtime:
         self.root = root
         self.artifact = artifact
         self.readings = None
+        self.case_types = None  # the document's declared types, or the optional metadata a control retained
 
     @cached_property
     def declared_instances(self):
@@ -4654,8 +4655,8 @@ def time_operand(use, manifest):
     comparison (``<``, ``<=``, ``>``, ``>=``: Core's ``XPathCmpExpr``) with a time on either side, which Core
     compares as a number, a string holding ``:`` being NaN (``FunctionUtils.toNumeric``). Each side is read over the
     expression's structure as HQ's XPath grammar reads it (``_time_kind``); a side whose value this does not read (a
-    case property other than the three system dates, a lookup table's field, a value only the run time knows) leaves
-    it open."""
+    case property whose type or case context is unknown, a lookup table's field, a value only the run time knows)
+    leaves it open."""
     document, text = _expression_at(use)
     if document is None or text is None:
         return None
@@ -4664,29 +4665,63 @@ def time_operand(use, manifest):
         return None
     context = _context_path(use)
     verdicts = set()
-    for node in _relational(tree):
-        verdicts |= {_time_kind(manifest, document, side, context, frozenset()) for side in node[2:]}
+    for node, case_type in _relational(tree):
+        verdicts |= {_time_kind(manifest, document, side, context, frozenset(), case_type) for side in node[2:]}
     if True in verdicts:
         return True
     return None if None in verdicts else False
 
 
-def _relational(tree):
-    """Each relational comparison an expression's structure holds, at any depth."""
+def _relational(tree, case_type=None):
+    """Each relational comparison, and the case type a sibling predicate names where it is evaluated.
+
+    A nested path establishes its own predicate context; an outer case's type never types a child node or a
+    different instance's properties. The observation records the instance argument before the step predicates.
+    """
     kind = tree[0]
     if kind == "binary":
         if tree[1] in ("<", "<=", ">", ">="):
-            yield tree
-        yield from _relational(tree[2])
-        yield from _relational(tree[3])
+            yield tree, case_type
+        yield from _relational(tree[2], case_type)
+        yield from _relational(tree[3], case_type)
     elif kind == "negative":
-        yield from _relational(tree[1])
+        yield from _relational(tree[1], case_type)
     elif kind == "call":
         for argument in tree[2]:
-            yield from _relational(argument)
+            yield from _relational(argument, case_type)
     elif kind == "path":
-        for predicate in tree[3]:
-            yield from _relational(predicate)
+        scoped, first, end = _case_predicate_scope(tree)
+        for index, predicate in enumerate(tree[3]):
+            yield from _relational(predicate, scoped if first <= index < end else None)
+
+
+def _case_predicate_scope(tree):
+    """The type and predicate span of ``instance('casedb')/casedb/case[@case_type = '<type>'][...]``.
+
+    Read only this named case step and a direct equality among its siblings. A filter on a whole path has a
+    different predicate order in the observation's tree, and is left open, as are types named under and/or.
+    """
+    steps, predicates = tree[4], tree[3]
+    if (
+        tree[1] != "instance:casedb"
+        or len(steps) < 2
+        or list(steps[0]) != ["child", "casedb", 0]
+        or list(steps[1][:2]) != ["child", "case"]
+        or any(axis == "filter" for axis, _, _ in steps)
+        or not predicates
+        or list(predicates[0]) != ["text", "casedb"]
+        or len(predicates) != 1 + sum(count for _, _, count in steps)
+    ):
+        return None, 0, 0
+    first, end = 1, 1 + steps[1][2]
+    names = set()
+    for predicate in predicates[first:end]:
+        if predicate[:2] != ["binary", "="]:
+            continue
+        for path, literal in (predicate[2:], reversed(predicate[2:])):
+            if _bare_read(path, "attribute") == "case_type" and literal[0] == "text":
+                names.add(literal[1])
+    return next(iter(names)) if len(names) == 1 else None, first, end
 
 
 def _context_path(use):
@@ -4698,7 +4733,7 @@ def _context_path(use):
     return _node_path(form, form.node(at.element.get("nodeset")))
 
 
-def _time_kind(manifest, document, tree, context, seen):
+def _time_kind(manifest, document, tree, context, seen, case_type=None):
     """Whether a value is a time as a comparison reads it: True for a string holding ``:`` or a form node whose bind
     type is ``xsd:time`` (or whose calculate gives a time), False for a number, a date, a truth value or another
     answer, None where this does not read it."""
@@ -4718,10 +4753,18 @@ def _time_kind(manifest, document, tree, context, seen):
         branches = arguments[1:] if name == "if" and len(arguments) == 3 else arguments if name == "coalesce" else None
         if not branches:
             return None
-        kinds = {_time_kind(manifest, document, branch, context, seen) for branch in branches}
+        kinds = {_time_kind(manifest, document, branch, context, seen, case_type) for branch in branches}
         return True if True in kinds else None if None in kinds else False
-    if kind == "path" and document.kind == "runtime" and _system_date_read(tree):
-        return False
+    if kind == "path" and document.kind == "runtime":
+        if _system_date_read(tree):
+            return False
+        property_name = _bare_read(tree, "child")
+        data_type = ((document.case_types or {}).get(case_type) or {}).get(property_name)
+        if data_type in ("datetime", "time"):
+            return True  # Core reads a custom property's stored text; ':' makes FunctionUtils.toNumeric return NaN
+        if data_type in ("date", "int", "decimal"):
+            return False
+        return None
     if kind == "path" and document.kind == "xform":
         if tree[1] == "absolute":
             path = _resolved("/", tree[4])
@@ -4735,10 +4778,15 @@ def _time_kind(manifest, document, tree, context, seen):
 
 def _system_date_read(tree):
     """Whether a path is a bare read, by name, of one of the case's system dates (``SYSTEM_DATE_NAMES``)."""
-    if tree[1] != "relative" or tree[3] or len(tree[4]) != 1:
-        return False
-    axis, test, predicates = tree[4][0]
-    return axis == "child" and test in SYSTEM_DATE_NAMES and not predicates
+    return _bare_read(tree, "child") in SYSTEM_DATE_NAMES
+
+
+def _bare_read(tree, axis):
+    """The name of a single relative child or attribute read, without a predicate, or None."""
+    if tree[0] != "path" or tree[1] != "relative" or tree[3] or len(tree[4]) != 1:
+        return None
+    step_axis, test, predicates = tree[4][0]
+    return test if step_axis == axis and not predicates else None
 
 
 def _time_node(manifest, form, path, seen):

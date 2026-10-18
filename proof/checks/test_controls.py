@@ -5,9 +5,9 @@ export bytes and expected values, and the checks read it as they read the
 document, but it never depends on the shape of Nova's document, which a later
 cutover changes. So a control holds no ``document.json``: what the checks
 derive from D and D' (the wire layout and languages, the intent, the lookup
-tags and the case database) is written beside its files when it is retained
-(``controls.derived``), and each check reads that where it reads it of a
-document (``Document.derived``). The plausible failures: a derived value that
+tags, the case database and the case-property types) is written beside its
+files when it is retained (``controls.derived``), and each check reads that
+where it reads it of a document (``Document.derived``). The plausible failures: a derived value that
 is not what the check derives from the document (a set read back as a list,
 a case's properties out of order), a check that still reads the control's
 document and so fails, or passes on a shape it no longer has, once Nova's
@@ -15,6 +15,10 @@ document changes, and a control that keeps files no check of its entries
 reads (an edit only proofs 2 and 3 name it for, whose B-edit the unit would
 then observe, or an archive its checks never open), or drops one a check
 does.
+
+Case-property types are optional metadata: a control retained before that
+reader existed holds no ``caseTypes`` and answers None, while a new control
+keeps each declared type without guessing one for an untyped property.
 
 A control is retained under its document's id, or under a name of its own
 (``--as``), which leaves the document's own control as it was; and a
@@ -63,12 +67,14 @@ def test_a_control_reads_what_its_documents_checks_derive_and_holds_no_document(
     assert intent_of(control) == intent_of(document)
     assert document_case_database(control) == document_case_database(document)
     assert document_lookup_tags(control) == document_lookup_tags(document)
+    assert control.case_types() == document.case_types()
     assert control.exports.keys() == document.exports.keys()
     assert control.targeted == document.targeted
     if document.edit is not None:
         assert control.edit_wire_modules == document.edit_wire_modules
         assert intent_of(control, edit=True) == intent_of(document, edit=True)
         assert document_case_database(control, edit=True) == document_case_database(document, edit=True)
+        assert control.case_types(edit=True) == document.case_types(edit=True)
         assert control.edit.footprint == document.edit.footprint
         # The batch keeps its footprint, never the mutations Nova's planner wrote.
         assert set(json.loads((retained / "edit" / "batch.json").read_text())) <= set(controls.BATCH_KEYS)
@@ -77,6 +83,49 @@ def test_a_control_reads_what_its_documents_checks_derive_and_holds_no_document(
     # The observation keys and runs a control's sessions over the cases its document's did.
     assert unit.case_databases(control) == unit.case_databases(document)
     assert set(unit.computed_inputs(control)["configurations"]) == set(document.exports)
+
+
+@pytest.mark.parametrize("with_case_types", [False, True])
+def test_a_control_reads_optional_case_types_and_an_older_control_leaves_them_unknown(tmp_path, with_case_types):
+    types = {"visit": {"seen": "datetime", "clock": "time", "day": "date", "untyped": None}}
+    changed = {"visit": {"seen": "date"}}
+    held = {"D": dict.fromkeys(corpus.DERIVED_KEYS), "D'": dict.fromkeys(corpus.DERIVED_KEYS)}
+    if with_case_types:
+        held["D"]["caseTypes"], held["D'"]["caseTypes"] = types, changed
+    path = tmp_path / corpus.DERIVED
+    path.write_text(json.dumps(held), encoding="utf-8")
+    control = corpus.Document(id="retained", source="control", root=tmp_path, kind="control")
+    assert control.derived("caseTypes") == (types if with_case_types else None)
+    assert control.case_types() == (types if with_case_types else None)
+    assert control.case_types(edit=True) == (changed if with_case_types else None)
+
+    # Optional metadata does not make the layout permissive about a misspelling or a lost required key.
+    held["D"]["caseType"] = types
+    path.write_text(json.dumps(held), encoding="utf-8")
+    with pytest.raises(corpus.CorpusLayoutError, match="optionally"):
+        corpus.Document(id="misspelled", source="control", root=tmp_path, kind="control").case_types()
+    del held["D"]["caseType"], held["D"]["wire"]
+    path.write_text(json.dumps(held), encoding="utf-8")
+    with pytest.raises(corpus.CorpusLayoutError, match="optionally"):
+        corpus.Document(id="incomplete", source="control", root=tmp_path, kind="control").case_types()
+
+
+def test_case_property_types_are_declared_types_without_inference(tmp_path):
+    (tmp_path / "document.json").write_text(
+        json.dumps(
+            {
+                "doc": {
+                    "caseTypes": [
+                        {"name": "visit", "properties": [{"name": "seen", "data_type": "datetime"}, {"name": "day"}]},
+                        {"name": "other", "properties": [{"name": "seen", "data_type": "date"}]},
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    document = corpus.Document(id="declared", source="test", root=tmp_path)
+    assert document.case_types() == {"visit": {"seen": "datetime", "day": None}, "other": {"seen": "date"}}
 
 
 @pytest.mark.parametrize("document", _documents()[:1])

@@ -300,7 +300,7 @@ Rows, each run in all seven setups:
 | DST | America/New_York fall-back, `2026-11-01T01:30-04:00` and `01:30-05:00`, typed and as text; spring-forward, `2026-03-08T01:59-05:00` and `03:00-04:00` |
 | Dates | a date against a date (bare, both typed and text), and a date coerced to a datetime against a datetime of the same UTC day, entering as the UTC-midnight day number |
 | `now()` | a typed answer and a text operand against `now()` under the run's clock, bounded by the instants before and after |
-| Malformed | the probe's 28 malformed texts against a typed answer and each other: no evaluation throws, and every ordering with one is false |
+| Malformed-input corpus | the probe's 28 texts against a typed answer and each other; this is an input corpus, not a strict grammar classification. Every lowered evaluation must finish without throwing. The bare control preserves Core's date-only exception: `2026-01-02` orders as a calendar day (`commcare-core` at `8e9ba8d908e9`, `org/javarosa/xpath/expr/FunctionUtils.java::toNumeric`, its character check followed by `attemptDateConversion`; `DateUtils.java::parseDateTime` accepts a date without `T`). Its other datetime spellings are NaN in bare numeric comparisons. The lowering's eight numeric results, a valid nine-digit fraction and seven permissive malformed shapes, retain part 04 §3.1's specified results rather than an incorrect all-false assertion. No numeric result claims the text is a valid authored datetime. |
 
 ### 2.3 Finding 56's seven requirements, each to its test
 

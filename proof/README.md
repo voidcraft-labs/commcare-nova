@@ -509,6 +509,7 @@ named here, rather than by every document's checks:
 | What | Held by | What it shows |
 | --- | --- | --- |
 | Defect 4's add-ons | `proof/views/test_add_ons.py` | an add-on a person turned on in HQ (Menu Mode, over `targeted-hq-side-state`) is offered by HQ's module page after their save, and still offered after Nova's next publish |
+| Finding 56 in every device zone | the `expression` native family ("Native proofs") | the lane's documents run every runtime in UTC (`proof/core/client.py::JVM_OPTIONS`, `proof/formplayer/webapps.py::TIMEZONE`, the container's `TZ`), so a comparison that depends on the reader's zone is held in four device zones and three Formplayer setups, each a JVM of its own, with values written in two further zones |
 | Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py`, and `proof/views/__tests__/lookupUploadAnswer.test.ts` for Nova's side | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table; handed an answer of that status and type, Nova's own client reports that nothing landed and that the plan lacks Lookup Tables (`upgradeRequired`) |
 | Defect 5's 32-character tag | `proof/views/test_lookup_upload.py` | HQ's upload takes a 32-character tag and answers a 33-character one with a 500 (a database error; it checks no length) |
 | Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, its Case List page holds the control for each only under the flag, and Nova's publish asks for the flag before it sends any of them |
@@ -1312,7 +1313,16 @@ two form-list settings at both values: the first turns saved forms off and
 incomplete forms on, the second the reverse. `targeted-datetime-ordering`
 (finding 56: a survey form that orders two date and time answers an hour
 apart, and a follow-up form that orders two case properties held as text)
-shows its finding, with its entries and its control. `targeted-case-id-column`
+shows its finding, with its entries and its control.
+`targeted-datetime-operands` (finding 56 on the operands
+`targeted-datetime-ordering` lacks: a Hidden Value copying a date-and-time
+property ordered against `now()` under a fixed clock, and two case list
+filters, one ordering such a property against a literal and one ordering
+two of them) and `targeted-datetime-equality` (finding 75: a case list filter
+asking for a date and time equal to a literal and one asking for it not
+equal, over a restore in HQ's stored spelling, and an advanced Search
+input's equality on `date_opened`, which no device evaluates) show their
+findings, each with its entries and its control. `targeted-case-id-column`
 (finding 57: a list showing `case_id`, with a hidden order rule over
 `owner_id`) is a witness of the fix, its entries held on its control, and
 `targeted-attribute-columns` keeps every column over `case_id`, `owner_id`
@@ -2555,9 +2565,12 @@ fix (the upload bodies, the archives) and the values the checks compare
 against, it keeps showing the symptom after the emitter that made it is
 fixed. It keeps no `document.json`, whose `doc` is Nova's persistable shape,
 which a later cutover changes: what the checks derive from D and D' (the
-wire layout and languages, the intent, the lookup tags and the case
-database) is written beside its files when it is retained (`derived.json`,
-`proof/checks/controls.py`), and each check reads it there. Nor does it keep
+wire layout and languages, the intent, the lookup tags, the case database
+and each case property's type) is written beside its files when it is
+retained (`derived.json`, `proof/checks/controls.py`), and each check reads
+it there; a control retained before the case types were kept reads no type,
+which the manifest's readers answer as undecided, as they did when it was
+retained. Nor does it keep
 an `inputs.json`: its part keys and the evidence store's guard read its
 input files from the files themselves (`proof/observe/unit.py::input_files`),
 so a control edited by hand is keyed by what it holds, and its records and
@@ -2646,6 +2659,8 @@ number.
 
 Four findings made while step 2 was planned have rows of their own at the
 table's end (56, 57, 70 and 71), each shown by a targeted document.
+Finding 75, made while step 3 was planned, has its row after them, shown by
+a targeted document.
 
 One row is not reproduced: "12, same-type child", whose input no Nova document
 holds ("Claims held outside a document's checks", above). "20, CommTrack", which step 1
@@ -2705,10 +2720,11 @@ gate refuses (`SESSION_DATUM_NOT_SUPPLIED`, finding 68), still shown by its cont
 | 26, a link's case value | a form link that names its target's case by a value no case holds makes the target write to a case no form created; HQ makes that case without a create block and notes the soft assertion `corehq/form_processor/casedb_base.py::get_case_from_case_update` answering the device's requests | proof 3 and proof 4 (Android's soft assertions) | `expander-form-links-emission-forwards-literal-condition-47c96355-0` |
 | 27 | Vellum reports "Repeat Count is required." for a user repeat in a labelled group | proof 4 | `targeted-labelled-group-repeat` |
 | 30 | Core serializes a second `nova_count_<repeat>` node holding a hidden value's count, truncated where the count is fractional | intent (Core), over the submission; manifest (a count from a hidden value that is not an integer) | `targeted-repeat-count-copy` |
-| 56, datetime ordering | an ordering comparison over a date and time is false on a device wherever an operand is held as text, and orders by calendar day where both are typed, while Preview orders by instant | intent (Core), on the local export and on A | `targeted-datetime-ordering` |
+| 56, datetime ordering | an ordering comparison over a date and time is false on a device wherever an operand is held as text, and orders by calendar day where both are typed, while Preview orders by instant | intent (Core), on the local export and on A; manifest (the local archive's suite holds a REFUSED `time-operand` use) | `targeted-datetime-ordering`, `targeted-datetime-operands` |
 | 57, `case_id` column | a case list column over `case_id` was blank on HQ's build (`detail_screen.py::CASE_PROPERTY_MAP` has no entry for it, and the case database holds the id only as an attribute), and a hidden sort column over `case_id`, `owner_id` or `status` made HQ's Case List page refuse to save. Fixed in step 2: every column over the three is an expression column over the attribute | manifest; proof 3 across the two paths; proof 4 | fixed; still shown by the control `targeted-case-id-column`; `targeted-attribute-columns` holds every column over the three |
 | 70, reserved question names | HQ's form builder warns about a question named `case`, `registration` or `script` (Vellum `src/mugs/baseSpecs.js`, `RESERVED_NAMES`), and a root question named `case` in a form that saves a case stops HQ's build ("You cannot use the Case Management UI if you already have a case block in your form.", `xform.py::XForm._create_casexml`). Fixed in step 2: Nova refuses the three names in any case for every question and Connect block | the bar; proof 4 | fixed; still shown by the control `targeted-reserved-question-names` |
 | 71, the form's root | HQ's form builder reports "Unknown question: #form" on a calculation or a repeat's count that reads the form's root (`/data`), which Nova admitted. Fixed in step 2: Nova refuses a read of the form's root alone (`INVALID_REF`) | proof 4 | fixed; still shown by the control `targeted-form-root-read` |
+| 75, datetime equality | a case list filter that asks for a date and time equal to a value compares text on a device (`XPathEqExpr.java::testEquality`), so it lists none of the cases holding that instant in HQ's stored spelling, and `!=` lists every case; HQ's search matches the text in `case_properties.value.exact`, so an instant in another spelling finds nothing, and sends a system date's date-and-time value as a raw term, so the minute-precision value the builder writes makes the search answer 500; Preview compares instants | intent (Core), on the local export; proofs 3 and 4 and a walk stop, with every reader (Formplayer's answer to HQ's 500) | `targeted-datetime-equality` |
 
 The harness's own findings, numbered from 31, are in
 `docs/research/2026-09-26-hq-round-trip/harness-findings.md`, each with what
@@ -3361,10 +3377,13 @@ A family is one corpus, and each runs as one chain:
    `nova.compatibility`) run in Core's own Gradle test build at the pin,
    compiled into Core's test source set by `core/native-proof.init.gradle`,
    offline against the image's Gradle home. Gradle runs every class once per
-   session, after every family's producer and HQ step, and
-   `test_core_runtime.py` reports one class per test from its JUnit XML, so a
-   failure names the class, each failing method, and anything that failed
-   before Core for that family.
+   session, after every family's producer and HQ step, and a zoned class
+   once per zone, each zone in a test JVM of its own ("What each run
+   leaves"); `test_core_runtime.py` reports one class per test from its
+   JUnit XML, and a zoned class once per zone
+   (`InstantOrderingRuntimeTest[new-york]`), so a failure names the class,
+   its zone, each failing method, and anything that failed before Core for
+   that family.
 5. **HQ payload checks** read what three Core classes write back
    (`NavigationRuntimeTest`, `CsqlFunctionRuntimeTest`,
    `CsqlQuoteRuntimeTest`): the search queries Core's query manager builds,
@@ -3399,17 +3418,27 @@ the directory of the block that runs them (`<output>/blocks/<block>/native/`,
   `*.evidence.json`, and the files Core writes back for HQ.
 - `logs/`: each producer's output, and the Connect fetch.
 - `core/<run>/`: Gradle's output (`gradle.log`) and the JUnit XML (`junit/`)
-  of each Core run (`suite`, and `media-certificate`).
+  of each Core run (`suite`, and `media-certificate`); the suite's zoned
+  classes write theirs under `junit/zones/<label>/`, one directory per zone
+  `proof/native/families.py::ZONES` names, and `test_core_runtime.py` fails
+  on a zone directory it does not name.
 - `timings.json`: what each producer, step, fetch and Core run cost.
 
 Core loads each family's artifacts from its own classpath namespace,
 `/<family>/<file>`: the test JVM's classpath holds that `native/` and the
 checked-in controls in `proof/native/core/resources`, each with one
 subdirectory per family, so two families' scenarios of the same name never
-meet. Every class runs in one test JVM, as Core's own tests do; none reads
-Core's static state (the global localizer, the reference manager's roots) as
-another left it, so the suite passes with its classes in any of the orders
-tried and with a JVM per class.
+meet. Every class but a zoned one runs in one test JVM, as Core's own tests
+do; none reads Core's static state (the global localizer, the reference
+manager's roots) as another left it, so the suite passes with its classes in
+any of the orders tried and with a JVM per class. A zoned class
+(`proof/native/families.py::ZONED_CLASSES`) answers by the JVM's default
+time zone, which Core reads where no installed provider reaches
+(`DateUtils.fractionalDaysSinceEpoch`, and `EPOCH_DATE`, built at class
+load), so it runs once per zone it names, each a Gradle `Test` task with
+`user.timezone` set (`GRADLE_OPTS` reaches only Gradle's client), never in
+the suite's JVM; its first assertion is its own zone, so a zone that
+silently stops applying fails by name before any value is read.
 
 ### Adding a family
 
@@ -3421,6 +3450,9 @@ checks to a `test_*.py` whose module names the families it reads in
 so give the family a native check only for what the corpus checks cannot say
 (above). A Core class loads its resources from `/<family>/...`, and writes
 anything it hands back to HQ into `NativeProof.familyDirectory(<family>)`.
+A Core class whose answer depends on the time zone is listed in
+`ZONED_CLASSES` with the zones it runs in (`ZONES`, `DEVICE_ZONES`), and
+asserts its own zone first.
 
 ### The families
 
@@ -3745,6 +3777,7 @@ paths and checks the Connect namespace in the submission.
 | `container` | Each group and repeat scenario's form regenerated for the Core class; no HQ check (the bar builds them). | `ContainerRuntimeTest`: group relevance, repeat entry, live counts, per-row values, case effects, a default read from each of four placements and a registration form's default and calculation that read its own new case id on both paths; initialization snapshots, row insertion and field-list timing on the local forms; private wire counterexamples for count types. |
 | `endpoint` | `<endpoint>` and reached `<remote-request>` elements equal Nova's, with `SESSION_ENDPOINTS` on. | `EndpointRuntimeTest`: argument binding, refusing missing and unexpected keys. |
 | `expander` | HQ regenerates the suites and app strings the Core class reads; no HQ check (the bar publishes and builds every admitted expander document, and Core admits each build and CCZ). | `ExpanderRuntimeTest`: a case list column over eleven options shows `Tag 10` for `tag_10` on both paths, so HQ's enum key replacement keeps double-digit option keys apart. |
+| `expression` | None. | `InstantOrderingRuntimeTest`, zoned: in four device zones (`utc`, `new-york`, `kolkata`, `kiritimati`) and three Formplayer setups (a UTC JVM with a browser zone of New York or Kolkata, or New York's offset alone), each a test JVM of its own, Core's bare comparison of every pair of the instant table (`lib/commcare/__tests__/instantOrderingTable.ts`): a date and time held as text orders false both ways, two typed ones order by calendar day in the reader's zone, and `=` between two spellings of one instant is false. It builds no app. |
 | `hq-oracle` | `Application.wrap` fails exactly where Nova's HQ-JSON oracle reports a fatal code; `RemoteApp` dispatch. | None. |
 | `localization`, `worker` | Every localization code passes HQ's `validate_lang`, which no build runs; forms, suites and each language's authored strings regenerated for the Core classes, with no stock translation catalog. | `LocalizationRuntimeTest`, `WorkerIdentityRuntimeTest`: language switching and prompts; worker data through form and suite expressions, and the built-in worker identity on the local form. |
 | `lookup` | HQ's workbook reader reads Nova's tables, a 50-column table, and strips exactly the padding Nova predicts; the lookup forms regenerated. | `LookupRuntimeTest`: fixture install and replacement, dynamic choices, labels, answers and case processing; a missing fixture cannot pass as an empty list. |

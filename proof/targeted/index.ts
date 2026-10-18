@@ -21,6 +21,8 @@ import {
 	connectLearnRename,
 } from "./documents/connectApps";
 import { customTile, tileHiddenOrder } from "./documents/customTile";
+import { datetimeEquality } from "./documents/datetimeEquality";
+import { datetimeOperands } from "./documents/datetimeOperands";
 import { datetimeOrdering } from "./documents/datetimeOrdering";
 import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
@@ -99,6 +101,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	noMatchesReturnIdentity,
 	hqSideLookup,
 	datetimeOrdering,
+	datetimeOperands,
+	datetimeEquality,
 	caseIdColumn,
 	attributeDisplayCondition,
 	gpsQuestion,

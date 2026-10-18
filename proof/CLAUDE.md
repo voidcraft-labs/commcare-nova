@@ -204,6 +204,15 @@ harness keeps, each with its reason.
   wall clock or the system's entropy inside an operation, and wait with
   `time.perf_counter` or a C-level wait: `time.monotonic` is frozen there, so
   its timeouts never arrive.
+- **A zoned Core class runs in a test JVM of its own, once per zone, never
+  in the suite's.** Core reads the JVM's default zone where no installed
+  provider reaches (`DateUtils.fractionalDaysSinceEpoch`, and `EPOCH_DATE`,
+  built at class load), so a provider swap cannot move it and one JVM proves
+  one zone. `proof/native/families.py::ZONED_CLASSES` names each such class
+  with its zones; each zone is a Gradle `Test` task with
+  `systemProperty('user.timezone', …)` (`GRADLE_OPTS` reaches only Gradle's
+  client), and each class's first assertion is its own zone, so a mechanism
+  that stops applying fails by name before any value is read.
 - **The capture moves with publish.** A change to what `publishAppToHq` reads
   or sends changes `proof/corpus/publish.ts` in the same pull request, the
   peer answers a read only with what the HQ side then holds to HQ's own view,

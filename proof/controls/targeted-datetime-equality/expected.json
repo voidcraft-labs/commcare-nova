@@ -1,0 +1,44 @@
+{
+	"intent": [
+		{
+			"id": "equal-visits-listed-local",
+			"export": "local",
+			"form": "d947ef55-c44b-5109-a0dc-6baf69f9ca85",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f1"
+				},
+				"caseList": {}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-visit-amina"
+				}
+			]
+		},
+		{
+			"id": "other-visits-listed-local",
+			"export": "local",
+			"form": "636746c0-dd5c-54ec-a626-0c0ac9ecf990",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m1-f0"
+				},
+				"caseList": {}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-visit-baraka"
+				},
+				{
+					"pointer": "/caseList/rows/1/caseId",
+					"value": "targeted-visit-chidi"
+				}
+			]
+		}
+	]
+}

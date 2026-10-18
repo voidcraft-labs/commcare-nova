@@ -24,8 +24,8 @@ under another name) is the corpus layout
   Nova's persistable shape, which a later cutover changes, what the checks
   derive from D and D' (``derived.json``, ``derived``): the wire layout and
   languages, the intent (``intent.intent_json``), the lookup tags and the
-  case database (``casedata.database_json``). Each is read where a check
-  reads it of a document (``Document.derived``).
+  case database (``casedata.database_json``) and the declared case-property
+  types. Each is read where a check reads it of a document (``Document.derived``).
 
 Never ``inputs.json``: a control's part keys and the evidence store's guard
 read its input files from the files themselves
@@ -84,17 +84,18 @@ def derived(document, *, edit=True) -> dict:
     """What the checks derive from a corpus document's D (and D', where the control keeps the edit: ``edit``), as a
     control retains it (``corpus.DERIVED``)."""
 
-    def of(document_json):
+    def of(document_json, *, edit=False):
         return {
             "wire": document_json.get("wire"),
             "intent": intent_json(document_intent(document_json)),
             "lookupTags": lookup_tags(document_json),
             "caseDatabase": database_json(case_database(document_json)),
+            "caseTypes": document.case_types(edit=edit),
         }
 
     found = {"D": of(document.document)}
     if edit and document.edit is not None:
-        found["D'"] = of(document.edit_document)
+        found["D'"] = of(document.edit_document, edit=True)
     return found
 
 

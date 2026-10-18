@@ -39,6 +39,8 @@ and Vellum are where the research read them; HQ, Android and Connect moved.
 Findings 56, 57, 70 and 71, found while step 2 was planned ("Found while
 planning step 2"), were executed at those same commits, which
 `proof/pins.json` still named.
+Finding 75, found while step 3 was planned ("Found while planning step 3"),
+was executed at the same commits, which `proof/pins.json` names still.
 
 Citations use `file::symbol`; documents are the corpus ids that show the
 symptom.
@@ -1092,7 +1094,14 @@ control.
     was written against").
     *Documents:* `targeted-datetime-ordering` (intent, `/values/*/value` on
     the local export and on A: two answers an hour apart in a survey form,
-    and two case properties held as text in a follow-up form).
+    and two case properties held as text in a follow-up form);
+    `targeted-datetime-operands` (intent: a Hidden Value copying a
+    date-and-time property ordered against `now()` under a fixed clock,
+    `/values/*/value` on the local export and on A, and two case list
+    filters, one ordering the property against a literal and one ordering
+    two such properties, `/caseList/rows/*/caseId` on the local export;
+    manifest: the local archive's suite holds a REFUSED `time-operand` use
+    under `XPathCmpExpr` and `LT`).
 
 57. **A case list column over `case_id` is blank on HQ's build.** Nova
     writes a shown column over `case_id` as a property column
@@ -1152,6 +1161,67 @@ control.
     it could not open while each also held a question named `instance`.
     *Documents:* `targeted-form-root-read` (proof 4 on Vellum's two
     saves).
+
+### Found while planning step 3
+
+Step 3's plan ran its new targeted documents through the lane without the
+served readers before writing them (run 39061011794), and then with every
+reader (run 39078199859), and one thing it ran was a defect no check had yet
+shown. It has a targeted document with its register entries and its control.
+
+75. **A case list filter or a search that asks for a date and time equal to
+    a value finds nothing on CommCare, and Preview finds the cases.** Nova
+    writes every search comparison as `<property> <op> <value>` whatever
+    the property's type
+    (`lib/commcare/predicate/csqlEmitter.ts::emitComparisonSegments`), and a
+    literal as written
+    (`lib/commcare/predicate/termEmitter.ts::emitCsqlLiteralSegment`). HQ's
+    receiver rewrites every date-and-time-shaped string of a submission
+    before saving it (`form_processor/parsers/form.py::_create_new_xform`,
+    `form_processor/utils/xform.py::adjust_datetimes`) as the UTC instant
+    with six fraction digits (`dimagi/utils/parsing.py::json_format_datetime`:
+    `2026-01-02T04:30:00.000000Z`), whichever writer submitted it (Nova's
+    form, HQ's case API, HQ's case importer), so the case, its search index
+    entry and a device's restore all hold that spelling. HQ's search
+    compares a custom property with `=` as text
+    (`case_search/xpath_functions/comparison.py::property_comparison_query`,
+    `es/case_search.py::case_property_query`, an exact term on
+    `case_properties.value.exact`), and `!=` is its `NOT`; an ordering
+    parses the value and compares instants (`case_property_range_query`).
+    Executed against HQ at the pin during planning, with cases saved
+    through HQ's receiver in twelve spellings of one instant:
+    `= '2026-01-02T09:30:00.000+05'` finds none of them,
+    `= '2026-01-02T04:30:00.000000Z'` finds all twelve, and every ordering
+    finds by instant. HQ's `now()` and `datetime()` print `isoformat()`
+    (`value_functions.py::now`, `::datetime_`) and a value Core prints
+    carries the device's offset, so nothing Nova sends equals the stored
+    text. On a system date HQ sends a date-and-time value as a raw term
+    (`_create_system_datetime_query`), which Elasticsearch parses against
+    the index's date formats (`corehq/pillows/core.py::DATE_FORMATS_STRING`),
+    each of which with a time requires seconds, so the minute-precision
+    value the builder's picker writes makes the search fail: executed with
+    every reader during planning, HQ answers
+    `date_opened = '2026-01-02T09:30'` with a 500 (`ESError`, Elasticsearch's
+    `RequestError(400)`, "failed to parse date field [2026-01-02T09:30]"),
+    Formplayer answers with its internal-server-error notification, the
+    Web Apps client shows HQ's error alert, and Android "Server-side error
+    (code 500)". The device's case list filter compares two strings by text
+    too (commcare-core `XPathEqExpr.java::testEquality`). Preview compiles
+    the same filter in Postgres, which casts the property to `timestamptz`
+    (`lib/case-store/sql/dataTypeTokens.ts::POSTGRES_CAST_FOR_DATA_TYPE`)
+    and compares instants. *Harm:* a worker's list or search for visits at
+    a given time shows none on the device or on HQ while Preview shows
+    them; `!=` shows every case; on a system date the search fails.
+    *Documents:* `targeted-datetime-equality` (intent,
+    `/caseList/rows/*/caseId` on the local export: "Visits" filters `seen`
+    equal to a date and time and Core lists none of the one case Nova's
+    meaning lists; "Other visits" filters it not equal and Core lists
+    every case; with every reader, "Opened visits" searches `date_opened`
+    equal to a minute-precision date and time, HQ answers 500, Formplayer's
+    walk stops (`proof/walk-stops.json`), and proofs 3 and 4 hold
+    Formplayer's answer at
+    `/hq/app_aware_remote_search/500/corehq.apps.es.exceptions.ESError` and
+    `/runs/*/steps/*/response/exception`).
 
 ### Found of the lane itself
 
