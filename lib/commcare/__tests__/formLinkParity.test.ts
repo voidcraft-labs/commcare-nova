@@ -15,6 +15,7 @@ import {
 	nestSecondModule,
 } from "./nestedMenuWireFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
+import { xpathEvidence } from "./xpathEvidence";
 
 interface StackCreate {
 	readonly ifClause: string | undefined;
@@ -96,8 +97,10 @@ describe("form-link local wire structure (native HQ/Core proof owns compatibilit
 		expect(form.post_form_workflow_fallback).toBe("module");
 		expect(creates).toHaveLength(2);
 		expect(creates[0].ifClause).toBe(form.form_links[0].xpath);
-		expect(creates[1].ifClause).toBe(
-			"not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice')",
+		expect(xpathEvidence(creates[1].ifClause ?? "")).toEqual(
+			xpathEvidence(
+				"not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice')",
+			),
 		);
 		expect(creates[1].children).toEqual(["command:'m0'"]);
 	});
@@ -117,8 +120,10 @@ describe("form-link local wire structure (native HQ/Core proof owns compatibilit
 		const creates = stackCreates(suite, "m0-f0");
 		expect(form.post_form_workflow_fallback).toBe("previous_screen");
 		expect(creates).toHaveLength(2);
-		expect(creates[1].ifClause).toBe(
-			"not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice')",
+		expect(xpathEvidence(creates[1].ifClause ?? "")).toEqual(
+			xpathEvidence(
+				"not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice')",
+			),
 		);
 		// Intake holds one registration form, so its function datum is the
 		// module's common prefix: [m0, case_id_new_frog_0, m0-f0] → pop the
@@ -167,8 +172,10 @@ describe("form-link local wire structure (native HQ/Core proof owns compatibilit
 		const creates = stackCreates(fallback.suite, "m0-f0");
 		expect(creates).toHaveLength(2);
 		expect(creates[1].children).toEqual([]);
-		expect(creates[1].ifClause).toBe(
-			"not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice')",
+		expect(xpathEvidence(creates[1].ifClause ?? "")).toEqual(
+			xpathEvidence(
+				"not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice')",
+			),
 		);
 	});
 

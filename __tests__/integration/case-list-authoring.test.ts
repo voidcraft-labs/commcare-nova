@@ -413,11 +413,11 @@ describe("wire emission", () => {
 		expect(suite).toContain('<detail id="m0_case_long">');
 		expect(suite).toContain('<detail id="m1_case_short">');
 		// The followup form's case-loading datum carries the
-		// canonical `@case_type='patient'][@status='open']` chain
+		// canonical `@case_type = 'patient'][@status = 'open']` chain
 		// plus the `caseListConfig.filter` fragment appended at the
 		// trailing position. XPath single-quote literals round-trip
 		// as `&apos;` inside the double-quoted `nodeset` attribute.
-		expect(suite).toContain("@case_type=&apos;patient&apos;");
+		expect(suite).toContain("@case_type = &apos;patient&apos;");
 		expect(suite).toContain("[@status = &apos;open&apos;]");
 	});
 });

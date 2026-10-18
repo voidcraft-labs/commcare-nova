@@ -3,8 +3,7 @@
  * Nova's own emission, parsed back from the stored form source; the trees for
  * the rules' other branches are hand-built, since Nova emits none of them.
  * What HQ and its form builder do with the map is the proof lane's. */
-import type { Element } from "domhandler";
-import { isTag } from "domhandler";
+import { Element, isTag } from "domhandler";
 import { describe, expect, it } from "vitest";
 import { el } from "@/lib/commcare/elementBuilders";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -203,11 +202,14 @@ function handBuilt(
 					]),
 				]),
 				el("instance", { id: "casedb", src: "jr://instance/casedb" }),
-				...Object.entries(binds).map(([nodeset, calculate]) =>
-					el("bind", {
-						nodeset,
-						...(calculate !== undefined && { calculate }),
-					}),
+				// These external source fixtures deliberately include bindings Nova
+				// does not emit, including malformed and empty expressions.
+				...Object.entries(binds).map(
+					([nodeset, calculate]) =>
+						new Element("bind", {
+							nodeset,
+							...(calculate !== undefined && { calculate }),
+						}),
 				),
 			]),
 		]),

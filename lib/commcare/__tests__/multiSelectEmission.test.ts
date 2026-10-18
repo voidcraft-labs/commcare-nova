@@ -19,6 +19,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, type Form, proseText } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
+import { xpathEvidence } from "./xpathEvidence";
 
 const target = { origin: "https://www.commcarehq.org", domain: "demo-project" };
 const scope = "/data/nova_selected_cases/item/nova_operations";
@@ -221,10 +222,15 @@ it("emits an ordinary shared update in both artifacts and limits multiple select
 			relevant: "count(/data/note) > 0 and string(/data/note) != ''",
 		});
 		// An all-blank form sends no empty update to every selected case.
-		expect(form.bind(`${scope}/nova_condition_update_selected_cases`)).toEqual({
+		const { relevant, ...conditionAttributes } = form.bind(
+			`${scope}/nova_condition_update_selected_cases`,
+		);
+		expect(conditionAttributes).toEqual({
 			nodeset: `${scope}/nova_condition_update_selected_cases`,
-			relevant: "(count(/data/note) > 0 and string(/data/note) != '')",
 		});
+		expect(xpathEvidence(relevant)).toEqual(
+			xpathEvidence("count(/data/note) > 0 and string(/data/note) != ''"),
+		);
 		selectedIdentity(form, UPDATE);
 	}
 	expect(output.hq.modules[0].case_details.short.multi_select).toBe(true);

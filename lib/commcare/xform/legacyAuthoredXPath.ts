@@ -251,7 +251,7 @@ export function partitionAuthoredXPath<Key extends string>(
 	const xpath: Partial<Record<Key, WireExpr>> = {};
 	const authoredXPath: Partial<Record<Key, LegacyAuthoredXPath>> = {};
 	for (const key of Object.keys(values) as Key[]) {
-		const value = values[key];
+		const value: AuthoredXPathValue | undefined = values[key];
 		if (value === undefined) continue;
 		if (isLegacyAuthoredXPath(value)) authoredXPath[key] = value;
 		else xpath[key] = value;

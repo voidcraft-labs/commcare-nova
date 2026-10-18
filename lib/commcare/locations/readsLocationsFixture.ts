@@ -48,7 +48,7 @@ export function formsReadingLocationsFixture(doc: BlueprintDoc): Uuid[] {
 					return false;
 				const printed = serializeWire(
 					toWire(owner, { target: "xform", types }),
-					{ target: "xform" },
+					{ target: "xform", constraint: false },
 				);
 				return [...printed.instances].some(
 					(declaration) =>

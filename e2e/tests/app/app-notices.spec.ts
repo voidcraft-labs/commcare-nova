@@ -62,9 +62,11 @@ test("a migration notice is reviewed and dismissed for good, and the saved-key l
 		await line.getByRole("button", { name: "Got it", exact: true }).click();
 		await expect(line).toBeHidden();
 		await page.reload();
-		// This scenario's own app card: another worker's seed of the same
-		// scenario can list an app of the same name beside it.
-		await expect(page.locator(`a[href="${fixture.route}"]`)).toBeVisible({
+		// Wait for this app's visible card; a streamed, hidden copy can still
+		// carry the same href while the page commits after the reload.
+		await expect(
+			page.locator(`a[href="${fixture.route}"]`).visible(),
+		).toBeVisible({
 			timeout: 20_000,
 		});
 		await expect(line).toHaveCount(0);

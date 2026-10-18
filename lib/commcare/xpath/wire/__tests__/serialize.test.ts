@@ -37,7 +37,7 @@ function parseShape(source: string): unknown {
 			return [node.name, source.slice(node.from, node.to)];
 		const children: unknown[] = [];
 		for (
-			let child = node.firstChild;
+			let child: SyntaxNode | null = node.firstChild;
 			child !== null;
 			child = child.nextSibling
 		) {

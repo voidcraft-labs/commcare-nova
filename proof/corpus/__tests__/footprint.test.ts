@@ -1125,19 +1125,19 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formOfType(doc, "Visits", "registration"),
 		},
 		{
-			name: "a case list filter that reads the worker reaches every form of its module, whose entries declare the session",
+			name: "a case list filter that reads the worker reaches its module's case-loading forms, whose entries declare the session",
 			document: "tile",
 			setup: () => [addFlag],
 			batch: setFilter("Visits", readsFlag),
-			reaches: (doc) => formsOf(doc, "Visits"),
-			leaves: () => [],
+			reaches: (doc) => formOfType(doc, "Visits", "followup"),
+			leaves: (doc) => formOfType(doc, "Visits", "registration"),
 		},
 		{
-			name: "a module's owner exclusion reaches every form of its module, whose entries declare the session",
+			name: "a module's owner exclusion reaches its case-loading forms, whose entries declare the session",
 			document: "tile",
 			batch: excludeOwners("Visits", "excluded_owners"),
-			reaches: (doc) => formsOf(doc, "Visits"),
-			leaves: () => [],
+			reaches: (doc) => formOfType(doc, "Visits", "followup"),
+			leaves: (doc) => formOfType(doc, "Visits", "registration"),
 		},
 		{
 			name: "an owner exclusion that reads another worker field reaches none of its module's forms that load no case",
@@ -1514,14 +1514,14 @@ describe("the footprint's derivations", () => {
 			reaches: () => [],
 			leaves: (doc) => formsOf(doc, "Visits"),
 		},
-		// The instances every entry of the module declares.
+		// The instances the module's case-loading entries declare.
 		{
-			name: "a search button condition that reads the worker reaches its module's forms",
+			name: "a search button condition that reads the worker reaches its module's case-loading forms",
 			document: "tile",
 			setup: (doc) => [addFlag, ...enableSearch("Visits")(doc)],
 			batch: searchButton("Visits", readsFlag),
-			reaches: (doc) => formsOf(doc, "Visits"),
-			leaves: () => [],
+			reaches: (doc) => formOfType(doc, "Visits", "followup"),
+			leaves: (doc) => formOfType(doc, "Visits", "registration"),
 		},
 		{
 			name: "a search button condition that reads nothing reaches none of its module's forms",
@@ -1539,12 +1539,12 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formsOf(doc, "Followup"),
 		},
 		{
-			name: "a calculated column that reads the worker reaches its module's forms",
+			name: "a calculated column that reads the worker reaches its module's case-loading forms",
 			document: "tile",
 			setup: () => [addFlag],
 			batch: addFlagColumn("Visits"),
-			reaches: (doc) => formsOf(doc, "Visits"),
-			leaves: () => [],
+			reaches: (doc) => formOfType(doc, "Visits", "followup"),
+			leaves: (doc) => formOfType(doc, "Visits", "registration"),
 		},
 		{
 			name: "a worker property's slug reaches none of the forms of a module whose calculated column reads it",

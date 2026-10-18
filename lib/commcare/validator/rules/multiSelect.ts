@@ -106,7 +106,9 @@ function fanoutChildDatumExpressionConsumers(
 	);
 	const scalarChildDatumIds = new Set(
 		sessionDatums.flatMap((datum) =>
-			datum.function === "uuid()" &&
+			datum.function?.k === "call" &&
+			datum.function.fn === "uuid" &&
+			datum.function.args.length === 0 &&
 			datum.caseType !== undefined &&
 			childTypes.has(datum.caseType)
 				? [datum.id]

@@ -43,8 +43,8 @@
  *   Search, selecting several cases, being off the menu, and its parent
  *   selecting several cases) reaches its own case-loading forms that store
  *   no destination (`afterSubmitDefault`);
- * - the instances its expressions reach, which every entry of the module
- *   declares, reach its own forms (`ownEntryInstances`);
+ * - the instances its expressions reach, which its case-loading entries
+ *   declare, reach its own case-loading forms (`ownEntryInstances`);
  * - the menu it is nested under reaches its forms and those of the modules
  *   nested under it (`placeUnderMenu`);
  * - what the entries and frames of the modules nested under it read of its
@@ -477,9 +477,6 @@ function nestedUnder(wireDoc: BlueprintDoc, moduleUuid: string): string[] {
 /** Which of a module's settings' holders a derivation reaches, on one side. */
 type Holders = (side: WireSide, moduleUuid: string) => string[];
 
-/** The module's own forms. */
-const ownForms: Holders = (side, moduleUuid) => formsOf(side, [moduleUuid]);
-
 /** The module's own case-loading forms. */
 const ownCaseForms: Holders = (side, moduleUuid) =>
 	formsOf(side, [moduleUuid], loadsCase);
@@ -577,8 +574,8 @@ const selectionNames: ModuleDerivation = {
  *   `emitExcludedOwnerFilterExpression`);
  * - `caseListConfig.tile.persistOnForms`: the datum's `detail-persistent`.
  *
- * The instances the filter and owner exclusion reach are declared by every
- * entry of the module (`ownEntryInstances`).
+ * The instances the filter and owner exclusion reach are declared by the
+ * module's case-loading entries (`ownEntryInstances`).
  */
 const selectionDatum: ModuleDerivation = {
 	settings: (_side, module) => ({
@@ -807,7 +804,7 @@ const ownEntryInstances: ModuleDerivation = {
 			calculatedColumns: [...calculated],
 		};
 	},
-	holders: ownForms,
+	holders: ownCaseForms,
 	framed: false,
 };
 
@@ -863,7 +860,6 @@ const alignedComputedDatums: ModuleDerivation = {
 				id: datum.id,
 				function: datum.function,
 				caseType: datum.caseType,
-				instanceIds: datum.instanceIds,
 			})),
 	holders: childForms,
 	framed: true,
