@@ -82,8 +82,11 @@ already projected/expanded/lowered authored text. `xel` accepts it solely in
 the finite existing XForm authored slots, or in the separate form-link map for
 stack conditions and datum values. Mixed helpers keep generated operands as
 trees and return a tree when every operand is generated. Only the branded text
-path uses the temporary Lezer instance reader. The form-logic migration removes
-these brands, maps and reader; they are not escape hatches for new generators.
+path uses the temporary Lezer instance reader. Mixed helper results retain only
+their known syntactic precedence and use the printer's shared grouping rule;
+opaque authored operands remain conservatively grouped without parsing them.
+The form-logic migration removes these brands, maps and reader; they are not
+escape hatches for new generators.
 
 The focused tests prove grammar structure, literal values, slot typing and
 declaration sets. Native interpolation proof calls the pinned HQ helpers;

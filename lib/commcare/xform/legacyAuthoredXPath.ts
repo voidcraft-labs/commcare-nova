@@ -9,6 +9,13 @@ import {
 	searchInputInstance,
 	sessionInstance,
 } from "../xpath/wire/instances";
+import {
+	ATOMIC_GROUPING,
+	needsWireGrouping,
+	operatorGrouping,
+	type WireGrouping,
+	wireGrouping,
+} from "../xpath/wire/precedence";
 import { serializeWire } from "../xpath/wire/serialize";
 import type {
 	WireArithmetic,
@@ -21,13 +28,16 @@ import { collectInstanceRefs } from "./instanceRefs";
 
 const authoredBrand = Symbol("legacy-authored-xpath");
 const formLinkBrand = Symbol("legacy-form-link-xpath");
+const knownGrouping = Symbol("legacy-xpath-known-grouping");
 export interface LegacyAuthoredXPath {
 	readonly [authoredBrand]: true;
 	readonly text: string;
+	readonly [knownGrouping]?: WireGrouping;
 }
 export interface LegacyFormLinkXPath {
 	readonly [formLinkBrand]: true;
 	readonly text: string;
+	readonly [knownGrouping]?: WireGrouping;
 }
 type LegacyXPath = LegacyAuthoredXPath | LegacyFormLinkXPath;
 export type AuthoredXPathValue = WireExpr | LegacyAuthoredXPath;
@@ -74,6 +84,25 @@ function operandText(value: WireExpr | LegacyXPath, mode: WireMode): string {
 		);
 	return serialized.text;
 }
+function groupedOperand(
+	value: WireExpr | LegacyXPath,
+	parent: WireGrouping,
+	right: boolean,
+	mode: WireMode,
+): string {
+	const text = operandText(value, mode);
+	const grouping = isLegacy(value) ? value[knownGrouping] : wireGrouping(value);
+	return needsWireGrouping(grouping, parent, right) ? `(${text})` : text;
+}
+/** Only helpers know the syntax they just constructed. Opaque projections
+ * deliberately retain unknown precedence and are grouped as operands. */
+function composed<L extends LegacyXPath>(
+	text: string,
+	grouping: WireGrouping,
+	brand: (text: string) => L,
+): L {
+	return { ...brand(text), [knownGrouping]: grouping };
+}
 function call<L extends LegacyXPath>(
 	fn: WireFunction,
 	args: readonly (WireExpr | L)[],
@@ -82,7 +111,11 @@ function call<L extends LegacyXPath>(
 ): WireExpr | L {
 	return args.every((arg): arg is WireExpr => !isLegacy(arg))
 		? w.call(fn, args)
-		: brand(`${fn}(${args.map((arg) => operandText(arg, mode)).join(", ")})`);
+		: composed(
+				`${fn}(${args.map((arg) => operandText(arg, mode)).join(", ")})`,
+				ATOMIC_GROUPING,
+				brand,
+			);
 }
 function binary<L extends LegacyXPath>(
 	op: WireComparison | WireArithmetic,
@@ -100,19 +133,30 @@ function binary<L extends LegacyXPath>(
 			? w.arith(op, left, right)
 			: w.cmp(op, left, right);
 	}
-	return brand(
-		`(${operandText(left, mode)}) ${op} (${operandText(right, mode)})`,
+	const grouping = operatorGrouping(op);
+	return composed(
+		`${groupedOperand(left, grouping, false, mode)} ${op} ${groupedOperand(right, grouping, true, mode)}`,
+		grouping,
+		brand,
 	);
 }
-function and<L extends LegacyXPath>(
+function logical<L extends LegacyXPath>(
+	op: "and" | "or",
 	args: readonly (WireExpr | L)[],
 	mode: WireMode,
 	brand: (text: string) => L,
 ): WireExpr | L {
 	if (args.every((arg): arg is WireExpr => !isLegacy(arg)))
-		return w.and(...args);
+		return op === "and" ? w.and(...args) : w.or(...args);
 	if (args.length === 1) return args[0];
-	return brand(args.map((arg) => `(${operandText(arg, mode)})`).join(" and "));
+	const grouping = operatorGrouping(op);
+	return composed(
+		args
+			.map((arg, index) => groupedOperand(arg, grouping, index > 0, mode))
+			.join(` ${op} `),
+		grouping,
+		brand,
+	);
 }
 export function legacyAuthoredCall(
 	fn: WireFunction,
@@ -133,7 +177,7 @@ export function legacyAuthoredAnd(
 	args: readonly AuthoredXPathValue[],
 	mode: WireMode,
 ): AuthoredXPathValue {
-	return and(args, mode, legacyProjectedAuthoredXPath);
+	return logical("and", args, mode, legacyProjectedAuthoredXPath);
 }
 export function legacyFormLinkCall(
 	fn: WireFunction,
@@ -154,7 +198,7 @@ export function legacyFormLinkAnd(
 	args: readonly FormLinkXPathValue[],
 	mode: WireMode = { target: "suite" },
 ): FormLinkXPathValue {
-	return and(args, mode, legacyProjectedFormLinkXPath);
+	return logical("and", args, mode, legacyProjectedFormLinkXPath);
 }
 
 /** HQ builds fallback guards literally as `not(emitted) and not(emitted)`.
@@ -263,10 +307,5 @@ export function legacyAuthoredOr(
 	args: readonly AuthoredXPathValue[],
 	mode: WireMode,
 ): AuthoredXPathValue {
-	if (args.every((arg): arg is WireExpr => !isLegacy(arg)))
-		return w.or(...args);
-	if (args.length === 1) return args[0];
-	return legacyProjectedAuthoredXPath(
-		args.map((arg) => `(${operandText(arg, mode)})`).join(" or "),
-	);
+	return logical("or", args, mode, legacyProjectedAuthoredXPath);
 }
