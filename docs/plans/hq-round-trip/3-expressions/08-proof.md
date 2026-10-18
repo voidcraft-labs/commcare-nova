@@ -107,8 +107,7 @@ outstanding, and each place that depends on it says so in one marked sentence.
     classes §7 registers; R2 run 39061476968, clean), and R3 and R4 have the host emission. Planning
     wrote the fix for issue 768 (commit `ee852ae9`), and the second dispatches put it beneath each
     scratch change (R1 run 39064331941, R2 run 39064333759, R3 and R4 run 39064336028): the Android
-    runtime job passes in all three. **The fix lands on `main` as its own small pull request before
-    the stack is cut**; it is not one of the fifteen, and the person decides when it opens. R2's
+    runtime job passes in all three. The fix is #771, stacked on this plan's pull request. R2's
     second dispatch held with every reader. R3 and R4's showed no reader's own end past an opened
     form, and two things pull request 5 carries: the walk's model of an answer a question already
     holds, and two defect 21 entries (§3.3). R1's first shard showed every served reader
@@ -118,8 +117,7 @@ outstanding, and each place that depends on it says so in one marked sentence.
     over the eight `fuzz-expression-20260930-*` documents, `targeted-expression-renames`,
     `targeted-session-reads` and `targeted-list-first-places`, and over the five documents of the
     walk model's gap after its fix (§6.4). No reader run is required before the merge; the first night after it
-    reads every document with every reader, which is why issue 768's fix is on `main` before the
-    stack is cut: without it, that night ends in the Android reader runtime job.
+    reads every document with every reader, which needs #771 on `main`.
 14. **The order is the stack's fifteen pull requests** (part 10 holds the table). Pull requests 1
     to 3 (lane mechanics, cutover skeleton, projection) run the 10.2-minute row; pull request 4, the
     wire tree, moves most documents' bytes, so it and every pull request above it run the
@@ -1107,10 +1105,8 @@ without a reader, so they are settled; the walk stops are a served reader's.
 `ee852ae9`, "proof: the Android reader's own checks run on the runner's standard library again"),
 and each branch was dispatched again with the same `mechanics` list and that commit beneath its
 scratch change: R1 run 39064331941, R2 run 39064333759, R3 and R4 run 39064336028. The Android
-reader runtime job passes in all three. The fix lands on `main` as its own small pull request
-before the stack is cut, not as one of the fifteen; the person decides when it opens. Until it is
-on `main`, main's nightly keeps failing in that job, and the first night after the stack's merge
-needs it to give its verdict.
+reader runtime job passes in all three. The fix is #771, stacked on this plan's pull request and
+merged with it.
 
 - **R2, run 39064333759: held with every reader.** It ran in the readers profile
   (`PROOF_READERS=all`: Formplayer, the Web Apps client and an Android device beside HQ and Core)

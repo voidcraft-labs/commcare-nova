@@ -1110,8 +1110,7 @@ it, since the night after the merge reads every document with every reader. The 
 dispatches with readers (runs 39058712962, 39058666752, 39058667355) died in the Android reader
 runtime job, which fails main's own nightly the same way since 2026-10-14 (issue 768); the runs
 without served readers held (the operands run, 39061011794: nothing unregistered but the manifest
-classes above; the spellings witness run, 39061476968: clean). With issue 768's fix beneath, which
-lands on `main` as its own small pull request before the stack is cut (part 08 §6.4), the second
+classes above; the spellings witness run, 39061476968: clean). With issue 768's fix beneath (#771), the second
 dispatches pass that job, and the spellings witness held with every reader (run 39064333759):
 Formplayer, the Web Apps client and Android read the planning lowering's text in UTC as Core does.
 The operands run's second dispatch (39064331941), which gives the readers' pre-fix values on

@@ -1425,8 +1425,7 @@ classed as spaces only or beyond: the three lowered comparisons changed spaces o
 (`5.0` to `5.`, `((…))` to `(…)`); the other changes were the `vellum:*` shadow attributes Vellum
 adds. The first with-readers dispatches died in the Android reader runtime job, which fails main's
 own nightly the same way (issue 768); the second, with that issue's fix beneath, pass that job, and
-part 08 §6.4 holds their verdicts (the fix lands on `main` as its own small pull request before the
-stack is cut).
+part 08 §6.4 holds their verdicts (the fix is #771).
 
 **Vellum's numbers** (§2.5): js-xpath's `XPathNumericLiteral.toXPath` at `v0.0.10` (the version
 Vellum `01215f251c57`'s `package.json` names), with HQ's `biginteger` dependency, run with plain

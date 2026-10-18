@@ -68,13 +68,8 @@ step 3 replaces are as the research describes them, `Predicate` / `ValueExpressi
   3 moves the first and removes the second (part 08).
 
 Since step 2 merged, the lane's nightly with every reader has failed in the Android reader's runtime
-job (issue 768): four Android self-checks step 2 added, which the pull request lane never runs, are
-stale, and #749 put an `lxml` import into a module the job's standard-library Python loads. Planning
-wrote the fix (proof-side only: the Connect helpers that need `lxml` move to
-`proof/checks/connect.py`, a guard test holds the Android checks to the standard library, and the
-four tests read what the reader records) and proved it: with it beneath each scratch change the
-Android runtime job passes. It lands on `main` as its own small pull request before the stack is
-cut, and is not one of the fifteen.
+job (#768). Its proof-side fix is #771, stacked on this plan's pull request and merged with it; the
+reader runs below ran with it beneath.
 
 **CommCare.** Every fact this plan relies on was read, and where reading left doubt executed, at
 the commits `proof/pins.json` names, unchanged since step 2: commcare-hq `d6c6e16d8ae1`,

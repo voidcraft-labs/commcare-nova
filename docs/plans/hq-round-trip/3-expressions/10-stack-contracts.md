@@ -18,8 +18,7 @@ The stack is cut from the latest `origin/main` after this plan's own pull reques
 pull request, as #727 was step 2's). That pull request also writes the deferral notes into the
 outline files of the steps that receive them, and re-points the two citations of the outline it
 replaces ("Written by this plan's own pull request"). Issue 768's
-fix lands on `main` before the stack is cut, as its own small pull request and not one of the
-fifteen (house rule 8). Counts are of `main` at `5cf6e327`, read for this part:
+fix is #771, stacked on the plan's pull request (house rule 8). Counts are of `main` at `5cf6e327`, read for this part:
 `proof/known-defects.json` 282 entries, `proof/fixed-defects.json` 720, `proof/walk-stops.json` 29,
 `proof/controls/` 105 directories, `proof/rules/__init__.py::RULES` 25 spelling rules,
 `proof/checks/registers.py::OPEN_DEFECTS` `{20: 4, 21: 5, 23: 5, 24: 5, 25: 5, 26: 5, 27: 5, 28: 5,
@@ -701,7 +700,7 @@ they do, are named under their pull request.
 | Constraint | Reason |
 |---|---|
 | This plan's own pull request beneath the stack | It writes the deferral notes into `4-platforms.md`, `5-case-writes-forms-navigation.md`, `6-import.md` and `7-rest-of-model.md` ("Written by this plan's own pull request"), so everything step 3 leaves is recorded in the step that receives it before any of step 3's code lands; and it re-points the two citations of the outline's "Carried from step 2" to the top file's "The baseline this plan was written against" ("Citations of the outline"), so no link dangles from its merge to pull request 15 |
-| Issue 768's fix on `main` before the cut | The first night after the merge reads every document with every reader, and without the fix that night ends in the Android reader's runtime job; it is its own small pull request, not one of the fifteen (house rule 8) |
+| Issue 768's fix (#771) on `main` before the cut | The first night after the merge reads every document with every reader, and without the fix that night ends in the Android reader's runtime job (house rule 8) |
 | Lane mechanics (1) is first | A control is retained from the pre-fix corpus and a fix moves entries into a register only where they were registered: finding 56's and finding 75's controls must be captured before pull request 8 silences them, and the zoned harness must exist before any zoned class (7, 8, 10) |
 | The cutover skeleton (2) sits beneath every `lib` change | The frozen fixtures must be validated against the pre-step schema and gate, the frozen printer held equal to today's `projectXPath`, and the base emitter must emit with production's emitter. Pull request 2's head is production's `lib` and `app` plus test modules, so the census's base half runs there and the normalizer, never edited after it, serves both halves (part 09 §3) |
 | The projection (3) beneath the shape (5) | `authoringJsonSchema`'s pre-substitution renumbers the `__schemaN` definitions once against today's model, so pull request 5, which changes the canonical model, shows no served hash moved (part 01 §6.3, part 02 §3.6). The retired catalog rules' three tool inputs ride 3 so every served-schema change of the model lands in one pull request (the `datum` family of 5 serves today's bytes); the stored fields leave in 5, and between the two a stored value is still validated and cannot be authored |
@@ -758,8 +757,8 @@ they do, are named under their pull request.
    checklist item 14 gives it. On a yes the implementer runs `npm run test:schema -- <name>` once per
    name, never the bare command. A schema the provider refuses is fixed in the pull request that owns
    it, and the question is asked again for that schema alone.
-8. **Issue 768's fix lands on `main` before the stack is cut**, as its own small pull request, not
-   one of the fifteen; the person decides when it opens. The Android reader's runtime job has failed
+8. **Issue 768's fix is #771**, stacked on the plan's pull request and merged with it, so it is on
+   `main` before the stack is cut. The Android reader's runtime job has failed
    `main`'s own nightly since 2026-10-14, and planning's first with-readers dispatches (runs
    39058712962, 39058666752, 39058667355) died in it; the no-reader runs held (operands 39061011794
    but for the manifest classes pull request 1 registers; spellings 39061476968 clean). Planning
