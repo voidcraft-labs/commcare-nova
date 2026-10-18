@@ -1,8 +1,8 @@
 """One test session's native proofs: each producer, HQ step and Core run happens once.
 
-``NativeSession`` owns ``$PROOF_OUT/native``. It empties it when the session
-starts, so nothing an earlier session wrote can stand in for this one's
-artifacts, and then fills it on demand:
+``NativeSession`` owns ``$PROOF_OUT/native`` and its ``native-core`` sibling.
+It empties both when the session starts, so nothing an earlier session wrote
+can stand in for this one's artifacts, and then fills them on demand:
 
 - ``family(name)`` gives the family's producer's output (``families.FAMILIES``)
   the first time any test needs it: copied from the products the lane's
@@ -68,8 +68,13 @@ def native_output_dir():
 class NativeSession:
     def __init__(self, out: Path, core_runner):
         self.out = out
+        # Gradle treats the native resource root as every Test task's input.
+        # Reports must not live below it: another task's reports would then
+        # become an undeclared input, even though no proof reads them.
+        self._core_out = out.with_name(f"{out.name}-core")
         self._core_runner = core_runner
         shutil.rmtree(out, ignore_errors=True)
+        shutil.rmtree(self._core_out, ignore_errors=True)
         (out / "logs").mkdir(parents=True)
         self._produced: dict[str, BaseException | None] = {}
         self._producer_lock = threading.Lock()
@@ -204,7 +209,7 @@ class NativeSession:
     def core_run(self, name: str, selection: str, *, zones: tuple[Zone, ...] = ()):
         """Core's Gradle test build over ``selection``, run once per session under ``name``."""
         if name not in self._core_runs:
-            work = self.out / "core" / name
+            work = self._core_out / name
             shutil.rmtree(work, ignore_errors=True)
             try:
                 self._core_runs[name] = core_suite.run_core_tests(

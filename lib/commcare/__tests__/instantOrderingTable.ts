@@ -22,7 +22,7 @@ export type InstantPair = {
 };
 
 export const instantFixedClock = "2026-01-02T04:30:00.000Z";
-const baseMicros = BigInt(Date.parse(instantFixedClock)) * 1_000n;
+const baseMicros = BigInt(Date.parse(instantFixedClock)) * BigInt(1_000);
 type Spelling = {
 	id: string;
 	minutes: number;
@@ -78,11 +78,11 @@ export const instantMalformedTexts = [
 ] as const;
 
 function spell(micros: bigint, style: Spelling): string {
-	const wall = micros + BigInt(style.minutes) * 60_000_000n;
-	const whole = new Date(Number(wall / 1_000_000n) * 1_000)
+	const wall = micros + BigInt(style.minutes) * BigInt(60_000_000);
+	const whole = new Date(Number(wall / BigInt(1_000_000)) * 1_000)
 		.toISOString()
 		.slice(0, 19);
-	const fraction = (wall % 1_000_000n).toString().padStart(6, "0");
+	const fraction = (wall % BigInt(1_000_000)).toString().padStart(6, "0");
 	return `${whole}${style.fraction ? `.${fraction.slice(0, style.fraction)}` : ""}${style.suffix}`;
 }
 const utcSix: Spelling = { id: "z6", minutes: 0, suffix: "Z", fraction: 6 };
@@ -138,7 +138,7 @@ export function instantOrderingPairs(): InstantPair[] {
 		pair(
 			"typed-text-hour",
 			typed,
-			textOperand(`later-${left.id}`, baseMicros + 3_600_000_000n, left),
+			textOperand(`later-${left.id}`, baseMicros + BigInt(3_600_000_000), left),
 		);
 		for (const right of instantSpellings) {
 			pair(
@@ -149,7 +149,11 @@ export function instantOrderingPairs(): InstantPair[] {
 			pair(
 				"spellings-hour",
 				first,
-				textOperand(`later-${right.id}`, baseMicros + 3_600_000_000n, right),
+				textOperand(
+					`later-${right.id}`,
+					baseMicros + BigInt(3_600_000_000),
+					right,
+				),
 			);
 		}
 	}
@@ -174,13 +178,15 @@ export function instantOrderingPairs(): InstantPair[] {
 			.filter((s) => ["plus530", "plus14", "minus330", "naive3"].includes(s.id))
 			.map((s): Spelling => ({ ...s, fraction: 6 })),
 	];
-	let seed = 20261017n;
+	let seed = BigInt(20261017);
 	for (let index = 0; index < 300; index++) {
 		seed = BigInt.asUintN(
 			64,
-			seed * 6364136223846793005n + 1442695040888963407n,
+			seed * BigInt("6364136223846793005") + BigInt("1442695040888963407"),
 		);
-		const micros = 631152000000000n + ((seed >> 7n) % 1_577_836_800_000_000n);
+		const micros =
+			BigInt(631152000000000) +
+			((seed >> BigInt(7)) % BigInt(1_577_836_800_000_000));
 		const left = textOperand(`micro-${index}`, micros, utcSix);
 		for (const style of six) {
 			pair(
@@ -191,7 +197,7 @@ export function instantOrderingPairs(): InstantPair[] {
 			pair(
 				"microseconds-next",
 				left,
-				textOperand(`next-${index}-${style.id}`, micros + 1n, style),
+				textOperand(`next-${index}-${style.id}`, micros + BigInt(1), style),
 			);
 		}
 	}
@@ -240,7 +246,7 @@ export function instantOrderingPairs(): InstantPair[] {
 		held: "now",
 		instant: instantFixedClock,
 	};
-	for (const delta of [-1_000n, 0n, 1_000n]) {
+	for (const delta of [BigInt(-1_000), BigInt(0), BigInt(1_000)]) {
 		const text = textOperand(`clock-${delta}`, baseMicros + delta, utcSix);
 		pair("now-text", text, now);
 		pair(

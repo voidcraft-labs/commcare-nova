@@ -238,13 +238,17 @@ run took 3.4 to 3.7 seconds by its JUnit report, including the probe's 1,000-cas
   `includeTestsMatching` for its classes, `systemProperty('user.timezone', jvm)`,
   `nova.proof.zone.label`, `nova.proof.zone.jvm`, `nova.proof.zone.provider` and
   `nova.proof.zone.offsetOnly`, and its JUnit XML under `<reports>/zones/<label>/`; `novaZones`
-  depends on all of them. The header comment says why a zoned class never shares the suite's JVM.
+  depends on all of them. The unzoned task writes `<reports>/suite/`, so their outputs are
+  disjoint. The header comment says why a zoned class never shares the suite's JVM.
 - `proof/native/core_suite.py::core_tests_command(selection, *, native_dir, reports, zones=())`
   appends `-PnovaProofZones=…` and the `novaZones` task when `zones` is given, so one Gradle
-  invocation compiles once and runs the suite's JVM and every zone's.
-  `run_core_tests` reads `zones/<label>/TEST-*.xml` into `CoreRun.zoned: dict[tuple[str, str], CoreClass]`
+  invocation compiles once and runs the suite's JVM and every zone's. It refuses reports below
+  the native classpath root: a task's output cannot also be another task's resource input.
+  `run_core_tests` reads `suite/TEST-*.xml` into `CoreRun.classes` and
+  `zones/<label>/TEST-*.xml` into `CoreRun.zoned: dict[tuple[str, str], CoreClass]`
   keyed by `(class, label)`. `NativeSession.core()` passes `families.ZONES` with `ZONED_CLASSES` for
-  the `"*"` selection; `media_certificate` passes none.
+  the `"*"` selection; `media_certificate` passes none. The session keeps Core's logs and reports
+  in the `native-core/` sibling of its `native/` resources and clears both roots at session start.
 - `proof/native/test_core_runtime.py`: `test_core_runs_the_proof_class` is parametrized over the
   unzoned classes and over `(class, zone)` pairs (ids `InstantOrderingRuntimeTest[new-york]`), each
   reading its own result. `test_gradle_runs_exactly_the_listed_classes` asserts, beside today's two
@@ -256,7 +260,7 @@ run took 3.4 to 3.7 seconds by its JUnit report, including the probe's 1,000-cas
   offset-only and for no provider). A mechanism that silently stops applying (the `GRADLE_OPTS`
   case) fails there by name, before any value is read.
 - `proof/README.md`, "Native proofs" ("How a family runs", point 4, and "What each run leaves":
-  `core/suite/junit/zones/<label>/`) and the family's own section.
+  `native-core/suite/junit/zones/<label>/`) and the family's own section.
 
 ### 2.2 The `expression` family
 

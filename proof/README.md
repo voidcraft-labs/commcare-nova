@@ -3392,8 +3392,8 @@ A family is one corpus, and each runs as one chain:
 `NativeSession` (`proof/native/session.py`) runs each producer, step and
 Gradle build once per session, whichever test needs it first, and produces
 every family the selected tests name at the start, several at a time. It
-empties its `native/` directory when the session starts, so no earlier run's
-artifact stands in for this one's.
+empties its `native/` and `native-core/` directories when the session starts,
+so no earlier run's artifact stands in for this one's.
 
 HQ runs on the harness's shared boot, state and seams (`proof/hq`), one
 project space per check (`proof/native/hq_support.py::native_check`): the
@@ -3417,12 +3417,15 @@ the directory of the block that runs them (`<output>/blocks/<block>/native/`,
 - `<family>/`: the producer's corpus, HQ's regenerated artifacts, each proof's
   `*.evidence.json`, and the files Core writes back for HQ.
 - `logs/`: each producer's output, and the Connect fetch.
-- `core/<run>/`: Gradle's output (`gradle.log`) and the JUnit XML (`junit/`)
-  of each Core run (`suite`, and `media-certificate`); the suite's zoned
-  classes write theirs under `junit/zones/<label>/`, one directory per zone
-  `proof/native/families.py::ZONES` names, and `test_core_runtime.py` fails
-  on a zone directory it does not name.
 - `timings.json`: what each producer, step, fetch and Core run cost.
+
+Core's logs and reports live beside `native/`, in `native-core/<run>/`
+(`suite`, and `media-certificate`): `gradle.log`, unzoned JUnit XML under
+`junit/suite/`, and zoned XML under `junit/zones/<label>/`, one directory per
+zone `proof/native/families.py::ZONES` names. `test_core_runtime.py` fails on
+a zone directory it does not name. Each test task owns a disjoint report
+directory outside the native classpath input, so none consumes another
+task's output as resources.
 
 Core loads each family's artifacts from its own classpath namespace,
 `/<family>/<file>`: the test JVM's classpath holds that `native/` and the

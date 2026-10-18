@@ -212,7 +212,9 @@ harness keeps, each with its reason.
   with its zones; each zone is a Gradle `Test` task with
   `systemProperty('user.timezone', …)` (`GRADLE_OPTS` reaches only Gradle's
   client), and each class's first assertion is its own zone, so a mechanism
-  that stops applying fails by name before any value is read.
+  that stops applying fails by name before any value is read. Core's logs
+  and reports stay in `native-core/`, beside the `native/` classpath root;
+  each task owns its own report directory, never another task's input.
 - **The capture moves with publish.** A change to what `publishAppToHq` reads
   or sends changes `proof/corpus/publish.ts` in the same pull request, the
   peer answers a read only with what the HQ side then holds to HQ's own view,

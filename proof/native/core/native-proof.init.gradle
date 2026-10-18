@@ -23,6 +23,8 @@
 // zone therefore runs in its own Test task and JVM. novaProofZones names
 // label|jvm|provider|offsetOnly|Class+Class rows, separated by semicolons;
 // novaZones runs all of them after the same test-source compilation.
+// Reports live outside the native classpath root, with disjoint suite/ and
+// zones/<label>/ outputs, so no task's output becomes another task's input.
 gradle.projectsEvaluated {
     def properties = gradle.startParameter.projectProperties
     def required = { String name ->
@@ -71,7 +73,7 @@ gradle.projectsEvaluated {
         test.jvmArgs('-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1')
     }
     rootProject.tasks.named('test', Test).configure { Test test ->
-        configureProof(test, reports)
+        configureProof(test, new File(reports, 'suite'))
         test.filter.includeTestsMatching('nova.compatibility.*')
         zones.collectMany { it.classes }.unique().each { name ->
             test.filter.excludeTestsMatching("nova.compatibility.${name}")

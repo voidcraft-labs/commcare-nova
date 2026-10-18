@@ -103,6 +103,11 @@ def _parse_report(path: Path) -> CoreClass:
 
 def core_tests_command(selection: str, *, native_dir: Path, reports: Path, zones: tuple[Zone, ...] = ()) -> list[str]:
     """Gradle's command line for the proof classes ``selection`` names (a Gradle ``--tests`` pattern)."""
+    if reports.resolve().is_relative_to(native_dir.resolve()):
+        raise ValueError(
+            "Core's JUnit reports must be outside the native resource directory: "
+            "that directory is every test JVM's classpath input."
+        )
     command = [
         "gradle",
         "--offline",
@@ -135,7 +140,7 @@ def _read_reports(reports: Path):
     classes = {}
     zoned = {}
     directories = tuple(sorted(path.name for path in (reports / "zones").glob("*") if path.is_dir()))
-    for label, directory in [(None, reports), *((label, reports / "zones" / label) for label in directories)]:
+    for label, directory in [(None, reports / "suite"), *((label, reports / "zones" / label) for label in directories)]:
         for path in sorted(directory.glob("TEST-*.xml")):
             result = _parse_report(path)
             results = classes if label is None else zoned
