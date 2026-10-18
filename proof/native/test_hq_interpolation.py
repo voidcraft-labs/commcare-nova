@@ -70,7 +70,7 @@ def test_hq_preserves_literals_through_interpolation_and_instance_discovery(nati
         assert actual == text, (row["id"], mode, text, actual)
         assert _value(context, actual) == row["value"], (row["id"], mode)
         assert get_instance_names(actual) == set(), (row["id"], mode, actual)
-        results.append({"id": row["id"], "mode": mode, "sha256": sha256(actual)})
+        results.append({"id": row["id"], "mode": mode, "sha256": sha256(actual.encode("utf-8"))})
 
     xforms = payload["xforms"]
     assert {row["id"] for row in xforms} == CASES
@@ -96,7 +96,7 @@ def test_hq_preserves_literals_through_interpolation_and_instance_discovery(nati
         assert mapping.key_as_condition("/context/property") == actual, row["id"]
         assert _value(context, actual) == f"chosen{row['value']}chosen", row["id"]
         assert get_instance_names(actual) == set(), (row["id"], actual)
-        enum_results.append({"id": row["id"], "sha256": sha256(actual)})
+        enum_results.append({"id": row["id"], "sha256": sha256(actual.encode("utf-8"))})
 
     # A successful empty result above must not come from disabling discovery.
     assert get_instance_names("instance('casedb')/casedb/case") == {"casedb"}

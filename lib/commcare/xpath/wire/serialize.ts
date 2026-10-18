@@ -3,6 +3,7 @@ import { formatNumeric } from "../../predicate/stringQuoting";
 import { keyAsVariable } from "../../suite/case-list/keyVariable";
 import { w } from "./builders";
 import { InstanceSink } from "./instances";
+import { needsWireGrouping, wireGrouping } from "./precedence";
 import type {
 	NonShadowWireMode,
 	SerializedWire,
@@ -143,32 +144,6 @@ function printLiteral(value: string, mode: WireMode): string {
 	return tokens.length === 1 ? tokens[0] : `concat(${tokens.join(", ")})`;
 }
 
-function transparent(expr: WireExpr): WireExpr {
-	return expr.k === "expansion" ? transparent(expr.expr) : expr;
-}
-
-function precedence(expr: WireExpr): number {
-	const node = transparent(expr);
-	switch (node.k) {
-		case "or":
-			return 1;
-		case "and":
-			return 2;
-		case "cmp":
-			return node.op === "=" || node.op === "!=" ? 3 : 4;
-		case "arith":
-			return node.op === "+" || node.op === "-" ? 5 : 6;
-		case "neg":
-			return 7;
-		case "num":
-			return node.value < 0 ? 7 : 9;
-		case "path":
-			return 8;
-		default:
-			return 9;
-	}
-}
-
 function children(expr: WireExpr): readonly WireExpr[] {
 	switch (expr.k) {
 		case "cmp":
@@ -245,11 +220,7 @@ export function serializeWire(
 		inPredicate: boolean,
 	): string {
 		const printed = print(child, inPredicate);
-		const sameLogical =
-			(parent.k === "and" || parent.k === "or") &&
-			transparent(child).k === parent.k;
-		return precedence(child) < precedence(parent) ||
-			(right && precedence(child) === precedence(parent) && !sameLogical)
+		return needsWireGrouping(wireGrouping(child), wireGrouping(parent), right)
 			? `(${printed})`
 			: printed;
 	}

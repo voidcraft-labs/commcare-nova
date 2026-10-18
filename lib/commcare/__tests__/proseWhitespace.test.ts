@@ -34,7 +34,16 @@ describe("exported prose whitespace", () => {
 				descendants(root, "bind").find(
 					(bind) => bind.attributes.nodeset === "/data/checked",
 				)?.attributes["jr:constraintMsg"],
-			).toContain("/data/meals");
+			).toBe(
+				// Pinned Vellum keeps this canonical guard. Extra grouping around
+				// its generated calls or operands changes the editor round trip.
+				"if(jr:itext('checked-constraintMsg;__nova_mode') = 'media', jr:itext('checked-constraintMsg'), " +
+					"if(jr:itext('checked-constraintMsg;__nova_locale') = 'en', " +
+					"if(count(/data/meals) > 1 or count(/data/address) > 1, '', " +
+					"concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), /data/address)), " +
+					"if(count(/data/meals) > 1 or count(/data/address) > 1, '', " +
+					"concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), /data/address))))",
+			);
 			expect(
 				descendants(root, "input")
 					.find(

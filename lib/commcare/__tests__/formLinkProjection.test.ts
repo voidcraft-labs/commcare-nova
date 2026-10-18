@@ -616,7 +616,7 @@ describe("projectFormLinks", () => {
 			expect(isLegacyFormLinkXPath(companion.value)).toBe(manual);
 			expect(wireText(companion.value)).toBe(
 				manual
-					? "join(' ', distinct-values(instance('casedb')/casedb/case[(@case_id) = ('frog-7')]/index/parent))"
+					? "join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = ('frog-7')]/index/parent))"
 					: "join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id_new_frog_0]/index/parent))",
 			);
 		},
