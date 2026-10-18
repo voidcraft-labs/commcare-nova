@@ -1,0 +1,47 @@
+{
+	"root": {
+		"app_name": "Arithmetic evidence",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"patient\",\"properties\":[{\"name\":\"quotient\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"quotient\"}]},\"data_type\":\"int\"},{\"name\":\"remainder\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"remainder\"}]},\"data_type\":\"int\"},{\"name\":\"large\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"large\"}]},\"data_type\":\"int\"},{\"name\":\"mixed\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"mixed\"}]},\"data_type\":\"decimal\"}]}]",
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "12990473-dc4b-548f-acd7-3aa519b39843",
+			"kind": "field",
+			"parent_uuid": "878a2d62-5767-5b2e-a8c2-b9a094ccda72",
+			"ordinal": 2,
+			"data_text": "{\"uuid\":\"12990473-dc4b-548f-acd7-3aa519b39843\",\"id\":\"decimal\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"decimal\"}]},\"kind\":\"decimal\"}"
+		},
+		{
+			"uuid": "675b3464-9703-5e68-ab57-13e2d1483254",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"675b3464-9703-5e68-ab57-13e2d1483254\",\"id\":\"patients\",\"name\":\"Patients\",\"caseType\":\"patient\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"2d729167-80be-5c53-a14e-3d15ab5a8a57\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"2d729167-80be-5c53-a14e-3d15ab5a8a57\"],\"detailColumnOrder\":[\"2d729167-80be-5c53-a14e-3d15ab5a8a57\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "878a2d62-5767-5b2e-a8c2-b9a094ccda72",
+			"kind": "form",
+			"parent_uuid": "675b3464-9703-5e68-ab57-13e2d1483254",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"878a2d62-5767-5b2e-a8c2-b9a094ccda72\",\"id\":\"calculate\",\"name\":\"Calculate\",\"type\":\"followup\",\"caseOperations\":[{\"uuid\":\"c27c69dd-2ea5-5fd1-a62a-04db1b34ac0d\",\"id\":\"calculate\",\"caseType\":\"patient\",\"writes\":[{\"property\":\"quotient\",\"value\":{\"kind\":\"arith\",\"op\":\"div\",\"left\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"e8a2f20b-9b23-5787-ae97-0659423eae9b\"}},\"right\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"cf1bab8c-9b53-5d28-a1bd-77461ab5f21c\"}}}},{\"property\":\"remainder\",\"value\":{\"kind\":\"arith\",\"op\":\"mod\",\"left\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"e8a2f20b-9b23-5787-ae97-0659423eae9b\"}},\"right\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"cf1bab8c-9b53-5d28-a1bd-77461ab5f21c\"}}}},{\"property\":\"mixed\",\"value\":{\"kind\":\"arith\",\"op\":\"div\",\"left\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"12990473-dc4b-548f-acd7-3aa519b39843\"}},\"right\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"cf1bab8c-9b53-5d28-a1bd-77461ab5f21c\"}}}},{\"property\":\"large\",\"value\":{\"kind\":\"arith\",\"op\":\"div\",\"left\":{\"kind\":\"term\",\"term\":{\"kind\":\"literal\",\"value\":2147483648}},\"right\":{\"kind\":\"term\",\"term\":{\"kind\":\"literal\",\"value\":3}}}}],\"action\":\"update\",\"target\":{\"kind\":\"session\"}}]}"
+		},
+		{
+			"uuid": "cf1bab8c-9b53-5d28-a1bd-77461ab5f21c",
+			"kind": "field",
+			"parent_uuid": "878a2d62-5767-5b2e-a8c2-b9a094ccda72",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"cf1bab8c-9b53-5d28-a1bd-77461ab5f21c\",\"id\":\"denominator\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"denominator\"}]},\"kind\":\"int\"}"
+		},
+		{
+			"uuid": "e8a2f20b-9b23-5787-ae97-0659423eae9b",
+			"kind": "field",
+			"parent_uuid": "878a2d62-5767-5b2e-a8c2-b9a094ccda72",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"e8a2f20b-9b23-5787-ae97-0659423eae9b\",\"id\":\"numerator\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"numerator\"}]},\"kind\":\"int\"}"
+		}
+	]
+}

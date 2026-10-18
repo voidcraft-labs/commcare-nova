@@ -1,0 +1,54 @@
+{
+	"root": {
+		"app_name": "Choices",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"patient\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}},{\"name\":\"answer\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Answer\"}]}}]}]",
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "0128379f-27ea-5ff9-b26b-bdb6b85c4ef3",
+			"kind": "form",
+			"parent_uuid": "8c9531f3-2a97-5566-acb4-1a32a960b58c",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"0128379f-27ea-5ff9-b26b-bdb6b85c4ef3\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\",\"caseOperations\":[{\"uuid\":\"20cefae3-109c-5362-b3ad-2746afa1d499\",\"id\":\"save\",\"caseType\":\"patient\",\"condition\":{\"kind\":\"and\",\"clauses\":[{\"kind\":\"eq\",\"left\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"fe168e9a-2b2b-54e7-b853-7e8fb17a3ba2\"}},\"right\":{\"kind\":\"term\",\"term\":{\"kind\":\"literal\",\"value\":\"yes\"}}},{\"kind\":\"neq\",\"left\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"fe168e9a-2b2b-54e7-b853-7e8fb17a3ba2\"}},\"right\":{\"kind\":\"term\",\"term\":{\"kind\":\"literal\",\"value\":\"no\"}}},{\"kind\":\"in\",\"left\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"fe168e9a-2b2b-54e7-b853-7e8fb17a3ba2\"}},\"values\":[{\"kind\":\"literal\",\"value\":\"yes\"},{\"kind\":\"literal\",\"value\":\"no\"}]},{\"kind\":\"eq\",\"left\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"c6ef8592-6907-58f5-81eb-afa6e8fee2f3\"}},\"right\":{\"kind\":\"term\",\"term\":{\"kind\":\"literal\",\"value\":\"a b\"}}}]},\"writes\":[{\"property\":\"answer\",\"value\":{\"kind\":\"switch\",\"on\":{\"kind\":\"term\",\"term\":{\"kind\":\"field\",\"uuid\":\"fe168e9a-2b2b-54e7-b853-7e8fb17a3ba2\"}},\"cases\":[{\"when\":{\"kind\":\"literal\",\"value\":\"yes\"},\"then\":{\"kind\":\"term\",\"term\":{\"kind\":\"literal\",\"value\":\"accepted\"}}}],\"fallback\":{\"kind\":\"term\",\"term\":{\"kind\":\"literal\",\"value\":\"other\"}}}}],\"action\":\"update\",\"target\":{\"kind\":\"session\"}}]}"
+		},
+		{
+			"uuid": "27bc6da6-2ab9-5c8e-899d-86e6062af78c",
+			"kind": "field",
+			"parent_uuid": "0128379f-27ea-5ff9-b26b-bdb6b85c4ef3",
+			"ordinal": 3,
+			"data_text": "{\"uuid\":\"27bc6da6-2ab9-5c8e-899d-86e6062af78c\",\"id\":\"unmatched\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Unmatched\"}]},\"relevant\":{\"parts\":[{\"kind\":\"field-ref\",\"uuid\":\"fe168e9a-2b2b-54e7-b853-7e8fb17a3ba2\"},{\"kind\":\"text\",\"text\":\"='retired'\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "3f711577-0338-5bef-bbe7-d36ac815933c",
+			"kind": "field",
+			"parent_uuid": "0128379f-27ea-5ff9-b26b-bdb6b85c4ef3",
+			"ordinal": 2,
+			"data_text": "{\"uuid\":\"3f711577-0338-5bef-bbe7-d36ac815933c\",\"id\":\"condition\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Condition\"}]},\"relevant\":{\"parts\":[{\"kind\":\"field-ref\",\"uuid\":\"fe168e9a-2b2b-54e7-b853-7e8fb17a3ba2\"},{\"kind\":\"text\",\"text\":\"='yes'\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "8c9531f3-2a97-5566-acb4-1a32a960b58c",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"8c9531f3-2a97-5566-acb4-1a32a960b58c\",\"id\":\"visit\",\"name\":\"Visit\",\"caseType\":\"patient\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"682ba687-d1e8-5b37-b623-7b381d9db348\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"682ba687-d1e8-5b37-b623-7b381d9db348\"],\"detailColumnOrder\":[\"682ba687-d1e8-5b37-b623-7b381d9db348\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "c6ef8592-6907-58f5-81eb-afa6e8fee2f3",
+			"kind": "field",
+			"parent_uuid": "0128379f-27ea-5ff9-b26b-bdb6b85c4ef3",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"c6ef8592-6907-58f5-81eb-afa6e8fee2f3\",\"id\":\"choices\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Choices\"}]},\"kind\":\"multi_select\",\"optionsSource\":{\"kind\":\"inline\",\"options\":[{\"value\":\"a\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"A\"}]},\"uuid\":\"1af9ac4a-7de3-530d-8583-435f2f254708\"},{\"value\":\"b\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"B\"}]},\"uuid\":\"2e1d3859-ed20-5673-b34c-c4215360388f\"}]},\"default_value\":{\"parts\":[{\"kind\":\"text\",\"text\":\"'a b'\"}]}}"
+		},
+		{
+			"uuid": "fe168e9a-2b2b-54e7-b853-7e8fb17a3ba2",
+			"kind": "field",
+			"parent_uuid": "0128379f-27ea-5ff9-b26b-bdb6b85c4ef3",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"fe168e9a-2b2b-54e7-b853-7e8fb17a3ba2\",\"id\":\"choice\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Choice\"}]},\"kind\":\"single_select\",\"optionsSource\":{\"kind\":\"inline\",\"options\":[{\"value\":\"yes\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Yes\"}]},\"uuid\":\"95211467-2390-5492-9ef2-0312b69ac6ca\"},{\"value\":\"no\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"No\"}]},\"uuid\":\"a6c67ce8-bb6f-5d48-b9a6-10432a270b8b\"}]},\"default_value\":{\"parts\":[{\"kind\":\"text\",\"text\":\"'yes'\"}]}}"
+		}
+	]
+}

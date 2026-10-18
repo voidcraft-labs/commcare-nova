@@ -1,0 +1,40 @@
+{
+	"root": {
+		"app_name": "Context and guards",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"patient\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}}]}]",
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "52c1fcb3-8aeb-5dd9-a21b-f025a6918f25",
+			"kind": "field",
+			"parent_uuid": "c04ea526-e698-5f69-a3b3-9a614fed9252",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"52c1fcb3-8aeb-5dd9-a21b-f025a6918f25\",\"id\":\"answer\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Answer\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "b9a0aa4a-fbc1-5d36-802f-e7b83894097e",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"b9a0aa4a-fbc1-5d36-802f-e7b83894097e\",\"id\":\"visit\",\"name\":\"Visit\",\"caseType\":\"patient\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"aec8858b-3606-5275-870c-deeee649ee90\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"aec8858b-3606-5275-870c-deeee649ee90\"],\"detailColumnOrder\":[\"aec8858b-3606-5275-870c-deeee649ee90\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "c04ea526-e698-5f69-a3b3-9a614fed9252",
+			"kind": "form",
+			"parent_uuid": "b9a0aa4a-fbc1-5d36-802f-e7b83894097e",
+			"ordinal": 0,
+			"data_text": "{\"entryPoint\":{\"uuid\":\"d80cdd61-20f1-547b-89b0-c22f36b2a34e\",\"id\":\"visit\"},\"uuid\":\"c04ea526-e698-5f69-a3b3-9a614fed9252\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "e89ef973-ccb9-5571-a747-1859a66253ee",
+			"kind": "field",
+			"parent_uuid": "c04ea526-e698-5f69-a3b3-9a614fed9252",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"e89ef973-ccb9-5571-a747-1859a66253ee\",\"id\":\"calculation\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\" ((\"},{\"kind\":\"field-ref\",\"uuid\":\"52c1fcb3-8aeb-5dd9-a21b-f025a6918f25\"},{\"kind\":\"text\",\"text\":\")) \"}]}}"
+		}
+	]
+}

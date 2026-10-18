@@ -168,6 +168,8 @@ they do, are named under their pull request.
 - `scripts/lib/hqRoundTripExpressions/__tests__/fixtures/pre-step/` (new; raw carriers and `manifest.json`)
 - `scripts/lib/hqRoundTripExpressions/__tests__/fixtures.test.ts` (new; its validity half leaves in pull request 5)
 - `scripts/lib/hqRoundTripExpressions/__tests__/frozenPrinter.test.ts` (new; leaves in pull request 5)
+- `scripts/lib/hqRoundTripExpressions/__tests__/emissionNormal.test.ts` (new; focused parser, scope, literal and file-identity checks alongside the frozen implementation; pull request 13 adds the corpus fixed-point check)
+- This part and part 09 record the implementation clarifications: raw and normalized digests, shared deterministic compiler inputs, entity-addressable HQ fragments, semantic predicate grouping, and admitted fixtures with explicit defensive fault/context metadata.
 
 ### Pull request 3: Projection
 

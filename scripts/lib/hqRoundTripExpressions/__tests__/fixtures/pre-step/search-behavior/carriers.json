@@ -1,0 +1,33 @@
+{
+	"root": {
+		"app_name": "Search behavior",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"patient\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}},{\"name\":\"date\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Date\"}]},\"data_type\":\"date\"},{\"name\":\"moment\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Moment\"}]},\"data_type\":\"datetime\"}]}]",
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "4517ba01-dc85-57d5-8e74-8609490fb397",
+			"kind": "form",
+			"parent_uuid": "78b5ae70-eccd-5019-849f-6fcd3aff0b3f",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"4517ba01-dc85-57d5-8e74-8609490fb397\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "78b5ae70-eccd-5019-849f-6fcd3aff0b3f",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"78b5ae70-eccd-5019-849f-6fcd3aff0b3f\",\"id\":\"visit\",\"name\":\"Visit\",\"caseType\":\"patient\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"6635c16b-3054-53ac-9533-5d379de13169\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"6635c16b-3054-53ac-9533-5d379de13169\"],\"detailColumnOrder\":[\"6635c16b-3054-53ac-9533-5d379de13169\"],\"filter\":{\"kind\":\"and\",\"clauses\":[{\"kind\":\"lt\",\"left\":{\"kind\":\"term\",\"term\":{\"kind\":\"prop\",\"caseType\":\"patient\",\"property\":\"date\"}},\"right\":{\"kind\":\"today\"}},{\"kind\":\"eq\",\"left\":{\"kind\":\"term\",\"term\":{\"kind\":\"prop\",\"caseType\":\"patient\",\"property\":\"moment\"}},\"right\":{\"kind\":\"term\",\"term\":{\"kind\":\"literal\",\"value\":\"2026-01-01T12:00:00Z\",\"data_type\":\"datetime\"}}}]},\"searchInputs\":[{\"uuid\":\"5a95fa3e-3f9d-59c3-98eb-936e13871ca0\",\"name\":\"name\",\"label\":\"Name\",\"kind\":\"simple\",\"property\":\"case_name\",\"type\":\"text\"}]},\"caseSearchConfig\":{\"searchFirst\":true}}"
+		},
+		{
+			"uuid": "90794853-5df7-5760-86d7-a23b5b121c60",
+			"kind": "field",
+			"parent_uuid": "4517ba01-dc85-57d5-8e74-8609490fb397",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"90794853-5df7-5760-86d7-a23b5b121c60\",\"id\":\"notes\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Notes\"}]},\"kind\":\"text\"}"
+		}
+	]
+}

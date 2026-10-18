@@ -1,0 +1,47 @@
+{
+	"root": {
+		"app_name": "Prose repeat read",
+		"connect_type": null,
+		"case_types_text": null,
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "01386033-857a-5f11-bbde-251b2e892961",
+			"kind": "field",
+			"parent_uuid": "9dcb10bf-8cac-5e31-8392-d5146cc9c06a",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"01386033-857a-5f11-bbde-251b2e892961\",\"id\":\"summary\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Answers: \"},{\"kind\":\"field-ref\",\"uuid\":\"c2206835-2613-5381-bbf8-b3042939173d\"}]},\"kind\":\"label\"}"
+		},
+		{
+			"uuid": "1a2aa805-29c3-588e-bfa1-110702ade120",
+			"kind": "field",
+			"parent_uuid": "9dcb10bf-8cac-5e31-8392-d5146cc9c06a",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"1a2aa805-29c3-588e-bfa1-110702ade120\",\"id\":\"rows\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Rows\"}]},\"kind\":\"repeat\",\"repeat_mode\":\"user_controlled\"}"
+		},
+		{
+			"uuid": "9dcb10bf-8cac-5e31-8392-d5146cc9c06a",
+			"kind": "form",
+			"parent_uuid": "b8dd0543-5d16-590c-9e31-b7d0d74439dd",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"9dcb10bf-8cac-5e31-8392-d5146cc9c06a\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"survey\"}"
+		},
+		{
+			"uuid": "b8dd0543-5d16-590c-9e31-b7d0d74439dd",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"b8dd0543-5d16-590c-9e31-b7d0d74439dd\",\"id\":\"visit\",\"name\":\"Visit\"}"
+		},
+		{
+			"uuid": "c2206835-2613-5381-bbf8-b3042939173d",
+			"kind": "field",
+			"parent_uuid": "1a2aa805-29c3-588e-bfa1-110702ade120",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"c2206835-2613-5381-bbf8-b3042939173d\",\"id\":\"answer\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Answer\"}]},\"kind\":\"text\"}"
+		}
+	]
+}
