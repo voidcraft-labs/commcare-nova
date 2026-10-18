@@ -56,7 +56,12 @@ The members:
   the old id (``task-completed-nothing``).
 
 This module reads records only: it imports neither HQ nor Django
-(``test_judge_purity``).
+(``test_judge_purity``), and nothing beyond the standard library, since the
+Android reader's own checks import it through ``proof.checks.android`` on a
+runner's Python with no image (``proof/android/test_standard_library.py``).
+Which blocks two builds' forms renamed is read from their XML, so the Connect
+judge reads it (``proof.checks.connect.renamed_blocks``) and hands this
+module the answer.
 """
 
 from __future__ import annotations
@@ -65,19 +70,12 @@ import ast
 import fnmatch
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
-
-from lxml import etree
-
-from proof.checks.compare.xml_tree import parse_xml
+from pathlib import Path
 
 WORKTREE = Path(__file__).resolve().parents[2]
 # A module that proves a member: its name says so, and a member names it. The set's own test is no member's proof.
 PROOF_MODULES = "test_hq_own_*.py"
 OWN_TEST = "proof/checks/test_hq_own_reports.py"
-
-XFORMS = "http://www.w3.org/2002/xforms"
-CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
 
 
 @dataclass(frozen=True)
@@ -176,8 +174,6 @@ def reopen_ends_at_empty_parent_ids(reopened) -> bool:
 # Which side of a rename a report names a block by: the id the opportunity holds, or the id the edit gave it.
 OLD = "old"
 NEW = "new"
-# The Connect blocks whose id Connect keys an opportunity's rows by, by element name.
-KEYED_BLOCKS = frozenset({"module", "deliver", "task"})
 CONNECT_RENAMED = (
     "/ids/deliver/moved",
     "/ids/task/moved",
@@ -188,75 +184,10 @@ CONNECT_RENAMED = (
 )
 
 
-def connect_forms(outcome) -> dict:
-    """Each form of a build (``proof.observe.outcome.BuildOutcome``) by its file (``modules-<m>/forms-<f>.xml``),
-    parsed: the forms Connect reads an app's blocks from (commcare-connect
-    ``opportunity/app_xml.py::get_form_xml_for_app``, ``modules-\\d+/forms-\\d+\\.xml`` of HQ's archive)."""
-    found = {}
-    for path, content in sorted(((outcome.files if outcome is not None else None) or {}).items()):
-        if PurePosixPath(path).match("modules-*/forms-*.xml"):
-            found[path] = parse_xml(content)
-    return found
-
-
-def _in_data(element) -> list[str] | None:
-    """The steps from a form's data node to ``element``'s parent, or None where it is no data of an instance."""
-    steps = []
-    parent = element.getparent()
-    while parent is not None:
-        above = parent.getparent()
-        if above is not None and above.tag == f"{{{XFORMS}}}instance":
-            return [etree.QName(parent).localname, *reversed(steps)]
-        steps.append(etree.QName(parent).localname)
-        parent = above
-    return None
-
-
-def connect_blocks(root) -> list[tuple[tuple[str, ...], str, str]]:
-    """Each Connect block a form's data holds, as ``(place, kind, id)``: the kind its element's name, and its place
-    the group that holds its question, from the data node. Vellum names a block's question by the block's id (its
-    ``commcareConnect.js`` writes the block's ``id`` from the question's ``nodeID``, and Nova writes the same), so
-    a block renamed keeps its place and its kind, and its question's own step moves with its id."""
-    found = []
-    for element in root.iter(f"{{{CONNECT_XMLNS}}}*"):
-        kind = etree.QName(element).localname
-        if kind not in KEYED_BLOCKS or not element.get("id"):
-            continue
-        steps = _in_data(element)
-        if steps is None:
-            continue
-        found.append((tuple(steps[:-1]), kind, element.get("id")))
-    return found
-
-
-def renamed_blocks(a, b) -> frozenset[tuple[str, str, str]]:
-    """Each Connect block renamed between two states' forms (``connect_forms``), as ``(kind, old id, new id)``: at
-    one place of one file, the one block of a kind A's form holds under an id B's form holds for no block of that
-    kind, and the one block of that kind B's form holds there under an id A's form held for none. A place where
-    more than one block of a kind went or came pairs none of them: which new block is which old one's is not
-    written in the forms, and a block added beside a renamed one is no rename."""
-    found = set()
-    for path in sorted(set(a) & set(b)):
-        before, after = connect_blocks(a[path]), connect_blocks(b[path])
-        held_before = {(kind, block_id) for _, kind, block_id in before}
-        held_after = {(kind, block_id) for _, kind, block_id in after}
-        gone, came = {}, {}
-        for place, kind, block_id in before:
-            if (kind, block_id) not in held_after:
-                gone.setdefault((place, kind), []).append(block_id)
-        for place, kind, block_id in after:
-            if (kind, block_id) not in held_before:
-                came.setdefault((place, kind), []).append(block_id)
-        for (place, kind), old in gone.items():
-            new = came.get((place, kind), [])
-            if len(old) == 1 and len(new) == 1:
-                found.add((kind, old[0], new[0]))
-    return frozenset(found)
-
-
 def connect_report_renamed(renamed, subjects) -> bool:
     """Whether every block a Connect report names (``subjects``: ``(kind, id, OLD or NEW)``) is one side of a block
-    renamed between A's forms and B-edit's (``renamed``, their ``renamed_blocks``); a report that names no block is
+    renamed between A's forms and B-edit's (``renamed``, their
+    ``proof.checks.connect.renamed_blocks``); a report that names no block is
     no rename's."""
     sides = {OLD: {(kind, old) for kind, old, _ in renamed}, NEW: {(kind, new) for kind, _, new in renamed}}
     return bool(subjects) and all((kind, block) in sides.get(side, ()) for kind, block, side in subjects)

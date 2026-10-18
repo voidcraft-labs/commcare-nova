@@ -1310,8 +1310,8 @@ def connect_beyond_a(document, records, name, record, *, moved, view=None):
     if moved and view is not None and view.a is not None and view.b is not None:
         forms = (
             f"{CONNECT}@{EDIT}@{name}",
-            hq_own_reports.connect_forms(view.a.build),
-            hq_own_reports.connect_forms(view.b.build),
+            connect.connect_forms(view.a.build),
+            connect.connect_forms(view.b.build),
         )
     return connect.absolute_differences(
         records.blobs.get_json(held["connect"]),
