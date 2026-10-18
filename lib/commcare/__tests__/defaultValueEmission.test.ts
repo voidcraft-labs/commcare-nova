@@ -11,6 +11,7 @@ import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { collectOracleInstanceRefs } from "@/lib/commcare/validator/suiteOracle";
 import { containerWireFixture } from "./containerWireFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
@@ -92,7 +93,7 @@ describe.each(forms("registration"))(
 			]);
 		});
 
-		it("declare the session and the case database", () => {
+		it("declare only the session that supplies the new case id", () => {
 			const declared = elements
 				.filter(
 					(element) =>
@@ -101,11 +102,21 @@ describe.each(forms("registration"))(
 						isTag(element.parent) &&
 						element.parent.name === "model",
 				)
-				.map((element) => element.attribs.id)
-				.filter((id) => id !== undefined);
-			expect(declared).toEqual(
-				expect.arrayContaining(["casedb", "commcaresession"]),
+				.map((element) => element.attribs)
+				.filter((attributes) => attributes.id !== undefined);
+			expect(declared).toEqual([
+				{ id: "commcaresession", src: "jr://instance/session" },
+			]);
+			const reads = new Set(
+				elements.flatMap((element) =>
+					Object.entries(element.attribs).flatMap(([name, value]) =>
+						name.startsWith("vellum:")
+							? []
+							: [...collectOracleInstanceRefs(value)],
+					),
+				),
 			);
+			expect(reads).toEqual(new Set(["commcaresession"]));
 		});
 	},
 );

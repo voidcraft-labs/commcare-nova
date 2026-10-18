@@ -13,7 +13,7 @@ describe("reference projection preserves parsed token boundaries", () => {
 				`concat('#form/a', #form/a, #form/ab, "#user/name", #user/role, #patient/age)`,
 			),
 		).toBe(
-			`concat('#form/a', /data/a, /data/ab, "#user/name", instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/role, #patient/age)`,
+			`concat('#form/a', /data/a, /data/ab, "#user/name", instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/role, #patient/age)`,
 		);
 		expect(expandFlatHashtags("#form/group/a + /data/b")).toBe(
 			"/data/group/a + /data/b",

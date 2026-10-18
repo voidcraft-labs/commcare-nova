@@ -13,6 +13,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, proseText } from "@/lib/domain";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
+import { xpathEvidence } from "./xpathEvidence";
 
 function one(elements: Element[]): Element {
 	expect(elements).toHaveLength(1);
@@ -84,8 +85,10 @@ function expectedBlocks(name: string): ExpectedBlock[][] {
 	];
 }
 
-/** The calculations the first form's Connect blocks carry. */
-function expectedCalculations(name: string): Record<string, string> {
+/** The first form's Connect value binds, including the uncalculated work area. */
+function expectedCalculations(
+	name: string,
+): Record<string, string | undefined> {
 	if (name.startsWith("learn"))
 		return {
 			"/data/quiz/assessment/user_score": name.endsWith("custom")
@@ -100,7 +103,19 @@ function expectedCalculations(name: string): Record<string, string> {
 		"/data/visit/deliver/entity_name": name.endsWith("custom")
 			? "/data/feedback"
 			: "instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username",
+		"/data/visit/deliver/work_area_id": undefined,
 	};
+}
+
+function calculationEvidence(
+	calculations: Readonly<Record<string, string | undefined>>,
+) {
+	return Object.fromEntries(
+		Object.entries(calculations).map(([path, expression]) => [
+			path,
+			expression === undefined ? undefined : xpathEvidence(expression),
+		]),
+	);
 }
 
 // Connect opportunity/app_xml.py::extract_modules/extract_deliver_unit/
@@ -202,8 +217,10 @@ describe("Connect blocks in delivered forms", () => {
 							)
 							.map((e) => [e.attribs.nodeset, e.attribs.calculate]),
 					);
-					expect(calculated).toEqual(
-						formIndex === 0 ? expectedCalculations(name) : {},
+					expect(calculationEvidence(calculated)).toStrictEqual(
+						calculationEvidence(
+							formIndex === 0 ? expectedCalculations(name) : {},
+						),
 					);
 					if (name === "deliver-default" && formIndex === 0)
 						expect(

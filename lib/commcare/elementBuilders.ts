@@ -181,7 +181,9 @@ export function xel<const Name extends XPathElementName>(
 			);
 		written.add(attribute);
 	};
-	for (const [attribute, expression] of Object.entries(spec.xpath ?? {})) {
+	const xpath: Readonly<Record<string, WireExpr | undefined>> =
+		spec.xpath ?? {};
+	for (const [attribute, expression] of Object.entries(xpath)) {
 		if (expression === undefined) continue;
 		if (!includesAttribute(XPATH_ATTRIBUTES, name, attribute))
 			throw new Error(

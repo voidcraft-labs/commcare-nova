@@ -28,6 +28,7 @@ import {
 import { localizationWireFixture } from "./localizationWireFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
+import { xpathEvidence } from "./xpathEvidence";
 
 function exported(
 	doc: BlueprintDoc,
@@ -308,11 +309,15 @@ describe("CCZ compiler integration", () => {
 		expect(
 			xmlChildren(menu, "instance").map((instance) => instance.attributes),
 		).toEqual([{ id: "commcaresession", src: "jr://instance/session" }]);
-		expect(onlyXml(xmlChildren(menu, "command")).attributes).toEqual({
-			id: "m0-f0",
-			relevant:
+		const { relevant, ...commandAttributes } = onlyXml(
+			xmlChildren(menu, "command"),
+		).attributes;
+		expect(commandAttributes).toEqual({ id: "m0-f0" });
+		expect(xpathEvidence(relevant)).toEqual(
+			xpathEvidence(
 				"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/@status = 'open'",
-		});
+			),
+		);
 		const entry = onlyXml(xmlChildren(suite, "entry"));
 		expect(
 			xmlChildren(entry, "instance")
@@ -337,8 +342,10 @@ describe("CCZ compiler integration", () => {
 		const rule = hq.modules[0].case_details.short.filter;
 		expect(rule).toBeTypeOf("string");
 		expect(rule).not.toBe("");
-		expect(selection.attributes.nodeset).toBe(
-			`instance('casedb')/casedb/case[@case_type='patient'][@status='open'][${rule}]`,
+		expect(xpathEvidence(selection.attributes.nodeset)).toEqual(
+			xpathEvidence(
+				`instance('casedb')/casedb/case[@case_type='patient'][@status='open'][${rule}]`,
+			),
 		);
 		// Native Core execution checks blank and repeated-whitespace exclusions
 		// against actual cases, independently of this cross-artifact join.
@@ -353,9 +360,9 @@ describe("CCZ compiler integration", () => {
 		);
 		const condition =
 			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/role = 'supervisor'";
-		expect(frames.map((frame) => frame.attributes.if)).toEqual([
-			condition,
-			`not(${condition})`,
+		expect(frames.map((frame) => xpathEvidence(frame.attributes.if))).toEqual([
+			xpathEvidence(condition),
+			xpathEvidence(`not(${condition})`),
 		]);
 		expect(
 			frames.map((frame) =>
@@ -412,14 +419,22 @@ describe("CCZ compiler integration", () => {
 		expect(
 			xmlChildren(followup, "setvalue")
 				.filter((node) => node.attributes.ref === "/data/answer")
-				.map((node) => node.attributes),
+				.map((node) => ({
+					...node.attributes,
+					value: xpathEvidence(node.attributes.value),
+				})),
 		).toEqual([
-			{ ref: "/data/answer", event: "xforms-ready", value: "'manual-default'" },
 			{
 				ref: "/data/answer",
 				event: "xforms-ready",
-				value:
+				value: xpathEvidence("'manual-default'"),
+			},
+			{
+				ref: "/data/answer",
+				event: "xforms-ready",
+				value: xpathEvidence(
 					"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/notes",
+				),
 			},
 		]);
 	});
@@ -641,7 +656,9 @@ describe("a module's display condition on the local path", () => {
 			module.hiddenFromMenu = true;
 			module.displayCondition = supervisor;
 		});
-		expect(menu.attributes.relevant).toBe(`false() and (${role})`);
+		expect(xpathEvidence(menu.attributes.relevant)).toEqual(
+			xpathEvidence(`false() and (${role})`),
+		);
 		expect(instanceIds(menu)).toEqual(["commcaresession"]);
 	});
 });

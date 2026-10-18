@@ -12,6 +12,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema, proseText } from "@/lib/domain";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
+import { xpathEvidence } from "./xpathEvidence";
 
 function one(elements: Element[]) {
 	expect(elements).toHaveLength(1);
@@ -205,13 +206,15 @@ it.each(["registration", "followup"] as const)(
 					"/data/subject": "name",
 					[path]: "issue_description",
 				});
-				expect(
-					one(output.local.seeds.filter((e) => e.attribs.ref === path)).attribs,
-				).toEqual({
+				const preload = one(
+					output.local.seeds.filter((e) => e.attribs.ref === path),
+				).attribs;
+				expect({ ...preload, value: xpathEvidence(preload.value) }).toEqual({
 					ref: path,
 					event: "xforms-ready",
-					value:
-						"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/issue_description",
+					value: xpathEvidence(
+						"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/issue_description",
+					),
 				});
 			}
 		}
