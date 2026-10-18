@@ -44,7 +44,7 @@ import AdmZip from "adm-zip";
 import type { Element } from "domhandler";
 import type { FormActions, HqApplication } from "@/lib/commcare";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
-import { el, text } from "@/lib/commcare/elementBuilders";
+import { el, text, xel } from "@/lib/commcare/elementBuilders";
 import {
 	caseListFormReturnFrame,
 	caseListSessionDatums,
@@ -70,15 +70,12 @@ import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildMediaBundle } from "@/lib/commcare/multimedia/bundle";
 import { buildLogoProfileProperty } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMenuNode } from "@/lib/commcare/multimedia/navMenuMedia";
-import {
-	collectPredicateInstances,
-	instanceSourceFor,
-} from "@/lib/commcare/predicate/instances";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	buildEntryElement,
 	deriveCaseListEntryDefinition,
 	deriveEntryDefinition,
+	type EntryDefinition,
 	type SessionDatum,
 } from "@/lib/commcare/session";
 import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
@@ -117,7 +114,6 @@ import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
-	caseListColumnRuns,
 	effectiveCaseSearchConfig,
 	effectivePostSubmit,
 	makeTranslationUnitId,
@@ -127,12 +123,12 @@ import {
 	userPropertySlugsByUuid,
 	type WireStringSource,
 } from "@/lib/domain";
-import { displayConditionForEmission } from "@/lib/domain/predicate";
 import {
 	caseListFormLabelUnit,
 	emissionPlan,
 	type SyntheticModule,
 } from "./emissionPlan";
+import { type InstanceDecl, InstanceSink } from "./xpath/wire/instances";
 
 /** Compile-time options. `assets` is the resolved media manifest; when
  *  present the archive bundles the referenced files + media_suite.xml +
@@ -337,7 +333,10 @@ export function compileCcz(
 	// (resources → locales → details → remote-requests → entries →
 	// menus) — the serializer preserves child insertion order, so the
 	// rendered bytes match CCHQ's reference suite shape.
-	const suiteEntries: Element[] = [];
+	const suiteEntryDefinitions: Array<{
+		definition: EntryDefinition;
+		commandDisplay: Element;
+	}> = [];
 	const suiteMenus: Element[] = [];
 	const suiteDetails: Element[] = [];
 	const suiteResources: Element[] = [];
@@ -350,6 +349,37 @@ export function compileCcz(
 	// they reference (`m{N}_search_short` / `m{N}_search_long`)
 	// keeps the rendered suite.xml structurally local.
 	const suiteRemoteRequests: Element[] = [];
+	const detailInstances = new Map<string, readonly InstanceDecl[]>();
+	const rememberDetail = (emission: {
+		element: Element;
+		instances: readonly InstanceDecl[];
+	}): void => {
+		const id = emission.element.attribs.id;
+		if (id === undefined)
+			throw new Error("A rendered case detail needs its wire id.");
+		detailInstances.set(id, emission.instances);
+	};
+	const instancesForDatums = (
+		datums: readonly SessionDatum[],
+	): readonly InstanceDecl[] => {
+		const sink = new InstanceSink();
+		for (const datum of datums) {
+			for (const id of [
+				datum.detailSelect,
+				datum.detailConfirm,
+				datum.detailPersistent,
+			]) {
+				if (id === undefined) continue;
+				const declarations = detailInstances.get(id);
+				if (declarations === undefined)
+					throw new Error(
+						`A session datum names detail '${id}', but the suite contains no such detail.`,
+					);
+				sink.add(declarations);
+			}
+		}
+		return sink.declarations();
+	};
 
 	// Walk HQ modules and the document's membership-array module sequence in
 	// lockstep. `expandDoc` uses the same sequence, so the domain twin of
@@ -416,12 +446,6 @@ export function compileCcz(
 			? undefined
 			: caseSearchConfig?.searchButtonDisplayCondition;
 		const caseSource = searchFirst ? ("results:inline" as const) : undefined;
-		// The instances a module's `relevant` reads come from the condition
-		// the emitter prints as written; a module off the menu prints `false()`
-		// ahead of it, which reads none.
-		const effectiveModuleDisplayCondition = displayConditionForEmission(
-			mod.displayCondition,
-		);
 		// A no-matches form's synthetic module is never relevant; the Register
 		// action's push reaches its entry regardless
 		// (`CommCareSession.performPushInner`).
@@ -433,17 +457,6 @@ export function compileCcz(
 						mod.caseType,
 						lookupNaming,
 						userPropertySlugs,
-					);
-		const moduleConditionInstances =
-			effectiveModuleDisplayCondition === undefined
-				? []
-				: [
-						...collectPredicateInstances(
-							effectiveModuleDisplayCondition,
-							lookupNaming,
-						),
-					].map((id) =>
-						el("instance", { id, src: instanceSourceFor(id, lookupNaming) }),
 					);
 
 		appStrings[`modules.m${mIdx}`] = modName;
@@ -472,22 +485,6 @@ export function compileCcz(
 		// with a non-null case-selection datum — so a registration form's
 		// entry and the `caseListOnly` browse entry below never carry it.
 		const tileGrouping = mod.caseListConfig?.tile?.grouping;
-
-		// Every calc-column expression on this module's case-list short /
-		// long detail. Module-invariant (it depends only on
-		// `caseListConfig.columns`), so it's computed once here and reused
-		// by both case-loading entry paths below — the per-form entry and
-		// the `caseListOnly` browse entry — each of which references the
-		// `m{N}_case_short` / `m{N}_case_long` details these expressions
-		// land on, and so must declare every `<instance>` they reach.
-		const caseListColumnExpressions =
-			mod.caseListConfig?.columns
-				.filter(
-					(c): c is Extract<typeof c, { kind: "calculated" }> =>
-						c.kind === "calculated" &&
-						caseListColumnRuns(c, mod.caseListConfig ?? {}),
-				)
-				.map((c) => c.expression) ?? [];
 
 		// Case detail definitions — emitted only when the module has a case
 		// type. Short + long details are always paired.
@@ -544,6 +541,30 @@ export function compileCcz(
 		// Register action, and HQ regenerates no detail for a module whose
 		// forms never select a case.
 		if (caseType && synthetic === undefined) {
+			const searchShort =
+				caseSearchConfig !== undefined && !searchFirst
+					? buildShortDetail({
+							module: mod,
+							moduleIndex: mIdx,
+							doc,
+							target: "search",
+							emptyCaseListText,
+							...(assets && { assets }),
+							...(lookupNaming && { lookupNaming }),
+						})
+					: undefined;
+			const searchLong =
+				caseSearchConfig !== undefined && !searchFirst
+					? buildLongDetail({
+							module: mod,
+							moduleIndex: mIdx,
+							doc,
+							target: "search",
+							...(assets && { assets }),
+							...(lookupNaming && { lookupNaming }),
+						})
+					: undefined;
+
 			// `<remote-request>` orchestrator. Computes the
 			// `WireShape` for this module via `compileForPlatform`
 			// (default platform context: web) and emits the full
@@ -568,6 +589,10 @@ export function compileCcz(
 							moduleIndex: mIdx,
 							typeContext: moduleTypeContext(mod, doc),
 							lookupNaming,
+							detailInstances: [
+								...(searchShort?.instances ?? []),
+								...(searchLong?.instances ?? []),
+							],
 						})
 					: undefined;
 			if (remoteRequestEmission !== undefined) {
@@ -598,6 +623,7 @@ export function compileCcz(
 					},
 				}),
 			});
+			rememberDetail(shortEmission);
 			suiteDetails.push(shortEmission.element);
 			mergeLocalizedStrings(shortEmission);
 
@@ -609,6 +635,7 @@ export function compileCcz(
 				...(assets && { assets }),
 				...(lookupNaming && { lookupNaming }),
 			});
+			rememberDetail(longEmission);
 			suiteDetails.push(longEmission.element);
 			mergeLocalizedStrings(longEmission);
 
@@ -622,28 +649,11 @@ export function compileCcz(
 			// `<action>` element — the search results screen IS the
 			// action's destination. A search-first module has no separate
 			// results screen: its case details ARE the results.
-			if (caseSearchConfig !== undefined && !searchFirst) {
-				const searchShort = buildShortDetail({
-					module: mod,
-					moduleIndex: mIdx,
-					doc,
-					target: "search",
-					emptyCaseListText,
-					...(assets && { assets }),
-					...(lookupNaming && { lookupNaming }),
-				});
-				suiteDetails.push(searchShort.element);
+			if (searchShort !== undefined && searchLong !== undefined) {
+				rememberDetail(searchShort);
+				rememberDetail(searchLong);
+				suiteDetails.push(searchShort.element, searchLong.element);
 				mergeLocalizedStrings(searchShort);
-
-				const searchLong = buildLongDetail({
-					module: mod,
-					moduleIndex: mIdx,
-					doc,
-					target: "search",
-					...(assets && { assets }),
-					...(lookupNaming && { lookupNaming }),
-				});
-				suiteDetails.push(searchLong.element);
 				mergeLocalizedStrings(searchLong);
 			}
 		}
@@ -721,7 +731,7 @@ export function compileCcz(
 					caseType || undefined,
 					ownCaseDatumId === undefined
 						? undefined
-						: `instance('commcaresession')/session/data/${ownCaseDatumId}`,
+						: sessionDataRef(ownCaseDatumId),
 					ownCaseDatum?.maxSelectValue === undefined,
 				);
 			}
@@ -747,34 +757,9 @@ export function compileCcz(
 			// shape: the HQ `form_links` name target forms by HQ id, while
 			// the local suite needs the target's frame children.
 			//
-			// Three authoring surfaces contribute to the entry's
-			// `<instance>` accumulator:
-			//   - `caseListConfig.filter` flows through verbatim; the wire
-			//     layer at `session.ts::deriveSessionDatums` routes it
-			//     through `emitNodesetFilter` to compose the bracketed
-			//     fragment that appends to the case-loading datum's
-			//     nodeset.
-			//   - `caseSearchConfig.searchButtonDisplayCondition` lowers
-			//     to the `<action relevant>` attribute on the case-list
-			//     detail's search-action element, which evaluates in this
-			//     entry's context.
-			//   - `form.displayCondition` lowers to `<command relevant>` in
-			//     the module menu. Nova's emitted topology has no same-id
-			//     nested menu to shadow this direct matching entry in Core's
-			//     selection order, so its instances are declared here too.
-			//   - Calc-column expressions land on the module's
-			//     `m{N}_case_short` / `m{N}_case_long` detail blocks the
-			//     entry's `<datum detail-select / detail-confirm>`
-			//     references. CCHQ resolves the detail's XPath against
-			//     the enclosing entry's declarations, so every instance a
-			//     calc expression reaches needs a matching `<instance>`
-			//     here.
-			//
-			// Built BEFORE the validation gates so the binding-resolution
-			// oracle has the entry's session datums to cross-check the
-			// XForm's `instance('commcaresession')/session/data/<X>`
-			// references against. `caseListColumnExpressions` is the
-			// module-scoped accumulation hoisted above the form loop.
+			// Dependency declarations come from the exact rendered datum, stack,
+			// command, and referenced detail trees. The independent suite oracle
+			// checks their final XML scopes after the entry has been assembled.
 			const projectedLinks = projectFormLinks(doc, linkContext, formUuid);
 			const projectedSessionDatums = entrySessionDatums(
 				doc,
@@ -819,6 +804,15 @@ export function compileCcz(
 							newCaseDatumId(projectedSessionDatums, synthetic.caseType),
 							synthetic.caseType,
 						);
+			const commandInstances = new InstanceSink();
+			const menuCommand = xel(
+				"command",
+				{
+					attributes: { id: cmdId },
+					xpath: formRelevant === undefined ? {} : { relevant: formRelevant },
+				},
+				{ mode: { target: "suite" }, instances: commandInstances },
+			);
 			const entryDef = deriveEntryDefinition({
 				formXmlns: xmlns,
 				moduleIndex: mIdx,
@@ -846,15 +840,10 @@ export function compileCcz(
 						: [],
 				projectedSessionDatums,
 				caseListFilter: mod.caseListConfig?.filter,
-				searchButtonDisplayCondition,
-				caseListColumnExpressions:
-					caseListColumnExpressions.length > 0
-						? caseListColumnExpressions
-						: undefined,
+				additionalInstances: commandInstances.declarations(),
 				actions: hqForm.actions,
 				excludedOwnerIds,
 				relationContext: moduleTypeContext(mod, doc),
-				formDisplayCondition: form.displayCondition,
 				lookupNaming,
 				persistentDetailId: persistentTileDetailId,
 				tileGrouping,
@@ -927,13 +916,11 @@ export function compileCcz(
 			if (entryDef.assertions !== undefined) {
 				appStrings[USERCASE_MISSING_LOCALE_ID] = USERCASE_MISSING_MESSAGE;
 			}
-			suiteEntries.push(buildEntryElement(entryDef, formNav.node));
-			menuCommands.push(
-				el("command", {
-					id: cmdId,
-					...(formRelevant !== undefined && { relevant: formRelevant }),
-				}),
-			);
+			suiteEntryDefinitions.push({
+				definition: entryDef,
+				commandDisplay: formNav.node,
+			});
+			menuCommands.push(menuCommand);
 		}
 
 		// Case-list-browse command for a `caseListOnly` module. CCHQ emits
@@ -986,14 +973,11 @@ export function compileCcz(
 			// module). Calc-column expressions + the case-list filter +
 			// any search-button display condition are read from the module
 			// exactly as the per-form path reads them.
+			const browseDatums = caseListSessionDatums(doc, linkContext, moduleUuid);
 			const caseListEntryDef = deriveCaseListEntryDefinition(
 				mIdx,
 				caseType,
 				mod.caseListConfig?.filter,
-				searchButtonDisplayCondition,
-				caseListColumnExpressions.length > 0
-					? caseListColumnExpressions
-					: undefined,
 				(mod.caseListConfig?.columns ?? []).some(
 					(column) => column.visibleInDetail !== false,
 				),
@@ -1001,9 +985,12 @@ export function compileCcz(
 				moduleTypeContext(mod, doc),
 				lookupNaming,
 				persistentTileDetailId,
-				caseListSessionDatums(doc, linkContext, moduleUuid),
+				browseDatums,
 			);
-			suiteEntries.push(buildEntryElement(caseListEntryDef, caseListNav.node));
+			suiteEntryDefinitions.push({
+				definition: caseListEntryDef,
+				commandDisplay: caseListNav.node,
+			});
 			menuCommands.push(el("command", { id: `m${mIdx}-case-list` }));
 		}
 
@@ -1020,25 +1007,48 @@ export function compileCcz(
 		);
 		Object.assign(appStrings, moduleNav.strings);
 
-		suiteMenus.push(
-			el(
-				"menu",
-				{
+		const moduleInstances = new InstanceSink();
+		const moduleMenu = xel(
+			"menu",
+			{
+				attributes: {
 					...(moduleParent(doc, moduleUuid) !== null &&
 					moduleParent(doc, moduleUuid) !== undefined
 						? {
-								root: `m${sortedModuleUuids.indexOf(
-									moduleParent(doc, moduleUuid) as Uuid,
-								)}`,
+								root: `m${sortedModuleUuids.indexOf(moduleParent(doc, moduleUuid) as Uuid)}`,
 							}
 						: {}),
 					id: `m${mIdx}`,
-					...(moduleRelevant !== undefined && { relevant: moduleRelevant }),
 				},
-				[moduleNav.node, ...moduleConditionInstances, ...menuCommands],
-			),
+				xpath: moduleRelevant === undefined ? {} : { relevant: moduleRelevant },
+			},
+			{ mode: { target: "suite" }, instances: moduleInstances },
+			[moduleNav.node],
 		);
+		moduleMenu.children.push(
+			...moduleInstances
+				.declarations()
+				.map((instance) =>
+					el("instance", { id: instance.id, src: instance.src }),
+				),
+			...menuCommands,
+		);
+		suiteMenus.push(moduleMenu);
 	}
+
+	// A projected session can select a detail belonging to a later module.
+	// Resolve dependencies after all details have actually been printed, while
+	// retaining the module/form order in which the entries were derived.
+	const suiteEntries = suiteEntryDefinitions.map(
+		({ definition, commandDisplay }) => {
+			const instances = new InstanceSink(definition.instances);
+			instances.add(instancesForDatums(definition.session?.datums ?? []));
+			return buildEntryElement(
+				{ ...definition, instances: instances.declarations() },
+				commandDisplay,
+			);
+		},
+	);
 
 	// HQ convention has TWO resources for the runtime default: the special
 	// `default` locale used during initialization and the language's ordinary

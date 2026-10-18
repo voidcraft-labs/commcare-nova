@@ -5,6 +5,12 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { planFormLinkGuards } from "@/lib/commcare/formLinkProjection";
+import {
+	type FormLinkXPathValue,
+	isLegacyFormLinkXPath,
+	legacyProjectedFormLinkXPath,
+} from "@/lib/commcare/xform/legacyAuthoredXPath";
+import { serializeWire } from "@/lib/commcare/xpath";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 
@@ -52,7 +58,7 @@ describe("first matching link guard algebra", () => {
 			fc.property(links, ([conditions, hasElse]) => {
 				const authored = conditions.map((condition, index) => ({
 					uuid: testUuid(`link-${index}`),
-					condition: condition.text,
+					condition: legacyProjectedFormLinkXPath(condition.text),
 				}));
 				const planned = planFormLinkGuards(
 					hasElse ? [...authored, { uuid: testUuid("else") }] : authored,
@@ -64,15 +70,20 @@ describe("first matching link guard algebra", () => {
 					);
 					const expected =
 						first >= 0 ? first : hasElse ? conditions.length : -1;
-					const holds = (text: string) =>
+					const holds = (value: FormLinkXPathValue) =>
 						toBoolean(
-							evaluate(text, {
-								getValue: (path) =>
-									bits[Number(path.slice(-1))] ? "yes" : "no",
-								resolveHashtag: () => "",
-								contextPath: "/data",
-								position: 1,
-							}),
+							evaluate(
+								isLegacyFormLinkXPath(value)
+									? value.text
+									: serializeWire(value, { target: "suite" }).text,
+								{
+									getValue: (path) =>
+										bits[Number(path.slice(-1))] ? "yes" : "no",
+									resolveHashtag: () => "",
+									contextPath: "/data",
+									position: 1,
+								},
+							),
 						);
 					const firing = planned.links.flatMap((link, index) =>
 						link.guard === undefined || holds(link.guard) ? [index] : [],

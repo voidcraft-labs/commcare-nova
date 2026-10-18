@@ -74,9 +74,21 @@
 // (no `<action>` child).
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import {
+	el,
+	type WireElementContext,
+	xel,
+} from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { serializeXml } from "@/lib/commcare/serializeXml";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import {
+	caseDbInstance,
+	type InstanceDecl,
+	InstanceSink,
+} from "@/lib/commcare/xpath/wire/instances";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type BlueprintDoc,
 	type CaseTileGrouping,
@@ -89,7 +101,6 @@ import {
 import { simplifyForEmission } from "@/lib/domain/predicate";
 import type { Predicate } from "@/lib/domain/predicate/types";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
-import { emitCaseListFilter } from "../../predicate";
 import { buildCarrierField, buildColumnField } from "./columns";
 import {
 	EMPTY_CASE_LIST_TEXT,
@@ -144,9 +155,9 @@ export interface RegisterActionContext {
 	/** `m{H}-f0`, the no-matches form's command in its hidden module. */
 	readonly commandId: string;
 	/** The target entry's non-selection datums, in entry order. */
-	readonly datums: readonly { readonly id: string; readonly value: string }[];
+	readonly datums: readonly { readonly id: string; readonly value: WireExpr }[];
 	/** The `<action relevant>` XPath. */
-	readonly relevant: string;
+	readonly relevant: WireExpr;
 }
 
 /**
@@ -154,12 +165,24 @@ export interface RegisterActionContext {
  * modules when auto-launch is enabled. Lifted verbatim from
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::AUTO_LAUNCH_EXPRESSIONS["single-select"]`.
  * The `$next_input` reference is a session-scoped variable CCHQ's
- * runtime resolves at evaluation time; Nova passes the expression
- * through unchanged because the variable is part of CCHQ's runtime
+ * runtime resolves at evaluation time; Nova represents the variable
+ * with a closed tree arm because it is part of CCHQ's runtime
  * vocabulary, not Nova's authoring surface.
  */
-const AUTO_LAUNCH_SINGLE_SELECT_EXPR =
-	"$next_input = '' or count(instance('casedb')/casedb/case[@case_id=$next_input]) = 0";
+const AUTO_LAUNCH_SINGLE_SELECT_EXPR = w.or(
+	w.eq(w.nextInputVar(), w.str("")),
+	w.eq(
+		w.call("count", [
+			w.instance(caseDbInstance(), [
+				w.step("casedb"),
+				w.step("case", [
+					w.eq(w.context([w.attr("case_id")]), w.nextInputVar()),
+				]),
+			]),
+		]),
+		w.num(0),
+	),
+);
 
 /**
  * Compose the suite-XML `<detail>` block for one module's case-list
@@ -210,10 +233,13 @@ export function buildShortDetail(args: {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly instances: readonly InstanceDecl[];
 } {
 	const { module: mod, moduleIndex, doc } = args;
 	const target: DetailTarget = args.target ?? "case";
 	const detailId = `m${moduleIndex}_${target}_short`;
+	const instances = new InstanceSink();
+	const wire: WireElementContext = { mode: { target: "suite" }, instances };
 	const relationContext = {
 		caseTypes: effectiveCaseTypes(doc),
 		...(mod.caseType === undefined ? {} : { currentCaseType: mod.caseType }),
@@ -244,10 +270,12 @@ export function buildShortDetail(args: {
 				texts.elements,
 				moduleIndex,
 				relationContext,
+				wire,
 				args.lookupNaming,
 			),
 			strings: { ...texts.strings },
 			translationUnits: {},
+			instances: instances.declarations(),
 		};
 	}
 
@@ -263,6 +291,7 @@ export function buildShortDetail(args: {
 	);
 	const sortNodes = planSortNodes(plan);
 	const ctx: CaseListEmitContext = {
+		wire,
 		moduleIndex,
 		sortByUuid: sortNodes.byUuid,
 		detailKind: "short",
@@ -305,7 +334,7 @@ export function buildShortDetail(args: {
 		Object.assign(translationUnits, emission.translationUnits);
 	}
 	for (const carrier of sortNodes.carriers) {
-		fields.push(buildCarrierField(carrier.property, carrier.directive));
+		fields.push(buildCarrierField(carrier.property, carrier.directive, wire));
 	}
 
 	return {
@@ -318,10 +347,12 @@ export function buildShortDetail(args: {
 			texts.elements,
 			moduleIndex,
 			relationContext,
+			wire,
 			args.lookupNaming,
 		),
 		strings,
 		translationUnits,
+		instances: instances.declarations(),
 	};
 }
 
@@ -337,8 +368,9 @@ export function emitShortDetail(args: {
 	readonly target?: DetailTarget;
 	readonly searchAction?: SearchActionContext;
 }): CaseListEmission {
-	const { element, strings, translationUnits } = buildShortDetail(args);
-	return { xml: serializeXml(element), strings, translationUnits };
+	const { element, strings, translationUnits, instances } =
+		buildShortDetail(args);
+	return { xml: serializeXml(element), strings, translationUnits, instances };
 }
 
 /**
@@ -402,6 +434,7 @@ function buildDetailShell(
 		readonly currentCaseType?: string;
 		readonly userPropertySlugs: ReturnType<typeof userPropertySlugsByUuid>;
 	},
+	wire: WireElementContext,
 	lookupNaming?: LookupWireNaming,
 ): Element {
 	const titleEl = el("title", {}, [
@@ -412,7 +445,7 @@ function buildDetailShell(
 	// (`DetailContributor.build_detail`: `add_register_action`, then
 	// `get_case_search_action`).
 	if (registerAction !== undefined) {
-		children.push(buildRegisterActionBlock(registerAction, moduleIndex));
+		children.push(buildRegisterActionBlock(registerAction, moduleIndex, wire));
 	}
 	if (searchAction !== undefined) {
 		children.push(
@@ -420,11 +453,13 @@ function buildDetailShell(
 				searchAction,
 				moduleIndex,
 				relationContext,
+				wire,
 				lookupNaming,
 			),
 		);
 	}
-	if (grouping !== undefined) children.push(buildTileGroupElement(grouping));
+	if (grouping !== undefined)
+		children.push(buildTileGroupElement(grouping, wire));
 	children.push(...texts);
 	return el("detail", { id: detailId }, children);
 }
@@ -439,18 +474,30 @@ function buildDetailShell(
 function buildRegisterActionBlock(
 	action: RegisterActionContext,
 	moduleIndex: number,
+	wire: WireElementContext,
 ): Element {
-	return el("action", { relevant: action.relevant }, [
+	return xel("action", { xpath: { relevant: action.relevant } }, wire, [
 		el("display", {}, [
 			el("text", {}, [el("locale", { id: `case_list_form.m${moduleIndex}` })]),
 		]),
 		el("stack", {}, [
 			el("push", {}, [
-				el("command", { value: `'${action.commandId}'` }),
+				xel("command", { xpath: { value: w.str(action.commandId) } }, wire),
 				...action.datums.map((datum) =>
-					el("datum", { id: datum.id, value: datum.value }),
+					xel(
+						"datum",
+						{ attributes: { id: datum.id }, xpath: { value: datum.value } },
+						wire,
+					),
 				),
-				el("datum", { id: "return_to", value: `'m${moduleIndex}'` }),
+				xel(
+					"datum",
+					{
+						attributes: { id: "return_to" },
+						xpath: { value: w.str(`m${moduleIndex}`) },
+					},
+					wire,
+				),
 			]),
 		]),
 	]);
@@ -492,19 +539,18 @@ function buildSearchActionBlock(
 		readonly currentCaseType?: string;
 		readonly userPropertySlugs: ReturnType<typeof userPropertySlugsByUuid>;
 	},
+	wire: WireElementContext,
 	lookupNaming?: LookupWireNaming,
 ): Element {
 	const moduleId = `m${moduleIndex}`;
 	const autoLaunchExpr = searchAction.autoLaunch
 		? AUTO_LAUNCH_SINGLE_SELECT_EXPR
-		: "false()";
+		: w.call("false", []);
 
-	// Attribute insertion order — `auto_launch`, `redo_last`,
-	// `relevant?` — matches the canonical CCHQ fixture
-	// `search_command_detail.xml::detail[@id='m0_case_short']/action`.
-	const actionAttribs: Record<string, string> = {
+	// The single-select action's XPath attributes are distinct from its
+	// literal redo_last flag.
+	const actionExpressions: { auto_launch: WireExpr; relevant?: WireExpr } = {
 		auto_launch: autoLaunchExpr,
-		redo_last: "false",
 	};
 	if (searchAction.displayCondition !== undefined) {
 		// `simplifyForEmission` strips any redundant boolean identity (a
@@ -512,26 +558,37 @@ function buildSearchActionBlock(
 		// expression doesn't carry a `true() and …` conjunct — the same
 		// normalize the filter surfaces + the HQ-JSON
 		// `search_button_display_condition` apply.
-		actionAttribs.relevant = emitCaseListFilter(
+		actionExpressions.relevant = toWire(
 			simplifyForEmission(searchAction.displayCondition),
-			undefined,
-			relationContext,
-			undefined,
-			lookupNaming === undefined
-				? {}
-				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+			{
+				target: "suite",
+				types: relationContext,
+				bindings:
+					lookupNaming === undefined
+						? {}
+						: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+			},
 		);
 	}
 
-	return el("action", actionAttribs, [
-		el("display", {}, [
-			el("text", {}, [el("locale", { id: `case_search.${moduleId}` })]),
-		]),
-		el("stack", {}, [
-			el("push", {}, [
-				el("mark", {}),
-				el("command", { value: `'search_command.${moduleId}'` }),
+	return xel(
+		"action",
+		{ attributes: { redo_last: "false" }, xpath: actionExpressions },
+		wire,
+		[
+			el("display", {}, [
+				el("text", {}, [el("locale", { id: `case_search.${moduleId}` })]),
 			]),
-		]),
-	]);
+			el("stack", {}, [
+				el("push", {}, [
+					el("mark", {}),
+					xel(
+						"command",
+						{ xpath: { value: w.str(`search_command.${moduleId}`) } },
+						wire,
+					),
+				]),
+			]),
+		],
+	);
 }

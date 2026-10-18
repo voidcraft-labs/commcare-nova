@@ -28,30 +28,23 @@
  */
 
 import type { Element } from "domhandler";
-import { el, text } from "@/lib/commcare/elementBuilders";
+import {
+	el,
+	text,
+	type WireElementContext,
+	xel,
+} from "@/lib/commcare/elementBuilders";
 import type {
 	CaseTileGrouping,
 	FormType,
 	PostSubmitDestination,
 } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
-import {
-	displayConditionForEmission,
-	predicateReadsCaseData,
-	substituteUnansweredSearchInputsInExpression,
-	substituteUnansweredSearchInputsInPredicate,
-} from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
-import type { SearchInputInstanceId } from "@/lib/domain/predicate/typeChecker";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import type { MatchedChild, ProjectedFormLinks } from "./formLinkProjection";
 import { validateCaseType } from "./identifierValidation";
 import type { LookupWireNaming } from "./lookup/naming";
-import {
-	collectExpressionInstances,
-	collectPredicateInstances,
-	instanceSourceFor,
-} from "./predicate/instances";
 import { subcaseSessionDatumId } from "./subcaseWire";
 import {
 	emitExcludedOwnerNodesetFilter,
@@ -64,7 +57,22 @@ import {
 	USERCASE_MISSING_ASSERT_TEST,
 	USERCASE_MISSING_LOCALE_ID,
 } from "./usercaseWire";
-import { collectInstanceRefs } from "./xform/instanceRefs";
+import {
+	type FormLinkXPathValue,
+	isLegacyFormLinkXPath,
+	legacyFormLinkGroupedParents,
+	legacyFormLinkXPathInstances,
+} from "./xform/legacyAuthoredXPath";
+import { w } from "./xpath/wire/builders";
+import {
+	caseDbInstance,
+	type InstanceDecl,
+	InstanceSink,
+	resultsInstance,
+	selectedCasesInstance,
+	sessionInstance,
+} from "./xpath/wire/instances";
+import type { WireExpr } from "./xpath/wire/tree";
 
 // ── Session Datums ─────────────────────────────────────────────────────
 
@@ -77,8 +85,7 @@ import { collectInstanceRefs } from "./xform/instanceRefs";
  *   - **Nodeset datum** — case-loading forms (followup / close). Carries
  *     `nodeset` + `value` (the user picks a case from a list rendered
  *     against `nodeset`; `value="./@case_id"` extracts the chosen id).
- *     `instanceId` + `instanceSrc` declare which jr:// instance the
- *     nodeset reads from (typically `casedb`).
+ *     Its tree roots carry the declarations of the instances it reads.
  *   - **Function datum** — case-creating forms (registration / subcase).
  *     Carries `function` (typically `uuid()`), which CommCare evaluates
  *     once at entry to mint a fresh id for the case the form will
@@ -91,30 +98,16 @@ export interface SessionDatum {
 	id: string;
 	/** Entry-plan presence without a lowered selector. Never render on wire. */
 	readonly projectionOnlySelection?: true;
-	/** Instance the nodeset reads from. Required for nodeset datums; omitted for function datums. */
-	instanceId?: string;
-	instanceSrc?: string;
 	/** Required for nodeset datums; omitted for function datums. */
-	nodeset?: string;
+	nodeset?: WireExpr;
 	/** Required for nodeset datums; omitted for function datums. */
-	value?: string;
+	value?: WireExpr;
 	/**
 	 * The XPath function CommCare evaluates once at entry. Set for
 	 * function datums (case-create's `uuid()`); omitted for nodeset
 	 * datums. Sourced from CCHQ's `EntriesHelper.get_new_case_id_datums_meta`.
 	 */
-	function?: string;
-	/**
-	 * The instances a COMPUTED datum's `function` reads.
-	 *
-	 * A nodeset datum names its one instance in `instanceId`; a function can
-	 * reach several, and CommCare resolves them against the enclosing entry's
-	 * declarations. Stated here rather than recovered from the expression,
-	 * because reading XPath structure back out of a string is exactly the
-	 * parsing this codebase does not do — the site that composes the function
-	 * already knows what it reached.
-	 */
-	instanceIds?: readonly string[];
+	function?: WireExpr;
 	detailSelect?: string;
 	detailConfirm?: string;
 	/**
@@ -151,10 +144,14 @@ export interface SessionDatum {
 	 * `_replace_session_references_in_stack` without reading XPath out of a
 	 * string.
 	 */
-	renderFunction?: (sessionRef: (datumId: string) => string) => string;
+	renderFunction?: (sessionRef: (datumId: string) => WireExpr) => WireExpr;
+	/** PR4 bridge for a grouped companion that reads an authored manual link datum. */
+	renderFormLinkFunction?: (
+		sessionRef: (datumId: string) => FormLinkXPathValue,
+	) => FormLinkXPathValue;
 	/** Structural regeneration hook used when HQ-style root-menu alignment
 	 * renames a datum. Never rendered. */
-	renderNodeset?: (parentSelection?: SessionDatum) => string;
+	renderNodeset?: (parentSelection?: SessionDatum) => WireExpr;
 	/** The immediately preceding selection in a parent-select chain. */
 	parentSelection?: SessionDatum;
 	/**
@@ -191,7 +188,7 @@ export interface SessionQuery extends SessionQueryMetadata {
 	/** The rendered `<query>` element. */
 	readonly element: Element;
 	/** Instances the query body reads, declared on the surrounding entry. */
-	readonly instances: readonly string[];
+	readonly instances: readonly InstanceDecl[];
 }
 
 export function sessionDatumRequiresSelection(datum: SessionDatum): boolean {
@@ -199,15 +196,12 @@ export function sessionDatumRequiresSelection(datum: SessionDatum): boolean {
 }
 
 /** A secondary instance required by a form entry. */
-export interface EntryInstance {
-	id: string;
-	src: string;
-}
+export type EntryInstance = InstanceDecl;
 
 /** A rendered claim `<post>` and the instances its XPath reads. */
 export interface EntryPost {
 	readonly element: Element;
-	readonly instances: readonly string[];
+	readonly instances: readonly InstanceDecl[];
 }
 
 // ── Stack Operations ───────────────────────────────────────────────────
@@ -234,15 +228,15 @@ export interface EntryPost {
 /** One `<data>` of a stack `<query>` child. */
 export interface StackQueryData {
 	readonly key: string;
-	readonly ref: string;
-	readonly nodeset?: string;
-	readonly exclude?: string;
+	readonly ref: WireExpr;
+	readonly nodeset?: WireExpr;
+	readonly exclude?: WireExpr;
 }
 
 /** A child element of a <create> or <push> operation. */
 export type StackChild =
-	| { type: "command"; value: string }
-	| { type: "datum"; id: string; value: string }
+	| { type: "command"; value: WireExpr }
+	| { type: "datum"; id: string; value: FormLinkXPathValue }
 	/** A frame step that fetches cases into a search-first module's
 	 *  results instance before the datum that selects one (HQ
 	 *  `WorkflowQueryMeta.to_stack_datum`). */
@@ -265,7 +259,7 @@ export interface StackOperation {
 	/** The operation type. */
 	op: "create" | "push" | "clear";
 	/** XPath condition — operation executes only when this is true. Omit = always. */
-	ifClause?: string;
+	ifClause?: FormLinkXPathValue;
 	/** Commands and datums. Must be empty for 'clear' operations. */
 	children: StackChild[];
 }
@@ -304,7 +298,7 @@ export interface EntryDefinition {
 	post?: EntryPost;
 	commandId: string;
 	localeId: string;
-	instances: EntryInstance[];
+	instances: readonly EntryInstance[];
 	session?: { datums: SessionDatum[] };
 	/**
 	 * Entry-time guards CommCare evaluates before the form opens. Present only
@@ -314,7 +308,7 @@ export interface EntryDefinition {
 	 * carries no usercase is stopped at the door rather than submitting a write
 	 * that lands nowhere.
 	 */
-	assertions?: Array<{ test: string; localeId: string }>;
+	assertions?: Array<{ test: WireExpr; localeId: string }>;
 	stack?: { operations: StackOperation[] };
 }
 
@@ -341,48 +335,69 @@ export function caseLoadingNodeset(
 	excludedOwnerIds: ValueExpression | undefined,
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
-): string {
-	const filterFragment = emitNodesetFilter(
+): WireExpr {
+	const filter = emitNodesetFilter(
 		caseListFilter,
 		relationContext,
 		lookupNaming,
 	);
-	const ownerFragment = emitExcludedOwnerNodesetFilter(
+	const owners = emitExcludedOwnerNodesetFilter(
 		excludedOwnerIds,
 		relationContext,
 		lookupNaming,
 	);
-	return `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}${ownerFragment}`;
+	return w.instance(caseDbInstance(), [
+		w.step("casedb"),
+		w.step("case", [
+			w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(caseType))),
+			w.eq(w.context([w.attr("status")]), w.str("open")),
+			...(filter === undefined ? [] : [filter]),
+			...(owners === undefined ? [] : [owners]),
+		]),
+	]);
 }
 
-/**
- * The case datum's nodeset when the cases come from a search-first
- * module's own search rather than the device's casedb: CCHQ's
- * `EntriesHelper.get_datum_meta_module` reads `instance('results:inline')/results/case`
- * and appends `EXCLUDE_RELATED_CASES_FILTER` after the list rule. No
- * owner fragment: the query already sends `commcare_blacklisted_owner_ids`,
- * so the server never returns those cases.
- */
 export function inlineSearchNodeset(
 	caseType: string,
 	caseListFilter: Predicate | undefined,
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
-): string {
-	const filterFragment = emitNodesetFilter(
+): WireExpr {
+	const filter = emitNodesetFilter(
 		caseListFilter,
 		relationContext,
 		lookupNaming,
 	);
-	return `instance('${INLINE_SEARCH_RESULTS_INSTANCE}')/results/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}${EXCLUDE_RELATED_CASES_FILTER}`;
+	return w.instance(resultsInstance("results:inline"), [
+		w.step("results"),
+		w.step("case", [
+			w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(caseType))),
+			w.eq(w.context([w.attr("status")]), w.str("open")),
+			...(filter === undefined ? [] : [filter]),
+			EXCLUDE_RELATED_CASES_FILTER,
+		]),
+	]);
 }
 
-/** CCHQ's `RESULTS_INSTANCE_INLINE` and its `jr://` source. */
 export const INLINE_SEARCH_RESULTS_INSTANCE = "results:inline";
 export const INLINE_SEARCH_RESULTS_SRC = "jr://instance/remote/results:inline";
-/** CCHQ's `EXCLUDE_RELATED_CASES_FILTER`, verbatim. */
-export const EXCLUDE_RELATED_CASES_FILTER =
-	"[not(commcare_is_related_case=true())]";
+export const EXCLUDE_RELATED_CASES_FILTER = w.not(
+	w.eq(w.context([w.step("commcare_is_related_case")]), w.call("true")),
+);
+
+function sessionRef(datumId: string): WireExpr {
+	return w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("data"),
+		w.step(datumId),
+	]);
+}
+function selectedValues(datumId: string): WireExpr {
+	return w.instance(selectedCasesInstance(datumId), [
+		w.step("results"),
+		w.step("value"),
+	]);
+}
 
 /** Build one selectable case datum. Nested-menu projection uses this for
  * every step in a parent-select chain, while the flat helper below keeps the
@@ -415,31 +430,6 @@ export function deriveCaseSelectionDatum(args: {
 	if (args.entryMetadataOnly)
 		return { ...selection, projectionOnlySelection: true };
 	const inline = args.caseSource === "results:inline";
-	const secondaryInstances = new Set<string>();
-	if (args.caseListFilter !== undefined) {
-		const unanswered = substituteUnansweredSearchInputsInPredicate(
-			args.caseListFilter,
-		);
-		for (const id of collectPredicateInstances(unanswered, args.lookupNaming)) {
-			if (id !== "casedb") secondaryInstances.add(id);
-		}
-	}
-	if (args.excludedOwnerIds !== undefined && !inline) {
-		const unanswered = substituteUnansweredSearchInputsInExpression(
-			args.excludedOwnerIds,
-		);
-		for (const id of collectExpressionInstances(
-			unanswered,
-			args.lookupNaming,
-		)) {
-			if (id !== "casedb") secondaryInstances.add(id);
-		}
-	}
-	if (
-		args.parentSelection !== undefined &&
-		args.parentSelection.maxSelectValue === undefined
-	)
-		secondaryInstances.add("commcaresession");
 	const base = inline
 		? inlineSearchNodeset(
 				args.caseType,
@@ -454,25 +444,49 @@ export function deriveCaseSelectionDatum(args: {
 				args.relationContext,
 				args.lookupNaming,
 			);
-	const renderNodeset = (parentSelection?: SessionDatum): string => {
+	const renderNodeset = (parentSelection?: SessionDatum): WireExpr => {
+		if (parentSelection === undefined) return base;
+		if (base.k !== "path")
+			throw new Error("A case selector must remain a generated path.");
+		const parentIndexes = (predicates: readonly WireExpr[] = []) =>
+			w.context([
+				w.step("index"),
+				w.wildcard([
+					w.not(w.eq(w.context([w.attr("relationship")]), w.str("extension"))),
+					...predicates,
+				]),
+			]);
 		const parentFilter =
-			parentSelection === undefined
-				? ""
-				: parentSelection.maxSelectValue === undefined
-					? `[index/*[not(@relationship='extension')]=instance('commcaresession')/session/data/${parentSelection.id}]`
-					: `[count(index/*[not(@relationship='extension')][selected(join(' ', instance('${parentSelection.id}')/results/value), .)]) > 0]`;
-		return `${base}${parentFilter}`;
+			parentSelection.maxSelectValue === undefined
+				? w.eq(parentIndexes(), sessionRef(parentSelection.id))
+				: w.gt(
+						w.call("count", [
+							parentIndexes([
+								w.call("selected", [
+									w.call("join", [
+										w.str(" "),
+										selectedValues(parentSelection.id),
+									]),
+									w.context([w.self()]),
+								]),
+							]),
+						]),
+						w.num(0),
+					);
+		return w.path(
+			base.root,
+			base.steps.map((step, index) =>
+				index === base.steps.length - 1
+					? { ...step, predicates: [...step.predicates, parentFilter] }
+					: step,
+			),
+		);
 	};
 	return {
 		...selection,
-		instanceId: inline ? INLINE_SEARCH_RESULTS_INSTANCE : "casedb",
-		instanceSrc: inline ? INLINE_SEARCH_RESULTS_SRC : "jr://instance/casedb",
-		...(secondaryInstances.size > 0 && {
-			instanceIds: [...secondaryInstances],
-		}),
 		nodeset: renderNodeset(args.parentSelection),
 		renderNodeset,
-		value: "./@case_id",
+		value: w.context([w.self(), w.attr("case_id")]),
 		detailSelect: `m${args.moduleIndex}_case_short`,
 		...(args.detailConfirm === true && {
 			detailConfirm: `m${args.moduleIndex}_case_long`,
@@ -481,141 +495,6 @@ export function deriveCaseSelectionDatum(args: {
 			detailPersistent: args.persistentDetailId,
 		}),
 	};
-}
-
-/**
- * Accumulate the `<instance>` declarations a case-loading entry's body
- * holds, into `instances` (deduped via `seen`). Both case-loading entry
- * shapes — the form entry (`deriveEntryDefinition`) and the
- * `caseListOnly` browse entry (`deriveCaseListEntryDefinition`) — load
- * the same `m{N}_case_short` / `m{N}_case_long` details and reference the
- * same XPath surfaces, so they share this accumulation rather than
- * duplicating it.
- *
- * CCHQ's server-side suite post-process
- * (`commcare-hq/.../suite_xml/post_process/instances.py::InstancesHelper.add_entry_instances`)
- * walks every detail an entry references and adds the matching
- * `<instance>` declarations on the regenerated suite. Nova's local
- * `.ccz` emission has no equivalent post-pass, so this walks every
- * XPath surface the entry's body reaches:
- *
- *   - the case-list `filter` predicate and owner-exclusion expression (both
- *     live inside the case-loading datum's nodeset);
- *   - the `searchButtonDisplayCondition` predicate (lowers to the
- *     `<action relevant>` on the case-list detail's search-action
- *     element, evaluated in this entry's context);
- *   - each calculated expression actually emitted on Results/Details (or
- *     retained as an off-screen Results sort carrier).
- *
- * Accumulation ORDER is observable on the wire — list-filter instances,
- * owner-expression instances, then display-condition instances before
- * calc-column instances. The
- * caller seeds `casedb` from the datum first so the final order is
- * casedb → predicate instances → calc-column instances, matching the
- * form-entry shape byte-for-byte.
- */
-function accumulateCaseLoadingInstances(
-	caseListFilter: Predicate | undefined,
-	excludedOwnerIds: ValueExpression | undefined,
-	searchButtonDisplayCondition: Predicate | undefined,
-	formDisplayCondition: Predicate | undefined,
-	caseListColumnExpressions: readonly ValueExpression[] | undefined,
-	instances: EntryInstance[],
-	seen: Set<string>,
-	lookupNaming?: LookupWireNaming,
-	searchInputInstanceId?: SearchInputInstanceId,
-): void {
-	// Predicate-derived instances. Every predicate whose XPath fragment
-	// lives inside an `<entry>`-scoped slot contributes its instance set
-	// — the case-list filter (inside the datum's nodeset) and the
-	// search-button display condition (on the detail's `<action relevant>`,
-	// evaluated against the enclosing entry's instances). The Term-kind →
-	// instance-id mapping is fixed in `instanceSourceFor`.
-	//
-	// The filter and owner-exclusion slots collect from the SAME
-	// unanswered-Search substitution `nodesetFilter.ts` emits from, so a
-	// Search-input ref never declares `search-input:results` on an entry
-	// that would leave the instance unloaded (a declared-but-unloaded
-	// instance is itself a runtime throw in Core's `XPathPathExpr.evalRaw`
-	// the moment anything references it).
-	if (caseListFilter !== undefined) {
-		const unanswered =
-			substituteUnansweredSearchInputsInPredicate(caseListFilter);
-		for (const id of collectPredicateInstances(unanswered, lookupNaming)) {
-			if (seen.has(id)) continue;
-			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-		}
-	}
-
-	// Owner exclusion is a scalar expression embedded in the same datum
-	// nodeset as the always-on filter. It can reach session or relation
-	// instances, so collect its dependencies before detail-level
-	// display/calculated expressions in wire order.
-	if (excludedOwnerIds !== undefined) {
-		const unanswered =
-			substituteUnansweredSearchInputsInExpression(excludedOwnerIds);
-		for (const id of collectExpressionInstances(unanswered, lookupNaming)) {
-			if (seen.has(id)) continue;
-			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-		}
-	}
-
-	if (searchButtonDisplayCondition !== undefined) {
-		for (const id of collectPredicateInstances(
-			searchButtonDisplayCondition,
-			lookupNaming,
-			"suite",
-			searchInputInstanceId,
-		)) {
-			if (seen.has(id)) continue;
-			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-		}
-	}
-
-	// A form command's relevant expression is evaluated in the matching
-	// entry's instance scope. Collect from exactly the condition the emitter
-	// prints (`displayConditionForEmission`, held as written); a form off the
-	// menu prints `false()` ahead of it, which reads no instance. A selected-
-	// case property structurally emits through BOTH casedb and
-	// commcaresession (the latter supplies session/data/case_id); the generic
-	// AST collector sees the property but cannot see that injected anchor.
-	const effectiveFormCondition =
-		displayConditionForEmission(formDisplayCondition);
-	if (effectiveFormCondition !== undefined) {
-		const ids = collectPredicateInstances(effectiveFormCondition, lookupNaming);
-		if (predicateReadsCaseData(effectiveFormCondition)) {
-			ids.add("casedb");
-			ids.add("commcaresession");
-		}
-		for (const id of ids) {
-			if (seen.has(id)) continue;
-			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-		}
-	}
-
-	// Calc-column expressions land on `m{N}_case_short` / `m{N}_case_long`.
-	// CCHQ resolves the detail's XPath against the enclosing entry's
-	// declarations — accumulate every instance the expression reaches so
-	// the local `.ccz` carries the same declarations CCHQ's server-side
-	// post-process would add on a regenerated suite.
-	if (caseListColumnExpressions !== undefined) {
-		for (const expression of caseListColumnExpressions) {
-			for (const id of collectExpressionInstances(
-				expression,
-				lookupNaming,
-				"suite",
-				searchInputInstanceId,
-			)) {
-				if (seen.has(id)) continue;
-				seen.add(id);
-				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-			}
-		}
-	}
 }
 
 /**
@@ -745,13 +624,6 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		datums.push({
 			id: USERCASE_DATUM_ID,
 			function: USERCASE_ID_FUNCTION,
-			// The selector joins `casedb` against the session's own user id, so
-			// the entry declares both. This is load-bearing on a form whose ONLY
-			// write is to the worker's record: it has no case-loading datum, so
-			// nothing else would declare `casedb`, and a missing declaration
-			// resolves to nothing at runtime with no build-time error
-			// (`CommCareInstanceInitializer::loadFixtureRoot`).
-			instanceIds: ["casedb", "commcaresession"],
 			caseType: "commcare-user",
 		});
 	};
@@ -766,7 +638,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		if (opensCase && caseType) {
 			datums.push({
 				id: newCaseIdDatumId(caseType),
-				function: "uuid()",
+				function: w.call("uuid"),
 				caseType,
 			});
 		}
@@ -786,7 +658,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 			if (sc.repeat_context) continue;
 			datums.push({
 				id: subcaseSessionDatumId(sc, i, opensCase),
-				function: "uuid()",
+				function: w.call("uuid"),
 				caseType: sc.case_type,
 			});
 		}
@@ -820,20 +692,38 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		);
 	if (tileGrouping !== undefined && caseSelectDatum !== undefined) {
 		const renderFunction = (
-			sessionRef: (datumId: string) => string,
-		): string => {
+			sessionRef: (datumId: string) => WireExpr,
+		): WireExpr => {
 			const predicate =
 				caseSelectDatum.maxSelectValue === undefined
-					? `@case_id = ${sessionRef(caseSelectDatum.id)}`
-					: `selected(join(' ', instance('${caseSelectDatum.id}')/results/value), @case_id)`;
-			return `join(' ', distinct-values(instance('casedb')/casedb/case[${predicate}]/index/${tileGrouping.identifier}))`;
+					? w.eq(w.context([w.attr("case_id")]), sessionRef(caseSelectDatum.id))
+					: w.call("selected", [
+							w.call("join", [w.str(" "), selectedValues(caseSelectDatum.id)]),
+							w.context([w.attr("case_id")]),
+						]);
+			return w.call("join", [
+				w.str(" "),
+				w.call("distinct-values", [
+					w.instance(caseDbInstance(), [
+						w.step("casedb"),
+						w.step("case", [predicate]),
+						w.step("index"),
+						w.step(tileGrouping.identifier),
+					]),
+				]),
+			]);
 		};
 		datums.push({
 			id: `${caseSelectDatum.id}_parent_ids`,
-			function: renderFunction(
-				(datumId) => `instance('commcaresession')/session/data/${datumId}`,
-			),
+			function: renderFunction(sessionRef),
 			renderFunction,
+			renderFormLinkFunction: (read) =>
+				caseSelectDatum.maxSelectValue === undefined
+					? legacyFormLinkGroupedParents(
+							read(caseSelectDatum.id),
+							tileGrouping.identifier,
+						)
+					: renderFunction(sessionRef),
 		});
 	}
 
@@ -844,7 +734,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 export function toStackChild(child: MatchedChild): StackChild {
 	switch (child.type) {
 		case "command":
-			return { type: "command", value: `'${child.id}'` };
+			return { type: "command", value: w.str(child.id) };
 		case "datum":
 			return { type: "datum", id: child.id, value: child.value };
 		case "query":
@@ -987,32 +877,8 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly parentFrame?: readonly MatchedChild[];
 	/** Fully projected session, including root-menu alignment. */
 	readonly projectedSessionDatums?: readonly SessionDatum[];
-	/**
-	 * The module's `caseSearchConfig.searchButtonDisplayCondition`. It lowers
-	 * to the `<action relevant>` attribute on the case-list detail's
-	 * search-action element, which evaluates in the enclosing `<entry>`
-	 * context — so every instance it references needs a declaration here,
-	 * alongside the filter's.
-	 */
-	readonly searchButtonDisplayCondition?: Predicate;
-	/**
-	 * Each calculated expression the module's case-list short / long detail
-	 * actually emits. CCHQ's runtime resolves a detail's `instance(...)`
-	 * references against the enclosing entry's declarations, and its
-	 * server-side `InstancesHelper.add_entry_instances` walks
-	 * `detail.get_all_xpaths()` to add the missing ones on a regenerated
-	 * suite. Nova's local `.ccz` has no equivalent post-process, so the
-	 * accumulator walks each calc expression's term set here.
-	 */
-	readonly caseListColumnExpressions?: readonly ValueExpression[];
-	/**
-	 * The form command's menu visibility predicate. Nova canonically puts its
-	 * session dependencies on the direct matching entry; the emitted menu
-	 * topology has no same-id nested menu that could make Core select another
-	 * entry first. A selected-case read contributes both the `casedb` row
-	 * source and `commcaresession`'s `case_id` anchor.
-	 */
-	readonly formDisplayCondition?: Predicate;
+	/** Dependencies from the exact rendered details and menu command this entry evaluates. */
+	readonly additionalInstances?: readonly InstanceDecl[];
 	/** The claim post of a search-first module's case-requiring entry. */
 	readonly post?: EntryPost;
 	/**
@@ -1023,7 +889,7 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	 * `formLinkProjection.ts::caseListFormReturnFrame`.
 	 */
 	readonly returnFrame?: {
-		readonly ifClause: string;
+		readonly ifClause: WireExpr;
 		readonly children: readonly MatchedChild[];
 	};
 }
@@ -1041,12 +907,6 @@ export function deriveEntryDefinition(
 		moduleFrame,
 		parentFrame,
 		projectedSessionDatums,
-		caseListFilter,
-		searchButtonDisplayCondition,
-		caseListColumnExpressions,
-		excludedOwnerIds,
-		formDisplayCondition,
-		lookupNaming,
 	} = args;
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -1058,112 +918,6 @@ export function deriveEntryDefinition(
 		projectedSessionDatums === undefined
 			? deriveSessionDatums(args)
 			: [...projectedSessionDatums];
-	const instances: EntryInstance[] = [];
-	const seen = new Set<string>();
-
-	if (datums.length > 0) {
-		for (const d of datums) {
-			assertEmittableSessionDatum(d);
-			// A nodeset datum reads exactly one instance and names it in
-			// `instanceId`. A function datum reads none (case-create's `uuid()`)
-			// or several. Resolve those dependencies from its final expression,
-			// including companion datums introduced by grouping projections.
-			// A query reads what its data and prompts reach.
-			if (d.instanceId && !seen.has(d.instanceId)) {
-				seen.add(d.instanceId);
-				instances.push({ id: d.instanceId, src: d.instanceSrc ?? "" });
-			}
-			for (const id of d.query?.instances ?? []) {
-				if (seen.has(id)) continue;
-				seen.add(id);
-				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-			}
-			if (d.maxSelectValue !== undefined && !seen.has(d.id)) {
-				seen.add(d.id);
-				instances.push({
-					id: d.id,
-					src: instanceSourceFor(d.id, lookupNaming),
-				});
-			}
-			for (const id of [
-				...(d.instanceIds ?? []),
-				...collectInstanceRefs(d.function ?? ""),
-			]) {
-				if (seen.has(id)) continue;
-				seen.add(id);
-				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-			}
-		}
-	}
-
-	for (const id of args.post?.instances ?? []) {
-		if (seen.has(id)) continue;
-		seen.add(id);
-		instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-	}
-
-	// Accumulate the `<instance>` declarations the entry's body reaches —
-	// the case-list filter, search-button condition, form-command condition,
-	// and each runtime-relevant calc-column expression. Shared with the
-	// `caseListOnly` browse entry so the two case-loading shapes can't drift on
-	// which instances they declare. Runs after the datum's `casedb` seed above
-	// so the final order is casedb → predicate instances → calc-column
-	// instances.
-	accumulateCaseLoadingInstances(
-		caseListFilter,
-		excludedOwnerIds,
-		searchButtonDisplayCondition,
-		formDisplayCondition,
-		caseListColumnExpressions,
-		instances,
-		seen,
-		lookupNaming,
-		args.relationContext?.searchInputInstanceId,
-	);
-
-	// Post-form stack guards, frame datum values, and manual datum XPath all
-	// evaluate in this entry scope (a registration entry declares no `casedb`
-	// of its own, and a guard reading the just-created case needs it). The
-	// strings are already wire XPath, so collect literal instance() roots
-	// structurally and declare the matching sources.
-	for (const link of formLinks?.links ?? []) {
-		const expressions = [
-			...(link.guard === undefined ? [] : [link.guard]),
-			...link.children.flatMap(stackChildExpressions),
-			...link.datums.map((datum) => datum.xpath),
-		];
-		for (const expression of expressions) {
-			for (const id of collectInstanceRefs(expression)) {
-				if (seen.has(id)) continue;
-				seen.add(id);
-				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-			}
-		}
-	}
-	if (formLinks?.fallback.kind === "guarded") {
-		for (const id of collectInstanceRefs(formLinks.fallback.guard)) {
-			if (seen.has(id)) continue;
-			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-		}
-	}
-	// The `previous` frame's datum values evaluate here as well (as the
-	// post-submit destination, or as the fallback the projection guards), and
-	// they read `instance('commcaresession')` even on an entry whose own
-	// datums declare only `casedb`. HQ's `InstancesHelper` post-process walks
-	// every stack frame; Nova's local suite declares them at the source.
-	if (postSubmit === "previous") {
-		for (const child of previousFrame) {
-			for (const expression of stackChildExpressions(child)) {
-				for (const id of collectInstanceRefs(expression)) {
-					if (seen.has(id)) continue;
-					seen.add(id);
-					instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-				}
-			}
-		}
-	}
-
 	// The stack: one exclusive `<create>` per link plus the projection's
 	// fallback when the form carries links, else the simple `postSubmit`
 	// frame. `app_home` (HQ `default`) contributes no frame either way, so a
@@ -1200,19 +954,21 @@ export function deriveEntryDefinition(
 					},
 				]),
 	];
-	for (const operation of operations) {
-		const expressions = [
-			...(operation.ifClause === undefined ? [] : [operation.ifClause]),
-			...operation.children.flatMap(stackChildExpressions),
-		];
-		for (const expression of expressions) {
-			for (const id of collectInstanceRefs(expression)) {
-				if (seen.has(id)) continue;
-				seen.add(id);
-				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-			}
-		}
-	}
+	const assertions = datums.some((datum) => datum.id === USERCASE_DATUM_ID)
+		? [
+				{
+					test: USERCASE_MISSING_ASSERT_TEST,
+					localeId: USERCASE_MISSING_LOCALE_ID,
+				},
+			]
+		: undefined;
+	const instances = entryInstances(
+		datums,
+		operations,
+		assertions ?? [],
+		args.additionalInstances ?? [],
+		args.post,
+	);
 
 	return {
 		formXmlns,
@@ -1221,17 +977,7 @@ export function deriveEntryDefinition(
 		localeId,
 		instances,
 		...(datums.length > 0 && { session: { datums } }),
-		// Gated on the DATUM, not on the actions — `entries.py:544` reads
-		// `any_usercase_datums(all_datums)`, so the assertion cannot appear
-		// without the datum it guards, whatever the actions later say.
-		...(datums.some((datum) => datum.id === USERCASE_DATUM_ID) && {
-			assertions: [
-				{
-					test: USERCASE_MISSING_ASSERT_TEST,
-					localeId: USERCASE_MISSING_LOCALE_ID,
-				},
-			],
-		}),
+		...(assertions === undefined ? {} : { assertions }),
 		...(operations.length > 0 && { stack: { operations } }),
 	};
 }
@@ -1264,27 +1010,21 @@ export function deriveEntryDefinition(
  * carries the same `<instance>` declarations CCHQ's server-side
  * post-process would add on a regenerated suite.
  *
- * `searchButtonDisplayCondition` is accumulated because a `caseListOnly`
- * module may still carry a `caseSearchConfig` (the combo is a valid,
- * silent authoring state — `caseSearchConfigRequiresCaseType` only
- * rejects a missing case type). When present, the case-list short
- * detail's `<action relevant>` evaluates in this entry's context, so
- * every instance the condition references needs a declaration here. With
- * no forms in the module, this browse entry is the SOLE loader of
- * `m{N}_case_short`, so it is the only place those instances can land.
+ * The caller supplies the exact declarations returned by the rendered
+ * details this entry loads. Their action, sort, and column reads therefore
+ * share this entry's scope without a second walk of the authored document.
  */
 export function deriveCaseListEntryDefinition(
 	moduleIndex: number,
 	caseType: string,
 	caseListFilter?: Predicate,
-	searchButtonDisplayCondition?: Predicate,
-	caseListColumnExpressions?: readonly ValueExpression[],
 	hasDetailScreen = true,
 	excludedOwnerIds?: ValueExpression,
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
 	persistentDetailId?: string,
 	projectedDatums?: readonly SessionDatum[],
+	additionalInstances: readonly InstanceDecl[] = [],
 ): EntryDefinition {
 	// The browse datum: loads a case from the list into both the list
 	// (detail-select) and detail (detail-confirm) screens. Shares the
@@ -1307,49 +1047,7 @@ export function deriveCaseListEntryDefinition(
 				]
 			: [...projectedDatums];
 
-	// Seed `casedb` from the datum, then accumulate every body-reachable
-	// instance in the same order as the form entry (casedb → predicate
-	// instances → calc-column instances).
-	const instances: EntryInstance[] = [];
-	const seen = new Set<string>();
-	for (const datum of datums) {
-		assertEmittableSessionDatum(datum);
-		if (datum.instanceId !== undefined && !seen.has(datum.instanceId)) {
-			seen.add(datum.instanceId);
-			instances.push({ id: datum.instanceId, src: datum.instanceSrc ?? "" });
-		}
-		for (const id of datum.query?.instances ?? []) {
-			if (seen.has(id)) continue;
-			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-		}
-		if (datum.maxSelectValue !== undefined && !seen.has(datum.id)) {
-			seen.add(datum.id);
-			instances.push({
-				id: datum.id,
-				src: instanceSourceFor(datum.id, lookupNaming),
-			});
-		}
-		for (const id of [
-			...(datum.instanceIds ?? []),
-			...collectInstanceRefs(datum.function ?? ""),
-		]) {
-			if (seen.has(id)) continue;
-			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-		}
-	}
-	accumulateCaseLoadingInstances(
-		caseListFilter,
-		excludedOwnerIds,
-		searchButtonDisplayCondition,
-		undefined,
-		caseListColumnExpressions,
-		instances,
-		seen,
-		lookupNaming,
-		relationContext.searchInputInstanceId,
-	);
+	const instances = entryInstances(datums, [], [], additionalInstances);
 
 	return {
 		// `formXmlns` omitted — the browse entry launches no form.
@@ -1384,101 +1082,138 @@ function assertEmittableSessionDatum(
 		);
 }
 
-function buildDatumElement(d: SessionDatum): Element {
-	assertEmittableSessionDatum(d);
-	if (d.query !== undefined) return d.query.element;
-	if (d.function !== undefined) {
-		// Function datum — CommCare evaluates the function once at entry;
-		// there is no nodeset, value, or detail to wire up.
-		return el("datum", { id: d.id, function: d.function });
-	}
-	// Nodeset datum — case-loading shape. Optional `detail-select` /
-	// `detail-confirm` attributes are appended only when defined so an
-	// unset detail does not emit `detail-select=""` (CCHQ's canonical
-	// shape: omit the attribute when no detail is wired).
-	const attribs: Record<string, string> = {
-		id: d.id,
-		nodeset: d.nodeset ?? "",
-		value: d.value ?? "",
+function wireContext(instances: InstanceSink): WireElementContext {
+	return {
+		mode: { target: "suite" },
+		instances,
+		resolveLegacyInstances: (value) => legacyFormLinkXPathInstances(value),
 	};
-	if (d.detailSelect !== undefined) attribs["detail-select"] = d.detailSelect;
-	if (d.detailConfirm !== undefined)
-		attribs["detail-confirm"] = d.detailConfirm;
-	if (d.detailPersistent !== undefined)
-		attribs["detail-persistent"] = d.detailPersistent;
-	if (d.maxSelectValue !== undefined)
-		attribs["max-select-value"] = String(d.maxSelectValue);
-	return el(
+}
+
+function buildDatumElement(
+	d: SessionDatum,
+	context: WireElementContext,
+): Element {
+	assertEmittableSessionDatum(d);
+	if (d.query !== undefined) {
+		context.instances.add(d.query.instances);
+		return d.query.element;
+	}
+	if (d.function !== undefined)
+		return xel(
+			"datum",
+			{ attributes: { id: d.id }, xpath: { function: d.function } },
+			context,
+		);
+	if (d.nodeset === undefined || d.value === undefined)
+		throw new Error(
+			"A selectable session datum needs its nodeset and selected value before emission.",
+		);
+	return xel(
 		d.maxSelectValue === undefined ? "datum" : "instance-datum",
-		attribs,
+		{
+			attributes: {
+				id: d.id,
+				...(d.detailSelect === undefined
+					? {}
+					: { "detail-select": d.detailSelect }),
+				...(d.detailConfirm === undefined
+					? {}
+					: { "detail-confirm": d.detailConfirm }),
+				...(d.detailPersistent === undefined
+					? {}
+					: { "detail-persistent": d.detailPersistent }),
+				...(d.maxSelectValue === undefined
+					? {}
+					: { "max-select-value": String(d.maxSelectValue) }),
+			},
+			xpath: { nodeset: d.nodeset, value: d.value },
+		},
+		context,
 	);
 }
 
-/**
- * Build one stack operation Element. Three shapes per `op.op`:
- *
- *   - `clear` — `<clear if="..."?/>`. Empty children by validator contract.
- *   - `create` / `push` with empty children — `<create if="..."?/>` (self-
- *     closing, semantically equivalent to a frame push with no work).
- *   - `create` / `push` with children — wraps `<command value="..."/>` /
- *     `<datum id="..." value="..."/>` grandchildren.
- *
- * `if` attribute is added only when `ifClause` is set so an unconditional
- * operation serializes without an `if=""` placeholder.
- */
-function buildStackOperationElement(op: StackOperation): Element {
-	const attribs: Record<string, string> = {};
-	if (op.ifClause) attribs.if = op.ifClause;
-
-	if (op.op === "clear" || op.children.length === 0) {
-		return el(op.op, attribs);
-	}
-
-	const children: Element[] = op.children.map(buildStackChildElement);
-	return el(op.op, attribs, children);
+function buildStackOperationElement(
+	op: StackOperation,
+	context: WireElementContext,
+): Element {
+	return xel(
+		op.op,
+		{
+			...(op.ifClause === undefined
+				? {}
+				: isLegacyFormLinkXPath(op.ifClause)
+					? { legacyFormLinkXPath: { if: op.ifClause } }
+					: { xpath: { if: op.ifClause } }),
+		},
+		context,
+		op.op === "clear"
+			? []
+			: op.children.map((child) => buildStackChildElement(child, context)),
+	);
 }
 
-function buildStackChildElement(child: StackChild): Element {
+function buildStackChildElement(
+	child: StackChild,
+	context: WireElementContext,
+): Element {
 	switch (child.type) {
 		case "command":
-			return el("command", { value: child.value });
+			return xel("command", { xpath: { value: child.value } }, context);
 		case "datum":
-			return el("datum", { id: child.id, value: child.value });
+			return xel(
+				"datum",
+				{
+					attributes: { id: child.id },
+					...(isLegacyFormLinkXPath(child.value)
+						? { legacyFormLinkXPath: { value: child.value } }
+						: { xpath: { value: child.value } }),
+				},
+				context,
+			);
 		case "query":
-			// Attribute order `id, value` on `<query>` and `key, ref, nodeset,
-			// exclude` on `<data>` follows `xml_models.py::StackQuery` /
-			// `QueryData` so the bytes diff cleanly against HQ's frame.
 			return el(
 				"query",
 				{ id: child.id, value: child.value },
 				child.data.map((data) =>
-					el("data", {
-						key: data.key,
-						ref: data.ref,
-						...(data.nodeset !== undefined && { nodeset: data.nodeset }),
-						...(data.exclude !== undefined && { exclude: data.exclude }),
-					}),
+					xel(
+						"data",
+						{
+							attributes: { key: data.key },
+							xpath: {
+								ref: data.ref,
+								...(data.nodeset === undefined
+									? {}
+									: { nodeset: data.nodeset }),
+								...(data.exclude === undefined
+									? {}
+									: { exclude: data.exclude }),
+							},
+						},
+						context,
+					),
 				),
 			);
 	}
 }
 
-/** The XPath a stack child carries, for instance accumulation. */
-function stackChildExpressions(
-	child: StackChild | MatchedChild,
-): readonly string[] {
-	switch (child.type) {
-		case "command":
-			return [];
-		case "datum":
-			return [child.value];
-		case "query":
-			return child.data.flatMap((data) => [
-				data.ref,
-				...(data.nodeset === undefined ? [] : [data.nodeset]),
-				...(data.exclude === undefined ? [] : [data.exclude]),
-			]);
-	}
+/** Dependencies are the output of printing the same trees the entry renders. */
+function entryInstances(
+	datums: readonly SessionDatum[],
+	operations: readonly StackOperation[],
+	assertions: readonly { test: WireExpr; localeId: string }[],
+	additional: readonly InstanceDecl[],
+	post?: EntryPost,
+): readonly InstanceDecl[] {
+	const sink = new InstanceSink(additional);
+	const context = wireContext(sink);
+	for (const datum of datums) buildDatumElement(datum, context);
+	for (const operation of operations)
+		buildStackOperationElement(operation, context);
+	for (const assertion of assertions)
+		xel("assert", { xpath: { test: assertion.test } }, context);
+	sink.add(post?.instances ?? []);
+	return sink.declarations();
 }
 
 /**
@@ -1492,9 +1227,16 @@ function stackChildExpressions(
  */
 export function buildStackElement(
 	operations: StackOperation[],
+	context: WireElementContext = wireContext(new InstanceSink()),
 ): Element | null {
 	if (operations.length === 0) return null;
-	return el("stack", {}, operations.map(buildStackOperationElement));
+	return el(
+		"stack",
+		{},
+		operations.map((operation) =>
+			buildStackOperationElement(operation, context),
+		),
+	);
 }
 
 /**
@@ -1525,6 +1267,8 @@ export function buildEntryElement(
 	entry: EntryDefinition,
 	commandDisplay?: Element,
 ): Element {
+	const sink = new InstanceSink(entry.instances);
+	const context = wireContext(sink);
 	const children: Element[] = [];
 
 	// `<form>` carries the form's xmlns as text content. The serializer
@@ -1547,16 +1291,15 @@ export function buildEntryElement(
 		]),
 	);
 
-	// HQ's regenerated suite sorts every entry's instances by id
-	// (`post_process/instances.py::InstancesHelper.require_instances`);
-	// emitting them in the same order keeps the local `.ccz` diffable.
-	for (const inst of sortInstancesById(entry.instances)) {
-		children.push(el("instance", { id: inst.id, src: inst.src }));
-	}
+	const instanceIndex = children.length;
 
 	if (entry.session) {
 		children.push(
-			el("session", {}, entry.session.datums.map(buildDatumElement)),
+			el(
+				"session",
+				{},
+				entry.session.datums.map((datum) => buildDatumElement(datum, context)),
+			),
 		);
 	}
 
@@ -1572,7 +1315,7 @@ export function buildEntryElement(
 				"assertions",
 				{},
 				entry.assertions.map((assertion) =>
-					el("assert", { test: assertion.test }, [
+					xel("assert", { xpath: { test: assertion.test } }, context, [
 						el("text", {}, [el("locale", { id: assertion.localeId })]),
 					]),
 				),
@@ -1581,20 +1324,21 @@ export function buildEntryElement(
 	}
 
 	if (entry.stack) {
-		const stackEl = buildStackElement(entry.stack.operations);
+		const stackEl = buildStackElement(entry.stack.operations, context);
 		if (stackEl !== null) children.push(stackEl);
 	}
 
-	return el("entry", {}, children);
-}
-
-/** Python's plain string sort: by code unit, never locale-aware. */
-function sortInstancesById(
-	instances: readonly EntryInstance[],
-): EntryInstance[] {
-	return [...instances].sort((left, right) =>
-		left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+	sink.add(entry.post?.instances ?? []);
+	children.splice(
+		instanceIndex,
+		0,
+		...sink
+			.declarations()
+			.map((instance) =>
+				el("instance", { id: instance.id, src: instance.src }),
+			),
 	);
+	return el("entry", {}, children);
 }
 
 // ── HQ Workflow Mapping ────────────────────────────────────────────────

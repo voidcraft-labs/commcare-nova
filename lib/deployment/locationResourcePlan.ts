@@ -678,7 +678,8 @@ export function ambiguousReverseHopsOnTarget(
  * Every reverse hop this app authors, as the pair of level CODES the
  * emitted XPath actually carries.
  *
- * Mirrors `predicate/termEmitter.ts::emitTerm`: the destination is the
+ * Mirrors the `owner-location-at-level` arm in
+ * `xpath/wire/fromExpression.ts::term`: the destination is the
  * term's own level, and the source is the nearest ancestor level that
  * owns cases — the one whose `@<code>_id` attribute the predicate matches
  * the case owner against. A hop whose destination or source cannot be

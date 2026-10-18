@@ -16,7 +16,6 @@ import {
 	previousFrameChildren,
 	projectFormLinks,
 	selectedCaseDatumId,
-	sessionDataRef,
 } from "@/lib/commcare/formLinkProjection";
 import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
@@ -25,7 +24,10 @@ import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, matchAll, tableLookup } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { wireTable } from "../lookup/__tests__/lookupWireCorpus";
+import { serializeXml } from "../serializeXml";
+import { buildStackElement, derivePostSubmitStack } from "../session";
 import { runValidation } from "../validator/runner";
+import { w } from "../xpath/wire/builders";
 import {
 	admitNestedDoc,
 	followupNestedDoc,
@@ -87,20 +89,19 @@ function entryByCommand(suite: string, commandId: string): Element {
 /** Copied from CommCare HQ at 6a1c4ba8a93e0c4446e7cfa1a27e6aee63c9563e:
  * `tests/data/suite/child-module-entry-datums-added-basic.xml` and
  * `child-module-form-workflow-previous.xml`. These are semantic DOM values;
- * serializer-only quote escaping is asserted separately through compiled XML. */
+ * expression whitespace follows Nova's canonical print; XML parsing verifies
+ * the emitted attribute values. */
 const HQ_CHILD_ENTRY_DATUM_ORACLE = [
 	{
 		id: "case_id",
-		caseType: "gold-fish",
 		nodeset:
-			"instance('casedb')/casedb/case[@case_type='gold-fish'][@status='open']",
+			"instance('casedb')/casedb/case[@case_type = 'gold-fish'][@status = 'open']",
 		function: undefined,
 		detailSelect: "m0_case_short",
 		detailConfirm: undefined,
 	},
 	{
 		id: "case_id_new_guppy_0",
-		caseType: "guppy",
 		nodeset: undefined,
 		function: "uuid()",
 		detailSelect: undefined,
@@ -108,9 +109,8 @@ const HQ_CHILD_ENTRY_DATUM_ORACLE = [
 	},
 	{
 		id: "case_id_guppy",
-		caseType: "guppy",
 		nodeset:
-			"instance('casedb')/casedb/case[@case_type='guppy'][@status='open'][index/*[not(@relationship='extension')]=instance('commcaresession')/session/data/case_id]",
+			"instance('casedb')/casedb/case[@case_type = 'guppy'][@status = 'open'][index/*[not(@relationship = 'extension')] = instance('commcaresession')/session/data/case_id]",
 		function: undefined,
 		detailSelect: "m1_case_short",
 		detailConfirm: "m1_case_long",
@@ -118,15 +118,15 @@ const HQ_CHILD_ENTRY_DATUM_ORACLE = [
 ] as const;
 
 const HQ_CHILD_PREVIOUS_FRAME_ORACLE = [
-	{ type: "command", id: "m0" },
-	{ type: "command", id: "m1" },
+	{ type: "command", value: "'m0'" },
+	{ type: "command", value: "'m1'" },
 	{
 		type: "datum",
 		id: "case_id",
 		value: "instance('commcaresession')/session/data/case_id",
 	},
 	{ type: "datum", id: "case_id_new_guppy_0", value: "uuid()" },
-	{ type: "command", id: "m1-f0" },
+	{ type: "command", value: "'m1-f0'" },
 ] as const;
 
 function rootRegistrationPlaceholderDoc(): {
@@ -241,7 +241,6 @@ describe("ordinary nested-menu wire projection", () => {
 		const ctx = formLinkProjectionContext(doc);
 		const datums = entrySessionDatums(doc, ctx, child, childForm);
 		expect(datums.map((datum) => datum.id)).toEqual(["case_id_guppy"]);
-		expect(datums[0]?.nodeset).toContain("[care_status = 'active']");
 		expect(selectedCaseDatumId(doc, ctx, child, childForm)).toBe(
 			"case_id_guppy",
 		);
@@ -253,13 +252,18 @@ describe("ordinary nested-menu wire projection", () => {
 		const menu = wireElement(suite, "menu", "id", "m1");
 		expect(menu.attribs.root).toBe("m0");
 		expect(directChildren(menu, "command")[0].attribs.relevant).toBe(
-			"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id_guppy]/care_status = 'active'",
+			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id_guppy]/care_status = 'active'",
 		);
-		expect(
-			directChildren(entryByCommand(suite, "m1-f0"), "session")[0]
-				.children.filter(isTag)
-				.map((datum) => datum.attribs.id),
-		).toEqual(["case_id_guppy"]);
+		const emittedDatums = directChildren(
+			entryByCommand(suite, "m1-f0"),
+			"session",
+		)[0].children.filter(isTag);
+		expect(emittedDatums.map((datum) => datum.attribs.id)).toEqual([
+			"case_id_guppy",
+		]);
+		expect(emittedDatums[0].attribs.nodeset).toContain(
+			"[care_status = 'active']",
+		);
 		const xform = zip.readAsText("modules-1/forms-0.xml");
 		expect(
 			wireElement(xform, "bind", "nodeset", "/data/copied_status").attribs
@@ -391,9 +395,6 @@ describe("ordinary nested-menu wire projection", () => {
 			["case_id", "gold-fish"],
 			["case_id_guppy", "guppy"],
 		]);
-		expect(datums[1]?.nodeset).toContain(
-			"[index/*[not(@relationship='extension')]=instance('commcaresession')/session/data/case_id]",
-		);
 		admitNestedDoc(doc);
 		const hq = expandDoc(doc);
 		expect(hq.modules[1].parent_select).toEqual({
@@ -401,6 +402,16 @@ describe("ordinary nested-menu wire projection", () => {
 			relationship: "parent",
 			module_id: hq.modules[0].unique_id,
 		});
+		const suite = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		).readAsText("suite.xml");
+		const emitted = directChildren(
+			directChildren(entryByCommand(suite, "m1-f0"), "session")[0],
+			"datum",
+		);
+		expect(emitted[1].attribs.nodeset).toContain(
+			"[index/*[not(@relationship = 'extension')] = instance('commcaresession')/session/data/case_id]",
+		);
 	});
 
 	it("filters a different-type child through the root's complete selected set", () => {
@@ -422,9 +433,6 @@ describe("ordinary nested-menu wire projection", () => {
 			["selected_cases", "gold-fish"],
 			["case_id", "guppy"],
 		]);
-		expect(datums[1]?.nodeset).toContain(
-			"[count(index/*[not(@relationship='extension')][selected(join(' ', instance('selected_cases')/results/value), .)]) > 0]",
-		);
 
 		admitNestedDoc(doc);
 		const suite = new AdmZip(
@@ -433,6 +441,13 @@ describe("ordinary nested-menu wire projection", () => {
 			}),
 		).readAsText("suite.xml");
 		const childEntry = entryByCommand(suite, "m1-f0");
+		const emittedSelectors = directChildren(
+			childEntry,
+			"session",
+		)[0].children.filter(isTag);
+		expect(emittedSelectors[1].attribs.nodeset).toContain(
+			"[count(index/*[not(@relationship = 'extension')][selected(join(' ', instance('selected_cases')/results/value), .)]) > 0]",
+		);
 		expect(
 			directChildren(childEntry, "instance").some(
 				(instance) =>
@@ -443,7 +458,7 @@ describe("ordinary nested-menu wire projection", () => {
 		).toBe(true);
 	});
 
-	it("emits the selected-entities source for a renamed different-type child set", () => {
+	it("declares each selected-entities source where its values are read", () => {
 		const doc = followupNestedDoc({ parentSelect: true });
 		const { root, child, childForm } = nestSecondModule(doc);
 		if (childForm === undefined) throw new Error("missing child form");
@@ -455,6 +470,10 @@ describe("ordinary nested-menu wire projection", () => {
 		rootConfig.selection = { kind: "multiple", maximum: 5 };
 		childConfig.selection = { kind: "multiple", maximum: 5 };
 		setSharedFormAnswers(doc, child);
+		const sharedAnswer = doc.fields[doc.fieldOrder[childForm][0]];
+		if (sharedAnswer?.kind !== "hidden")
+			throw new Error("Missing shared answer");
+		sharedAnswer.caseWrite = { caseType: "guppy", property: "care_status" };
 
 		admitNestedDoc(doc);
 		const datums = entrySessionDatums(
@@ -467,39 +486,53 @@ describe("ordinary nested-menu wire projection", () => {
 			["selected_cases", "gold-fish"],
 			["selected_cases_guppy", "guppy"],
 		]);
-		expect(datums[1]?.nodeset).toContain(
-			"[count(index/*[not(@relationship='extension')][selected(join(' ', instance('selected_cases')/results/value), .)]) > 0]",
-		);
 
 		admitNestedDoc(doc);
-		const suite = new AdmZip(
+		const zip = new AdmZip(
 			compileCcz(expandDoc(doc), doc.appName, doc, {
 				runtimeTarget: TEST_RUNTIME_TARGET,
 			}),
-		).readAsText("suite.xml");
+		);
+		const suite = zip.readAsText("suite.xml");
 		const childEntry = entryByCommand(suite, "m1-f0");
+		const emittedSelectors = directChildren(
+			childEntry,
+			"session",
+		)[0].children.filter(isTag);
+		expect(emittedSelectors[1].attribs.nodeset).toContain(
+			"[count(index/*[not(@relationship = 'extension')][selected(join(' ', instance('selected_cases')/results/value), .)]) > 0]",
+		);
 		expect(
 			directChildren(childEntry, "instance").map((instance) => ({
 				id: getAttributeValue(instance, "id"),
 				src: getAttributeValue(instance, "src"),
 			})),
-		).toEqual(
-			expect.arrayContaining([
-				{
-					id: "selected_cases",
-					src: "jr://instance/selected-entities/selected_cases",
-				},
-				{
-					id: "selected_cases_guppy",
-					src: "jr://instance/selected-entities/selected_cases_guppy",
-				},
-			]),
-		);
+		).toEqual([
+			{ id: "casedb", src: "jr://instance/casedb" },
+			{
+				id: "selected_cases",
+				src: "jr://instance/selected-entities/selected_cases",
+			},
+		]);
+		const xform = zip.readAsText("modules-1/forms-0.xml");
+		expect(
+			wireElement(xform, "instance", "id", "selected_cases_guppy").attribs.src,
+		).toBe("jr://instance/selected-entities/selected_cases_guppy");
+		expect(
+			findAll(
+				(element) => element.name === "setvalue",
+				parseDocument(xform, { xmlMode: true }).children,
+			).some((element) =>
+				element.attribs.value?.includes(
+					"instance('selected_cases_guppy')/results/value",
+				),
+			),
+		).toBe(true);
 	});
 
 	it("carries ancestor lookup dependencies into the child CCZ entry", () => {
 		const doc = followupNestedDoc({ parentSelect: true });
-		const { root, child, childForm } = nestSecondModule(doc);
+		const { root, childForm } = nestSecondModule(doc);
 		if (childForm === undefined) throw new Error("missing child form");
 		const parentConfig = doc.modules[root].caseListConfig;
 		if (parentConfig === undefined) throw new Error("missing parent case list");
@@ -509,11 +542,6 @@ describe("ordinary nested-menu wire projection", () => {
 		);
 
 		admitNestedDoc(doc, lookupContext);
-		const ctx = formLinkProjectionContext(doc, { lookupNaming });
-		const parentDatum = entrySessionDatums(doc, ctx, child, childForm).find(
-			(datum) => datum.caseType === "gold-fish",
-		);
-		expect(parentDatum?.instanceIds).toContain("item-list:regions");
 
 		const hq = expandDoc(doc, { lookupNaming });
 		const suite = new AdmZip(
@@ -583,7 +611,7 @@ describe("nested-menu navigation frames", () => {
 		expect(sourceDatums[0]).toMatchObject({
 			id: "case_id_new_frog_0",
 			caseType: "frog",
-			function: "uuid()",
+			function: w.call("uuid"),
 			fromParentModule: true,
 		});
 
@@ -591,11 +619,6 @@ describe("nested-menu navigation frames", () => {
 		expect(projected?.links[0]?.unmatched.map((datum) => datum.id)).toEqual([
 			"case_id",
 		]);
-		expect(projected?.links[0]?.children.at(-1)).toEqual({
-			type: "datum",
-			id: "case_id",
-			value: sessionDataRef("case_id"),
-		});
 	});
 
 	it("matches the pinned HQ child-entry and previous-frame fixture values", () => {
@@ -605,30 +628,36 @@ describe("nested-menu navigation frames", () => {
 			childPostSubmitPrevious: true,
 			childFilter: false,
 		});
-		const { child, childForm } = nestSecondModule(doc);
+		const { childForm } = nestSecondModule(doc);
 		if (childForm === undefined) throw new Error("missing child form");
-		admitNestedDoc(doc);
-		const ctx = formLinkProjectionContext(doc);
-		const datums = entrySessionDatums(doc, ctx, child, childForm).map(
-			(datum) => ({
-				id: datum.id,
-				caseType: datum.caseType,
-				nodeset: datum.nodeset,
-				function: datum.function,
-				detailSelect: datum.detailSelect,
-				detailConfirm: datum.detailConfirm,
-			}),
-		);
-		expect(datums).toEqual(HQ_CHILD_ENTRY_DATUM_ORACLE);
-		expect(previousFrameChildren(doc, ctx, child, childForm)).toEqual(
-			HQ_CHILD_PREVIOUS_FRAME_ORACLE,
-		);
-
 		admitNestedDoc(doc);
 		const hq = expandDoc(doc);
 		const zip = new AdmZip(
 			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
 		);
+		const entry = entryByCommand(zip.readAsText("suite.xml"), "m1-f0");
+		const emitted = directChildren(
+			directChildren(entry, "session")[0],
+			"datum",
+		);
+		expect(
+			emitted.map((datum) => ({
+				id: datum.attribs.id,
+				nodeset: datum.attribs.nodeset,
+				function: datum.attribs.function,
+				detailSelect: datum.attribs["detail-select"],
+				detailConfirm: datum.attribs["detail-confirm"],
+			})),
+		).toEqual(HQ_CHILD_ENTRY_DATUM_ORACLE);
+		const operation = directChildren(
+			directChildren(entry, "stack")[0],
+			"create",
+		)[0];
+		expect(
+			operation.children
+				.filter(isTag)
+				.map((child) => ({ type: child.name, ...child.attribs })),
+		).toEqual(HQ_CHILD_PREVIOUS_FRAME_ORACLE);
 		expect(
 			wireElement(zip.readAsText("suite.xml"), "menu", "id", "m1").attribs.root,
 		).toBe("m0");
@@ -657,14 +686,33 @@ describe("nested-menu navigation frames", () => {
 			{ type: "command", id: "m0" },
 			{ type: "command", id: "m1" },
 		]);
-		expect(moduleDestinationFrameChildren(doc, ctx, child)).toEqual([
-			{ type: "command", id: "m0" },
-			{
-				type: "datum",
-				id: "case_id",
-				value: "instance('commcaresession')/session/data/case_id",
-			},
-			{ type: "command", id: "m1" },
+		const moduleStack = buildStackElement(
+			derivePostSubmitStack(
+				"module",
+				1,
+				[],
+				moduleDestinationFrameChildren(doc, ctx, child),
+			),
+		);
+		if (moduleStack === null)
+			throw new Error("Missing module destination stack");
+		expect(
+			findAll(
+				(element) => element.name === "create",
+				parseDocument(serializeXml(moduleStack), { xmlMode: true }).children,
+			)[0]
+				.children.filter(isTag)
+				.map((node) => [node.name, node.attribs]),
+		).toEqual([
+			["command", { value: "'m0'" }],
+			[
+				"datum",
+				{
+					id: "case_id",
+					value: "instance('commcaresession')/session/data/case_id",
+				},
+			],
+			["command", { value: "'m1'" }],
 		]);
 		expect(
 			formFrameChildren(doc, ctx, child, childForm).map((child) =>
@@ -695,25 +743,30 @@ describe("nested-menu navigation frames", () => {
 			},
 		];
 		admitNestedDoc(doc);
-		const projected = projectFormLinks(
-			doc,
-			formLinkProjectionContext(doc),
-			sourceForm,
-		);
-		expect(projected?.links[0]?.children).toEqual([
-			{ type: "command", id: "m0" },
-			{
-				type: "datum",
-				id: "case_id",
-				value: "instance('commcaresession')/session/data/case_id",
-			},
-			{ type: "command", id: "m1" },
-			{
-				type: "datum",
-				id: "case_id_new_service_0",
-				value: "uuid()",
-			},
-			{ type: "command", id: "m1-f0" },
+		const suite = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		).readAsText("suite.xml");
+		const sourceEntry = entryByCommand(suite, "m0-f0");
+		const operation = directChildren(
+			directChildren(sourceEntry, "stack")[0],
+			"create",
+		)[0];
+		expect(
+			operation.children.filter(isTag).map((node) => [node.name, node.attribs]),
+		).toEqual([
+			["command", { value: "'m0'" }],
+			[
+				"datum",
+				{
+					id: "case_id",
+					value: "instance('commcaresession')/session/data/case_id",
+				},
+			],
+			["command", { value: "'m1'" }],
+			["datum", { id: "case_id_new_service_0", value: "uuid()" }],
+			["command", { value: "'m1-f0'" }],
 		]);
 	});
 });

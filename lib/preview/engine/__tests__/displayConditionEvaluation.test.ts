@@ -320,6 +320,32 @@ describe("moduleDisplayVisibility", () => {
 describe("formDisplayVisibility", () => {
 	const statusOpen = eq(prop("patient", "status"), literal("open"));
 
+	it.each([
+		["north", "shown"],
+		["south", "hidden"],
+	] as const)(
+		"keeps the selected case's %s region distinct from the fixture row",
+		(region, visibility) => {
+			const condition = eq(
+				tableLookup(
+					TABLE,
+					COL_CODE,
+					eq(tableColumn(TABLE, COL_REGION), prop("patient", "region")),
+				),
+				literal("a1"),
+			);
+			expect(
+				formDisplayVisibility({
+					condition,
+					session: SESSION,
+					currentCaseType: "patient",
+					caseProjection: new Map([["region", region]]),
+					lookup: LOOKUP_DATA,
+				}),
+			).toBe(visibility);
+		},
+	);
+
 	it("resolves direct self properties from the selected row's projection", () => {
 		expect(
 			formDisplayVisibility({

@@ -1,10 +1,17 @@
-/** Private Core expression controls. This family constructs no app. */
+/** Private expression controls for Core and HQ. This family constructs no app. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
 	instantFixedClock,
 	instantOrderingPairs,
 } from "../../../lib/commcare/__tests__/instantOrderingTable";
+import { xel } from "../../../lib/commcare/elementBuilders";
+import { serializeXml } from "../../../lib/commcare/serializeXml";
+import { w } from "../../../lib/commcare/xpath/wire/builders";
+import { toWire } from "../../../lib/commcare/xpath/wire/fromExpression";
+import { InstanceSink } from "../../../lib/commcare/xpath/wire/instances";
+import { serializeWire } from "../../../lib/commcare/xpath/wire/serialize";
+import { concat, literal, term } from "../../../lib/domain/predicate/builders";
 
 const output = process.argv[2];
 if (!output)
@@ -24,5 +31,81 @@ writeFileSync(
 		fixedClock: instantFixedClock,
 		pairs,
 	})}\n`,
+);
+
+// HQ replaces shortcuts without parsing literals and scans for instance calls
+// after HTML decoding. These are values, never authored XPath source. The final
+// dot also exposes a quote left open by HQ's backslash-aware interpolation.
+const interpolationValues = [
+	["case", "#case"],
+	["parent", "#parent"],
+	["host", "#host"],
+	["worker", "#user"],
+	["session", "#session/x"],
+	["unused-fixture-token", "$fixture_value"],
+	["trailing-backslash", "value\\"],
+	["trailing-three-backslashes", "value\\\\\\"],
+	["trailing-even-backslashes", "value\\\\"],
+	["backslash-before-quote", 'value\\".next'],
+	["backslash-before-token", "value\\#case"],
+	["both-quotes", 'it\'s "quoted"'],
+	["instance-single", "instance('literal')"],
+	["instance-double", 'instance("literal")'],
+	["instance-whitespace", "instance(\u0085'literal'\u0085)"],
+	["entity-quotes", "instance(&apos;literal&apos;)"],
+	["entity-letters", "&#105;nstance('literal')"],
+	["entity-parentheses", "instance&#40;'literal'&#41;"],
+	["entity-whitespace", "instance(&Tab;'literal'&Tab;)"],
+	["entity-numeric-whitespace", "instance(&#x85;'literal'&#x85;)"],
+	["entity-no-semicolon", "&#105nstance(&#39literal&#39)"],
+	["entity-dropped-control", "inst&#1;ance('literal')"],
+	["entity-dropped-delete", "inst&#x7f;ance('literal')"],
+	["entity-dropped-vertical-tab", "inst&#11;ance('literal')"],
+] as const;
+const interpolation = interpolationValues.flatMap(([id, value]) => {
+	const expression = concat(term(literal(value)), term(literal(".")));
+	return (["none", "case", "no-case", "no-dots"] as const).map((mode) => {
+		const text = serializeWire(
+			toWire(expression, { target: "hq-json", types: {} }),
+			{ target: "hq-json", interpolation: mode },
+		).text;
+		return { id, mode, value: `${value}.`, text };
+	});
+});
+const xforms = interpolationValues.map(([id, value]) => {
+	const expression = concat(term(literal(value)), term(literal(".")));
+	const wire = toWire(expression, { target: "xform", types: {} });
+	const text = serializeWire(wire, { target: "xform", constraint: false }).text;
+	return {
+		id,
+		value: `${value}.`,
+		text,
+		xml: serializeXml(
+			xel(
+				"bind",
+				{ xpath: { calculate: wire } },
+				{
+					mode: { target: "xform", constraint: false },
+					instances: new InstanceSink(),
+				},
+			),
+		),
+	};
+});
+// Image mapping keys run only HQ's dot interpolator. Both unquoted dots
+// must become the supplied property, including the one after the literal.
+const enumKeys = [...interpolationValues, ["literal-dot", "."] as const].map(
+	([id, value]) => ({
+		id,
+		value,
+		text: serializeWire(
+			w.call("concat", [w.context(), w.str(value), w.context()]),
+			{ target: "hq-json", interpolation: "enum-key" },
+		).text,
+	}),
+);
+writeFileSync(
+	resolve(output, "interpolation.json"),
+	`${JSON.stringify({ schemaVersion: 1, interpolation, xforms, enumKeys })}\n`,
 );
 console.log(`Produced ${pairs.length} private expression controls.`);

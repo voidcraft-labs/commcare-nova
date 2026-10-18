@@ -11,8 +11,16 @@ import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 // drives the downstream sub-emitters' attribute choices.
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import {
+	el,
+	type WireElementContext,
+	xel,
+} from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	type InstanceDecl,
+	InstanceSink,
+} from "@/lib/commcare/xpath/wire/instances";
 import {
 	CASE_SEARCH_BUTTON_LABEL,
 	type CaseListConfig,
@@ -23,7 +31,6 @@ import {
 	type WireStringSource,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import { instanceSourceFor } from "../../predicate";
 import {
 	buildClaimPost,
 	SEARCH_CASE_ID_REF,
@@ -69,6 +76,8 @@ export function buildRemoteRequest(args: {
 	readonly platformContext?: PlatformContext;
 	readonly typeContext?: TypeContext;
 	readonly lookupNaming?: LookupWireNaming;
+	/** Printed reads from the short and long details this request references. */
+	readonly detailInstances?: Iterable<InstanceDecl>;
 }): RemoteRequestBuild {
 	const { module: mod, moduleIndex } = args;
 	const platformContext = args.platformContext ?? DEFAULT_PLATFORM_CONTEXT;
@@ -124,14 +133,10 @@ export function buildRemoteRequest(args: {
 		runtimeTarget: args.runtimeTarget,
 	});
 
-	// Instance declarations — sort the accumulated id set so the wire
-	// form is deterministic across invocations regardless of Set
-	// iteration order.
-	const instanceElements: Element[] = Array.from(sessionEmission.instances)
-		.sort()
-		.map((id) =>
-			el("instance", { id, src: instanceSourceFor(id, args.lookupNaming) }),
-		);
+	const instances = new InstanceSink(sessionEmission.instances);
+	instances.add(args.detailInstances ?? []);
+	const context: WireElementContext = { mode: { target: "suite" }, instances };
+	const post = buildClaimPost(multiple, context, args.runtimeTarget);
 
 	// `<stack>` rewind frame — CCHQ's contract on every
 	// `<remote-request>`. The frame pops the search-result selection
@@ -140,9 +145,15 @@ export function buildRemoteRequest(args: {
 	// interaction.
 	const stackEl = el("stack", {}, [
 		el("push", {}, [
-			el("rewind", {
-				value: multiple ? SEARCH_SELECTED_CASES_REF : SEARCH_CASE_ID_REF,
-			}),
+			xel(
+				"rewind",
+				{
+					xpath: {
+						value: multiple ? SEARCH_SELECTED_CASES_REF : SEARCH_CASE_ID_REF,
+					},
+				},
+				context,
+			),
 		]),
 	]);
 
@@ -152,9 +163,11 @@ export function buildRemoteRequest(args: {
 	// fixture
 	// `~/code/commcare-hq/.../tests/data/suite/search_command_detail.xml`.
 	const remoteRequestEl = el("remote-request", {}, [
-		buildClaimPost(multiple, args.runtimeTarget),
+		post,
 		commandEl,
-		...instanceElements,
+		...instances
+			.declarations()
+			.map(({ id, src }) => el("instance", { id, src })),
 		sessionEmission.element,
 		stackEl,
 	]);

@@ -386,9 +386,10 @@ const CLINIC = testUuid("33333333-3333-4333-8333-333333333333");
 /**
  * A reverse hop over a real two-level organization.
  *
- * The levels are not decoration. `termEmitter.ts::emitTerm` resolves the
- * destination level and walks up for a case-owning ancestor, so a doc
- * that names a level it does not have cannot be expanded at all — and a
+ * The levels are not decoration. `xpath/wire/fromExpression.ts` resolves
+ * an `owner-location-at-level` term's destination and walks up for a
+ * case-owning ancestor, so a doc that names a level it does not have cannot
+ * be expanded at all — and a
  * test asserting this shape EXPORTS while never compiling it would prove
  * nothing.
  */

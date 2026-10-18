@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import type { HqApplication } from "@/lib/commcare";
 import { addOnsNeededBy } from "../addOns";
 import {
+	type HqFormTree,
+	type HqModuleTree,
+	hqXPath,
+	serializeHqApplication,
+} from "../hqJson/xpath";
+import {
 	applicationShell,
 	detailColumn,
 	detailPair,
@@ -11,14 +17,14 @@ import {
 	ifCondition,
 	moduleShell,
 } from "../hqShells";
-import type { HqForm, HqModule } from "../types";
+import { w } from "../xpath/wire/builders";
 
 const PLAIN_FORM =
 	'<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model><instance><data/></instance></model></h:head><h:body/></h:html>';
 const ITEMSET_FORM =
 	'<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model><instance><data/></instance></model></h:head><h:body><select1 ref="/data/choice"><itemset nodeset="instance(\'clinics\')/clinics/clinic"><label ref="name"/><value ref="id"/></itemset></select1></h:body></h:html>';
 
-function form(edit: (form: HqForm) => void = () => {}): HqForm {
+function form(edit: (form: HqFormTree) => void = () => {}): HqFormTree {
 	const built = formShell(
 		"f0",
 		"Visit",
@@ -36,7 +42,7 @@ function form(edit: (form: HqForm) => void = () => {}): HqForm {
 }
 
 function app(
-	edit: (module: HqModule) => void = () => {},
+	edit: (module: HqModuleTree) => void = () => {},
 	attachment = PLAIN_FORM,
 ): HqApplication {
 	const module = moduleShell(
@@ -48,7 +54,9 @@ function app(
 		["en"],
 	);
 	edit(module);
-	return applicationShell("Clinic", [module], { "f0.xml": attachment });
+	return serializeHqApplication(
+		applicationShell("Clinic", [module], { "f0.xml": attachment }),
+	);
 }
 
 describe("addOnsNeededBy", () => {
@@ -58,9 +66,11 @@ describe("addOnsNeededBy", () => {
 
 	it("needs each slug exactly where HQ's predicate, or Nova's for itemsets, says it is in use", () => {
 		const column = (format: string, useXpathExpression = false) => ({
-			...detailColumn("status", "Status"),
+			...detailColumn(
+				useXpathExpression ? hqXPath(w.context([w.step("status")])) : "status",
+				"Status",
+			),
 			format: format as "plain",
-			useXpathExpression,
 		});
 		const cases: [string, HqApplication][] = [
 			["advanced_itemsets", app(() => {}, ITEMSET_FORM)],
@@ -94,13 +104,16 @@ describe("addOnsNeededBy", () => {
 			[
 				"display_conditions",
 				app((module) => {
-					module.forms[0].form_filter = "#case/status = 'open'";
+					module.forms[0].form_filter = hqXPath(
+						w.eq(w.hqCase([w.step("status")]), w.str("open")),
+						"case",
+					);
 				}),
 			],
 			[
 				"display_conditions",
 				app((module) => {
-					module.module_filter = "true()";
+					module.module_filter = hqXPath(w.call("true"), "no-case");
 				}),
 			],
 			[

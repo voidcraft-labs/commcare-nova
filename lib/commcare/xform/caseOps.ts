@@ -19,9 +19,12 @@
 
 import type { Element } from "domhandler";
 import { findOne } from "domutils";
-import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
-import { el } from "@/lib/commcare/elementBuilders";
-import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
+import {
+	el,
+	type WireElementContext,
+	type WireElementSpec,
+	xel,
+} from "@/lib/commcare/elementBuilders";
 import { buildPrimaryCaseUpdateMap } from "@/lib/commcare/formActions";
 import {
 	type FormLinkProjectionContext,
@@ -33,20 +36,6 @@ import {
 	validateXFormPath,
 } from "@/lib/commcare/identifierValidation";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
-import {
-	collectExpressionInstances,
-	collectPredicateInstances,
-	instanceSourceFor,
-} from "@/lib/commcare/predicate/instances";
-import { ROOT_ON_DEVICE_CASE_ANCHOR } from "@/lib/commcare/predicate/relationPresenceEmitter";
-import { quoteLiteral } from "@/lib/commcare/predicate/stringQuoting";
-import {
-	type InstanceRoot,
-	instanceRootPath,
-	type OnDeviceExpressionBindings,
-	type OnDeviceTermEmissionContext,
-} from "@/lib/commcare/predicate/termEmitter";
 import { newCaseIdDatumId } from "@/lib/commcare/session";
 import { subcaseSessionDatumId } from "@/lib/commcare/subcaseWire";
 import type {
@@ -59,8 +48,6 @@ import {
 	formUpdatesSelectedCasesInSource,
 	subcaseIsWrittenInSource,
 } from "@/lib/commcare/xform/sourceCaseWrites";
-import { spellPredicateSelf } from "@/lib/commcare/xpath/selfSteps";
-import { xpathStringLiteral } from "@/lib/commcare/xpath/stringLiteral";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -89,9 +76,23 @@ import type {
 	PropertyRef,
 	ValueExpression,
 } from "@/lib/domain/predicate";
+import { w } from "../xpath/wire/builders";
+import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
+import {
+	type InstanceSink,
+	selectedCasesInstance,
+	sessionInstance,
+} from "../xpath/wire/instances";
+import {
+	buildAncestorJoinNodeset,
+	caseById,
+	casePropertyStep,
+	type InstanceRoot,
+} from "../xpath/wire/rowScope";
+import type { WireExpr } from "../xpath/wire/tree";
 import { datetimeCaseValueExpression } from "./datetimeCaseValue";
 import { appendChildren, prependChildren } from "./domSplice";
-import { FormPath, originalContextPath } from "./formPath";
+import { FormPath, originalContextWirePath } from "./formPath";
 import {
 	type GeneratedNodePlan,
 	type GuardKind,
@@ -101,9 +102,9 @@ import {
 } from "./generatedNodes";
 
 const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
-const SESSION_CASE_ID = "instance('commcaresession')/session/data/case_id";
-const META_TIME_END = "/data/meta/timeEnd";
-const META_USER_ID = "/data/meta/userID";
+const SESSION_CASE_ID = sessionDatum("case_id");
+const META_TIME_END = w.form(["meta", "timeEnd"]);
+const META_USER_ID = w.form(["meta", "userID"]);
 const CASE_SCALAR_BOUNDARY_CODE_UNIT_PATTERN =
 	"^[\\x00-\\x20]+|[\\x00-\\x20]+$";
 
@@ -115,34 +116,46 @@ const CASE_SCALAR_BOUNDARY_CODE_UNIT_PATTERN =
  */
 export function authoredCaseIdCalculation(
 	scope: Parameters<typeof authoredCaseIdPrefix>[0],
-	keyExpression: string,
-): string {
-	const prefix = quoteLiteral(authoredCaseIdPrefix(scope), "case-list-filter");
-	return `if(string-length(${keyExpression}) > 0 and string-length(${keyExpression}) <= ${MAX_AUTHORED_CASE_KEY_LENGTH}, concat(${prefix}, ${keyExpression}), '')`;
+	keyExpression: WireExpr,
+): WireExpr {
+	const length = w.call("string-length", [keyExpression]);
+	return w.call("if", [
+		w.and(
+			w.gt(length, w.num(0)),
+			w.lte(length, w.num(MAX_AUTHORED_CASE_KEY_LENGTH)),
+		),
+		w.call("concat", [w.str(authoredCaseIdPrefix(scope)), keyExpression]),
+		w.str(""),
+	]);
 }
 
-/**
- * Normalize fixed-column case text before it reaches either Core or HQ.
- * The emitted explicit `\\x00-\\x20` range matches Java `String.trim`.
- */
+/** Normalize fixed-column case text like Java String.trim. */
 export function caseScalarTextValueCalculation(
-	valueExpression: string,
-): string {
-	return `replace(${valueExpression}, ${quoteLiteral(CASE_SCALAR_BOUNDARY_CODE_UNIT_PATTERN, "case-list-filter")}, '')`;
+	valueExpression: WireExpr,
+): WireExpr {
+	return w.call("replace", [
+		valueExpression,
+		w.str(CASE_SCALAR_BOUNDARY_CODE_UNIT_PATTERN),
+		w.str(""),
+	]);
 }
 
-/** Runtime validity predicate for one emitted fixed-column case scalar. */
+/** Runtime validity predicate for one fixed-column case scalar. */
 export function caseScalarTextValueGuard(
-	valueExpression: string,
+	valueExpression: WireExpr,
 	blank: "allow" | "reject",
-): string {
-	const length = `string-length(${valueExpression})`;
-	return blank === "allow"
-		? `${length} <= ${MAX_CASE_SCALAR_TEXT_LENGTH}`
-		: `${length} > 0 and ${length} <= ${MAX_CASE_SCALAR_TEXT_LENGTH}`;
+): WireExpr {
+	const length = w.call("string-length", [valueExpression]);
+	const within = w.lte(length, w.num(MAX_CASE_SCALAR_TEXT_LENGTH));
+	return blank === "allow" ? within : w.and(w.gt(length, w.num(0)), within);
 }
-
-type RequiredInstance = "casedb" | "commcaresession";
+function sessionDatum(id: string): WireExpr {
+	return w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("data"),
+		w.step(id),
+	]);
+}
 
 export interface FieldLocation {
 	readonly path: FormPath;
@@ -191,9 +204,6 @@ export interface CaseOperationsEmission {
 	readonly binds: readonly Element[];
 	readonly setvalues: readonly Element[];
 	readonly bodyChildren: readonly CaseOperationBodyChild[];
-	readonly instances: ReadonlySet<RequiredInstance>;
-	/** Lookup-fixture declarations the operation expressions need, id → src. */
-	readonly fixtureInstances: ReadonlyMap<string, string>;
 }
 
 /**
@@ -239,25 +249,33 @@ function saveToCaseBlock(
 }
 
 /** The `@date_modified` and `@user_id` binds every block carries. */
-function caseMetaBinds(casePath: FormPath): Element[] {
+function caseMetaBinds(
+	casePath: FormPath,
+	context: WireElementContext,
+): Element[] {
 	return [
-		el("bind", {
-			nodeset: casePath.attr("date_modified").toXPath(),
-			calculate: META_TIME_END,
-			type: "xsd:dateTime",
-		}),
-		el("bind", {
-			nodeset: casePath.attr("user_id").toXPath(),
-			calculate: META_USER_ID,
-		}),
+		xel(
+			"bind",
+			{
+				attributes: { type: "xsd:dateTime" },
+				xpath: {
+					nodeset: casePath.attr("date_modified").toWire(),
+					calculate: META_TIME_END,
+				},
+			},
+			context,
+		),
+		xel(
+			"bind",
+			{
+				xpath: {
+					nodeset: casePath.attr("user_id").toWire(),
+					calculate: META_USER_ID,
+				},
+			},
+			context,
+		),
 	];
-}
-
-/** One condition from several, each parenthesized when there are several. */
-function conjunction(conditions: readonly string[]): string {
-	return conditions.length === 1
-		? conditions[0]
-		: conditions.map((condition) => `(${condition})`).join(" and ");
 }
 
 /**
@@ -361,13 +379,18 @@ export function buildCaseOperations(
 	formUuid: Uuid,
 	generatedNodes: GeneratedNodePlan,
 	moduleCaseType: string | undefined,
+	instances: InstanceSink,
 	lookupNaming?: LookupWireNaming,
-	selectedCaseIdRef: string = SESSION_CASE_ID,
+	selectedCaseIdRef: WireExpr = SESSION_CASE_ID,
 	selectedCasesInstanceId?: string,
 	ordinaryPrimaryUpdate: UpdateCaseAction["update"] = {},
 	ordinarySubcases: readonly OpenSubCaseAction[] = [],
 ): CaseOperationsEmission | null {
 	const form = doc.forms[formUuid];
+	const context: WireElementContext = {
+		mode: { target: "xform", constraint: false },
+		instances,
+	};
 	const operations = orderedCaseOperations(form);
 	const severalCases = selectedCasesInstanceId !== undefined;
 	const ordinaryCloseScope = ordinaryCloseInSource(doc, formUuid, severalCases);
@@ -486,7 +509,13 @@ export function buildCaseOperations(
 		children: Element[],
 	): void => {
 		group.children.push(el(name, {}, children));
-		group.controls.push(el("group", { ref: group.path.child(name).toXPath() }));
+		group.controls.push(
+			xel(
+				"group",
+				{ xpath: { ref: group.path.child(name).toWire() } },
+				context,
+			),
+		);
 	};
 
 	const locations = operations.map<OperationLocation>((operation) => {
@@ -519,8 +548,6 @@ export function buildCaseOperations(
 
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
-	const instances = new Set<RequiredInstance>();
-	const fixtureInstances = new Map<string, string>();
 	const priorCreates = new Map<Uuid, OperationLocation>();
 	const operationByUuid = new Map(
 		operations.map((operation) => [operation.uuid, operation]),
@@ -562,16 +589,14 @@ export function buildCaseOperations(
 		const { casePath } = location;
 		const operationSnapshotTypes = expressionSnapshotTypes.get(operation.uuid);
 		const caseIdPath = casePath.attr("case_id");
-		const selectedCaseRef = (targetPath: FormPath): string =>
+		const selectedCaseRef = (targetPath: FormPath): WireExpr =>
 			location.selectedCaseIdPath === undefined
 				? selectedCaseIdRef
-				: originalContextPath(targetPath, location.selectedCaseIdPath);
-		const operationBindings = (
-			targetPath: FormPath,
-		): OnDeviceTermEmissionContext => ({
+				: originalContextWirePath(targetPath, location.selectedCaseIdPath);
+		const operationBindings = (targetPath: FormPath): WireTermBindings => ({
 			formFields: bindFieldPaths(fields, repeat, targetPath),
 			operationIds: bindOperationPaths(priorCreates, targetPath),
-			rootCaseId: selectedCaseRef(targetPath),
+			rootCaseIdWireExpr: selectedCaseRef(targetPath),
 			caseProperty: formCasePropertyResolver(
 				moduleCaseType,
 				selectedCaseRef(targetPath),
@@ -585,44 +610,24 @@ export function buildCaseOperations(
 		const emitExpression = (
 			expression: ValueExpression,
 			targetPath: FormPath,
-		): string => {
-			accumulateExpressionInstances(
-				expression,
-				instances,
-				fixtureInstances,
-				lookupNaming,
-			);
-			if (instances.has("casedb")) instances.add("commcaresession");
-			return emitOnDeviceExpression(
-				expression,
-				"casedb",
-				expressionTypes,
-				ROOT_ON_DEVICE_CASE_ANCHOR,
-				operationBindings(targetPath),
-			);
-		};
+		): WireExpr =>
+			toWire(expression, {
+				target: "xform",
+				types: expressionTypes,
+				bindings: operationBindings(targetPath),
+			});
 		const emitPredicate = (
 			predicate: Predicate,
 			targetPath: FormPath,
-		): string => {
-			accumulatePredicateInstances(
-				predicate,
-				instances,
-				fixtureInstances,
-				lookupNaming,
-			);
-			if (instances.has("casedb")) instances.add("commcaresession");
-			return emitCaseListFilter(
-				predicate,
-				"casedb",
-				expressionTypes,
-				ROOT_ON_DEVICE_CASE_ANCHOR,
-				operationBindings(targetPath),
-			);
-		};
-		const relevanceAt = (targetPath: FormPath): string =>
-			conjunction(
-				relevancePredicates.map((predicate) =>
+		): WireExpr =>
+			toWire(predicate, {
+				target: "xform",
+				types: expressionTypes,
+				bindings: operationBindings(targetPath),
+			});
+		const relevanceAt = (targetPath: FormPath): WireExpr =>
+			w.and(
+				...relevancePredicates.map((predicate) =>
 					emitPredicate(predicate, targetPath),
 				),
 			);
@@ -706,65 +711,93 @@ export function buildCaseOperations(
 								caseIdPath,
 							),
 						)
-					: "uuid()";
+					: w.call("uuid");
 			// HQ's form builder keeps a create's id as a bind inside a repeat and
 			// as a load-time setvalue outside one (`saveToCase.js::getSetValues`),
 			// so a root create keyed by an answer stands in its one-row repeat.
 			if (repeat === undefined && !keyed) {
 				setvalues.push(
-					el("setvalue", {
-						event: "xforms-ready",
-						ref: caseIdPath.toXPath(),
-						value: idValue,
-					}),
+					xel(
+						"setvalue",
+						{
+							attributes: { event: "xforms-ready" },
+							xpath: { ref: caseIdPath.toWire(), value: idValue },
+						},
+						context,
+					),
 				);
 			} else {
 				blockBinds.push(
-					el("bind", {
-						nodeset: caseIdPath.toXPath(),
-						calculate: idValue,
-					}),
+					xel(
+						"bind",
+						{ xpath: { nodeset: caseIdPath.toWire(), calculate: idValue } },
+						context,
+					),
 				);
 			}
 			// A create's condition is its Open Case Condition.
 			if (conditional) {
 				blockBinds.push(
-					el("bind", {
-						nodeset: casePath.toXPath(),
-						relevant: relevanceAt(casePath),
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: casePath.toWire(),
+								relevant: relevanceAt(casePath),
+							},
+						},
+						context,
+					),
 				);
 			}
 			const createPath = casePath.child("create");
 			blockBinds.push(
-				el("bind", {
-					nodeset: createPath.child("case_type").toXPath(),
-					calculate: quoteLiteral(operation.caseType, "case-list-filter"),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: createPath.child("case_type").toWire(),
+							calculate: w.str(operation.caseType),
+						},
+					},
+					context,
+				),
 			);
 			const namePath = createPath.child("case_name");
 			requiredScalarTextPaths.push(namePath);
 			if (operation.name !== undefined) {
 				blockBinds.push(
-					el("bind", {
-						nodeset: namePath.toXPath(),
-						calculate: caseScalarTextValueCalculation(
-							emitExpression(operation.name, namePath),
-						),
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: namePath.toWire(),
+								calculate: caseScalarTextValueCalculation(
+									emitExpression(operation.name, namePath),
+								),
+							},
+						},
+						context,
+					),
 				);
 			}
 			const ownerPath = createPath.child("owner_id");
 			requiredScalarTextPaths.push(ownerPath);
 			blockBinds.push(
-				el("bind", {
-					nodeset: ownerPath.toXPath(),
-					calculate: caseScalarTextValueCalculation(
-						operation.owner === undefined
-							? META_USER_ID
-							: emitExpression(operation.owner, ownerPath),
-					),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: ownerPath.toWire(),
+							calculate: caseScalarTextValueCalculation(
+								operation.owner === undefined
+									? META_USER_ID
+									: emitExpression(operation.owner, ownerPath),
+							),
+						},
+					},
+					context,
+				),
 			);
 		}
 
@@ -774,41 +807,56 @@ export function buildCaseOperations(
 				const renamePath = updatePath.child("case_name");
 				requiredScalarTextPaths.push(renamePath);
 				blockBinds.push(
-					el("bind", {
-						nodeset: renamePath.toXPath(),
-						calculate: caseScalarTextValueCalculation(
-							emitExpression(operation.rename, renamePath),
-						),
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: renamePath.toWire(),
+								calculate: caseScalarTextValueCalculation(
+									emitExpression(operation.rename, renamePath),
+								),
+							},
+						},
+						context,
+					),
 				);
 			}
 			if (operation.retype !== undefined || usesTypeOrderingGuard) {
 				blockBinds.push(
-					el("bind", {
-						nodeset: updatePath.child("case_type").toXPath(),
-						calculate: quoteLiteral(
-							operation.retype ?? operation.caseType,
-							"case-list-filter",
-						),
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: updatePath.child("case_type").toWire(),
+								calculate: w.str(operation.retype ?? operation.caseType),
+							},
+						},
+						context,
+					),
 				);
 			}
 			if (operation.action === "update" && operation.owner !== undefined) {
 				const ownerPath = updatePath.child("owner_id");
 				requiredScalarTextPaths.push(ownerPath);
 				blockBinds.push(
-					el("bind", {
-						nodeset: ownerPath.toXPath(),
-						calculate: caseScalarTextValueCalculation(
-							emitExpression(operation.owner, ownerPath),
-						),
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: ownerPath.toWire(),
+								calculate: caseScalarTextValueCalculation(
+									emitExpression(operation.owner, ownerPath),
+								),
+							},
+						},
+						context,
+					),
 				);
 			}
 			for (const write of writes) {
 				const writePath = updatePath.child(write.property);
-				const attributes: Record<string, string> = {
-					nodeset: writePath.toXPath(),
+				const attributes: NonNullable<WireElementSpec<"bind">["xpath"]> = {
+					nodeset: writePath.toWire(),
 				};
 				const destination = expressionTypes.caseTypes
 					.find(
@@ -834,7 +882,7 @@ export function buildCaseOperations(
 				} else {
 					attributes.calculate = value;
 				}
-				blockBinds.push(el("bind", attributes));
+				blockBinds.push(xel("bind", { xpath: attributes }, context));
 			}
 		}
 
@@ -849,7 +897,7 @@ export function buildCaseOperations(
 		// when every selector resolved; otherwise its case id is blank and the
 		// atomic submission fails cleanly. Targeting the operation case avoids
 		// modifying the linked case merely to validate its type.
-		const typeTests: string[] = [];
+		const typeTests: WireExpr[] = [];
 		if (links.length > 0) {
 			const indexPath = casePath.child("index");
 			for (const [linkIndex, link] of links.entries()) {
@@ -858,20 +906,26 @@ export function buildCaseOperations(
 				const linkSnapshotType =
 					operationSnapshotTypes?.links.get(linkIndex) ?? link.targetType;
 				blockBinds.push(
-					el("bind", {
-						nodeset: linkPath.toXPath(),
-						calculate: emitTarget(
-							link.target,
-							linkPath,
-							repeat,
-							fields,
-							priorCreates,
-							emitExpression,
-							instances,
-							linkSnapshotType,
-							selectedCaseRef(linkPath),
-						),
-					}),
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: linkPath.toWire(),
+								calculate: emitTarget(
+									link.target,
+									linkPath,
+									repeat,
+									fields,
+									priorCreates,
+									emitExpression,
+
+									linkSnapshotType,
+									selectedCaseRef(linkPath),
+								),
+							},
+						},
+						context,
+					),
 				);
 				if (link.target.kind === "expression") {
 					const guardIdPath = guardCaseIdPath("type");
@@ -882,33 +936,44 @@ export function buildCaseOperations(
 						fields,
 						priorCreates,
 						emitExpression,
-						instances,
+
 						linkSnapshotType,
 						selectedCaseRef(guardIdPath),
 					);
-					const id = originalContextPath(guardIdPath, caseIdPath);
-					typeTests.push(`count(${target}) > 0 and string(${target}) != ${id}`);
+					const id = originalContextWirePath(guardIdPath, caseIdPath);
+					typeTests.push(
+						w.and(
+							w.gt(w.call("count", [target]), w.num(0)),
+							w.ne(w.call("string", [target]), id),
+						),
+					);
 				}
 			}
 		}
 
-		blockBinds.push(...caseMetaBinds(casePath));
+		blockBinds.push(...caseMetaBinds(casePath, context));
 		if (!create) {
 			blockBinds.push(
-				el("bind", {
-					nodeset: caseIdPath.toXPath(),
-					calculate: emitTarget(
-						operation.target,
-						caseIdPath,
-						repeat,
-						fields,
-						priorCreates,
-						emitExpression,
-						instances,
-						operationSnapshotTypes?.target ?? operation.caseType,
-						selectedCaseRef(caseIdPath),
-					),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: caseIdPath.toWire(),
+							calculate: emitTarget(
+								operation.target,
+								caseIdPath,
+								repeat,
+								fields,
+								priorCreates,
+								emitExpression,
+
+								operationSnapshotTypes?.target ?? operation.caseType,
+								selectedCaseRef(caseIdPath),
+							),
+						},
+					},
+					context,
+				),
 			);
 		}
 
@@ -925,33 +990,39 @@ export function buildCaseOperations(
 		for (const kind of operationGuardKinds(operation)) {
 			const idPath = guardCaseIdPath(kind);
 			const guardCasePath = idPath.parent();
-			const id = originalContextPath(idPath, caseIdPath);
-			let check: string;
+			const id = originalContextWirePath(idPath, caseIdPath);
+			let check: WireExpr;
 			if (kind === "type") {
-				check = conjunction(typeTests);
+				check = w.and(...typeTests);
 			} else if (kind === "retype") {
 				// A deterministic authored-key id is type-stable. Allowing an update
 				// to retype it would make a later retry of its create definition
 				// invoke Core and HQ's implicit create-over-existing retype path.
 				// The check also covers session and expression targets whose
 				// provenance is unknowable at authoring time.
-				check = `not(starts-with(${id}, ${quoteLiteral(`${AUTHORED_CASE_ID_VERSION}:`, "case-list-filter")}))`;
+				check = w.not(
+					w.call("starts-with", [id, w.str(`${AUTHORED_CASE_ID_VERSION}:`)]),
+				);
 			} else {
 				// Core trims fixed-column values and caps them at 255 UTF-16 code
 				// units, while Nova also requires every authored facet to stay
 				// nonblank. The calculates above give Core, HQ and the submission
 				// executor one normalized value; this check fails the submission
 				// before an invalid value can diverge.
-				check = [
-					...requiredScalarTextPaths.map(
-						(path) =>
-							`(${caseScalarTextValueGuard(originalContextPath(idPath, path), "reject")})`,
+				check = w.and(
+					...requiredScalarTextPaths.map((path) =>
+						caseScalarTextValueGuard(
+							originalContextWirePath(idPath, path),
+							"reject",
+						),
 					),
-					...optionalScalarTextPaths.map(
-						(path) =>
-							`(${caseScalarTextValueGuard(originalContextPath(idPath, path), "allow")})`,
+					...optionalScalarTextPaths.map((path) =>
+						caseScalarTextValueGuard(
+							originalContextWirePath(idPath, path),
+							"allow",
+						),
 					),
-				].join(" and ");
+				);
 			}
 			guards.push(
 				saveToCaseBlock(generatedNodes.guard(operation.uuid, kind), guardType, [
@@ -959,15 +1030,30 @@ export function buildCaseOperations(
 				]),
 			);
 			guardBinds.push(
-				el("bind", {
-					nodeset: guardCasePath.child("update").child("case_type").toXPath(),
-					calculate: quoteLiteral(guardType, "case-list-filter"),
-				}),
-				...caseMetaBinds(guardCasePath),
-				el("bind", {
-					nodeset: idPath.toXPath(),
-					calculate: `if(${check}, ${id}, '')`,
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: guardCasePath
+								.child("update")
+								.child("case_type")
+								.toWire(),
+							calculate: w.str(guardType),
+						},
+					},
+					context,
+				),
+				...caseMetaBinds(guardCasePath, context),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: idPath.toWire(),
+							calculate: w.call("if", [check, id, w.str("")]),
+						},
+					},
+					context,
+				),
 			);
 		}
 
@@ -993,23 +1079,36 @@ export function buildCaseOperations(
 			);
 			group.controls.push(
 				el("group", {}, [
-					el("repeat", {
-						nodeset: group.path.child(keyedName).toXPath(),
-						"jr:count": countPath.toXPath(),
-						"jr:noAddRemove": "true()",
-					}),
+					xel(
+						"repeat",
+						{
+							attributes: { "jr:noAddRemove": "true()" },
+							xpath: {
+								nodeset: group.path.child(keyedName).toWire(),
+								"jr:count": countPath.toWire(),
+							},
+						},
+						context,
+					),
 				]),
 			);
 			binds.push(
-				el("bind", {
-					nodeset: countPath.toXPath(),
-					type: "xsd:int",
-					calculate: "1",
-				}),
+				xel(
+					"bind",
+					{
+						attributes: { type: "xsd:int" },
+						xpath: { nodeset: countPath.toWire(), calculate: w.num(1) },
+					},
+					context,
+				),
 			);
 		}
 		const conditionBind = (path: FormPath): Element =>
-			el("bind", { nodeset: path.toXPath(), relevant: relevanceAt(path) });
+			xel(
+				"bind",
+				{ xpath: { nodeset: path.toWire(), relevant: relevanceAt(path) } },
+				context,
+			);
 		if (conditionPath !== undefined && !create) {
 			binds.push(conditionBind(conditionPath), ...blockBinds, ...guardBinds);
 			appendGroup(group, generatedNodes.condition(operation.uuid), [
@@ -1057,12 +1156,17 @@ export function buildCaseOperations(
 				);
 				// A name or an external id reads the question's trimmed sibling,
 				// which `formActions.ts` names.
-				const source = validateXFormPath(mapping.question_path);
-				const attachment = attachmentSourcePaths.has(source);
+				const sourcePath = validateXFormPath(mapping.question_path);
+				const attachment = attachmentSourcePaths.has(sourcePath);
+				const source = FormPath.parse(sourcePath).toWire();
+				const count = w.call("count", [source]);
 				const countGuard = attachment
-					? `count(${source}) = 1`
-					: `count(${source}) > 0`;
-				const present = `${countGuard} and string(${source}) != ''`;
+					? w.eq(count, w.num(1))
+					: w.gt(count, w.num(0));
+				const present = w.and(
+					countGuard,
+					w.ne(w.call("string", [source]), w.str("")),
+				);
 				return { property, source, attachment, present };
 			},
 		);
@@ -1091,39 +1195,69 @@ export function buildCaseOperations(
 		]);
 
 		binds.push(
-			el("bind", {
-				nodeset: conditionPath.toXPath(),
-				relevant: writes.map((write) => `(${write.present})`).join(" or "),
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: conditionPath.toWire(),
+						relevant: w.or(...writes.map((write) => write.present)),
+					},
+				},
+				context,
+			),
 		);
 		for (const write of scalarWrites) {
 			binds.push(
-				el("bind", {
-					nodeset: updatePath.child(write.property).toXPath(),
-					calculate: write.source,
-					relevant: write.present,
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: updatePath.child(write.property).toWire(),
+							calculate: write.source,
+							relevant: write.present,
+						},
+					},
+					context,
+				),
 			);
 		}
 		for (const write of attachmentWrites) {
 			const propertyPath = attachmentPath.child(write.property);
 			binds.push(
-				el("bind", {
-					nodeset: propertyPath.toXPath(),
-					relevant: write.present,
-				}),
-				el("bind", {
-					nodeset: propertyPath.attr("src").toXPath(),
-					calculate: write.source,
-				}),
+				xel(
+					"bind",
+					{
+						xpath: { nodeset: propertyPath.toWire(), relevant: write.present },
+					},
+					context,
+				),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: propertyPath.attr("src").toWire(),
+							calculate: write.source,
+						},
+					},
+					context,
+				),
 			);
 		}
 		binds.push(
-			...caseMetaBinds(casePath),
-			el("bind", {
-				nodeset: casePath.attr("case_id").toXPath(),
-				calculate: originalContextPath(casePath.attr("case_id"), idPath),
-			}),
+			...caseMetaBinds(casePath, context),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: casePath.attr("case_id").toWire(),
+						calculate: originalContextWirePath(
+							casePath.attr("case_id"),
+							idPath,
+						),
+					},
+				},
+				context,
+			),
 		);
 	}
 
@@ -1196,99 +1330,177 @@ export function buildCaseOperations(
 			]),
 		);
 
-		const sourceRef = (raw: string, target: FormPath): string => {
+		const sourceRef = (raw: string, target: FormPath): WireExpr => {
 			const source = FormPath.parse(validateXFormPath(raw));
 			return subcase.repeat_context
-				? originalContextPath(target, source)
-				: source.toXPath();
+				? originalContextWirePath(target, source)
+				: source.toWire();
 		};
 		const namePath = createPath.child("case_name");
 		if (multiple || subcase.repeat_context) {
 			binds.push(
-				el("bind", {
-					nodeset: casePath.attr("case_id").toXPath(),
-					calculate: "uuid()",
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: casePath.attr("case_id").toWire(),
+							calculate: w.call("uuid"),
+						},
+					},
+					context,
+				),
 			);
 		} else {
-			instances.add("commcaresession");
 			setvalues.push(
-				el("setvalue", {
-					ref: casePath.attr("case_id").toXPath(),
-					event: "xforms-ready",
-					value: `instance('commcaresession')/session/data/${subcaseSessionDatumId(subcase, subcaseIndex, form.type === "registration")}`,
-				}),
+				xel(
+					"setvalue",
+					{
+						attributes: { event: "xforms-ready" },
+						xpath: {
+							ref: casePath.attr("case_id").toWire(),
+							value: sessionDatum(
+								subcaseSessionDatumId(
+									subcase,
+									subcaseIndex,
+									form.type === "registration",
+								),
+							),
+						},
+					},
+					context,
+				),
 			);
 		}
-		if (!multiple) instances.add("commcaresession");
 		if (subcase.condition.type === "if") {
 			binds.push(
-				el("bind", {
-					nodeset: casePath.toXPath(),
-					relevant: formActionConditionExpression(subcase.condition),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: casePath.toWire(),
+							relevant: formActionConditionExpression(subcase.condition),
+						},
+					},
+					context,
+				),
 			);
 		}
 		binds.push(
-			el("bind", {
-				nodeset: createPath.child("case_type").toXPath(),
-				calculate: quoteLiteral(subcase.case_type, "case-list-filter"),
-			}),
-			el("bind", {
-				nodeset: namePath.toXPath(),
-				calculate: sourceRef(subcase.name_update.question_path, namePath),
-			}),
-			el("bind", {
-				nodeset: createPath.child("owner_id").toXPath(),
-				calculate: META_USER_ID,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: createPath.child("case_type").toWire(),
+						calculate: w.str(subcase.case_type),
+					},
+				},
+				context,
+			),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: namePath.toWire(),
+						calculate: sourceRef(subcase.name_update.question_path, namePath),
+					},
+				},
+				context,
+			),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: createPath.child("owner_id").toWire(),
+						calculate: META_USER_ID,
+					},
+				},
+				context,
+			),
 		);
 		for (const [property, mapping] of scalarPropertyEntries) {
 			const propertyPath = updatePath.child(property);
 			const source = sourceRef(mapping.question_path, propertyPath);
 			binds.push(
-				el("bind", {
-					nodeset: propertyPath.toXPath(),
-					calculate: source,
-					relevant: `count(${source}) > 0`,
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: propertyPath.toWire(),
+							calculate: source,
+							relevant: w.gt(w.call("count", [source]), w.num(0)),
+						},
+					},
+					context,
+				),
 			);
 		}
 		for (const [property, mapping] of attachmentPropertyEntries) {
 			const propertyPath = casePath.child("attachment").child(property);
 			const source = sourceRef(mapping.question_path, propertyPath);
 			binds.push(
-				el("bind", {
-					nodeset: propertyPath.toXPath(),
-					relevant: `count(${source}) = 1`,
-				}),
-				el("bind", {
-					nodeset: propertyPath.attr("src").toXPath(),
-					calculate: sourceRef(mapping.question_path, propertyPath.attr("src")),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: propertyPath.toWire(),
+							relevant: w.eq(w.call("count", [source]), w.num(1)),
+						},
+					},
+					context,
+				),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: propertyPath.attr("src").toWire(),
+							calculate: sourceRef(
+								mapping.question_path,
+								propertyPath.attr("src"),
+							),
+						},
+					},
+					context,
+				),
 			);
 		}
 		if (subcase.close_condition.type === "if") {
 			binds.push(
-				el("bind", {
-					nodeset: casePath.child("close").toXPath(),
-					relevant: formActionConditionExpression(subcase.close_condition),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: casePath.child("close").toWire(),
+							relevant: formActionConditionExpression(subcase.close_condition),
+						},
+					},
+					context,
+				),
 			);
 		}
 		binds.push(
-			el("bind", {
-				nodeset: indexPath.child(indexId).toXPath(),
-				calculate:
-					selected !== undefined
-						? originalContextPath(indexPath.child(indexId), selected.idPath)
-						: form.type === "registration"
-							? // The form's own new case: the datum its entry mints the id
-								// into, which HQ's build also sets the create block's id from.
-								`instance('commcaresession')/session/data/${newCaseIdDatumId(registrationCaseType(moduleCaseType))}`
-							: selectedCaseIdRef,
-			}),
-			...caseMetaBinds(casePath),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: indexPath.child(indexId).toWire(),
+						calculate:
+							selected !== undefined
+								? originalContextWirePath(
+										indexPath.child(indexId),
+										selected.idPath,
+									)
+								: form.type === "registration"
+									? // The form's own new case: the datum its entry mints the id
+										// into, which HQ's build also sets the create block's id from.
+										sessionDatum(
+											newCaseIdDatumId(registrationCaseType(moduleCaseType)),
+										)
+									: selectedCaseIdRef,
+					},
+				},
+				context,
+			),
+			...caseMetaBinds(casePath, context),
 		);
 	}
 
@@ -1309,18 +1521,33 @@ export function buildCaseOperations(
 		);
 		if (ordinaryClose.condition.type === "if") {
 			binds.push(
-				el("bind", {
-					nodeset: casePath.child("close").toXPath(),
-					relevant: formActionConditionExpression(ordinaryClose.condition),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: casePath.child("close").toWire(),
+							relevant: formActionConditionExpression(ordinaryClose.condition),
+						},
+					},
+					context,
+				),
 			);
 		}
 		binds.push(
-			...caseMetaBinds(casePath),
-			el("bind", {
-				nodeset: casePath.attr("case_id").toXPath(),
-				calculate: originalContextPath(casePath.attr("case_id"), idPath),
-			}),
+			...caseMetaBinds(casePath, context),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: casePath.attr("case_id").toWire(),
+						calculate: originalContextWirePath(
+							casePath.attr("case_id"),
+							idPath,
+						),
+					},
+				},
+				context,
+			),
 		);
 	}
 
@@ -1339,20 +1566,32 @@ export function buildCaseOperations(
 		appendGroup(group, conditionName, [
 			saveToCaseBlock(blockName, moduleCaseType, [el("close", {})]),
 		]);
-		instances.add("commcaresession");
+
 		if (ordinaryClose.condition.type === "if")
 			binds.push(
-				el("bind", {
-					nodeset: conditionPath.toXPath(),
-					relevant: formActionConditionExpression(ordinaryClose.condition),
-				}),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: conditionPath.toWire(),
+							relevant: formActionConditionExpression(ordinaryClose.condition),
+						},
+					},
+					context,
+				),
 			);
 		binds.push(
-			...caseMetaBinds(casePath),
-			el("bind", {
-				nodeset: casePath.attr("case_id").toXPath(),
-				calculate: selectedCaseIdRef,
-			}),
+			...caseMetaBinds(casePath, context),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: casePath.attr("case_id").toWire(),
+						calculate: selectedCaseIdRef,
+					},
+				},
+				context,
+			),
 		);
 	}
 
@@ -1368,7 +1607,12 @@ export function buildCaseOperations(
 	);
 	const atRoot = (path: FormPath) => path.segments().length === 1;
 	const groupControl = (group: GeneratedGroup): Element =>
-		el("group", { ref: group.path.toXPath() }, group.controls);
+		xel(
+			"group",
+			{ xpath: { ref: group.path.toWire() } },
+			context,
+			group.controls,
+		);
 	for (const group of operationGroups.values()) {
 		if (selectedItemKeys.has(group.parentPath.toXPath())) continue;
 		const root = atRoot(group.parentPath);
@@ -1402,35 +1646,75 @@ export function buildCaseOperations(
 		const countPath = scope.containerPath.attr("count");
 		const currentIndexPath = scope.containerPath.attr("current_index");
 		const indexPath = scope.itemPath.attr("index");
-		const selectedValues = `instance('${selectedCasesInstanceId}')/results/value`;
+		if (selectedCasesInstanceId === undefined)
+			throw new Error(
+				"Selected-case iteration needs the entry's selected-case instance.",
+			);
+		const selectedValues = w.instance(
+			selectedCasesInstance(selectedCasesInstanceId),
+			[w.step("results"), w.step("value")],
+		);
 		binds.push(
-			el("bind", {
-				nodeset: currentIndexPath.toXPath(),
-				calculate: `count(${scope.itemPath.toXPath()})`,
-			}),
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: currentIndexPath.toWire(),
+						calculate: w.call("count", [scope.itemPath.toWire()]),
+					},
+				},
+				context,
+			),
 		);
 		const nested = !atRoot(scope.authoredParentPath);
 		setvalues.push(
-			el("setvalue", {
-				event: nested ? "jr-insert" : "xforms-ready",
-				ref: idsPath.toXPath(),
-				value: `join(' ', ${selectedValues})`,
-			}),
-			el("setvalue", {
-				event: nested ? "jr-insert" : "xforms-ready",
-				ref: countPath.toXPath(),
-				value: `count-selected(${idsPath.toXPath()})`,
-			}),
-			el("setvalue", {
-				event: "jr-insert",
-				ref: indexPath.toXPath(),
-				value: `int(${currentIndexPath.toXPath()})`,
-			}),
-			el("setvalue", {
-				event: "jr-insert",
-				ref: scope.idPath.toXPath(),
-				value: `selected-at(${idsPath.toXPath()}, ../@index)`,
-			}),
+			xel(
+				"setvalue",
+				{
+					attributes: { event: nested ? "jr-insert" : "xforms-ready" },
+					xpath: {
+						ref: idsPath.toWire(),
+						value: w.call("join", [w.str(" "), selectedValues]),
+					},
+				},
+				context,
+			),
+			xel(
+				"setvalue",
+				{
+					attributes: { event: nested ? "jr-insert" : "xforms-ready" },
+					xpath: {
+						ref: countPath.toWire(),
+						value: w.call("count-selected", [idsPath.toWire()]),
+					},
+				},
+				context,
+			),
+			xel(
+				"setvalue",
+				{
+					attributes: { event: "jr-insert" },
+					xpath: {
+						ref: indexPath.toWire(),
+						value: w.call("int", [currentIndexPath.toWire()]),
+					},
+				},
+				context,
+			),
+			xel(
+				"setvalue",
+				{
+					attributes: { event: "jr-insert" },
+					xpath: {
+						ref: scope.idPath.toWire(),
+						value: w.call("selected-at", [
+							idsPath.toWire(),
+							w.context([w.parent(), w.attr("index")]),
+						]),
+					},
+				},
+				context,
+			),
 		);
 		dataChildren.push({
 			parentPath: scope.authoredParentPath,
@@ -1456,30 +1740,20 @@ export function buildCaseOperations(
 			// A repeat's wrapper group carries no `ref`, as HQ's form builder
 			// writes it (`mugs/types/group.js`, `writeControlRefAttr: null`).
 			element: el("group", {}, [
-				el(
+				xel(
 					"repeat",
 					{
-						nodeset: scope.itemPath.toXPath(),
-						"jr:count": countPath.toXPath(),
-						"jr:noAddRemove": "true()",
+						attributes: { "jr:noAddRemove": "true()" },
+						xpath: {
+							nodeset: scope.itemPath.toWire(),
+							"jr:count": countPath.toWire(),
+						},
 					},
+					context,
 					[groupControl(group)],
 				),
 			]),
 		});
-	}
-
-	// A predicate's own-node read is `./.`, which HQ's form builder does not
-	// take for a read of the question itself (`xpath/selfSteps.ts`).
-	for (const bind of binds) {
-		for (const name of ["calculate", "relevant"] as const) {
-			const value = bind.attribs[name];
-			if (value !== undefined) bind.attribs[name] = spellPredicateSelf(value);
-		}
-	}
-	for (const setvalue of setvalues) {
-		const value = setvalue.attribs.value;
-		if (value !== undefined) setvalue.attribs.value = spellPredicateSelf(value);
 	}
 
 	return {
@@ -1487,8 +1761,6 @@ export function buildCaseOperations(
 		binds,
 		setvalues,
 		bodyChildren,
-		instances,
-		fixtureInstances,
 	};
 }
 
@@ -1583,12 +1855,16 @@ export function formCloseCondition(
 	);
 }
 
-function formActionConditionExpression(condition: FormActionCondition): string {
-	const question = validateXFormPath(condition.question ?? "");
-	const answer = xpathStringLiteral(condition.answer ?? "");
+function formActionConditionExpression(
+	condition: FormActionCondition,
+): WireExpr {
+	const question = FormPath.parse(
+		validateXFormPath(condition.question ?? ""),
+	).toWire();
+	const answer = w.str(condition.answer ?? "");
 	return condition.operator === "selected"
-		? `selected(${question}, ${answer})`
-		: `${question} = ${answer}`;
+		? w.call("selected", [question, answer])
+		: w.eq(question, answer);
 }
 
 export function collectFieldLocations(
@@ -1618,13 +1894,13 @@ function bindFieldPaths(
 	fields: ReadonlyMap<Uuid, FieldLocation>,
 	consumerRepeat: Uuid | undefined,
 	targetPath: FormPath,
-): ReadonlyMap<Uuid, string> {
+): ReadonlyMap<Uuid, WireExpr> {
 	return new Map(
 		[...fields].map(([uuid, field]) => [
 			uuid,
 			field.repeat !== undefined && field.repeat === consumerRepeat
-				? originalContextPath(targetPath, field.path)
-				: field.path.toXPath(),
+				? originalContextWirePath(targetPath, field.path)
+				: field.path.toWire(),
 		]),
 	);
 }
@@ -1634,12 +1910,12 @@ function boundFieldPath(
 	uuid: Uuid,
 	consumerRepeat: Uuid | undefined,
 	targetPath: FormPath,
-): string {
+): WireExpr {
 	const field = fields.get(uuid);
-	if (field === undefined) return "''";
+	if (field === undefined) return w.str("");
 	return field.repeat !== undefined && field.repeat === consumerRepeat
-		? originalContextPath(targetPath, field.path)
-		: field.path.toXPath();
+		? originalContextWirePath(targetPath, field.path)
+		: field.path.toWire();
 }
 
 /** A read of an earlier create's id goes through `current()`, at the form
@@ -1648,11 +1924,11 @@ function boundFieldPath(
 function bindOperationPaths(
 	creates: ReadonlyMap<Uuid, OperationLocation>,
 	targetPath: FormPath,
-): ReadonlyMap<Uuid, string> {
+): ReadonlyMap<Uuid, WireExpr> {
 	return new Map(
 		[...creates].map(([uuid, producer]) => [
 			uuid,
-			originalContextPath(targetPath, producer.casePath.attr("case_id")),
+			originalContextWirePath(targetPath, producer.casePath.attr("case_id")),
 		]),
 	);
 }
@@ -1663,34 +1939,38 @@ function emitTarget(
 	consumerRepeat: Uuid | undefined,
 	fields: ReadonlyMap<Uuid, FieldLocation>,
 	creates: ReadonlyMap<Uuid, OperationLocation>,
-	emitExpression: (expression: ValueExpression, targetPath: FormPath) => string,
-	instances: Set<RequiredInstance>,
+	emitExpression: (
+		expression: ValueExpression,
+		targetPath: FormPath,
+	) => WireExpr,
 	expectedCaseType: string,
-	selectedCaseIdRef: string,
-): string {
+	selectedCaseIdRef: WireExpr,
+): WireExpr {
 	switch (target.kind) {
 		case "new":
 			return target.idFrom === undefined
-				? "uuid()"
+				? w.call("uuid")
 				: boundFieldPath(fields, target.idFrom, consumerRepeat, targetPath);
 		case "session":
-			instances.add("commcaresession");
 			return selectedCaseIdRef;
 		case "expression": {
 			const id = emitExpression(target.expr, targetPath);
-			instances.add("casedb");
+
 			return typedRuntimeCaseId(id, expectedCaseType);
 		}
 		case "op": {
 			const producer = creates.get(target.opUuid);
-			if (producer === undefined) return "''";
-			return originalContextPath(targetPath, producer.casePath.attr("case_id"));
+			if (producer === undefined) return w.str("");
+			return originalContextWirePath(
+				targetPath,
+				producer.casePath.attr("case_id"),
+			);
 		}
 	}
 }
 
-function typedRuntimeCaseId(id: string, caseType: string): string {
-	return `instance('casedb')/casedb/case[@case_id=(${id}) and @case_type=${quoteLiteral(caseType, "case-list-filter")}]/@case_id`;
+function typedRuntimeCaseId(id: WireExpr, caseType: string): WireExpr {
+	return w.append(caseById(id, "casedb", caseType), [w.attr("case_id")]);
 }
 
 /**
@@ -1706,129 +1986,46 @@ function typedRuntimeCaseId(id: string, caseType: string): string {
 export function bindLookupFilterFieldPaths(
 	fields: ReadonlyMap<Uuid, FieldLocation>,
 	questionPath: FormPath,
-): ReadonlyMap<Uuid, string> {
+): ReadonlyMap<Uuid, WireExpr> {
 	return new Map(
 		[...fields].map(([uuid, field]) => [
 			uuid,
 			field.repeat !== undefined
-				? originalContextPath(questionPath, field.path)
-				: field.path.toXPath(),
+				? originalContextWirePath(questionPath, field.path)
+				: field.path.toWire(),
 		]),
 	);
 }
 
-function formCasePropertyResolver(
+export function formCasePropertyResolver(
 	moduleCaseType: string | undefined,
-	selectedCaseIdRef: string,
-): NonNullable<OnDeviceExpressionBindings["caseProperty"]> {
+	selectedCaseIdRef: WireExpr,
+): NonNullable<WireTermBindings["caseProperty"]> {
 	return (property, root, scope) => {
 		if (
 			scope !== "root" ||
 			moduleCaseType === undefined ||
 			property.caseType !== moduleCaseType
-		) {
-			// A relation where-clause is evaluated with its destination case as
-			// current(); leave those terms on the normal relative emission path.
+		)
 			return undefined;
-		}
 		return emitAnchoredProperty(property, root, selectedCaseIdRef);
 	};
 }
-
 function emitAnchoredProperty(
 	property: PropertyRef,
 	root: InstanceRoot,
-	selectedCaseIdRef: string,
-): string {
-	const leaf = emitCasePropertyWirePath(property.property);
-	const base = `instance('${root}')/${instanceRootPath(root)}/case[@case_id=${selectedCaseIdRef}]`;
+	selectedCaseIdRef: WireExpr,
+): WireExpr {
 	const via = property.via;
-	if (via === undefined || via.kind === "self") return `${base}/${leaf}`;
-	if (via.kind === "ancestor") {
-		let destination = base;
-		for (const step of via.via) {
-			destination = caseById(
-				`${destination}/index/${step.identifier}`,
-				step.throughCaseType,
-				root,
-			);
-		}
-		return `${destination}/${leaf}`;
-	}
-	const subcase = subcasesOf(base, via.identifier, via.ofCaseType, root);
-	if (via.kind === "subcase") return `${subcase}/${leaf}`;
-	const ancestor = caseById(
-		`${base}/index/${via.identifier}`,
-		via.ofCaseType,
-		root,
-	);
-	return `(${ancestor}/${leaf} | ${subcase}/${leaf})`;
-}
-
-function caseById(
-	id: string,
-	caseType: string | undefined,
-	root: InstanceRoot,
-): string {
-	const type =
-		caseType === undefined
-			? ""
-			: ` and @case_type=${quoteLiteral(caseType, "case-list-filter")}`;
-	return `instance('${root}')/${instanceRootPath(root)}/case[@case_id=${id}${type}]`;
-}
-
-function subcasesOf(
-	origin: string,
-	identifier: string,
-	caseType: string | undefined,
-	root: InstanceRoot,
-): string {
-	const type =
-		caseType === undefined
-			? ""
-			: ` and @case_type=${quoteLiteral(caseType, "case-list-filter")}`;
-	return `instance('${root}')/${instanceRootPath(root)}/case[index/${identifier}=${origin}/@case_id${type}]`;
-}
-
-function accumulateExpressionInstances(
-	expression: ValueExpression,
-	instances: Set<RequiredInstance>,
-	fixtureInstances: Map<string, string>,
-	lookupNaming: LookupWireNaming | undefined,
-): void {
-	for (const instance of collectExpressionInstances(
-		expression,
-		lookupNaming,
-		"xform",
-	)) {
-		addAccumulatedInstance(instance, instances, fixtureInstances, lookupNaming);
-	}
-}
-
-function accumulatePredicateInstances(
-	predicate: Predicate,
-	instances: Set<RequiredInstance>,
-	fixtureInstances: Map<string, string>,
-	lookupNaming: LookupWireNaming | undefined,
-): void {
-	for (const instance of collectPredicateInstances(
-		predicate,
-		lookupNaming,
-		"xform",
-	)) {
-		addAccumulatedInstance(instance, instances, fixtureInstances, lookupNaming);
-	}
-}
-
-function addAccumulatedInstance(
-	instance: string,
-	instances: Set<RequiredInstance>,
-	fixtureInstances: Map<string, string>,
-	lookupNaming: LookupWireNaming | undefined,
-): void {
-	if (instance === "casedb" || instance === "commcaresession") {
-		instances.add(instance);
-		return;
-	}
-	fixtureInstances.set(instance, instanceSourceFor(instance, lookupNaming));
+	const base =
+		via === undefined || via.kind === "self"
+			? caseById(selectedCaseIdRef, root)
+			: via.kind === "ancestor"
+				? buildAncestorJoinNodeset(via.via, root, selectedCaseIdRef)
+				: undefined;
+	if (base === undefined)
+		throw new Error(
+			"A scalar record property cannot traverse a collection relation. The on-device compatibility gate must reject this expression before emission.",
+		);
+	return w.append(base, [casePropertyStep(property.property)]);
 }

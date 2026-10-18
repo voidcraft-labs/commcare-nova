@@ -102,7 +102,20 @@ import {
 import type { FormActions } from "./types";
 import { moduleTypeContext } from "./validator/rules/case-list/shared";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
-import { lowerXPathForJavaRosa } from "./xpath";
+import {
+	type FormLinkXPathValue,
+	isLegacyFormLinkXPath,
+	legacyFormLinkGuard,
+	legacyProjectedFormLinkXPath,
+} from "./xform/legacyAuthoredXPath";
+import {
+	lowerXPathForJavaRosa,
+	selectedCasesInstance,
+	serializeWire,
+	sessionInstance,
+	type WireExpr,
+	w,
+} from "./xpath";
 
 // ── Frame vocabulary ─────────────────────────────────────────────────────
 
@@ -121,7 +134,7 @@ export interface FrameDatum {
 	 * frame-prefix projection. This is internal provenance, never suite wire. */
 	readonly selectionSourceModuleUuid?: Uuid;
 	/** The XPath a function datum evaluates (`uuid()`). */
-	readonly function?: string;
+	readonly function?: WireExpr;
 	/** HQ `WorkflowDatumMeta.from_parent_module`: this datum was copied from
 	 * the root module only as a child-entry placeholder. It is emitted in the
 	 * entry but cannot automatically satisfy an after-submit target. */
@@ -132,7 +145,10 @@ export interface FrameDatum {
 	 * follows HQ's `_replace_session_references_in_stack` without reading
 	 * XPath back out of a string.
 	 */
-	readonly renderFunction?: (sessionRef: (datumId: string) => string) => string;
+	readonly renderFunction?: (
+		sessionRef: (datumId: string) => WireExpr,
+	) => WireExpr;
+	readonly renderFormLinkFunction?: SessionDatum["renderFormLinkFunction"];
 	/**
 	 * Present on the `<query>` session child of a search-first module (HQ
 	 * `WorkflowQueryMeta`). `id` is the storage instance; `caseType` is the
@@ -155,7 +171,11 @@ export type FrameChild =
 /** A frame child after matching: what the `<create>` carries. */
 export type MatchedChild =
 	| { readonly type: "command"; readonly id: string }
-	| { readonly type: "datum"; readonly id: string; readonly value: string }
+	| {
+			readonly type: "datum";
+			readonly id: string;
+			readonly value: FormLinkXPathValue;
+	  }
 	/** HQ `WorkflowQueryMeta.to_stack_datum`: fetch the selected case into
 	 *  a search-first module's results instance before its datum reads it. */
 	| {
@@ -166,8 +186,20 @@ export type MatchedChild =
 	  };
 
 /** `instance('commcaresession')/session/data/<id>`, HQ's `session_var`. */
-export function sessionDataRef(datumId: string): string {
-	return `instance('commcaresession')/session/data/${datumId}`;
+export function sessionDataRef(datumId: string): WireExpr {
+	return w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("data"),
+		w.step(datumId),
+	]);
+}
+
+/** PR4 equality checks compare the actual projected values at the legacy
+ * authored boundary, while generated expressions remain trees. */
+function formLinkValueText(value: FormLinkXPathValue): string {
+	return isLegacyFormLinkXPath(value)
+		? value.text
+		: serializeWire(value, { target: "suite" }).text;
 }
 
 // ── Context ──────────────────────────────────────────────────────────────
@@ -461,6 +493,9 @@ function toFrameDatum(
 		...(ctx.fromParentModuleDatums.has(datum) && { fromParentModule: true }),
 		...(datum.renderFunction !== undefined && {
 			renderFunction: datum.renderFunction,
+		}),
+		...(datum.renderFormLinkFunction !== undefined && {
+			renderFormLinkFunction: datum.renderFormLinkFunction,
 		}),
 	};
 }
@@ -934,8 +969,9 @@ type PendingChild =
 	| {
 			readonly type: "datum";
 			readonly id: string;
-			readonly value: string;
+			readonly value: FormLinkXPathValue;
 			readonly renderFunction?: FrameDatum["renderFunction"];
+			readonly renderFormLinkFunction?: FrameDatum["renderFormLinkFunction"];
 	  }
 	| Extract<MatchedChild, { type: "query" }>;
 
@@ -954,12 +990,15 @@ function queryChild(datum: FrameDatum, sourceId: string): PendingChild {
 		id: datum.id,
 		value: query.caseFixtureUrl,
 		data: [
-			{ key: "case_type", ref: `'${datum.caseType ?? ""}'` },
+			{ key: "case_type", ref: w.str(datum.caseType ?? "") },
 			query.nextDatumIsCollection
 				? {
 						key: "case_id",
-						ref: ".",
-						nodeset: `instance('${sourceId}')/results/value`,
+						ref: w.context([w.self()]),
+						nodeset: w.instance(selectedCasesInstance(sourceId), [
+							w.step("results"),
+							w.step("value"),
+						]),
 					}
 				: { key: "case_id", ref: sessionDataRef(sourceId) },
 		],
@@ -974,9 +1013,12 @@ function functionChild(datum: FrameDatum): PendingChild {
 	return {
 		type: "datum",
 		id: datum.id,
-		value: datum.function ?? "",
+		value: datum.function ?? w.str(""),
 		...(datum.renderFunction !== undefined && {
 			renderFunction: datum.renderFunction,
+		}),
+		...(datum.renderFormLinkFunction !== undefined && {
+			renderFormLinkFunction: datum.renderFormLinkFunction,
 		}),
 	};
 }
@@ -1088,7 +1130,10 @@ export interface ManualMatch {
 /** HQ's `_get_datums_matched_to_manual_values`. */
 export function matchFrameToManual(
 	target: readonly FrameChild[],
-	manual: readonly { readonly name: string; readonly xpath: string }[],
+	manual: readonly {
+		readonly name: string;
+		readonly xpath: FormLinkXPathValue;
+	}[],
 	sourceDatumIds: ReadonlySet<string>,
 ): ManualMatch {
 	const byName = new Map(manual.map((datum) => [datum.name, datum.xpath]));
@@ -1147,18 +1192,28 @@ function replaceSessionReferences(
 	children: readonly PendingChild[],
 	sourceDatumIds: ReadonlySet<string>,
 ): MatchedChild[] {
-	const earlier = new Map<string, string>();
+	const earlier = new Map<string, FormLinkXPathValue>();
 	return children.map((child) => {
 		if (child.type === "command" || child.type === "query") return child;
+		const read = (id: string): FormLinkXPathValue => {
+			const held = earlier.get(id);
+			return held !== undefined && !sourceDatumIds.has(id)
+				? held
+				: sessionDataRef(id);
+		};
 		const value =
-			child.renderFunction === undefined
-				? child.value
-				: child.renderFunction((id) => {
-						const held = earlier.get(id);
-						return held !== undefined && !sourceDatumIds.has(id)
-							? held
-							: sessionDataRef(id);
-					});
+			child.renderFormLinkFunction !== undefined
+				? child.renderFormLinkFunction(read)
+				: child.renderFunction === undefined
+					? child.value
+					: child.renderFunction((id) => {
+							const value = read(id);
+							if (isLegacyFormLinkXPath(value))
+								throw new Error(
+									"A generated function datum needs its authored form-link projection hook before substituting a manual value.",
+								);
+							return value;
+						});
 		earlier.set(child.id, value);
 		return { type: "datum", id: child.id, value };
 	});
@@ -1259,7 +1314,7 @@ export function caseListFormReturnFrame(
 	hostModuleUuid: Uuid,
 	sourceSessionVar: string,
 	caseType: string,
-): { readonly ifClause: string; readonly children: MatchedChild[] } {
+): { readonly ifClause: WireExpr; readonly children: MatchedChild[] } {
 	/* HQ's `_get_entries_datums` reads form entries only (`_include_datums`
 	 * skips the `*-case-list` entry), so a host without menu forms has no
 	 * common prefix: the frame is the host command alone, and the worker
@@ -1309,7 +1364,10 @@ export function caseListFormReturnFrame(
 	const returnTo = sessionDataRef(RETURN_TO_DATUM_ID);
 	const command = `m${moduleIndexOf(ctx, hostModuleUuid)}`;
 	return {
-		ifClause: `count(${returnTo}) = 1 and ${returnTo} = '${command}'`,
+		ifClause: w.and(
+			w.eq(w.call("count", [returnTo]), w.num(1)),
+			w.eq(returnTo, w.str(command)),
+		),
 		children: replaceSessionReferences(pending, new Set([sourceSessionVar])),
 	};
 }
@@ -1354,7 +1412,7 @@ export function parentMenuDestinationFrameChildren(
 export interface GuardPlanLink {
 	readonly uuid: Uuid;
 	/** Projected wire XPath, trimmed and non-empty; absent = unconditional. */
-	readonly condition?: string;
+	readonly condition?: FormLinkXPathValue;
 }
 
 export type FallbackPlan =
@@ -1363,13 +1421,13 @@ export type FallbackPlan =
 	/** A terminal unconditional link is the exhaustive else. */
 	| { readonly kind: "suppressed-by-else" }
 	/** The last link is conditional: the fallback fires when none matched. */
-	| { readonly kind: "guarded"; readonly guard: string };
+	| { readonly kind: "guarded"; readonly guard: FormLinkXPathValue };
 
 export interface GuardPlan {
 	readonly links: ReadonlyArray<{
 		readonly uuid: Uuid;
 		/** The `if` to emit; absent = no `if` attribute. */
-		readonly guard?: string;
+		readonly guard?: FormLinkXPathValue;
 	}>;
 	readonly fallback: FallbackPlan;
 }
@@ -1380,21 +1438,19 @@ export interface GuardPlan {
  * refuses the document; the projection never throws).
  */
 export function planFormLinkGuards(links: readonly GuardPlanLink[]): GuardPlan {
-	const planned: Array<{ uuid: Uuid; guard?: string }> = [];
-	const priors: string[] = [];
+	const planned: Array<{ uuid: Uuid; guard?: FormLinkXPathValue }> = [];
+	const priors: FormLinkXPathValue[] = [];
 	for (const link of links) {
-		const negatedPriors = priors.map((prior) => `not(${prior})`);
 		if (link.condition === undefined) {
 			planned.push({
 				uuid: link.uuid,
-				...(negatedPriors.length > 0 && { guard: negatedPriors.join(" and ") }),
+				...(priors.length > 0 && {
+					guard: legacyFormLinkGuard(undefined, priors),
+				}),
 			});
 			continue;
 		}
-		const guard =
-			negatedPriors.length === 0
-				? link.condition
-				: [`(${link.condition})`, ...negatedPriors].join(" and ");
+		const guard = legacyFormLinkGuard(link.condition, priors);
 		planned.push({ uuid: link.uuid, guard });
 		priors.push(link.condition);
 	}
@@ -1406,10 +1462,12 @@ export function planFormLinkGuards(links: readonly GuardPlanLink[]): GuardPlan {
 				? { kind: "suppressed-by-else" }
 				: {
 						kind: "guarded",
-						guard: planned
-							.flatMap((link) => (link.guard === undefined ? [] : [link.guard]))
-							.map((guard) => `not(${guard})`)
-							.join(" and "),
+						guard: legacyFormLinkGuard(
+							undefined,
+							planned.flatMap((link) =>
+								link.guard === undefined ? [] : [link.guard],
+							),
+						),
 					};
 	return { links: planned, fallback };
 }
@@ -1419,14 +1477,14 @@ export function planFormLinkGuards(links: readonly GuardPlanLink[]): GuardPlan {
 export interface ProjectedFormLink {
 	readonly uuid: Uuid;
 	/** The suite `<create if>` / HQ `xpath`; absent = unconditional. */
-	readonly guard?: string;
+	readonly guard?: FormLinkXPathValue;
 	readonly target: FormLinkTarget;
 	/** The local frame's children after matching. */
 	readonly children: MatchedChild[];
 	/** The authored manual datums projected to wire XPath (HQ `datums`). */
 	readonly datums: ReadonlyArray<{
 		readonly name: string;
-		readonly xpath: string;
+		readonly xpath: FormLinkXPathValue;
 	}>;
 	/** Validator inputs; all empty on a document the gate admits. */
 	readonly unmatched: readonly FrameDatum[];
@@ -1646,7 +1704,7 @@ export function ownCaseSessionRef(
 	moduleUuid: Uuid,
 	formType: FormLinkSourceType,
 	sourceDatums: readonly FrameDatum[],
-): string | undefined {
+): WireExpr | undefined {
 	const ownType = moduleCaseTypeForActions(doc, moduleUuid);
 	const selected = [...sourceDatums]
 		.reverse()
@@ -1671,7 +1729,7 @@ type FormLinkSourceType = BlueprintDoc["forms"][string]["type"];
 function formLinkWireProjector(
 	doc: BlueprintDoc,
 	moduleCaseType: string | undefined,
-	ownCaseIdRef?: string,
+	ownCaseIdRef?: WireExpr,
 ): (expression: XPathExpression) => string {
 	const ctx = xpathPrintContext(doc);
 	const depths = caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []);
@@ -1680,7 +1738,9 @@ function formLinkWireProjector(
 			expandHashtagsForSessionStack(
 				printXPath(expression, ctx),
 				depths,
-				ownCaseIdRef,
+				ownCaseIdRef === undefined
+					? undefined
+					: serializeWire(ownCaseIdRef, { target: "suite" }).text,
 			),
 		).trim();
 }
@@ -1708,7 +1768,10 @@ export function projectFormLinkSessionExpression(
  * identical; otherwise only an unchanged source selection is representable. */
 function projectManualSearchLink(
 	target: readonly FrameChild[],
-	datums: readonly { readonly name: string; readonly xpath: string }[],
+	datums: readonly {
+		readonly name: string;
+		readonly xpath: FormLinkXPathValue;
+	}[],
 	sourceDatums: readonly FrameDatum[],
 	sourceIds: ReadonlySet<string>,
 ): {
@@ -1739,7 +1802,8 @@ function projectManualSearchLink(
 				child.type === other.type &&
 				child.id === other.id &&
 				(child.type === "command" ||
-					(other.type === "datum" && child.value === other.value))
+					(other.type === "datum" &&
+						formLinkValueText(child.value) === formLinkValueText(other.value)))
 			);
 		});
 	if (sameSteps)
@@ -1750,11 +1814,15 @@ function projectManualSearchLink(
 		};
 	const byName = new Map(datums.map((datum) => [datum.name, datum.xpath]));
 	const unrepresentableQueryDatums = queries
-		.filter(
-			(query) =>
+		.filter((query) => {
+			const manual = byName.get(query.nextDatumId);
+			return (
 				!sourceIds.has(query.nextDatumId) ||
-				byName.get(query.nextDatumId) !== sessionDataRef(query.nextDatumId),
-		)
+				manual === undefined ||
+				formLinkValueText(manual) !==
+					formLinkValueText(sessionDataRef(query.nextDatumId))
+			);
+		})
 		.map((query) => query.nextDatumId);
 	return { match, datums, unrepresentableQueryDatums };
 }
@@ -1794,7 +1862,7 @@ export function projectFormLinks(
 			uuid: link.uuid,
 			...(formLinkIsConditional(link, project) &&
 				link.condition !== undefined && {
-					condition: project(link.condition),
+					condition: legacyProjectedFormLinkXPath(project(link.condition)),
 				}),
 		})),
 	);
@@ -1804,7 +1872,7 @@ export function projectFormLinks(
 		const guard = guards.links[index]?.guard;
 		const datums = (link.datums ?? []).map((datum) => ({
 			name: datum.name,
-			xpath: project(datum.xpath),
+			xpath: legacyProjectedFormLinkXPath(project(datum.xpath)),
 		}));
 		if (link.datums !== undefined) {
 			const manual = projectManualSearchLink(

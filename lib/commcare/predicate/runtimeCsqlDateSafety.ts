@@ -17,6 +17,9 @@
 
 import type { ComparisonKind, ValueExpression } from "@/lib/domain/predicate";
 import { SYSTEM_DATETIME_CASE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import { w } from "../xpath/wire/builders";
+import { serializeWire } from "../xpath/wire/serialize";
+import type { WireExpr } from "../xpath/wire/tree";
 import type { CsqlSegment } from "./csqlSegment";
 
 /**
@@ -39,8 +42,8 @@ export function needsBlankComparandGuard(
  * segment interpolates as it is. A segment that only carries another
  * obligation interpolates nothing and is skipped.
  */
-function runtimeValueXPaths(segments: readonly CsqlSegment[]): string[] {
-	const values: string[] = [];
+function runtimeValueXPaths(segments: readonly CsqlSegment[]): WireExpr[] {
+	const values: WireExpr[] = [];
 	for (const segment of segments) {
 		if (segment.kind !== "runtime") continue;
 		if (segment.stringValueXPath !== undefined) {
@@ -60,13 +63,17 @@ function runtimeValueXPaths(segments: readonly CsqlSegment[]): string[] {
 export function blankComparandGuard(
 	values: readonly (readonly CsqlSegment[])[],
 ): CsqlSegment[] {
-	const reads = [...new Set(values.flatMap(runtimeValueXPaths))];
+	const byText = new Map<string, WireExpr>();
+	for (const read of values.flatMap(runtimeValueXPaths)) {
+		byText.set(serializeWire(read, { target: "suite" }).text, read);
+	}
+	const reads = [...byText.values()];
 	if (reads.length === 0) return [];
 	return [
 		{
 			kind: "runtime",
-			xpath: "''",
-			rejectWhen: reads.map((read) => `${read} = ''`).join(" or "),
+			xpath: w.str(""),
+			rejectWhen: w.or(...reads.map((read) => w.eq(read, w.str("")))),
 			rejectionKind: "blank-comparand",
 		},
 	];

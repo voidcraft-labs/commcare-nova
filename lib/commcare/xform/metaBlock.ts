@@ -48,7 +48,11 @@
 
 import { Element } from "domhandler";
 import { getChildren } from "domutils";
-import { el } from "@/lib/commcare/elementBuilders";
+import {
+	el,
+	type WireElementContext,
+	xel,
+} from "@/lib/commcare/elementBuilders";
 import {
 	appendChildren,
 	ensureInstance,
@@ -59,6 +63,8 @@ import {
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { w } from "../xpath/wire/builders";
+import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 
 /**
  * The three sibling groups `buildMetaBlock` produces for `addMetaBlock` to
@@ -89,7 +95,10 @@ interface MetaBlockEmission {
  * on every form save, so the closing timestamp and drift reflect the actual
  * submission moment, not the form-open moment.
  */
-function buildMetaBlock(captureLocation: boolean): MetaBlockEmission {
+function buildMetaBlock(
+	captureLocation: boolean,
+	context: WireElementContext,
+): MetaBlockEmission {
 	// Children of `<orx:meta>`. The meta nodes carry the OpenRosa `orx:`
 	// namespace (declared on the `h:html` root), with `appVersion` in the
 	// CommCare `cc:` namespace declared on the meta element itself — exactly
@@ -114,16 +123,22 @@ function buildMetaBlock(captureLocation: boolean): MetaBlockEmission {
 
 	// One meta-child path per setvalue / bind, constructed via FormPath so the
 	// `/data/meta/...` shape is structural rather than string-templated. Every
-	// downstream attribute reads the same typed value through `.toXPath()`.
+	// downstream attribute reads the same typed value through `.toWire()`.
 	const meta = FormPath.root().child("meta");
-	const deviceIDPath = meta.child("deviceID").toXPath();
-	const timeStartPath = meta.child("timeStart").toXPath();
-	const timeEndPath = meta.child("timeEnd").toXPath();
-	const usernamePath = meta.child("username").toXPath();
-	const userIDPath = meta.child("userID").toXPath();
-	const instanceIDPath = meta.child("instanceID").toXPath();
-	const appVersionPath = meta.child("appVersion").toXPath();
-	const driftPath = meta.child("drift").toXPath();
+	const deviceIDPath = meta.child("deviceID").toWire();
+	const timeStartPath = meta.child("timeStart").toWire();
+	const timeEndPath = meta.child("timeEnd").toWire();
+	const usernamePath = meta.child("username").toWire();
+	const userIDPath = meta.child("userID").toWire();
+	const instanceIDPath = meta.child("instanceID").toWire();
+	const appVersionPath = meta.child("appVersion").toWire();
+	const driftPath = meta.child("drift").toWire();
+	const sessionContext = (field: string) =>
+		w.instance(sessionInstance(), [
+			w.step("session"),
+			w.step("context"),
+			w.step(field),
+		]);
 
 	// One-shot capture at form load (xforms-ready) for everything except
 	// timeEnd and drift, which refresh on every revalidate so the closing
@@ -131,47 +146,98 @@ function buildMetaBlock(captureLocation: boolean): MetaBlockEmission {
 	// (a one-shot per form instance); deviceID/username/userID/appVersion
 	// pull from session context; timeStart is now() at load.
 	const setvalues = [
-		el("setvalue", {
-			ref: deviceIDPath,
-			value: "instance('commcaresession')/session/context/deviceid",
-			event: "xforms-ready",
-		}),
-		el("setvalue", {
-			ref: timeStartPath,
-			value: "now()",
-			event: "xforms-ready",
-		}),
-		el("setvalue", {
-			ref: timeEndPath,
-			value: "now()",
-			event: "xforms-revalidate",
-		}),
-		el("setvalue", {
-			ref: usernamePath,
-			value: "instance('commcaresession')/session/context/username",
-			event: "xforms-ready",
-		}),
-		el("setvalue", {
-			ref: userIDPath,
-			value: "instance('commcaresession')/session/context/userid",
-			event: "xforms-ready",
-		}),
-		el("setvalue", {
-			ref: instanceIDPath,
-			value: "uuid()",
-			event: "xforms-ready",
-		}),
-		el("setvalue", {
-			ref: appVersionPath,
-			value: "instance('commcaresession')/session/context/appversion",
-			event: "xforms-ready",
-		}),
-		el("setvalue", {
-			ref: driftPath,
-			value:
-				"if(count(instance('commcaresession')/session/context/drift) = 1, instance('commcaresession')/session/context/drift, '')",
-			event: "xforms-revalidate",
-		}),
+		xel(
+			"setvalue",
+			{
+				attributes: { event: "xforms-ready" },
+				xpath: {
+					ref: deviceIDPath,
+					value: sessionContext("deviceid"),
+				},
+			},
+			context,
+		),
+		xel(
+			"setvalue",
+			{
+				attributes: { event: "xforms-ready" },
+				xpath: {
+					ref: timeStartPath,
+					value: w.call("now"),
+				},
+			},
+			context,
+		),
+		xel(
+			"setvalue",
+			{
+				attributes: { event: "xforms-revalidate" },
+				xpath: {
+					ref: timeEndPath,
+					value: w.call("now"),
+				},
+			},
+			context,
+		),
+		xel(
+			"setvalue",
+			{
+				attributes: { event: "xforms-ready" },
+				xpath: {
+					ref: usernamePath,
+					value: sessionContext("username"),
+				},
+			},
+			context,
+		),
+		xel(
+			"setvalue",
+			{
+				attributes: { event: "xforms-ready" },
+				xpath: {
+					ref: userIDPath,
+					value: sessionContext("userid"),
+				},
+			},
+			context,
+		),
+		xel(
+			"setvalue",
+			{
+				attributes: { event: "xforms-ready" },
+				xpath: {
+					ref: instanceIDPath,
+					value: w.call("uuid"),
+				},
+			},
+			context,
+		),
+		xel(
+			"setvalue",
+			{
+				attributes: { event: "xforms-ready" },
+				xpath: {
+					ref: appVersionPath,
+					value: sessionContext("appversion"),
+				},
+			},
+			context,
+		),
+		xel(
+			"setvalue",
+			{
+				attributes: { event: "xforms-revalidate" },
+				xpath: {
+					ref: driftPath,
+					value: w.call("if", [
+						w.eq(w.call("count", [sessionContext("drift")]), w.num(1)),
+						sessionContext("drift"),
+						w.str(""),
+					]),
+				},
+			},
+			context,
+		),
 	];
 
 	// Datatype hints for the two dateTime nodes. JavaRosa's setvalue processor
@@ -180,21 +246,33 @@ function buildMetaBlock(captureLocation: boolean): MetaBlockEmission {
 	// form-processor metadata extraction) read the bind's declared type to know
 	// the field is a timestamp, not a free-form string.
 	const binds = [
-		el("bind", {
-			nodeset: timeStartPath,
-			type: "xsd:dateTime",
-		}),
-		el("bind", {
-			nodeset: timeEndPath,
-			type: "xsd:dateTime",
-		}),
+		xel(
+			"bind",
+			{
+				attributes: { type: "xsd:dateTime" },
+				xpath: {
+					nodeset: timeStartPath,
+				},
+			},
+			context,
+		),
+		xel(
+			"bind",
+			{
+				attributes: { type: "xsd:dateTime" },
+				xpath: {
+					nodeset: timeEndPath,
+				},
+			},
+			context,
+		),
 	];
 
 	return { dataElement, setvalues, binds };
 }
 
 /** The location node a capturing form's poll writes its fix into. */
-const LOCATION_PATH = FormPath.root().child("meta").child("location").toXPath();
+const LOCATION_PATH = FormPath.root().child("meta").child("location");
 
 /** Whether the model holds a `geopoint` bind, the shape HQ's `elif` reads. */
 function holdsGeopointBind(model: Element): boolean {
@@ -212,11 +290,29 @@ function holdsGeopointBind(model: Element): boolean {
  * that node's `geopoint` bind; without it, the bare one where the form holds
  * a `geopoint` bind; otherwise none.
  */
-function pollsensorNodes(model: Element, captureLocation: boolean): Element[] {
+function pollsensorNodes(
+	model: Element,
+	captureLocation: boolean,
+	context: WireElementContext,
+): Element[] {
 	if (captureLocation) {
 		return [
-			el("orx:pollsensor", { event: "xforms-ready", ref: LOCATION_PATH }),
-			el("bind", { nodeset: LOCATION_PATH, type: "geopoint" }),
+			xel(
+				"orx:pollsensor",
+				{
+					attributes: { event: "xforms-ready" },
+					xpath: { ref: LOCATION_PATH.toWire() },
+				},
+				context,
+			),
+			xel(
+				"bind",
+				{
+					attributes: { type: "geopoint" },
+					xpath: { nodeset: LOCATION_PATH.toWire() },
+				},
+				context,
+			),
 		];
 	}
 	return holdsGeopointBind(model)
@@ -250,7 +346,12 @@ export function addMetaBlock(
 	options: { readonly captureLocation?: boolean } = {},
 ): string {
 	const captureLocation = options.captureLocation === true;
-	const meta = buildMetaBlock(captureLocation);
+	const instances = new InstanceSink();
+	const context: WireElementContext = {
+		mode: { target: "xform", constraint: false },
+		instances,
+	};
+	const meta = buildMetaBlock(captureLocation, context);
 	const doc = parseXForm(xform);
 
 	// Append `<orx:meta>` last under `<data>`. On the `.ccz` path `addCaseBlocks`
@@ -263,11 +364,12 @@ export function addMetaBlock(
 	// The meta setvalues read `instance('commcaresession')/session/context/...`,
 	// so the form requires the session instance. Mirrors `_add_meta_2`'s
 	// `add_instance('commcaresession', src='jr://instance/session')`.
-	ensureInstance(modelEl, "commcaresession", "jr://instance/session");
 	insertBeforeItext(modelEl, [...meta.binds, ...meta.setvalues]);
 	// HQ appends its pollsensor after everything else in the model, itext
 	// included.
-	appendChildren(modelEl, pollsensorNodes(modelEl, captureLocation));
+	appendChildren(modelEl, pollsensorNodes(modelEl, captureLocation, context));
+	for (const { id, src } of instances.declarations())
+		ensureInstance(modelEl, id, src);
 
 	return serializeXForm(doc);
 }

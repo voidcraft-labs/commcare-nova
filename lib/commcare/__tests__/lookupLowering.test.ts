@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
-import { ROOT_ON_DEVICE_CASE_ANCHOR } from "@/lib/commcare/predicate/relationPresenceEmitter";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import {
+	toWire,
+	type WireTermBindings,
+} from "@/lib/commcare/xpath/wire/fromExpression";
+import { sessionInstance } from "@/lib/commcare/xpath/wire/instances";
+import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
+import type { WireExpr, WirePath } from "@/lib/commcare/xpath/wire/tree";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	ancestorPath,
@@ -47,133 +53,137 @@ const naming = lookupWireNaming([
 	},
 ]);
 
-/** Value-slot lowering with a live naming supplied. */
-const withNaming = { lookup: { naming, instanceScope: "suite" } } as const;
-const withXformNaming = {
-	lookup: { naming, instanceScope: "xform" },
-} as const;
+function lower(
+	expression: Parameters<typeof toWire>[0],
+	target: "xform" | "suite" = "suite",
+	bindings: WireTermBindings = {},
+): WireExpr {
+	return toWire(expression, {
+		target,
+		types: { currentCaseType: "patient" },
+		bindings: { lookup: { naming, instanceScope: target }, ...bindings },
+	});
+}
 
-describe("emitOnDeviceExpression — table-lookup lowering", () => {
-	it("uses the exact XForm-local id while suite expressions use the fixture id", () => {
-		// Oracle:
-		// corehq/apps/app_manager/tests/data/form_with_fixtures.xml uses
-		// `<instance src="jr://fixture/item-list:country" id="country"/>`;
-		// RemoteRequestSuiteTest.test_prompt_itemset uses
-		// `instance('item-list:states')` in suite XPath.
-		const expression = tableLookup(REGIONS, NAME, matchAll());
-		expect(
-			emitOnDeviceExpression(
-				expression,
-				"casedb",
-				{},
-				ROOT_ON_DEVICE_CASE_ANCHOR,
-				withXformNaming,
+function path(expression: WireExpr): WirePath {
+	expect(expression.k).toBe("path");
+	if (expression.k !== "path")
+		throw new Error("The lookup did not produce a path.");
+	return expression;
+}
+
+/** Inspect tree coordinates, without using the serializer as its own oracle. */
+function nodes(expression: WireExpr): WireExpr[] {
+	let children: readonly WireExpr[] = [];
+	switch (expression.k) {
+		case "cmp":
+		case "arith":
+			children = [expression.left, expression.right];
+			break;
+		case "and":
+		case "or":
+			children = expression.items;
+			break;
+		case "neg":
+			children = [expression.value];
+			break;
+		case "call":
+			children = expression.args;
+			break;
+		case "expansion":
+			children = [expression.expr];
+			break;
+		case "path":
+			children = expression.steps.flatMap((step) => step.predicates);
+			break;
+	}
+	return [expression, ...children.flatMap(nodes)];
+}
+
+const sessionCaseId = w.instance(sessionInstance(), [
+	w.step("session"),
+	w.step("data"),
+	w.step("case_id"),
+]);
+
+describe("lookup wire coordinates", () => {
+	it.each(["xform", "suite"] as const)(
+		"declares the exact fixture identity in %s",
+		(target) => {
+			const wire = lower(tableLookup(REGIONS, NAME, matchAll()), target);
+			const printed = serializeWire(
+				wire,
+				target === "xform" ? { target, constraint: false } : { target },
+			);
+			expect([...printed.instances]).toEqual([
+				{
+					id: target === "xform" ? "regions" : "item-list:regions",
+					src: "jr://fixture/item-list:regions",
+				},
+			]);
+			expect(path(wire).steps).toEqual([
+				w.step("regions_list"),
+				w.step("regions", [w.num(1)]),
+				w.step("name"),
+			]);
+		},
+	);
+
+	it("keeps the first matching row after a row-relative column filter", () => {
+		const wire = lower(
+			tableLookup(
+				REGIONS,
+				NAME,
+				eq(tableColumn(REGIONS, VALUE), literal("north")),
 			),
-		).toBe("instance('regions')/regions_list/regions[1]/name");
-		expect(
-			emitOnDeviceExpression(
-				expression,
-				"casedb",
-				{},
-				ROOT_ON_DEVICE_CASE_ANCHOR,
-				withNaming,
-			),
-		).toBe("instance('item-list:regions')/regions_list/regions[1]/name");
+		);
+		expect(path(wire).steps[1].predicates).toEqual([
+			w.eq(w.context([w.step("value")]), w.str("north")),
+			w.num(1),
+		]);
 	});
 
-	it("lowers a match-all where to the bare first-match positional path", () => {
+	it("preserves a match-none filter before selecting the first row", () => {
 		expect(
-			emitOnDeviceExpression(
-				tableLookup(REGIONS, NAME, matchAll()),
-				"casedb",
-				{},
-				ROOT_ON_DEVICE_CASE_ANCHOR,
-				withNaming,
-			),
-		).toBe("instance('item-list:regions')/regions_list/regions[1]/name");
+			path(lower(tableLookup(REGIONS, NAME, matchNone()))).steps[1].predicates,
+		).toEqual([w.call("false"), w.num(1)]);
 	});
 
-	it("prints a column-term filter as a bare row-relative wire step", () => {
-		expect(
-			emitOnDeviceExpression(
+	it("keeps the session read absolute within a fixture-row condition", () => {
+		const wire = lower(
+			tableLookup(
+				REGIONS,
+				NAME,
+				eq(tableColumn(REGIONS, VALUE), sessionUser("region")),
+			),
+		);
+		expect(nodes(wire)).toContainEqual(
+			w.instance(sessionInstance(), [
+				w.step("session"),
+				w.step("user"),
+				w.step("data"),
+				w.step("region"),
+			]),
+		);
+	});
+
+	it("anchors a case-list self read on its original case, outside the fixture row", () => {
+		const wire = lower(
+			eq(
 				tableLookup(
 					REGIONS,
 					NAME,
-					eq(tableColumn(REGIONS, VALUE), literal("north")),
+					eq(tableColumn(REGIONS, VALUE), prop("patient", "village")),
 				),
-				"casedb",
-				{},
-				ROOT_ON_DEVICE_CASE_ANCHOR,
-				withNaming,
+				literal("North"),
 			),
-		).toBe(
-			"instance('item-list:regions')/regions_list/regions[value = 'north'][1]/name",
 		);
+		expect(nodes(wire)).toContainEqual(w.current([w.step("village")]));
+		expect(nodes(wire)).not.toContainEqual(w.context([w.step("village")]));
 	});
 
-	it("emits [false()][1] for a match-none where", () => {
-		expect(
-			emitOnDeviceExpression(
-				tableLookup(REGIONS, NAME, matchNone()),
-				"casedb",
-				{},
-				ROOT_ON_DEVICE_CASE_ANCHOR,
-				withNaming,
-			),
-		).toBe(
-			"instance('item-list:regions')/regions_list/regions[false()][1]/name",
-		);
-	});
-
-	it("keeps a session-user term's absolute instance path inside the where", () => {
-		expect(
-			emitOnDeviceExpression(
-				tableLookup(
-					REGIONS,
-					NAME,
-					eq(tableColumn(REGIONS, VALUE), sessionUser("region")),
-				),
-				"casedb",
-				{},
-				ROOT_ON_DEVICE_CASE_ANCHOR,
-				withNaming,
-			),
-		).toBe(
-			"instance('item-list:regions')/regions_list/regions[value = instance('commcaresession')/session/user/data/region][1]/name",
-		);
-	});
-});
-
-describe("emitCaseListFilter — table-lookup in a case-list filter", () => {
-	it("re-anchors a fixture-row self case-property through current()", () => {
-		// The table-lookup sits at the case-list filter's root anchor, so the
-		// case row is `current()`; a bare self property inside the fixture-row
-		// where would read the fixture row, so it re-anchors on the case.
-		expect(
-			emitCaseListFilter(
-				eq(
-					tableLookup(
-						REGIONS,
-						NAME,
-						eq(tableColumn(REGIONS, VALUE), prop("patient", "village")),
-					),
-					literal("North"),
-				),
-				"casedb",
-				{},
-				ROOT_ON_DEVICE_CASE_ANCHOR,
-				withNaming,
-			),
-		).toBe(
-			"instance('item-list:regions')/regions_list/regions[value = current()/village][1]/name = 'North'",
-		);
-	});
-
-	it("clears the fixture-row scope inside a sibling relation where", () => {
-		// The fixture-row self property re-anchors through current(); the
-		// relation `where` evaluates with its own candidate case as context, so
-		// its self property stays bare (candidate-relative), never current()/….
-		const lowered = emitOnDeviceExpression(
+	it("changes from the fixture row to the candidate case for a nested relation", () => {
+		const wire = lower(
 			tableLookup(
 				REGIONS,
 				NAME,
@@ -185,91 +195,39 @@ describe("emitCaseListFilter — table-lookup in a case-list filter", () => {
 					),
 				),
 			),
-			"casedb",
-			{},
-			ROOT_ON_DEVICE_CASE_ANCHOR,
-			withNaming,
 		);
-
-		expect(lowered).toContain("regions[value = current()/village and ");
-		expect(lowered).toContain(
-			"instance('casedb')/casedb/case[@case_type='visit' and (outcome = 'open')]/index/parent",
-		);
-		expect(lowered).not.toContain("current()/outcome");
-		/* Inside the fixture predicate '.' is the fixture row, which has no
-		 * @case_id — the presence test must name the case through current(). */
-		expect(lowered).toContain("count(current()/@case_id) > 0");
-		expect(lowered).toContain(", current()/@case_id)");
-		expect(lowered).not.toContain("count(@case_id)");
+		expect(nodes(wire)).toContainEqual(w.current([w.step("village")]));
+		expect(nodes(wire)).toContainEqual(w.context([w.step("outcome")]));
+		expect(nodes(wire)).not.toContainEqual(w.current([w.step("outcome")]));
+		expect(nodes(wire)).toContainEqual(w.current([w.attr("case_id")]));
 	});
-});
 
-describe("emitOnDeviceExpression — case-operation self-property anchoring", () => {
-	it("keeps a case-op absolute session anchor over the fixture-row current() re-anchor", () => {
-		// A case-operation surface supplies a `caseProperty` resolver that
-		// anchors direct self properties on the selected session case. That
-		// resolver wins over the fixture-row current() re-anchor, so the where's
-		// self property emits the absolute session-anchored path.
-		const anchored =
-			"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]";
-		const lowered = emitOnDeviceExpression(
+	it("keeps a form operation's selected-case binding over the fixture-row anchor", () => {
+		const selectedVillage = w.append(caseById(sessionCaseId, "casedb"), [
+			casePropertyStep("village"),
+		]);
+		const wire = lower(
 			tableLookup(
 				REGIONS,
 				NAME,
 				eq(tableColumn(REGIONS, VALUE), prop("patient", "village")),
 			),
-			"casedb",
-			{},
-			ROOT_ON_DEVICE_CASE_ANCHOR,
+			"xform",
 			{
 				caseProperty: (property, root, scope) =>
 					scope === "root" && property.caseType === "patient"
-						? `instance('${root}')/${root}/case[@case_id=instance('commcaresession')/session/data/case_id]/${property.property}`
+						? w.append(caseById(sessionCaseId, root), [
+								casePropertyStep(property.property),
+							])
 						: undefined,
-				lookup: { naming, instanceScope: "xform" },
 			},
 		);
-
-		expect(lowered).toBe(
-			`instance('regions')/regions_list/regions[value = ${anchored}/village][1]/name`,
-		);
-		expect(lowered).not.toContain("current()/village");
-	});
-});
-
-describe("table-lookup lowering guardrails", () => {
-	it("throws when a table-lookup reaches a surface with no lookup wire naming", () => {
-		expect(() =>
-			emitOnDeviceExpression(tableLookup(REGIONS, NAME, matchAll())),
-		).toThrow(/no lookup wire naming/i);
+		expect(nodes(wire)).toContainEqual(selectedVillage);
+		expect(nodes(wire)).not.toContainEqual(w.current([w.step("village")]));
 	});
 
-	it("throws when a table-column term is used outside any fixture-row scope", () => {
-		expect(() =>
-			emitCaseListFilter(eq(tableColumn(REGIONS, VALUE), literal("north"))),
-		).toThrow(/outside an explicit table scope/i);
-	});
-
-	it("throws when a where reads a column from a different table", () => {
-		expect(() =>
-			emitOnDeviceExpression(
-				tableLookup(
-					REGIONS,
-					NAME,
-					eq(tableColumn(OTHER_TABLE, VALUE), literal("x")),
-				),
-				"casedb",
-				{},
-				ROOT_ON_DEVICE_CASE_ANCHOR,
-				withNaming,
-			),
-		).toThrow(/cross-table/i);
-	});
-});
-
-describe("relation anchors inside a fixture-row where", () => {
-	it("anchors an ancestor count on the case through current()", () => {
-		const lowered = emitOnDeviceExpression(
+	it("anchors an ancestor count on the case outside the fixture-row context", () => {
+		const wire = lower(
 			tableLookup(
 				REGIONS,
 				NAME,
@@ -278,57 +236,59 @@ describe("relation anchors inside a fixture-row where", () => {
 					literal(1),
 				),
 			),
-			"casedb",
-			{ currentCaseType: "patient" },
-			ROOT_ON_DEVICE_CASE_ANCHOR,
-			withNaming,
 		);
-		/* The immediate index read must resolve the case first — a bare
-		 * `index/parent` would read the fixture row. */
-		expect(lowered).toContain(
-			"instance('casedb')/casedb/case[@case_id=current()/@case_id]/index/parent",
+		expect(nodes(wire)).toContainEqual(
+			w.append(caseById(w.current([w.attr("case_id")]), "casedb"), [
+				w.step("index"),
+				w.step("parent"),
+			]),
 		);
-		expect(lowered).not.toContain("count(index/parent)");
 	});
 
-	it("anchors presence tests on the session case id on form surfaces", () => {
-		const sessionCaseId = "instance('commcaresession')/session/data/case_id";
-		const lowered = emitOnDeviceExpression(
+	it("anchors form presence and self reads on the selected session case", () => {
+		const wire = lower(
 			tableLookup(
 				REGIONS,
 				NAME,
 				and(
-					eq(tableColumn(REGIONS, VALUE), literal("north")),
+					eq(tableColumn(REGIONS, VALUE), prop("patient", "village")),
 					exists(subcasePath("parent", "visit")),
 				),
 			),
-			"casedb",
-			{ currentCaseType: "patient" },
-			ROOT_ON_DEVICE_CASE_ANCHOR,
-			{ ...withXformNaming, rootCaseId: sessionCaseId },
+			"xform",
+			{ rootCaseIdWireExpr: sessionCaseId },
 		);
-		/* On a form surface current() is the bind node; the presence test
-		 * anchors on the session-selected case instead. */
-		expect(lowered).toContain(`count(${sessionCaseId}) > 0`);
-		expect(lowered).toContain(`, ${sessionCaseId})`);
-		expect(lowered).not.toContain("current()/@case_id");
+		expect(nodes(wire)).toContainEqual(sessionCaseId);
+		expect(nodes(wire)).toContainEqual(
+			w.append(caseById(sessionCaseId, "casedb"), [w.step("village")]),
+		);
+		expect(nodes(wire)).not.toContainEqual(w.current([w.attr("case_id")]));
 	});
+});
 
-	it("re-anchors a form-surface self property through the session case", () => {
-		const sessionCaseId = "instance('commcaresession')/session/data/case_id";
-		const lowered = emitOnDeviceExpression(
-			tableLookup(
-				REGIONS,
-				NAME,
-				eq(tableColumn(REGIONS, VALUE), prop("patient", "village")),
+describe("lookup wire admission backstops", () => {
+	it("refuses a lookup without its Project naming catalog", () => {
+		expect(() =>
+			toWire(tableLookup(REGIONS, NAME, matchAll()), {
+				target: "suite",
+				types: {},
+			}),
+		).toThrow(/lookup naming catalog/i);
+	});
+	it("refuses a column without a fixture-row scope", () => {
+		expect(() =>
+			lower(eq(tableColumn(REGIONS, VALUE), literal("north"))),
+		).toThrow(/fixture-row scope/i);
+	});
+	it("refuses a column belonging to another table", () => {
+		expect(() =>
+			lower(
+				tableLookup(
+					REGIONS,
+					NAME,
+					eq(tableColumn(OTHER_TABLE, VALUE), literal("x")),
+				),
 			),
-			"casedb",
-			{ currentCaseType: "patient" },
-			ROOT_ON_DEVICE_CASE_ANCHOR,
-			{ ...withXformNaming, rootCaseId: sessionCaseId },
-		);
-		expect(lowered).toBe(
-			`instance('regions')/regions_list/regions[value = instance('casedb')/casedb/case[@case_id=${sessionCaseId}]/village][1]/name`,
-		);
+		).toThrow(/inside the row scope/i);
 	});
 });

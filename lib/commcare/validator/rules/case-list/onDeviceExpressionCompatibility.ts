@@ -23,7 +23,7 @@ import {
 	type OnDeviceCaseAnchor,
 	onDeviceAnchorCaseId,
 	ROOT_ON_DEVICE_CASE_ANCHOR,
-} from "@/lib/commcare/predicate/relationPresenceEmitter";
+} from "@/lib/commcare/xpath/wire/rowScope";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
 	type Predicate,

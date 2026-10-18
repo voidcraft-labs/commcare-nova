@@ -168,7 +168,10 @@ type WireExpr =
   | { k: "call"; fn: WireFunction; args: WireExpr[] }
   | { k: "path"; root: WireRoot; steps: WireStep[] }
   | { k: "expansion"; of: "case" | "worker" | "search"; expr: WireExpr }
-  | { k: "case-id-var" };                             // HQ's $case_id; suite claim and endpoint slots only
+  | { k: "case-id-var" | "next-input-var" | "calculated-property-var" }
+  | { k: "enum-label-var" | "hq-enum-var"; index: number }
+  | { k: "image-alt-var"; value: string }
+  | { k: "endpoint-argument-var"; name: string };      // generated endpoint selection id only
 
 type WireFunction = JavaRosaFunction | "jr:itext" | "jr:choice-name" | "here";
 //   JavaRosaFunction: the 76 names of ASTNodeFunctionCall.java::buildFuncExpr, the same closed
@@ -183,8 +186,8 @@ type WireRoot =
   | { k: "hq-case" };                                 // #case: HQ JSON form_filter only
 
 type WireStep = {
-  axis: "child" | "attribute" | "self" | "parent";
-  name?: string;                                      // a wire name; never a wildcard
+  axis: "child" | "attribute" | "self" | "parent" | "wildcard";
+  name?: string;                                      // a wire name; wildcard is a separate axis
   predicates: WireExpr[];
 };
 
@@ -212,9 +215,17 @@ type InstanceDecl = { id: string; src: string };     // from part 05 §2.1's tab
   (§3.1); the serializer memoises each node's print in a `WeakMap`, so printing is linear in the
   output and building is constant per reference.
 
+The implementation audit found existing generated variable sites beyond `$case_id`: detail
+auto-launch's `$next_input`, calculated-column and label variables, image-alt variables, HQ enum
+placeholders, and endpoint arguments named by the required selection datum. They have the closed
+arms above, with suite-only or HQ-only serialization as their owning consumers require. None is
+an authored variable arm. Parent selection also already emits `index/*`; `w.wildcard` represents
+that child step explicitly while a named step still refuses `*`. These additions preserve the
+existing scaffolding rather than adding authored syntax.
+
 `lib/commcare/xpath/wire/builders.ts` exports the constructors every generated site uses
 (`w.str`, `w.num`, `w.eq` … `w.gte`, `w.and`, `w.or`, `w.not`, `w.call`, `w.path`, `w.step`,
-`w.attr`, `w.self`, `w.parent`, `w.instance`, `w.current`, `w.form`, `w.caseIdVar`), so
+`w.attr`, `w.self`, `w.parent`, `w.wildcard`, `w.instance`, `w.current`, `w.form`, `w.caseIdVar`), so
 `count(/data/nova_url_scan) > 0` is `w.gt(w.call("count", [w.form(["nova_url_scan"])]), w.num(0))`.
 
 ### 2.2 `toWire`: the one emitter
@@ -289,7 +300,7 @@ type WireMode =
   | { target: "xform"; constraint: boolean }          // constraint: `.` is the candidate answer
   | { target: "vellum"; constraint: boolean }
   | { target: "suite" }
-  | { target: "hq-json"; interpolation: "none" | "case" | "no-case" | "no-dots" }
+  | { target: "hq-json"; interpolation: "none" | "case" | "no-case" | "no-dots" | "enum-key" }
   | { target: "preview" };
 
 function serializeWire(expr: WireExpr, mode: WireMode):
@@ -305,8 +316,9 @@ Properties, each held by a test of §6:
 | `#form/` spelling | `vellum` | a `form` root with `spelling: "hashtag"` prints `#form/<path>`; every other node prints as in `xform`. |
 | Shadow withheld | `vellum` | returns `undefined` when the tree holds an `expansion` (a case, worker or search read), or a `hashtag` form root whose steps carry a predicate or a `self`, `parent` or `attribute` step (a `#form/` read that is the base of a predicate or heads a longer path, `formContext.ts::hashtagHeadsAPath` today), or a `hq-case` root. Vellum prefers the shadow on load (`parser.js::parseVellumAttrs`: `form.richText && vellumAttr ? vellumAttr : xmlAttr`), so a shadow is either complete or absent. So no shadow carries `#case/` (step 2's rule, defect 3): with the raw casedb path in the real attribute, the form builder turns a listed property into its own `#case/<property>` on save, as the spellings witness run's save did (§3.7), and that is HQ's editor's own spelling, which proof 4 erases. |
 | No instance id in a literal | `xform`, `vellum`, `hq-json` | HQ reads instance ids by `instance_re = instance\(\s*['"]([\w\-:]+)['"]\s*\)` over the html-unescaped text (`post_process/instances.py::get_instance_names`), in the whole rendered XForm (`xform.py::XForm.add_missing_instances`: unknown ids raise, known ones are added) and in every suite XPath. A literal whose value holds `instance(` followed by optional space and a quote is printed as `concat()` of pieces split after `instance`, so the regex finds nothing and Core reads the same value. |
-| Interpolation-safe literals | `hq-json`, `interpolation` ≠ `none` | `interpolate_xpath` replaces `#user`, `#session/`, and with a case `#case`, `#parent`, `#host`, by `str.replace` regardless of quotes. A literal holding one is printed as `concat()` of pieces split after its `#`. `dot_interpolate` treats `\` as an escape of the next character inside and outside quotes, so a literal whose value ends in an odd run of backslashes would be read as unclosed: its last backslash prints as `substr('\\', 0, 1)` (HQ pairs `\\`, Core's `substr` returns one backslash). |
+| Interpolation-safe literals | `hq-json`, `interpolation` `case`, `no-case` or `no-dots` | `interpolate_xpath` replaces `#user`, `#session/`, and with a case `#case`, `#parent`, `#host`, by `str.replace` regardless of quotes. A literal holding one is printed as `concat()` of pieces split after its `#`. `dot_interpolate` treats `\` as an escape of the next character inside and outside quotes, so a literal whose value ends in an odd run of backslashes would be read as unclosed: its last backslash prints as `substr('\\', 0, 1)` (HQ pairs `\\`, Core's `substr` returns one backslash). |
 | No dot steps | `hq-json`, `interpolation` `case` or `no-case` | `dot_interpolate` replaces every unquoted `.` with no digit beside it (`(i == 0 or re.match(r'\D', string[i - 1]))` and the same after); without a case `_ensure_no_case_references` raises on one. `serializeWire` throws on a `self` or `parent` step in these modes; `toWire` never builds one for these slots (row reads are named, relations are `index/<identifier>`). |
+| Image mapping conditions | `hq-json`, `enum-key` | `MappingItem.key_as_condition` calls `dot_interpolate` directly. Its generated `selected(., <value>)` preserves the self placeholder for the column's property, protects odd trailing backslashes in every final literal fragment and HQ instance discovery, and leaves literal hashtags unchanged. Parent steps and the HQ case root are refused. The local image-alt variable hashes this same printed key. |
 | `#case` shortcut | `hq-json` `case` | a `hq-case` root prints `#case/<property>` (`displayConditions.ts::emitFormDisplayConditionForHq` today); any other mode throws. |
 | Instances | all | the set of `instance` roots printed. |
 
@@ -318,7 +330,7 @@ generated node's bind). Suite attributes are `suite`. HQ JSON: `case_details.sho
 current()`); `form_filter` is `case` when the form requires a case, else `no-case`
 (`sections/menus.py`); `module_filter` and `search_config.properties[].required.test` are
 `no-case` (`menus.py`, `post_process/remote_requests.py`); `validations[].test` is `no-dots`
-(`interpolate_dots=False`); every other HQ JSON XPath (calculated columns, `default_value`,
+(`interpolate_dots=False`); image mapping `enum[].key` is `enum-key`; every other HQ JSON XPath (calculated columns, `persistent_case_context_xml`, `default_value`,
 `form_links[].xpath`, `datums[].xpath`, `default_properties[].defaultValue`,
 `search_button_display_condition`, `blacklisted_owner_ids_expression`) is `none`. Preview's
 `preview` mode prints as `xform` does, with the instance ids the wire declares: from step 3 Preview
@@ -334,6 +346,15 @@ can write (`notes = '#case'`).
 
 ### 2.4 Instance declarations
 
+Pull request 4 keeps the existing form-authored print/expand/lower pipeline until pull request 5.
+Its output therefore crosses the XML/HQ boundary in two separate symbol-branded values,
+`LegacyAuthoredXPath` and `LegacyFormLinkXPath` (`xform/legacyAuthoredXPath.ts`). Only the old
+authored projection creates them. `xel` restricts them to the authored XForm attributes and
+form-link guard/manual-datum attributes that still use that pipeline. Finite mixed-expression
+builders retain the brand only when an authored operand is present; generated-only operands
+remain wire trees. The old Lezer instance scan runs only on these branded outputs, never on a
+generated expression. Pull request 5 deletes this whole bridge with the old text pipeline.
+
 `serializeWire` returns the instances its text reads; each emitter unions them into the scope Core
 evaluates in:
 
@@ -345,10 +366,11 @@ evaluates in:
 - **Suite**: per entry, remote request and menu, from the trees of its datums, details it
   references, prompts, stack frames, assertions and command conditions, in
   `session.ts::deriveEntryDefinition`, `::deriveCaseListEntryDefinition`,
-  `::accumulateCaseLoadingInstances`, `searchSession.ts`, `remoteRequest.ts` and `compiler.ts`.
-  From pull request 4 until pull request 10 moves CSQL onto `CsqlNode` (§2.5), a CSQL runtime
-  segment's value is printed by `serializeWire` and the segment carries the instance set that print
-  returned, so a remote request declares the union of its segments' sets.
+  `searchSession.ts`, `remoteRequest.ts` and `compiler.ts`. The separate authored-AST instance
+  collector is removed; the compiler joins each datum's actual referenced detail ids to the sets
+  those rendered details returned. From pull request 4 until pull request 10 moves CSQL onto
+  `CsqlNode` (§2.5), a CSQL runtime segment, rejection, and wrapper carry wire trees. Their final
+  printed attributes contribute the remote request's exact reads.
 - **HQ JSON** declares nothing (HQ adds what it reads); the derived set still feeds
   `lib/commcare/locations/readsLocationsFixture.ts::formsReadingLocationsFixture` and
   `planPrivileges.ts` (part 05 §2.4).
@@ -374,10 +396,10 @@ remote request's instances are the union of its runtime trees' instances (part 0
 | Today | From step 3 | Pull request |
 |---|---|---|
 | `expression/onDeviceEmitter.ts`, `predicate/caseListFilterEmitter.ts`, `predicate/relationPresenceEmitter.ts`, and the device half of `predicate/termEmitter.ts` (`emitTerm`, `emitOnDevicePropertyRef`, `emitOnDeviceLiteralValue`, `buildAncestorJoinNodeset`, `buildSubcaseJoinNodeset`, `clearLookupRowScope`, `instanceRootPath`, `DEFAULT_INSTANCE_ROOT`, `InstanceRoot`, `OnDeviceExpressionBindings`, `OnDeviceLookupEmissionContext`, `OnDeviceTermEmissionContext`) | `xpath/wire/fromExpression.ts` (and `instant.ts`, `formReads.ts`); the case-anchor model (`OnDeviceCaseAnchor`, `ROOT_ON_DEVICE_CASE_ANCHOR`, `descendOnDeviceCaseAnchor`, `onDeviceAnchorCaseId`) moves to `xpath/wire/rowScope.ts` (new), the row stack `toWire` reads | 4 |
-| the CSQL half of `predicate/termEmitter.ts` (`emitTermSegment`, the `TermEmission` types, `emitCsqlPropertyRefText`, `emitCsqlPropertyRefSegment`, `emitCsqlLiteralSegment`, `wrapTermAsSegmentList`, `quoteFreeRuntimeCsqlValue`, `quoteRuntimeCsqlValue`, `serializeAncestorPath`, `STANDALONE_SEARCH_INPUT_INSTANCE_ID`, and the three runtime readers `emitSearchInputXPath`, `emitSessionUserXPath`, `emitSessionContextXPath`) | stays in `termEmitter.ts`; from pull request 4 the three runtime readers return the `suite` print of their arm's `toWire` row instead of a template literal, and `emitSearchInputXPath`'s parameter, today a `Pick` of the deleted `OnDeviceTermEmissionContext`, is `CsqlSearchInputContext` (`searchInputNames`, `searchInputInstanceId`), defined in `termEmitter.ts`, so `predicate/csqlEmitter.ts` and `runtimeCsqlNumericSafety.ts` compile with their imports unchanged; pull request 10 moves the rest into `lib/commcare/csql/` (part 06 §2.3) | 4, then 10 |
-| `predicate/geopoint.ts`: the device builders `normalizeOnDeviceGeopoint` and `validOnDeviceGeopointCenter` | trees in `xpath/wire/geopoint.ts` (new), which the `within-distance` arm builds; the two functions keep their signatures for `predicate/csqlEmitter.ts`'s runtime guard and print those trees in `suite` mode; the patterns, `normalizeStaticGeopoint`, `isValidStaticGeopointCenter` and the two input-name collectors stay, and pull request 10 moves them (part 06 §2.3) | 4, then 10 |
+| the CSQL half of `predicate/termEmitter.ts` (`emitTermSegment`, the `TermEmission` types, `emitCsqlPropertyRefText`, `emitCsqlPropertyRefSegment`, `emitCsqlLiteralSegment`, `wrapTermAsSegmentList`, `quoteFreeRuntimeCsqlValue`, `quoteRuntimeCsqlValue`, `serializeAncestorPath`, `STANDALONE_SEARCH_INPUT_INSTANCE_ID`, and the three runtime readers `emitSearchInputXPath`, `emitSessionUserXPath`, `emitSessionContextXPath`) | stays in `termEmitter.ts`; from pull request 4 the three runtime readers return their arm's `toWire` tree instead of a template literal, and `emitSearchInputXPath`'s parameter, today a `Pick` of the deleted `OnDeviceTermEmissionContext`, is `CsqlSearchInputContext` (`searchInputNames`, `searchInputInstanceId`), defined in `termEmitter.ts`, so `predicate/csqlEmitter.ts` and `runtimeCsqlNumericSafety.ts` compile with their imports unchanged; pull request 10 moves the rest into `lib/commcare/csql/` (part 06 §2.3) | 4, then 10 |
+| `predicate/geopoint.ts`: the device builders `normalizeOnDeviceGeopoint` and `validOnDeviceGeopointCenter` | trees in `xpath/wire/geopoint.ts` (new), which the `within-distance` arm builds; the old string-returning wrappers leave, and `predicate/csqlEmitter.ts` builds its runtime guard from the shared `normalizeGeopoint` and `validGeopointCenter` trees; the patterns, `normalizeStaticGeopoint`, `isValidStaticGeopointCenter` and the two input-name collectors stay, and pull request 10 moves them (part 06 §2.3) | 4, then 10 |
 | `predicate/stringQuoting.ts`: `quoteLiteral`'s device arm (dialects `case-list-filter` and `search-filter`) and `::formatNumeric`; `xpath/stringLiteral.ts::xpathStringLiteral` | the serializer's literal and number print. `formatNumeric` stays in `stringQuoting.ts` with the CSQL half until pull request 10, and the serializer's number print calls it, so `lookup/cellText.ts`, `predicate/csqlEmitter.ts` and `termEmitter.ts`'s CSQL half keep their import and `lookupFixtureCellText` writes a numeric cell with the spelling every literal prints; pull request 10 moves it into `xpath/wire/serialize.ts` as the number print, where `cellText.ts` and the CSQL printer read it (part 06 §2.3). `quoteLiteral` keeps its `csql` arm and `isCsqlStringLiteralRepresentable` stays, for the CSQL emitters and `csqlRepresentability.ts`; pull request 10 moves both into `lib/commcare/csql/` (part 06 §2.3) | 4, then 10 |
-| `predicate/instances.ts` (`instanceSourceFor`, `collectPredicateInstances`, `collectExpressionInstances`, `isSelectedCasesInstanceId`), `builder.ts::InstanceTracker` | `xpath/wire/instances.ts` (the arm table) and the serializer's instance set; until pull request 10 a CSQL runtime segment carries the set its print returned, and the remote request unions them (§2.4) | 4 |
+| `predicate/instances.ts` (`instanceSourceFor`, `collectPredicateInstances`, `collectExpressionInstances`, `isSelectedCasesInstanceId`), `builder.ts::InstanceTracker` | `xpath/wire/instances.ts` (the arm table) and the serializer's instance set; until pull request 10 a CSQL runtime segment carries its wire tree, whose final print contributes the remote request's reads (§2.4) | 4 |
 | `xform/instanceRefs.ts` | the oracles' private reader in `suiteOracle.ts` (§2.7); it feeds the text path's printed attributes into the `InstanceSink` through pull request 4 | 5 |
 | `xform/pathExpression.ts` | stays: its only importers are `xformOracle.ts` and `suiteOracle.ts`, which keep their own reading of emitted text | none |
 | `predicate/matchModes.ts` | stays: the table of which match modes run on a device, read by `validator/rules/displayConditions.ts`, `caseOptionsSource.ts`, `case-list/matchModeOnDeviceCompatibility.ts` and `lib/doc/commitVerdicts.ts`; pull request 10 moves it under `lib/commcare/csql/` (part 06 §2.3) | 10 |
@@ -387,7 +409,7 @@ remote request's instances are the union of its runtime trees' instances (part 0
 | `suite/case-list/orderPlanOptions.ts::hqExpressionFieldText`, and the ancestor-property text it takes from `suite/case-search/relatedCaseProjection.ts::emitHqContextRelativeAncestorProperty` | `serializeWire(toWire(column.expression, { target: "hq-json", … }), { target: "hq-json", interpolation: "none" })`, its lookup roots spelled as in a suite slot (`item-list:<tag>`), because HQ copies a calculated column's `field` into its suite detail verbatim (`detail_screen.py::FormattedDetailColumn.xpath`). So a calculated column's HQ `field` and the order plan's join text (`lib/domain/caseListOrder.ts`, rules 2 and 5) are one canonical text, `caseListOrderOptions` stays their one source, and the census counts the change once (§5.1). The `unprintableExpressionText` fallback for a document the validator refuses stays: the order plan is total, and an export re-runs the validator first | 4 |
 | `suite/case-list/columns.ts` (`plainSelectDisplayXpath`, `intervalColumnDisplayXpath`, `idMappingDisplayXpath`, `linkColumnDisplayXpath`), `sortKeys.ts`, `keyVariable.ts`, `tileGroup.ts`, `nodesetFilter.ts`, `shortDetail.ts`, `suite/displayConditions.ts`, `suite/case-search/searchPrompts.ts`, `searchSession.ts`, `remoteRequest.ts`, `relatedCaseProjection.ts`, `caseOptions.ts`, `hqJson/caseList.ts` | the same shapes from `w.*` constructors and `toWire` | 4 |
 | `xform/caseBlocks.ts`, `metaBlock.ts`, `caseOps.ts` (`caseScalarTextValueGuard`, `caseScalarTextValueCalculation`, `authoredCaseIdCalculation` among them), `captureUrlNode.ts`, `datetimeCaseValue.ts::datetimeCaseValueExpression`, `constraintMessage.ts`, `constraintCollections.ts`, `usercaseWire.ts`, `subcaseWire.ts`, `suite/case-search/claim.ts`, `entryPointSuite.ts` | the same shapes from `w.*` constructors | 4 |
-| `predicate/csqlEmitter.ts`, `expression/csqlEmitter.ts`, `csqlSegment.ts`, `expression/csqlRuntimeExpression.ts` | `lib/commcare/csql/` (part 06) over `CsqlNode` and `WireExpr` (§2.5); from pull request 4 `csqlRuntimeExpression.ts` prints its runtime value with `serializeWire(toWire(…), { target: "suite" })` in place of `emitOnDeviceExpression` | 4, then 10 |
+| `predicate/csqlEmitter.ts`, `expression/csqlEmitter.ts`, `csqlSegment.ts`, `expression/csqlRuntimeExpression.ts` | `lib/commcare/csql/` (part 06) over `CsqlNode` and `WireExpr` (§2.5); from pull request 4 `csqlRuntimeExpression.ts` returns its runtime value as `toWire(…)`, and only the final XML/HQ field prints it | 4, then 10 |
 
 `lib/commcare/predicate/` and `lib/commcare/expression/` are removed in the stack, pull request 4
 deleting their device halves and pull request 10 moving what remains; no re-export stays.
@@ -908,6 +930,14 @@ undeclared in any form. The suite comparison is not reported: a detail's XPath i
 instances of the entry that names it, which the probe's per-element scoping does not model; the
 pull request's snapshot diff lists the suite's changes, and `SUITE_UNREAD_INSTANCE` holds them.
 
+The implementation census covers every archive and multipart body at both heads, including each
+entry's referenced detail and restricted-menu scope. It also finds declarations left by the old
+parallel collectors outside the planning probe's HQ-form scope. Each removed declaration must
+have no read in that complete owning scope; no new or changed declaration is allowed by this
+exception. Secondary declarations take the instance table's order (`casedb`, `commcaresession`,
+then other ids lexically), with the primary instance and all other children unchanged. The frozen
+emission normalizer stays unchanged; a separate comparison records these order-only differences.
+
 ### 5.3 The lowering on `targeted-datetime-ordering`
 
 Executed during planning (the lowering probe): the witness's two orderings lowered, the typed pair
@@ -1054,6 +1084,10 @@ HQ's own `app_manager/xpath.py::interpolate_xpath` (with a case, without one, an
 `hq-json` prints, in each interpolation mode, of record expressions holding the hazardous literals
 (`'#case'`, `'#user'`, `'#session/x'`, a value ending `\`, `"instance('x')"`). Each interpolated
 text equals its input wherever no shortcut is meant, and no instance id is found inside a literal.
+The image mapping rows also call `dot_interpolate` and `MappingItem.key_as_condition` directly:
+intentional self placeholders resolve to the property while dots, hashtags, quotes, backslashes
+and instance-looking text inside each literal retain their value. HQ's one HTML-unescape pass,
+including Python's omitted numeric character references, must not assemble an instance read.
 The boundary is HQ's code, which is what decides; it builds no app either.
 
 **Existing families re-observed** where bytes move: `function` (`function-nested-lookup`, §3.8),
@@ -1129,7 +1163,7 @@ which this pull request's dispatch reads (part 08 §6.4, R2's row).
 | `lib/commcare/xpath/wire/tree.ts`, `builders.ts`, `serialize.ts` (its number print calls `predicate/stringQuoting.ts::formatNumeric`, which pull request 10 moves into it), `instances.ts`, `fromExpression.ts`, `rowScope.ts` (the case-anchor model), `geopoint.ts` (the `within-distance` trees), `formReads.ts`, `instant.ts`, `CLAUDE.md` | new (§2, §3); all but `formReads.ts` and `instant.ts` in pull request 4, those in 5 and 8 |
 | `lib/commcare/xform/itextIds.ts` | new: `itextIdFor(doc, unit)`, also read by `builder.ts`'s label emission (pull request 9) |
 | `lib/commcare/elementBuilders.ts` | typed element specs for the XPath-bearing elements (`bind`, `setvalue`, `output`, `itemset`, `repeat`; suite `datum`, `command`, `menu`, `xpath`, `data`, `prompt`, `required`, `validation`, `action`, `create`, `push`, `assertion`) taking `WireExpr` and an `InstanceSink` |
-| `lib/commcare/types.ts` (the HQ JSON XPath fields: `calc_xpath`, `filter_xpath`, `search_button_display_condition` and the rest), `hqShells.ts` (the shells that seed them) and `hqJson/caseList.ts` | XPath fields typed `WireExpr` until the JSON is serialized, with their interpolation mode; `lib/commcare/hq/` is the REST client and holds no XPath |
+| `lib/commcare/hqJson/xpath.ts`, `lib/commcare/types.ts` (the HQ JSON XPath fields: `calc_xpath`, `filter_xpath`, `search_button_display_condition` and the rest), `hqShells.ts` (the shells that seed them) and `hqJson/caseList.ts` | XPath fields hold `HqXPath` (a `WireExpr` and its interpolation mode) until the complete JSON is serialized; `lib/commcare/hq/` is the REST client and holds no XPath |
 | `lib/commcare/xform/builder.ts`, `caseBlocks.ts`, `caseOps.ts`, `metaBlock.ts`, `constraintMessage.ts`, `constraintCollections.ts`, `datetimeCaseValue.ts`, `captureUrlNode.ts` | trees and the sink; `InstanceTracker` removed (pull request 4) |
 | `lib/commcare/session.ts`, `compiler.ts`, `formLinkProjection.ts`, `entryPointSuite.ts`, `usercaseWire.ts`, `subcaseWire.ts`, `caseOptions.ts`, `suite/**` (`suite/case-list/orderPlanOptions.ts::hqExpressionFieldText` and `suite/case-search/relatedCaseProjection.ts` among them, §2.6) | trees; declarations from the serializer; `claim.ts::CLAIM_MULTI_RELEVANT` and `entryPointSuite.ts`'s scalar hydration build `$case_id` as `w.caseIdVar()` (§2.1) |
 | `lib/commcare/expression/onDeviceEmitter.ts`, `predicate/caseListFilterEmitter.ts`, `predicate/relationPresenceEmitter.ts`, `predicate/instances.ts`, `xpath/stringLiteral.ts`, and the device halves of `predicate/termEmitter.ts`, `geopoint.ts` and `stringQuoting.ts`, with the tests beside them | removed in pull request 4; every importer is re-pointed in the same pull request (§2.6 lists them) |
@@ -1145,6 +1179,8 @@ which this pull request's dispatch reads (part 08 §6.4, R2's row).
 | `proof/native/producers/emit-expression-evidence.ts`, `core/InstantOrderingRuntimeTest.java` | the `expression` family's lowered half (§6); the family, its zones and its control half are pull request 1's, lane mechanics (part 08 §7) |
 | `proof/native/test_hq_interpolation.py`, and `emit-expression-evidence.ts`'s `interpolation.json` | new HQ check (§6) |
 | `proof/native/test_search_emission.py` | in pull request 4: it asserts present, and sets aside, one unread collection-instance declaration (`remote-multiple`'s selected cases) that §5.2 stops writing; that recorded difference leaves |
+| `proof/native/hq_support.py`, `xpath_instances.mjs`, `test_xpath_shapes.py`, `test_search_emission.py`, `test_no_matches_emission.py`, `test_endpoint_emission.py`, `test_nested_menu_emission.py`, `test_tile_emission.py`, `test_case_emission.py` | pull request 4 compares known XPath carriers through the pinned HQ parser's model; all other attributes, meaningful text, child order and instance declarations remain exact, and the existing nested-menu unread-declaration exception stays bounded to its original scope |
+| `lib/commcare/entryPointSignature.ts`, `lib/deployment/entryPointLinks.ts` | pull request 4 keeps stored signature bytes and compares the known XPath slots structurally; unknown or malformed signature shapes fail closed, and instance declarations remain exact |
 | `proof/known-defects.json`, `proof/fixed-defects.json`, `proof/checks/registers.py` (`OPEN_DEFECTS`) | finding 56's seven entries and finding 75's device half's two move; `OPEN_DEFECTS` loses `56: 3` (§6; part 08 §3.1); `75: 3` and `proof/checks/test_registers.py`'s `step > 3` are pull request 10's |
 | `proof/targeted/documents/datetimeOrdering.ts` | header comment: the document is the fix's witness (part 08 §3.1) |
 | `lib/commcare/CLAUDE.md`, `lib/commcare/xpath/CLAUDE.md` | rewritten: one tree, one serializer, the modes, the canonical spacing and why it is Vellum's, the lowering, derived instances; "Vellum dual-attribute pattern" keeps "No shadow carries `#case/`" and its reasons, now as `vellum` mode's rule over the tree |
@@ -1191,8 +1227,8 @@ person starts; none runs on a local machine.
 `xpath/wire/` (the tree, the builders, `serializeWire` in its `xform`, `vellum`, `suite` and
 `hq-json` modes, the instance table) with `toWire` over today's `Predicate` / `ValueExpression`;
 every generated site on `w.*` (§2.6's scaffolding rows); derived declarations and the oracles'
-unread-instance checks (§2.4, §2.7); `test_hq_interpolation.py` and the `test_search_emission.py`
-edit (§6, §7); `case-id-var` for HQ's `$case_id` (§2.1); `hqExpressionFieldText` through `toWire`
+unread-instance checks (§2.4, §2.7); `test_hq_interpolation.py` and the native comparisons' parsed
+XPath boundary (§6, §7); `case-id-var` for HQ's `$case_id` (§2.1); `hqExpressionFieldText` through `toWire`
 in `hq-json` mode (§2.6). It deletes only the device halves of `lib/commcare/predicate/` and
 `lib/commcare/expression/` and re-points every importer §2.6 lists, the lane producers that read
 source files among them; `toWire` reads today's `TypeContext` until pull request 5. Form logic keeps
@@ -1260,7 +1296,7 @@ pull request 5's `toWire` rows (§4), so this part adds no code there.
 
 Each is a decision of this part, with its reason.
 
-- **Unread instance declarations go** (§5.2): 24 of 500 HQ-upload forms. An unread declaration has
+- **Unread instance declarations go** (§5.2): the planning probe found 24 of 500 HQ-upload forms; the implementation census also covers every local form and suite owner. An unread declaration has
   no meaning, and Core initialises every declared instance when a form opens, so dropping one
   removes a way to fail. Keeping them would need a declaration source other than the tree.
 - **The whole wire is canonical, not only form logic** (§5.1). Canonical spacing is decided for

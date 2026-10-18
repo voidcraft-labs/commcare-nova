@@ -1,122 +1,16 @@
-// lib/commcare/predicate/stringQuoting.ts
-//
-// Lexical-emission helpers shared across the per-dialect predicate
-// emitters. Predicate ASTs originate in `lib/domain/predicate` and
-// compile to one of three CommCare wire dialects, each with its own
-// operator-coverage rules but a common need to escape string literals,
-// and serialize numeric values. This module owns
-// those two lexical concerns; per-dialect operator dispatch lives
-// in the per-dialect emitter modules that consume these helpers.
-//
-// Operator dispatch — the per-mode / per-quantifier branching that
-// chooses between `selected()` / `selected-any` / `selected-all`,
-// fuzzy / phonetic / starts-with `match` modes, on-device-join vs
-// `ancestor-exists` for `exists`, etc. — is intentionally out of
-// scope here. This module imports nothing from any operator emitter
-// and exposes only string-in / string-out helpers.
-
-/**
- * The three CommCare wire dialects a predicate AST compiles to.
- * Each dialect has a different evaluator and a different operator
- * vocabulary; the dialect is threaded through every helper that
- * branches on it so the callers' type-system surface stays uniform.
- *
- *   - `case-list-filter` — XPath 1.0 evaluated on-device in the
- *     casedb nodeset position
- *     (`instance('casedb')/casedb/case[<this>]`). Standard XPath 1.0
- *     functions including `concat()` are in scope.
- *   - `csql` — the inner predicate inside a CSQL `_xpath_query`
- *     value evaluated by ElasticSearch on the CCHQ server. CSQL's
- *     value-function whitelist excludes `concat()`, so the embedded-
- *     quote escape path cannot fall back to alternating-quote
- *     concat — see `quoteLiteral`'s csql arm for the divergence.
- *   - `search-filter` — XPath 1.0 evaluated on-device after the
- *     ElasticSearch server has narrowed the case-search results.
- *     The same on-device XPath environment as case-list-filter, so
- *     `concat()` is available and the embedded-quote escape mirrors
- *     case-list-filter exactly.
- */
-export type WireDialect = "case-list-filter" | "csql" | "search-filter";
-
-/**
- * Whether a compile-time string can be represented as one CSQL string
- * literal without changing its bytes. CSQL accepts either quote delimiter but
- * has no escape syntax (and does not whitelist `concat()` as a value
- * function), so a value containing both delimiters has no faithful wire form.
- *
- * Exported so the authoring validator and the defensive emitter consult the
- * same lexical predicate rather than maintaining parallel quote rules.
- */
+/** CSQL has no concat escape in its server-side value grammar. */
 export function isCsqlStringLiteralRepresentable(value: string): boolean {
 	return !(value.includes("'") && value.includes('"'));
 }
 
-/**
- * Compile a string value to its wire-form string literal for the
- * named dialect. Three branches:
- *
- *   - When the value contains no embedded single quote, every dialect
- *     emits `'<value>'` — the common case, with no divergence.
- *   - In `case-list-filter` and `search-filter`, an embedded single
- *     quote falls back to `concat('part', "'", 'part')`. XPath 1.0
- *     has no string-escape syntax, so the alternating-quote concat is
- *     the portable form the grammar at
- *     `lib/commcare/xpath/grammar.lezer.grammar::StringLiteral` admits
- *     (both single- and double-quoted string literals are accepted as
- *     `concat()` arguments). The fallback always emits boundary
- *     segments even when empty (e.g. a value of `"'"` produces
- *     `concat('', "'", '')`) so the segment count tracks the input
- *     quote count predictably as `n + 1` segments for `n` quotes.
- *   - In `csql`, `concat()` is excluded from CCHQ's
- *     `XPATH_VALUE_FUNCTIONS` whitelist (verified on
- *     `corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`).
- *     Comparison-RHS values pass through
- *     `corehq/apps/case_search/dsl_utils.py::unwrap_value`, which
- *     raises `CaseFilterError` on any function name outside the
- *     whitelist (the `unwrap_value` callsite plus
- *     `XPathFunctionExpression` handling defined in the same module).
- *     CSQL admits both single- and double-quoted string literals
- *     natively (see `docs/case_search_query_language.rst` for the
- *     canonical concat-wrapped CSQL fragment example with double-
- *     quoted property values), so the helper switches to a double-quoted
- *     literal `"<value>"` when the value contains a single quote.
- *     If the value contains BOTH a single and a double quote, no
- *     portable inline escape exists — `concat()` is unavailable and
- *     XPath 1.0 string literals can carry only one of the two quote
- *     styles — and the helper throws with "no portable escape" in
- *     the message rather than emit broken wire output. Authors must
- *     split such values into a different filter shape or strip one
- *     of the quote types upstream.
- *
- * `search-filter` shares case-list-filter's on-device XPath 1.0
- * dialect, so the two dialects route through the same concat-fallback
- * arm.
- */
-export function quoteLiteral(value: string, dialect: WireDialect): string {
-	const hasSingleQuote = value.includes("'");
-	if (!hasSingleQuote) return `'${value}'`;
-	if (dialect === "csql") {
-		if (!isCsqlStringLiteralRepresentable(value)) {
-			throw new Error(
-				`stringQuoting: CSQL has no portable escape for a string literal containing both ' and ". Got: ${JSON.stringify(value)}.`,
-			);
-		}
-		return `"${value}"`;
+export function quoteLiteral(value: string, _dialect: "csql"): string {
+	if (!value.includes("'")) return `'${value}'`;
+	if (!isCsqlStringLiteralRepresentable(value)) {
+		throw new Error(
+			`stringQuoting: CSQL has no portable escape for a string literal containing both ' and ". Got: ${JSON.stringify(value)}.`,
+		);
 	}
-	// case-list-filter and search-filter share the on-device XPath 1.0
-	// environment where `concat()` is available. Splitting on `'`
-	// produces `n + 1` segments for `n` quotes; each segment is
-	// single-quoted and the literal-quote separator `"'"` interleaves
-	// between segments. Boundary segments are emitted even when empty
-	// so the segment count stays predictable regardless of where the
-	// quotes sit in the source string.
-	const parts = value.split("'");
-	const args: string[] = [];
-	for (let i = 0; i < parts.length; i++) {
-		args.push(`'${parts[i]}'`);
-		if (i < parts.length - 1) args.push(`"'"`);
-	}
-	return `concat(${args.join(", ")})`;
+	return `"${value}"`;
 }
 
 /**

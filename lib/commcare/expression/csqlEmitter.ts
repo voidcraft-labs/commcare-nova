@@ -82,6 +82,7 @@ import {
 	type RuntimeCsqlQuoteStyle,
 } from "../predicate/termEmitter";
 import { assertCsqlValueFunction } from "../xpath/functionCapabilities";
+import { w } from "../xpath/wire/builders";
 import { isNativeCsqlValueExpression } from "./csqlCapabilities";
 import {
 	emitCsqlRuntimeExpression,
@@ -203,7 +204,7 @@ export function emitCsqlExpressionSegments(
 			// argument helper. A direct call cannot supply the surrounding
 			// CSQL position, so throwing here defends against broken wire.
 			throw new Error(
-				`csqlExpressionEmitter: tried to emit a value-expression of kind '${expr.kind}' as native CSQL, but CCHQ's CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm. The predicate-side emitter at lib/commcare/predicate/csqlEmitter.ts should have inlined it as an on-device XPath fragment via emitOnDeviceExpression. Look at the operand dispatch in emitOperandSegments; a new ValueExpression kind needs to route through inlineAsRuntimeOperand.`,
+				`csqlExpressionEmitter: tried to emit a value-expression of kind '${expr.kind}' as native CSQL, but CCHQ's CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm. The predicate-side emitter at lib/commcare/predicate/csqlEmitter.ts should have inlined it as an on-device XPath fragment via toWire. Look at the operand dispatch in emitOperandSegments; a new ValueExpression kind needs to route through inlineAsRuntimeOperand.`,
 			);
 		default: {
 			const _exhaustive: never = expr;
@@ -323,7 +324,7 @@ function emitDateAddQuantitySegments(
 				kind: "runtime",
 				// Guard carrier only. Its empty value leaves the CSQL function call
 				// unchanged while the outer wrapper fail-closes fractional input.
-				xpath: "''",
+				xpath: w.str(""),
 				rejectWhen: invalidWholeNumberXPath(classification.inputXPath),
 				rejectionKind: "whole-number",
 				rejectionInputNames: [classification.inputName],

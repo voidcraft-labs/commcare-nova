@@ -6,7 +6,8 @@ of each scenario with their exact attributes, the redundant subcase blocks
 Nova marks ``never`` inactive (``relevant="false()"``), the new-case datums
 HQ allocates (all ``uuid()``, with the registration link matching the first
 new extension), the owner preload, the worker-record writes with the
-usercase datum and its assertion as the local suite carries them, and whole
+usercase datum and its assertion as the local suite carries them (known
+XPath carriers compare as HQ's parser's complete expression trees), and whole
 capture and operation forms free of editor attributes, which Core then runs
 (``CaseCaptureRuntimeTest``, ``CaseOperationRuntimeTest``), each operation
 form's blocks inside one ``nova_operations`` group whose body control HQ
@@ -35,7 +36,14 @@ import json
 
 from lxml import etree
 
-from proof.native.hq_support import hq_commit, hq_source_hashes, sha256, write_evidence
+from proof.native.hq_support import (
+    attributes,
+    hq_commit,
+    hq_source_hashes,
+    parse_xml_xpaths,
+    sha256,
+    write_evidence,
+)
 from proof.native.steps.case_emission import NAMESPACES, NATIVE_FILES
 
 FAMILIES = ("case",)
@@ -155,24 +163,40 @@ def _check_extension(record):
     }
 
 
-def _worker_binds(tree):
-    return sorted(
-        [
-            dict(bind.attrib)
-            for bind in tree.xpath(
-                '//x:model/x:bind[starts-with(@nodeset, "/data/commcare_usercase/")]', namespaces=NAMESPACES
-            )
-        ],
-        key=lambda bind: bind["nodeset"],
-    )
+def _worker_binds(tree, parsed):
+    return [
+        attributes(bind, parsed)
+        for bind in sorted(
+            tree.xpath('//x:model/x:bind[starts-with(@nodeset, "/data/commcare_usercase/")]', namespaces=NAMESPACES),
+            key=lambda bind: bind.attrib["nodeset"],
+        )
+    ]
 
 
 def _check_worker(record):
     scenario = record["scenario"]
     native = etree.fromstring(record["native"])
     local = etree.fromstring(record["local"])
-    assert _worker_binds(native) == _worker_binds(local), scenario
-    assert len(_worker_binds(native)) == 4, scenario
+    suite = etree.fromstring(record["suite"])
+    entries = suite.xpath("entry[form=$xmlns]", xmlns=record["xmlns"])
+    assert len(entries) == 1, scenario
+    entry = entries[0]
+    datums = record["datums"]
+    assert len(datums) == 1 and datums[0]["id"] == "usercase_id" and datums[0]["requiresSelection"] is False, scenario
+    carriers = [
+        *(
+            bind
+            for tree in (native, local)
+            for bind in tree.xpath(
+                '//x:model/x:bind[starts-with(@nodeset, "/data/commcare_usercase/")]', namespaces=NAMESPACES
+            )
+        ),
+        *entry.xpath('session/datum[@id="usercase_id"]'),
+        *entry.xpath("assertions/assert"),
+    ]
+    parsed = parse_xml_xpaths(*carriers, values=[datums[0]["function"], record["assertionTest"]])
+    assert _worker_binds(native, parsed) == _worker_binds(local, parsed), scenario
+    assert len(_worker_binds(native, parsed)) == 4, scenario
     # Answer nodes inherit the primary instance's form-specific namespace.
     blocks = native.xpath(
         '//x:model/x:instance[not(@src)]/*/*[local-name()="commcare_usercase"]/cx:case', namespaces=NAMESPACES
@@ -180,19 +204,17 @@ def _check_worker(record):
     assert len(blocks) == 1, scenario
     assert [etree.QName(child).localname for child in blocks[0]] == ["update"], scenario
     assert [etree.QName(child).localname for child in blocks[0][0]] == ["visits_done"], scenario
-    datums = record["datums"]
-    assert len(datums) == 1 and datums[0]["id"] == "usercase_id" and datums[0]["requiresSelection"] is False, scenario
-    suite = etree.fromstring(record["suite"])
-    entries = suite.xpath("entry[form=$xmlns]", xmlns=record["xmlns"])
-    assert len(entries) == 1, scenario
-    entry = entries[0]
-    assert entry.xpath('session/datum[@id="usercase_id"]/@function') == [datums[0]["function"]], scenario
-    assert entry.xpath("assertions/assert/@test") == [record["assertionTest"]], scenario
+    assert [parsed[value]["structure"] for value in entry.xpath('session/datum[@id="usercase_id"]/@function')] == [
+        parsed[datums[0]["function"]]["structure"]
+    ], scenario
+    assert [parsed[value]["structure"] for value in entry.xpath("assertions/assert/@test")] == [
+        parsed[record["assertionTest"]]["structure"]
+    ], scenario
     assert entry.xpath("assertions/assert/text/locale/@id") == [record["assertionLocaleId"]], scenario
     return {
         "scenario": scenario,
         "inputSha256": record["inputSha256"],
-        "nativeWorkerBinds": _worker_binds(native),
+        "nativeWorkerBinds": _worker_binds(native, parsed),
         "nativeWorkerDatum": datums[0]["function"],
         "nativeWorkerAssertion": record["assertionTest"],
         "nativeWriteOrders": _same_write_orders(record),

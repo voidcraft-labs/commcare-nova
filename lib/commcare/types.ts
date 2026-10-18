@@ -72,8 +72,8 @@ export interface FormActions {
  * value the runtime matches against; the per-language string
  * surfaces in place of the key when the row matches.
  */
-export interface MappingItem {
-	key: string;
+export interface MappingItem<Key = string> {
+	key: Key;
 	value: LocalizedString;
 }
 
@@ -104,18 +104,16 @@ export type DetailColumnFormat =
 	| "markdown"
 	| "invisible";
 
-export interface DetailColumn {
+interface DetailColumnBase<XPath> {
 	doc_type: "DetailColumn";
 	header: LocalizedString;
 	/** The case property name for property-rooted formats; the inline
 	 *  XPath expression when `useXpathExpression` is true (CCHQ's
 	 *  `useXpathExpression` branch reads `column.field` directly as the
 	 *  display xpath per `detail_screen.py::FormattedDetailColumn.xpath`). */
-	field: string;
 	model: string;
-	format: DetailColumnFormat;
-	calc_xpath: string;
-	filter_xpath: string;
+	calc_xpath: XPath | "";
+	filter_xpath: XPath | "";
 	advanced: string;
 	/** Threshold-in-days for `late-flag`. CCHQ's authoring UI rounds the
 	 *  user-authored unit count × unit-divisor to an integer before
@@ -128,16 +126,11 @@ export interface DetailColumn {
 	/** `true` for calculated columns — CCHQ's
 	 *  `detail_screen.py::FormattedDetailColumn.xpath` switches to
 	 *  reading `column.field` as the inline XPath when this is set. */
-	useXpathExpression: boolean;
 	hasNodeset: boolean;
 	hasAutocomplete: boolean;
 	isTab: boolean;
-	/** ID-mapping entries — populated for `format === "enum"`. CCHQ's
-	 *  `MappingItem.value` is a per-language dict, so each entry's
-	 *  `value` carries the runtime-displayed label keyed by lang. */
-	enum: MappingItem[];
 	graph_configuration: null;
-	relevant: string;
+	relevant: XPath | "";
 	case_tile_field: null;
 	/**
 	 * Custom-tile placement, zero-based. CCHQ's own names are
@@ -161,11 +154,25 @@ export interface DetailColumn {
 	/** `<style show-border>` / `<style show-shading>`. */
 	show_border: boolean | null;
 	show_shading: boolean | null;
-	nodeset: string;
+	nodeset: XPath | "";
 	/** CCHQ `date_format` pattern, e.g. `%d/%m/%y` or `%Y-%m-%d`. The
 	 *  runtime formatter consumes this for `format === "date"`. */
 	date_format: string;
 }
+
+/** A property column names a property; an expression column holds its tree
+ * until the HQ serialization boundary prints it. */
+export type DetailColumn<
+	XPath = string,
+	Format extends DetailColumnFormat = DetailColumnFormat,
+> = DetailColumnBase<XPath> &
+	(
+		| { useXpathExpression: false; field: string }
+		| { useXpathExpression: true; field: XPath }
+	) &
+	(Format extends "enum-image"
+		? { format: Format; enum: MappingItem<XPath>[] }
+		: { format: Format; enum: MappingItem[] });
 
 /**
  * One sort row of a case-list short detail, CCHQ's `SortElement`
@@ -179,16 +186,16 @@ export interface DetailColumn {
  * save empties it unless the project has `SORT_CALCULATION_IN_CASE_LIST`.
  * The oracle (`validator/hqJsonOracle.ts`) refuses the former spellings.
  */
-export interface SortElement {
+export interface SortElement<XPath = string> {
 	field: string;
 	type: string;
 	direction: string;
 	blanks: string;
 	display: LocalizedString | Record<string, never>;
-	sort_calculation: string;
+	sort_calculation: XPath | "";
 }
 
-export interface DetailBase {
+export interface DetailBase<XPath = string> {
 	/**
 	 * CommCare's case-list cardinality. These fields are written only on the
 	 * short detail: the long detail is a confirmation surface, not a selector.
@@ -196,7 +203,7 @@ export interface DetailBase {
 	 */
 	multi_select?: boolean;
 	max_select_value?: number;
-	sort_elements: SortElement[];
+	sort_elements: SortElement<XPath>[];
 	/**
 	 * The empty list's text, per app language. Nova writes "List is empty."
 	 * under every wire code on every menu's short detail, the text HQ's
@@ -211,7 +218,7 @@ export interface DetailBase {
 	 *  CCHQ's `Detail.filter = StringProperty(exclude_if_none=True)`.
 	 *  Mirrors `module.case_list_filter` (CCHQ surfaces both — the
 	 *  authoritative storage is on the short detail). */
-	filter: string | null;
+	filter: XPath | null;
 	lookup_enabled: boolean;
 	lookup_autolaunch: boolean;
 	lookup_display_results: boolean;
@@ -223,7 +230,7 @@ export interface DetailBase {
 	lookup_extras: unknown[];
 	lookup_responses: unknown[];
 	persist_case_context: null;
-	persistent_case_context_xml: string;
+	persistent_case_context_xml: XPath;
 	/**
 	 * Keeps the short detail on screen above every form in the module —
 	 * the persistent case tile. CCHQ turns it into `detail-persistent` on
@@ -280,16 +287,16 @@ export interface DetailBase {
 	custom_xml: null;
 }
 
-export interface Detail extends DetailBase {
+export interface Detail<XPath = string> extends DetailBase<XPath> {
 	doc_type: "Detail";
 	display: "short" | "long";
-	columns: DetailColumn[];
+	columns: DetailColumn<XPath>[];
 }
 
-export interface DetailPair {
+export interface DetailPair<XPath = string> {
 	doc_type: "DetailPair";
-	short: Detail;
-	long: Detail;
+	short: Detail<XPath>;
+	long: Detail<XPath>;
 }
 
 /**
@@ -329,8 +336,8 @@ export interface DetailPair {
  * prompt key (which would query a property by the wrong name) and
  * defers to the explicit predicate in the `_xpath_query` slot.
  */
-export interface CaseSearchAssertion {
-	test: string;
+export interface CaseSearchAssertion<XPath = string> {
+	test: XPath;
 	text: LocalizedString;
 }
 
@@ -343,15 +350,15 @@ export interface CaseSearchAssertion {
  * `sort` names the column whose text orders the choices; HQ's Case List
  * save refuses an itemset without it (`views/modules.py::_get_itemset`).
  */
-export interface CaseSearchItemset {
+export interface CaseSearchItemset<XPath = string> {
 	instance_id: string;
-	nodeset: string;
-	label: string;
-	value: string;
-	sort: string;
+	nodeset: XPath;
+	label: XPath;
+	value: XPath;
+	sort: XPath;
 }
 
-export interface CaseSearchProperty {
+export interface CaseSearchProperty<XPath = string> {
 	name: string;
 	label: LocalizedString;
 	hint?: LocalizedString;
@@ -361,15 +368,15 @@ export interface CaseSearchProperty {
 	 *  `daterange`. */
 	input_?: string;
 	appearance?: string;
-	default_value?: string;
+	default_value?: XPath;
 	hidden?: boolean;
 	allow_blank_value?: boolean;
 	exclude?: boolean;
 	/** `<required test>`: the prompt must be answered when the test holds. */
-	required?: CaseSearchAssertion;
+	required?: CaseSearchAssertion<XPath>;
 	/** Core keeps only the last `<validation>`, so Nova emits at most one. */
-	validations?: CaseSearchAssertion[];
-	itemset?: CaseSearchItemset;
+	validations?: CaseSearchAssertion<XPath>[];
+	itemset?: CaseSearchItemset<XPath>;
 	is_group?: boolean;
 	group_key?: string;
 }
@@ -383,9 +390,9 @@ export interface CaseSearchProperty {
  *
  * Verified against `commcare-hq/.../models.py::DefaultCaseSearchProperty`.
  */
-export interface DefaultCaseSearchProperty {
+export interface DefaultCaseSearchProperty<XPath = string> {
 	property: string;
-	defaultValue: string;
+	defaultValue: XPath;
 }
 
 /**
@@ -424,17 +431,17 @@ export interface DefaultCaseSearchProperty {
  * when effective Search emits information that reads a supporting parent.
  * It is never an author-facing option.
  */
-export interface CaseSearchConfig {
+export interface CaseSearchConfig<XPath = string> {
 	doc_type: "CaseSearch";
 	search_button_label: LocalizedString | Record<string, never>;
-	properties: CaseSearchProperty[];
+	properties: CaseSearchProperty<XPath>[];
 	auto_launch: boolean;
 	default_search: boolean;
 	inline_search: boolean;
 	include_all_related_cases: boolean;
-	search_button_display_condition?: string;
-	default_properties: DefaultCaseSearchProperty[];
-	blacklisted_owner_ids_expression?: string;
+	search_button_display_condition?: XPath;
+	default_properties: DefaultCaseSearchProperty<XPath>[];
+	blacklisted_owner_ids_expression?: XPath;
 	title_label: LocalizedString | Record<string, never>;
 	description: LocalizedString | Record<string, never>;
 }
@@ -466,9 +473,9 @@ export interface CaseReferencesData {
  * target datum id the value satisfies, `xpath` the session-scope
  * expression Core evaluates at push.
  */
-export interface HqFormLinkDatum {
+export interface HqFormLinkDatum<XPath = string> {
 	name: string;
-	xpath: string;
+	xpath: XPath;
 }
 
 /**
@@ -486,20 +493,20 @@ export interface HqFormLinkDatum {
  * (`_get_datums_matched_to_manual_values`). HQ reads
  * `form_links` only while `post_form_workflow === "form"`.
  */
-export type HqFormLink =
+export type HqFormLink<XPath = string> =
 	| {
-			xpath: string;
+			xpath: XPath | "";
 			form_id: string;
 			form_module_id: string;
-			datums: HqFormLinkDatum[];
+			datums: HqFormLinkDatum<XPath>[];
 	  }
 	| {
-			xpath: string;
+			xpath: XPath | "";
 			module_unique_id: string;
-			datums: HqFormLinkDatum[];
+			datums: HqFormLinkDatum<XPath>[];
 	  };
 
-export interface HqForm {
+export interface HqForm<XPath = string, LinkXPath = XPath> {
 	session_endpoint_id?: string;
 	respect_relevancy?: boolean;
 	doc_type: "Form";
@@ -511,7 +518,7 @@ export interface HqForm {
 	version: null;
 	actions: FormActions;
 	case_references_data: CaseReferencesData;
-	form_filter: string | null;
+	form_filter: XPath | null;
 	post_form_workflow: string;
 	/**
 	 * The workflow HQ falls back to when every `form_links[*].xpath` is
@@ -525,11 +532,11 @@ export interface HqForm {
 	custom_icons: unknown[];
 	custom_assertions: unknown[];
 	custom_instances: unknown[];
-	form_links: HqFormLink[];
+	form_links: HqFormLink<LinkXPath>[];
 	comment: string;
 }
 
-export interface HqModule {
+export interface HqModule<XPath = string, LinkXPath = XPath> {
 	session_endpoint_id?: string;
 	case_list_session_endpoint_id?: string;
 	doc_type: "Module";
@@ -539,8 +546,8 @@ export interface HqModule {
 	case_type: string;
 	put_in_root: boolean;
 	root_module_id: string | null;
-	forms: HqForm[];
-	case_details: DetailPair;
+	forms: HqForm<XPath, LinkXPath>[];
+	case_details: DetailPair<XPath>;
 	case_list: {
 		doc_type: "CaseList";
 		show: boolean;
@@ -560,15 +567,15 @@ export interface HqModule {
 		form_id: string | null;
 		label: Record<string, string> | Record<string, never>;
 		post_form_workflow?: "default" | "case_list";
-		relevancy_expression?: string;
+		relevancy_expression?: XPath;
 	};
-	search_config: CaseSearchConfig;
+	search_config: CaseSearchConfig<XPath>;
 	display_style: string;
 	media_image: Record<string, string>;
 	media_audio: Record<string, string>;
 	custom_icons: unknown[];
 	is_training_module: boolean;
-	module_filter: string | null;
+	module_filter: XPath | null;
 	auto_select_case: boolean;
 	parent_select: {
 		active: boolean;
@@ -616,7 +623,7 @@ export interface HqApplicationProfile {
  * target's current value (`targetOverlay.ts`) and leaves a key out where the
  * result equals what HQ holds.
  */
-export interface HqApplication {
+export interface HqApplication<XPath = string, LinkXPath = XPath> {
 	doc_type: "Application";
 	application_version: string;
 	name: string;
@@ -658,6 +665,6 @@ export interface HqApplication {
 	 * carries the target's other slugs beside them.
 	 */
 	add_ons?: Record<string, boolean>;
-	modules: HqModule[];
+	modules: HqModule<XPath, LinkXPath>[];
 	_attachments: Record<string, string>;
 }

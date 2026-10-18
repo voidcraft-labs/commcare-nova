@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import { dateAdd, dateCoerce, literal, term } from "@/lib/domain/predicate";
 import { xpathToString } from "../coerce";
 import { evaluate } from "../evaluator";
@@ -17,9 +18,17 @@ function evaluateDateAdd(
 	interval: "seconds" | "minutes" | "hours" | "days" | "weeks",
 	quantity: number,
 ): { readonly xpath: string; readonly result: string } {
-	const xpath = emitOnDeviceExpression(
-		dateAdd(dateCoerce(term(literal(base))), interval, term(literal(quantity))),
-	);
+	const xpath = serializeWire(
+		toWire(
+			dateAdd(
+				dateCoerce(term(literal(base))),
+				interval,
+				term(literal(quantity)),
+			),
+			{ target: "xform", types: {} },
+		),
+		{ target: "xform", constraint: false },
+	).text;
 	return { xpath, result: xpathToString(evaluate(xpath, context)) };
 }
 

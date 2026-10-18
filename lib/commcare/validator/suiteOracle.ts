@@ -7,7 +7,6 @@
 
 import { type AnyNode, type Document, type Element, isTag } from "domhandler";
 import { getAttributeValue, getChildren } from "domutils";
-import { collectInstanceRefs } from "@/lib/commcare/xform/instanceRefs";
 import {
 	isParseableXPath,
 	isPathExpression,
@@ -31,11 +30,52 @@ function findAll(
 		for (const node of nodes) {
 			if (!isTag(node)) continue;
 			if (predicate(node)) result.push(node);
-			if (node.name !== "fixture") visit(node.children);
+			if (node.name !== "fixture" && node.name !== "instance") {
+				visit(node.children);
+			}
 		}
 	};
 	visit(roots);
 	return result;
+}
+
+/** Read the emitted bytes independently of the wire tree and serializer.
+ * Only a complete, one-literal-argument instance() call is a static read;
+ * instance-looking prose and malformed expressions contribute no reads.
+ * Shared only by the two wire oracles, never by an emitter. */
+export function collectOracleInstanceRefs(source: string): Set<string> {
+	const ids = new Set<string>();
+	const cursor = parser.parse(source).cursor();
+	do {
+		if (cursor.type.isError) return new Set();
+		if (cursor.name !== "Invoke") continue;
+		const name = cursor.node.firstChild;
+		if (
+			name?.name !== "FunctionName" ||
+			source.slice(name.from, name.to) !== "instance"
+		) {
+			continue;
+		}
+		const argumentsNode = name.nextSibling;
+		if (argumentsNode?.name !== "ArgumentList") continue;
+		const argumentsFound = [];
+		for (
+			let argument = argumentsNode.firstChild;
+			argument !== null;
+			argument = argument.nextSibling
+		) {
+			if (argument.name !== "(" && argument.name !== ")") {
+				argumentsFound.push(argument);
+			}
+		}
+		if (argumentsFound.length !== 1) continue;
+		const argument = argumentsFound[0];
+		if (argument.name !== "StringLiteral") continue;
+		const literal = source.slice(argument.from, argument.to);
+		const quote = literal[0];
+		ids.add(literal.slice(1, -1).split(`${quote}${quote}`).join(quote));
+	} while (cursor.next());
+	return ids;
 }
 /** Nova emits ASCII integer spellings. Core accepts a leading sign and rejects
  * values outside signed 32-bit range. */
@@ -120,10 +160,7 @@ interface SuiteModel {
 	/** Every menu and the declarations Core uses to build relevance scopes. */
 	readonly menuScopes: readonly MenuScope[];
 	/** Last direct entry/view definition for each command id. */
-	readonly directCommandInstanceScopes: ReadonlyMap<
-		string,
-		ReadonlySet<string>
-	>;
+	readonly directCommandInstanceScopes: ReadonlyMap<string, EntryScope>;
 	/**
 	 * For each `<detail id>`, the entry scopes that load it (via a `<datum
 	 * detail-select>` / `detail-confirm>` naming the id). A detail's
@@ -1311,32 +1348,38 @@ function checkDetailReferences(
  * checks only the complete statically provable scope instead of treating the
  * broad runtime-instance vocabulary as ambient here.
  */
-function collectRelevanceEvaluationInstances(
+function collectRelevanceEvaluationScopes(
 	model: SuiteModel,
 	commandId: string,
-): Set<string> {
-	const instances = new Set<string>();
+): readonly (EntryScope | MenuScope)[] {
 	const sameIdMenus = model.menuScopes.filter((menu) => menu.id === commandId);
-	let selectedEntryInstances: ReadonlySet<string> | undefined;
+	let selectedEntry: EntryScope | undefined;
 	let sameIdMenuContributedCommand = false;
 
 	outer: for (const menu of sameIdMenus) {
 		for (const nestedCommandId of menu.commandIds) {
 			sameIdMenuContributedCommand = true;
-			selectedEntryInstances =
-				model.directCommandInstanceScopes.get(nestedCommandId);
+			selectedEntry = model.directCommandInstanceScopes.get(nestedCommandId);
 			break outer;
 		}
 	}
 
 	if (!sameIdMenuContributedCommand) {
-		selectedEntryInstances = model.directCommandInstanceScopes.get(commandId);
+		selectedEntry = model.directCommandInstanceScopes.get(commandId);
 	}
-	if (selectedEntryInstances !== undefined) {
-		for (const id of selectedEntryInstances) instances.add(id);
-	}
-	for (const menu of sameIdMenus) {
-		for (const id of menu.declaredInstances) instances.add(id);
+	return [
+		...(selectedEntry === undefined ? [] : [selectedEntry]),
+		...sameIdMenus,
+	];
+}
+
+function collectRelevanceEvaluationInstances(
+	model: SuiteModel,
+	commandId: string,
+): Set<string> {
+	const instances = new Set<string>();
+	for (const scope of collectRelevanceEvaluationScopes(model, commandId)) {
+		for (const id of scope.declaredInstances) instances.add(id);
 	}
 	return instances;
 }
@@ -1464,7 +1507,7 @@ function checkInstanceResolution(
 		// C2-4: every instance ref inside this element must resolve.
 		const inScope = new Set<string>([...scope.declaredInstances]);
 		for (const expr of collectEntryScopeXPaths(scope.element)) {
-			for (const ref of collectInstanceRefs(expr)) {
+			for (const ref of collectOracleInstanceRefs(expr)) {
 				if (!inScope.has(ref)) {
 					errors.push(
 						validationError(
@@ -1511,7 +1554,7 @@ function checkInstanceResolution(
 				menu.id === undefined
 					? new Set<string>()
 					: collectRelevanceEvaluationInstances(model, menu.id);
-			for (const ref of collectInstanceRefs(menuRelevant)) {
+			for (const ref of collectOracleInstanceRefs(menuRelevant)) {
 				if (resolvable.has(ref)) continue;
 				errors.push(
 					validationError(
@@ -1530,7 +1573,7 @@ function checkInstanceResolution(
 			if (relevant === undefined) continue;
 			const commandId = getAttributeValue(command, "id") ?? "(unnamed)";
 			const resolvable = collectRelevanceEvaluationInstances(model, commandId);
-			for (const ref of collectInstanceRefs(relevant)) {
+			for (const ref of collectOracleInstanceRefs(relevant)) {
 				if (resolvable.has(ref)) continue;
 				errors.push(
 					validationError(
@@ -1562,8 +1605,8 @@ function checkInstanceResolution(
 		if (referrers === undefined || referrers.length === 0) continue;
 
 		const resolvable = intersectDeclaredInstances(referrers);
-		for (const fn of collectXPathFunctions(detail)) {
-			for (const ref of collectInstanceRefs(fn)) {
+		for (const fn of collectScopeXPaths(detail)) {
+			for (const ref of collectOracleInstanceRefs(fn)) {
 				if (!resolvable.has(ref)) {
 					errors.push(
 						validationError(
@@ -1606,59 +1649,188 @@ function intersectDeclaredInstances(
  * `<instance src>` attribute (a `jr://` URL, not an XPath).
  */
 function collectEntryScopeXPaths(entry: Element): string[] {
-	const out: string[] = [];
+	return collectScopeXPaths(entry, false);
+}
 
-	// Datum value + nodeset (session datums + stack datums).
-	for (const datum of findAll(
-		(e) =>
-			e.name === "datum" ||
-			e.name === "instance-datum" ||
-			(e.name === "form" &&
-				e.parent !== null &&
-				isTag(e.parent) &&
-				e.parent.name === "session"),
-		entry.children,
+/** The expression-bearing suite attributes Core reads. This is an independent
+ * byte inventory, including query conditions/itemsets, assertions, nested
+ * details, detail grouping and stack frames. A query's value is its URL, not
+ * an XPath; fixture and instance bodies are data, not suite definitions. */
+function collectScopeXPaths(root: Element, includeRoot = true): string[] {
+	const expressions: string[] = [];
+	for (const element of findAll(
+		() => true,
+		includeRoot ? [root] : root.children,
 	)) {
-		const computed = getAttributeValue(datum, "function");
-		if (computed) out.push(computed);
-		const value = getAttributeValue(datum, "value");
-		if (value) out.push(value);
-		const nodeset = getAttributeValue(datum, "nodeset");
-		if (nodeset) out.push(nodeset);
-	}
-	// Query data ref + nodeset.
-	for (const data of findAll((e) => e.name === "data", entry.children)) {
-		const ref = getAttributeValue(data, "ref");
-		if (ref) out.push(ref);
-		const nodeset = getAttributeValue(data, "nodeset");
-		if (nodeset) out.push(nodeset);
-		const exclude = getAttributeValue(data, "exclude");
-		if (exclude) out.push(exclude);
-	}
-	// Prompt defaults.
-	for (const prompt of findAll((e) => e.name === "prompt", entry.children)) {
-		const def = getAttributeValue(prompt, "default");
-		if (def) out.push(def);
-	}
-	// Post relevant.
-	for (const post of findAll((e) => e.name === "post", entry.children)) {
-		const relevant = getAttributeValue(post, "relevant");
-		if (relevant) out.push(relevant);
-	}
-	// Stack-op values + ifs + rewind values.
-	for (const tag of ["create", "push", "clear", "command", "rewind"]) {
-		for (const el of findAll((e) => e.name === tag, entry.children)) {
-			const value = getAttributeValue(el, "value");
-			if (value) out.push(value);
-			const ifClause = getAttributeValue(el, "if");
-			if (ifClause) out.push(ifClause);
+		if (element.name === "fixture" || element.name === "instance") continue;
+		const attributes = new Set<string>();
+		const parentName =
+			element.parent !== null && isTag(element.parent)
+				? element.parent.name
+				: undefined;
+		if (parentName === "variables") attributes.add("function");
+		switch (element.name) {
+			case "datum":
+			case "instance-datum":
+			case "form":
+				if (parentName === "session") {
+					if (getAttributeValue(element, "function") !== undefined)
+						attributes.add("function");
+					else {
+						attributes.add("nodeset");
+						attributes.add("value");
+					}
+				} else if (
+					element.name !== "form" &&
+					(parentName === "create" || parentName === "push")
+				)
+					attributes.add("value");
+				break;
+			case "command":
+				attributes.add("relevant");
+				if (parentName === "create" || parentName === "push")
+					attributes.add("value");
+				break;
+			case "rewind":
+			case "mark":
+				attributes.add("value");
+				break;
+			case "create":
+			case "push":
+			case "clear":
+				attributes.add("if");
+				break;
+			case "xpath":
+			case "group":
+			case "focus":
+				attributes.add("function");
+				break;
+			case "detail":
+				attributes.add("nodeset");
+				attributes.add("relevant");
+				break;
+			case "field":
+			case "menu":
+			case "post":
+				attributes.add("relevant");
+				break;
+			case "data":
+				attributes.add("ref");
+				attributes.add("nodeset");
+				attributes.add("exclude");
+				break;
+			case "itemset":
+				attributes.add("nodeset");
+				break;
+			case "label":
+			case "value":
+			case "sort":
+				if (parentName === "itemset") attributes.add("ref");
+				break;
+			case "prompt":
+				attributes.add("default");
+				attributes.add("exclude");
+				attributes.add("required");
+				break;
+			case "action":
+				attributes.add("relevant");
+				attributes.add("auto_launch");
+				break;
+			case "required":
+			case "validation":
+			case "assert":
+			case "assertion":
+				attributes.add("test");
+				break;
+		}
+		for (const attribute of attributes) {
+			const expression = getAttributeValue(element, attribute);
+			if (expression !== undefined && expression !== "")
+				expressions.push(expression);
 		}
 	}
-	// Any `<xpath function>` directly in the entry (e.g. remote-request session
-	// expressions).
-	for (const fn of collectXPathFunctions(entry)) out.push(fn);
+	return expressions;
+}
 
-	return out;
+/** Every declaration must be read in the evaluation scope it contributes to.
+ * Detail expressions run in each entry that loads the detail. Navigation
+ * relevance reads Core's first selected entry and same-id menus, so the
+ * containing menu alone neither supplies nor consumes a declaration. */
+function checkUnreadInstances(
+	model: SuiteModel,
+	loc: ValidationLocation,
+): ValidationError[] {
+	const used = new Map<Element, Set<string>>();
+	const markReads = (
+		scopes: readonly (EntryScope | MenuScope)[],
+		expressions: readonly string[],
+	): void => {
+		for (const expression of expressions) {
+			for (const id of collectOracleInstanceRefs(expression)) {
+				for (const scope of scopes) {
+					if (!scope.declaredInstances.has(id)) continue;
+					let reads = used.get(scope.element);
+					if (reads === undefined) {
+						reads = new Set();
+						used.set(scope.element, reads);
+					}
+					reads.add(id);
+				}
+			}
+		}
+	};
+	for (const scope of model.entryScopes) {
+		markReads([scope], collectEntryScopeXPaths(scope.element));
+	}
+	for (const detail of findAll(
+		(element) => element.name === "detail",
+		model.suite.children,
+	)) {
+		const id = getAttributeValue(detail, "id");
+		const scopes = id === undefined ? undefined : model.detailReferrers.get(id);
+		if (scopes !== undefined) markReads(scopes, collectScopeXPaths(detail));
+	}
+	for (const menu of model.menuScopes) {
+		const relevant = getAttributeValue(menu.element, "relevant");
+		if (relevant !== undefined && menu.id !== undefined) {
+			markReads(collectRelevanceEvaluationScopes(model, menu.id), [relevant]);
+		}
+		// Menu display trees use the same restricted scope as menu relevance.
+		const displayExpressions = getChildren(menu.element).flatMap((child) =>
+			isTag(child) && child.name !== "command" && child.name !== "instance"
+				? collectScopeXPaths(child)
+				: [],
+		);
+		if (menu.id !== undefined)
+			markReads(
+				collectRelevanceEvaluationScopes(model, menu.id),
+				displayExpressions,
+			);
+		for (const command of getChildren(menu.element)) {
+			if (!isTag(command) || command.name !== "command") continue;
+			const id = getAttributeValue(command, "id");
+			if (id === undefined) continue;
+			markReads(
+				collectRelevanceEvaluationScopes(model, id),
+				collectScopeXPaths(command),
+			);
+		}
+	}
+	const errors: ValidationError[] = [];
+	for (const scope of [...model.entryScopes, ...model.menuScopes]) {
+		for (const id of scope.declaredInstances) {
+			if (used.get(scope.element)?.has(id)) continue;
+			errors.push(
+				validationError(
+					"SUITE_UNREAD_INSTANCE",
+					"app",
+					`The suite declares instance '${id}' on a ${scope.element.name}, but no expression reads it in that evaluation scope. Remove the declaration or include the missing expression dependency. This is a bug in the suite generator.`,
+					loc,
+				),
+			);
+		}
+	}
+	return errors;
 }
 
 // ── Category 2 — locale resolution (C2-6) ──────────────────────────
@@ -1986,10 +2158,11 @@ export function validateSuite(
 	}
 
 	const commandIds = new Set<string>();
-	const directCommandInstanceScopes = new Map<string, ReadonlySet<string>>();
+	const directCommandInstanceScopes = new Map<string, EntryScope>();
 	const entryScopes: EntryScope[] = [];
 	for (const entry of findAll(
-		(el) => el.name === "entry" || el.name === "remote-request",
+		(el) =>
+			el.name === "entry" || el.name === "remote-request" || el.name === "view",
 		doc.children,
 	)) {
 		entryScopes.push({
@@ -2015,7 +2188,10 @@ export function validateSuite(
 			commandIds.add(id);
 			const parent = cmd.parent;
 			if (parent !== null && isTag(parent)) {
-				directCommandInstanceScopes.set(id, collectDeclaredInstances(parent));
+				const scope = entryScopes.find(
+					(candidate) => candidate.element === parent,
+				);
+				if (scope !== undefined) directCommandInstanceScopes.set(id, scope);
 			}
 		}
 	}
@@ -2045,7 +2221,12 @@ export function validateSuite(
 			(el) => el.name === "datum" || el.name === "instance-datum",
 			scope.element.children,
 		)) {
-			for (const attr of ["detail-select", "detail-confirm"]) {
+			for (const attr of [
+				"detail-select",
+				"detail-confirm",
+				"detail-inline",
+				"detail-persistent",
+			]) {
 				const detailId = getAttributeValue(datum, attr);
 				if (detailId === undefined) continue;
 				const list = detailReferrers.get(detailId);
@@ -2091,6 +2272,7 @@ export function validateSuite(
 		...checkMenuRoots(model, loc),
 		...checkDetailReferences(model, loc),
 		...checkInstanceResolution(model, loc),
+		...checkUnreadInstances(model, loc),
 		...checkFixtures(model, loc),
 		...checkLocaleResolution(model, appStringKeys, loc),
 		// Sort — silently tolerated.

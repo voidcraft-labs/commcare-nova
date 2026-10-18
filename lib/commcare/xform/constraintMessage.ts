@@ -6,7 +6,16 @@ import {
 	printProseTemplate,
 } from "@/lib/domain";
 import { el, text } from "../elementBuilders";
-import { xpathStringLiteral } from "../xpath/stringLiteral";
+import { w } from "../xpath/wire/builders";
+import type { WireMode } from "../xpath/wire/tree";
+import {
+	type AuthoredXPathValue,
+	type LegacyAuthoredXPath,
+	legacyAuthoredBinary,
+	legacyAuthoredCall,
+	legacyAuthoredOr,
+	legacyProjectedAuthoredXPath,
+} from "./legacyAuthoredXPath";
 
 interface LocalizedMessage {
 	readonly language: string;
@@ -14,10 +23,10 @@ interface LocalizedMessage {
 }
 type MessagePart =
 	| { readonly literal: string }
-	| { readonly expression: string };
+	| { readonly expression: LegacyAuthoredXPath };
 
 export interface ProtectedConstraintMessage {
-	readonly expression: string;
+	readonly expression: AuthoredXPathValue;
 	readonly forms: ReadonlyMap<string, Element[]>;
 }
 
@@ -54,7 +63,7 @@ export function protectConstraintMessage(
 			const expanded = expand(projected);
 			return expanded === projected
 				? { literal: decodeXML(projected) }
-				: { expression: expanded };
+				: { expression: legacyProjectedAuthoredXPath(expanded) };
 		}),
 	}));
 	const pieceIndices = new Set(
@@ -63,9 +72,14 @@ export function protectConstraintMessage(
 		),
 	);
 	const forms = new Map<string, Element[]>();
-	const itext = (form?: string): string =>
-		`jr:itext(${xpathStringLiteral(form === undefined ? id : `${id};${form}`)})`;
-	const expressions: string[] = [];
+	const mode: WireMode = { target: "xform", constraint: false };
+	const call = (
+		fn: Parameters<typeof legacyAuthoredCall>[0],
+		args: readonly AuthoredXPathValue[],
+	) => legacyAuthoredCall(fn, args, mode);
+	const itext = (form?: string) =>
+		w.call("jr:itext", [w.str(form === undefined ? id : `${id};${form}`)]);
+	const expressions: AuthoredXPathValue[] = [];
 	for (const { language, parts } of terms) {
 		const values: Element[] = [];
 		const add = (form: string, value: string): void => {
@@ -90,42 +104,57 @@ export function protectConstraintMessage(
 		const composed = parts.map((part, index) =>
 			"expression" in part
 				? part.expression
-				: `json-property(${itext(`__nova_piece_${index}`)}, 'v')`,
+				: w.call("json-property", [itext(`__nova_piece_${index}`), w.str("v")]),
 		);
 		// concat(singleNodeset) joins multiple nodes in Core; ordinary output
 		// instead unpacks one scalar. Do not silently change that contract.
 		const composedExpression =
 			composed.length === 0
-				? "''"
+				? w.str("")
 				: composed.length === 1
 					? composed[0]
-					: `concat(${composed.join(", ")})`;
-		const ambiguousReferences = [
-			...new Set(
+					: call("concat", composed);
+		const references = [
+			...new Map(
 				parts.flatMap((part) =>
-					"expression" in part ? [part.expression] : [],
+					"expression" in part
+						? [[part.expression.text, part.expression] as const]
+						: [],
 				),
-			),
-		]
-			.map((reference) => `count(${reference}) > 1`)
-			.join(" or ");
+			).values(),
+		];
+		const ambiguousReferences = references.map((reference) =>
+			legacyAuthoredBinary(">", call("count", [reference]), w.num(1), mode),
+		);
 		// Core catches raw-message errors and exposes the expression itself.
 		// A reference to several answers instead requests the client's normal
 		// validation warning. The lazy branch preserves zero/singleton coercion
 		// and chooses no answer from an ambiguous repeat.
 		expressions.push(
-			ambiguousReferences
-				? `if(${ambiguousReferences}, '', ${composedExpression})`
+			ambiguousReferences.length > 0
+				? call("if", [
+						legacyAuthoredOr(ambiguousReferences, mode),
+						w.str(""),
+						composedExpression,
+					])
 				: composedExpression,
 		);
 	}
-	let expression = expressions.at(-1) ?? "''";
+	let expression = expressions.at(-1) ?? w.str("");
 	for (let index = messages.length - 2; index >= 0; index--) {
-		expression = `if(${itext("__nova_locale")} = ${xpathStringLiteral(messages[index].language)}, ${expressions[index]}, ${expression})`;
+		expression = call("if", [
+			w.eq(itext("__nova_locale"), w.str(messages[index].language)),
+			expressions[index],
+			expression,
+		]);
 	}
 	return {
 		forms,
-		expression: `if(${itext("__nova_mode")} = 'media', ${itext()}, ${expression})`,
+		expression: call("if", [
+			w.eq(itext("__nova_mode"), w.str("media")),
+			itext(),
+			expression,
+		]),
 	};
 }
 

@@ -2,24 +2,21 @@
 
 Contract: for every scenario of the six corpora, every ``<entry>`` and
 ``<remote-request>`` HQ's suite contributors build equals Nova's, compared
-whole (every attribute, leaf text and child, in order), after exactly one
-recorded difference is set aside and asserted present: Nova declares the
-selected-cases instance on a multi-select remote search even when no suite
-expression reads it (``remote-multiple``). An unprompted, unfiltered search
-(``automatic``) sends the same ``match-all()`` ``_xpath_query`` on both
+whole (every attribute, leaf text and child, in order), with known XPath
+carriers compared as HQ's parser's complete expression trees. An unprompted,
+unfiltered search (``automatic``) sends the same ``match-all()`` ``_xpath_query`` on both
 paths, so it is compared whole. The family's Core class then runs both paths
 (``SearchRuntimeTest``, ``SearchPromptRuntimeTest``,
 ``CsqlFunctionRuntimeTest``, ``CsqlQuoteRuntimeTest``,
 ``StaticQuoteRuntimeTest``, ``FormLinkRuntimeTest``). The plausible failures:
-a query, prompt, claim or stack frame HQ builds differently, a recorded
-difference that no longer appears (so it hides nothing and must go), and a
-scenario missing from a corpus.
+a query, prompt, claim or stack frame HQ builds differently, and a scenario
+missing from a corpus.
 """
 
 import pytest
 from lxml import etree
 
-from proof.native.hq_support import hq_commit, sha256, shape, write_evidence
+from proof.native.hq_support import hq_commit, parse_xml_xpaths, sha256, shape, write_evidence
 
 FAMILIES = ("search", "prompt", "function", "quote", "static-quote", "form-link")
 CORPORA = {
@@ -45,38 +42,39 @@ CORPORA = {
 }
 
 
-def compare_entries(local, native, scenario):
-    differences = []
-    if scenario == "remote-multiple":
-        extra = local.findall("entry/instance[@id='selected_cases']")
-        assert len(extra) == 1 and dict(extra[0].attrib) == {
-            "id": "selected_cases",
-            "src": "jr://instance/selected-entities/selected_cases",
-        }
-        assert not native.findall("entry/instance[@id='selected_cases']")
-        extra[0].getparent().remove(extra[0])
-        differences.append("Nova declares the ordinary collection instance even without a suite expression reading it")
+def compare_entries(local, native, scenario, parsed):
     for tag in ["entry", "remote-request"]:
-        assert [shape(e) for e in local.findall(tag)] == [shape(e) for e in native.findall(tag)], (scenario, tag)
-    return differences
+        assert [shape(e, parsed) for e in local.findall(tag)] == [shape(e, parsed) for e in native.findall(tag)], (
+            scenario,
+            tag,
+        )
 
 
 @pytest.mark.parametrize("family", sorted(CORPORA))
 def test_hq_entries_and_remote_requests_equal_novas(native, family):
     result = native.step(family)
     assert set(result["sources"]) == CORPORA[family]
-    scenarios = []
-    for record in result["records"]:
-        differences = compare_entries(
-            etree.fromstring(record["local"]), etree.fromstring(record["native"]), record["scenario"]
+    suites = [
+        (record, etree.fromstring(record["local"]), etree.fromstring(record["native"])) for record in result["records"]
+    ]
+    parsed = parse_xml_xpaths(
+        *(
+            element
+            for _, local, hq in suites
+            for root in (local, hq)
+            for tag in ("entry", "remote-request")
+            for element in root.findall(tag)
         )
+    )
+    scenarios = []
+    for record, local, hq in suites:
+        compare_entries(local, hq, record["scenario"], parsed)
         scenarios.append(
             {
                 "scenario": record["scenario"],
                 "sourceSha256": record["sourceSha256"],
                 "suiteSha256": sha256(record["local"]),
                 "nativeSuiteSha256": sha256(record["native"]),
-                "differences": differences,
             }
         )
     write_evidence(
@@ -87,7 +85,7 @@ def test_hq_entries_and_remote_requests_equal_novas(native, family):
             "scenarios": scenarios,
             "limits": "Native HQ Application import and detail/entry/menu contributors, remote request/workflow/"
             "instance post-processing. Complete entry and remote-request trees compared, retaining leaf text and "
-            "child order; only explicitly recorded structural differences. Build version and URL origin from the "
+            "child order, comparing known XPath carriers through HQ's parser. Build version and URL origin from the "
             "check's configuration; no resource install, full HQ build or network. Advanced Search on; every other "
             "flag off.",
         },

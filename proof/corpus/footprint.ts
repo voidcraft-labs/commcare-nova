@@ -114,14 +114,13 @@ import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
-import {
-	collectExpressionInstances,
-	collectPredicateInstances,
-} from "@/lib/commcare/predicate/instances";
 import type { SessionDatum } from "@/lib/commcare/session";
 import { moduleIsSearchFirst } from "@/lib/commcare/suite/case-search/inlineSearch";
 import { searchNeedsSupportingCases } from "@/lib/commcare/suite/case-search/relatedCaseProjection";
 import { moduleTypeContext } from "@/lib/commcare/validator/rules/case-list/shared";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import { InstanceSink } from "@/lib/commcare/xpath/wire/instances";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	declarersOf,
@@ -740,12 +739,10 @@ const groupingConnection: ModuleDerivation = {
 };
 
 /**
- * The instances every entry of the module declares from the module's
- * expressions (`lib/commcare/session.ts::deriveEntryDefinition` runs
- * `accumulateCaseLoadingInstances` for each form's entry, whatever its
- * type), in the order it declares them; the expressions themselves print
- * into the case datum's nodeset (`selectionDatum`) or into the module's
- * details:
+ * The instances read by the module's expressions when they print into a
+ * case datum's nodeset or the module's rendered details. Each group keeps
+ * the serializer's declaration order, and changes to it affect every
+ * form whose entry can load the module's case list:
  *
  * - the filter's and the owner exclusion's, each with its search inputs
  *   substituted away as the nodeset reads it;
@@ -754,19 +751,34 @@ const groupingConnection: ModuleDerivation = {
  * - each emitted calculated column's, under the module's search input
  *   instance (`moduleTypeContext`).
  *
- * Each is collected with the document's lookup naming, as `compileCcz`
- * passes it. A module's search input instance changes only with its
- * opening on Search, whose forms all load a case.
+ * Each comes from the wire serializer with the document's lookup naming,
+ * as `compileCcz` passes it. A module's search input instance changes only
+ * with its opening on Search, whose forms all load a case.
  */
 const ownEntryInstances: ModuleDerivation = {
 	settings: (side, module) => {
 		const naming = side.lookupNaming;
 		const filter = module.caseListConfig?.filter;
 		const owners = module.caseSearchConfig?.excludedOwnerIds;
-		const searchInputInstanceId = moduleTypeContext(
-			module,
-			side.wire,
-		).searchInputInstanceId;
+		const types = moduleTypeContext(module, side.wire);
+		const instances = (expression: Parameters<typeof toWire>[0]) =>
+			new InstanceSink(
+				serializeWire(
+					toWire(expression, {
+						target: "suite",
+						types,
+						bindings:
+							naming === undefined
+								? {}
+								: {
+										lookup: { naming, instanceScope: "suite" },
+									},
+					}),
+					{ target: "suite" },
+				).instances,
+			)
+				.declarations()
+				.map(({ id }) => id);
 		const searchButton = moduleIsSearchFirst(module)
 			? undefined
 			: effectiveCaseSearchConfig(module)?.searchButtonDisplayCondition;
@@ -778,12 +790,7 @@ const ownEntryInstances: ModuleDerivation = {
 			) {
 				continue;
 			}
-			for (const id of collectExpressionInstances(
-				column.expression,
-				naming,
-				"suite",
-				searchInputInstanceId,
-			)) {
+			for (const id of instances(column.expression)) {
 				calculated.add(id);
 			}
 		}
@@ -791,32 +798,12 @@ const ownEntryInstances: ModuleDerivation = {
 			filter:
 				filter === undefined
 					? []
-					: [
-							...collectPredicateInstances(
-								substituteUnansweredSearchInputsInPredicate(filter),
-								naming,
-							),
-						],
+					: instances(substituteUnansweredSearchInputsInPredicate(filter)),
 			excludedOwnerIds:
 				owners === undefined
 					? []
-					: [
-							...collectExpressionInstances(
-								substituteUnansweredSearchInputsInExpression(owners),
-								naming,
-							),
-						],
-			searchButton:
-				searchButton === undefined
-					? []
-					: [
-							...collectPredicateInstances(
-								searchButton,
-								naming,
-								"suite",
-								searchInputInstanceId,
-							),
-						],
+					: instances(substituteUnansweredSearchInputsInExpression(owners)),
+			searchButton: searchButton === undefined ? [] : instances(searchButton),
 			calculatedColumns: [...calculated],
 		};
 	},
@@ -925,7 +912,13 @@ const commonFrameDatums: ModuleDerivation = {
 			(side.links.formOrder[moduleUuid] ?? []).map((form) =>
 				entryFrameDatums(side.wire, side.links, moduleUuid, form),
 			),
-		).map(({ renderFunction: _render, ...datum }) => datum),
+		).map(
+			({
+				renderFunction: _render,
+				renderFormLinkFunction: _renderLink,
+				...datum
+			}) => datum,
+		),
 	holders: ownAndNestedForms,
 	framed: true,
 };

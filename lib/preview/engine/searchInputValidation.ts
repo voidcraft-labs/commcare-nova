@@ -5,6 +5,7 @@ import {
 	type ComposedXPathQuery,
 	composeXPathQueryEmission,
 } from "@/lib/commcare/suite/case-search/xpathQuery";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	type CaseListConfig,
 	searchInputRuntimeValueType,
@@ -60,7 +61,9 @@ function skipSessionBackedRejection(
 ): boolean {
 	return (
 		options?.sessionIndependentOnly === true &&
-		rejection.condition.includes("instance('commcaresession')")
+		[...serializeWire(rejection.condition, { target: "suite" }).instances].some(
+			(instance) => instance.id === "commcaresession",
+		)
 	);
 }
 
@@ -246,7 +249,7 @@ function runtimeRejectionApplies(
 	);
 	const sessionInstance = commcareSessionXPathInstance(session);
 	return toBoolean(
-		evaluate(rejection.condition, {
+		evaluate(serializeWire(rejection.condition, { target: "suite" }).text, {
 			contextPath: "",
 			position: 1,
 			getValue: () => undefined,

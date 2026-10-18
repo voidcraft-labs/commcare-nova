@@ -27,7 +27,7 @@
 //      `switch`, `arith`, `concat`, `coalesce`, `format-date`,
 //      ancestor / any-relation `count`, and `count` outside the
 //      comparison-LHS subcase position) emit inline as runtime XPath
-//      via `emitOnDeviceExpression`, NOT as separate `<data>` slots —
+//      via `toWire`, NOT as separate `<data>` slots —
 //      see the file header for why a sibling `<data>` slot is
 //      structurally wrong on the CCHQ runtime.
 //   3. Map the segment list into the shortest on-device XPath
@@ -81,7 +81,7 @@
 // the on-device expression directly into the `concat(...)` instead.
 // `instance('casedb')/...` evaluates on-device at concat-time and
 // produces a literal string; the result substitutes inline into the
-// CSQL fragment. This is the shape Nova emits — `emitOnDeviceExpression`
+// CSQL fragment. This is the shape Nova emits — `toWire`
 // produces the runtime XPath fragment and it lands as a single
 // `runtime` segment inside the outer concat.
 //
@@ -99,7 +99,7 @@
 //     `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`.
 //   - The non-whitelist arms (`arith`, `concat`, `coalesce`, `if`,
 //     `switch`, `format-date`, plus every other `count` shape) emit
-//     as a single runtime XPath fragment via `emitOnDeviceExpression`,
+//     as a single runtime XPath fragment via `toWire`,
 //     wrapped in CSQL double-quote brackets at the comparison-operand
 //     site so the resolved runtime string interpolates as a CSQL
 //     string value. CCHQ's server-side `case_property_query` handles
@@ -123,21 +123,21 @@ import {
 	type CsqlEmissionContext as TypeContext,
 } from "../expression/csqlRuntimeExpression";
 import { assertCsqlQueryFunction } from "../xpath/functionCapabilities";
+import { w } from "../xpath/wire/builders";
+import { normalizeGeopoint, validGeopointCenter } from "../xpath/wire/geopoint";
+import type { WireExpr } from "../xpath/wire/tree";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 import {
 	type CsqlSegment,
 	dedupeRuntimeRejections,
 	groupCsqlArgument,
 	mergeAdjacentConstants,
-	quoteConstantSegmentForXPath,
 	type RuntimeCsqlRejection,
 } from "./csqlSegment";
 import {
 	collectGeopointCenterInputNames,
 	isValidStaticGeopointCenter,
-	normalizeOnDeviceGeopoint,
 	normalizeStaticGeopoint,
-	validOnDeviceGeopointCenter,
 } from "./geopoint";
 import {
 	blankComparandGuard,
@@ -174,7 +174,7 @@ import {
  * for the CCHQ runtime reason this is the only correct shape.
  */
 export interface CsqlEmissionResult {
-	readonly wrapper: string;
+	readonly wrapper: WireExpr;
 	/**
 	 * The fail-closed obligations the wrapper enforces on-device, one per
 	 * runtime value that can become unrepresentable (quote mixing) or
@@ -355,7 +355,11 @@ function emitPresenceGatedClause(
 		p.clause.kind === "when-input-present"
 			? emitPresenceGatedClause(p.clause, typeContext)
 			: wrapClause(emitPredicateSegments(p.clause, 0, typeContext));
-	const wrapper = `if(count(${triggerXPath}), ${inner.wrapper}, 'match-all()')`;
+	const wrapper = w.call("if", [
+		w.call("count", [triggerXPath]),
+		inner.wrapper,
+		w.str("match-all()"),
+	]);
 	if (
 		inner.runtimeRejections === undefined ||
 		inner.runtimeRejections.length === 0
@@ -366,7 +370,7 @@ function emitPresenceGatedClause(
 	// value obligations must not reject an otherwise valid search.
 	const runtimeRejections = inner.runtimeRejections.map((rejection) => ({
 		...rejection,
-		condition: `count(${triggerXPath}) and (${rejection.condition})`,
+		condition: w.and(w.call("count", [triggerXPath]), rejection.condition),
 	}));
 	return { wrapper, runtimeRejections };
 }
@@ -405,7 +409,7 @@ function wrapClause(segments: readonly CsqlSegment[]): CsqlEmissionResult {
 			.map((seg) => (seg.kind === "constant" ? seg.text : ""))
 			.join("");
 		return {
-			wrapper: renderCsqlStringExpression(quoteConstantSegmentForXPath(text)),
+			wrapper: w.str(text),
 		};
 	}
 	const cascade = buildQuoteCascade(merged);
@@ -414,22 +418,23 @@ function wrapClause(segments: readonly CsqlSegment[]): CsqlEmissionResult {
 	const { query, runtimeRejections } = buildConcatExpression(merged);
 	if (runtimeRejections.length === 0) return { wrapper: query };
 
-	const condition = runtimeRejections
-		.map(({ condition }) => `(${condition})`)
-		.join(" or ");
-	const wrapper = `if(${condition}, 'match-none()', ${query})`;
+	const condition = w.or(
+		...runtimeRejections.map(({ condition }) => condition),
+	);
+	const wrapper = w.call("if", [condition, w.str("match-none()"), query]);
 	return { wrapper, runtimeRejections };
 }
 
 /**
- * One or more already-XPath-quoted args → the shortest expression
+ * One or more wire values → the shortest expression
  * producing their concatenation. A single arg stands alone (a bare
  * literal, or a runtime expression that is the whole value);
  * several args wrap in `concat(...)`.
  */
-function renderCsqlStringExpression(args: readonly string[]): string {
-	if (args.length === 1) return args[0] as string;
-	return `concat(${args.join(", ")})`;
+function renderCsqlStringExpression(args: readonly WireExpr[]): WireExpr {
+	if (args.length === 0) return w.str("");
+	if (args.length === 1) return args[0];
+	return w.call("concat", args);
 }
 
 /**
@@ -479,16 +484,24 @@ function buildQuoteCascade(
 	const prefix = constantText(merged.slice(0, runtimeIndex));
 	const suffix = constantText(merged.slice(runtimeIndex + 1));
 	const doubleArm = renderCsqlStringExpression([
-		...quoteConstantSegmentForXPath(`${prefix}"`),
+		w.str(`${prefix}"`),
 		value,
-		...quoteConstantSegmentForXPath(`"${suffix}`),
+		w.str(`"${suffix}`),
 	]);
 	const singleArm = renderCsqlStringExpression([
-		...quoteConstantSegmentForXPath(`${prefix}'`),
+		w.str(`${prefix}'`),
 		value,
-		...quoteConstantSegmentForXPath(`'${suffix}`),
+		w.str(`'${suffix}`),
 	]);
-	const wrapper = `if(contains(${value}, '"'), if(contains(${value}, "'"), 'match-none()', ${singleArm}), ${doubleArm})`;
+	const wrapper = w.call("if", [
+		w.call("contains", [value, w.str('"')]),
+		w.call("if", [
+			w.call("contains", [value, w.str("'")]),
+			w.str("match-none()"),
+			singleArm,
+		]),
+		doubleArm,
+	]);
 	const runtimeRejections: RuntimeCsqlRejection[] = [
 		{
 			condition: seg.rejectWhen,
@@ -518,11 +531,11 @@ function buildQuoteCascade(
  * `concat(...)`.
  */
 function buildConcatExpression(segments: readonly CsqlSegment[]): {
-	readonly query: string;
+	readonly query: WireExpr;
 	readonly runtimeRejections: readonly RuntimeCsqlRejection[];
 } {
 	const merged = mergeAdjacentConstants(segments);
-	const args: string[] = [];
+	const args: WireExpr[] = [];
 	const rejections: RuntimeCsqlRejection[] = [];
 	for (const seg of merged) {
 		if (seg.kind === "runtime") {
@@ -538,7 +551,7 @@ function buildConcatExpression(segments: readonly CsqlSegment[]): {
 			}
 			continue;
 		}
-		args.push(...quoteConstantSegmentForXPath(seg.text));
+		args.push(w.str(seg.text));
 	}
 	return {
 		// A single arg stands alone — a bare XPath string literal for a
@@ -698,7 +711,11 @@ function emitWhenInputPresentSegments(
 	});
 	const innerSegments = emitPredicateSegments(p.clause, 0, typeContext);
 	const inner = buildConcatExpression(innerSegments);
-	const conditionalXPath = `if(count(${triggerXPath}), ${inner.query}, 'match-all()')`;
+	const conditionalXPath = w.call("if", [
+		w.call("count", [triggerXPath]),
+		inner.query,
+		w.str("match-all()"),
+	]);
 	if (inner.runtimeRejections.length === 0) {
 		return [{ kind: "runtime", xpath: conditionalXPath }];
 	}
@@ -707,10 +724,10 @@ function emitWhenInputPresentSegments(
 		// Only one carrier contributes the actual conditional query. Additional
 		// typed obligations ride on empty concat args so they stay independently
 		// classifiable without changing the emitted CSQL bytes.
-		xpath: index === 0 ? conditionalXPath : "''",
+		xpath: index === 0 ? conditionalXPath : w.str(""),
 		// When the trigger is empty the inner query is not used, so its value
 		// obligations must not reject an otherwise valid search.
-		rejectWhen: `count(${triggerXPath}) and (${rejection.condition})`,
+		rejectWhen: w.and(w.call("count", [triggerXPath]), rejection.condition),
 		rejectionKind: rejection.kind,
 		rejectionInputNames: rejection.inputNames,
 	}));
@@ -783,7 +800,11 @@ function emitSubcaseCountBoundSegments(
 				// CSQL parses a leading minus as a UnaryExpression, even for
 				// numeric negative zero. Canonicalize every zero spelling to the
 				// bare token `0`; all other validated integer spellings pass through.
-				xpath: `if(number(${classification.inputXPath}) = 0, 0, ${classification.inputXPath})`,
+				xpath: w.call("if", [
+					w.eq(w.call("number", [classification.inputXPath]), w.num(0)),
+					w.num(0),
+					classification.inputXPath,
+				]),
 				rejectWhen: invalidNonnegativeWholeNumberXPath(
 					classification.inputXPath,
 				),
@@ -817,7 +838,7 @@ function emitSubcaseCountBoundSegments(
  *   2. Non-grammar value expression — `if`, `switch`, `arith`,
  *      `concat`, `coalesce`, `format-date`, and every other `count`
  *      shape. Emits as a single runtime segment wrapping
- *      `emitOnDeviceExpression(expr)`, double-quote-bracketed so the
+ *      `toWire(expr, context)`, double-quote-bracketed so the
  *      resolved string interpolates as a CSQL value.
  *   3. `term`-arm ValueExpression — wrap via the shared
  *      `wrapTermAsSegmentList` helper so a runtime-resolved term
@@ -1335,7 +1356,7 @@ function emitGeopointCenterSegments(
 		);
 	}
 	const rawCenter = emitCsqlRuntimeExpression(center, typeContext);
-	const normalized = normalizeOnDeviceGeopoint(rawCenter);
+	const normalized = normalizeGeopoint(rawCenter);
 	const inputNames = [...collectGeopointCenterInputNames(center)]
 		.map(
 			(uuid) =>
@@ -1348,8 +1369,8 @@ function emitGeopointCenterSegments(
 			kind: "runtime",
 			// Valid geopoint text contains no quotes, so a fixed CSQL delimiter is
 			// safe. The shape/range obligation subsumes the generic quote guard.
-			xpath: `concat('"', ${normalized}, '"')`,
-			rejectWhen: `not(${validOnDeviceGeopointCenter(rawCenter, normalized)})`,
+			xpath: w.call("concat", [w.str('"'), normalized, w.str('"')]),
+			rejectWhen: w.not(validGeopointCenter(rawCenter, normalized)),
 			rejectionKind: "geopoint",
 			rejectionInputNames: inputNames,
 		},

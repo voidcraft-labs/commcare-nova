@@ -61,6 +61,10 @@ import {
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { lookupRevisionSchema } from "@/lib/lookup/schema";
+import {
+	type HqApplicationTree,
+	serializeHqApplication,
+} from "../hqJson/xpath";
 
 const nativeRecords: {
 	test: string;
@@ -107,7 +111,7 @@ function codes(
 }
 
 /** Partial wire-object fixture for the private consistency checker only. */
-function baselineApp(): HqApplication {
+function baselineTree(): HqApplicationTree {
 	const actions = emptyFormActions();
 	// Activate the open-case condition so the condition check has a non-`never`
 	// value to validate, and add a subcase so the relationship + subcase-condition
@@ -185,6 +189,11 @@ function baselineApp(): HqApplication {
 	return applicationShell("Clinic", [module], {});
 }
 
+/** Malformed-wire tests edit only the serialized consumer object. */
+function baselineApp(): HqApplication {
+	return serializeHqApplication(baselineTree());
+}
+
 /** The single module of a baseline app (every negative reaches into it). */
 function moduleOf(app: HqApplication): HqModule {
 	return app.modules[0];
@@ -194,7 +203,7 @@ function moduleOf(app: HqApplication): HqModule {
 
 describe("HQ-JSON oracle — clean baseline", () => {
 	it("accepts resolved root-module and parent-select identities", () => {
-		const app = baselineApp();
+		const app = baselineTree();
 		const root = app.modules[0];
 		const child = moduleShell(
 			"child-module",
@@ -211,7 +220,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 			module_id: root.unique_id,
 		};
 		app.modules.push(child);
-		expect(validateHqJson(app)).toEqual([]);
+		expect(validateHqJson(serializeHqApplication(app))).toEqual([]);
 	});
 
 	it("flags unresolved root-module and parent-select identities", () => {
@@ -768,9 +777,7 @@ describe("HQ-JSON oracle — sort elements and property-name fields", () => {
 
 	it("flags a property column whose field holds @", () => {
 		const app = baselineApp();
-		moduleOf(app).case_details.short.columns = [
-			detailColumn("@status", "Status"),
-		];
+		moduleOf(app).case_details.short.columns[0].field = "@status";
 		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_DETAIL_FIELD"]);
 	});
 });
@@ -829,11 +836,13 @@ describe("HQ-JSON oracle — the search button label", () => {
 
 describe("HQ-JSON oracle — the spellings HQ's editors write", () => {
 	it("flags a calculated column written calculate, beside the plain one", () => {
-		const column = {
-			...detailColumn("today()", "Today"),
-			useXpathExpression: true,
-		};
 		const plain = baselineApp();
+		const column = {
+			...moduleOf(plain).case_details.short.columns[0],
+			field: "today()",
+			header: { en: "Today" },
+			useXpathExpression: true as const,
+		};
 		moduleOf(plain).case_details.short.columns = [column];
 		expect(validateHqJson(plain)).toEqual([]);
 		const calculate = baselineApp();
@@ -1069,12 +1078,12 @@ describe("HQ-JSON oracle — search prompt children", () => {
 		expect(email).toMatchObject({
 			name: "email",
 			required: {
-				test: "string-length(string(instance('search-input:results')/input/field[@name='case_name'])) = 0",
+				test: "string-length(string(instance('search-input:results')/input/field[@name = 'case_name'])) = 0",
 				text: { en: "Give an email when the name is blank." },
 			},
 			validations: [
 				{
-					test: "regex(instance('search-input:results')/input/field[@name='email'], '@')",
+					test: "regex(instance('search-input:results')/input/field[@name = 'email'], '@')",
 					text: { en: "Enter an email address." },
 				},
 			],

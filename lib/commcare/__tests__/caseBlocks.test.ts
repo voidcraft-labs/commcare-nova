@@ -26,6 +26,8 @@ import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { proseText } from "@/lib/domain";
+import { w } from "../xpath/wire/builders";
+import { sessionInstance } from "../xpath/wire/instances";
 import { caseOperationFixture } from "./caseOperationFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
@@ -129,7 +131,12 @@ it("binds updates and all preload metadata to the supplied selected-case identit
 		"/data/assigned_owner": "owner_id",
 	};
 	const selected = "instance('commcaresession')/session/data/case_id_child";
-	const output = read(addCaseBlocks(host(), actions, "patient", selected));
+	const selectedPath = w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("data"),
+		w.step("case_id_child"),
+	]);
+	const output = read(addCaseBlocks(host(), actions, "patient", selectedPath));
 	const block = child(output.data, "case");
 	expect(block.attribs).toEqual({
 		case_id: "",
@@ -165,7 +172,7 @@ it("binds updates and all preload metadata to the supplied selected-case identit
 		expect(output.seed(`/data/${field}`)).toEqual({
 			ref: `/data/${field}`,
 			event: "xforms-ready",
-			value: `instance('casedb')/casedb/case[@case_id=${selected}]/${property}`,
+			value: `instance('casedb')/casedb/case[@case_id = ${selected}]/${property}`,
 		});
 	}
 });

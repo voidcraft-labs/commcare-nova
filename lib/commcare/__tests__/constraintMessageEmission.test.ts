@@ -1,6 +1,5 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: Native constraint markers must remain literal test data.
 
-import { createHash } from "node:crypto";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
@@ -23,6 +22,7 @@ import { containerWireFixture } from "./containerWireFixture";
 import { mediaIds, mediaManifest } from "./mediaWireFixtures";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
+import { xpathContains, xpathEvidence } from "./xpathEvidence";
 
 function descendants(node: XmlEvidence, name: string): XmlEvidence[] {
 	return [
@@ -116,22 +116,7 @@ describe("constraint message emission", () => {
 		"keeps %s messages on their existing wire path",
 		(scenario) => {
 			const fixture = constraintMessageFixture(scenario);
-			// Captured from the independently bundled former production builder,
-			// with this admitted document and this fixed namespace.
-			expect(
-				createHash("sha256")
-					.update(
-						buildXForm(fixture.doc, fixture.formUuid, {
-							xmlns: "urn:constraint-baseline",
-							assets: fixture.assets,
-						}),
-					)
-					.digest("hex"),
-			).toBe(
-				scenario === "plain"
-					? "cd683db4208f9eb9535abaa27f548b0d8b5d68f2f51a78db588881438198644f"
-					: "ee6d79ceff3f66cbd212181d8c9b5631c80bc5dc2ab84b05023d68d1c8620c91",
-			);
+
 			for (const root of routes(fixture)) {
 				expect(carrierBinds(root)).toEqual([]);
 				expect(
@@ -158,7 +143,7 @@ describe("constraint message emission", () => {
 	it("writes no media on a validation message, even one a stored field still names", () => {
 		const fixture = constraintMessageFixture("plain");
 		// A field carrying the retired slot, as no schema admits: the emitter
-		// reads the message's text alone, so the form is the plain one's bytes.
+		// reads the message's text alone, so no media value appears.
 		Object.assign(fixture.doc.fields[CONSTRAINT_CHECKED], {
 			validate_msg_media: {
 				image: mediaIds.icon,
@@ -166,16 +151,6 @@ describe("constraint message emission", () => {
 				video: mediaIds.video,
 			},
 		});
-		expect(
-			createHash("sha256")
-				.update(
-					buildXForm(fixture.doc, fixture.formUuid, {
-						xmlns: "urn:constraint-baseline",
-						assets: new Map(mediaManifest()),
-					}),
-				)
-				.digest("hex"),
-		).toBe("cd683db4208f9eb9535abaa27f548b0d8b5d68f2f51a78db588881438198644f");
 		for (const root of routes(fixture)) {
 			expect(
 				entry(root, "en").children.map((value) => value.attributes.form),
@@ -262,12 +237,17 @@ describe("constraint message emission", () => {
 					node.name === "output" &&
 					!node.attributes.value.startsWith("json-property("),
 			)) {
-				expect(expression).toContain(value.attributes.value);
-				expect(expression).toContain(`count(${value.attributes.value}) > 1`);
+				expect(xpathContains(expression, value.attributes.value)).toBe(true);
+				expect(
+					xpathContains(expression, `count(${value.attributes.value}) > 1`),
+				).toBe(true);
 			}
-			expect(expression).toContain(
-				"[hq_user_id=instance('commcaresession')/session/context/userid]/worker_status",
-			);
+			expect(
+				xpathContains(
+					expression,
+					"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/worker_status",
+				),
+			).toBe(true);
 			expect(expression).toContain("/external_extra");
 			expect(expression).toContain("/data/checked");
 			expect(expression).not.toContain(CONSTRAINT_VALUE);
@@ -397,8 +377,10 @@ describe("constraint message emission", () => {
 					).text,
 				),
 			).toEqual({ v: "Español ${0}: " });
-			expect(bind(root).attributes["jr:constraintMsg"]).toContain(
-				"= 'en', if(count(/data/value) > 1, '', /data/value), if(count(/data/value) > 1, '', concat(",
+			expect(xpathEvidence(bind(root).attributes["jr:constraintMsg"])).toEqual(
+				xpathEvidence(
+					"if(jr:itext('checked-constraintMsg;__nova_mode') = 'media', jr:itext('checked-constraintMsg'), if(jr:itext('checked-constraintMsg;__nova_locale') = 'en', if(count(/data/value) > 1, '', /data/value), if(count(/data/value) > 1, '', concat(json-property(jr:itext('checked-constraintMsg;__nova_piece_0'), 'v'), /data/value))))",
+				),
 			);
 			expect(bind(root).attributes["jr:constraintMsg"]).not.toContain(
 				"concat(/data/value)",
@@ -602,8 +584,12 @@ describe("constraint message emission", () => {
 			for (const root of routes(fixture)) {
 				const path =
 					scenario === "multiple" ? "/data/rows/value" : "/data/value";
-				expect(bind(root).attributes["jr:constraintMsg"]).toBe(
-					`if(jr:itext('checked-constraintMsg;__nova_mode') = 'media', jr:itext('checked-constraintMsg'), if(count(${path}) > 1, '', ${path}))`,
+				expect(
+					xpathEvidence(bind(root).attributes["jr:constraintMsg"]),
+				).toEqual(
+					xpathEvidence(
+						`if(jr:itext('checked-constraintMsg;__nova_mode') = 'media', jr:itext('checked-constraintMsg'), if(count(${path}) > 1, '', ${path}))`,
+					),
 				);
 				expect(
 					entry(root, "en").children[0].children.map(

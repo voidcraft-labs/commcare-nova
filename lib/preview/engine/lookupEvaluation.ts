@@ -36,8 +36,13 @@ import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
-import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
-import type { OnDeviceTermEmissionContext } from "@/lib/commcare/predicate/termEmitter";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import {
+	toWire,
+	type WireTermBindings,
+} from "@/lib/commcare/xpath/wire/fromExpression";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type {
 	CasePropertyDataType,
 	LookupColumnId,
@@ -102,11 +107,12 @@ export type { LookupChoice } from "./types";
  * Non-row bindings for one carrier evaluation. `outer` resolves
  * everything that is NOT the fixture row — absolute `/data/` form
  * paths, `/session/` identity paths, and (for form display
- * conditions) the self-property hashtags `emitSelfProperty` prints.
+ * conditions) the self-property paths `emitSelfProperty` builds.
  * `formFields` maps referenced form-answer uuids to the absolute
- * printed paths `outer.getValue` resolves; `emitSelfProperty` prints
- * a direct self case-property read into whatever `outer`'s
- * `resolveHashtag` understands.
+ * paths `outer.getValue` resolves. Their wire bindings are private identity
+ * paths, so instantiated repeat paths never need reparsing as XPath.
+ * `emitSelfProperty` builds a direct self case-property path understood by
+ * `outer.getValue`.
  */
 export interface LookupEvaluationBindings {
 	readonly outer: EvalContext;
@@ -115,7 +121,11 @@ export interface LookupEvaluationBindings {
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	readonly emitSelfProperty?: (property: {
 		readonly property: string;
-	}) => string;
+	}) => WireExpr;
+}
+
+function formAnswerBinding(uuid: Uuid): WireExpr {
+	return w.context([w.step("__nova_form_answers"), w.step(`field_${uuid}`)]);
 }
 
 function requireTable(
@@ -170,6 +180,7 @@ function rowEvalContext(
 	row: LookupFixtureRow,
 	position: number,
 	outer: EvalContext,
+	formAnswers: ReadonlyMap<string, string>,
 ): EvalContext {
 	return {
 		contextPath: "",
@@ -182,6 +193,8 @@ function rowEvalContext(
 			? {}
 			: { invokeGeneratedFunction: outer.invokeGeneratedFunction }),
 		getValue: (path) => {
+			const answerPath = formAnswers.get(path);
+			if (answerPath !== undefined) return outer.getValue(answerPath);
 			const segments = path.split("/").filter(Boolean);
 			if (segments.length === 1) {
 				const column = columnsByWireName.get(segments[0]);
@@ -198,10 +211,15 @@ function emissionContext(
 	data: PreviewLookupData,
 	tableId: LookupTableId,
 	bindings: LookupEvaluationBindings,
-): OnDeviceTermEmissionContext {
+): WireTermBindings {
 	return {
 		...(bindings.formFields !== undefined && {
-			formFields: bindings.formFields,
+			formFields: new Map(
+				[...bindings.formFields.keys()].map((uuid) => [
+					uuid,
+					formAnswerBinding(uuid),
+				]),
+			),
 		}),
 		...(bindings.emitSelfProperty !== undefined && {
 			emitSelfProperty: bindings.emitSelfProperty,
@@ -245,12 +263,20 @@ function matchingRows(
 		return { table, rows, matches: () => true };
 	}
 	const folded = foldTableLookupsInPredicate(filter, data, bindings);
-	const emitted = emitCaseListFilter(
-		folded,
-		"casedb",
-		{ formFields: bindings.formFieldTypes },
-		{ kind: "unaddressable" },
-		emissionContext(data, tableId, bindings),
+	const emitted = serializeWire(
+		toWire(folded, {
+			target: "suite",
+			types: { formFields: bindings.formFieldTypes },
+			anchor: { kind: "unaddressable" },
+			bindings: emissionContext(data, tableId, bindings),
+		}),
+		{ target: "suite" },
+	).text;
+	const formAnswers = new Map(
+		[...(bindings.formFields ?? [])].map(([uuid, path]) => [
+			`/${serializeWire(formAnswerBinding(uuid), { target: "suite" }).text}`,
+			path,
+		]),
 	);
 	const columnsByWireName = new Map(
 		table.columns.map((column) => [column.wireName, column]),
@@ -262,7 +288,13 @@ function matchingRows(
 			toBoolean(
 				evaluate(
 					emitted,
-					rowEvalContext(columnsByWireName, row, index + 1, bindings.outer),
+					rowEvalContext(
+						columnsByWireName,
+						row,
+						index + 1,
+						bindings.outer,
+						formAnswers,
+					),
 				),
 			),
 	};

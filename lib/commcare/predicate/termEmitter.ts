@@ -1,38 +1,4 @@
-// lib/commcare/predicate/termEmitter.ts
-//
-// Shared term-emission helpers used across both the predicate
-// emitters (case-list-filter / CSQL) and the value-expression
-// emitters (`lib/commcare/expression/`). Term emission is the leaf
-// concern at every CommCare wire surface — every operator's operand
-// path eventually reaches a `Term` (a property reference, an input
-// reference, a session reference, or a literal), and the per-dialect
-// wire shape for each term flavor is identical regardless of the
-// operator that wraps it. Centralising the leaf emitters here keeps
-// every dialect surface consistent on identifier rules, reserved-
-// attribute prefixing, and runtime instance-path shapes.
-//
-// Two shape families coexist:
-//
-//   - **On-device XPath** (`emitTerm`). Each term emits as a single
-//     wire-form string drop-in for either the case-list `<detail
-//     nodeset>` slot or the post-ES `<search_filter>` slot.
-//     Compile-time-known values (literals, property identifiers) and
-//     runtime-resolved instance paths (search-input refs, session
-//     refs) all collapse to one string at this layer because both
-//     run in the same on-device XPath evaluator.
-//   - **CSQL** (`emitTermSegment`). The CSQL dialect lives inside an
-//     on-device `concat(...)` wrapper that builds the `_xpath_query`
-//     string at runtime, so the leaf emitter splits compile-time-
-//     known values (constant) from runtime-resolved instance reads
-//     (runtime). The two arms compose into the segment-list IR that
-//     both predicate-side and expression-side emitters return.
-//
-// Source citations for each wire shape live alongside the per-arm
-// emitter so a reader scanning either dialect sees the rationale
-// next to the code.
-
-import type { OrganizationLevel } from "@/lib/domain";
-import type { LookupTableId } from "@/lib/domain/lookupIds";
+// CSQL leaves and runtime interpolation. Device lowering lives in xpath/wire.
 import type {
 	SearchInputDecl,
 	SearchInputInstanceId,
@@ -47,561 +13,18 @@ import type {
 } from "@/lib/domain/predicate/types";
 import type { Uuid } from "@/lib/domain/uuid";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
-import type { LookupWireNaming } from "../lookup/naming";
+import { w } from "../xpath/wire/builders";
+import { toWire } from "../xpath/wire/fromExpression";
+import type { WireExpr } from "../xpath/wire/tree";
 import type { CsqlSegment } from "./csqlSegment";
-import type { OnDeviceCaseAnchor } from "./relationPresenceEmitter";
 import { formatNumeric, quoteLiteral } from "./stringQuoting";
-
-/**
- * The four CommCare case properties CCHQ stores as XML attributes on
- * `<case>` in the casedb restore output. XPath addresses XML
- * attributes via the `@` prefix, so a wire-form read of `case_id`,
- * `case_type`, `owner_id`, or `status` emits as `@case_id` etc.; the
- * other case properties read as bare identifiers because CCHQ stores
- * them as child elements rather than attributes.
- *
- * Sources (production code, not tests):
- *
- *   - `corehq/ex-submodules/casexml/apps/case/xml/generator.py::CaseDBXMLGenerator.get_root_element`
- *     — sets exactly these four as XML attributes on `<case>`;
- *     everything else is emitted as a child element.
- *   - `corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY`
- *     registers ten system metadata keys; these four carry the `@`
- *     prefix while the other six do not.
- *
- * Both dialects share the same set because both target the same
- * underlying case storage shape.
- */
-export { RESERVED_CASE_ATTRIBUTES } from "../casePropertyWire";
-
-/** Form-submission-only XPath bindings for identity-backed expression leaves. */
-export interface OnDeviceExpressionBindings {
-	readonly formFields?: ReadonlyMap<Uuid, string>;
-	/** Selected form record, independent of any candidate-row scope. */
-	readonly formCaseProperty?: (caseType: string, property: string) => string;
-	readonly operationIds?: ReadonlyMap<Uuid, string>;
-	/** Case-id expression that replaces `current()/@case_id` at a form
-	 *  expression's root. Related-case predicate scopes intentionally ignore
-	 *  it because their body is evaluated candidate-relative. */
-	readonly rootCaseId?: string;
-	/** Optional form-surface anchor for case-property reads. Case-list and
-	 *  search predicates evaluate with a case as `current()`, so their normal
-	 *  property emission is relative. Form submission expressions do not;
-	 *  they supply a resolver that anchors reads on the loaded case snapshot. */
-	readonly caseProperty?: (
-		property: PropertyRef,
-		root: InstanceRoot,
-		scope: "root" | "related",
-	) => string | undefined;
-}
-
-// ============================================================
-// Relation-walk anchor builders
-// ============================================================
-//
-// Both the on-device join-form (`exists` / `missing` / inline `prop`-
-// via-relation reads) and the on-device expression emitter's `count`
-// expansion call the same anchor builders. Sharing them here keeps
-// the wire shape uniform across operator surfaces — a regression in
-// one builder would surface across every consumer at once.
-
-/**
- * Storage-instance root selector for emitted wire shapes. The
- * default `"casedb"` keeps the canonical
- * `instance('casedb')/casedb/case[...]` shape every case-loading
- * slot consumes. The `"results"` arm rewrites the root to
- * `instance('results')/results/case[...]` for emission inside a
- * search-target `<detail>` block — CCHQ's
- * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_search_short']`
- * pins the shape; the search-result roster lives at
- * `instance('results')` instead of `instance('casedb')`.
- *
- * The path segment between the instance reference and the
- * `case[...]` predicate mirrors the instance name (`/casedb/case` vs
- * `/results/case`) — CCHQ's wire grammar binds both segments to the
- * surrounding instance id.
- */
-export type InstanceRoot = "casedb" | "results" | "results:inline";
-
-/**
- * The path segment under an instance root. A search-first module's
- * results instance is named `results:inline` but its document root is
- * still `<results>` (`CaseSelectionXPath.get_instance_root`), so
- * `instance('results:inline')/results/case[...]`.
- */
-export function instanceRootPath(root: InstanceRoot): string {
-	return root === "results:inline" ? "results" : root;
-}
-
-/**
- * Lookup wire vocabulary available to one emission run, plus the innermost
- * fixture-row scope while a `table-lookup` `where` (or an itemset filter) is
- * being lowered.
- *
- * `rowScope.caseAnchor` captures the case anchor at the `table-lookup` node:
- * while the fixture row is the predicate context, a bare self case-property
- * leaf would read the fixture row, so it re-anchors through `current()` (root
- * anchor) or the ancestor join chain instead. Core preserves `current()` from
- * the first predicate, so both forms stay correct at any nesting depth. The
- * scope clears when emission descends into a relation `where`, where the
- * candidate case is the predicate context again.
- */
-export interface OnDeviceLookupEmissionContext {
-	readonly naming: LookupWireNaming;
-	/** XForms use the tag as local id; suite expressions use fixture id. */
-	readonly instanceScope: "xform" | "suite";
-	readonly rowScope?: {
-		readonly tableId: LookupTableId;
-		readonly caseAnchor: OnDeviceCaseAnchor;
-	};
-}
-
-/**
- * Optional leaf override for an on-device evaluation surface whose current
- * case is not the surrounding nodeset row. Form-command relevancy is the one
- * current caller: its direct self properties must anchor through the selected
- * session `case_id`. Related reads never use this hook.
- */
-export interface OnDeviceTermEmissionContext
-	extends OnDeviceExpressionBindings {
-	readonly emitSelfProperty?: (property: PropertyRef) => string;
-	readonly lookup?: OnDeviceLookupEmissionContext;
-	/** Current saved names for identity-backed custom worker information. */
-	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
-	/** Current runtime names for identity-backed search inputs. */
-	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
-	/** The instance `input(...)` reads print through (`search-input:results`
-	 *  for the standalone search, `search-input:results:inline` for the
-	 *  inline shape). Absent means the standalone spelling. */
-	readonly searchInputInstanceId?: SearchInputInstanceId;
-	/** Organization topology for identity-backed location terms. */
-	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
-}
-
-/** Drop the fixture-row scope when emission leaves the fixture predicate. */
-export function clearLookupRowScope(
-	context: OnDeviceTermEmissionContext,
-): OnDeviceTermEmissionContext {
-	if (context.lookup?.rowScope === undefined) return context;
-	return {
-		...context,
-		lookup: {
-			naming: context.lookup.naming,
-			instanceScope: context.lookup.instanceScope,
-		},
-	};
-}
-
-/** Default instance root — every on-device emission outside a
- *  search-target detail block consumes the casedb roster. */
-export const DEFAULT_INSTANCE_ROOT: InstanceRoot = "casedb";
-
-/**
- * Build the `instance('<root>')/<root>/case[@case_id=<anchor>]`
- * nodeset for an ancestor walk. The first hop anchors against
- * `current()/index/<rel>`; each subsequent hop nests inside the
- * previous hop's nodeset as `<previous>/index/<next>`. The canonical
- * shape with one hop is
- * `instance('<root>')/<root>/case[@case_id=current()/index/<rel0>]`;
- * with two hops it composes to
- * `instance('<root>')/<root>/case[@case_id=instance('<root>')/<root>/case[@case_id=current()/index/<rel0>]/index/<rel1>]`.
- *
- * Source: CCHQ's hashtag-replacement pattern at
- * `commcare-hq/corehq/apps/app_manager/xpath.py::interpolate_xpath`
- * builds the same wire shape (`#parent` / `#host` expand to
- * `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`); the
- * search-target detail variant pins `instance('results')` at
- * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_search_short']`.
- *
- * `root` defaults to the case-loading roster. The search-target
- * detail emission threads `"results"` for emission inside a
- * `<detail id="m{N}_search_*">` block — CCHQ's runtime evaluates
- * relation walks there against the search-result roster, not the
- * local casedb. Nested hops keep the same `root`; cross-instance
- * walks are not a CCHQ wire shape.
- *
- * Accepts a non-empty list of relation steps; the
- * `RelationPath`-with-`ancestor` schema's tuple-with-rest shape
- * already enforces non-empty at parse time.
- */
-export function buildAncestorJoinNodeset(
-	via: ReadonlyArray<RelationStep>,
-	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
-	originCaseId?: string,
-): string {
-	/* The default first hop reads `current()/index/<rel>` — correct wherever
-	 * `current()` names the evaluated case. A form-submission surface passes
-	 * its session-anchored case id instead, because `current()` there is the
-	 * bind node; the origin is a case-ID expression, so the hop resolves the
-	 * origin case first and reads its index. */
-	const firstHopAnchor =
-		originCaseId === undefined
-			? `current()/index/${via[0].identifier}`
-			: `${buildCaseByIdNodeset(originCaseId, undefined, root)}/index/${via[0].identifier}`;
-	let nodeset = buildCaseByIdNodeset(
-		firstHopAnchor,
-		via[0].throughCaseType,
-		root,
-	);
-	for (let i = 1; i < via.length; i++) {
-		nodeset = buildCaseByIdNodeset(
-			`${nodeset}/index/${via[i].identifier}`,
-			via[i].throughCaseType,
-			root,
-		);
-	}
-	return nodeset;
-}
-
-function buildCaseByIdNodeset(
-	caseId: string,
-	caseType: string | undefined,
-	root: InstanceRoot,
-): string {
-	const typeFilter =
-		caseType === undefined
-			? ""
-			: ` and @case_type=${quoteLiteral(caseType, "case-list-filter")}`;
-	return `instance('${root}')/${instanceRootPath(root)}/case[@case_id=${caseId}${typeFilter}]`;
-}
-
-/**
- * Build the
- * `instance('<root>')/<root>/case[index/<rel>=current()/@case_id]`
- * nodeset for a subcase walk. Reverse-direction join: the inner case
- * has `index/<rel>` pointing back at the outer case's `@case_id`.
- * `current()/@case_id` reads the outer case's id from the predicate's
- * evaluation context (inside a casedb nodeset filter, `current()` is
- * the case being filtered).
- *
- * The canonical CCHQ example pinning this shape (against the
- * casedb root) is at
- * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::_update_refs`.
- * No CCHQ fixture exercises a subcase walk against the search-result
- * roster (`instance('results')`) — the search-result instance carries
- * only the cases the search query returned, and CCHQ's
- * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`
- * fixture pins only ancestor walks against it. A subcase walk under
- * a search-target detail may therefore be a wire shape CCHQ's
- * runtime treats as an empty result set; the rewrite here keeps the
- * structural shape symmetric with the ancestor walk, but the
- * meaning at runtime is unverified.
- */
-export function buildSubcaseJoinNodeset(
-	identifier: string,
-	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
-	ofCaseType?: string,
-	anchorCaseId = "current()/@case_id",
-): string {
-	const typeFilter =
-		ofCaseType === undefined
-			? ""
-			: ` and @case_type=${quoteLiteral(ofCaseType, "case-list-filter")}`;
-	return `instance('${root}')/${instanceRootPath(root)}/case[index/${identifier}=${anchorCaseId}${typeFilter}]`;
-}
-
-// ============================================================
-// On-device term emission (XPath string)
-// ============================================================
-
-/**
- * Emit a term as its on-device wire-form XPath string. Each variant
- * has a fixed wire shape verified against CCHQ source:
- *
- *   - `prop` — bare identifier (or `@`-prefixed for the four reserved
- *     attributes). When the term carries a non-self `via`, the
- *     emitter prepends the relation-walk anchor and joins with `/`;
- *     direction-agnostic walks use XPath's node-set union operator
- *     `|` to combine both directions. See `emitOnDevicePropertyRef`.
- *   - `input` — `instance('search-input:results')/input/field[@name='<name>']`,
- *     the canonical search-input read documented in
- *     `commcare-hq/docs/case_search_query_language.rst` and registered
- *     at
- *     `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/instances.py::search_input_instances`.
- *   - `session-user` — open-namespace
- *     `instance('commcaresession')/session/user/data/<field>`,
- *     populated by
- *     `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java::SessionInstanceBuilder.addUserProperties`
- *     (iterates an arbitrary `userFields` Hashtable and writes each
- *     as a `<data>` child under `<user>`). CCHQ's
- *     `session_var(var, path='user/data')` in
- *     `commcare-hq/corehq/apps/app_manager/xpath.py::session_var`
- *     builds the same path.
- *   - `session-context` — closed-namespace
- *     `instance('commcaresession')/session/context/<field>`,
- *     populated by `SessionInstanceBuilder.addMetadata` in the same
- *     class.
- *   - `literal` — primitive value via `emitOnDeviceLiteralValue`.
- *
- * `root` threads to the property-ref emitter for the case-roster
- * instance selector — the search-target detail block emits against
- * `instance('results')` instead of `instance('casedb')`. The other
- * arms (search-input, session, literal) name fixed instance ids
- * unrelated to the case roster, so they ignore `root`.
- */
-export function emitTerm(
-	term: Term,
-	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
-	context: OnDeviceTermEmissionContext = {},
-	casePropertyScope: "root" | "related" = "root",
-): string {
-	switch (term.kind) {
-		case "form-case": {
-			if (!context.formCaseProperty)
-				throw new Error(
-					"Selected form record is unavailable in this expression context.",
-				);
-			return context.formCaseProperty(term.caseType, term.property);
-		}
-		case "prop": {
-			if (
-				context.emitSelfProperty !== undefined &&
-				(term.via === undefined || term.via.kind === "self")
-			) {
-				return context.emitSelfProperty(term);
-			}
-			const anchored = context.caseProperty?.(term, root, casePropertyScope);
-			if (anchored !== undefined) return anchored;
-			const rowScope = context.lookup?.rowScope;
-			if (
-				rowScope !== undefined &&
-				(term.via === undefined || term.via.kind === "self")
-			) {
-				/* The fixture row is the predicate context, so the ordinary bare
-				 * self leaf would read the fixture row. Re-anchor on the case the
-				 * containing slot evaluates: through `current()` where it names
-				 * that case, or through the form surface's session-anchored case
-				 * id where `current()` is the bind node. */
-				const leaf = emitCasePropertyWirePath(term.property);
-				switch (rowScope.caseAnchor.kind) {
-					case "root":
-						return context.rootCaseId === undefined
-							? `current()/${leaf}`
-							: `${buildCaseByIdNodeset(context.rootCaseId, undefined, root)}/${leaf}`;
-					case "ancestor":
-						return `${buildAncestorJoinNodeset(rowScope.caseAnchor.via, root, context.rootCaseId)}/${leaf}`;
-					case "unaddressable":
-						throw new Error(
-							`emitTerm: case property '${term.property}' is read inside a lookup-row filter within a scope whose case cannot be addressed from current(). Validation should reject this shape before emission.`,
-						);
-					default: {
-						const _exhaustive: never = rowScope.caseAnchor;
-						throw new Error(
-							`emitTerm: unhandled case anchor ${String(_exhaustive)}`,
-						);
-					}
-				}
-			}
-			return emitOnDevicePropertyRef(term, root);
-		}
-		case "input":
-			return emitSearchInputXPath(term, context);
-		case "session-user":
-			// `field` is constrained to XML element-name vocabulary at
-			// the schema layer (no quoting / escaping required for valid
-			// values; invalid values reject at parse time).
-			return `instance('commcaresession')/session/user/data/${term.field}`;
-		case "session-user-property": {
-			const slug = context.userPropertySlugs?.get(term.userPropertyUuid);
-			if (slug === undefined) {
-				throw new Error(
-					`emitTerm: worker-information property '${term.userPropertyUuid}' has no current saved-name binding.`,
-				);
-			}
-			return `instance('commcaresession')/session/user/data/${slug}`;
-		}
-		case "session-context":
-			// `field` is one of the four `SESSION_CONTEXT_FIELDS`
-			// members validated at the schema layer; direct
-			// interpolation is safe.
-			return `instance('commcaresession')/session/context/${term.field}`;
-		case "field": {
-			const xpath = context.formFields?.get(term.uuid);
-			if (xpath === undefined) {
-				throw new Error(
-					`emitTerm: form field '${term.uuid}' has no XPath binding in this expression context.`,
-				);
-			}
-			return xpath;
-		}
-		case "literal":
-			return emitOnDeviceLiteralValue(term.value);
-		case "fixed-location":
-			return quoteLiteral(term.locationUuid, "case-list-filter");
-		case "owner-location-at-level": {
-			const levels = context.organizationLevels;
-			const destination = levels?.[term.levelUuid];
-			if (levels === undefined || destination === undefined) {
-				throw new Error(
-					`emitTerm: organization level '${term.levelUuid}' is not available in this expression context.`,
-				);
-			}
-			let source =
-				destination.parentLevelUuid === undefined
-					? undefined
-					: levels[destination.parentLevelUuid];
-			const seen = new Set<string>([destination.uuid]);
-			while (source !== undefined && !source.caseFlow.ownsCases) {
-				if (seen.has(source.uuid)) break;
-				seen.add(source.uuid);
-				source =
-					source.parentLevelUuid === undefined
-						? undefined
-						: levels[source.parentLevelUuid];
-			}
-			if (source === undefined || !source.caseFlow.ownsCases) {
-				throw new Error(
-					`emitTerm: organization level '${destination.name}' has no case-owning ancestor for an owner reverse hop.`,
-				);
-			}
-			const owner = emitTerm(
-				{
-					kind: "prop",
-					caseType: term.ownerCaseType,
-					property: "owner_id",
-				},
-				root,
-				context,
-				casePropertyScope,
-			);
-			return `instance('locations')/locations/location[@type=${quoteLiteral(destination.code, "case-list-filter")}][@${source.code}_id = ${owner}]/@id`;
-		}
-		case "table-column": {
-			const lookup = context.lookup;
-			if (lookup?.rowScope === undefined) {
-				throw new Error(
-					"emitTerm: a lookup-table column term is only meaningful while a fixture row is the predicate context. Validation should reject a table-column term outside an explicit table scope before emission.",
-				);
-			}
-			if (lookup.rowScope.tableId !== term.tableId) {
-				throw new Error(
-					`emitTerm: lookup column term reads table '${term.tableId}' inside the fixture-row scope of table '${lookup.rowScope.tableId}'. Validation should reject cross-table column terms before emission.`,
-				);
-			}
-			/* Row-relative read: the fixture row is the predicate context, so
-			 * the column's current wire name is a bare child-element step. */
-			return lookup.naming.tableFor(term.tableId).wireNameFor(term.columnId);
-		}
-		default: {
-			const _exhaustive: never = term;
-			throw new Error(`emitTerm: unhandled term kind ${String(_exhaustive)}`);
-		}
-	}
-}
-
-/**
- * Emit a property reference as its on-device wire-form XPath. The
- * wire shape depends on the optional `via` walk:
- *
- *   - **No walk** (`via` absent or `via.kind === "self"`): bare
- *     property name (or `@`-prefixed reserved attribute). The
- *     case-type qualifier is dropped; the surrounding casedb /
- *     results nodeset selects the wire-correct case type at
- *     execution time.
- *   - **Ancestor walk**: prepend
- *     `instance('<root>')/<root>/case[@case_id=current()/index/<rel>]`
- *     (with multi-hop nesting) and join the property name with `/`.
- *   - **Subcase walk**: prepend
- *     `instance('<root>')/<root>/case[index/<rel>=current()/@case_id]`
- *     and join with `/`. Subcase reads select multiple cases when
- *     more than one subcase points back; authors who need cardinality
- *     control compose via `exists` / `count` instead.
- *   - **Direction-agnostic walk** (`any-relation`): combine both
- *     direction-specific paths via XPath's union operator `|`,
- *     producing `(<ancestor-path> | <subcase-path>)`. This helper only
- *     constructs the raw node-set. CommCare Core does NOT implement XPath
- *     1.0 general node-set comparison and throws when scalar coercion sees
- *     several nodes, so validated scalar slots reject this shape and
- *     predicate slots normalize it into explicit direction-specific
- *     quantifiers before comparison. Callers must not treat this union as an
- *     existential scalar comparison shortcut.
- *
- * `root` selects the storage-instance id woven into every relation-
- * walk anchor — `"casedb"` for the case-loading roster (default),
- * `"results"` for emission inside a search-target detail block. The
- * leaf identifier is identical regardless of root.
- *
- * Reserved CommCare attributes pick up the `@` prefix at the leaf;
- * other properties retain their declared names.
- */
-export function emitOnDevicePropertyRef(
-	prop: PropertyRef,
-	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
-): string {
-	const leaf = emitCasePropertyWirePath(prop.property);
-	const via = prop.via;
-	if (via === undefined || via.kind === "self") {
-		return leaf;
-	}
-	switch (via.kind) {
-		case "ancestor":
-			return `${buildAncestorJoinNodeset(via.via, root)}/${leaf}`;
-		case "subcase":
-			return `${buildSubcaseJoinNodeset(via.identifier, root, via.ofCaseType)}/${leaf}`;
-		case "any-relation": {
-			// XPath `|` is the node-set union operator. Core cannot generally
-			// scalar-compare a multi-node result; validated consumers normalize
-			// or reject this shape before it reaches a comparison.
-			const ancestor = `${buildAncestorJoinNodeset([{ identifier: via.identifier, throughCaseType: via.ofCaseType }], root)}/${leaf}`;
-			const subcase = `${buildSubcaseJoinNodeset(via.identifier, root, via.ofCaseType)}/${leaf}`;
-			return `(${ancestor} | ${subcase})`;
-		}
-		default: {
-			const _exhaustive: never = via;
-			throw new Error(
-				`emitOnDevicePropertyRef: unhandled RelationPath kind ${String(_exhaustive)}`,
-			);
-		}
-	}
-}
-
-/**
- * Compile a primitive literal to its on-device wire form. Numbers
- * emit as unquoted XPath numbers via `formatNumeric` (CommCare's
- * grammar rejects scientific notation; see `formatNumeric`'s JSDoc
- * for the grammar citation). Booleans emit as the strings `'true'` /
- * `'false'`; `null` emits as `''` because XPath compares an absent
- * attribute equal to `''`, so `<prop> = ''` is the natural "is
- * unset" form.
- *
- * String literals route through `quoteLiteral` for the per-dialect
- * escape strategy. The on-device dialect has XPath 1.0's `concat()`
- * available for the embedded-quote fallback, so values containing
- * single quotes emit as `concat('part1', "'", 'part2', ...)`.
- */
-export function emitOnDeviceLiteralValue(
-	value: string | number | boolean | null,
-): string {
-	if (value === null) return "''";
-	if (typeof value === "number") return formatNumeric(value);
-	if (typeof value === "boolean") return value ? "'true'" : "'false'";
-	return quoteLiteral(value, "case-list-filter");
-}
-
-// ============================================================
-// CSQL term emission (segment-list IR)
-// ============================================================
-//
-// CSQL's two-arm `TermEmission` distinguishes compile-time-known
-// emissions (constants — emitted directly into the CSQL string) from
-// runtime-resolved emissions (an XPath path expression whose result
-// interpolates as a string into the CSQL fragment via the surrounding
-// `concat(...)` wrapper).
-//
-// The named alias types (`ConstantTermEmission` / `RuntimeTermEmission`)
-// let callers narrow the return type when they know an emitter
-// produces only one arm — `emitCsqlPropertyRefSegment` always returns
-// the constant arm because a property reference is always a compile-
-// time-known identifier, so its return type lifts the dead-branch
-// guarantee into the type system.
-
 export type ConstantTermEmission = {
 	readonly kind: "constant";
 	readonly text: string;
 };
 export type RuntimeTermEmission = {
 	readonly kind: "runtime";
-	readonly xpath: string;
+	readonly xpath: WireExpr;
 	readonly inputNames?: readonly string[];
 	/**
 	 * The runtime value structurally cannot contain a quote character, so a
@@ -750,14 +173,18 @@ export function emitCsqlPropertyRefSegment(
  * vocabulary (no hyphens, no quotes), so direct interpolation is
  * safe.
  */
+export interface CsqlSearchInputContext {
+	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
+	readonly searchInputInstanceId?: SearchInputInstanceId;
+}
 export function emitSearchInputXPath(
 	t: SearchInputRef,
-	context: Pick<
-		OnDeviceTermEmissionContext,
-		"searchInputNames" | "searchInputInstanceId"
-	> = {},
-): string {
-	return `instance('${context.searchInputInstanceId ?? STANDALONE_SEARCH_INPUT_INSTANCE_ID}')/input/field[@name='${resolveSearchInputName(t, context)}']`;
+	context: CsqlSearchInputContext = {},
+): WireExpr {
+	return toWire(
+		{ kind: "term", term: t },
+		{ target: "csql-runtime", types: {}, bindings: context },
+	);
 }
 
 /** The answer instance of a standalone `<remote-request>` search. */
@@ -765,7 +192,7 @@ export const STANDALONE_SEARCH_INPUT_INSTANCE_ID = "search-input:results";
 
 function resolveSearchInputName(
 	t: SearchInputRef,
-	context: Pick<OnDeviceTermEmissionContext, "searchInputNames">,
+	context: Pick<CsqlSearchInputContext, "searchInputNames">,
 ): string {
 	const name = context.searchInputNames?.get(t.searchInputUuid);
 	if (name === undefined) {
@@ -782,8 +209,11 @@ function resolveSearchInputName(
  * the open-namespace custom user-data tree populated by
  * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java::SessionInstanceBuilder.addUserProperties`.
  */
-export function emitSessionUserXPath(t: SessionUserRef): string {
-	return `instance('commcaresession')/session/user/data/${t.field}`;
+export function emitSessionUserXPath(t: SessionUserRef): WireExpr {
+	return toWire(
+		{ kind: "term", term: t },
+		{ target: "csql-runtime", types: {} },
+	);
 }
 
 /**
@@ -792,8 +222,11 @@ export function emitSessionUserXPath(t: SessionUserRef): string {
  * the closed-namespace framework-controlled context tree populated by
  * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java::SessionInstanceBuilder.addMetadata`.
  */
-export function emitSessionContextXPath(t: SessionContextRef): string {
-	return `instance('commcaresession')/session/context/${t.field}`;
+export function emitSessionContextXPath(t: SessionContextRef): WireExpr {
+	return toWire(
+		{ kind: "term", term: t },
+		{ target: "csql-runtime", types: {} },
+	);
 }
 
 /**
@@ -851,7 +284,7 @@ export function wrapTermAsSegmentList(term: TermEmission): CsqlSegment[] {
  * fixed double-quote CSQL delimiters. The delimiters are constant segments so
  * adjacent CSQL text merges around the value at the wrap layer.
  */
-export function quoteFreeRuntimeCsqlValue(xpath: string): CsqlSegment[] {
+export function quoteFreeRuntimeCsqlValue(xpath: WireExpr): CsqlSegment[] {
 	return [
 		{ kind: "constant", text: '"' },
 		{ kind: "runtime", xpath },
@@ -876,29 +309,24 @@ export function quoteFreeRuntimeCsqlValue(xpath: string): CsqlSegment[] {
  * carries double quotes.
  */
 export function quoteRuntimeCsqlValue(
-	xpath: string,
+	xpath: WireExpr,
 	preferredStyle: RuntimeCsqlQuoteStyle = "double",
 	inputNames?: readonly string[],
 ): CsqlSegment[] {
-	const containsSingle = `contains(${xpath}, "'")`;
-	const containsDouble = `contains(${xpath}, '"')`;
-	const singleQuoted = `concat("'", ${xpath}, "'")`;
-	const doubleQuoted = `concat('"', ${xpath}, '"')`;
+	const containsSingle = w.call("contains", [xpath, w.str("'")]);
+	const containsDouble = w.call("contains", [xpath, w.str('"')]);
+	const singleQuoted = w.call("concat", [w.str("'"), xpath, w.str("'")]);
+	const doubleQuoted = w.call("concat", [w.str('"'), xpath, w.str('"')]);
 	const quoted =
 		preferredStyle === "single"
-			? `if(${containsSingle}, ${doubleQuoted}, ${singleQuoted})`
-			: `if(${containsDouble}, ${singleQuoted}, ${doubleQuoted})`;
-
+			? w.call("if", [containsSingle, doubleQuoted, singleQuoted])
+			: w.call("if", [containsDouble, singleQuoted, doubleQuoted]);
 	return [
 		{
 			kind: "runtime",
 			xpath: quoted,
-			// The raw value read lets the clause wrap layer restructure a
-			// single-string-value clause into the flat quote cascade. Only the
-			// double-preferred form participates — the cascade's arm order
-			// assumes CCHQ's documented double-quoted runtime scalar default.
 			...(preferredStyle === "double" ? { stringValueXPath: xpath } : {}),
-			rejectWhen: `${containsSingle} and ${containsDouble}`,
+			rejectWhen: w.and(containsSingle, containsDouble),
 			rejectionInputNames: inputNames,
 		},
 	];
