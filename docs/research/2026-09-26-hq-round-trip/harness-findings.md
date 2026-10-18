@@ -972,8 +972,14 @@ planned ("Found while planning step 2").
     options are the field's own; a default an expression computes is not
     decidable there. *Documents:* `fuzz-suite-20260930-5`,
     `fuzz-suite-20260930-8`, `fuzz-xform-20260930-0`,
-    `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`; each holds the stop
+    `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`; each formerly held the stop
     Formplayer, `notification:value-could-not-be-loaded-into-question`.
+    **Fixed at the authoring boundary:** `SELECT_DEFAULT_NOT_AN_OPTION`
+    refuses a static choice default outside its options. The corpus maps
+    each drawn select default to its first drawn option, without another
+    draw; the five stops are removed. No retained control is needed for a
+    reader's refusal of an invalid answer. The validator and generator's
+    focused tests hold the refusal and mapping.
 
 73. **A date question filled from a case property that holds text opens on
     no reader.** A field that writes a case property is filled from the case
@@ -1000,8 +1006,15 @@ planned ("Found while planning step 2").
     the case a project space already holds, written by another app, an
     import or HQ's API. *Documents:*
     `expander-output-references-in-labels-lowers-several-typed-e72b42c4-0`;
-    it holds the stop Formplayer,
+    it formerly held the stop Formplayer,
     `notification:invalid-data-type-in-setvalue-event-targetting`.
+    **Fixed in the corpus:** each emitted document now carries the
+    materializable effective catalog, so its writer-derived date
+    properties receive date values. Python reads those types directly and
+    never infers them from the fields. The stop is removed, with no
+    retained control; `test_the_case_database_seeds_each_property_from_the_effective_catalog`
+    holds the seeding boundary. Existing external case data remains outside
+    an authoring rule's reach.
 
 74. **Web Apps submits its own placeholder for a date and time question in
     a repetition added last, and the form can then never be submitted.**

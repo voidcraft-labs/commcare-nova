@@ -1,16 +1,46 @@
 import {
-	expressionInspectionSource,
-	expressionSource,
+	type FormNodeProjection,
+	formNodeProjection,
+} from "@/lib/commcare/xpath/formNodeProjection";
+import { formReads } from "@/lib/commcare/xpath/wire/formReads";
+import {
+	type BlueprintDoc,
 	type Field,
 	fieldProseTemplate,
-	type XPathPrintableDoc,
+	type Uuid,
 } from "@/lib/domain";
-import { walkTerms } from "@/lib/domain/predicate";
-import { countDependencies } from "../xpath/countDependencies";
-import { extractPathRefs } from "../xpath/dependencies";
+import {
+	referencedCountResults,
+	slotContext,
+} from "@/lib/domain/expression/context";
+import { formStructure } from "@/lib/domain/expression/formStructure";
+import type {
+	Expression,
+	FieldExpressionSlotRef,
+	FormNodeRef,
+} from "@/lib/domain/expression/types";
+import { expressionAt } from "@/lib/domain/expressionSource";
+import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
 import type { FieldTreeNode } from "./fieldTree";
+import type { FormExpressionRuntime } from "./formExpressionRuntime";
 import { stripIndices } from "./instancePaths";
-import { proseReferenceExpressions } from "./labelRefs";
+
+function formReadPaths(
+	expression: Expression,
+	projection: FormNodeProjection,
+	pathOf = (node: FormNodeRef): string | undefined =>
+		projection.path(node)?.toXPath(),
+): string[] {
+	return [
+		...new Set(
+			formReads(expression).flatMap(({ node }) => {
+				const path = pathOf(node);
+				return path === undefined ? [] : [path];
+			}),
+		),
+	];
+}
 
 type ExpressionType =
 	| "relevant"
@@ -27,7 +57,11 @@ export interface InitializationExpression {
 
 interface DagNode {
 	path: string;
-	expressions: { type: ExpressionType; expr: string }[];
+	expressions: {
+		type: ExpressionType;
+		expr: string;
+		dependencies?: readonly string[];
+	}[];
 }
 
 /**
@@ -56,6 +90,13 @@ export interface CycleReport {
  *  stays a pure topology with no runtime state. */
 export type RepeatCountResolver = (repeatPath: string) => number;
 
+/** Value/relevance work and non-cascading required metadata remain separate
+ * through evaluation, so a metadata refresh cannot rerun unrelated logic. */
+export interface ExpressionEvaluationPaths {
+	readonly values: readonly string[];
+	readonly required: readonly string[];
+}
+
 /** uuid → generic index-free path over a field tree. */
 function collectFieldPaths(
 	tree: readonly FieldTreeNode[],
@@ -79,8 +120,8 @@ function collectFieldPaths(
  * need their expressions re-evaluated.
  *
  * The topology is INDEX-FREE: nodes and dependency edges are keyed by
- * generic paths (`/data/orders/case_name`), the same shape `printXPath` /
- * `extractPathRefs` produce, so a reference inside a repeat matches its
+ * generic paths (`/data/orders/case_name`), the shape the runtime node
+ * projection produces, so a reference inside a repeat matches its
  * sibling's node no matter which instance is live. Query methods
  * materialize generic paths back to concrete per-instance paths
  * (`/data/orders[1]/case_name`) over the live counts a
@@ -103,19 +144,15 @@ export class TriggerDag {
 	private repeatPaths = new Set<string>();
 	/** Doc surface the expression reads print against — AST slots
 	 *  resolve identity leaves through it. Set by `build`. */
-	private doc: XPathPrintableDoc = { forms: {}, fields: {}, fieldOrder: {} };
+	private runtime: FormExpressionRuntime | undefined;
 	/** uuid → generic path over the tree being collected — the
 	 *  resolution surface for lookup-choice filter `field` terms, which
 	 *  reference by uuid rather than printed path. Rebuilt alongside the
 	 *  nodes by `build` / `reportCycles`. */
 	private fieldPaths = new Map<string, string>();
-	/** Validation cycle scans must remain total over dangling references so the
-	 * owning deep rule can report them. Runtime DAG construction stays strict. */
-	private inspectionMode = false;
 	/** True only while `reportCycles` collects: the authoring proof draws
 	 *  exactly the edges the device orders (see `registerExpressions`). */
 	private cycleProof = false;
-	private countProof = false;
 	/** The re-evaluation edges the device does NOT order, collected by
 	 *  `registerExpressions` during a runtime build and added to the graph
 	 *  only where they close no loop (`addSettleFreeEdges`). */
@@ -128,9 +165,12 @@ export class TriggerDag {
 	/** Build the DAG from a field tree. `doc` is the surface the
 	 *  tree's fields live on (the engine's input slice / the
 	 *  validator's blueprint). */
-	build(tree: FieldTreeNode[], doc: XPathPrintableDoc, prefix = "/data"): void {
-		this.doc = doc;
-		this.inspectionMode = false;
+	build(
+		tree: FieldTreeNode[],
+		runtime: FormExpressionRuntime,
+		prefix = "/data",
+	): void {
+		this.runtime = runtime;
 		this.cycleProof = false;
 		this.nodes.clear();
 		this.dependedOnBy.clear();
@@ -149,12 +189,12 @@ export class TriggerDag {
 		this.sortedPaths = this.topologicalSort();
 		this.initializationDependencies.clear();
 		for (const [path, node] of this.nodes) {
-			const expressions = node.expressions.flatMap(({ type, expr }) =>
+			const expressions = node.expressions.flatMap(({ type, dependencies }) =>
 				type === "calculate" || type === "relevant"
 					? [
 							{
 								type,
-								dependencies: extractPathRefs(expr, path).filter(
+								dependencies: (dependencies ?? []).filter(
 									(dependency) => dependency !== path,
 								),
 							},
@@ -207,7 +247,7 @@ export class TriggerDag {
 	/** Record that `dependent` re-evaluates when `dependency` changes. A
 	 *  field never depends on itself. */
 	private addEdge(dependency: string, dependent: string): void {
-		if (dependency === dependent) return;
+		if (dependency === dependent && !this.cycleProof) return;
 		let deps = this.dependedOnBy.get(dependency);
 		if (!deps) {
 			deps = new Set();
@@ -251,10 +291,10 @@ export class TriggerDag {
 	/** Rebuild the DAG (e.g., after repeat add/remove). */
 	rebuild(
 		tree: FieldTreeNode[],
-		doc: XPathPrintableDoc,
+		runtime: FormExpressionRuntime,
 		prefix = "/data",
 	): void {
-		this.build(tree, doc, prefix);
+		this.build(tree, runtime, prefix);
 	}
 
 	/**
@@ -280,6 +320,14 @@ export class TriggerDag {
 		changedPaths: readonly string[],
 		repeatCount: RepeatCountResolver,
 	): string[] {
+		const paths = this.getAffectedWork(changedPaths, repeatCount);
+		return [...new Set([...paths.values, ...paths.required])];
+	}
+
+	getAffectedWork(
+		changedPaths: readonly string[],
+		repeatCount: RepeatCountResolver,
+	): ExpressionEvaluationPaths {
 		const visited = new Set<string>();
 		const queue = [...new Set(changedPaths.map(stripIndices))];
 		// A question's wording can display its own answer without making a
@@ -305,15 +353,33 @@ export class TriggerDag {
 				}
 			}
 		}
+		// Required changes metadata, not an answer or its relevance. Core's
+		// Condition.canCascade excludes ACTION_REQUIRE, so these dependents
+		// refresh after the value cascade without becoming new BFS seeds.
+		const changed = new Set([...changedPaths.map(stripIndices), ...visited]);
+		const required = new Set<string>();
+		for (const [path, node] of this.nodes) {
+			if (
+				node.expressions.some(
+					({ type, dependencies }) =>
+						type === "required" &&
+						dependencies?.some((dependency) => changed.has(dependency)),
+				)
+			)
+				required.add(path);
+		}
 
 		// Materialize in topological order
-		const result: string[] = [];
+		const values: string[] = [];
+		const metadata: string[] = [];
 		for (const generic of this.sortedPaths) {
 			if (visited.has(generic)) {
-				result.push(...this.materialize(generic, repeatCount));
+				values.push(...this.materialize(generic, repeatCount));
 			}
+			if (required.has(generic))
+				metadata.push(...this.materialize(generic, repeatCount));
 		}
-		return result;
+		return { values, required: metadata };
 	}
 
 	/** Expand a path (concrete or generic) to every live concrete instance
@@ -394,143 +460,71 @@ export class TriggerDag {
 		}
 	}
 
-	private registerExpressions(path: string, f: Field): void {
-		const expressions: { type: ExpressionType; expr: string }[] = [];
-		const readExpression = this.inspectionMode
-			? expressionInspectionSource
-			: expressionSource;
-
-		// The XPath-bearing slots (relevant/calculate/required/validate)
-		// and the prose slots (label/hint) live on different Field
-		// variants — `expressionSource` reads each through the union so a
-		// slot a variant doesn't declare reads as `undefined`.
-		const relevant = readExpression(f, "relevant", this.doc);
-		if (relevant) expressions.push({ type: "relevant", expr: relevant });
-		const calculate = readExpression(f, "calculate", this.doc);
-		if (calculate) expressions.push({ type: "calculate", expr: calculate });
-		const required = readExpression(f, "required", this.doc);
-		if (required && required !== "true()" && required !== "false()") {
-			expressions.push({ type: "required", expr: required });
-		}
-		// Two kinds of edge leave this method. The device ORDERS relevant,
-		// required, and calculate (`commcare-core .../xform/parse/
-		// XFormParser.java` registers exactly relevant / required / readonly
-		// / calculate through `addTriggerable`, and `FormDef.java::
-		// finalizeTriggerables` ranges only over those), so those edges are
-		// what the authoring cycle proof walks. A constraint and a label's
-		// `<output>` are evaluated on demand and never registered, so a loop
-		// that closes only through one of them installs and runs; the proof
-		// leaves those edges out, and the runtime keeps them (validation
-		// re-runs and labels re-render when their inputs change) only where
-		// they close no loop (`addSettleFreeEdges`).
-		const triggerExprs = expressions.map((e) => e.expr);
-		const settleFreeExprs: string[] = [];
-
-		const validate = readExpression(f, "validate", this.doc);
-		if (validate) {
-			expressions.push({ type: "validation", expr: validate });
-			settleFreeExprs.push(validate);
-		}
-
-		// Every displayed wording slot participates, even when it is the only
-		// reference on the question. Validation messages are evaluated by the
-		// validation branch; their answer dependencies still trigger that pass.
+	private registerExpressions(path: string, field: Field): void {
+		const runtime = this.runtime;
+		if (runtime === undefined)
+			throw new Error("The form dependency graph has no expression runtime.");
+		const expressions: DagNode["expressions"] = [];
+		const add = (
+			slot: FieldExpressionSlotRef["slot"],
+			type: ExpressionType,
+			edge: "trigger" | "settle-free" | "metadata",
+		): void => {
+			const ref = { entity: "field", uuid: field.uuid, slot } as const;
+			const expression = expressionAt(runtime.doc, ref);
+			if (expression === undefined) return;
+			const dependencies = formReadPaths(expression, runtime.projection);
+			expressions.push({
+				type,
+				expr: runtime.lower(expression, ref),
+				dependencies,
+			});
+			for (const dependency of dependencies) {
+				if (edge === "trigger") this.addEdge(dependency, path);
+				else if (edge === "settle-free" && dependency !== path)
+					this.settleFreeEdges.push([dependency, path]);
+			}
+		};
+		add("relevant", "relevant", "trigger");
+		add("calculate", "calculate", "trigger");
+		add("required", "required", "metadata");
+		add("validate", "validation", "settle-free");
 		const templates = (["label", "hint", "help", "validate_msg"] as const).map(
-			(slot) => fieldProseTemplate(f, slot),
+			(slot) => fieldProseTemplate(field, slot),
 		);
 		if (
-			(f.kind === "single_select" || f.kind === "multi_select") &&
-			f.optionsSource.kind === "inline"
-		) {
-			templates.push(...f.optionsSource.options.map((option) => option.label));
-		}
-		const allLabelRefs = templates.flatMap((template) =>
-			proseReferenceExpressions(
-				template,
-				this.doc,
-				this.inspectionMode ? "inspection" : "strict",
-			),
+			(field.kind === "single_select" || field.kind === "multi_select") &&
+			field.optionsSource.kind === "inline"
+		)
+			templates.push(
+				...field.optionsSource.options.map((option) => option.label),
+			);
+		const wording = templates.flatMap(
+			(template) =>
+				template?.parts.filter((part) => part.kind !== "text") ?? [],
 		);
-
-		if (allLabelRefs.length > 0) {
+		if (wording.length > 0) {
 			expressions.push({ type: "output", expr: "" });
-			for (const ref of allLabelRefs) settleFreeExprs.push(ref);
+			for (const part of wording) {
+				if (part.kind !== "field-ref") continue;
+				const dependency = this.fieldPaths.get(part.uuid);
+				if (dependency !== undefined && dependency !== path)
+					this.settleFreeEdges.push([dependency, path]);
+			}
 		}
-
-		// A lookup-backed select's choice list is a real runtime value:
-		// its filter's form-answer references are runtime dependency
-		// edges (uuid-resolved — the filter AST references identity, not
-		// printed paths), and the `choices` expression recomputes the
-		// list on any of them changing, mirroring the device's
-		// prompt-rebuild re-filter of its embedded fixture.
 		if (
-			(f.kind === "single_select" || f.kind === "multi_select") &&
-			f.optionsSource.kind !== "inline"
+			(field.kind === "single_select" || field.kind === "multi_select") &&
+			field.optionsSource.kind !== "inline"
 		) {
 			expressions.push({ type: "choices", expr: "" });
-			if (f.optionsSource.filter !== undefined) {
-				walkTerms(f.optionsSource.filter, (term) => {
-					if (term.kind !== "field") return;
-					const dependencyPath = this.fieldPaths.get(term.uuid);
-					if (dependencyPath !== undefined) this.addEdge(dependencyPath, path);
-				});
-			}
+			if (field.optionsSource.filter !== undefined)
+				for (const dependency of formReadPaths(
+					field.optionsSource.filter,
+					runtime.projection,
+				))
+					this.addEdge(dependency, path);
 		}
-
-		if (expressions.length === 0) return;
-
-		this.nodes.set(path, { path, expressions });
-
-		for (const expr of triggerExprs) {
-			for (const ref of this.countProof
-				? countDependencies(expr, path, this.fieldPaths.values())
-				: extractPathRefs(expr, path))
-				this.addEdge(ref, path);
-		}
-		if (this.cycleProof) return;
-		for (const expr of settleFreeExprs) {
-			for (const ref of extractPathRefs(expr, path)) {
-				if (ref !== path) this.settleFreeEdges.push([ref, path]);
-			}
-		}
-	}
-
-	/**
-	 * Add authoring-time-only edges for field defaults. This runs
-	 * exclusively while `reportCycles` has swapped in its temporary maps —
-	 * defaults apply once during initialization, so their references are
-	 * cycle-proof surfaces, never runtime triggers. (Lookup-choice filter
-	 * dependencies are RUNTIME edges — `registerExpressions`
-	 * owns them for build and cycle proof alike.)
-	 */
-	private collectValidationOnlyDependencies(
-		tree: readonly FieldTreeNode[],
-		prefix: string,
-	): void {
-		for (const node of tree) {
-			const field = node.field;
-			const path = `${prefix}/${field.id}`;
-			let hasValidationDependency = false;
-
-			const defaultValue = expressionInspectionSource(
-				field,
-				"default_value",
-				this.doc,
-			);
-			if (defaultValue !== undefined) {
-				for (const ref of extractPathRefs(defaultValue)) {
-					this.addEdge(ref, path);
-					hasValidationDependency = true;
-				}
-			}
-
-			if (hasValidationDependency && !this.nodes.has(path)) {
-				this.nodes.set(path, { path, expressions: [] });
-			}
-			if (node.children !== undefined) {
-				this.collectValidationOnlyDependencies(node.children, path);
-			}
-		}
+		if (expressions.length > 0) this.nodes.set(path, { path, expressions });
 	}
 
 	/**
@@ -608,49 +602,167 @@ export class TriggerDag {
 		}
 	}
 
-	/** Live counts cannot depend on rows they create, including through
-	 * calculations or another counted repeat. Core accepts these forms but
-	 * keeps creating rows during entry, so they can never finish. */
-	private collectCountDependencies(
-		tree: readonly FieldTreeNode[],
-		prefix: string,
+	/** Collect the finite native trigger graph directly from stored identities.
+	 * Generated calculate targets participate exactly like authored questions. */
+	private collectNativeDependencies(
+		doc: BlueprintDoc,
+		formUuid: Uuid,
+		countFeedback: boolean,
+		cascadeEdges: Map<string, CycleReport["cascade"]>,
 		countEdges: Map<string, string>,
 	): void {
-		for (const node of tree) {
-			const field = node.field;
-			const path = `${prefix}/${field.id}`;
-			if (field.kind === "repeat") {
-				if (!this.nodes.has(path))
-					this.nodes.set(path, { path, expressions: [] });
-				for (const descendant of this.fieldPaths.values()) {
-					if (descendant.startsWith(`${path}/`)) this.addEdge(path, descendant);
+		const form = formStructure(doc, formUuid);
+		if (form === undefined) return;
+		const projection = formNodeProjection(doc, form);
+		const counts = planRepeatCountCarriers(
+			form,
+			referencedCountResults(doc, formUuid),
+		);
+		// Candidate documents can still contain invalid field names. Cycle
+		// diagnostics need labels for their identities, not executable FormPaths;
+		// the field validator reports the invalid names independently.
+		const pathOf = (node: FormNodeRef): string | undefined => {
+			const coordinates = projection.graph.path(node);
+			if (coordinates === undefined) return undefined;
+			let label = "";
+			for (const coordinate of coordinates) {
+				const step = projection.step(coordinate);
+				if (step === undefined) return undefined;
+				label += `/${step.attribute ? "@" : ""}${step.name}`;
+			}
+			return label;
+		};
+		const ensure = (path: string) => {
+			if (!this.nodes.has(path))
+				this.nodes.set(path, { path, expressions: [] });
+		};
+		const add = (
+			expression: Expression,
+			target: FormNodeRef,
+			type: "relevant" | "calculate",
+			allowSelf = true,
+		) => {
+			const path = pathOf(target);
+			if (path === undefined) return;
+			ensure(path);
+			this.nodes.get(path)?.expressions.push({ type, expr: "" });
+			for (const dependency of formReadPaths(expression, projection, pathOf)) {
+				if (allowSelf || dependency !== path) this.addEdge(dependency, path);
+			}
+		};
+		for (const [uuid, field] of form.fields) {
+			const row: FormNodeRef = { kind: "field", uuid };
+			const rowPath = pathOf(row);
+			if (rowPath === undefined) continue;
+			this.fieldPaths.set(uuid, rowPath);
+			for (const { ref, expression } of expressionSlotValues(doc, {
+				entity: "field",
+				uuid,
+			})) {
+				if (ref.entity !== "field") continue;
+				// Required is a triggerable, but cannot cascade: its result
+				// changes only metadata. It cannot close a native value cycle.
+				if (ref.slot === "relevant" || ref.slot === "calculate") {
+					const target = slotContext(doc, ref, new Map(), { form })?.sourceNode;
+					if (target !== undefined) add(expression, target, ref.slot);
+				} else if (!countFeedback && ref.slot === "default_value")
+					add(expression, row, "calculate", false);
+				else if (ref.slot === "lookup_options_source")
+					add(expression, row, "calculate", false);
+			}
+			if (field.kind === "repeat" && field.repeatMode === "query_bound") {
+				const ids = pathOf({ kind: "repeat", repeat: uuid, role: "query-ids" });
+				const count = pathOf({
+					kind: "repeat",
+					repeat: uuid,
+					role: "query-count",
+				});
+				const position = pathOf({
+					kind: "repeat",
+					repeat: uuid,
+					role: "query-position",
+				});
+				if (count !== undefined && ids !== undefined) {
+					ensure(count);
+					this.addEdge(ids, count);
 				}
-				if (field.repeat_mode === "count_bound") {
-					const source = expressionInspectionSource(
-						field,
-						"repeat_count",
-						this.doc,
+				if (position !== undefined) {
+					ensure(position);
+					this.addEdge(rowPath, position);
+				}
+			}
+			if (
+				field.kind === "repeat" &&
+				field.repeatMode === "count_bound" &&
+				form.expressionAt({ entity: "field", uuid, slot: "repeat_count" }) !==
+					undefined
+			) {
+				const count = counts.forRepeat(uuid);
+				if (count?.materialized)
+					add(
+						count.expression,
+						{ kind: "repeat", repeat: uuid, role: "count-result" },
+						"calculate",
 					);
-					const carrier = `${prefix}/__count_dependency_${field.uuid}`;
-					for (const ref of countDependencies(
-						source ?? "",
-						carrier,
-						this.fieldPaths.values(),
+				if (countFeedback && count !== undefined) {
+					ensure(rowPath);
+					for (const dependency of formReadPaths(
+						count.expression,
+						projection,
+						pathOf,
 					)) {
-						// Unlike scalar self references, a count of its own rows
-						// changes the structure and must remain in this proof.
-						if (ref === path) {
-							const dependents =
-								this.dependedOnBy.get(path) ?? new Set<string>();
-							dependents.add(path);
-							this.dependedOnBy.set(path, dependents);
-						} else this.addEdge(ref, path);
-						countEdges.set(`${ref}\u0000${path}`, path);
+						this.addEdge(dependency, rowPath);
+						countEdges.set(`${dependency}\u0000${rowPath}`, rowPath);
 					}
 				}
 			}
-			if (node.children)
-				this.collectCountDependencies(node.children, path, countEdges);
+			if (field.kind === "repeat" && countFeedback) {
+				ensure(rowPath);
+				const descend = (node: FormNodeRef): void => {
+					for (const child of projection.graph.children(node)) {
+						const descendant = pathOf(child);
+						if (descendant !== undefined) this.addEdge(rowPath, descendant);
+						descend(child);
+					}
+				};
+				descend(row);
+			}
+		}
+		for (const { ref, expression } of expressionSlotValues(doc, {
+			entity: "form",
+			uuid: formUuid,
+		})) {
+			if (
+				ref.slot !== "assessment_user_score" &&
+				ref.slot !== "deliver_entity_id" &&
+				ref.slot !== "deliver_entity_name"
+			)
+				continue;
+			const target = slotContext(doc, ref, new Map(), { form })?.sourceNode;
+			if (target !== undefined) add(expression, target, "calculate");
+		}
+		for (const [uuid, field] of form.fields) {
+			if (field.kind !== "group" && field.kind !== "repeat") continue;
+			const ref = { entity: "field", uuid, slot: "relevant" } as const;
+			if (expressionAt(doc, ref) === undefined) continue;
+			const target = slotContext(doc, ref, new Map(), { form })?.sourceNode;
+			const container = target === undefined ? undefined : pathOf(target);
+			if (target === undefined || container === undefined) continue;
+			const descend = (node: FormNodeRef): void => {
+				for (const child of projection.graph.children(node)) {
+					const descendant = pathOf(child);
+					if (descendant !== undefined) {
+						this.addEdge(container, descendant);
+						cascadeEdges.set(`${container}\u0000${descendant}`, {
+							container,
+							containerKind: field.kind as "group" | "repeat",
+							descendant,
+						});
+					}
+					descend(child);
+				}
+			};
+			descend(target);
 		}
 	}
 
@@ -658,33 +770,34 @@ export class TriggerDag {
 	 * Report all cycles without modifying the runtime graph. Builds a
 	 * temporary topology holding the edges the device orders, plus count
 	 * cardinality feedback (which parses but can make entry unfinishable): the
-	 * triggerable edges (relevant / required / calculate, plus the
+	 * cascading triggerable edges (relevant / calculate, plus the
 	 * lookup-choice filter edges), the authoring-only field-default edges, and
 	 * the relevance cascade that runtime also uses from a container to its
-	 * descendants. It excludes the constraint or label edges the runtime keeps
-	 * only for re-evaluation (see `registerExpressions`). Restores the instance
+	 * descendants. It excludes required metadata and the constraint or label
+	 * edges the runtime keeps only for re-evaluation (see `registerExpressions`). Restores the instance
 	 * maps before walking that snapshot. Returns one `CycleReport` per loop.
 	 */
 	reportCycles(
 		tree: FieldTreeNode[],
-		doc: XPathPrintableDoc,
+		doc: BlueprintDoc,
+		formUuid: Uuid,
 		prefix = "/data",
 	): CycleReport[] {
 		return [
-			...this.reportGraphCycles(tree, doc, prefix, false),
-			...this.reportGraphCycles(tree, doc, prefix, true).filter(
+			...this.reportGraphCycles(tree, doc, formUuid, prefix, false),
+			...this.reportGraphCycles(tree, doc, formUuid, prefix, true).filter(
 				(cycle) => cycle.countFeedback !== undefined,
 			),
 		];
 	}
 
 	private reportGraphCycles(
-		tree: FieldTreeNode[],
-		doc: XPathPrintableDoc,
-		prefix: string,
+		_tree: FieldTreeNode[],
+		doc: BlueprintDoc,
+		formUuid: Uuid,
+		_prefix: string,
 		countFeedback: boolean,
 	): CycleReport[] {
-		this.doc = doc;
 		// Build a fresh graph for cycle detection without mutating the instance
 		const nodes = new Map<string, DagNode>();
 		const dependedOnBy = new Map<string, Set<string>>();
@@ -696,33 +809,26 @@ export class TriggerDag {
 		const savedDeps = this.dependedOnBy;
 		const savedRepeats = this.repeatPaths;
 		const savedFieldPaths = this.fieldPaths;
-		const savedInspectionMode = this.inspectionMode;
 		const savedCycleProof = this.cycleProof;
-		const savedCountProof = this.countProof;
 		this.nodes = nodes;
 		this.dependedOnBy = dependedOnBy;
 		this.repeatPaths = new Set();
 		try {
-			this.inspectionMode = true;
 			this.cycleProof = true;
-			this.countProof = countFeedback;
-			this.fieldPaths = collectFieldPaths(tree, prefix);
-			this.collectExpressions(tree, prefix);
-			// Root defaults execute once, so they cannot feed live counts back.
-			// Defaults inside new rows are covered by cardinality-to-descendant
-			// edges: creating the row creates its initialized answers.
-			if (!countFeedback) this.collectValidationOnlyDependencies(tree, prefix);
-			this.collectRelevanceCascadeDependencies(tree, prefix, cascadeEdges);
-			if (countFeedback)
-				this.collectCountDependencies(tree, prefix, countEdges);
+			this.fieldPaths = new Map();
+			this.collectNativeDependencies(
+				doc,
+				formUuid,
+				countFeedback,
+				cascadeEdges,
+				countEdges,
+			);
 		} finally {
 			this.nodes = savedNodes;
 			this.dependedOnBy = savedDeps;
 			this.repeatPaths = savedRepeats;
 			this.fieldPaths = savedFieldPaths;
-			this.inspectionMode = savedInspectionMode;
 			this.cycleProof = savedCycleProof;
-			this.countProof = savedCountProof;
 		}
 
 		const WHITE = 0,
@@ -783,22 +889,7 @@ export class TriggerDag {
 			}
 		}
 
-		// A reference to a field inside a container also depends on the
-		// container (`extractPathRefs` yields every prefix of a path), so a
-		// loop closed by the cascade usually has a shorter twin through
-		// that prefix edge over a subset of the same nodes. One authored
-		// loop gets one report: the cascade one, which can explain the
-		// containment.
-		const cascadeNodeSets = cycles
-			.filter((cycle) => cycle.cascade !== undefined)
-			.map((cycle) => new Set(cycle.path));
-		return cycles.filter(
-			(cycle) =>
-				cycle.cascade !== undefined ||
-				!cascadeNodeSets.some((nodesOfCascade) =>
-					cycle.path.every((node) => nodesOfCascade.has(node)),
-				),
-		);
+		return cycles;
 	}
 
 	/** DFS cycle detection. If a cycle is found, break it by removing the back-edge. */

@@ -34,7 +34,7 @@ import {
 	type SimpleSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { literal, now, term } from "@/lib/domain/predicate";
+import { literal, now, term } from "@/lib/domain/expression";
 import {
 	propertyDisplayLabel,
 	propertyFallbackDisplayLabel,

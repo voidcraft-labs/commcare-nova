@@ -15,14 +15,21 @@ import {
 } from "./forms";
 import { moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
-import type { ResolveSearchInputName } from "./xpath/resolve";
 
 type MenuFormDoc = Pick<BlueprintDoc, "forms" | "formOrder">;
+type PreparedMenuForm = Pick<Form, "type" | "entry"> & {
+	readonly formUuid: Uuid;
+};
 
 /** The module's menu forms, in order. */
-export function menuFormUuidsOf(doc: MenuFormDoc, moduleUuid: Uuid): Uuid[] {
+export function menuFormUuidsOf(
+	doc: MenuFormDoc,
+	moduleUuid: Uuid,
+	prepared?: PreparedMenuForm,
+): Uuid[] {
 	return (doc.formOrder[moduleUuid] ?? []).filter((formUuid) => {
-		const form = doc.forms[formUuid];
+		const form =
+			prepared?.formUuid === formUuid ? prepared : doc.forms[formUuid];
 		return form !== undefined && formEntersFromMenu(form);
 	});
 }
@@ -50,7 +57,7 @@ export function noMatchesFormOf(
 export function searchInputNameResolver(
 	doc: Pick<BlueprintDoc, "forms" | "formOrder" | "modules">,
 	formUuid: Uuid | undefined,
-): ResolveSearchInputName {
+): (name: string) => Uuid | undefined {
 	if (formUuid === undefined) return () => undefined;
 	const form = doc.forms[formUuid];
 	if (form === undefined || !isNoMatchesForm(form)) return () => undefined;
@@ -73,12 +80,16 @@ export function searchInputNameResolver(
 export function moduleIsCaseFirst(
 	doc: Pick<BlueprintDoc, "forms" | "formOrder" | "modules">,
 	moduleUuid: Uuid,
+	prepared?: PreparedMenuForm,
 ): boolean {
 	const mod = doc.modules[moduleUuid];
 	if (mod === undefined) return false;
-	const types = menuFormUuidsOf(doc, moduleUuid).flatMap((formUuid) => {
-		const form = doc.forms[formUuid];
-		return form === undefined ? [] : [form.type];
-	});
+	const types = menuFormUuidsOf(doc, moduleUuid, prepared).flatMap(
+		(formUuid) => {
+			const form =
+				prepared?.formUuid === formUuid ? prepared : doc.forms[formUuid];
+			return form === undefined ? [] : [form.type];
+		},
+	);
 	return isCaseFirstModule(types, mod.caseType !== undefined);
 }

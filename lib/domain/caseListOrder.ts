@@ -77,6 +77,7 @@
 //      (commcare-core `cases/entity/EntitySorter.getCmp`).
 
 import type { CasePropertyDataType } from "./casePropertyTypes";
+import type { ScalarType } from "./expression/typeChecker";
 import {
 	type CaseListConfig,
 	type Column,
@@ -84,7 +85,6 @@ import {
 	orderedColumns,
 	type SortDirection,
 } from "./modules";
-import type { ResolvedType } from "./predicate/typeChecker";
 import { ATTRIBUTE_BACKED_COLUMN_PROPERTIES } from "./standardCaseProperties";
 import type { Uuid } from "./uuid";
 
@@ -180,9 +180,9 @@ export interface CaseListOrderOptions {
 	/** Whether the export carries a media manifest; read only through
 	 *  `imageMapShowsImages`. */
 	readonly mediaOn: boolean;
-	/** A calculated column's resolved type; `undefined` where it resolves to
+	/** A calculated column's inferred scalar type; `undefined` where it resolves to
 	 *  none. */
-	readonly calculatedType: (column: Column) => ResolvedType | undefined;
+	readonly calculatedType: (column: Column) => ScalarType | undefined;
 	/** The text HQ JSON writes as an expression column's `field` on Results. */
 	readonly expressionText: (column: Column) => string;
 }
@@ -198,7 +198,7 @@ export function comparatorForDataType(
 }
 
 function comparatorForResolvedType(
-	type: ResolvedType | undefined,
+	type: ScalarType | undefined,
 ): CaseListComparator {
 	if (type === "int") return "integer";
 	if (type === "decimal") return "decimal";

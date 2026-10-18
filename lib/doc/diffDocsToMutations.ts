@@ -145,7 +145,7 @@ import {
 	ownRecordValue,
 	parseLanguageTag,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/predicate";
+import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 
 // ── Value comparison ─────────────────────────────────────────────────
 //

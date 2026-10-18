@@ -1,3 +1,4 @@
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 // components/builder/shared/__tests__/validByConstruction.test.ts
 //
 // The headline invariant of the valid-by-construction editor: an
@@ -5,7 +6,7 @@
 // ALWAYS type-correct. These tests tie the editor's admission helpers
 // (`comparisonOperatorsFor` / `matchModesFor` / `compatibleTypesFor`)
 // and the reseed (`cards/reseed.ts`) directly to the type checker
-// (`checkPredicate`), so "the pickers only offer valid choices" is a
+// (`checkExpression`), so "the pickers only offer valid choices" is a
 // type-check consistency property. Complete document/carrier admission is
 // tested separately. No React or DOM renderer.
 
@@ -13,9 +14,10 @@ import { describe, expect, it } from "vitest";
 import { type CaseType, casePropertyDataTypes } from "@/lib/domain";
 import {
 	type ComparisonKind,
-	checkPredicate,
+	checkExpression,
 	comparisonOperatorsFor,
 	compatibleTypesFor,
+	type Expression,
 	eq,
 	gt,
 	gte,
@@ -28,13 +30,11 @@ import {
 	match,
 	matchModesFor,
 	neq,
-	type Predicate,
 	prop,
-	type ResolvedType,
+	type ScalarType,
 	type Term,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	reseedLiteralForConstraint,
@@ -51,13 +51,17 @@ const CASE_TYPE: CaseType = {
 		data_type: dt,
 	})),
 };
-const CTX = { caseTypes: [CASE_TYPE], knownInputs: [], currentCaseType: "ct" };
+const CTX = expressionEditorFixture("search-predicate", {
+	caseTypes: [CASE_TYPE],
+	knownInputs: [],
+	currentCaseType: "ct",
+}).context.expressionContext;
 const REAL_TYPES = casePropertyDataTypes;
 
 type ComparisonBuilder = (
-	left: Term | ValueExpression,
-	right: Term | ValueExpression,
-) => Predicate;
+	left: Term | Expression,
+	right: Term | Expression,
+) => Expression;
 const COMPARISON_BUILDERS: Record<ComparisonKind, ComparisonBuilder> = {
 	eq,
 	neq,
@@ -90,7 +94,7 @@ describe("valid by construction — comparison admission ⟺ checker", () => {
 			for (const kind of Object.keys(COMPARISON_BUILDERS) as ComparisonKind[]) {
 				const admitted = comparisonOperatorsFor(t).has(kind);
 				const predicate = COMPARISON_BUILDERS[kind](subject, value);
-				const checks = checkPredicate(predicate, CTX).ok;
+				const checks = checkExpression(predicate, CTX).errors.length === 0;
 				// Sound AND complete: the helper admits exactly the operators
 				// the checker accepts for a subject of this type.
 				expect(
@@ -112,7 +116,7 @@ describe("valid by construction — reseed always lands inside the constraint", 
 				// eq is admitted for every type, so this isolates the value:
 				// the reseeded object must be compatible with the subject.
 				expect(
-					checkPredicate(eq(subject, reseeded), CTX).ok,
+					checkExpression(eq(subject, reseeded), CTX).errors.length === 0,
 					`reseed of ${JSON.stringify(old.value)} for ${t}`,
 				).toBe(true);
 			}
@@ -124,7 +128,7 @@ describe("valid by construction — reseed always lands inside the constraint", 
 		// (no literal widget) to exercise the null fallback.
 		const acceptSets = [
 			...REAL_TYPES.map((t) => compatibleTypesFor(t)),
-			new Set<ResolvedType>(["geopoint"]),
+			new Set<ScalarType>(["geopoint"]),
 		];
 		for (const accepts of acceptSets) {
 			for (const old of OLD_LITERALS) {
@@ -151,7 +155,7 @@ describe("valid by construction — match admission ⟺ checker", () => {
 				// `matchValueConstraint` enforces. Builder order is
 				// `match(property, value, mode)`.
 				const predicate = match(subject, term(literal("x")), mode);
-				const checks = checkPredicate(predicate, CTX).ok;
+				const checks = checkExpression(predicate, CTX).errors.length === 0;
 				expect(
 					checks,
 					`${mode} on ${t}: admitted=${admitted} checks=${checks}`,

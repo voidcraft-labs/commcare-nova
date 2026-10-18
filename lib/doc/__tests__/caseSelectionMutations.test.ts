@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { mutationSchema } from "@/lib/doc/types";
@@ -12,6 +12,7 @@ import {
 	tileCell,
 	type Uuid,
 } from "@/lib/domain";
+import { literal, matchAll, term } from "@/lib/domain/expression/builders";
 import {
 	planCaseSelectionTransition as actualTransition,
 	planCaseSelectionChange,
@@ -119,7 +120,7 @@ function linkedDoc(args?: {
 		formLinks: [
 			{
 				uuid: LINK_UUID,
-				condition: xp("true()"),
+				condition: matchAll(),
 				target:
 					targetKind === "form"
 						? {
@@ -131,8 +132,8 @@ function linkedDoc(args?: {
 				...(args?.authoredDatums === true && {
 					datums: [
 						{
-							name: "case_id",
-							xpath: { parts: [{ kind: "text", text: "'case-id'" }] },
+							name: { kind: "selected-case", module: TARGET_MODULE_UUID },
+							xpath: term(literal("case-id")),
 						},
 					],
 				}),
@@ -141,7 +142,7 @@ function linkedDoc(args?: {
 				? [
 						{
 							uuid: OTHER_LINK_UUID,
-							condition: xp("true()"),
+							condition: matchAll(),
 							target: {
 								type: "form" as const,
 								moduleUuid: OTHER_TARGET_MODULE_UUID,
@@ -534,7 +535,7 @@ describe("planCaseSelectionTransition", () => {
 					formLinks: [
 						{
 							uuid: OTHER_LINK_UUID,
-							condition: xp("true()"),
+							condition: matchAll(),
 							target: {
 								type: "form",
 								moduleUuid: OTHER_TARGET_MODULE_UUID,
@@ -583,7 +584,7 @@ describe("planCaseSelectionTransition", () => {
 					formLinks: [
 						{
 							uuid: OTHER_LINK_UUID,
-							condition: xp("true()"),
+							condition: matchAll(),
 							target: {
 								type: "form",
 								moduleUuid: MODULE_UUID,

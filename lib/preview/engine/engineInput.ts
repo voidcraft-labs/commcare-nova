@@ -31,6 +31,7 @@ export function buildEngineInput(
 			? undefined
 			: resolveAppLanguage(doc.localization, language);
 	return {
+		doc,
 		form,
 		formUuid,
 		wireName: formWireName(doc, formUuid),

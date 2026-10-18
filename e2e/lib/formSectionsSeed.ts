@@ -12,7 +12,7 @@
  * each Playwright attempt owns its app and submission receipts.
  */
 
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
@@ -66,7 +66,7 @@ export function buildFormSectionsBlueprint(appId = "test-app"): BlueprintDoc {
 										id: "your_name",
 										label: proseText(aboutYou.nameLabel),
 										relevant: "#form/your_visit/visit_note != 'skip intro'",
-										required: xp("true()"),
+										required: "true()",
 									}),
 								],
 							}),
@@ -81,7 +81,7 @@ export function buildFormSectionsBlueprint(appId = "test-app"): BlueprintDoc {
 										kind: "text",
 										id: "visit_note",
 										label: proseText(yourVisit.noteLabel),
-										validate: xp(". != 'invalid'"),
+										validate: ". != 'invalid'",
 									}),
 								],
 							}),

@@ -6,8 +6,9 @@ import { proseText } from "@/lib/domain/prose";
  * schema-only invalid payloads stay at admission. No browser or SQL claim. */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import {
 	makeToolWorkspaceHarness,
 	type ToolWorkspaceHarness,
@@ -346,68 +347,43 @@ describe("an attachment destination without a mode — no construction surface c
 	});
 });
 
-// ── UNQUOTED_STRING_LITERAL / UNKNOWN_FUNCTION / WRONG_ARITY ────────
+// Invalid authored syntax never becomes a stored executable expression.
 
-describe("XPath soundness fixes — rejected at the introducing commit", () => {
-	function verdictForRelevantPatch(expr: string) {
+describe("expression syntax admission", () => {
+	it.each([
+		["a bare identifier", "default_value", "approved"],
+		["an unknown function", "relevant", "Today() > '2026-01-01'"],
+		["the wrong function arity", "relevant", "round(2.4, 2) = 2"],
+	])("refuses %s before the writer runs", async (_label, slot, source) => {
 		const doc = minDoc();
 		const target = fieldByBareId(doc, "village");
-		return mutationCommitVerdict(
-			doc,
-			[
-				{
-					kind: "updateField",
-					uuid: target.uuid,
-					targetKind: "text",
-					patch: { relevant: xp(expr) },
-				},
-			],
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-	}
+		const h = makeAuthoringHarness({}, doc);
+		await expect(
+			h.call("editField", {
+				fieldUuid: target.uuid,
+				updates: { [slot]: source },
+			}),
+		).rejects.toThrow();
+		expect(h.currentDoc()).toBe(doc);
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
+	});
 
-	it("UNQUOTED_STRING_LITERAL: a bare-word value in an XPath slot is rejected", () => {
-		// `default_value: approved` — a lone bare identifier where an XPath
-		// expression belongs (the author meant the string 'approved').
+	it("admits a quoted string as a typed literal", async () => {
 		const doc = minDoc();
 		const target = fieldByBareId(doc, "village");
-		const verdict = mutationCommitVerdict(
-			doc,
-			[
-				{
-					kind: "updateField",
-					uuid: target.uuid,
-					targetKind: "text",
-					patch: { default_value: xp("approved") },
-				},
-			],
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.map((e) => e.code)).toContain(
-				"UNQUOTED_STRING_LITERAL",
-			);
-		}
-	});
-
-	it("UNKNOWN_FUNCTION: a case-mismatched function name is rejected with the did-you-mean", () => {
-		const verdict = verdictForRelevantPatch("Today() > '2026-01-01'");
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			const finding = verdict.findings.find(
-				(e) => e.code === "UNKNOWN_FUNCTION",
-			);
-			expect(finding?.message).toContain('Did you mean "today()"');
-		}
-	});
-
-	it("WRONG_ARITY: round(x, 2) is rejected", () => {
-		const verdict = verdictForRelevantPatch("round(2.4, 2) = 2");
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.map((e) => e.code)).toContain("WRONG_ARITY");
-		}
+		const h = makeAuthoringHarness({}, doc);
+		expect(
+			await h.call("editField", {
+				fieldUuid: target.uuid,
+				updates: { default_value: "'approved'" },
+			}),
+		).toMatchObject({ ok: true });
+		expect(h.currentDoc().fields[target.uuid]).toMatchObject({
+			default_value: {
+				kind: "term",
+				term: { kind: "literal", value: "approved" },
+			},
+		});
 	});
 });
 

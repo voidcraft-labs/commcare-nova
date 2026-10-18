@@ -44,18 +44,25 @@ import {
 	ancestorLevels,
 	type CasePropertyDataType,
 	type CaseType,
+	type LookupColumnId,
+	type LookupTableId,
 	levelOwnsCases,
 	type OrganizationLevel,
+	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	type RecordQueryContext,
+	recordQueryContext,
+	type SearchInputDecl,
+} from "@/lib/domain/expression/context";
 import {
 	compilerBugMessage,
 	typeCheckerBypassMessage,
 	unhandledKindMessage,
-} from "@/lib/domain/predicate/errors";
-import { canonicalizeRelationPath } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import type { RelationPath, Term } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/errors";
+import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import type { RelationPath, Term } from "@/lib/domain/expression/types";
 import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { compileLiteral } from "./compileLiteral";
 import {
@@ -150,6 +157,8 @@ export interface TermBindings {
 
 	/** Resolved identity submitting this atomic form envelope. */
 	actingUserId?: TermBindingValue;
+	/** Current location supplied by a runtime that owns location access. */
+	here?: TermBindingValue;
 
 	/**
 	 * The viewer's IANA timezone (`Intl.DateTimeFormat().resolvedOptions()
@@ -208,8 +217,8 @@ export interface TermCompileContext {
 	 */
 	caseTypeSchemas: ReadonlyMap<string, CaseType>;
 	/** Declared types survive binding values such as the form answer "10". */
-	formFieldTypes?: TypeContext["formFields"];
-	knownInputs?: TypeContext["knownInputs"];
+	formFieldTypes?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
+	knownInputs?: readonly SearchInputDecl[];
 	/** App organization hierarchy for owner-only location terms. */
 	organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/**
@@ -229,6 +238,42 @@ export interface TermCompileContext {
 	bindings: TermBindings;
 }
 
+/** SQL has typed runtime bindings and row schemas, without an authored slot. */
+export function recordQueryContextFor(
+	ctx: TermCompileContext,
+): RecordQueryContext {
+	return recordQueryContext({
+		caseTypes: [...ctx.caseTypeSchemas.values()],
+		currentCaseType: ctx.currentCaseType,
+		lookupTables: new Map(
+			[...(ctx.lookupTableSchemas ?? [])].map(([tableId, columns]) => [
+				tableId as LookupTableId,
+				new Map(
+					[...columns].map(([columnId, dataType]) => [
+						columnId as LookupColumnId,
+						dataType,
+					]),
+				),
+			]),
+		),
+		lookupTableId: ctx.lookupRowScope?.tableId as LookupTableId | undefined,
+		formFieldTypes: ctx.formFieldTypes,
+		knownInputs: ctx.knownInputs,
+		organizationLevels: ctx.organizationLevels,
+		userPropertySlugs: new Map(
+			[...(ctx.bindings.userPropertySlugs ?? [])].map(([uuid, slug]) => [
+				uuid as Uuid,
+				slug,
+			]),
+		),
+		operationIds: new Set(
+			[...(ctx.bindings.operationIds?.keys() ?? [])].map(
+				(uuid) => uuid as Uuid,
+			),
+		),
+	});
+}
+
 /**
  * Module-scoped expression builder. With `TB = keyof Database` the
  * builder accepts column references through any of the case-store
@@ -245,6 +290,23 @@ export function compileTerm(
 	ctx: TermCompileContext,
 ): AliasableExpression<unknown> {
 	switch (term.kind) {
+		case "case-type":
+			return eb.val(term.caseType);
+		case "case-row-type":
+			return (eb as DynamicExprBuilder).ref(`${ctx.anchorAlias}.case_type`);
+		case "choice":
+			throw new Error(
+				"compileTerm: resolve choice identities from the committed document before compiling a server query.",
+			);
+		case "form-node":
+		case "case-index":
+		case "session-datum":
+		case "repeat-row":
+		case "location-level":
+		case "location-field":
+			throw new Error(
+				`compileTerm: '${term.kind}' is unavailable in a server record query.`,
+			);
 		case "form-case":
 			throw new Error(
 				"Selected form records are unavailable in a server case query.",
@@ -260,6 +322,8 @@ export function compileTerm(
 				`search input '${term.searchInputUuid}'`,
 			);
 		case "session-user":
+			if (term.source === "worker-record")
+				return compileWorkerProperty(term.field, ctx);
 			return compileBoundRef(
 				term.field,
 				ctx.bindings.sessionUser,
@@ -273,6 +337,8 @@ export function compileTerm(
 					`Unknown user property identity '${term.userPropertyUuid}' while compiling a session-user term`,
 				);
 			}
+			if (term.source === "worker-record")
+				return compileWorkerProperty(slug, ctx);
 			return compileBoundRef(
 				slug,
 				ctx.bindings.sessionUser,
@@ -285,8 +351,17 @@ export function compileTerm(
 				term.field,
 				ctx.bindings.sessionContext,
 				`session context field '${term.field}'`,
+				"",
 			);
 		case "field":
+			if (
+				term.role !== undefined ||
+				term.spelling !== undefined ||
+				term.filters !== undefined
+			)
+				throw new Error(
+					"compileTerm: a form path must be resolved to its answer binding before compiling a server query.",
+				);
 			return compileBoundRef(
 				term.uuid,
 				ctx.bindings.formFields,
@@ -393,6 +468,54 @@ export function compileTerm(
 	}
 }
 
+/** Worker-record reads use the same tenant and held-row boundary as case reads. */
+function compileWorkerProperty(
+	field: string,
+	ctx: TermCompileContext,
+): AliasableExpression<unknown> {
+	const userId = eb.cast<string>(
+		compileBoundValue(
+			ctx.bindings.sessionContext?.get("userid") ?? ctx.bindings.actingUserId,
+			"the current worker id",
+		),
+		"text",
+	);
+	let query = ctx.db
+		.selectFrom("cases as worker_case")
+		.where("worker_case.app_id", "=", ctx.appId)
+		.where("worker_case.project_id", "=", ctx.projectId)
+		.where("worker_case.case_type", "=", USERCASE_CASE_TYPE)
+		.where((builder) =>
+			builder(
+				builder.ref("worker_case.properties", "->>").key("hq_user_id"),
+				"=",
+				userId,
+			),
+		)
+		.where(({ not, exists, selectFrom }) =>
+			not(
+				exists(
+					selectFrom("parked_case_values as worker_held")
+						.select("worker_held.id")
+						.whereRef("worker_held.case_id", "=", "worker_case.case_id")
+						.where("worker_held.dismissed_at", "is", null),
+				),
+			),
+		)
+		.select((builder) => {
+			const scalar = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(field);
+			const value: AliasableExpression<unknown> =
+				scalar === undefined
+					? builder.ref("worker_case.properties", "->>").key(field)
+					: eb.cast(scalarColumnRef("worker_case", scalar.column), "text");
+			return value.as("value");
+		})
+		.limit(1);
+	if (ctx.restrictToRestoreScope !== undefined)
+		query = ctx.restrictToRestoreScope(query, "worker_case");
+	return eb.fn("coalesce", [query, eb.val("")]);
+}
+
 /**
  * Compile a `prop` term. Three branches: (1) reserved scalar
  * columns read directly off the alias; (2) self / no `via` reads
@@ -408,7 +531,12 @@ function compilePropertyRef(
 	term: Extract<Term, { kind: "prop" }>,
 	ctx: TermCompileContext,
 ): AliasableExpression<unknown> {
-	const { caseType, property, via } = term;
+	const { property, via } = term;
+	const caseType = term.caseType ?? ctx.currentCaseType;
+	if (caseType === undefined)
+		throw new Error(
+			"compileTerm: a server property read needs its selected record type.",
+		);
 	const isSelfVia = via === undefined || via.kind === "self";
 
 	const value = isSelfVia
@@ -577,7 +705,7 @@ function scalarColumnRef(
 
 /**
  * Resolve the destination case-type name a `RelationPath` reaches.
- * Mirrors `lib/domain/predicate/typeChecker.ts::checkRelationPath`.
+ * Mirrors `lib/domain/expression/typeChecker.ts::checkRelationPath`.
  *
  * Ancestor walks chain `parent_type` hops; subcase / any-relation
  * find the case type whose `parent_type` matches the origin
@@ -759,7 +887,7 @@ function resolveDestinationCaseType(
 
 /**
  * Resolve the declared `data_type`. Absent `data_type` defaults to
- * `text` (matching `lib/domain/predicate/jsonSchema.ts`'s default)
+ * `text` (matching `lib/domain/expression/jsonSchema.ts`'s default)
  * so the cast mapping stays consistent across both consumers.
  * Missing case types or undeclared properties are type-checker
  * bypasses.

@@ -37,8 +37,8 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema, proseText } from "@/lib/domain";
+import { fixedLocation, term } from "@/lib/domain/expression";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
-import { fixedLocation, term } from "@/lib/domain/predicate";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { getLookupFixtureData } from "@/lib/lookup/service";

@@ -10,7 +10,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { mutationSchema } from "@/lib/doc/types";
 import { type BlueprintDoc, plainColumn } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import { eq, literal, prop } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 

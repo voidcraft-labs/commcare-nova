@@ -11,12 +11,14 @@
  * not on the field itself.
  */
 
+import { projectFormExpression } from "../../lib/doc/expressionText";
 import {
-	expressionSource,
 	fieldCaseWrite,
 	isContainer,
 	projectProseTemplate,
 } from "../../lib/domain";
+import type { FieldExpressionSlotRef } from "../../lib/domain/expression/types";
+import { expressionSlotValue } from "../../lib/domain/referenceSlots";
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "./types";
 
 // ── Result types ────────────────────────────────────────────────────
@@ -231,8 +233,12 @@ function countLogicFromList(doc: BlueprintDoc, fields: Field[]): LogicCounts {
 			hasAny = true;
 		}
 		/* required = "true()" is meaningful; "false()" is the default / absent. */
-		const requiredText = expressionSource(f, "required", doc);
-		if (requiredText && requiredText !== "false()") {
+		const required = expressionSlotValue(doc, {
+			entity: "field",
+			uuid: f.uuid,
+			slot: "required",
+		});
+		if (required !== undefined && required.kind !== "match-none") {
 			counts.requireds++;
 			hasAny = true;
 		}
@@ -468,6 +474,19 @@ export function extractLogicFields(doc: BlueprintDoc): LogicField[] {
 	return results;
 }
 
+/** Human source is a read-only projection of one actual expression slot. */
+function logicSource(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	slot: FieldExpressionSlotRef["slot"],
+): string | undefined {
+	const ref = { entity: "field" as const, uuid, slot };
+	const expression = expressionSlotValue(doc, ref);
+	return expression === undefined
+		? undefined
+		: projectFormExpression(doc, ref, expression, "unavailable").text;
+}
+
 /** Recursive walker that collects fields with logic into `out`. */
 function walkForLogic(
 	doc: BlueprintDoc,
@@ -489,29 +508,28 @@ function walkForLogic(
 		const has: LogicField["has"] = [];
 		const expressions: Record<string, string> = {};
 
-		// AST-stored slots project to their printed text — `expressionSource`
-		// resolves identity leaves against the doc.
-		const calculate = expressionSource(f, "calculate", doc);
+		// Human source resolves the actual stored slot and every identity against the doc.
+		const calculate = logicSource(doc, f.uuid, "calculate");
 		if (calculate) {
 			has.push("calculate");
 			expressions.calculate = calculate;
 		}
-		const relevant = expressionSource(f, "relevant", doc);
+		const relevant = logicSource(doc, f.uuid, "relevant");
 		if (relevant) {
 			has.push("relevant");
 			expressions.relevant = relevant;
 		}
-		const defaultValue = expressionSource(f, "default_value", doc);
+		const defaultValue = logicSource(doc, f.uuid, "default_value");
 		if (defaultValue) {
 			has.push("default");
 			expressions.default = defaultValue;
 		}
-		const validate = expressionSource(f, "validate", doc);
+		const validate = logicSource(doc, f.uuid, "validate");
 		if (validate) {
 			has.push("validate");
 			expressions.validate = validate;
 		}
-		const required = expressionSource(f, "required", doc);
+		const required = logicSource(doc, f.uuid, "required");
 		if (required && required !== "false()") {
 			has.push("required");
 			expressions.required = required;

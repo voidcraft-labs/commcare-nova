@@ -1,4 +1,4 @@
-// Mutually recursive navigation for the Predicate and ValueExpression ASTs.
+// Navigation for condition and value presentations of the Expression AST.
 // The focus path deliberately matches the type checker's EditorPath so one
 // location drives navigation, exact replacement, and inline diagnostics.
 
@@ -10,7 +10,6 @@ import {
 	betweenBoundConstraint,
 	betweenSubjectConstraint,
 	branchConstraint,
-	checkExpression,
 	coerceOperandConstraint,
 	comparisonObjectConstraint,
 	comparisonSubjectConstraint,
@@ -18,19 +17,25 @@ import {
 	dateAddOperandConstraint,
 	dateOperandConstraint,
 	doubleOperandConstraint,
+	type Expression,
+	type ExpressionContext,
+	expressionContextAtPath,
 	inSubjectConstraint,
+	isRelationPath,
+	mapExpressionAst,
 	matchValueConstraint,
 	numericConstraint,
-	type Predicate,
 	type SearchInputDecl,
 	type SlotConstraint,
-	type ValueExpression,
+	scalarDataType,
+	typeOf,
 	withinCenterConstraint,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { EditorPath } from "./path";
 import { resolveRelationDestination } from "./relationDestination";
 
 export interface RuleNavigationContext {
+	readonly expressionContext: ExpressionContext;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly SearchInputDecl[];
@@ -44,8 +49,8 @@ export interface RuleNavigationContext {
 export const DEFAULT_RULE_ROOT_LABEL = "Cases available";
 
 export type EditableRuleNode =
-	| { readonly family: "predicate"; readonly value: Predicate }
-	| { readonly family: "expression"; readonly value: ValueExpression };
+	| { readonly family: "predicate"; readonly value: Expression }
+	| { readonly family: "expression"; readonly value: Expression };
 
 export interface LocatedRuleNode {
 	readonly node: EditableRuleNode;
@@ -60,25 +65,23 @@ export interface RuleLocation extends LocatedRuleNode {
 	readonly trail: readonly LocatedRuleNode[];
 }
 
-function typeAt(
-	value: ValueExpression,
-	currentCaseType: string,
-	ctx: RuleNavigationContext,
-) {
-	return checkExpression(
-		value,
-		{
-			caseTypes: [...ctx.caseTypes],
-			knownInputs: [...ctx.knownInputs],
-			currentCaseType,
-		},
-		[],
-		[],
+interface RuleWalkContext extends RuleNavigationContext {
+	readonly root: Expression;
+}
+
+function typeAt(value: Expression, path: EditorPath, ctx: RuleWalkContext) {
+	const context = expressionContextAtPath(
+		ctx.root,
+		ctx.expressionContext,
+		path,
 	);
+	return context === undefined
+		? undefined
+		: scalarDataType(typeOf(value, context)?.data);
 }
 
 function predicateLocation(
-	value: Predicate,
+	value: Expression,
 	path: EditorPath,
 	currentCaseType: string,
 	breadcrumb: string,
@@ -94,7 +97,7 @@ function predicateLocation(
 }
 
 function expressionLocation(
-	value: ValueExpression,
+	value: Expression,
 	path: EditorPath,
 	currentCaseType: string,
 	constraint: SlotConstraint,
@@ -112,11 +115,11 @@ function expressionLocation(
 }
 
 function locatePredicate(
-	value: Predicate,
+	value: Expression,
 	path: EditorPath,
 	remaining: EditorPath,
 	currentCaseType: string,
-	ctx: RuleNavigationContext,
+	ctx: RuleWalkContext,
 	trail: readonly LocatedRuleNode[],
 	breadcrumb: string,
 ): readonly LocatedRuleNode[] | undefined {
@@ -126,7 +129,7 @@ function locatePredicate(
 
 	const [first, second, ...rest] = remaining;
 	const descendPredicate = (
-		child: Predicate | undefined,
+		child: Expression | undefined,
 		consumed: EditorPath,
 		childRemaining: EditorPath,
 		childCaseType = currentCaseType,
@@ -144,7 +147,7 @@ function locatePredicate(
 					childBreadcrumb,
 				);
 	const descendExpression = (
-		child: ValueExpression | undefined,
+		child: Expression | undefined,
 		consumed: EditorPath,
 		childRemaining: EditorPath,
 		constraint: SlotConstraint,
@@ -227,10 +230,7 @@ function locatePredicate(
 					value.right,
 					[first],
 					remaining.slice(1),
-					comparisonObjectConstraint(
-						value.kind,
-						typeAt(value.left, currentCaseType, ctx),
-					),
+					comparisonObjectConstraint(value.kind, typeAt(value.left, path, ctx)),
 					"value",
 					"Compared value",
 				);
@@ -259,7 +259,7 @@ function locatePredicate(
 				);
 			}
 			const boundConstraint = betweenBoundConstraint(
-				typeAt(value.left, currentCaseType, ctx),
+				typeAt(value.left, path, ctx),
 			);
 			if (first === "lower") {
 				return descendExpression(
@@ -325,11 +325,11 @@ function locatePredicate(
 }
 
 function locateExpression(
-	value: ValueExpression,
+	value: Expression,
 	path: EditorPath,
 	remaining: EditorPath,
 	currentCaseType: string,
-	ctx: RuleNavigationContext,
+	ctx: RuleWalkContext,
 	trail: readonly LocatedRuleNode[],
 	constraint: SlotConstraint,
 	presentation: "value" | "subject",
@@ -348,7 +348,7 @@ function locateExpression(
 
 	const [first, second, third, fourth] = remaining;
 	const descendExpression = (
-		child: ValueExpression | undefined,
+		child: Expression | undefined,
 		consumed: EditorPath,
 		childRemaining: EditorPath,
 		childSlotConstraint: SlotConstraint,
@@ -368,7 +368,7 @@ function locateExpression(
 					childBreadcrumb,
 				);
 	const descendPredicate = (
-		child: Predicate | undefined,
+		child: Expression | undefined,
 		consumed: EditorPath,
 		childRemaining: EditorPath,
 		childCaseType = currentCaseType,
@@ -434,6 +434,16 @@ function locateExpression(
 						"Source value",
 					)
 				: undefined;
+		case "negate":
+			return first === "negate" && second === "value"
+				? descendExpression(
+						value.value,
+						[first, second],
+						remaining.slice(2),
+						numericConstraint(),
+						"Source value",
+					)
+				: undefined;
 		case "arith":
 			if (first === "left") {
 				return descendExpression(
@@ -473,7 +483,7 @@ function locateExpression(
 							constraint,
 							...value.values
 								.filter((_, index) => index !== second)
-								.map((item) => typeAt(item, currentCaseType, ctx)),
+								.map((item) => typeAt(item, path, ctx)),
 						),
 						"Fallback value",
 					)
@@ -494,10 +504,7 @@ function locateExpression(
 					value.then,
 					[first, second],
 					remaining.slice(2),
-					branchConstraint(
-						constraint,
-						typeAt(value.else, currentCaseType, ctx),
-					),
+					branchConstraint(constraint, typeAt(value.else, path, ctx)),
 					"Use this value",
 				);
 			}
@@ -506,10 +513,7 @@ function locateExpression(
 						value.else,
 						[first, second],
 						remaining.slice(2),
-						branchConstraint(
-							constraint,
-							typeAt(value.then, currentCaseType, ctx),
-						),
+						branchConstraint(constraint, typeAt(value.then, path, ctx)),
 						"Otherwise",
 					)
 				: undefined;
@@ -531,9 +535,7 @@ function locateExpression(
 					remaining.slice(2),
 					branchConstraint(
 						constraint,
-						...value.cases.map((item) =>
-							typeAt(item.then, currentCaseType, ctx),
-						),
+						...value.cases.map((item) => typeAt(item.then, path, ctx)),
 					),
 					"Fallback value",
 				);
@@ -547,16 +549,17 @@ function locateExpression(
 						remaining.slice(4),
 						branchConstraint(
 							constraint,
-							typeAt(value.fallback, currentCaseType, ctx),
+							typeAt(value.fallback, path, ctx),
 							...value.cases
 								.filter((_, index) => index !== third)
-								.map((item) => typeAt(item.then, currentCaseType, ctx)),
+								.map((item) => typeAt(item.then, path, ctx)),
 						),
 						"Matching value",
 					)
 				: undefined;
 		case "count": {
-			if (first !== "count" || second !== "where") return undefined;
+			if (first !== "count" || second !== "where" || !isRelationPath(value.via))
+				return undefined;
 			const destination = resolveRelationDestination(
 				value.via,
 				currentCaseType,
@@ -596,7 +599,7 @@ function locateExpression(
 }
 
 export function locateRuleNode(
-	root: Predicate,
+	root: Expression,
 	path: EditorPath,
 	ctx: RuleNavigationContext,
 ): RuleLocation | undefined {
@@ -605,7 +608,7 @@ export function locateRuleNode(
 		[],
 		path,
 		ctx.currentCaseType,
-		ctx,
+		{ ...ctx, root },
 		[],
 		ctx.rootLabel ?? DEFAULT_RULE_ROOT_LABEL,
 	);
@@ -615,7 +618,7 @@ export function locateRuleNode(
 }
 
 export function nearestRuleLocation(
-	root: Predicate,
+	root: Expression,
 	requestedPath: EditorPath,
 	ctx: RuleNavigationContext,
 ): RuleLocation {
@@ -632,265 +635,45 @@ export function nearestRuleLocation(
 	return rootLocation;
 }
 
-function replacementAtTarget(
-	next: EditableRuleNode,
-	family: EditableRuleNode["family"],
-) {
-	if (next.family !== family) {
-		throw new Error(`Cannot replace a ${family} with a ${next.family}`);
-	}
-	return next.value;
-}
-
-function replacePredicate(
-	value: Predicate,
+/** Presentation families select an editor, not a separate stored grammar. The
+ * canonical edge table owns replacement paths for every Expression shape. */
+function replaceNodeAtPath(
+	root: Expression,
 	path: EditorPath,
-	next: EditableRuleNode,
-): Predicate {
-	if (path.length === 0) {
-		return replacementAtTarget(next, "predicate") as Predicate;
-	}
-	const [first, second] = path;
-	const replacePredicateChild = (child: Predicate, consumed: number) =>
-		replacePredicate(child, path.slice(consumed), next);
-	const replaceExpressionChild = (child: ValueExpression, consumed: number) =>
-		replaceExpression(child, path.slice(consumed), next);
-
-	switch (value.kind) {
-		case "and":
-		case "or": {
+	next: Expression,
+): Expression {
+	let found = false;
+	const result = mapExpressionAst(root, {
+		mapExpression: (value, currentPath) => {
 			if (
-				first !== value.kind ||
-				typeof second !== "number" ||
-				value.clauses[second] === undefined
-			) {
-				break;
-			}
-			const clauses = value.clauses.map((clause, index) =>
-				index === second ? replacePredicateChild(clause, 2) : clause,
-			) as [Predicate, ...Predicate[]];
-			return { ...value, clauses };
-		}
-		case "not":
-		case "when-input-present":
-			if (first === value.kind && second === "clause") {
-				return {
-					...value,
-					clause: replacePredicateChild(value.clause, 2),
-				};
-			}
-			break;
-		case "exists":
-		case "missing":
-			if (
-				first === value.kind &&
-				second === "where" &&
-				value.where !== undefined
-			) {
-				return {
-					...value,
-					where: replacePredicateChild(value.where, 2),
-				};
-			}
-			break;
-		case "eq":
-		case "neq":
-		case "gt":
-		case "gte":
-		case "lt":
-		case "lte":
-			if (first === "left") {
-				return { ...value, left: replaceExpressionChild(value.left, 1) };
-			}
-			if (first === "right") {
-				return { ...value, right: replaceExpressionChild(value.right, 1) };
-			}
-			break;
-		case "in":
-		case "is-blank":
-		case "matches-pattern":
-			if (first === "left") {
-				return { ...value, left: replaceExpressionChild(value.left, 1) };
-			}
-			break;
-		case "between":
-			if (first === "left") {
-				return { ...value, left: replaceExpressionChild(value.left, 1) };
-			}
-			if (first === "lower" && value.lower !== undefined) {
-				return { ...value, lower: replaceExpressionChild(value.lower, 1) };
-			}
-			if (first === "upper" && value.upper !== undefined) {
-				return { ...value, upper: replaceExpressionChild(value.upper, 1) };
-			}
-			break;
-		case "match":
-			if (first === "value") {
-				return { ...value, value: replaceExpressionChild(value.value, 1) };
-			}
-			break;
-		case "within-distance":
-			if (first === "center") {
-				return { ...value, center: replaceExpressionChild(value.center, 1) };
-			}
-			break;
-		case "multi-select-contains":
-		case "match-all":
-		case "match-none":
-			break;
-	}
-	throw new Error("Condition path does not point to an editable node");
+				currentPath.length !== path.length ||
+				currentPath.some((segment, index) => segment !== path[index])
+			)
+				return value;
+			found = true;
+			return next;
+		},
+	});
+	if (!found)
+		throw new Error("Expression path does not point to an editable node");
+	return result;
 }
 
-function replaceExpression(
-	value: ValueExpression,
-	path: EditorPath,
-	next: EditableRuleNode,
-): ValueExpression {
-	if (path.length === 0) {
-		return replacementAtTarget(next, "expression") as ValueExpression;
-	}
-	const [first, second, third, fourth] = path;
-	const replaceExpressionChild = (child: ValueExpression, consumed: number) =>
-		replaceExpression(child, path.slice(consumed), next);
-	const replacePredicateChild = (child: Predicate, consumed: number) =>
-		replacePredicate(child, path.slice(consumed), next);
-
-	switch (value.kind) {
-		case "term":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-		case "today":
-		case "now":
-			break;
-		case "date-add":
-			if (first === "date") {
-				return { ...value, date: replaceExpressionChild(value.date, 1) };
-			}
-			if (first === "quantity") {
-				return {
-					...value,
-					quantity: replaceExpressionChild(value.quantity, 1),
-				};
-			}
-			break;
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-			if (first === "value") {
-				return { ...value, value: replaceExpressionChild(value.value, 1) };
-			}
-			break;
-		case "arith":
-			if (first === "left") {
-				return { ...value, left: replaceExpressionChild(value.left, 1) };
-			}
-			if (first === "right") {
-				return { ...value, right: replaceExpressionChild(value.right, 1) };
-			}
-			break;
-		case "concat":
-			if (
-				first === "parts" &&
-				typeof second === "number" &&
-				value.parts[second] !== undefined
-			) {
-				const parts = value.parts.map((part, index) =>
-					index === second ? replaceExpressionChild(part, 2) : part,
-				) as [ValueExpression, ...ValueExpression[]];
-				return { ...value, parts };
-			}
-			break;
-		case "coalesce":
-			if (
-				first === "values" &&
-				typeof second === "number" &&
-				value.values[second] !== undefined
-			) {
-				const values = value.values.map((item, index) =>
-					index === second ? replaceExpressionChild(item, 2) : item,
-				) as [ValueExpression, ...ValueExpression[]];
-				return { ...value, values };
-			}
-			break;
-		case "if":
-			if (first !== "if") break;
-			if (second === "cond") {
-				return { ...value, cond: replacePredicateChild(value.cond, 2) };
-			}
-			if (second === "then") {
-				// biome-ignore lint/suspicious/noThenProperty: This is the persisted ValueExpression AST slot, not a thenable API.
-				return { ...value, then: replaceExpressionChild(value.then, 2) };
-			}
-			if (second === "else") {
-				return { ...value, else: replaceExpressionChild(value.else, 2) };
-			}
-			break;
-		case "switch":
-			if (first !== "switch") break;
-			if (second === "on") {
-				return { ...value, on: replaceExpressionChild(value.on, 2) };
-			}
-			if (second === "fallback") {
-				return {
-					...value,
-					fallback: replaceExpressionChild(value.fallback, 2),
-				};
-			}
-			if (
-				second === "cases" &&
-				typeof third === "number" &&
-				fourth === "then" &&
-				value.cases[third] !== undefined
-			) {
-				const cases = value.cases.map((item, index) =>
-					index === third
-						? // biome-ignore lint/suspicious/noThenProperty: This is the persisted SwitchCase AST slot, not a thenable API.
-							{ ...item, then: replaceExpressionChild(item.then, 4) }
-						: item,
-				) as typeof value.cases;
-				return { ...value, cases };
-			}
-			break;
-		case "count":
-			if (
-				first === "count" &&
-				second === "where" &&
-				value.where !== undefined
-			) {
-				return { ...value, where: replacePredicateChild(value.where, 2) };
-			}
-			break;
-		case "format-date":
-			if (first === "date") {
-				return { ...value, date: replaceExpressionChild(value.date, 1) };
-			}
-			break;
-		case "table-lookup":
-			if (first === "table-lookup" && second === "where") {
-				return { ...value, where: replacePredicateChild(value.where, 2) };
-			}
-			break;
-	}
-	throw new Error("Value path does not point to an editable node");
-}
-
-/** Replace one node inside a standalone ValueExpression root. */
+/** Replace one node inside a standalone Expression root. */
 export function replaceExpressionNodeAtPath(
-	root: ValueExpression,
+	root: Expression,
 	path: EditorPath,
 	next: EditableRuleNode,
-): ValueExpression {
-	return replaceExpression(root, path, next);
+): Expression {
+	return replaceNodeAtPath(root, path, next.value);
 }
 
-/** Replace only the addressed Predicate or ValueExpression node. Every
- * untouched sibling keeps both its value and object identity. */
+/** Replace only the addressed Expression node. Every untouched sibling keeps
+ * both its value and object identity. The slot checker owns type admission. */
 export function replaceRuleNodeAtPath(
-	root: Predicate,
+	root: Expression,
 	path: EditorPath,
 	next: EditableRuleNode,
-): Predicate {
-	return replacePredicate(root, path, next);
+): Expression {
+	return replaceNodeAtPath(root, path, next.value);
 }

@@ -3,7 +3,13 @@
 // property. A relation-only schema can therefore still seed a real condition,
 // while an entirely empty schema keeps those structures unavailable.
 
-import { exists, type Predicate } from "@/lib/domain/predicate";
+import {
+	type Expression,
+	exists,
+	expressionContextAtPath,
+	matchAll,
+	type RelationPath,
+} from "@/lib/domain/expression";
 import { firstComparisonDefault } from "./cards/comparisonSeed";
 import {
 	caseDataInScope,
@@ -19,7 +25,7 @@ export const CONDITION_SEED_UNAVAILABLE_REASON =
 
 export function firstConditionSeed(
 	ctx: PredicateEditContext,
-): Predicate | undefined {
+): Expression | undefined {
 	/* A table-row scope has no valid placeholder identity. Its first seed is
 	 * the active table's first admitted column, or the gesture is unavailable
 	 * until the table owns a column. */
@@ -56,10 +62,17 @@ export function hasConditionSeed(ctx: PredicateEditContext): boolean {
 export function relatedConditionSeed(
 	ctx: PredicateEditContext,
 	destinationCaseType: string | undefined,
-): Predicate | undefined {
-	return destinationCaseType === undefined
+	via: RelationPath,
+): Expression | undefined {
+	const expressionContext = expressionContextAtPath(
+		exists(via, matchAll()),
+		ctx.expressionContext,
+		["exists", "where"],
+	);
+	return destinationCaseType === undefined || expressionContext === undefined
 		? undefined
 		: firstConditionSeed({
+				expressionContext,
 				caseTypes: ctx.caseTypes,
 				currentCaseType: destinationCaseType,
 				knownInputs: ctx.knownInputs,

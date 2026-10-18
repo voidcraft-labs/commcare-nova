@@ -1,5 +1,5 @@
 import type { CaseOperation } from "@/lib/domain";
-import { actingUser, type ValueExpression } from "@/lib/domain/predicate";
+import { actingUser, type Expression } from "@/lib/domain/expression";
 import type { OrganizationView } from "@/lib/organization/useOrganization";
 
 export type CaseOwnerAction = Exclude<CaseOperation["action"], "close">;
@@ -7,13 +7,13 @@ export type CaseOwnerAction = Exclude<CaseOperation["action"], "close">;
 export type CaseOwnerMode = "expression" | "fixed" | "reverse";
 export interface CaseOwnerModeDraft {
 	readonly mode: Exclude<CaseOwnerMode, "expression">;
-	readonly baseValue: ValueExpression | undefined;
+	readonly baseValue: Expression | undefined;
 }
 
 /** A staged picker belongs to the exact authored value it started from. A
  * replacement value, including a peer edit or clear, owns the displayed mode. */
 export function caseOwnerMode(
-	value: ValueExpression | undefined,
+	value: Expression | undefined,
 	draft?: CaseOwnerModeDraft,
 ): CaseOwnerMode {
 	if (draft !== undefined && draft.baseValue === value) return draft.mode;
@@ -25,12 +25,12 @@ export function caseOwnerMode(
 
 export function caseOwnerModeChange(
 	next: unknown,
-	value: ValueExpression | undefined,
+	value: Expression | undefined,
 	issues: { readonly fixed?: string; readonly reverse?: string },
 ):
 	| { readonly kind: "ignore" }
 	| { readonly kind: "stage"; readonly draft: CaseOwnerModeDraft }
-	| { readonly kind: "change"; readonly value: ValueExpression } {
+	| { readonly kind: "change"; readonly value: Expression } {
 	if (next === "expression") return { kind: "change", value: actingUser() };
 	if ((next === "fixed" || next === "reverse") && issues[next] === undefined) {
 		return { kind: "stage", draft: { mode: next, baseValue: value } };

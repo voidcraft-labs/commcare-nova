@@ -1,3 +1,6 @@
+import { expressionChildren } from "@/lib/domain/expression/children";
+import type { SearchInputDecl } from "@/lib/domain/expression/context";
+import { isConditionArm } from "@/lib/domain/expression/types";
 /**
  * Data-flow analysis for runtime search-input strings that become quoted CSQL
  * values.
@@ -11,11 +14,7 @@
  */
 
 import type { Uuid } from "@/lib/domain";
-import type {
-	Predicate,
-	SearchInputDecl,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression/types";
 import { isNativeCsqlValueExpression } from "../expression/csqlCapabilities";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 
@@ -27,7 +26,7 @@ type OperandPosition = "comparison-operand" | "value";
  * authored on the RHS is treated as the native LHS anchor the emitter creates.
  */
 export function collectRuntimeCsqlStringInputNames(
-	predicate: Predicate | undefined,
+	predicate: Expression | undefined,
 	knownInputs: readonly SearchInputDecl[] = [],
 ): ReadonlySet<string> {
 	const uuids = new Set<Uuid>();
@@ -42,7 +41,7 @@ export function collectRuntimeCsqlStringInputNames(
 
 /** Prompt bytes that can survive into one on-device-computed string result. */
 export function collectRuntimeCsqlStringExpressionInputNames(
-	expression: ValueExpression,
+	expression: Expression,
 	knownInputs: readonly SearchInputDecl[] = [],
 ): ReadonlySet<string> {
 	const uuids = new Set<Uuid>();
@@ -63,9 +62,13 @@ function resolveInputNames(
 }
 
 function collectPredicateRuntimeStringInputs(
-	predicate: Predicate,
+	predicate: Expression,
 	names: Set<Uuid>,
 ): void {
+	if (!isConditionArm(predicate)) {
+		collectOnDeviceOutputTaint(predicate, names);
+		return;
+	}
 	switch (predicate.kind) {
 		case "match-all":
 		case "match-none":
@@ -143,14 +146,14 @@ function collectPredicateRuntimeStringInputs(
 		default: {
 			const _exhaustive: never = predicate;
 			throw new Error(
-				`collectRuntimeCsqlStringInputNames: unhandled Predicate kind ${String(_exhaustive)}`,
+				`collectRuntimeCsqlStringInputNames: unhandled Expression kind ${String(_exhaustive)}`,
 			);
 		}
 	}
 }
 
 function collectServerOperandRuntimeStringInputs(
-	expression: ValueExpression,
+	expression: Expression,
 	position: OperandPosition,
 	names: Set<Uuid>,
 ): void {
@@ -207,18 +210,16 @@ function collectServerOperandRuntimeStringInputs(
 			throw new Error(
 				`collectRuntimeCsqlStringInputNames: non-native expression '${expression.kind}' reached the native CSQL branch`,
 			);
-		default: {
-			const _exhaustive: never = expression;
+		default:
 			throw new Error(
-				`collectRuntimeCsqlStringInputNames: unhandled ValueExpression kind ${String(_exhaustive)}`,
+				`Non-native expression '${expression.kind}' reached native CSQL string analysis.`,
 			);
-		}
 	}
 }
 
 /** Follow only on-device outputs that can preserve entered quote bytes. */
 function collectOnDeviceOutputTaint(
-	expression: ValueExpression,
+	expression: Expression,
 	names: Set<Uuid>,
 ): void {
 	switch (expression.kind) {
@@ -262,11 +263,11 @@ function collectOnDeviceOutputTaint(
 		case "table-lookup":
 			// Lookup-result bytes do not originate in a search input.
 			return;
-		default: {
-			const _exhaustive: never = expression;
-			throw new Error(
-				`collectRuntimeCsqlStringInputNames: unhandled on-device ValueExpression kind ${String(_exhaustive)}`,
-			);
-		}
+		default:
+			if (isConditionArm(expression) || expression.kind === "negate") return;
+			for (const child of expressionChildren(expression)) {
+				if (child.kind === "expression")
+					collectOnDeviceOutputTaint(child.value, names);
+			}
 	}
 }

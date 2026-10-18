@@ -30,7 +30,7 @@ import {
 	plainColumn,
 	proseText,
 } from "@/lib/domain";
-import { formField, term } from "@/lib/domain/predicate";
+import { formField, term } from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
 

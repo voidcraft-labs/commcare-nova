@@ -6,7 +6,7 @@ import type {
 	BlueprintDoc,
 } from "@/lib/domain";
 import { personasOf } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate/builders";
+import { eq, literal, prop } from "@/lib/domain/expression/builders";
 import type { StoredLocation } from "@/lib/organization/types";
 
 export interface AutomationMatchProjection {

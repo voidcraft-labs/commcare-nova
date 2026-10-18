@@ -48,8 +48,8 @@ test("Search calendars follow the worker language while authoring defaults and d
 			)
 			.toEqual({
 				case_name: "Ada",
-				"period:from": "2024-01-02",
-				"period:to": "2024-01-31",
+				"registered:from": "2024-01-02",
+				"registered:to": "2024-01-31",
 			});
 		await page.getByRole("button", { name: "Español", exact: true }).click();
 		await from.click();
@@ -130,7 +130,7 @@ test("Search date ranges remain usable on a narrow screen and submit the actual 
 		await page.getByRole("button", { name: /January 2nd, 2024/ }).click();
 		await page.getByRole("button", { name: "Search", exact: true }).click();
 		await expect(page.getByLabel("Submitted search")).toHaveText(
-			'{"case_name":"Ada","period:to":"2024-01-31","period:from":"2024-01-02"}',
+			'{"case_name":"Ada","registered:to":"2024-01-31","registered:from":"2024-01-02"}',
 		);
 		expect(
 			await page.evaluate(

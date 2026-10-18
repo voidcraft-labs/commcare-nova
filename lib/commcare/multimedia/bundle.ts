@@ -16,7 +16,7 @@
 // process_bulk_upload_zip`), and an update never writes the key Nova sends
 // (`models/applications.py::ApplicationBase._update_excluded_fields`).
 
-import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import { compilerBugMessage } from "@/lib/domain/expression/errors";
 import type { AssetManifest, ResolvedMediaAsset } from "./assetWirePath";
 import { buildMediaSuiteXml } from "./mediaSuiteXml";
 

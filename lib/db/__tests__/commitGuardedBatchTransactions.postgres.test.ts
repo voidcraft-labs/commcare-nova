@@ -37,8 +37,9 @@ import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
+import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
@@ -1221,18 +1222,42 @@ describe("commitGuardedBatch (Postgres)", () => {
 		expect(await readSeq(appId)).toBe(0);
 	});
 
-	it("rejects a batch the fresh-doc verdict rejects with BlueprintCommitRejectedError", async () => {
+	it("rejects a parsed field condition whose source was removed before commit", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);
-		// An unparseable XPath — a soundness finding the fresh-doc re-verdict rejects.
+		const name = Object.values(doc.fields).find(
+			(field) => field.id === "case_name",
+		);
+		if (name === undefined) throw new Error("Missing name field");
+		const parsed = parseFormExpressionForSlot(
+			doc,
+			{ entity: "field", uuid: name.uuid, slot: "relevant" },
+			"/data/village != ''",
+			"unavailable",
+		);
+		if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+		if (parsed.expression === undefined)
+			throw new Error("Expected the field condition");
 		const mutations: Mutation[] = [
 			{
 				kind: "updateField",
-				uuid: villageUuid(doc),
+				uuid: name.uuid,
 				targetKind: "text",
-				patch: { relevant: xp("if(") },
-			} as Mutation,
+				patch: { relevant: parsed.expression },
+			},
 		];
+		// The condition was valid in the author's document. A committed removal
+		// leaves its UUID reference dangling when the writer reads the fresh doc.
+		await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			mutations: [{ kind: "removeField", uuid: villageUuid(doc) }],
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+		const before = await loadApp(appId);
+		const history = await readStream(appId);
 
 		await expect(
 			commitGuardedBatch({
@@ -1244,7 +1269,9 @@ describe("commitGuardedBatch (Postgres)", () => {
 				kind: "autosave",
 			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-		expect(await readSeq(appId)).toBe(0);
+		expect(await readSeq(appId)).toBe(1);
+		expect(await loadApp(appId)).toEqual(before);
+		expect(await readStream(appId)).toEqual(history);
 	});
 
 	it("re-applies the batch onto the FRESH stored doc, preserving a concurrent commit", async () => {

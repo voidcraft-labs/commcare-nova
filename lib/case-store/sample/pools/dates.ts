@@ -4,7 +4,7 @@
 // caller-supplied reference date (no clock reads). Three semantic
 // ranges via property-name heuristic: DOB (0-100 years past),
 // registration (0-2 years past), recent-event (0-30 days past).
-// Wire shapes match `lib/domain/predicate/jsonSchema.ts`'s
+// Wire shapes match `lib/domain/expression/jsonSchema.ts`'s
 // `format: date | time | date-time` arms.
 
 import { storageTimeValue } from "@/lib/domain/temporalValues";

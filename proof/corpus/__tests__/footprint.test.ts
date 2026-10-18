@@ -945,10 +945,6 @@ describe("the footprint's derivations", () => {
 			uuid: form,
 			patch: { displayCondition: null },
 		}));
-	/** An XPath expression that is one literal. */
-	const literalXPath = (text: string) => ({
-		parts: [{ kind: "text" as const, text }],
-	});
 	/** Declare `to`, a case type with `from`'s properties. */
 	const copyCaseType = (
 		doc: BlueprintDoc,
@@ -1197,8 +1193,26 @@ describe("the footprint's derivations", () => {
 							// The registration creates the parent alone, so the
 							// link names the child it opens.
 							datums: [
-								{ name: "case_id", xpath: literalXPath("'a-parent'") },
-								{ name: "case_id_guppy", xpath: literalXPath("'a-child'") },
+								{
+									name: {
+										kind: "selected-case",
+										module: moduleNamed(doc, "Parents"),
+									},
+									xpath: {
+										kind: "term",
+										term: { kind: "literal", value: "a-parent" },
+									},
+								},
+								{
+									name: {
+										kind: "selected-case",
+										module: moduleNamed(doc, "Child care"),
+									},
+									xpath: {
+										kind: "term",
+										term: { kind: "literal", value: "a-child" },
+									},
+								},
 							],
 						},
 					},

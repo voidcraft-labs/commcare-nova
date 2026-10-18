@@ -47,7 +47,7 @@ public class XPathCarrierCompatibilityTest {
     }
     @Test public void executesCurrentProductionLoweringsAndClassifiesActualNativePaths() throws Exception {
         FormDef form = form();
-        EvaluationContext context = new EvaluationContext(form.getEvaluationContext(), ((XPathPathExpr)XPathParseTool.parseXPath("/data")).getReference());
+        EvaluationContext context = new EvaluationContext(form.getEvaluationContext(), ((XPathPathExpr)XPathParseTool.parseXPath("/data/normalized")).getReference());
         int accepted = 0;
         int rejected = 0;
         try (InputStream input = getClass().getResourceAsStream("/xpath/xpath-corpus.tsv")) {
@@ -76,19 +76,41 @@ public class XPathCarrierCompatibilityTest {
         assertTrue("No rejected expressions were exercised", rejected > 0);
         assertEquals("alpha beta gamma", ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(/data/normalized)"));
     }
+    @Test public void rawCorePathControlsRemainSeparateFromAuthoredExpressions() throws Exception {
+        FormDef form = form();
+        EvaluationContext context = new EvaluationContext(form.getEvaluationContext(), ((XPathPathExpr)XPathParseTool.parseXPath("/data/normalized")).getReference());
+        int checked = 0;
+        try (InputStream input = getClass().getResourceAsStream("/xpath/raw-core-path-controls.tsv")) {
+            assertNotNull("Missing independent raw Core path controls", input);
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+                String row;
+                while ((row = reader.readLine()) != null) {
+                    String[] values = row.split("\\t", -1);
+                    assertEquals(4, values.length);
+                    Object expected = "number".equals(values[1]) ? Double.valueOf(decode(values[3])) : decode(values[3]);
+                    assertEquals(values[0], expected, ExprEvalUtils.xpathEval(context, decode(values[2])));
+                    checked++;
+                }
+            }
+        }
+        assertEquals("Every raw path control must run", 3, checked);
+    }
     @Test public void everyClaimedNativeFunctionUsesCoresBuiltInDispatch() throws Exception {
         int checked = 0;
-        try (InputStream input = getClass().getResourceAsStream("/xpath/native-functions.txt")) {
+        try (InputStream input = getClass().getResourceAsStream("/xpath/native-functions.tsv")) {
             assertNotNull("Missing current Nova function table", input);
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
-                String name;
-                while ((name = reader.readLine()) != null) {
+                String row;
+                while ((row = reader.readLine()) != null) {
+                    String[] values = row.split("\\t", -1);
+                    assertEquals(3, values.length);
+                    String name = values[0];
                     assertTrue(name, name.matches("[a-z][a-z0-9-]*"));
-                    try { assertFalse(name, XPathParseTool.parseXPath(name + "()") instanceof XPathCustomRuntimeFunc); }
-                    catch (XPathSyntaxException expected) {
-                        // A built-in constructor rejected the arity before eval;
-                        // unknown functions parse into the custom-handler fallback.
-                    }
+                    org.javarosa.xpath.expr.XPathExpression original = XPathParseTool.parseXPath(decode(values[1]));
+                    org.javarosa.xpath.expr.XPathExpression canonical = XPathParseTool.parseXPath(decode(values[2]));
+                    assertFalse(name, original instanceof XPathCustomRuntimeFunc);
+                    assertFalse(name, canonical instanceof XPathCustomRuntimeFunc);
+                    assertEquals(name + " changed native dispatch", original.getClass(), canonical.getClass());
                     checked++;
                 }
             }
@@ -104,11 +126,18 @@ public class XPathCarrierCompatibilityTest {
                 String row;
                 while ((row = reader.readLine()) != null) {
                     String[] fields = row.split("\\t", -1);
+                    assertEquals(3, fields.length);
                     String source = decode(fields[0]);
                     boolean accepted = true;
                     try { XPathParseTool.parseXPath(source); }
                     catch (XPathSyntaxException expected) { accepted = false; }
                     assertEquals(source, Boolean.parseBoolean(fields[1]), accepted);
+                    if (accepted) {
+                        assertFalse(source, fields[2].isEmpty());
+                        assertFalse(source, XPathParseTool.parseXPath(decode(fields[2])) instanceof XPathCustomRuntimeFunc);
+                    } else {
+                        assertEquals(source, "", fields[2]);
+                    }
                     checked++;
                 }
             }

@@ -29,11 +29,11 @@ import type { InstanceDecl } from "@/lib/commcare/xpath/wire/instances";
 import type {
 	CaseProperty,
 	CaseTileLayout,
-	CaseType,
+	ReferenceNamesDoc,
 	Uuid,
 	WireStringSource,
-	XPathPrintableDoc,
 } from "@/lib/domain";
+import type { ModuleExpressionContexts } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import type { ResolvedSortDirective } from "./sortKeys";
 
@@ -172,9 +172,11 @@ export interface CaseListEmitContext {
 	 * columns derive worker-facing option labels from this metadata; other plain
 	 * fields remain raw. */
 	readonly caseProperties: readonly CaseProperty[];
+	/** Owning module's case type identifies catalog option translation units. */
+	readonly caseType: string;
 	/** Owning document used to resolve UUID-backed option-label prose. Wire
 	 * emission fails closed if an authored label identity does not resolve. */
-	readonly proseDoc: XPathPrintableDoc;
+	readonly proseDoc: ReferenceNamesDoc;
 	/**
 	 * The case list's tile layout, when it has one. Present only on the
 	 * SHORT detail, where a placed column emits its
@@ -183,16 +185,8 @@ export interface CaseListEmitContext {
 	 * and columns keep any stored cells without emitting them.
 	 */
 	readonly tileLayout?: CaseTileLayout;
-	/** Case graph used to canonicalize inferred relation destinations while
-	 * lowering predicate carriers nested in calculated expressions. */
-	readonly caseTypes?: readonly CaseType[];
-	/** Case type of the row rendered by this detail. Relation qualifiers that
-	 * are unique in the graph are materialized from this anchor before wire
-	 * emission, so an unqualified path cannot widen to a same-named edge on a
-	 * different case type. */
-	readonly currentCaseType?: string;
-	/** Stable custom worker-information identity → current emitted slug. */
-	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
+	/** The actual owning column slot supplies every expression fact. */
+	readonly expressions: ModuleExpressionContexts;
 	/**
 	 * Resolved media manifest, for image-map columns to resolve their
 	 * per-value `MediaAssetId` → `jr://file/...` path. `undefined` when media

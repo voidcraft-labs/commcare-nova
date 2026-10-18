@@ -8,9 +8,9 @@
 // re-minted by `enforceConnectIds`, an identity change).
 
 import { describe, expect, it } from "vitest";
-import { xp } from "@/lib/__tests__/docHelpers";
 import type { ConnectDeliverConfig, ConnectLearnConfig } from "@/lib/domain";
 import { connectConfigSchema } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression";
 import { connectFormPatchSchema } from "../../planningSchemas";
 import { buildConnectConfig } from "../shared/connectInput";
 
@@ -22,7 +22,7 @@ function existingLearnConfig(): ConnectLearnConfig {
 			description: "Content",
 			time_estimate: 10,
 		},
-		assessment: { id: "as_1", user_score: xp("100") },
+		assessment: { id: "as_1", user_score: term(literal(100)) },
 	};
 }
 
@@ -31,8 +31,8 @@ function existingDeliverConfig(): ConnectDeliverConfig {
 		deliver_unit: {
 			id: "du_1",
 			name: "Visit",
-			entity_id: xp("'site-id'"),
-			entity_name: xp("'Site name'"),
+			entity_id: term(literal("site-id")),
+			entity_name: term(literal("Site name")),
 		},
 	};
 }
@@ -65,7 +65,9 @@ describe("buildConnectConfig — edit path (existing config)", () => {
 		);
 		expect("entity_id" in (merged.deliver_unit ?? {})).toBe(false);
 		// An omitted inner slot keeps its stored expression.
-		expect(merged.deliver_unit?.entity_name).toEqual(xp("'Site name'"));
+		expect(merged.deliver_unit?.entity_name).toEqual(
+			term(literal("Site name")),
+		);
 		expect(merged.deliver_unit?.id).toBe("du_1");
 	});
 
@@ -79,7 +81,7 @@ describe("buildConnectConfig — edit path (existing config)", () => {
 	});
 
 	it("stated XPath slots preserve their canonical AST after actual input parsing", () => {
-		const score = xp("80");
+		const score = term(literal(80));
 		const merged = buildConnectConfig(
 			connectFormPatchSchema.parse({ assessment: { user_score: score } }),
 			existingLearnConfig(),

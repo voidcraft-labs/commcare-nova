@@ -10,7 +10,7 @@
 // `CalculatedValue` / `BlueprintDoc`) without touching `CaseStore`
 // or any Postgres surface, so `"use client"` components that render
 // a row's display value or project a doc-store snapshot down to the
-// wire-serializable `BlueprintDoc` shape can value-import from here
+// `BlueprintDoc` data shape can value-import from here
 // without dragging `lib/case-store/index.ts` (which transitively
 // pulls in the Cloud SQL connector + `google-auth-library`) into
 // their bundle.
@@ -71,7 +71,7 @@ const BLUEPRINT_DOC_KEYS: ReadonlySet<string> = new Set(
 
 /**
  * Project a `BlueprintDoc` (or superset like the doc store's
- * `BlueprintDocState`) down to the wire-serializable shape Server
+ * `BlueprintDocState`) down to the data shape Server
  * Actions accept — every schema field plus `fieldParent`, nothing
  * else. The doc store carries action methods (`applyMany`,
  * `beginAgentWrite`, `endAgentWrite`, `load`) alongside data fields;
@@ -86,6 +86,10 @@ const BLUEPRINT_DOC_KEYS: ReadonlySet<string> = new Set(
  * unknown key is dropped at the boundary, every known key is preserved
  * verbatim, and the doc-store invariants guarantee the remaining values
  * are already valid for the schema.
+ *
+ * This preserves nested identity for React subscriptions. The identity-keyed
+ * records still have null prototypes: call `toRscSerializableDoc` at the actual
+ * Server Action dispatch to copy them into Flight-compatible plain objects.
  */
 export function pickBlueprintDoc<T extends BlueprintDoc>(
 	state: T,

@@ -18,7 +18,7 @@ does.
 
 Case-property types are optional metadata: a control retained before that
 reader existed holds no ``caseTypes`` and answers None, while a new control
-keeps each declared type without guessing one for an untyped property.
+keeps each effective type from the emitted catalog without inferring any type in Python.
 
 A control is retained under its document's id, or under a name of its own
 (``--as``), which leaves the document's own control as it was; and a
@@ -110,7 +110,7 @@ def test_a_control_reads_optional_case_types_and_an_older_control_leaves_them_un
         corpus.Document(id="incomplete", source="control", root=tmp_path, kind="control").case_types()
 
 
-def test_case_property_types_are_declared_types_without_inference(tmp_path):
+def test_case_property_types_read_the_emitted_effective_catalog_without_inference(tmp_path):
     (tmp_path / "document.json").write_text(
         json.dumps(
             {
@@ -119,13 +119,28 @@ def test_case_property_types_are_declared_types_without_inference(tmp_path):
                         {"name": "visit", "properties": [{"name": "seen", "data_type": "datetime"}, {"name": "day"}]},
                         {"name": "other", "properties": [{"name": "seen", "data_type": "date"}]},
                     ]
-                }
+                },
+                "catalog": [
+                    {
+                        "name": "visit",
+                        "properties": [
+                            {"name": "seen", "data_type": "datetime"},
+                            {"name": "day", "data_type": "date"},
+                            {"name": "saved", "data_type": "int"},
+                            {"name": "untyped"},
+                        ],
+                    },
+                    {"name": "other", "properties": [{"name": "seen", "data_type": "date"}]},
+                ],
             }
         ),
         encoding="utf-8",
     )
-    document = corpus.Document(id="declared", source="test", root=tmp_path)
-    assert document.case_types() == {"visit": {"seen": "datetime", "day": None}, "other": {"seen": "date"}}
+    document = corpus.Document(id="effective", source="test", root=tmp_path)
+    assert document.case_types() == {
+        "visit": {"seen": "datetime", "day": "date", "saved": "int", "untyped": None},
+        "other": {"seen": "date"},
+    }
 
 
 @pytest.mark.parametrize("document", _documents()[:1])

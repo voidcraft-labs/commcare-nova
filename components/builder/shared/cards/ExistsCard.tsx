@@ -13,6 +13,7 @@
 // the type checker's `checkInDestinationScope` contract.
 
 "use client";
+
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerLink from "@iconify-icons/tabler/link";
@@ -28,12 +29,13 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { FieldDescription } from "@/components/shadcn/field";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
+	type Expression,
 	exists,
 	missing,
-	type Predicate,
 	type RelationPath,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	CONDITION_SEED_UNAVAILABLE_REASON,
 	relatedConditionSeed,
@@ -56,19 +58,19 @@ import { ChildPredicateEditor } from "./ChildPredicateEditor";
 
 export function existsDefault(
 	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "exists" }> {
+): ExpressionOfKind<"exists"> {
 	return exists(relatedCasePathDefault(ctx));
 }
 
 export function missingDefault(
 	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "missing" }> {
+): ExpressionOfKind<"missing"> {
 	return missing(relatedCasePathDefault(ctx));
 }
 
 interface ExistsCardProps {
-	readonly value: Extract<Predicate, { kind: "exists" | "missing" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"exists" | "missing">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
@@ -88,7 +90,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 		if (admitVia(next).admitted) onChange(replaceRelatedPath(value, next));
 	};
 
-	const setWhere = (next: Predicate | undefined) => {
+	const setWhere = (next: Expression | undefined) => {
 		const builder = value.kind === "missing" ? missing : exists;
 		onChange(
 			next === undefined ? builder(value.via) : builder(value.via, next),
@@ -107,8 +109,8 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 		[value.via, ctx.currentCaseType, ctx.caseTypes],
 	);
 	const whereSeed = useMemo(
-		() => relatedConditionSeed(ctx, destinationCaseType),
-		[ctx, destinationCaseType],
+		() => relatedConditionSeed(ctx, destinationCaseType, value.via),
+		[ctx, destinationCaseType, value.via],
 	);
 	const addWhere = () => {
 		if (whereSeed === undefined) return;

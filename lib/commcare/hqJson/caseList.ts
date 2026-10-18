@@ -73,10 +73,12 @@ import {
 import {
 	effectiveFilterForEmission,
 	simplifyForEmission,
-	substituteUnansweredSearchInputsInPredicate,
-} from "@/lib/domain/predicate";
-import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+	substituteUnansweredSearchInputs,
+} from "@/lib/domain/expression";
+import {
+	type ModuleExpressionContexts,
+	moduleExpressionContexts,
+} from "../expressionContext";
 import { caseSearchConfigShell, detailColumn, detailPair } from "../hqShells";
 import {
 	type CommCareLocalization,
@@ -104,9 +106,9 @@ import { compileForPlatform } from "../suite/case-search/compileForPlatform";
 import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
 import {
 	type RuntimeCsqlPromptValidation,
-	searchPromptRelationContext,
 	searchPromptWire,
 } from "../suite/case-search/searchPrompts";
+import { searchInputInstanceId } from "../suite/case-search/types";
 import {
 	buildRuntimeCsqlPromptValidations,
 	composeXPathQueryEmission,
@@ -122,7 +124,6 @@ import type {
 	CaseSearchConfig as WireCaseSearchConfig,
 	DetailColumn as WireDetailColumn,
 } from "../types";
-import { moduleTypeContext } from "../validator/rules/case-list/shared";
 import { w } from "../xpath/wire/builders";
 import { toWire } from "../xpath/wire/fromExpression";
 import type { WireExpr } from "../xpath/wire/tree";
@@ -142,7 +143,7 @@ interface ColumnProjectionContext {
 	 *  (`imageMapShowsImages`). */
 	readonly mediaOn: boolean;
 	readonly caseProperties: readonly CaseProperty[];
-	readonly typeContext: TypeContext;
+	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 }
 
@@ -196,7 +197,7 @@ function projectColumnToDetail(
 				doc,
 				screen,
 				ctx.lookupNaming,
-				ctx.typeContext,
+				ctx.expressions,
 			),
 		);
 
@@ -348,7 +349,7 @@ function projectColumnForShortDetail(
 									ctx.doc,
 									"results",
 									ctx.lookupNaming,
-									ctx.typeContext,
+									ctx.expressions,
 								),
 							)
 						: field.joinText,
@@ -484,7 +485,7 @@ function sortElementType(
 function projectCaseListFilter(
 	filter: CaseListConfig["filter"],
 	excludedOwnerIds: DomainCaseSearchConfig["excludedOwnerIds"],
-	typeContext?: TypeContext,
+	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 ): HqXPath | null {
 	// This slot lands in CCHQ's ordinary case-loading datum nodeset
@@ -501,29 +502,30 @@ function projectCaseListFilter(
 	// projection is null rather than a tautological `true() and …`
 	// string. Mirrors the suite-XML `nodesetFilter.ts` surface so both
 	// case-list-filter wire forms stay identity-clean. See
-	// `lib/domain/predicate/simplify.ts`.
+	// `lib/domain/expression/simplify.ts`.
 	const effective = effectiveFilterForEmission(
-		filter === undefined
-			? undefined
-			: substituteUnansweredSearchInputsInPredicate(filter),
+		filter === undefined ? undefined : substituteUnansweredSearchInputs(filter),
 	);
 	const authoredFilter =
 		effective === undefined
 			? undefined
 			: toWire(effective, {
 					target: "hq-json",
-					types: typeContext ?? {},
+					types: expressions({ slot: "case_list_filter" }),
 					...(lookupNaming && {
 						bindings: {
 							lookup: { naming: lookupNaming, instanceScope: "suite" },
 						},
 					}),
 				});
-	const ownerFilter = emitExcludedOwnerFilterExpression(
-		excludedOwnerIds,
-		typeContext ?? {},
-		lookupNaming,
-	);
+	const ownerFilter =
+		excludedOwnerIds === undefined
+			? undefined
+			: emitExcludedOwnerFilterExpression(
+					excludedOwnerIds,
+					expressions({ slot: "excluded_owner_ids" }),
+					lookupNaming,
+				);
 
 	if (authoredFilter === undefined)
 		return ownerFilter === undefined ? null : hqXPath(ownerFilter, "case");
@@ -558,14 +560,16 @@ function projectSearchInput(
 	input: SearchInputDef,
 	runtimeValidation: RuntimeCsqlPromptValidation | undefined,
 	localization: CommCareLocalization,
-	relationContext: RelationEvaluationScopeContext,
+	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
+	inputInstanceId?: `search-input:${string}`,
 ): CaseSearchProperty<HqXPath> {
 	const wire = searchPromptWire(
 		input,
 		runtimeValidation,
-		relationContext,
+		expressions,
 		lookupNaming,
+		inputInstanceId,
 	);
 	const property: CaseSearchProperty<HqXPath> = {
 		name: wire.key,
@@ -621,14 +625,12 @@ function projectSearchProperties(
 	searchInputs: ReadonlyArray<SearchInputDef>,
 	runtimeValidations: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
 	localization: CommCareLocalization,
-	typeContext?: TypeContext,
+	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
+	inputInstanceId?: `search-input:${string}`,
 ): CaseSearchProperty<HqXPath>[] {
 	const out: CaseSearchProperty<HqXPath>[] = [];
-	const relationContext = searchPromptRelationContext(
-		searchInputs,
-		typeContext ?? {},
-	);
+
 	// Search prompts render in searchInputs array order.
 	for (const input of searchInputs) {
 		out.push(
@@ -636,8 +638,9 @@ function projectSearchProperties(
 				input,
 				runtimeValidations.get(input.name),
 				localization,
-				relationContext,
+				expressions,
 				lookupNaming,
+				inputInstanceId,
 			),
 		);
 	}
@@ -705,8 +708,7 @@ function projectDefaultProperties(
  *     expression directly — CCHQ regenerates the suite at runtime).
  *   - `caseListConfig.searchInputs` (simple arm) → `properties`.
  *   - `caseListConfig.filter` + advanced-arm predicates →
- *     `default_properties` (the single AND-composed `_xpath_query`
- *     slot).
+ *     `default_properties` (one `_xpath_query` row per composed clause).
  *   - Emitted parent-property information →
  *     `include_all_related_cases: true`.
  *
@@ -728,7 +730,7 @@ function buildSearchConfigDocument(
 	_caseType: string | undefined,
 	moduleUuid: string,
 	localization: CommCareLocalization,
-	typeContext?: TypeContext,
+	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 ): WireCaseSearchConfig<HqXPath> {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
@@ -736,6 +738,17 @@ function buildSearchConfigDocument(
 	// CCHQ-default baseline lives in one file (any future CCHQ
 	// upstream default change is a one-edit fix).
 	const config = caseSearchConfigShell(localization.languages);
+	const wire =
+		caseSearchConfig === undefined || caseListConfig === undefined
+			? undefined
+			: compileForPlatform(caseListConfig, caseSearchConfig, {
+					platform: "web",
+				});
+	// Core's answer instance is named after the query's storage instance.
+	// Keep the HQ prompt rules, query operands and owner exclusion on the
+	// same instance that the local suite's Search session supplies.
+	const inputInstanceId =
+		wire === undefined ? undefined : searchInputInstanceId(wire);
 
 	if (caseSearchConfig !== undefined) {
 		// Use Nova's shared friendly default so a fresh search never inherits
@@ -763,7 +776,7 @@ function buildSearchConfigDocument(
 					simplifyForEmission(caseSearchConfig.searchButtonDisplayCondition),
 					{
 						target: "hq-json",
-						types: typeContext ?? {},
+						types: expressions({ slot: "search_button_display_condition" }),
 						...(lookupNaming && {
 							bindings: {
 								lookup: { naming: lookupNaming, instanceScope: "suite" },
@@ -777,8 +790,9 @@ function buildSearchConfigDocument(
 			config.blacklisted_owner_ids_expression = hqXPath(
 				emitNormalizedExcludedOwnerIdsExpression(
 					caseSearchConfig.excludedOwnerIds,
-					typeContext ?? {},
+					expressions({ slot: "excluded_owner_ids" }),
 					lookupNaming,
+					inputInstanceId,
 				),
 			);
 		}
@@ -794,15 +808,17 @@ function buildSearchConfigDocument(
 		const xpathQueryEmission = composeXPathQueryEmission(
 			caseListConfig,
 			_caseType,
-			typeContext,
+			expressions({ slot: "case_list_filter" }),
 			lookupNaming,
+			inputInstanceId,
 		);
 		config.properties = projectSearchProperties(
 			caseListConfig.searchInputs,
 			buildRuntimeCsqlPromptValidations(xpathQueryEmission),
 			localization,
-			typeContext,
+			expressions,
 			lookupNaming,
+			inputInstanceId,
 		);
 		// A search with no input and no clause carries the zero-input
 		// sentinel, as the local suite's query does.
@@ -822,19 +838,13 @@ function buildSearchConfigDocument(
 	// decision tree would be dead code on the production upload path.
 	// Nova's own suite-XML emitter drives local rendering on every
 	// platform.
-	if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
-		const wire = compileForPlatform(caseListConfig, caseSearchConfig, {
-			platform: "web",
-		});
+	if (wire !== undefined && caseListConfig !== undefined) {
 		config.auto_launch = wire.autoLaunch;
 		config.default_search = wire.defaultSearch;
 		config.inline_search = wire.inlineSearch;
 		config.include_all_related_cases = searchNeedsSupportingCases(
 			caseListConfig,
-			{
-				...(typeContext ?? {}),
-				...(_caseType === undefined ? {} : { currentCaseType: _caseType }),
-			},
+			expressions,
 		);
 	}
 
@@ -901,7 +911,7 @@ export function projectCaseListForHq(
 	const localization = commCareLocalization(doc);
 	const caseListConfig = mod.caseListConfig;
 	const caseSearchConfig = effectiveCaseSearchConfig(mod);
-	const typeContext = moduleTypeContext(mod, doc);
+	const expressions = moduleExpressionContexts(doc, mod.uuid, lookupNaming);
 	const caseProperties =
 		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
 			?.properties ?? [];
@@ -912,7 +922,7 @@ export function projectCaseListForHq(
 		...(assets !== undefined && { assets }),
 		mediaOn: assets !== undefined,
 		caseProperties,
-		typeContext,
+		expressions,
 		...(lookupNaming !== undefined && { lookupNaming }),
 	};
 	// The short detail's fields and order are the order plan's
@@ -941,7 +951,7 @@ export function projectCaseListForHq(
 	const filter = projectCaseListFilter(
 		caseListConfig?.filter,
 		mod.caseSearchConfig?.excludedOwnerIds,
-		typeContext,
+		expressions,
 		lookupNaming,
 	);
 
@@ -972,7 +982,7 @@ export function projectCaseListForHq(
 		mod.caseType,
 		mod.uuid,
 		localization,
-		typeContext,
+		expressions,
 		lookupNaming,
 	);
 

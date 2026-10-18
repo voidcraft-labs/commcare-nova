@@ -19,7 +19,7 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
-import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
+import { conditionSchema, valueSchema } from "@/lib/domain/expression";
 
 export {
 	formAddressSchema as operationAddressSchema,
@@ -99,7 +99,7 @@ const sessionTargetInputSchema = z
 
 const expressionTargetInputSchema = z.strictObject({
 	kind: z.literal("expression"),
-	expr: valueExpressionSchema.describe(
+	expr: valueSchema.describe(
 		"An existing record ID. For a selected record's parent, use via(ancestor('parent'), #case/case_id). The relationship must exist and lead to the target case type.",
 	),
 });
@@ -112,8 +112,8 @@ const existingTargetInputSchema = z.discriminatedUnion("kind", [
 
 const writeInputSchema = z.strictObject({
 	property: propertyInputSchema,
-	value: valueExpressionSchema,
-	condition: predicateSchema.optional(),
+	value: valueSchema,
+	condition: conditionSchema.optional(),
 });
 
 const linkInputSchema = z.strictObject({
@@ -149,13 +149,13 @@ const createOperationInputSchema = z
 		action: z.literal("create"),
 		caseType: caseTypeInputSchema,
 		target: newTargetInputSchema,
-		condition: predicateSchema.optional(),
+		condition: conditionSchema.optional(),
 		forEach: z
 			.strictObject({ repeat: uuidSchema })
 			.optional()
 			.describe("Repeat field UUID; omit to run once per submission"),
-		name: valueExpressionSchema,
-		owner: valueExpressionSchema.optional(),
+		name: valueSchema,
+		owner: valueSchema.optional(),
 		writes: z.array(writeInputSchema).optional(),
 		links: z.array(linkInputSchema).optional(),
 	})
@@ -170,13 +170,13 @@ const updateOperationInputSchema = z
 		action: z.literal("update"),
 		caseType: caseTypeInputSchema,
 		target: existingTargetInputSchema,
-		condition: predicateSchema.optional(),
+		condition: conditionSchema.optional(),
 		forEach: z
 			.strictObject({ repeat: uuidSchema })
 			.optional()
 			.describe("Repeat field UUID; omit to run once per submission"),
-		owner: valueExpressionSchema.optional(),
-		rename: valueExpressionSchema.optional(),
+		owner: valueSchema.optional(),
+		rename: valueSchema.optional(),
 		retype: caseTypeInputSchema.optional(),
 		writes: z.array(writeInputSchema).optional(),
 		links: z.array(linkInputSchema).optional(),
@@ -192,7 +192,7 @@ const closeOperationInputSchema = z
 		action: z.literal("close"),
 		caseType: caseTypeInputSchema,
 		target: existingTargetInputSchema,
-		condition: predicateSchema.optional(),
+		condition: conditionSchema.optional(),
 		forEach: z
 			.strictObject({ repeat: uuidSchema })
 			.optional()

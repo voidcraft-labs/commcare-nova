@@ -18,7 +18,7 @@ import {
 	searchInputDefault,
 	tileCellFor,
 } from "@/lib/domain";
-import { walkExpressionTerms } from "@/lib/domain/predicate";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	type ProjectSpaceAdvisoryUse,
 	type ProjectSpaceCapabilityUse,
@@ -28,6 +28,7 @@ import {
 	projectSpaceCompatibilityForUnknownTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
 import { hostLowersNoMatchesForm } from "./emissionPlan";
+import { moduleExpressionContexts } from "./expressionContext";
 import {
 	moduleCaseTypeForActions,
 	parentSelectModuleUuid,
@@ -40,7 +41,6 @@ import {
 } from "./suite/case-search/searchPrompts";
 import { xpathQueryUsesRelatedLookup } from "./suite/case-search/xpathQuery";
 import { domainFeatureFlag } from "./surface/gates";
-import { moduleTypeContext } from "./validator/rules/case-list/shared";
 
 export * from "@/lib/publish/projectSpaceCompatibility";
 
@@ -165,19 +165,18 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 	if (effectiveCaseSearchConfig(module) === undefined || list === undefined) {
 		return [];
 	}
-	const typeContext = moduleTypeContext(module, doc);
+	const expressions = moduleExpressionContexts(doc, module.uuid);
 	const reasons: string[] = [];
-	if (xpathQueryUsesRelatedLookup(list, module.caseType, typeContext)) {
+	if (
+		xpathQueryUsesRelatedLookup(
+			list,
+			module.caseType,
+			expressions({ slot: "case_list_filter" }),
+		)
+	) {
 		reasons.push("A Search filter looks at related cases.");
 	}
-	if (
-		searchNeedsSupportingCases(list, {
-			...typeContext,
-			...(module.caseType === undefined
-				? {}
-				: { currentCaseType: module.caseType }),
-		})
-	) {
+	if (searchNeedsSupportingCases(list, expressions)) {
 		reasons.push("A case list shows values from related cases.");
 	}
 	if (

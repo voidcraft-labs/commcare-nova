@@ -23,24 +23,22 @@
 import { type CaseProperty, effectiveDataType } from "@/lib/domain";
 import {
 	checkExpression,
-	checkPredicate,
 	compatibleTypesFor,
 	dateLiteral,
 	datetimeLiteral,
+	type Expression,
+	expressionContextAtPath,
 	type Literal,
 	literal,
 	matchAll,
-	type Predicate,
 	type RelationPath,
-	type ResolvedType,
+	type ScalarType,
+	scalarDataType,
 	term,
 	timeLiteral,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
-import {
-	buildEditorTypeContext,
-	type EditorTypeVocabulary,
-} from "../editorTypeContext";
+	typeOf,
+} from "@/lib/domain/expression";
+import type { EditorTypeVocabulary } from "../editorTypeContext";
 import { resolveRelationDestination } from "../relationDestination";
 
 /** The editor context shape a card already holds via
@@ -53,17 +51,17 @@ type ResolveContext = EditorTypeVocabulary;
 
 /**
  * Resolve a value expression's type against the editor scope, the same
- * way `useResolvedType` does, but callable from inside an event
+ * way `useScalarType` does, but callable from inside an event
  * handler (where hooks can't run). Returns `undefined` for an absent
  * or unresolved expression: the constraint factories read that as
  * "no narrowing", so an incomplete subject never forces a reseed.
  */
 export function resolveExpressionType(
-	expr: ValueExpression | undefined,
+	expr: Expression | undefined,
 	ctx: ResolveContext,
-): ResolvedType | undefined {
+): ScalarType | undefined {
 	if (expr === undefined) return undefined;
-	return checkExpression(expr, buildEditorTypeContext(ctx), [], []);
+	return scalarDataType(typeOf(expr, ctx.expressionContext)?.data);
 }
 
 // The literal types the editor can construct an EMPTY typed value for,
@@ -72,7 +70,7 @@ export function resolveExpressionType(
 // null sentinel (`_any`) never carries user content: a slot
 // that admits only those falls through to the universally-compatible
 // `null` literal.
-const BUILDABLE_TYPES: readonly ResolvedType[] = [
+const BUILDABLE_TYPES: readonly ScalarType[] = [
 	"text",
 	"int",
 	"decimal",
@@ -81,22 +79,22 @@ const BUILDABLE_TYPES: readonly ResolvedType[] = [
 	"time",
 ];
 
-const TEXT_SHAPED: readonly ResolvedType[] = [
+const TEXT_SHAPED: readonly ScalarType[] = [
 	"text",
 	"single_select",
 	"multi_select",
 ];
 
 function setHasAny(
-	accepts: ReadonlySet<ResolvedType>,
-	types: readonly ResolvedType[],
+	accepts: ReadonlySet<ScalarType>,
+	types: readonly ScalarType[],
 ): boolean {
 	return types.some((t) => accepts.has(t));
 }
 
 /** An empty literal whose resolved type IS `t`: the seed for a slot
  *  whose old value can't carry into the new accept-set. */
-function emptyLiteralForType(t: ResolvedType): Literal {
+function emptyLiteralForType(t: ScalarType): Literal {
 	switch (t) {
 		case "int":
 		case "decimal":
@@ -126,7 +124,7 @@ function emptyLiteralForType(t: ResolvedType): Literal {
  */
 export function reseedLiteralForConstraint(
 	old: Literal,
-	accepts: ReadonlySet<ResolvedType>,
+	accepts: ReadonlySet<ScalarType>,
 ): Literal {
 	const value = old.value;
 	const carriable =
@@ -147,15 +145,15 @@ export function reseedLiteralForConstraint(
 }
 
 /**
- * Build a `ValueExpression` valid for `accepts`. A bare literal term
+ * Build a `Expression` valid for `accepts`. A bare literal term
  * carries its content through `reseedLiteralForConstraint`; any other
  * shape (a now type-incompatible computed expression) drops to a fresh
  * compatible literal. The result is always a `term`-arm value.
  */
 export function reseedValueForConstraint(
-	old: ValueExpression,
-	accepts: ReadonlySet<ResolvedType>,
-): ValueExpression {
+	old: Expression,
+	accepts: ReadonlySet<ScalarType>,
+): Expression {
 	const sourceLiteral =
 		old.kind === "term" && old.term.kind === "literal" ? old.term : literal("");
 	return term(reseedLiteralForConstraint(sourceLiteral, accepts));
@@ -193,18 +191,23 @@ export function seedLiteralForProperty(
  * rather than discarding the author's work over a transient walk).
  */
 export function rescopeWhereForVia(
-	where: Predicate | undefined,
+	where: Expression | undefined,
 	via: RelationPath,
 	ctx: ResolveContext,
-): Predicate | undefined {
+): Expression | undefined {
 	if (where === undefined) return undefined;
 	const destination = resolveRelationDestination(via, ctx.currentCaseType, [
 		...ctx.caseTypes,
 	]);
 	if (destination === undefined) return where;
-	const result = checkPredicate(
-		where,
-		buildEditorTypeContext({ ...ctx, currentCaseType: destination }),
+	const candidate: Expression = { kind: "exists", via, where };
+	const nestedContext = expressionContextAtPath(
+		candidate,
+		ctx.expressionContext,
+		["exists", "where"],
 	);
-	return result.ok ? where : matchAll();
+	if (nestedContext === undefined) return where;
+	return checkExpression(where, nestedContext).errors.length === 0
+		? where
+		: matchAll();
 }

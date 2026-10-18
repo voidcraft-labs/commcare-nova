@@ -1,5 +1,4 @@
 import type { CaseType } from "@/lib/domain";
-import { humanizeId } from "@/lib/domain/idSlug";
 import {
 	ancestorPath,
 	anyRelationPath,
@@ -9,7 +8,8 @@ import {
 	selfPath,
 	subcasePath,
 	XML_ELEMENT_NAME_PATTERN,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { humanizeId } from "@/lib/domain/idSlug";
 
 export type RelationKind = RelationPath["kind"];
 

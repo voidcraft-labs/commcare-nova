@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { type BlueprintDoc, plainColumn } from "@/lib/domain";
-import { literal, matchAll, term } from "@/lib/domain/predicate";
+import { literal, matchAll, term } from "@/lib/domain/expression";
 import { addSearchInputsTool } from "../addSearchInputs";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 

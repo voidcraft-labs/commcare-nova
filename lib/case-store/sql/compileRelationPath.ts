@@ -1,7 +1,7 @@
 // lib/case-store/sql/compileRelationPath.ts
 //
 // Compile a `RelationPath` to an aliased Kysely subquery.
-// `RelationPath` (`lib/domain/predicate/types.ts::RelationPath`)
+// `RelationPath` (`lib/domain/expression/types.ts::RelationPath`)
 // has four arms — `self`, `ancestor`, `subcase`, `any-relation`:
 //
 // - `self` — no traversal; callers read off the anchor directly.
@@ -49,8 +49,8 @@
 // The filter applies once per hop, every time.
 
 import type { AliasedExpression, Kysely, Selectable } from "kysely";
-import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
-import type { RelationPath, RelationStep } from "@/lib/domain/predicate/types";
+import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import type { RelationPath, RelationStep } from "@/lib/domain/expression/types";
 import type { Database } from "./database";
 
 /**

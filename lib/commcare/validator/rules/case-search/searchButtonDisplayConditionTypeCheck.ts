@@ -1,3 +1,4 @@
+import { slotContext } from "@/lib/domain/expression/context";
 /**
  * Rule: `caseSearchConfig.searchButtonDisplayCondition` (the
  * predicate gating whether the search button renders) is a GLOBAL
@@ -17,11 +18,11 @@
  *
  * Routes through the shared `moduleTypeContext` admission set + the
  * shared `formatPath` for AST-path suffixes + the shared
- * `checkPredicate` dispatch — same shape every predicate-slot type-
+ * `checkExpression` dispatch — same shape every predicate-slot type-
  * check rule uses, varying only on (1) which slot it reads and (2)
  * the validation error code it emits.
  *
- * Routing through `checkPredicate` covers orphan input refs
+ * Routing through `checkExpression` covers orphan input refs
  * natively — the type checker pushes "Unknown search input
  * '<name>'." per orphan ref via `resolveTermType`'s `input` arm
  * when `ctx.knownInputs` is populated. No separate orphan-ref rule
@@ -38,13 +39,14 @@ import {
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
-import { checkPredicate, predicateReadsCaseData } from "@/lib/domain/predicate";
+import { checkExpression } from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
 import {
+	checkErrorDetails,
 	type LookupTypeIndex,
 	semanticCheckErrors,
 } from "../../lookupTypeContext";
-import { formatPath, moduleTypeContext } from "../case-list/shared";
+import { formatPath } from "../case-list/shared";
 
 export function searchButtonDisplayConditionTypeCheck(
 	mod: Module,
@@ -58,8 +60,20 @@ export function searchButtonDisplayConditionTypeCheck(
 			? undefined
 			: mod.caseSearchConfig.searchButtonDisplayCondition;
 	if (!condition) return [];
+	const ctx = slotContext(
+		doc,
+		{
+			entity: "module",
+			uuid: moduleUuid,
+			slot: "search_button_display_condition",
+		},
+		lookupTables ?? new Map(),
+	);
+	if (ctx === undefined)
+		throw new Error("A saved Search expression has no owning slot.");
+	const allErrors = semanticCheckErrors(checkExpression(condition, ctx));
 
-	if (predicateReadsCaseData(condition)) {
+	if (allErrors.some((error) => error.code === "case-data-unavailable")) {
 		return [
 			validationError(
 				"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
@@ -74,8 +88,11 @@ export function searchButtonDisplayConditionTypeCheck(
 		];
 	}
 
-	const ctx = moduleTypeContext(mod, doc, lookupTables);
-	const errors = semanticCheckErrors(checkPredicate(condition, ctx));
+	const errors = allErrors.filter(
+		(error) =>
+			error.code !== "case-data-unavailable" &&
+			error.code !== "search-answer-unavailable",
+	);
 	if (errors.length === 0) return [];
 
 	return errors.map((err) => {
@@ -90,7 +107,7 @@ export function searchButtonDisplayConditionTypeCheck(
 			`Module "${mod.name}" case-search button display condition has a type error${suffix}: ${err.message}. The slot must resolve to a boolean (the runtime hides the search button when the predicate evaluates false). Open \`caseSearchConfig.searchButtonDisplayCondition\` and adjust the operand at that path, or clear the condition to render the button unconditionally.`,
 			{ moduleUuid, moduleName: mod.name },
 			{
-				path: at,
+				...checkErrorDetails(err),
 				slot: "caseSearchConfig.searchButtonDisplayCondition",
 				surface: "search-button",
 			},

@@ -1,65 +1,18 @@
-/**
- * Rule: every `searchInputs[i].default` value expression on the
- * case list is a GLOBAL value — no case-data reads — that
- * type-checks against the module's case-type schema map AND
- * resolves to a type compatible with the surrounding input's
- * widget kind.
- *
- * The `default` slot is shared across both arms of the
- * `SearchInputDef` discriminated union — `simple` and `advanced`
- * inputs each accept an optional `default: ValueExpression` that
- * seeds the input's initial state at runtime. Both arms route
- * through one rule because the type-check shape is identical
- * regardless of the surrounding `kind`; the per-input widget
- * `type` enum (text / select / date / barcode)
- * picks the expected resolution type via
- * `SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES` (single source of
- * truth at `lib/domain/modules.ts`).
- *
- * The case-data guard mirrors `excludedOwnerIdsTypeCheck`: a prompt
- * default evaluates when the search screen opens, before any case is
- * selected, so there is no row for a property or relationship read to
- * read. The on-device wire emits such a read as a bare relative path
- * that resolves blank, and Preview deliberately resolves it blank too
- * — the authored seed silently does nothing. The shared domain walker
- * (`expressionReadsCaseData`) rejects property, count, exists, and
- * missing reads at the gate; literals, `today()`/`now()`, and
- * session/current-user values remain valid.
- *
- * Mirrors `calculatedColumnTypeCheck`'s shape: walk the
- * `searchInputs` array, dispatch
- * `checkValueExpression(default, ctx, expectedType)` per input
- * that carries a `default`, and lift each `CheckError` into a
- * structured `ValidationError` carrying the input's name + uuid
- * + widget kind + AST-path so the editor can land on the
- * offending node.
- *
- * The expected-type pin enforces the AST-strict authoring
- * contract: a `date` widget rejects a `now()` (datetime) default
- * unless the author coerces explicitly via `dateCoerce(...)`; a
- * `text` widget rejects a numeric / temporal default unless
- * coerced via `concat(...)`.
- *
- * Per-input short-circuits cleanly when the `default` slot is
- * absent.
- */
-
+/** The starting value uses its saved input slot and expected widget type. */
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
 	isHiddenSearchInput,
 	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
 	searchInputDefault,
 } from "@/lib/domain";
-import {
-	checkValueExpression,
-	expressionReadsCaseData,
-} from "@/lib/domain/predicate";
+import { checkExpression, slotContext } from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
 import {
+	checkErrorDetails,
 	type LookupTypeIndex,
 	semanticCheckErrors,
 } from "../../lookupTypeContext";
-import { formatPath, moduleTypeContext } from "./shared";
+import { formatPath } from "./shared";
 
 export function searchInputDefaultTypeCheck(
 	mod: Module,
@@ -70,7 +23,6 @@ export function searchInputDefaultTypeCheck(
 	const inputs = mod.caseListConfig?.searchInputs ?? [];
 	if (inputs.length === 0) return [];
 
-	const ctx = moduleTypeContext(mod, doc, lookupTables);
 	const errors: ValidationError[] = [];
 
 	for (let index = 0; index < inputs.length; index++) {
@@ -80,7 +32,22 @@ export function searchInputDefaultTypeCheck(
 		if (isHiddenSearchInput(input)) continue;
 		const inputDefault = searchInputDefault(input);
 		if (inputDefault === undefined) continue;
-		if (expressionReadsCaseData(inputDefault)) {
+		const ctx = slotContext(
+			doc,
+			{
+				entity: "module",
+				uuid: moduleUuid,
+				slot: "search_input_default",
+				member: { searchInputUuid: input.uuid },
+			},
+			lookupTables ?? new Map(),
+		);
+		if (ctx === undefined) continue;
+		const checked = semanticCheckErrors(checkExpression(inputDefault, ctx));
+		const scope = checked.find(
+			(error) => error.code === "case-data-unavailable",
+		);
+		if (scope !== undefined) {
 			errors.push(
 				validationError(
 					"CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
@@ -92,6 +59,7 @@ export function searchInputDefaultTypeCheck(
 						inputName: input.name,
 						inputUuid: input.uuid,
 						widgetType: input.type,
+						...checkErrorDetails(scope),
 						slot: `caseListConfig.searchInputs[${index}].default`,
 					},
 				),
@@ -102,8 +70,8 @@ export function searchInputDefaultTypeCheck(
 			throw new Error("Date-range input exposed a scalar default.");
 		}
 		const expectedType = SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES[input.type];
-		const typeErrors = semanticCheckErrors(
-			checkValueExpression(inputDefault, ctx, expectedType),
+		const typeErrors = checked.filter(
+			(error) => error.code !== "search-answer-unavailable",
 		);
 		if (typeErrors.length === 0) continue;
 
@@ -122,7 +90,9 @@ export function searchInputDefaultTypeCheck(
 						inputUuid: input.uuid,
 						widgetType: input.type,
 						expectedType,
-						path: at,
+						slot: `caseListConfig.searchInputs[${index}].default`,
+						registrySlot: "search_input_default",
+						...checkErrorDetails(err),
 					},
 				),
 			);

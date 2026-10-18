@@ -20,6 +20,7 @@
 // container cards when picked.
 
 "use client";
+
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerAbc from "@iconify-icons/tabler/abc";
 import tablerArrowsHorizontal from "@iconify-icons/tabler/arrows-horizontal";
@@ -59,6 +60,8 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { matchModeAvailableOnDevice } from "@/lib/doc/commitVerdicts";
+import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import type { ConditionArm, ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	acceptsType,
 	and,
@@ -67,6 +70,7 @@ import {
 	comparisonObjectTypesFor,
 	comparisonOperatorsFor,
 	compatibleTypesFor,
+	type Expression,
 	inSubjectConstraint,
 	isIn,
 	type Literal,
@@ -76,12 +80,11 @@ import {
 	matchModesFor,
 	not,
 	or,
-	type Predicate,
 	type PropertyRef,
-	type ResolvedType,
+	type ScalarType,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+	toExpression,
+} from "@/lib/domain/expression";
 import {
 	predicateEditContextFrom,
 	usePredicateEditContext,
@@ -111,7 +114,7 @@ import {
 	resolveExpressionType,
 } from "./reseed";
 
-type MatchMode = Extract<Predicate, { kind: "match" }>["mode"];
+type MatchMode = ExpressionOfKind<"match">["mode"];
 
 /** One pickable verb (or structural shape). `id` is unique across
  *  the menu; `build` produces the next AST node from the current
@@ -124,9 +127,9 @@ export interface VerbEntry {
 	/** Scan anchor: menus are skimmed by glyph before they're read. */
 	readonly icon: IconifyIcon;
 	/** The schema kind backing applicability dimming. */
-	readonly schemaKind: Predicate["kind"];
-	readonly isCurrent: (value: Predicate) => boolean;
-	readonly build: (value: Predicate, ctx: PredicateEditContext) => Predicate;
+	readonly schemaKind: ConditionArm["kind"];
+	readonly isCurrent: (value: Expression) => boolean;
+	readonly build: (value: Expression, ctx: PredicateEditContext) => Expression;
 	/**
 	 * Subject-type gate: whether the subject (left operand) of the
 	 * CURRENT condition can support this verb. Absent for verbs every
@@ -138,8 +141,8 @@ export interface VerbEntry {
 	 * author changes the subject first.
 	 */
 	readonly subjectGate?: (
-		subjectType: ResolvedType | undefined,
-		subject: ValueExpression | undefined,
+		subjectType: ScalarType | undefined,
+		subject: Expression | undefined,
 	) => boolean;
 	/** Reason shown when the subject-type gate disables the verb. */
 	readonly disabledReason?: string;
@@ -161,7 +164,10 @@ export interface VerbEntry {
 	 * would land exactly that. Disabling says so at the gesture instead,
 	 * and the verb enables the moment the author types a value.
 	 */
-	readonly carryGate?: (value: Predicate, ctx: PredicateEditContext) => boolean;
+	readonly carryGate?: (
+		value: Expression,
+		ctx: PredicateEditContext,
+	) => boolean;
 	/** Reason shown when the carry gate disables the verb. */
 	readonly carryDisabledReason?: string;
 }
@@ -172,7 +178,7 @@ export interface VerbEntry {
 // Carrying it across a verb change is the whole point of the shared
 // menu: changing HOW you compare must never lose WHAT you compare.
 
-export function subjectOf(value: Predicate): ValueExpression | undefined {
+export function subjectOf(value: Expression): Expression | undefined {
 	switch (value.kind) {
 		case "eq":
 		case "neq":
@@ -188,7 +194,7 @@ export function subjectOf(value: Predicate): ValueExpression | undefined {
 		case "match":
 		case "multi-select-contains":
 		case "within-distance":
-			return term(value.property);
+			return toExpression(value.property);
 		default:
 			return undefined;
 	}
@@ -197,19 +203,19 @@ export function subjectOf(value: Predicate): ValueExpression | undefined {
 /** The subject as a bare property reference, when it is one, the
  *  shapes whose subject slot is a `PropertyRef` (match, contains,
  *  near) can only carry a property over, not a computed value. */
-function subjectRefOf(value: Predicate): PropertyRef | undefined {
+function subjectRefOf(value: Expression): PropertyRef | undefined {
 	const subject = subjectOf(value);
 	return propertyRefOfExpression(subject);
 }
 
 function propertyRefOfExpression(
-	subject: ValueExpression | undefined,
+	subject: Expression | undefined,
 ): PropertyRef | undefined {
 	if (subject === undefined || subject.kind !== "term") return undefined;
 	return subject.term.kind === "prop" ? subject.term : undefined;
 }
 
-function objectOf(value: Predicate): ValueExpression | undefined {
+function objectOf(value: Expression): Expression | undefined {
 	switch (value.kind) {
 		case "eq":
 		case "neq":
@@ -225,7 +231,7 @@ function objectOf(value: Predicate): ValueExpression | undefined {
 	}
 }
 
-function expressionLiteral(value: ValueExpression): Literal | undefined {
+function expressionLiteral(value: Expression): Literal | undefined {
 	return value.kind === "term" && value.term.kind === "literal"
 		? value.term
 		: undefined;
@@ -234,7 +240,7 @@ function expressionLiteral(value: ValueExpression): Literal | undefined {
 /** Values that can move into a literal-only target such as `in` or
  * multi-select containment. The objects themselves are reused so partially
  * authored list drafts survive a compatible verb change. */
-function literalCandidates(value: Predicate): readonly Literal[] {
+function literalCandidates(value: Expression): readonly Literal[] {
 	switch (value.kind) {
 		case "eq":
 		case "neq":
@@ -251,7 +257,9 @@ function literalCandidates(value: Predicate): readonly Literal[] {
 		}
 		case "in":
 		case "multi-select-contains":
-			return value.values;
+			return value.values.flatMap((item) =>
+				item.kind === "literal" ? [item] : [],
+			);
 		case "between":
 			return [value.lower, value.upper].flatMap((bound) => {
 				if (bound === undefined) return [];
@@ -271,15 +279,15 @@ function literalCandidates(value: Predicate): readonly Literal[] {
  * confirms when a multi-value source has additional authored values that the
  * target cannot hold. */
 function singleValueCandidate(
-	value: Predicate,
+	value: Expression,
 	targetComparison?: ComparisonKind,
-): ValueExpression | undefined {
+): Expression | undefined {
 	const direct = objectOf(value);
 	if (direct !== undefined) return direct;
 	switch (value.kind) {
 		case "in":
 		case "multi-select-contains":
-			return term(value.values[0]);
+			return toExpression(value.values[0]);
 		case "between":
 			if (targetComparison === "lt" || targetComparison === "lte") {
 				return value.upper ?? value.lower;
@@ -292,9 +300,9 @@ function singleValueCandidate(
 	}
 }
 
-function rangeFromSource(value: Predicate): {
-	readonly lower?: ValueExpression;
-	readonly upper?: ValueExpression;
+function rangeFromSource(value: Expression): {
+	readonly lower?: Expression;
+	readonly upper?: Expression;
 	readonly lowerInclusive: boolean;
 	readonly upperInclusive: boolean;
 } | null {
@@ -341,10 +349,10 @@ function rangeFromSource(value: Predicate): {
 		case "in":
 		case "multi-select-contains":
 			return {
-				lower: term(value.values[0]),
+				lower: toExpression(value.values[0]),
 				...(value.values[1] === undefined
-					? { upper: term(value.values[0]) }
-					: { upper: term(value.values[1]) }),
+					? { upper: toExpression(value.values[0]) }
+					: { upper: toExpression(value.values[1]) }),
 				lowerInclusive: true,
 				upperInclusive: true,
 			};
@@ -375,7 +383,7 @@ function rangeFromSource(value: Predicate): {
 export function propertyType(
 	ctx: PredicateEditContext,
 	ref: PropertyRef,
-): ResolvedType | undefined {
+): ScalarType | undefined {
 	// Let the canonical checker walk `via` before it resolves the property.
 	// Looking directly at `ref.caseType` is wrong for related information:
 	// that field names the origin scope, while the property lives at the
@@ -387,10 +395,10 @@ export function propertyType(
  *  `accepts`, then reseed it valid (carrying its typed content where
  *  the new accept-set can hold it). */
 export function reseedObjectIfNeeded(
-	obj: ValueExpression,
-	accepts: ReadonlySet<ResolvedType>,
+	obj: Expression,
+	accepts: ReadonlySet<ScalarType>,
 	ctx: PredicateEditContext,
-): ValueExpression {
+): Expression {
 	const type = resolveExpressionType(obj, ctx);
 	return type !== undefined && !accepts.has(type)
 		? reseedValueForConstraint(obj, accepts)
@@ -401,9 +409,9 @@ export function reseedObjectIfNeeded(
 
 export function buildComparison(
 	kind: ComparisonKind,
-	value: Predicate,
+	value: Expression,
 	ctx: PredicateEditContext,
-): Predicate {
+): Expression {
 	// Same family: keep both operands when the target operator admits
 	// them. An `_any` subject admits ordered verbs, but that does NOT make
 	// an unordered object valid; reseed the object against the target
@@ -445,9 +453,9 @@ export function buildComparison(
 
 export function buildMatch(
 	mode: MatchMode,
-	value: Predicate,
+	value: Expression,
 	ctx: PredicateEditContext,
-): Predicate {
+): Expression {
 	const allow = MATCH_PROPERTY_TYPES_BY_MODE[mode];
 	if (value.kind === "match") {
 		// Mode change on an existing match: reseed the value if its type
@@ -481,7 +489,7 @@ export function buildMatch(
  * copy of that reasoning is how the menu and the commit gate drift.
  */
 function matchCarriesAValue(
-	value: Predicate,
+	value: Expression,
 	mode: MatchMode,
 	ctx: PredicateEditContext,
 ): boolean {
@@ -499,10 +507,10 @@ function matchCarriesAValue(
  *  admissible term, reseeds an incompatible one, and leaves an
  *  unresolved (empty / placeholder) term as the completeness state. */
 export function reseedMatchValue(
-	value: ValueExpression,
-	allow: ReadonlySet<ResolvedType>,
+	value: Expression,
+	allow: ReadonlySet<ScalarType>,
 	ctx: PredicateEditContext,
-): ValueExpression {
+): Expression {
 	const type = resolveExpressionType(value, ctx);
 	// Match values are full ValueExpressions. Preserve computed values and
 	// unresolved drafts when the target mode can represent their result type;
@@ -513,9 +521,9 @@ export function reseedMatchValue(
 
 export function buildWithSubjectLeft(
 	kind: "in" | "between" | "is-blank" | "matches-pattern",
-	value: Predicate,
+	value: Expression,
 	ctx: PredicateEditContext,
-): Predicate {
+): Expression {
 	const preserved = preservedOperandSwap(value, kind);
 	if (preserved !== null) return preserved;
 	const fallback = predicateCardSchemas[kind].defaultValue(ctx);
@@ -526,13 +534,14 @@ export function buildWithSubjectLeft(
 		// Carry every literal the source shape can represent. Computed objects
 		// cannot enter this literal-only AST arm; the transition planner names
 		// that loss before it can commit.
-		const inFallback = fallback as Extract<Predicate, { kind: "in" }>;
+		const inFallback = fallback as ExpressionOfKind<"in">;
 		const candidates = literalCandidates(value);
-		const values = (candidates.length > 0 ? candidates : inFallback.values).map(
-			(value) =>
-				accepts.has(literalType(value))
-					? value
-					: reseedLiteralForConstraint(value, accepts),
+		const values = (
+			candidates.length > 0 ? candidates : literalCandidates(inFallback)
+		).map((value) =>
+			accepts.has(literalType(value))
+				? value
+				: reseedLiteralForConstraint(value, accepts),
 		);
 		const safeValues = values.some((candidate) => candidate.value !== null)
 			? values
@@ -544,7 +553,7 @@ export function buildWithSubjectLeft(
 		// Comparisons map their value to the matching side of the range;
 		// literal lists map their first two values. This preserves every
 		// representable draft rather than swapping in unrelated defaults.
-		const b = fallback as Extract<Predicate, { kind: "between" }>;
+		const b = fallback as ExpressionOfKind<"between">;
 		const carried = rangeFromSource(value);
 		const lower = carried === null ? b.lower : carried.lower;
 		const upper = carried === null ? b.upper : carried.upper;
@@ -568,9 +577,9 @@ export function buildWithSubjectLeft(
 
 export function buildContains(
 	quantifier: "any" | "all",
-	value: Predicate,
+	value: Expression,
 	ctx: PredicateEditContext,
-): Predicate {
+): Expression {
 	if (value.kind === "multi-select-contains") {
 		return { ...value, quantifier };
 	}
@@ -675,7 +684,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			build: (p, ctx) => buildComparison(v.kind, p, ctx),
 			...(ordered
 				? {
-						subjectGate: (t: ResolvedType | undefined) =>
+						subjectGate: (t: ScalarType | undefined) =>
 							comparisonOperatorsFor(t).has(v.kind),
 						disabledReason: ORDERED_COMPARISON_REASON,
 					}
@@ -692,7 +701,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			schemaKind: "match",
 			isCurrent: (p) => p.kind === "match" && p.mode === m.mode,
 			build: (p, ctx) => buildMatch(m.mode, p, ctx),
-			subjectGate: (t: ResolvedType | undefined, subject) =>
+			subjectGate: (t: ScalarType | undefined, subject) =>
 				propertyRefOfExpression(subject) !== undefined &&
 				matchModesFor(t).has(m.mode),
 			disabledReason:
@@ -707,11 +716,13 @@ function buildVerbEntries(): readonly VerbEntry[] {
 				? {}
 				: {
 						contextGate: (ctx: PredicateEditContext) =>
-							ctx.evaluationTarget === "case-search",
+							ctx.expressionContext.profile.targets.has("CS") &&
+							!ctx.expressionContext.profile.targets.has("SU") &&
+							!ctx.expressionContext.profile.targets.has("XF"),
 						contextDisabledReason:
 							"Only available when searching, which runs on the server. Use “starts with” here.",
 					}),
-			carryGate: (value: Predicate, ctx: PredicateEditContext) =>
+			carryGate: (value: Expression, ctx: PredicateEditContext) =>
 				matchCarriesAValue(value, m.mode, ctx),
 			carryDisabledReason:
 				"Type the text to match first. Matching against an empty value never finds anything.",
@@ -965,7 +976,7 @@ const SPECIAL_CONDITION_ENTRIES = STRUCTURE_ENTRIES.filter(
 );
 
 /** The verb the current node reads as: shown on the trigger chip. */
-export function currentVerbLabel(value: Predicate): string {
+export function currentVerbLabel(value: Expression): string {
 	const all = [...VERB_ENTRIES, ...STRUCTURE_ENTRIES];
 	return all.find((e) => e.isCurrent(value))?.label ?? value.kind;
 }
@@ -979,8 +990,8 @@ export function currentVerbLabel(value: Predicate): string {
  */
 export function verbEntryAdmitted(
 	entry: VerbEntry,
-	value: Predicate,
-	subjectType: ResolvedType | undefined,
+	value: Expression,
+	subjectType: ScalarType | undefined,
 	editCtx: PredicateEditContext,
 ): boolean {
 	const subject = subjectOf(value);
@@ -996,12 +1007,21 @@ export function verbEntryAdmitted(
 		entry.contextGate === undefined || entry.contextGate(editCtx);
 	const carryAdmitted =
 		entry.carryGate === undefined || entry.carryGate(value, editCtx);
-	return applicable && subjectAdmitted && runtimeAdmitted && carryAdmitted;
+	return (
+		applicable &&
+		subjectAdmitted &&
+		runtimeAdmitted &&
+		carryAdmitted &&
+		expressionEditVerdict(
+			entry.build(value, editCtx),
+			editCtx.expressionContext,
+		).ok
+	);
 }
 
 interface PredicateVerbMenuProps {
-	readonly value: Predicate;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: Expression;
+	readonly onChange: (next: Expression) => void;
 	readonly invalid?: boolean;
 }
 
@@ -1093,7 +1113,19 @@ export function PredicateVerbMenu({
 
 	const renderEntry = (entry: VerbEntry) => {
 		const isCurrent = entry.isCurrent(value);
-		const admitted = verbEntryAdmitted(entry, value, subjectType, editCtx);
+		const localAdmission = verbEntryAdmitted(
+			entry,
+			value,
+			subjectType,
+			editCtx,
+		);
+		const wholeAdmission = localAdmission
+			? ctx.admitExpressionChange?.(
+					ctx.expressionPath,
+					entry.build(value, editCtx),
+				)
+			: undefined;
+		const admitted = localAdmission && (wholeAdmission?.admitted ?? true);
 		// Re-derive the gate pieces only to phrase the disabled reason.
 		const subject = subjectOf(value);
 		const subjectAdmitted =
@@ -1109,15 +1141,18 @@ export function PredicateVerbMenu({
 			entry.contextGate === undefined || entry.contextGate(editCtx);
 		const carryAdmitted =
 			entry.carryGate === undefined || entry.carryGate(value, editCtx);
-		const reason = !runtimeAdmitted
-			? entry.contextDisabledReason
-			: !subjectAdmitted
-				? entry.disabledReason
-				: !carryAdmitted
-					? entry.carryDisabledReason
-					: !applicable
-						? predicateUnavailableReason(entry.schemaKind, editCtx)
-						: undefined;
+		const reason =
+			wholeAdmission?.admitted === false
+				? wholeAdmission.reason
+				: !runtimeAdmitted
+					? entry.contextDisabledReason
+					: !subjectAdmitted
+						? entry.disabledReason
+						: !carryAdmitted
+							? entry.carryDisabledReason
+							: !applicable
+								? predicateUnavailableReason(entry.schemaKind, editCtx)
+								: undefined;
 		return (
 			<DropdownMenuItem
 				key={entry.id}

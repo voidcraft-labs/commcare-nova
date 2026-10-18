@@ -1,7 +1,7 @@
 // components/builder/shared/cards/expression/CoalesceCard.tsx
 //
-// Renders the `coalesce` ValueExpression: first-non-empty fallback
-// chain. Each `values[i]` is a recursive `ValueExpression`; the
+// Renders the `coalesce` Expression: first-non-empty fallback
+// chain. Each `values[i]` is a recursive `Expression`; the
 // result type is the agreed type across all values (per
 // `accumulateBranchType` in the type checker). Drag-and-drop
 // reorders the values via the shared `useReorderableList`
@@ -14,20 +14,22 @@
 // type" error fired against an empty-string seed.
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { useId, useMemo, useState } from "react";
 import { Button } from "@/components/shadcn/button";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	ANY_CONSTRAINT,
 	branchConstraint,
 	coalesce,
+	type Expression,
 	literal,
 	type SlotConstraint,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { usePredicateEditContext } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { expressionCardSchemas } from "../../expressionEditorSchemas";
@@ -48,13 +50,13 @@ import { resolveExpressionType } from "../reseed";
  *  row picker. */
 export function coalesceDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "coalesce" }> {
+): ExpressionOfKind<"coalesce"> {
 	return coalesce(term(literal(null)), term(literal(null)));
 }
 
 interface CoalesceCardProps {
-	readonly value: Extract<ValueExpression, { kind: "coalesce" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"coalesce">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 	/** The coalesce's own result constraint propagates to every value:
 	 *  the result is whichever value resolves first, so each must
@@ -78,14 +80,14 @@ export function CoalesceCard({
 	);
 
 	const apply = (
-		values: readonly ValueExpression[],
-	): Extract<ValueExpression, { kind: "coalesce" }> => {
+		values: readonly Expression[],
+	): ExpressionOfKind<"coalesce"> => {
 		const [first, ...rest] = values;
 		// Runtime contract guarantees `values.length >= 1` (no path
 		// mutates the array to empty), so destructuring is sound; the
 		// `coalesce` builder's variadic-with-required-first signature
 		// ties the call together. The builder's declared return type
-		// is the precise `Extract<ValueExpression, { kind: "coalesce" }>`
+		// is the precise `ExpressionOfKind<"coalesce">`
 		// arm: no narrowing cast needed.
 		return coalesce(first, ...rest);
 	};
@@ -105,7 +107,7 @@ export function CoalesceCard({
 		},
 	});
 
-	const updateValue = (index: number, next: ValueExpression) => {
+	const updateValue = (index: number, next: Expression) => {
 		const updated = value.values.map((item, itemIndex) =>
 			itemIndex === index ? next : item,
 		);
@@ -235,9 +237,9 @@ export function CoalesceCard({
 }
 
 interface ValueRowProps {
-	readonly valueExpr: ValueExpression;
+	readonly valueExpr: Expression;
 	readonly isOnlyOne: boolean;
-	readonly onUpdate: (next: ValueExpression) => void;
+	readonly onUpdate: (next: Expression) => void;
 	readonly onRemove: () => void;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly onMove: (key: ReorderKeyboardKey) => void;

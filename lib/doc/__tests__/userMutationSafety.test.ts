@@ -3,12 +3,15 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
-import { parseXPathForForm } from "@/lib/doc/expressionText";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
 import { removeUserPropertyPlan } from "@/lib/doc/userMutations";
 import type { BlueprintDoc } from "@/lib/domain";
-import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
+import {
+	eq,
+	literal,
+	sessionUserProperty,
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -238,7 +241,7 @@ describe("user collection mutations", () => {
 		expect(peerThenRemoval).toEqual(removalThenPeer);
 	});
 
-	it("refuses removal before cleanup when XPath or Predicate ASTs keep the identity", () => {
+	it("refuses removal before cleanup when expression ASTs keep the identity", () => {
 		const propertyUuid = testUuid("worker-region");
 		const doc = buildDoc({
 			modules: [
@@ -277,10 +280,9 @@ describe("user collection mutations", () => {
 		const fieldUuid = doc.fieldOrder[formUuid][0];
 		if (doc.fields[fieldUuid].kind !== "text")
 			throw new Error("Expected text field");
-		doc.fields[fieldUuid].relevant = parseXPathForForm(
-			doc,
-			formUuid,
-			"#user/region = 'north'",
+		doc.fields[fieldUuid].relevant = eq(
+			sessionUserProperty(propertyUuid),
+			literal("north"),
 		);
 		doc.userTypes = {
 			[TYPE]: {
@@ -342,11 +344,7 @@ describe("user collection mutations", () => {
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
 		const fieldUuid = doc.fieldOrder[formUuid][0];
-		const reference = parseXPathForForm(
-			doc,
-			formUuid,
-			"#user/region = 'north'",
-		);
+		const reference = eq(sessionUserProperty(propertyUuid), literal("north"));
 		if (doc.fields[fieldUuid].kind !== "text") {
 			throw new Error("fixture field must be text");
 		}

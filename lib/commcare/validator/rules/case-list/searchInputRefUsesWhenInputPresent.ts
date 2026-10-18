@@ -93,11 +93,12 @@ import {
 	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
-import type {
-	Predicate,
-	SearchInputRef,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+import {
+	type CheckPath,
+	type Expression,
+	expressionChildren,
+	type Term,
+} from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
 
 interface BareRef {
@@ -160,7 +161,7 @@ export function searchInputRefUsesWhenInputPresent(
 		// construction, before any answer exists, so an input ref reads
 		// blank whatever envelope surrounds it.
 		if (input.kind === "hidden") {
-			const refs = findExpressionInputRefs(input.value, "forbids-input-ref");
+			const refs = findBareInputRefs(input.value, "forbids-input-ref");
 			for (const ref of refs) {
 				errors.push(
 					buildError({
@@ -180,7 +181,7 @@ export function searchInputRefUsesWhenInputPresent(
 		// so input refs resolve to empty string regardless of envelope.
 		const inputDefault = searchInputDefault(input);
 		if (inputDefault !== undefined) {
-			const refs = findExpressionInputRefs(inputDefault, "forbids-input-ref");
+			const refs = findBareInputRefs(inputDefault, "forbids-input-ref");
 			for (const ref of refs) {
 				errors.push(
 					buildError({
@@ -203,10 +204,7 @@ export function searchInputRefUsesWhenInputPresent(
 		if (column === undefined || column.kind !== "calculated") {
 			continue;
 		}
-		const refs = findExpressionInputRefs(
-			column.expression,
-			"forbids-input-ref",
-		);
+		const refs = findBareInputRefs(column.expression, "forbids-input-ref");
 		const columnLabel = column.header || `column #${i + 1}`;
 		for (const ref of refs) {
 			errors.push(
@@ -277,318 +275,38 @@ function buildError(args: {
 	);
 }
 
-/**
- * Walk a Predicate AST and surface every input Term that violates
- * the slot's `mode`. In `"requires-envelope"` mode the walker tracks
- * which input names are gated by an enclosing `when-input-present`;
- * in `"forbids-input-ref"` mode the walker flags every input ref
- * regardless of envelope.
- */
-function findBareInputRefs(predicate: Predicate, mode: SlotMode): BareRef[] {
-	const refs: BareRef[] = [];
-	const gated = new Set<string>();
-	visitPredicate(predicate, "", gated, mode, refs);
-	return refs;
-}
-
-/**
- * Same walk for a ValueExpression root. Used for slots whose schema
- * holds a `ValueExpression` (`searchInputs[i].default`,
- * `caseSearchConfig.excludedOwnerIds`, calculated-column
- * `expression`).
- */
-function findExpressionInputRefs(
-	expression: ValueExpression,
-	mode: SlotMode,
-): BareRef[] {
-	const refs: BareRef[] = [];
-	const gated = new Set<string>();
-	visitExpression(expression, "", gated, mode, refs);
-	return refs;
-}
-
-function visitPredicate(
-	predicate: Predicate,
-	path: string,
-	gated: Set<string>,
-	mode: SlotMode,
-	out: BareRef[],
-): void {
-	switch (predicate.kind) {
-		case "match-all":
-		case "match-none":
-			return;
-		case "eq":
-		case "neq":
-		case "gt":
-		case "gte":
-		case "lt":
-		case "lte":
-			visitExpression(predicate.left, joinPath(path, "left"), gated, mode, out);
-			visitExpression(
-				predicate.right,
-				joinPath(path, "right"),
-				gated,
-				mode,
-				out,
-			);
-			return;
-		case "in":
-			visitExpression(predicate.left, joinPath(path, "left"), gated, mode, out);
-			// `in.values` are Literals — they cannot syntactically carry
-			// an input ref. No recursion needed.
-			return;
-		case "within-distance":
-			// `property` is a `PropertyRef` (not an input ref).
-			visitExpression(
-				predicate.center,
-				joinPath(path, "center"),
-				gated,
-				mode,
-				out,
-			);
-			return;
-		case "match":
-			// `match.value` is a `ValueExpression` (per `matchSchema`),
-			// not a bare literal — the type checker admits term-arm
-			// shapes including `term(input(...))` so the validator must
-			// walk the value to surface every reachable input ref.
-			visitExpression(
-				predicate.value,
-				joinPath(path, "value"),
-				gated,
-				mode,
-				out,
-			);
-			return;
-		case "multi-select-contains":
-			// `property` is a `PropertyRef`; `values` is `[Literal, ...]`.
-			// No input refs reachable.
-			return;
-		case "is-blank":
-		case "matches-pattern":
-			visitExpression(predicate.left, joinPath(path, "left"), gated, mode, out);
-			return;
-		case "between":
-			visitExpression(predicate.left, joinPath(path, "left"), gated, mode, out);
-			if (predicate.lower !== undefined) {
-				visitExpression(
-					predicate.lower,
-					joinPath(path, "lower"),
-					gated,
-					mode,
-					out,
-				);
-			}
-			if (predicate.upper !== undefined) {
-				visitExpression(
-					predicate.upper,
-					joinPath(path, "upper"),
-					gated,
-					mode,
-					out,
-				);
-			}
-			return;
-		case "and":
-		case "or":
-			for (let i = 0; i < predicate.clauses.length; i++) {
-				visitPredicate(
-					predicate.clauses[i],
-					joinPath(path, `${predicate.kind}.${i}`),
-					gated,
-					mode,
-					out,
-				);
-			}
-			return;
-		case "not":
-			visitPredicate(predicate.clause, joinPath(path, "not"), gated, mode, out);
-			return;
-		case "when-input-present": {
-			// In `requires-envelope` mode the trigger ref is the gate
-			// (never flagged) and the clause walks under the widened
-			// gating set. In `forbids-input-ref` mode the trigger ref is
-			// still an input reference in a no-input-context slot — flag
-			// it as well, and the gating set does nothing for the clause.
-			const triggerUuid = predicate.input.searchInputUuid;
-			if (mode === "forbids-input-ref") {
-				out.push({ inputUuid: triggerUuid, path: joinPath(path, "input") });
-				visitPredicate(
-					predicate.clause,
-					joinPath(path, "clause"),
-					gated,
-					mode,
-					out,
-				);
-				return;
-			}
-			const wasAlreadyGated = gated.has(triggerUuid);
-			gated.add(triggerUuid);
-			visitPredicate(
-				predicate.clause,
-				joinPath(path, "when-input-present.clause"),
-				gated,
-				mode,
-				out,
-			);
-			if (!wasAlreadyGated) gated.delete(triggerUuid);
+/** The unified child inventory carries every reference, including newly recursive
+ * field filters and dynamic operands. Only the presence gate changes admission. */
+function findBareInputRefs(expression: Expression, mode: SlotMode): BareRef[] {
+	const out: BareRef[] = [];
+	function visit(
+		node: Expression | Term,
+		path: CheckPath,
+		gated: ReadonlySet<Uuid>,
+	): void {
+		if (node.kind === "input") {
+			if (mode === "forbids-input-ref" || !gated.has(node.searchInputUuid))
+				out.push({ inputUuid: node.searchInputUuid, path: path.join(".") });
 			return;
 		}
-		case "exists":
-		case "missing":
-			if (predicate.where !== undefined) {
-				visitPredicate(
-					predicate.where,
-					joinPath(path, `${predicate.kind}.where`),
-					gated,
-					mode,
-					out,
-				);
+		if (node.kind === "when-input-present") {
+			const next = new Set(gated);
+			if (mode === "requires-envelope") next.add(node.input.searchInputUuid);
+			for (const child of expressionChildren(node, path)) {
+				if (child.kind === "relation") continue;
+				if (
+					mode === "requires-envelope" &&
+					child.role.kind === "operand" &&
+					child.role.slot === "input"
+				)
+					continue;
+				visit(child.value, child.path, next);
 			}
 			return;
-		default: {
-			const _exhaustive: never = predicate;
-			throw new Error(
-				`searchInputRefUsesWhenInputPresent: unhandled predicate kind ${String(
-					_exhaustive,
-				)}`,
-			);
 		}
+		for (const child of expressionChildren(node, path))
+			if (child.kind !== "relation") visit(child.value, child.path, gated);
 	}
-}
-
-function visitExpression(
-	expr: ValueExpression,
-	path: string,
-	gated: Set<string>,
-	mode: SlotMode,
-	out: BareRef[],
-): void {
-	switch (expr.kind) {
-		case "term":
-			if (expr.term.kind === "input") {
-				visitInputRef(expr.term, path, gated, mode, out);
-			}
-			return;
-		case "today":
-		case "now":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-			return;
-		case "date-add":
-			visitExpression(expr.date, joinPath(path, "date"), gated, mode, out);
-			visitExpression(
-				expr.quantity,
-				joinPath(path, "quantity"),
-				gated,
-				mode,
-				out,
-			);
-			return;
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-			visitExpression(expr.value, joinPath(path, "value"), gated, mode, out);
-			return;
-		case "format-date":
-			visitExpression(expr.date, joinPath(path, "date"), gated, mode, out);
-			return;
-		case "arith":
-			visitExpression(expr.left, joinPath(path, "left"), gated, mode, out);
-			visitExpression(expr.right, joinPath(path, "right"), gated, mode, out);
-			return;
-		case "concat":
-			for (let i = 0; i < expr.parts.length; i++) {
-				visitExpression(
-					expr.parts[i],
-					joinPath(path, `concat.${i}`),
-					gated,
-					mode,
-					out,
-				);
-			}
-			return;
-		case "coalesce":
-			for (let i = 0; i < expr.values.length; i++) {
-				visitExpression(
-					expr.values[i],
-					joinPath(path, `coalesce.${i}`),
-					gated,
-					mode,
-					out,
-				);
-			}
-			return;
-		case "if":
-			visitPredicate(expr.cond, joinPath(path, "if.cond"), gated, mode, out);
-			visitExpression(expr.then, joinPath(path, "if.then"), gated, mode, out);
-			visitExpression(expr.else, joinPath(path, "if.else"), gated, mode, out);
-			return;
-		case "switch":
-			visitExpression(expr.on, joinPath(path, "switch.on"), gated, mode, out);
-			for (let i = 0; i < expr.cases.length; i++) {
-				visitExpression(
-					expr.cases[i].then,
-					joinPath(path, `switch.cases.${i}.then`),
-					gated,
-					mode,
-					out,
-				);
-			}
-			visitExpression(
-				expr.fallback,
-				joinPath(path, "switch.fallback"),
-				gated,
-				mode,
-				out,
-			);
-			return;
-		case "count":
-			if (expr.where !== undefined) {
-				visitPredicate(
-					expr.where,
-					joinPath(path, "count.where"),
-					gated,
-					mode,
-					out,
-				);
-			}
-			return;
-		case "table-lookup":
-			visitPredicate(
-				expr.where,
-				joinPath(path, "table-lookup.where"),
-				gated,
-				mode,
-				out,
-			);
-			return;
-		default: {
-			const _exhaustive: never = expr;
-			throw new Error(
-				`searchInputRefUsesWhenInputPresent: unhandled value expression kind ${String(
-					_exhaustive,
-				)}`,
-			);
-		}
-	}
-}
-
-function visitInputRef(
-	ref: SearchInputRef,
-	path: string,
-	gated: Set<string>,
-	mode: SlotMode,
-	out: BareRef[],
-): void {
-	if (mode === "requires-envelope" && gated.has(ref.searchInputUuid)) {
-		return;
-	}
-	out.push({ inputUuid: ref.searchInputUuid, path });
-}
-
-function joinPath(parent: string, segment: string): string {
-	return parent === "" ? segment : `${parent}.${segment}`;
+	visit(expression, [], new Set());
+	return out;
 }

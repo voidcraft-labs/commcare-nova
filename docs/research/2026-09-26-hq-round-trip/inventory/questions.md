@@ -326,7 +326,7 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | group/repeat label media, other than a missing file the Media section refuses | **INERT**: Vellum offers no media on group, question list or repeat labels (`javaRosa/plugin.js`, `isSpecialGroup`), and neither runtime renders it | n/a | omit (Nova emits container `label_media` today; no runtime reads it) |
 | `<output value="…">` of a question, case or user reference | **HELD**: prose `field-ref`/`case-ref`/`user-ref`/`user-property-ref` parts | RUNS / RUNS | `<output value>` |
 | `<output ref="…">` | **HELD**: same (Vellum rewrites to `value`) | RUNS / RUNS | `<output value>` |
-| `<output value="<any other expression>">` | **HELD-NEW**: prose expression part (`XPathExpression`) | RUNS / RUNS | `<output value>` |
+| `<output value="<any other expression>">` | **HELD-NEW**: prose expression part (`Expression`) | RUNS / RUNS | `<output value>` |
 | plain label containing HTML text | **HELD**: the text | DIFFERENT (sanitized HTML) / DIFFERENT (literal) | verbatim |
 | XHTML-namespace child elements inside a `<value>` | **REFUSED**: freeform | — | — |
 | other child elements inside a `<value>` | **INERT**: dropped at parse (`XFormParser::getLabel`) | n/a | omit |

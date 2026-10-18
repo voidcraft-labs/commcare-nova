@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import type { SearchInputDef } from "@/lib/domain";
 import { hiddenSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import {
 	dateLiteral,
@@ -7,7 +9,7 @@ import {
 	now,
 	sessionContext,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { previewAsMe, previewSessionValues } from "../identity";
 import {
 	buildSearchRunState,
@@ -38,7 +40,12 @@ const searchedBy = hiddenSearchInputDef(
 	term(sessionContext("username")),
 );
 const initial = (value = "Alice", scope = "module-a") =>
-	buildSearchRunState(scope, [input(value), searchedBy], SESSION);
+	buildSearchRunState(
+		scope,
+		[input(value), searchedBy],
+		SESSION,
+		runEnvironment([input(value), searchedBy]),
+	);
 const answers = (name: string) => new Map([["name", name]]);
 afterEach(() => vi.useRealTimers());
 
@@ -129,13 +136,18 @@ describe("search run commands", () => {
 				}),
 			],
 			SESSION,
+			runEnvironment([
+				simpleSearchInputDef(INPUT, "name", "Date", "date", "date_opened", {
+					default: term(dateLiteral("2026-07-16")),
+				}),
+			]),
 		);
 		const reconciled = reconcileSearchRunState(submitted, changed);
 		expect(reconciled.draft).toEqual(answers("2026-07-16"));
 		expect(reconciled.submitted.size).toBe(0);
 		const removed = reconcileSearchRunState(
 			submitted,
-			buildSearchRunState("module-a", [], SESSION),
+			buildSearchRunState("module-a", [], SESSION, runEnvironment([])),
 		);
 		expect(removed.hasSubmitted).toBe(false);
 		expect(removed.draft.size).toBe(0);
@@ -161,6 +173,15 @@ describe("search run commands", () => {
 				),
 			],
 			SESSION,
+			runEnvironment([
+				input("Alice"),
+				hiddenSearchInputDef(
+					HIDDEN,
+					"run_by",
+					"Run by",
+					term(sessionContext("username")),
+				),
+			]),
 		);
 		const reconciled = reconcileSearchRunState(submitted, renamed);
 		expect(
@@ -174,7 +195,12 @@ describe("search run commands", () => {
 		expect(
 			reconcileSearchRunState(
 				reconciled,
-				buildSearchRunState("module-a", [input("Alice")], SESSION),
+				buildSearchRunState(
+					"module-a",
+					[input("Alice")],
+					SESSION,
+					runEnvironment([input("Alice")]),
+				),
 			).submittedHidden.size,
 		).toBe(0);
 	});
@@ -185,6 +211,10 @@ describe("search run commands", () => {
 			"module-a",
 			[input("Alice"), hiddenSearchInputDef(HIDDEN, "time", "Time", now())],
 			SESSION,
+			runEnvironment([
+				input("Alice"),
+				hiddenSearchInputDef(HIDDEN, "time", "Time", now()),
+			]),
 		);
 		const first = changeSearchRunDraft(
 			desired,
@@ -206,3 +236,20 @@ describe("search run commands", () => {
 		).toBe("2026-09-07");
 	});
 });
+
+function runEnvironment(searchInputs: readonly SearchInputDef[]) {
+	const doc = buildDoc({
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "People",
+				caseType: "person",
+				caseListConfig: {
+					...caseListConfig([]),
+					searchInputs: [...searchInputs],
+				},
+			},
+		],
+	});
+	return { doc, moduleUuid: doc.moduleOrder[0] };
+}

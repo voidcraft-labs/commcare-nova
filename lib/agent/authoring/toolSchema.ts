@@ -86,7 +86,7 @@ function project(toolName: string, canonical: z.ZodType) {
 		changePath(json, json, spec.path, (parent, properties, key) => {
 			optional(parent, key);
 			const property = record(properties[key]);
-			if (property)
+			if (property && !spec.preserveDescription)
 				property.description = spec.preserveExisting
 					? "Existing item identity, if this item is being retained."
 					: "Nova assigns an identity when omitted.";

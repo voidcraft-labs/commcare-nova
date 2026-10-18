@@ -46,6 +46,10 @@ import type { FormActions, HqApplication } from "@/lib/commcare";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import { el, text, xel } from "@/lib/commcare/elementBuilders";
 import {
+	moduleExpressionContexts,
+	requireExpressionContext,
+} from "@/lib/commcare/expressionContext";
+import {
 	caseListFormReturnFrame,
 	caseListSessionDatums,
 	entryFrameDatums,
@@ -104,7 +108,6 @@ import {
 } from "@/lib/commcare/usercaseWire";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
-import { moduleTypeContext } from "@/lib/commcare/validator/rules/case-list/shared";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
@@ -120,7 +123,6 @@ import {
 	moduleParent,
 	projectedModulePreorder,
 	type Uuid,
-	userPropertySlugsByUuid,
 	type WireStringSource,
 } from "@/lib/domain";
 import {
@@ -271,7 +273,6 @@ export function compileCcz(
 	const attachments = hqJson._attachments;
 	const assets = opts.assets;
 	const lookupNaming = opts.lookup?.naming;
-	const userPropertySlugs = userPropertySlugsByUuid(doc);
 	const localization = commCareLocalization(authoredDoc);
 	const sequence = opts.compiledAtSeq ?? 1;
 	const archiveVersion = sequence + (opts.earlierHqApps ?? 0);
@@ -399,6 +400,7 @@ export function compileCcz(
 		});
 	});
 	const linkContext = formLinkProjectionContext(doc, {
+		expressionDoc: authoredDoc,
 		runtimeTarget: opts.runtimeTarget,
 		formActions: (formUuid) => {
 			const actions = actionsByForm.get(formUuid);
@@ -418,6 +420,7 @@ export function compileCcz(
 		const formUuids = orderedFormUuids(doc, moduleUuid);
 
 		const mod = doc.modules[moduleUuid];
+		const expressions = moduleExpressionContexts(doc, moduleUuid, lookupNaming);
 		const modName = mod.name;
 		// The hidden module of a no-matches form, or the host that offers one.
 		const synthetic = plan.synthetic.get(moduleUuid);
@@ -454,9 +457,8 @@ export function compileCcz(
 				? NEVER_RELEVANT
 				: emitModuleDisplayCondition(
 						mod,
-						mod.caseType,
+						expressions({ slot: "module_display_condition" }),
 						lookupNaming,
-						userPropertySlugs,
 					);
 
 		appStrings[`modules.m${mIdx}`] = modName;
@@ -587,7 +589,7 @@ export function compileCcz(
 							runtimeTarget: opts.runtimeTarget,
 							module: { ...mod, caseSearchConfig },
 							moduleIndex: mIdx,
-							typeContext: moduleTypeContext(mod, doc),
+							expressions,
 							lookupNaming,
 							detailInstances: [
 								...(searchShort?.instances ?? []),
@@ -682,9 +684,12 @@ export function compileCcz(
 			const ownCaseDatumId = ownCaseDatum?.id;
 			const formRelevant = emitFormDisplayConditionForSuite(
 				form,
-				mod.caseType,
+				requireExpressionContext(
+					authoredDoc,
+					{ entity: "form", uuid: formUuid, slot: "form_display_condition" },
+					lookupNaming,
+				),
 				lookupNaming,
-				userPropertySlugs,
 				ownCaseDatumId,
 			);
 
@@ -843,7 +848,7 @@ export function compileCcz(
 				additionalInstances: commandInstances.declarations(),
 				actions: hqForm.actions,
 				excludedOwnerIds,
-				relationContext: moduleTypeContext(mod, doc),
+				expressions,
 				lookupNaming,
 				persistentDetailId: persistentTileDetailId,
 				tileGrouping,
@@ -982,7 +987,7 @@ export function compileCcz(
 					(column) => column.visibleInDetail !== false,
 				),
 				excludedOwnerIds,
-				moduleTypeContext(mod, doc),
+				expressions,
 				lookupNaming,
 				persistentTileDetailId,
 				browseDatums,

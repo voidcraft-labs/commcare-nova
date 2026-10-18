@@ -10,16 +10,16 @@ import tablerBarcode from "@iconify-icons/tabler/barcode";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
+	formLogicSchema,
 	inputFieldBaseSchema,
 	proseTemplateSchema,
-	xpathExpressionSchema,
 } from "./base";
 
 export const barcodeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("barcode"),
-	validate: xpathExpressionSchema.optional(),
+	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
-	default_value: xpathExpressionSchema.optional(),
+	default_value: formLogicSchema.optional(),
 });
 
 export type BarcodeField = z.infer<typeof barcodeFieldSchema>;

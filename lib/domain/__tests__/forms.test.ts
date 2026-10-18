@@ -4,8 +4,13 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { formSchema, isCaseFirstModule } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/predicate";
-import { opaqueXPathExpression } from "../xpath";
+import {
+	eq,
+	formField,
+	literal,
+	sessionUser,
+	term,
+} from "@/lib/domain/expression";
 
 describe("formSchema — formLinks", () => {
 	const baseForm = {
@@ -22,18 +27,18 @@ describe("formSchema — formLinks", () => {
 	};
 	const linkUuid = testUuid("lnk-1");
 
-	it("admits the degenerate empty XPath AST at this structural boundary", () => {
+	it("refuses the retired empty text-fragment representation", () => {
 		const result = formSchema.safeParse({
 			...baseForm,
 			formLinks: [
 				{
 					uuid: linkUuid,
-					condition: opaqueXPathExpression(""),
+					condition: { parts: [] },
 					target: linkTarget,
 				},
 			],
 		});
-		expect(result.success).toBe(true);
+		expect(result.success).toBe(false);
 	});
 
 	it("accepts an absent condition (unconditional link)", () => {
@@ -50,7 +55,7 @@ describe("formSchema — formLinks", () => {
 			formLinks: [
 				{
 					uuid: linkUuid,
-					condition: opaqueXPathExpression("/data/outcome = 'yes'"),
+					condition: eq(formField(testUuid("outcome")), literal("yes")),
 					target: linkTarget,
 				},
 			],
@@ -80,7 +85,7 @@ describe("formSchema — formLinks", () => {
 		expect(result.success).toBe(false);
 	});
 
-	it("admits distinct datum names and a module-only target", () => {
+	it("admits distinct selected-record identities and a module-only target", () => {
 		const form = {
 			...baseForm,
 			formLinks: [
@@ -88,8 +93,14 @@ describe("formSchema — formLinks", () => {
 					uuid: linkUuid,
 					target: { type: "module", moduleUuid: linkTarget.moduleUuid },
 					datums: [
-						{ name: "case_id", xpath: opaqueXPathExpression("'a'") },
-						{ name: "parent_id", xpath: opaqueXPathExpression("'b'") },
+						{
+							name: { kind: "selected-case", module: linkTarget.moduleUuid },
+							xpath: term(literal("a")),
+						},
+						{
+							name: { kind: "selected-case", module: testUuid("mod-parent") },
+							xpath: term(literal("b")),
+						},
 					],
 				},
 			],
@@ -111,7 +122,7 @@ describe("formSchema — formLinks", () => {
 		).toBe(false);
 	});
 
-	it("refuses two datums with the same name on one link", () => {
+	it("refuses two datums with the same identity on one link", () => {
 		const result = formSchema.safeParse({
 			...baseForm,
 			formLinks: [
@@ -119,8 +130,14 @@ describe("formSchema — formLinks", () => {
 					uuid: linkUuid,
 					target: linkTarget,
 					datums: [
-						{ name: "case_id", xpath: opaqueXPathExpression("'a'") },
-						{ name: "case_id", xpath: opaqueXPathExpression("'b'") },
+						{
+							name: { kind: "selected-case", module: linkTarget.moduleUuid },
+							xpath: term(literal("a")),
+						},
+						{
+							name: { kind: "selected-case", module: linkTarget.moduleUuid },
+							xpath: term(literal("b")),
+						},
 					],
 				},
 			],
@@ -138,7 +155,7 @@ describe("formSchema — formLinks", () => {
 				{
 					uuid: linkUuid,
 					target: linkTarget,
-					datums: [{ name: "", xpath: opaqueXPathExpression("'a'") }],
+					datums: [{ name: "", xpath: term(literal("a")) }],
 				},
 			],
 		});
@@ -154,7 +171,7 @@ describe("formSchema — displayCondition", () => {
 		type: "survey" as const,
 	};
 
-	it("stores a typed Predicate carrier", () => {
+	it("stores a typed expression carrier", () => {
 		const displayCondition = eq(sessionUser("username"), literal("alice"));
 		const parsed = formSchema.safeParse({ ...baseForm, displayCondition });
 		expect(parsed.success).toBe(true);

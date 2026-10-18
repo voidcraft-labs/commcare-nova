@@ -41,7 +41,7 @@ import {
 	fixedLocation,
 	ownerLocationAtLevel,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import {
 	assertLocationOwnerTargetsValid,

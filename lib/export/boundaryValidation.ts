@@ -53,12 +53,12 @@ import {
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	MAX_MEDIA_EXPORT_ASSETS,
 	type MediaAssetId,
 } from "@/lib/domain/multimedia";
-import { walkExpressionTerms } from "@/lib/domain/predicate";
 import { getLookupFixtureData } from "@/lib/lookup/service";
 import type {
 	LookupFixtureDataSnapshot,

@@ -21,7 +21,7 @@
 //   - fuzzy-date: the typed date plus its digit-permutation set
 //     (swapped day/month, reversed digit pairs).
 
-import type { MatchMode } from "@/lib/domain/predicate";
+import type { MatchMode } from "@/lib/domain/expression";
 
 export interface MatchModeVocabularyEntry {
 	/** Standalone choice name, sentence case: the Match picker's label. */

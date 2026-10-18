@@ -19,11 +19,8 @@
  */
 
 import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
-import {
-	type BlueprintDoc,
-	organizationLevelsOf,
-	type Uuid,
-} from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { requireExpressionContext } from "../expressionContext";
 import { toWire } from "../xpath/wire/fromExpression";
 import { locationsInstance } from "../xpath/wire/instances";
 import { serializeWire } from "../xpath/wire/serialize";
@@ -33,7 +30,6 @@ import { serializeWire } from "../xpath/wire/serialize";
 export function formsReadingLocationsFixture(doc: BlueprintDoc): Uuid[] {
 	const forms: Uuid[] = [];
 	const locationDeclaration = locationsInstance();
-	const types = { organizationLevels: organizationLevelsOf(doc) };
 	for (const moduleUuid of orderedModuleUuids(doc)) {
 		for (const formUuid of orderedFormUuids(doc, moduleUuid)) {
 			const form = doc.forms[formUuid];
@@ -47,7 +43,15 @@ export function formsReadingLocationsFixture(doc: BlueprintDoc): Uuid[] {
 				)
 					return false;
 				const printed = serializeWire(
-					toWire(owner, { target: "xform", types }),
+					toWire(owner, {
+						target: "xform",
+						types: requireExpressionContext(doc, {
+							entity: "form",
+							uuid: formUuid,
+							slot: "case_operation_owner",
+							member: { operationUuid: operation.uuid },
+						}),
+					}),
 					{ target: "xform", constraint: false },
 				);
 				return [...printed.instances].some(

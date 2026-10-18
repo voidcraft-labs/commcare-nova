@@ -9,7 +9,7 @@
 // device can't diverge; the one preview-specific arm is the
 // self-property leaf, printed to a private context path the
 // local context resolves against the selected row's projection. This is not
-// Nova authoring text; the typed Predicate remains the only stored input.
+// Nova authoring text; the typed expression remains the only stored input.
 //
 // An item off the menu (`hiddenFromMenu`) is `hidden` before its condition is
 // read: no menu lists it on either runtime, and the condition applies only
@@ -26,8 +26,9 @@
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
-import type { Predicate } from "@/lib/domain/predicate";
-import { displayConditionForEmission } from "@/lib/domain/predicate";
+import { displayConditionForEmission } from "@/lib/domain/expression";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import type { Expression } from "@/lib/domain/expression/types";
 import { toBoolean } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
@@ -51,11 +52,11 @@ export type NavigationItemVisibility = "shown" | "hidden" | "pending";
  * validator closes the context) — so no case projection exists.
  */
 export function moduleDisplayVisibility(args: {
-	readonly condition: Predicate | undefined;
+	readonly condition: Expression | undefined;
+	readonly types: ExpressionContext;
 	/** The module is off the menu: hidden whatever its condition says. */
 	readonly hiddenFromMenu?: boolean;
 	readonly session: PreviewSearchSessionValues;
-	readonly currentCaseType?: string;
 	readonly lookup: PreviewLookupStatus;
 }): NavigationItemVisibility {
 	return conditionVisibility({ ...args, caseProjection: undefined }, false);
@@ -71,11 +72,11 @@ export function moduleDisplayVisibility(args: {
  * reads there).
  */
 export function formDisplayVisibility(args: {
-	readonly condition: Predicate | undefined;
+	readonly condition: Expression | undefined;
+	readonly types: ExpressionContext;
 	/** The form is off the menu: hidden whatever its condition says. */
 	readonly hiddenFromMenu?: boolean;
 	readonly session: PreviewSearchSessionValues;
-	readonly currentCaseType?: string;
 	readonly caseProjection?: ReadonlyMap<string, string>;
 	readonly lookup: PreviewLookupStatus;
 }): NavigationItemVisibility {
@@ -84,10 +85,10 @@ export function formDisplayVisibility(args: {
 
 function conditionVisibility(
 	args: {
-		readonly condition: Predicate | undefined;
+		readonly condition: Expression | undefined;
+		readonly types: ExpressionContext;
 		readonly hiddenFromMenu?: boolean;
 		readonly session: PreviewSearchSessionValues;
-		readonly currentCaseType?: string;
 		readonly caseProjection?: ReadonlyMap<string, string>;
 		readonly lookup: PreviewLookupStatus;
 	},
@@ -122,6 +123,7 @@ function conditionVisibility(
 	const folded =
 		data !== undefined
 			? foldTableLookupsInPredicate(effective, data, {
+					types: args.types,
 					outer: ctx,
 					userPropertySlugs: previewUserPropertySlugMap(args.session),
 					...(emitSelfProperty !== undefined && { emitSelfProperty }),
@@ -130,13 +132,11 @@ function conditionVisibility(
 	const emitted = serializeWire(
 		toWire(folded, {
 			target: "suite",
-			types: {
-				...(args.currentCaseType !== undefined && {
-					currentCaseType: args.currentCaseType,
-				}),
+			types: args.types,
+			bindings: {
 				userPropertySlugs: previewUserPropertySlugMap(args.session),
+				...(emitSelfProperty === undefined ? {} : { emitSelfProperty }),
 			},
-			bindings: emitSelfProperty === undefined ? {} : { emitSelfProperty },
 		}),
 		{ target: "suite" },
 	).text;

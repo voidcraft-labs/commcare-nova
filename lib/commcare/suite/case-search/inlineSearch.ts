@@ -22,7 +22,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 	type WireStringSource,
 } from "@/lib/domain";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import type { ModuleExpressionContexts } from "../../expressionContext";
 import type { LookupWireNaming } from "../../lookup/naming";
 import type {
 	SessionQuery,
@@ -88,7 +88,7 @@ export function buildInlineSearch(args: {
 	readonly module: Module;
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleIndex: number;
-	readonly typeContext?: TypeContext;
+	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly ancestorCaseType?: string;
 }): InlineSearchEmission {
@@ -103,7 +103,7 @@ export function buildInlineSearch(args: {
 		wire,
 		caseType: metadata.caseType,
 		moduleIndex,
-		typeContext: args.typeContext,
+		expressions: args.expressions,
 		lookupNaming: args.lookupNaming,
 		runtimeTarget: args.runtimeTarget,
 		ancestorCaseType: args.ancestorCaseType,

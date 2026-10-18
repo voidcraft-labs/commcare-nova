@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SearchInputDef } from "@/lib/domain";
 import type { PreviewSearchSessionValues } from "../engine/identity";
-import type { PreviewLookupData } from "../engine/lookupEvaluation";
 import type { SearchInputValues } from "../engine/runtimeBindings";
+import type { PreviewSearchEnvironment } from "../engine/searchExpressionEvaluation";
 import {
 	buildSearchRunState,
 	changeSearchRunDraft,
@@ -44,7 +44,7 @@ export function useSearchInputRunState(args: {
 	readonly scopeKey: string;
 	readonly searchInputs: readonly SearchInputDef[];
 	readonly session: PreviewSearchSessionValues;
-	readonly lookupData?: PreviewLookupData;
+	readonly environment: PreviewSearchEnvironment;
 }): SearchInputRunState {
 	const desired = useMemo(
 		() =>
@@ -52,9 +52,9 @@ export function useSearchInputRunState(args: {
 				args.scopeKey,
 				args.searchInputs,
 				args.session,
-				args.lookupData,
+				args.environment,
 			),
-		[args.scopeKey, args.searchInputs, args.session, args.lookupData],
+		[args.scopeKey, args.searchInputs, args.session, args.environment],
 	);
 	const [stored, setStored] = useState(desired);
 	// Project the new scope before the synchronization effect can commit.

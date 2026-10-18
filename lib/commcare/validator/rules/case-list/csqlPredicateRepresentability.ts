@@ -39,10 +39,13 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	type Expression,
+	type ExpressionContext,
 	effectiveFilterForEmission,
-	type Predicate,
-} from "@/lib/domain/predicate";
+	slotContext,
+} from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
+import type { LookupTypeIndex } from "../../lookupTypeContext";
 import { formatPath } from "./shared";
 
 const FILTER_SLOT = "caseListConfig.filter";
@@ -50,7 +53,8 @@ const FILTER_SLOT = "caseListConfig.filter";
 export function csqlPredicateRepresentability(
 	mod: Module,
 	moduleUuid: Uuid,
-	_doc: BlueprintDoc,
+	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	if (effectiveCaseSearchConfig(mod) === undefined) return [];
 
@@ -58,11 +62,17 @@ export function csqlPredicateRepresentability(
 	const filter = mod.caseListConfig?.filter;
 	if (filter !== undefined) {
 		const effective = effectiveFilterForEmission(filter);
-		if (effective !== undefined) {
+		const context = slotContext(
+			doc,
+			{ entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
+			lookupTables ?? new Map(),
+		);
+		if (effective !== undefined && context !== undefined) {
 			slots.push({
 				mod,
 				moduleUuid,
 				predicate: effective,
+				context,
 				slot: FILTER_SLOT,
 				slotLabel: "the Cases available rule",
 			});
@@ -75,10 +85,22 @@ export function csqlPredicateRepresentability(
 		if (input.kind !== "advanced") continue;
 		const effective = effectiveFilterForEmission(input.predicate);
 		if (effective === undefined) continue;
+		const context = slotContext(
+			doc,
+			{
+				entity: "module",
+				uuid: moduleUuid,
+				slot: "search_input_predicate",
+				member: { searchInputUuid: input.uuid },
+			},
+			lookupTables ?? new Map(),
+		);
+		if (context === undefined) continue;
 		slots.push({
 			mod,
 			moduleUuid,
 			predicate: effective,
+			context,
 			slot: `caseListConfig.searchInputs[${index}].predicate`,
 			slotLabel: `advanced search input "${input.label || input.name}"`,
 			input: {
@@ -101,7 +123,8 @@ export function csqlPredicateRepresentability(
 interface EffectivePredicateSlot {
 	readonly mod: Module;
 	readonly moduleUuid: Uuid;
-	readonly predicate: Predicate;
+	readonly predicate: Expression;
+	readonly context: ExpressionContext;
 	readonly slot: string;
 	readonly slotLabel: string;
 	readonly input?: {
@@ -112,7 +135,7 @@ interface EffectivePredicateSlot {
 }
 
 function errorsForPredicate(args: EffectivePredicateSlot): ValidationError[] {
-	return checkCsqlRepresentability(args.predicate).map((issue) =>
+	return checkCsqlRepresentability(args.predicate, args.context).map((issue) =>
 		buildError(args, issue),
 	);
 }

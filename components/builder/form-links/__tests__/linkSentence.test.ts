@@ -6,16 +6,16 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
+import { projectFormExpression } from "@/lib/doc/expressionText";
 import { afterSubmitPlan } from "@/lib/doc/formLinkMutations";
 import { formLinkTargetVisibility } from "@/lib/doc/hooks/useFormLinkFacts";
+import { type FormLink, formLinkDestination } from "@/lib/domain";
 import {
-	type FormLink,
-	formLinkDestination,
-	projectXPath,
-	xpathPrintContext,
-} from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/predicate";
+	eq,
+	literal,
+	sessionUser,
+	term,
+} from "@/lib/domain/expression/builders";
 import {
 	afterSubmitSummary,
 	carriedAutomaticallyDetail,
@@ -37,6 +37,7 @@ import {
 import {
 	CARE,
 	fixture,
+	HOUSEHOLDS,
 	SOURCE,
 	toCare,
 	toNote,
@@ -54,7 +55,23 @@ const context: LinkSentenceContext = {
 	conditionText: (link) =>
 		link.condition === undefined
 			? ""
-			: projectXPath(link.condition, xpathPrintContext(fixture())).text,
+			: projectFormExpression(
+					{
+						...fixture(),
+						forms: {
+							...fixture().forms,
+							[SOURCE]: { ...fixture().forms[SOURCE], formLinks: [link] },
+						},
+					},
+					{
+						entity: "form",
+						uuid: SOURCE,
+						slot: "form_link_condition",
+						member: { linkUuid: link.uuid },
+					},
+					link.condition,
+					"unavailable",
+				).text,
 };
 
 const link = (overrides: Partial<FormLink>): FormLink => ({
@@ -78,10 +95,19 @@ describe("linkSentence", () => {
 	it("reads the condition and the carried values as details", () => {
 		const sentence = linkSentence(
 			link({
-				condition: xp("#patient/mood = 'low'"),
+				condition: eq(
+					{ kind: "form-case", caseType: "patient", property: "mood" },
+					literal("low"),
+				),
 				datums: [
-					{ name: "case_id", xpath: xp("'external-case'") },
-					{ name: "case_id_household", xpath: xp("'external-case'") },
+					{
+						name: { kind: "selected-case", module: CARE },
+						xpath: term(literal("external-case")),
+					},
+					{
+						name: { kind: "selected-case", module: HOUSEHOLDS },
+						xpath: term(literal("external-case")),
+					},
 				],
 			}),
 			context,

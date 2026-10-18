@@ -337,30 +337,8 @@ const USER_MESSAGE_BY_CODE: Record<
 			? `${q(ct)} is a reserved word, so it can't be a case type. Try something more specific, like ${q(`${ct}_record`)}.`
 			: 'That case type uses a reserved word. Try something more specific, like adding "_record".';
 	},
-	CASE_PROPERTY_XPATH_INCOMPATIBLE: () =>
-		"A case property rule uses logic the running app can't evaluate. Edit or remove that rule.",
-	XPATH_INSTANCE_UNAVAILABLE: () =>
-		"A formula reads Project data that isn't available here. Choose an available table or remove that reference.",
-	XPATH_UNBOUND_VARIABLE: () =>
-		"A formula reads a variable that isn't available here. Replace it with a field, case, worker, or Project data reference.",
-	XPATH_UNSUPPORTED_UNION: () =>
-		"A formula combines field sets in a way the running app can't evaluate. Rewrite it as one path or a supported condition.",
-	XPATH_UNSUPPORTED_DESCENDANT: () =>
-		"A formula searches through every nested level, which the running app can't evaluate. Name the full path instead.",
-	XPATH_UNSUPPORTED_FILTER: () =>
-		"A formula filters a calculated result in a way the running app can't evaluate. Move the condition onto a field path.",
-	XPATH_UNSUPPORTED_AXIS: () =>
-		"A formula follows a relationship the running app can't evaluate. Rewrite it with a direct field path.",
-	XPATH_UNSUPPORTED_NODE_TEST: () =>
-		"A formula selects fields in a way the running app can't evaluate. Rewrite it with a named field path.",
-	XPATH_UNSUPPORTED_PATH: () =>
-		"A formula uses a path the running app can't evaluate. Rewrite it with a direct field or data path.",
 	XPATH_CARRIER_CONTEXT_UNAVAILABLE: () =>
 		"An after-submit formula reads the form after it has closed. Save the value to a case property or read session data instead.",
-	XPATH_FUNCTION_UNAVAILABLE: () =>
-		"A formula calls a function that isn't available here. Choose a supported function or rewrite the formula.",
-	XPATH_FUNCTION_SIGNATURE_UNAVAILABLE: () =>
-		"A function in a formula has inputs the running app can't evaluate together. Adjust those inputs or rewrite the formula.",
 	XPATH_FUNCTION_CONTEXT_UNAVAILABLE: () =>
 		"A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.",
 	MISSING_CHILD_CASE_MODULE: (e) => {
@@ -391,8 +369,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		"That field-name change conflicts with another case-property change in the same save. Reload the app and make one unambiguous change.",
 	MUTATION_WIRE_CANONICALITY_INVALID: () =>
 		"That change was not represented exactly enough to save safely. Retry it so Nova can preserve every value as authored.",
-	CASE_PROPERTY_REFERENCE_INVALID: (e) =>
-		`${q(det(e, "caseType", "A case type"))}.${det(e, "property", "property")}'s ${det(e, "slot", "default")} setting contains a reference that isn't available there. Replace it with case, worker, or fixed information that exists in every form using this property.`,
 	CASE_PROPERTY_OPTION_VALUE_INVALID: (e) =>
 		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
 	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: (e) =>
@@ -840,7 +816,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} assigns a different case to a destination that opens on Search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination that opens on its case list.`,
 	FORM_LINK_DATUM_UNUSED: (e) =>
-		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a value named ${q(det(e, "datumName", ""))} that its destination never reads. Remove it, or rename it to one the destination needs.`,
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a case its destination no longer asks for. Remove that value, or choose a destination that needs it.`,
+	FORM_LINK_DATUM_TARGET_COLLISION: (e) =>
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries more than one value for the same selected case. You can keep one carried value for that case.`,
 	FORM_LINK_SELECTION_CARDINALITY: (e) =>
 		`${q(formName(e))} can't carry its complete case selection straight into that form. Send people to the destination's form list so they can choose again, or give both forms the same case selection and limit.`,
 	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: (e) =>
@@ -854,22 +832,36 @@ const USER_MESSAGE_BY_CODE: Record<
 			? `The Connect ID ${q(id)} in ${q(formName(e))} won't work. Use letters, numbers, and underscores, starting with a letter.`
 			: `The Connect ID ${q(id)} in ${q(formName(e))} needs a change. ${sentence}`;
 	},
-	CONNECT_EMPTY_XPATH: (e) =>
-		`A Connect setting on ${q(formName(e))} was left blank. Fill it in, or remove that piece.`,
-	CONNECT_UNQUOTED_XPATH: (e) =>
-		`A Connect setting on ${q(formName(e))} looks like text but isn't quoted. Wrap the value in single quotes.`,
 	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) =>
 		`${q(formName(e))} holds both a deliver unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in this form while the task is assigned. A task goes in a form of its own.`,
 	SESSION_DATUM_NOT_SUPPLIED: (e) => {
-		const datum = q(det(e, "datumId", "a value"));
-		const slot = det(e, "slot", "");
-		if (slot.startsWith("form_link_")) {
-			return `A link from ${q(formName(e))} reads ${datum} from the session, but no menu of this app supplies it, so it never holds a value. You can read a case property or the worker's own record instead.`;
+		const subject =
+			e.location.fieldUuid !== undefined
+				? q(fieldName(e))
+				: det(e, "carrier", "") === "form-link"
+					? `A link from ${q(formName(e))}`
+					: `A Connect setting of ${q(formName(e))}`;
+		const form = q(formName(e));
+		const alternative =
+			det(e, "carrier", "") === "form-link"
+				? "a case property or the worker's own record"
+				: "a question or a case property";
+		if (det(e, "reason", "") === "target-not-requested")
+			return `${subject} carries a selected record the destination no longer asks for. You can remove that carried value or choose another destination.`;
+		switch (det(e, "datumKind", "")) {
+			case "selected-case":
+				return `${subject} reads the case chosen in ${q(det(e, "datumModuleName", "that menu"))}, but ${form} no longer opens with that choice, so CommCare can't open the form. You can choose the case before this form, or read ${alternative} instead.`;
+			case "new-case":
+				return `${subject} reads the id of the case ${form} registers, but the form no longer registers one. You can read ${alternative} instead.`;
+			case "new-child-case":
+				return `${subject} reads the id of a new ${det(e, "datumCaseType", "child")} case, but this form no longer creates one shared case outside a repeat. You can read ${alternative} instead.`;
+			case "worker-record":
+				return `${subject} reads the id of the worker's own record, but ${form} no longer saves to it. You can read #user/ values instead.`;
+			case "tile-group-parents":
+				return `${subject} reads the grouped cases' connections, but the case list no longer groups its tiles. You can group the tiles again, or read a case property instead.`;
+			default:
+				return `${subject} reads a session value this form no longer opens with. You can read ${alternative} instead.`;
 		}
-		if (e.location.fieldUuid === undefined) {
-			return `A CommCare Connect setting of ${q(formName(e))} reads ${datum} from the session, but no menu of this app supplies it, so it never holds a value. You can read a question, a case property or the worker's own record instead.`;
-		}
-		return `${q(fieldName(e))} reads ${datum} from the session, but no menu of this app supplies it, so CommCare can't open ${q(formName(e))}. You can read a question, a case property or the worker's own record instead.`;
 	},
 	CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP: (e) => {
 		const property = det(e, "property", "that property");
@@ -976,6 +968,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`In ${q(formName(e))}, ${q(det(e, "fieldId", "a field"))} is inside a repeating section but saves to the worker's own record, which holds one answer rather than one per repeat. Move it out of the repeat.`,
 
 	// ── Field-level ──────────────────────────────────────────────────
+	SELECT_DEFAULT_NOT_AN_OPTION: (e) =>
+		`The starting value for ${q(fieldName(e))} is not one of its choices. Choose an available answer or clear the starting value.`,
 	SELECT_NO_OPTIONS: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with no choices yet. Add at least one.`,
 	SELECT_TOO_FEW_OPTIONS: (e) =>
@@ -994,8 +988,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} is hidden, so it can't be required, no one can fill it in. Turn off required, or make the field visible.`,
 	CALCULATE_ON_VISIBLE_INPUT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} has a calculated value, but only hidden fields can. On a visible field, whatever someone types gets ignored. Move it to a hidden field, or drop the calculation.`,
-	UNQUOTED_STRING_LITERAL: (e) =>
-		`A formula on ${q(fieldName(e))} in ${q(formName(e))} looks like plain text. If you meant the words ${q(det(e, "bareWord", ""))}, put quotes around them.`,
 	VALIDATION_ON_NON_INPUT_KIND: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} can't have a validation rule, only fields people answer can. Remove it, or change the field's type.`,
 	REPEAT_COUNT_TYPE: (e) =>
@@ -1030,13 +1022,9 @@ const USER_MESSAGE_BY_CODE: Record<
 			: `${q(fieldName(e))} in ${q(formName(e))} filters its choices with a month or year calculation that isn't available here. Use seconds, minutes, hours, days, or weeks.`,
 
 	// ── XPath / formula deep validation ──────────────────────────────
-	XPATH_SYNTAX: (e) =>
-		`A formula on ${q(fieldName(e))} in ${q(formName(e))} can't be read. Check for unbalanced parentheses or stray characters.`,
-	UNKNOWN_FUNCTION: (e) =>
-		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses a function that doesn't exist. Double-check the spelling.`,
-	WRONG_ARITY: (e) =>
-		`A formula on ${q(fieldName(e))} in ${q(formName(e))} gives a function the wrong number of inputs. Check how many it expects.`,
 	INVALID_REF: (e) => {
+		if (e.details?.identity === "choice")
+			return `A formula on ${q(fieldName(e))} in ${q(formName(e))} uses a choice that ${q(det(e, "choiceFieldName", "that question"))} no longer has. You can choose one of its current choices.`;
 		if (e.details?.ref !== "/data")
 			return `A formula on ${q(fieldName(e))} in ${q(formName(e))} points to a field that isn't here. Check for a typo, or a field that was renamed or removed.`;
 		/* A Connect setting's formula belongs to the form, not a field. */

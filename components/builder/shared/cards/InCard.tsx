@@ -6,28 +6,29 @@
 // suppresses the "remove" affordance on the last remaining row.
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { effectiveDataType } from "@/lib/domain";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	acceptsType,
 	compatibleTypesFor,
+	type Expression,
 	inSubjectConstraint,
 	inValueConstraint,
 	isIn,
 	type Literal,
 	literal,
 	literalType,
-	type Predicate,
 	prop,
-	type ResolvedType,
+	type ScalarType,
 	sessionContext,
 	tableColumn,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	useEditorErrorsAt,
 	usePredicateEditContext,
@@ -44,6 +45,7 @@ import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { LiteralValueInput } from "../primitives/LiteralValueInput";
+import { isLiteralList } from "../recordCardShape";
 import { useStableListIdentity } from "../useStableListIdentity";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 import {
@@ -52,9 +54,7 @@ import {
 	seedLiteralForProperty,
 } from "./reseed";
 
-export function inDefault(
-	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "in" }> {
+export function inDefault(ctx: PredicateEditContext): ExpressionOfKind<"in"> {
 	const subjectConstraint = inSubjectConstraint();
 	if (tableRowInScope(ctx)) {
 		const column = ctx.tableScope?.columns.find((candidate) =>
@@ -92,12 +92,33 @@ export function inDefault(
 }
 
 interface InCardProps {
-	readonly value: Extract<Predicate, { kind: "in" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"in">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
-export function InCard({ value, onChange, path }: InCardProps) {
+export function InCard(props: InCardProps) {
+	if (!isLiteralList(props.value.values))
+		return (
+			<p role="status">This saved expression cannot be edited here yet.</p>
+		);
+	return (
+		<EditableInCard
+			{...props}
+			value={{ ...props.value, values: props.value.values }}
+		/>
+	);
+}
+
+function EditableInCard({
+	value,
+	onChange,
+	path,
+}: Omit<InCardProps, "value"> & {
+	readonly value: Omit<InCardProps["value"], "values"> & {
+		readonly values: [Literal, ...Literal[]];
+	};
+}) {
 	const ctx = usePredicateEditContext();
 	const rowIdentity = useStableListIdentity(value.values);
 
@@ -118,7 +139,7 @@ export function InCard({ value, onChange, path }: InCardProps) {
 	const valueAccepts =
 		valueConstraint.accepts === "any" ? undefined : valueConstraint.accepts;
 
-	const setLeft = (left: ValueExpression) => {
+	const setLeft = (left: Expression) => {
 		const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
 		const reseeded = value.values.map((item) =>
 			accepts.has(literalType(item))
@@ -230,7 +251,7 @@ function ValueRow({
 	readonly isOnlyOne: boolean;
 	readonly caseTypeName: string;
 	readonly propertyName: string | undefined;
-	readonly accepts: ReadonlySet<ResolvedType> | undefined;
+	readonly accepts: ReadonlySet<ScalarType> | undefined;
 	readonly indexPath: EditorPath;
 }) {
 	const errors = useEditorErrorsAt(indexPath);

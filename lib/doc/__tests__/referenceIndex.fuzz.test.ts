@@ -21,7 +21,14 @@ import {
 	canonicalProseTemplate,
 	plainColumn,
 } from "@/lib/domain";
-import { eq, formField, literal, prop, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	formField,
+	literal,
+	neq,
+	prop,
+	term,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -76,12 +83,7 @@ function seedDoc(): BlueprintDoc {
 								uuid: WATCHER,
 								kind: "text",
 								id: "watcher",
-								relevant: {
-									parts: [
-										{ kind: "field-ref", uuid: A },
-										{ kind: "text", text: " != ''" },
-									],
-								},
+								relevant: neq(formField(A), literal("")),
 							}),
 							f({
 								uuid: SELECT,
@@ -148,14 +150,7 @@ function lower(doc: BlueprintDoc, { kind, pick }: Op): Mutation[] {
 					targetKind: "text",
 					patch: {
 						relevant:
-							pick === 2
-								? null
-								: {
-										parts: [
-											{ kind: "field-ref", uuid: fieldUuid },
-											{ kind: "text", text: " != ''" },
-										],
-									},
+							pick === 2 ? null : neq(formField(fieldUuid), literal("")),
 					},
 				},
 			];
@@ -252,12 +247,7 @@ function lower(doc: BlueprintDoc, { kind, pick }: Op): Mutation[] {
 								label: canonicalProseTemplate([
 									{ kind: "case-ref", caseType: "patient", property },
 								]),
-								relevant: {
-									parts: [
-										{ kind: "field-ref", uuid: fieldUuid },
-										{ kind: "text", text: " != ''" },
-									],
-								},
+								relevant: neq(formField(fieldUuid), literal("")),
 							},
 						},
 					]

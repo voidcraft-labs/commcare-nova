@@ -1,7 +1,7 @@
 // components/builder/shared/primitives/ExpressionPicker.tsx
 //
-// Recursive dispatch shell for a single ValueExpression node, the
-// ValueExpression-side analogue of `cards/ChildPredicateEditor.tsx`.
+// Recursive dispatch shell for a single Expression node, the
+// Expression-side analogue of `cards/ChildPredicateEditor.tsx`.
 // Looks up the schema entry for `value.kind`, delegates rendering to
 // the matched card, and frames the card with a kind-replacing menu
 // so authors can swap an expression's discriminator without
@@ -11,8 +11,8 @@
 // card that holds a nested value slot (`arith.left` / `right`,
 // `date-add.date` / `quantity`, `concat.parts[i]`, `coalesce.values[i]`,
 // `if.then` / `else`, `switch.on` / `cases[i].then` / `fallback`,
-// `count.where` is a Predicate slot: that uses ChildPredicateEditor).
-// The Predicate-side cards (ComparisonCard.right, BetweenCard's bound
+// `count.where` is a Expression slot: that uses ChildPredicateEditor).
+// The Expression-side cards (ComparisonCard.right, BetweenCard's bound
 // editors, MatchCard's value, WithinDistanceCard's center) ALSO mount
 // this shell at their value slots; both editors share one type-check
 // context via the `usePredicateEditContext` provider, so the shell
@@ -27,7 +27,7 @@
 // sources the same way, so no sequence of picker choices can author a
 // type the checker would reject.
 //
-// Structure preservation is explicit: every current ValueExpression
+// Structure preservation is explicit: every current Expression
 // kind has a card, and the kind-replace menu carries compatible
 // operands (the unary coercions and ordered value lists) so an
 // intentional kind swap does not drop authored content.
@@ -42,6 +42,7 @@
 // expressible inline).
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import { useCallback, useRef, useState } from "react";
@@ -65,6 +66,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { effectiveDataType } from "@/lib/domain";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	ANY_CONSTRAINT,
 	acceptsType,
@@ -72,6 +74,7 @@ import {
 	coalesce,
 	dateAdd,
 	dateAddOperandConstraint,
+	type Expression,
 	formField,
 	ifExpr,
 	input,
@@ -84,8 +87,7 @@ import {
 	switchExpr,
 	tableColumn,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { hasCountableRelation } from "../cards/expression/CountCard";
 import { tableLookupDefault } from "../cards/expression/TableLookupCard";
 import {
@@ -94,18 +96,21 @@ import {
 } from "../cards/expression/TermCard";
 import { reseedValueForConstraint } from "../cards/reseed";
 import {
-	buildEditorTypeContext,
+	editorExpressionContext,
 	useEditorErrorsAt,
 	useEditorErrorsBelow,
 	useExpressionFocusTarget,
 	usePredicateEditContext,
+	WithExpressionContext,
 } from "../editorContext";
 import {
+	type CardValueKind,
 	type ExpressionCardSchema,
 	type ExpressionEditContext,
 	expressionCardSchemaList,
 	expressionCardSchemas,
 	isAuthorableExpressionKind,
+	isCardValue,
 } from "../expressionEditorSchemas";
 import { planPreservedExpressionReplacement } from "../expressionReplacement";
 import type { EditorPath } from "../path";
@@ -120,8 +125,8 @@ import type { ReorderKeyboardKey } from "../useReorderableList";
 import { CardShell, InlineError, PredicateRowShell } from "./CardShell";
 
 interface ExpressionPickerProps {
-	readonly value: ValueExpression;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: Expression;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 	/**
 	 * The type constraint on this slot: the kinds whose result can
@@ -161,7 +166,7 @@ interface ExpressionPickerProps {
 	readonly reorderLabel?: string;
 }
 
-function termSourceLabel(value: Extract<ValueExpression, { kind: "term" }>) {
+function termSourceLabel(value: ExpressionOfKind<"term">) {
 	switch (value.term.kind) {
 		case "prop":
 			return "property";
@@ -176,16 +181,31 @@ function termSourceLabel(value: Extract<ValueExpression, { kind: "term" }>) {
 			return "form answer";
 		case "literal":
 			return "value";
+		default:
+			return "saved information";
 	}
 }
 
 /**
- * Render one ValueExpression as a card. Looks up the registry entry
+ * Render one Expression as a card. Looks up the registry entry
  * by `value.kind` and dispatches to the matching card component;
  * routes operator-level errors (path === self) to the shell's error
  * footer; passes a kind-replacing menu in the kebab.
  */
-export function ExpressionPicker({
+export function ExpressionPicker(props: ExpressionPickerProps) {
+	if (!isCardValue(props.value)) {
+		return (
+			<div role="status">This saved expression cannot be edited here yet.</div>
+		);
+	}
+	return (
+		<WithExpressionContext path={props.path}>
+			<ExpressionPickerBody {...props} value={props.value} />
+		</WithExpressionContext>
+	);
+}
+
+function ExpressionPickerBody({
 	value,
 	onChange,
 	path,
@@ -196,7 +216,9 @@ export function ExpressionPicker({
 	dragHandleRef,
 	onMove,
 	reorderLabel,
-}: ExpressionPickerProps) {
+}: ExpressionPickerProps & {
+	readonly value: ExpressionOfKind<CardValueKind>;
+}) {
 	const operatorErrors = useEditorErrorsAt(path);
 	const descendantErrors = useEditorErrorsBelow(path);
 	const focus = useRuleFocusContext();
@@ -206,13 +228,13 @@ export function ExpressionPicker({
 	const { resolve: resolveExpressionFocusTarget, focusAfterReplacement } =
 		useExpressionFocusTarget(path);
 	const [pendingTermReplacement, setPendingTermReplacement] = useState<{
-		readonly source: Extract<ValueExpression, { kind: "term" }>;
-		readonly target: ExpressionCardSchema<ValueExpression["kind"]>;
+		readonly source: ExpressionOfKind<"term">;
+		readonly target: ExpressionCardSchema<CardValueKind>;
 	} | null>(null);
 	const schema = expressionCardSchemas[value.kind];
 	const Component = schema.component as React.ComponentType<{
-		value: ValueExpression;
-		onChange: (next: ValueExpression) => void;
+		value: Expression;
+		onChange: (next: Expression) => void;
 		path: EditorPath;
 		constraint?: SlotConstraint;
 	}>;
@@ -255,6 +277,7 @@ export function ExpressionPicker({
 	// value slot renders the bare controls.
 	if (value.kind === "term") {
 		const editCtx: ExpressionEditContext = {
+			expressionContext: ctx.expressionContext,
 			caseTypes: ctx.caseTypes,
 			currentCaseType: ctx.currentCaseType,
 			knownInputs: ctx.knownInputs,
@@ -266,7 +289,7 @@ export function ExpressionPicker({
 			ownerValues: ctx.ownerValues,
 			evaluationTarget: ctx.evaluationTarget,
 		};
-		const typeCtx = buildEditorTypeContext(ctx);
+		const typeCtx = editorExpressionContext(ctx);
 		const pendingTermSourceLabel = termSourceLabel(
 			pendingTermReplacement?.source ?? value,
 		);
@@ -469,14 +492,14 @@ export function ExpressionPicker({
 }
 
 interface KindReplaceMenuProps {
-	readonly currentValue: ValueExpression;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly currentValue: ExpressionOfKind<CardValueKind>;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 	readonly constraint: SlotConstraint;
 	readonly presentation: "value" | "subject";
 }
 
-/** Pick a working Term seed for this slot. Predicate subjects prefer a
+/** Pick a working Term seed for this slot. Expression subjects prefer a
  * property so the common condition remains compact and meaningful; typed
  * slots fall back through a matching search input, session information,
  * then a checker-compatible literal. */
@@ -484,7 +507,7 @@ function termSeedForSlot(
 	ctx: ExpressionEditContext,
 	constraint: SlotConstraint,
 	presentation: "value" | "subject",
-): ValueExpression {
+): Expression {
 	// A `nonEmpty` slot DECLARES that an empty string is invalid in it:
 	// a case name, a rename, an explicit owner, all of which CommCare
 	// refuses blank. Seeding `literal("")` there offers a choice the
@@ -549,7 +572,7 @@ function termSeedForSlot(
 }
 
 function expressionSeedContextAdmission(
-	kind: ValueExpression["kind"],
+	kind: CardValueKind,
 	ctx: ExpressionEditContext,
 	constraint: SlotConstraint,
 ):
@@ -587,12 +610,12 @@ function expressionSeedContextAdmission(
  * Exported so an invariant test can drive the EXACT value a kind menu
  * would commit, rather than the registry default the menu never uses on
  * its own. */
-export function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
+export function defaultExpressionForSlot<K extends CardValueKind>(
 	schema: ExpressionCardSchema<K>,
 	ctx: ExpressionEditContext,
 	constraint: SlotConstraint,
 	presentation: "value" | "subject",
-): ValueExpression {
+): Expression {
 	if (schema.kind === "term") {
 		return termSeedForSlot(ctx, constraint, presentation);
 	}
@@ -602,7 +625,7 @@ export function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
 
 	// Widen the generic registry return to the discriminated union so the
 	// kind checks below narrow the corresponding AST arm normally.
-	const seed: ValueExpression = schema.defaultValue(ctx);
+	const seed: Expression = schema.defaultValue(ctx);
 	const branchSeed = () => termSeedForSlot(ctx, constraint, "value");
 
 	if (seed.kind === "if") {
@@ -671,11 +694,12 @@ function KindReplaceMenu({
 		[registerExpressionFocusTarget],
 	);
 	const [pendingReplacement, setPendingReplacement] = useState<{
-		readonly source: ValueExpression;
-		readonly target: ExpressionCardSchema<ValueExpression["kind"]>;
+		readonly source: ExpressionOfKind<CardValueKind>;
+		readonly target: ExpressionCardSchema<CardValueKind>;
 	} | null>(null);
 	const ctx = usePredicateEditContext();
 	const editCtx: ExpressionEditContext = {
+		expressionContext: ctx.expressionContext,
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
@@ -687,7 +711,7 @@ function KindReplaceMenu({
 		ownerValues: ctx.ownerValues,
 		evaluationTarget: ctx.evaluationTarget,
 	};
-	const typeCtx = buildEditorTypeContext(ctx);
+	const typeCtx = editorExpressionContext(ctx);
 	const currentKind = currentValue.kind;
 	const pendingSourceLabel =
 		pendingReplacement === null
@@ -695,9 +719,7 @@ function KindReplaceMenu({
 			: expressionCardSchemas[pendingReplacement.source.kind].label;
 	const pendingTargetLabel = pendingReplacement?.target.label ?? "new value";
 
-	const requestReplacement = (
-		schema: ExpressionCardSchema<ValueExpression["kind"]>,
-	) => {
+	const requestReplacement = (schema: ExpressionCardSchema<CardValueKind>) => {
 		const preserved = planPreservedExpressionReplacement(
 			currentValue,
 			schema.kind,

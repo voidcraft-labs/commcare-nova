@@ -3,7 +3,7 @@
 // Pure conversions between a geopoint field's wire value and a typed
 // coordinate. The wire value is CommCare's space-separated
 // "lat lon alt accuracy" string (see `GEOPOINT_PATTERN` in
-// `lib/domain/predicate/jsonSchema.ts`): exactly four decimals, or
+// `lib/domain/expression/jsonSchema.ts`): exactly four decimals, or
 // empty. The picker UI works in the typed `GeoPoint` shape and only
 // touches the string at the engine boundary, so all the parsing /
 // formatting lives here where it can be unit-tested without a DOM.

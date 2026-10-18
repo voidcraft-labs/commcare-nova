@@ -14,7 +14,7 @@ import {
 	literal,
 	prop,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { FormEngineInput } from "@/lib/preview/engine/formEngine";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 
@@ -221,6 +221,7 @@ export function caseChoiceInput(
 	form = choiceUuid("directory"),
 ): FormEngineInput {
 	return {
+		doc,
 		formUuid: form,
 		form: doc.forms[form],
 		fields: doc.fields,

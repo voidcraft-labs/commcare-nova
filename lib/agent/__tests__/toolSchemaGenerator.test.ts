@@ -10,8 +10,8 @@
 // which keeps them robust to Zod's serialization choices.
 
 import { describe, expect, it } from "vitest";
-import { xp } from "@/lib/__tests__/docHelpers";
 import { fieldKinds } from "@/lib/domain";
+import { ifExpr, literal, term, today } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	generateToolSchemas,
@@ -33,7 +33,7 @@ const retiredCaseWriteKey = ["case", "property", "on"].join("_");
 function validAddPayload(kind: string): Record<string, unknown> {
 	const p: Record<string, unknown> = { id: `f_${kind}`, kind };
 	if (kind === "hidden") {
-		p.calculate = xp("today()");
+		p.calculate = today();
 	} else if (kind === "repeat") {
 		p.label = proseText("Repeat");
 		p.repeat = { mode: "user_controlled" };
@@ -175,7 +175,11 @@ describe("toolSchemaGenerator", () => {
 		expect(
 			generated.addFieldsItemSchema.safeParse({
 				...base,
-				calculate: xp("if(1, 'a', 'b')"),
+				calculate: ifExpr(
+					term(literal(1)),
+					term(literal("a")),
+					term(literal("b")),
+				),
 			}).success,
 		).toBe(false);
 		// Same for a text field.
@@ -184,7 +188,7 @@ describe("toolSchemaGenerator", () => {
 				id: "t",
 				kind: "text",
 				label: proseText("T"),
-				calculate: xp("1"),
+				calculate: term(literal(1)),
 			}).success,
 		).toBe(false);
 	});
@@ -193,7 +197,11 @@ describe("toolSchemaGenerator", () => {
 		for (const kind of ["single_select", "multi_select", "barcode"] as const) {
 			const payload = {
 				...validAddPayload(kind),
-				default_value: xp("#patient/x"),
+				default_value: term({
+					kind: "form-case",
+					caseType: "patient",
+					property: "x",
+				}),
 			};
 			expect(
 				generated.addFieldsItemSchema.safeParse(payload).success,
@@ -208,7 +216,7 @@ describe("toolSchemaGenerator", () => {
 			generated.addFieldsItemSchema.safeParse({
 				id: "h",
 				kind: "hidden",
-				calculate: xp("today()"),
+				calculate: today(),
 				label: proseText("nope"),
 			}).success,
 		).toBe(false);
@@ -217,14 +225,14 @@ describe("toolSchemaGenerator", () => {
 			generated.addFieldsItemSchema.safeParse({
 				id: "h",
 				kind: "hidden",
-				calculate: xp("today()"),
+				calculate: today(),
 			}).success,
 		).toBe(true);
 		expect(
 			generated.addFieldsItemSchema.safeParse({
 				id: "h",
 				kind: "hidden",
-				default_value: xp("today()"),
+				default_value: today(),
 			}).success,
 		).toBe(true);
 	});
@@ -236,8 +244,8 @@ describe("toolSchemaGenerator", () => {
 		const added = generated.addFieldsItemSchema.safeParse({
 			id: "h",
 			kind: "hidden",
-			calculate: xp("today()"),
-			default_value: xp("today()"),
+			calculate: today(),
+			default_value: today(),
 		});
 		expect(added.success).toBe(false);
 		if (added.success) throw new Error("expected rejection");
@@ -250,8 +258,8 @@ describe("toolSchemaGenerator", () => {
 
 		const edited = generated.editFieldUpdatesSchema.safeParse({
 			kind: "hidden",
-			calculate: xp("today()"),
-			default_value: xp("today()"),
+			calculate: today(),
+			default_value: today(),
 		});
 		expect(edited.success).toBe(false);
 		if (edited.success) throw new Error("expected rejection");
@@ -264,7 +272,7 @@ describe("toolSchemaGenerator", () => {
 		expect(
 			generated.editFieldUpdatesSchema.safeParse({
 				kind: "hidden",
-				calculate: xp("today()"),
+				calculate: today(),
 				default_value: null,
 			}).success,
 		).toBe(true);
@@ -272,14 +280,14 @@ describe("toolSchemaGenerator", () => {
 			generated.editFieldUpdatesSchema.safeParse({
 				kind: "hidden",
 				calculate: null,
-				default_value: xp("today()"),
+				default_value: today(),
 			}).success,
 		).toBe(true);
 		// A visible kind with a default_value is untouched by the hidden rule.
 		expect(
 			generated.editFieldUpdatesSchema.safeParse({
 				kind: "text",
-				default_value: xp("today()"),
+				default_value: today(),
 			}).success,
 		).toBe(true);
 	});
@@ -298,7 +306,7 @@ describe("toolSchemaGenerator", () => {
 			generated.addFieldsItemSchema.safeParse({
 				id: "h",
 				kind: "hidden",
-				calculate: xp("1"),
+				calculate: term(literal(1)),
 				label: proseText(""),
 			}).success,
 		).toBe(false);
@@ -322,7 +330,7 @@ describe("toolSchemaGenerator", () => {
 		// count_bound REQUIRES count; query_bound REQUIRES ids_query.
 		expect(
 			generated.addFieldsItemSchema.safeParse(
-				repeatPayload({ mode: "count_bound", count: xp("3") }),
+				repeatPayload({ mode: "count_bound", count: term(literal(3)) }),
 			).success,
 		).toBe(true);
 		expect(
@@ -332,7 +340,7 @@ describe("toolSchemaGenerator", () => {
 		).toBe(false);
 		expect(
 			generated.addFieldsItemSchema.safeParse(
-				repeatPayload({ mode: "query_bound", ids_query: xp("#form/ids") }),
+				repeatPayload({ mode: "query_bound", ids_query: term(literal("ids")) }),
 			).success,
 		).toBe(true);
 		expect(
@@ -365,7 +373,7 @@ describe("toolSchemaGenerator", () => {
 		expect(
 			generated.editFieldUpdatesSchema.safeParse({
 				kind: "single_select",
-				calculate: xp("1"),
+				calculate: term(literal(1)),
 			}).success,
 		).toBe(false);
 		// Clearable keys accept `null` to reset.

@@ -21,7 +21,7 @@ import {
 	matchAll,
 	tableLookup,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { seedAppTest } from "@/lib/preview/app-tests/seed";

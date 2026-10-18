@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { xp } from "@/lib/__tests__/docHelpers";
+import { arith, literal, term } from "@/lib/domain/expression/builders";
 import {
 	activeHiddenValueMode,
 	HIDDEN_VALUE_EMPTY_PATCH,
@@ -18,8 +18,8 @@ import {
 	hiddenValueSavePatch,
 } from "../hiddenValueModel";
 
-const calc = xp("1 + 1");
-const seed = xp("'x'");
+const calc = arith("+", term(literal(1)), term(literal(1)));
+const seed = term(literal("x"));
 
 describe("activeHiddenValueMode", () => {
 	it("is keep in step when only a calculation is stored", () => {
@@ -65,8 +65,11 @@ describe("hiddenValueSavePatch", () => {
 	});
 	it("saving on a historical both-present field clears the dead default", () => {
 		const field = { calculate: calc, default_value: seed };
-		const patch = hiddenValueSavePatch(activeHiddenValueMode(field), xp("2"));
-		expect(patch).toEqual({ calculate: xp("2"), default_value: null });
+		const patch = hiddenValueSavePatch(
+			activeHiddenValueMode(field),
+			term(literal(2)),
+		);
+		expect(patch).toEqual({ calculate: term(literal(2)), default_value: null });
 	});
 });
 

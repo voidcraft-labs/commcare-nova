@@ -8,7 +8,7 @@
 // picker. Four copies of a CommCare runtime fact is exactly how a
 // carrier gets forgotten, which is what happened to case operations.
 
-import type { MatchMode } from "@/lib/domain/predicate";
+import type { MatchMode } from "@/lib/domain/expression";
 
 /**
  * The modes CommCare's own XPath evaluator implements. Exactly one.

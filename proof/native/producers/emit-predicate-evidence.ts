@@ -2,8 +2,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { testUuid } from "../../../__tests__/helpers/uuid";
+import { buildDoc, caseListConfig } from "../../../lib/__tests__/docHelpers";
+import { requireExpressionContext } from "../../../lib/commcare/expressionContext";
 import { toWire } from "../../../lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "../../../lib/commcare/xpath/wire/serialize";
+import { advancedSearchInputDef, proseText } from "../../../lib/domain";
 import {
 	ancestorPath,
 	and,
@@ -40,11 +43,11 @@ import {
 	term,
 	whenInput,
 	within,
-} from "../../../lib/domain/predicate/builders";
+} from "../../../lib/domain/expression/builders";
 import {
-	type Predicate,
-	predicateSchema,
-} from "../../../lib/domain/predicate/types";
+	conditionSchema,
+	type Expression,
+} from "../../../lib/domain/expression/types";
 
 const output = process.argv[2];
 if (!output)
@@ -53,22 +56,83 @@ if (!output)
 	);
 mkdirSync(output, { recursive: true });
 const query = testUuid("predicate-native-query");
+const moduleUuid = testUuid("predicate-native-module");
+const doc = buildDoc({
+	caseTypes: [
+		{
+			name: "household",
+			properties: [
+				{ name: "region", label: proseText("Region"), data_type: "text" },
+			],
+		},
+		{
+			name: "patient",
+			parent_type: "household",
+			properties: [
+				...["empty", "full_name", "tags", "region", "username"].map((name) => ({
+					name,
+					label: proseText(name),
+					data_type: "text" as const,
+				})),
+				{ name: "age", label: proseText("Age"), data_type: "int" },
+				{ name: "active", label: proseText("Active"), data_type: "text" },
+				{
+					name: "location",
+					label: proseText("Location"),
+					data_type: "geopoint",
+				},
+			],
+		},
+		{
+			name: "visit",
+			parent_type: "patient",
+			properties: [
+				{ name: "outcome", label: proseText("Outcome"), data_type: "text" },
+				{ name: "rating", label: proseText("Rating"), data_type: "int" },
+			],
+		},
+	],
+	modules: [
+		{
+			uuid: moduleUuid,
+			name: "Patients",
+			caseType: "patient",
+			caseListConfig: {
+				...caseListConfig([]),
+				searchInputs: [
+					advancedSearchInputDef(query, "query", "Query", "text", matchAll()),
+				],
+			},
+			forms: [],
+		},
+	],
+});
 const rows: string[] = [];
 const b64 = (value: string) => Buffer.from(value).toString("base64");
 function probe(
 	id: string,
-	predicate: Predicate,
+	predicate: Expression,
 	expected: boolean,
 	location = "40.7 -74.0",
 	queryPresent = true,
 ) {
-	predicateSchema.parse(predicate);
+	conditionSchema.parse(predicate);
+	const config = doc.modules[moduleUuid].caseListConfig;
+	if (config === undefined)
+		throw new Error("The predicate fixture has no case list.");
+	doc.modules[moduleUuid].caseListConfig = {
+		...config,
+		filter: predicate,
+	};
+	const types = requireExpressionContext(doc, {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_filter",
+	});
 	const xpath = serializeWire(
 		toWire(predicate, {
 			target: "suite",
-			types: {
-				knownInputs: [{ uuid: query, name: "query", data_type: "text" }],
-			},
+			types,
 		}),
 		{ target: "suite" },
 	).text;
@@ -232,8 +296,8 @@ probe("missing-self", missing(selfPath()), false);
 probe(
 	"either-direction",
 	exists(
-		anyRelationPath("parent"),
-		eq(prop("patient", "region"), literal("south")),
+		anyRelationPath("parent", "household"),
+		eq(prop("household", "region"), literal("south")),
 	),
 	true,
 );

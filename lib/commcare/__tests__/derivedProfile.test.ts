@@ -11,7 +11,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, simpleSearchInputDef } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../validator/runner";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";

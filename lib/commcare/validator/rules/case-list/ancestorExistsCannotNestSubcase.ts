@@ -77,20 +77,21 @@ import {
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
-import type {
-	Predicate,
-	RelationPath,
-	TypeContext,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+import {
+	type Expression,
+	type ExpressionContext,
+	isRelationPath,
+	type RelationPath,
+	slotContext,
+} from "@/lib/domain/expression";
 import {
 	normalizeRelationEvaluationScopes,
 	RelationEvaluationScopeError,
-} from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
-import { normalizeRelationPropertyReads as liftPropertyVias } from "@/lib/domain/predicate/normalizeRelationReads";
+} from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import { normalizeRelationPropertyReads as liftPropertyVias } from "@/lib/domain/expression/normalizeRelationReads";
 import { type ValidationError, validationError } from "../../errors";
 import type { LookupTypeIndex } from "../../lookupTypeContext";
-import { moduleTypeContext } from "./shared";
+import { relationEvaluationContext } from "./shared";
 
 type AncestorEnvelopeKind = "exists" | "missing";
 
@@ -100,7 +101,7 @@ interface NestedWalkFinding {
 	/**
 	 * `envelope-exists` / `envelope-missing` — a subcase `exists` /
 	 * `missing` predicate nested inside the ancestor filter.
-	 * `count` — a `count(via=subcase, ...)` ValueExpression nested in
+	 * `count` — a `count(via=subcase, ...)` Expression nested in
 	 * a comparison operand inside the ancestor filter. CCHQ's
 	 * `_validate_ancestor_exists_filter` rejects both shapes per its
 	 * `FunctionCall(name='subcase-exists')` / `FunctionCall(name='subcase-count')`
@@ -116,12 +117,16 @@ export function ancestorExistsCannotNestSubcase(
 	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const ctx = moduleTypeContext(mod, doc, lookupTables);
 	if (effectiveCaseSearchConfig(mod) === undefined) return errors;
 
 	const filter = mod.caseListConfig?.filter;
 	if (filter !== undefined) {
-		const findings = scanPredicate(filter, ctx);
+		const ctx = slotContext(
+			doc,
+			{ entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
+			lookupTables ?? new Map(),
+		);
+		const findings = ctx === undefined ? [] : scanPredicate(filter, ctx);
 		for (const finding of findings) {
 			errors.push(
 				buildError({
@@ -139,7 +144,18 @@ export function ancestorExistsCannotNestSubcase(
 	for (let i = 0; i < inputs.length; i++) {
 		const input = inputs[i];
 		if (input.kind !== "advanced") continue;
-		const findings = scanPredicate(input.predicate, ctx);
+		const ctx = slotContext(
+			doc,
+			{
+				entity: "module",
+				uuid: moduleUuid,
+				slot: "search_input_predicate",
+				member: { searchInputUuid: input.uuid },
+			},
+			lookupTables ?? new Map(),
+		);
+		const findings =
+			ctx === undefined ? [] : scanPredicate(input.predicate, ctx);
 		for (const finding of findings) {
 			errors.push(
 				buildError({
@@ -169,12 +185,15 @@ export function ancestorExistsCannotNestSubcase(
  * trips the rule.
  */
 function scanPredicate(
-	predicate: Predicate,
-	ctx: TypeContext,
+	predicate: Expression,
+	ctx: ExpressionContext,
 ): NestedWalkFinding[] {
-	let normalized: Predicate;
+	let normalized: Expression;
 	try {
-		normalized = normalizeRelationEvaluationScopes(predicate, ctx);
+		normalized = normalizeRelationEvaluationScopes(
+			predicate,
+			relationEvaluationContext(ctx),
+		);
 	} catch (error) {
 		// The on-device/relation-scope compatibility rule owns the friendlier
 		// repair for mixed or unrebasable row scopes. Do not turn one authored
@@ -183,7 +202,7 @@ function scanPredicate(
 		throw error;
 	}
 	const lifted = liftPropertyVias(normalized, {
-		caseTypes: ctx.caseTypes,
+		...relationEvaluationContext(ctx),
 		unsupportedPropertyOperands: "throw",
 	});
 	const findings: NestedWalkFinding[] = [];
@@ -200,7 +219,7 @@ function scanPredicate(
  * one graph-proven direction have already become `ancestor` or `subcase`, so
  * this does not reject a child-only predicate because of an impossible arm.
  */
-function walkOuter(p: Predicate, findings: NestedWalkFinding[]): void {
+function walkOuter(p: Expression, findings: NestedWalkFinding[]): void {
 	switch (p.kind) {
 		case "exists":
 		case "missing": {
@@ -247,12 +266,8 @@ function walkOuter(p: Predicate, findings: NestedWalkFinding[]): void {
 		case "multi-select-contains":
 		case "within-distance":
 			return;
-		default: {
-			const _exhaustive: never = p;
-			throw new Error(
-				`ancestorExistsCannotNestSubcase: unhandled predicate kind ${String(_exhaustive)}`,
-			);
-		}
+		default:
+			return;
 	}
 }
 
@@ -278,7 +293,7 @@ function walkOuter(p: Predicate, findings: NestedWalkFinding[]): void {
  * rationale.
  */
 function walkInsideAncestor(
-	p: Predicate,
+	p: Expression,
 	outerKind: AncestorEnvelopeKind,
 	findings: NestedWalkFinding[],
 ): void {
@@ -350,8 +365,8 @@ function walkInsideAncestor(
 		case "within-distance":
 			scanExpressionInsideAncestor(p.center, outerKind, findings);
 			return;
-		// Operators with no operand-side ValueExpression slot, or
-		// operators whose ValueExpression slot is a closed
+		// Operators with no operand-side Expression slot, or
+		// operators whose Expression slot is a closed
 		// `literal`-only tuple (`multi-select-contains.values`) /
 		// constrained shape (`match.value` is term-arm only per the
 		// type checker, and any `count` inside would have been lifted
@@ -362,17 +377,13 @@ function walkInsideAncestor(
 		case "match":
 		case "multi-select-contains":
 			return;
-		default: {
-			const _exhaustive: never = p;
-			throw new Error(
-				`ancestorExistsCannotNestSubcase: unhandled predicate kind in inner walk ${String(_exhaustive)}`,
-			);
-		}
+		default:
+			return;
 	}
 }
 
 /**
- * Scan a ValueExpression operand sitting inside an ancestor envelope
+ * Scan a Expression operand sitting inside an ancestor envelope
  * for a `count(via=subcase, ...)` shape. CCHQ's
  * `_validate_ancestor_exists_filter` rejects `subcase-count` calls
  * the same way it rejects `subcase-exists`. The CSQL emitter only
@@ -387,11 +398,11 @@ function walkInsideAncestor(
  * surfaces its own findings.
  */
 function scanExpressionInsideAncestor(
-	expr: ValueExpression,
+	expr: Expression,
 	outerKind: AncestorEnvelopeKind,
 	findings: NestedWalkFinding[],
 ): void {
-	if (expr.kind !== "count") return;
+	if (expr.kind !== "count" || !isRelationPath(expr.via)) return;
 	if (isSubcaseDirection(expr.via)) {
 		findings.push({
 			outerKind,

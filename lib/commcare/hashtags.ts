@@ -10,9 +10,10 @@
  * (HQ's app summary reads that map, `app_schemas/app_case_metadata.py`) —
  * never as Nova's per-case-type namespaces, which the editor cannot parse.
  */
-import { parser } from "@/lib/commcare/xpath";
+
 import { emitCasePropertyWirePath } from "./casePropertyWire";
 import { USERCASE_CASE_SELECTOR } from "./usercaseWire";
+import { parser } from "./xpath/parser";
 import { serializeWire } from "./xpath/wire/serialize";
 
 // Pre-resolve node types — zero string comparisons at runtime

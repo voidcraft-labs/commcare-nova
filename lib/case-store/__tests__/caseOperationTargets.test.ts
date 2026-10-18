@@ -6,7 +6,7 @@ import {
 	validateCaseOperationTargetDescriptor,
 	validateResolvedCaseOperationTypeSequence,
 } from "@/lib/case-store";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 
 describe("case-operation runtime target descriptors", () => {

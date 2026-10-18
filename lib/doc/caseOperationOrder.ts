@@ -5,11 +5,7 @@ import {
 	deriveCaseWriteInventory,
 	orderedCaseOperations,
 } from "@/lib/domain";
-import {
-	type ValueExpression,
-	walkExpressionNodes,
-	walkPredicateExpressionNodes,
-} from "@/lib/domain/predicate";
+import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
 import { deepEqual } from "./deepEqual";
 import { orderedFieldUuids } from "./fieldWalk";
 
@@ -76,29 +72,20 @@ export function caseOperationDependencyUuids(
 	for (const write of operation.writes ?? []) {
 		collectExpressionDependencies(write.value, refs);
 		if (write.condition !== undefined) {
-			collectPredicateDependencies(write.condition, refs);
+			collectExpressionDependencies(write.condition, refs);
 		}
 	}
 	if (operation.condition !== undefined) {
-		collectPredicateDependencies(operation.condition, refs);
+		collectExpressionDependencies(operation.condition, refs);
 	}
 	return refs;
 }
 
 function collectExpressionDependencies(
-	expression: ValueExpression,
+	expression: Expression,
 	refs: Set<Uuid>,
 ): void {
 	walkExpressionNodes(expression, (node) => {
-		if (node.kind === "id-of") refs.add(node.opUuid);
-	});
-}
-
-function collectPredicateDependencies(
-	predicate: NonNullable<CaseOperation["condition"]>,
-	refs: Set<Uuid>,
-): void {
-	walkPredicateExpressionNodes(predicate, (node) => {
 		if (node.kind === "id-of") refs.add(node.opUuid);
 	});
 }
@@ -862,7 +849,7 @@ export function sameCaseOperationTargetIdentity(
 	}
 }
 
-function isIdOf(expression: ValueExpression, opUuid: Uuid): boolean {
+function isIdOf(expression: Expression, opUuid: Uuid): boolean {
 	return expression.kind === "id-of" && expression.opUuid === opUuid;
 }
 

@@ -12,6 +12,7 @@ import {
 import {
 	ancestorPath,
 	eq,
+	type FormLinkDatumName,
 	input,
 	literal,
 	prop,
@@ -19,7 +20,7 @@ import {
 	sessionUser,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 
 const NAME_INPUT = testUuid("00000000-0000-4000-8000-0000000a0001");
 const PARENT_COLUMN = testUuid("00000000-0000-4000-8000-0000000a0002");
@@ -109,7 +110,7 @@ function question1() {
 export function registrationLinkDoc(
 	options: {
 		readonly searchInputs?: CaseListConfig["searchInputs"];
-		readonly datums?: Array<{ name: string; xpath: string }>;
+		readonly datums?: Array<{ name: FormLinkDatumName; xpath: string }>;
 	} = {},
 ): BlueprintDoc {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
@@ -253,7 +254,7 @@ export function searchEmissionFixture(
 			],
 			datums: [
 				{
-					name: "case_id",
+					name: { kind: "selected-case", module: FOLLOWUP_MODULE },
 					xpath:
 						"instance('commcaresession')/session/data/case_id_new_patient_0",
 				},

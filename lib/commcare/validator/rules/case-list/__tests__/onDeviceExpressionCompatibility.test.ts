@@ -14,26 +14,26 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
-import {
 	ancestorPath,
 	anyRelationPath,
 	count,
+	type Expression,
 	eq,
 	exists,
 	gt,
 	ifExpr,
 	literal,
-	type Predicate,
 	prop,
 	relationStep,
 	subcasePath,
 	tableColumn,
 	tableLookup,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { classifyError } from "../../../gate";
 import { runValidation } from "../../../runner";
@@ -116,7 +116,7 @@ function childNote() {
 interface FixtureArgs {
 	readonly columns?: Column[];
 	readonly searchInputs?: SearchInputDef[];
-	readonly filter?: Predicate;
+	readonly filter?: Expression;
 	readonly caseSearchConfig?: CaseSearchConfig;
 }
 
@@ -417,7 +417,7 @@ describe("lookup-row escaped column", () => {
 	});
 
 	it("rejects a lookup column read inside an authored related-case condition", () => {
-		const findings = findingsFor({
+		const findings = errorsFor({
 			filter: eq(
 				tableLookup(
 					TABLE,
@@ -430,7 +430,21 @@ describe("lookup-row escaped column", () => {
 				literal("North"),
 			),
 		});
-		expect(findings).toHaveLength(1);
+		expect(findings).toHaveLength(2);
+		expect(findings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "CASE_LIST_FILTER_TYPE_ERROR",
+					details: expect.objectContaining({ checkCode: "lookup-table-scope" }),
+				}),
+				expect.objectContaining({
+					code: CODE,
+					details: expect.objectContaining({
+						reason: "lookup-row-escaped-column",
+					}),
+				}),
+			]),
+		);
 	});
 
 	it("accepts a lookup column compared with the current case value", () => {

@@ -10,13 +10,13 @@
  */
 
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import type { LookupTypeIndex } from "@/lib/domain/expression/context";
 import type {
 	CheckError,
-	CheckResult,
-	TypeContext,
-} from "@/lib/domain/predicate";
+	CheckOutcome,
+} from "@/lib/domain/expression/typeChecker";
 
-export type LookupTypeIndex = NonNullable<TypeContext["lookupTables"]>;
+export type { LookupTypeIndex } from "@/lib/domain/expression/context";
 
 const STRUCTURAL_LOOKUP_CHECK_CODES = new Set<CheckError["code"]>([
 	"unknown-lookup-table",
@@ -51,10 +51,18 @@ export function lookupTypeIndex(
  * has taken ownership of missing/unavailable table and column identities.
  */
 export function semanticCheckErrors(
-	result: CheckResult,
+	result: CheckOutcome,
 ): readonly CheckError[] {
-	if (result.ok) return [];
 	return result.errors.filter(
 		(error) => !STRUCTURAL_LOOKUP_CHECK_CODES.has(error.code),
 	);
+}
+
+/** Typed semantic identity survives the user-facing projection. */
+export function checkErrorDetails(error: CheckError): Record<string, string> {
+	return {
+		checkCode: error.code,
+		path: error.path.join("."),
+		...(error.reason === undefined ? {} : { checkReason: error.reason }),
+	};
 }

@@ -27,16 +27,18 @@
 // holds no Pattern engine, so a pattern-bearing constraint is Preview's to
 // enforce, the same standing a lookup-bearing one has there.
 
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
 	type SearchInputDef,
 	searchInputRequiredMessage,
+	type Uuid,
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import {
-	type Predicate,
-	predicateUsesPattern,
-	walkTerms,
-} from "@/lib/domain/predicate";
+	type Expression,
+	expressionUsesPattern,
+	walkExpressionTerms,
+} from "@/lib/domain/expression";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
 	type PreviewLookupData,
@@ -49,6 +51,7 @@ import {
 import {
 	emitPreviewSearchPredicate,
 	evaluatePreviewSearchPredicate,
+	type PreviewSearchEnvironment,
 } from "./searchExpressionEvaluation";
 
 export interface SearchInputConstraintOptions {
@@ -81,20 +84,22 @@ export function searchInputConstraintErrors(
 	searchInputs: readonly SearchInputDef[],
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
-	lookupData?: PreviewLookupData,
+	environment: PreviewSearchEnvironment,
 	options?: SearchInputConstraintOptions,
 ): ReadonlyMap<string, string> {
 	const judge = constraintJudge(
 		searchInputs,
 		values,
 		session,
-		lookupData,
+		environment,
 		options,
 	);
 	const errors = new Map<string, string>();
 	for (const check of constraintChecks(searchInputs, values)) {
 		if (errors.has(check.name)) continue;
-		if (check.fires(judge(check.predicate))) {
+		if (
+			check.fires(judge(check.predicate, check.searchInputUuid, check.slot))
+		) {
 			errors.set(check.name, check.message);
 		}
 	}
@@ -110,14 +115,14 @@ export async function searchInputConstraintErrorsOnDevice(
 	searchInputs: readonly SearchInputDef[],
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
-	lookupData: PreviewLookupData | undefined,
+	environment: PreviewSearchEnvironment,
 	options: SearchInputConstraintDeviceOptions,
 ): Promise<ReadonlyMap<string, string>> {
 	const judge = constraintJudge(
 		searchInputs,
 		values,
 		session,
-		lookupData,
+		environment,
 		options,
 	);
 	const errors = new Map<string, string>();
@@ -126,21 +131,29 @@ export async function searchInputConstraintErrorsOnDevice(
 		let holds: boolean | undefined;
 		if (
 			check.predicate !== undefined &&
-			predicateUsesPattern(check.predicate)
+			expressionUsesPattern(check.predicate)
 		) {
-			holds = judgeable(check.predicate, lookupData, options)
+			holds = judgeable(check.predicate, environment.lookup, options)
 				? await options.evaluateOnDevice(
 						emitPreviewSearchPredicate(
 							check.predicate,
+							moduleExpressionContexts(
+								environment.doc,
+								environment.moduleUuid,
+								environment.lookup?.naming,
+							)({
+								slot: check.slot,
+								member: { searchInputUuid: check.searchInputUuid },
+							}),
+							environment,
 							searchInputs,
 							session,
 							values,
-							lookupData,
 						),
 					)
 				: undefined;
 		} else {
-			holds = judge(check.predicate);
+			holds = judge(check.predicate, check.searchInputUuid, check.slot);
 		}
 		if (check.fires(holds)) errors.set(check.name, check.message);
 	}
@@ -161,13 +174,13 @@ export function searchInputRequiredMarks(
 	searchInputs: readonly SearchInputDef[],
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
-	lookupData?: PreviewLookupData,
+	environment: PreviewSearchEnvironment,
 ): ReadonlyMap<string, boolean | undefined> {
 	const judge = constraintJudge(
 		searchInputs,
 		values,
 		session,
-		lookupData,
+		environment,
 		undefined,
 	);
 	const marks = new Map<string, boolean | undefined>();
@@ -175,7 +188,9 @@ export function searchInputRequiredMarks(
 		if (input.kind === "hidden" || input.required === undefined) continue;
 		marks.set(
 			input.name,
-			input.required.when === undefined ? true : judge(input.required.when),
+			input.required.when === undefined
+				? true
+				: judge(input.required.when, input.uuid, "search_input_required_when"),
 		);
 	}
 	return marks;
@@ -191,24 +206,32 @@ export async function searchInputRequiredMarksOnDevice(
 	searchInputs: readonly SearchInputDef[],
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
-	lookupData: PreviewLookupData | undefined,
+	environment: PreviewSearchEnvironment,
 	options: SearchInputConstraintDeviceOptions,
 ): Promise<ReadonlyMap<string, boolean>> {
 	const marks = new Map<string, boolean>();
 	for (const input of searchInputs) {
 		if (input.kind === "hidden") continue;
 		const when = input.required?.when;
-		if (when === undefined || !predicateUsesPattern(when)) continue;
-		if (!judgeable(when, lookupData, options)) continue;
+		if (when === undefined || !expressionUsesPattern(when)) continue;
+		if (!judgeable(when, environment.lookup, options)) continue;
 		marks.set(
 			input.name,
 			await options.evaluateOnDevice(
 				emitPreviewSearchPredicate(
 					when,
+					moduleExpressionContexts(
+						environment.doc,
+						environment.moduleUuid,
+						environment.lookup?.naming,
+					)({
+						slot: "search_input_required_when",
+						member: { searchInputUuid: input.uuid },
+					}),
+					environment,
 					searchInputs,
 					session,
 					values,
-					lookupData,
 				),
 			),
 		);
@@ -220,9 +243,11 @@ export async function searchInputRequiredMarksOnDevice(
  *  predicate's verdict decides it. `predicate` is absent for an
  *  unconditional requirement, which fires on a blank answer outright. */
 interface ConstraintCheck {
+	readonly searchInputUuid: Uuid;
+	readonly slot: "search_input_required_when" | "search_input_validation_rule";
 	readonly name: string;
 	readonly message: string;
-	readonly predicate: Predicate | undefined;
+	readonly predicate: Expression | undefined;
 	readonly fires: (holds: boolean | undefined) => boolean;
 }
 
@@ -247,6 +272,8 @@ function constraintChecks(
 		}
 		if (input.validation === undefined) continue;
 		checks.push({
+			searchInputUuid: input.uuid,
+			slot: "search_input_validation_rule",
 			name: input.name,
 			message: input.validation.message,
 			predicate: input.validation.rule,
@@ -263,8 +290,17 @@ function requiredCheck(
 	if (message === undefined || input.required === undefined) return undefined;
 	const when = input.required.when;
 	return when === undefined
-		? { name: input.name, message, predicate: undefined, fires: () => true }
+		? {
+				searchInputUuid: input.uuid,
+				slot: "search_input_required_when",
+				name: input.name,
+				message,
+				predicate: undefined,
+				fires: () => true,
+			}
 		: {
+				searchInputUuid: input.uuid,
+				slot: "search_input_required_when",
 				name: input.name,
 				message,
 				predicate: when,
@@ -281,25 +317,35 @@ function constraintJudge(
 	searchInputs: readonly SearchInputDef[],
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
-	lookupData: PreviewLookupData | undefined,
+	environment: PreviewSearchEnvironment,
 	options: SearchInputConstraintOptions | undefined,
-): (predicate: Predicate | undefined) => boolean | undefined {
-	return (predicate) => {
+): (
+	predicate: Expression | undefined,
+	inputUuid: Uuid,
+	slot: ConstraintCheck["slot"],
+) => boolean | undefined {
+	const contexts = moduleExpressionContexts(
+		environment.doc,
+		environment.moduleUuid,
+		environment.lookup?.naming,
+	);
+	return (predicate, inputUuid, slot) => {
 		if (predicate === undefined) return undefined;
-		if (!judgeable(predicate, lookupData, options)) return undefined;
-		if (predicateUsesPattern(predicate)) return undefined;
+		if (!judgeable(predicate, environment.lookup, options)) return undefined;
+		if (expressionUsesPattern(predicate)) return undefined;
 		return evaluatePreviewSearchPredicate(
 			predicate,
+			contexts({ slot, member: { searchInputUuid: inputUuid } }),
+			environment,
 			searchInputs,
 			session,
 			values,
-			lookupData,
 		);
 	};
 }
 
 function judgeable(
-	predicate: Predicate,
+	predicate: Expression,
 	lookupData: PreviewLookupData | undefined,
 	options: SearchInputConstraintOptions | undefined,
 ): boolean {
@@ -312,9 +358,9 @@ function judgeable(
 	return predicateLookupsCovered(predicate, lookupData);
 }
 
-function predicateReadsSession(predicate: Predicate): boolean {
+function predicateReadsSession(predicate: Expression): boolean {
 	let reads = false;
-	walkTerms(predicate, (term) => {
+	walkExpressionTerms(predicate, (term) => {
 		if (
 			term.kind === "session-user" ||
 			term.kind === "session-user-property" ||

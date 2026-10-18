@@ -9,15 +9,14 @@ import {
 	sessionInstance,
 } from "@/lib/commcare/xpath/wire/instances";
 import type { WireExpr, WirePath } from "@/lib/commcare/xpath/wire/tree";
-import type { Uuid } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
-import { displayConditionForEmission } from "@/lib/domain/predicate";
+import type { Expression, ExpressionContext } from "@/lib/domain/expression";
+import { displayConditionForEmission } from "@/lib/domain/expression";
 import { casePropertyPath } from "./wire";
 
 /** A menu or a form, as its display condition is emitted: the stored
  * condition and whether the item is off the menu. */
 export interface DisplayConditionCarrier {
-	readonly displayCondition?: Predicate;
+	readonly displayCondition?: Expression;
 	readonly hiddenFromMenu?: true;
 }
 
@@ -32,7 +31,7 @@ const OFF_THE_MENU = w.call("false", []);
  */
 function withMenuPresence(
 	carrier: DisplayConditionCarrier,
-	emitRest: (rest: Predicate) => WireExpr,
+	emitRest: (rest: Expression) => WireExpr,
 ): WireExpr | undefined {
 	const rest = displayConditionForEmission(carrier.displayCondition);
 	const restText = rest === undefined ? undefined : emitRest(rest);
@@ -60,22 +59,17 @@ function selectedCase(selectedCaseDatumId = "case_id"): WirePath {
  * emit directly; validation has already excluded every case-row term. */
 export function emitModuleDisplayCondition(
 	carrier: DisplayConditionCarrier,
-	currentCaseType?: string,
+	types: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
-	userPropertySlugs?: ReadonlyMap<Uuid, string>,
 ): WireExpr | undefined {
 	return withMenuPresence(carrier, (rest) =>
 		toWire(rest, {
 			target: "suite",
-			types: {
-				...(currentCaseType !== undefined && { currentCaseType }),
-				...(userPropertySlugs !== undefined && { userPropertySlugs }),
-			},
+			types,
 			bindings: {
 				...(lookupNaming === undefined
 					? {}
 					: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
-				...(userPropertySlugs === undefined ? {} : { userPropertySlugs }),
 			},
 		}),
 	);
@@ -89,18 +83,14 @@ export function emitModuleDisplayCondition(
  */
 export function emitFormDisplayConditionForSuite(
 	carrier: DisplayConditionCarrier,
-	currentCaseType?: string,
+	types: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
-	userPropertySlugs?: ReadonlyMap<Uuid, string>,
 	selectedCaseDatumId?: string,
 ): WireExpr | undefined {
 	return withMenuPresence(carrier, (rest) =>
 		toWire(rest, {
 			target: "suite",
-			types: {
-				...(currentCaseType !== undefined && { currentCaseType }),
-				...(userPropertySlugs !== undefined && { userPropertySlugs }),
-			},
+			types,
 			bindings: {
 				emitSelfProperty: (property) =>
 					w.append(
@@ -110,7 +100,6 @@ export function emitFormDisplayConditionForSuite(
 				...(lookupNaming !== undefined && {
 					lookup: { naming: lookupNaming, instanceScope: "suite" },
 				}),
-				...(userPropertySlugs !== undefined && { userPropertySlugs }),
 			},
 		}),
 	);
@@ -129,18 +118,14 @@ export function emitFormDisplayConditionForSuite(
  */
 export function emitFormDisplayConditionForHq(
 	carrier: DisplayConditionCarrier,
-	currentCaseType?: string,
+	types: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
-	userPropertySlugs?: ReadonlyMap<Uuid, string>,
 	selectedCaseDatumId?: string,
 ): WireExpr | undefined {
 	return withMenuPresence(carrier, (rest) =>
 		toWire(rest, {
 			target: "hq-json",
-			types: {
-				...(currentCaseType !== undefined && { currentCaseType }),
-				...(userPropertySlugs !== undefined && { userPropertySlugs }),
-			},
+			types,
 			bindings: {
 				emitSelfProperty: (property) =>
 					RESERVED_CASE_ATTRIBUTES.has(property.property)
@@ -151,7 +136,6 @@ export function emitFormDisplayConditionForHq(
 				...(lookupNaming !== undefined && {
 					lookup: { naming: lookupNaming, instanceScope: "suite" },
 				}),
-				...(userPropertySlugs !== undefined && { userPropertySlugs }),
 			},
 		}),
 	);

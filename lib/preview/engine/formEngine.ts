@@ -54,14 +54,11 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
-	asUuid,
 	type CaseWriteField,
 	type ContainerField,
-	caseDataTypeForFieldKind,
 	casePropertyDataTypes,
 	caseScalarTextGuardIsChecked,
 	deriveCaseWriteInventory,
-	expressionSource,
 	fieldProseTemplate,
 	formOpensWithOneCase,
 	isCaptureFieldKind,
@@ -70,20 +67,22 @@ import {
 	orderedCaseOperations,
 	ownRecordValue,
 	prepareCaseScalarTextValue,
+	proseSource,
 	storageDatetimeValue,
 	storageTimeValue,
-	type XPathPrintableDoc,
 } from "@/lib/domain";
-import { fieldValueType } from "@/lib/domain/fieldValueType";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
-} from "@/lib/domain/predicate/errors";
+} from "@/lib/domain/expression/errors";
+import type { FieldExpressionSlotRef } from "@/lib/domain/expression/types";
+import { fieldValueType } from "@/lib/domain/fieldValueType";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
 import { runtimeMessage } from "../runtimeMessages";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate, evaluateRuntime } from "../xpath/evaluator";
+import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import {
 	initializationContextNode,
 	type XPathInitializationContext,
@@ -113,6 +112,10 @@ import type {
 import { DataInstance, type DataInstanceSnapshot } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import {
+	type FormExpressionRuntime,
+	formExpressionRuntime,
+} from "./formExpressionRuntime";
+import {
 	previewSessionValues,
 	previewUserPropertySlugMap,
 	type ResolvedPreviewIdentity,
@@ -136,7 +139,11 @@ import {
 } from "./lookupEvaluation";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
 import { resolveCurrentPage } from "./sectionPaging";
-import { type InitializationExpression, TriggerDag } from "./triggerDag";
+import {
+	type ExpressionEvaluationPaths,
+	type InitializationExpression,
+	TriggerDag,
+} from "./triggerDag";
 import {
 	type FieldState,
 	fieldStatesEqual,
@@ -144,6 +151,7 @@ import {
 	lookupChoicesEqual,
 	stringRecordsEqual,
 } from "./types";
+import { previewWorkerPropertyBinding } from "./workerExpressionBindings";
 import {
 	type CaseDatabaseSnapshot,
 	INLINE_SEARCH_INPUT_INSTANCE_ID,
@@ -269,11 +277,13 @@ export type EngineStoreState = Record<string, FieldState>;
 export type CaseDataByType = Map<string, Map<string, string>>;
 
 /**
- * Convenience view passed to the engine. The engine builds the `FieldTreeNode`
- * rose tree internally from these flat maps; consumers only have to supply the
- * normalized doc slice, not pre-walked trees.
+ * The owning document and the active form's localized field view. The engine
+ * derives its tree from those flat maps and compiles every expression with the
+ * document's actual slot context.
  */
 export interface FormEngineInput {
+	/** Saved document supplies the owning module, catalogs, and expression slots. */
+	doc: BlueprintDoc;
 	/** Active form language, used by locale-sensitive JavaRosa functions. */
 	language?: LanguageTag;
 	/** The form entity (no nested fields). */
@@ -418,22 +428,14 @@ function isAsyncNodesetValues(
 	);
 }
 
-/** The print surface for the engine's input slice: its one form plus
- *  the supplied field maps. Every expression the engine evaluates is
- *  form-local, so this is the whole resolution world. */
-function printableDocOf(input: FormEngineInput): XPathPrintableDoc {
+/** Keep the owning document and replace its active form's localized view.
+ *  Runtime expression contexts retain every catalog and sibling identity. */
+function printableDocOf(input: FormEngineInput): BlueprintDoc {
 	return {
-		forms: { [input.formUuid]: input.form },
+		...input.doc,
+		forms: { ...input.doc.forms, [input.formUuid]: input.form },
 		fields: input.fields,
 		fieldOrder: input.fieldOrder,
-		userProperties: input.userProperties,
-		...(input.searchInputs === undefined
-			? {}
-			: {
-					modules: {
-						host: { caseListConfig: { searchInputs: input.searchInputs } },
-					},
-				}),
 	};
 }
 
@@ -549,7 +551,9 @@ export class FormEngine {
 	/** Doc surface AST expression slots print against — the input's
 	 *  field slice rooted at its one form. Rebuilt whenever the input
 	 *  is re-supplied. */
-	private printDoc: XPathPrintableDoc;
+	private printDoc: BlueprintDoc;
+	private inputFormUuid: Uuid;
+	private expressions: FormExpressionRuntime;
 	/** Exact topology surface consumed by the shared case-write inventory. */
 	private caseWriteDoc: Pick<
 		BlueprintDoc,
@@ -590,6 +594,9 @@ export class FormEngine {
 	private lookupData: PreviewLookupData | null;
 	/** Immutable secondary-instance world captured with this engine. */
 	private secondaryInstances: ReadonlyMap<string, XPathInstance>;
+	private readonly workerProperty: ReturnType<
+		typeof previewWorkerPropertyBinding
+	>;
 	/** Secondary instances never change during one form entry. Serialize them
 	 * once, then initialize each revision-scoped worker world with that frozen
 	 * projection instead of recursively cloning the whole case/lookup database
@@ -600,8 +607,6 @@ export class FormEngine {
 	/** uuid → generic path cache for lookup-filter `formFields` bindings,
 	 *  keyed by tree identity so every tree rebuild refreshes it lazily. */
 	private fieldPathsCache: ReadonlyMap<Uuid, string> = new Map();
-	private fieldTypesCache: ReadonlyMap<Uuid, CasePropertyDataType | undefined> =
-		new Map();
 	private fieldPathsCacheTree: FieldTreeNode[] | undefined;
 	/** Live repeat-instance counts for the DAG's generic→concrete
 	 *  materialization. Arrow property so it can pass as a bare callback. */
@@ -637,6 +642,11 @@ export class FormEngine {
 		this.hasCaseSnapshot = caseDatabase != null;
 		this.lookupData = lookupData ?? null;
 		this.previewIdentity = previewIdentity ?? null;
+		this.workerProperty = previewWorkerPropertyBinding(
+			this.previewIdentity?.session.context.userid,
+			this.previewIdentity?.usercase,
+			caseDatabase,
+		);
 		this.moduleCaseType = moduleCaseType;
 		this.caseDataOwnType = moduleCaseType;
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
@@ -651,9 +661,7 @@ export class FormEngine {
 			lookupData: this.lookupData,
 			caseDatabase: caseDatabase ?? null,
 			caseTypes: input.caseTypes,
-			...(runtimeOptions.searchAnswers === undefined
-				? {}
-				: { searchAnswers: runtimeOptions.searchAnswers }),
+			searchAnswers: this.searchAnswers,
 		});
 		for (const node of this.secondaryInstances
 			.get("casedb")
@@ -670,6 +678,8 @@ export class FormEngine {
 		);
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
+		this.inputFormUuid = input.formUuid;
+		this.expressions = this.expressionRuntime();
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.scalarTextGuards = input.caseScalarTextGuards ?? {};
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
@@ -681,7 +691,7 @@ export class FormEngine {
 		this.instance.initFromFields(this.tree);
 		this.dag = new TriggerDag();
 
-		this.dag.build(this.tree, this.printDoc);
+		this.dag.build(this.tree, this.expressions);
 		if (this.asyncRuntime) return;
 		const restored = this.restoredEntry;
 		this.restoredEntry = undefined;
@@ -835,7 +845,7 @@ export class FormEngine {
 			checkpoint.repeatKeys.map(([path, keys]) => [path, [...keys]]),
 		);
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree, this.printDoc);
+		this.dag.build(this.tree, this.expressions);
 		this.store.setState(structuredClone(checkpoint.state), true);
 	}
 
@@ -885,7 +895,7 @@ export class FormEngine {
 			return;
 		}
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree, this.printDoc);
+		this.dag.build(this.tree, this.expressions);
 		await this.initializeModelAsync(this.tree, evaluateAsync);
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
@@ -913,9 +923,11 @@ export class FormEngine {
 		evaluateAsync: FormEngineAsyncEvaluator,
 		beforeInsertion?: () => void,
 	): Promise<void> {
+		const affected = this.dag.getAffectedWork(paths, this.repeatCounts);
 		await this.evaluatePathsIntoAsync(
-			this.dag.getAffectedMany(paths, this.repeatCounts),
+			affected.values,
 			evaluateAsync,
+			affected.required,
 		);
 		const updates: EngineStoreState = {};
 		for (const path of paths) {
@@ -1025,10 +1037,8 @@ export class FormEngine {
 
 		/* Cascade: re-evaluate expressions for all affected paths. Only
 		 * paths whose state actually changed are included in the update. */
-		const affected = this.dag.getAffected(path, this.repeatCounts);
-		for (const affectedPath of affected) {
-			this.evaluateAndCollect(affectedPath, updates);
-		}
+		const affected = this.dag.getAffectedWork([path], this.repeatCounts);
+		this.evaluateWorkInto(affected, updates);
 
 		/* Re-validate the changed field itself */
 		const latestState = updates[path] ?? current;
@@ -1174,16 +1184,15 @@ export class FormEngine {
 		subtreePrefix: string,
 		leafPaths: string[],
 	): void {
-		const toEvaluate = new Set<string>();
+		const subtree: string[] = [];
 		for (const path of this.dag.getAllPaths(this.repeatCounts)) {
-			if (path.startsWith(subtreePrefix)) toEvaluate.add(path);
+			if (path.startsWith(subtreePrefix)) subtree.push(path);
 		}
-		for (const dep of this.dag.getAffectedMany(leafPaths, this.repeatCounts)) {
-			toEvaluate.add(dep);
-		}
-		if (toEvaluate.size > 0) {
-			this.evaluatePathsInto([...toEvaluate]);
-		}
+		const affected = this.dag.getAffectedWork(leafPaths, this.repeatCounts);
+		this.evaluateWork({
+			values: [...new Set([...subtree, ...affected.values])],
+			required: [...new Set([...subtree, ...affected.required])],
+		});
 	}
 
 	private computedFieldValue(field: Field, result: XPathValue): string {
@@ -1230,11 +1239,7 @@ export class FormEngine {
 	 *  edit) shares. */
 	private computeDefault(field: Field, path: string): string | undefined {
 		if (this.asyncRuntime) return undefined;
-		const defaultValue = expressionSource(
-			field,
-			"default_value",
-			this.printDoc,
-		);
+		const defaultValue = this.expressionSource(field, "default_value");
 		if (!defaultValue) return undefined;
 		const result = evaluate(defaultValue, this.createEvalContext(path));
 		const value = this.computedFieldValue(field, result);
@@ -1683,16 +1688,35 @@ export class FormEngine {
 	 */
 	/** The one form this engine's input slice is rooted at. */
 	private activeFormUuid(): Uuid {
-		const formUuid = Object.keys(this.printDoc.forms)[0];
-		if (formUuid === undefined) {
-			throw new Error(
-				compilerBugMessage({
-					where: "preview.formEngine.activeFormUuid",
-					invariant: "the engine's print surface holds no form",
-				}),
-			);
-		}
-		return asUuid(formUuid);
+		return this.inputFormUuid;
+	}
+
+	private expressionRuntime(): FormExpressionRuntime {
+		return formExpressionRuntime(
+			this.printDoc,
+			this.inputFormUuid,
+			this.lookupData ?? undefined,
+			{
+				searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID,
+				workerProperty: this.workerProperty,
+				formCaseProperty: (caseType, property) => {
+					const data = this.caseData.get(caseType);
+					const caseId = data?.get("case_id");
+					return caseId === undefined
+						? w.str(data?.get(property) ?? "")
+						: w.append(caseById(w.str(caseId), "casedb"), [
+								casePropertyStep(property),
+							]);
+				},
+			},
+		);
+	}
+
+	private expressionSource(
+		field: Field,
+		slot: FieldExpressionSlotRef["slot"],
+	): string | undefined {
+		return this.expressions.source({ entity: "field", uuid: field.uuid, slot });
 	}
 
 	/**
@@ -2438,10 +2462,12 @@ export class FormEngine {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.instance.refreshTemplate(this.tree);
 		this.printDoc = printableDocOf(input);
+		this.inputFormUuid = input.formUuid;
+		this.expressions = this.expressionRuntime();
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree, this.printDoc);
+		this.dag.build(this.tree, this.expressions);
 		this.activeSectionUuid = resolveCurrentPage(
 			this.sectionPages(),
 			this.activeSectionUuid,
@@ -2456,12 +2482,39 @@ export class FormEngine {
 	 * avoids re-evaluating the entire form.
 	 */
 	evaluatePathsInto(paths: string[]): void {
+		this.evaluateWork({ values: paths, required: paths });
+	}
+
+	/** Explicit document changes re-evaluate those fields and their cascades;
+	 * required-only dependents keep their non-metadata expressions untouched. */
+	evaluateChangedPathsInto(changedPaths: readonly string[]): string[] {
+		const explicit = changedPaths.flatMap((path) =>
+			this.materializePaths(path),
+		);
+		const affected = this.dag.getAffectedWork(changedPaths, this.repeatCounts);
+		const work = {
+			values: [...new Set([...explicit, ...affected.values])],
+			required: [...new Set([...explicit, ...affected.required])],
+		};
+		this.evaluateWork(work);
+		return [...new Set([...work.values, ...work.required])];
+	}
+
+	private evaluateWork(work: ExpressionEvaluationPaths): void {
 		const updates: EngineStoreState = {};
-		for (const path of paths) {
+		this.evaluateWorkInto(work, updates);
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+	}
+
+	private evaluateWorkInto(
+		work: ExpressionEvaluationPaths,
+		updates: EngineStoreState,
+	): void {
+		for (const path of work.values) {
 			this.evaluateAndCollect(path, updates);
 		}
-		if (Object.keys(updates).length > 0) {
-			this.store.setState(updates);
+		for (const path of work.required) {
+			this.evaluateAndCollect(path, updates, "required");
 		}
 	}
 
@@ -2474,7 +2527,7 @@ export class FormEngine {
 	 * which owns it.
 	 */
 	reseedRequired(pathTemplate: string, field: Field): void {
-		const source = expressionSource(field, "required", this.printDoc);
+		const source = this.expressionSource(field, "required");
 		if (source !== undefined && source !== "true()" && source !== "false()") {
 			return;
 		}
@@ -2570,8 +2623,7 @@ export class FormEngine {
 		const concretes = this.materializePaths(path);
 
 		/* Seed DataInstance values + runtime states */
-		const isRequired =
-			expressionSource(field, "required", this.printDoc) === "true()";
+		const isRequired = this.expressionSource(field, "required") === "true()";
 		const states: EngineStoreState = {};
 		for (const concrete of concretes) {
 			if (!this.instance.has(concrete)) {
@@ -2771,8 +2823,7 @@ export class FormEngine {
 		const createdPaths: string[] = [];
 		const isStructural = isContainer(field);
 		const isRequired =
-			!isStructural &&
-			expressionSource(field, "required", this.printDoc) === "true()";
+			!isStructural && this.expressionSource(field, "required") === "true()";
 
 		for (const concrete of this.materializePaths(path)) {
 			const existing = current[concrete];
@@ -2833,10 +2884,7 @@ export class FormEngine {
 		}
 
 		/* Cascade — the value changes may affect dependent fields */
-		const affected = this.dag.getAffectedMany(concretes, this.repeatCounts);
-		if (affected.length > 0) {
-			this.evaluatePathsInto(affected);
-		}
+		this.evaluateWork(this.dag.getAffectedWork(concretes, this.repeatCounts));
 	}
 
 	/** Worker-backed counterpart of `reevaluateDefault`. Live authoring still
@@ -2882,12 +2930,17 @@ export class FormEngine {
 		this.instance.setRootAttributes(this.formRootAttributes);
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
+		this.inputFormUuid = input.formUuid;
+		this.expressions = this.expressionRuntime();
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.formType = input.form.type;
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.caseData = caseData;
 		this.moduleCaseType = moduleCaseType;
+		// Selected-case reads are compiled from this captured context. Refresh
+		// their evaluator sources before settling the changed preload values.
+		this.dag.build(this.tree, this.expressions);
 
 		/* Re-preload case data for one-case followup forms. Track which paths changed. */
 		const changedPaths: string[] = [];
@@ -2897,13 +2950,7 @@ export class FormEngine {
 
 		/* Re-evaluate changed paths + their cascade */
 		if (changedPaths.length > 0) {
-			const allAffected = new Set(changedPaths);
-			for (const path of changedPaths) {
-				for (const dep of this.dag.getAffected(path, this.repeatCounts)) {
-					allAffected.add(dep);
-				}
-			}
-			this.evaluatePathsInto([...allAffected]);
+			this.evaluateChangedPathsInto(changedPaths);
 		}
 		this.adoptScalarTextGuards(input.caseScalarTextGuards ?? {});
 	}
@@ -2966,6 +3013,8 @@ export class FormEngine {
 		this.caseData = caseData ?? new Map();
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
+		this.inputFormUuid = input.formUuid;
+		this.expressions = this.expressionRuntime();
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.scalarTextGuards = input.caseScalarTextGuards ?? {};
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
@@ -2974,7 +3023,7 @@ export class FormEngine {
 		this.instance.initFromFields(this.tree);
 
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree, this.printDoc);
+		this.dag.build(this.tree, this.expressions);
 		this.initializeModel(this.tree);
 
 		/* Capture old store state BEFORE rebuilding. After rebuild + evaluate +
@@ -3130,14 +3179,20 @@ export class FormEngine {
 
 	// ── Private: expression evaluation ───────────────────────────────
 
+	// Required is metadata: a rule may read the answer or a calculation that
+	// reads that answer without creating a value cycle. Every batch therefore
+	// evaluates values/relevance first and required flags in a final pass.
 	private async evaluateAndCollectAsync(
 		path: string,
 		updates: EngineStoreState,
 		evaluateAsync: FormEngineAsyncEvaluator,
+		phase: "values" | "required" = "values",
 	): Promise<void> {
 		const current = updates[path] ?? this.store.getState()[path];
 		if (!current) return;
-		const expressions = this.expressionsForEvaluation(path, current);
+		const expressions = this.expressionsForEvaluation(path, current).filter(
+			({ type }) => (type === "required") === (phase === "required"),
+		);
 		if (expressions.length === 0) return;
 
 		let changed = false;
@@ -3311,6 +3366,7 @@ export class FormEngine {
 	private async evaluatePathsIntoAsync(
 		paths: readonly string[],
 		evaluateAsync: FormEngineAsyncEvaluator,
+		requiredPaths: readonly string[] = paths,
 	): Promise<void> {
 		const updates: EngineStoreState = {};
 		const evaluateWithUpdates = ((
@@ -3327,6 +3383,14 @@ export class FormEngine {
 		for (const path of paths) {
 			await this.evaluateAndCollectAsync(path, updates, evaluateWithUpdates);
 		}
+		for (const path of requiredPaths) {
+			await this.evaluateAndCollectAsync(
+				path,
+				updates,
+				evaluateWithUpdates,
+				"required",
+			);
+		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
 	}
 
@@ -3334,12 +3398,18 @@ export class FormEngine {
 	 *  result differs from the current store state. This is the mechanism that
 	 *  makes Zustand's selector-based subscriptions surgical: unchanged paths
 	 *  keep their old reference, so their subscribers skip re-rendering. */
-	private evaluateAndCollect(path: string, updates: EngineStoreState): void {
+	private evaluateAndCollect(
+		path: string,
+		updates: EngineStoreState,
+		phase: "values" | "required" = "values",
+	): void {
 		if (this.asyncRuntime) return;
 		const current = updates[path] ?? this.store.getState()[path];
 		if (!current) return;
 
-		const expressions = this.expressionsForEvaluation(path, current);
+		const expressions = this.expressionsForEvaluation(path, current).filter(
+			({ type }) => (type === "required") === (phase === "required"),
+		);
 		if (expressions.length === 0) return;
 
 		const ctx = this.createEvalContext(path, updates);
@@ -3519,14 +3589,8 @@ export class FormEngine {
 	/** Evaluate all expressions and write results directly to the store.
 	 *  Used during init and schema rebuild. */
 	private evaluateAllInto(): void {
-		const updates: EngineStoreState = {};
 		const allPaths = this.dag.getAllPaths(this.repeatCounts);
-		for (const path of allPaths) {
-			this.evaluateAndCollect(path, updates);
-		}
-		if (Object.keys(updates).length > 0) {
-			this.store.setState(updates);
-		}
+		this.evaluatePathsInto(allPaths);
 		this.settleLiveRepeats();
 	}
 
@@ -3623,7 +3687,7 @@ export class FormEngine {
 									this.printDoc,
 									async (source) =>
 										xpathToString(await evaluateAsync(source, path)),
-								)) ?? expressionSource(field, "validate_msg", this.printDoc),
+								)) ?? proseSource(field, "validate_msg", this.printDoc),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
@@ -3692,7 +3756,7 @@ export class FormEngine {
 									fieldProseTemplate(field, "validate_msg"),
 									this.printDoc,
 									(source) => xpathToString(evaluate(source, ctx)),
-								) ?? expressionSource(field, "validate_msg", this.printDoc),
+								) ?? proseSource(field, "validate_msg", this.printDoc),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 
@@ -3807,7 +3871,7 @@ export class FormEngine {
 					path,
 					value: this.instance.get(path) ?? "",
 					visible: true,
-					required: expressionSource(f, "required", this.printDoc) === "true()",
+					required: this.expressionSource(f, "required") === "true()",
 					valid: true,
 					touched: false,
 				};
@@ -3820,7 +3884,7 @@ export class FormEngine {
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<string | undefined> {
-		const source = expressionSource(field, "default_value", this.printDoc);
+		const source = this.expressionSource(field, "default_value");
 		if (!source) return undefined;
 		const value = this.computedFieldValue(
 			field,
@@ -3835,10 +3899,9 @@ export class FormEngine {
 		path: string,
 		stateOverrides?: Readonly<EngineStoreState>,
 	): EvalContext {
-		/* References print index-free (`#form/orders/name`), but repeat
-		 * children live at indexed paths — bind each read onto the
-		 * evaluating node's own instance, CommCare's relative-reference
-		 * semantic. Reads outside the context's repeats pass through. */
+		/* Form references lower to index-free paths, while repeat children
+		 * live at indexed paths. Bind reads to the evaluating row; reads
+		 * outside the context's repeats pass through. */
 		const read = (p: string): string | undefined =>
 			this.instance.get(rebaseOntoContext(p, path));
 		const session = previewSessionValues(this.previewIdentity);
@@ -3861,6 +3924,7 @@ export class FormEngine {
 				: xpathNodeAtPath(mainInstance, path);
 
 		const context: EvalContext = {
+			invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 			...(this.presentationLanguage === undefined
 				? {}
 				: { locale: this.presentationLanguage }),
@@ -3902,9 +3966,8 @@ export class FormEngine {
 				if (ref.startsWith("#search/")) {
 					return this.searchAnswers.get(ref.slice("#search/".length)) ?? "";
 				}
-				// Case references. The authoring vocabulary is per-case-type —
-				// `#<case_type>/<prop>` (printXPath's `case-ref` spelling) —
-				// resolved by looking the namespace up in the per-type case
+				// Legacy evaluator adapters can still request a case hashtag.
+				// Resolve its namespace through the per-type case
 				// data: the form's OWN module case type addresses the loaded
 				// case (wire depth 0), an ANCESTOR type addresses the matching
 				// row of the parent chain (the preview counterpart of the
@@ -3993,7 +4056,7 @@ export class FormEngine {
 		const snapshots = new Map<string, RepeatInitializationSnapshot>();
 		for (const { node, path } of fields) {
 			const field = node.field;
-			const source = expressionSource(field, "default_value", this.printDoc);
+			const source = this.expressionSource(field, "default_value");
 			const previous = this.store.getState()[path];
 			if (
 				source !== undefined &&
@@ -4014,7 +4077,7 @@ export class FormEngine {
 				(!healing || this.pendingSectionRepeats.has(path))
 			) {
 				const result = yield {
-					source: expressionSource(field, "ids_query", this.printDoc) ?? "",
+					source: this.expressionSource(field, "ids_query") ?? "",
 					path,
 					nodeset: true,
 					carrier: {
@@ -4107,18 +4170,21 @@ export class FormEngine {
 		field: Field & { kind: "repeat"; repeat_mode: "count_bound" },
 		path: string,
 	): Generator<InitializationRead, number, InitializationValue> {
-		const source =
-			expressionSource(field, "repeat_count", this.printDoc) ?? "0";
+		const source = this.expressionSource(field, "repeat_count") ?? "0";
 		const parentPath = path.slice(0, path.lastIndexOf("/"));
 		const name = this.repeatCountName(field);
 		const result = yield { source, path, carrier: { parentPath, name } };
 		if (isAsyncNodesetValues(result))
 			throw new Error("Expected a scalar count.");
+		const form = this.expressions.context({
+			entity: "field",
+			uuid: field.uuid,
+			slot: "repeat_count",
+		}).form;
+		if (form === undefined)
+			throw new Error("The repeat count has no owning form.");
 		const direct =
-			directRepeatCountReference(
-				field.repeat_count,
-				this.caseWriteDoc.fields,
-			) !== undefined;
+			directRepeatCountReference(field.repeat_count, form.fields) !== undefined;
 		// Numeric inputs retain incomplete keystrokes until blur. Core only sees
 		// committed integer answers; do not turn a draft such as "-" into a crash.
 		if (direct && !readNumericAnswer("int", xpathToString(result)).ok) return 0;
@@ -4577,6 +4643,17 @@ export class FormEngine {
 		);
 	}
 
+	private choiceContext(path: string) {
+		const field = this.findField(path);
+		if (field === undefined)
+			throw new Error(`The choice question at ${path} no longer exists.`);
+		return this.expressions.context({
+			entity: "field",
+			uuid: field.uuid,
+			slot: "lookup_options_source",
+		});
+	}
+
 	private caseChoiceQuery(
 		source: CaseOptionsSource,
 		questionPath: string,
@@ -4600,32 +4677,37 @@ export class FormEngine {
 			return w.current(steps.length === 0 ? [w.self()] : steps);
 		};
 		return serializeWire(
-			caseOptionsNodeset(source, this.caseWriteDoc.caseTypes ?? [], {
-				formFields: new Map(
-					[...this.fieldPathsByUuid()].map(([uuid, path]) => [
-						uuid,
-						fieldReference(path),
-					]),
-				),
-				formCaseProperty: (caseType, property) => {
-					const data = this.caseData.get(caseType);
-					const caseId = data?.get("case_id");
-					return caseId === undefined
-						? w.str(data?.get(property) ?? "")
-						: w.append(caseById(w.str(caseId), "casedb"), [
-								casePropertyStep(property),
-							]);
-				},
-				userPropertySlugs: previewUserPropertySlugMap(
-					previewSessionValues(this.previewIdentity),
-				),
-				...(this.lookupData && {
-					lookup: {
-						naming: this.lookupData.naming,
-						instanceScope: "xform" as const,
+			caseOptionsNodeset(
+				source,
+				this.choiceContext(questionPath),
+				{
+					formFields: new Map(
+						[...this.fieldPathsByUuid()].map(([uuid, path]) => [
+							uuid,
+							fieldReference(path),
+						]),
+					),
+					formCaseProperty: (caseType, property) => {
+						const data = this.caseData.get(caseType);
+						const caseId = data?.get("case_id");
+						return caseId === undefined
+							? w.str(data?.get(property) ?? "")
+							: w.append(caseById(w.str(caseId), "casedb"), [
+									casePropertyStep(property),
+								]);
 					},
-				}),
-			}),
+					userPropertySlugs: previewUserPropertySlugMap(
+						previewSessionValues(this.previewIdentity),
+					),
+					...(this.lookupData && {
+						lookup: {
+							naming: this.lookupData.naming,
+							instanceScope: "xform" as const,
+						},
+					}),
+				},
+				this.expressions.projection,
+			),
 			{ target: "xform", constraint: false },
 		).text;
 	}
@@ -4699,7 +4781,7 @@ export class FormEngine {
 		return evaluateLookupChoices(source, data, {
 			outer: this.lookupOuterContext(ctx),
 			formFields: this.fieldPathsByUuid(),
-			formFieldTypes: this.fieldTypesCache,
+			types: this.choiceContext(ctx.contextPath ?? "/data"),
 			userPropertySlugs: previewUserPropertySlugMap(
 				previewSessionValues(this.previewIdentity),
 			),
@@ -4733,18 +4815,15 @@ export class FormEngine {
 	private fieldPathsByUuid(): ReadonlyMap<Uuid, string> {
 		if (this.fieldPathsCacheTree !== this.tree) {
 			const paths = new Map<Uuid, string>();
-			const types = new Map<Uuid, CasePropertyDataType | undefined>();
 			const walk = (nodes: FieldTreeNode[], prefix: string): void => {
 				for (const node of nodes) {
 					const nodePath = `${prefix}/${node.field.id}`;
 					paths.set(node.field.uuid, nodePath);
-					types.set(node.field.uuid, caseDataTypeForFieldKind(node.field.kind));
 					if (node.children) walk(node.children, nodePath);
 				}
 			};
 			walk(this.tree, "/data");
 			this.fieldPathsCache = paths;
-			this.fieldTypesCache = types;
 			this.fieldPathsCacheTree = this.tree;
 		}
 		return this.fieldPathsCache;

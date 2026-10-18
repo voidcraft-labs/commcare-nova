@@ -17,15 +17,15 @@ import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReference
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { LookupOptionsSource, OrganizationLevel } from "@/lib/domain";
 import {
+	fixedLocation,
+	ownerLocationAtLevel,
+	term,
+} from "@/lib/domain/expression/builders";
+import {
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import {
-	fixedLocation,
-	ownerLocationAtLevel,
-	term,
-} from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import {
@@ -134,7 +134,7 @@ describe("HQ nested-selection target compatibility", () => {
 		"registration",
 		"case-list-only",
 	] as const)("checks actual selection entries for %s", async (scenario) => {
-		const doc =
+		let doc =
 			scenario === "registration"
 				? registrationNestedDoc()
 				: followupNestedDoc({
@@ -162,7 +162,7 @@ describe("HQ nested-selection target compatibility", () => {
 			for (const form of doc.formOrder[child])
 				delete doc.forms[form].postSubmit;
 		}
-		admitNestedDoc(doc);
+		doc = admitNestedDoc(doc);
 		for (const mode of ["hq-json", "hq-upload"] as const) {
 			const result = await prepareExportBoundary({
 				mode,

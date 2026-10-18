@@ -12,9 +12,11 @@
 
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { eq, formField, literal } from "@/lib/domain/expression/builders";
 
 import { type ValidationScope, validateBlueprintDeep } from "../index";
 import { errorWithinScope, runValidation } from "../runner";
@@ -44,7 +46,10 @@ const docAndScopeArbitrary = fc
 			fields: Object.fromEntries(
 				Object.entries(admitted.fields).map(([uuid, field]) => [
 					uuid,
-					{ ...field, relevant: xp("#form/missing = 'yes'") },
+					{
+						...field,
+						relevant: eq(formField(testUuid("missing")), literal("yes")),
+					},
 				]),
 			),
 		};
@@ -78,7 +83,10 @@ describe("scoped validation equals a full validation filtered to scope", () => {
 								f({
 									kind: "text",
 									id: "included",
-									relevant: xp("#form/missing_included = 'yes'"),
+									relevant: eq(
+										formField(testUuid("missing_included")),
+										literal("yes"),
+									),
 								}),
 							],
 						},
@@ -89,7 +97,10 @@ describe("scoped validation equals a full validation filtered to scope", () => {
 								f({
 									kind: "text",
 									id: "excluded",
-									relevant: xp("#form/missing_excluded = 'yes'"),
+									relevant: eq(
+										formField(testUuid("missing_excluded")),
+										literal("yes"),
+									),
 								}),
 							],
 						},
@@ -132,7 +143,7 @@ describe("scoped validation equals a full validation filtered to scope", () => {
 								f({
 									kind: "text",
 									id: "excluded",
-									relevant: xp("#form/missing = 'yes'"),
+									relevant: eq(formField(testUuid("missing")), literal("yes")),
 								}),
 							],
 						},

@@ -1,41 +1,46 @@
+import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { parseXPathForField, printXPathInDoc } from "@/lib/doc/expressionText";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
-import { fieldSchema, type XPathExpression } from "@/lib/domain";
+import type { Field } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import type { Expression } from "@/lib/domain/expression/types";
 import { assertAdmittedPreviewDoc } from "../../../__tests__/fixtures/admittedDoc";
 
-/** Fixture authoring follows the real text-to-identity bridge before admission.
- * The tests may write readable /data paths; a running app receives canonical ASTs. */
-export function admittedControllerDoc(input: PersistableDoc): PersistableDoc {
-	const doc = hydratePersistedBlueprint(structuredClone(input));
-	for (const field of Object.values(doc.fields)) {
-		const next = { ...field };
-		for (const slot of [
-			"calculate",
-			"relevant",
-			"required",
-			"validate",
-			"default_value",
-			"repeat_count",
-		] as const) {
-			const expression = (
-				field as unknown as Record<string, XPathExpression | undefined>
-			)[slot];
-			if (expression !== undefined)
-				Object.assign(next, {
-					[slot]: parseXPathForField(
-						doc,
-						field.uuid,
-						printXPathInDoc(doc, expression),
-					),
-				});
+type SourceSlot =
+	| "calculate"
+	| "relevant"
+	| "required"
+	| "validate"
+	| "default_value"
+	| "repeat_count";
+type FieldSource<T> = T extends Field
+	? {
+			[K in keyof T]: K extends SourceSlot
+				? T[K] | string
+				: K extends "data_source"
+					? { ids_query: Expression | string }
+					: T[K];
 		}
-		doc.fields[field.uuid] = fieldSchema.parse(next);
-	}
+	: never;
+export type ControllerFieldSource = FieldSource<Field>;
+export type ControllerDocSource = Omit<PersistableDoc, "fields"> & {
+	fields: Record<string, ControllerFieldSource>;
+};
+
+/** Sources are explicit fixture inputs. Resolve them only after all fields,
+ * owners, catalogs and ordering exist, then admit the canonical document. */
+export function admittedControllerDoc(
+	input: ControllerDocSource,
+): PersistableDoc {
+	// The existing fixture resolver accepts the staged shape at its boundary;
+	// no running engine or document store sees these source strings.
+	const doc = hydratePersistedBlueprint(
+		structuredClone(input) as PersistableDoc,
+	);
+	resolveDocExpressions(doc);
 	assertAdmittedPreviewDoc(doc);
 	return doc;
 }

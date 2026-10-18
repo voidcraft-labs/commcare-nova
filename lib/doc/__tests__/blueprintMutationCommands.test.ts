@@ -1,10 +1,6 @@
 import { afterEach, assert, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import {
-	buildDoc,
-	resolveCaseListConfig,
-	xp,
-} from "@/lib/__tests__/docHelpers";
+import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	type AddCommitOutcome,
 	createBlueprintMutations,
@@ -16,6 +12,8 @@ import {
 } from "@/lib/doc/store";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { type Automation, uuidSchema } from "@/lib/domain";
+import { eq, literal, term } from "@/lib/domain/expression/builders";
+import type { Choice } from "@/lib/domain/expression/types";
 import { printProseTemplate, proseText } from "@/lib/domain/prose";
 import { toastStore } from "@/lib/ui/toastStore";
 import { assertAdmittedDoc } from "./admittedDoc";
@@ -457,7 +455,11 @@ describe("Builder mutation commands", () => {
 				[CP_F1]: [CP_PRIMARY],
 				[CP_F2]: [CP_PEER, CP_BLOCKER],
 			},
-			fieldParent: {},
+			fieldParent: {
+				[CP_PRIMARY]: CP_F1,
+				[CP_PEER]: CP_F2,
+				[CP_BLOCKER]: CP_F2,
+			},
 		};
 		const { mutations, store } = setup(peerDoc);
 		const captured: {
@@ -1184,7 +1186,7 @@ describe("Builder mutation commands", () => {
 										kind: "text",
 										id: "a",
 										label: "A",
-										default_value: xp("'seed'"),
+										default_value: term(literal("seed")),
 									},
 								],
 							},
@@ -1200,7 +1202,7 @@ describe("Builder mutation commands", () => {
 				converted && "default_value" in converted
 					? converted.default_value
 					: undefined,
-			).toEqual(xp("'seed'"));
+			).toEqual(term(literal("seed")));
 			expect(
 				converted && "calculate" in converted ? converted.calculate : undefined,
 			).toBeUndefined();
@@ -1624,5 +1626,98 @@ describe("Builder command admission", () => {
 				},
 			],
 		]);
+	});
+});
+
+describe("Builder choice preservation", () => {
+	const option = testUuid("builder-preserved-option");
+	const choice: Choice = { kind: "choice", field: Q_A, options: [option] };
+	function choiceFixture() {
+		return buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					uuid: MOD1,
+					name: "Survey",
+					forms: [
+						{
+							uuid: FORM1,
+							name: "Survey",
+							type: "survey",
+							fields: [
+								{
+									uuid: Q_A,
+									kind: "single_select",
+									id: "status",
+									options: [
+										{ uuid: option, value: "yes", label: "Yes" },
+										{
+											uuid: testUuid("builder-preserved-other"),
+											value: "no",
+											label: "No",
+										},
+									],
+								},
+								{
+									uuid: Q_B,
+									kind: "text",
+									id: "note",
+									default_value: term(choice),
+									relevant: eq(choice, literal("yes")),
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	it.each(["conversion", "dynamic source"] as const)(
+		"preserves readers, announces the count, and undoes the complete %s command",
+		(edit) => {
+			const original = choiceFixture();
+			const { mutations, store } = setup(original);
+			const outcome =
+				edit === "conversion"
+					? mutations.convertField(Q_A, "text")
+					: mutations.updateField(Q_A, "single_select", {
+							optionsSource: {
+								kind: "cases",
+								caseType: "patient",
+								labelProperty: "case_name",
+							},
+						});
+			expect(outcome).toEqual({ ok: true });
+			expect(store.getState().fields[Q_B]).toMatchObject({
+				default_value: term(literal("yes")),
+				relevant: eq(literal("yes"), literal("yes")),
+			});
+			expect(toastStore.toasts).toMatchObject([
+				{ severity: "info", title: "Kept 2 choice values in your rules." },
+			]);
+			expect(store.getState().peekCommandBatches()).toHaveLength(1);
+			store.getState().undo();
+			expect(store.getState().fields[Q_A]).toEqual(original.fields[Q_A]);
+			expect(store.getState().fields[Q_B]).toEqual(original.fields[Q_B]);
+			expect(store.getState().canUndo).toBe(false);
+		},
+	);
+
+	it("keeps the choice readers and reports no preservation when the source change is refused", () => {
+		const original = choiceFixture();
+		const { mutations, store } = setup(original);
+		const outcome = mutations.updateField(Q_A, "single_select", {
+			optionsSource: {
+				kind: "cases",
+				caseType: "missing",
+				labelProperty: "case_name",
+			},
+		});
+		expect(outcome.ok).toBe(false);
+		expect(store.getState().fields[Q_A]).toEqual(original.fields[Q_A]);
+		expect(store.getState().fields[Q_B]).toEqual(original.fields[Q_B]);
+		expect(store.getState().peekCommandBatches()).toEqual([]);
+		expect(toastStore.toasts.map((toast) => toast.severity)).toEqual(["error"]);
 	});
 });

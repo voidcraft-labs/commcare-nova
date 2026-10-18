@@ -1,4 +1,4 @@
-import { caseSearchCalculatedExpressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { Column, ColumnKind } from "@/lib/domain";
 import {
 	calculatedColumn,
@@ -10,8 +10,7 @@ import {
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
-import { checkValueExpression, literal, term } from "@/lib/domain/predicate";
-import { buildEditorTypeContext } from "../shared/editorTypeContext";
+import { literal, term } from "@/lib/domain/expression";
 import {
 	type ColumnEditContext,
 	columnCardSchemas,
@@ -196,14 +195,10 @@ export function columnAdmittedForContext(
 	ctx: ColumnEditContext,
 ): boolean {
 	if (column.kind === "calculated") {
-		const typeContext = buildEditorTypeContext({ ...ctx, knownInputs: [] });
+		const context = ctx.expressionContextForColumn?.(column);
 		return (
-			checkValueExpression(column.expression, typeContext).ok &&
-			(!ctx.searchIsEffective ||
-				caseSearchCalculatedExpressionEditVerdict(
-					column.expression,
-					typeContext,
-				).ok)
+			context !== undefined &&
+			expressionEditVerdict(column.expression, context).ok
 		);
 	}
 	const property = resolveColumnProperty(ctx, column.field);

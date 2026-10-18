@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: Native constraint markers must remain literal test data.
 /** Admitted prose whose adjacent references need separators in native Core. */
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -45,21 +45,21 @@ export function proseWhitespaceFixture() {
 								kind: "text",
 								id: "answer",
 								label: proseText("é é العربية 汉字 😀 \u007f\u0085\u009f"),
-								default_value: xp("'A\tB\nC\rD'"),
+								default_value: "'A\tB\nC\rD'",
 							}),
 							f({
 								kind: "int",
 								uuid: MEALS,
 								id: "meals",
 								label: "Meals",
-								default_value: xp("3"),
+								default_value: "3",
 							}),
 							f({
 								kind: "text",
 								uuid: ADDRESS,
 								id: "address",
 								label: "Address",
-								default_value: xp("'14 Example Lane'"),
+								default_value: "'14 Example Lane'",
 							}),
 							f({
 								kind: "label",
@@ -114,7 +114,7 @@ export function proseWhitespaceFixture() {
 								label: "Entry",
 								hint: separated("\n\n"),
 								help: separated(" "),
-								validate: xp(". = 'ok'"),
+								validate: ". = 'ok'",
 								validate_msg: separated("\t"),
 							}),
 							f({
@@ -122,8 +122,8 @@ export function proseWhitespaceFixture() {
 								uuid: LITERAL_CHECKED,
 								id: "literal_checked",
 								label: "Literal constraint",
-								default_value: xp("4"),
-								validate: xp(". < 10"),
+								default_value: "4",
+								validate: ". < 10",
 								validate_msg: proseText(
 									'Literal ${0} / ${00}; It\'s "early"\u00a0today',
 								),
@@ -133,8 +133,8 @@ export function proseWhitespaceFixture() {
 								uuid: REFERENCE_CHECKED,
 								id: "reference_checked",
 								label: "Referenced constraint",
-								default_value: xp("4"),
-								validate: xp(". < 10"),
+								default_value: "4",
+								validate: ". < 10",
 								validate_msg: {
 									parts: [
 										{ kind: "text", text: "Literal ${0} / ${00}: " },

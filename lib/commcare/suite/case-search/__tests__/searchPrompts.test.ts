@@ -17,6 +17,7 @@ import {
 } from "@/lib/commcare/__tests__/xmlEvidence";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
@@ -33,12 +34,8 @@ import {
 	matchAll,
 	prop,
 	whenInput,
-} from "@/lib/domain/predicate";
-import {
-	buildSearchPrompts,
-	searchPromptRelationContext,
-	searchPromptWire,
-} from "../searchPrompts";
+} from "@/lib/domain/expression";
+import { buildSearchPrompts, searchPromptWire } from "../searchPrompts";
 import {
 	buildRuntimeCsqlPromptValidations,
 	composeXPathQueryEmission,
@@ -48,34 +45,29 @@ function projection(scenario: (typeof promptScenarios)[number]) {
 	const doc = searchPromptFixture(scenario);
 	const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
 	if (!config) throw new Error("Fixture has a case list");
-	const context = {
-		caseTypes: doc.caseTypes ?? [],
-		currentCaseType: "patient",
-		knownInputs: [],
-		lookupTables: new Map(
-			promptLookupContext.kind === "available"
-				? promptLookupContext.definitions.map((table) => [
-						table.id,
-						new Map(
-							table.columns.map((column) => [column.id, column.dataType]),
-						),
-					])
-				: [],
-		),
-	};
+	const expressions = moduleExpressionContexts(
+		doc,
+		doc.moduleOrder[0],
+		promptLookupNaming,
+	);
 	const validations = buildRuntimeCsqlPromptValidations(
-		composeXPathQueryEmission(config, "patient", context, promptLookupNaming),
+		composeXPathQueryEmission(
+			config,
+			"patient",
+			expressions({ slot: "case_list_filter" }),
+			promptLookupNaming,
+		),
 	);
 	return {
 		doc,
 		config,
-		context,
+		expressions,
 		validations,
 		emission: buildSearchPrompts(
 			config.searchInputs,
 			"m0",
 			validations,
-			context,
+			expressions,
 			promptLookupNaming,
 		),
 	};
@@ -186,7 +178,7 @@ it("binds both choice widgets to the entire filtered fixture row contract", () =
 	}
 });
 it("sorts lookup choices by the chosen column, the label column by default", () => {
-	const { config, context, validations } = projection("prompt-widgets");
+	const { config, expressions, validations } = projection("prompt-widgets");
 	const sortedByCode = config.searchInputs.map((searchInput) =>
 		isSelectSearchInput(searchInput)
 			? {
@@ -202,7 +194,7 @@ it("sorts lookup choices by the chosen column, the label column by default", () 
 		sortedByCode,
 		"m0",
 		validations,
-		context,
+		expressions,
 		promptLookupNaming,
 	);
 	const sortRefs = emission.elements
@@ -223,7 +215,7 @@ it("sorts lookup choices by the chosen column, the label column by default", () 
 it.each(promptScenarios)(
 	"carries %s prompt trees, instance declarations and locale messages through both complete exports",
 	(scenario) => {
-		const { doc, config, context, validations, emission } =
+		const { doc, config, expressions, validations, emission } =
 			projection(scenario);
 		const hq = expandDoc(doc, { lookupNaming: promptLookupNaming });
 		const zip = new AdmZip(
@@ -253,7 +245,7 @@ it.each(promptScenarios)(
 			const wire = searchPromptWire(
 				input,
 				validations.get(input.name),
-				searchPromptRelationContext(config.searchInputs, context),
+				expressions,
 				promptLookupNaming,
 			);
 			// HQ's validation slot interpolates hashtags without dot expansion;
@@ -295,7 +287,7 @@ it.each(promptScenarios)(
 	},
 );
 it("assigns runtime guards to value dependencies across filters and sibling arms, leaving presence-only triggers unrestricted", () => {
-	const { doc, config, context } = projection("prompt-guards");
+	const { doc, config, expressions } = projection("prompt-guards");
 	const ids = ["filter_value", "sibling", "owner", "trigger"].map(testUuid);
 	config.searchInputs = ids.map((id, index) =>
 		advancedSearchInputDef(
@@ -328,7 +320,11 @@ it("assigns runtime guards to value dependencies across filters and sibling arms
 	);
 	expect(runValidation(doc, promptLookupContext)).toEqual([]);
 	const validations = buildRuntimeCsqlPromptValidations(
-		composeXPathQueryEmission(config, "patient", context),
+		composeXPathQueryEmission(
+			config,
+			"patient",
+			expressions({ slot: "case_list_filter" }),
+		),
 	);
 	expect([...validations.keys()]).toEqual(["filter_value", "sibling"]);
 	for (const [name, validation] of validations)
@@ -343,16 +339,16 @@ it("assigns runtime guards to value dependencies across filters and sibling arms
 		});
 });
 it("refuses an internal lookup emission without the required naming snapshot", () => {
-	const { config, context } = projection("prompt-widgets");
+	const { config, expressions } = projection("prompt-widgets");
 	expect(() =>
-		buildSearchPrompts(config.searchInputs, "m0", undefined, context),
+		buildSearchPrompts(config.searchInputs, "m0", undefined, expressions),
 	).toThrow(
 		/^searchPromptWire: a lookup-backed choice input reached wire emission with no lookup wire naming\./,
 	);
 });
 
 it("uses readable label and required-message fallbacks without inventing a hint", () => {
-	const { doc, config, context } = projection("prompt-widgets");
+	const { doc, config, expressions } = projection("prompt-widgets");
 	const first = config.searchInputs[0];
 	if (first.kind === "hidden")
 		throw new Error("Fixture starts with a visible prompt");
@@ -363,7 +359,7 @@ it("uses readable label and required-message fallbacks without inventing a hint"
 		config.searchInputs,
 		"m0",
 		undefined,
-		context,
+		expressions,
 	);
 	expect(emission.strings).toEqual({
 		"search_property.m0.first_name": "first_name",

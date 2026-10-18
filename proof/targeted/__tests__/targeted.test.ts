@@ -199,4 +199,26 @@ describe("a targeted document", () => {
 			);
 		}
 	});
+
+	it("admits exact edit commands only when their replay makes the written document", () => {
+		const doc = survey();
+		const edit = { ...doc, appName: "Renamed" };
+		const editMutations = Object.freeze([
+			{ kind: "setAppName" as const, name: "Renamed" },
+		]);
+		const spec = { id, rows: [], doc, edit, editMutations, expected };
+		expect(targetedDocument(spec).edit?.mutations).toEqual(editMutations);
+		expect(() => targetedDocument({ ...spec, edit: doc })).toThrow(
+			/differ from the document written, first at \/appName/,
+		);
+		expect(() =>
+			targetedDocument({
+				...spec,
+				editMutations: [{ kind: "removeForm", uuid: uuid("form") }],
+			}),
+		).toThrow(/commit gate refused the edit/);
+		expect(() => targetedDocument({ ...spec, edit: undefined })).toThrow(
+			/edit commands without the document/,
+		);
+	});
 });

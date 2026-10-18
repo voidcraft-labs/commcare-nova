@@ -1,8 +1,20 @@
 import { v7 as uuidv7 } from "uuid";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { asUuid, proseText, simpleSearchInputDef } from "@/lib/domain";
-import { termSchema } from "@/lib/domain/predicate";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	asUuid,
+	calculatedColumn,
+	proseText,
+	simpleSearchInputDef,
+} from "@/lib/domain";
+import {
+	literal,
+	recordQueryContext,
+	term,
+	termSchema,
+} from "@/lib/domain/expression";
+import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import {
 	previewAsMe,
 	previewSessionValues,
@@ -38,7 +50,9 @@ const identity = (kind: string, name: string) => {
 };
 function bindings(caseType = "Client", tableId?: string): QueryBindings {
 	return {
-		typeContext: {
+		currentCaseType: caseType,
+		choice: (_field, value) => value,
+		typeContext: recordQueryContext({
 			knownInputs: [],
 			currentCaseType: caseType,
 			caseTypes: [
@@ -49,7 +63,7 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 					],
 				},
 			],
-		},
+		}),
 		identity,
 		reference(namespace, path) {
 			const name = path.join("/");
@@ -94,6 +108,7 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 const scope = bindings();
 const printContext: QueryPrintContext = {
 	typeContext: scope.typeContext,
+	choiceValues: () => undefined,
 	forRelation: () => printContext,
 	forTable: () => printContext,
 	name: (_kind, id) => id,
@@ -104,6 +119,51 @@ const printContext: QueryPrintContext = {
 	},
 };
 const printer = queryPrinter(printContext);
+
+const previewModule = testUuid("authored-query-preview-module");
+const previewColumn = testUuid("authored-query-preview-column");
+const age = simpleSearchInputDef(testUuid("age"), "age", "Age", "text", "age");
+const previewDoc = buildDoc({
+	caseTypes: [
+		{
+			name: "Client",
+			properties: [{ name: "age", data_type: "text", label: "Age" }],
+		},
+	],
+	modules: [
+		{
+			uuid: previewModule,
+			name: "Clients",
+			caseType: "Client",
+			caseListConfig: {
+				...caseListConfig([]),
+				columns: [
+					calculatedColumn(
+						previewColumn,
+						"Calculated value",
+						term(literal("")),
+					),
+				],
+				listColumnOrder: [previewColumn],
+				detailColumnOrder: [previewColumn],
+				searchInputs: [age],
+			},
+		},
+	],
+});
+const previewEnvironment = { doc: previewDoc, moduleUuid: previewModule };
+const previewValueContext = previewExpressionContext(previewDoc, {
+	entity: "module",
+	uuid: previewModule,
+	slot: "case_list_column_expression",
+	member: { columnUuid: previewColumn },
+});
+const previewConditionContext = previewExpressionContext(previewDoc, {
+	entity: "module",
+	uuid: previewModule,
+	slot: "search_input_required_when",
+	member: { searchInputUuid: age.uuid },
+});
 
 it("executes shared blank operations and empty collections without special authoring forms", () => {
 	const session = previewSessionValues(
@@ -120,6 +180,8 @@ it("executes shared blank operations and empty collections without special autho
 		expect(
 			evaluatePreviewSearchPredicate(
 				parseQueryPredicate(source, scope),
+				previewConditionContext,
+				previewEnvironment,
 				[],
 				session,
 				new Map(),
@@ -134,9 +196,10 @@ it("executes shared blank operations and empty collections without special autho
 		["coalesce(false(), true())", "false"],
 	] as const) {
 		const value = parseQueryValue(source, scope);
-		expect(evaluatePreviewSearchExpression(value, session), source).toBe(
-			expected,
-		);
+		expect(
+			evaluatePreviewSearchExpression(value, previewValueContext, session),
+			source,
+		).toBe(expected);
 		expect(parseQueryValue(printer.value(value), scope)).toEqual(value);
 	}
 });
@@ -152,11 +215,20 @@ it("uses real division while preserving explicit integer division in existing ex
 		"number(5) div 2",
 	]) {
 		const value = parseQueryValue(source, scope);
-		expect(evaluatePreviewSearchExpression(value, session), source).toBe("2.5");
+		expect(
+			evaluatePreviewSearchExpression(value, previewValueContext, session),
+			source,
+		).toBe("2.5");
 		expect(parseQueryValue(printer.value(value), scope)).toEqual(value);
 	}
 	const integerDivision = parseQueryValue("quotient(5, 2)", scope);
-	expect(evaluatePreviewSearchExpression(integerDivision, session)).toBe("2");
+	expect(
+		evaluatePreviewSearchExpression(
+			integerDivision,
+			previewValueContext,
+			session,
+		),
+	).toBe("2");
 	expect(printer.value(integerDivision)).toBe("quotient(5, 2)");
 	expect(() => parseQueryValue("quotient(5.0, 2)", scope)).toThrow(
 		"integer operands",
@@ -195,13 +267,6 @@ it("preserves operator precedence and switches the record scope for a related-re
 });
 
 it("runs authored Search calculations and conditions through the production Preview evaluator", () => {
-	const age = simpleSearchInputDef(
-		testUuid("age"),
-		"age",
-		"Age",
-		"text",
-		"age",
-	);
 	const session = previewSessionValues(
 		previewAsMe({ id: "worker", name: "Ada", email: "ada@example.org" }),
 	);
@@ -220,10 +285,23 @@ it("runs authored Search calculations and conditions through the production Prev
 	] as const) {
 		const answers = new Map([["age", answer]]);
 		expect(
-			evaluatePreviewSearchPredicate(condition, [age], session, answers),
+			evaluatePreviewSearchPredicate(
+				condition,
+				previewConditionContext,
+				previewEnvironment,
+				[age],
+				session,
+				answers,
+			),
 		).toBe(allowed);
 		expect(
-			evaluatePreviewSearchExpression(calculation, session, answers, [age]),
+			evaluatePreviewSearchExpression(
+				calculation,
+				previewValueContext,
+				session,
+				answers,
+				[age],
+			),
 		).toBe(label);
 	}
 });
@@ -356,12 +434,15 @@ it("identifies unsupported record functions without mistaking their arguments fo
 	expect(
 		evaluatePreviewSearchExpression(
 			parseQueryValue("concat(2, ' attendees')", scope),
+			previewValueContext,
 			session,
 		),
 	).toBe("2 attendees");
 	expect(
 		evaluatePreviewSearchPredicate(
 			parseQueryPredicate("not(is-blank(session('userid')))", scope),
+			previewConditionContext,
+			previewEnvironment,
 			[],
 			session,
 			new Map(),

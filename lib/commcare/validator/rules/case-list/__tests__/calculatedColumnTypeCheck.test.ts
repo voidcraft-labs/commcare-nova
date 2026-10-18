@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { f } from "@/lib/__tests__/docHelpers";
 import { calculatedColumn } from "@/lib/domain";
-import { arith, prop, term } from "@/lib/domain/predicate";
+import { arith, prop, term } from "@/lib/domain/expression";
 import {
 	admittedCaseListDoc,
 	findings,
@@ -58,8 +58,22 @@ describe("calculated column type admission", () => {
 				"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 			]);
 			expect(errors.map((error) => error.details)).toEqual([
-				{ index: "0", columnUuid: id, path: "left" },
-				{ index: "0", columnUuid: id, path: "right" },
+				{
+					index: "0",
+					columnUuid: id,
+					slot: "caseListConfig.columns[0].expression",
+					registrySlot: "case_list_column_expression",
+					checkCode: "number-value",
+					path: "left",
+				},
+				{
+					index: "0",
+					columnUuid: id,
+					slot: "caseListConfig.columns[0].expression",
+					registrySlot: "case_list_column_expression",
+					checkCode: "number-value",
+					path: "right",
+				},
 			]);
 		},
 	);

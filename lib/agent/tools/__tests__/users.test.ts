@@ -10,7 +10,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import type { BlueprintDoc } from "@/lib/domain";
-import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
+import { eq, literal, sessionUserProperty } from "@/lib/domain/expression";
 import {
 	makeCanonicalGenesisDoc,
 	makeToolWorkspaceHarness,

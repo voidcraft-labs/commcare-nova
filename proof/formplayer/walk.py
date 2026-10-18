@@ -538,7 +538,8 @@ class Walk:
         left it, the questions whose last answer Formplayer refused as invalid (``submission``), what the
         client sent of its own along the way (``_reconcile``), and what the client holds of each question at the
         end. A location question ``given`` a place is answered
-        with it, its attempt keeping the table's places the client's map was dragged ``toward`` to give it."""
+        with it, its attempt keeping the table's places the client's map was dragged ``toward`` to give it.
+        A question already holding the table's answer sends nothing, as the client's unchanged widget does."""
         session, tree = form["session_id"], form["tree"]
         tried: set[str] = set()
         refused: set[str] = set()
@@ -592,6 +593,11 @@ class Walk:
                 if value is CLEARED and str(pending["ix"]) not in refused:
                     break
                 if kind is None:
+                    if str(pending["ix"]) not in refused and _sent_alike(held[str(pending["ix"])], value):
+                        # The widget already shows the answer, so giving it that value changes nothing and sends
+                        # no request (the client's answer step returns "unchanged"). A refused answer still
+                        # needs its correction or Clear even when the last accepted answer was the same.
+                        break
                     answered = web.answer(session, pending["ix"], value)
                     attempt = {"ix": pending["ix"], "value": value, "response": answered}
                     if given and str(pending["ix"]) in given and (toward or {}).get(str(pending["ix"])):
@@ -643,7 +649,7 @@ class Walk:
                     # with no widget for it, with its unsupported entry's text.
                     held[ix] = drawn_with(node)
                     continue
-                if ix == just or ix in refused or node.get("answer") == held[ix]:
+                if ix == just or ix in refused or _sent_alike(node.get("answer"), held[ix]):
                     continue
                 held[ix] = node.get("answer")
                 if changed is None and self._resends(node):

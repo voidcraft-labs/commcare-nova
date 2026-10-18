@@ -1,7 +1,7 @@
 // components/builder/case-list-config/canvas/CaseAvailabilityComposer.tsx
 //
 // Results' direct-composition surface for deciding which cases may appear.
-// The domain's complete recursive Predicate AST is authored through the
+// The domain's complete recursive Expression AST is authored through the
 // focus-and-context workbench: no root projection, flattening, or second model.
 
 "use client";
@@ -29,19 +29,21 @@ import {
 } from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import type {
 	CaseListConfig,
 	CaseSearchConfig,
 	CaseType,
 	CommitOutcome,
 	UserProperty,
+	Uuid,
 } from "@/lib/domain";
 import {
+	type Expression,
 	effectiveFilterForEmission,
-	type Predicate,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
 import {
 	pickBlueprintDoc,
@@ -65,25 +67,23 @@ export interface CaseAvailabilityComposerProps {
 	readonly filterBroken: boolean;
 	readonly excludedOwnerIdsBroken?: boolean;
 	/** Granular `setCaseListMeta` edit owned by the workspace. */
-	readonly onFilterChange: (next: Predicate | undefined) => CommitOutcome;
+	readonly onFilterChange: (next: Expression | undefined) => CommitOutcome;
 	/** Clears only the authored availability predicate. */
-	readonly onClearFilter: (next: Predicate | undefined) => CommitOutcome;
+	readonly onClearFilter: (next: Expression | undefined) => CommitOutcome;
 	/** Search-side state that also carries the one assigned-case rule. */
 	readonly searchConfig: CaseSearchConfig | undefined;
 	/** Whether this module has an effective Search action. The raw config can be
 	 * present solely to store assigned-case availability, so it cannot answer
 	 * this question by itself. */
 	readonly caseSearchEnabled: boolean;
-	readonly onExcludedOwnerIdsChange: (
-		next: ValueExpression | undefined,
-	) => void;
+	readonly onExcludedOwnerIdsChange: (next: Expression | undefined) => void;
 	readonly caseTypes: readonly CaseType[];
 	readonly userProperties?: readonly UserProperty[];
 	readonly currentCaseType: string;
 	readonly appId: string;
 	/** The module whose list this is: the match count's sample follows its
 	 * order. */
-	readonly moduleUuid: string;
+	readonly moduleUuid: Uuid;
 	readonly dependencyReview?:
 		| {
 				readonly kind: "cases-available";
@@ -117,6 +117,11 @@ export function CaseAvailabilityComposer({
 	onReturnToSearchField,
 }: CaseAvailabilityComposerProps) {
 	const canEdit = useCanEdit();
+	const expressionContext = useExpressionSlotContext({
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_filter",
+	});
 	const [pendingShutdown, setPendingShutdown] = useState(false);
 	const addConditionRegionRef = useRef<HTMLDivElement>(null);
 	const focusAddConditionAfterClearRef = useRef(false);
@@ -137,7 +142,7 @@ export function CaseAvailabilityComposer({
 		return () => cancelAnimationFrame(frame);
 	}, [config.filter]);
 
-	const proposeFilter = (next: Predicate | undefined) => {
+	const proposeFilter = (next: Expression | undefined) => {
 		if (
 			config.filter !== undefined &&
 			effectiveFilterForEmission(next) === undefined
@@ -152,14 +157,18 @@ export function CaseAvailabilityComposer({
 		() => searchInputDecls(config.searchInputs),
 		[config.searchInputs],
 	);
-	const editContext = {
-		caseTypes,
-		currentCaseType,
-		knownInputs: inputDecls,
-		// Cases available runs against every Results row: the ordinary
-		// per-case scope where property reads are meaningful.
-		caseDataScope: "per-case",
-	} as const;
+	const editContext =
+		expressionContext === undefined
+			? undefined
+			: ({
+					expressionContext,
+					caseTypes,
+					currentCaseType,
+					knownInputs: inputDecls,
+					// Cases available runs against every Results row: the ordinary
+					// per-case scope where property reads are meaningful.
+					caseDataScope: "per-case",
+				} as const);
 	const ownerMode = assignedCasesMode(searchConfig?.excludedOwnerIds);
 	const hasAssignedCaseRule = ownerMode !== "all";
 
@@ -222,7 +231,7 @@ export function CaseAvailabilityComposer({
 							</p>
 						</div>
 					</div>
-				) : canEdit ? (
+				) : canEdit && expressionContext !== undefined ? (
 					<div className="p-3 @sm:p-4">
 						{filterBroken && (
 							<div className="mb-3 inline-flex items-center gap-1.5 text-[12px] font-medium text-nova-rose">
@@ -231,6 +240,7 @@ export function CaseAvailabilityComposer({
 							</div>
 						)}
 						<PredicateWorkbench
+							expressionContext={expressionContext}
 							value={config.filter}
 							onChange={proposeFilter}
 							onRemoveRoot={() => proposeFilter(undefined)}
@@ -278,18 +288,20 @@ export function CaseAvailabilityComposer({
 					</div>
 				)}
 
-				{canEdit && config.filter === undefined && (
-					<div
-						ref={addConditionRegionRef}
-						className="border-t border-white/[0.07] p-3"
-					>
-						<AddConditionMenu
-							ctx={editContext}
-							onAdd={(next) => proposeFilter(next)}
-							className="w-full"
-						/>
-					</div>
-				)}
+				{canEdit &&
+					editContext !== undefined &&
+					config.filter === undefined && (
+						<div
+							ref={addConditionRegionRef}
+							className="border-t border-white/[0.07] p-3"
+						>
+							<AddConditionMenu
+								ctx={editContext}
+								onAdd={(next) => proposeFilter(next)}
+								className="w-full"
+							/>
+						</div>
+					)}
 
 				<div className="border-t border-white/[0.07]">
 					<AssignedCasesSetting
@@ -364,7 +376,7 @@ function ReadOnlyCondition({
 	currentCaseType,
 	knownInputs,
 }: {
-	readonly value: Predicate;
+	readonly value: Expression;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
@@ -406,11 +418,11 @@ function MatchCount({
 	excludedOwnerIdsExpression,
 }: {
 	readonly appId: string;
-	readonly moduleUuid: string;
+	readonly moduleUuid: Uuid;
 	readonly config: CaseListConfig;
 	readonly currentCaseType: string;
 	readonly filterValid: boolean;
-	readonly excludedOwnerIdsExpression: ValueExpression | undefined;
+	readonly excludedOwnerIdsExpression: Expression | undefined;
 }) {
 	const docApi = useBlueprintDocApi();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -460,7 +472,7 @@ function MatchCount({
 						: null,
 			},
 		}));
-		const blueprint = pickBlueprintDoc(docApi.getState());
+		const blueprint = toRscSerializableDoc(pickBlueprintDoc(docApi.getState()));
 		loadFilterPreviewAction({
 			appId,
 			caseType: currentCaseType,

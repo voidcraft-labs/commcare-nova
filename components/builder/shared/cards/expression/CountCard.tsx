@@ -1,15 +1,15 @@
 // components/builder/shared/cards/expression/CountCard.tsx
 //
-// Renders the `count` ValueExpression: relational aggregation. Two
+// Renders the `count` Expression: relational aggregation. Two
 // slots:
 //
 //   - `via`: `RelationPath` to walk along. Routes through the
 //     shared `RelationPathBuilder` primitive so non-canonical walks
 //     (multi-hop ancestor, qualified subcase, any-relation) remain
 //     editable through the complete path builder.
-//   - `where`: optional `Predicate`. When present, the count is
+//   - `where`: optional `Expression`. When present, the count is
 //     filtered to related cases where the predicate holds. Routes
-//     through `ChildPredicateEditor` so the full Predicate-side
+//     through `ChildPredicateEditor` so the full Expression-side
 //     editor is reachable inline.
 //
 // Type-checker rules (per `checkExpression`'s `case "count":`):
@@ -25,19 +25,21 @@
 // `appendKindSlot(path, "count", slot)` for sub-slots.
 
 "use client";
+
 import { useId, useMemo } from "react";
 import { Button } from "@/components/shadcn/button";
 import { FieldDescription } from "@/components/shadcn/field";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	ancestorPath,
 	count,
-	type Predicate,
+	type Expression,
+	isRelationPath,
 	type RelationPath,
 	relationStep,
 	selfPath,
 	subcasePath,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	CONDITION_SEED_UNAVAILABLE_REASON,
 	relatedConditionSeed,
@@ -76,7 +78,7 @@ export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
  * new-target menu disables Count in that scope with a specific explanation. */
 export function countDefault(
 	ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "count" }> {
+): ExpressionOfKind<"count"> {
 	const current = ctx.caseTypes.find(
 		(caseType) => caseType.name === ctx.currentCaseType,
 	);
@@ -98,12 +100,31 @@ export function countDefault(
 }
 
 interface CountCardProps {
-	readonly value: Extract<ValueExpression, { kind: "count" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"count">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
-export function CountCard({ value, onChange, path }: CountCardProps) {
+export function CountCard(props: CountCardProps) {
+	if (!isRelationPath(props.value.via))
+		return (
+			<p role="status">This saved expression cannot be edited here yet.</p>
+		);
+	return (
+		<EditableCountCard
+			{...props}
+			value={{ ...props.value, via: props.value.via }}
+		/>
+	);
+}
+
+function EditableCountCard({
+	value,
+	onChange,
+	path,
+}: CountCardProps & {
+	readonly value: CountCardProps["value"] & { readonly via: RelationPath };
+}) {
 	const ctx = usePredicateEditContext();
 	const operatorErrors = useEditorErrorsAt(appendKind(path, "count"));
 	const viaErrors = useEditorErrorsAt(appendKindSlot(path, "count", "via"));
@@ -120,7 +141,7 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 		if (admitVia(next).admitted) onChange(replaceRelatedPath(value, next));
 	};
 
-	const setWhere = (next: Predicate | undefined) => {
+	const setWhere = (next: Expression | undefined) => {
 		// `count` builder's absent-not-undefined contract: passing
 		// undefined produces `{ kind: "count", via }` with no `where`
 		// key (rather than `where: undefined`), matching the schema's
@@ -138,8 +159,8 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 		[value.via, ctx.currentCaseType, ctx.caseTypes],
 	);
 	const whereSeed = useMemo(
-		() => relatedConditionSeed(ctx, destinationCaseType),
-		[ctx, destinationCaseType],
+		() => relatedConditionSeed(ctx, destinationCaseType, value.via),
+		[ctx, destinationCaseType, value.via],
 	);
 	const addWhere = () => {
 		if (whereSeed === undefined) return;

@@ -45,7 +45,7 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 	const lookup = usePreviewLookupStatus();
 	const moduleVisibility = useMemo(
 		() =>
-			previewModuleVisibility(menuSource, {
+			previewModuleVisibility(menuSource.doc, {
 				authoring: mode === "edit" || bypass,
 				session,
 				lookup,

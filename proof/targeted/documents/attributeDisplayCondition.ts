@@ -27,7 +27,7 @@
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { plainColumn, proseText } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import { eq, literal, prop } from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import type { Expectation } from "../expected";
 import { restoreXml } from "../restore";

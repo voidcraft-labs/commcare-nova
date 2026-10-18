@@ -14,17 +14,17 @@ import {
 } from "@/lib/domain";
 import {
 	and,
+	type Expression,
 	eq,
 	gt,
 	input,
 	isBlank,
 	literal,
 	matchesPattern,
-	type Predicate,
 	prop,
 	sessionContext,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { runValidation } from "../../../runner";
 import {
 	admittedCaseListDoc,
@@ -153,7 +153,7 @@ describe("search-screen slot admission", () => {
 		},
 	] satisfies {
 		name: string;
-		predicate: Predicate;
+		predicate: Expression;
 		code: string;
 		reason?: string;
 	}[])(

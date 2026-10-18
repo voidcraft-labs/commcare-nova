@@ -7,7 +7,7 @@ import {
 	plainColumn,
 	proseText,
 } from "@/lib/domain";
-import { prop, term } from "@/lib/domain/predicate";
+import { prop, term } from "@/lib/domain/expression";
 import {
 	admittedCaseListDoc,
 	findings,

@@ -6,7 +6,7 @@
 // surfaces into one `concat(...)` wrapper without parsing constants
 // out of an intermediate string.
 //
-// Emission policy: emit the seven `ValueExpression` arms that ARE in
+// Emission policy: emit the seven `Expression` arms that ARE in
 // CCHQ's CSQL value-function whitelist
 // (`commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`).
 // The remaining eleven arms (`arith`, `concat`, `coalesce`, `if`,
@@ -22,7 +22,7 @@
 // If the bypass path ever surfaced one of the eleven non-whitelist
 // arms, the emitter throws a defensive error rather than emit
 // broken CSQL. The local `_exhaustive: never` default catches new
-// ValueExpression kinds at compile time.
+// Expression kinds at compile time.
 //
 // File ownership: this file owns operator dispatch for the CSQL
 // value-expression surface. Term emission and shared lexical helpers
@@ -50,7 +50,7 @@
 //     (`date-add('2022-01-01', 'days', -1) => '2021-12-31'`) — three
 //     separate arguments. Whitelist registrations at the `date-add` and
 //     `datetime-add` entries cover both wire forms; the canonical type
-//     context (or an unambiguous structural type) selects the wire name.
+//     context selects the wire name.
 //   - `term(t)` → delegate to the shared CSQL term-segment emitter at
 //     `../predicate/termEmitter:emitTermSegment`. Property refs and
 //     literals emit as constant segments; runtime refs emit through
@@ -60,14 +60,10 @@
 
 import {
 	asTemporalType,
-	inferStructuralTemporalType,
 	type TemporalType,
-} from "@/lib/domain/predicate/temporalType";
-import {
-	type CheckError,
-	checkExpression,
-} from "@/lib/domain/predicate/typeChecker";
-import type { ValueExpression } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/temporalType";
+import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
+import type { Expression } from "@/lib/domain/expression/types";
 import { type CsqlSegment, groupCsqlArgument } from "../predicate/csqlSegment";
 import {
 	classifyCalendarDateAddQuantity,
@@ -85,14 +81,14 @@ import { assertCsqlValueFunction } from "../xpath/functionCapabilities";
 import { w } from "../xpath/wire/builders";
 import { isNativeCsqlValueExpression } from "./csqlCapabilities";
 import {
+	type CsqlEmissionContext,
 	emitCsqlRuntimeExpression,
-	type CsqlEmissionContext as TypeContext,
 } from "./csqlRuntimeExpression";
 
 export { isNativeCsqlValueExpression } from "./csqlCapabilities";
 
 /**
- * Compile a `ValueExpression` AST to its CSQL `CsqlSegment[]` IR. The
+ * Compile a `Expression` AST to its CSQL `CsqlSegment[]` IR. The
  * caller composes the segments with surrounding constants (operator
  * tokens, comparison operators, etc.) and routes the final list
  * through the predicate-side wrap layer (`wrapClause` in
@@ -105,8 +101,8 @@ export { isNativeCsqlValueExpression } from "./csqlCapabilities";
  * `emitCsqlFunctionArgumentSegments` and inline as quoted runtime XPath.
  */
 export function emitCsqlExpressionSegments(
-	expr: ValueExpression,
-	typeContext?: TypeContext,
+	expr: Expression,
+	typeContext: CsqlEmissionContext,
 	runtimeQuoteStyle: RuntimeCsqlQuoteStyle = "double",
 ): CsqlSegment[] {
 	switch (expr.kind) {
@@ -204,14 +200,12 @@ export function emitCsqlExpressionSegments(
 			// argument helper. A direct call cannot supply the surrounding
 			// CSQL position, so throwing here defends against broken wire.
 			throw new Error(
-				`csqlExpressionEmitter: tried to emit a value-expression of kind '${expr.kind}' as native CSQL, but CCHQ's CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm. The predicate-side emitter at lib/commcare/predicate/csqlEmitter.ts should have inlined it as an on-device XPath fragment via toWire. Look at the operand dispatch in emitOperandSegments; a new ValueExpression kind needs to route through inlineAsRuntimeOperand.`,
+				`csqlExpressionEmitter: tried to emit a value-expression of kind '${expr.kind}' as native CSQL, but CCHQ's CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm. The predicate-side emitter at lib/commcare/predicate/csqlEmitter.ts should have inlined it as an on-device XPath fragment via toWire. Look at the operand dispatch in emitOperandSegments; a new Expression kind needs to route through inlineAsRuntimeOperand.`,
 			);
-		default: {
-			const _exhaustive: never = expr;
+		default:
 			throw new Error(
-				`csqlExpressionEmitter: unhandled ValueExpression kind ${String(_exhaustive)}`,
+				`csqlExpressionEmitter: '${expr.kind}' is not a native CSQL value function.`,
 			);
-		}
 	}
 }
 
@@ -241,8 +235,8 @@ function emitFunctionCallSegments(
 }
 
 function emitCsqlFunctionArgumentSegments(
-	expr: ValueExpression,
-	typeContext: TypeContext | undefined,
+	expr: Expression,
+	typeContext: CsqlEmissionContext,
 	runtimeQuoteStyle: RuntimeCsqlQuoteStyle,
 ): CsqlSegment[] {
 	if (isNativeCsqlValueExpression(expr)) {
@@ -254,7 +248,7 @@ function emitCsqlFunctionArgumentSegments(
 		[
 			...collectRuntimeCsqlStringExpressionInputNames(
 				expr,
-				typeContext?.knownInputs,
+				typeContext.types.profile.searchInputs,
 			),
 		],
 	);
@@ -267,7 +261,7 @@ function emitCsqlFunctionArgumentSegments(
  * so the three-argument shape is mandatory.
  *
  * The interval is one of `DATE_ADD_INTERVALS` (a closed enum at
- * `lib/domain/predicate/types.ts`), so the literal is always one of
+ * `lib/domain/expression/types.ts`), so the literal is always one of
  * `seconds` / `minutes` / `hours` / `days` / `weeks` / `months` /
  * `years` and the `quoteLiteral` call always lands on the no-quote-
  * embedded branch — but routing through the shared helper keeps the
@@ -275,8 +269,8 @@ function emitCsqlFunctionArgumentSegments(
  * happy path here.
  */
 function emitDateAddSegments(
-	expr: Extract<ValueExpression, { kind: "date-add" }>,
-	typeContext?: TypeContext,
+	expr: Extract<Expression, { kind: "date-add" }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	const functionName = dateAddFunctionName(expr.date, typeContext);
 	assertCsqlValueFunction(functionName);
@@ -301,8 +295,8 @@ function emitDateAddSegments(
 }
 
 function emitDateAddQuantitySegments(
-	expr: Extract<ValueExpression, { kind: "date-add" }>,
-	typeContext: TypeContext | undefined,
+	expr: Extract<Expression, { kind: "date-add" }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	const segments = emitCsqlFunctionArgumentSegments(
 		expr.quantity,
@@ -313,8 +307,8 @@ function emitDateAddQuantitySegments(
 
 	const classification = classifyCalendarDateAddQuantity(
 		expr.quantity,
-		typeContext?.knownInputs,
-		typeContext?.searchInputInstanceId,
+		typeContext.types.profile.searchInputs,
+		typeContext.bindings?.searchInputInstanceId,
 	);
 	if (classification.kind === "static-valid") return segments;
 	if (classification.kind === "runtime-input") {
@@ -343,20 +337,15 @@ function emitDateAddQuantitySegments(
  * `datetime-add` preserves the time component; choosing one from the interval
  * or from a string's spelling would silently change valid predicates.
  *
- * Production compilation supplies the same canonical `TypeContext` used by
- * the predicate validator, so typed property/input reads resolve here without
- * a second type table. Standalone emitter callers may omit it only when the
- * AST itself proves the result (`today`, `now`, explicit coercions, typed
- * temporal literals, or wrappers whose branches agree). Ambiguous reads throw
- * instead of guessing.
+ * Every caller supplies the actual carrier context used by the checker.
+ * Property, input, and nested-row types resolve through that shared context;
+ * ambiguous reads throw instead of guessing.
  */
 function dateAddFunctionName(
-	date: ValueExpression,
-	typeContext?: TypeContext,
+	date: Expression,
+	typeContext: CsqlEmissionContext,
 ): "date-add" | "datetime-add" {
-	const temporalType =
-		resolveTemporalTypeFromContext(date, typeContext) ??
-		inferStructuralTemporalType(date);
+	const temporalType = resolveTemporalTypeFromContext(date, typeContext);
 	if (temporalType === "date") return "date-add";
 	if (temporalType === "datetime") return "datetime-add";
 
@@ -364,20 +353,14 @@ function dateAddFunctionName(
 		[
 			"csqlExpressionEmitter: cannot choose between CCHQ's date-add() and datetime-add() for this date-add expression.",
 			"The wire functions have different result semantics, so the emitter will not guess from a property name, input name, interval, or runtime string.",
-			typeContext === undefined
-				? "Supply the canonical predicate TypeContext to emitCsql(), or make the date operand explicit with dateCoerce(...), datetimeCoerce(...), today(), now(), or a typed temporal literal."
-				: "The supplied predicate TypeContext did not resolve the date operand to date or datetime. The validator should reject this expression before wire compilation.",
+			"The actual slot context did not resolve the date operand to date or datetime. Validation should reject this expression before wire compilation.",
 		].join(" "),
 	);
 }
 
 function resolveTemporalTypeFromContext(
-	expr: ValueExpression,
-	typeContext: TypeContext | undefined,
+	expr: Expression,
+	typeContext: CsqlEmissionContext,
 ): TemporalType | undefined {
-	if (typeContext === undefined) return undefined;
-	const errors: CheckError[] = [];
-	const resolved = checkExpression(expr, typeContext, errors, []);
-	if (errors.length > 0) return undefined;
-	return asTemporalType(resolved);
+	return asTemporalType(scalarDataType(typeOf(expr, typeContext.types)?.data));
 }

@@ -4,6 +4,7 @@ import { blueprintDocSchema } from "@/lib/domain";
 import {
 	concat,
 	count,
+	type Expression,
 	eq,
 	exists,
 	ifExpr,
@@ -12,14 +13,13 @@ import {
 	sessionContext,
 	subcasePath,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	admittedCaseListDoc,
 	findings,
 } from "../../case-list/__tests__/caseListRuleFixture";
 
-function candidate(expression: ValueExpression | undefined) {
+function candidate(expression: Expression | undefined) {
 	const base = admittedCaseListDoc({
 		caseTypes: [
 			{ name: "patient", properties: [] },
@@ -61,7 +61,11 @@ describe("assigned-case exclusion admission", () => {
 		"refuses case reads through $kind before generic type checking",
 		(expression) => {
 			const errors = findings(candidate(expression));
-			expect(errors.map((error) => error.code)).toEqual([caseData]);
+			expect(errors.map((error) => error.code)).toEqual(
+				expression.kind === "count" || expression.kind === "if"
+					? ["CASE_LIST_EXPRESSION_NOT_ON_DEVICE", caseData]
+					: [caseData],
+			);
 			expect(errors[0].details?.slot).toBe("caseSearchConfig.excludedOwnerIds");
 		},
 	);
@@ -82,6 +86,6 @@ describe("assigned-case exclusion admission", () => {
 		expect(errors.map((error) => error.code)).toEqual([
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 		]);
-		expect(errors[0].message).toContain("Expected 'text'");
+		expect(errors[0].message).toContain("expected 'text'");
 	});
 });

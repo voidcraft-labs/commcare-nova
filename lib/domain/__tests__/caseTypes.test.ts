@@ -9,11 +9,11 @@ import {
 	toReachableIndex,
 } from "../caseTypes";
 import type { FieldKind } from "../fields";
-import type { XPathPrintableDoc } from "../xpath/print";
+import type { ReferenceNamesDoc } from "../referenceNames";
 
 /** These fixtures label every property with literal prose, so an empty
  *  document resolves everything they reference (nothing). */
-const EMPTY_DOC: XPathPrintableDoc = { fields: {}, forms: {}, fieldOrder: {} };
+const EMPTY_DOC: ReferenceNamesDoc = { fields: {}, forms: {}, fieldOrder: {} };
 const prop = (name: string) => ({ name, label: proseText(name) });
 const TYPES: CaseType[] = [
 	{ name: "mother", properties: [prop("case_name"), prop("household_code")] },

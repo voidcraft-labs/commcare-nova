@@ -7,13 +7,13 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { advancedSearchInputDef, proseText } from "@/lib/domain";
 import {
+	type Expression,
 	literal,
 	match,
 	multiSelectAll,
 	multiSelectAny,
-	type Predicate,
 	prop,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	admittedCaseListDoc,
 	findings,
@@ -21,7 +21,7 @@ import {
 } from "./caseListRuleFixture";
 
 const CODE = "CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE";
-function candidate(predicate: Predicate) {
+function candidate(predicate: Expression) {
 	return withSearchInputs(
 		admittedCaseListDoc({
 			caseTypes: [

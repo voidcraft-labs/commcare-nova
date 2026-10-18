@@ -13,7 +13,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
-import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
+import type { ReferenceNamesDoc } from "@/lib/domain/referenceNames";
 
 export interface FormFieldEntry {
 	readonly uuid: Uuid;
@@ -52,12 +52,12 @@ export interface FormFieldEntryWithAncestors extends FormFieldEntry {
 export interface FormFieldEntrySource {
 	fields: Readonly<Record<Uuid, Field | undefined>>;
 	fieldOrder: Readonly<Record<Uuid, readonly Uuid[] | undefined>>;
-	forms: XPathPrintableDoc["forms"];
-	fieldParent?: XPathPrintableDoc["fieldParent"];
-	userProperties?: XPathPrintableDoc["userProperties"];
+	forms: ReferenceNamesDoc["forms"];
+	fieldParent?: ReferenceNamesDoc["fieldParent"];
+	userProperties?: ReferenceNamesDoc["userProperties"];
 }
 
-function labelOf(field: Field, doc: XPathPrintableDoc): string {
+function labelOf(field: Field, doc: ReferenceNamesDoc): string {
 	const label =
 		"label" in field && field.label
 			? projectProseTemplate(field.label, doc).text.trim()

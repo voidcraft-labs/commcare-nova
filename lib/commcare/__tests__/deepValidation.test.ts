@@ -1,32 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import { eq, formField, literal } from "@/lib/domain/expression";
 import {
-	type BlueprintDoc,
-	blueprintDocSchema,
-	type CaseType,
-} from "@/lib/domain";
+	formFixture,
+	ids,
+} from "@/lib/domain/expression/__tests__/formFixture";
 import { findCaseInsensitiveMatch } from "@/lib/domain/expressionFunctions";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { eq, formField, literal } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
-import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
-import {
-	buildDoc,
-	caseListConfig,
-	type FieldSpec,
-	f,
-	xpIn,
-} from "../../__tests__/docHelpers";
+import { formExpressionRuntime } from "@/lib/preview/engine/formExpressionRuntime";
+import { buildDoc, type FieldSpec, f } from "../../__tests__/docHelpers";
 import { buildFieldTree } from "../../preview/engine/fieldTree";
 import { TriggerDag } from "../../preview/engine/triggerDag";
-import { type DeepValidationError, validateBlueprintDeep } from "../validator";
+import { validateBlueprintDeep } from "../validator";
 import { runValidation } from "../validator/runner";
-import { validateXPath } from "../validator/xpathValidator";
 
 function assertAdmitted(doc: BlueprintDoc): void {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
@@ -37,548 +32,6 @@ function assertAdmitted(doc: BlueprintDoc): void {
 // including invalid graphs. Whole-document success claims use full admission.
 // Native XPath dispatch/arity and container execution have independent Core
 // fixtures; these tests own Nova diagnostics, identity resolution and graph state.
-
-// ── XPath Validator ─────────────────────────────────────────────────
-
-describe("validateXPath", () => {
-	describe("valid expressions", () => {
-		it("returns no errors for simple expressions", () => {
-			expect(validateXPath("true()")).toEqual([]);
-			expect(validateXPath("/data/name != ''")).toEqual([]);
-			expect(validateXPath("if(. = 'yes', 'Yes', 'No')")).toEqual([]);
-			expect(validateXPath("#form/age > 18")).toEqual([]);
-			expect(validateXPath("today()")).toEqual([]);
-			expect(validateXPath("concat('Hello', ' ', 'World')")).toEqual([]);
-		});
-
-		it("returns no errors for complex real-world expressions", () => {
-			expect(
-				validateXPath("if(selected(#form/symptoms, 'fever'), 'high', 'low')"),
-			).toEqual([]);
-			expect(validateXPath("format-date(today(), '%Y-%m-%d')")).toEqual([]);
-			expect(validateXPath("count(/data/visits) > 0")).toEqual([]);
-			expect(validateXPath("#patient/total_visits + 1")).toEqual([]);
-			expect(validateXPath("normalize-space(#form/name)")).toEqual([]);
-			expect(validateXPath("instance('casedb')/casedb/case")).toEqual([]);
-			expect(validateXPath("current()/../@id")).toEqual([]);
-		});
-
-		it("returns no errors for variadic functions", () => {
-			expect(validateXPath("concat()")).toEqual([]);
-			expect(validateXPath("concat('a', 'b', 'c', 'd')")).toEqual([]);
-			expect(validateXPath("coalesce(#form/a, #form/b, 'default')")).toEqual(
-				[],
-			);
-			expect(validateXPath("min(1, 2, 3)")).toEqual([]);
-		});
-	});
-
-	describe("syntax errors", () => {
-		it("catches unbalanced parentheses", () => {
-			const errors = validateXPath("if(true(, 'a', 'b')");
-			expect(errors.some((e) => e.code === "XPATH_SYNTAX")).toBe(true);
-		});
-
-		it("catches trailing operators", () => {
-			const errors = validateXPath("/data/age >");
-			expect(errors.some((e) => e.code === "XPATH_SYNTAX")).toBe(true);
-		});
-	});
-
-	describe("unknown functions", () => {
-		it("catches unknown function names", () => {
-			const errors = validateXPath("foobar(1)");
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("UNKNOWN_FUNCTION");
-			expect(errors[0].message).toContain("foobar");
-		});
-
-		it("suggests correct casing for case-mismatched functions", () => {
-			const errors = validateXPath("Today()");
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("UNKNOWN_FUNCTION");
-			expect(errors[0].message).toContain("today()");
-			expect(errors[0].message).toContain('Did you mean "today()"');
-		});
-
-		it("suggests correct casing for IF", () => {
-			const errors = validateXPath("IF(true(), 'a', 'b')");
-			expect(errors).toHaveLength(1);
-			expect(errors[0].message).toContain("if()");
-		});
-
-		it.each(["here()", "last()", "substring('abc', 1)"])(
-			"rejects a function absent from Core's XForm evaluator: %s",
-			(expression) => {
-				expect(validateXPath(expression)).toEqual([
-					expect.objectContaining({ code: "UNKNOWN_FUNCTION" }),
-				]);
-			},
-		);
-
-		it("rejects path initializers used as ordinary calls", () => {
-			for (const expression of ["instance('casedb')", "current()"]) {
-				expect(validateXPath(expression)).toEqual([
-					expect.objectContaining({
-						code: "XPATH_SYNTAX",
-						message: expect.stringContaining("left root of a path"),
-					}),
-				]);
-			}
-		});
-
-		it("requires instance ids to be string literals", () => {
-			expect(validateXPath("instance(#form/id)/rows")).toEqual([
-				expect.objectContaining({
-					code: "XPATH_SYNTAX",
-					message: expect.stringContaining("string-literal instance id"),
-				}),
-			]);
-		});
-	});
-
-	describe("wrong arity", () => {
-		it("catches round with 2 args", () => {
-			const errors = validateXPath("round(3.14, 2)");
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("WRONG_ARITY");
-			expect(errors[0].message).toContain("round()");
-		});
-
-		it("catches if with 2 args", () => {
-			const errors = validateXPath("if(true(), 'yes')");
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("WRONG_ARITY");
-		});
-
-		it("catches today with args", () => {
-			const errors = validateXPath("today('2024')");
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("WRONG_ARITY");
-		});
-
-		it("catches cond with even number of args", () => {
-			const errors = validateXPath("cond(true(), 'a', false(), 'b')");
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("WRONG_ARITY");
-			expect(errors[0].message).toContain("odd");
-		});
-
-		it("allows cond with odd number of args >= 3", () => {
-			expect(validateXPath("cond(true(), 'a', 'default')")).toEqual([]);
-			expect(
-				validateXPath("cond(true(), 'a', false(), 'b', 'default')"),
-			).toEqual([]);
-		});
-	});
-
-	describe("node reference validation", () => {
-		const validPaths = new Set([
-			"/data/name",
-			"/data/age",
-			"/data/group1",
-			"/data/group1/child1",
-		]);
-
-		it("passes for valid references", () => {
-			expect(validateXPath("/data/name != ''", validPaths)).toEqual([]);
-			expect(validateXPath("/data/group1/child1", validPaths)).toEqual([]);
-		});
-
-		it("lints a multi-segment #form ref clean when the nested path exists", () => {
-			// A re-anchored ref (`#form/group1/child1` after a move into a
-			// group) maps to `/data/group1/child1` — known, so no diagnostics.
-			expect(validateXPath("#form/group1/child1 != ''", validPaths)).toEqual(
-				[],
-			);
-		});
-
-		it("flags a multi-segment #form ref whose nested path is unknown", () => {
-			const errors = validateXPath("#form/group1/nope != ''", validPaths);
-			expect(errors.some((e) => e.code === "INVALID_REF")).toBe(true);
-		});
-
-		it("catches invalid references", () => {
-			const errors = validateXPath("/data/nonexistent != ''", validPaths);
-			expect(errors.some((e) => e.code === "INVALID_REF")).toBe(true);
-		});
-
-		it("suggests the group-qualified path when only the bare id was used", () => {
-			// `#form/child1` → `/data/child1` is unknown, but the field lives at
-			// `/data/group1/child1`. The leaf (`child1`) matches, so the error
-			// carries it as a suggestion — the dominant bare-id authoring bug.
-			const errors = validateXPath("/data/child1 = 'x'", validPaths);
-			const refError = errors.find((e) => e.code === "INVALID_REF");
-			expect(refError?.suggestions).toEqual(["/data/group1/child1"]);
-		});
-
-		it("lists every cousin sharing the leaf id as a suggestion", () => {
-			const cousins = new Set([
-				"/data/group_a/first_name",
-				"/data/group_b/first_name",
-			]);
-			const errors = validateXPath("/data/first_name", cousins);
-			const refError = errors.find((e) => e.code === "INVALID_REF");
-			expect(refError?.suggestions).toEqual([
-				"/data/group_a/first_name",
-				"/data/group_b/first_name",
-			]);
-		});
-
-		it("omits suggestions for a genuine typo with no leaf match", () => {
-			const errors = validateXPath("/data/zzz_typo", validPaths);
-			const refError = errors.find((e) => e.code === "INVALID_REF");
-			expect(refError?.suggestions).toBeUndefined();
-		});
-	});
-
-	describe("case property reference validation", () => {
-		// The per-type accept map: each reachable case-type name → its readable
-		// property names. A `#<type>/<prop>` ref resolves to exactly one type.
-		const caseTypeProps = new Map([
-			["patient", new Set(["name", "age", "status"])],
-		]);
-
-		it("passes for a valid case ref", () => {
-			expect(validateXPath("#patient/name", undefined, caseTypeProps)).toEqual(
-				[],
-			);
-		});
-
-		it("catches an unknown property on a reachable case type", () => {
-			const errors = validateXPath(
-				"#patient/nonexistent",
-				undefined,
-				caseTypeProps,
-			);
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("INVALID_CASE_REF");
-			expect(errors[0].message).toContain("has no property");
-		});
-
-		it("gives a registration-aware message for a narrowed-out property", () => {
-			// On a registration form the own type is narrowed to case_id, so a
-			// real property reads as "not available yet" — NOT "doesn't exist".
-			const regAccept = new Map([["patient", new Set(["case_id"])]]);
-			const errors = validateXPath("#patient/name", undefined, regAccept, true);
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("INVALID_CASE_REF");
-			expect(errors[0].message).toContain("creates a case");
-			expect(errors[0].message).not.toContain("has no property");
-		});
-
-		it("catches a reference to an unreachable case type", () => {
-			const errors = validateXPath("#mother/name", undefined, caseTypeProps);
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("INVALID_CASE_REF");
-			expect(errors[0].message).toContain("mother");
-		});
-
-		it("skips fixed #form/#user namespaces and rejects raw authored #case", () => {
-			for (const ref of ["#form/whatever", "#user/username"]) {
-				expect(
-					validateXPath(ref, undefined, caseTypeProps).filter(
-						(e) => e.code === "INVALID_CASE_REF",
-					),
-				).toEqual([]);
-			}
-			expect(
-				validateXPath("#case/total", undefined, caseTypeProps).filter(
-					(error) => error.code === "INVALID_CASE_REF",
-				),
-			).toHaveLength(1);
-		});
-
-		it("gives a survey-specific message when the accept map is empty", () => {
-			// A survey form yields an empty accept map (it loads no case), so an
-			// XPath case ref can't resolve there — the message says so rather than
-			// the misleading "check spelling / reachable as an ancestor".
-			const errors = validateXPath("#mother/age", undefined, new Map(), false);
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("INVALID_CASE_REF");
-			expect(errors[0].message).toContain("survey");
-		});
-	});
-
-	describe("bare reference validation", () => {
-		// CommCare authors can write relative references like `name` (alone)
-		// or `name = "x"` to refer to a sibling field — XPath parses these
-		// as `child::name`. NameTests at value positions outside paths,
-		// hashtags, attribute steps, axis steps, and predicate scopes must
-		// resolve to a known reference (a leaf of validPaths or a case
-		// property); otherwise contiguous-letter junk like `kldfnfkj`
-		// passes the syntax check and saves silently.
-
-		const validPaths = new Set([
-			"/data/name",
-			"/data/age",
-			"/data/group1",
-			"/data/group1/child1",
-		]);
-		// Per-type accept map; relative bare refs match a property on ANY
-		// reachable type (the bare ref carries no type), so a flat-across-types
-		// known-name set is what `validateXPath` builds from this.
-		const caseProps = new Map([["patient", new Set(["status", "owner"])]]);
-
-		it("flags a bare unknown name when context is provided", () => {
-			const errors = validateXPath("kldfnfkj", validPaths, caseProps);
-			expect(errors.some((e) => e.code === "INVALID_REF")).toBe(true);
-		});
-
-		it("error message names the bad reference", () => {
-			const errors = validateXPath("kldfnfkj", validPaths, caseProps);
-			const refError = errors.find((e) => e.code === "INVALID_REF");
-			expect(refError?.message).toContain("kldfnfkj");
-		});
-
-		it("flags bare names on both sides of an operator", () => {
-			// Two unknown bare references in the same expression should each
-			// surface their own error so the user sees what's wrong.
-			const errors = validateXPath("foo and bar", validPaths, caseProps).filter(
-				(e) => e.code === "INVALID_REF",
-			);
-			expect(errors).toHaveLength(2);
-		});
-
-		it("accepts a bare name that matches a validPath leaf", () => {
-			// `name` as a relative reference resolves to the field at
-			// `/data/name`. The leaf-segment match is the cheapest correct
-			// approximation of "this name exists somewhere in the form".
-			expect(validateXPath("name", validPaths, caseProps)).toEqual([]);
-			expect(validateXPath("name = 'Alex'", validPaths, caseProps)).toEqual([]);
-		});
-
-		it("accepts a bare name that matches a case property", () => {
-			// `status` lives on the case, not the form — same name, different
-			// origin. Either source counts as a valid resolution.
-			expect(validateXPath("status", validPaths, caseProps)).toEqual([]);
-		});
-
-		it("does not double-count NameTests already inside an absolute path", () => {
-			// `/data/foo/bar` is validated by extractPathRefs as a single
-			// path reference. The bare-name walk must skip NameTests that
-			// live inside a Child node, otherwise users would see a duplicate
-			// error per segment.
-			const errors = validateXPath(
-				"/data/nonexistent",
-				validPaths,
-				caseProps,
-			).filter((e) => e.code === "INVALID_REF");
-			expect(errors).toHaveLength(1);
-		});
-
-		it("does not flag NameTests that are part of a HashtagRef", () => {
-			// `#patient/nonexistent` is validated by the hashtag rule; its
-			// `nonexistent` segment is a HashtagSegment, not a NameTest, so
-			// it never reaches the bare-name walk — pin that contract.
-			const errors = validateXPath(
-				"#patient/nonexistent",
-				validPaths,
-				caseProps,
-			).filter((e) => e.code === "INVALID_REF");
-			expect(errors).toHaveLength(0);
-		});
-
-		it("does not flag function names", () => {
-			// `today` inside `today()` is a FunctionName, not a NameTest, so
-			// the bare-name walk skips it. Function call validation has its
-			// own UNKNOWN_FUNCTION error path.
-			expect(validateXPath("today()", validPaths, caseProps)).toEqual([]);
-		});
-
-		it("does not flag XPath keywords", () => {
-			// `and`, `or`, `not`, etc. parse as Keyword nodes, not NameTests.
-			// `not()` is a function call.
-			expect(validateXPath("name and status", validPaths, caseProps)).toEqual(
-				[],
-			);
-			expect(validateXPath("name or status", validPaths, caseProps)).toEqual(
-				[],
-			);
-			expect(validateXPath("not(name)", validPaths, caseProps)).toEqual([]);
-		});
-
-		it("does not run the check when no context is provided", () => {
-			// Without `validPaths` or `caseProperties`, the validator can't
-			// know what's a valid reference. It must fall back to "syntax
-			// only" so that schema-tools / agent-prompt callers that don't
-			// supply context don't reject every bare name. The user-facing
-			// editor always provides context via useFormLintContext.
-			expect(validateXPath("kldfnfkj")).toEqual([]);
-			expect(validateXPath("foo and bar")).toEqual([]);
-		});
-
-		it("flags bare names in nested function arguments", () => {
-			// `concat(foo, bar)` should flag both — even though they're
-			// inside an Invoke, they're argument expressions, not part of
-			// the function name itself.
-			const errors = validateXPath(
-				"concat(foo, bar)",
-				validPaths,
-				caseProps,
-			).filter((e) => e.code === "INVALID_REF");
-			expect(errors).toHaveLength(2);
-		});
-
-		// ── Non-value-position NameTests (must NOT flag) ─────────────────
-		// XPath places NameTests in several positions where the name is not
-		// a value-position reference: as an attribute name (`@foo`), as the
-		// target of an explicit axis (`child::foo`), or inside a predicate
-		// (`[bar > 0]`) where the resolution scope is the filtered node and
-		// the form schema can't describe its children. These tests pin that
-		// the walker stays out of those positions.
-
-		it("does not flag attribute references (`@case_id`)", () => {
-			const errors = validateXPath("@case_id", validPaths, caseProps);
-			expect(errors).toEqual([]);
-		});
-
-		it("does not flag explicit-axis steps (`child::foo`)", () => {
-			expect(validateXPath("child::foo", validPaths, caseProps)).toEqual([]);
-			expect(validateXPath("attribute::status", validPaths, caseProps)).toEqual(
-				[],
-			);
-		});
-
-		it("does not flag predicate-internal references (`/data/foo[bar > 0]`)", () => {
-			// `bar` is the predicate expression; relative to the filtered
-			// step's context. Without a child schema for `/data/foo`, we
-			// can't say if `bar` exists — skip rather than false-positive.
-			expect(
-				validateXPath("/data/foo[bar > 0]", new Set(["/data/foo"])),
-			).toEqual([]);
-		});
-
-		it("does not flag the canonical case-search instance pattern", () => {
-			// Real CommCare expression: case_id, case_type, status all live
-			// inside `Filtered` predicates and as `@`-attributes. Flagging
-			// any of them would block the most common case-search XPath
-			// authors write.
-			const errors = validateXPath(
-				"instance('casedb')/casedb/case[@case_id = 'x']/case_name",
-				new Set(["/data/some_form_field"]),
-				new Map([["patient", new Set(["name"])]]),
-			);
-			expect(errors).toEqual([]);
-		});
-
-		it("does not flag chained attribute predicates", () => {
-			// `[@case_type = 'mother'][@status = 'open']` — every
-			// predicate-internal reference is an attribute and must not
-			// surface as INVALID_REF.
-			const errors = validateXPath(
-				"instance('casedb')/casedb/case[@case_type = 'mother'][@status = 'open']/case_name",
-				new Set(["/data/some_form_field"]),
-				undefined,
-			);
-			expect(errors).toEqual([]);
-		});
-
-		it("flags a bare unknown reference outside any path or predicate", () => {
-			// Regression pin alongside the must-not-flag cases: the walker
-			// must still catch top-level junk after the predicate / axis /
-			// attribute exemptions are in place.
-			const errors = validateXPath(
-				"1 + nonsense",
-				new Set(["/data/foo"]),
-				undefined,
-			).filter((e) => e.code === "INVALID_REF");
-			expect(errors).toHaveLength(1);
-			expect(errors[0].message).toContain("nonsense");
-		});
-
-		it("does not flag an absolute path passed as a function argument", () => {
-			// `count(/data/foo)` — Phase 2c already validates the path; the
-			// walker must not double-flag the path's leaf name.
-			expect(
-				validateXPath("count(/data/foo)", new Set(["/data/foo"]), undefined),
-			).toEqual([]);
-		});
-	});
-
-	describe("type checking", () => {
-		describe("catches provably-lossy coercions", () => {
-			it("unary minus on non-numeric string literal", () => {
-				const errors = validateXPath("-'hello'");
-				expect(errors.some((e) => e.code === "TYPE_ERROR")).toBe(true);
-			});
-
-			it("arithmetic with non-numeric string literal", () => {
-				expect(
-					validateXPath("'text' * 2").some((e) => e.code === "TYPE_ERROR"),
-				).toBe(true);
-				expect(
-					validateXPath("'text' + 5").some((e) => e.code === "TYPE_ERROR"),
-				).toBe(true);
-				expect(
-					validateXPath("'text' - 1").some((e) => e.code === "TYPE_ERROR"),
-				).toBe(true);
-				expect(
-					validateXPath("10 div 'abc'").some((e) => e.code === "TYPE_ERROR"),
-				).toBe(true);
-			});
-
-			it("the original failing case: =- string literal", () => {
-				const errors = validateXPath("/data/x =- 'here'");
-				expect(errors.some((e) => e.code === "TYPE_ERROR")).toBe(true);
-			});
-
-			it("non-numeric string literal in numeric function param", () => {
-				expect(
-					validateXPath("round('foo')").some((e) => e.code === "TYPE_ERROR"),
-				).toBe(true);
-				expect(
-					validateXPath("floor('bar')").some((e) => e.code === "TYPE_ERROR"),
-				).toBe(true);
-				expect(
-					validateXPath("abs('baz')").some((e) => e.code === "TYPE_ERROR"),
-				).toBe(true);
-			});
-		});
-
-		describe("allows legitimate patterns", () => {
-			it("today() + 1 (date arithmetic — today returns number)", () => {
-				expect(validateXPath("today() + 1")).toEqual([]);
-			});
-
-			it("/data/age + 1 (nodeset in numeric context — unknowable)", () => {
-				expect(validateXPath("/data/age + 1")).toEqual([]);
-			});
-
-			it("#patient/visits + 1 (string ref in numeric context — unknowable)", () => {
-				expect(validateXPath("#patient/visits + 1")).toEqual([]);
-			});
-
-			it("'5' + 3 (numeric string literal — parseable)", () => {
-				expect(validateXPath("'5' + 3")).toEqual([]);
-			});
-
-			it("5 = '5' (equality accepts any types)", () => {
-				expect(validateXPath("5 = '5'")).toEqual([]);
-			});
-
-			it("if(true(), 'yes', 'no') (conditional with any-typed branches)", () => {
-				expect(validateXPath("if(true(), 'yes', 'no')")).toEqual([]);
-			});
-
-			it("not(count(/data/items)) (number→boolean is valid coercion)", () => {
-				expect(validateXPath("not(count(/data/items))")).toEqual([]);
-			});
-
-			it("boolean('yes') (explicit conversion function)", () => {
-				expect(validateXPath("boolean('yes')")).toEqual([]);
-			});
-
-			it("number('42') (explicit conversion function)", () => {
-				expect(validateXPath("number('42')")).toEqual([]);
-			});
-
-			it("selected(#form/symptoms, 'fever') (string params)", () => {
-				expect(validateXPath("selected(#form/symptoms, 'fever')")).toEqual([]);
-			});
-		});
-	});
-});
 
 // ── Function Registry ───────────────────────────────────────────────
 
@@ -651,7 +104,9 @@ describe("TriggerDag.reportCycles", () => {
 			f({ kind: "int", id: "a", label: proseText("A") }),
 			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
 		]);
-		expect(dag.reportCycles(tree, doc)).toEqual([]);
+		expect(
+			dag.reportCycles(tree, doc, doc.formOrder[doc.moduleOrder[0]][0]),
+		).toEqual([]);
 	});
 
 	it("detects A→B→A cycle", () => {
@@ -660,8 +115,72 @@ describe("TriggerDag.reportCycles", () => {
 			f({ kind: "hidden", id: "a", calculate: "/data/b + 1" }),
 			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
 		]);
-		expect(dag.reportCycles(tree, doc).length).toBeGreaterThan(0);
+		expect(
+			dag.reportCycles(tree, doc, doc.formOrder[doc.moduleOrder[0]][0]).length,
+		).toBeGreaterThan(0);
 	});
+
+	it.each(["required", "validate"] as const)(
+		"admits a parsed %s rule that reads its own answer",
+		(slot) => {
+			const uuid = testUuid(`self-${slot}`);
+			const { doc } = treeFromFields([
+				f({ uuid, kind: "text", id: "name", label: "Name" }),
+			]);
+			const parsed = parseFormExpressionForSlot(
+				doc,
+				{ entity: "field", uuid, slot },
+				"string-length(.) > 2",
+				"unavailable",
+			);
+			expect(parsed.ok).toBe(true);
+			if (!parsed.ok || parsed.expression === undefined)
+				throw new Error("The self-read rule did not parse.");
+			const verdict = mutationCommitVerdict(
+				doc,
+				[
+					{
+						kind: "updateField",
+						uuid,
+						targetKind: "text",
+						patch: { [slot]: parsed.expression },
+					},
+				],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict.ok).toBe(true);
+		},
+	);
+
+	it("admits required metadata that reads a calculation of the same answer", () => {
+		const { doc } = treeFromFields([
+			f({ kind: "text", id: "answer", required: "#form/size > 2" }),
+			f({
+				kind: "hidden",
+				id: "size",
+				calculate: "string-length(#form/answer)",
+			}),
+		]);
+		assertAdmitted(doc);
+	});
+
+	it.each(["calculate", "relevant"] as const)(
+		"still rejects a self-read in cascading %s",
+		(slot) => {
+			const { tree, doc } = treeFromFields([
+				slot === "calculate"
+					? f({ kind: "hidden", id: "self", calculate: "number(.) + 1" })
+					: f({ kind: "text", id: "self", relevant: "string-length(.) > 2" }),
+			]);
+			expect(
+				new TriggerDag().reportCycles(
+					tree,
+					doc,
+					doc.formOrder[doc.moduleOrder[0]][0],
+				),
+			).toContainEqual({ path: ["/data/self", "/data/self"] });
+		},
+	);
 
 	it("handles diamond dependency (no cycle)", () => {
 		const dag = new TriggerDag();
@@ -675,7 +194,9 @@ describe("TriggerDag.reportCycles", () => {
 				calculate: "/data/b + /data/c",
 			}),
 		]);
-		expect(dag.reportCycles(tree, doc)).toEqual([]);
+		expect(
+			dag.reportCycles(tree, doc, doc.formOrder[doc.moduleOrder[0]][0]),
+		).toEqual([]);
 	});
 
 	it("includes field defaults and lookup filters in the authoring-time cycle proof", () => {
@@ -695,7 +216,11 @@ describe("TriggerDag.reportCycles", () => {
 		// The cycle's reported rotation depends on edge-registration order
 		// (lookup filter edges register during expression collection since
 		// their runtime promotion); assert the cycle itself, not a rotation.
-		const cycles = new TriggerDag().reportCycles(tree, doc);
+		const cycles = new TriggerDag().reportCycles(
+			tree,
+			doc,
+			doc.formOrder[doc.moduleOrder[0]][0],
+		);
 		expect(
 			cycles.some(
 				({ path: cycle }) =>
@@ -720,7 +245,13 @@ describe("TriggerDag.reportCycles", () => {
 			lookupSelectForDag(fieldB, "b", fieldA),
 		]);
 
-		expect(new TriggerDag().reportCycles(tree, doc)).toContainEqual({
+		expect(
+			new TriggerDag().reportCycles(
+				tree,
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+			),
+		).toContainEqual({
 			path: ["/data/a", "/data/b", "/data/a"],
 		});
 	});
@@ -746,7 +277,13 @@ describe("TriggerDag.reportCycles", () => {
 			}),
 		]);
 
-		expect(new TriggerDag().reportCycles(tree, doc)).toContainEqual({
+		expect(
+			new TriggerDag().reportCycles(
+				tree,
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+			),
+		).toContainEqual({
 			path: ["/data/a", "/data/b", "/data/c", "/data/a"],
 		});
 	});
@@ -774,7 +311,11 @@ describe("TriggerDag.reportCycles", () => {
 					],
 				}),
 			]);
-			const cycles = new TriggerDag().reportCycles(tree, doc);
+			const cycles = new TriggerDag().reportCycles(
+				tree,
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+			);
 			expect(cycles).toContainEqual({
 				path: [
 					"/data/question_1_section",
@@ -817,7 +358,11 @@ describe("TriggerDag.reportCycles", () => {
 					relevant: "/data/first = '1'",
 				}),
 			]);
-			const cycles = new TriggerDag().reportCycles(tree, doc);
+			const cycles = new TriggerDag().reportCycles(
+				tree,
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+			);
 			// Reading `/data/question1/question2` also depends on the prefix
 			// `/data/question1`, which closes a two-node twin of the same
 			// loop; one authored loop is one report, the one that can explain
@@ -832,8 +377,8 @@ describe("TriggerDag.reportCycles", () => {
 			expect(withCascade?.path).toContain("/data/first");
 		});
 
-		// The device orders only relevant / required / readonly / calculate
-		// (`XFormParser.java::addTriggerable`); a constraint and a label's
+		// The device cascades value/relevance writes. Required is a
+		// non-cascading Condition; a constraint and a label's
 		// `<output>` are evaluated on demand, so a loop that closes only
 		// through one of them installs and runs. The proof must not refuse
 		// it, and the runtime must keep the calculate edge rather than the
@@ -856,7 +401,13 @@ describe("TriggerDag.reportCycles", () => {
 					],
 				}),
 			]);
-			expect(new TriggerDag().reportCycles(tree, doc)).toEqual([]);
+			expect(
+				new TriggerDag().reportCycles(
+					tree,
+					doc,
+					doc.formOrder[doc.moduleOrder[0]][0],
+				),
+			).toEqual([]);
 		});
 
 		it("does not report a loop that closes only through a label reference", () => {
@@ -887,7 +438,13 @@ describe("TriggerDag.reportCycles", () => {
 					],
 				}),
 			]);
-			expect(new TriggerDag().reportCycles(tree, doc)).toEqual([]);
+			expect(
+				new TriggerDag().reportCycles(
+					tree,
+					doc,
+					doc.formOrder[doc.moduleOrder[0]][0],
+				),
+			).toEqual([]);
 		});
 
 		it("keeps the calculate edge and drops the constraint edge at runtime", () => {
@@ -903,7 +460,15 @@ describe("TriggerDag.reportCycles", () => {
 				}),
 			]);
 			const dag = new TriggerDag();
-			dag.build(tree, doc);
+			dag.build(
+				tree,
+				formExpressionRuntime(
+					doc,
+					doc.formOrder[doc.moduleOrder[0]][0],
+					undefined,
+					{},
+				),
+			);
 			expect(dag.getAffected("/data/b", () => 1)).toContain("/data/a");
 			expect(dag.getAffected("/data/a", () => 1)).not.toContain("/data/b");
 		});
@@ -919,7 +484,15 @@ describe("TriggerDag.reportCycles", () => {
 				}),
 			]);
 			const dag = new TriggerDag();
-			dag.build(tree, doc);
+			dag.build(
+				tree,
+				formExpressionRuntime(
+					doc,
+					doc.formOrder[doc.moduleOrder[0]][0],
+					undefined,
+					{},
+				),
+			);
 			expect(dag.getAffected("/data/a", () => 1)).toContain("/data/b");
 		});
 
@@ -942,7 +515,11 @@ describe("TriggerDag.reportCycles", () => {
 					],
 				}),
 			]);
-			const cycles = new TriggerDag().reportCycles(tree, doc);
+			const cycles = new TriggerDag().reportCycles(
+				tree,
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+			);
 			expect(cycles.some((c) => c.cascade?.container === "/data/outer")).toBe(
 				true,
 			);
@@ -959,7 +536,11 @@ describe("TriggerDag.reportCycles", () => {
 					children: [f({ kind: "text", id: "note", label: proseText("Note") })],
 				}),
 			]);
-			const cycles = new TriggerDag().reportCycles(tree, doc);
+			const cycles = new TriggerDag().reportCycles(
+				tree,
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+			);
 			expect(
 				cycles.some(
 					(c) =>
@@ -992,7 +573,13 @@ describe("TriggerDag.reportCycles", () => {
 					],
 				}),
 			]);
-			expect(new TriggerDag().reportCycles(tree, doc)).toEqual([]);
+			expect(
+				new TriggerDag().reportCycles(
+					tree,
+					doc,
+					doc.formOrder[doc.moduleOrder[0]][0],
+				),
+			).toEqual([]);
 		});
 
 		it("includes the relevance cascade in the runtime DAG", () => {
@@ -1013,7 +600,15 @@ describe("TriggerDag.reportCycles", () => {
 				}),
 			]);
 			const dag = new TriggerDag();
-			dag.build(tree, doc);
+			dag.build(
+				tree,
+				formExpressionRuntime(
+					doc,
+					doc.formOrder[doc.moduleOrder[0]][0],
+					undefined,
+					{},
+				),
+			);
 			expect(dag.getAffected("/data/adult", () => 1)).toEqual([
 				"/data/adult/marker",
 			]);
@@ -1060,7 +655,15 @@ describe("TriggerDag.reportCycles", () => {
 			};
 		};
 
-		dag.build(tree, doc);
+		dag.build(
+			tree,
+			formExpressionRuntime(
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+				undefined,
+				{},
+			),
+		);
 		const beforeReport = runtimeSnapshot();
 		/* `a`'s default_value reference is authoring-only: no runtime
 		 * expression, and a `b` change never re-runs the applied default. */
@@ -1074,817 +677,184 @@ describe("TriggerDag.reportCycles", () => {
 		expect(beforeReport.affectedByA).toContain("/data/c");
 		expect(beforeReport.allPaths).not.toEqual([]);
 		/* The cycle proof (defaults included) mutates nothing runtime. */
-		expect(dag.reportCycles(tree, doc)).not.toEqual([]);
+		expect(
+			dag.reportCycles(tree, doc, doc.formOrder[doc.moduleOrder[0]][0]),
+		).not.toEqual([]);
 		expect(runtimeSnapshot()).toEqual(beforeReport);
-		dag.rebuild(tree, doc);
+		dag.rebuild(
+			tree,
+			formExpressionRuntime(
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+				undefined,
+				{},
+			),
+		);
 		expect(runtimeSnapshot()).toEqual(beforeReport);
 	});
 });
 
-// ── Orchestrator Integration ────────────────────────────────────────
-
-describe("validateBlueprintDeep", () => {
-	const makeDoc = (fields: FieldSpec[], caseTypes: CaseType[] | null = null) =>
-		buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: caseTypes ? "patient" : undefined,
-					caseListConfig: caseTypes
-						? caseListConfig([{ field: "case_name", header: "Name" }])
-						: undefined,
-					forms: [
-						{
-							name: "Form",
-							type: caseTypes ? "registration" : "survey",
-							fields,
-						},
-					],
-				},
-			],
-			caseTypes,
-		});
-
-	it("returns no errors for valid blueprint", () => {
-		const doc = makeDoc(
-			[
-				f({
-					kind: "text",
-					id: "case_name",
-					label: proseText("Name"),
-					caseWrite: { caseType: "patient", property: "case_name" },
-				}),
-				f({
-					kind: "int",
-					id: "age",
-					label: proseText("Age"),
-					relevant: "/data/case_name != ''",
-				}),
-			],
-			[
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
-		);
-		assertAdmitted(doc);
+// The parser owns text syntax and name binding. This boundary starts with a
+// stored tree and proves that the shared verdict reaches the exact doc slot.
+describe("typed deep validation", () => {
+	it("keeps an admitted app free of expression findings", () => {
+		const doc = formFixture();
 		expect(validateBlueprintDeep(doc)).toEqual([]);
 	});
-
-	it("catches unknown function in XPath", () => {
-		const doc = makeDoc([
-			f({ kind: "text", id: "name", label: proseText("Name") }),
-			f({ kind: "hidden", id: "val", calculate: "foobar(1)" }),
-		]);
-		// Typed assertion — the discriminant + the underlying `XPathError.code`
-		// travel structured, so the test reads the classification directly
-		// instead of substring-matching a humanized message.
-		expect(
-			validateBlueprintDeep(doc).some(
-				(e) => e.kind === "field-xpath" && e.error.code === "UNKNOWN_FUNCTION",
-			),
-		).toBe(true);
-	});
-
-	it("validates every form-link XPath carrier, including on an empty form", () => {
-		const moduleUuid = testUuid("form-link-module");
-		const sourceUuid = testUuid("form-link-source");
-		const targetUuid = testUuid("form-link-target");
-		const doc = buildDoc({
-			modules: [
-				{
-					uuid: moduleUuid,
-					name: "Module",
-					forms: [
-						{
-							uuid: sourceUuid,
-							name: "Source",
-							type: "survey",
-							formLinks: [
-								{
-									condition: "here()",
-									target: {
-										type: "form",
-										moduleUuid,
-										formUuid: targetUuid,
-									},
-									datums: [
-										{
-											name: "case_id",
-											xpath: "substring('abc', 1)",
-										},
-									],
-								},
-							],
-						},
-						{
-							uuid: targetUuid,
-							name: "Target",
-							type: "survey",
-							fields: [],
-						},
-					],
+	it("presents a dangling field identity at its actual calculate slot", () => {
+		const base = formFixture();
+		const missing = testUuid("removed-expression-field");
+		const doc = {
+			...base,
+			fields: {
+				...base.fields,
+				[ids.hidden]: {
+					...base.fields[ids.hidden],
+					calculate: {
+						kind: "term" as const,
+						term: { kind: "field" as const, uuid: missing },
+					},
 				},
-			],
-		});
-
-		const errors = validateBlueprintDeep(doc).filter(
-			(error) => error.kind === "form-link-xpath",
-		);
-		expect(errors).toMatchObject([
-			{
-				kind: "form-link-xpath",
-				slot: "form_link_condition",
-				indices: [0],
-				error: { code: "UNKNOWN_FUNCTION" },
 			},
-			{
-				kind: "form-link-xpath",
-				slot: "form_link_datum_xpath",
-				indices: [0, 0],
-				error: { code: "UNKNOWN_FUNCTION" },
-			},
-		]);
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-				(error) => error.code === "UNKNOWN_FUNCTION",
-			),
-		).toHaveLength(2);
-	});
-
-	it("rejects form-local and empty form-link stack expressions", () => {
-		const moduleUuid = testUuid("form-link-context-module");
-		const sourceUuid = testUuid("form-link-context-source");
-		const targetUuid = testUuid("form-link-context-target");
-		const doc = buildDoc({
-			modules: [
-				{
-					uuid: moduleUuid,
-					name: "Module",
-					forms: [
-						{
-							uuid: sourceUuid,
-							name: "Source",
-							type: "survey",
-							formLinks: [
-								{
-									condition: "#form/answer = 'yes'",
-									target: {
-										type: "form",
-										moduleUuid,
-										formUuid: targetUuid,
-									},
-									datums: [{ name: "case_id", xpath: "  " }],
-								},
-							],
-							fields: [
-								f({ kind: "text", id: "answer", label: proseText("Answer") }),
-							],
-						},
-						{
-							uuid: targetUuid,
-							name: "Target",
-							type: "survey",
-							fields: [],
-						},
-					],
-				},
-			],
-		});
-
-		expect(
-			validateBlueprintDeep(doc)
-				.filter((error) => error.kind === "form-link-xpath")
-				.map((error) => ({ slot: error.slot, code: error.error.code })),
-		).toEqual([
-			{ slot: "form_link_condition", code: "INVALID_REF" },
-			{ slot: "form_link_datum_xpath", code: "XPATH_SYNTAX" },
-		]);
-	});
-
-	it("catches wrong arity", () => {
-		const doc = makeDoc([
-			f({ kind: "text", id: "name", label: proseText("Name") }),
-			f({ kind: "hidden", id: "val", calculate: "round(3.14, 2)" }),
-		]);
-		expect(
-			validateBlueprintDeep(doc).some(
-				(e) =>
-					e.kind === "field-xpath" &&
-					e.error.code === "WRONG_ARITY" &&
-					e.error.message.includes("round"),
-			),
-		).toBe(true);
-	});
-
-	it("catches circular dependencies", () => {
-		const doc = makeDoc([
-			f({ kind: "hidden", id: "a", calculate: "/data/b + 1" }),
-			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
-		]);
-		// The cycle is its own typed shape (carrying the loop as a list of
-		// `/data/...` paths), not a string that has to win a regex race against
-		// the form-label pattern.
-		const cycleErr = validateBlueprintDeep(doc).find((e) => e.kind === "cycle");
-		expect(cycleErr).toBeDefined();
-		// The cycle path names both fields in the loop.
-		if (cycleErr?.kind === "cycle") {
-			expect(cycleErr.cycle).toContain("/data/a");
-			expect(cycleErr.cycle).toContain("/data/b");
-			expect(cycleErr.cascade).toBeUndefined();
-		}
-	});
-
-	it("reports a group reading its own child as a cycle and explains the containment", () => {
-		const doc = makeDoc([
-			f({
-				kind: "group",
-				id: "question_1_section",
-				label: proseText("Question 1"),
-				relevant: "string-length(/data/question_1_section/answer_1) = 0",
-				children: [
-					f({ kind: "text", id: "answer_1", label: proseText("Answer") }),
-				],
-			}),
-		]);
-		const cycleErr = validateBlueprintDeep(doc).find((e) => e.kind === "cycle");
-		expect(cycleErr?.kind).toBe("cycle");
-		if (cycleErr?.kind === "cycle") {
-			expect(cycleErr.cascade).toEqual({
-				container: "/data/question_1_section",
-				containerKind: "group",
-				descendant: "/data/question_1_section/answer_1",
-			});
-		}
-		// The projected message speaks to the containment, not to a
-		// reference the author never wrote.
-		const projected = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === "CYCLE",
-		);
-		expect(projected).toHaveLength(1);
-		const message = projected[0]?.message ?? "";
-		expect(message).toContain(
-			"/data/question_1_section/answer_1 is inside the group /data/question_1_section, so it follows that group's display condition",
-		);
-		expect(message).toContain(
-			"/data/question_1_section reads /data/question_1_section/answer_1",
-		);
-		expect(message).toContain(
-			"Move /data/question_1_section/answer_1 out of the group",
-		);
-		// The builder's copy reads the same facts from the details.
-		expect(projected[0]?.details).toMatchObject({
-			container: "/data/question_1_section",
-			containerKind: "group",
-			descendant: "/data/question_1_section/answer_1",
-		});
-		expect(projected[0]?.details?.loop).toContain("reads");
-	});
-
-	it("names the authored reference that closes a multi-hop cascade loop", () => {
-		// commcare-core's group_cyclic_reference shape: the group's own
-		// condition reads only an OUTSIDE field, so "make the condition depend
-		// only on fields outside" would change nothing. The reading has to
-		// name the outside field's reference into the group.
-		const doc = makeDoc([
-			f({
-				kind: "int",
-				id: "first",
-				label: proseText("First"),
-				relevant: "/data/question1/question2 = '2'",
-			}),
-			f({
-				kind: "group",
-				id: "question1",
-				label: proseText("Q1"),
-				relevant: "/data/first = '1'",
-				children: [
-					f({ kind: "text", id: "question2", label: proseText("Q2") }),
-				],
-			}),
-		]);
-		const projected = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === "CYCLE",
-		);
-		// One authored loop, one report: the prefix-edge twin is folded in.
-		expect(projected).toHaveLength(1);
-		const message = projected[0]?.message ?? "";
-		expect(message).toContain("/data/first reads /data/question1/question2");
-		expect(message).toContain("/data/question1 reads /data/first");
-		expect(message).toContain(
-			"/data/question1/question2 is inside the group /data/question1",
-		);
-	});
-
-	it("catches unknown case property in a #<type>/ ref", () => {
-		// `makeDoc`'s form is a registration form, so the own type narrows to
-		// `case_id` only — `#patient/nonexistent` is rejected as INVALID_CASE_REF.
-		const doc = makeDoc(
-			[
-				f({
-					kind: "text",
-					id: "case_name",
-					label: proseText("Name"),
-					caseWrite: { caseType: "patient", property: "case_name" },
-				}),
-				f({ kind: "hidden", id: "val", calculate: "#patient/nonexistent + 1" }),
-			],
-			[
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
-		);
-		expect(
-			validateBlueprintDeep(doc).some(
-				(e) => e.kind === "field-xpath" && e.error.code === "INVALID_CASE_REF",
-			),
-		).toBe(true);
-	});
-
-	it("catches a reference to an unreachable case type in a #<type>/ ref", () => {
-		// `#mother/x` on a patient form names a type that isn't reachable.
-		const doc = makeDoc(
-			[
-				f({
-					kind: "text",
-					id: "case_name",
-					label: proseText("Name"),
-					caseWrite: { caseType: "patient", property: "case_name" },
-				}),
-				f({ kind: "hidden", id: "val", calculate: "#mother/code + 1" }),
-			],
-			[
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
-		);
-		expect(
-			validateBlueprintDeep(doc).some(
-				(e) => e.kind === "field-xpath" && e.error.code === "INVALID_CASE_REF",
-			),
-		).toBe(true);
-	});
-
-	it("accepts a stored case-ref whose object keys admission re-sorted", () => {
-		// Mutation admission re-serializes every committed value with sorted
-		// object keys, and `case-ref` is the one XPath part whose sorted
-		// spelling ({caseType, kind, property}) differs from its parse
-		// spelling ({kind, caseType, property}). Key order is not AST
-		// identity, so the round-trip oracle compares canonically.
-		// Regression: a live build rejected every case-reading guard as
-		// INVALID_REF.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Update",
-							type: "followup",
-							fields: [
-								f({
-									kind: "hidden",
-									id: "readiness",
-									calculate: "#patient/closure_readiness",
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "closure_readiness", label: proseText("Readiness") },
-					],
-				},
-			],
-		});
-		const field = Object.values(doc.fields).find(
-			(fld) => fld.id === "readiness",
-		);
-		if (field?.kind !== "hidden" || field.calculate === undefined) {
-			throw new Error("fixture must hold the hidden case-ref field");
-		}
-		assertAdmitted(doc);
-		const sorted = JSON.parse(
-			canonicalJsonText(field.calculate),
-		) as typeof field.calculate;
-		// The fixture must actually exercise the divergent arm — if no
-		// part's sorted spelling differs, this regression stops testing.
-		expect(JSON.stringify(sorted)).not.toBe(JSON.stringify(field.calculate));
-		doc.fields[field.uuid] = { ...field, calculate: sorted };
-		assertAdmitted(doc);
-		expect(validateBlueprintDeep(doc)).toEqual([]);
-	});
-});
-
-// ── Full Integration (runValidation calls deep) ────────────────────
-
-describe("runValidation with deep validation", () => {
-	it("projects a deep XPath error through the full validation runner", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({ kind: "hidden", id: "calc", calculate: "foobar(1)" }),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
-	});
-
-	it("accepts a catalog default whose case-ref keys admission re-sorted", () => {
-		// The catalog-default canonicality rule (`rules/app.ts`) runs the
-		// same parse-and-print round trip as the field-slot oracle and must
-		// tolerate the same admission key re-sort on `case-ref` parts.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name") },
-						{
-							name: "care_status",
-							label: proseText("Status"),
-							validation: "#patient/priority != ''",
-						},
-						{ name: "priority", label: proseText("Priority") },
-					],
-				},
-			],
-		});
-		const property = doc.caseTypes
-			?.find((caseType) => caseType.name === "patient")
-			?.properties.find((candidate) => candidate.name === "care_status");
-		if (!property || property.validation === undefined) {
-			throw new Error("fixture must hold the case-ref validation default");
-		}
-		assertAdmitted(doc);
-		const sorted = JSON.parse(
-			canonicalJsonText(property.validation),
-		) as typeof property.validation;
-		expect(JSON.stringify(sorted)).not.toBe(
-			JSON.stringify(property.validation),
-		);
-		(property as { validation: typeof sorted }).validation = sorted;
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors).toEqual([]);
-		blueprintDocSchema.parse(toPersistableDoc(doc));
-	});
-});
-
-// ── Repeat-mode XPath deep validation ──────────────────────────────
-//
-// `repeat_count` (count_bound) and `data_source.ids_query` (query_bound)
-// are XPath expressions the wire emitter writes into JavaRosa-parsed
-// attributes. Empty values are caught by the field-rule layer
-// (`EMPTY_REPEAT_COUNT` / `EMPTY_IDS_QUERY`); these tests pin that
-// non-empty malformed expressions are caught by the deep XPath
-// validator with the same `XPATH_SYNTAX` / `UNKNOWN_FUNCTION` /
-// `INVALID_REF` codes the field-level XPath fields produce — so an SA
-// editing a repeat field gets the same actionable error class as
-// editing a calculate or relevant.
-
-describe("runValidation deep XPath on repeat fields", () => {
-	function candidate(mode: "count_bound" | "query_bound" | "user_controlled") {
-		const common = {
-			kind: "repeat" as const,
-			id: "visits",
-			label: proseText("Visits"),
-			children: [f({ kind: "text", id: "note", label: proseText("Note") })],
 		};
-		const repeat =
-			mode === "count_bound"
-				? f({
-						...common,
-						repeat_mode: mode,
-						repeat_count: "#form/desired_count",
-					})
-				: mode === "query_bound"
-					? f({
-							...common,
-							repeat_mode: mode,
-							data_source: {
-								ids_query:
-									"instance('casedb')/casedb/case[@case_type='visit']/@case_id",
+		expect(validateBlueprintDeep(doc)).toContainEqual(
+			expect.objectContaining({
+				kind: "field-xpath",
+				fieldUuid: ids.hidden,
+				surface: "calculate",
+				error: expect.objectContaining({
+					code: "INVALID_REF",
+					storedRef: "dangling-identity",
+					checkCode: "unknown-form-field",
+				}),
+			}),
+		);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toContainEqual(
+			expect.objectContaining({
+				code: "INVALID_REF",
+				location: expect.objectContaining({
+					fieldUuid: ids.hidden,
+					field: "calculate",
+				}),
+				details: expect.objectContaining({
+					checkCode: "unknown-form-field",
+					storedRef: "dangling-identity",
+				}),
+			}),
+		);
+	});
+	it("checks direct form-case properties through the shared catalog", () => {
+		const base = formFixture();
+		const doc = {
+			...base,
+			fields: {
+				...base.fields,
+				[ids.hidden]: {
+					...base.fields[ids.hidden],
+					calculate: {
+						kind: "term" as const,
+						term: {
+							kind: "form-case" as const,
+							caseType: "patient",
+							property: "missing",
+						},
+					},
+				},
+			},
+		};
+		expect(validateBlueprintDeep(doc)).toContainEqual(
+			expect.objectContaining({
+				kind: "field-xpath",
+				error: expect.objectContaining({ code: "INVALID_CASE_REF" }),
+			}),
+		);
+	});
+	it("checks a form-link expression even when its source form has no questions", () => {
+		const base = formFixture();
+		const doc = {
+			...base,
+			forms: {
+				...base.forms,
+				[ids.form]: {
+					...base.forms[ids.form],
+					formLinks: [
+						{
+							uuid: ids.link,
+							condition: { kind: "here" as const },
+							target: {
+								type: "form" as const,
+								moduleUuid: ids.module,
+								formUuid: ids.target,
 							},
-						})
-					: f({ ...common, repeat_mode: mode });
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "int", id: "desired_count", default_value: "5" }),
-								repeat,
-							],
 						},
 					],
 				},
-			],
-		});
-		assertAdmitted(doc);
-		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-		const field = Object.values(doc.fields).find(
-			(field) => field.id === "visits",
+			},
+			fieldOrder: { ...base.fieldOrder, [ids.form]: [] },
+		};
+		expect(validateBlueprintDeep(doc)).toContainEqual(
+			expect.objectContaining({
+				kind: "form-link-xpath",
+				linkUuid: ids.link,
+				slot: "form_link_condition",
+				error: expect.objectContaining({
+					code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+					checkCode: "arm-unavailable",
+				}),
+			}),
 		);
-		if (field?.kind !== "repeat") throw new Error("Expected repeat fixture");
-		return { doc, formUuid, field };
-	}
-	it.each(["count_bound", "query_bound", "user_controlled"] as const)(
-		"admits a reachable %s repeat",
-		(mode) => {
-			candidate(mode);
-		},
-	);
-	describe.each(["count_bound", "query_bound"] as const)(
-		"%s carrier",
-		(mode) => {
-			it.each([
-				["if(true(, 1, 2)", "XPATH_SYNTAX"],
-				["noSuchFunction(5)", "UNKNOWN_FUNCTION"],
-				["/data/nonexistent_field", "INVALID_REF"],
-				[" \n\t ", "empty"],
-			])(
-				"classifies %s exactly at the edited repeat",
-				(text, classification) => {
-					const { doc, formUuid, field } = candidate(mode);
-					const expression = xpIn(doc, formUuid, text);
-					if (field.repeat_mode === "count_bound")
-						doc.fields[field.uuid] = { ...field, repeat_count: expression };
-					else if (field.repeat_mode === "query_bound")
-						doc.fields[field.uuid] = {
-							...field,
-							data_source: { ...field.data_source, ids_query: expression },
-						};
-					else throw new Error("Expected an expression-bearing repeat");
-					const code =
-						classification === "empty"
-							? mode === "count_bound"
-								? "EMPTY_REPEAT_COUNT"
-								: "EMPTY_IDS_QUERY"
-							: classification;
-					const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-					expect(errors).toEqual([
-						expect.objectContaining({
-							code,
-							location: expect.objectContaining({ fieldId: "visits" }),
-						}),
-					]);
-					if (classification === "XPATH_SYNTAX" && mode === "count_bound")
-						expect(errors[0].message).toContain("repeat count");
-				},
-			);
-		},
-	);
-});
-
-describe("runValidation — bare-id reference suggestion (group-path DX)", () => {
-	// The dominant authoring mistake (build WVbl8blwAsy6CCjBFaJ0: 29 of 30
-	// edit calls were this): the SA references a field by its bare id when
-	// the field lives inside a group, dropping the group from the path. The
-	// humanized error must point at the real `#form/...` path so the SA fixes
-	// it in one shot instead of guessing.
-	it("suggests the group-qualified #form/ path in the message", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
+	});
+	it("retains call arity admission for stored trees without reparsing", () => {
+		const doc = formFixture();
+		const hidden = doc.fields[ids.hidden];
+		if (hidden.kind !== "hidden")
+			throw new Error("The calculated question fixture is missing.");
+		hidden.calculate = { kind: "call", fn: "round", args: [] };
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toContainEqual(
+			expect.objectContaining({
+				code: "TYPE_ERROR",
+				details: expect.objectContaining({
+					checkCode: "arm-unavailable",
+					checkReason: "function-arity",
+				}),
+			}),
+		);
+	});
+	it("keeps a known question unavailable after its form has closed", () => {
+		const base = formFixture();
+		const doc = {
+			...base,
+			forms: {
+				...base.forms,
+				[ids.form]: {
+					...base.forms[ids.form],
+					formLinks: [
 						{
-							name: "Register Mother",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "consent_grp",
-									label: proseText("Consent"),
-									children: [
-										f({
-											kind: "single_select",
-											id: "consent",
-											label: proseText("Consent given?"),
-											options: [
-												{ value: "yes", label: "Yes" },
-												{ value: "no", label: "No" },
-											],
-										}),
-									],
-								}),
-								// Sibling at the form root references the bare id.
-								f({
-									kind: "label",
-									id: "consent_stop",
-									label: proseText("Enrollment stopped."),
-									relevant: "#form/consent_grp/consent = 'no'",
-								}),
-							],
+							uuid: ids.link,
+							condition: {
+								kind: "term" as const,
+								term: { kind: "field" as const, uuid: ids.text },
+							},
+							target: {
+								type: "form" as const,
+								moduleUuid: ids.module,
+								formUuid: ids.target,
+							},
 						},
 					],
 				},
-			],
-		});
-		assertAdmitted(doc);
-		const stop = Object.values(doc.fields).find(
-			(field) => field.id === "consent_stop",
-		);
-		if (stop?.kind !== "label") throw new Error("Expected stop label");
-		doc.fields[stop.uuid] = {
-			...stop,
-			relevant: xpIn(
-				doc,
-				doc.formOrder[doc.moduleOrder[0]][0],
-				"#form/consent = 'no'",
-			),
+			},
 		};
-		const refErr = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
-			(e) => e.code === "INVALID_REF" && e.location.fieldId === "consent_stop",
-		);
-		expect(refErr).toBeDefined();
-		expect(refErr?.message).toContain("`#form/consent_grp/consent`");
-		expect(refErr?.message).toContain("Did you mean");
-	});
-});
-
-// ── Stored-reference classification (INVALID_REF.storedRef) ─────────
-
-describe("INVALID_REF stored-reference classification", () => {
-	const makeDoc = (fields: FieldSpec[]) =>
-		buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					forms: [{ name: "Quiz form", type: "survey", fields }],
-				},
-			],
-		});
-
-	it("classifies a dangling identity leaf and never prints the bare uuid as a path", () => {
-		const ghost = testUuid("dead0000-0000-4000-8000-000000000001");
-		const doc = makeDoc([
-			f({ kind: "int", id: "score", label: proseText("Score") }),
-			f({
-				kind: "hidden",
-				id: "total",
-				calculate: "#form/score",
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toContainEqual(
+			expect.objectContaining({
+				code: "INVALID_REF",
+				location: expect.objectContaining({ field: "form_link_condition" }),
+				details: expect.objectContaining({
+					checkCode: "form-answer-unavailable",
+					linkUuid: ids.link,
+				}),
 			}),
-		]);
-		assertAdmitted(doc);
-		const total = Object.values(doc.fields).find(
-			(field) => field.id === "total",
 		);
-		if (total?.kind !== "hidden") throw new Error("Expected total field");
-		doc.fields[total.uuid] = {
-			...total,
-			calculate: { parts: [{ kind: "field-ref", uuid: ghost }] },
-		};
-		const deepErr = validateBlueprintDeep(doc).find(
-			(e): e is Extract<DeepValidationError, { kind: "field-xpath" }> =>
-				e.kind === "field-xpath" && e.error.code === "INVALID_REF",
-		);
-		expect(deepErr?.error.storedRef).toBe("dangling-identity");
-
-		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
-			(e) => e.code === "INVALID_REF",
-		);
-		// The carrier + slot are the find-it handle; the uuid is not a path
-		// a person can look up, so it must not appear in the prose.
-		expect(rendered?.message).toContain('Field "total"');
-		expect(rendered?.message).toContain("calculated value");
-		expect(rendered?.message).toContain("no longer exists");
-		expect(rendered?.message).not.toContain(ghost);
-	});
-
-	it("keeps the did-you-mean hint for a bare nested-field id", () => {
-		// A fresh unresolved token remains inert text (parsing is total). When
-		// its id matches an existing nested field, validation can still offer
-		// the canonical nested path as the repair.
-		const doc = makeDoc([
-			f({
-				kind: "group",
-				id: "grp",
-				label: proseText("Group"),
-				children: [f({ kind: "int", id: "score", label: proseText("Score") })],
-			}),
-			f({ kind: "hidden", id: "total", calculate: "#form/grp/score" }),
-		]);
-		assertAdmitted(doc);
-		const total = Object.values(doc.fields).find(
-			(field) => field.id === "total",
-		);
-		if (total?.kind !== "hidden") throw new Error("Expected total field");
-		doc.fields[total.uuid] = {
-			...total,
-			calculate: xpIn(
-				doc,
-				doc.formOrder[doc.moduleOrder[0]][0],
-				"#form/score ",
-			),
-		};
-		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
-			(e) => e.code === "INVALID_REF",
-		);
-		expect(rendered?.message).toContain("`#form/grp/score`");
-		expect(rendered?.message).toContain("Did you mean");
-		expect(rendered?.message).not.toContain("re-commit");
-	});
-
-	it("leaves an unresolved absolute path unclassified — the generic typo prose", () => {
-		const doc = makeDoc([
-			f({ kind: "int", id: "score", label: proseText("Score") }),
-			f({ kind: "hidden", id: "total", calculate: "/data/score + 1" }),
-		]);
-		assertAdmitted(doc);
-		const total = Object.values(doc.fields).find(
-			(field) => field.id === "total",
-		);
-		if (total?.kind !== "hidden") throw new Error("Expected total field");
-		doc.fields[total.uuid] = {
-			...total,
-			calculate: xpIn(
-				doc,
-				doc.formOrder[doc.moduleOrder[0]][0],
-				"/data/scroe + 1 ",
-			),
-		};
-		const deepErr = validateBlueprintDeep(doc).find(
-			(e): e is Extract<DeepValidationError, { kind: "field-xpath" }> =>
-				e.kind === "field-xpath" && e.error.code === "INVALID_REF",
-		);
-		expect(deepErr?.error.storedRef).toBeUndefined();
-		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
-			(e) => e.code === "INVALID_REF",
-		);
-		expect(rendered?.message).toContain("Check for a typo");
 	});
 });
 

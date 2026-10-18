@@ -1,13 +1,12 @@
+import type { SearchInputDecl } from "@/lib/domain/expression/context";
+import { isConditionArm } from "@/lib/domain/expression/types";
+import { isNativeCsqlValueExpression } from "../expression/csqlCapabilities";
 /** Numeric constraints imposed by CCHQ's server-side case-search parser. */
 
 import type { Uuid } from "@/lib/domain";
-import type {
-	Predicate,
-	SearchInputDecl,
-	ValueExpression,
-} from "@/lib/domain/predicate";
-import type { SearchInputInstanceId } from "@/lib/domain/predicate/typeChecker";
+import type { Expression } from "@/lib/domain/expression/types";
 import { w } from "../xpath/wire/builders";
+import type { SearchInputInstanceId } from "../xpath/wire/fromExpression";
 import { searchInputInstance } from "../xpath/wire/instances";
 import type { WireExpr } from "../xpath/wire/tree";
 import { STANDALONE_SEARCH_INPUT_INSTANCE_ID } from "./termEmitter";
@@ -28,7 +27,7 @@ export type CsqlNumericValueClassification =
 
 /** CCHQ calendar shifts accept integral quantities only. */
 export function classifyCalendarDateAddQuantity(
-	expression: ValueExpression,
+	expression: Expression,
 	knownInputs: readonly SearchInputDecl[] = [],
 	searchInputInstanceId?: SearchInputInstanceId,
 ): CsqlNumericValueClassification {
@@ -51,7 +50,7 @@ export function classifyCalendarDateAddQuantity(
 
 /** Structural admission used before a runtime-name projection is needed. */
 export function isRepresentableCalendarDateAddQuantity(
-	expression: ValueExpression,
+	expression: Expression,
 ): boolean {
 	const known = staticallyKnownNumber(expression);
 	return (
@@ -62,7 +61,7 @@ export function isRepresentableCalendarDateAddQuantity(
 
 /** CCHQ's subcase-count parser calls `int(...)`; Nova forbids truncation. */
 export function classifySubcaseCountBound(
-	expression: ValueExpression,
+	expression: Expression,
 	knownInputs: readonly SearchInputDecl[] = [],
 	searchInputInstanceId?: SearchInputInstanceId,
 ): CsqlNumericValueClassification {
@@ -85,7 +84,7 @@ export function classifySubcaseCountBound(
 
 /** Structural admission used before a runtime-name projection is needed. */
 export function isRepresentableSubcaseCountBound(
-	expression: ValueExpression,
+	expression: Expression,
 ): boolean {
 	const known = staticallyKnownNumber(expression);
 	return (
@@ -122,7 +121,7 @@ export function promptWholeNumberTest(
 
 /** Numeric prompt requirements from the exact normalized CSQL predicate. */
 export function collectRuntimeCsqlNumericInputConstraints(
-	predicate: Predicate,
+	predicate: Expression,
 	knownInputs: readonly SearchInputDecl[] = [],
 ): ReadonlyMap<string, RuntimeCsqlNumericConstraint> {
 	const constraints = new Map<string, RuntimeCsqlNumericConstraint>();
@@ -144,7 +143,7 @@ function addConstraint(
 }
 
 function addSubcaseBoundConstraint(
-	expression: ValueExpression,
+	expression: Expression,
 	out: Map<string, RuntimeCsqlNumericConstraint>,
 	knownInputs: readonly SearchInputDecl[],
 ): void {
@@ -154,15 +153,16 @@ function addSubcaseBoundConstraint(
 	}
 }
 
-function isSubcaseCount(expression: ValueExpression): boolean {
+function isSubcaseCount(expression: Expression): boolean {
 	return expression.kind === "count" && expression.via.kind === "subcase";
 }
 
 function walkQueryPredicate(
-	predicate: Predicate,
+	predicate: Expression,
 	out: Map<string, RuntimeCsqlNumericConstraint>,
 	knownInputs: readonly SearchInputDecl[],
 ): void {
+	if (!isConditionArm(predicate)) return;
 	switch (predicate.kind) {
 		case "match-all":
 		case "match-none":
@@ -222,7 +222,7 @@ function walkQueryPredicate(
 			return;
 		default: {
 			const _exhaustive: never = predicate;
-			throw new Error(`Unhandled Predicate ${String(_exhaustive)}`);
+			throw new Error(`Unhandled Expression ${String(_exhaustive)}`);
 		}
 	}
 }
@@ -230,13 +230,13 @@ function walkQueryPredicate(
 type RuntimeDialect = "csql" | "on-device";
 
 function walkRuntimeValue(
-	expression: ValueExpression,
+	expression: Expression,
 	dialect: RuntimeDialect,
 	out: Map<string, RuntimeCsqlNumericConstraint>,
 	knownInputs: readonly SearchInputDecl[],
 ): void {
 	const childDialect: RuntimeDialect =
-		dialect === "csql" && isNativeCsqlExpression(expression)
+		dialect === "csql" && isNativeCsqlValueExpression(expression)
 			? "csql"
 			: "on-device";
 	switch (expression.kind) {
@@ -301,44 +301,15 @@ function walkRuntimeValue(
 		case "format-date":
 			walkRuntimeValue(expression.date, "on-device", out, knownInputs);
 			return;
-		default: {
-			const _exhaustive: never = expression;
-			throw new Error(`Unhandled ValueExpression ${String(_exhaustive)}`);
-		}
-	}
-}
-
-function isNativeCsqlExpression(expression: ValueExpression): boolean {
-	switch (expression.kind) {
-		case "term":
-		case "today":
-		case "now":
-		case "date-add":
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-			return true;
-		case "arith":
-		case "concat":
-		case "coalesce":
-		case "if":
-		case "switch":
-		case "count":
-		case "format-date":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-		case "table-lookup":
-			return false;
-		default: {
-			const _exhaustive: never = expression;
-			throw new Error(`Unhandled ValueExpression ${String(_exhaustive)}`);
-		}
+		default:
+			// The remaining expressions execute wholly on-device and impose no
+			// server calendar-shift or subcase-count input constraint.
+			return;
 	}
 }
 
 function numericInputUuid(
-	expression: ValueExpression,
+	expression: Expression,
 	allowDirectInput: boolean,
 ): Uuid | undefined {
 	if (
@@ -358,9 +329,7 @@ function numericInputUuid(
 	return undefined;
 }
 
-function staticallyKnownNumber(
-	expression: ValueExpression,
-): number | undefined {
+function staticallyKnownNumber(expression: Expression): number | undefined {
 	if (expression.kind === "term" && expression.term.kind === "literal") {
 		return finiteNumber(expression.term.value);
 	}

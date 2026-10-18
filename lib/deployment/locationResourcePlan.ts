@@ -29,7 +29,7 @@ import {
 	organizationLevelsOf,
 	ownRecordValue,
 } from "@/lib/domain";
-import { walkExpressionTerms } from "@/lib/domain/predicate";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import type { StoredLocation } from "@/lib/organization/types";
 import type { DeploymentResource, DeploymentResourceOwnership } from "./types";
 

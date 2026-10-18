@@ -103,7 +103,7 @@ function setup() {
 		fieldOrder: {
 			[FORM_UUID]: [Q_UUID],
 		},
-		fieldParent: {},
+		fieldParent: { [Q_UUID]: FORM_UUID },
 		organizationLevels: {
 			[ROOT_A_UUID]: organizationLevel(ROOT_A_UUID, "Root A"),
 			[CHILD_UUID]: organizationLevel(CHILD_UUID, "Child", ROOT_A_UUID),

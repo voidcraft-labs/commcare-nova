@@ -1574,7 +1574,7 @@ def _integer_calculate(form, text, manifest, seen):
     return _integer(form, tree, manifest, seen | {text})
 
 
-# Nova's types of the values an XPath expression's parts give (lib/domain/predicate/typeChecker.ts: a number
+# Nova's types of expression values (lib/domain/expression/typeChecker.ts: a number
 # literal is an integer when Number.isInteger holds of it, ``literalType``; ``+``, ``-``, ``*`` and ``mod`` of
 # two integers are an integer and of anything else a decimal, ``arith``; ``count`` is an integer; ``if`` is
 # its branches' type), with XPath's ``div``, true division, a decimal (the row's own example, ``/data/a div

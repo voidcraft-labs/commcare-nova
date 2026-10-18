@@ -1,21 +1,22 @@
+import type { RecordQueryContext } from "@/lib/domain/expression/context";
+import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
+import {
+	type Choice,
+	conditionSchema,
+	type Expression,
+	type Literal,
+	type RelationPath,
+	relationPathSchema,
+	type Term,
+	termSchema,
+	valueSchema,
+} from "@/lib/domain/expression/types";
 import {
 	FUNCTION_REGISTRY,
 	functionArityIssue,
 	QUERY_FUNCTIONS,
 } from "@/lib/domain/expressionFunctions";
-import {
-	type CheckError,
-	checkExpression,
-	type Predicate,
-	predicateSchema,
-	type RelationPath,
-	relationPathSchema,
-	type Term,
-	type TypeContext,
-	termSchema,
-	type ValueExpression,
-	valueExpressionSchema,
-} from "@/lib/domain/predicate";
+import type { Uuid } from "@/lib/domain/uuid";
 import { AuthoringInputError } from "./errors";
 import {
 	type AuthoredExpression,
@@ -23,7 +24,9 @@ import {
 } from "./expressionSyntax";
 
 export interface QueryBindings {
-	typeContext: TypeContext;
+	typeContext: RecordQueryContext;
+	readonly currentCaseType?: string;
+	choice(field: Uuid, value: Literal): Literal | Choice;
 	/** Resolvers reject missing or ambiguous names in their current scope. */
 	reference(namespace: string, path: readonly string[]): Term;
 	identity(
@@ -160,8 +163,6 @@ function relation(node: Node): RelationPath {
 }
 
 function compiler(bindings: QueryBindings) {
-	const numericType = (value: ObjectValue) =>
-		queryValueType(valueExpressionSchema.parse(value), bindings.typeContext);
 	function term(node: Node): ObjectValue {
 		if (node.kind === "reference")
 			return bindings.reference(node.namespace, node.path);
@@ -171,9 +172,9 @@ function compiler(bindings: QueryBindings) {
 			if (name === "property") {
 				const via = args[2] ? relation(args[2]) : undefined;
 				const origin = string(args[0]);
-				if (via && origin !== bindings.typeContext.currentCaseType)
+				if (via && origin !== bindings.currentCaseType)
 					throw new AuthoringInputError(
-						`property() starts from ${bindings.typeContext.currentCaseType ?? "an unspecified record"}, not ${origin}.`,
+						`property() starts from ${bindings.currentCaseType ?? "an unspecified record"}, not ${origin}.`,
 					);
 				const resolved = via
 					? bindings.forRelation(via).reference("case", [string(args[1])])
@@ -192,7 +193,7 @@ function compiler(bindings: QueryBindings) {
 					throw new AuthoringInputError(
 						"via() needs a record property without an existing relationship.",
 					);
-				const origin = bindings.typeContext.currentCaseType;
+				const origin = bindings.currentCaseType;
 				if (!origin)
 					throw new AuthoringInputError("via() needs an originating record.");
 				return { ...property, caseType: origin, via: path };
@@ -234,6 +235,33 @@ function compiler(bindings: QueryBindings) {
 		return literal(node);
 	}
 
+	function choiceFor(
+		candidate: ObjectValue,
+		opposite: ObjectValue,
+	): ObjectValue {
+		if (candidate.kind !== "literal" || opposite.kind !== "term")
+			return candidate;
+		const reference = termSchema.safeParse(opposite.term);
+		return reference.success && reference.data.kind === "field"
+			? bindings.choice(reference.data.uuid, candidate as Literal)
+			: candidate;
+	}
+	function oppositeValue(
+		candidate: ObjectValue,
+		opposite: ObjectValue,
+	): ObjectValue {
+		if (candidate.kind !== "term") return candidate;
+		const literal = candidate.term;
+		if (
+			typeof literal !== "object" ||
+			literal === null ||
+			!("kind" in literal) ||
+			literal.kind !== "literal"
+		)
+			return candidate;
+		return { ...candidate, term: choiceFor(literal as ObjectValue, opposite) };
+	}
+
 	function value(node: Node): ObjectValue {
 		if (node.kind === "binary") {
 			if (!arithmetic.has(node.operator))
@@ -246,35 +274,33 @@ function compiler(bindings: QueryBindings) {
 				left: value(node.left),
 				right: value(node.right),
 			};
-			// Field expressions use real division. Keep that meaning here even
-			// when the canonical query engine would infer integer operands.
-			if (node.operator === "div" && numericType(result) === "int")
-				result.left = { kind: "double", value: result.left };
+
 			return result;
 		}
 		if (node.kind === "negative") {
 			if (node.value.kind === "literal" && typeof node.value.value === "number")
 				return { kind: "term", term: literal(node) };
-			return {
-				kind: "arith",
-				op: "*",
-				left: { kind: "term", term: { kind: "literal", value: -1 } },
-				right: value(node.value),
-			};
+			return { kind: "negate", value: value(node.value) };
 		}
 		if (node.kind !== "call") return { kind: "term", term: term(node) };
 		const { name, args } = node;
 		if (name === "quotient") {
 			arity(name, args);
-			const result = {
+			const left = valueSchema.parse(value(args[0]));
+			const right = valueSchema.parse(value(args[1]));
+			if (
+				scalarDataType(typeOf(left, bindings.typeContext)?.data) !== "int" ||
+				scalarDataType(typeOf(right, bindings.typeContext)?.data) !== "int"
+			)
+				throw new AuthoringInputError(
+					"quotient() needs integer operands. Use div for decimal division.",
+				);
+			return {
 				kind: "arith",
-				op: "div",
-				left: value(args[0]),
-				right: value(args[1]),
+				op: "quotient",
+				left,
+				right,
 			};
-			if (numericType(result) !== "int")
-				throw new AuthoringInputError("quotient() needs integer operands.");
-			return result;
 		}
 		if (["today", "now", "acting-user", "unowned"].includes(name)) {
 			arity(name, args);
@@ -336,12 +362,16 @@ function compiler(bindings: QueryBindings) {
 		if (name === "switch") {
 			arity(name, args);
 			const cases = [];
+			const on = value(args[0]);
 			for (let i = 1; i < args.length - 1; i += 2)
-				// biome-ignore lint/suspicious/noThenProperty: Canonical AST data, never a callable thenable.
-				cases.push({ when: literal(args[i]), then: value(args[i + 1]) });
+				cases.push({
+					when: choiceFor(literal(args[i]), on),
+					// biome-ignore lint/suspicious/noThenProperty: Canonical AST data, never a callable thenable.
+					then: value(args[i + 1]),
+				});
 			return {
 				kind: name,
-				on: value(args[0]),
+				on,
 				cases,
 				fallback: value(args[args.length - 1]),
 			};
@@ -380,8 +410,15 @@ function compiler(bindings: QueryBindings) {
 					clauses: [predicate(node.left), predicate(node.right)],
 				};
 			const kind = comparisons[node.operator];
-			if (kind)
-				return { kind, left: value(node.left), right: value(node.right) };
+			if (kind) {
+				const left = value(node.left),
+					right = value(node.right);
+				return {
+					kind,
+					left: oppositeValue(left, right),
+					right: oppositeValue(right, left),
+				};
+			}
 		}
 		if (node.kind !== "call")
 			throw new AuthoringInputError(
@@ -407,10 +444,11 @@ function compiler(bindings: QueryBindings) {
 		}
 		if (name === "in") {
 			arity(name, args);
+			const left = value(args[0]);
 			return {
 				kind: name,
-				left: value(args[0]),
-				values: args.slice(1).map(literal),
+				left,
+				values: args.slice(1).map((node) => choiceFor(literal(node), left)),
 			};
 		}
 		if (name === "is-blank") {
@@ -492,22 +530,11 @@ function compiler(bindings: QueryBindings) {
 	return { predicate, value, term };
 }
 
-export function queryValueType(value: ValueExpression, context: TypeContext) {
-	const errors: CheckError[] = [];
-	const result = checkExpression(value, context, errors, []);
-	if (errors.length || result === undefined)
-		throw new AuthoringInputError(
-			errors.map((error) => error.message).join(" ") ||
-				"Could not resolve this value's type.",
-		);
-	return result;
-}
-
 export function parseQueryValue(
 	source: string | number | boolean,
 	bindings: QueryBindings,
-): ValueExpression {
-	return valueExpressionSchema.parse(
+): Expression {
+	return valueSchema.parse(
 		compiler(bindings).value(parseAuthoringExpression(source)),
 	);
 }
@@ -528,8 +555,8 @@ export function parseQueryRelationship(source: string): RelationPath {
 export function parseQueryPredicate(
 	source: string | boolean,
 	bindings: QueryBindings,
-): Predicate {
-	return predicateSchema.parse(
+): Expression {
+	return conditionSchema.parse(
 		compiler(bindings).predicate(parseAuthoringExpression(source)),
 	);
 }

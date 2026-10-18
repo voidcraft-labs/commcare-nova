@@ -1,7 +1,7 @@
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
-import { parseAuthoredXPath } from "@/lib/doc/expressionText";
+import { parseProseReference } from "@/lib/doc/expressionText";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import {
 	appLanguageIdentitySchema,
@@ -19,7 +19,7 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
-import type { SearchInputDecl } from "@/lib/domain/predicate";
+import type { SearchInputDecl } from "@/lib/domain/expression/context";
 import { readOrganization } from "@/lib/organization/service";
 import { bindToolAddress } from "./addresses";
 import {
@@ -37,6 +37,7 @@ import {
 	authoringFingerprint,
 	translationReviewRevision,
 } from "./fingerprints";
+import { prepareFormAuthoring, stageFieldDefaults } from "./formPreparation";
 import { parseAuthoringIcon } from "./icons";
 import { bindNamedIdentity } from "./identityBindings";
 import { namedIdentityInputs } from "./identitySchema";
@@ -52,7 +53,7 @@ import {
 	type AuthoringValueDecoders,
 	decodeAuthoringValues,
 } from "./schema";
-import { normalizeExpression, normalizeText, printAuthoringText } from "./text";
+import { normalizeText, printAuthoringText } from "./text";
 import { authoringToolSchema } from "./toolSchema";
 
 type Input = Record<string, unknown>;
@@ -60,15 +61,6 @@ const record = z.record(z.string(), z.unknown());
 const records = z.array(record);
 const expression = z.union([z.string(), z.boolean()]);
 const valueExpression = z.union([z.string(), z.number(), z.boolean()]);
-
-function authoringXPath(...args: Parameters<typeof parseAuthoredXPath>) {
-	try {
-		return parseAuthoredXPath(...args);
-	} catch (error) {
-		if (error instanceof Error) throw new AuthoringInputError(error.message);
-		throw error;
-	}
-}
 
 function optionalId(value: unknown): Uuid | undefined {
 	return value == null ? undefined : uuidSchema.parse(value);
@@ -214,6 +206,7 @@ async function prepareInput<S extends z.ZodType>(args: {
 				uuidv5.URL,
 			);
 	}
+	stageFieldDefaults(toolName, input, doc);
 	allocateCreationIdentities(toolName, input, (spec, item) => {
 		if (spec.entityKind !== "option" || typeof item.value !== "string")
 			return undefined;
@@ -504,10 +497,33 @@ async function prepareInput<S extends z.ZodType>(args: {
 		(a, b) => priority(a.family) - priority(b.family),
 	))
 		bindNamedIdentity({ toolName, input, slot, scope: optionsAt(slot.path) });
+	const preparedForms = prepareFormAuthoring({
+		toolName,
+		input,
+		ctx,
+		formUuid,
+		lookup: () => new Map((tables ?? []).map((table) => [table.id, table])),
+		authoringAt(path) {
+			const scope = scopeAt(path);
+			return {
+				resolveFormExactName: scope.resolveFieldPath,
+				resolveFormShortName: scope.resolveField,
+				selectedCaseType: scope.currentCaseType,
+			};
+		},
+	});
+	for (const scope of scopes) {
+		if (scope.options.formUuid !== undefined)
+			scope.options.form = preparedForms.forms.get(scope.options.formUuid);
+	}
 	let needsLocations = false;
 	let needsTables = false;
 	const scanFamily =
 		(family: string) => (value: unknown, path: AuthoringPath) => {
+			if (family === "xpath") {
+				needsTables = true;
+				preparedForms.register(value, path);
+			}
 			if (["condition", "value", "reference"].includes(family)) {
 				const expression = parseAuthoringExpression(
 					valueExpression.parse(value),
@@ -530,6 +546,7 @@ async function prepareInput<S extends z.ZodType>(args: {
 		relationship: scanFamily("relationship"),
 		moduleIcon: scanFamily("moduleIcon"),
 		formIcon: scanFamily("formIcon"),
+		datum: scanFamily("datum"),
 	};
 	decodeAuthoringValues(schema, input, scan);
 	if (needsTables) await loadTables();
@@ -546,36 +563,25 @@ async function prepareInput<S extends z.ZodType>(args: {
 	function textAt(value: unknown, path: AuthoringPath) {
 		const scope = scopeAt(path);
 		return normalizeText(z.string().parse(value), (source) =>
-			authoringXPath(
-				doc,
-				scope.formUuid,
-				scope.resolveFieldPath,
+			parseProseReference(
+				{
+					doc,
+					formUuid: scope.formUuid,
+					form: optionsAt(path).form,
+					authoring: {
+						resolveFormExactName: scope.resolveFieldPath,
+						resolveFormShortName: scope.resolveField,
+						selectedCaseType: scope.currentCaseType,
+					},
+				},
 				source,
-				scope.typeContext.currentCaseType,
-				scope.resolveSearchInput,
-				{ resolveFormReference: scope.resolveField },
 			),
 		);
 	}
 	const decoders: AuthoringValueDecoders = {
 		text: textAt,
-		xpath(value, path) {
-			const scope = scopeAt(path);
-			return normalizeExpression(expression.parse(value), (source) =>
-				authoringXPath(
-					doc,
-					scope.formUuid,
-					scope.resolveFieldPath,
-					source,
-					scope.typeContext.currentCaseType,
-					scope.resolveSearchInput,
-					{
-						allowExternalFormPaths: path.includes("connect"),
-						resolveFormReference: scope.resolveField,
-					},
-				),
-			);
-		},
+		xpath: (_value, path) => preparedForms.parse(path),
+		datum: (_value, path) => preparedForms.datum(path),
 		condition: (value, path) =>
 			parseQueryPredicate(expression.parse(value), scopeAt(path)),
 		value: (value, path) =>
@@ -587,8 +593,8 @@ async function prepareInput<S extends z.ZodType>(args: {
 			const scope = scopeAt(path);
 			return parseAuthoringMessage(
 				z.string().parse(value),
-				scope.typeContext.currentCaseType ?? "",
-				scope.typeContext.caseTypes,
+				scope.currentCaseType ?? "",
+				scope.typeContext.facts.caseTypes,
 			);
 		},
 		localized(value, path) {

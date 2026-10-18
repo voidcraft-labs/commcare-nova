@@ -25,7 +25,7 @@
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { plainColumn, proseText } from "@/lib/domain";
-import { matchNone } from "@/lib/domain/predicate";
+import { matchNone } from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
 

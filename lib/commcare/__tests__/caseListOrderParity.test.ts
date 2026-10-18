@@ -30,7 +30,7 @@ import {
 	plainColumn,
 	proseText,
 } from "@/lib/domain";
-import { prop, term } from "@/lib/domain/predicate";
+import { prop, term } from "@/lib/domain/expression";
 import { mediaIds, mediaManifest } from "./mediaWireFixtures";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { readXmlEvidence, type XmlEvidence, xmlChildren } from "./xmlEvidence";

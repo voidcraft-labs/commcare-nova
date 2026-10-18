@@ -99,14 +99,6 @@ RUN npx esbuild scripts/migrate-language-identity.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=language-identity-repair.cjs
-RUN npx esbuild scripts/migrate-case-status-filters.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=case-status-filter-repair.cjs
-RUN npx esbuild scripts/migrate-select-option-values.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=select-option-value-repair.cjs
 
 FROM ${NODE_IMAGE} AS maintenance
 WORKDIR /app

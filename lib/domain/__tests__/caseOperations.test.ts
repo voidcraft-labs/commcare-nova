@@ -17,7 +17,7 @@ import {
 	prop,
 	term,
 	unowned,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 
 const A = testUuid("11111111-1111-4111-8111-111111111111");
@@ -389,7 +389,7 @@ describe("case-operation domain vocabulary", () => {
 });
 
 describe("case retype planning", () => {
-	it("pins conversion, parking, and required-value review before activation", () => {
+	it("preserves conversion and parking gates after catalog rules retire", () => {
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -410,7 +410,6 @@ describe("case retype planning", () => {
 						{
 							name: "enrolled",
 							label: proseText("Enrolled"),
-							required: "true()",
 						},
 					],
 				},
@@ -428,20 +427,9 @@ describe("case retype planning", () => {
 		]);
 		expect(blocked.parked).toEqual(["legacy"]);
 		expect(blocked.parked).not.toContain("case_name");
-		expect(blocked.missingRequired).toEqual(["enrolled"]);
 		expect(blocked.reviewRequired).toBe(true);
-		expect(blocked.safe).toBe(false);
+		expect(blocked.safe).toBe(true);
 		expect(blocked.wirePortable).toBe(false);
-
-		const completed = planCaseRetype(
-			doc,
-			"lead",
-			"client",
-			new Set(["enrolled"]),
-		);
-		expect(completed.missingRequired).toEqual([]);
-		expect(completed.safe).toBe(true);
-		expect(completed.wirePortable).toBe(false);
 
 		const sameSchema = planCaseRetype(doc, "lead", "lead");
 		expect(sameSchema.retained).toEqual(["shared", "legacy"]);

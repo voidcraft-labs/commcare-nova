@@ -30,6 +30,8 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
+import { input, term } from "@/lib/domain/expression/builders";
+import type { Expression } from "@/lib/domain/expression/types";
 import { suffixUntilFree } from "@/lib/domain/idSlug";
 import { FORBIDDEN_CASE_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import { walkFormFieldUuids } from "./mutations/helpers";
@@ -199,12 +201,8 @@ export function noMatchesFormEntryMutations(
  * The `#search/<name>` expression for one prompt: the typed leaf, so a
  * renamed prompt never rewrites the field.
  */
-function searchAnswerExpression(input: SearchInputDef) {
-	return {
-		parts: [
-			{ kind: "search-answer-ref" as const, searchInputUuid: input.uuid },
-		],
-	};
+function searchAnswerExpression(searchInput: SearchInputDef): Expression {
+	return term(input(searchInput.uuid));
 }
 
 /**

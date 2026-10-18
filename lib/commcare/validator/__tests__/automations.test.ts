@@ -9,7 +9,7 @@ import {
 	type BlueprintDoc,
 	plainColumn,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { runValidation } from "../runner";
 
 // These are complete-runner admission/diagnostic tests. They do not execute

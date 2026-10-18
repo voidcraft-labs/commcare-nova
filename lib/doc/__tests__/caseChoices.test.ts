@@ -7,7 +7,8 @@ import {
 	casePropertyTargetKey,
 	caseTypeTargetKey,
 } from "@/lib/domain";
-import { eq, formField, prop, term, walkTerms } from "@/lib/domain/predicate";
+import { eq, formField, prop, term } from "@/lib/domain/expression/builders";
+import { walkExpression } from "@/lib/domain/expression/walk";
 import { planCaseTypeRetirementOnRemove } from "../caseTypeRetirement";
 import { mutationCommitVerdict } from "../commitVerdicts";
 import { diffDocsToMutations } from "../diffDocsToMutations";
@@ -203,8 +204,10 @@ it("duplicates a repeated dependent choice with references to its own cloned ans
 	)
 		throw new Error("Expected cloned choices");
 	const references: string[] = [];
-	walkTerms(source.optionsSource.filter, (t) => {
-		if (t.kind === "field") references.push(t.uuid);
+	walkExpression(source.optionsSource.filter, {
+		visitTerm: (t) => {
+			if (t.kind === "field") references.push(t.uuid);
+		},
 	});
 	expect(references).toEqual([regionClone]);
 	const invalid: Mutation = {

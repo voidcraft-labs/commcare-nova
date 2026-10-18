@@ -25,8 +25,9 @@ import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkben
 import type { EditorPath } from "@/components/builder/shared/path";
 import type { EditorSearchInputDecl } from "@/components/builder/shared/searchInputPresentation";
 import { Button } from "@/components/shadcn/button";
+import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import type { CaseType, UserProperty } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression, ExpressionSlotRef } from "@/lib/domain/expression";
 import type { SearchConditionSlot } from "../workspaceSelection";
 
 export type SearchConditionCanvasContext =
@@ -40,8 +41,9 @@ export type SearchConditionCanvasContext =
 
 export interface SearchConditionCanvasProps {
 	readonly context: SearchConditionCanvasContext;
-	readonly value: Predicate;
-	readonly onChange: (next: Predicate) => void;
+	readonly expressionSlot: ExpressionSlotRef | undefined;
+	readonly value: Expression;
+	readonly onChange: (next: Expression) => void;
 	readonly onBack: () => void;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
@@ -120,6 +122,7 @@ export function searchConditionCanvasCopy(
 
 export function SearchConditionCanvas({
 	context,
+	expressionSlot,
 	value,
 	onChange,
 	onBack,
@@ -130,6 +133,7 @@ export function SearchConditionCanvas({
 	dependencyReview,
 	focusRequest,
 }: SearchConditionCanvasProps) {
+	const expressionContext = useExpressionSlotContext(expressionSlot);
 	const backRef = useRef<HTMLButtonElement>(null);
 	const focusBackOnMountRef = useRef(
 		dependencyReview === undefined && focusRequest === undefined,
@@ -186,18 +190,23 @@ export function SearchConditionCanvas({
 					</h2>
 				</div>
 
-				<PredicateWorkbench
-					value={value}
-					onChange={onChange}
-					caseTypes={caseTypes}
-					currentCaseType={currentCaseType}
-					knownInputs={knownInputs}
-					userProperties={userProperties}
-					evaluationTarget={copy.evaluationTarget}
-					caseDataScope={copy.caseDataScope}
-					patternMatching={copy.patternMatching}
-					focusRequest={dependencyReview ?? focusRequest}
-				/>
+				{expressionContext === undefined ? (
+					<p role="status">This condition's owner is no longer available.</p>
+				) : (
+					<PredicateWorkbench
+						expressionContext={expressionContext}
+						value={value}
+						onChange={onChange}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						knownInputs={knownInputs}
+						userProperties={userProperties}
+						evaluationTarget={copy.evaluationTarget}
+						caseDataScope={copy.caseDataScope}
+						patternMatching={copy.patternMatching}
+						focusRequest={dependencyReview ?? focusRequest}
+					/>
+				)}
 			</section>
 		</ContentFrame>
 	);

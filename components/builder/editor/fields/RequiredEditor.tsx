@@ -26,10 +26,11 @@ import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { Switch } from "@/components/shadcn/switch";
 import {
-	useParseXPathForField,
-	useXPathProjection,
+	useFormExpressionProjection,
+	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
-import type { Field, XPathExpression } from "@/lib/domain";
+import type { Field } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { useSessionFocusHint } from "@/lib/session/hooks";
 import {
@@ -58,9 +59,17 @@ export function RequiredEditor<F extends Field>({
 	// The slot stores the expression AST; the tri-state model and the
 	// nested editor both speak its printed TEXT, and every transition's
 	// next value parses back at the commit boundary.
-	const projection = useXPathProjection(value as XPathExpression | undefined);
+	const slot = {
+		entity: "field" as const,
+		uuid: field.uuid,
+		slot: "required" as const,
+	};
+	const projection = useFormExpressionProjection(
+		value as Expression | undefined,
+		slot,
+	);
 	const requiredText = projection.text;
-	const parseForField = useParseXPathForField(field.uuid);
+	const parseForField = useParseFormExpression(slot);
 	const toStored = useCallback(
 		(next: string | undefined) =>
 			(next === undefined ? undefined : parseForField(next)) as F["required" &
@@ -73,7 +82,7 @@ export function RequiredEditor<F extends Field>({
 
 	// `field.uuid` is already branded `Uuid` by the Field type, no
 	// second cast is needed before calling into the doc-store hook.
-	const getLintContext = useFormLintContext(field.uuid);
+	const getLintContext = useFormLintContext(slot);
 
 	// Local state: whether the user is composing a brand-new condition.
 	// Distinct from the XPathField's own edit state: the flag lets the

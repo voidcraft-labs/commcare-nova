@@ -1,11 +1,11 @@
 // components/builder/shared/PredicateSlotCard.tsx
 //
-// Optional-Predicate slot card. Thin specialization of the generic
-// `OptionalSlotCard<T>` primitive, fixing `T` to `Predicate` and
+// Optional-Expression slot card. Thin specialization of the generic
+// `OptionalSlotCard<T>` primitive, fixing `T` to `Expression` and
 // supplying:
 //
 //   - The `matchAll()` add-seed: the canonical "always true"
-//     sentinel for an optional Predicate slot. `match-all()` mounts
+//     sentinel for an optional Expression slot. `match-all()` mounts
 //     as a sentinel card whose kind-replace menu lets the author
 //     swap in any concrete operator on first interaction without
 //     seeing a false-error state pre-emptively (a comparison-card
@@ -23,7 +23,11 @@
 
 "use client";
 import type { CaseType, UserProperty } from "@/lib/domain";
-import { matchAll, type Predicate } from "@/lib/domain/predicate";
+import {
+	type Expression,
+	type ExpressionContext,
+	matchAll,
+} from "@/lib/domain/expression";
 import { OptionalSlotCard } from "./OptionalSlotCard";
 import { PredicateCardEditor } from "./PredicateCardEditor";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
@@ -31,6 +35,7 @@ import type { EditorSearchInputDecl } from "./searchInputPresentation";
 // ── Public types ──────────────────────────────────────────────────
 
 export interface PredicateSlotCardProps {
+	readonly expressionContext: ExpressionContext;
 	/** Header title: short label rendered as the section's etched
 	 *  console eyebrow. */
 	readonly title: string;
@@ -43,12 +48,12 @@ export interface PredicateSlotCardProps {
 	readonly clearLabel: string;
 	/** Screen-reader name for the Clear button: the specific action. */
 	readonly clearAriaLabel: string;
-	/** Current Predicate slot value. `undefined` ≡ slot empty. */
-	readonly value: Predicate | undefined;
+	/** Current Expression slot value. `undefined` ≡ slot empty. */
+	readonly value: Expression | undefined;
 	/** Fired when the slot transitions. Receives `undefined` on Clear;
-	 *  receives a `Predicate` on Add (seeded with `matchAll()`) and on
+	 *  receives a `Expression` on Add (seeded with `matchAll()`) and on
 	 *  every inner edit. */
-	readonly onChange: (next: Predicate | undefined) => void;
+	readonly onChange: (next: Expression | undefined) => void;
 	/** Blueprint case-type definitions: drives the property pickers
 	 *  inside the predicate editor. */
 	readonly caseTypes: readonly CaseType[];
@@ -69,12 +74,13 @@ export interface PredicateSlotCardProps {
 // ── Component ─────────────────────────────────────────────────────
 
 /**
- * Optional-Predicate slot card. Specializes `OptionalSlotCard<Predicate>`
+ * Optional-Expression slot card. Specializes `OptionalSlotCard<Expression>`
  * with the `matchAll()` add-seed and a `<PredicateCardEditor>` body.
  * No collapse: the editor mounts when the slot is defined and stays
  * mounted until cleared.
  */
 export function PredicateSlotCard({
+	expressionContext,
 	title,
 	description,
 	addLabel,
@@ -89,7 +95,7 @@ export function PredicateSlotCard({
 	onValidityChange,
 }: PredicateSlotCardProps) {
 	return (
-		<OptionalSlotCard<Predicate>
+		<OptionalSlotCard<Expression>
 			title={title}
 			description={description}
 			addLabel={addLabel}
@@ -100,6 +106,7 @@ export function PredicateSlotCard({
 			addSeed={matchAll()}
 			renderEditor={(predicate, onPredicateChange, onValidityChangeInner) => (
 				<PredicateCardEditor
+					expressionContext={expressionContext}
 					value={predicate}
 					onChange={onPredicateChange}
 					caseTypes={caseTypes}

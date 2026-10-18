@@ -11,7 +11,6 @@ import {
 	type DocSpec,
 	f,
 	resolveCaseListConfig,
-	xp,
 } from "@/lib/__tests__/docHelpers";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import {
@@ -22,7 +21,7 @@ import {
 import { expandCaseToWire } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
-import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
+import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
@@ -54,8 +53,8 @@ import {
 	sessionUser,
 	term,
 	today,
-	toValueExpression,
-} from "@/lib/domain/predicate";
+	toExpression,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { captureExpanderEvidence } from "./expanderEvidence";
@@ -340,6 +339,16 @@ describe("a survey menu's case type", () => {
 				?.case_type,
 		);
 		expect(hidden?.case_type).not.toBe("");
+		if (hidden === undefined) throw new Error("No hidden registration menu.");
+		const source = hq._attachments[`${hidden.forms[0].unique_id}.xml`];
+		expectXPath(
+			one(source, "setvalue", { ref: "/data/case_name" }).attribs.value,
+			"instance('search-input:results:inline')/input/field[@name = 'patient_name']",
+		);
+		expect(
+			one(source, "instance", { id: "search-input:results:inline" }).attribs
+				.src,
+		).toBe("jr://instance/search-input/results:inline");
 	});
 });
 
@@ -1781,14 +1790,10 @@ describe("#form/ hashtag expansion", () => {
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		const bind = one(xform, "bind", { nodeset: "/data/full_name" });
 		expect(bind.attribs.calculate).toBe(
-			lowerXPathForJavaRosa(
-				"normalize-space(concat(/data/first_name, ' ', /data/last_name))",
-			),
+			"replace(replace(concat(/data/first_name, ' ', /data/last_name), '[ \\t\\r\\n]+', ' '), '^ | $', '')",
 		);
 		expect(bind.attribs["vellum:calculate"]).toBe(
-			lowerXPathForJavaRosa(
-				"normalize-space(concat(#form/first_name, ' ', #form/last_name))",
-			),
+			"replace(replace(concat(#form/first_name, ' ', #form/last_name), '[ \\t\\r\\n]+', ' '), '^ | $', '')",
 		);
 	});
 
@@ -3186,29 +3191,16 @@ describe("unquoted string literal detection", () => {
 				(field) => field.id === "q",
 			);
 			if (!question) throw new Error("Missing question");
-			Object.assign(question, { [slot]: xp(word) });
-			const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-			expect(
-				findings.map((finding) => ({
-					code: finding.code,
-					field: finding.location.field,
-					uuid: finding.location.fieldUuid,
-					bareWord: finding.details?.bareWord,
-				})),
-			).toEqual([
-				{
-					code: "UNQUOTED_STRING_LITERAL",
-					field: slot,
-					uuid: question.uuid,
-					bareWord: word,
-				},
-				{
-					code: "INVALID_REF",
-					field: slot,
-					uuid: question.uuid,
-					bareWord: undefined,
-				},
-			]);
+			const parsed = parseFormExpression(word, {
+				doc,
+				slot: { entity: "field", uuid: question.uuid, slot },
+				lookup: "unavailable",
+			});
+			expect(parsed).toMatchObject({
+				ok: false,
+				issues: [{ code: "relative-unknown", from: 0, to: word.length }],
+			});
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		},
 	);
 });
@@ -3677,7 +3669,15 @@ describe("form_links emission", () => {
 										formUuid: testUuid(followupUuid),
 									},
 									// The target's one selection datum, named by hand.
-									datums: [{ name: "case_id", xpath: "#user/username" }],
+									datums: [
+										{
+											name: {
+												kind: "selected-case",
+												module: testUuid(moduleUuid),
+											},
+											xpath: "#user/username",
+										},
+									],
 								},
 							],
 							fields: [
@@ -3740,9 +3740,7 @@ describe("form_links emission", () => {
 		]);
 		expectXPath(
 			intake.form_links[0].xpath,
-			lowerXPathForJavaRosa(
-				"normalize-space(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/@status) = 'open'",
-			),
+			"replace(replace(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/@status, '[ \\t\\r\\n]+', ' '), '^ | $', '') = 'open'",
 		);
 		expectXPath(
 			intake.form_links[0].datums[0].xpath,
@@ -3830,7 +3828,15 @@ describe("form_links emission", () => {
 										moduleUuid: testUuid(moduleUuid),
 										formUuid: testUuid(triageUuid),
 									},
-									datums: [{ name: "case_id", xpath: "'patient-id'" }],
+									datums: [
+										{
+											name: {
+												kind: "selected-case",
+												module: testUuid(moduleUuid),
+											},
+											xpath: "'patient-id'",
+										},
+									],
 								},
 							],
 							fields: [
@@ -4170,7 +4176,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			"if(selected(tags, 'vip'), $nova_text_0000000000, '')",
 		);
 		expect(column.field).toContain(
-			lowerXPathForJavaRosa("normalize-space(tags)"),
+			"replace(replace(tags, '[ \\t\\r\\n]+', ' '), '^ | $', '')",
 		);
 		expect(column.field).not.toContain("normalize-space(");
 		expect(column.enum).toContainEqual({
@@ -4406,7 +4412,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 					calculatedColumn(
 						testUuid("00000000-0000-4000-8000-000000010007"),
 						"Age Next Year",
-						toValueExpression(prop("patient", "age")),
+						toExpression(prop("patient", "age")),
 					),
 				],
 				searchInputs: [],
@@ -4511,7 +4517,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 					calculatedColumn(
 						testUuid("00000000-0000-4000-8000-000000020003"),
 						"Age Next Year",
-						toValueExpression(prop("patient", "age")),
+						toExpression(prop("patient", "age")),
 						{ sort: { direction: "asc", priority: 0 } },
 					),
 				],
@@ -4539,13 +4545,13 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 					calculatedColumn(
 						testUuid("00000000-0000-4000-8000-000000020003"),
 						"Age Next Year",
-						toValueExpression(prop("patient", "age")),
+						toExpression(prop("patient", "age")),
 						{ sort: { direction: "asc", priority: 0 } },
 					),
 					calculatedColumn(
 						testUuid("00000000-0000-4000-8000-000000020004"),
 						"Visits Doubled",
-						toValueExpression(prop("patient", "visit_count")),
+						toExpression(prop("patient", "visit_count")),
 						{ sort: { direction: "desc", priority: 1 } },
 					),
 				],
@@ -4727,15 +4733,13 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 			},
 			{
 				searchActionEnabled: false,
-				excludedOwnerIds: toValueExpression(literal("owner-a owner-b")),
+				excludedOwnerIds: toExpression(literal("owner-a owner-b")),
 			},
 		);
 		const module = expandDoc(doc).modules[0];
 
 		expect(module.case_details.short.filter).toBe(
-			lowerXPathForJavaRosa(
-				"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
-			),
+			"replace(replace('owner-a owner-b', '[ \\t\\r\\n]+', ' '), '^ | $', '') = '' or not(selected(replace(replace('owner-a owner-b', '[ \\t\\r\\n]+', ' '), '^ | $', ''), @owner_id))",
 		);
 		expect(module.search_config.properties).toEqual([]);
 		expect(module.search_config.default_properties).toEqual([]);
@@ -4759,15 +4763,13 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 			},
 			{
 				searchActionEnabled: false,
-				excludedOwnerIds: toValueExpression(literal("owner-a")),
+				excludedOwnerIds: toExpression(literal("owner-a")),
 			},
 		);
 
 		expectXPath(
 			expandDoc(doc).modules[0].case_details.short.filter,
-			lowerXPathForJavaRosa(
-				"(region = 'North') and (normalize-space('owner-a') = '' or not(selected(normalize-space('owner-a'), @owner_id)))",
-			),
+			"region = 'North' and (replace(replace('owner-a', '[ \\t\\r\\n]+', ' '), '^ | $', '') = '' or not(selected(replace(replace('owner-a', '[ \\t\\r\\n]+', ' '), '^ | $', ''), @owner_id)))",
 		);
 	});
 });
@@ -5048,12 +5050,12 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 				searchInputs: [],
 			},
 			{
-				excludedOwnerIds: toValueExpression(literal("excluded-owner-id")),
+				excludedOwnerIds: toExpression(literal("excluded-owner-id")),
 			},
 		);
 		const searchConfig = expandDoc(doc).modules[0].search_config;
 		expect(searchConfig.blacklisted_owner_ids_expression).toBe(
-			lowerXPathForJavaRosa("normalize-space('excluded-owner-id')"),
+			"replace(replace('excluded-owner-id', '[ \\t\\r\\n]+', ' '), '^ | $', '')",
 		);
 	});
 
@@ -5337,7 +5339,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					// XPath fragment inside the wrapper concat.
 					eq(
 						prop("patient", "age"),
-						toValueExpression(
+						toExpression(
 							// Lift via the arith helper at builder layer.
 							{
 								kind: "arith",
@@ -5511,7 +5513,7 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			},
 			{
 				searchScreenTitle: "Find a patient",
-				excludedOwnerIds: toValueExpression(term(literal("excluded"))),
+				excludedOwnerIds: toExpression(term(literal("excluded"))),
 			},
 		);
 		const module = expandDoc(doc).modules[0];
@@ -5530,9 +5532,7 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		// remote Search request.
 		expectXPath(
 			module.case_details.short.filter,
-			lowerXPathForJavaRosa(
-				"(region = 'North') and (normalize-space('excluded') = '' or not(selected(normalize-space('excluded'), @owner_id)))",
-			),
+			"region = 'North' and (replace(replace('excluded', '[ \\t\\r\\n]+', ' '), '^ | $', '') = '' or not(selected(replace(replace('excluded', '[ \\t\\r\\n]+', ' '), '^ | $', ''), @owner_id)))",
 		);
 
 		// Search-config chrome lands on the matching CCHQ slots.
@@ -5541,7 +5541,7 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			en: "Search All Cases",
 		});
 		expect(module.search_config.blacklisted_owner_ids_expression).toBe(
-			lowerXPathForJavaRosa("normalize-space('excluded')"),
+			"replace(replace('excluded', '[ \\t\\r\\n]+', ' '), '^ | $', '')",
 		);
 
 		// Both arms land on `properties`: CCHQ creates runtime prompt
@@ -5575,27 +5575,37 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		// predicate through `_xpath_query` while keeping the
 		// `CaseSearchProperty` slot present so CCHQ still binds the
 		// user's typed value to the prompt key.
-		const doc = buildHqProjectionDoc({
-			columns: [
-				plainColumn(
-					testUuid("00000000-0000-4000-8000-000000060001"),
-					"case_name",
-					"Name",
-				),
+		const doc = buildHqProjectionDoc(
+			{
+				columns: [
+					plainColumn(
+						testUuid("00000000-0000-4000-8000-000000060001"),
+						"case_name",
+						"Name",
+					),
+				],
+				searchInputs: [
+					simpleSearchInputDef(
+						testUuid("00000000-0000-4000-8000-000000060011"),
+						"parent_region",
+						"Parent region",
+						"text",
+						"region",
+						{
+							via: ancestorPath(relationStep("parent")),
+						},
+					),
+				],
+			},
+			undefined,
+			[
+				{ ...HQ_PROJECTION_PATIENT_CASE_TYPE, parent_type: "household" },
+				{
+					name: "household",
+					properties: [{ name: "region", label: "Region", data_type: "text" }],
+				},
 			],
-			searchInputs: [
-				simpleSearchInputDef(
-					testUuid("00000000-0000-4000-8000-000000060011"),
-					"parent_region",
-					"Parent region",
-					"text",
-					"region",
-					{
-						via: ancestorPath(relationStep("parent")),
-					},
-				),
-			],
-		});
+		);
 		const module = expandDoc(doc).modules[0];
 
 		// CaseSearchProperty stays — CCHQ binds the typed value to
@@ -5630,32 +5640,42 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		// the prompt key IS the authored comparison. The cross-walk
 		// input alongside it routes through `_xpath_query` because
 		// the bare prompt has no relation-walk metadata.
-		const doc = buildHqProjectionDoc({
-			columns: [
-				plainColumn(
-					testUuid("00000000-0000-4000-8000-000000060002"),
-					"case_name",
-					"Name",
-				),
+		const doc = buildHqProjectionDoc(
+			{
+				columns: [
+					plainColumn(
+						testUuid("00000000-0000-4000-8000-000000060002"),
+						"case_name",
+						"Name",
+					),
+				],
+				searchInputs: [
+					simpleSearchInputDef(
+						testUuid("00000000-0000-4000-8000-000000060021"),
+						"case_name",
+						"Self name",
+						"text",
+						"case_name",
+					),
+					simpleSearchInputDef(
+						testUuid("00000000-0000-4000-8000-000000060022"),
+						"parent_region",
+						"Parent region",
+						"text",
+						"region",
+						{ via: ancestorPath(relationStep("parent")) },
+					),
+				],
+			},
+			undefined,
+			[
+				{ ...HQ_PROJECTION_PATIENT_CASE_TYPE, parent_type: "household" },
+				{
+					name: "household",
+					properties: [{ name: "region", label: "Region", data_type: "text" }],
+				},
 			],
-			searchInputs: [
-				simpleSearchInputDef(
-					testUuid("00000000-0000-4000-8000-000000060021"),
-					"case_name",
-					"Self name",
-					"text",
-					"case_name",
-				),
-				simpleSearchInputDef(
-					testUuid("00000000-0000-4000-8000-000000060022"),
-					"parent_region",
-					"Parent region",
-					"text",
-					"region",
-					{ via: ancestorPath(relationStep("parent")) },
-				),
-			],
-		});
+		);
 		const module = expandDoc(doc).modules[0];
 
 		// Both inputs surface as CaseSearchProperty entries.

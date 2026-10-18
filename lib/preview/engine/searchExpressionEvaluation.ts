@@ -1,6 +1,6 @@
 // lib/preview/engine/searchExpressionEvaluation.ts
 //
-// Runtime evaluation for the two case-search ValueExpression surfaces:
+// Runtime evaluation for the two case-search expression surfaces:
 // prompt defaults and the excluded-owner expression. The shipped app
 // evaluates both with CommCare's on-device XPath evaluator. Preview reuses
 // Nova's existing XPath evaluator over the exact emitted expression instead
@@ -11,6 +11,7 @@
 // against a selected case. A property/relation read therefore resolves blank
 // here, matching a search screen before a case has been selected.
 
+import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
@@ -20,11 +21,17 @@ import {
 	searchInputDefault,
 	searchInputLookupSortColumnId,
 } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import {
+	type ExpressionContext,
+	slotContext,
+} from "@/lib/domain/expression/context";
 import type {
-	Predicate,
+	Expression,
+	ModuleExpressionSlotRef,
 	SessionContextField,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/types";
+import type { Uuid } from "@/lib/domain/uuid";
 import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
@@ -49,14 +56,50 @@ import {
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
 
+/** Bulk helpers evaluate several different slots. Each one obtains its own
+ * context from the same saved module and held lookup snapshot. */
+export interface PreviewSearchEnvironment {
+	readonly doc: BlueprintDoc;
+	readonly moduleUuid: Uuid;
+	readonly lookup?: PreviewLookupData;
+}
+
+function searchInputContext(
+	environment: PreviewSearchEnvironment,
+	searchInputUuid: Uuid,
+	slot: Extract<
+		ModuleExpressionSlotRef,
+		{ member: { searchInputUuid: Uuid } }
+	>["slot"],
+): ExpressionContext {
+	const context = slotContext(
+		environment.doc,
+		{
+			entity: "module",
+			uuid: environment.moduleUuid,
+			slot,
+			member: { searchInputUuid },
+		},
+		environment.lookup === undefined
+			? new Map()
+			: (lookupTypeIndexFromNaming(environment.lookup.naming) ?? new Map()),
+	);
+	if (context === undefined)
+		throw new Error(
+			`Search input '${searchInputUuid}' has no '${slot}' evaluation context in this module.`,
+		);
+	return context;
+}
+
 /**
- * Evaluate one search ValueExpression with the same XPath implementation the
+ * Evaluate one search expression with the same XPath implementation the
  * form preview already uses. Runtime search-input refs are first substituted
  * into the AST because the scalar preview evaluator deliberately does not
  * model XML nodeset predicates such as `field[@name='query']`.
  */
 export function evaluatePreviewSearchExpression(
-	expression: ValueExpression,
+	expression: Expression,
+	types: ExpressionContext,
 	session: PreviewSearchSessionValues,
 	inputValues: SearchInputValues = new Map(),
 	searchInputs: readonly SearchInputDef[] = [],
@@ -77,6 +120,7 @@ export function evaluatePreviewSearchExpression(
 		lookupData === undefined
 			? bound
 			: foldTableLookupsInExpression(bound, lookupData, {
+					types,
 					outer: searchSessionEvalContext(session),
 					userPropertySlugs: previewUserPropertySlugMap(session),
 				});
@@ -85,7 +129,8 @@ export function evaluatePreviewSearchExpression(
 			serializeWire(
 				toWire(folded, {
 					target: "suite",
-					types: { userPropertySlugs: previewUserPropertySlugMap(session) },
+					types,
+					bindings: { userPropertySlugs: previewUserPropertySlugMap(session) },
 				}),
 				{ target: "suite" },
 			).text,
@@ -100,23 +145,25 @@ export function evaluatePreviewSearchExpression(
  * including CommCare's scalar projection for a completed date range; session
  * refs read the authenticated preview worker. There is deliberately no selected
  * case on this screen, so property/relation reads resolve blank just as they do
- * for search ValueExpressions before case selection.
+ * for search expressions before case selection.
  */
 export function evaluatePreviewSearchPredicate(
-	predicate: Predicate,
+	predicate: Expression,
+	types: ExpressionContext,
+	environment: PreviewSearchEnvironment,
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
 	inputValues: SearchInputValues = new Map(),
-	lookupData?: PreviewLookupData,
 ): boolean {
 	return toBoolean(
 		evaluatePreviewSearchXPath(
 			emitPreviewSearchPredicate(
 				predicate,
+				types,
+				environment,
 				searchInputs,
 				session,
 				inputValues,
-				lookupData,
 			),
 			session,
 		),
@@ -137,15 +184,17 @@ export function evaluatePreviewSearchPredicate(
  * already carries the value (the submitted answers) keeps it.
  */
 export function emitPreviewSearchPredicate(
-	predicate: Predicate,
+	predicate: Expression,
+	types: ExpressionContext,
+	environment: PreviewSearchEnvironment,
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
 	inputValues: SearchInputValues = new Map(),
-	lookupData?: PreviewLookupData,
 ): string {
+	const lookupData = environment.lookup;
 	const expressionValues = withSearchInputExpressionValues(
 		searchInputs,
-		withSeededHiddenValues(searchInputs, inputValues, session, lookupData),
+		withSeededHiddenValues(searchInputs, inputValues, session, environment),
 	);
 	const bound = bindSearchInputValuesInPredicate(
 		predicate,
@@ -157,13 +206,15 @@ export function emitPreviewSearchPredicate(
 		lookupData === undefined
 			? bound
 			: foldTableLookupsInPredicate(bound, lookupData, {
+					types,
 					outer: searchSessionEvalContext(session),
 					userPropertySlugs: previewUserPropertySlugMap(session),
 				});
 	return serializeWire(
 		toWire(folded, {
 			target: "suite",
-			types: { userPropertySlugs: previewUserPropertySlugMap(session) },
+			types,
+			bindings: { userPropertySlugs: previewUserPropertySlugMap(session) },
 		}),
 		{ target: "suite" },
 	).text;
@@ -175,7 +226,7 @@ function withSeededHiddenValues(
 	searchInputs: readonly SearchInputDef[],
 	inputValues: SearchInputValues,
 	session: PreviewSearchSessionValues,
-	lookupData: PreviewLookupData | undefined,
+	environment: PreviewSearchEnvironment,
 ): SearchInputValues {
 	const missing = searchInputs.filter(
 		(input) => input.kind === "hidden" && !inputValues.has(input.name),
@@ -183,7 +234,7 @@ function withSeededHiddenValues(
 	if (missing.length === 0) return inputValues;
 	return new Map([
 		...inputValues,
-		...resolveSearchHiddenValues(missing, session, lookupData),
+		...resolveSearchHiddenValues(missing, session, environment),
 	]);
 }
 
@@ -252,8 +303,9 @@ export function sessionInstancePathValue(
 export function resolveSearchInputDefaults(
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
-	lookupData?: PreviewLookupData,
+	environment: PreviewSearchEnvironment,
 ): SearchInputValues {
+	const lookupData = environment.lookup;
 	const values = new Map<string, string>();
 	for (const input of [...searchInputs]) {
 		const inputDefault = searchInputDefault(input);
@@ -268,6 +320,7 @@ export function resolveSearchInputDefaults(
 		}
 		const value = evaluatePreviewSearchExpression(
 			inputDefault,
+			searchInputContext(environment, input.uuid, "search_input_default"),
 			session,
 			undefined,
 			undefined,
@@ -294,14 +347,16 @@ export function resolveSearchInputDefaults(
 export function resolveSearchHiddenValues(
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
-	lookupData?: PreviewLookupData,
+	environment: PreviewSearchEnvironment,
 ): SearchInputValues {
+	const lookupData = environment.lookup;
 	const values = new Map<string, string>();
 	for (const input of searchInputs) {
 		if (input.kind !== "hidden") continue;
 		if (!expressionLookupsCovered(input.value, lookupData)) continue;
 		const value = evaluatePreviewSearchExpression(
 			input.value,
+			searchInputContext(environment, input.uuid, "search_input_hidden_value"),
 			session,
 			undefined,
 			undefined,
@@ -326,8 +381,9 @@ export function resolveSearchHiddenValues(
 export function resolveSearchInputChoices(
 	input: SelectSearchInputDef,
 	session: PreviewSearchSessionValues,
-	lookupData: PreviewLookupData | undefined,
+	environment: PreviewSearchEnvironment,
 ): readonly LookupChoice[] | undefined {
+	const lookupData = environment.lookup;
 	const sortColumnId = searchInputLookupSortColumnId(input.options);
 	if (
 		lookupData === undefined ||
@@ -339,6 +395,11 @@ export function resolveSearchInputChoices(
 		input.options,
 		lookupData,
 		{
+			types: searchInputContext(
+				environment,
+				input.uuid,
+				"search_input_options",
+			),
 			outer: searchSessionEvalContext(session),
 			userPropertySlugs: previewUserPropertySlugMap(session),
 		},

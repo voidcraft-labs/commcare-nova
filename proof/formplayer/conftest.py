@@ -36,6 +36,7 @@ DOCUMENTS = (
     "targeted-save-to-case-read",
     "targeted-search-hq-compile",
     "targeted-validated-barcode-secret",
+    "xpath-context",
 )
 # Every retained control (``proof/controls/``) a test of this package reads, by id, and no other.
 CONTROLS = ("targeted-lookup-reserved-tags",)

@@ -16,7 +16,7 @@ import {
 	simpleSearchInputDef,
 	type TranslationUnit,
 } from "@/lib/domain";
-import { input, matchesPattern } from "@/lib/domain/predicate";
+import { input, matchesPattern } from "@/lib/domain/expression/builders";
 
 const MODULE = testUuid("localized-builder-module");
 const FORM = testUuid("localized-builder-form");

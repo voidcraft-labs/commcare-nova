@@ -29,7 +29,7 @@ import {
 	prop,
 	relationStep,
 	term,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 

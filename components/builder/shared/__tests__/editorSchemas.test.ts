@@ -1,3 +1,4 @@
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 // Production predicate-menu availability and context-specific seeds. Registry
 // exhaustiveness is a TypeScript obligation; the finite seed/transition corpus
 // covers schema and type admission separately in verbMenuBuildFuzz.test.ts.
@@ -7,12 +8,12 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
-	checkPredicate,
+	checkExpression,
 	relationStep,
 	type SearchInputDecl,
 	subcasePath,
-	walkTerms,
-} from "@/lib/domain/predicate";
+	walkExpressionTerms,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	type PredicateEditContext,
@@ -62,12 +63,12 @@ const KNOWN_INPUTS: readonly SearchInputDecl[] = [
 	{ uuid: testUuid("name-search"), name: "name_search", data_type: "text" },
 ];
 
-const ctx: PredicateEditContext = {
+const ctx: PredicateEditContext = expressionEditorFixture("case-filter", {
 	caseTypes: [PATIENT],
 	currentCaseType: "patient",
 	knownInputs: KNOWN_INPUTS,
 	caseDataScope: "per-case",
-};
+}).context;
 
 describe("predicateCardSchemas — applicable predicates", () => {
 	it("multi-select-contains is applicable when a multi_select property exists", () => {
@@ -94,23 +95,26 @@ describe("predicateCardSchemas — applicable predicates", () => {
 	});
 
 	it("does not offer membership when every property is a geopoint", () => {
-		const geopointOnly: PredicateEditContext = {
-			caseTypes: [
-				{
-					name: "geo",
-					properties: [
-						{
-							name: "location",
-							label: proseText("Location"),
-							data_type: "geopoint",
-						},
-					],
-				},
-			],
-			currentCaseType: "geo",
-			knownInputs: [],
-			caseDataScope: "per-case",
-		};
+		const geopointOnly: PredicateEditContext = expressionEditorFixture(
+			"case-filter",
+			{
+				caseTypes: [
+					{
+						name: "geo",
+						properties: [
+							{
+								name: "location",
+								label: proseText("Location"),
+								data_type: "geopoint",
+							},
+						],
+					},
+				],
+				currentCaseType: "geo",
+				knownInputs: [],
+				caseDataScope: "per-case",
+			},
+		).context;
 
 		expect(predicateCardSchemas.in.applicable(geopointOnly)).toBe(false);
 	});
@@ -147,12 +151,15 @@ describe("predicateCardSchemas — applicable predicates", () => {
 
 	it("when-input-present requires a search input and a valid child condition", () => {
 		const noInputs: PredicateEditContext = { ...ctx, knownInputs: [] };
-		const noConditionSeed: PredicateEditContext = {
-			caseTypes: [{ name: "patient", properties: [] }],
-			currentCaseType: "patient",
-			knownInputs: KNOWN_INPUTS,
-			caseDataScope: "per-case",
-		};
+		const noConditionSeed: PredicateEditContext = expressionEditorFixture(
+			"case-filter",
+			{
+				caseTypes: [{ name: "patient", properties: [] }],
+				currentCaseType: "patient",
+				knownInputs: KNOWN_INPUTS,
+				caseDataScope: "per-case",
+			},
+		).context;
 		expect(
 			predicateCardSchemas["when-input-present"].applicable(noInputs),
 		).toBe(false);
@@ -165,12 +172,12 @@ describe("predicateCardSchemas — applicable predicates", () => {
 	});
 
 	it("sentinels remain available but empty logical groups do not invent properties", () => {
-		const empty: PredicateEditContext = {
+		const empty: PredicateEditContext = expressionEditorFixture("case-filter", {
 			caseTypes: [{ name: "patient", properties: [] }],
 			currentCaseType: "patient",
 			knownInputs: [],
 			caseDataScope: "per-case",
-		};
+		}).context;
 		expect(predicateCardSchemas["match-all"].applicable(empty)).toBe(true);
 		expect(predicateCardSchemas["match-none"].applicable(empty)).toBe(true);
 		expect(predicateCardSchemas.and.applicable(empty)).toBe(false);
@@ -179,25 +186,34 @@ describe("predicateCardSchemas — applicable predicates", () => {
 
 		for (const kind of ["and", "or", "not"] as const) {
 			const seed = predicateCardSchemas[kind].defaultValue(empty);
-			const result = checkPredicate(seed, {
-				caseTypes: [...empty.caseTypes],
-				knownInputs: [...empty.knownInputs],
-				currentCaseType: empty.currentCaseType,
-			});
-			expect(result.ok, `${kind} direct factory remains valid`).toBe(true);
+			const result = checkExpression(
+				seed,
+				expressionEditorFixture("case-filter", {
+					caseTypes: [...empty.caseTypes],
+					knownInputs: [...empty.knownInputs],
+					currentCaseType: empty.currentCaseType,
+				}).context.expressionContext,
+			);
+			expect(
+				result.errors.length === 0,
+				`${kind} direct factory remains valid`,
+			).toBe(true);
 		}
 	});
 
 	it("related-case defaults prefer a declared parent", () => {
-		const parentContext: PredicateEditContext = {
-			caseTypes: [
-				{ name: "household", properties: [] },
-				{ name: "patient", parent_type: "household", properties: [] },
-			],
-			currentCaseType: "patient",
-			knownInputs: [],
-			caseDataScope: "per-case",
-		};
+		const parentContext: PredicateEditContext = expressionEditorFixture(
+			"case-filter",
+			{
+				caseTypes: [
+					{ name: "household", properties: [] },
+					{ name: "patient", parent_type: "household", properties: [] },
+				],
+				currentCaseType: "patient",
+				knownInputs: [],
+				caseDataScope: "per-case",
+			},
+		).context;
 
 		expect(predicateCardSchemas.exists.applicable(parentContext)).toBe(true);
 		expect(predicateCardSchemas.missing.applicable(parentContext)).toBe(true);
@@ -207,59 +223,73 @@ describe("predicateCardSchemas — applicable predicates", () => {
 	});
 
 	it("related-case defaults use the first declared child when there is no parent", () => {
-		const childOnlyContext: PredicateEditContext = {
-			caseTypes: [
-				{ name: "household", properties: [] },
-				{ name: "patient", parent_type: "household", properties: [] },
-			],
-			currentCaseType: "household",
-			knownInputs: [],
-			caseDataScope: "per-case",
-		};
+		const childOnlyContext: PredicateEditContext = expressionEditorFixture(
+			"case-filter",
+			{
+				caseTypes: [
+					{ name: "household", properties: [] },
+					{ name: "patient", parent_type: "household", properties: [] },
+				],
+				currentCaseType: "household",
+				knownInputs: [],
+				caseDataScope: "per-case",
+			},
+		).context;
 
 		const seed = predicateCardSchemas.exists.defaultValue(childOnlyContext);
 		expect(seed.via).toEqual(subcasePath("parent", "patient"));
-		const result = checkPredicate(seed, {
-			caseTypes: [...childOnlyContext.caseTypes],
-			knownInputs: [],
-			currentCaseType: childOnlyContext.currentCaseType,
-		});
-		expect(result.ok).toBe(true);
+		const result = checkExpression(
+			seed,
+			expressionEditorFixture("case-filter", {
+				caseTypes: [...childOnlyContext.caseTypes],
+				knownInputs: [],
+				currentCaseType: childOnlyContext.currentCaseType,
+			}).context.expressionContext,
+		);
+		expect(result.errors.length === 0).toBe(true);
 	});
 
 	it("related-case choices are unavailable when the catalog has no connection", () => {
-		const noRelation: PredicateEditContext = {
-			caseTypes: [{ name: "patient", properties: [] }],
-			currentCaseType: "patient",
-			knownInputs: [],
-			caseDataScope: "per-case",
-		};
+		const noRelation: PredicateEditContext = expressionEditorFixture(
+			"case-filter",
+			{
+				caseTypes: [{ name: "patient", properties: [] }],
+				currentCaseType: "patient",
+				knownInputs: [],
+				caseDataScope: "per-case",
+			},
+		).context;
 		expect(predicateCardSchemas.exists.applicable(noRelation)).toBe(false);
 		expect(predicateCardSchemas.missing.applicable(noRelation)).toBe(false);
 	});
 
 	it("relation-only scopes seed valid logical and search-answer conditions", () => {
-		const relationOnly: PredicateEditContext = {
-			caseTypes: [
-				{ name: "household", properties: [] },
-				{ name: "patient", parent_type: "household", properties: [] },
-			],
-			currentCaseType: "household",
-			knownInputs: KNOWN_INPUTS,
-			caseDataScope: "per-case",
-		};
+		const relationOnly: PredicateEditContext = expressionEditorFixture(
+			"case-filter",
+			{
+				caseTypes: [
+					{ name: "household", properties: [] },
+					{ name: "patient", parent_type: "household", properties: [] },
+				],
+				currentCaseType: "household",
+				knownInputs: KNOWN_INPUTS,
+				caseDataScope: "per-case",
+			},
+		).context;
 
 		for (const kind of ["and", "or", "not", "when-input-present"] as const) {
 			expect(predicateCardSchemas[kind].applicable(relationOnly)).toBe(true);
-			const result = checkPredicate(
+			const result = checkExpression(
 				predicateCardSchemas[kind].defaultValue(relationOnly),
-				{
+				expressionEditorFixture("case-filter", {
 					caseTypes: [...relationOnly.caseTypes],
 					knownInputs: [...relationOnly.knownInputs],
 					currentCaseType: relationOnly.currentCaseType,
-				},
+				}).context.expressionContext,
 			);
-			expect(result.ok, `${kind} relation-only seed`).toBe(true);
+			expect(result.errors.length === 0, `${kind} relation-only seed`).toBe(
+				true,
+			);
 		}
 	});
 });
@@ -311,28 +341,37 @@ describe("predicateCardSchemas — global scope (no case selected)", () => {
 			// Every global seed must type-check AND read no case data:
 			// otherwise the first dispatch bounces off the commit gate.
 			let readsCaseData = false;
-			walkTerms(seed, (term) => {
+			walkExpressionTerms(seed, (term) => {
 				if (term.kind === "prop") readsCaseData = true;
 			});
 			expect(readsCaseData, `${kind} global seed reads case data`).toBe(false);
-			const result = checkPredicate(seed, {
-				caseTypes: [...globalCtx.caseTypes],
-				knownInputs: [...globalCtx.knownInputs],
-				currentCaseType: globalCtx.currentCaseType,
-			});
-			expect(result.ok, `${kind} global seed type-checks`).toBe(true);
+			const result = checkExpression(
+				seed,
+				expressionEditorFixture("case-filter", {
+					caseTypes: [...globalCtx.caseTypes],
+					knownInputs: [...globalCtx.knownInputs],
+					currentCaseType: globalCtx.currentCaseType,
+				}).context.expressionContext,
+			);
+			expect(
+				result.errors.length === 0,
+				`${kind} global seed type-checks`,
+			).toBe(true);
 		}
 	});
 
 	it("stays available even when the case-type schema is empty", () => {
 		// The session values exist regardless of the catalog: a module
 		// whose case type has no properties still authors a global rule.
-		const emptyGlobal: PredicateEditContext = {
-			caseTypes: [{ name: "patient", properties: [] }],
-			currentCaseType: "patient",
-			knownInputs: [],
-			caseDataScope: "global",
-		};
+		const emptyGlobal: PredicateEditContext = expressionEditorFixture(
+			"global-condition",
+			{
+				caseTypes: [{ name: "patient", properties: [] }],
+				currentCaseType: "patient",
+				knownInputs: [],
+				caseDataScope: "global",
+			},
+		).context;
 		expect(predicateCardSchemas.eq.applicable(emptyGlobal)).toBe(true);
 		expect(predicateCardSchemas.and.applicable(emptyGlobal)).toBe(true);
 	});

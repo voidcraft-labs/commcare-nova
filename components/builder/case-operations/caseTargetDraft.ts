@@ -1,10 +1,10 @@
 import type { Uuid } from "@/lib/domain";
-import { literal, term, type ValueExpression } from "@/lib/domain/predicate";
+import { type Expression, literal, term } from "@/lib/domain/expression";
 
 export interface CaseTargetDraft {
 	readonly formUuid: Uuid;
 	readonly operationUuid: Uuid;
-	readonly expression: ValueExpression;
+	readonly expression: Expression;
 }
 
 export type CaseTargetDraftAction = {
@@ -12,7 +12,7 @@ export type CaseTargetDraftAction = {
 	readonly operationUuid: Uuid;
 } & (
 	| { readonly type: "begin" }
-	| { readonly type: "update"; readonly expression: ValueExpression }
+	| { readonly type: "update"; readonly expression: Expression }
 	| { readonly type: "clear" }
 );
 

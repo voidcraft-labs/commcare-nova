@@ -7,17 +7,18 @@
 // kind-specific default predicate that the user can refine.
 //
 // UI shape: subject editor + operator, then the comparison value.
-// A property subject stays compact; every other ValueExpression
+// A property subject stays compact; every other Expression
 // remains editable through the same recursive expression editor.
 
 "use client";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
+
 import {
 	comparisonObjectConstraint,
 	comparisonSubjectConstraint,
+	type Expression,
 	type eq,
-	type Predicate,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { replaceComparisonSubject } from "../comparisonModel";
 import { usePredicateEditContext, useResolvedType } from "../editorContext";
 import { appendSlot, type EditorPath } from "../path";
@@ -28,24 +29,21 @@ import { PredicateVerbMenu } from "./PredicateVerbMenu";
 export { comparisonDefault, KIND_BUILDERS } from "./comparisonSeed";
 
 interface ComparisonCardProps {
-	readonly value: Extract<
-		Predicate,
-		{ kind: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" }
-	>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"eq" | "neq" | "gt" | "gte" | "lt" | "lte">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
 /**
  * Comparison card body. The slots:
- *   - `left`: `ValueExpression`. The recursive `ExpressionPicker`
+ *   - `left`: `Expression`. The recursive `ExpressionPicker`
  *     exposes every valid subject source and calculated expression.
  *     Its subject presentation keeps the dominant property case
  *     compact while preserving full editability for complex ASTs.
  *   - operator: kind discriminator (eq / neq / gt / lt / lte / gte).
- *   - `right`: `ValueExpression`. The card mounts an
+ *   - `right`: `Expression`. The card mounts an
  *     `ExpressionPicker` shell at the slot, dispatching every
- *     ValueExpression kind (term / arith / if / count / coalesce /
+ *     Expression kind (term / arith / if / count / coalesce /
  *     etc.) through the registry-driven per-arm cards. Authors swap
  *     kinds via the picker's "Change" menu; nested operands recurse
  *     through the same shell. The picker's own `CardShell` footer
@@ -62,7 +60,7 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	const subjectType = useResolvedType(value.left);
 	const objectConstraint = comparisonObjectConstraint(value.kind, subjectType);
 
-	const setLeft = (left: ValueExpression) =>
+	const setLeft = (left: Expression) =>
 		onChange(replaceComparisonSubject(value, left, ctx));
 
 	const setRight = (right: Parameters<typeof eq>[1]) => {
@@ -87,7 +85,7 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 
 			<div className="min-w-0">
 				{/* Right operand routes through `ExpressionPicker` so
-				 *  every admissible ValueExpression kind (term, arith, if,
+				 *  every admissible Expression kind (term, arith, if,
 				 *  count, etc.) is editable at this slot via the registry-
 				 *  driven dispatch. The `comparisonObjectConstraint` narrows
 				 *  the offered kinds + value sources to those whose result

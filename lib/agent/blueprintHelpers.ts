@@ -63,7 +63,7 @@ import {
 	isOwnerOnlyCaseSearchConfig,
 	slugifyId,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/predicate";
+import { effectiveFilterForEmission } from "@/lib/domain/expression";
 import {
 	removeByUuid,
 	reorderByUuid,

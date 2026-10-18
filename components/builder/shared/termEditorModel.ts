@@ -12,8 +12,8 @@ import {
 	type Literal,
 	literal,
 	prop,
-	type ResolvedType,
 	reasonFor,
+	type ScalarType,
 	type SlotConstraint,
 	sessionContext,
 	sessionUser,
@@ -22,7 +22,7 @@ import {
 	tableColumn,
 	timeLiteral,
 	term as wrapTerm,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { reseedLiteralForConstraint } from "./cards/reseed";
 import type { AdmitExpressionChange } from "./editorContext";
 import type { ExpressionEditContext } from "./expressionEditorSchemas";
@@ -61,8 +61,7 @@ export function termMode(term: Term): TermMode {
 			return "session-user-property";
 		case "table-column":
 			return "table-column";
-		case "fixed-location":
-		case "owner-location-at-level":
+		default:
 			throw new Error(
 				"Location owner terms are edited by the case-owner location control, not the general expression source menu.",
 			);
@@ -98,8 +97,7 @@ export function termHasMeaningfulContent(value: Term): boolean {
 			return true;
 		case "table-column":
 			return true;
-		case "fixed-location":
-		case "owner-location-at-level":
+		default:
 			return true;
 	}
 }
@@ -195,11 +193,12 @@ export function describeTermModeReplacement(
 				description:
 					"This replaces the selected data-table column. You can undo this change.",
 			};
-		case "fixed-location":
-		case "owner-location-at-level":
-			throw new Error(
-				"Location owner terms are replaced by the case-owner location control.",
-			);
+		default:
+			return {
+				title,
+				description:
+					"This replaces the saved information. You can undo this change.",
+			};
 	}
 }
 
@@ -207,7 +206,7 @@ export function describeTermModeReplacement(
  *  admits everything. */
 export function constraintAdmitsType(
 	constraint: SlotConstraint,
-	t: ResolvedType,
+	t: ScalarType,
 ): boolean {
 	return constraint.accepts === "any" || acceptsType(constraint, t);
 }
@@ -494,7 +493,7 @@ export function literalsMatch(left: Literal, right: Literal): boolean {
  *  `boolean` resolves to `text` (CommCare has no Boolean type); `null`
  *  resolves to the null sentinel (`_any`), compatible with every
  *  type. */
-export const LITERAL_SHAPE_TYPE: Record<LiteralShape, ResolvedType> = {
+export const LITERAL_SHAPE_TYPE: Record<LiteralShape, ScalarType> = {
 	text: "text",
 	number: "int",
 	boolean: "text",

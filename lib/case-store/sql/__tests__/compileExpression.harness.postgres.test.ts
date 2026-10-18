@@ -3,6 +3,7 @@
 import { sql } from "kysely";
 import { describe } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { CaseType } from "@/lib/domain";
@@ -37,15 +38,16 @@ import {
 	switchExpr,
 	term,
 	today,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
 import {
-	checkPredicate,
-	checkValueExpression,
-} from "@/lib/domain/predicate/typeChecker";
+	recordQueryContext,
+	slotContext,
+} from "@/lib/domain/expression/context";
+import { inferRecordQuery } from "@/lib/domain/expression/typeChecker";
 import type {
 	DateAddInterval,
-	ValueExpression,
-} from "@/lib/domain/predicate/types";
+	Expression as DomainExpression,
+} from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { EvalContext } from "@/lib/preview/xpath/types";
@@ -55,6 +57,7 @@ import {
 } from "../compileExpression";
 import { compilePredicate } from "../compilePredicate";
 import { buildRestoreScope } from "../compileRestoreScope";
+import { recordQueryContextFor } from "../compileTerm";
 import { expect, makeCaseRow, test } from "./setup";
 
 // ---------------------------------------------------------------
@@ -113,6 +116,34 @@ function makeCtx(
 			compilePredicate(predicate, context),
 		...overrides,
 	};
+}
+
+function formPredicateContext(predicate: DomainExpression) {
+	const uuid = testUuid("sql-coalesce-visible-field");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Records",
+				forms: [
+					{
+						name: "Collect",
+						type: "survey",
+						fields: [
+							f({ uuid, id: "answer", kind: "text", relevant: predicate }),
+						],
+					},
+				],
+			},
+		],
+	});
+	const context = slotContext(
+		doc,
+		{ entity: "field", uuid, slot: "relevant" },
+		new Map(),
+	);
+	if (context === undefined)
+		throw new Error("The form comparison fixture has no relevant carrier.");
+	return context;
 }
 
 describe("compileExpression — round-trip — form bindings", () => {
@@ -271,12 +302,15 @@ describe("compileExpression — round-trip — row-backed branch arithmetic", ()
 			const fields = new Map([[primary, type]]);
 			const inputs = [{ uuid: fallback, name: "fallback", data_type: type }];
 			expect(
-				checkValueExpression(expression, {
-					caseTypes: [],
-					formFields: fields,
-					knownInputs: inputs,
-				}),
-			).toEqual({ ok: true });
+				inferRecordQuery(
+					expression,
+					recordQueryContext({
+						caseTypes: [],
+						formFieldTypes: fields,
+						knownInputs: inputs,
+					}),
+				).errors,
+			).toEqual([]);
 			const compiled = compileExpression(
 				expression,
 				makeCtx(db, {
@@ -898,8 +932,8 @@ describe("compileExpression — arithmetic", () => {
 			["int", "10", "-3", -3, 1],
 			["int", "-10", "-3", 3, -1],
 			["int", "2147483648", "3", 715827882, 2],
-			["decimal", "10", "3", 10 / 3, 1],
-			["decimal", "10.5", "3", 3.5, 1.5],
+			["decimal", "10", "3", 3, 1],
+			["decimal", "10.5", "3", 3, 1.5],
 		] as const) {
 			const ctx = {
 				...makeCtx(db),
@@ -915,7 +949,8 @@ describe("compileExpression — arithmetic", () => {
 				},
 			};
 			for (const [op, expected] of [
-				["div", quotient],
+				["quotient", quotient],
+				["div", Number(a) / Number(b)],
 				["mod", remainder],
 				["+", Number(a) + Number(b)],
 				["-", Number(a) - Number(b)],
@@ -934,17 +969,25 @@ describe("compileExpression — arithmetic", () => {
 			}
 		}
 	});
-	test("evaluates ordinary numeric literals and preserves integer versus decimal operations", async ({
+	test("evaluates literals with real division and explicit integer quotient", async ({
 		db,
 	}) => {
-		const cases: ReadonlyArray<[ValueExpression, number | null]> = [
+		const cases: ReadonlyArray<[DomainExpression, number | null]> = [
 			[arith("+", term(literal(10)), term(literal(3))), 13],
 			[arith("-", term(literal(10)), term(literal(3))), 7],
 			[arith("*", term(literal(10)), term(literal(3))), 30],
-			[arith("div", term(literal(10)), term(literal(3))), 3],
+			[arith("div", term(literal(10)), term(literal(3))), 10 / 3],
+			[arith("quotient", term(literal(10)), term(literal(3))), 3],
 			[arith("mod", term(literal(10)), term(literal(3))), 1],
 			[arith("div", term(literal(10.5)), term(literal(3))), 3.5],
-			[arith("div", term(literal(2147483648)), term(literal(3))), 715827882],
+			[
+				arith("div", term(literal(2147483648)), term(literal(3))),
+				2147483648 / 3,
+			],
+			[
+				arith("quotient", term(literal(2147483648)), term(literal(3))),
+				715827882,
+			],
 			[
 				arith("div", term(qualifiedLiteral(10, "decimal")), term(literal(3))),
 				10 / 3,
@@ -1086,8 +1129,9 @@ describe("compileExpression — round-trip — coalesce arm", () => {
 			const valueExpression = term(literal(value));
 			const predicate = isBlank(valueExpression);
 			expect(
-				checkPredicate(predicate, { caseTypes: [], knownInputs: [] }).ok,
-			).toBe(true);
+				inferRecordQuery(predicate, recordQueryContextFor(ctx), "condition")
+					.errors,
+			).toEqual([]);
 			const expression = compileExpression(
 				coalesce(valueExpression, term(literal(fallback))),
 				ctx,
@@ -1103,10 +1147,16 @@ describe("compileExpression — round-trip — coalesce arm", () => {
 			const formContext = EMPTY_PREVIEW_CONTEXT;
 			expect(
 				evaluate(
-					serializeWire(toWire(predicate, { target: "xform", types: {} }), {
-						target: "xform",
-						constraint: false,
-					}).text,
+					serializeWire(
+						toWire(predicate, {
+							target: "xform",
+							types: formPredicateContext(predicate),
+						}),
+						{
+							target: "xform",
+							constraint: false,
+						},
+					).text,
 					formContext,
 				),
 			).toBe(blank);
@@ -2008,7 +2058,7 @@ describe("compileExpression — round-trip — count arm", () => {
 			])
 			.execute();
 		expect(Number(rows[0].v)).toBe(1);
-		expect(Number(rows[0].arithmetic_count)).toBe(3);
+		expect(Number(rows[0].arithmetic_count)).toBe(10 / 3);
 	});
 
 	test("count returns zero when no ancestor matches", async ({ db }) => {
@@ -2363,7 +2413,7 @@ test("date arithmetic resolves property and nullable-wrapper types, including sc
 		)
 		.execute();
 	const ctx = makeCtx(db, { caseTypeSchemas: schemas });
-	const cases: ReadonlyArray<[ValueExpression, string, string]> = [
+	const cases: ReadonlyArray<[DomainExpression, string, string]> = [
 		[term(prop("patient", "dob")), "date", "2026-01-02"],
 		[
 			coalesce(term(literal(null)), term(prop("patient", "dob"))),

@@ -11,7 +11,7 @@ import {
 	selfPath,
 	sessionUser,
 	timeLiteral,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { compileTerm, type TermCompileContext } from "../compileTerm";
 import { expect, makeCaseRow, test } from "./setup";
@@ -317,4 +317,103 @@ test("form multi-select answers remain JSON arrays and explicit null does not us
 			])
 			.executeTakeFirstOrThrow(),
 	).toEqual({ answer: ["alpha", "O'Brien"], present: null, absent: "" });
+});
+
+test("worker-record reads use the current worker's visible record in the bound tenant", async ({
+	db,
+	pgClient,
+}) => {
+	// Intentionally invalid foreign-tenant rows prove the compiler's own
+	// filters independently of storage constraints. The harness rolls back.
+	await pgClient.query("SET CONSTRAINTS cases_project_app_tenant_fk DEFERRED");
+	await db
+		.insertInto("cases")
+		.values([
+			makeCaseRow({
+				case_id: "worker",
+				app_id: APP_ID,
+				project_id: PROJECT_ID,
+				case_type: "commcare-user",
+				case_name: "Current worker",
+				properties: JSON.stringify({
+					hq_user_id: "current-worker",
+					case_name: "Shadow name",
+					region: "North",
+				}),
+			}),
+			makeCaseRow({
+				case_id: "foreign-project-worker",
+				app_id: APP_ID,
+				project_id: "other-project",
+				case_type: "commcare-user",
+				properties: JSON.stringify({
+					hq_user_id: "current-worker",
+					region: "Foreign project",
+				}),
+			}),
+			makeCaseRow({
+				case_id: "foreign-app-worker",
+				app_id: "other-app",
+				project_id: PROJECT_ID,
+				case_type: "commcare-user",
+				properties: JSON.stringify({
+					hq_user_id: "current-worker",
+					region: "Foreign app",
+				}),
+			}),
+			makeCaseRow({
+				case_id: "other-worker",
+				app_id: APP_ID,
+				project_id: PROJECT_ID,
+				case_type: "commcare-user",
+				properties: JSON.stringify({
+					hq_user_id: "other-worker",
+					region: "Other worker",
+				}),
+			}),
+		])
+		.execute();
+	const ctx = makeCtx(db, {
+		bindings: {
+			sessionContext: new Map([["userid", "current-worker"]]),
+			sessionUser: new Map([["region", "Session value"]]),
+		},
+	});
+	const read = () =>
+		db
+			.selectNoFrom([
+				compileTerm(
+					{ kind: "session-user", field: "region", source: "worker-record" },
+					ctx,
+				).as("record"),
+				compileTerm(
+					{ kind: "session-user", field: "case_name", source: "worker-record" },
+					ctx,
+				).as("name"),
+				compileTerm(sessionUser("region"), ctx).as("session"),
+			])
+			.executeTakeFirstOrThrow();
+	expect(await read()).toEqual({
+		record: "North",
+		name: "Current worker",
+		session: "Session value",
+	});
+	await db
+		.insertInto("parked_case_values")
+		.values({
+			app_id: APP_ID,
+			case_id: "worker",
+			case_type: "commcare-user",
+			property: "region",
+			original_value: JSON.stringify("North"),
+			reason: "Held for review",
+			from_type: "text",
+			to_type: "text",
+		})
+		.execute();
+	expect(await read()).toEqual({
+		record: "",
+		name: "",
+		session: "Session value",
+	});
 });

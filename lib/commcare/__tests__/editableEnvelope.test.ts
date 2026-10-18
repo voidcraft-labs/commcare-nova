@@ -16,8 +16,8 @@ import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { emissionPlan } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
+import { collectOracleInstanceRefs } from "@/lib/commcare/validator/suiteOracle";
 import { FormPath } from "@/lib/commcare/xform/formPath";
-import { collectInstanceRefs } from "@/lib/commcare/xform/instanceRefs";
 import { parser } from "@/lib/commcare/xpath/parser";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
@@ -284,7 +284,7 @@ describe.each(emitted)("$name", (form) => {
 	it("declares the session instance wherever it reads the session", () => {
 		for (const elements of [form.source, form.local]) {
 			const reads = expressions(elements).some((source) =>
-				collectInstanceRefs(source).has("commcaresession"),
+				collectOracleInstanceRefs(source).has("commcaresession"),
 			);
 			const declared = elements.some(
 				(element) =>
@@ -480,7 +480,7 @@ it("walks forms that hold each shape the rules above read", () => {
 	expect(
 		some((elements) =>
 			expressions(elements).some((source) =>
-				collectInstanceRefs(source).has("commcaresession"),
+				collectOracleInstanceRefs(source).has("commcaresession"),
 			),
 		),
 	).toBe(true);

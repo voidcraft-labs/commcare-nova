@@ -1,25 +1,24 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import {
-	checkPredicate,
-	checkValueExpression,
+	checkExpression,
 	count,
 	eq,
 	exists,
+	expressionSchema,
 	literal,
 	missing,
-	predicateSchema,
 	prop,
 	subcasePath,
-	valueExpressionSchema,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
-import { buildEditorTypeContext } from "../editorTypeContext";
+import { editorExpressionContext } from "../editorTypeContext";
 import {
 	relatedPathEditAdmission,
 	replaceRelatedPath,
 } from "../relatedPathEdit";
 
-const ctx = {
+const vocabulary = {
 	currentCaseType: "household",
 	knownInputs: [],
 	caseTypes: [
@@ -47,27 +46,31 @@ const ctx = {
 			],
 		},
 	],
-};
+} satisfies Parameters<typeof expressionEditorFixture>[1];
 const original = subcasePath("parent", "patient");
 const next = subcasePath("parent", "visit");
 const where = eq(prop("patient", "enrollment"), literal("active"));
 describe("related connection edits preserve admitted filters", () => {
 	for (const kind of ["count", "exists", "missing"] as const) {
+		const ctx = expressionEditorFixture(
+			kind === "count" ? "calculated-column" : "case-filter",
+			vocabulary,
+		).context;
 		const builder =
 			kind === "count" ? count : kind === "exists" ? exists : missing;
 		it(`${kind} refuses a connection that invalidates a saved condition`, () => {
 			const value = builder(original, where);
 			const verdict =
 				value.kind === "count"
-					? checkValueExpression(
-							valueExpressionSchema.parse(value),
-							buildEditorTypeContext(ctx),
+					? checkExpression(
+							expressionSchema.parse(value),
+							editorExpressionContext(ctx),
 						)
-					: checkPredicate(
-							predicateSchema.parse(value),
-							buildEditorTypeContext(ctx),
+					: checkExpression(
+							expressionSchema.parse(value),
+							editorExpressionContext(ctx),
 						);
-			expect(verdict).toMatchObject({ ok: true });
+			expect(verdict).toMatchObject({ errors: [] });
 			expect(relatedPathEditAdmission(value, next, ctx)).toMatchObject({
 				admitted: false,
 			});

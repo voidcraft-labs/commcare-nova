@@ -1,24 +1,11 @@
-// components/builder/shared/__tests__/operationScopeFailsClosed.test.ts
-//
-// Absent means not authorable: submission-local values exist only in
-// the operation slots that own their runtime bindings.
-//
-// `formFields` and `operationScope` are optional on the edit context, so
-// every surface that does not opt in must behave EXACTLY as it did
-// before: the form-answer source and the submission-local kinds stay
-// unauthorable, and the type context those surfaces build refuses the
-// values outright. That has to be true of the defaults themselves, not
-// true because every current caller happens to omit them: a new surface
-// forgetting to opt in should fail closed rather than quietly widen what
-// an author can write into a slot the commit gate will reject.
-
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import { testUuid } from "@/__tests__/helpers/uuid";
 
 import type { UserProperty } from "@/lib/domain";
 import {
 	actingUser,
-	checkValueExpression,
+	checkExpression,
 	compatibleTypesFor,
 	dateLiteral,
 	formField,
@@ -27,23 +14,23 @@ import {
 	sessionUserProperty,
 	term,
 	unowned,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	reseedValueForConstraint,
 	resolveExpressionType,
 } from "../cards/reseed";
-import { buildEditorTypeContext } from "../editorContext";
+import { editorExpressionContext } from "../editorContext";
 import { isAuthorableExpressionKind } from "../expressionEditorSchemas";
 
 const FIELD = testUuid("11111111-1111-4111-8111-111111111111");
 const CREATE = testUuid("22222222-2222-4222-8222-222222222222");
 const WORKER = testUuid("33333333-3333-4333-8333-333333333333");
 
-const BARE = {
+const BARE = expressionEditorFixture("case-filter", {
 	caseTypes: [],
 	currentCaseType: "patient",
 	knownInputs: [],
-} as const;
+}).context;
 
 const DATE_ANSWER = {
 	uuid: FIELD,
@@ -69,19 +56,21 @@ describe("without an operation scope", () => {
 		}
 	});
 
-	it("builds a type context that refuses them, so nothing slips past", () => {
-		const ctx = buildEditorTypeContext(BARE);
-		expect(checkValueExpression(actingUser(), ctx).ok).toBe(false);
-		expect(checkValueExpression(unowned(), ctx).ok).toBe(false);
-		expect(checkValueExpression(idOf(CREATE), ctx).ok).toBe(false);
+	it("uses the real case-filter profile to refuse submission-local values", () => {
+		const ctx = editorExpressionContext(BARE);
+		expect(checkExpression(actingUser(), ctx).errors.length === 0).toBe(false);
+		expect(checkExpression(unowned(), ctx).errors.length === 0).toBe(false);
+		expect(checkExpression(idOf(CREATE), ctx).errors.length === 0).toBe(false);
 	});
 
 	it("refuses a form answer, because no answers are in scope", () => {
-		const ctx = buildEditorTypeContext(BARE);
-		expect(ctx.formFields?.size).toBe(0);
-		expect(ctx.ownerValues).toBeUndefined();
-		expect(ctx.operationIds).toBeUndefined();
-		expect(checkValueExpression(term(formField(FIELD)), ctx).ok).toBe(false);
+		const ctx = editorExpressionContext(BARE);
+		expect(ctx.form).toBeUndefined();
+		expect(ctx.profile.ownerValues).toBe(false);
+		expect(ctx.profile.operationIds.size).toBe(0);
+		expect(
+			checkExpression(term(formField(FIELD)), ctx).errors.length === 0,
+		).toBe(false);
 	});
 });
 
@@ -110,8 +99,8 @@ describe("with an operation scope", () => {
 		).toBe(true);
 	});
 
-	it("admits exactly the answers and creates the surface declared", () => {
-		const ctx = buildEditorTypeContext({
+	it("admits answers and earlier creates from the real owner slot", () => {
+		const ctx = expressionEditorFixture("operation-owner", {
 			...BARE,
 			formFields: [
 				{
@@ -123,35 +112,29 @@ describe("with an operation scope", () => {
 			],
 			operationScope: { creates: [{ uuid: CREATE, label: "create_referral" }] },
 			ownerValues: true,
-		});
-		expect(checkValueExpression(term(formField(FIELD)), ctx).ok).toBe(true);
-		expect(checkValueExpression(actingUser(), ctx).ok).toBe(true);
-		expect(checkValueExpression(idOf(CREATE), ctx).ok).toBe(true);
+		}).context.expressionContext;
+		expect(
+			checkExpression(term(formField(FIELD)), ctx).errors.length === 0,
+		).toBe(true);
+		expect(checkExpression(actingUser(), ctx).errors.length === 0).toBe(true);
+		expect(checkExpression(idOf(CREATE), ctx).errors.length === 0).toBe(true);
 		// An answer the surface did not declare stays refused: the decl list
 		// IS the admission list, already narrowed by repeat scope.
 		expect(
-			checkValueExpression(term(formField(testUuid("not-in-scope"))), ctx).ok,
+			checkExpression(term(formField(testUuid("not-in-scope"))), ctx).errors
+				.length === 0,
 		).toBe(false);
 	});
 });
 
-// The cascade reseed resolves types inside an event handler, where a hook
-// cannot run, so it builds its own context. If that context is narrower
-// than the one the pickers offer, the resolution silently returns
-// `undefined`, every dependent slot's accept-set widens to everything, the
-// reseed is skipped, and a type-incorrect pair commits into a slot the gate
-// then refuses. These pin the resolution against the SAME vocabulary,
-// because the axes have opposite polarity: an absent worker catalog is
-// permissive while absent form answers are fatal, so only the fatal one
-// shows up as a wrong-looking `undefined`.
 describe("the cascade reseed resolves against the vocabulary on screen", () => {
-	const FULL = {
+	const FULL = expressionEditorFixture("operation-owner", {
 		...BARE,
 		userProperties: [WORKER_PROPERTY],
 		formFields: [DATE_ANSWER],
 		operationScope: { creates: [{ uuid: CREATE, label: "create_referral" }] },
 		ownerValues: true,
-	};
+	}).context;
 
 	it("resolves every axis the pickers offer", () => {
 		expect(resolveExpressionType(term(formField(FIELD)), FULL)).toBe("date");
@@ -183,8 +166,8 @@ describe("the cascade reseed resolves against the vocabulary on screen", () => {
 		// declare them rather than the resolver inventing a permissive default.
 		expect(resolveExpressionType(term(formField(FIELD)), BARE)).toBeUndefined();
 		expect(
-			checkValueExpression(term(formField(FIELD)), buildEditorTypeContext(BARE))
-				.ok,
+			checkExpression(term(formField(FIELD)), editorExpressionContext(BARE))
+				.errors.length === 0,
 		).toBe(false);
 	});
 });

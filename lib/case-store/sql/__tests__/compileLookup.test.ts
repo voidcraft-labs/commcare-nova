@@ -7,15 +7,15 @@ import {
 } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
 import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
-import {
 	eq,
 	literal,
 	tableColumn,
 	tableLookup,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { compileExpression } from "../compileExpression";
 import {
 	compilePredicate,

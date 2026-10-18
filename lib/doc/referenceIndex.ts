@@ -26,12 +26,9 @@
  *
  * ## Extraction discipline
  *
- * Expression slots store the XPath AST (`lib/domain/xpath`) and prose slots
- * store typed templates, so extraction is a pure leaf walk — identity atoms
- * edge directly, with no parse or name resolution.
- * Predicate/value-expression slots are walked structurally via
- * `lib/domain/predicate`'s term walkers, keying each `PropertyRef` on
- * the walk's DESTINATION type — the rename rewriter's matching rule.
+ * All expression slots share the domain Expression tree; prose slots keep
+ * typed templates. Identity leaves edge directly, and relation property reads
+ * use the current catalog's resolved destination, exactly as rename does.
  *
  * ## Maintenance shape
  *
@@ -68,9 +65,7 @@ import {
 	type Form,
 	fieldCaseWrite,
 	fieldReferenceSlotsFor,
-	isOwnerOnlyCaseSearchConfig,
 	isOwnRecord,
-	isXPathExpression,
 	type LocationProperty,
 	locationPropertiesOf,
 	locationTargetKey,
@@ -86,27 +81,21 @@ import {
 	readSlotStrings,
 	readSlotValues,
 	recordFromEntries,
-	searchInputDefault,
-	searchInputOptions,
 	USER_PROPERTY_TARGET_PREFIX,
 	type Uuid,
 	userPropertyTargetKey,
 	uuidSchema,
-	type XPathExpression,
 } from "@/lib/domain";
-import {
-	type Predicate,
-	type RelationPath,
-	relationDestinationCaseType,
-	type Term,
-	type ValueExpression,
-	walkExpressionNodes,
-	walkExpressionPredicateNodes,
-	walkExpressionTerms,
-	walkPredicateExpressionNodes,
-	walkPredicateNodes,
-	walkTerms,
-} from "@/lib/domain/predicate";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import type {
+	DatumRef,
+	Expression,
+	FormNodeRef,
+	RelationPath,
+	Term,
+} from "@/lib/domain/expression/types";
+import { walkExpression } from "@/lib/domain/expression/walk";
+import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { findContainingForm, walkFormFieldUuids } from "./mutations/helpers";
 
 // ── Index primitives ────────────────────────────────────────────────
@@ -150,6 +139,7 @@ function removeFromBucket(
  * The owning-module context a carrier's references resolve in.
  */
 interface CarrierContext {
+	formUuid?: Uuid;
 	moduleUuid?: Uuid;
 	moduleCaseType?: string;
 }
@@ -200,6 +190,7 @@ function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
 			? ownRecordValue(doc.modules, moduleUuid)?.caseType
 			: undefined;
 	return {
+		formUuid,
 		...(moduleUuid !== undefined && { moduleUuid }),
 		...(moduleCaseType !== undefined && { moduleCaseType }),
 	};
@@ -351,17 +342,38 @@ function extractCarrierEdges(
 ): void {
 	const mod = ownRecordValue(doc.modules, carrier);
 	if (mod) {
-		extractModuleEdges(makeSink(index, carrier, ctx), mod);
+		const sink = makeSink(index, carrier, ctx);
+		extractModuleEdges(sink, doc, mod);
+		for (const { ref, expression } of expressionSlotValues(doc, {
+			entity: "module",
+			uuid: mod.uuid,
+		})) {
+			expressionEdges(sink, ref.slot, expression, doc, ctx);
+		}
 		return;
 	}
 	const form = ownRecordValue(doc.forms, carrier);
 	if (form) {
-		extractFormEdges(makeSink(index, carrier, ctx), form);
+		const sink = makeSink(index, carrier, ctx);
+		extractFormEdges(sink, form, ctx);
+		for (const { ref, expression } of expressionSlotValues(doc, {
+			entity: "form",
+			uuid: form.uuid,
+		})) {
+			expressionEdges(sink, ref.slot, expression, doc, ctx);
+		}
 		return;
 	}
 	const field = ownRecordValue(doc.fields, carrier);
 	if (field) {
-		extractFieldEdges(makeSink(index, carrier, ctx), field);
+		const sink = makeSink(index, carrier, ctx);
+		extractFieldEdges(sink, field);
+		for (const { ref, expression } of expressionSlotValues(doc, {
+			entity: "field",
+			uuid: field.uuid,
+		})) {
+			expressionEdges(sink, ref.slot, expression, doc, ctx);
+		}
 		return;
 	}
 	const level = ownRecordValue(organizationLevelsOf(doc), carrier);
@@ -595,12 +607,9 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
 		switch (slot.kind) {
-			case "xpath-ast":
-				for (const value of readSlotValues(field, slot.path)) {
-					if (isXPathExpression(value.value)) {
-						extractAstRefs(sink, value.value, slot.slot);
-					}
-				}
+			case "expression":
+				// Every expression, including a dynamic source's filter, is
+				// extracted by the registry's shared typed-address enumeration.
 				break;
 			case "prose":
 				for (const value of readSlotValues(field, slot.path)) {
@@ -608,14 +617,9 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 				}
 				break;
 			case "case-type-ref":
-				// `caseWrite.caseType` — names the case type the field writes
-				// to. The matching DECLARATION entry is registered separately
-				// (`registerFieldDeclarations`); the edge here is what makes
-				// the field show up as a referencer of the type.
 				for (const value of readSlotStrings(field, slot.path)) {
-					if (value.text.length > 0) {
+					if (value.text.length > 0)
 						sink.edge(caseTypeTargetKey(value.text), slot.slot);
-					}
 				}
 				break;
 			case "options-source":
@@ -632,26 +636,19 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 						slot.slot,
 					);
 				}
-				if (
-					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource.kind !== "inline" &&
-					field.optionsSource.filter !== undefined
-				) {
-					predicateEdges(sink, slot.slot, field.optionsSource.filter);
-				}
 				break;
 			case "case-property-ref": {
 				const write = fieldCaseWrite(field);
-				if (write !== undefined) {
+				if (write !== undefined)
 					sink.edge(
 						casePropertyTargetKey(write.caseType, write.property),
 						slot.slot,
 					);
-				}
 				break;
 			}
-			case "predicate-ast":
 			case "entity-uuid":
+			case "relation-path":
+			case "datum-ref":
 				break;
 			default: {
 				const _exhaustive: never = slot.kind;
@@ -661,109 +658,49 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 	}
 }
 
-function extractFormEdges(sink: EdgeSink, form: Form): void {
+function extractFormEdges(
+	sink: EdgeSink,
+	form: Form,
+	ctx: CarrierContext,
+): void {
 	for (const slot of FORM_REFERENCE_SLOTS) {
-		switch (slot.slot) {
-			case "form_display_condition":
-				if (form.displayCondition) {
-					predicateEdges(sink, slot.slot, form.displayCondition);
-				}
+		switch (slot.kind) {
+			case "expression":
 				break;
-			case "form_link_condition":
-			case "form_link_datum_xpath":
-			case "assessment_user_score":
-			case "deliver_entity_id":
-			case "deliver_entity_name":
-				// AST-stored form wiring (form-link conditions/datums reference
-				// the form's OWN fields per CCHQ's end-of-form navigation
-				// semantics; Connect bindings likewise) — a pure leaf walk,
-				// same as the field expression slots.
-				for (const value of readSlotValues(form, slot.path)) {
-					if (isXPathExpression(value.value)) {
-						extractAstRefs(sink, value.value, slot.slot);
-					}
-				}
-				break;
-			case "case_operation_case_type":
-			case "case_operation_retype":
-			case "case_operation_link_target_type":
+			case "case-type-ref":
 				for (const value of readSlotStrings(form, slot.path)) {
-					if (value.text.length > 0) {
+					if (value.text.length > 0)
 						sink.edge(caseTypeTargetKey(value.text), slot.slot);
+				}
+				break;
+			case "entity-uuid":
+				if (slot.slot === "form_link_target") {
+					for (const link of form.formLinks ?? []) {
+						sink.edge(entityTargetKey(link.target.moduleUuid), slot.slot);
+						if (link.target.type === "form")
+							sink.edge(entityTargetKey(link.target.formUuid), slot.slot);
+					}
+				} else {
+					for (const value of readSlotStrings(form, slot.path)) {
+						if (value.text.length > 0)
+							sink.edge(entityTargetKey(value.text), slot.slot);
 					}
 				}
 				break;
-			case "case_operation_target_op":
-			case "case_operation_target_id_from":
-			case "case_operation_repeat":
-			case "case_operation_link_target_op":
-			case "case_operation_link_target_id_from":
-				for (const value of readSlotStrings(form, slot.path)) {
-					if (value.text.length > 0) {
-						sink.edge(entityTargetKey(value.text), slot.slot);
-					}
+			case "datum-ref":
+				for (const link of form.formLinks ?? []) {
+					for (const datum of link.datums ?? [])
+						datumEdges(sink, slot.slot, datum.name, ctx);
 				}
 				break;
-			case "case_operation_target_expression":
-			case "case_operation_name":
-			case "case_operation_owner":
-			case "case_operation_rename":
-			case "case_operation_write_value":
-			case "case_operation_link_target_expression":
-				for (const value of readSlotValues(form, slot.path)) {
-					expressionEdges(sink, slot.slot, value.value as ValueExpression);
-				}
-				break;
-			case "case_operation_condition":
-			case "case_operation_write_condition":
-				for (const value of readSlotValues(form, slot.path)) {
-					predicateEdges(sink, slot.slot, value.value as Predicate);
-				}
-				break;
-			case "case_operation_write_property":
+			case "case-property-ref":
 				for (const value of readSlotStrings(form, slot.path)) {
 					const operation = form.caseOperations?.[value.indices[0] ?? -1];
 					const caseType = operation?.retype ?? operation?.caseType;
-					if (caseType && value.text.length > 0) {
+					if (caseType && value.text.length > 0)
 						sink.edge(casePropertyTargetKey(caseType, value.text), slot.slot);
-					}
 				}
 				break;
-			case "close_condition_field": {
-				// The checked field's stable uuid — an UNCONDITIONAL identity
-				// edge, like every AST leaf: no doc-dependent resolution, so
-				// the incremental index can't drift from a rebuild when the
-				// target appears or disappears at a distance. A legacy dangler
-				// (id text the migration couldn't resolve) edges to a key
-				// nothing ever queries.
-				const ref = form.closeCondition?.field;
-				if (typeof ref !== "string" || ref.length === 0) break;
-				sink.edge(entityTargetKey(ref), slot.slot);
-				break;
-			}
-			case "form_link_target": {
-				// entity-uuid — the discriminated target value is read
-				// structurally: both arms carry `moduleUuid`, the `form` arm
-				// adds `formUuid`.
-				for (const link of form.formLinks ?? []) {
-					const target = link?.target as
-						| { moduleUuid?: unknown; formUuid?: unknown }
-						| undefined;
-					if (
-						typeof target?.moduleUuid === "string" &&
-						target.moduleUuid.length > 0
-					) {
-						sink.edge(entityTargetKey(target.moduleUuid), slot.slot);
-					}
-					if (
-						typeof target?.formUuid === "string" &&
-						target.formUuid.length > 0
-					) {
-						sink.edge(entityTargetKey(target.formUuid), slot.slot);
-					}
-				}
-				break;
-			}
 			default: {
 				const _exhaustive: never = slot;
 				break;
@@ -772,146 +709,57 @@ function extractFormEdges(sink: EdgeSink, form: Form): void {
 	}
 }
 
-function extractModuleEdges(sink: EdgeSink, mod: Module): void {
-	const list = mod.caseListConfig;
-	const search = mod.caseSearchConfig;
+function extractModuleEdges(
+	sink: EdgeSink,
+	doc: BlueprintDoc,
+	mod: Module,
+): void {
 	for (const slot of MODULE_REFERENCE_SLOTS) {
-		switch (slot.slot) {
-			case "module_case_parent":
-				if (mod.parentCaseModuleUuid !== undefined) {
-					sink.edge(entityTargetKey(mod.parentCaseModuleUuid), slot.slot);
+		switch (slot.kind) {
+			case "expression":
+			case "options-source":
+				break;
+			case "entity-uuid":
+				for (const value of readSlotStrings(mod, slot.path)) {
+					if (value.text.length > 0)
+						sink.edge(entityTargetKey(value.text), slot.slot);
 				}
 				break;
-			case "module_parent":
-				if (mod.parentModuleUuid !== undefined) {
-					sink.edge(entityTargetKey(mod.parentModuleUuid), slot.slot);
-				}
+			case "case-type-ref":
+				if (mod.caseType) sink.edge(caseTypeTargetKey(mod.caseType), slot.slot);
 				break;
-			case "module_display_condition":
-				if (mod.displayCondition) {
-					predicateEdges(sink, slot.slot, mod.displayCondition);
-				}
-				break;
-			case "case_type":
-				// The module's own type. Slot-tagged so consumers that treat
-				// ownership separately from reference (the retirement planner)
-				// can tell this edge apart from genuine reads of the type.
-				if (typeof mod.caseType === "string" && mod.caseType.length > 0) {
-					sink.edge(caseTypeTargetKey(mod.caseType), slot.slot);
-				}
-				break;
-			case "case_list_column_field": {
-				// Contextual property name — follows the module's own type.
-				// No `t:` edge: the column never NAMES a type. The module
-				// carrier needs no ctx mark — a case-type change arrives as
-				// `updateModule`, which re-extracts the module itself.
-				const caseType = mod.caseType;
-				if (!caseType) break;
-				for (const col of list?.columns ?? []) {
-					if (col.kind === "calculated") continue;
-					if (typeof col.field === "string" && col.field.length > 0) {
-						sink.edge(casePropertyTargetKey(caseType, col.field), slot.slot);
+			case "case-property-ref":
+				if (slot.slot === "case_list_column_field") {
+					if (mod.caseType === undefined) break;
+					for (const column of mod.caseListConfig?.columns ?? []) {
+						if (column.kind !== "calculated")
+							sink.edge(
+								casePropertyTargetKey(mod.caseType, column.field),
+								slot.slot,
+							);
 					}
-				}
-				break;
-			}
-			case "case_list_column_expression":
-				for (const col of list?.columns ?? []) {
-					if (col.kind === "calculated") {
-						expressionEdges(sink, slot.slot, col.expression);
-					}
-				}
-				break;
-			case "case_list_filter":
-				if (list?.filter) predicateEdges(sink, slot.slot, list.filter);
-				break;
-			case "search_input_property": {
-				// Contextual like the column slot, but the via walk can move
-				// the read to an explicit destination type — the same rule the
-				// rename rewriter matches on.
-				for (const input of list?.searchInputs ?? []) {
-					if (input.kind !== "simple") continue;
-					if (typeof input.property !== "string" || input.property.length === 0)
-						continue;
-					const destination = relationDestinationCaseType(
-						input.via,
-						mod.caseType,
-					);
-					if (destination) {
+				} else {
+					for (const input of mod.caseListConfig?.searchInputs ?? []) {
+						if (input.kind !== "simple") continue;
+						const destination = resolveRelationDestination(
+							input.via,
+							mod.caseType,
+							doc.caseTypes ?? [],
+						);
+						if (!destination.ok) continue;
 						sink.edge(
-							casePropertyTargetKey(destination, input.property),
+							casePropertyTargetKey(destination.caseType, input.property),
 							slot.slot,
 						);
+						if (input.via !== undefined && input.via.kind !== "self")
+							sink.edge(caseTypeTargetKey(destination.caseType), slot.slot);
 					}
 				}
 				break;
-			}
-			case "search_input_via":
-				for (const input of list?.searchInputs ?? []) {
-					if (input.kind === "simple") {
+			case "relation-path":
+				for (const input of mod.caseListConfig?.searchInputs ?? []) {
+					if (input.kind === "simple")
 						relationHintEdges(sink, slot.slot, input.via);
-					}
-				}
-				break;
-			case "search_input_default":
-				for (const input of list?.searchInputs ?? []) {
-					const defaultValue = searchInputDefault(input);
-					if (defaultValue !== undefined) {
-						expressionEdges(sink, slot.slot, defaultValue);
-					}
-				}
-				break;
-			case "search_input_predicate":
-				for (const input of list?.searchInputs ?? []) {
-					if (input.kind === "advanced") {
-						predicateEdges(sink, slot.slot, input.predicate);
-					}
-				}
-				break;
-			case "search_input_options":
-				// The table and column identities belong to the lookup-reference
-				// registry (`lookupReferences.ts`); only the row filter can name
-				// form or case entities.
-				for (const input of list?.searchInputs ?? []) {
-					const options = searchInputOptions(input);
-					if (options?.filter !== undefined) {
-						predicateEdges(sink, slot.slot, options.filter);
-					}
-				}
-				break;
-			case "search_input_required_when":
-				for (const input of list?.searchInputs ?? []) {
-					if (input.kind !== "hidden" && input.required?.when !== undefined) {
-						predicateEdges(sink, slot.slot, input.required.when);
-					}
-				}
-				break;
-			case "search_input_validation_rule":
-				for (const input of list?.searchInputs ?? []) {
-					if (input.kind !== "hidden" && input.validation !== undefined) {
-						predicateEdges(sink, slot.slot, input.validation.rule);
-					}
-				}
-				break;
-			case "search_input_hidden_value":
-				for (const input of list?.searchInputs ?? []) {
-					if (input.kind === "hidden") {
-						expressionEdges(sink, slot.slot, input.value);
-					}
-				}
-				break;
-			case "search_button_display_condition":
-				if (
-					search !== undefined &&
-					!isOwnerOnlyCaseSearchConfig(search) &&
-					search.searchButtonDisplayCondition
-				) {
-					predicateEdges(sink, slot.slot, search.searchButtonDisplayCondition);
-				}
-				break;
-			case "excluded_owner_ids":
-				if (search?.excludedOwnerIds) {
-					expressionEdges(sink, slot.slot, search.excludedOwnerIds);
 				}
 				break;
 			default: {
@@ -922,51 +770,149 @@ function extractModuleEdges(sink: EdgeSink, mod: Module): void {
 	}
 }
 
-// ── AST leaf extraction ─────────────────────────────────────────────
+// ── Expression leaf extraction ──────────────────────────────────────
 
-/**
- * Edges for one AST term. A `prop` term names its ORIGIN type and any
- * relation-walk type hints (`t:` edges — the retirement planner's
- * vocabulary), and reads a property on the walk's DESTINATION type
- * (`c:` edge) when that destination is encoded. A walk without a hint
- * doesn't say where it lands, so no `c:` edge — mirroring the rename
- * rewriter, which deliberately leaves such refs alone.
- */
-function termEdges(sink: EdgeSink, slot: string, term: Term): void {
-	if (term.kind === "field") {
-		sink.edge(entityTargetKey(term.uuid), slot);
-		return;
+function formNodeEdges(sink: EdgeSink, slot: string, node: FormNodeRef): void {
+	switch (node.kind) {
+		case "field":
+			sink.edge(entityTargetKey(node.uuid), slot);
+			return;
+		case "repeat":
+		case "repeat-row":
+			sink.edge(entityTargetKey(node.repeat), slot);
+			return;
+		case "form-root":
+		case "connect-learn":
+		case "connect-assessment":
+		case "connect-delivery":
+		case "connect-task":
+			sink.edge(entityTargetKey(node.form), slot);
+			return;
 	}
-	if (term.kind === "session-user-property") {
-		sink.edge(userPropertyTargetKey(term.userPropertyUuid), slot);
-		return;
+}
+
+function datumEdges(
+	sink: EdgeSink,
+	slot: string,
+	datum: DatumRef,
+	ctx: CarrierContext,
+): void {
+	switch (datum.kind) {
+		case "selected-case":
+		case "tile-group-parents":
+			sink.edge(entityTargetKey(datum.module), slot);
+			return;
+		case "new-child-case":
+			sink.edge(caseTypeTargetKey(datum.caseType), slot);
+			break;
+		case "new-case":
+		case "worker-record":
+			break;
 	}
-	if (term.kind === "fixed-location") {
-		sink.edge(locationTargetKey(term.locationUuid), slot);
-		return;
-	}
-	if (term.kind === "owner-location-at-level") {
-		sink.edge(entityTargetKey(term.levelUuid), slot);
-		sink.edge(caseTypeTargetKey(term.ownerCaseType), slot);
-		return;
-	}
-	if (term.kind === "form-case") {
-		sink.edge(caseTypeTargetKey(term.caseType), slot);
-		sink.edge(casePropertyTargetKey(term.caseType, term.property), slot);
-		return;
-	}
-	if (term.kind !== "prop") return;
-	if (typeof term.caseType === "string" && term.caseType.length > 0) {
-		sink.edge(caseTypeTargetKey(term.caseType), slot);
-	}
-	relationHintEdges(sink, slot, term.via);
-	const destination = relationDestinationCaseType(term.via, term.caseType);
+	if (ctx.formUuid !== undefined)
+		sink.edge(entityTargetKey(ctx.formUuid), slot);
+}
+
+/** Identity metadata on path filters matters just as much as their predicates. */
+function termEdges(
+	sink: EdgeSink,
+	slot: string,
+	term: Term,
+	doc: BlueprintDoc,
+	ctx: CarrierContext,
+): void {
 	if (
-		destination &&
-		typeof term.property === "string" &&
-		term.property.length > 0
+		term.kind === "field" ||
+		term.kind === "form-node" ||
+		term.kind === "repeat-row"
 	) {
-		sink.edge(casePropertyTargetKey(destination, term.property), slot);
+		for (const filter of term.filters ?? [])
+			formNodeEdges(sink, slot, filter.step);
+	}
+	switch (term.kind) {
+		case "field":
+			sink.edge(entityTargetKey(term.uuid), slot);
+			return;
+		case "form-node":
+			formNodeEdges(sink, slot, term.node);
+			return;
+		case "repeat-row":
+			sink.edge(entityTargetKey(term.repeat), slot);
+			return;
+		case "input":
+			sink.edge(entityTargetKey(term.searchInputUuid), slot);
+			return;
+		case "session-user-property":
+			sink.edge(userPropertyTargetKey(term.userPropertyUuid), slot);
+			if (term.source === "worker-record" && ctx.formUuid !== undefined)
+				sink.edge(entityTargetKey(ctx.formUuid), slot);
+			return;
+		case "session-user":
+			if (term.source === "worker-record" && ctx.formUuid !== undefined)
+				sink.edge(entityTargetKey(ctx.formUuid), slot);
+			return;
+		case "fixed-location":
+			sink.edge(locationTargetKey(term.locationUuid), slot);
+			return;
+		case "owner-location-at-level":
+			sink.edge(entityTargetKey(term.levelUuid), slot);
+			sink.edge(caseTypeTargetKey(term.ownerCaseType), slot);
+			return;
+		case "form-case":
+			sink.edge(caseTypeTargetKey(term.caseType), slot);
+			sink.edge(casePropertyTargetKey(term.caseType, term.property), slot);
+			return;
+		case "prop": {
+			if (term.caseType !== undefined)
+				sink.edge(caseTypeTargetKey(term.caseType), slot);
+			const destination = resolveRelationDestination(
+				term.via,
+				term.caseType,
+				doc.caseTypes ?? [],
+			);
+			if (destination.ok)
+				sink.edge(
+					casePropertyTargetKey(destination.caseType, term.property),
+					slot,
+				);
+			return;
+		}
+		case "choice":
+			sink.edge(entityTargetKey(term.field), slot);
+			for (const option of term.options)
+				sink.edge(entityTargetKey(option), slot);
+			return;
+		case "case-type":
+			sink.edge(caseTypeTargetKey(term.caseType), slot);
+			return;
+		case "case-index":
+			if (term.caseType !== undefined)
+				sink.edge(caseTypeTargetKey(term.caseType), slot);
+			return;
+		case "session-datum":
+			datumEdges(sink, slot, term.datum, ctx);
+			return;
+		case "location-level":
+			sink.edge(entityTargetKey(term.levelUuid), slot);
+			return;
+		case "location-field":
+			if (typeof term.field !== "string")
+				sink.edge(
+					entityTargetKey(
+						"level" in term.field ? term.field.level : term.field.property,
+					),
+					slot,
+				);
+			return;
+		case "session-context":
+		case "table-column":
+		case "literal":
+		case "case-row-type":
+			return;
+		default: {
+			const _exhaustive: never = term;
+			break;
+		}
 	}
 }
 
@@ -977,116 +923,60 @@ function relationHintEdges(
 ): void {
 	if (via === undefined || via.kind === "self") return;
 	if (via.kind === "ancestor") {
-		for (const step of via.via) {
-			if (step.throughCaseType) {
+		for (const step of via.via)
+			if (step.throughCaseType)
 				sink.edge(caseTypeTargetKey(step.throughCaseType), slot);
-			}
-		}
 		return;
 	}
 	if (via.ofCaseType) sink.edge(caseTypeTargetKey(via.ofCaseType), slot);
 }
 
-/* The AST walkers throw on an unknown operator arm (their compile-time
- * exhaustiveness backstop). Extraction runs inside reducers, which stay
- * total — a malformed AST off a degenerate doc extracts zero edges from
- * that slot instead of taking the apply pipeline down. Both builders
- * catch identically, so parity holds either way. */
-function predicateEdges(
-	sink: EdgeSink,
-	slot: string,
-	predicate: Predicate,
-): void {
-	try {
-		walkTerms(predicate, (term) => termEdges(sink, slot, term));
-		walkPredicateNodes(predicate, (node) => {
-			if (node.kind === "exists" || node.kind === "missing") {
-				relationHintEdges(sink, slot, node.via);
-			}
-		});
-		walkPredicateExpressionNodes(predicate, (expression) => {
-			if (expression.kind === "id-of") {
-				sink.edge(entityTargetKey(expression.opUuid), slot);
-			}
-			if (expression.kind === "count") {
-				relationHintEdges(sink, slot, expression.via);
-			}
-		});
-	} catch (err) {
-		console.warn(
-			`referenceIndex: couldn't walk the "${slot}" predicate for references, the stored shape has a node the walker doesn't recognize, so its references are not indexed.`,
-			err,
-		);
-	}
-}
-
+/* Reducers remain total over malformed historical shapes. Both rebuild and
+ * incremental extraction use this same guard; admission owns shape errors. */
 function expressionEdges(
 	sink: EdgeSink,
 	slot: string,
-	expression: ValueExpression,
+	expression: Expression,
+	doc: BlueprintDoc,
+	ctx: CarrierContext,
 ): void {
 	try {
-		walkExpressionTerms(expression, (term) => termEdges(sink, slot, term));
-		walkExpressionNodes(expression, (node) => {
-			if (node.kind === "id-of") {
-				sink.edge(entityTargetKey(node.opUuid), slot);
-			}
-			if (node.kind === "count") relationHintEdges(sink, slot, node.via);
+		walkExpression(expression, {
+			visitTerm: (term) => termEdges(sink, slot, term, doc, ctx),
+			visitRelation: (relation) => relationHintEdges(sink, slot, relation),
+			visitExpression: (node) => {
+				switch (node.kind) {
+					case "id-of":
+						sink.edge(entityTargetKey(node.opUuid), slot);
+						break;
+					case "choice-name":
+						sink.edge(entityTargetKey(node.field), slot);
+						break;
+					case "itext":
+						sink.edge(entityTargetKey(node.unit.field), slot);
+						if (node.unit.role === "select-option-label")
+							sink.edge(entityTargetKey(node.unit.option), slot);
+						break;
+					case "selected-cases":
+						sink.edge(entityTargetKey(node.module), slot);
+						break;
+					case "cases":
+						if (
+							node.source === "search-results" &&
+							ctx.moduleUuid !== undefined
+						) {
+							sink.markCtx();
+							sink.edge(entityTargetKey(ctx.moduleUuid), slot);
+						}
+						break;
+				}
+			},
 		});
-		walkExpressionPredicateNodes(expression, (node) => {
-			if (node.kind === "exists" || node.kind === "missing") {
-				relationHintEdges(sink, slot, node.via);
-			}
-		});
-	} catch (err) {
+	} catch (error) {
 		console.warn(
-			`referenceIndex: couldn't walk the "${slot}" expression for references, the stored shape has a node the walker doesn't recognize, so its references are not indexed.`,
-			err,
+			`referenceIndex: couldn't read references in "${slot}" because its stored expression has an unrecognized shape. Inspect the slot before editing its referenced entities.`,
+			error,
 		);
-	}
-}
-
-// ── Expression-AST leaf extraction ──────────────────────────────────
-
-/**
- * Edges for one stored expression AST — a pure leaf walk, no parse:
- *
- *   - `field-ref` / `path-ref` carry the target's UUID directly.
- *   - `case-ref` names its type (`t:`) and reads its property (`c:`).
- */
-function extractAstRefs(
-	sink: EdgeSink,
-	expr: XPathExpression,
-	slot: string,
-): void {
-	for (const part of expr.parts) {
-		switch (part.kind) {
-			case "text":
-				break;
-			case "field-ref":
-			case "path-ref":
-				sink.edge(entityTargetKey(part.uuid), slot);
-				break;
-			case "case-ref":
-				sink.edge(caseTypeTargetKey(part.caseType), slot);
-				sink.edge(casePropertyTargetKey(part.caseType, part.property), slot);
-				break;
-			case "user-ref":
-				break;
-			case "user-property-ref":
-				sink.edge(userPropertyTargetKey(part.userPropertyUuid), slot);
-				break;
-			case "search-answer-ref":
-				// The Search prompt is an entity of its module's case list;
-				// `referencingCarrierUuids(inputUuid)` is what lets the removal
-				// planner name the form fields that carry its answer.
-				sink.edge(entityTargetKey(part.searchInputUuid), slot);
-				break;
-			default: {
-				const _exhaustive: never = part;
-				break;
-			}
-		}
 	}
 }
 
@@ -1330,13 +1220,22 @@ export function planReferenceIndexMaintenance(
 		case "setDefaultLanguage":
 		case "setTranslation":
 		case "reviewTranslation":
-		case "declareCaseType":
-		case "retireCaseType":
 		case "addCaseProperty":
 		case "setCaseProperty":
 		case "removeCaseProperty":
 			break;
+		case "declareCaseType":
+		case "retireCaseType":
+			for (const uuid of Object.keys(doc.modules)) carriers.add(uuid);
+			for (const uuid of Object.keys(doc.forms)) carriers.add(uuid);
+			for (const uuid of Object.keys(doc.fields)) carriers.add(uuid);
+			break;
 		case "setCaseTypeMeta":
+			if ("parent_type" in mut) {
+				for (const uuid of Object.keys(doc.modules)) carriers.add(uuid);
+				for (const uuid of Object.keys(doc.forms)) carriers.add(uuid);
+				for (const uuid of Object.keys(doc.fields)) carriers.add(uuid);
+			}
 			// Parent/host automation edges resolve through the source case type's
 			// current ancestry metadata. Re-extract only automations authored on
 			// that source so incremental maintenance stays identical to a rebuild.

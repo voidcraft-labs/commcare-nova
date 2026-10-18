@@ -16,7 +16,7 @@ import {
 	subcasePath,
 	term,
 	unowned,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 
 const FORM = testUuid("66666666-6666-4666-8666-666666666666");
 const CREATE = testUuid("44444444-4444-4444-8444-444444444444");

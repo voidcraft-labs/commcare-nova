@@ -43,6 +43,7 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useCaseListOrderChoiceRefusal } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
+import { useExpressionSlotContextBuilder } from "@/lib/doc/hooks/useExpressionSlotContext";
 import {
 	type ProseProjector,
 	useProseProjection,
@@ -57,7 +58,11 @@ import type {
 } from "@/lib/domain";
 import { type CaseListConfig, orderedColumns } from "@/lib/domain";
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
-import { checkExpression } from "@/lib/domain/predicate";
+import {
+	type ExpressionContext,
+	scalarDataType,
+	typeOf,
+} from "@/lib/domain/expression";
 import {
 	propertyDisplayLabel,
 	propertyDisplayLabelForName,
@@ -98,10 +103,23 @@ export function CaseOrderingComposer({
 	config,
 	value,
 	caseType,
-	caseTypes = caseType === undefined ? [] : [caseType],
 	onChange,
 }: CaseOrderingComposerProps) {
 	const projectProse = useProseProjection();
+	const buildExpressionContext = useExpressionSlotContextBuilder();
+	const columnExpressionContext = useCallback(
+		(column: Column) =>
+			buildExpressionContext(
+				{
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_list_column_expression",
+					member: { columnUuid: column.uuid },
+				},
+				{ entity: "column", value: column },
+			),
+		[buildExpressionContext, moduleUuid],
+	);
 	const canEdit = useCanEdit();
 	const containerKey = useId();
 	const orderAddReasonId = useId();
@@ -206,9 +224,11 @@ export function CaseOrderingComposer({
 		const shown = sorted.slice(0, 2).map((column) => {
 			const direction = column.sort?.direction ?? "asc";
 			const directionLabel =
-				directionOptions(column, caseType, caseTypes).find(
-					(option) => option.value === direction,
-				)?.label ?? "A to Z";
+				directionOptions(
+					column,
+					caseType,
+					columnExpressionContext(column),
+				).find((option) => option.value === direction)?.label ?? "A to Z";
 			return `${friendlyColumnLabel(column, caseType, projectProse)} ${directionSummaryPhrase(directionLabel)}`;
 		});
 		const sentence =
@@ -219,7 +239,7 @@ export function CaseOrderingComposer({
 		return remaining > 0
 			? `${sentence}. ${remaining.toLocaleString()} more ${remaining === 1 ? "item breaks" : "items break"} ties.`
 			: sentence;
-	}, [caseType, caseTypes, projectProse, sorted]);
+	}, [caseType, columnExpressionContext, projectProse, sorted]);
 
 	const applyRuleSequence = useCallback(
 		(nextRules: readonly Column[]) => {
@@ -500,7 +520,7 @@ export function CaseOrderingComposer({
 												<CaseOrderingRuleRow
 													column={column}
 													caseType={caseType}
-													caseTypes={caseTypes}
+													expressionContext={columnExpressionContext(column)}
 													connector={index === 0 ? "First" : "Then"}
 													canEdit={canEdit}
 													setHandleEl={setHandleEl}
@@ -568,7 +588,7 @@ export function CaseOrderingComposer({
 function CaseOrderingRuleRow({
 	column,
 	caseType,
-	caseTypes,
+	expressionContext,
 	connector,
 	canEdit,
 	setHandleEl,
@@ -578,7 +598,7 @@ function CaseOrderingRuleRow({
 }: {
 	readonly column: Column;
 	readonly caseType: CaseType | undefined;
-	readonly caseTypes: readonly CaseType[];
+	readonly expressionContext: ExpressionContext | undefined;
 	readonly connector: "First" | "Then";
 	readonly canEdit: boolean;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
@@ -589,7 +609,7 @@ function CaseOrderingRuleRow({
 	const projectProse = useProseProjection();
 	const label = friendlyColumnLabel(column, caseType, projectProse);
 	const direction = column.sort?.direction ?? "asc";
-	const options = directionOptions(column, caseType, caseTypes);
+	const options = directionOptions(column, caseType, expressionContext);
 	const currentDirection =
 		options.find((option) => option.value === direction)?.label ??
 		options[0].label;
@@ -698,9 +718,9 @@ function CaseOrderingRuleRow({
 function directionOptions(
 	column: Column,
 	caseType: CaseType | undefined,
-	caseTypes: readonly CaseType[],
+	expressionContext: ExpressionContext | undefined,
 ): ReadonlyArray<{ readonly value: SortDirection; readonly label: string }> {
-	const dataType = columnDataType(column, caseType, caseTypes);
+	const dataType = columnDataType(column, caseType, expressionContext);
 	if (dataType === "date" || dataType === "datetime" || dataType === "time") {
 		return [
 			{ value: "asc", label: "Earliest first" },
@@ -743,20 +763,13 @@ function directionSummaryPhrase(label: string): string {
 function columnDataType(
 	column: Column,
 	caseType: CaseType | undefined,
-	caseTypes: readonly CaseType[],
+	expressionContext: ExpressionContext | undefined,
 ): CasePropertyDataType | undefined {
 	if (column.kind === "date" || column.kind === "interval") return "date";
 	if (column.kind === "calculated") {
-		if (caseType === undefined) return undefined;
-		const resolved = checkExpression(
-			column.expression,
-			{
-				caseTypes: [...caseTypes],
-				knownInputs: [],
-				currentCaseType: caseType.name,
-			},
-			[],
-			[],
+		if (expressionContext === undefined) return undefined;
+		const resolved = scalarDataType(
+			typeOf(column.expression, expressionContext)?.data,
 		);
 		if (
 			resolved === "int" ||

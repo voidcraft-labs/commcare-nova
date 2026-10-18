@@ -207,7 +207,7 @@ describe("no-matches registration form", () => {
 				)
 				.map((e) => e.attribs.value),
 		).toEqual([
-			"instance('search-input:results:inline')/input/field[@name='patient_name']",
+			"instance('search-input:results:inline')/input/field[@name = 'patient_name']",
 		]);
 	});
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import {
 	ANY_CONSTRAINT,
 	arith,
@@ -9,11 +10,11 @@ import {
 	prop,
 	term,
 	today,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { expressionEditorErrors } from "../expressionEditorValidity";
 
-const context = {
+const context = expressionEditorFixture("calculated-column", {
 	caseTypes: [
 		{
 			name: "patient",
@@ -24,7 +25,7 @@ const context = {
 	],
 	knownInputs: [],
 	currentCaseType: "patient",
-};
+}).context.expressionContext;
 describe("expression editor error projection", () => {
 	it("keeps precise nested checker paths and adds no second operator finding", () => {
 		const errors = expressionEditorErrors(

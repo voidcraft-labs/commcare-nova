@@ -1,4 +1,8 @@
-import { buildDoc, f, xp, xpIn } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	f,
+	parseFixtureExpression,
+} from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -61,13 +65,13 @@ export function connectWireFixtures() {
 									kind: "int",
 									id: "score",
 									label: proseText("Score"),
-									default_value: xp("42"),
+									default_value: "42",
 								}),
 								f({
 									kind: "text",
 									id: "feedback",
 									label: proseText("Feedback"),
-									default_value: xp("'Clinic & child'"),
+									default_value: "'Clinic & child'",
 								}),
 							],
 						},
@@ -97,14 +101,22 @@ export function connectWireFixtures() {
 		const config = doc.forms[formUuid].connect;
 		if (custom && config) {
 			if ("assessment" in config && config.assessment)
-				config.assessment.user_score = xpIn(doc, formUuid, "#form/score");
-			if ("deliver_unit" in config && config.deliver_unit) {
-				config.deliver_unit.entity_id = xpIn(
+				config.assessment.user_score = parseFixtureExpression(
 					doc,
-					formUuid,
+					{ entity: "form", uuid: formUuid, slot: "assessment_user_score" },
+					"#form/score",
+				);
+			if ("deliver_unit" in config && config.deliver_unit) {
+				config.deliver_unit.entity_id = parseFixtureExpression(
+					doc,
+					{ entity: "form", uuid: formUuid, slot: "deliver_entity_id" },
 					"concat('visit-', #form/score)",
 				);
-				config.deliver_unit.entity_name = xpIn(doc, formUuid, "#form/feedback");
+				config.deliver_unit.entity_name = parseFixtureExpression(
+					doc,
+					{ entity: "form", uuid: formUuid, slot: "deliver_entity_name" },
+					"#form/feedback",
+				);
 			}
 		}
 		blueprintDocSchema.parse(toPersistableDoc(doc));

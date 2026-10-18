@@ -28,7 +28,7 @@ import {
 import type { BlueprintDoc } from "@/lib/doc/types";
 
 import { type CaseOperation, type Module, plainColumn } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);

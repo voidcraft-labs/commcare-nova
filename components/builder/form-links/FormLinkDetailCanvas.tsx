@@ -42,7 +42,7 @@ export function FormLinkDetailCanvas({
 	readonly linkUuid: Uuid;
 }) {
 	const view = useFormLinks(formUuid);
-	const sentenceContext = useLinkSentenceContext();
+	const sentenceContext = useLinkSentenceContext(formUuid);
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
 	const headingRef = useRef<HTMLHeadingElement>(null);

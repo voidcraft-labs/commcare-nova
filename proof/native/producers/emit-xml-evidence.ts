@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import AdmZip from "adm-zip";
-import { buildDoc, f, xp } from "../../../lib/__tests__/docHelpers";
+import { buildDoc, f } from "../../../lib/__tests__/docHelpers";
 import { proseWhitespaceFixture } from "../../../lib/commcare/__tests__/proseWhitespaceFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
@@ -46,7 +46,7 @@ for (const scenario of scenarios) {
 										kind: "text",
 										id: "answer",
 										label: proseText(scenario.text),
-										default_value: xp("'A\tB\nC\rD'"),
+										default_value: "'A\tB\nC\rD'",
 									}),
 								],
 							},

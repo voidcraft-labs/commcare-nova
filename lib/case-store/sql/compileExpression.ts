@@ -1,22 +1,22 @@
 // lib/case-store/sql/compileExpression.ts
 //
-// Compile a `ValueExpression` to a Kysely expression. Covers all
+// Compile a `DomainExpression` to a Kysely expression. Covers all
 // every arm of the union (ordinary values plus the operation-local
 // `id-of`, `acting-user`, and `unowned` leaves). Term emission delegates to
 // `./compileTerm`; relation-path subqueries delegate to
 // `./compileRelationPath`.
 //
-// ## Predicate-thunk strategy
+// ## DomainExpression-thunk strategy
 //
-// Two arms (`if.cond`, `count.where`) carry `Predicate` operands.
-// The Expression compiler doesn't import the Predicate compiler
+// Two arms (`if.cond`, `count.where`) carry `DomainExpression` operands.
+// The Expression compiler doesn't import the DomainExpression compiler
 // directly — `ExpressionCompileContext` carries a callback the
 // integrating caller supplies. This keeps the two compilers
 // structurally independent so the predicate compiler can recurse
 // back into the expression compiler without an import cycle.
 //
 // The `switch` arm does NOT need the thunk — every `cases[].when`
-// is a `Literal` per `switchCaseSchema`, not a Predicate. The
+// is a `Literal` per `switchCaseSchema`, not a DomainExpression. The
 // expression compiler handles the equality dispatch directly.
 //
 // ## Simple `CASE` dispatch for `switch`
@@ -34,7 +34,6 @@ import type {
 	SqlBool,
 } from "kysely";
 import { expressionBuilder, sql } from "kysely";
-import type { CaseType } from "@/lib/domain/blueprint";
 import {
 	COMMCARE_DATE_FORMAT_TOKENS,
 	COMMCARE_DAY_NAMES_LONG,
@@ -44,40 +43,27 @@ import {
 	type CommCareDateFormatToken,
 	parseCommCareDatePattern,
 } from "@/lib/domain/commCareDatePattern";
-import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { fixedDatePattern } from "@/lib/domain/expression/datePattern";
 import {
 	missingPredicateThunkMessage,
 	typeCheckerBypassMessage,
 	unhandledKindMessage,
-} from "@/lib/domain/predicate/errors";
-import { canonicalizeRelationPath } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
-import { resolveNumericExpressionType } from "@/lib/domain/predicate/numericType";
+} from "@/lib/domain/expression/errors";
+import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import {
 	asTemporalType,
-	inferStructuralTemporalType,
 	resolveCaseListTemporalType,
 	type TemporalType,
-} from "@/lib/domain/predicate/temporalType";
-import {
-	type CheckError,
-	checkExpression,
-	type TypeContext,
-} from "@/lib/domain/predicate/typeChecker";
+} from "@/lib/domain/expression/temporalType";
+import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
 import type {
 	ArithOp,
 	DateAddInterval,
-	FormatDatePreset,
-	Predicate,
+	Expression as DomainExpression,
 	RelationPath,
 	SwitchCase,
-	ValueExpression,
-} from "@/lib/domain/predicate/types";
-import { proseText } from "@/lib/domain/prose";
-import {
-	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
-	standardCasePropertyDisplayLabel,
-} from "@/lib/domain/standardCaseProperties";
+} from "@/lib/domain/expression/types";
+import { isConditionArm, isRelationPath } from "@/lib/domain/expression/types";
 import { compileTableLookup } from "./compileLookup";
 import {
 	compileRelationPath,
@@ -87,6 +73,7 @@ import {
 	compileBoundRef,
 	compileBoundValue,
 	compileTerm,
+	recordQueryContextFor,
 	type TermCompileContext,
 } from "./compileTerm";
 import type { Database } from "./database";
@@ -98,12 +85,12 @@ import { resolveViewerTimeZone } from "./viewerTimeZone";
 // ---------------------------------------------------------------
 
 /**
- * Predicate-compilation callback for the `if.cond` / `count.where`
+ * DomainExpression-compilation callback for the `if.cond` / `count.where`
  * arms. The integrating caller supplies the real predicate
  * compiler; tests inject stubs.
  */
 export type CompilePredicateThunk = (
-	predicate: Predicate,
+	predicate: DomainExpression,
 	ctx: ExpressionCompileContext,
 ) => Expression<unknown>;
 
@@ -137,6 +124,7 @@ const ARITH_OP_TO_SQL: Readonly<Record<ArithOp, BinaryOperator>> = {
 	"-": "-",
 	"*": "*",
 	div: "/",
+	quotient: "/",
 	mod: "%",
 };
 
@@ -144,11 +132,22 @@ const ARITH_OP_TO_SQL: Readonly<Record<ArithOp, BinaryOperator>> = {
 // Public entry point
 // ---------------------------------------------------------------
 
-/** Compile a `ValueExpression` to a Kysely expression. */
+/** Compile a `DomainExpression` to a Kysely expression. */
 export function compileExpression(
-	expr: ValueExpression,
+	expr: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
+	if (isConditionArm(expr)) {
+		if (ctx.compilePredicate === undefined)
+			throw new Error(
+				missingPredicateThunkMessage({
+					where: "compileExpression",
+					arm: expr.kind,
+					slot: "A condition needs its SQL compiler.",
+				}),
+			);
+		return ctx.compilePredicate(expr, ctx) as AliasableExpression<unknown>;
+	}
 	switch (expr.kind) {
 		case "term":
 			return compileTerm(expr.term, ctx);
@@ -174,6 +173,14 @@ export function compileExpression(
 			return compileDatetimeCoerce(expr.value, ctx);
 		case "double":
 			return compileCast(expr.value, "numeric", ctx);
+		case "negate":
+			return eb(
+				eb.cast(eb.lit(0), "numeric"),
+				"-",
+				compileCast(expr.value, "numeric", ctx),
+			);
+		case "here":
+			return compileBoundValue(ctx.bindings.here ?? "", "the current location");
 		case "arith":
 			return compileArith(expr.op, expr.left, expr.right, ctx);
 		case "concat":
@@ -185,17 +192,33 @@ export function compileExpression(
 		case "switch":
 			return compileSwitch(expr.on, expr.cases, expr.fallback, ctx);
 		case "count":
+			if (!isRelationPath(expr.via))
+				throw new Error(
+					"compileExpression: a form node-set count cannot be evaluated in a server record query.",
+				);
 			return compileCount(expr.via, expr.where, ctx);
 		case "format-date":
 			return compileFormatDate(expr.date, expr.pattern, ctx);
 		case "table-lookup":
 			return compileTableLookup(expr, ctx);
+		case "call":
+		case "itext":
+		case "choice-name":
+		case "value-list":
+		case "cases":
+		case "table-rows":
+		case "locations":
+		case "selected-cases":
+		case "project":
+			throw new Error(
+				`compileExpression: '${expr.kind}' is unavailable in a server record query.`,
+			);
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(
 				unhandledKindMessage({
 					where: "compileExpression",
-					family: "ValueExpression",
+					family: "DomainExpression",
 					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
 					knownKinds: [
 						"term",
@@ -224,19 +247,20 @@ export function compileExpression(
 }
 
 /**
- * A `ValueExpression` as the text a device reads for it, for a case list's
+ * A `DomainExpression` as the text a device reads for it, for a case list's
  * order. Every value reads as `compileExpression` gives it, but a multi
  * select: Nova stores its tokens as a JSON array, and a device reads them
  * joined by one space, so the order compares that text, blank when no token
  * is selected. A stored value that is not an array reads as its own text.
  */
 export function compileDeviceTextExpression(
-	expr: ValueExpression,
+	expr: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const compiled = compileExpression(expr, ctx);
 	if (
-		checkExpression(expr, expressionTypeContext(ctx), [], []) !== "multi_select"
+		scalarDataType(typeOf(expr, recordQueryContextFor(ctx))?.data) !==
+		"multi_select"
 	)
 		return compiled;
 	return sql<unknown>`(case jsonb_typeof(${compiled})
@@ -271,7 +295,7 @@ function compileNow(): AliasableExpression<unknown> {
 
 /** Postgres cast wrapper for `date-coerce` / `double`. */
 function compileCast(
-	value: ValueExpression,
+	value: DomainExpression,
 	cast: "date" | "timestamptz" | "numeric",
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
@@ -379,36 +403,10 @@ export function compilePinnedInstant(
  * to UTC; explicit offsets win via the `timestamptz` arm.
  */
 function compileDatetimeCoerce(
-	value: ValueExpression,
+	value: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	return compilePinnedInstant(compileExpression(value, ctx), "UTC");
-}
-
-function expressionTypeContext(ctx: ExpressionCompileContext): TypeContext {
-	const lookupTables = new Map(
-		[...(ctx.lookupTableSchemas ?? [])].map(([tableId, columns]) => [
-			tableId as LookupTableId,
-			new Map(
-				[...columns].map(([columnId, type]) => [
-					columnId as LookupColumnId,
-					type,
-				]),
-			),
-		]),
-	);
-	const tableId = ctx.lookupRowScope?.tableId as LookupTableId | undefined;
-	const columns = tableId === undefined ? undefined : lookupTables.get(tableId);
-	return {
-		caseTypes: caseTypesForTemporalTypeChecking(ctx.caseTypeSchemas),
-		currentCaseType: ctx.currentCaseType,
-		knownInputs: ctx.knownInputs ?? [],
-		formFields: ctx.formFieldTypes,
-		organizationLevels: ctx.organizationLevels,
-		lookupTables,
-		...(tableId !== undefined &&
-			columns !== undefined && { tableScope: { tableId, columns } }),
-	};
 }
 
 /**
@@ -420,14 +418,10 @@ function expressionTypeContext(ctx: ExpressionCompileContext): TypeContext {
  */
 function compileArith(
 	op: ArithOp,
-	left: ValueExpression,
-	right: ValueExpression,
+	left: DomainExpression,
+	right: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
-	const type = resolveNumericExpressionType(
-		{ kind: "arith", op, left, right },
-		expressionTypeContext(ctx),
-	);
 	// Explicit numeric casts prevent Postgres selecting text's pg_trgm `%`
 	// operator for bound answers. Numeric operands avoid imposing an int4 or
 	// int8 range on admitted integral literals and intermediate expressions.
@@ -435,7 +429,7 @@ function compileArith(
 	const rightExpr = compileCast(right, "numeric", ctx);
 	const opToken = ARITH_OP_TO_SQL[op];
 	const result = eb.parens(eb(leftExpr, opToken, rightExpr));
-	return op === "div" && type === "int" ? eb.fn("trunc", [result]) : result;
+	return op === "quotient" ? eb.fn("trunc", [result]) : result;
 }
 
 /**
@@ -464,9 +458,9 @@ const DATE_ADD_INTERVAL_SLOT_INDEX: Readonly<Record<DateAddInterval, number>> =
  * parity, especially when a sub-day or fractional interval crosses midnight.
  */
 function compileDateAdd(
-	date: ValueExpression,
+	date: DomainExpression,
 	interval: DateAddInterval,
-	quantity: ValueExpression,
+	quantity: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const baseType = resolveDateAddBaseType(date, ctx);
@@ -482,14 +476,12 @@ function compileDateAdd(
 
 /**
  * Resolve the semantic type that `date-add` inherits from its date operand.
- * Context-free discriminators and explicit coercions take the cheap path;
- * property reads and wrapper expressions route through the canonical domain
- * type checker. The case-store schema map intentionally excludes implicit
- * standard properties because those compile from scalar columns, so this
- * type-check-only projection restores them without changing SQL reads.
+ * The canonical checker resolves literals, coercions, properties, and runtime
+ * bindings from the current record-query context. The context factory adds
+ * implicit standard-property types without changing their SQL reads.
  */
 function resolveDateAddBaseType(
-	date: ValueExpression,
+	date: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): TemporalType {
 	if (ctx.portableCaseDates) {
@@ -497,21 +489,11 @@ function resolveDateAddBaseType(
 		if (portable !== undefined) return portable;
 	}
 
-	const structural = inferStructuralTemporalType(date);
-	if (structural === "date" || structural === "datetime") return structural;
-
-	const errors: CheckError[] = [];
-	const resolved = checkExpression(
-		date,
-		{
-			caseTypes: caseTypesForTemporalTypeChecking(ctx.caseTypeSchemas),
-			knownInputs: [],
-		},
-		errors,
-		[],
+	const resolved = scalarDataType(
+		typeOf(date, recordQueryContextFor(ctx))?.data,
 	);
 	const temporal = asTemporalType(resolved);
-	if (errors.length === 0 && temporal !== undefined) return temporal;
+	if (temporal !== undefined) return temporal;
 
 	throw new Error(
 		typeCheckerBypassMessage({
@@ -520,38 +502,10 @@ function resolveDateAddBaseType(
 				"`date-add` reached SQL emission without a resolvable date-or-datetime base type",
 			expected:
 				"the canonical predicate type checker resolves the date operand to `date` or `datetime` before SQL compilation",
-			received:
-				errors.length > 0
-					? errors.map((error) => error.message).join("; ")
-					: `resolved type ${String(resolved)}`,
+			received: `resolved type ${String(resolved)}`,
 			hint: "Preserve the operand's declared type through runtime binding, or author an explicit date/datetime coercion; SQL must not guess from a property name or string value.",
 		}),
 	);
-}
-
-function caseTypesForTemporalTypeChecking(
-	schemas: ReadonlyMap<string, CaseType>,
-): CaseType[] {
-	return [...schemas.values()].map((caseType) => {
-		const declared = new Set(
-			caseType.properties.map((property) => property.name),
-		);
-		const standardProperties = Object.entries(
-			STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
-		)
-			.filter(([name]) => !declared.has(name))
-			.map(([name, data_type]) => ({
-				name,
-				label: proseText(standardCasePropertyDisplayLabel(name)),
-				data_type,
-			}));
-		return standardProperties.length === 0
-			? caseType
-			: {
-					...caseType,
-					properties: [...caseType.properties, ...standardProperties],
-				};
-	});
 }
 
 /**
@@ -635,7 +589,7 @@ function calendarQuantityAsInteger(
  * are both the AST's declared semantics and the type context every arity needs.
  */
 function compileConcat(
-	parts: ReadonlyArray<ValueExpression>,
+	parts: ReadonlyArray<DomainExpression>,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const partExprs = parts.map((p) =>
@@ -649,7 +603,7 @@ function compileConcat(
  * otherwise uses the connection timezone and moves the worker's calendar day.
  * Homogeneous calendar branches remain dates; raw server expressions are unchanged. */
 export function compileTemporalValues(
-	values: readonly ValueExpression[],
+	values: readonly DomainExpression[],
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown>[] {
 	const promotions = temporalBranchPromotions(values, ctx);
@@ -659,7 +613,7 @@ export function compileTemporalValues(
 }
 
 function temporalBranchPromotions(
-	values: readonly ValueExpression[],
+	values: readonly DomainExpression[],
 	ctx: ExpressionCompileContext,
 ): boolean[] {
 	const types = ctx.portableCaseDates
@@ -670,7 +624,7 @@ function temporalBranchPromotions(
 }
 
 function compileTemporalBranch(
-	value: ValueExpression,
+	value: DomainExpression,
 	ctx: ExpressionCompileContext,
 	promoteDate: boolean,
 ): AliasableExpression<unknown> {
@@ -684,10 +638,10 @@ function compileTemporalBranch(
 }
 
 function portableTemporalType(
-	value: ValueExpression,
+	value: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): TemporalType | undefined {
-	return resolveCaseListTemporalType(value, expressionTypeContext(ctx));
+	return resolveCaseListTemporalType(value, recordQueryContextFor(ctx));
 }
 
 /** A blank numeric question is a legitimate branch result, not numeric text.
@@ -695,7 +649,7 @@ function portableTemporalType(
  * value. Keep arithmetic coercion separate: an executing calculation on that
  * unanswered question must retain its normal numeric error. */
 function compileBranchValues(
-	values: readonly ValueExpression[],
+	values: readonly DomainExpression[],
 	ctx: ExpressionCompileContext,
 	contexts?: readonly ExpressionCompileContext[],
 ): AliasableExpression<unknown>[] {
@@ -706,7 +660,7 @@ function compileBranchValues(
 }
 
 function compileBranchValue(
-	value: ValueExpression,
+	value: DomainExpression,
 	ctx: ExpressionCompileContext,
 	promoteDate: boolean,
 ): AliasableExpression<unknown> {
@@ -724,7 +678,7 @@ function compileBranchValue(
 /** Skip blank values while preserving the result's SQL type. Casting only
  * the blank check avoids comparing numbers, dates or booleans with `''`. */
 function compileCoalesce(
-	values: ReadonlyArray<ValueExpression>,
+	values: ReadonlyArray<DomainExpression>,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const promotions = temporalBranchPromotions(values, ctx);
@@ -782,9 +736,9 @@ function compileCoalesce(
  * an absent thunk is a caller-setup error and throws.
  */
 function compileIf(
-	cond: Predicate,
-	thenBranch: ValueExpression,
-	elseBranch: ValueExpression,
+	cond: DomainExpression,
+	thenBranch: DomainExpression,
+	elseBranch: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const compilePredicate = ctx.compilePredicate;
@@ -793,7 +747,7 @@ function compileIf(
 			missingPredicateThunkMessage({
 				where: "compileExpression",
 				arm: "if",
-				slot: "`if` arm carries a `Predicate` condition",
+				slot: "`if` arm carries a `DomainExpression` condition",
 			}),
 		);
 	}
@@ -833,9 +787,9 @@ function compileIf(
 
 /** Compile `switch` through a simple-CASE dispatch and one selected branch. */
 function compileSwitch(
-	on: ValueExpression,
+	on: DomainExpression,
 	cases: ReadonlyArray<SwitchCase>,
-	fallback: ValueExpression,
+	fallback: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const nullSelector =
@@ -924,7 +878,7 @@ function compileSwitch(
  */
 function compileCount(
 	via: RelationPath,
-	where: Predicate | undefined,
+	where: DomainExpression | undefined,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const relation = canonicalizeRelationPath(via, {
@@ -941,7 +895,7 @@ function compileCount(
 				missingPredicateThunkMessage({
 					where: "compileExpression",
 					arm: "count(via=self, where)",
-					slot: "`count(via=self, where)`'s `where` clause is a `Predicate`",
+					slot: "`count(via=self, where)`'s `where` clause is a `DomainExpression`",
 				}),
 			);
 		}
@@ -983,7 +937,7 @@ function compileCount(
 			missingPredicateThunkMessage({
 				where: "compileExpression",
 				arm: "count(via, where)",
-				slot: "`count(via, where)`'s `where` clause is a `Predicate`",
+				slot: "`count(via, where)`'s `where` clause is a `DomainExpression`",
 			}),
 		);
 	}
@@ -1028,15 +982,19 @@ function compileCount(
  * surrounding authored literals visible.
  */
 function compileFormatDate(
-	date: ValueExpression,
-	pattern: FormatDatePreset | string,
+	date: DomainExpression,
+	pattern: string | DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
 	const dateExpr = compileExpression(date, ctx);
 	const instant = compilePinnedInstant(dateExpr, zone);
 	const wallClock = eb.fn<Date>("timezone", [eb.val(zone), instant]);
-	const wirePattern = resolveCommCareDatePattern(pattern);
+	const wirePattern = fixedDatePattern(pattern);
+	if (wirePattern === undefined)
+		throw new Error(
+			"compileExpression: format-date needs a fixed pattern in a server record query.",
+		);
 	const parsed = parseCommCareDatePattern(wirePattern);
 	if (parsed.kind === "unsupported-pattern") {
 		const problem = parsed.escape ?? "a trailing %";

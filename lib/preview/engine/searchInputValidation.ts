@@ -1,5 +1,6 @@
 /** Running-preview validation that mirrors exported CommCare search prompts. */
 
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
 	buildRuntimeCsqlPromptValidations,
 	type ComposedXPathQuery,
@@ -8,20 +9,18 @@ import {
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	type CaseListConfig,
-	searchInputRuntimeValueType,
 	searchRuntimeGlobalValidationMessage,
 } from "@/lib/domain";
-import type { TypeContext } from "@/lib/domain/predicate";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import { dateRangeInputErrors } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
-import type { PreviewLookupData } from "./lookupEvaluation";
 import {
 	type SearchInputValues,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
+import type { PreviewSearchEnvironment } from "./searchExpressionEvaluation";
 import {
 	type SearchInputConstraintDeviceOptions,
 	searchInputConstraintErrors,
@@ -47,12 +46,6 @@ interface RuntimeValidationOptions {
 	 * case store, then run the full pass with the resolved worker.
 	 */
 	sessionIndependentOnly?: boolean;
-	/**
-	 * The lookup rows a required condition or check may fold over. A caller
-	 * without them (the server action) leaves lookup-bearing constraints
-	 * unjudged rather than guessing.
-	 */
-	lookupData?: PreviewLookupData;
 }
 
 function skipSessionBackedRejection(
@@ -83,7 +76,7 @@ export function searchInputRuntimeQuoteErrors(
 	caseType: string | undefined,
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
-	typeContext?: TypeContext,
+	environment: PreviewSearchEnvironment,
 	options?: RuntimeValidationOptions,
 ): ReadonlyMap<string, string> {
 	let emission: ComposedXPathQuery | undefined;
@@ -91,7 +84,11 @@ export function searchInputRuntimeQuoteErrors(
 		emission = composeXPathQueryEmission(
 			caseListConfig,
 			caseType,
-			withSearchInputBindings(caseListConfig, typeContext),
+			moduleExpressionContexts(
+				environment.doc,
+				environment.moduleUuid,
+				environment.lookup?.naming,
+			)({ slot: "case_list_filter" }),
 		);
 	} catch {
 		return new Map();
@@ -134,7 +131,7 @@ export function searchInputRuntimeGlobalError(
 	caseType: string | undefined,
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
-	typeContext?: TypeContext,
+	environment: PreviewSearchEnvironment,
 	options?: RuntimeValidationOptions,
 ): string | undefined {
 	let emission: ComposedXPathQuery | undefined;
@@ -142,7 +139,11 @@ export function searchInputRuntimeGlobalError(
 		emission = composeXPathQueryEmission(
 			caseListConfig,
 			caseType,
-			withSearchInputBindings(caseListConfig, typeContext),
+			moduleExpressionContexts(
+				environment.doc,
+				environment.moduleUuid,
+				environment.lookup?.naming,
+			)({ slot: "case_list_filter" }),
 		);
 	} catch {
 		return undefined;
@@ -171,7 +172,7 @@ export function searchFindsNothing(
 	caseType: string | undefined,
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
-	typeContext?: TypeContext,
+	environment: PreviewSearchEnvironment,
 	options?: RuntimeValidationOptions,
 ): boolean {
 	let emission: ComposedXPathQuery | undefined;
@@ -179,7 +180,11 @@ export function searchFindsNothing(
 		emission = composeXPathQueryEmission(
 			caseListConfig,
 			caseType,
-			withSearchInputBindings(caseListConfig, typeContext),
+			moduleExpressionContexts(
+				environment.doc,
+				environment.moduleUuid,
+				environment.lookup?.naming,
+			)({ slot: "case_list_filter" }),
 		);
 	} catch {
 		return false;
@@ -190,27 +195,6 @@ export function searchFindsNothing(
 			!skipSessionBackedRejection(rejection, options) &&
 			runtimeRejectionApplies(rejection, caseListConfig, values, session),
 	);
-}
-
-/**
- * Runtime validation owns the complete search-input declarations, so it can
- * always project immutable references to their current saved names. Do not
- * rely on a caller to duplicate this identity map: standalone Preview surfaces
- * and scoped tests legitimately have no module-level validator context.
- */
-function withSearchInputBindings(
-	caseListConfig: CaseListConfig,
-	typeContext: TypeContext | undefined,
-): TypeContext {
-	return {
-		...(typeContext ?? { caseTypes: [], knownInputs: [] }),
-		knownInputs: caseListConfig.searchInputs.map((input) => ({
-			uuid: input.uuid,
-			name: input.name,
-			label: input.label,
-			data_type: searchInputRuntimeValueType(input),
-		})),
-	};
 }
 
 type RuntimeRejection = NonNullable<
@@ -287,7 +271,7 @@ export function searchInputSubmissionErrors(
 	caseType: string | undefined,
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
-	typeContext?: TypeContext,
+	environment: PreviewSearchEnvironment,
 	options?: RuntimeValidationOptions,
 ): ReadonlyMap<string, string> {
 	const errors = new Map(
@@ -296,7 +280,7 @@ export function searchInputSubmissionErrors(
 			caseType,
 			values,
 			session,
-			typeContext,
+			environment,
 			options,
 		),
 	);
@@ -313,7 +297,7 @@ export function searchInputSubmissionErrors(
 		caseListConfig.searchInputs,
 		values,
 		session,
-		options?.lookupData,
+		environment,
 		options,
 	)) {
 		errors.set(name, message);
@@ -333,7 +317,7 @@ export async function searchInputSubmissionErrorsOnDevice(
 	caseType: string | undefined,
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
-	typeContext: TypeContext | undefined,
+	environment: PreviewSearchEnvironment,
 	options: RuntimeValidationOptions &
 		Pick<SearchInputConstraintDeviceOptions, "evaluateOnDevice">,
 ): Promise<ReadonlyMap<string, string>> {
@@ -343,7 +327,7 @@ export async function searchInputSubmissionErrorsOnDevice(
 			caseType,
 			values,
 			session,
-			typeContext,
+			environment,
 			options,
 		),
 	);
@@ -357,7 +341,7 @@ export async function searchInputSubmissionErrorsOnDevice(
 		caseListConfig.searchInputs,
 		values,
 		session,
-		options.lookupData,
+		environment,
 		options,
 	)) {
 		errors.set(name, message);

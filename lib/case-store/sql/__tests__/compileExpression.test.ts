@@ -23,7 +23,7 @@ import {
 	term,
 	today,
 	unowned,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
 import {
 	compileExpression,
 	type ExpressionCompileContext,

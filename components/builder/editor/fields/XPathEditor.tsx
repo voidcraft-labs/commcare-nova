@@ -25,18 +25,17 @@ import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
-	useParseXPathForField,
-	useXPathProjection,
+	useFormExpressionProjection,
+	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
+import type { Field, FieldPatchFor, ProseTemplate } from "@/lib/domain";
 import type {
-	Field,
-	FieldPatchFor,
-	ProseTemplate,
-	XPathExpression,
-} from "@/lib/domain";
+	Expression,
+	FieldExpressionSlotRef,
+} from "@/lib/domain/expression/types";
 import type {
 	FieldEditorComponentProps,
-	XPathExpressionKeys,
+	FormExpressionKeys,
 } from "@/lib/domain/kinds";
 import { useSessionFocusHint } from "@/lib/session/hooks";
 import {
@@ -50,19 +49,27 @@ import {
  * (a rename of a referenced field updates the shown text with no slot
  * write); commit parses the authored text back. The `as F[K]` casts
  * widen through the generic: the editor only mounts on
- * `XPathExpressionKeys`, so the runtime value is always an expression
+ * `FormExpressionKeys`, so the runtime value is always an expression
  * or undefined.
  */
-export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
+export function XPathEditor<F extends Field, K extends FormExpressionKeys<F>>(
 	props: FieldEditorComponentProps<F, K>,
 ) {
 	const { field, value, onChange, label, autoFocus, keyName } = props;
-	const projection = useXPathProjection(value as XPathExpression | undefined);
+	const slot: FieldExpressionSlotRef = {
+		entity: "field",
+		uuid: field.uuid,
+		slot: keyName as FieldExpressionSlotRef["slot"],
+	};
+	const projection = useFormExpressionProjection(
+		value as Expression | undefined,
+		slot,
+	);
 	const current = projection.text;
-	const parseForField = useParseXPathForField(field.uuid);
+	const parseForField = useParseFormExpression(slot);
 
 	// `field.uuid` is already branded `Uuid` by the Field type.
-	const getLintContext = useFormLintContext(field.uuid);
+	const getLintContext = useFormLintContext(slot);
 	const focusHint = useSessionFocusHint();
 	const [editing, setEditing] = useState(false);
 

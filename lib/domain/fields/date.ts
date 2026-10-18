@@ -9,16 +9,16 @@ import tablerCalendar from "@iconify-icons/tabler/calendar";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
+	formLogicSchema,
 	inputFieldBaseSchema,
 	proseTemplateSchema,
-	xpathExpressionSchema,
 } from "./base";
 
 export const dateFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("date"),
-	validate: xpathExpressionSchema.optional(),
+	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
-	default_value: xpathExpressionSchema.optional(),
+	default_value: formLogicSchema.optional(),
 });
 
 export type DateField = z.infer<typeof dateFieldSchema>;

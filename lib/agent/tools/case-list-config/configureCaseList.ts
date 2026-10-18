@@ -18,7 +18,7 @@ import {
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
-import { predicateSchema } from "@/lib/domain/predicate";
+import { conditionSchema } from "@/lib/domain/expression";
 import {
 	addColumnsMutation,
 	addSearchInputsMutation,
@@ -79,7 +79,7 @@ export const configureCaseListInputSchema = z
 			.describe(
 				`Known search inputs to add. Supply searchInputUuid when searchInputOrder in this call references the new input. ${SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE}`,
 			),
-		filter: predicateSchema
+		filter: conditionSchema
 			.nullable()
 			.optional()
 			.describe(

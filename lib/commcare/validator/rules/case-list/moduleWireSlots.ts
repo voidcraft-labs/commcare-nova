@@ -3,7 +3,7 @@
  * rules (`dateAddOnDeviceCompatibility`,
  * `matchModeOnDeviceCompatibility`, `onDeviceExpressionCompatibility`).
  *
- * One walk enumerates every module-carried Predicate/ValueExpression slot
+ * One walk enumerates every module-carried Expression/Expression slot
  * that reaches a CommCare wire surface, in emission order:
  *
  *   - the effective case-list filter (after wire simplification),
@@ -45,11 +45,11 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	type Expression,
 	effectiveFilterForEmission,
-	type Predicate,
+	type ModuleExpressionSlotRef,
 	simplifyForEmission,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { ValidationError } from "../../errors";
 
 export type ModuleWireSlotSurface =
@@ -66,6 +66,7 @@ export type ModuleWireSlotSurface =
 export interface ModuleWireSlotIdentity {
 	readonly mod: Module;
 	readonly moduleUuid: Uuid;
+	readonly ref: ModuleExpressionSlotRef;
 	readonly slot: string;
 	readonly slotLabel: string;
 	readonly surface: ModuleWireSlotSurface;
@@ -85,19 +86,19 @@ export interface ModuleWireSlotJudge {
 	 * simplified search-button display condition, and a prompt's required
 	 * condition and check rule. At most one finding per slot. */
 	judgePredicate(
-		predicate: Predicate,
+		predicate: Expression,
 		slot: ModuleWireSlotIdentity,
 	): ValidationError | undefined;
 	/** An advanced search-input's effective predicate, which lowers through
 	 * the mixed-dialect CSQL emitter. */
 	judgeCsqlPredicate(
-		predicate: Predicate,
+		predicate: Expression,
 		slot: ModuleWireSlotIdentity,
 	): ValidationError | undefined;
-	/** ValueExpression slots: calculated columns, search-input defaults, hidden
+	/** Expression slots: calculated columns, search-input defaults, hidden
 	 * search-input values, and the excluded-owner expression. */
 	judgeExpression(
-		expression: ValueExpression,
+		expression: Expression,
 		slot: ModuleWireSlotIdentity,
 	): ValidationError | undefined;
 }
@@ -108,7 +109,7 @@ export function collectModuleWireSlotFindings(
 	judge: ModuleWireSlotJudge,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const csqlPredicates: Predicate[] = [];
+	const csqlPredicates: Expression[] = [];
 	const collect = (error: ValidationError | undefined): void => {
 		if (error !== undefined) errors.push(error);
 	};
@@ -121,6 +122,7 @@ export function collectModuleWireSlotFindings(
 				mod,
 				moduleUuid,
 				slot: "caseListConfig.filter",
+				ref: { entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
 				slotLabel: "the Cases available rule",
 				surface: "filter",
 			}),
@@ -137,6 +139,12 @@ export function collectModuleWireSlotFindings(
 				mod,
 				moduleUuid,
 				slot: `caseListConfig.columns[${index}].expression`,
+				ref: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_list_column_expression",
+					member: { columnUuid: column.uuid },
+				},
 				slotLabel: `calculated field "${label}"`,
 				surface: "calculated-column",
 				column: { uuid: column.uuid, label },
@@ -159,6 +167,12 @@ export function collectModuleWireSlotFindings(
 					mod,
 					moduleUuid,
 					slot: `caseListConfig.searchInputs[${index}].default`,
+					ref: {
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "search_input_default",
+						member: { searchInputUuid: input.uuid },
+					},
 					slotLabel: `the default for search field "${inputIdentity.label}"`,
 					surface: "search-input-default",
 					input: inputIdentity,
@@ -171,6 +185,12 @@ export function collectModuleWireSlotFindings(
 					mod,
 					moduleUuid,
 					slot: `caseListConfig.searchInputs[${index}].value`,
+					ref: {
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "search_input_hidden_value",
+						member: { searchInputUuid: input.uuid },
+					},
 					slotLabel: `the value of hidden search field "${inputIdentity.label}"`,
 					surface: "search-input-hidden-value",
 					input: inputIdentity,
@@ -184,6 +204,12 @@ export function collectModuleWireSlotFindings(
 					mod,
 					moduleUuid,
 					slot: `caseListConfig.searchInputs[${index}].required.when`,
+					ref: {
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "search_input_required_when",
+						member: { searchInputUuid: input.uuid },
+					},
 					slotLabel: `the required condition for search field "${inputIdentity.label}"`,
 					surface: "search-input-required",
 					input: inputIdentity,
@@ -196,6 +222,12 @@ export function collectModuleWireSlotFindings(
 					mod,
 					moduleUuid,
 					slot: `caseListConfig.searchInputs[${index}].validation.rule`,
+					ref: {
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "search_input_validation_rule",
+						member: { searchInputUuid: input.uuid },
+					},
 					slotLabel: `the check for search field "${inputIdentity.label}"`,
 					surface: "search-input-validation",
 					input: inputIdentity,
@@ -211,6 +243,12 @@ export function collectModuleWireSlotFindings(
 				mod,
 				moduleUuid,
 				slot: `caseListConfig.searchInputs[${index}].predicate`,
+				ref: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "search_input_predicate",
+					member: { searchInputUuid: input.uuid },
+				},
 				slotLabel: `advanced search input "${inputIdentity.label}"`,
 				surface: "advanced-input",
 				input: inputIdentity,
@@ -233,6 +271,7 @@ export function collectModuleWireSlotFindings(
 				mod,
 				moduleUuid,
 				slot: "caseSearchConfig.excludedOwnerIds",
+				ref: { entity: "module", uuid: moduleUuid, slot: "excluded_owner_ids" },
 				slotLabel: "the assigned-cases setting",
 				surface: "excluded-owner-ids",
 			}),
@@ -251,6 +290,11 @@ export function collectModuleWireSlotFindings(
 					mod,
 					moduleUuid,
 					slot: "caseSearchConfig.searchButtonDisplayCondition",
+					ref: {
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "search_button_display_condition",
+					},
 					slotLabel: "the search-button display condition",
 					surface: "search-button",
 				},

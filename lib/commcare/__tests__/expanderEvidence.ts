@@ -7,6 +7,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { compileCcz } from "../compiler";
 import type { HqApplication } from "../types";
+import { expectEntryDatumAgreement } from "./entryDatumAgreement";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 const destination = process.env.NOVA_EXPANDER_EVIDENCE_DIR;
@@ -26,6 +27,7 @@ export function captureExpanderEvidence(
 	doc: BlueprintDoc,
 	hq: HqApplication,
 ): void {
+	expectEntryDatumAgreement(doc);
 	if (!destination) return;
 	mkdirSync(destination, { recursive: true });
 	const id = createHash("sha256")

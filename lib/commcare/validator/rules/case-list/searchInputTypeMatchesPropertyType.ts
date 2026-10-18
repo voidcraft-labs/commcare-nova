@@ -50,9 +50,9 @@ import {
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	type Uuid,
 } from "@/lib/domain";
-import { type CheckError, checkRelationPath } from "@/lib/domain/predicate";
+import { resolveRelationDestination } from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
-import { moduleTypeContext, resolvePropertyDataType } from "./shared";
+import { resolvePropertyDataType, validationContextFor } from "./shared";
 
 export function searchInputTypeMatchesPropertyType(
 	mod: Module,
@@ -63,7 +63,7 @@ export function searchInputTypeMatchesPropertyType(
 	if (inputs.length === 0 || !mod.caseType) return [];
 
 	const errors: ValidationError[] = [];
-	const ctx = moduleTypeContext(mod, doc);
+	const caseTypes = validationContextFor(doc).augmentedCaseTypes;
 
 	for (let index = 0; index < inputs.length; index++) {
 		const input = inputs[index];
@@ -85,21 +85,13 @@ export function searchInputTypeMatchesPropertyType(
 		// relation-path resolver. The discardable check-error list keeps
 		// us from double-reporting relation-walk failures (those surface
 		// through the predicate-bearing rules).
-		const isSelfWalk = !input.via || input.via.kind === "self";
-		let destinationCaseType: string | undefined;
-		if (isSelfWalk) {
-			destinationCaseType = mod.caseType;
-		} else if (input.via) {
-			const discard: CheckError[] = [];
-			destinationCaseType = checkRelationPath(
-				input.via,
-				mod.caseType,
-				ctx,
-				discard,
-				[],
-			);
-		}
-		if (!destinationCaseType) continue;
+		const destination = resolveRelationDestination(
+			input.via,
+			mod.caseType,
+			caseTypes,
+		);
+		if (!destination.ok) continue;
+		const destinationCaseType = destination.caseType;
 
 		const dataType = resolvePropertyDataType(
 			doc,

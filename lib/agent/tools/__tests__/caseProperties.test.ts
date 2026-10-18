@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { proseText } from "@/lib/domain";
 
@@ -17,9 +17,6 @@ async function fixture() {
 						label: proseText("Beds"),
 						data_type: "int" as const,
 						hint: proseText("Original hint"),
-						required: xp("true()"),
-						validation: xp(". >= 1"),
-						validation_msg: proseText("Enter at least one bed."),
 					},
 				],
 			})),
@@ -46,10 +43,8 @@ async function fixture() {
 									id: "bed_count",
 									label: proseText("Beds in this plot"),
 									hint: proseText("Question-specific help"),
-									validate: {
-										expr: xp(". >= 1 and . <= 50"),
-										msg: proseText("Enter 1 to 50."),
-									},
+									validate: ". >= 1 and . <= 50",
+									validate_msg: proseText("Enter 1 to 50."),
 									caseWrite: { caseType: "plot", property: "beds" },
 								}),
 							],
@@ -107,7 +102,7 @@ describe("record property authoring", () => {
 		});
 		expect(h.currentDoc()).toEqual(before);
 	});
-	it("edits wording while preserving stored rules, other records, and form content", async () => {
+	it("edits wording while preserving other records and form content", async () => {
 		const h = await fixture();
 		const before = structuredClone(h.currentDoc());
 		expect(
@@ -118,9 +113,6 @@ describe("record property authoring", () => {
 				name: "beds",
 				label: "Beds",
 				data_type: "int",
-				required: "true()",
-				validation: ". >= 1",
-				validation_msg: "Enter at least one bed.",
 			},
 		});
 		expect(
@@ -141,9 +133,6 @@ describe("record property authoring", () => {
 				name: "beds",
 				label: "Number of beds",
 				data_type: "int",
-				required: "true()",
-				validation: ". >= 1",
-				validation_msg: "Enter at least one bed.",
 			},
 		});
 		expect(
@@ -231,15 +220,9 @@ describe("record property authoring", () => {
 		},
 	);
 
-	it.each([
-		{ required: xp("true()") },
-		{
-			validation: xp(". >= 1"),
-			validation_msg: proseText("Enter at least one bed."),
-		},
-	])(
-		"preserves stored rules when extending an otherwise bare catalog",
-		async (rules) => {
+	it.each([{ hint: proseText("Count every planted bed.") }])(
+		"preserves existing wording when extending an otherwise bare catalog",
+		async (wording) => {
 			const h = makeAuthoringHarness(
 				{},
 				buildDoc({
@@ -251,7 +234,7 @@ describe("record property authoring", () => {
 									name: "beds",
 									label: proseText("beds"),
 									data_type: "int",
-									...rules,
+									...wording,
 								},
 							],
 						},

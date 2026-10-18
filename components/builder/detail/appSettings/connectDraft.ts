@@ -17,13 +17,18 @@ import {
 	type ConnectDeliverConfig,
 	type ConnectLearnConfig,
 	type ConnectType,
-	type XPathExpression,
+	type Expression,
 } from "@/lib/domain";
 /** One form's editable block. Every field is a string buffer (typed as-is,
  *  parsed on commit) so the same draft drives both the per-form dialog and
  *  the app-wide manager. Ids autofill when blank; the XPath buffers fall
  *  back to their wire defaults when blank. The kind of each sub-config is
  *  carried by its `*On` flag, not by which fields are filled. */
+export type ConnectDraftSlot =
+	| "assessment_user_score"
+	| "deliver_entity_id"
+	| "deliver_entity_name";
+
 export interface BlockDraft {
 	learnOn: boolean;
 	learnName: string;
@@ -118,7 +123,7 @@ export const CONNECT_ID_PUBLISHED_NOTES = {
  *  expression isn't silently dropped on the next commit. */
 export function configToDraft(
 	config: ConnectConfig,
-	printExpr: (expr: XPathExpression) => string,
+	printExpr: (expr: Expression, slot: ConnectDraftSlot) => string,
 ): BlockDraft {
 	const lm = "learn_module" in config ? config.learn_module : undefined;
 	const assessment = "assessment" in config ? config.assessment : undefined;
@@ -134,16 +139,16 @@ export function configToDraft(
 		assessmentId: assessment?.id ?? "",
 		// Absent XPath slots show their wire default so the user sees what runs.
 		userScoreText: assessment?.user_score
-			? printExpr(assessment.user_score)
+			? printExpr(assessment.user_score, "assessment_user_score")
 			: DEFAULT_ASSESSMENT_USER_SCORE,
 		deliverOn: !!du,
 		deliverName: du?.name ?? "",
 		deliverId: du?.id ?? "",
 		entityIdText: du?.entity_id
-			? printExpr(du.entity_id)
+			? printExpr(du.entity_id, "deliver_entity_id")
 			: DEFAULT_DELIVER_ENTITY_ID,
 		entityNameText: du?.entity_name
-			? printExpr(du.entity_name)
+			? printExpr(du.entity_name, "deliver_entity_name")
 			: DEFAULT_DELIVER_ENTITY_NAME,
 		taskOn: !!task,
 		taskName: task?.name ?? "",
@@ -325,17 +330,17 @@ export function assignDraftConnectIds(
 
 /** An XPath buffer counts as an OVERRIDE only when it's non-empty AND
  *  differs from the wire default. Otherwise the slot is left absent so the
- *  single wire-emit default applies (and a blank never trips
- *  `CONNECT_EMPTY_XPATH`): the editor shows the default as a starting point
+ *  single wire-emit default applies: the editor shows the default as a starting point
  *  the user can replace, not a value Nova pins into the doc. */
 function xpathOverride(
+	slot: ConnectDraftSlot,
 	text: string,
 	wireDefault: string,
-	parseExpr: (text: string) => XPathExpression,
-): XPathExpression | undefined {
+	parseExpr: (text: string, slot: ConnectDraftSlot) => Expression,
+): Expression | undefined {
 	const trimmed = text.trim();
 	if (!trimmed || trimmed === wireDefault) return undefined;
-	return parseExpr(trimmed);
+	return parseExpr(trimmed, slot);
 }
 
 /** Lower a component-local draft to one complete final `ConnectConfig`.
@@ -344,36 +349,39 @@ function xpathOverride(
 export function draftToConfig(
 	draft: BlockDraft,
 	mode: "learn",
-	parseExpr: (text: string) => XPathExpression,
+	parseExpr: (text: string, slot: ConnectDraftSlot) => Expression,
 	derivedId: (kind: SubConfigKind) => string,
 ): ConnectLearnConfig;
 export function draftToConfig(
 	draft: BlockDraft,
 	mode: "deliver",
-	parseExpr: (text: string) => XPathExpression,
+	parseExpr: (text: string, slot: ConnectDraftSlot) => Expression,
 	derivedId: (kind: SubConfigKind) => string,
 ): ConnectDeliverConfig;
 export function draftToConfig(
 	draft: BlockDraft,
 	mode: ConnectType,
-	parseExpr: (text: string) => XPathExpression,
+	parseExpr: (text: string, slot: ConnectDraftSlot) => Expression,
 	derivedId: (kind: SubConfigKind) => string,
 ): ConnectConfig;
 export function draftToConfig(
 	draft: BlockDraft,
 	mode: ConnectType,
-	parseExpr: (text: string) => XPathExpression,
+	parseExpr: (text: string, slot: ConnectDraftSlot) => Expression,
 	derivedId: (kind: SubConfigKind) => string,
 ): ConnectConfig {
 	if (!draftParticipates(draft, mode) || !draftSectionsComplete(draft, mode)) {
 		throw new Error("Incomplete Connect draft reached finalization.");
 	}
 	if (mode === "learn") {
-		const userScore = xpathOverride(
-			draft.userScoreText,
-			DEFAULT_ASSESSMENT_USER_SCORE,
-			parseExpr,
-		);
+		const userScore = draft.assessmentOn
+			? xpathOverride(
+					"assessment_user_score",
+					draft.userScoreText,
+					DEFAULT_ASSESSMENT_USER_SCORE,
+					parseExpr,
+				)
+			: undefined;
 		return {
 			...(draft.learnOn && {
 				learn_module: {
@@ -391,16 +399,22 @@ export function draftToConfig(
 			}),
 		};
 	}
-	const entityId = xpathOverride(
-		draft.entityIdText,
-		DEFAULT_DELIVER_ENTITY_ID,
-		parseExpr,
-	);
-	const entityName = xpathOverride(
-		draft.entityNameText,
-		DEFAULT_DELIVER_ENTITY_NAME,
-		parseExpr,
-	);
+	const entityId = draft.deliverOn
+		? xpathOverride(
+				"deliver_entity_id",
+				draft.entityIdText,
+				DEFAULT_DELIVER_ENTITY_ID,
+				parseExpr,
+			)
+		: undefined;
+	const entityName = draft.deliverOn
+		? xpathOverride(
+				"deliver_entity_name",
+				draft.entityNameText,
+				DEFAULT_DELIVER_ENTITY_NAME,
+				parseExpr,
+			)
+		: undefined;
 	return {
 		...(draft.deliverOn && {
 			deliver_unit: {

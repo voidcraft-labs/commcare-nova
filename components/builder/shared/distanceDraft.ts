@@ -1,7 +1,7 @@
 import {
 	type DistanceUnit,
 	distanceValidationIssue,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 export function positiveDistance(
 	draft: string,
 	unit: DistanceUnit,

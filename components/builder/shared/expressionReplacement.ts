@@ -1,27 +1,28 @@
 import {
-	checkValueExpression,
+	checkExpression,
 	coalesce,
 	concat,
 	dateCoerce,
 	datetimeCoerce,
 	double,
+	type Expression,
+	type ExpressionContext,
 	formatDate,
 	now,
-	type TypeContext,
 	today,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 
-const UNARY_KINDS = new Set<ValueExpression["kind"]>([
+const UNARY_KINDS = new Set<Expression["kind"]>([
 	"date-coerce",
 	"datetime-coerce",
 	"double",
+	"negate",
 ]);
 
 function buildUnary(
-	targetKind: ValueExpression["kind"],
-	value: ValueExpression,
-): ValueExpression | null {
+	targetKind: Expression["kind"],
+	value: Expression,
+): Expression | null {
 	switch (targetKind) {
 		case "date-coerce":
 			return dateCoerce(value);
@@ -29,16 +30,20 @@ function buildUnary(
 			return datetimeCoerce(value);
 		case "double":
 			return double(value);
+		case "negate":
+			return { kind: "negate", value };
 		default:
 			return null;
 	}
 }
 
 function validCandidate(
-	candidate: ValueExpression,
-	typeContext: TypeContext,
-): ValueExpression | null {
-	return checkValueExpression(candidate, typeContext).ok ? candidate : null;
+	candidate: Expression,
+	typeContext: ExpressionContext,
+): Expression | null {
+	return checkExpression(candidate, typeContext).errors.length === 0
+		? candidate
+		: null;
 }
 
 /**
@@ -52,16 +57,17 @@ function validCandidate(
  * the real expression checker.
  */
 export function planPreservedExpressionReplacement(
-	currentValue: ValueExpression,
-	targetKind: ValueExpression["kind"],
-	typeContext: TypeContext,
-): ValueExpression | null {
+	currentValue: Expression,
+	targetKind: Expression["kind"],
+	typeContext: ExpressionContext,
+): Expression | null {
 	if (currentValue.kind === "term") {
-		let candidate: ValueExpression | null;
+		let candidate: Expression | null;
 		switch (targetKind) {
 			case "date-coerce":
 			case "datetime-coerce":
 			case "double":
+			case "negate":
 				candidate = buildUnary(targetKind, currentValue);
 				break;
 			case "concat":
@@ -80,7 +86,10 @@ export function planPreservedExpressionReplacement(
 	}
 
 	if (
-		UNARY_KINDS.has(currentValue.kind) &&
+		(currentValue.kind === "date-coerce" ||
+			currentValue.kind === "datetime-coerce" ||
+			currentValue.kind === "double" ||
+			currentValue.kind === "negate") &&
 		UNARY_KINDS.has(targetKind) &&
 		"value" in currentValue
 	) {

@@ -61,9 +61,9 @@ import {
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
-} from "@/lib/domain/predicate/errors";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
-import { walkExpressionTerms, walkTerms } from "@/lib/domain/predicate/walk";
+} from "@/lib/domain/expression/errors";
+import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	storageDatetimeValue,
 	storageTimeValue,
@@ -401,8 +401,8 @@ interface EvalRequest {
 	readonly slot: string;
 	/** Physical instance index the projection belongs to. */
 	readonly instance: number;
-	readonly expression?: ValueExpression;
-	readonly predicate?: Predicate;
+	readonly expression?: DomainExpression;
+	readonly predicate?: DomainExpression;
 }
 
 /**
@@ -510,12 +510,14 @@ async function evaluateBatch(
 					await sql`RELEASE SAVEPOINT submission_expression`.execute(trx);
 					const request = chunk[offset];
 					const fields = new Set<string>();
-					const visit = (term: import("@/lib/domain/predicate/types").Term) => {
+					const visit = (
+						term: import("@/lib/domain/expression/types").Term,
+					) => {
 						if (term.kind === "field") fields.add(term.uuid);
 					};
 					if (request.expression)
 						walkExpressionTerms(request.expression, visit);
-					if (request.predicate) walkTerms(request.predicate, visit);
+					if (request.predicate) walkExpressionTerms(request.predicate, visit);
 					throw new SubmissionRejectedError(
 						{
 							kind: "expression",
@@ -1106,7 +1108,7 @@ async function resolveOperationProgram(
 	const request = (
 		instance: number,
 		kind: ValueSlot["kind"],
-		content: { expression?: ValueExpression; predicate?: Predicate },
+		content: { expression?: DomainExpression; predicate?: DomainExpression },
 	) => {
 		valueSlots.push({ instance, kind });
 		const operation = instances[instance].envelope.operation;

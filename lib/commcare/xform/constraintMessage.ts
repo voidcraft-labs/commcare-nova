@@ -1,21 +1,9 @@
 import type { Element } from "domhandler";
 import { decodeXML } from "entities";
-import {
-	type BlueprintDoc,
-	type ProseTemplate,
-	printProseTemplate,
-} from "@/lib/domain";
+import type { ProseReferencePart, ProseTemplate } from "@/lib/domain";
 import { el, text } from "../elementBuilders";
 import { w } from "../xpath/wire/builders";
-import type { WireMode } from "../xpath/wire/tree";
-import {
-	type AuthoredXPathValue,
-	type LegacyAuthoredXPath,
-	legacyAuthoredBinary,
-	legacyAuthoredCall,
-	legacyAuthoredOr,
-	legacyProjectedAuthoredXPath,
-} from "./legacyAuthoredXPath";
+import type { WireExpr } from "../xpath/wire/tree";
 
 interface LocalizedMessage {
 	readonly language: string;
@@ -23,10 +11,10 @@ interface LocalizedMessage {
 }
 type MessagePart =
 	| { readonly literal: string }
-	| { readonly expression: LegacyAuthoredXPath };
+	| { readonly expression: WireExpr; readonly identity: string };
 
 export interface ProtectedConstraintMessage {
-	readonly expression: AuthoredXPathValue;
+	readonly expression: WireExpr;
 	readonly forms: ReadonlyMap<string, Element[]>;
 }
 
@@ -45,25 +33,18 @@ export interface ProtectedConstraintMessage {
 export function protectConstraintMessage(
 	id: string,
 	messages: readonly LocalizedMessage[],
-	doc: BlueprintDoc,
-	expand: (expression: string) => string,
+	lower: (reference: ProseReferencePart) => WireExpr,
 ): ProtectedConstraintMessage | undefined {
 	if (
 		!constraintMessageNeedsProtection(messages.map(({ template }) => template))
 	)
 		return undefined;
 
-	// A non-expanding typed reference has always rendered its projected text.
-	// Keep that branch, including identity resolution's dangling-ref refusal.
 	const terms = messages.map(({ language, template }) => ({
 		language,
 		parts: template.parts.map<MessagePart>((part) => {
 			if (part.kind === "text") return { literal: decodeXML(part.text) };
-			const projected = printProseTemplate({ parts: [part] }, doc);
-			const expanded = expand(projected);
-			return expanded === projected
-				? { literal: decodeXML(projected) }
-				: { expression: legacyProjectedAuthoredXPath(expanded) };
+			return { expression: lower(part), identity: JSON.stringify(part) };
 		}),
 	}));
 	const pieceIndices = new Set(
@@ -72,14 +53,9 @@ export function protectConstraintMessage(
 		),
 	);
 	const forms = new Map<string, Element[]>();
-	const mode: WireMode = { target: "xform", constraint: false };
-	const call = (
-		fn: Parameters<typeof legacyAuthoredCall>[0],
-		args: readonly AuthoredXPathValue[],
-	) => legacyAuthoredCall(fn, args, mode);
 	const itext = (form?: string) =>
 		w.call("jr:itext", [w.str(form === undefined ? id : `${id};${form}`)]);
-	const expressions: AuthoredXPathValue[] = [];
+	const expressions: WireExpr[] = [];
 	for (const { language, parts } of terms) {
 		const values: Element[] = [];
 		const add = (form: string, value: string): void => {
@@ -113,18 +89,18 @@ export function protectConstraintMessage(
 				? w.str("")
 				: composed.length === 1
 					? composed[0]
-					: call("concat", composed);
+					: w.call("concat", composed);
 		const references = [
 			...new Map(
 				parts.flatMap((part) =>
 					"expression" in part
-						? [[part.expression.text, part.expression] as const]
+						? [[part.identity, part.expression] as const]
 						: [],
 				),
 			).values(),
 		];
 		const ambiguousReferences = references.map((reference) =>
-			legacyAuthoredBinary(">", call("count", [reference]), w.num(1), mode),
+			w.gt(w.call("count", [reference]), w.num(1)),
 		);
 		// Core catches raw-message errors and exposes the expression itself.
 		// A reference to several answers instead requests the client's normal
@@ -132,8 +108,8 @@ export function protectConstraintMessage(
 		// and chooses no answer from an ambiguous repeat.
 		expressions.push(
 			ambiguousReferences.length > 0
-				? call("if", [
-						legacyAuthoredOr(ambiguousReferences, mode),
+				? w.call("if", [
+						w.or(...ambiguousReferences),
 						w.str(""),
 						composedExpression,
 					])
@@ -142,7 +118,7 @@ export function protectConstraintMessage(
 	}
 	let expression = expressions.at(-1) ?? w.str("");
 	for (let index = messages.length - 2; index >= 0; index--) {
-		expression = call("if", [
+		expression = w.call("if", [
 			w.eq(itext("__nova_locale"), w.str(messages[index].language)),
 			expressions[index],
 			expression,
@@ -150,7 +126,7 @@ export function protectConstraintMessage(
 	}
 	return {
 		forms,
-		expression: call("if", [
+		expression: w.call("if", [
 			w.eq(itext("__nova_mode"), w.str("media")),
 			itext(),
 			expression,

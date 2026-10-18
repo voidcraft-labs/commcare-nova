@@ -16,7 +16,6 @@ import {
 	caseSelectionCanFlowBetweenModules,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
-	FORM_REFERENCE_SLOTS,
 	type Form,
 	fieldReferenceSlotsFor,
 	formLinkSelectionIsCompatible,
@@ -24,21 +23,20 @@ import {
 	readSlotValues,
 	type Uuid,
 } from "@/lib/domain";
+import { activeRowScope, slotContext } from "@/lib/domain/expression/context";
+import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
 import {
-	expressionReadsCaseData,
-	type Predicate,
-	predicateReadsCaseData,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+	datumRefKey,
+	type Expression,
+	type ExpressionSlotRef,
+} from "@/lib/domain/expression/types";
+import { walkExpression } from "@/lib/domain/expression/walk";
+import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import {
-	entryFrameDatums,
-	entrySessionDatums,
-	formLinkActionsBuildable,
+	entryDatumIdResolver,
+	entryDatumIds,
 	formLinkProjectionContext,
-	formLinksProjectable,
-	projectFormLinkSessionExpression,
 } from "../../formLinkProjection";
-import { sessionDataAccessInXPath } from "../bindingResolutionOracle";
 import type { ValidationError } from "../errors";
 import { validationError } from "../errors";
 
@@ -87,85 +85,50 @@ function fanoutChildDatumExpressionConsumers(
 	inventory: CaseWriteInventory,
 ): ValidationError[] {
 	const childTypes = fannedChildCaseTypes(inventory);
-	const links = form.formLinks;
-	if (
-		childTypes.size === 0 ||
-		links === undefined ||
-		!formLinksProjectable(doc, links) ||
-		!formLinkActionsBuildable(doc, ctx.formUuid, links)
-	) {
-		return [];
-	}
-
-	const projectionContext = formLinkProjectionContext(doc);
-	const sessionDatums = entrySessionDatums(
-		doc,
-		projectionContext,
-		ctx.moduleUuid,
-		ctx.formUuid,
-	);
-	const scalarChildDatumIds = new Set(
-		sessionDatums.flatMap((datum) =>
-			datum.function?.k === "call" &&
-			datum.function.fn === "uuid" &&
-			datum.function.args.length === 0 &&
-			datum.caseType !== undefined &&
-			childTypes.has(datum.caseType)
-				? [datum.id]
-				: [],
-		),
-	);
-	if (scalarChildDatumIds.size === 0) return [];
-
-	const sourceDatums = entryFrameDatums(
-		doc,
-		projectionContext,
-		ctx.moduleUuid,
-		ctx.formUuid,
+	if (childTypes.size === 0) return [];
+	const projection = formLinkProjectionContext(doc, {
+		entryMetadataOnly: true,
+	});
+	const datumId = entryDatumIdResolver(
+		entryDatumIds(doc, projection, ctx.moduleUuid, ctx.formUuid),
 	);
 	const errors: ValidationError[] = [];
-	const flag = (
-		linkUuid: Uuid,
-		surface: "condition" | "carried value",
-		expression: Parameters<typeof projectFormLinkSessionExpression>[4],
-	): void => {
-		const projected = projectFormLinkSessionExpression(
-			doc,
-			ctx.moduleUuid,
-			form.type,
-			sourceDatums,
-			expression,
-		);
-		const access = sessionDataAccessInXPath(projected);
-		const datumId = [...access.exactDatumIds].find((id) =>
-			scalarChildDatumIds.has(id),
-		);
-		if (datumId === undefined && !access.broad) return;
+	for (const { ref, expression } of expressionSlotValues(doc, {
+		entity: "form",
+		uuid: form.uuid,
+	})) {
+		if (!("member" in ref) || !("linkUuid" in ref.member)) continue;
+		let childType: string | undefined;
+		walkExpression(expression, {
+			visitTerm(term) {
+				if (
+					term.kind === "session-datum" &&
+					term.datum.kind === "new-child-case" &&
+					childTypes.has(term.datum.caseType)
+				)
+					childType ??= term.datum.caseType;
+			},
+		});
+		if (childType === undefined) continue;
+		const surface =
+			ref.slot === "form_link_condition" ? "condition" : "carried value";
+		const child = { kind: "new-child-case" as const, caseType: childType };
+		const id = datumId(child);
 		errors.push(
 			validationError(
 				"MULTI_SELECT_FANOUT_CHILD_DATUM",
 				"form",
-				access.broad
-					? `"${form.name}" reads the complete session data in a form-link ${surface}. That data includes one unused child id even though this form creates a separate child for every selected parent, so Nova and CommCare would evaluate the expression differently. Read one specific, unrelated session value instead.`
-					: `"${form.name}" reads one generated child case in a form-link ${surface}, but this form creates a separate child for every selected parent. There is no single child value to read. Remove that child-case reference from the link.`,
+				`"${form.name}" reads one generated child case in a form-link ${surface}, but this form creates a separate child for every selected parent. There is no single child value to read. Remove that child-case reference from the link.`,
 				formLocation(ctx),
 				{
-					linkUuid,
+					linkUuid: ref.member.linkUuid,
 					surface,
-					access: access.broad ? "broad" : "exact",
-					...(datumId !== undefined && { datumId }),
+					access: "exact",
+					datumRef: datumRefKey(child),
+					...(id === undefined ? {} : { datumId: id }),
 				},
 			),
 		);
-	};
-
-	for (const link of links) {
-		if (link.condition !== undefined) {
-			flag(link.uuid, "condition", link.condition);
-		}
-		for (const datum of link.datums ?? []) {
-			flag(link.uuid, "carried value", datum.xpath);
-		}
 	}
 	return errors;
 }
@@ -239,37 +202,62 @@ function referencePartsReadCase(value: unknown): boolean {
 	);
 }
 
-function predicateAstReadsCase(
-	value: unknown,
-	root: "predicate" | "value-expression",
+/** Only a read of the selected scalar case is ambiguous. Independent casedb
+ * collections, explicit selected-case sets and their row-local reads stay distinct. */
+function expressionReadsSelectedCase(
+	doc: BlueprintDoc,
+	slot: ExpressionSlotRef,
+	expression: Expression,
 ): boolean {
-	if (typeof value !== "object" || value === null || !("kind" in value)) {
-		return false;
-	}
-	return root === "predicate"
-		? predicateReadsCaseData(value as Predicate)
-		: expressionReadsCaseData(value as ValueExpression);
-}
-
-function expressionSurfaceReadsCase(
-	kind: "xpath-ast" | "prose" | "predicate-ast",
-	value: unknown,
-	predicateRoot: boolean = false,
-): boolean {
-	return kind === "predicate-ast"
-		? predicateAstReadsCase(
-				value,
-				predicateRoot ? "predicate" : "value-expression",
+	const context = slotContext(doc, slot, new Map());
+	if (context === undefined) return false;
+	const root = activeRowScope(context);
+	let found = false;
+	walkExpression(expression, {
+		visitTerm(term, path) {
+			if (term.kind === "form-case") {
+				found = true;
+				return;
+			}
+			if (
+				term.kind === "session-datum" &&
+				term.datum.kind === "selected-case"
+			) {
+				const key = datumRefKey(term.datum);
+				if (
+					context.supplies.refs.some(
+						(supply) => datumRefKey(supply.ref) === key && !supply.scalar,
+					)
+				)
+					found = true;
+				return;
+			}
+			if (
+				root?.kind !== "case" ||
+				![
+					"prop",
+					"owner-location-at-level",
+					"case-row-type",
+					"case-index",
+				].includes(term.kind)
 			)
-		: referencePartsReadCase(value);
-}
-
-function formSlotHasPredicateRoot(slot: string): boolean {
-	return (
-		slot === "form_display_condition" ||
-		slot === "case_operation_condition" ||
-		slot === "case_operation_write_condition"
-	);
+				return;
+			if (
+				activeRowScope(expressionContextAtPath(expression, context, path)) ===
+				root
+			)
+				found = true;
+		},
+		visitRelation(_relation, path) {
+			if (
+				root?.kind === "case" &&
+				activeRowScope(expressionContextAtPath(expression, context, path)) ===
+					root
+			)
+				found = true;
+		},
+	});
+	return found;
 }
 
 /**
@@ -342,34 +330,36 @@ export function multiSelectFormSemantics(
 		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[fieldUuid];
 			if (field === undefined) continue;
+			const surfaces: string[] = [];
 			for (const slot of fieldReferenceSlotsFor(
 				field.kind,
 				field.kind === "repeat" ? field.repeat_mode : undefined,
 			)) {
+				if (slot.kind !== "prose") continue;
 				if (
-					slot.kind !== "xpath-ast" &&
-					slot.kind !== "prose" &&
-					slot.kind !== "predicate-ast"
-				) {
-					continue;
-				}
-				for (const entry of readSlotValues(field, slot.path)) {
-					if (!expressionSurfaceReadsCase(slot.kind, entry.value)) continue;
-					errors.push(
-						validationError(
-							"MULTI_SELECT_SHARED_CASE_EXPRESSION",
-							"field",
-							`Field "${field.id}" reads the selected case in its ${slot.slot.replaceAll("_", " ")}, but "${form.name}" runs once over a set of selected cases. Move that case-specific logic into a session-targeted case operation, or remove the selected-case reference.`,
-							{
-								...loc,
-								fieldUuid: field.uuid,
-								fieldId: field.id,
-							},
-							{ surface: slot.slot },
-						),
-					);
-				}
+					readSlotValues(field, slot.path).some((entry) =>
+						referencePartsReadCase(entry.value),
+					)
+				)
+					surfaces.push(slot.slot);
 			}
+			for (const { ref, expression } of expressionSlotValues(doc, {
+				entity: "field",
+				uuid: field.uuid,
+			})) {
+				if (expressionReadsSelectedCase(doc, ref, expression))
+					surfaces.push(ref.slot);
+			}
+			for (const surface of new Set(surfaces))
+				errors.push(
+					validationError(
+						"MULTI_SELECT_SHARED_CASE_EXPRESSION",
+						"field",
+						`Field "${field.id}" reads the selected case in its ${surface.replaceAll("_", " ")}, but "${form.name}" runs once over a set of selected cases. Move that case-specific logic into a session-targeted case operation, or remove the selected-case reference.`,
+						{ ...loc, fieldUuid: field.uuid, fieldId: field.id },
+						{ surface },
+					),
+				);
 			walkFields(fieldUuid);
 		}
 	};
@@ -378,58 +368,47 @@ export function multiSelectFormSemantics(
 		...fanoutChildDatumExpressionConsumers(doc, form, ctx, inventory),
 	);
 
-	for (const slot of FORM_REFERENCE_SLOTS) {
-		if (slot.kind !== "xpath-ast" && slot.kind !== "predicate-ast") {
-			continue;
-		}
-		for (const entry of readSlotValues(form, slot.path)) {
-			if (
-				!expressionSurfaceReadsCase(
-					slot.kind,
-					entry.value,
-					formSlotHasPredicateRoot(slot.slot),
-				)
-			) {
-				continue;
-			}
-			const operationIndex = entry.indices[0];
-			const formLink = slot.slot.startsWith("form_link_")
-				? form.formLinks?.[operationIndex ?? -1]
-				: undefined;
-			if (slot.slot.startsWith("case_operation_")) {
-				const operation =
-					operationIndex === undefined ? undefined : operations[operationIndex];
-				if (operation?.target.kind === "session") continue;
-				errors.push(
-					validationError(
-						"MULTI_SELECT_APP_OPERATION_CASE_READ",
-						"form",
-						`Case operation "${operation?.id ?? "unknown"}" runs once for the form, so its ${slot.slot.replaceAll("_", " ")} cannot read one selected case from a set. Target the loaded session case to run the operation once per selected case, or remove that case read.`,
-						loc,
-						{
-							surface: slot.slot,
-							...(operation !== undefined && {
-								operationUuid: operation.uuid,
-								operationId: operation.id,
-							}),
-						},
-					),
-				);
-				continue;
-			}
+	for (const { ref, expression } of expressionSlotValues(doc, {
+		entity: "form",
+		uuid: form.uuid,
+	})) {
+		if (!expressionReadsSelectedCase(doc, ref, expression)) continue;
+		if ("member" in ref && "operationUuid" in ref.member) {
+			const operationUuid = ref.member.operationUuid;
+			const operation = operations.find(
+				(candidate) => candidate.uuid === operationUuid,
+			);
+			if (operation?.target.kind === "session") continue;
 			errors.push(
 				validationError(
-					"MULTI_SELECT_SHARED_CASE_EXPRESSION",
+					"MULTI_SELECT_APP_OPERATION_CASE_READ",
 					"form",
-					`"${form.name}" reads the selected case in its ${slot.slot.replaceAll("_", " ")}, but the form runs once over a set of selected cases. Remove that selected-case reference or move the logic into a session-targeted case operation.`,
+					`Case operation "${operation?.id ?? "unknown"}" runs once for the form, so its ${ref.slot.replaceAll("_", " ")} cannot read one selected case from a set. Target the loaded session case to run the operation once per selected case, or remove that case read.`,
 					loc,
 					{
-						surface: slot.slot,
-						...(formLink !== undefined && { linkUuid: formLink.uuid }),
+						surface: ref.slot,
+						...(operation === undefined
+							? {}
+							: { operationUuid: operation.uuid, operationId: operation.id }),
 					},
 				),
 			);
+			continue;
 		}
+		errors.push(
+			validationError(
+				"MULTI_SELECT_SHARED_CASE_EXPRESSION",
+				"form",
+				`"${form.name}" reads the selected case in its ${ref.slot.replaceAll("_", " ")}, but the form runs once over a set of selected cases. Remove that selected-case reference or move the logic into a session-targeted case operation.`,
+				loc,
+				{
+					surface: ref.slot,
+					...("member" in ref && "linkUuid" in ref.member
+						? { linkUuid: ref.member.linkUuid }
+						: {}),
+				},
+			),
+		);
 	}
 
 	return errors;

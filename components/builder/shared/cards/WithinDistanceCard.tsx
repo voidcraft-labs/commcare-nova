@@ -2,10 +2,11 @@
 //
 // Renders the `within-distance` predicate. Property picker
 // (geopoint-typed only) + center-coordinate input (a Term-shaped
-// ValueExpression: typed-text via the picker) + numeric distance
+// Expression: typed-text via the picker) + numeric distance
 // + unit menu (miles / kilometers).
 
 "use client";
+
 import { useEffect, useId, useRef, useState } from "react";
 import { FieldError } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
@@ -16,17 +17,17 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
-	DISTANCE_UNITS,
 	type DistanceUnit,
 	distanceValidationIssue,
+	type Expression,
 	literal,
-	type Predicate,
 	type PropertyRef,
 	prop,
 	within,
 	withinCenterConstraint,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { positiveDistance } from "../distanceDraft";
 import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
@@ -36,7 +37,9 @@ import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
-const UNIT_LABELS: Record<DistanceUnit, string> = {
+const EDITABLE_DISTANCE_UNITS = ["miles", "kilometers"] as const;
+type EditableDistanceUnit = (typeof EDITABLE_DISTANCE_UNITS)[number];
+const UNIT_LABELS: Record<EditableDistanceUnit, string> = {
 	miles: "miles",
 	kilometers: "kilometers",
 };
@@ -54,7 +57,7 @@ const CENTER_CONSTRAINT = withinCenterConstraint();
 
 export function withinDistanceDefault(
 	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "within-distance" }> {
+): ExpressionOfKind<"within-distance"> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find((p) => p.data_type === "geopoint");
 	const propName = property?.name ?? "";
@@ -62,16 +65,44 @@ export function withinDistanceDefault(
 }
 
 interface WithinDistanceCardProps {
-	readonly value: Extract<Predicate, { kind: "within-distance" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"within-distance">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
-export function WithinDistanceCard({
+export function WithinDistanceCard(props: WithinDistanceCardProps) {
+	if (
+		typeof props.value.distance !== "number" ||
+		(props.value.unit !== "miles" && props.value.unit !== "kilometers")
+	)
+		return (
+			<p role="status">This saved expression cannot be edited here yet.</p>
+		);
+	return (
+		<EditableWithinDistanceCard
+			{...props}
+			value={{
+				...props.value,
+				distance: props.value.distance,
+				unit: props.value.unit,
+			}}
+		/>
+	);
+}
+
+function EditableWithinDistanceCard({
 	value,
 	onChange,
 	path,
-}: WithinDistanceCardProps) {
+}: Omit<WithinDistanceCardProps, "value"> & {
+	readonly value: Omit<
+		WithinDistanceCardProps["value"],
+		"distance" | "unit"
+	> & {
+		readonly distance: number;
+		readonly unit: EditableDistanceUnit;
+	};
+}) {
 	// Center errors render via the `ExpressionPicker` shell's
 	// `CardShell` footer at the matching slot path: rendering them
 	// here too would double the diagnostic row count.
@@ -89,7 +120,7 @@ export function WithinDistanceCard({
 		onChange(within(value.property, value.center, next, value.unit));
 	};
 
-	const setUnit = (unit: DistanceUnit) => {
+	const setUnit = (unit: EditableDistanceUnit) => {
 		onChange(within(value.property, value.center, value.distance, unit));
 	};
 
@@ -234,9 +265,9 @@ function UnitMenu({
 	distance,
 	setUnit,
 }: {
-	readonly unit: DistanceUnit;
+	readonly unit: EditableDistanceUnit;
 	readonly distance: number;
-	readonly setUnit: (unit: DistanceUnit) => void;
+	readonly setUnit: (unit: EditableDistanceUnit) => void;
 }) {
 	const errorId = useId();
 	const [errorState, setErrorState] = useState<{
@@ -279,7 +310,7 @@ function UnitMenu({
 					<SelectValue>{UNIT_LABELS[unit]}</SelectValue>
 				</SelectTrigger>
 				<SelectContent align="end">
-					{DISTANCE_UNITS.map((nextUnit) => (
+					{EDITABLE_DISTANCE_UNITS.map((nextUnit) => (
 						<SelectItem key={nextUnit} value={nextUnit}>
 							{UNIT_LABELS[nextUnit]}
 						</SelectItem>

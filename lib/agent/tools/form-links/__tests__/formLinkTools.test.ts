@@ -3,15 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import {
-	buildDoc,
-	caseListConfig,
-	f,
-	xp,
-	xpIn,
-} from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import type { BlueprintDoc, FormLink } from "@/lib/domain";
+import { eq, formField, literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { makeToolWorkspaceHarness } from "../../../__tests__/fixtures";
 import { getFormTool } from "../../getForm";
@@ -143,8 +138,8 @@ const otherwise = (
 });
 
 const address = { moduleUuid: INTAKE, formUuid: SOURCE };
-const conditional = (text: string, target: FormLink["target"] = toNote) => ({
-	condition: xp(text),
+const conditional = (value: number, target: FormLink["target"] = toNote) => ({
+	condition: eq(literal(value), literal(value)),
 	target,
 });
 
@@ -156,9 +151,7 @@ const errorOf = (result: { result: unknown }): string =>
 
 describe("form-link author boundary", () => {
 	it("admits the complete link shape and refuses what has no meaning", () => {
-		expect(formLinkInputSchema.safeParse(conditional("1 = 1")).success).toBe(
-			true,
-		);
+		expect(formLinkInputSchema.safeParse(conditional(1)).success).toBe(true);
 		expect(
 			formLinkInputSchema.safeParse({ condition: null, target: toCare })
 				.success,
@@ -166,7 +159,16 @@ describe("form-link author boundary", () => {
 		expect(
 			formLinkInputSchema.safeParse({
 				target: toVisit,
-				datums: [{ name: "case_id", xpath: xp("#patient/case_id") }],
+				datums: [
+					{
+						name: { kind: "selected-case" as const, module: CARE },
+						xpath: term({
+							kind: "form-case",
+							caseType: "patient",
+							property: "case_id",
+						}),
+					},
+				],
 			}).success,
 		).toBe(true);
 		// An empty datum list is not a state: it would be a second spelling of
@@ -179,8 +181,14 @@ describe("form-link author boundary", () => {
 			formLinkInputSchema.safeParse({
 				target: toVisit,
 				datums: [
-					{ name: "case_id", xpath: xp("1") },
-					{ name: "case_id", xpath: xp("2") },
+					{
+						name: { kind: "selected-case" as const, module: CARE },
+						xpath: term(literal(1)),
+					},
+					{
+						name: { kind: "selected-case" as const, module: CARE },
+						xpath: term(literal(2)),
+					},
 				],
 			}).success,
 		).toBe(false);
@@ -200,12 +208,12 @@ describe("form-link author boundary", () => {
 				addFormLinksInputSchema,
 				{
 					...address,
-					links: [{ linkUuid: L1, link: conditional("1 = 1") }],
+					links: [{ linkUuid: L1, link: conditional(1) }],
 					afterLinkUuid: null,
 				},
 				{
 					...address,
-					links: [{ link: conditional("1 = 1") }],
+					links: [{ link: conditional(1) }],
 					afterLinkUuid: 0,
 				},
 			],
@@ -240,8 +248,8 @@ describe("addFormLinks", () => {
 		const result = await h.runTool(addFormLinksTool, {
 			...address,
 			links: [
-				{ linkUuid: L2, link: conditional("2 = 2") },
-				{ linkUuid: L3, link: conditional("3 = 3", toVisit) },
+				{ linkUuid: L2, link: conditional(2) },
+				{ linkUuid: L3, link: conditional(3, toVisit) },
 			],
 			afterLinkUuid: null,
 		});
@@ -270,7 +278,7 @@ describe("addFormLinks", () => {
 		const refused = await h.runTool(addFormLinksTool, {
 			...address,
 			links: [
-				{ linkUuid: L1, link: conditional("1 = 1") },
+				{ linkUuid: L1, link: conditional(1) },
 				{
 					linkUuid: L2,
 					link: {
@@ -286,7 +294,7 @@ describe("addFormLinks", () => {
 		const accepted = await h.runTool(addFormLinksTool, {
 			...address,
 			links: [
-				{ linkUuid: L1, link: conditional("1 = 1") },
+				{ linkUuid: L1, link: conditional(1) },
 				{ linkUuid: L2, link: { target: toCare } },
 			],
 		});
@@ -299,7 +307,7 @@ describe("addFormLinks", () => {
 		const h = makeToolWorkspaceHarness(fixture());
 		const result = await h.runTool(addFormLinksTool, {
 			...address,
-			links: [{ linkUuid: L1, link: conditional("1 = 1") }],
+			links: [{ linkUuid: L1, link: conditional(1) }],
 		});
 
 		expect(result.result).toMatchObject({
@@ -314,7 +322,7 @@ describe("addFormLinks", () => {
 		const result = await h.runTool(addFormLinksTool, {
 			...address,
 			links: [
-				{ linkUuid: L1, link: conditional("1 = 1") },
+				{ linkUuid: L1, link: conditional(1) },
 				{ linkUuid: ELSE, link: { target: toCare } },
 			],
 		});
@@ -334,7 +342,7 @@ describe("addFormLinks", () => {
 		);
 		await h.runTool(addFormLinksTool, {
 			...address,
-			links: [{ linkUuid: L2, link: conditional("2 = 2") }],
+			links: [{ linkUuid: L2, link: conditional(2) }],
 		});
 		expect(order(h.currentDoc())).toEqual([L1, L2, ELSE]);
 	});
@@ -363,7 +371,7 @@ describe("addFormLinks", () => {
 		);
 		const result = await h.runTool(addFormLinksTool, {
 			...address,
-			links: [{ link: conditional("2 = 2") }],
+			links: [{ link: conditional(2) }],
 			afterLinkUuid: ELSE,
 		});
 		const error = errorOf(result);
@@ -377,7 +385,7 @@ describe("addFormLinks", () => {
 			...address,
 			links: [
 				{
-					link: conditional("1 = 1", {
+					link: conditional(1, {
 						type: "form",
 						moduleUuid: INTAKE,
 						formUuid: SOURCE,
@@ -389,7 +397,7 @@ describe("addFormLinks", () => {
 
 		const anchored = await h.runTool(addFormLinksTool, {
 			...address,
-			links: [{ link: conditional("1 = 1") }],
+			links: [{ link: conditional(1) }],
 			afterLinkUuid: L2,
 		});
 		expect(errorOf(anchored)).toContain(
@@ -400,13 +408,17 @@ describe("addFormLinks", () => {
 
 	it("lets the gate refuse a condition that reads a form answer", async () => {
 		const doc = fixture();
+		const caseName = Object.values(doc.fields).find(
+			(field) => field.id === "case_name",
+		);
+		if (caseName === undefined) throw new Error("Missing source form answer");
 		const h = makeToolWorkspaceHarness(doc);
 		const result = await h.runTool(addFormLinksTool, {
 			...address,
 			links: [
 				{
 					link: {
-						condition: xpIn(doc, SOURCE, "#form/case_name = 'x'"),
+						condition: eq(formField(caseName.uuid), literal("x")),
 						target: toNote,
 					},
 				},
@@ -417,7 +429,7 @@ describe("addFormLinks", () => {
 		expect(h.currentDoc().forms[SOURCE]?.postSubmit).toBeUndefined();
 	});
 
-	it("lets the gate refuse datums that leave out what the target needs", async () => {
+	it("lets the gate refuse a selected record the target does not request", async () => {
 		const h = makeToolWorkspaceHarness(fixture());
 		const result = await h.runTool(addFormLinksTool, {
 			...address,
@@ -425,13 +437,20 @@ describe("addFormLinks", () => {
 				{
 					link: {
 						target: toVisit,
-						datums: [{ name: "foo", xpath: xp("1") }],
+						datums: [
+							{
+								name: { kind: "selected-case", module: INTAKE },
+								xpath: term(literal("patient-1")),
+							},
+						],
 					},
 				},
 			],
 		});
 		const error = errorOf(result);
-		expect(error).toContain("foo");
+		expect(error).toContain(
+			"The destination no longer asks for this selected record.",
+		);
 		expect(order(h.currentDoc())).toEqual([]);
 	});
 });
@@ -444,7 +463,7 @@ describe("updateFormLink", () => {
 		const retarget = await h.runTool(updateFormLinkTool, {
 			...address,
 			linkUuid: L1,
-			link: conditional("1 = 1", toVisit),
+			link: conditional(1, toVisit),
 		});
 		expect(retarget.result).toMatchObject({
 			linkUuid: L1,
@@ -465,7 +484,16 @@ describe("updateFormLink", () => {
 
 	it("drops carried values the new destination no longer reads", async () => {
 		const h = makeToolWorkspaceHarness(fixture());
-		const datums = [{ name: "case_id", xpath: xp("#patient/case_id") }];
+		const datums = [
+			{
+				name: { kind: "selected-case" as const, module: CARE },
+				xpath: term({
+					kind: "form-case",
+					caseType: "patient",
+					property: "case_id",
+				}),
+			},
+		];
 		const added = await h.runTool(addFormLinksTool, {
 			...address,
 			links: [{ linkUuid: L1, link: { target: toVisit, datums } }],
@@ -511,7 +539,7 @@ describe("updateFormLink", () => {
 		const result = await h.runTool(updateFormLinkTool, {
 			...address,
 			linkUuid: ELSE,
-			link: conditional("2 = 2", toCare),
+			link: conditional(2, toCare),
 		});
 		expect(result.result).toMatchObject({ pinnedPostSubmit: "app_home" });
 		expect(h.currentDoc().forms[SOURCE]?.postSubmit).toBe("app_home");
@@ -522,7 +550,7 @@ describe("updateFormLink", () => {
 		const result = await h.runTool(updateFormLinkTool, {
 			...address,
 			linkUuid: L2,
-			link: conditional("1 = 1"),
+			link: conditional(1),
 		});
 		const error = errorOf(result);
 		expect(error).toContain(`No link with UUID "${L2}"`);

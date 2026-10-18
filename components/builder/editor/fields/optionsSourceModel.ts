@@ -10,13 +10,13 @@ import {
 	type LookupTableId,
 	type SelectOptionsSource,
 } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 export interface LookupSourceDraft {
 	readonly kind: "lookup";
 	readonly tableId: LookupTableId;
 	readonly valueColumnId?: LookupColumnId;
 	readonly labelColumnId?: LookupColumnId;
-	readonly filter?: Predicate;
+	readonly filter?: Expression;
 }
 
 export type SourceDraft =

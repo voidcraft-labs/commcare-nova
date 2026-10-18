@@ -6,7 +6,7 @@ import {
 	type SearchInputMode,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { ancestorPath, relationStep } from "@/lib/domain/predicate";
+import { ancestorPath, relationStep } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	admittedCaseListDoc,

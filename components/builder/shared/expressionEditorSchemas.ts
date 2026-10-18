@@ -1,13 +1,13 @@
 // components/builder/shared/expressionEditorSchemas.ts
 //
-// Declarative registry mapping every ValueExpression kind to its
+// Declarative registry mapping every Expression kind to its
 // card component, label, icon, default-value factory. Mirrors `editorSchemas.ts` (the
-// Predicate-side registry): both registries follow the same
+// Expression-side registry): both registries follow the same
 // per-kind shape so a single mapped-type guard catches a kind
 // added to the AST without a parallel UI entry.
 //
 // Why per-kind entries (instead of per-card-file entries): a card
-// COMPONENT can serve multiple ValueExpression kinds: `TodayCard`
+// COMPONENT can serve multiple Expression kinds: `TodayCard`
 // + `NowCard` share `DateConstantCards.tsx`, `DateCoerceCard` +
 // `DatetimeCoerceCard` share `DateCoerceCard.tsx`, but each kind
 // needs its own picker entry (label, icon, default-value,
@@ -36,10 +36,13 @@ import tablerVariable from "@iconify-icons/tabler/variable";
 import type { ComponentType } from "react";
 import type { CaseType, UserProperty, Uuid } from "@/lib/domain";
 import type {
+	Expression,
+	ExpressionContext,
+	ExpressionOfKind,
 	SearchInputDecl,
 	SlotConstraint,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+	ValueArm,
+} from "@/lib/domain/expression";
 import { ArithCard, arithDefault } from "./cards/expression/ArithCard";
 import { CoalesceCard, coalesceDefault } from "./cards/expression/CoalesceCard";
 import { ConcatCard, concatDefault } from "./cards/expression/ConcatCard";
@@ -61,6 +64,11 @@ import {
 	FormatDateCard,
 	formatDateDefault,
 } from "./cards/expression/FormatDateCard";
+import {
+	HereCard,
+	NegateCard,
+	ValueListCard,
+} from "./cards/expression/GeneralValueCards";
 import { IdOfCard, idOfDefault } from "./cards/expression/IdOfCard";
 import { IfCard, ifDefault } from "./cards/expression/IfCard";
 import {
@@ -84,12 +92,13 @@ import type {
 
 /**
  * Inputs available at the time `defaultValue` runs.
- * Reuses the same context shape as the Predicate-side editor, the
+ * Reuses the same context shape as the Expression-side editor, the
  * editor's React context provides values in this shape via
  * `usePredicateEditContext`. Reusing the type lets either editor
  * mount over the other's context without translation.
  */
 export interface ExpressionEditContext {
+	readonly expressionContext: ExpressionContext;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly SearchInputDecl[];
@@ -119,25 +128,36 @@ export interface OperationValueScope {
 }
 
 /**
- * One registry entry. Generic over `K` (the ValueExpression kind
+ * One registry entry. Generic over `K` (the Expression kind
  * discriminator) so each entry's `component` and `defaultValue`
  * carry the precise per-arm shape: `ArithCard`'s component
  * receives the `arith`-arm subtype, `IfCard`'s receives the
  * `if`-arm, etc. The signed exhaustiveness lives at the
- * `expressionCardSchemas` declaration (a `Record<ValueExpression["kind"],
+ * `expressionCardSchemas` declaration (a `Record<CardValueKind,
  * ...>`): adding a kind without an entry breaks the build.
  *
  * Contextual availability lives in isAuthorableExpressionKind and the actual
  * slot-choice planner in ExpressionPicker, without a parallel type oracle.
  */
-export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
+export type CardValueKind = Exclude<
+	ValueArm["kind"],
+	"call" | "itext" | "choice-name"
+>;
+
+export function isCardValue(
+	value: Expression,
+): value is ExpressionOfKind<CardValueKind> {
+	return Object.hasOwn(expressionCardSchemas, value.kind);
+}
+
+export interface ExpressionCardSchema<K extends CardValueKind> {
 	readonly kind: K;
 	readonly label: string;
 	readonly icon: IconifyIcon;
 	readonly description: string;
 	readonly component: ComponentType<{
-		readonly value: Extract<ValueExpression, { kind: K }>;
-		readonly onChange: (next: ValueExpression) => void;
+		readonly value: ExpressionOfKind<K>;
+		readonly onChange: (next: Expression) => void;
 		readonly path: readonly (string | number)[];
 		/** The slot's type constraint: the card computes its inner
 		 *  slots' constraints from it ("depends" kinds propagate it; the
@@ -145,23 +165,51 @@ export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
 		 *  `ANY_CONSTRAINT` when the dispatch shell omits it. */
 		readonly constraint?: SlotConstraint;
 	}>;
-	readonly defaultValue: (
-		ctx: ExpressionEditContext,
-	) => Extract<ValueExpression, { kind: K }>;
+	readonly defaultValue: (ctx: ExpressionEditContext) => ExpressionOfKind<K>;
 }
 
 // ── Registry ────────────────────────────────────────────────────────────
 
 /**
- * Per-kind editor schema keyed by `ValueExpression["kind"]`. The
+ * Per-kind editor schema keyed by `CardValueKind`. The
  * mapped-type shape forces TypeScript to fail compilation if a new
- * kind lands in the ValueExpression union without a parallel entry:
+ * kind lands in the Expression union without a parallel entry:
  * the registry's exhaustivity is the structural guarantee that
  * the editor never silently bypasses a kind.
  */
 export const expressionCardSchemas: {
-	readonly [K in ValueExpression["kind"]]: ExpressionCardSchema<K>;
+	readonly [K in CardValueKind]: ExpressionCardSchema<K>;
 } = {
+	negate: {
+		kind: "negate",
+		label: "Negative value",
+		icon: tablerCalculator,
+		description: "Reverse the sign of a number",
+		component: NegateCard,
+		defaultValue: () => ({
+			kind: "negate",
+			value: { kind: "term", term: { kind: "literal", value: 0 } },
+		}),
+	},
+	here: {
+		kind: "here",
+		label: "This value",
+		icon: tablerVariable,
+		description: "Use the value being evaluated",
+		component: HereCard,
+		defaultValue: () => ({ kind: "here" }),
+	},
+	"value-list": {
+		kind: "value-list",
+		label: "Values",
+		icon: tablerListSearch,
+		description: "A saved list of values",
+		component: ValueListCard,
+		defaultValue: () => ({
+			kind: "value-list",
+			items: [{ kind: "term", term: { kind: "literal", value: "" } }],
+		}),
+	},
 	// ── Term lift (universal value carrier) ─────────────────────────
 	term: {
 		kind: "term",
@@ -329,22 +377,23 @@ export const expressionCardSchemas: {
  * Convenience array: every schema in declaration order, used by the
  * kind-picker UI to render the menu.
  */
-export const expressionCardSchemaList: readonly ExpressionCardSchema<
-	ValueExpression["kind"]
->[] = Object.values(expressionCardSchemas) as readonly ExpressionCardSchema<
-	ValueExpression["kind"]
->[];
+export const expressionCardSchemaList: readonly ExpressionCardSchema<CardValueKind>[] =
+	Object.values(
+		expressionCardSchemas,
+	) as readonly ExpressionCardSchema<CardValueKind>[];
 
 /** Contextual vocabulary boundary for the three submission-local leaves and
  * table lookup. Every other registered kind is authorable everywhere its type
  * and execution target admit it. */
 export function isAuthorableExpressionKind(
-	kind: ValueExpression["kind"],
+	kind: CardValueKind,
 	ctx?: Pick<
 		ExpressionEditContext,
 		"operationScope" | "ownerValues" | "lookupTables" | "tableScope"
 	>,
 ): boolean {
+	if (kind === "negate" || kind === "here" || kind === "value-list")
+		return false;
 	if (kind === "id-of") {
 		return (ctx?.operationScope?.creates.length ?? 0) > 0;
 	}

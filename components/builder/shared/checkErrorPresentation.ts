@@ -13,7 +13,7 @@ import type {
 	CheckError,
 	CheckErrorCode,
 	CheckPath,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 
 type DiagnosticPresenter = (path: CheckPath) => string;
 
@@ -112,6 +112,19 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"text-value": () => "Choose text",
 	"expected-value": () => "Choose a value that fits this setting",
 	"constraint-value": () => "Choose a value that fits this setting",
+	"default-not-a-choice": () =>
+		"Choose a starting value from the available choices",
+	"arm-unavailable": () => "Choose a calculation available in this setting",
+	"case-data-unavailable": () =>
+		"Choose a value available before selecting a case",
+	"form-answer-unavailable": () =>
+		"Choose a form answer available in this setting",
+	"search-answer-unavailable": () =>
+		"Choose a Search answer available in this setting",
+	"row-scope": () => "Choose information from the row being checked",
+	"datum-not-supplied": () =>
+		"Choose information supplied when this screen opens",
+	"record-position": () => "Use position only while checking a list of records",
 };
 
 /**

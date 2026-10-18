@@ -28,11 +28,11 @@ import {
 	searchFirstOnMutations,
 } from "@/lib/doc/searchNoMatchesForm";
 import { simpleSearchInputDef } from "@/lib/domain";
+import { input, now, term } from "@/lib/domain/expression/builders";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { now } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { assertAdmittedDoc } from "./admittedDoc";
@@ -119,14 +119,7 @@ function fixture(
 											caseWrite: { caseType: "patient", property: "case_name" },
 											...(hasEntry
 												? {
-														default_value: {
-															parts: [
-																{
-																	kind: "search-answer-ref",
-																	searchInputUuid: NAME_INPUT,
-																},
-															],
-														},
+														default_value: term(input(NAME_INPUT)),
 													}
 												: {}),
 										}),
@@ -364,9 +357,7 @@ describe("noMatchesRegistrationFormMutations", () => {
 		]);
 		expect(fields[0]).toMatchObject({
 			caseWrite: { caseType: "patient", property: "case_name" },
-			default_value: {
-				parts: [{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT }],
-			},
+			default_value: term(input(NAME_INPUT)),
 		});
 		expect(planned.mutations).toContainEqual({
 			kind: "updateModule",
@@ -562,16 +553,12 @@ describe("searchAnswerFields", () => {
 		expect(fields[0]).toMatchObject({
 			label: proseText("Patient name"),
 			caseWrite: { caseType: "patient", property: "case_name" },
-			default_value: {
-				parts: [{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT }],
-			},
+			default_value: term(input(NAME_INPUT)),
 		});
 		// A hidden value is provenance of the search, saved under its own name.
 		expect(fields[1]).toMatchObject({
 			caseWrite: { caseType: "patient", property: "search_time" },
-			default_value: {
-				parts: [{ kind: "search-answer-ref", searchInputUuid: TIME_INPUT }],
-			},
+			default_value: term(input(TIME_INPUT)),
 		});
 		expect([...occupied]).toEqual(["case_name", "patient_name", "search_time"]);
 	});

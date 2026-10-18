@@ -5,7 +5,7 @@ import { textContent } from "domutils";
 import { decodeXML } from "entities";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	mutationCommitVerdict,
 	mutationCommitVerdictWithPrevalidation,
@@ -18,6 +18,7 @@ import {
 	collectTranslationUnits,
 	proseText,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression/builders";
 
 import { profileReferencesBuildSuite } from "../buildProfile";
 import { compileCcz } from "../compiler";
@@ -135,7 +136,7 @@ describe("XML admission and consumer boundaries", () => {
 						kind: "updateField",
 						uuid: field.uuid,
 						targetKind: "text",
-						patch: { default_value: xp(`'Value ${character}'`) },
+						patch: { default_value: term(literal(`Value ${character}`)) },
 					},
 				]) {
 					const verdict = gate(doc, [mutation], LOOKUP_CONTEXT_UNAVAILABLE);
@@ -208,7 +209,7 @@ describe("XML admission and consumer boundaries", () => {
 		const field = Object.values(doc.fields)[0];
 		if (field.kind !== "text") throw new Error("Wrong fixture kind");
 		field.label = proseText("é é العربية 汉字 😀 \u007f\u0085\u009f");
-		field.default_value = xp("'A\tB\nC\rD'");
+		field.default_value = term(literal("A\tB\nC\rD"));
 		blueprintDocSchema.parse(toPersistableDoc(doc));
 		expect(
 			evaluateCommit({

@@ -1,20 +1,25 @@
-import type {
-	Literal,
-	Predicate,
-	RelationPath,
-	Term,
-	TypeContext,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+import type { RecordQueryContext } from "@/lib/domain/expression/context";
+import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import {
+	type Expression,
+	isExpression,
+	isRelationPath,
+	type Literal,
+	type RelationPath,
+	type Term,
+} from "@/lib/domain/expression/types";
+import type { Uuid } from "@/lib/domain/uuid";
 import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
-import { queryValueType } from "./queryExpressions";
 
 export interface QueryPrintContext {
-	typeContext: TypeContext;
+	typeContext: RecordQueryContext;
 	forRelation(relation: RelationPath): QueryPrintContext;
 	forTable(tableId: string): QueryPrintContext;
-	/** Prefer names from the same scoped view used to resolve authored input. */
 	reference(term: Term): string | undefined;
+	choiceValues(
+		field: Uuid,
+		options: readonly Uuid[],
+	): readonly string[] | undefined;
 	name(
 		kind: "table" | "column" | "operation" | "location" | "level",
 		id: string,
@@ -32,24 +37,7 @@ const comparisonOperators = {
 };
 const call = (name: string, ...args: string[]) => `${name}(${args.join(", ")})`;
 
-/** XPath's number grammar has no exponent notation. */
-function numeric(value: number): string {
-	const text = String(value);
-	const [coefficient, exponent] = text.toLowerCase().split("e");
-	if (exponent === undefined) return text;
-	const sign = coefficient.startsWith("-") ? "-" : "";
-	const [integer, fraction = ""] = coefficient.slice(sign.length).split(".");
-	const digits = integer + fraction;
-	const point = integer.length + Number(exponent);
-	return (
-		sign +
-		(point <= 0
-			? `0.${"0".repeat(-point)}${digits}`
-			: point >= digits.length
-				? digits + "0".repeat(point - digits.length)
-				: `${digits.slice(0, point)}.${digits.slice(point)}`)
-	);
-}
+const numeric = formatNumeric;
 function literal(value: Literal): string {
 	const content =
 		typeof value.value === "string"
@@ -106,6 +94,8 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "form-case":
 				return `#${value.caseType}/${value.property}`;
 			case "prop":
+				if (value.caseType === undefined)
+					throw new Error("This record property has no scoped record type.");
 				return value.via === undefined
 					? call("property", quote(value.caseType), quote(value.property))
 					: call(
@@ -114,6 +104,16 @@ export function queryPrinter(context: QueryPrintContext) {
 							quote(value.property),
 							relation(value.via),
 						);
+			case "choice": {
+				const values = context.choiceValues(value.field, value.options);
+				if (values === undefined)
+					throw new Error("A saved choice no longer belongs to its question.");
+				return literal({ kind: "literal", value: values.join(" ") });
+			}
+			case "case-type":
+				return quote(value.caseType);
+			case "case-row-type":
+				return "record-type()";
 			case "input":
 				return call("search", quote(value.searchInputUuid));
 			case "field":
@@ -138,9 +138,13 @@ export function queryPrinter(context: QueryPrintContext) {
 					identity("level", value.levelUuid),
 					quote(value.ownerCaseType),
 				);
+			default:
+				throw new Error(
+					`The saved ${value.kind} reference has no record-dialect spelling.`,
+				);
 		}
 	}
-	function expression(value: ValueExpression): string {
+	function expression(value: Expression): string {
 		switch (value.kind) {
 			case "term":
 				return term(value.term);
@@ -172,16 +176,11 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "double":
 				return call("number", expression(value.value));
 			case "arith":
-				if (
-					value.op === "div" &&
-					queryValueType(value, context.typeContext) === "int"
-				)
-					return call(
-						"quotient",
-						expression(value.left),
-						expression(value.right),
-					);
-				return `(${expression(value.left)} ${value.op} ${expression(value.right)})`;
+				return value.op === "quotient"
+					? call("quotient", expression(value.left), expression(value.right))
+					: `(${expression(value.left)} ${value.op} ${expression(value.right)})`;
+			case "negate":
+				return `-(${expression(value.value)})`;
 			case "concat":
 				return call(value.kind, ...value.parts.map(expression));
 			case "coalesce":
@@ -198,12 +197,14 @@ export function queryPrinter(context: QueryPrintContext) {
 					value.kind,
 					expression(value.on),
 					...value.cases.flatMap((entry) => [
-						literal(entry.when),
+						term(entry.when),
 						expression(entry.then),
 					]),
 					expression(value.fallback),
 				);
 			case "count":
+				if (!isRelationPath(value.via))
+					throw new Error("A record count needs a relationship.");
 				return call(
 					value.kind,
 					relation(value.via),
@@ -216,10 +217,20 @@ export function queryPrinter(context: QueryPrintContext) {
 							]),
 				);
 			case "format-date":
-				return call(value.kind, expression(value.date), quote(value.pattern));
+				return call(
+					value.kind,
+					expression(value.date),
+					typeof value.pattern === "string"
+						? quote(value.pattern)
+						: expression(value.pattern),
+				);
+			default:
+				throw new Error(
+					`The saved ${value.kind} tree has no record value spelling.`,
+				);
 		}
 	}
-	function predicate(value: Predicate): string {
+	function predicate(value: Expression): string {
 		switch (value.kind) {
 			case "eq":
 			case "neq":
@@ -244,20 +255,30 @@ export function queryPrinter(context: QueryPrintContext) {
 				return call(
 					value.kind,
 					expression(value.left),
-					...value.values.map(literal),
+					...value.values.map(term),
 				);
 			case "within-distance":
 				return call(
 					value.kind,
 					term(value.property),
 					expression(value.center),
-					numeric(value.distance),
-					quote(value.unit),
+					typeof value.distance === "number"
+						? numeric(value.distance)
+						: expression(value.distance),
+					typeof value.unit === "string"
+						? quote(value.unit)
+						: expression(value.unit),
 				);
 			case "is-blank":
 				return call(value.kind, expression(value.left));
 			case "matches-pattern":
-				return call(value.kind, expression(value.left), quote(value.pattern));
+				return call(
+					value.kind,
+					expression(value.left),
+					typeof value.pattern === "string"
+						? quote(value.pattern)
+						: expression(value.pattern),
+				);
 			case "between":
 				return call(
 					value.kind,
@@ -268,12 +289,22 @@ export function queryPrinter(context: QueryPrintContext) {
 					`${value.upperInclusive}()`,
 				);
 			case "match":
-				return call(value.mode, term(value.property), expression(value.value));
+				return call(
+					value.mode,
+					isExpression(value.property)
+						? expression(value.property)
+						: term(value.property),
+					expression(value.value),
+				);
 			case "multi-select-contains":
 				return call(
 					value.quantifier === "any" ? "selected-any" : "selected-all",
-					term(value.property),
-					...value.values.map(literal),
+					isExpression(value.property)
+						? expression(value.property)
+						: term(value.property),
+					...value.values.map((value) =>
+						isExpression(value) ? expression(value) : term(value),
+					),
 				);
 			case "when-input-present":
 				return call(
@@ -293,6 +324,10 @@ export function queryPrinter(context: QueryPrintContext) {
 									value.where,
 								),
 							]),
+				);
+			default:
+				throw new Error(
+					`The saved ${value.kind} tree has no record condition spelling.`,
 				);
 		}
 	}

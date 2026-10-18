@@ -11,7 +11,12 @@ import {
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { eq, literal, sessionContext, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	literal,
+	sessionContext,
+	term,
+} from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const CONDITION = eq(term(sessionContext("username")), term(literal("nurse")));

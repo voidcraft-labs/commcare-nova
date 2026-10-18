@@ -19,7 +19,7 @@ import {
 	type CasePropertyDataType,
 	type CaseType,
 } from "@/lib/domain";
-import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
+import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import type { JsonObject, JsonValue } from "../sql/database";
 import type { CaseInsert } from "../store";
 import type { SampleCaseGenerator, SampleGeneratorArgs } from "./generator";

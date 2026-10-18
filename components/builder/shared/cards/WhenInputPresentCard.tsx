@@ -6,6 +6,7 @@
 // when the user typed in the input").
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerSwitch from "@iconify-icons/tabler/switch";
@@ -20,13 +21,14 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import type { Uuid } from "@/lib/domain";
-import { humanizeId } from "@/lib/domain/idSlug";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	input as buildInput,
+	type Expression,
 	matchAll,
-	type Predicate,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { humanizeId } from "@/lib/domain/idSlug";
 import { firstConditionSeed } from "../conditionSeed";
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
@@ -37,7 +39,7 @@ import { ChildPredicateEditor } from "./ChildPredicateEditor";
 
 export function whenInputPresentDefault(
 	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "when-input-present" }> {
+): ExpressionOfKind<"when-input-present"> {
 	const firstInput = ctx.knownInputs[0];
 	if (firstInput === undefined) {
 		throw new Error(
@@ -51,8 +53,8 @@ export function whenInputPresentDefault(
 }
 
 interface WhenInputPresentCardProps {
-	readonly value: Extract<Predicate, { kind: "when-input-present" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"when-input-present">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
@@ -70,7 +72,7 @@ export function WhenInputPresentCard({
 		onChange(whenInput(buildInput(uuid), value.clause));
 	};
 
-	const setClause = (next: Predicate) => {
+	const setClause = (next: Expression) => {
 		onChange(whenInput(value.input, next));
 	};
 

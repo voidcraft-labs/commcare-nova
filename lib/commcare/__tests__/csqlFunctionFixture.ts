@@ -3,14 +3,11 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
+	type BlueprintDoc,
 	blueprintDocSchema,
 	proseText,
+	type SearchInputDef,
 } from "@/lib/domain";
-import {
-	lookupColumnIdSchema,
-	lookupRowIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
 import {
 	ancestorPath,
 	and,
@@ -32,13 +29,20 @@ import {
 	prop,
 	relationStep,
 	sessionUser,
+	slotContext,
 	subcasePath,
 	tableColumn,
 	tableLookup,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import {
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
+import type { CsqlEmissionContext } from "../expression/csqlRuntimeExpression";
 import { buildLookupFixtures } from "../lookup/fixtures";
 import { lookupWireNaming } from "../lookup/naming";
 import { runValidation } from "../validator/runner";
@@ -98,6 +102,38 @@ export const functionLookupFixtures = buildLookupFixtures(
 		],
 	]),
 );
+
+/** Compiler tests use the same selected Search carrier as complete exports. */
+export function csqlFixtureContext(
+	doc: BlueprintDoc = csqlArgumentFixture(),
+): CsqlEmissionContext {
+	const types = slotContext(
+		doc,
+		{ entity: "module", uuid: doc.moduleOrder[0], slot: "case_list_filter" },
+		new Map([
+			[tableId, new Map(columns.map((column) => [column.id, column.dataType]))],
+		]),
+	);
+	if (types === undefined)
+		throw new Error("The CSQL fixture has no Search filter carrier.");
+	return {
+		types,
+		bindings: {
+			lookup: { naming: functionLookupNaming, instanceScope: "suite" },
+		},
+	};
+}
+
+export function csqlInputContext(
+	searchInputs: SearchInputDef[],
+): CsqlEmissionContext {
+	const doc = csqlArgumentFixture();
+	const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+	if (config === undefined)
+		throw new Error("The CSQL fixture has no Search configuration.");
+	config.searchInputs = searchInputs;
+	return csqlFixtureContext(doc);
+}
 
 export function csqlFunctionFixture() {
 	const doc = searchEmissionFixture("remote");

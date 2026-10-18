@@ -25,6 +25,10 @@ import { datetimeEquality } from "./documents/datetimeEquality";
 import { datetimeOperands } from "./documents/datetimeOperands";
 import { datetimeOrdering } from "./documents/datetimeOrdering";
 import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
+import {
+	expressionPropertyRenames,
+	expressionRenames,
+} from "./documents/expressionRenames";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
 import { formLinksHiddenFallback } from "./documents/formLinksHiddenFallback";
 import {
@@ -44,16 +48,23 @@ import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
 import { multiSelectDestinations } from "./documents/multiSelectDestinations";
+import {
+	formLinkSessionReads,
+	nestedMenuSessionReads,
+	tileSessionReads,
+} from "./documents/nativeSessionReads";
 import { noMatchesReturnIdentity } from "./documents/noMatchesReturnIdentity";
 import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
 import {
+	listFirstPlaces,
 	listFirstWebApps,
 	searchDefaultFilterName,
 	searchHqCompile,
 	searchRelatedLookups,
 	syncOnFormEntry,
 } from "./documents/searchApps";
+import { sessionReads } from "./documents/sessionReads";
 import { sharedPropertySort } from "./documents/sortKeys";
 import {
 	parentFormPreviousFrame,
@@ -111,6 +122,13 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hiddenCalculatedColumn,
 	tileHiddenOrder,
 	hiddenFromMenu,
+	listFirstPlaces,
+	sessionReads,
+	expressionRenames,
+	expressionPropertyRenames,
+	formLinkSessionReads,
+	nestedMenuSessionReads,
+	tileSessionReads,
 ];
 
 /** Every targeted document, in a fixed order. */

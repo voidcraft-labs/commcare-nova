@@ -1,114 +1,40 @@
-/**
- * Deep XPath validation — Lezer-based syntax, semantics, and reference checking.
- *
- * Operates directly on the normalized `BlueprintDoc`. Validates every XPath
- * expression on every field via a Lezer tree walk (syntax + semantics),
- * detects dependency cycles, and checks case-property references.
- *
- * Called by `runner.ts`, which maps the TYPED `DeepValidationError` union
- * below into the user-facing `ValidationError` shape. The two modules share
- * a typed contract — there is no prose serialization between them, so the
- * runner never re-parses a message to recover a code, a location, or which
- * surface failed.
- */
-
-import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
+/** Typed form-expression validation. Stored expressions go directly through
+ * the shared checker; source parsing belongs to the authoring boundary. */
 import {
 	type BlueprintDoc,
-	CONNECT_XPATH_SLOT_IDS,
-	type ConnectXPathSlotId,
-	caseRefAcceptMap,
-	expressionSurfaceReads,
-	type Field,
+	type ConnectExpressionSlotId,
+	expressionSlotValues,
+	type FieldFormLogicSlotId,
 	type FieldProseSlotId,
-	type FieldXPathSlotId,
-	FORM_LINK_XPATH_SLOT_IDS,
-	type FormLinkXPathSlotId,
-	fieldPathResolver,
+	type FormLinkExpressionSlotId,
 	fieldRegistry,
-	formExpressionSource,
-	formExpressionSourceEntries,
-	formExpressionValue,
-	isConnectLearnConfig,
-	isNoMatchesForm,
-	moduleUuidOfForm,
 	type ProseTemplate,
-	projectXPath,
-	reachableCaseTypes,
-	searchInputNameResolver,
-	toReachableIndex,
+	proseSurfaceReads,
 	type Uuid,
-	type XPathExpression,
-	type XPathSearchAnswerRefPart,
-	xpathPrintContext,
 } from "@/lib/domain";
 import {
-	buildFieldTree,
-	type FieldTreeNode,
-} from "@/lib/preview/engine/fieldTree";
+	type LookupTypeIndex,
+	slotContext,
+} from "@/lib/domain/expression/context";
+import { checkExpression } from "@/lib/domain/expression/typeChecker";
+import {
+	datumRefKey,
+	type ProseSlotRef,
+	type Term,
+} from "@/lib/domain/expression/types";
+import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type CycleReport, TriggerDag } from "@/lib/preview/engine/triggerDag";
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
-import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
-	findTimeOrderingComparisons,
-	TIME_ORDERING_MESSAGE,
-} from "./timeOrdering";
-import {
-	checkCaseHashtag,
-	SESSION_FORM_READ_MESSAGE,
-	validateXPath,
-	type XPathError,
-} from "./xpathValidator";
-
-/**
- * The XPath-bearing surfaces deep validation walks on a field — the
- * reference-slot registry's xpath projection, which the walk iterates via
- * `expressionSurfaceReads`. Each maps to a user-facing label at render time
- * (`runner.ts::SURFACE_LABELS`). Keeping this a closed union (not a bare
- * string) means a new registry slot can't enter the walk without the runner
- * being forced to give it a label.
- */
-export type XPathSurface = FieldXPathSlotId;
-
-/**
- * The Connect-block XPath slots (Connect mode only) — the registry's
- * `connect.*` form-slot projection. A closed union for the same reason as
- * `XPathSurface`: the runner owns the display label.
- */
-export type ConnectXPathSlot = ConnectXPathSlotId;
-
-/** Form-link XPath carriers — condition and per-datum XPath. */
-export type FormLinkXPathSlot = FormLinkXPathSlotId;
-
-/**
- * The PROSE surfaces deep validation scans for embedded `#<type>/<prop>`
- * hashtag refs — the registry's prose projection. These aren't XPath —
- * they're natural-language label / hint / help / validate-error text (plus
- * per-option labels on selects) that lower their inline hashtags to
- * `<output value>` at emit. A closed union for the same reason as
- * `XPathSurface`: the runner owns the display label.
- */
+	type FormLogicFinding,
+	formLogicFinding,
+	formLogicFindings,
+} from "./formLogicFindings";
+import { semanticCheckErrors } from "./lookupTypeContext";
+export type XPathSurface = FieldFormLogicSlotId;
+export type ConnectXPathSlot = ConnectExpressionSlotId;
+export type FormLinkXPathSlot = FormLinkExpressionSlotId;
 export type ProseSurface = FieldProseSlotId;
-
-/**
- * A validation scope — which entities a scoped diagnostic run walks. App-level rules
- * always run regardless of scope (they're cheap and their findings are
- * app-anchored); module rules run for modules in `moduleUuids`; form-level
- * work (form rules, field rules, deep XPath validation) runs only for forms
- * named in `formUuids`. The two axes are deliberately independent: a case
- * writer can change the effective property catalog consumed by several
- * modules without changing any form below those modules.
- *
- * An ABSENT scope means a full run. A PRESENT scope with empty/absent sets
- * is meaningful — it runs app rules only (e.g. a pure module reorder, which
- * can't change any module/form-level finding).
- *
- * Absolute commit and boundary gates never supply this option. The Builder may
- * use it only for a conservatively classified mutation footprint over a prior
- * valid snapshot; app-wide and lookup rules still run, and every unclassified
- * edit falls back to the absolute gate. The scoped-run ≡ full-run-filtered law
- * is documented at `runner.ts::errorWithinScope` and property-tested.
- */
 export interface ValidationScope {
 	readonly moduleUuids?: ReadonlySet<Uuid>;
 	readonly formUuids?: ReadonlySet<Uuid>;
@@ -135,32 +61,6 @@ export function scopeHasForm(
 	return scope === undefined || (scope.formUuids?.has(formUuid) ?? false);
 }
 
-/** One print context per document the validator reads. */
-/**
- * Each ordering on a time of day in one stored slot, as the slot's XPath
- * findings (`timeOrdering.ts`).
- */
-function timeOrderingErrors(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	expr: XPathExpression | undefined,
-): XPathError[] {
-	if (expr === undefined) return [];
-	return findTimeOrderingComparisons(expr, { doc, formUuid }).map(
-		(finding): XPathError => ({
-			code: "XPATH_TIME_ORDERING",
-			message: TIME_ORDERING_MESSAGE,
-			position: finding.from,
-		}),
-	);
-}
-
-/**
- * The location every deep error carries — resolved DURING the walk from the
- * uuid-indexed doc, never re-derived afterward by matching a name. Both the
- * module/form uuids AND their display names travel together so the runner
- * needs no second lookup.
- */
 interface DeepLocation {
 	moduleUuid: Uuid;
 	moduleName: string;
@@ -171,7 +71,7 @@ interface DeepLocation {
 /**
  * A single deep-validation finding, fully typed. Three shapes:
  *   - `field-xpath` — an XPath error on a specific field surface; carries the
- *     field's uuid + id, the `surface`, and the underlying typed `XPathError`.
+ *     field's uuid + id, the `surface`, and the underlying typed `FormLogicFinding`.
  *   - `connect-xpath` — an XPath error in a Connect-block slot.
  *   - `cycle` — a dependency cycle among authored field expressions in one
  *     form, including defaults, lookup-choice filters, and the relevance
@@ -185,19 +85,19 @@ export type DeepValidationError =
 			fieldUuid: Uuid;
 			fieldId: string;
 			surface: XPathSurface;
-			error: XPathError;
+			error: FormLogicFinding;
 	  })
 	| (DeepLocation & {
 			kind: "field-prose";
 			fieldUuid: Uuid;
 			fieldId: string;
 			surface: ProseSurface;
-			error: XPathError;
+			error: FormLogicFinding;
 	  })
 	| (DeepLocation & {
 			kind: "connect-xpath";
 			slot: ConnectXPathSlot;
-			error: XPathError;
+			error: FormLogicFinding;
 	  })
 	| (DeepLocation & {
 			kind: "form-link-xpath";
@@ -205,7 +105,7 @@ export type DeepValidationError =
 			indices: readonly number[];
 			/** The link the slot belongs to; absent only when the index is stale. */
 			linkUuid?: Uuid;
-			error: XPathError;
+			error: FormLogicFinding;
 	  })
 	| (DeepLocation & {
 			kind: "cycle";
@@ -214,766 +114,223 @@ export type DeepValidationError =
 			countFeedback?: string;
 	  });
 
-/**
- * Classify an INVALID_REF whose identity leaf no longer resolves, so the
- * runner can render the repair that actually fixes it
- * (`XPathError.storedRef`). A dangling identity has an internal diagnostic
- * projection using its bare uuid (`#form/<uuid>` / `/data/<uuid>`) —
- * `"dangling-identity"`:
- *     the printed text is an internal id, not a path a person can look
- *     up, so the runner must not present it as one.
- *
- * A failing ref matching neither keeps the generic prose. The dangling
- * check needs no doc resolution: a resolved leaf prints its current path,
- * so a bare UUID spelling exists exactly when resolution failed.
- */
-function classifyStoredRef(
-	expr: XPathExpression | undefined,
-	failingRef: string | undefined,
-): "dangling-identity" | undefined {
-	if (expr === undefined || failingRef === undefined) return undefined;
-	for (const part of expr.parts) {
-		if (part.kind === "field-ref" || part.kind === "path-ref") {
-			if (
-				failingRef === `/data/${part.uuid}` ||
-				failingRef === `#form/${part.uuid}`
-			) {
-				return "dangling-identity";
-			}
-		}
-	}
-	return undefined;
-}
-
-/** Stamp `storedRef` onto an INVALID_REF the slot's stored AST can
- *  explain; every other error passes through untouched. */
-function withStoredRef(
-	error: XPathError,
-	expr: XPathExpression | undefined,
-): XPathError {
-	if (error.code !== "INVALID_REF") return error;
-	const storedRef = classifyStoredRef(expr, error.ref);
-	return storedRef === undefined ? error : { ...error, storedRef };
-}
-
-/** A session-scoped slot (an after-submit link) has no form paths to read. */
-const SESSION_VALID_PATHS: Set<string> = new Set();
-
-/**
- * A `search-answer-ref` is readable in exactly one place: a no-matches
- * registration form, naming a Search prompt of its own module. Anywhere
- * else the running app has no search-input instance to read, so the leaf
- * is refused before the round-trip check (whose generic message would
- * otherwise name the wrong cause).
- */
-function searchAnswerRefError(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	expr: XPathExpression,
-): XPathError | undefined {
-	const refs = expr.parts.filter(
-		(part): part is XPathSearchAnswerRefPart =>
-			part.kind === "search-answer-ref",
-	);
-	if (refs.length === 0) return undefined;
-	const form = doc.forms[formUuid];
-	if (form === undefined || !isNoMatchesForm(form)) {
-		return {
-			code: "INVALID_SEARCH_REF",
-			message:
-				"reads a search answer, but only a form that opens after a search finds no matches can read one. Set this form's entry to search-no-matches, or drop the #search/ reference.",
-		};
-	}
-	const moduleUuid = moduleUuidOfForm(doc, formUuid);
-	const inputs =
-		moduleUuid === undefined
-			? []
-			: (doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? []);
-	for (const ref of refs) {
-		if (inputs.some((input) => input.uuid === ref.searchInputUuid)) continue;
-		return {
-			code: "INVALID_SEARCH_REF",
-			message:
-				"reads a Search prompt this module no longer has. Point it at one of the module's current Search prompts, or drop the #search/ reference.",
-			storedRef: "dangling-identity",
-		};
-	}
-	return undefined;
-}
-
-function canonicalXPathError(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	text: string,
-	expr: XPathExpression | undefined,
-	validPaths: ReadonlySet<string>,
-): XPathError | undefined {
-	if (expr === undefined) {
-		return {
-			code: "INVALID_REF",
-			message: "This expression is not stored as Nova's canonical XPath AST.",
-		};
-	}
-	const searchRefError = searchAnswerRefError(doc, formUuid, expr);
-	if (searchRefError !== undefined) return searchRefError;
-	const projection = projectXPath(expr, xpathPrintContext(doc));
-	if (!projection.ok) {
-		const danglingField = projection.unresolved.some(
-			(part) => part.kind === "field-ref" || part.kind === "path-ref",
-		);
-		return {
-			code: "INVALID_REF",
-			message: "An identity-backed reference no longer resolves in this app.",
-			...(danglingField && { storedRef: "dangling-identity" as const }),
-		};
-	}
-	const userProperties = Object.values(doc.userProperties ?? {});
-	const parsed = parseXPathExpressionWithIssues(
-		text,
-		fieldPathResolver(doc, formUuid),
-		(slug) => {
-			const matches = userProperties.filter(
-				(property) => property?.slug === slug,
-			);
-			return matches.length === 1 ? matches[0]?.uuid : undefined;
-		},
-		searchInputNameResolver(doc, formUuid),
-	);
-	/**
-	 * Connect injects wrapper/session nodes that are real `/data/...` paths on
-	 * the emitted form but are not Nova-owned field entities. Their external
-	 * wire name is therefore the identity: there is deliberately no UUID leaf
-	 * to store. Admit only an exact path already present in this form's
-	 * validator-owned path catalog. Ordinary field paths never reach this arm
-	 * because the form resolver turns them into `field-ref` / `path-ref`
-	 * identities first.
-	 */
-	const externalPath = (source: string): string | undefined =>
-		source.startsWith("/data/")
-			? source
-			: source.startsWith("#form/")
-				? `/data/${source.slice("#form/".length)}`
-				: undefined;
-	const issue = parsed.issues.find((candidate) => {
-		if (candidate.kind !== "unresolved-reference") return true;
-		const path = externalPath(candidate.source);
-		return path === undefined || !validPaths.has(path);
-	});
-	if (issue !== undefined) {
-		const ref =
-			issue.kind === "unresolved-reference"
-				? externalPath(issue.source)
-				: undefined;
-		const leaf = ref?.slice(ref.lastIndexOf("/") + 1);
-		const suggestions =
-			ref === undefined || leaf === undefined
-				? []
-				: [...validPaths]
-						.filter(
-							(path) =>
-								path !== ref && path.slice(path.lastIndexOf("/") + 1) === leaf,
-						)
-						.sort();
-		return {
-			code: issue.kind === "syntax" ? "XPATH_SYNTAX" : "INVALID_REF",
-			message:
-				issue.kind === "syntax"
-					? `Syntax error near "${issue.source}"`
-					: `Reference "${issue.source}" must resolve to one canonical identity in this form.`,
-			position: issue.from,
-			...(ref !== undefined && { ref }),
-			...(suggestions.length > 0 && { suggestions }),
-		};
-	}
-	// AST identity is structural: mutation admission re-serializes stored
-	// values with sorted object keys, so the stored part and the freshly
-	// parsed part may spell the same identity in different key orders
-	// (`case-ref` is the one XPath arm whose sorted order differs from its
-	// schema order). Both sides canonicalize before comparison; the printed
-	// TEXT comparison below stays byte-exact.
-	if (
-		canonicalJsonText(parsed.expression) !== canonicalJsonText(expr) ||
-		projectXPath(parsed.expression, xpathPrintContext(doc)).text !== text
-	) {
-		return {
-			code: "INVALID_REF",
-			message:
-				"This expression does not survive Nova's canonical identity parse and print round trip.",
-		};
-	}
-	return undefined;
-}
-
-/**
- * Walk a field subtree (rooted at `parentUuid`) and collect every valid
- * `/data/...` path that XPath expressions may reference. The prefix is
- * extended by each container's `id` as the walk recurses.
- */
-function collectValidPaths(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-	prefix = "/data",
-): Set<string> {
-	const paths = new Set<string>();
-	const order = doc.fieldOrder[parentUuid] ?? [];
-	for (const uuid of order) {
-		const field = doc.fields[uuid];
-		if (!field) continue;
-		const path = `${prefix}/${field.id}`;
-		paths.add(path);
-		// Container kinds (group, repeat) carry a fieldOrder entry — recurse
-		// under their semantic `id` segment.
-		if (doc.fieldOrder[uuid] !== undefined) {
-			for (const p of collectValidPaths(doc, uuid, path)) paths.add(p);
-		}
-	}
-	return paths;
-}
-
-function collectTreeFieldUuids(nodes: readonly FieldTreeNode[]): Set<Uuid> {
-	const uuids = new Set<Uuid>();
-	const visit = (entries: readonly FieldTreeNode[]) => {
-		for (const node of entries) {
-			uuids.add(node.field.uuid);
-			if (node.children) visit(node.children);
-		}
-	};
-	visit(nodes);
-	return uuids;
-}
-
-/**
- * Deep validation: walks every form, builds the valid path set + per-case-type
- * accept map per form, validates every XPath expression, and runs cycle
- * detection via `TriggerDag`. Returns a flat array of TYPED
- * `DeepValidationError`s — `runner.ts` projects each into the user-facing
- * `ValidationError` shape by switching on `kind`, never by parsing prose.
- */
 export function validateBlueprintDeep(
 	doc: BlueprintDoc,
 	scope?: ValidationScope,
+	lookupTables: LookupTypeIndex = new Map(),
 ): DeepValidationError[] {
 	const errors: DeepValidationError[] = [];
-
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
-		// Scope filter — restrict WHICH forms are walked, never post-filter
-		// findings (the deep walk's Lezer parses are the expensive part, so
-		// skipping the walk is the point). Module-rule scope is independent;
-		// only directly named forms enter the deep walk.
-		const allForms = doc.formOrder[moduleUuid] ?? [];
-		const scopedForms =
-			scope === undefined
-				? allForms
-				: allForms.filter((formUuid) =>
-						scopeHasForm(scope, moduleUuid, formUuid),
-					);
-		if (scopedForms.length === 0) continue;
-
-		// The case types every form in this module can READ (own + ancestors),
-		// keyed by name. Built once per module from `doc.caseTypes`; the
-		// per-form accept map below narrows it by form type. Reads from the
-		// case-type records — the same authoritative source the editor's lint
-		// context uses — so authoring and deep validation agree on `#<type>/<prop>`.
-		const caseTypeIndex = mod.caseType
-			? toReachableIndex(
-					reachableCaseTypes(mod.caseType, doc.caseTypes ?? []),
-					doc,
-				)
-			: undefined;
-
-		for (const formUuid of scopedForms) {
+		if (mod === undefined) continue;
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			if (!scopeHasForm(scope, moduleUuid, formUuid)) continue;
 			const form = doc.forms[formUuid];
-			const tree = buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
-
-			// Mirror `caseTypePropsForValidation`'s form-type-narrowing rule:
-			// a registration form exposes only the own type's `case_id`, a survey
-			// form exposes nothing (it loads no case), and followup / close forms
-			// expose each reachable type's full property set.
-			const isRegistrationForm = form.type === "registration";
-			const caseTypeProps = caseTypeIndex
-				? caseRefAcceptMap(caseTypeIndex, form.type)
-				: undefined;
-			const sessionCaseTypeProps = caseTypeIndex
-				? caseRefAcceptMap(caseTypeIndex, form.type, "session")
-				: undefined;
-
-			// The uuid-anchored location every finding in this form carries.
-			// Built once here from the indices we're already iterating, so no
-			// downstream code re-resolves a uuid from a name.
+			if (form === undefined) continue;
 			const loc: DeepLocation = {
 				moduleUuid,
 				moduleName: mod.name,
 				formUuid,
 				formName: form.name,
 			};
-
-			const validPaths = collectValidPaths(doc, formUuid);
-			const validFieldUuids = collectTreeFieldUuids(tree);
-
-			// The form's complete Connect config, only when the app is in
-			// Connect mode.
-			const connect = doc.connectType ? form.connect : undefined;
-
-			// Expose Connect data paths so XPath expressions can reference them.
-			if (connect) {
-				if (isConnectLearnConfig(connect)) {
-					if (connect.learn_module) {
-						validPaths.add(`/data/${connect.learn_module.id}`);
-					}
-					if (connect.assessment) {
-						validPaths.add(
-							`/data/${connect.assessment.id}/assessment/user_score`,
-						);
-					}
-				} else {
-					if (connect.deliver_unit) {
-						const duId = connect.deliver_unit.id;
-						validPaths.add(`/data/${duId}/deliver/entity_id`);
-						validPaths.add(`/data/${duId}/deliver/entity_name`);
-					}
-					if (connect.task) {
-						validPaths.add(`/data/${connect.task.id}`);
-					}
-				}
-			}
-
-			// Form-link condition and datum XPath are canonical authored carriers
-			// just like field and Connect expressions. They fan out over arrays,
-			// so preserve their indices for an actionable form-level finding.
-			for (const slot of FORM_LINK_XPATH_SLOT_IDS) {
-				for (const read of formExpressionSourceEntries(form, slot, doc)) {
-					const linkUuid = form.formLinks?.[read.indices[0] ?? -1]?.uuid;
-					if (read.text.trim().length === 0) {
-						if (slot === "form_link_datum_xpath") {
-							errors.push({
-								...loc,
-								kind: "form-link-xpath",
-								slot,
-								indices: read.indices,
-								...(linkUuid !== undefined && { linkUuid }),
-								error: {
-									code: "XPATH_SYNTAX",
-									message: "A form-link datum XPath must not be empty",
-									position: 0,
-								},
-							});
-						}
+			const tree = buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
+			const structure = slotContext(
+				doc,
+				{ entity: "form", uuid: formUuid, slot: "form_display_condition" },
+				lookupTables,
+			)?.form;
+			for (const fieldUuid of structure?.fields.keys() ?? []) {
+				const field = doc.fields[fieldUuid];
+				if (field === undefined) continue;
+				for (const { ref, expression } of expressionSlotValues(doc, {
+					entity: "field",
+					uuid: fieldUuid,
+				})) {
+					if (ref.entity !== "field" || ref.slot === "lookup_options_source")
 						continue;
-					}
-					const formLocalReference = read.expr?.parts.find(
-						(part) => part.kind === "field-ref" || part.kind === "path-ref",
-					);
-					if (formLocalReference !== undefined) {
+					const ctx = slotContext(doc, ref, lookupTables);
+					const findings =
+						ctx === undefined
+							? [
+									{
+										code: "TYPE_ERROR" as const,
+										message: "This expression has no valid owning slot.",
+									},
+								]
+							: formLogicFindings(expression, ctx);
+					for (const error of findings)
 						errors.push({
 							...loc,
-							kind: "form-link-xpath",
-							slot,
-							indices: read.indices,
-							...(linkUuid !== undefined && { linkUuid }),
-							error: {
-								code: "INVALID_REF",
-								message: SESSION_FORM_READ_MESSAGE,
-							},
-						});
-						continue;
-					}
-					const canonicalError = canonicalXPathError(
-						doc,
-						formUuid,
-						read.text,
-						read.expr,
-						SESSION_VALID_PATHS,
-					);
-					if (canonicalError !== undefined) {
-						errors.push({
-							...loc,
-							kind: "form-link-xpath",
-							slot,
-							indices: read.indices,
-							...(linkUuid !== undefined && { linkUuid }),
-							error: canonicalError,
-						});
-						continue;
-					}
-					// Session scope: no form paths, no context node, and the
-					// accept set of a link (a registration form's new case exists
-					// by the time its links run, so no narrowing applies there).
-					for (const error of validateXPath(
-						read.text,
-						SESSION_VALID_PATHS,
-						sessionCaseTypeProps,
-						false,
-						"session",
-					)) {
-						errors.push({
-							...loc,
-							kind: "form-link-xpath",
-							slot,
-							indices: read.indices,
-							...(linkUuid !== undefined && { linkUuid }),
-							error: withStoredRef(error, read.expr),
-						});
-					}
-					for (const error of timeOrderingErrors(doc, formUuid, read.expr)) {
-						errors.push({
-							...loc,
-							kind: "form-link-xpath",
-							slot,
-							indices: read.indices,
-							...(linkUuid !== undefined && { linkUuid }),
+							kind: "field-xpath",
+							fieldUuid,
+							fieldId: field.id,
+							surface: ref.slot,
 							error,
 						});
-					}
 				}
-			}
-
-			// Per-field XPath validation — recursive walk over the tree.
-			validateTreeXPath(
-				doc,
-				tree,
-				validPaths,
-				caseTypeProps,
-				isRegistrationForm,
-				loc,
-				errors,
-			);
-
-			// Per-field PROSE validation — the deep validator's XPath walk
-			// never visits label / hint / help / validate_msg / option
-			// labels, so an unreachable or typo'd `#<type>/<prop>` ref in
-			// prose (`#mothre/code`, a child-type `#child/name`) ships
-			// unflagged — the emitter correctly leaves it as literal text
-			// (no wire break), but the author gets no signal. Reuse the SAME
-			// per-form accept map and `checkCaseHashtag` rule the XPath pass
-			// uses, so prose and XPath can never disagree on which refs are
-			// live. Field/custom-worker identities are validated even on a
-			// survey form; an empty case map simply admits no case refs.
-			validateTreeProse(
-				doc,
-				tree,
-				validPaths,
-				validFieldUuids,
-				caseTypeProps ?? new Map(),
-				isRegistrationForm,
-				loc,
-				errors,
-			);
-
-			// Connect-block XPath expressions. The expressions themselves
-			// (`user_score`, `entity_id`, `entity_name`) are id-independent, so
-			// reading them off the doc via the expression accessor matches the
-			// resolved config. Each entry carries a TYPED `ConnectXPathSlot`,
-			// not a prose label.
-			if (connect) {
-				for (const slot of CONNECT_XPATH_SLOT_IDS) {
-					const expr = formExpressionValue(form, slot);
-					const text =
-						expr === undefined
-							? formExpressionSource(form, slot, doc)
-							: projectXPath(expr, xpathPrintContext(doc)).text;
-					if (!text) continue;
-					const canonicalError = canonicalXPathError(
-						doc,
-						formUuid,
-						text,
-						expr,
-						validPaths,
-					);
-					if (canonicalError !== undefined) {
+				for (const { slot, template, indices } of proseSurfaceReads(
+					field,
+					doc,
+				)) {
+					const option =
+						slot === "option_label" &&
+						"optionsSource" in field &&
+						field.optionsSource.kind === "inline"
+							? field.optionsSource.options[indices[0]]
+							: undefined;
+					let ref: ProseSlotRef;
+					if (slot === "option_label") {
+						if (option === undefined)
+							throw new Error(
+								"The prose registry returned a missing option member.",
+							);
+						ref = {
+							entity: "field",
+							uuid: fieldUuid,
+							slot,
+							member: { optionUuid: option.uuid },
+						};
+					} else ref = { entity: "field", uuid: fieldUuid, slot };
+					const ctx = slotContext(doc, ref, lookupTables);
+					const push = (error: FormLogicFinding) =>
 						errors.push({
 							...loc,
-							kind: "connect-xpath",
-							slot,
-							error: canonicalError,
+							kind: "field-prose",
+							fieldUuid,
+							fieldId: field.id,
+							surface: slot,
+							error,
+						});
+					if (!proseTemplateSurvivesTiptapRoundTrip(template)) {
+						push({
+							code: "PROSE_EDITOR_ROUND_TRIP_LOSS",
+							message:
+								"This text changes when Nova's reference editor reads and writes it.",
 						});
 						continue;
 					}
-					for (const error of validateXPath(
-						text,
-						validPaths,
-						caseTypeProps,
-						isRegistrationForm,
-						"form",
-						"wire-form",
-					)) {
-						errors.push({
-							...loc,
-							kind: "connect-xpath",
-							slot,
-							error: withStoredRef(error, expr),
+					if (ctx === undefined) {
+						push({
+							code: "INVALID_REF",
+							message: "This text has no valid owning slot.",
 						});
+						continue;
 					}
-					for (const error of timeOrderingErrors(doc, formUuid, expr)) {
-						errors.push({ ...loc, kind: "connect-xpath", slot, error });
+					for (const part of template.parts) {
+						const term = proseTerm(part);
+						if (term === undefined) continue;
+						if (
+							term.kind === "field" &&
+							doc.fields[term.uuid] !== undefined &&
+							fieldRegistry[doc.fields[term.uuid].kind].isStructural
+						) {
+							push({
+								code: "INVALID_REF",
+								message:
+									"Text can read an answer, but cannot display a whole group or repeat.",
+							});
+							continue;
+						}
+						for (const error of semanticCheckErrors(
+							checkExpression({ kind: "term", term }, ctx),
+						))
+							push(formLogicFinding(error, ctx, { kind: "term", term }));
 					}
 				}
 			}
-
-			// Cycle detection runs on the engine's `FieldTreeNode` shape — the
-			// same rose tree we already built. `reportCycles` adds the
-			// authoring-only default and relevance-cascade dependencies without
-			// changing Preview's incremental runtime DAG. The cycle (a list of
-			// generic paths) travels structured; the runner formats it.
-			const dag = new TriggerDag();
-			for (const { path, cascade, countFeedback } of dag.reportCycles(
-				tree,
-				doc,
-			)) {
+			for (const { ref, expression } of expressionSlotValues(doc, {
+				entity: "form",
+				uuid: formUuid,
+			})) {
+				if (ref.entity !== "form") continue;
+				if (
+					ref.slot !== "assessment_user_score" &&
+					ref.slot !== "deliver_entity_id" &&
+					ref.slot !== "deliver_entity_name" &&
+					ref.slot !== "form_link_condition" &&
+					ref.slot !== "form_link_datum_xpath"
+				)
+					continue;
+				const ctx = slotContext(doc, ref, lookupTables);
+				const findings =
+					ctx === undefined
+						? [
+								{
+									code: "TYPE_ERROR" as const,
+									message: "This expression has no valid owning slot.",
+								},
+							]
+						: formLogicFindings(expression, ctx);
+				for (const error of findings) {
+					if (
+						ref.slot === "form_link_condition" ||
+						ref.slot === "form_link_datum_xpath"
+					) {
+						const linkIndex =
+							form.formLinks?.findIndex(
+								(link) => link.uuid === ref.member.linkUuid,
+							) ?? -1;
+						const datumIndex =
+							ref.slot === "form_link_datum_xpath"
+								? (form.formLinks?.[linkIndex]?.datums?.findIndex(
+										(datum) =>
+											datumRefKey(datum.name) === datumRefKey(ref.member.datum),
+									) ?? -1)
+								: undefined;
+						errors.push({
+							...loc,
+							kind: "form-link-xpath",
+							slot: ref.slot,
+							indices:
+								datumIndex === undefined
+									? [linkIndex]
+									: [linkIndex, datumIndex],
+							linkUuid: ref.member.linkUuid,
+							error,
+						});
+					} else
+						errors.push({
+							...loc,
+							kind: "connect-xpath",
+							slot: ref.slot,
+							error,
+						});
+				}
+			}
+			for (const {
+				path,
+				cascade,
+				countFeedback,
+			} of new TriggerDag().reportCycles(tree, doc, formUuid))
 				errors.push({
 					...loc,
 					kind: "cycle",
 					cycle: path,
-					...(countFeedback !== undefined && { countFeedback }),
-					...(cascade !== undefined && { cascade }),
+					...(cascade === undefined ? {} : { cascade }),
+					...(countFeedback === undefined ? {} : { countFeedback }),
 				});
-			}
 		}
 	}
-
 	return errors;
 }
-
-/**
- * Recursively validate every XPath expression on every field in the
- * provided rose tree, pushing a TYPED `field-xpath` `DeepValidationError`
- * per finding — the field's uuid + id, which `surface` failed, and the
- * underlying `XPathError` all travel structured to the runner.
- */
-function validateTreeXPath(
-	doc: BlueprintDoc,
-	nodes: FieldTreeNode[],
-	validPaths: Set<string>,
-	caseTypeProps: Map<string, Set<string>> | undefined,
-	isRegistrationForm: boolean,
-	loc: DeepLocation,
-	errors: DeepValidationError[],
-): void {
-	// Small helper so every push site reads the same: the surface + the
-	// field identity are the only things that vary per call.
-	const pushFieldError = (
-		field: Field,
-		surface: XPathSurface,
-		error: XPathError,
-	): void => {
-		errors.push({
-			...loc,
-			kind: "field-xpath",
-			fieldUuid: field.uuid,
-			fieldId: field.id,
-			surface,
-			error,
-		});
-	};
-
-	for (const node of nodes) {
-		// The registry's per-kind xpath projection (narrowed by
-		// `repeat_mode` for repeats) drives the walk, so a new
-		// expression-bearing slot enters validation by being registered,
-		// never by extending a hand-rolled key list here.
-		for (const { slot, text, expr } of expressionSurfaceReads(
-			node.field,
-			"xpath",
-			doc,
-		)) {
-			// Blank-skip policy is per slot: empty `repeat_count` /
-			// `ids_query` values (including whitespace-only — hence trim)
-			// are caught by `EMPTY_REPEAT_COUNT` / `EMPTY_IDS_QUERY` at the
-			// field-rule layer, so skipping them here avoids
-			// double-reporting a single empty value. The flat slots have no
-			// empty-rule twin and keep the plain emptiness check.
-			const blank =
-				slot === "repeat_count" || slot === "ids_query"
-					? text.trim().length === 0
-					: text.length === 0;
-			if (blank) continue;
-			const canonicalError = canonicalXPathError(
-				doc,
-				loc.formUuid,
-				text,
-				expr,
-				validPaths,
-			);
-			if (canonicalError !== undefined) {
-				pushFieldError(node.field, slot, withStoredRef(canonicalError, expr));
-				continue;
-			}
-			for (const error of validateXPath(
-				text,
-				validPaths,
-				caseTypeProps,
-				isRegistrationForm,
-			)) {
-				pushFieldError(node.field, slot, withStoredRef(error, expr));
-			}
-			for (const error of timeOrderingErrors(doc, loc.formUuid, expr)) {
-				pushFieldError(node.field, slot, error);
-			}
-		}
-		if (node.children) {
-			validateTreeXPath(
-				doc,
-				node.children,
-				validPaths,
-				caseTypeProps,
-				isRegistrationForm,
-				loc,
-				errors,
-			);
-		}
-	}
-}
-
-/**
- * Recursively validate the typed parts in every canonical prose template.
- * Literal text is inert even when it looks like a hashtag reference.
- */
-function validateTreeProse(
-	doc: BlueprintDoc,
-	nodes: FieldTreeNode[],
-	validPaths: Set<string>,
-	validFieldUuids: Set<Uuid>,
-	caseTypeProps: Map<string, Set<string>>,
-	isRegistrationForm: boolean,
-	loc: DeepLocation,
-	errors: DeepValidationError[],
-): void {
-	const scan = (
-		field: Field,
-		surface: ProseSurface,
-		template: ProseTemplate | undefined,
-	): void => {
-		if (!template) return;
-		if (!proseTemplateSurvivesTiptapRoundTrip(template)) {
-			errors.push({
-				...loc,
-				kind: "field-prose",
-				fieldUuid: field.uuid,
-				fieldId: field.id,
-				surface,
-				error: {
-					code: "PROSE_EDITOR_ROUND_TRIP_LOSS",
-					message:
-						"This text changes when Nova's reference editor reads and writes it",
-				},
-			});
-			return;
-		}
-		const print = xpathPrintContext(doc);
-		for (const [partIndex, part] of template.parts.entries()) {
-			let error: XPathError | undefined;
-			switch (part.kind) {
-				case "text":
-					break;
-				case "field-ref": {
-					const path = print.fieldPathSegments(part.uuid);
-					const ref = path ? `/data/${path.join("/")}` : `/data/${part.uuid}`;
-					const target = doc.fields[part.uuid];
-					if (
-						!path ||
-						!validPaths.has(ref) ||
-						!validFieldUuids.has(part.uuid) ||
-						target === undefined ||
-						fieldRegistry[target.kind].isStructural
-					) {
-						error = {
-							code: "INVALID_REF",
-							message: `Unknown form field reference: ${ref}`,
-							position: partIndex,
-							ref,
-							storedRef: "dangling-identity",
-						};
-					}
-					break;
-				}
-				case "case-ref": {
-					const refText = `#${part.caseType}/${part.property}`;
-					const message = checkCaseHashtag(
-						refText,
-						part.caseType,
-						part.property,
-						caseTypeProps,
-						isRegistrationForm,
-						"prose",
-					);
-					if (message) {
-						error = {
-							code: "INVALID_CASE_REF",
-							message,
-							position: partIndex,
-						};
-					}
-					break;
-				}
-				case "user-property-ref":
-					if (doc.userProperties?.[part.userPropertyUuid] === undefined) {
-						error = {
-							code: "INVALID_REF",
-							message: `Unknown worker information reference: ${part.userPropertyUuid}`,
-							position: partIndex,
-							ref: part.userPropertyUuid,
-							storedRef: "dangling-identity",
-						};
-					}
-					break;
-				case "user-ref":
-					if (
-						Object.values(doc.userProperties ?? {}).some(
-							(property) =>
-								property?.slug.toLowerCase() === part.property.toLowerCase(),
-						)
-					) {
-						error = {
-							code: "INVALID_REF",
-							message:
-								"This worker information name belongs to the app and must use its stable identity-backed reference.",
-							position: partIndex,
-							ref: `#user/${part.property}`,
-						};
-					}
-					break;
-				default: {
-					const _exhaustive: never = part;
-					break;
-				}
-			}
-			if (error) {
-				errors.push({
-					...loc,
-					kind: "field-prose",
-					fieldUuid: field.uuid,
-					fieldId: field.id,
-					surface,
-					error,
-				});
-			}
-		}
-	};
-
-	for (const node of nodes) {
-		const field = node.field;
-		// The registry's per-kind prose projection drives the walk —
-		// including the fan-out `option_label` slot, whose per-option
-		// labels lower to itext just like a field label, so an embedded
-		// case ref there must resolve too.
-		for (const { slot, template } of expressionSurfaceReads(
-			field,
-			"prose",
-			doc,
-		)) {
-			scan(field, slot, template);
-		}
-		if (node.children) {
-			validateTreeProse(
-				doc,
-				node.children,
-				validPaths,
-				validFieldUuids,
-				caseTypeProps,
-				isRegistrationForm,
-				loc,
-				errors,
-			);
-		}
+function proseTerm(part: ProseTemplate["parts"][number]): Term | undefined {
+	switch (part.kind) {
+		case "text":
+			return undefined;
+		case "field-ref":
+			return { kind: "field", uuid: part.uuid };
+		case "case-ref":
+			return {
+				kind: "form-case",
+				caseType: part.caseType,
+				property: part.property,
+			};
+		case "user-property-ref":
+			return {
+				kind: "session-user-property",
+				userPropertyUuid: part.userPropertyUuid,
+			};
+		case "user-ref":
+			return { kind: "session-user", field: part.property };
 	}
 }

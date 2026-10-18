@@ -1,14 +1,14 @@
 // components/builder/shared/cards/expression/DateAddCard.tsx
 //
-// Renders the `date-add` ValueExpression: `date + (interval ×
+// Renders the `date-add` Expression: `date + (interval ×
 // quantity)`. Three slots:
 //
-//   - `date`: `ValueExpression` resolving to a date or datetime.
+//   - `date`: `Expression` resolving to a date or datetime.
 //     Recursive `ExpressionPicker` so authors can compose `today() +
 //     7 days`, `prop(...) - 1 month`, etc.
 //   - `interval`: closed enum (`seconds` / `minutes` / `hours` /
 //     `days` / `weeks` / `months` / `years`). Plain dropdown.
-//   - `quantity`: `ValueExpression` resolving to a numeric type.
+//   - `quantity`: `Expression` resolving to a numeric type.
 //     Recursive `ExpressionPicker` keyed to `int` / `decimal`.
 //
 // Type-checker rules (per `checkExpression`'s `case "date-add"`):
@@ -19,6 +19,7 @@
 //     captures it inline.
 
 "use client";
+
 import {
 	Select,
 	SelectContent,
@@ -26,19 +27,20 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	ANY_CONSTRAINT,
 	DATE_ADD_INTERVALS,
 	type DateAddInterval,
 	dateAdd,
 	dateAddOperandConstraint,
+	type Expression,
 	literal,
 	numericConstraint,
 	type SlotConstraint,
 	term,
 	today,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { usePredicateEditContext } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
@@ -64,13 +66,13 @@ const INTERVAL_LABELS: Record<DateAddInterval, string> = {
  *  type checker validates both operands so the default lands clean. */
 export function dateAddDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "date-add" }> {
+): ExpressionOfKind<"date-add"> {
 	return dateAdd(today(), "days", term(literal(7)));
 }
 
 interface DateAddCardProps {
-	readonly value: Extract<ValueExpression, { kind: "date-add" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"date-add">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 	/** `date-add` returns the exact type of its date operand, so the parent
 	 *  result constraint must narrow that operand to date or datetime. */
@@ -89,7 +91,7 @@ export function DateAddCard({
 	// emits at `[..., "date"]` and `[..., "quantity"]`; the picker
 	// mounted at each slot looks up the same path.
 
-	const setDate = (next: ValueExpression) => {
+	const setDate = (next: Expression) => {
 		onChange(dateAdd(next, value.interval, value.quantity));
 	};
 
@@ -97,7 +99,7 @@ export function DateAddCard({
 		onChange(dateAdd(value.date, next, value.quantity));
 	};
 
-	const setQuantity = (next: ValueExpression) => {
+	const setQuantity = (next: Expression) => {
 		onChange(dateAdd(value.date, value.interval, next));
 	};
 	const parentDateConstraint = dateAddOperandConstraint(constraint);

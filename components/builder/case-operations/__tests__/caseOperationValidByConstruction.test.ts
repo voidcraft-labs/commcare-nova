@@ -1,3 +1,4 @@
+import { scalarDataType, typeOf } from "@/lib/domain/expression";
 /** Finite menu/seed corpus for the case-operation surface, checked against
  * the complete absolute commit gate. These are local editor candidates, not
  * native device or exhaustive app proofs. No finding class is exempted. */
@@ -12,11 +13,9 @@ import {
 	verbEntryAdmitted,
 } from "@/components/builder/shared/cards/PredicateVerbMenu";
 import {
-	caseDataScopeAdmission,
 	type PredicateEditContext,
 	predicateCardSchemas,
 } from "@/components/builder/shared/editorSchemas";
-import { buildEditorTypeContext } from "@/components/builder/shared/editorTypeContext";
 import {
 	type ExpressionEditContext,
 	expressionCardSchemaList,
@@ -30,6 +29,7 @@ import { defaultExpressionForSlot } from "@/components/builder/shared/primitives
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { evaluateCommit } from "@/lib/commcare/validator/gate";
 import { formFieldEntriesFor } from "@/lib/doc/formFieldEntries";
+import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import { isReservedCaseOperationProperty } from "@/lib/doc/identifierVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -46,18 +46,18 @@ import {
 	actingUser,
 	admitsValueExpressionKind,
 	checkExpression,
-	checkPredicate,
-	checkValueExpression,
 	dateLiteral,
+	type Expression,
+	type ExpressionContext,
+	type ExpressionSlotRef,
 	eq,
 	literal,
-	type Predicate,
-	type ResolvedType,
+	type ScalarType,
 	type SlotConstraint,
+	slotContext,
 	storageAssignmentConstraint,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	caseOperationRuntimeTargetConstraint,
@@ -234,6 +234,12 @@ function editorVocabulary(shape: ReturnType<typeof fixture>) {
 		formFields: operationFormFieldDecls(entries, undefined),
 		operationScope: { creates: [{ uuid: CREATE, label: "create_visit" }] },
 		caseDataScope: operationCaseDataScope(shape.sessionCaseAvailable),
+		expressionContext: operationContext(shape, subjectOperation(), {
+			entity: "form",
+			uuid: shape.formUuid,
+			slot: "case_operation_condition",
+			member: { operationUuid: SUBJECT },
+		}),
 	} as const;
 }
 
@@ -267,6 +273,27 @@ function subjectOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 	};
 }
 
+function operationContext(
+	shape: ReturnType<typeof fixture>,
+	operation: CaseOperation,
+	ref: ExpressionSlotRef,
+): ExpressionContext {
+	const doc = {
+		...shape.doc,
+		forms: {
+			...shape.doc.forms,
+			[shape.formUuid]: {
+				...shape.doc.forms[shape.formUuid],
+				caseOperations: [priorCreate(), operation],
+			},
+		},
+	};
+	const context = slotContext(doc, ref, new Map());
+	if (context === undefined)
+		throw new Error("The operation fixture has no expression slot.");
+	return context;
+}
+
 /** Every finding the commit gate would report for this operation. */
 function gateFindings(
 	shape: ReturnType<typeof fixture>,
@@ -289,11 +316,13 @@ function gateFindings(
 // ── The slots ──────────────────────────────────────────────────────────
 
 interface PredicateSlot {
+	readonly reference: (formUuid: Uuid) => ExpressionSlotRef;
 	readonly name: string;
-	readonly place: (candidate: Predicate) => CaseOperation;
+	readonly place: (candidate: Expression) => CaseOperation;
 }
 
 interface ExpressionSlot {
+	readonly reference: (formUuid: Uuid) => ExpressionSlotRef;
 	readonly name: string;
 	readonly constraint: SlotConstraint;
 	/** A runtime target mounts a DIFFERENT operation scope from every
@@ -308,16 +337,28 @@ interface ExpressionSlot {
 	 */
 	readonly ownerValues: boolean;
 	/** Place one already-admitted expression in its actual operation facet. */
-	readonly place: (candidate: ValueExpression) => CaseOperation;
+	readonly place: (candidate: Expression) => CaseOperation;
 }
 
 const PREDICATE_SLOTS: readonly PredicateSlot[] = [
 	{
 		name: "when this runs",
+		reference: (formUuid) => ({
+			entity: "form",
+			uuid: formUuid,
+			slot: "case_operation_condition",
+			member: { operationUuid: SUBJECT },
+		}),
 		place: (condition) => subjectOperation({ condition }),
 	},
 	{
 		name: "when a write is saved",
+		reference: (formUuid) => ({
+			entity: "form",
+			uuid: formUuid,
+			slot: "case_operation_write_condition",
+			member: { operationUuid: SUBJECT, property: "note" },
+		}),
 		place: (condition) =>
 			subjectOperation({
 				writes: [{ property: "note", value: term(literal("x")), condition }],
@@ -333,6 +374,12 @@ const TEXT_FACET = caseOperationTextConstraint();
 const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 	{
 		name: "which case to change",
+		reference: (formUuid) => ({
+			entity: "form",
+			uuid: formUuid,
+			slot: "case_operation_target_expression",
+			member: { operationUuid: SUBJECT },
+		}),
 		constraint: caseOperationRuntimeTargetConstraint(),
 		runtimeTarget: true,
 		ownerValues: false,
@@ -340,6 +387,12 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 	},
 	{
 		name: "a link's runtime target",
+		reference: (formUuid) => ({
+			entity: "form",
+			uuid: formUuid,
+			slot: "case_operation_link_target_expression",
+			member: { operationUuid: SUBJECT, identifier: "parent" },
+		}),
 		constraint: caseOperationRuntimeTargetConstraint(),
 		runtimeTarget: true,
 		ownerValues: false,
@@ -357,6 +410,12 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 	},
 	{
 		name: "the case's name",
+		reference: (formUuid) => ({
+			entity: "form",
+			uuid: formUuid,
+			slot: "case_operation_name",
+			member: { operationUuid: SUBJECT },
+		}),
 		constraint: TEXT_FACET,
 		runtimeTarget: false,
 		ownerValues: false,
@@ -370,6 +429,12 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 	},
 	{
 		name: "give the case a new name",
+		reference: (formUuid) => ({
+			entity: "form",
+			uuid: formUuid,
+			slot: "case_operation_rename",
+			member: { operationUuid: SUBJECT },
+		}),
 		constraint: TEXT_FACET,
 		runtimeTarget: false,
 		ownerValues: false,
@@ -377,6 +442,12 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 	},
 	{
 		name: "who owns the case",
+		reference: (formUuid) => ({
+			entity: "form",
+			uuid: formUuid,
+			slot: "case_operation_owner",
+			member: { operationUuid: SUBJECT },
+		}),
 		constraint: TEXT_FACET,
 		runtimeTarget: false,
 		ownerValues: true,
@@ -384,6 +455,12 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 	},
 	{
 		name: "what it saves",
+		reference: (formUuid) => ({
+			entity: "form",
+			uuid: formUuid,
+			slot: "case_operation_write_value",
+			member: { operationUuid: SUBJECT, property: "note" },
+		}),
 		constraint: TEXT_STORAGE,
 		runtimeTarget: false,
 		ownerValues: false,
@@ -420,18 +497,18 @@ describe("case-operation fixtures", () => {
 	);
 });
 
-// ── 1. Predicate slots ─────────────────────────────────────────────────
+// ── 1. Expression slots ─────────────────────────────────────────────────
 
 describe("offered condition corpus passes the complete commit gate", () => {
 	it.each(SHAPES)("$label", ({ kind }) => {
 		const shape = fixture(kind);
 		const vocabulary = editorVocabulary(shape);
 		const editCtx: PredicateEditContext = vocabulary;
-		const typeCtx = buildEditorTypeContext(vocabulary);
+		const typeCtx = vocabulary.expressionContext;
 
 		// Representative CURRENTs an author can already be looking at, so the
 		// verb menu is driven from real starting points rather than one.
-		const currents: Predicate[] = [
+		const currents: Expression[] = [
 			firstComparisonDefault(editCtx),
 			eq(term(literal("a")), term(literal("a"))),
 			...(shape.sessionCaseAvailable
@@ -442,7 +519,7 @@ describe("offered condition corpus passes the complete commit gate", () => {
 								term: { kind: "prop", caseType: "patient", property: "score" },
 							},
 							term(literal(5)),
-						) as Predicate,
+						) as Expression,
 					]
 				: []),
 			eq(term({ kind: "field", uuid: NUMBER }), term(literal(5))),
@@ -455,7 +532,7 @@ describe("offered condition corpus passes the complete commit gate", () => {
 		// `within-distance` are reachable only as VERB switches on an
 		// existing condition, and their registry seeds are deliberately
 		// incomplete (a match against an empty value matches nothing).
-		const candidates: { readonly why: string; readonly value: Predicate }[] = [
+		const candidates: { readonly why: string; readonly value: Expression }[] = [
 			{
 				why: "Add condition → Compare case information",
 				value: firstComparisonDefault(editCtx),
@@ -470,10 +547,10 @@ describe("offered condition corpus passes the complete commit gate", () => {
 		}
 		for (const current of currents) {
 			const subject = subjectOf(current);
-			const subjectType: ResolvedType | undefined =
+			const subjectType: ScalarType | undefined =
 				subject === undefined
 					? undefined
-					: checkExpression(subject, typeCtx, [], []);
+					: scalarDataType(typeOf(subject, typeCtx)?.data);
 			for (const entry of [...VERB_ENTRIES, ...STRUCTURE_ENTRIES]) {
 				if (!verbEntryAdmitted(entry, current, subjectType, editCtx)) continue;
 				candidates.push({
@@ -485,9 +562,17 @@ describe("offered condition corpus passes the complete commit gate", () => {
 
 		for (const slot of PREDICATE_SLOTS) {
 			for (const candidate of candidates) {
-				expect(checkPredicate(candidate.value, typeCtx), candidate.why).toEqual(
-					{ ok: true },
-				);
+				expect(
+					checkExpression(
+						candidate.value,
+						operationContext(
+							shape,
+							slot.place(candidate.value),
+							slot.reference(shape.formUuid),
+						),
+					),
+					candidate.why,
+				).toMatchObject({ errors: [] });
 				expect(
 					gateFindings(shape, slot.place(candidate.value)),
 					`${slot.name}: ${candidate.why}`,
@@ -508,16 +593,18 @@ describe("offered value corpus passes the complete commit gate", () => {
 			const scope = slot.runtimeTarget
 				? RUNTIME_TARGET_OPERATION_SCOPE
 				: vocabulary.operationScope;
+			const slotTypeCtx = operationContext(
+				shape,
+				slot.place(term(literal("value"))),
+				slot.reference(shape.formUuid),
+			);
 			const editCtx: ExpressionEditContext = {
 				...vocabulary,
 				operationScope: scope,
 				ownerValues: slot.ownerValues,
+				expressionContext: slotTypeCtx,
 			};
-			const slotTypeCtx = buildEditorTypeContext({
-				...vocabulary,
-				operationScope: scope,
-				ownerValues: slot.ownerValues,
-			});
+
 			for (const schema of expressionCardSchemaList) {
 				if (!isAuthorableExpressionKind(schema.kind, editCtx)) continue;
 				// The picker's own type gate: a kind whose result class cannot
@@ -533,15 +620,13 @@ describe("offered value corpus passes the complete commit gate", () => {
 				);
 				// The provider composes this oracle in front of every kind menu,
 				// so a candidate it refuses is never selectable.
-				if (
-					!caseDataScopeAdmission(vocabulary.caseDataScope, candidate).admitted
-				) {
+				if (!expressionEditVerdict(candidate, slotTypeCtx).ok) {
 					continue;
 				}
 				expect(
-					checkValueExpression(candidate, slotTypeCtx),
+					checkExpression(candidate, slotTypeCtx),
 					`${slot.name}: ${schema.kind}`,
-				).toEqual({ ok: true });
+				).toMatchObject({ errors: [] });
 				expect(
 					gateFindings(shape, slot.place(candidate)),
 					`${slot.name}: value kind "${schema.kind}"`,
@@ -552,8 +637,8 @@ describe("offered value corpus passes the complete commit gate", () => {
 			// other route through that slot.
 			if (slot.runtimeTarget) {
 				expect(
-					checkValueExpression({ kind: "id-of", opUuid: CREATE }, slotTypeCtx)
-						.ok,
+					checkExpression({ kind: "id-of", opUuid: CREATE }, slotTypeCtx).errors
+						.length === 0,
 					`${slot.name} must not resolve an id-of`,
 				).toBe(false);
 			}
@@ -561,17 +646,17 @@ describe("offered value corpus passes the complete commit gate", () => {
 			// would have been dropped rather than shaped.
 			if (!slot.runtimeTarget) {
 				expect(
-					checkValueExpression({ kind: "id-of", opUuid: CREATE }, slotTypeCtx)
-						.ok,
+					checkExpression({ kind: "id-of", opUuid: CREATE }, slotTypeCtx).errors
+						.length === 0,
 				).toBe(true);
 			}
 			// The owner sentinels live on the owner slot and nowhere else: the
 			// editor mounts `ownerValues` on exactly one section and the gate
 			// passes it for exactly one facet, so the offered set and the
 			// accepted set move together on that single axis.
-			expect(checkValueExpression(actingUser(), slotTypeCtx).ok).toBe(
-				slot.ownerValues,
-			);
+			expect(
+				checkExpression(actingUser(), slotTypeCtx).errors.length === 0,
+			).toBe(slot.ownerValues);
 			expect(isAuthorableExpressionKind("acting-user", editCtx)).toBe(
 				slot.ownerValues,
 			);

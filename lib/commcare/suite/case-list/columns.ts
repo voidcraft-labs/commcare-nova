@@ -232,21 +232,6 @@ function lookupTermContext(
 						instanceScope: "suite",
 					},
 				}),
-		...(ctx.userPropertySlugs === undefined
-			? {}
-			: { userPropertySlugs: ctx.userPropertySlugs }),
-	};
-}
-
-function relationContextFor(ctx: CaseListEmitContext) {
-	return {
-		...(ctx.caseTypes === undefined ? {} : { caseTypes: ctx.caseTypes }),
-		...(ctx.currentCaseType === undefined
-			? {}
-			: { currentCaseType: ctx.currentCaseType }),
-		...(ctx.userPropertySlugs === undefined
-			? {}
-			: { userPropertySlugs: ctx.userPropertySlugs }),
 	};
 }
 
@@ -1010,7 +995,7 @@ function propertyDisplayProjection(
 					index,
 					printProseTemplate(option.label, ctx.proseDoc),
 					casePropertyOptionTranslationUnitId(
-						ctx.currentCaseType ?? "",
+						ctx.caseType,
 						property.name,
 						option.value,
 						casePropertyOptionOccurrence(options, index),
@@ -1345,7 +1330,10 @@ function buildCalculatedField(args: {
 	const calcXpath = toWire(column.expression, {
 		target: "suite",
 		root: instanceRootFor(ctx),
-		types: relationContextFor(ctx),
+		types: ctx.expressions({
+			slot: "case_list_column_expression",
+			member: { columnUuid: column.uuid },
+		}),
 		bindings: lookupTermContext(ctx),
 	});
 	const sortEl = resolveSortElement(column, ctx, () => ({

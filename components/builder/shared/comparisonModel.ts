@@ -1,8 +1,8 @@
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	comparisonObjectConstraint,
-	type Predicate,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+	type Expression,
+} from "@/lib/domain/expression";
 import { KIND_BUILDERS } from "./cards/comparisonSeed";
 import {
 	reseedValueForConstraint,
@@ -10,13 +10,10 @@ import {
 } from "./cards/reseed";
 import type { PredicateEditContext } from "./editorSchemas";
 export function replaceComparisonSubject(
-	value: Extract<
-		Predicate,
-		{ kind: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" }
-	>,
-	left: ValueExpression,
+	value: ExpressionOfKind<"eq" | "neq" | "gt" | "gte" | "lt" | "lte">,
+	left: Expression,
 	ctx: PredicateEditContext,
-): Predicate {
+): Expression {
 	const builder = KIND_BUILDERS[value.kind];
 	const accepts = comparisonObjectConstraint(
 		value.kind,

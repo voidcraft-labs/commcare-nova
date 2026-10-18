@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	flattenFieldRefs,
 	getCrossLevelFieldMoveTargets,
@@ -13,6 +12,7 @@ import {
 	proseText,
 	type Uuid,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 /** Descriptor notation authors the topology; every fixture is schema and full-gate admitted. */
@@ -38,7 +38,7 @@ function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
 			id: d.id,
 			kind: d.kind,
 			...(d.kind === "hidden"
-				? { calculate: xp("1") }
+				? { calculate: term(literal(1)) }
 				: { label: proseText(d.id) }),
 			...(d.kind === "repeat" ? { repeat_mode: "user_controlled" } : {}),
 		});

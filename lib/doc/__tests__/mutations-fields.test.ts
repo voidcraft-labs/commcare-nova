@@ -1,9 +1,10 @@
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp, xpIn } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
+import { projectFormExpression } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
@@ -13,7 +14,13 @@ import {
 	type Mutation,
 	mutationSchema,
 } from "@/lib/doc/types";
-import { expressionSource, proseText } from "@/lib/domain";
+import { expressionAt, proseText } from "@/lib/domain";
+import {
+	formField,
+	literal,
+	matchAll,
+	term,
+} from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const M = testUuid("fields-module");
@@ -78,6 +85,24 @@ function replay(
 		applyMutations(draft, mutations);
 	});
 }
+function calculatedText(doc: BlueprintDoc): string {
+	const slot = {
+		entity: "field",
+		uuid: Q("computed"),
+		slot: "calculate",
+	} as const;
+	const expression = expressionAt(doc, slot);
+	if (expression === undefined)
+		throw new Error("Expected the stored calculation.");
+	const projection = projectFormExpression(
+		doc,
+		slot,
+		expression,
+		"unavailable",
+	);
+	expect(projection.unresolved).toEqual([]);
+	return projection.text;
+}
 describe("field topology and identity", () => {
 	it("inserts at named, first and append anchors under both forms and groups", () => {
 		const next = commit(fixture(), [
@@ -118,7 +143,7 @@ describe("field topology and identity", () => {
 					uuid: Q("computed"),
 					id: "computed",
 					kind: "hidden",
-					calculate: xpIn(fixture(), F, "/data/a"),
+					calculate: term({ ...formField(Q("a")), spelling: "absolute" }),
 				},
 			},
 		]);
@@ -132,9 +157,7 @@ describe("field topology and identity", () => {
 		]);
 		expect(moved.fieldOrder[F]).toEqual([Q("b"), Q("group"), Q("computed")]);
 		expect(moved.fieldOrder[Q("group")]).toEqual([Q("child"), Q("a")]);
-		expect(
-			expressionSource(moved.fields[Q("computed")], "calculate", moved),
-		).toBe("/data/group/a");
+		expect(calculatedText(moved)).toBe("/data/group/a");
 		const renamed = commit(moved, [
 			{
 				kind: "updateField",
@@ -143,9 +166,7 @@ describe("field topology and identity", () => {
 				patch: { id: "primary" },
 			},
 		]);
-		expect(
-			expressionSource(renamed.fields[Q("computed")], "calculate", renamed),
-		).toBe("/data/group/primary");
+		expect(calculatedText(renamed)).toBe("/data/group/primary");
 		const reordered = commit(renamed, [
 			{
 				kind: "moveField",
@@ -290,7 +311,7 @@ describe("field content and patch admission", () => {
 				kind: "updateField",
 				uuid: Q("a"),
 				targetKind: "text",
-				patch: { hint: proseText("Hint"), required: xp("true()") },
+				patch: { hint: proseText("Hint"), required: matchAll() },
 			},
 		]);
 		const next = commit(before, [
@@ -358,7 +379,7 @@ describe("field content and patch admission", () => {
 					id: "repeat",
 					kind: "repeat",
 					repeat_mode: "count_bound",
-					repeat_count: xp("5"),
+					repeat_count: term(literal(5)),
 				},
 			},
 			{ kind: "addField", parentUuid: Q("repeat"), field: textField("answer") },

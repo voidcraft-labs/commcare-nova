@@ -21,7 +21,7 @@ import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { eq, literal, matchAll, tableLookup } from "@/lib/domain/predicate";
+import { eq, literal, matchAll, tableLookup } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { wireTable } from "../lookup/__tests__/lookupWireCorpus";
 import { serializeXml } from "../serializeXml";
@@ -349,7 +349,7 @@ describe("ordinary nested-menu wire projection", () => {
 	});
 
 	it("does not reinterpret a larger authored parent set as a smaller child set", () => {
-		const doc = followupNestedDoc({ sameCaseType: true });
+		let doc = followupNestedDoc({ sameCaseType: true });
 		const { root, child, childForm } = nestSecondModule(doc);
 		if (childForm === undefined) throw new Error("missing child form");
 		const rootConfig = doc.modules[root].caseListConfig;
@@ -361,7 +361,7 @@ describe("ordinary nested-menu wire projection", () => {
 		childConfig.selection = { kind: "multiple", maximum: 4 };
 		setSharedFormAnswers(doc, child);
 
-		admitNestedDoc(doc);
+		doc = admitNestedDoc(doc);
 		const datums = entrySessionDatums(
 			doc,
 			formLinkProjectionContext(doc),

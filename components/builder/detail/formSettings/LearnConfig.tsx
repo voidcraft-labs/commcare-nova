@@ -19,8 +19,8 @@ import {
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import {
-	useParseXPathForForm,
-	useXPathText,
+	useFormExpressionText,
+	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
 import type { CommitOutcome, ConnectLearnConfig } from "@/lib/domain";
@@ -83,11 +83,16 @@ export function LearnConfig({
 	const lastAssessmentRef = useRef(assessment);
 	if (lm) lastLearnRef.current = lm;
 	if (assessment) lastAssessmentRef.current = assessment;
-	const getLintContext = useFormLintContext(formUuid);
+	const slot = {
+		entity: "form" as const,
+		uuid: formUuid,
+		slot: "assessment_user_score" as const,
+	};
+	const getLintContext = useFormLintContext(slot);
 	// AST-stored slot ⇄ text: display prints against the live doc,
 	// commit parses against the doc of the moment.
-	const userScoreText = useXPathText(assessment?.user_score);
-	const parseForForm = useParseXPathForForm(formUuid);
+	const userScoreText = useFormExpressionText(assessment?.user_score, slot);
+	const parseForForm = useParseFormExpression(slot);
 	/** The in-flight staged learn block: exists only until the user
 	 *  commits it (or toggles the staging off, which discards it). */
 	const [stagedLearn, setStagedLearn] = useState<LearnDraft | undefined>();
@@ -395,8 +400,7 @@ export function LearnConfig({
 									 * domain and the wire layer substitutes the canonical
 									 * default expression when the doc carries no explicit
 									 * value. Saving an empty value clears the key outright
-									 * so that fallback kicks in: writing `""` would trip
-									 * `CONNECT_EMPTY_XPATH`. */
+									 * so that fallback kicks in. */
 									value={userScoreText}
 									onSave={(v) => {
 										if (v.trim())

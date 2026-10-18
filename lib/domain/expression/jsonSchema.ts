@@ -1,0 +1,226 @@
+// lib/domain/expression/jsonSchema.ts
+//
+// Generate a JSON Schema document from a CaseType definition.
+//
+// The blueprint's `CaseType.properties[].data_type` (see
+// `lib/domain/blueprint.ts`) is the source of truth for property types;
+// this module transforms it into the JSON Schema the case database uses
+// for write-side validation. Bad writes are rejected at the database
+// boundary, so reads can rely on values matching their declared types
+// without any runtime coercion downstream.
+//
+// The output is a draft-2020-12-compatible JSON Schema. The shape is
+// precise enough for `ajv` (the validator the case-store uses at every
+// API-route write); it deliberately omits `$schema` and `$id` since
+// those are added at the persistence boundary (one schema per case
+// type per app, keyed there).
+//
+// Why this lives in the predicate package: the predicate type checker
+// consumes the same `data_type` enum to decide which comparison
+// operators are legal on a property, and the runtime SQL compiler
+// reads it to pick column types. Keeping the data-type-to-shape
+// mapping here keeps every consumer of `data_type` reasoning about
+// the same bridge between blueprint and runtime.
+
+import type { CaseProperty, CaseType } from "../blueprint";
+import {
+	type CasePropertyDataType,
+	casePropertyDataTypes,
+} from "../casePropertyTypes";
+import { CASE_SCALAR_PROPERTY_NAMES } from "../standardCaseProperties";
+import { unhandledKindMessage } from "./errors";
+
+// Nova's stored geopoint grammar: four decimal tokens separated by one ASCII
+// space, with optional negative signs and scientific notation. The finite
+// examples in couchforms/tests/test_geopoint.py support the common GPS form;
+// HQ's Decimal parser also accepts numeric spellings outside this grammar.
+// This pattern does not enforce latitude/longitude ranges. It is a storage
+// shape constraint, not a replacement for HQ's complete geopoint parser.
+const DECIMAL = String.raw`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`;
+export const GEOPOINT_PATTERN = `^${DECIMAL}(?: ${DECIMAL}){3}$`;
+
+// The `int` data type compiles to Postgres `integer` (int4) at the
+// case-store boundary (`POSTGRES_CAST_FOR_DATA_TYPE.int` in
+// `lib/case-store/sql/dataTypeTokens.ts`). A bare `{ type:
+// "integer" }` accepts any integer, but the `(properties->>'k')::integer`
+// cast the write path's expression index evaluates rejects anything
+// outside int4's signed-32-bit range with a raw
+// `integer out of range` Postgres error at INSERT — the same class of
+// "AJV accepts, the Postgres cast rejects" failure as a fractional
+// value under an int index. Bounding the schema to int4 makes AJV's
+// acceptance set match the cast's, so an out-of-range value fails as
+// a typed `CasePropertiesValidationError` at the write boundary
+// rather than a 500 from the database. The case-store boundary owns
+// the cast token; this bound must track it (the cross-layer round
+// trip is pinned by `lib/case-store/postgres/__tests__/store.postgres.test.ts`).
+const INT4_MIN = -2_147_483_648;
+const INT4_MAX = 2_147_483_647;
+
+/**
+ * The top-level shape: a closed object whose keys are the case type's
+ * property names. `additionalProperties: false` is load-bearing — the
+ * write-side validator's whole job is rejecting payloads that try to
+ * land properties the blueprint never declared.
+ *
+ * Note on requiredness: the schema is a closed object (rejects unknown
+ * keys) but emits no `required` array — every declared property is
+ * implicitly optional. Schema changes don't migrate existing case
+ * rows, so a property added to the blueprint can be absent from older
+ * rows without invalidating them. The closed shape rejects *unknown*
+ * keys, not missing known keys.
+ */
+export type CaseTypeJsonSchema = {
+	type: "object";
+	properties: Record<string, CaseTypePropertyJsonSchema>;
+	additionalProperties: false;
+};
+
+/**
+ * Per-property schema. Intentionally a loose union (a `string` flavor
+ * could technically carry both `format` and `pattern` simultaneously) —
+ * tightening to a per-flavor discriminated union pulls in plumbing the
+ * downstream tooling doesn't need and obscures the simple
+ * data_type-to-shape mapping the file is built around. The schema
+ * emitter never produces an inconsistent combination because each arm
+ * of the switch sets at most one of those fields.
+ *
+ * There is deliberately no `enum` flavor: select values validate as
+ * plain strings (see the `single_select` arm below for why an
+ * option-value enum poisons rows under merged-document validation).
+ */
+export type CaseTypePropertyJsonSchema =
+	| {
+			type: "string";
+			format?: string;
+			pattern?: string;
+			/**
+			 * Lossless data-type marker for string flavors whose VALIDATION
+			 * shape is identical to plain text (`single_select` — no enum,
+			 * see the arm below). Ajv ignores it, while the case-store's exact
+			 * canonical stored-schema decoder requires it to distinguish the
+			 * authored select token from plain text.
+			 */
+			"x-novaDataType"?: "single_select";
+	  }
+	| { type: "integer"; minimum: number; maximum: number }
+	| { type: "number" }
+	| { type: "array"; items: { type: "string" } };
+
+/**
+ * Convert a `CaseType` to a JSON Schema document. Pure — no
+ * side effects, no I/O, output is structurally derived from the input.
+ * Stable property iteration order matches the blueprint's declaration
+ * order (object insertion order), which downstream snapshot tests can
+ * rely on.
+ *
+ * Every standard scalar is filtered out of the property output. An explicit
+ * standard entry may remain in the effective/materializable catalog so
+ * authoring keeps its label and order, but the case store persists that value
+ * in a first-class `cases` column — never in the `properties` JSONB document.
+ * The JSON Schema validator runs against that JSONB document only, so emitting
+ * a scalar here would require an impossible duplicate JSONB key and would make
+ * the exact stored-schema decoder reject Nova's own output. Column constraints
+ * own the scalar guarantees; AJV covers user-defined properties only.
+ */
+export function caseTypeToJsonSchema(caseType: CaseType): CaseTypeJsonSchema {
+	const properties: Record<string, CaseTypePropertyJsonSchema> = {};
+	for (const prop of caseType.properties) {
+		if (CASE_SCALAR_PROPERTY_NAMES.has(prop.name)) continue;
+		properties[prop.name] = propertyToSchema(prop);
+	}
+	return {
+		type: "object",
+		properties,
+		additionalProperties: false,
+	};
+}
+
+/**
+ * Map a single `CaseProperty` to its JSON Schema shape.
+ *
+ * The constraints emitted here are exactly the ones the SQL compiler's
+ * Postgres casts depend on — the int4 bounds and the date/time formats
+ * keep AJV's acceptance set aligned with the casts so a bad value fails
+ * as a typed validation error at the write boundary instead of a raw
+ * Postgres error at query/index time. Select kinds carry NO value
+ * constraint beyond their string/array shape (rationale on the
+ * `single_select` arm) — no cast reads them typed, so there is nothing
+ * to protect.
+ *
+ * Default for missing data_type: `casePropertySchema.data_type` is
+ * `.optional()` in `lib/domain/blueprint.ts`. We treat the absent
+ * variant as `text` here — CommCare's wire default for properties
+ * without an explicit type is text.
+ */
+function propertyToSchema(prop: CaseProperty): CaseTypePropertyJsonSchema {
+	return schemaForDataType(prop.data_type);
+}
+
+/**
+ * The one `data_type` → JSON-Schema-shape mapping. Exported for the
+ * case-store's cast-conformance check: `tryCastValue`'s contract is
+ * that an `ok` cast output validates under the destination property's
+ * schema, and it proves that by validating against EXACTLY these
+ * shapes — so a new constraint added here tightens the casts
+ * automatically instead of drifting.
+ */
+export function schemaForDataType(
+	dataType: CasePropertyDataType | undefined,
+): CaseTypePropertyJsonSchema {
+	switch (dataType) {
+		case undefined:
+		case "text":
+			return { type: "string" };
+		case "int":
+			// Bounded to int4 so AJV rejects values the `::integer`
+			// cast would (see `INT4_MIN` / `INT4_MAX`).
+			return { type: "integer", minimum: INT4_MIN, maximum: INT4_MAX };
+		case "decimal":
+			return { type: "number" };
+		case "date":
+			return { type: "string", format: "date" };
+		case "time":
+			return { type: "string", format: "time" };
+		case "datetime":
+			return { type: "string", format: "date-time" };
+		case "single_select":
+			// No `enum` over the option values — deliberately. Select values
+			// are plain strings at every layer that matters (the XForms wire,
+			// the SQL compiler's text reads, `tryCastValue`'s retype arm), and
+			// option lists are FORM UI, not a data constraint: CommCare never
+			// re-validates stored case data against an app's current choices.
+			// Because the write path validates the MERGED row document, an
+			// option-value enum here turns every option edit or text→select
+			// conversion into a row poisoner — a case holding yesterday's
+			// legal value fails validation on its next write of ANY property.
+			// Values outside the current options are legitimate history; the
+			// explicit `narrow-options` migration (which parks) is the opt-in
+			// path for callers that want them flushed. The annotation keyword
+			// keeps the authored type readable off the stored schema without
+			// adding any validation constraint.
+			return { type: "string", "x-novaDataType": "single_select" };
+		case "multi_select":
+			// Array-shaped (one element per selected value) but item values
+			// are unconstrained — same no-enum rationale as `single_select`.
+			return { type: "array", items: { type: "string" } };
+		case "geopoint":
+			return { type: "string", pattern: GEOPOINT_PATTERN };
+		default: {
+			// Exhaustiveness check. If a new variant is added to the
+			// `data_type` enum in `lib/domain/blueprint.ts`, the assignment
+			// to `never` becomes a compile-time error here, forcing the new
+			// case to be wired through this generator before the project
+			// compiles. The runtime throw guards the same invariant for any
+			// payload that reaches via untyped boundaries.
+			const _exhaustive: never = dataType;
+			throw new Error(
+				unhandledKindMessage({
+					where: "caseTypeToJsonSchema",
+					family: "CasePropertyDataType",
+					received: _exhaustive,
+					knownKinds: casePropertyDataTypes,
+				}),
+			);
+		}
+	}
+}

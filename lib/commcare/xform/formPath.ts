@@ -12,8 +12,8 @@
  *
  * This type owns structural form coordinates, shared by DOM splicing and
  * generated XPath. `toWire()` and `toWireRelative()` project those coordinates
- * into the common wire tree; the XML boundary serializes that tree. The old
- * text projections remain only for HQ metadata and the PR5 authored transition.
+ * into the common wire tree; the XML boundary serializes that tree. Structural
+ * text remains only for HQ metadata and DOM lookup keys.
  *
  * Element steps and attribute steps are the only segment kinds. Attribute
  * steps are terminal at the type level — once added, `child` / `attr`
@@ -244,22 +244,6 @@ export class FormPath {
 		return out;
 	}
 
-	/**
-	 * Serialize as a Vellum hashtag path — `#form` substitutes for the
-	 * `/data` root, the rest of the path is verbatim. This text projection
-	 * remains for the authored transition; generated Vellum slots use
-	 * `toWire("hashtag")` and the serializer's explicit Vellum mode.
-	 */
-	toVellum(): string {
-		let out = "#form";
-		// Skip the leading `data` segment — `#form` substitutes for it.
-		for (let i = 1; i < this._segments.length; i++) {
-			const seg = this._segments[i];
-			out += seg.kind === "element" ? `/${seg.name}` : `/@${seg.name}`;
-		}
-		return out;
-	}
-
 	/** Structural equality — same segment kinds + names in the same order. */
 	equals(other: FormPath): boolean {
 		if (this._segments.length !== other._segments.length) return false;
@@ -293,50 +277,8 @@ export function descendFormPathIntoField(
 		: ownPath;
 }
 
-/**
- * The relative steps from `from` to `to`: one `..` for every step from
- * `from` up to the nearest ancestor the two share, then the steps down to
- * `to`. `.` when the two are the same node.
- */
-export function relativeXPath(from: FormPath, to: FormPath): string {
-	const fromSegments = from.segments();
-	const toSegments = to.segments();
-	let shared = 0;
-	while (
-		shared < fromSegments.length &&
-		shared < toSegments.length &&
-		fromSegments[shared].kind === toSegments[shared].kind &&
-		fromSegments[shared].name === toSegments[shared].name
-	) {
-		shared += 1;
-	}
-	const parts: string[] = [];
-	for (let index = shared; index < fromSegments.length; index += 1) {
-		parts.push("..");
-	}
-	for (let index = shared; index < toSegments.length; index += 1) {
-		const segment = toSegments[index];
-		parts.push(segment.kind === "element" ? segment.name : `@${segment.name}`);
-	}
-	return parts.join("/") || ".";
-}
-
-/**
- * Address `to` from the node `from` whose expression reads it, as
- * `current()/<relative steps>`. `current()` is intentional even where a
- * bare relative path would do at the expression root: JavaRosa keeps it
- * anchored on the expression's original context while a predicate
- * temporarily moves the evaluation context to a candidate node, so a bare
- * `../field` nested inside a predicate would read from the candidate. Core
- * evaluates a bind's expressions with its node as that context and a
- * setvalue's value with its target as that context
- * (commcare-core `SetValueAction.processAction`).
- */
-export function originalContextPath(from: FormPath, to: FormPath): string {
-	return `current()/${relativeXPath(from, to)}`;
-}
-
-/** The generated-wire counterpart; the old string projection retires in PR5. */
+/** Address a generated read from its original bind/setvalue context. Predicates
+ * may temporarily change their context; current() retains this original node. */
 export function originalContextWirePath(
 	from: FormPath,
 	to: FormPath,

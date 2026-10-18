@@ -1,4 +1,4 @@
-import type { RelationPath, RelationStep } from "@/lib/domain/predicate/types";
+import type { RelationPath, RelationStep } from "@/lib/domain/expression/types";
 import { RESERVED_CASE_ATTRIBUTES } from "../../casePropertyWire";
 import { w } from "./builders";
 import { caseDbInstance, resultsInstance } from "./instances";

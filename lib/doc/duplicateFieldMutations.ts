@@ -1,4 +1,4 @@
-import { walkTerms } from "@/lib/domain/predicate";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 /**
  * Duplicating a field, planned as ordinary adds.
  *
@@ -69,7 +69,7 @@ export function duplicateFieldMutations(
 			field.optionsSource.kind !== "inline" &&
 			field.optionsSource.filter
 		) {
-			walkTerms(field.optionsSource.filter, (term) => {
+			walkExpressionTerms(field.optionsSource.filter, (term) => {
 				if (term.kind === "field")
 					term.uuid = clonedIds.get(term.uuid) ?? term.uuid;
 			});

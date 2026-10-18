@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { withChoicePreservation } from "@/lib/doc/kindConversionCascade";
 import { replaceFieldOptionsSourceMutation } from "@/lib/doc/lookupOptionsSourceMutations";
 import type { Uuid } from "@/lib/domain";
 import { findAuthoredBlueprintIdentity } from "@/lib/domain";
@@ -28,7 +29,10 @@ export type SetFieldOptionsSourceInput = z.infer<
 	typeof setFieldOptionsSourceInputSchema
 >;
 export type SetFieldOptionsSourceResult =
-	| (MutationSuccess & { options?: Array<{ uuid: Uuid; value: string }> })
+	| (MutationSuccess & {
+			options?: Array<{ uuid: Uuid; value: string }>;
+			preservedChoiceCount?: number;
+	  })
 	| { error: string };
 
 export const setFieldOptionsSourceTool = {
@@ -99,7 +103,12 @@ export const setFieldOptionsSourceTool = {
 				field.kind,
 				source,
 			);
-			const commit = await guardedMutate(ctx, [mutation], "field:options");
+			const planned = withChoicePreservation(doc, [mutation]);
+			const commit = await guardedMutate(
+				ctx,
+				planned.mutations,
+				"field:options",
+			);
 			if (!commit.ok) {
 				return {
 					kind: "mutate",
@@ -115,6 +124,9 @@ export const setFieldOptionsSourceTool = {
 				mutations: commit.mutations,
 				result: {
 					ok: true,
+					...(planned.preservedChoiceCount > 0 && {
+						preservedChoiceCount: planned.preservedChoiceCount,
+					}),
 					...(source.kind === "inline" && {
 						options: source.options.map(({ uuid, value }) => ({ uuid, value })),
 					}),

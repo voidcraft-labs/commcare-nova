@@ -7,7 +7,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	formLinkAddChoices,
@@ -19,7 +19,7 @@ import {
 } from "@/lib/doc/formLinkReview";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, FormLinkTarget } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -330,7 +330,10 @@ describe("formLinkTargetVerdict", () => {
 		});
 		expect(
 			formLinkTargetVerdict(doc, VISIT_AGAIN, undefined, target, [
-				{ name: "case_id", xpath: xp("'patient-id'") },
+				{
+					name: { kind: "selected-case", module: INTAKE },
+					xpath: term(literal("patient-id")),
+				},
 			]),
 		).toMatchObject({
 			ok: false,
@@ -414,7 +417,11 @@ describe("formLinkRequiredDatums / formLinkCarryVerdict", () => {
 	it("a followup target needs case_id, carried from the case this registration creates", () => {
 		const doc = fixture();
 		expect(formLinkRequiredDatums(doc, REGISTER, toVisit)).toEqual([
-			{ id: "case_id", caseType: "patient" },
+			{
+				name: { kind: "selected-case", module: CARE },
+				id: "case_id",
+				caseType: "patient",
+			},
 		]);
 		expect(formLinkCarryVerdict(doc, REGISTER, toVisit)).toEqual({
 			kind: "automatic",

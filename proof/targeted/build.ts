@@ -79,6 +79,10 @@ export interface TargetedSpec {
 	readonly hqSide?: HqSideSaves;
 	/** D′, where the symptom shows on Nova's publish of an edit: the document after it, as written. */
 	readonly edit?: BlueprintDoc;
+	/** Exact authored commands when endpoint snapshots cannot recover semantic intent.
+	 * The production gate must admit them and their result must equal `edit`.
+	 */
+	readonly editMutations?: readonly Mutation[];
 }
 
 /** Two stored documents' first difference, as a JSON path, for a refusal that names it. */
@@ -114,8 +118,9 @@ function planned(
 	from: BlueprintDoc,
 	to: BlueprintDoc,
 	lookup: LookupFixtureDataSnapshot | undefined,
+	authored?: readonly Mutation[],
 ): { readonly mutations: Mutation[]; readonly committed: PersistableDoc } {
-	const mutations = diffDocsToMutations(from, to);
+	const mutations = authored ?? diffDocsToMutations(from, to);
 	const verdict = mutationCommitVerdict(
 		from,
 		mutations,
@@ -148,6 +153,11 @@ function planned(
  * or commits anything but the document written.
  */
 export function targetedDocument(spec: TargetedSpec): CorpusDocument {
+	if (spec.editMutations !== undefined && spec.edit === undefined) {
+		throw new Error(
+			`The targeted document ${spec.id} names edit commands without the document they must produce.`,
+		);
+	}
 	const { committed } = planned(
 		`the targeted document ${spec.id}`,
 		emptyBlueprintDoc(spec.doc.appId),
@@ -162,6 +172,7 @@ export function targetedDocument(spec: TargetedSpec): CorpusDocument {
 					spec.doc,
 					spec.edit,
 					spec.lookup,
+					spec.editMutations,
 				);
 	for (const name of Object.keys(spec.files ?? {})) {
 		checkDocumentFileName(spec.id, name);

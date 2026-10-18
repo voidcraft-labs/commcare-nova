@@ -1,6 +1,8 @@
 /** Private wire projection: these checks assert expression placement, not the
  * runtime truth values. Native navigation evidence evaluates exported rules. */
 import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { requireExpressionContext } from "@/lib/commcare/expressionContext";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	and,
@@ -19,32 +21,89 @@ import {
 	sessionContext,
 	sessionUser,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
+	type DisplayConditionCarrier,
 	emitFormDisplayConditionForHq as formConditionForHq,
 	emitFormDisplayConditionForSuite as formConditionForSuite,
 	emitModuleDisplayCondition as moduleCondition,
 } from "../displayConditions";
 
+function displayContext(
+	carrier: DisplayConditionCarrier,
+	owner: "form" | "module",
+	caseType = "patient",
+) {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Cases",
+				caseType,
+				...(owner === "module" ? carrier : {}),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [],
+						...(owner === "form" ? carrier : {}),
+					},
+				],
+			},
+		],
+		caseTypes: [
+			{
+				name: caseType,
+				properties: ["given_name", "x", "nickname", "age"].map((name) => ({
+					name,
+					label: { parts: [{ kind: "text", text: name }] },
+					...(name === "age" ? { data_type: "int" as const } : {}),
+				})),
+			},
+		],
+	});
+	const module = doc.moduleOrder[0];
+	return requireExpressionContext(
+		doc,
+		owner === "form"
+			? {
+					entity: "form",
+					uuid: doc.formOrder[module][0],
+					slot: "form_display_condition",
+				}
+			: { entity: "module", uuid: module, slot: "module_display_condition" },
+	);
+}
 const emitFormDisplayConditionForHq = (
-	...args: Parameters<typeof formConditionForHq>
+	carrier: DisplayConditionCarrier,
+	caseType?: string,
+	selectedCaseDatumId?: string,
 ) => {
-	const condition = formConditionForHq(...args);
+	const condition = formConditionForHq(
+		carrier,
+		displayContext(carrier, "form", caseType),
+		undefined,
+		selectedCaseDatumId,
+	);
 	return (
 		condition &&
 		serializeWire(condition, { target: "hq-json", interpolation: "case" }).text
 	);
 };
 const emitFormDisplayConditionForSuite = (
-	...args: Parameters<typeof formConditionForSuite>
+	carrier: DisplayConditionCarrier,
+	caseType?: string,
+	selectedCaseDatumId?: string,
 ) => {
-	const condition = formConditionForSuite(...args);
+	const condition = formConditionForSuite(
+		carrier,
+		displayContext(carrier, "form", caseType),
+		undefined,
+		selectedCaseDatumId,
+	);
 	return condition && serializeWire(condition, { target: "suite" }).text;
 };
-const emitModuleDisplayCondition = (
-	...args: Parameters<typeof moduleCondition>
-) => {
-	const condition = moduleCondition(...args);
+const emitModuleDisplayCondition = (carrier: DisplayConditionCarrier) => {
+	const condition = moduleCondition(carrier, displayContext(carrier, "module"));
 	return condition && serializeWire(condition, { target: "suite" }).text;
 };
 
@@ -61,8 +120,6 @@ describe("navigation expression projection", () => {
 			emitFormDisplayConditionForSuite(
 				{ displayCondition: condition },
 				"patient",
-				undefined,
-				undefined,
 				"selected_patient",
 			),
 		).toBe(`concat(${anchor}/given_name, '!') = 'Ada!'`);
@@ -76,8 +133,6 @@ describe("navigation expression projection", () => {
 			emitFormDisplayConditionForSuite(
 				{ displayCondition: condition },
 				"patient",
-				undefined,
-				undefined,
 				"selected_patient",
 			),
 		).toBe(
@@ -89,8 +144,6 @@ describe("navigation expression projection", () => {
 			emitFormDisplayConditionForHq(
 				{ displayCondition: condition },
 				"patient",
-				undefined,
-				undefined,
 				"selected_patient",
 			),
 		).toBe(
@@ -111,16 +164,12 @@ describe("navigation expression projection", () => {
 			emitFormDisplayConditionForHq(
 				{ displayCondition: condition },
 				"patient",
-				undefined,
-				undefined,
 				"selected_patient",
 			),
 		).toBe(`#case/x != '' and ${anchor}/@status = 'open'`);
 		const withoutAttribute = emitFormDisplayConditionForHq(
 			{ displayCondition: neq(prop("patient", "x"), literal("")) },
 			"patient",
-			undefined,
-			undefined,
 			"selected_patient",
 		);
 		expect(withoutAttribute).toBe("#case/x != ''");
@@ -142,8 +191,6 @@ describe("navigation expression projection", () => {
 				emitFormDisplayConditionForSuite(
 					{ displayCondition: condition },
 					"patient",
-					undefined,
-					undefined,
 					"selected_patient",
 				),
 			).toBe(`${anchor}/${suffix}`);

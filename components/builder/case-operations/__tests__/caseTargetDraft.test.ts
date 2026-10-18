@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { arith, literal, term } from "@/lib/domain/predicate";
+import { arith, literal, term } from "@/lib/domain/expression";
 import { reduceCaseTargetDraft } from "../caseTargetDraft";
 
 const owner = {

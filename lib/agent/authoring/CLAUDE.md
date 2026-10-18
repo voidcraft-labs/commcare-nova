@@ -37,8 +37,9 @@ another submission to the same local store; they do not compare-and-set current
 records. `operationSemantics.ts` derives one non-gating projection for operation
 add/update results and form/operation reads. It distinguishes record identities,
 condition/value reads, writes and same-record/possible-alias overlaps. It follows
-canonical form-answer dependencies with cycle guards and reports unclassified
-XPath text. It never parses text, rejects an operation or promises concurrency
+canonical form-answer dependencies with cycle guards and follows typed query
+reads while retaining uncertain record identities as possible aliases. It never
+parses text, rejects an operation or promises concurrency
 protection. The existing plugin bootstraps this server-owned reference only.
 Clock guidance preserves typed capture and a separately saved recorded-time
 display with its numeric offset. It does not promise viewer-local conversion or
@@ -85,12 +86,27 @@ Shared operations keep their semantics across contexts. The
 expressions guide explains reference scope once; form guidance covers wording
 and question behavior separately.
 
-`queryExpressions.ts` uses the existing Lezer grammar to produce canonical
-Predicate and ValueExpression nodes. It never evaluates code. Ordinary `div`
-uses real division, consistent with field XPath: an inferred integer result is
-promoted through the existing `double` node. `quotient()` preserves canonical
-integer division when reading existing expressions and rejects decimal operands.
+`queryExpressions.ts` uses the existing Lezer grammar to produce the shared
+`Expression` union. It never evaluates code. Ordinary `div` stores real division;
+`quotient()` stores a distinct integer-division operation and rejects decimal operands.
 Explicit numeric types and literal punctuation survive printing and editing.
+
+Form logic uses `parseFormExpression` through the actual `ExpressionSlotRef`.
+The slot supplies its evaluation node, expected type and available values.
+`formPreparation.ts` builds one call-local declaration view before parsing any
+expression: final field and option identities, parents and sibling order, repeat
+modes, Connect IDs, form-link members and the hidden record-name field. Catalog
+defaults join the same identity allocation pass. Pending expressions are read
+through a memoized parser; preparation never constructs a temporary invalid
+document or commits a half-built expression. The record-name identity travels in
+the invocation context so execution consumes that same identity.
+
+Form reads print from the actual stored slot and its current names. Relative
+references retain their target identity, and their text follows the current
+topology. Safe, structurally unchanged occurrences can retain an existing choice
+or text-unit identity during a simultaneous rename; new source binds against the
+complete proposed declarations. Unknown paths, functions and instance shapes
+refuse with source spans before mutation. No opaque executable text is stored.
 
 `AuthoringScope` holds one call's names and types. Fields and Search answers are
 local to their form or module; lookup columns are local to their table. Data
@@ -155,8 +171,8 @@ rather than becoming opaque text that renames cannot maintain.
 
 Wording is Markdown. Answer interpolation is parsed at this boundary and printed
 back to the same authoring representation. Literal braces and backslashes must
-round-trip. Conditions use Nova's existing XPath grammar. Instance and current()-rooted paths retain their existing XPath semantics.
-Connect wrapper paths are admitted by the canonical Connect validator.
+round-trip. Conditions use Nova's existing XPath grammar. Instance and current()-rooted paths bind to typed identities in their actual slot.
+Connect expressions resolve from their generated evaluation node through the same form graph as field expressions.
 
 Preparation runs inside the authorized workspace invocation. Agent and MCP workspaces retain incomplete construction privately; saving
 passes the full canonical gate. Builder edits retain their immediate canonical

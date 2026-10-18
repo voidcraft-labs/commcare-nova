@@ -4,25 +4,26 @@ import {
 	findOnDeviceDateAddIssueInPredicate,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
 import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
-import {
 	checkExpression,
-	checkPredicate,
 	dateAdd,
 	eq,
 	exists,
 	literal,
 	prop,
+	slotContext,
 	subcasePath,
-	type TypeContext,
 	tableColumn,
 	tableLookup,
 	term,
 	today,
-} from "@/lib/domain/predicate";
+	typeOf,
+} from "@/lib/domain/expression";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
+import { csqlArgumentFixture } from "../../__tests__/csqlFunctionFixture";
 
 const TABLE = lookupTableIdSchema.parse("00000000-0000-7000-8000-000000000001");
 const TEXT_COLUMN = lookupColumnIdSchema.parse(
@@ -32,7 +33,7 @@ const DATETIME_COLUMN = lookupColumnIdSchema.parse(
 	"10000000-0000-7000-8000-000000000002",
 );
 
-const TYPE_CONTEXT: TypeContext = {
+const vocabulary = {
 	caseTypes: [
 		{
 			name: "household",
@@ -45,12 +46,12 @@ const TYPE_CONTEXT: TypeContext = {
 				{
 					name: "visited_on",
 					label: proseText("Visited on"),
-					data_type: "date",
+					data_type: "date" as const,
 				},
 				{
 					name: "visited_at",
 					label: proseText("Visited at"),
-					data_type: "datetime",
+					data_type: "datetime" as const,
 				},
 			],
 		},
@@ -61,12 +62,27 @@ const TYPE_CONTEXT: TypeContext = {
 		[
 			TABLE,
 			new Map([
-				[TEXT_COLUMN, "text"],
-				[DATETIME_COLUMN, "datetime"],
+				[TEXT_COLUMN, "text" as const],
+				[DATETIME_COLUMN, "datetime" as const],
 			]),
 		],
 	]),
 };
+
+function contextFor(currentCaseType = "patient") {
+	const doc = structuredClone(csqlArgumentFixture());
+	doc.caseTypes = vocabulary.caseTypes;
+	doc.modules[doc.moduleOrder[0]].caseType = currentCaseType;
+	const context = slotContext(
+		doc,
+		{ entity: "module", uuid: doc.moduleOrder[0], slot: "case_list_filter" },
+		vocabulary.lookupTables,
+	);
+	if (context === undefined)
+		throw new Error("The fixture has no filter carrier.");
+	return context;
+}
+const TYPE_CONTEXT = contextFor();
 
 describe("on-device date-add compatibility", () => {
 	it("resolves a property-backed datetime from the supplied type context", () => {
@@ -112,9 +128,9 @@ describe("on-device date-add compatibility", () => {
 				term(prop("patient", "visited_at")),
 			),
 		);
-		const context = { ...TYPE_CONTEXT, currentCaseType: "household" };
+		const context = contextFor("household");
 
-		expect(checkPredicate(predicate, context)).toEqual({ ok: true });
+		expect(checkExpression(predicate, context).errors).toEqual([]);
 		expect(
 			findOnDeviceDateAddIssueInPredicate(predicate, context)?.reason,
 		).toBe("datetime-base");
@@ -133,12 +149,7 @@ describe("on-device date-add compatibility", () => {
 				term(tableColumn(TABLE, DATETIME_COLUMN)),
 			),
 		);
-		const checkErrors: Parameters<typeof checkExpression>[2] = [];
-
-		expect(checkExpression(expression, TYPE_CONTEXT, checkErrors, [])).toBe(
-			"text",
-		);
-		expect(checkErrors).toEqual([]);
+		expect(typeOf(expression, TYPE_CONTEXT)?.data).toBe("text");
 		expect(findOnDeviceDateAddIssue(expression, TYPE_CONTEXT)?.reason).toBe(
 			"datetime-base",
 		);

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { projectFormExpression } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -14,7 +15,8 @@ import {
 } from "@/lib/doc/types";
 import {
 	canonicalProseTemplate,
-	expressionSource,
+	expressionAt,
+	proseSource,
 	proseText,
 } from "@/lib/domain";
 import { assertAdmittedDoc } from "./admittedDoc";
@@ -105,6 +107,24 @@ function fixture(): BlueprintDoc {
 	assertAdmittedDoc(doc);
 	return doc;
 }
+function calculateText(doc: BlueprintDoc): string {
+	const slot = {
+		entity: "field",
+		uuid: Q("watch"),
+		slot: "calculate",
+	} as const;
+	const expression = expressionAt(doc, slot);
+	if (expression === undefined)
+		throw new Error("Expected the watcher calculation.");
+	const projection = projectFormExpression(
+		doc,
+		slot,
+		expression,
+		"unavailable",
+	);
+	expect(projection.unresolved).toEqual([]);
+	return projection.text;
+}
 describe("field moves project stable references", () => {
 	it("moves the container and descendant references through store edit, undo and redo without rewriting AST values", () => {
 		const before = fixture();
@@ -132,22 +152,18 @@ describe("field moves project stable references", () => {
 			...toPersistableDoc(moved),
 			fieldParent: moved.fieldParent,
 		});
-		expect(expressionSource(moved.fields[Q("watch")], "calculate", moved)).toBe(
+		expect(calculateText(moved)).toBe(
 			"#form/outer/group/child = '1' and /data/outer/group/child != ''",
 		);
-		expect(expressionSource(moved.fields[Q("label")], "label", moved)).toBe(
+		expect(proseSource(moved.fields[Q("label")], "label", moved)).toBe(
 			"Compare #form/outer/group/child",
 		);
 		expect(moved.fields[Q("watch")]).toEqual(originalExpression);
 		expect(moved.fields[Q("label")]).toEqual(originalLabel);
 		store.getState().undo();
-		expect(
-			expressionSource(
-				store.getState().fields[Q("watch")],
-				"calculate",
-				store.getState(),
-			),
-		).toBe("#form/group/child = '1' and /data/group/child != ''");
+		expect(calculateText(store.getState())).toBe(
+			"#form/group/child = '1' and /data/group/child != ''",
+		);
 		store.getState().redo();
 		expect(store.getState().fieldParent[Q("group")]).toBe(Q("outer"));
 	});

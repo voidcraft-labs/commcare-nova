@@ -1,10 +1,11 @@
 import type {
 	CaseOptionsSource,
-	CaseType,
 	Field,
 	MultiSelectField,
 	SingleSelectField,
 } from "@/lib/domain";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import type { FormNodeProjection } from "./xpath/formNodeProjection";
 import { w } from "./xpath/wire/builders";
 import { toWire, type WireTermBindings } from "./xpath/wire/fromExpression";
 import { caseDbInstance } from "./xpath/wire/instances";
@@ -14,8 +15,9 @@ import type { WireExpr } from "./xpath/wire/tree";
  * current() is the question, so candidate relations use immediate-scope joins. */
 export function caseOptionsNodeset(
 	source: CaseOptionsSource,
-	caseTypes: readonly CaseType[],
+	types: ExpressionContext,
 	bindings: WireTermBindings,
+	form: FormNodeProjection,
 ): WireExpr {
 	const predicates = [
 		w.eq(w.context([w.attr("case_type")]), w.str(source.caseType)),
@@ -24,7 +26,8 @@ export function caseOptionsNodeset(
 		predicates.push(
 			toWire(source.filter, {
 				target: "xform",
-				types: { caseTypes: [...caseTypes], currentCaseType: source.caseType },
+				types,
+				form,
 				anchor: { kind: "unaddressable" },
 				bindings,
 			}),

@@ -16,7 +16,7 @@
  *
  * An advanced input's direct predicate operators lower through server-side
  * CSQL, so a direct fuzzy/phonetic/fuzzy-date match remains valid. CSQL is a
- * mixed-runtime wrapper, however: non-native ValueExpression roots inline as
+ * mixed-runtime wrapper, however: non-native Expression roots inline as
  * JavaRosa XPath inside the outer `concat(...)`. The shared dialect-state
  * walker therefore inventories only predicate nodes below those runtime
  * boundaries (including `if.cond` and a non-native `count.where`). A direct
@@ -29,19 +29,18 @@ import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk"
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
+	type Expression,
 	type MatchMode,
-	type Predicate,
-	type ValueExpression,
-	walkExpressionPredicateNodes,
-	walkPredicateNodes,
-} from "@/lib/domain/predicate";
+	slotContext,
+	walkExpressionNodes,
+} from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	collectModuleWireSlotFindings,
 	type ModuleWireSlotIdentity,
 } from "./moduleWireSlots";
 
-type MatchPredicate = Extract<Predicate, { kind: "match" }>;
+type MatchPredicate = Extract<Expression, { kind: "match" }>;
 
 function isCsqlOnlyMode(mode: MatchMode): boolean {
 	return !matchModeRunsOnDevice(mode);
@@ -50,7 +49,8 @@ function isCsqlOnlyMode(mode: MatchMode): boolean {
 export function matchModeOnDeviceCompatibility(
 	mod: Module,
 	moduleUuid: Uuid,
-	_doc: BlueprintDoc,
+	doc: BlueprintDoc,
+	lookupTables?: import("../../lookupTypeContext").LookupTypeIndex,
 ): ValidationError[] {
 	return collectModuleWireSlotFindings(mod, moduleUuid, {
 		judgePredicate(predicate, slot) {
@@ -58,8 +58,10 @@ export function matchModeOnDeviceCompatibility(
 			return offender === undefined ? undefined : buildError(slot, offender);
 		},
 		judgeCsqlPredicate(predicate, slot) {
+			const context = slotContext(doc, slot.ref, lookupTables ?? new Map());
+			if (context === undefined) return undefined;
 			let offender: MatchPredicate | undefined;
-			walkCsqlOnDeviceNodes(predicate, {
+			walkCsqlOnDeviceNodes(predicate, context, {
 				visitPredicate(node) {
 					if (
 						offender === undefined &&
@@ -82,9 +84,9 @@ export function matchModeOnDeviceCompatibility(
 /** One finding per emitted slot is enough to block the invalid document and
  * points the editor at the one place that needs repair. Reporting every nested
  * match from the same expression produces duplicate cards with the same fix. */
-function firstCsqlOnlyMatch(predicate: Predicate): MatchPredicate | undefined {
+function firstCsqlOnlyMatch(predicate: Expression): MatchPredicate | undefined {
 	let offender: MatchPredicate | undefined;
-	walkPredicateNodes(predicate, (node) => {
+	walkExpressionNodes(predicate, (node) => {
 		if (
 			offender === undefined &&
 			node.kind === "match" &&
@@ -97,10 +99,10 @@ function firstCsqlOnlyMatch(predicate: Predicate): MatchPredicate | undefined {
 }
 
 function firstCsqlOnlyMatchInExpression(
-	expression: ValueExpression,
+	expression: Expression,
 ): MatchPredicate | undefined {
 	let offender: MatchPredicate | undefined;
-	walkExpressionPredicateNodes(expression, (node) => {
+	walkExpressionNodes(expression, (node) => {
 		if (
 			offender === undefined &&
 			node.kind === "match" &&
@@ -123,11 +125,14 @@ function buildError(
 	return validationError(
 		"CASE_LIST_MATCH_MODE_NOT_ON_DEVICE",
 		"module",
-		`Module "${args.mod.name}" uses a \`${match.mode}\` match on case property "${match.property.property}" in ${args.slotLabel}, but that setting runs on the device and CommCare only provides \`starts-with\` there. ${repair}`,
+		`Module "${args.mod.name}" uses a \`${match.mode}\` match on case property "${match.property.kind === "prop" ? match.property.property : "a calculated value"}" in ${args.slotLabel}, but that setting runs on the device and CommCare only provides \`starts-with\` there. ${repair}`,
 		{ moduleUuid: args.moduleUuid, moduleName: args.mod.name },
 		{
 			mode: match.mode,
-			property: match.property.property,
+			property:
+				match.property.kind === "prop"
+					? match.property.property
+					: "a calculated value",
 			slot: args.slot,
 			surface: args.surface,
 			...(args.input !== undefined

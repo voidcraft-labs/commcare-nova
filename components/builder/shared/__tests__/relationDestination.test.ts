@@ -1,36 +1,43 @@
-// Editor repair projection. Ambiguous canonical relations intentionally use
-// their first candidate to keep the nested editor usable; this is not an
-// admission verdict or proof that an imported relation is valid.
-
 import { describe, expect, it } from "vitest";
+import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
 	anyRelationPath,
 	relationStep,
 	selfPath,
 	subcasePath,
-} from "@/lib/domain/predicate";
-import {
-	type RelationDestinationCaseType,
-	resolveRelationDestination,
-} from "../relationDestination";
+} from "@/lib/domain/expression";
+import { resolveRelationDestination } from "../relationDestination";
 
-const HOUSEHOLD: RelationDestinationCaseType = { name: "household" };
-const PATIENT: RelationDestinationCaseType = {
+const HOUSEHOLD: CaseType = { name: "household", properties: [] };
+const PATIENT: CaseType = {
 	name: "patient",
+	properties: [],
 	parent_type: "household",
 };
-const VISIT: RelationDestinationCaseType = {
+const VISIT: CaseType = {
 	name: "visit",
+	properties: [],
 	parent_type: "patient",
 };
-const SIBLING_VISIT: RelationDestinationCaseType = {
+const SIBLING_VISIT: CaseType = {
 	name: "sibling_visit",
+	properties: [],
 	parent_type: "patient",
 };
 const CASE_TYPES = [HOUSEHOLD, PATIENT, VISIT, SIBLING_VISIT];
 
 describe("resolveRelationDestination", () => {
+	it("refuses an ancestor qualifier that disagrees with the owning relationship", () => {
+		expect(
+			resolveRelationDestination(
+				ancestorPath(relationStep("parent", "visit")),
+				"patient",
+				CASE_TYPES,
+			),
+		).toBeUndefined();
+	});
+
 	it("returns the origin for `self`", () => {
 		expect(resolveRelationDestination(selfPath(), "patient", CASE_TYPES)).toBe(
 			"patient",
@@ -72,14 +79,10 @@ describe("resolveRelationDestination", () => {
 		).toBeUndefined();
 	});
 
-	it("resolves subcase walks to the first matching child case type", () => {
-		// `subcase("parent")` from `patient` matches both `visit` and
-		// `sibling_visit`; without `ofCaseType`, the first match wins.
-		// The editor's inline error surfaces the disambiguation
-		// requirement via the type checker.
+	it("refuses an ambiguous subcase walk", () => {
 		expect(
 			resolveRelationDestination(subcasePath("parent"), "patient", CASE_TYPES),
-		).toBe("visit");
+		).toBeUndefined();
 	});
 
 	it("respects ofCaseType when set on a subcase walk", () => {
@@ -99,7 +102,7 @@ describe("resolveRelationDestination", () => {
 				"patient",
 				CASE_TYPES,
 			),
-		).toBe("household");
+		).toBeUndefined();
 		expect(
 			resolveRelationDestination(
 				anyRelationPath("parent", "household"),

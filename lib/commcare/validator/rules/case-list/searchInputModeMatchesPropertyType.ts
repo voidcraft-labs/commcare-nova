@@ -12,7 +12,7 @@
  *     check + per-mode allow-list both bind directly. `mode` is
  *     optional: omitted → wire layer picks the per-`type` default,
  *     which needs no explicit mode check. Property existence still applies.
- *   - `kind: "advanced"` — body is a free-form `predicate: Predicate`
+ *   - `kind: "advanced"` — body is a free-form `predicate: Expression`
  *     AST. The advanced arm has no `mode` slot at the schema layer;
  *     property resolution lives inside the AST and is type-checked by
  *     the predicate / per-input predicate rules elsewhere. This rule
@@ -45,9 +45,9 @@
 
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { SEARCH_MODE_PROPERTY_TYPES } from "@/lib/domain";
-import { type CheckError, checkRelationPath } from "@/lib/domain/predicate";
+import { resolveRelationDestination } from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
-import { moduleTypeContext, resolvePropertyDataType } from "./shared";
+import { resolvePropertyDataType, validationContextFor } from "./shared";
 
 export function searchInputModeMatchesPropertyType(
 	mod: Module,
@@ -58,7 +58,7 @@ export function searchInputModeMatchesPropertyType(
 	if (inputs.length === 0 || !mod.caseType) return [];
 
 	const errors: ValidationError[] = [];
-	const ctx = moduleTypeContext(mod, doc);
+	const caseTypes = validationContextFor(doc).augmentedCaseTypes;
 
 	for (let index = 0; index < inputs.length; index++) {
 		const input = inputs[index];
@@ -77,21 +77,13 @@ export function searchInputModeMatchesPropertyType(
 		// predicate rules surface relation-path failures, so this rule
 		// passes a discardable list and silently skips when resolution
 		// fails (no double-reporting).
-		const isSelfWalk = !input.via || input.via.kind === "self";
-		let destinationCaseType: string | undefined;
-		if (isSelfWalk) {
-			destinationCaseType = mod.caseType;
-		} else if (input.via) {
-			const discard: CheckError[] = [];
-			destinationCaseType = checkRelationPath(
-				input.via,
-				mod.caseType,
-				ctx,
-				discard,
-				[],
-			);
-		}
-		if (!destinationCaseType) continue;
+		const destination = resolveRelationDestination(
+			input.via,
+			mod.caseType,
+			caseTypes,
+		);
+		if (!destination.ok) continue;
+		const destinationCaseType = destination.caseType;
 
 		// Resolve the property's data type via the shared 3-arm model
 		// — backed by the cached augmented case-type list, so

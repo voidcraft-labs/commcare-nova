@@ -105,11 +105,12 @@ function engine(
 ) {
 	return new FormEngine(
 		{
+			doc,
 			form: doc.forms[formUuid],
 			formUuid,
 			fields: doc.fields,
 			fieldOrder: doc.fieldOrder,
-			caseTypes: CASE_TYPES,
+			caseTypes: doc.caseTypes ?? [],
 		},
 		doc.modules[doc.moduleOrder[0]].caseType,
 	);

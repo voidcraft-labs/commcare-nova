@@ -38,7 +38,7 @@ import {
 	tableLookup,
 	term,
 	today,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { ValidationErrorCode } from "../errors";
@@ -160,7 +160,6 @@ function fixture(
 					{
 						name: "enrolled",
 						label: proseText("Enrolled"),
-						required: "true()",
 					},
 				],
 			},
@@ -808,7 +807,7 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 		expect(codes).toEqual([]);
 	});
 
-	it("admits only wire-portable retypes after destination requirements are met", () => {
+	it("admits only retypes whose source values remain portable", () => {
 		expectCode("CASE_OPERATION_RETYPE_UNSAFE", [
 			update({
 				caseType: "lead",
@@ -816,8 +815,8 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 				retype: "client",
 			}),
 		]);
-		// Supplying the required destination value makes the storage plan
-		// atomic, but the source-only `legacy` value would still remain on
+		// Supplying a destination value cannot preserve the source-only
+		// `legacy` value, which would still remain on
 		// CommCare's schemaless case while Nova parks it. Keep that divergent
 		// retype dormant until a shared wire representation exists.
 		expectCode("CASE_OPERATION_RETYPE_UNSAFE", [
@@ -953,6 +952,7 @@ describe("case-operation target and dependency safety", () => {
 		built.doc.fieldOrder[registrationUuid] =
 			registration.fieldOrder[registrationUuid];
 		Object.assign(built.doc.fields, registration.fields);
+		Object.assign(built.doc.fieldParent, registration.fieldParent);
 
 		built.doc.formOrder[built.moduleUuid] = [registrationUuid, built.formUuid];
 		built.doc.forms[built.formUuid].caseOperations = [
@@ -1501,7 +1501,7 @@ describe("case-operation target and dependency safety", () => {
 			}),
 		]);
 		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
-			update({ owner: term(formField(REPEAT_A)) }),
+			update({ owner: term(formField(NUMBER)) }),
 		]);
 	});
 

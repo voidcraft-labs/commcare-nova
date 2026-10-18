@@ -1,6 +1,7 @@
 import AdmZip from "adm-zip";
 import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -71,13 +72,15 @@ describe("worker property wire projection", () => {
 		if (field.kind !== "text") throw new Error("Expected text field");
 		const predicate = doc.modules[moduleUuid].displayCondition,
 			xpath = field.relevant;
-		const properties = doc.userProperties;
-		if (!properties) throw new Error("Missing worker catalog");
-		properties[WORKER_PROPERTY].slug = "supervision_status";
-		blueprintDocSchema.parse(toPersistableDoc(doc));
-		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-		const hq = expandDoc(doc);
-		expect(doc.modules[moduleUuid].displayCondition).toBe(predicate);
+		const renamed = produce(doc, (draft) => {
+			if (!draft.userProperties) throw new Error("Missing worker catalog");
+			draft.userProperties[WORKER_PROPERTY].slug = "supervision_status";
+		});
+		blueprintDocSchema.parse(toPersistableDoc(renamed));
+		expect(runValidation(renamed, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const hq = expandDoc(renamed);
+		expect(renamed.modules[moduleUuid].displayCondition).toBe(predicate);
+		expect(renamed.fields[fieldUuid]).toBe(field);
 		expect(field.relevant).toBe(xpath);
 		expect(hq.modules[0].module_filter).toBe(
 			"instance('commcaresession')/session/user/data/supervision_status = 'n'",

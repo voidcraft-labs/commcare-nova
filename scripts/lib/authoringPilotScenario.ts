@@ -65,6 +65,7 @@ export async function observeClientPilot(args: {
 		if (!form) throw new Error(`Scenario form ${formUuid} is missing.`);
 		return new FormEngine(
 			{
+				doc,
 				form,
 				formUuid,
 				fields: doc.fields,

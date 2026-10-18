@@ -12,7 +12,7 @@ import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { generateToolSchemas } from "@/lib/agent/toolSchemaGenerator";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
@@ -20,6 +20,7 @@ import {
 	formSectionsOf,
 } from "@/lib/doc/formSectionVerdicts";
 import type { BlueprintDoc } from "@/lib/domain";
+import { literal, matchAll, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
@@ -137,7 +138,7 @@ describe("section at the tool boundary", () => {
 		const withLogic = item.safeParse({
 			id: "intro",
 			kind: "section",
-			relevant: xp("true()"),
+			relevant: matchAll(),
 		});
 		expect(withLogic.success).toBe(false);
 		expect(JSON.stringify(withLogic.error?.issues)).toContain("relevant");
@@ -322,7 +323,7 @@ describe("addFields on a sectioned form", () => {
 					id: "rows",
 					kind: "repeat",
 					label: proseText("Rows"),
-					repeat: { mode: "count_bound", count: xp("2") },
+					repeat: { mode: "count_bound", count: term(literal(2)) },
 					parentUuid: NEW,
 				},
 			],

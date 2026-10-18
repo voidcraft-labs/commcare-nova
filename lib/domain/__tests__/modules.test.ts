@@ -7,6 +7,7 @@ import { emptyCaseListConfig } from "@/lib/domain";
 // do not establish runtime or CommCare acceptance.
 
 import { describe, expect, it } from "vitest";
+import { eq, literal, sessionUser, term } from "../expression";
 import {
 	type AdvancedSearchInputDef,
 	advancedSearchInputDef,
@@ -35,7 +36,6 @@ import {
 	splitMultiSelectSearchAnswer,
 } from "../modules";
 import { asMediaAssetId } from "../multimedia";
-import { eq, literal, sessionUser, term } from "../predicate";
 import type { Uuid } from "../uuid";
 
 // Sample uuids — sequential nibbles so test failure diffs are easy
@@ -226,7 +226,7 @@ describe("columnSchema — authored display shapes", () => {
 				header: "Opened",
 				// CCHQ wire-form date pattern (strftime-style); same
 				// shape as `formatDateSchema.pattern` on the
-				// ValueExpression side.
+				// Expression side.
 				pattern: "%Y-%m-%d",
 			},
 			{
@@ -455,7 +455,7 @@ describe("columnSchema — authored display shapes", () => {
 	});
 
 	it("rejects a date column with an empty pattern", () => {
-		// Schema constraint: both column and ValueExpression patterns reject
+		// Schema constraint: both column and Expression patterns reject
 		// empty input before any runtime compiler sees it.
 		const parsed = columnSchema.safeParse({
 			uuid: u(1),
@@ -1060,9 +1060,9 @@ describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 	it("preserves the authored owner and display settings", () => {
 		// Finite settings corpus; additional optional slots may be absent.
 		const config: CaseSearchConfig = {
-			// `excludedOwnerIds` is a `ValueExpression`; the `term` arm
+			// `excludedOwnerIds` is a `Expression`; the `term` arm
 			// wraps a `Term` (here a string literal — owner ids joined
-			// by spaces) so the value satisfies the `ValueExpression`
+			// by spaces) so the value satisfies the `Expression`
 			// shape.
 			excludedOwnerIds: {
 				kind: "term",

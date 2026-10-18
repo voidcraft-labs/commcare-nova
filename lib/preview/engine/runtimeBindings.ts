@@ -3,7 +3,7 @@ import type { PreviewSearchSessionValues } from "./identity";
 // lib/preview/engine/runtimeBindings.ts
 //
 // Runtime-bindings layer for the running-app case list. Translates
-// per-input typed values into ONE `Predicate` representing the
+// per-input typed values into ONE `Expression` representing the
 // input-driven contribution to the case-list query. AND-composition
 // with the unified `caseListConfig.filter` slot happens at the
 // helper layer (the case-store binding site) so this module ships
@@ -25,11 +25,7 @@ import {
 	splitMultiSelectSearchAnswer,
 	type Uuid,
 } from "@/lib/domain";
-import type {
-	AstMapHooks,
-	Predicate,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+import type { AstMapHooks, Expression } from "@/lib/domain/expression";
 import {
 	dateLiteral,
 	dateRangeSearchPredicate,
@@ -38,15 +34,15 @@ import {
 	isIn,
 	literal,
 	mapExpressionAst,
-	mapPredicateAst,
 	match,
 	prop,
 	qualifiedLiteral,
+	recordQueryContext,
 	reduceAnd,
 	term,
 	unhandledKindMessage,
-} from "@/lib/domain/predicate";
-import { walkExpressionTerms, walkTerms } from "@/lib/domain/predicate/walk";
+} from "@/lib/domain/expression";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	dateRangeInputErrors,
 	ISO_DATE_PATTERN,
@@ -159,7 +155,7 @@ export function searchInputInstanceValues(
 }
 
 /**
- * Bind every `input(name)` leaf in a ValueExpression to the current running
+ * Bind every `input(name)` leaf in a Expression to the current running
  * search value. The preview XPath evaluator is scalar and intentionally does
  * not model the search-input XML nodeset, so substitution happens while the
  * expression is still a typed AST. Missing inputs become the empty string —
@@ -167,10 +163,10 @@ export function searchInputInstanceValues(
  * unanswered prompt.
  */
 export function bindSearchInputValuesInExpression(
-	expression: ValueExpression,
+	expression: Expression,
 	inputValues: SearchInputValues,
 	searchInputs: readonly SearchInputDef[] = [],
-): ValueExpression {
+): Expression {
 	const runtimeBindings = searchInputRuntimeBindings(searchInputs);
 	const uuids = new Set<Uuid>();
 	walkExpressionTerms(expression, (term) => {
@@ -192,7 +188,7 @@ export function bindSearchInputValuesInExpression(
 }
 
 /**
- * Bind declared search-input refs in an authored Predicate and resolve each
+ * Bind declared search-input refs in an authored Expression and resolve each
  * matching `when-input-present` gate from that input's own submitted value.
  * Unknown refs deliberately stay structural: validation rejects them, and a
  * bypassed invalid ref should not be silently rewritten as an empty answer.
@@ -210,14 +206,14 @@ export function bindSearchInputValuesInExpression(
  * expression binder above binds the same raw value.
  */
 export function bindSearchInputValuesInPredicate(
-	predicate: Predicate,
+	predicate: Expression,
 	inputValues: SearchInputValues,
 	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[] = [],
-): Predicate {
+): Expression {
 	const runtimeBindings = searchInputRuntimeBindings(searchInputs);
 	const referencedUuids = new Set<Uuid>();
-	walkTerms(predicate, (term) => {
+	walkExpressionTerms(predicate, (term) => {
 		if (term.kind === "input") referencedUuids.add(term.searchInputUuid);
 	});
 
@@ -238,7 +234,7 @@ export function bindSearchInputValuesInPredicate(
 
 /**
  * Compose every contributing search-input's runtime predicate into
- * one Predicate representing the input-driven contribution. Empty /
+ * one Expression representing the input-driven contribution. Empty /
  * absent simple inputs short-circuit per-input. Advanced predicates
  * always contribute: their authored `when-input-present` nodes are
  * the sole source of input-presence gating, matching wire emission.
@@ -254,7 +250,7 @@ export function composeRuntimeFilter(
 	inputValues: SearchInputValues,
 	caseType: string,
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
-): Predicate {
+): Expression {
 	const rangeErrors = dateRangeInputErrors(searchInputs, inputValues);
 	if (rangeErrors.size > 0) throw new SearchInputValuesError(rangeErrors);
 
@@ -263,7 +259,7 @@ export function composeRuntimeFilter(
 		inputValues,
 	);
 	const knownInputUuids = new Set(searchInputs.map((input) => input.uuid));
-	const clauses: Predicate[] = [];
+	const clauses: Expression[] = [];
 	for (const input of searchInputs) {
 		const clause = clauseForInput(
 			input,
@@ -277,7 +273,7 @@ export function composeRuntimeFilter(
 	}
 	const reduced = reduceAnd(clauses);
 	if (reduced !== undefined) return reduced;
-	return { kind: "and", clauses: clauses as [Predicate, ...Predicate[]] };
+	return { kind: "and", clauses: clauses as [Expression, ...Expression[]] };
 }
 
 function clauseForInput(
@@ -287,7 +283,7 @@ function clauseForInput(
 	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[],
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
-): Predicate | undefined {
+): Expression | undefined {
 	switch (input.kind) {
 		// A hidden input seeds the search-input instance for `input(...)`
 		// reads; it never matches a case property of its own.
@@ -331,7 +327,7 @@ function buildSimpleArmClause(
 	inputValues: SearchInputValues,
 	caseType: string,
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
-): Predicate | undefined {
+): Expression | undefined {
 	const mode = input.mode ?? defaultModeFor(input.type);
 	if (mode.kind === "range") {
 		return buildRangeClause(input, inputValues, caseType, caseTypeSchemas);
@@ -362,11 +358,10 @@ function buildSimpleArmClause(
 					property: input.property,
 					via: input.via,
 					day: term(dateLiteral(day)),
-					typeContext: {
+					typeContext: recordQueryContext({
 						caseTypes: [...caseTypeSchemas.values()],
 						currentCaseType: caseType,
-						knownInputs: [],
-					},
+					}),
 				});
 			}
 			if (input.type === "multi-select") {
@@ -417,7 +412,7 @@ function buildRangeClause(
 	inputValues: SearchInputValues,
 	caseType: string,
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
-): Predicate | undefined {
+): Expression | undefined {
 	const lower = validDateBound(inputValues.get(`${input.name}:from`));
 	const upper = validDateBound(inputValues.get(`${input.name}:to`));
 	if (lower === undefined && upper === undefined) return undefined;
@@ -440,11 +435,10 @@ function buildRangeClause(
 		via: input.via,
 		lowerDay: term(dateLiteral(lower)),
 		upperDay: term(dateLiteral(upper)),
-		typeContext: {
+		typeContext: recordQueryContext({
 			caseTypes: [...caseTypeSchemas.values()],
 			currentCaseType: caseType,
-			knownInputs: [],
-		},
+		}),
 	});
 }
 
@@ -482,7 +476,7 @@ function buildAdvancedArmClause(
 	inputValues: SearchInputValues,
 	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[],
-): Predicate {
+): Expression {
 	return bindSearchInputValuesInPredicate(
 		input.predicate,
 		inputValues,
@@ -514,9 +508,9 @@ function searchInputRuntimeBindings(
 	);
 }
 
-// Input substitution over `Predicate` / `ValueExpression`. Implemented
+// Input substitution over `Expression` / `Expression`. Implemented
 // as hooks over the shared structure-preserving mapper
-// (`lib/domain/predicate/mapAst.ts`): an `input` term matching the
+// (`lib/domain/expression/mapAst.ts`): an `input` term matching the
 // target becomes a typed literal, and a matching `when-input-present`
 // gate resolves to the same two wire outcomes the search-input
 // instance produces (answered -> inner clause, unanswered -> match-all
@@ -541,9 +535,9 @@ function substitutionHooks(
 				target.runtimeValueType === "text"
 					? literal(value)
 					: qualifiedLiteral(value, target.runtimeValueType);
-			return { kind: "term", term: replacement };
+			return replacement;
 		},
-		mapPredicate: (predicate) => {
+		mapExpression: (predicate) => {
 			if (
 				!resolvePresence ||
 				predicate.kind !== "when-input-present" ||
@@ -559,30 +553,30 @@ function substitutionHooks(
 			 * answered -> inner clause; unanswered -> match-all no-op. */
 			return value === ""
 				? { kind: "match-all" }
-				: mapPredicateAst(predicate.clause, hooks);
+				: mapExpressionAst(predicate.clause, hooks);
 		},
 	};
 	return hooks;
 }
 
 function substituteInputInPredicate(
-	predicate: Predicate,
+	predicate: Expression,
 	target: RuntimeInputBinding,
 	value: string,
 	resolvePresence = false,
-): Predicate {
-	return mapPredicateAst(
+): Expression {
+	return mapExpressionAst(
 		predicate,
 		substitutionHooks(target, value, resolvePresence),
 	);
 }
 
 function substituteInputInExpression(
-	expr: ValueExpression,
+	expr: Expression,
 	target: RuntimeInputBinding,
 	value: string,
 	resolvePresence = false,
-): ValueExpression {
+): Expression {
 	return mapExpressionAst(
 		expr,
 		substitutionHooks(target, value, resolvePresence),

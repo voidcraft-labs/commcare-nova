@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Field } from "@/lib/domain";
-import { GEOPOINT_PATTERN } from "@/lib/domain/predicate/jsonSchema";
+import { GEOPOINT_PATTERN } from "@/lib/domain/expression/jsonSchema";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
 import { formatGeopoint, parseGeopoint } from "./geopointValue";
 

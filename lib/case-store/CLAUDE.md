@@ -1,9 +1,9 @@
 # lib/case-store — Postgres case store
 
 The runtime storage layer for case data. Cloud SQL Postgres is the
-live runtime; the AST→Kysely compiler from `lib/domain/predicate`
-is the only evaluator. There is no in-memory variant, no parallel
-JS evaluator, no parity tests.
+live runtime; the AST→Kysely compiler of the stored `Expression` union's
+record arms (`./sql`, the union in `lib/domain/expression`) is the only
+evaluator. There is no in-memory variant, no parallel JS evaluator, no parity tests.
 
 ## Public surface — barrel
 
@@ -144,7 +144,7 @@ cannot assert it, and the envelope persists the canonical `parent` edge as
 
 **The operation program is also the external-data compiler-context boundary.** Its optional `lookupTableSchemas` is the rows-free `tableId → columnId → dataType` projection from one Project-authorized definitions snapshot. Preview derives the exact table ids from canonical lookup-reference occurrences whose carrier UUID belongs to the built form's operations, using the same committed blueprint that produced the program; a carrier-free program performs no definition read. `evaluateBatch` threads this one map into every condition, value, runtime target, write guard, and link target, and the schema-healing wrapper retries `applySubmission` with the same envelope object and map. It also threads the committed organization-level hierarchy: a fixed-place owner evaluates to the same UUID stored in `app_locations` and emitted as the fixture `@id`, while a reverse owner hop walks the selected case owner's live ancestor branch to the admitted unique destination level. Never fetch definitions or organization shape from inside individual expression arms or substitute a fallback type: lookup governance keeps referenced table/column identities and types stable, organization admission makes reverse hops scalar, and `lookup_rows` plus `app_locations` remain current tenant-bound reads inside the submission transaction.
 
-Retype planning lives in `lib/domain/caseRetype.ts::planCaseRetype`. Its richer storage plan describes exact retained JSON properties, casts, parking, and missing requirements; scalar row metadata such as `case_name` is excluded because it survives independently of the JSON schema. Its `safe` verdict means Nova can execute that plan atomically, while `wirePortable` is deliberately stricter: no conversion and no parking. Authored operations are admitted only under `wirePortable`, because CommCare's case XML retype changes `case_type` without casting or removing old property values, and the authoritative submission transaction executes exactly that subset (`postgres/submissionEnvelope.ts::applyRetypeEffect`). Conversion/parking retypes stay dormant until a shared wire representation can make the device and Nova projection agree; if that representation lands, execute the complete plan as one transaction and surface parked values through Data to review. Never implement a richer retype as a bare `case_type` update around the schema store.
+Retype planning lives in `lib/domain/caseRetype.ts::planCaseRetype`. Its richer storage plan describes exact retained JSON properties, casts and parking; scalar row metadata such as `case_name` is excluded because it survives independently of the JSON schema. Its `safe` verdict means Nova can execute that plan atomically, while `wirePortable` is deliberately stricter: no conversion and no parking. Authored operations are admitted only under `wirePortable`, because CommCare's case XML retype changes `case_type` without casting or removing old property values, and the authoritative submission transaction executes exactly that subset (`postgres/submissionEnvelope.ts::applyRetypeEffect`). Conversion/parking retypes stay dormant until a shared wire representation can make the device and Nova projection agree; if that representation lands, execute the complete plan as one transaction and surface parked values through Data to review. Never implement a richer retype as a bare `case_type` update around the schema store.
 
 **Schema drift after a derivation change is a scan-then-migrate.** Stored `case_type_schemas` rows converge to the CURRENT derivation only when an edit touches their case type — `classifyCaseTypeChanges` diffs prior-vs-prospective views that both already carry the new derivation, so a deploy that changes what schemas derive FROM leaves stored rows stale until `scripts/scan-schema-drift.ts` (read-only sizing) + `scripts/migrate-schema-drift.ts --execute` (per-property `retype` migrations — uncastable values park — then a plain re-sync per case type) run over the old data.
 
@@ -224,7 +224,7 @@ and HQ server-modified age never enter SQL; `lib/automations/matching.ts` names
 those omissions in the result. No case-store method updates a case, sends a
 message, or advances a schedule on an automation's behalf.
 
-Three property-comparison families bypass the generic Predicate compiler to retain HQ's
+Three property-comparison families bypass the generic expression compiler to retain HQ's
 runtime value rules. **Equals / does not equal** compares the criterion only
 with a stored JSON string. A JSON number `5` does not equal criterion `5`, and
 numbers, booleans, objects, arrays, null, and missing values satisfy does-not-equal.
@@ -412,7 +412,7 @@ complete case-store portion of either transaction.
 
 ## Typed error contract
 
-User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes map them to typed result arms. Non-obvious rules: `CaseNotFoundError`'s message deliberately does NOT distinguish "outside the bound Project" from "never existed" — tenant boundaries stay structural, never message-leaked. `CasePropertiesValidationError`'s structured `failures` surface in the response body, but the `(appId, caseType)` pair stays server-log-only. All classes use `readonly name = "<ClassName>"` initializers so the literal name survives bundler transforms. Every other throw in the package is an internal-invariant violation using the formatters at `lib/domain/predicate/errors.ts`.
+User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes map them to typed result arms. Non-obvious rules: `CaseNotFoundError`'s message deliberately does NOT distinguish "outside the bound Project" from "never existed" — tenant boundaries stay structural, never message-leaked. `CasePropertiesValidationError`'s structured `failures` surface in the response body, but the `(appId, caseType)` pair stays server-log-only. All classes use `readonly name = "<ClassName>"` initializers so the literal name survives bundler transforms. Every other throw in the package is an internal-invariant violation using the formatters at `lib/domain/expression/errors.ts`.
 
 ## TypeScript validates writes — there is no in-database trigger
 
@@ -895,7 +895,7 @@ Two contracts inside it:
 `count` carries the matching measurement arm, `missingIndexIdentifier`:
 how many cases of one type carry NO index with that name. It is a
 MEASUREMENT, not an authored predicate, so it does not reach for the
-Predicate AST, and it counts held rows because it answers a question
+expression AST, and it counts held rows because it answers a question
 about the stored data an author governs rather than about what the
 running app can currently reach.
 
@@ -1318,7 +1318,7 @@ The harness pins to two non-negotiable rules:
 `harness.postgres.test.ts` checks that Kysely and raw queries share the same
 uncommitted transaction, that a subsequent test cannot see the previous
 write, and that a separate observer sees no sentinel rows after fixture
-teardown. URI shape alone cannot prove container sharing or rollback. Index-plan checks compile the actual Predicate AST before EXPLAIN; hand-written equivalent SQL cannot prove compiler/index compatibility. The schema-contention check uses independent connections, observes both blocked operations, and runs the same bounded transient retry as production callers before checking the final schema and indexes.
+teardown. URI shape alone cannot prove container sharing or rollback. Index-plan checks compile the actual expression AST before EXPLAIN; hand-written equivalent SQL cannot prove compiler/index compatibility. The schema-contention check uses independent connections, observes both blocked operations, and runs the same bounded transient retry as production callers before checking the final schema and indexes.
 
 ### Image and extensions
 

@@ -12,52 +12,16 @@
 		"reason": "The control retains the document's configurations from before step 2 asked for the related lookups flag: HQ's case search view refuses a query that reads related cases without CASE_SEARCH_RELATED_LOOKUPS (case_search/filter_dsl.py::_require_related_lookups_flag: You cannot query related cases here; defect 12), and Formplayer answers with that in place of the results, on every state."
 	},
 	{
-		"document": "expander-output-references-in-labels-lowers-several-typed-e72b42c4-0",
-		"reader": "formplayer",
-		"cause": "notification:invalid-data-type-in-setvalue-event-targetting",
-		"reason": "Formplayer answers the form's opening with Core's refusal of the form's setvalue into its date question (the case property it copies holds text that is no date), on every state, so no reader opens the form."
-	},
-	{
-		"document": "fuzz-suite-20260930-5",
-		"reader": "formplayer",
-		"cause": "notification:value-could-not-be-loaded-into-question",
-		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
-	},
-	{
-		"document": "fuzz-suite-20260930-8",
-		"reader": "formplayer",
-		"cause": "notification:value-could-not-be-loaded-into-question",
-		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
-	},
-	{
 		"document": "fuzz-suite-20260930-8",
 		"reader": "formplayer",
 		"cause": "search-refused",
 		"reason": "The search's one prompt is required and this run leaves the screen as it opens, so the client keeps its Search from being sent (menus/views/query.js) and the walk sends none; the run that types into the prompt sends it."
 	},
 	{
-		"document": "fuzz-xform-20260930-0",
-		"reader": "formplayer",
-		"cause": "notification:value-could-not-be-loaded-into-question",
-		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
-	},
-	{
-		"document": "fuzz-xform-20260930-1",
-		"reader": "formplayer",
-		"cause": "notification:value-could-not-be-loaded-into-question",
-		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
-	},
-	{
 		"document": "fuzz-xform-20260930-4",
 		"reader": "formplayer",
 		"cause": "submit-refused:validation-error",
 		"reason": "The form's weight question is always required and its validation is false(), so Formplayer refuses every answer and every submission; no worker can submit the form."
-	},
-	{
-		"document": "fuzz-xform-20260930-7",
-		"reader": "formplayer",
-		"cause": "notification:value-could-not-be-loaded-into-question",
-		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
 	},
 	{
 		"document": "location-direct",

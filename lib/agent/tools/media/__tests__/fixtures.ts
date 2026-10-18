@@ -3,7 +3,6 @@
  * their native boundary suites. */
 import { vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -11,6 +10,7 @@ import {
 	type Module,
 	plainColumn,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression";
 import type {
 	AssetKind,
 	MediaAssetId,
@@ -166,7 +166,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		uuid: HIDDEN_FIELD,
 		id: "computed_score",
 		kind: "hidden",
-		calculate: xp("0"),
+		calculate: term(literal(0)),
 	};
 	const doc: BlueprintDoc = {
 		appId: "test-app",

@@ -1,6 +1,10 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
+import { calculatedColumn } from "@/lib/domain";
 import {
 	ancestorPath,
 	and,
@@ -13,7 +17,7 @@ import {
 	subcasePath,
 	tableColumn,
 	tableLookup,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 
 /** Lower-level anchor contracts, executed against native indexed case storage. */
 export function nativeLookupRelations(naming: LookupWireNaming) {
@@ -23,7 +27,7 @@ export function nativeLookupRelations(naming: LookupWireNaming) {
 		tableColumn(table.tableId, value.id),
 		prop("patient", "region"),
 	);
-	return [
+	const scenarios = [
 		{
 			name: "subcase-correlation",
 			where: and(
@@ -44,12 +48,49 @@ export function nativeLookupRelations(naming: LookupWireNaming) {
 				),
 			),
 		},
-	].map(({ name, where }) => ({
-		name,
+	];
+	const moduleUuid = testUuid("native-lookup-relations");
+	const columns = scenarios.map(({ name, where }) =>
+		calculatedColumn(
+			testUuid(`native-lookup-${name}`),
+			name,
+			tableLookup(table.tableId, label.id, where),
+		),
+	);
+	const doc = buildDoc({
+		caseTypes: [
+			{ name: "household", properties: [] },
+			{
+				name: "patient",
+				parent_type: "household",
+				properties: [{ name: "region", label: "Region", data_type: "text" }],
+			},
+			{
+				name: "visit",
+				parent_type: "patient",
+				properties: [{ name: "outcome", label: "Outcome", data_type: "text" }],
+			},
+		],
+		modules: [
+			{
+				uuid: moduleUuid,
+				name: "Lookup relations",
+				caseType: "patient",
+				caseListOnly: true,
+				caseListConfig: { columns, searchInputs: [] },
+			},
+		],
+	});
+	const contexts = moduleExpressionContexts(doc, moduleUuid, naming);
+	return columns.map((column) => ({
+		name: column.header,
 		expression: serializeWire(
-			toWire(tableLookup(table.tableId, label.id, where), {
+			toWire(column.expression, {
 				target: "suite",
-				types: { currentCaseType: "patient" },
+				types: contexts({
+					slot: "case_list_column_expression",
+					member: { columnUuid: column.uuid },
+				}),
 				bindings: { lookup: { naming, instanceScope: "suite" } },
 			}),
 			{ target: "suite" },

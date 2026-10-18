@@ -15,7 +15,7 @@ import {
 	multiSelectAny,
 	prop,
 	subcasePath,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,
@@ -122,5 +122,5 @@ it.each([
 ])("rejects mixed property scopes before SQL execution: %j", (predicate) => {
 	expect(() =>
 		compilePredicate(predicate, makeCtx({ currentCaseType: "household" })),
-	).toThrow(/mixed-property-scopes/);
+	).toThrow(expect.objectContaining({ reason: "mixed-property-scopes" }));
 });

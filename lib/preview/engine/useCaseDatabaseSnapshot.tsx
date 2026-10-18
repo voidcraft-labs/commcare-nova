@@ -2,15 +2,16 @@
 
 import { memo, type ReactNode, useLayoutEffect, useMemo } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
-import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
 import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	type BlueprintDoc,
 	effectivePostSubmit,
-	expressionSurfaceReads,
 	materializableCaseTypes,
+	proseSurfaceReads,
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
+import { slotContext } from "@/lib/domain/expression/context";
+import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { useCaseDatabaseRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import {
@@ -23,10 +24,7 @@ import { useEngineController } from "../hooks/useEngineController";
 import { useReloadableResource } from "../hooks/useReloadableResource";
 import { loadCaseDatabaseSnapshotAction } from "./caseDataBinding";
 import type { CaseDatabaseControllerState } from "./engineController";
-import {
-	xpathReferencesCaseDatabaseHashtag,
-	xpathReferencesInstance,
-} from "./xpathInstanceReferences";
+import { expressionReadsCaseDatabase } from "./expressionCaseReads";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 type CaseDatabaseState =
@@ -73,18 +71,27 @@ const CaseDatabaseResourceBoundary = memo(
 export function caseDatabaseRequirements(
 	doc: BlueprintDoc,
 ): CaseDatabaseRequirements {
-	const explicitReference = authoredXPathCarriers(doc).some(
-		(carrier) =>
-			(carrier.profile === "preview-form" ||
-				carrier.profile === "preview-session") &&
-			(xpathReferencesInstance(carrier.source, "casedb") ||
-				xpathReferencesCaseDatabaseHashtag(carrier.source)),
+	const explicitReference = [
+		...Object.values(doc.fields).map((field) => ({
+			entity: "field" as const,
+			uuid: field.uuid,
+		})),
+		...Object.values(doc.forms).map((form) => ({
+			entity: "form" as const,
+			uuid: form.uuid,
+		})),
+	].some((owner) =>
+		expressionSlotValues(doc, owner).some(
+			({ ref, expression }) =>
+				slotContext(doc, ref, new Map())?.ruleSet === "form" &&
+				expressionReadsCaseDatabase(expression),
+		),
 	);
 	// Prose has typed references too, but deliberately is not an XPath carrier.
 	// Labels, hints, help and inline choices must load the same structural cases
 	// as calculations; literal text that resembles a hashtag is not a read.
 	const proseReference = Object.values(doc.fields).some((field) =>
-		expressionSurfaceReads(field, "prose", doc).some((read) =>
+		proseSurfaceReads(field, doc).some((read) =>
 			read.template?.parts.some(
 				(part) =>
 					part.kind === "case-ref" ||

@@ -70,7 +70,7 @@ import {
 	subcasePath,
 	term,
 	today,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import {
 	CaseNotFoundError,
@@ -3535,7 +3535,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		//   3. The empty / absent `calculated` arm behaves like a
 		//      regular `query` with an empty `calculated: {}` map per
 		//      row — the projection is additive, not destructive.
-		//   4. Predicate / sort / limit / offset arguments compose with
+		//   4. DomainExpression / sort / limit / offset arguments compose with
 		//      calculated-column projection (the same arguments the
 		//      live preview threads).
 
@@ -3889,9 +3889,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// `query` it pairs with — any divergence would surface as a
 		// count-vs-row-list mismatch. The four tests pin:
 		//
-		//   1. Predicate-undefined returns the total population
+		//   1. DomainExpression-undefined returns the total population
 		//      (matches the "no filter applied" preview state).
-		//   2. Predicate-narrowed returns the matching subset only
+		//   2. DomainExpression-narrowed returns the matching subset only
 		//      (the predicate compiles through the same stack as
 		//      `query`).
 		//   3. Tenant scoping — cross-tenant rows are invisible.
@@ -3986,7 +3986,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(matchedCount).toBe(2);
 
-			// Predicate-undefined returns all three — pins the
+			// DomainExpression-undefined returns all three — pins the
 			// pair-shape contract the Filters preview relies on
 			// ("X of Y total" requires both numbers).
 			const totalCount = await store.count({

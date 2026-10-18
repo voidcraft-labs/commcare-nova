@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import type { XPathReferenceContext } from "@/lib/codemirror/xpath-lint";
 import {
 	type CaseType,
 	reachableCaseTypes,
@@ -9,12 +9,12 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { ReferenceProvider } from "../provider";
 
-/** Minimal lint context carrying just the `#form/` slice this suite exercises.
+/** Minimal reference context carrying just the `#form/` slice this suite exercises.
  *  No case type — case refs are covered by the per-type suite below. */
 function formCtx(
 	formUuid: string,
 	entries: Array<[path: string, label: string]>,
-): XPathLintContext {
+): XPathReferenceContext {
 	return {
 		formUuid,
 		validPaths: new Set(entries.map(([p]) => `/data/${p}`)),
@@ -29,14 +29,14 @@ function formCtx(
 	};
 }
 
-/** A lint context for a form on `caseType`, with its reachable case-type index
+/** A reference context for a form on `caseType`, with its reachable case-type index
  *  derived from the shared `caseTypes` list the same way `buildLintContext` does. */
 function caseCtx(
 	formUuid: string,
 	caseType: string,
 	caseTypes: CaseType[],
-	formType: XPathLintContext["formType"] = "followup",
-): XPathLintContext {
+	formType: XPathReferenceContext["formType"] = "followup",
+): XPathReferenceContext {
 	return {
 		formUuid,
 		validPaths: new Set(),
@@ -54,7 +54,7 @@ describe("ReferenceProvider — form-entry cache is keyed per form", () => {
 	 * many forms in one render, so each form's index lives under its own key and
 	 * a form switch never thrashes another form's cache. */
 	it("resolves each form's own field against its own scope", () => {
-		const contexts: Record<string, XPathLintContext> = {
+		const contexts: Record<string, XPathReferenceContext> = {
 			formA: formCtx("formA", [["visit_grp/edd_final", "EDD"]]),
 			formB: formCtx("formB", [["preg_grp/ga_weeks", "Gestational age"]]),
 		};

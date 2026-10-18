@@ -1,11 +1,10 @@
 /** Schema- and whole-gate-admitted worker property identities for native wire proof. */
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { parseXPathForForm } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
-import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
+import { eq, literal, sessionUserProperty } from "@/lib/domain/expression";
 import { runValidation } from "../validator/runner";
 export const WORKER_PROPERTY = testUuid("worker-property-supervisor");
 export const workerSlugs = [
@@ -72,7 +71,14 @@ export function workerWireFixture(
 	if (!fieldUuid) throw new Error("Expected supervisor question");
 	const field = doc.fields[fieldUuid];
 	if (field.kind !== "text") throw new Error("Expected text question");
-	field.relevant = parseXPathForForm(doc, formUuid, `#user/${slug} = 'n'`);
+	field.relevant = eq(
+		{
+			kind: "session-user-property",
+			userPropertyUuid: WORKER_PROPERTY,
+			source: "worker-record",
+		},
+		literal("n"),
+	);
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 	if (findings.length) throw new Error(JSON.stringify(findings));

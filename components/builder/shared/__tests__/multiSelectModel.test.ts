@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
-	checkPredicate,
+	checkExpression,
 	literal,
 	multiSelectAll,
 	multiSelectAny,
 	prop,
 	relationStep,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
-import { buildEditorTypeContext } from "../editorTypeContext";
+import { editorExpressionContext } from "../editorTypeContext";
 import {
 	multiSelectProperty,
 	replaceMultiSelectProperty,
@@ -54,15 +55,17 @@ describe("actual multiple-choice card edits", () => {
 	it("reads option identities at the saved connection destination", () => {
 		const value = multiSelectAny(related, literal("priority"));
 		expect(
-			checkPredicate(
+			checkExpression(
 				value,
-				buildEditorTypeContext({
-					caseTypes,
-					currentCaseType: "patient",
-					knownInputs: [],
-				}),
+				editorExpressionContext(
+					expressionEditorFixture("case-filter", {
+						caseTypes,
+						currentCaseType: "patient",
+						knownInputs: [],
+					}).context,
+				),
 			),
-		).toEqual({ ok: true });
+		).toMatchObject({ errors: [] });
 		expect(multiSelectProperty(related, caseTypes)?.label).toEqual(
 			proseText("Household tags"),
 		);
@@ -82,7 +85,12 @@ describe("actual multiple-choice card edits", () => {
 	it("refuses empty chip lists and permits repairing an invalid historical value by index", () => {
 		const source = multiSelectAny(related, literal(7), literal("priority"));
 		expect(replaceMultiSelectValues(source, [])).toBeUndefined();
-		expect(replaceMultiSelectValues(source, source.values.slice(1))).toEqual(
+		const retained = source.values.slice(1).map((value) => {
+			if (value.kind !== "literal")
+				throw new Error("Expected a saved literal choice.");
+			return value;
+		});
+		expect(replaceMultiSelectValues(source, retained)).toEqual(
 			multiSelectAny(related, literal("priority")),
 		);
 	});

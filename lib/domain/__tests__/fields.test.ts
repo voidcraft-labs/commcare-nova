@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { proseText } from "@/lib/domain/prose";
+import { literal, term } from "../expression/builders";
 import {
 	fieldKinds,
 	fieldSchema,
@@ -8,7 +9,6 @@ import {
 	isContainerKindName,
 	pickFieldKeysForKind,
 } from "../fields";
-import { opaqueXPathExpression } from "../xpath";
 
 const identity = { uuid: testUuid("field"), id: "answer" };
 const label = proseText("Answer");
@@ -52,13 +52,13 @@ const fixtures = [
 		...identity,
 		kind: "repeat",
 		repeat_mode: "count_bound",
-		repeat_count: opaqueXPathExpression("2"),
+		repeat_count: term(literal(2)),
 	},
 	{
 		...identity,
 		kind: "repeat",
 		repeat_mode: "query_bound",
-		data_source: { ids_query: opaqueXPathExpression("''") },
+		data_source: { ids_query: term(literal("")) },
 	},
 ];
 
@@ -142,11 +142,11 @@ describe("field schema admission", () => {
 
 	it("admits either hidden-value slot; requiring a value belongs to the document gate", () => {
 		for (const value of [
-			{ ...identity, kind: "hidden", calculate: opaqueXPathExpression("2") },
+			{ ...identity, kind: "hidden", calculate: term(literal(2)) },
 			{
 				...identity,
 				kind: "hidden",
-				default_value: opaqueXPathExpression("2"),
+				default_value: term(literal(2)),
 			},
 		])
 			expect(fieldSchema.parse(value)).toEqual(value);
@@ -167,8 +167,8 @@ describe("repeat candidate projection before schema admission", () => {
 			"count_bound",
 			"query_bound",
 		]) {
-			const repeat_count = opaqueXPathExpression("2");
-			const data_source = { ids_query: opaqueXPathExpression("''") };
+			const repeat_count = term(literal(2));
+			const data_source = { ids_query: term(literal("")) };
 			const value = {
 				...identity,
 				kind: "repeat",
@@ -197,7 +197,7 @@ describe("repeat candidate projection before schema admission", () => {
 				...identity,
 				kind: "repeat",
 				repeat_mode,
-				repeat_count: opaqueXPathExpression("2"),
+				repeat_count: term(literal(2)),
 				obsolete: true,
 			};
 			const before = structuredClone(value);
@@ -206,7 +206,7 @@ describe("repeat candidate projection before schema admission", () => {
 				...identity,
 				kind: "repeat",
 				repeat_mode,
-				repeat_count: opaqueXPathExpression("2"),
+				repeat_count: term(literal(2)),
 			});
 			expect(fieldSchema.safeParse(projected).success).toBe(false);
 			expect(value).toEqual(before);

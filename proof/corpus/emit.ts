@@ -50,7 +50,11 @@ import { delimiter, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { DEFAULT_CORPUS_SEED, DEFAULT_SAMPLE_SIZE } from "./defaults";
+import {
+	DEFAULT_CORPUS_SEED,
+	DEFAULT_EXPRESSION_SAMPLE_SIZE,
+	DEFAULT_SAMPLE_SIZE,
+} from "./defaults";
 import {
 	type CorpusDocument,
 	readExpanderCapture,
@@ -300,7 +304,7 @@ async function main(argv: readonly string[]): Promise<void> {
 		const writers = await runVitestWriters(scratch, sample, seed);
 		const vitestWritersSeconds = seconds(t);
 		console.log(
-			`Vitest writers (expander corpus, fuzz sample of ${sample} at seed ${seed}) took ${vitestWritersSeconds} s.`,
+			`Vitest writers (expander corpus, fuzz sample of ${sample} + ${DEFAULT_EXPRESSION_SAMPLE_SIZE} expressions at seed ${seed}) took ${vitestWritersSeconds} s.`,
 		);
 
 		let hq: z.infer<typeof hqIndexSchema> = {
@@ -334,7 +338,7 @@ async function main(argv: readonly string[]): Promise<void> {
 		const { index, timings } = await emitCorpus({
 			out,
 			seed,
-			sample,
+			sample: sampled.length,
 			fixed,
 			sampled,
 			...(shard !== undefined && {

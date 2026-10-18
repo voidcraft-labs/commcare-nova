@@ -292,7 +292,7 @@ function useSelectedFormLink():
 	| (SelectedFormLinkTarget & { readonly title: string })
 	| null {
 	const target = useSelectedFormLinkTarget();
-	const context = useLinkSentenceContext();
+	const context = useLinkSentenceContext(target?.formUuid);
 	if (target === null) return null;
 	return { ...target, title: linkLead(target.link.target, context) };
 }

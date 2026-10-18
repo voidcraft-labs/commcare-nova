@@ -9,70 +9,24 @@ import { liveCountEntryDoc } from "./fixtures/sectionEntry";
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
-import { parseXPathExpression } from "@/lib/commcare/xpath";
-import type {
-	CaseOperation,
-	Field,
-	FieldKind,
-	Form,
-	FormType,
-	ProseTemplate,
-	SelectOptionsSource,
-	Uuid,
-	XPathExpression,
-} from "@/lib/domain";
-import { fieldSchema, formSchema } from "@/lib/domain";
+import type { FieldSpec } from "@/lib/__tests__/docHelpers";
+import type { CaseOperation, FormType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-
 import { FormEngine, type FormEngineInput } from "../formEngine";
+import { engineFixtureInput } from "./fixtures/engineInput";
 
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 
-interface DField {
-	id: string;
-	kind: FieldKind;
-	label?: ProseTemplate;
-	optionsSource?: SelectOptionsSource;
-	children?: DField[];
-	relevant?: XPathExpression;
-	calculate?: XPathExpression;
-}
-
 function dTree(
-	fields: DField[],
+	fields: FieldSpec[],
 	caseOperations?: CaseOperation[],
 	formType: FormType = "survey",
 ): FormEngineInput {
-	const formUuid = testUuid("test-form-uuid");
-	const form: Form = formSchema.parse({
-		uuid: formUuid,
-		id: "test-form",
-		name: "Test Form",
-		type: formType,
-		...(caseOperations !== undefined && { caseOperations }),
+	return engineFixtureInput(fields, {
+		formUuid: testUuid("test-form-uuid"),
+		formType,
+		form: { ...(caseOperations === undefined ? {} : { caseOperations }) },
 	});
-	const fieldMap: Record<string, Field> = {};
-	const fieldOrder: Record<string, Uuid[]> = {};
-	const walk = (nodes: DField[], parentUuid: Uuid, prefix: string): void => {
-		const order: Uuid[] = [];
-		for (const n of nodes) {
-			const uuid = testUuid(`${prefix}.${n.id}`);
-			order.push(uuid);
-			const { children, ...rest } = n;
-			fieldMap[uuid as string] = fieldSchema.parse({
-				uuid,
-				...(n.kind === "repeat" ? { repeat_mode: "user_controlled" } : {}),
-				...rest,
-			});
-			if (n.kind === "group" || n.kind === "repeat" || n.kind === "section") {
-				walk(children ?? [], uuid, `${prefix}.${n.id}`);
-			}
-		}
-		fieldOrder[parentUuid as string] = order;
-	};
-	walk(fields, formUuid, "form");
-	return { form, formUuid, fields: fieldMap, fieldOrder, caseTypes: [] };
 }
 
 const OPERATION: CaseOperation = {
@@ -91,21 +45,17 @@ function valuesOf(
 
 describe("computeOperationAnswers", () => {
 	it("blanks excluded answers and suppresses nested repeat effects without losing retained inputs", () => {
-		const relevant = parseXPathExpression(
-			"#form/enabled = 'yes'",
-			() => testUuid("form.enabled"),
-			() => undefined,
-		);
+		const relevant = "#form/enabled = 'yes'";
 		const engine = new FormEngine(
 			dTree(
 				[
 					{ id: "enabled", kind: "text", label: proseText("Answer") },
-					{ id: "kept", kind: "hidden", calculate: xp("'calculated'") },
+					{ id: "kept", kind: "hidden", calculate: "'calculated'" },
 					{
 						id: "absent",
 						kind: "text",
 						label: proseText("Answer"),
-						relevant: xp("false()"),
+						relevant: "false()",
 					},
 					{
 						id: "details",
@@ -336,6 +286,7 @@ it("retains counted-row operation answers after the worker lowers the count", ()
 	assertAdmittedDoc(doc);
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 	const engine = new FormEngine({
+		doc,
 		...doc,
 		caseTypes: doc.caseTypes ?? [],
 		formUuid,

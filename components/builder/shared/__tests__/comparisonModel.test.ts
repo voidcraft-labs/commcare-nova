@@ -1,20 +1,21 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import {
 	arith,
-	checkPredicate,
+	checkExpression,
 	dateLiteral,
 	eq,
 	gt,
 	literal,
 	prop,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { replaceComparisonSubject } from "../comparisonModel";
 import type { PredicateEditContext } from "../editorSchemas";
-import { buildEditorTypeContext } from "../editorTypeContext";
+import { editorExpressionContext } from "../editorTypeContext";
 
-const context: PredicateEditContext = {
+const context: PredicateEditContext = expressionEditorFixture("case-filter", {
 	caseTypes: [
 		{
 			name: "patient",
@@ -28,7 +29,7 @@ const context: PredicateEditContext = {
 	currentCaseType: "patient",
 	knownInputs: [],
 	caseDataScope: "per-case",
-};
+}).context;
 describe("comparison subject atomic edits", () => {
 	it("changes an incompatible object in the same candidate as the subject", () => {
 		const source = eq(prop("patient", "name"), literal("Alice"));
@@ -38,9 +39,9 @@ describe("comparison subject atomic edits", () => {
 			context,
 		);
 		expect(next).toEqual(eq(prop("patient", "age"), literal(0)));
-		expect(checkPredicate(next, buildEditorTypeContext(context))).toEqual({
-			ok: true,
-		});
+		expect(
+			checkExpression(next, editorExpressionContext(context)),
+		).toMatchObject({ errors: [] });
 		expect(source.right).toEqual(term(literal("Alice")));
 	});
 	it("retains an authored compatible expression by identity", () => {
@@ -52,9 +53,9 @@ describe("comparison subject atomic edits", () => {
 		);
 		if (next.kind !== "gt") throw new Error("Expected greater-than");
 		expect(next.right).toBe(right);
-		expect(checkPredicate(next, buildEditorTypeContext(context))).toEqual({
-			ok: true,
-		});
+		expect(
+			checkExpression(next, editorExpressionContext(context)),
+		).toMatchObject({ errors: [] });
 	});
 	it("does not strip a temporal qualifier when a replacement remains compatible", () => {
 		const source = gt(prop("patient", "date"), dateLiteral("2026-01-01"));

@@ -107,16 +107,9 @@ export const updateCasePropertyTool = {
 			// Check the complete resulting definition, including settings retained
 			// by a partial edit. The workspace still owns whole-app admission.
 			const property = casePropertySchema.parse(merged);
-			// Stored catalog rules survive until the document-shape cutover, but
-			// no longer belong to authored input. Validate the retained authored
-			// settings too, including options against the property's stored type.
-			const {
-				required: _required,
-				validation: _validation,
-				validation_msg: _validationMsg,
-				...authored
-			} = property;
-			casePropertyInputSchema.parse(authored);
+			// Validate retained authored settings too, including options against
+			// the property's stored type. Form rules live on their own questions.
+			casePropertyInputSchema.parse(property);
 			if (deepEqual(current, property))
 				return {
 					kind: "mutate" as const,

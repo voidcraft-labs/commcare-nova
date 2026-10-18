@@ -5,17 +5,19 @@
 // authoring controls; the kind picker chrome on the surrounding
 // `ExpressionPicker` shell carries the kind-replace menu.
 //
-// Same visual language as `SentinelCards` on the Predicate side:
+// Same visual language as `SentinelCards` on the Expression side:
 // a one-line status row inside the card body that explains what the
 // constant resolves to. The card is intentionally inert so an author
 // glancing at the editor reads "this slot is the current date /
 // time" without scanning for editable controls.
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerCalendarEvent from "@iconify-icons/tabler/calendar-event";
 import tablerClock from "@iconify-icons/tabler/clock";
-import { now, today, type ValueExpression } from "@/lib/domain/predicate";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
+import { type Expression, now, today } from "@/lib/domain/expression";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import type { EditorPath } from "../../path";
 
@@ -23,26 +25,26 @@ import type { EditorPath } from "../../path";
  *  factory returns the bare arm shape directly via the builder. */
 export function todayDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "today" }> {
+): ExpressionOfKind<"today"> {
 	return today();
 }
 
 /** Default value for the `now` arm. */
 export function nowDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "now" }> {
+): ExpressionOfKind<"now"> {
 	return now();
 }
 
 interface TodayCardProps {
-	readonly value: Extract<ValueExpression, { kind: "today" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"today">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
 interface NowCardProps {
-	readonly value: Extract<ValueExpression, { kind: "now" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"now">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 

@@ -14,14 +14,14 @@ import {
 import {
 	and,
 	concat,
+	type Expression,
 	eq,
 	input,
 	literal,
-	type Predicate,
 	prop,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	admittedCaseListDoc,
 	findings,
@@ -104,7 +104,7 @@ describe("search input envelope scope", () => {
 			),
 			refs: [first.uuid],
 		},
-	] satisfies { name: string; predicate: Predicate; refs: string[] }[])(
+	] satisfies { name: string; predicate: Expression; refs: string[] }[])(
 		"$name",
 		({ predicate, refs }) => {
 			const errors = findings(

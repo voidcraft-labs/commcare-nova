@@ -1,6 +1,6 @@
 // components/builder/case-list-config/predicateSummary.ts
 //
-// Human-language one-liner for a filter `Predicate`: "Status isn't
+// Human-language one-liner for a filter `Expression`: "Status isn't
 // closed and Age is more than 5", never `status ≠ closed`. Search stamps
 // this on its Cases available summary so the always-on rule reads as a
 // sentence; the full structural editor stays in the inspector.
@@ -14,17 +14,17 @@
 import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
 import type {
+	Choice,
+	Expression,
 	Literal,
-	Predicate,
 	PropertyRef,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabelForName,
 	propertyFallbackSentenceLabel,
 } from "@/lib/domain/propertyDisplay";
-import { resolveRelationDestination } from "../shared/relationDestination";
 import {
 	type EditorSearchInputDecl,
 	searchInputDisplayLabel,
@@ -57,7 +57,7 @@ export interface PredicateSummaryContext {
  * all-cases state instead of a vacuous sentence.
  */
 export function summarizeFilter(
-	predicate: Predicate | undefined,
+	predicate: Expression | undefined,
 	context: PredicateSummaryContext,
 ): string | undefined {
 	if (predicate === undefined) return undefined;
@@ -75,7 +75,7 @@ export function summarizeFilter(
 }
 
 function summarizeExclusionCondition(
-	predicate: Predicate,
+	predicate: Expression,
 	context: PredicateSummaryContext,
 	currentCaseType: string | undefined,
 ): string {
@@ -88,7 +88,7 @@ function summarizeExclusionCondition(
 }
 
 function summarizePredicate(
-	p: Predicate,
+	p: Expression,
 	context: PredicateSummaryContext,
 	currentCaseType: string | undefined,
 ): string {
@@ -133,9 +133,9 @@ function summarizePredicate(
 		case "is-blank":
 			return `${operand(p.left, context)} is blank`;
 		case "matches-pattern":
-			return `${operand(p.left, context)} matches the pattern ${quotePattern(p.pattern)}`;
+			return `${operand(p.left, context)} matches the pattern ${typeof p.pattern === "string" ? quotePattern(p.pattern) : operand(p.pattern, context)}`;
 		case "match": {
-			const subject = propertySentenceLabel(p.property, context);
+			const subject = propertyOperand(p.property, context);
 			const value = operand(p.value, context);
 			switch (p.mode) {
 				case "fuzzy":
@@ -151,12 +151,16 @@ function summarizePredicate(
 			}
 		}
 		case "multi-select-contains": {
-			const values = choiceValues(p.values, p.property, context);
+			const values = choiceValues(
+				p.values,
+				p.property.kind === "prop" ? p.property : directPropertyRef(p.property),
+				context,
+			);
 			const quantifier = p.quantifier === "all" ? "all of" : "any of";
-			return `${propertySentenceLabel(p.property, context)} includes ${quantifier} ${values}`;
+			return `${propertyOperand(p.property, context)} includes ${quantifier} ${values}`;
 		}
 		case "within-distance":
-			return `${propertySentenceLabel(p.property, context)} is within ${p.distance} ${p.unit} of ${operand(p.center, context)}`;
+			return `${propertyOperand(p.property, context)} is within ${typeof p.distance === "number" ? p.distance : operand(p.distance, context)} ${typeof p.unit === "string" ? p.unit : operand(p.unit, context)} of ${operand(p.center, context)}`;
 		case "and":
 		case "or":
 			return joinClauses(
@@ -185,6 +189,8 @@ function summarizePredicate(
 			return "all cases";
 		case "match-none":
 			return "no cases";
+		default:
+			return `${operand(p, context)} is true`;
 	}
 }
 
@@ -207,7 +213,7 @@ const PATTERN_SUMMARY_LENGTH = 40;
  * related-case summaries grammatical without exposing `not (…)` syntax.
  */
 function summarizeNegatedPredicate(
-	p: Predicate,
+	p: Expression,
 	context: PredicateSummaryContext,
 	currentCaseType: string | undefined,
 ): string {
@@ -252,19 +258,23 @@ function summarizeNegatedPredicate(
 		case "is-blank":
 			return `${operand(p.left, context)} isn't blank`;
 		case "matches-pattern":
-			return `${operand(p.left, context)} doesn't match the pattern ${quotePattern(p.pattern)}`;
+			return `${operand(p.left, context)} doesn't match the pattern ${typeof p.pattern === "string" ? quotePattern(p.pattern) : operand(p.pattern, context)}`;
 		case "match":
-			return `${propertySentenceLabel(p.property, context)} doesn't ${matchVerb(
+			return `${propertyOperand(p.property, context)} doesn't ${matchVerb(
 				p.mode,
 			)} ${operand(p.value, context)}`;
 		case "multi-select-contains": {
-			const values = choiceValues(p.values, p.property, context);
+			const values = choiceValues(
+				p.values,
+				p.property.kind === "prop" ? p.property : directPropertyRef(p.property),
+				context,
+			);
 			return p.quantifier === "all"
-				? `${propertySentenceLabel(p.property, context)} doesn't include all of ${values}`
-				: `${propertySentenceLabel(p.property, context)} includes none of ${values}`;
+				? `${propertyOperand(p.property, context)} doesn't include all of ${values}`
+				: `${propertyOperand(p.property, context)} includes none of ${values}`;
 		}
 		case "within-distance":
-			return `${propertySentenceLabel(p.property, context)} is farther than ${p.distance} ${p.unit} from ${operand(p.center, context)}`;
+			return `${propertyOperand(p.property, context)} is farther than ${typeof p.distance === "number" ? p.distance : operand(p.distance, context)} ${typeof p.unit === "string" ? p.unit : operand(p.unit, context)} from ${operand(p.center, context)}`;
 		case "and":
 			return joinNegatedClauses(p.clauses, "or", context, currentCaseType);
 		case "or":
@@ -289,11 +299,13 @@ function summarizeNegatedPredicate(
 			return "nothing matches";
 		case "match-none":
 			return "everything matches";
+		default:
+			return `${operand(p, context)} is false`;
 	}
 }
 
 function matchVerb(
-	mode: Extract<Predicate, { kind: "match" }>["mode"],
+	mode: Extract<Expression, { kind: "match" }>["mode"],
 ): string {
 	switch (mode) {
 		case "fuzzy":
@@ -310,7 +322,7 @@ function matchVerb(
 }
 
 /** Keep nested logical groups visible so the summary cannot imply a different rule. */
-function compoundClause(clause: Predicate): boolean {
+function compoundClause(clause: Expression): boolean {
 	return (
 		clause.kind === "and" ||
 		clause.kind === "or" ||
@@ -319,7 +331,7 @@ function compoundClause(clause: Predicate): boolean {
 }
 
 function joinNegatedClauses(
-	clauses: readonly Predicate[],
+	clauses: readonly Expression[],
 	word: "and" | "or",
 	context: PredicateSummaryContext,
 	currentCaseType: string | undefined,
@@ -335,7 +347,7 @@ function joinNegatedClauses(
 }
 
 function joinClauses(
-	clauses: readonly Predicate[],
+	clauses: readonly Expression[],
 	word: "and" | "or",
 	context: PredicateSummaryContext,
 	currentCaseType: string | undefined,
@@ -370,10 +382,7 @@ function embeddedSummary(summary: string): string {
 
 /** Render a value operand. Terms read as their referent; computed
  *  expressions stay honest-generic: the inspector shows structure. */
-function operand(
-	expr: ValueExpression,
-	context: PredicateSummaryContext,
-): string {
+function operand(expr: Expression, context: PredicateSummaryContext): string {
 	switch (expr.kind) {
 		case "term": {
 			const t = expr.term;
@@ -425,8 +434,8 @@ function operand(
  * the literal opposite it. Calculated expressions and non-literal operands keep
  * their ordinary summaries. */
 function equalityOperands(
-	left: ValueExpression,
-	right: ValueExpression,
+	left: Expression,
+	right: Expression,
 	context: PredicateSummaryContext,
 ): readonly [string, string] {
 	const leftLiteral = directLiteral(left);
@@ -444,29 +453,31 @@ function equalityOperands(
 	];
 }
 
-function directLiteral(expr: ValueExpression): Literal | undefined {
+function directLiteral(expr: Expression): Literal | undefined {
 	return expr.kind === "term" && expr.term.kind === "literal"
 		? expr.term
 		: undefined;
 }
 
-function directPropertyRef(expr: ValueExpression): PropertyRef | undefined {
+function directPropertyRef(expr: Expression): PropertyRef | undefined {
 	return expr.kind === "term" && expr.term.kind === "prop"
 		? expr.term
 		: undefined;
 }
 
 function choiceValues(
-	values: readonly Literal[],
+	values: readonly (Literal | Choice | Expression)[],
 	propertyRef: PropertyRef | undefined,
 	context: PredicateSummaryContext,
 ): string {
 	return values
-		.map((value) =>
-			propertyRef === undefined
+		.map((value) => {
+			if (value.kind === "choice") return "a selected choice";
+			if (value.kind !== "literal") return operand(value, context);
+			return propertyRef === undefined
 				? literalText(value.value)
-				: choiceLiteralText(value, propertyRef, context),
-		)
+				: choiceLiteralText(value, propertyRef, context);
+		})
 		.join(", ");
 }
 
@@ -519,14 +530,12 @@ function resolvePropertyRef(
 	context: PredicateSummaryContext,
 ): ResolvedPropertyRef | undefined {
 	const caseTypes = context.caseTypes ?? [];
-	const destination =
-		propertyRef.via === undefined
-			? propertyRef.caseType
-			: resolveRelationDestination(
-					propertyRef.via,
-					propertyRef.caseType,
-					caseTypes,
-				);
+	const resolution = resolveRelationDestination(
+		propertyRef.via,
+		propertyRef.caseType ?? context.currentCaseType,
+		caseTypes,
+	);
+	const destination = resolution.ok ? resolution.caseType : undefined;
 	const properties = caseTypes.find(
 		(caseType) => caseType.name === destination,
 	)?.properties;
@@ -535,6 +544,15 @@ function resolvePropertyRef(
 		(candidate) => candidate.name === propertyRef.property,
 	);
 	return property === undefined ? undefined : { property, properties };
+}
+
+function propertyOperand(
+	value: PropertyRef | Expression,
+	context: PredicateSummaryContext,
+): string {
+	return value.kind === "prop"
+		? propertySentenceLabel(value, context)
+		: operand(value, context);
 }
 
 function propertySentenceLabel(
@@ -560,16 +578,17 @@ function propertySentenceLabel(
 }
 
 function relationDestination(
-	via: Extract<Predicate, { kind: "exists" | "missing" }>["via"],
+	via: Extract<Expression, { kind: "exists" | "missing" }>["via"],
 	context: PredicateSummaryContext,
 	currentCaseType: string | undefined,
 ): string | undefined {
 	if (currentCaseType === undefined) return undefined;
-	return resolveRelationDestination(
+	const resolved = resolveRelationDestination(
 		via,
 		currentCaseType,
 		context.caseTypes ?? [],
 	);
+	return resolved.ok ? resolved.caseType : undefined;
 }
 
 function literalText(value: string | number | boolean | null): string {

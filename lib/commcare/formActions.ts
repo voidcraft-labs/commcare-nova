@@ -7,26 +7,13 @@
  * value is a `/data/...` path resolved through the doc's field tree so
  * nested groups / repeats produce the correct dotted address.
  *
- * `buildCaseReferencesLoad` is the complement: it scans every field's
- * XPath expressions for case-bound hashtag refs and maps the field's full
+ * `buildCaseReferencesLoad` is the complement: it walks every field's
+ * typed expressions for case and worker-record reads and maps the field's full
  * `/data/...` path to the list of references used at that path — translated
  * into the `#case/`-generation vocabulary HQ's case-metadata layer parses
  * (`hqLoadReference`), which feeds HQ's app summary / case property usage.
  */
 
-import type {
-	FormActions,
-	OpenSubCaseAction,
-	UpdateCaseAction,
-} from "@/lib/commcare";
-import {
-	alwaysCondition,
-	emptyFormActions,
-	extractHashtags,
-	hqLoadReference,
-	neverCondition,
-} from "@/lib/commcare";
-import { caseTypeDepthMap } from "@/lib/commcare/hashtags/formContext";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
@@ -35,13 +22,18 @@ import {
 	caseSelectionCardinality,
 	closeConditionPlacement,
 	deriveCaseWriteInventory,
+	expressionSlotValue,
 	type Field,
 	isCaptureField,
 	isCaseScalarTextProperty,
 	type Uuid,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import type { Expression } from "@/lib/domain/expression/types";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
+import { caseTypeDepthMap } from "./caseTypeDepths";
 import { assertAndProjectCaseWriteInventory } from "./caseWriteAdmission";
 import {
 	effectiveAssessmentUserScore,
@@ -50,7 +42,9 @@ import {
 import type { ResolvedConnectConfig } from "./connectSlugs";
 import type { DerivedCasePropertyBinding } from "./deriveCaseConfig";
 import { deriveCaseConfig } from "./deriveCaseConfig";
-import { readFieldString } from "./fieldProps";
+import { hqLoadReference } from "./hashtags";
+import { alwaysCondition, emptyFormActions, neverCondition } from "./hqShells";
+import type { FormActions, OpenSubCaseAction, UpdateCaseAction } from "./types";
 import {
 	type AttachmentUrlTarget,
 	captureUrlNodePath,
@@ -442,8 +436,8 @@ function caseSelectionForForm(
 /**
  * Build `case_references_data.load` for `formUuid`.
  *
- * Walks every field under the form, extracts typed case / `#user/`
- * references from its XPath-valued properties (`relevant`,
+ * Walks every field under the form, extracts case and worker-record identities
+ * from its expression properties (`relevant`,
  * `validate`, `calculate`, `default_value`, `required`), and emits a
  * map from the field's full `/data/...` path to the list of hashtags
  * it references. Also scans the Connect assessment / deliver-unit
@@ -471,23 +465,46 @@ export function buildCaseReferencesLoad(
 	// The one legal authored case ref on a registration form is
 	// `#<own_type>/case_id`. Its private HQ metadata projection is
 	// `#case/case_id`, while the XForm side reads the session datum the entry
-	// mints the new case's id into (the registration narrowing in
-	// `hashtags/formContext.ts`), the datum HQ's build also sets
+	// mints the new case's id into, the datum HQ's build also sets
 	// `/data/case/@case_id` from. Recording that private projection here would
 	// tell HQ's App Summary the form reads `case_id` from a case database it
 	// never touches.
 	// Vanilla parity: HQ's editor can't author case refs on a non-case-loading
 	// form at all, so its load map for a registration form is empty.
 	const isRegistration = doc.forms[formUuid].type === "registration";
-	// Translate friendly explicit case-type namespaces to HQ's private load
-	// vocabulary and dedupe references that resolve to the same case depth.
-	const toLoadRefs = (exprs: string[]): string[] => [
-		...new Set(
-			extractHashtags(exprs)
-				.map((ref) => hqLoadReference(ref, caseTypeDepths))
-				.filter((ref) => !(isRegistration && ref === "#case/case_id")),
-		),
-	];
+	const userProperties = userPropertySlugsByUuid(doc);
+	// Metadata follows typed reads. Literal text and session-user values have
+	// no case-load meaning, even when their text looks like a worker hashtag.
+	const toLoadRefs = (expressions: readonly Expression[]): string[] => {
+		const refs = new Set<string>();
+		for (const expression of expressions)
+			walkExpressionTerms(expression, (term) => {
+				if (term.kind === "form-case") {
+					const reference = hqLoadReference(
+						`#${term.caseType}/${term.property}`,
+						caseTypeDepths,
+					);
+					if (!(isRegistration && reference === "#case/case_id"))
+						refs.add(reference);
+				} else if (
+					term.kind === "session-user" &&
+					term.source === "worker-record"
+				) {
+					refs.add(`#user/${term.field}`);
+				} else if (
+					term.kind === "session-user-property" &&
+					term.source === "worker-record"
+				) {
+					const slug = userProperties.get(term.userPropertyUuid);
+					if (slug === undefined)
+						throw new Error(
+							`Worker property ${term.userPropertyUuid} has no current name for HQ case-load metadata.`,
+						);
+					refs.add(`#user/${slug}`);
+				}
+			});
+		return [...refs];
+	};
 
 	const walk = (parentUuid: Uuid, parentPath: FormPath): void => {
 		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
@@ -495,17 +512,24 @@ export function buildCaseReferencesLoad(
 			if (!field) continue;
 			const nodePath = parentPath.child(field.id);
 
-			const xpathExprs = [
-				readFieldString(field, "relevant", doc),
-				readFieldString(field, "validate", doc),
-				readFieldString(field, "calculate", doc),
-				readFieldString(field, "default_value", doc),
-				readFieldString(field, "required", doc),
-			].filter((s): s is string => typeof s === "string");
-			const hashtags = toLoadRefs(xpathExprs);
-			if (hashtags.length > 0) {
-				load[nodePath.toXPath()] = hashtags;
-			}
+			const expressions = (
+				[
+					"relevant",
+					"validate",
+					"calculate",
+					"default_value",
+					"required",
+				] as const
+			).flatMap((slot) => {
+				const expression = expressionSlotValue(doc, {
+					entity: "field",
+					uuid: field.uuid,
+					slot,
+				});
+				return expression === undefined ? [] : [expression];
+			});
+			const references = toLoadRefs(expressions);
+			if (references.length > 0) load[nodePath.toXPath()] = references;
 
 			// Containers: recurse into their children. `doc.fieldOrder`
 			// having an entry for this uuid is the container marker.
@@ -529,9 +553,7 @@ export function buildCaseReferencesLoad(
 		// so the load map's hashtag set always matches what the runtime will
 		// evaluate from that bind. (The default is a hashtag-free literal,
 		// so an unset user_score contributes no load entry.)
-		const h = toLoadRefs([
-			effectiveAssessmentUserScore(connect.assessment, doc),
-		]);
+		const h = toLoadRefs([effectiveAssessmentUserScore(connect.assessment)]);
 		if (h.length > 0) {
 			load[
 				FormPath.root()
@@ -550,7 +572,6 @@ export function buildCaseReferencesLoad(
 		// runtime will evaluate from those binds.
 		const { entityId, entityName } = effectiveDeliverEntities(
 			connect.deliver_unit,
-			doc,
 		);
 		const deliverPath = FormPath.root().child(duId).child("deliver");
 		const idH = toLoadRefs([entityId]);

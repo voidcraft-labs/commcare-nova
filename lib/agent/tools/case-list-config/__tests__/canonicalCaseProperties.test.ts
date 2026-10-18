@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { literal, prop, term } from "@/lib/domain/predicate";
+import { literal, prop, term } from "@/lib/domain/expression";
 import {
 	columnInputSchema,
 	searchInputDefInputSchema,

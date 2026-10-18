@@ -1,0 +1,610 @@
+import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { CaseType } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
+import {
+	ancestorPath,
+	and,
+	anyRelationPath,
+	arith,
+	between,
+	coalesce,
+	concat,
+	count,
+	dateAdd,
+	dateCoerce,
+	datetimeCoerce,
+	double,
+	eq,
+	exists,
+	formatDate,
+	ifExpr,
+	input,
+	isBlank,
+	isIn,
+	literal,
+	match,
+	matchAll,
+	multiSelectAll,
+	not,
+	now,
+	prop,
+	relationStep,
+	subcasePath,
+	switchCase,
+	switchExpr,
+	term,
+	today,
+	whenInput,
+	within,
+} from "../builders";
+import { normalizeRelationEvaluationScopes } from "../normalizeRelationEvaluationScopes";
+import { type Expression, expressionSchema } from "../types";
+
+const CASE_TYPES: CaseType[] = [
+	{
+		name: "household",
+		properties: [
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+		],
+	},
+	{
+		name: "patient",
+		parent_type: "household",
+		properties: [
+			{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+			{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+			{ name: "age", label: proseText("Age"), data_type: "int" },
+			{ name: "status", label: proseText("Status"), data_type: "text" },
+			{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+			{ name: "location", label: proseText("Location"), data_type: "geopoint" },
+		],
+	},
+	{
+		name: "visit",
+		parent_type: "household",
+		properties: [
+			{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+		],
+	},
+	{
+		name: "encounter",
+		parent_type: "patient",
+		properties: [
+			{ name: "summary", label: proseText("Summary"), data_type: "text" },
+		],
+	},
+];
+
+const CONTEXT = {
+	caseTypes: CASE_TYPES,
+	currentCaseType: "household",
+} as const;
+const PATIENTS = subcasePath("parent", "patient");
+
+function relatedPatient(property: string) {
+	return prop("household", property, PATIENTS);
+}
+
+// These are structurally admitted transform candidates. Some intentionally mix
+// value types to isolate recursion; contextual admission and native evaluation
+// are separate boundaries.
+function expectOnePatientScope(
+	authored: Expression,
+	expectedInner: Expression,
+): void {
+	const admitted = expressionSchema.parse(authored);
+	const before = structuredClone(admitted);
+	expect(normalizeRelationEvaluationScopes(admitted, CONTEXT)).toEqual(
+		exists(PATIENTS, expectedInner),
+	);
+	expect(admitted).toEqual(before);
+}
+
+const selfPatient = (property: string) => prop("patient", property);
+
+describe("normalizeRelationEvaluationScopes — one row per scalar leaf", () => {
+	it("uses one exists envelope for two properties read through the same relation", () => {
+		const authored = eq(
+			relatedPatient("case_name"),
+			relatedPatient("nickname"),
+		);
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
+			exists(
+				PATIENTS,
+				eq(prop("patient", "case_name"), prop("patient", "nickname")),
+			),
+		);
+	});
+
+	it("keeps separate boolean leaves independently quantified", () => {
+		const authored = and(
+			eq(relatedPatient("case_name"), literal("Alice")),
+			eq(relatedPatient("status"), literal("open")),
+		);
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
+			and(
+				exists(PATIENTS, eq(prop("patient", "case_name"), literal("Alice"))),
+				exists(PATIENTS, eq(prop("patient", "status"), literal("open"))),
+			),
+		);
+	});
+
+	it("gives each generic between bound its own related-row quantifier", () => {
+		const authored = between(relatedPatient("age"), {
+			lower: literal(18),
+			upper: literal(65),
+			upperInclusive: false,
+		});
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual({
+			kind: "and",
+			clauses: [
+				exists(PATIENTS, {
+					kind: "gte",
+					left: term(prop("patient", "age")),
+					right: term(literal(18)),
+				}),
+				exists(PATIENTS, {
+					kind: "lt",
+					left: term(prop("patient", "age")),
+					right: term(literal(65)),
+				}),
+			],
+		});
+	});
+
+	it.each([
+		["in", (read) => isIn(read("case_name"), literal("Alice"))],
+		["is blank", (read) => isBlank(read("case_name"))],
+		[
+			"match",
+			(read) => match(read("case_name"), literal("Ali"), "starts-with"),
+		],
+		[
+			"multi-select",
+			(read) =>
+				multiSelectAll(read("tags"), literal("urgent"), literal("review")),
+		],
+		[
+			"within distance",
+			(read) => within(read("location"), literal("42 -71"), 5, "miles"),
+		],
+	] satisfies ReadonlyArray<
+		readonly [string, (read: typeof relatedPatient) => Expression]
+	>)(
+		"preserves the full %s operator while moving its row scope",
+		(_name, construct) => {
+			expectOnePatientScope(construct(relatedPatient), construct(selfPatient));
+		},
+	);
+
+	it.each([
+		[
+			"date-add",
+			(read) =>
+				dateAdd(dateCoerce(term(read("status"))), "days", term(literal(1))),
+		],
+		["date-coerce", (read) => dateCoerce(term(read("status")))],
+		["datetime-coerce", (read) => datetimeCoerce(term(read("status")))],
+		["double", (read) => double(term(read("age")))],
+		["arith", (read) => arith("+", term(read("age")), term(literal(1)))],
+		["concat", (read) => concat(term(read("case_name")), term(literal("!")))],
+		[
+			"coalesce",
+			(read) => coalesce(term(read("nickname")), term(literal("Unknown"))),
+		],
+		[
+			"if branch",
+			(read) =>
+				ifExpr(matchAll(), term(read("case_name")), term(literal("none"))),
+		],
+		[
+			"switch discriminator",
+			(read) =>
+				switchExpr(
+					term(read("status")),
+					[switchCase(literal("open"), term(literal("yes")))],
+					term(literal("no")),
+				),
+		],
+		[
+			"format-date",
+			(read) => formatDate(dateCoerce(term(read("status"))), "iso"),
+		],
+	] satisfies ReadonlyArray<
+		readonly [string, (read: typeof relatedPatient) => Expression]
+	>)(
+		"preserves the full %s expression while rebasing its reads",
+		(_name, construct) => {
+			expectOnePatientScope(
+				eq(construct(relatedPatient), literal("result")),
+				eq(construct(selfPatient), literal("result")),
+			);
+		},
+	);
+
+	it("leaves via-free predicates unchanged by identity", () => {
+		const authored = eq(prop("household", "region"), literal("north"));
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toBe(authored);
+	});
+
+	it("carries identity bindings when a nested count's relationship is canonicalized", () => {
+		const relatedCount = count(anyRelationPath("parent", "patient"));
+		const fixed = term(literal(3));
+		const authored = arith("+", relatedCount, fixed);
+		const bindings = new Map<Expression, string>([
+			[relatedCount, "count node"],
+		]);
+		const normalized = normalizeRelationEvaluationScopes(
+			authored,
+			CONTEXT,
+			(original, replacement) => {
+				const binding = bindings.get(original);
+				if (binding !== undefined) bindings.set(replacement, binding);
+			},
+		);
+		if (normalized.kind !== "arith") throw new Error("Arithmetic changed kind");
+		expect(normalized.left).toEqual(count(PATIENTS));
+		expect(normalized.left).not.toBe(relatedCount);
+		expect(bindings.get(normalized.left)).toBe("count node");
+		expect(normalized.right).toBe(fixed);
+	});
+
+	it("is idempotent", () => {
+		const authored = eq(relatedPatient("case_name"), literal("Alice"));
+		const once = normalizeRelationEvaluationScopes(authored, CONTEXT);
+		expect(normalizeRelationEvaluationScopes(once, CONTEXT)).toEqual(once);
+	});
+});
+
+describe("normalizeRelationEvaluationScopes — relation identity", () => {
+	it("coalesces inferred and explicit equivalent child paths", () => {
+		const singleChildContext = {
+			caseTypes: CASE_TYPES.filter((caseType) => caseType.name !== "visit"),
+		};
+		const inferred = prop("household", "case_name", subcasePath("parent"));
+		const explicit = prop(
+			"household",
+			"nickname",
+			subcasePath("parent", "patient"),
+		);
+		expect(
+			normalizeRelationEvaluationScopes(
+				eq(inferred, explicit),
+				singleChildContext,
+			),
+		).toEqual(
+			exists(
+				subcasePath("parent", "patient"),
+				eq(prop("patient", "case_name"), prop("patient", "nickname")),
+			),
+		);
+	});
+
+	it("canonicalizes every hop of an inferred multi-hop ancestor path", () => {
+		const inferred = ancestorPath(
+			relationStep("parent"),
+			relationStep("parent"),
+		);
+		const explicit = ancestorPath(
+			relationStep("parent", "patient"),
+			relationStep("parent", "household"),
+		);
+		const authored = eq(
+			prop("encounter", "region", inferred),
+			prop("encounter", "region", explicit),
+		);
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
+			exists(
+				explicit,
+				eq(prop("household", "region"), prop("household", "region")),
+			),
+		);
+	});
+
+	it("canonicalizes explicit quantifier and count paths from their current scope", () => {
+		const context = {
+			caseTypes: CASE_TYPES.filter((caseType) => caseType.name !== "visit"),
+			currentCaseType: "household",
+		} as const;
+		const unqualifiedChild = subcasePath("parent");
+		const qualifiedChild = subcasePath("parent", "patient");
+		expect(
+			normalizeRelationEvaluationScopes(
+				exists(
+					unqualifiedChild,
+					eq(prop("patient", "case_name"), literal("A")),
+				),
+				context,
+			),
+		).toEqual(
+			exists(qualifiedChild, eq(prop("patient", "case_name"), literal("A"))),
+		);
+		expect(
+			normalizeRelationEvaluationScopes(
+				eq(count(unqualifiedChild), literal(1)),
+				context,
+			),
+		).toEqual(eq(count(qualifiedChild), literal(1)));
+	});
+
+	it("canonicalizes every hop of explicit multi-hop quantifiers and counts", () => {
+		const context = {
+			caseTypes: CASE_TYPES,
+			currentCaseType: "encounter",
+		} as const;
+		const unqualified = ancestorPath(
+			relationStep("parent"),
+			relationStep("parent"),
+		);
+		const qualified = ancestorPath(
+			relationStep("parent", "patient"),
+			relationStep("parent", "household"),
+		);
+		const where = eq(prop("household", "region"), literal("north"));
+		expect(
+			normalizeRelationEvaluationScopes(exists(unqualified, where), context),
+		).toEqual(exists(qualified, where));
+		expect(
+			normalizeRelationEvaluationScopes(
+				eq(count(unqualified, where), literal(1)),
+				context,
+			),
+		).toEqual(eq(count(qualified, where), literal(1)));
+	});
+
+	it("narrows an either-direction parent walk to its only graph-valid direction", () => {
+		const context = {
+			caseTypes: CASE_TYPES,
+			currentCaseType: "encounter",
+		} as const;
+		const unqualified = anyRelationPath("parent");
+		const qualified = ancestorPath(relationStep("parent", "patient"));
+		const where = eq(prop("patient", "case_name"), literal("Alice"));
+		expect(
+			normalizeRelationEvaluationScopes(exists(unqualified, where), context),
+		).toEqual(exists(qualified, where));
+		expect(
+			normalizeRelationEvaluationScopes(
+				eq(count(unqualified, where), literal(1)),
+				context,
+			),
+		).toEqual(eq(count(qualified, where), literal(1)));
+	});
+
+	it("narrows an either-direction parent walk to a child when that is the only graph-valid direction", () => {
+		const context = {
+			caseTypes: CASE_TYPES,
+			currentCaseType: "patient",
+		} as const;
+		const where = eq(prop("encounter", "summary"), literal("Follow-up"));
+		expect(
+			normalizeRelationEvaluationScopes(
+				exists(anyRelationPath("parent", "encounter"), where),
+				context,
+			),
+		).toEqual(exists(subcasePath("parent", "encounter"), where));
+	});
+
+	it("keeps either-direction semantics for a recursive parent graph", () => {
+		const recursiveTypes: CaseType[] = [
+			{
+				name: "node",
+				parent_type: "node",
+				properties: [
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				],
+			},
+		];
+		const path = anyRelationPath("parent");
+		const authored = exists(path, matchAll());
+		expect(
+			normalizeRelationEvaluationScopes(authored, {
+				caseTypes: recursiveTypes,
+				currentCaseType: "node",
+			}),
+		).toEqual(exists(anyRelationPath("parent", "node"), matchAll()));
+	});
+
+	it("keeps an explicit custom index either-directional", () => {
+		const authored = exists(
+			anyRelationPath("guardian_link", "household"),
+			matchAll(),
+		);
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toBe(authored);
+	});
+
+	it("refuses an unqualified custom index without guessing a destination", () => {
+		const authored = exists(subcasePath("guardian_link"), matchAll());
+		expect(() =>
+			normalizeRelationEvaluationScopes(authored, CONTEXT),
+		).toThrow();
+	});
+
+	it("preserves an explicit custom-index destination outside the parent graph", () => {
+		const custom = subcasePath("guardian_link", "household");
+		const authored = exists(
+			custom,
+			eq(prop("household", "region"), literal("north")),
+		);
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toBe(authored);
+	});
+
+	it("rebinds the source type before canonicalizing a nested ancestor path", () => {
+		const context = {
+			caseTypes: CASE_TYPES.filter((caseType) => caseType.name !== "visit"),
+			currentCaseType: "household",
+		} as const;
+		const child = subcasePath("parent", "patient");
+		const parent = ancestorPath(relationStep("parent", "household"));
+		const authored = exists(
+			subcasePath("parent"),
+			exists(
+				ancestorPath(relationStep("parent")),
+				eq(prop("household", "region"), literal("north")),
+			),
+		);
+		expect(normalizeRelationEvaluationScopes(authored, context)).toEqual(
+			exists(
+				child,
+				exists(parent, eq(prop("household", "region"), literal("north"))),
+			),
+		);
+	});
+
+	it("does not conflate same-identifier paths to different child types", () => {
+		const authored = eq(
+			prop("household", "case_name", subcasePath("parent", "patient")),
+			prop("household", "case_name", subcasePath("parent", "visit")),
+		);
+		expect(() => normalizeRelationEvaluationScopes(authored, CONTEXT)).toThrow(
+			expect.objectContaining({
+				name: "RelationEvaluationScopeError",
+				reason: "mixed-property-scopes",
+			}),
+		);
+	});
+});
+
+describe("normalizeRelationEvaluationScopes — independent boundaries", () => {
+	it("normalizes an if condition independently instead of coupling it to an outer row", () => {
+		const condition = eq(relatedPatient("status"), literal("open"));
+		const authored = eq(
+			ifExpr(condition, term(literal("OPEN")), term(literal("CLOSED"))),
+			literal("CLOSED"),
+		);
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
+			eq(
+				ifExpr(
+					exists(PATIENTS, eq(prop("patient", "status"), literal("open"))),
+					term(literal("OPEN")),
+					term(literal("CLOSED")),
+				),
+				literal("CLOSED"),
+			),
+		);
+	});
+
+	it("normalizes count.where in its destination scope", () => {
+		const parent = ancestorPath(relationStep("parent", "household"));
+		const authored = eq(
+			count(PATIENTS, eq(prop("patient", "region", parent), literal("north"))),
+			literal(1),
+		);
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
+			eq(
+				count(
+					PATIENTS,
+					exists(parent, eq(prop("household", "region"), literal("north"))),
+				),
+				literal(1),
+			),
+		);
+	});
+
+	it("normalizes nested relations inside an authored exists boundary", () => {
+		const parent = ancestorPath(relationStep("parent", "household"));
+		const authored = exists(
+			PATIENTS,
+			eq(prop("patient", "region", parent), literal("north")),
+		);
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
+			exists(
+				PATIENTS,
+				exists(parent, eq(prop("household", "region"), literal("north"))),
+			),
+		);
+	});
+
+	it("keeps logical wrappers while normalizing their leaves", () => {
+		const authored = not(
+			whenInput(
+				input(testUuid("name")),
+				eq(relatedPatient("case_name"), literal("Alice")),
+			),
+		);
+		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
+			not(
+				whenInput(
+					input(testUuid("name")),
+					exists(PATIENTS, eq(prop("patient", "case_name"), literal("Alice"))),
+				),
+			),
+		);
+	});
+});
+
+describe("normalizeRelationEvaluationScopes — fail-closed shapes", () => {
+	it("rejects a scalar leaf that mixes this case and a related case", () => {
+		const authored = eq(
+			prop("household", "region"),
+			relatedPatient("case_name"),
+		);
+		expect(() => normalizeRelationEvaluationScopes(authored, CONTEXT)).toThrow(
+			expect.objectContaining({
+				name: "RelationEvaluationScopeError",
+				reason: "mixed-property-scopes",
+			}),
+		);
+	});
+
+	it("rejects a related scalar read combined with an anchor-sensitive count", () => {
+		const authored = eq(
+			arith("+", term(relatedPatient("age")), count(PATIENTS)),
+			literal(3),
+		);
+		try {
+			normalizeRelationEvaluationScopes(authored, CONTEXT);
+			expect.unreachable("expected normalization to fail closed");
+		} catch (error) {
+			expect(error).toMatchObject({
+				name: "RelationEvaluationScopeError",
+				reason: "unrebasable-relation-scope",
+			});
+		}
+	});
+
+	it("rejects a related branch combined with an explicit quantifier boundary", () => {
+		const authored = eq(
+			ifExpr(
+				exists(PATIENTS, eq(prop("patient", "status"), literal("open"))),
+				term(relatedPatient("case_name")),
+				term(literal("none")),
+			),
+			literal("Alice"),
+		);
+		try {
+			normalizeRelationEvaluationScopes(authored, CONTEXT);
+			expect.unreachable("expected normalization to fail closed");
+		} catch (error) {
+			expect(error).toMatchObject({
+				name: "RelationEvaluationScopeError",
+				reason: "unrebasable-relation-scope",
+			});
+		}
+	});
+
+	it("does not mistake runtime-only constants for additional case scopes", () => {
+		const authored = eq(
+			concat(
+				term(relatedPatient("case_name")),
+				today(),
+				now(),
+				term(input(testUuid("suffix"))),
+			),
+			literal("Alice"),
+		);
+		expectOnePatientScope(
+			authored,
+			eq(
+				concat(
+					term(prop("patient", "case_name")),
+					today(),
+					now(),
+					term(input(testUuid("suffix"))),
+				),
+				literal("Alice"),
+			),
+		);
+	});
+});

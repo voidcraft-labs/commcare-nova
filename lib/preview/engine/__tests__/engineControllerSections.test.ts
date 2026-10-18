@@ -12,11 +12,11 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
 import { splitIntoSections } from "@/lib/doc/formSectionMutations";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Field, Uuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import { matchAll } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { EngineController } from "../engineController";
 import {
@@ -49,7 +49,7 @@ function makeDoc(): PersistableDoc {
 			id: "name",
 			kind: "text",
 			label: proseText("Name"),
-			required: xp("true()"),
+			required: matchAll(),
 		},
 		[Q2_UUID]: {
 			uuid: Q2_UUID,
@@ -148,7 +148,7 @@ describe("EngineController with a form split into pages while it runs", () => {
 				kind: "updateField",
 				uuid: Q2_UUID,
 				targetKind: "int",
-				patch: { required: xp("true()") },
+				patch: { required: matchAll() },
 			},
 		]);
 		expect(flat.ctrl.store.getState()[Q2_UUID].required).toBe(true);
@@ -161,11 +161,11 @@ describe("EngineController with a form split into pages while it runs", () => {
 				kind: "updateField",
 				uuid: Q2_UUID,
 				targetKind: "int",
-				patch: { required: xp("true()") },
+				patch: { required: matchAll() },
 			},
 		]);
 		expect(store.getState().fields[Q2_UUID]).toMatchObject({
-			required: xp("true()"),
+			required: matchAll(),
 		});
 		expect(ctrl.store.getState()[Q2_UUID].required).toBe(true);
 		expect(ctrl.validateSection(SECTION_B)).toBe(false);

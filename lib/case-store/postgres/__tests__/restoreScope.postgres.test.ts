@@ -21,8 +21,8 @@ import {
 	literal,
 	relationStep,
 	subcasePath,
-} from "@/lib/domain/predicate/builders";
-import type { RelationPath } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/builders";
+import type { RelationPath } from "@/lib/domain/expression/types";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
@@ -52,6 +52,7 @@ const schemas = new Map<string, CaseType>([
 		"patient",
 		{
 			name: "patient",
+			parent_type: "household",
 			properties: [],
 		},
 	],
@@ -104,8 +105,17 @@ async function addEdge(args: {
 }): Promise<void> {
 	await h.pool.query(
 		`INSERT INTO case_indices (case_id, ancestor_id, target_case_type, identifier, relationship, depth)
-		 VALUES ($1, $2, 'test', $3, $4, 1)`,
-		[args.caseId, args.ancestorId, args.identifier, args.relationship],
+		 SELECT $1, ancestor.case_id, ancestor.case_type, $3, $4, 1
+		 FROM cases AS ancestor WHERE ancestor.case_id = $2
+		 AND ancestor.app_id = $5 AND ancestor.project_id = $6`,
+		[
+			args.caseId,
+			args.ancestorId,
+			args.identifier,
+			args.relationship,
+			APP_ID,
+			PROJECT_ID,
+		],
 	);
 }
 

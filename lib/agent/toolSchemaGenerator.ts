@@ -70,6 +70,7 @@ import {
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldRegistry,
+	formLogicSchema,
 	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
 	hiddenFieldCarriesBothValueSources,
 	isCaptureFieldKind,
@@ -77,7 +78,6 @@ import {
 	proseTemplateSchema,
 	selectOptionValueSchema,
 	uuidSchema,
-	xpathExpressionSchema,
 } from "@/lib/domain";
 
 function makeKindEnum(kinds: readonly FieldKind[]) {
@@ -173,20 +173,17 @@ const labelField = () =>
 // mode+count/ids_query) into one field each, keeping the item shape flat
 // and easy for the SA to fill.
 const requiredField = () =>
-	xpathExpressionSchema.nullable().optional().describe(FIELD_DOCS.required);
+	formLogicSchema.nullable().optional().describe(FIELD_DOCS.required);
 const hintField = () =>
 	proseTemplateSchema.nullable().optional().describe(FIELD_DOCS.hint);
 const helpField = () =>
 	proseTemplateSchema.nullable().optional().describe(FIELD_DOCS.help);
 const relevantField = () =>
-	xpathExpressionSchema.nullable().optional().describe(FIELD_DOCS.relevant);
+	formLogicSchema.nullable().optional().describe(FIELD_DOCS.relevant);
 const calculateField = () =>
-	xpathExpressionSchema.nullable().optional().describe(FIELD_DOCS.calculate);
+	formLogicSchema.nullable().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
-	xpathExpressionSchema
-		.nullable()
-		.optional()
-		.describe(FIELD_DOCS.default_value);
+	formLogicSchema.nullable().optional().describe(FIELD_DOCS.default_value);
 /**
  * The exact machine-authored inline-option projection.
  *
@@ -238,7 +235,7 @@ const optionsSourceField = () => projectedOptionsSourceSchema;
 const validateConfigField = () =>
 	z
 		.object({
-			expr: xpathExpressionSchema.describe(FIELD_DOCS.validate),
+			expr: formLogicSchema.describe(FIELD_DOCS.validate),
 			msg: proseTemplateSchema.optional().describe(FIELD_DOCS.validate_msg),
 		})
 		.describe(
@@ -328,7 +325,7 @@ function repeatConfigDiscriminated() {
 			z
 				.object({
 					mode: z.literal("count_bound"),
-					count: xpathExpressionSchema.describe(FIELD_DOCS.repeat_count),
+					count: formLogicSchema.describe(FIELD_DOCS.repeat_count),
 				})
 				.describe(
 					"The count is live: increasing it adds rows; decreasing it retains created rows and their submitted answers and case operations. A direct count needs an integer question; other sources need an explicit numeric expression. Use user_controlled for rows the worker adds freely.",
@@ -336,7 +333,7 @@ function repeatConfigDiscriminated() {
 			z
 				.object({
 					mode: z.literal("query_bound"),
-					ids_query: xpathExpressionSchema.describe(FIELD_DOCS.ids_query),
+					ids_query: formLogicSchema.describe(FIELD_DOCS.ids_query),
 				})
 				.describe("Iterate case-database query results — provide `ids_query`."),
 		])

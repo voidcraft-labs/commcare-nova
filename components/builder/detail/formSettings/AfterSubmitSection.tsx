@@ -44,7 +44,7 @@ export function AfterSubmitSection({
 	const canEdit = useCanEdit();
 	const plan = useAfterSubmitPlan(formUuid);
 	const count = useFormLinkCount(formUuid);
-	const sentence = useLinkSentenceContext();
+	const sentence = useLinkSentenceContext(formUuid);
 	const [announcement, setAnnouncement] = useState("");
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 

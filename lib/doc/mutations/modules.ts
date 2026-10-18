@@ -18,7 +18,7 @@ import {
 	type Uuid,
 	withCanonicalSearchInputOptions,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/predicate";
+import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { cascadeDeleteForm } from "./helpers";
 
 type ModuleParent = Uuid | null;

@@ -9,7 +9,7 @@
  * remains available for focused edits:
  *
  *   - One wholesale tool for `filter` (`setCaseListFilter`) — a filter
- *     is one Predicate, so the wholesale shape fits.
+ *     is one Expression, so the wholesale shape fits.
  *   - Op tools for the two arrays — a list-add (`addCaseListColumns` /
  *     `addSearchInputs`) plus update / remove / reorder for each of
  *     `columns` and `searchInputs`. The add tools take a list (one item is
@@ -71,14 +71,12 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import {
+	conditionSchema,
+	type Expression,
 	expressionReadsCaseData,
 	expressionReferencesAnySearchInput,
-	type Predicate,
-	predicateReadsCaseData,
-	predicateSchema,
-	type ValueExpression,
-	valueExpressionSchema,
-} from "@/lib/domain/predicate";
+	valueSchema,
+} from "@/lib/domain/expression";
 
 /**
  * The order a lookup-backed choice question lists its choices in. The option
@@ -101,9 +99,8 @@ export const RESERVED_SEARCH_INPUT_NAMES_SENTENCE = `CommCare reads these names 
  *
  * SA, MCP, builder, and document storage all speak this same UUID-backed AST.
  */
-const predicateInputSchema = predicateSchema as z.ZodType<Predicate>;
-const valueExpressionInputSchema =
-	valueExpressionSchema as z.ZodType<ValueExpression>;
+const predicateInputSchema = conditionSchema as z.ZodType<Expression>;
+const valueExpressionInputSchema = valueSchema as z.ZodType<Expression>;
 
 // ── Tool input schemas — column + search-input shapes without uuid ──
 //
@@ -447,11 +444,11 @@ function refineSearchInputBoundary(
 		| {
 				kind: "simple" | "advanced";
 				type: SearchInputType;
-				default?: ValueExpression;
-				required?: { when?: Predicate };
-				validation?: { rule: Predicate };
+				default?: Expression;
+				required?: { when?: Expression };
+				validation?: { rule: Expression };
 		  }
-		| { kind: "hidden"; value: ValueExpression },
+		| { kind: "hidden"; value: Expression },
 	ctx: z.RefinementCtx,
 ): void {
 	if (input.kind === "hidden") {
@@ -483,7 +480,7 @@ function refineSearchInputBoundary(
 	}
 	if (
 		input.required?.when !== undefined &&
-		predicateReadsCaseData(input.required.when)
+		expressionReadsCaseData(input.required.when)
 	) {
 		ctx.addIssue({
 			code: "custom",
@@ -494,7 +491,7 @@ function refineSearchInputBoundary(
 	}
 	if (
 		input.validation !== undefined &&
-		predicateReadsCaseData(input.validation.rule)
+		expressionReadsCaseData(input.validation.rule)
 	) {
 		ctx.addIssue({
 			code: "custom",
@@ -574,7 +571,7 @@ export const searchInputDefInputSchema = z
 			...searchInputUuidSlot,
 			/* The bare AST node, so the wire projection keeps it a `$ref`; a
 			 * `.describe()` here would clone the node past the projection's
-			 * identity map and inline the whole ValueExpression family. */
+			 * identity map and inline the whole Expression family. */
 			value: valueExpressionInputSchema,
 		}),
 	])

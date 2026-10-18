@@ -16,7 +16,7 @@ import {
 	prop,
 	sessionUser,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
 import { MOD_A, makeCaseSearchDoc, makeCaseSearchFixture } from "./fixtures";
 

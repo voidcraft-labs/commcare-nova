@@ -1,11 +1,6 @@
 /** HQ's expression fields retain their trees and interpolation mode until the
  * complete application crosses this boundary. Public HQ values contain text. */
 import type { HqApplication, HqForm, HqFormLink, HqModule } from "../types";
-import {
-	isLegacyFormLinkXPath,
-	type LegacyFormLinkXPath,
-	legacyFormLinkXPathText,
-} from "../xform/legacyAuthoredXPath";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr, WireMode } from "../xpath/wire/tree";
 
@@ -28,8 +23,8 @@ export function hqXPath(
 	return new HqXPath(expression, interpolation);
 }
 
-/** Only the authored form-link path remains text until the shape migration. */
-export type HqLinkXPath = HqXPath | LegacyFormLinkXPath;
+/** Every HQ expression carrier holds one resolved wire tree. */
+export type HqLinkXPath = HqXPath;
 export type HqApplicationTree = HqApplication<HqXPath, HqLinkXPath>;
 export type HqModuleTree = HqModule<HqXPath, HqLinkXPath>;
 export type HqFormTree = HqForm<HqXPath, HqLinkXPath>;
@@ -49,7 +44,6 @@ export function hqXPathText(value: HqXPath): string {
 
 function serializeValue(value: unknown): unknown {
 	if (value instanceof HqXPath) return hqXPathText(value);
-	if (isLegacyFormLinkXPath(value)) return legacyFormLinkXPathText(value);
 	if (Array.isArray(value)) return value.map(serializeValue);
 	if (value !== null && typeof value === "object")
 		return Object.fromEntries(
@@ -61,7 +55,7 @@ function serializeValue(value: unknown): unknown {
 export function serializeHqApplication(
 	value: HqApplicationTree,
 ): HqApplication {
-	// All XPath-bearing fields are typed by HqXPath, with the separate form-link
-	// bridge confined to those fields. The walk preserves every key and order.
+	// Every XPath-bearing field is typed by HqXPath. The walk preserves every
+	// key and its insertion order.
 	return serializeValue(value) as HqApplication;
 }

@@ -4,7 +4,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
  * Tests for `matchModeOnDeviceCompatibility`. JavaRosa on-device
  * XPath registers `starts-with` but has no entry for `fuzzy-match`,
  * `phonetic-match`, or `fuzzy-date` — those are CCHQ-server-only
- * functions. The rule inventories every module Predicate/ValueExpression
+ * functions. The rule inventories every module Expression/Expression
  * slot that actually lowers on-device, while leaving an advanced search
  * input's CSQL-only predicate body alone.
  */
@@ -37,7 +37,7 @@ import {
 	selfPath,
 	subcasePath,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_MATCH_MODE_NOT_ON_DEVICE" as const;

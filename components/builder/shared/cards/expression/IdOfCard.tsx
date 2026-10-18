@@ -24,14 +24,15 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { Input } from "@/components/shadcn/input";
-import { idOf, type ValueExpression } from "@/lib/domain/predicate";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
+import { type Expression, idOf } from "@/lib/domain/expression";
 import { usePredicateEditContext } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import type { EditorPath } from "../../path";
 
 export function idOfDefault(
 	ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "id-of" }> {
+): ExpressionOfKind<"id-of"> {
 	// The nearest earlier create is what an author reaching for this almost
 	// always means. A surface with no creates in scope never offers the kind.
 	const nearest = ctx.operationScope?.creates.at(-1);
@@ -47,8 +48,8 @@ export function IdOfCard({
 	value,
 	onChange,
 }: {
-	readonly value: Extract<ValueExpression, { kind: "id-of" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"id-of">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }) {
 	const { operationScope } = usePredicateEditContext();

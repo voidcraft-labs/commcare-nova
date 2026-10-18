@@ -2,11 +2,11 @@ import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
-	type Predicate,
-	predicateSchema,
-	valueExpressionSchema,
-} from "@/lib/domain/predicate/types";
-import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
+	conditionSchema,
+	type Expression,
+	formLogicSchema,
+	valueSchema,
+} from "@/lib/domain/expression/types";
 import { authoringJsonSchema, authoringSchema } from "../schema";
 
 const jsonOptions = {
@@ -19,13 +19,9 @@ const jsonOptions = {
  * Its authored position is unchanged; hidden children must never affect refs
  * allocated for the ordinary schemas that follow it. */
 function alternateXPathStorage(storage: z.core.$ZodType): z.core.$ZodType {
-	return z.core.clone<z.core.$ZodType>(
-		xpathExpressionSchema,
-		storage._zod.def,
-		{
-			parent: true,
-		},
-	);
+	return z.core.clone<z.core.$ZodType>(formLogicSchema, storage._zod.def, {
+		parent: true,
+	});
 }
 
 function toolWithExpression(expression: z.core.$ZodType) {
@@ -34,14 +30,14 @@ function toolWithExpression(expression: z.core.$ZodType) {
 }
 
 type RecursiveCondition = {
-	condition: Predicate;
+	condition: Expression;
 	children: RecursiveCondition[];
 };
 
 function recursiveConditionSchema(): z.ZodType<RecursiveCondition> {
 	const node: z.ZodType<RecursiveCondition> = z.lazy(() =>
 		z.strictObject({
-			condition: predicateSchema,
+			condition: conditionSchema,
 			children: z.array(node),
 		}),
 	);
@@ -81,12 +77,10 @@ describe("authoring schema graph projection", () => {
 	});
 
 	it("replaces refined and described family descendants before their canonical checks or metadata can escape", () => {
-		const condition = predicateSchema
+		const condition = conditionSchema
 			.refine(() => false, "Canonical-only restriction")
 			.describe("Canonical-only AST description");
-		const expression = xpathExpressionSchema.describe(
-			"Canonical-only XPath parts",
-		);
+		const expression = formLogicSchema.describe("Canonical-only form AST");
 		const source = z.strictObject({ condition, expression });
 		const authored = authoringSchema(source);
 		expect(
@@ -98,7 +92,7 @@ describe("authoring schema graph projection", () => {
 		expect(
 			authored.safeParse({
 				condition: { kind: "match-all" },
-				expression: { parts: [] },
+				expression: { kind: "term", term: { kind: "literal", value: 1 } },
 			}).success,
 		).toBe(false);
 		expect(condition.safeParse({ kind: "match-all" }).success).toBe(false);
@@ -139,9 +133,9 @@ describe("authoring schema graph projection", () => {
 
 	it("keeps omission, explicit null, and defaults at their original authored positions", () => {
 		const source = z.strictObject({
-			optionalCondition: predicateSchema.optional(),
-			clearableCondition: predicateSchema.nullable(),
-			optionalValue: valueExpressionSchema.nullable().optional(),
+			optionalCondition: conditionSchema.optional(),
+			clearableCondition: conditionSchema.nullable(),
+			optionalValue: valueSchema.nullable().optional(),
 			enabled: z.boolean().default(true),
 		});
 		const authored = authoringSchema(source);
@@ -167,10 +161,10 @@ describe("authoring schema graph projection", () => {
 	});
 
 	it("preserves authored admission through recursive containers, wrappers, and shared nodes", () => {
-		type Shared = { count: number; condition: Predicate };
+		type Shared = { count: number; condition: Expression };
 		type Node = {
 			name: string;
-			condition: Predicate;
+			condition: Expression;
 			enabled: boolean;
 			next?: Node | null;
 			children?: Node[];
@@ -181,12 +175,12 @@ describe("authoring schema graph projection", () => {
 		};
 		const shared = z.strictObject({
 			count: z.number().int().min(0),
-			condition: predicateSchema,
+			condition: conditionSchema,
 		});
 		const node: z.ZodType<Node> = z.lazy(() =>
 			z.strictObject({
 				name: z.string().min(1),
-				condition: predicateSchema,
+				condition: conditionSchema,
 				enabled: z.boolean().default(true),
 				next: node.nullable().optional(),
 				children: z.array(node).optional(),
@@ -275,25 +269,23 @@ describe("authoring schema graph projection", () => {
 	});
 
 	it("keeps canonical schemas and global names unchanged while retaining authored expression definition names", () => {
-		const describedCondition = predicateSchema.describe(
+		const describedCondition = conditionSchema.describe(
 			"Canonical-only condition label",
 		);
 		const source = z.strictObject({
-			condition: predicateSchema,
-			otherCondition: predicateSchema,
+			condition: conditionSchema,
+			otherCondition: conditionSchema,
 			describedCondition,
-			value: valueExpressionSchema,
-			otherValue: valueExpressionSchema,
+			value: valueSchema,
+			otherValue: valueSchema,
 		});
 		const canonicalBefore = z.toJSONSchema(source, jsonOptions);
-		const conditionDefinition = predicateSchema._zod.def;
-		const valueDefinition = valueExpressionSchema._zod.def;
+		const conditionDefinition = conditionSchema._zod.def;
+		const valueDefinition = valueSchema._zod.def;
 		const conditionMetadata = structuredClone(
-			z.globalRegistry.get(predicateSchema),
+			z.globalRegistry.get(conditionSchema),
 		);
-		const valueMetadata = structuredClone(
-			z.globalRegistry.get(valueExpressionSchema),
-		);
+		const valueMetadata = structuredClone(z.globalRegistry.get(valueSchema));
 		const namesBefore = new Map(z.globalRegistry._idmap);
 		const json = authoringJsonSchema(source);
 		const definitions = json.definitions as Record<string, unknown>;
@@ -309,10 +301,10 @@ describe("authoring schema graph projection", () => {
 		expect(new Ajv({ strict: false }).compile(json)(valid)).toBe(true);
 		expect(authoringSchema(source).parse(valid)).toEqual(valid);
 		expect(z.toJSONSchema(source, jsonOptions)).toEqual(canonicalBefore);
-		expect(predicateSchema._zod.def).toBe(conditionDefinition);
-		expect(valueExpressionSchema._zod.def).toBe(valueDefinition);
-		expect(z.globalRegistry.get(predicateSchema)).toEqual(conditionMetadata);
-		expect(z.globalRegistry.get(valueExpressionSchema)).toEqual(valueMetadata);
+		expect(conditionSchema._zod.def).toBe(conditionDefinition);
+		expect(valueSchema._zod.def).toBe(valueDefinition);
+		expect(z.globalRegistry.get(conditionSchema)).toEqual(conditionMetadata);
+		expect(z.globalRegistry.get(valueSchema)).toEqual(valueMetadata);
 		expect([...z.globalRegistry._idmap.keys()]).toEqual([
 			...namesBefore.keys(),
 		]);

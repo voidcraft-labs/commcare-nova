@@ -11,22 +11,15 @@ import type {
 import {
 	isOwnerOnlyCaseSearchConfig,
 	searchInputDefault,
-	searchInputScreenPredicates,
+	searchInputScreenExpressions,
 } from "@/lib/domain";
-import {
-	type PredicateAstPath,
-	walkExpressionInputRefsWithPaths,
-	walkInputRefsWithPaths,
-} from "@/lib/domain/predicate";
+import { type CheckPath, walkInputRefs } from "@/lib/domain/expression";
 import { searchAnswerFieldDependents } from "./searchNoMatchesDependents";
 
-type SearchInputOccurrencePaths = readonly [
-	PredicateAstPath,
-	...PredicateAstPath[],
-];
+type SearchInputOccurrencePaths = readonly [CheckPath, ...CheckPath[]];
 
 function nonEmptyPaths(
-	paths: readonly PredicateAstPath[],
+	paths: readonly CheckPath[],
 ): SearchInputOccurrencePaths | undefined {
 	const first = paths[0];
 	return first === undefined ? undefined : [first, ...paths.slice(1)];
@@ -114,23 +107,12 @@ export function searchInputFormFieldDependencies(
 	}));
 }
 
-function predicateInputPaths(
-	predicate: NonNullable<CaseListConfig["filter"]>,
-	searchInputUuid: Uuid,
-): PredicateAstPath[] {
-	const paths: PredicateAstPath[] = [];
-	walkInputRefsWithPaths(predicate, (ref, path) => {
-		if (ref.searchInputUuid === searchInputUuid) paths.push(path);
-	});
-	return paths;
-}
-
 function expressionInputPaths(
 	expression: NonNullable<CaseSearchConfig["excludedOwnerIds"]>,
 	searchInputUuid: Uuid,
-): PredicateAstPath[] {
-	const paths: PredicateAstPath[] = [];
-	walkExpressionInputRefsWithPaths(expression, (ref, path) => {
+): CheckPath[] {
+	const paths: CheckPath[] = [];
+	walkInputRefs(expression, (ref, path) => {
 		if (ref.searchInputUuid === searchInputUuid) paths.push(path);
 	});
 	return paths;
@@ -147,7 +129,7 @@ export function searchInputRemovalDependencies(
 	const dependencies: SearchInputRemovalDependency[] = [];
 	if (config.filter !== undefined) {
 		const paths = nonEmptyPaths(
-			predicateInputPaths(config.filter, target.uuid),
+			expressionInputPaths(config.filter, target.uuid),
 		);
 		if (paths !== undefined) {
 			dependencies.push({
@@ -178,7 +160,7 @@ export function searchInputRemovalDependencies(
 						},
 					]
 				: []),
-			...searchInputScreenPredicates(input).map((screen) => ({
+			...searchInputScreenExpressions(input).map((screen) => ({
 				slot: screen.slot,
 				predicate: screen.predicate,
 				label:
@@ -189,7 +171,7 @@ export function searchInputRemovalDependencies(
 		];
 		for (const condition of conditions) {
 			const paths = nonEmptyPaths(
-				predicateInputPaths(condition.predicate, target.uuid),
+				expressionInputPaths(condition.predicate, target.uuid),
 			);
 			if (paths === undefined) continue;
 			dependencies.push({
@@ -260,7 +242,7 @@ export function searchInputRemovalDependencies(
 		searchConfig.searchButtonDisplayCondition !== undefined
 	) {
 		const paths = nonEmptyPaths(
-			predicateInputPaths(
+			expressionInputPaths(
 				searchConfig.searchButtonDisplayCondition,
 				target.uuid,
 			),

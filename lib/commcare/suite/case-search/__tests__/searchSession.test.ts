@@ -6,6 +6,7 @@ import {
 	readXmlEvidence,
 	xmlChildren,
 } from "@/lib/commcare/__tests__/xmlEvidence";
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -38,7 +39,7 @@ import {
 	relationStep,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	buildSearchQuery,
 	buildSearchSession,
@@ -70,11 +71,7 @@ function fixture() {
 		caseType: "patient",
 		moduleIndex: 0,
 		wire: { autoLaunch: false, defaultSearch: false, inlineSearch: false },
-		typeContext: {
-			caseTypes: doc.caseTypes,
-			currentCaseType: "patient",
-			knownInputs: [],
-		},
+		expressions: moduleExpressionContexts(doc, module.uuid),
 	};
 	return {
 		doc,
@@ -108,7 +105,11 @@ it("splits top-level conjunctions while preserving an OR as one complete clause"
 	];
 	const args = f.admitted();
 	expect(
-		composeXPathQueryPredicate(f.config, "patient", args.typeContext),
+		composeXPathQueryPredicate(
+			f.config,
+			"patient",
+			args.expressions({ slot: "case_list_filter" }),
+		),
 	).toEqual(and(regions, name));
 	expect(queries(args)).toEqual([
 		{ key: "case_type", ref: "'patient'" },
@@ -136,7 +137,11 @@ it("removes an identity without changing the complete remaining fuzzy query and 
 	expect(withIdentity.translationUnits).toEqual(without.translationUnits);
 	expect(withIdentity.instances).toEqual(without.instances);
 	expect(
-		composeXPathQueryPredicate(f.config, "patient", f.args.typeContext),
+		composeXPathQueryPredicate(
+			f.config,
+			"patient",
+			f.args.expressions({ slot: "case_list_filter" }),
+		),
 	).toEqual(
 		whenInput(
 			input(ID),
@@ -161,7 +166,11 @@ it.each(["exact", "fuzzy", "starts-with", "phonetic", "fuzzy-date"] as const)(
 		];
 		f.admitted();
 		expect(
-			composeXPathQueryPredicate(f.config, "patient", f.args.typeContext),
+			composeXPathQueryPredicate(
+				f.config,
+				"patient",
+				f.args.expressions({ slot: "case_list_filter" }),
+			),
 		).toEqual(
 			whenInput(
 				input(ID),
@@ -193,7 +202,11 @@ it.each(["first_name", "visit_date"] as const)(
 		];
 		f.admitted();
 		expect(
-			composeXPathQueryPredicate(f.config, "patient", f.args.typeContext),
+			composeXPathQueryPredicate(
+				f.config,
+				"patient",
+				f.args.expressions({ slot: "case_list_filter" }),
+			),
 		).toBeUndefined();
 		expect(queries(f.args)).toEqual([{ key: "case_type", ref: "'patient'" }]);
 		const prompt = onlyXml(
@@ -232,7 +245,11 @@ it.each(["visit_date", "last_seen"] as const)(
 			),
 		);
 		expect(
-			composeXPathQueryPredicate(f.config, "patient", f.args.typeContext),
+			composeXPathQueryPredicate(
+				f.config,
+				"patient",
+				f.args.expressions({ slot: "case_list_filter" }),
+			),
 		).toEqual(whenInput(input(ID), exists(parent, bounds)));
 		expect(queries(f.args).map((node) => node.key)).toEqual([
 			"case_type",
@@ -260,7 +277,11 @@ it("collects the input dependency inside a computed query value", () => {
 		"_xpath_query",
 	]);
 	expect(
-		composeXPathQueryPredicate(f.config, "patient", f.args.typeContext),
+		composeXPathQueryPredicate(
+			f.config,
+			"patient",
+			f.args.expressions({ slot: "case_list_filter" }),
+		),
 	).toEqual(f.config.filter);
 });
 it.each([false, true])(
@@ -381,13 +402,23 @@ it("refuses bare input references and property-to-property CSQL after an explici
 	f.admitted();
 	f.config.filter = eq(prop("patient", "first_name"), input(ID));
 	expect(() =>
-		composeXPathQueryEmission(f.config, "patient", f.args.typeContext),
-	).toThrow(/bare search-input reference/);
+		composeXPathQueryEmission(
+			f.config,
+			"patient",
+			f.args.expressions({ slot: "case_list_filter" }),
+		),
+	).toThrow(
+		/search-input reference .* outside its when-input-present envelope/,
+	);
 	f.config.filter = eq(
 		prop("patient", "first_name"),
 		prop("patient", "region"),
 	);
 	expect(() =>
-		composeXPathQueryEmission(f.config, "patient", f.args.typeContext),
+		composeXPathQueryEmission(
+			f.config,
+			"patient",
+			f.args.expressions({ slot: "case_list_filter" }),
+		),
 	).toThrow(/composed _xpath_query predicate is not representable/);
 });

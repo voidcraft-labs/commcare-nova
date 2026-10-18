@@ -33,7 +33,7 @@ import {
 	personasOf,
 	type Uuid,
 } from "@/lib/domain";
-import { walkExpressionTerms } from "@/lib/domain/predicate";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	assertLocationOwnerTargetsValid,

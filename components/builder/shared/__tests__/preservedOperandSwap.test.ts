@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -9,7 +10,7 @@ import {
 	prop,
 	relationStep,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	buildPredicateKindReplacement,
@@ -41,12 +42,12 @@ const CASE_TYPES: readonly CaseType[] = [HOUSEHOLD, PATIENT];
 // passes its reset factories: `betweenDefault` and friends require a
 // full `PredicateEditContext` even though they happen not to read
 // `knownInputs`.
-const EDIT_CTX: PredicateEditContext = {
+const EDIT_CTX: PredicateEditContext = expressionEditorFixture("case-filter", {
 	caseTypes: CASE_TYPES,
 	currentCaseType: "patient",
 	knownInputs: [],
 	caseDataScope: "per-case",
-};
+}).context;
 
 describe("preservedOperandSwap — comparison ↔ comparison", () => {
 	it("eq → lt preserves left and right operands verbatim", () => {

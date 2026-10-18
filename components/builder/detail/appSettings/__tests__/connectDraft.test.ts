@@ -10,16 +10,21 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
-import { parseXPathForForm, printXPathInDoc } from "@/lib/doc/expressionText";
+import { projectFormExpression } from "@/lib/doc/expressionText";
+import { prepareFormConnectStructure } from "@/lib/doc/formExpressionStructure";
 import type { ConnectConfig } from "@/lib/domain";
+import { formField, term } from "@/lib/domain/expression/builders";
+import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import {
+	type ConnectDraftSlot,
 	configToDraft,
 	deliverBlockOffered,
 	draftToConfig,
 	EMPTY_DRAFT,
 	parseTimeEstimate,
 } from "../connectDraft";
+import { connectDraftParser } from "../connectDraftExpressions";
 
 /** A print/parse pair that must never run: proves a config with no XPath
  *  never touches the expression boundary. */
@@ -39,7 +44,14 @@ const doc = buildDoc({
 					name: "Visit",
 					type: "survey",
 					fields: ["score", "client_id", "client_name", "quiz_total"].map(
-						(id) => ({ kind: "text" as const, id, label: proseText(id) }),
+						(id) => ({
+							kind:
+								id === "score" || id === "quiz_total"
+									? ("int" as const)
+									: ("text" as const),
+							id,
+							label: proseText(id),
+						}),
 					),
 				},
 			],
@@ -48,9 +60,34 @@ const doc = buildDoc({
 });
 assertAdmittedDoc(doc);
 const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-const parse = (text: string) => parseXPathForForm(doc, formUuid, text);
-const print = (expression: Parameters<typeof printXPathInDoc>[1]) =>
-	printXPathInDoc(doc, expression);
+const answer = (id: string) => {
+	const field = Object.values(doc.fields).find(
+		(candidate) => candidate.id === id,
+	);
+	if (field === undefined) throw new Error("Fixture requires an answer");
+	return term(formField(field.uuid));
+};
+const printFor = (config: ConnectConfig, mode: "learn" | "deliver") => {
+	const form = prepareFormConnectStructure(doc, formUuid, mode, config);
+	return (expression: Expression, slot: ConnectDraftSlot) =>
+		projectFormExpression(
+			doc,
+			{ entity: "form", uuid: formUuid, slot },
+			expression,
+			"unavailable",
+			{ form },
+		).text;
+};
+const save = (
+	draft: Parameters<typeof draftToConfig>[0],
+	mode: "learn" | "deliver",
+) =>
+	draftToConfig(
+		draft,
+		mode,
+		connectDraftParser(doc, formUuid, draft, mode, derivedId, "unavailable"),
+		derivedId,
+	);
 
 describe("Connect draft round-trip", () => {
 	it("uses positive whole hours with a one-hour new-module default", () => {
@@ -88,21 +125,23 @@ describe("Connect draft round-trip", () => {
 	});
 
 	it("prints an existing user_score into its buffer and parses it back", () => {
-		const score = parse("#form/score");
+		const score = answer("score");
 		const config: ConnectConfig = {
 			assessment: { id: "quiz", user_score: score },
 		};
 
-		const draft = configToDraft(config, print);
+		const draft = configToDraft(config, printFor(config, "learn"));
 		expect(draft.userScoreText).toBe("#form/score");
 
-		const round = draftToConfig(draft, "learn", parse, derivedId);
-		expect(round.assessment).toStrictEqual({ id: "quiz", user_score: score });
+		const round = save(draft, "learn");
+		expect(round).toStrictEqual({
+			assessment: { id: "quiz", user_score: score },
+		});
 	});
 
 	it("round-trips deliver ids and the entity_id / entity_name buffers", () => {
-		const entityId = parse("#form/client_id");
-		const entityName = parse("#form/client_name");
+		const entityId = answer("client_id");
+		const entityName = answer("client_name");
 		const config: ConnectConfig = {
 			deliver_unit: {
 				id: "home_visit",
@@ -113,11 +152,11 @@ describe("Connect draft round-trip", () => {
 			task: { id: "followup", name: "Follow up", description: "Revisit" },
 		};
 
-		const draft = configToDraft(config, print);
+		const draft = configToDraft(config, printFor(config, "deliver"));
 		expect(draft.entityIdText).toBe("#form/client_id");
 		expect(draft.entityNameText).toBe("#form/client_name");
 
-		const round = draftToConfig(draft, "deliver", parse, derivedId);
+		const round = save(draft, "deliver");
 		expect(round).toStrictEqual(config);
 	});
 
@@ -165,15 +204,17 @@ describe("Connect draft round-trip", () => {
 	});
 
 	it("stores an XPath buffer the user changed away from the default", () => {
-		const override = parse("#form/quiz_total");
+		const override = answer("quiz_total");
 		const draft = {
 			...EMPTY_DRAFT,
 			assessmentOn: true,
 			assessmentId: "q",
 			userScoreText: "#form/quiz_total",
 		};
-		const round = draftToConfig(draft, "learn", parse, derivedId);
-		expect(round.assessment).toStrictEqual({ id: "q", user_score: override });
+		const round = save(draft, "learn");
+		expect(round).toStrictEqual({
+			assessment: { id: "q", user_score: override },
+		});
 	});
 });
 

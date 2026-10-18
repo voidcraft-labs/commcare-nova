@@ -9,7 +9,7 @@ import {
 	simpleSearchInputDef,
 	tileCell,
 } from "@/lib/domain";
-import { eq, input, prop, whenInput } from "@/lib/domain/predicate";
+import { eq, input, prop, whenInput } from "@/lib/domain/expression";
 import { withPreservedIdentity } from "../preserveIdentity";
 
 // This value-object projection owns identity retention. Actual document admission

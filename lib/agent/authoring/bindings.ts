@@ -1,4 +1,4 @@
-import { resolvableUserPropertySlug } from "@/lib/doc/expressionText";
+import { formUserProperty } from "@/lib/commcare/xpath/referenceBindings";
 import {
 	computeFieldPath,
 	findContainingForm,
@@ -14,16 +14,22 @@ import {
 	searchInputRuntimeValueType,
 	type Uuid,
 } from "@/lib/domain";
-import { formRecordScope } from "@/lib/domain/formRecordScope";
 import {
-	type CheckError,
-	checkRelationPath,
-	type RelationPath,
+	type RecordQueryContext,
+	recordQueryContext,
 	type SearchInputDecl,
+} from "@/lib/domain/expression/context";
+import type { FormStructure } from "@/lib/domain/expression/formStructure";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import {
+	type Choice,
+	type Literal,
+	type RelationPath,
 	type Term,
-	type TypeContext,
 	termSchema,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/types";
+import { formRecordScope } from "@/lib/domain/formRecordScope";
+import { userPropertiesOf } from "@/lib/domain/users";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { AuthoringInputError } from "./errors";
 import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
@@ -97,6 +103,7 @@ export interface AuthoringScopeOptions {
 	currentCaseType?: string;
 	/** Complete call-local names, including additions and both sides of a rename. */
 	fields?: readonly NamedAuthoringField[];
+	form?: FormStructure;
 	inputs?: readonly SearchInputDecl[];
 	caseTypes?: readonly CaseType[];
 	/** Authoritatively Project-scoped, rows-free data definitions. */
@@ -129,7 +136,11 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 	get formUuid() {
 		return this.options.formUuid;
 	}
-	readonly typeContext: TypeContext;
+	readonly typeContext: RecordQueryContext;
+	get currentCaseType() {
+		return this.options.currentCaseType;
+	}
+	private readonly formCaseTypes: ReadonlySet<string> | undefined;
 	readonly fields: readonly NamedAuthoringField[];
 	private readonly inputs: readonly SearchInputDecl[];
 	private readonly tables: readonly LookupTableDefinition[];
@@ -170,17 +181,15 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			]),
 		);
 		const table = options.tableId ? this.table(options.tableId) : undefined;
-		this.typeContext = {
-			caseTypes: [...(options.caseTypes ?? effectiveCaseTypes(doc))],
+		this.formCaseTypes =
+			options.candidateCaseType && formUuid
+				? formRecordScope(doc, formUuid).caseTypes
+				: undefined;
+		this.typeContext = recordQueryContext({
+			caseTypes: options.caseTypes ?? effectiveCaseTypes(doc),
 			currentCaseType: options.currentCaseType,
-			...(options.candidateCaseType &&
-				formUuid && {
-					formCaseTypes: formRecordScope(doc, formUuid).caseTypes,
-				}),
-			patternMatching: options.patternMatching,
-			ownerValues: options.ownerValues,
-			knownInputs: [...this.inputs],
-			formFields: new Map(
+			knownInputs: this.inputs,
+			formFieldTypes: new Map(
 				this.fields.map((field) => [
 					field.uuid,
 					caseDataTypeForFieldKind(field.kind),
@@ -191,21 +200,14 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			),
 			organizationLevels: doc.organizationLevels,
 			userPropertySlugs: new Map(
-				Object.values(doc.userProperties ?? {}).map((property) => [
+				Object.values(userPropertiesOf(doc)).map((property) => [
 					property.uuid,
 					property.slug,
 				]),
 			),
 			lookupTables,
-			...(table && {
-				tableScope: {
-					tableId: table.id,
-					columns: new Map(
-						table.columns.map((column) => [column.id, column.dataType]),
-					),
-				},
-			}),
-		};
+			...(table === undefined ? {} : { lookupTableId: table.id }),
+		});
 	}
 	private table(name: string) {
 		const identity = this.tables.find((table) => table.id === name);
@@ -262,7 +264,13 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			const properties = Object.values(this.options.doc.userProperties ?? {});
 			const byId = properties.find((property) => property.uuid === name);
 			const uuid =
-				byId?.uuid ?? resolvableUserPropertySlug(this.options.doc)(name);
+				byId?.uuid ??
+				(() => {
+					const resolved = formUserProperty(this.options, name);
+					return resolved.kind === "session-user-property"
+						? resolved.userPropertyUuid
+						: undefined;
+				})();
 			if (uuid)
 				return {
 					kind: "session-user-property",
@@ -287,16 +295,16 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		) {
 			return termSchema.parse({
 				kind: "prop",
-				caseType: this.typeContext.currentCaseType,
+				caseType: this.currentCaseType,
 				property: name,
 			});
 		}
 		if (
 			this.options.candidateCaseType &&
-			(value === "case" || this.typeContext.formCaseTypes?.has(value))
+			(value === "case" || this.formCaseTypes?.has(value))
 		) {
 			const caseType = value === "case" ? this.options.selectedCaseType : value;
-			if (!caseType || !this.typeContext.formCaseTypes?.has(caseType))
+			if (!caseType || !this.formCaseTypes?.has(caseType))
 				throw new AuthoringInputError(
 					"This form has no selected record in that scope.",
 				);
@@ -317,30 +325,76 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			);
 		const caseType =
 			value === "case"
-				? this.typeContext.currentCaseType
+				? this.currentCaseType
 				: value === "record"
 					? path[0]
 					: value;
 		const property = value === "record" ? path[1] : name;
-		const type = this.typeContext.caseTypes.find(
+		const type = this.typeContext.facts.caseTypes.find(
 			(type) => type.name === caseType,
 		);
 		if (!type || !property)
 			throw new AuthoringInputError(
 				`Record ${caseType ?? "in this context"} is not available.`,
 			);
-		if (
-			this.typeContext.currentCaseType &&
-			type.name !== this.typeContext.currentCaseType
-		)
+		if (this.currentCaseType && type.name !== this.currentCaseType)
 			throw new AuthoringInputError(
-				`This scope reads ${this.typeContext.currentCaseType}; use a relationship to read ${type.name}.`,
+				`This scope reads ${this.currentCaseType}; use a relationship to read ${type.name}.`,
 			);
 		if (!type.properties.some((candidate) => candidate.name === property))
 			throw new AuthoringInputError(
 				`Record ${type.name} has no property ${property}.`,
 			);
 		return termSchema.parse({ kind: "prop", caseType: type.name, property });
+	}
+	choice(fieldUuid: Uuid, value: Literal): Literal | Choice {
+		if (typeof value.value !== "string") return value;
+		const prepared = this.options.form?.fields.get(fieldUuid);
+		const saved = this.options.doc.fields[fieldUuid];
+		const kind = prepared?.kind ?? saved?.kind;
+		const source =
+			prepared?.choices ??
+			(saved !== undefined && "optionsSource" in saved
+				? saved.optionsSource
+				: undefined);
+		if (source?.kind !== "inline") return value;
+		const values =
+			kind === "multi_select"
+				? value.value.split(/\s+/u).filter(Boolean)
+				: [value.value];
+		const options = values.map(
+			(selected) =>
+				source.options.find((option) => option.value === selected)?.uuid,
+		);
+		if (
+			options.length === 0 ||
+			!options.every((uuid): uuid is Uuid => uuid !== undefined)
+		)
+			return value;
+		return {
+			kind: "choice",
+			field: fieldUuid,
+			options: options as [Uuid, ...Uuid[]],
+		};
+	}
+	choiceValues(
+		field: Uuid,
+		options: readonly Uuid[],
+	): readonly string[] | undefined {
+		const prepared = this.options.form?.fields.get(field)?.choices;
+		const saved = this.options.doc.fields[field];
+		const source =
+			prepared ??
+			(saved !== undefined && "optionsSource" in saved
+				? saved.optionsSource
+				: undefined);
+		if (source?.kind !== "inline") return undefined;
+		const values = options.map(
+			(uuid) => source.options.find((option) => option.uuid === uuid)?.value,
+		);
+		return values.every((value): value is string => value !== undefined)
+			? values
+			: undefined;
 	}
 	private column(table: LookupTableDefinition, name: string) {
 		const identity = table.columns.find((column) => column.id === name);
@@ -384,24 +438,18 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 	}
 	forRelation(relation: RelationPath): AuthoringScope {
 		if (relation.kind === "self") return this;
-		const source = this.typeContext.currentCaseType;
+		const source = this.currentCaseType;
 		if (!source)
 			throw new AuthoringInputError(
 				"A record relationship needs an originating record.",
 			);
-		const errors: CheckError[] = [];
-		const destination = checkRelationPath(
+		const resolved = resolveRelationDestination(
 			relation,
 			source,
-			this.typeContext,
-			errors,
-			[],
+			this.typeContext.facts.caseTypes,
 		);
-		if (!destination || errors.length)
-			throw new AuthoringInputError(
-				errors.map((error) => error.message).join(" ") ||
-					"The relationship has no single record type.",
-			);
+		if (!resolved.ok) throw new AuthoringInputError(resolved.message);
+		const destination = resolved.caseType;
 		return new AuthoringScope({
 			...this.options,
 			currentCaseType: destination,
@@ -469,7 +517,7 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		if (
 			term.kind === "prop" &&
 			!term.via &&
-			term.caseType === this.typeContext.currentCaseType
+			term.caseType === this.currentCaseType
 		)
 			return this.options.candidateCaseType && this.options.tableId
 				? `#record/${term.caseType}/${term.property}`

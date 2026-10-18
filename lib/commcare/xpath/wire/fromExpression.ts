@@ -1,40 +1,55 @@
 import type { OrganizationLevel } from "@/lib/domain";
 import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
-import type { LookupTableId } from "@/lib/domain/lookupIds";
-import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
-import { distanceToMeters } from "@/lib/domain/predicate/distance";
+import { isMatchAll } from "@/lib/domain/expression/builders";
+import { choiceValue } from "@/lib/domain/expression/choiceValue";
+import {
+	activeRowScope,
+	type ExpressionContext,
+	pushRowScope,
+} from "@/lib/domain/expression/context";
+import { distanceToMeters } from "@/lib/domain/expression/distance";
 import {
 	canonicalizeRelationPath,
 	normalizeRelationEvaluationScopes,
-	type RelationEvaluationScopeContext,
-} from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
-import { resolveNumericExpressionType } from "@/lib/domain/predicate/numericType";
-import { inferStructuralTemporalType } from "@/lib/domain/predicate/temporalType";
-import type { SearchInputInstanceId } from "@/lib/domain/predicate/typeChecker";
-import type {
-	Predicate,
-	PropertyRef,
-	RelationPath,
-	Term,
-	ValueExpression,
-} from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import { simplifyForEmission } from "@/lib/domain/expression/simplify";
+import {
+	expressionRowScope,
+	scalarDataType,
+	typeOf,
+} from "@/lib/domain/expression/typeChecker";
+import {
+	type DatumRef,
+	type Expression,
+	type ItextUnit,
+	isExpression,
+	isRelationPath,
+	type PropertyRef,
+	type RelationPath,
+	type Term,
+} from "@/lib/domain/expression/types";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { Uuid } from "@/lib/domain/uuid";
-import { findOnDeviceScalarExpressionIssue } from "../../expression/onDeviceCompatibility";
 import type { LookupWireNaming } from "../../lookup/naming";
 import { GEOPOINT_PROPERTY_PATTERN } from "../../predicate/geopoint";
 import { matchModeRunsOnDevice } from "../../predicate/matchModes";
+import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
+import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
+import { formReadToWire } from "./formReads";
 import { normalizeGeopoint, validGeopointCenter } from "./geopoint";
 import {
 	locationsInstance,
 	lookupInstance,
 	searchInputInstance,
+	selectedCasesInstance,
 	sessionInstance,
 } from "./instances";
 import {
 	buildAncestorJoinNodeset,
 	buildSubcaseJoinNodeset,
 	caseById,
+	caseNodes,
 	casePropertyStep,
 	DEFAULT_INSTANCE_ROOT,
 	descendOnDeviceCaseAnchor,
@@ -44,9 +59,18 @@ import {
 	onDeviceAnchorCaseId,
 	ROOT_ON_DEVICE_CASE_ANCHOR,
 } from "./rowScope";
-import type { WireComparison, WireExpr, WirePath } from "./tree";
+import type { WireComparison, WireExpr, WirePath, WireStep } from "./tree";
+
+export type SearchInputInstanceId = `search-input:${string}`;
+export type WireTarget =
+	| "xform"
+	| "suite"
+	| "hq-json"
+	| "csql-runtime"
+	| "preview";
 
 export interface WireTermBindings {
+	/** Concrete Preview answers and generated case-operation nodes outside the authored graph. */
 	readonly formFields?: ReadonlyMap<Uuid, WireExpr>;
 	readonly formCaseProperty?: (caseType: string, property: string) => WireExpr;
 	readonly operationIds?: ReadonlyMap<Uuid, WireExpr>;
@@ -58,8 +82,14 @@ export interface WireTermBindings {
 	) => WireExpr | undefined;
 	readonly emitSelfProperty?: (property: PropertyRef) => WireExpr;
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
+	/** Preview can supply its existing identity fallback when no restored worker
+	 * record exists. Returning undefined preserves the native record selector. */
+	readonly workerProperty?: (property: string) => WireExpr | undefined;
 	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
 	readonly searchInputInstanceId?: SearchInputInstanceId;
+	readonly datumId?: (datum: DatumRef) => string | undefined;
+	readonly itextId?: (unit: ItextUnit) => string | undefined;
+	readonly locationPropertySlugs?: ReadonlyMap<Uuid, string>;
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	readonly lookup?: {
 		readonly naming: LookupWireNaming;
@@ -71,11 +101,13 @@ export interface WireTermBindings {
 	};
 }
 export interface WireBuildContext {
-	readonly target: "xform" | "suite" | "hq-json" | "csql-runtime" | "preview";
-	readonly types: RelationEvaluationScopeContext;
+	readonly target: WireTarget;
+	readonly types: ExpressionContext;
+	readonly form?: FormNodeProjection;
 	readonly root?: InstanceRoot;
 	readonly anchor?: OnDeviceCaseAnchor;
 	readonly bindings?: WireTermBindings;
+	readonly overrides?: ReadonlyMap<Expression, WireExpr>;
 }
 type Context = WireBuildContext & {
 	readonly root: InstanceRoot;
@@ -86,63 +118,68 @@ const comparison: Record<
 	"eq" | "neq" | "lt" | "lte" | "gt" | "gte",
 	WireComparison
 > = { eq: "=", neq: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=" };
-const predicateKinds = new Set([
-	"match-all",
-	"match-none",
-	"and",
-	"or",
-	"not",
-	"eq",
-	"neq",
-	"lt",
-	"lte",
-	"gt",
-	"gte",
-	"is-blank",
-	"in",
-	"between",
-	"match",
-	"multi-select-contains",
-	"exists",
-	"missing",
-	"when-input-present",
-	"matches-pattern",
-	"within-distance",
-]);
-function isPredicate(expr: Predicate | ValueExpression): expr is Predicate {
-	return predicateKinds.has(expr.kind);
-}
-
 /** Lower admitted domain expressions once. Serializers own every lexical choice. */
-export function toWire(
-	expr: Predicate | ValueExpression,
-	ctx: WireBuildContext,
-): WireExpr {
+export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 	const bindings = ctx.bindings ?? {};
 	const context: Context = {
 		...ctx,
-		root: ctx.root ?? DEFAULT_INSTANCE_ROOT,
+		root: ctx.root ?? caseRow(ctx.types)?.root ?? DEFAULT_INSTANCE_ROOT,
 		anchor: ctx.anchor ?? ROOT_ON_DEVICE_CASE_ANCHOR,
 		bindings: {
 			...bindings,
 			userPropertySlugs:
-				bindings.userPropertySlugs ?? ctx.types.userPropertySlugs,
+				bindings.userPropertySlugs ?? ctx.types.facts.userPropertySlugs,
 			searchInputNames:
 				bindings.searchInputNames ??
-				(ctx.types.knownInputs === undefined
-					? undefined
-					: new Map(
-							ctx.types.knownInputs.map((input) => [input.uuid, input.name]),
-						)),
-			searchInputInstanceId:
-				bindings.searchInputInstanceId ?? ctx.types.searchInputInstanceId,
+				new Map(
+					ctx.types.profile.searchInputs.map((input) => [
+						input.uuid,
+						input.name,
+					]),
+				),
 			organizationLevels:
-				bindings.organizationLevels ?? ctx.types.organizationLevels,
+				bindings.organizationLevels ?? ctx.types.facts.organizationLevels,
+			locationPropertySlugs:
+				bindings.locationPropertySlugs ??
+				new Map(
+					[...ctx.types.facts.locationProperties].map(([uuid, property]) => [
+						uuid,
+						property.slug,
+					]),
+				),
 		},
 	};
-	return isPredicate(expr)
-		? predicate(normalizeRelationEvaluationScopes(expr, context.types), context)
-		: value(expr, context);
+	const overrides =
+		ctx.overrides === undefined ? undefined : new Map(ctx.overrides);
+	const normalized = normalizeRelationEvaluationScopes(
+		expr,
+		relationScope(context),
+		overrides === undefined
+			? undefined
+			: (original, replacement) => {
+					const override = overrides.get(original);
+					if (override !== undefined) overrides.set(replacement, override);
+				},
+	);
+	return emitExpression(normalized, { ...context, overrides });
+}
+
+/** Legacy table lookups explicitly capture their one containing case row.
+ * Other lexical rows never reach past the active frame. */
+function caseRow(types: ExpressionContext) {
+	const row = activeRowScope(types);
+	return row?.kind === "case"
+		? row
+		: row?.kind === "table"
+			? row.capturedCase
+			: undefined;
+}
+function relationScope(ctx: Context) {
+	const row = caseRow(ctx.types);
+	return {
+		caseTypes: ctx.types.facts.caseTypes,
+		...(row?.caseType === undefined ? {} : { currentCaseType: row.caseType }),
+	};
 }
 
 export function wireLiteral(value: string | number | boolean | null): WireExpr {
@@ -188,22 +225,104 @@ function related(
 	via: RelationPath,
 	ctx: Context,
 ): { via: RelationPath; context: Context } {
-	const relation = canonicalizeRelationPath(via, ctx.types);
+	const relation = canonicalizeRelationPath(via, relationScope(ctx));
 	return {
 		via: relation.via,
 		context: {
 			...ctx,
-			types:
-				relation.destinationCaseType === undefined
-					? ctx.types
-					: { ...ctx.types, currentCaseType: relation.destinationCaseType },
+			types: pushRowScope(ctx.types, {
+				kind: "case",
+				root: ctx.root,
+				...(relation.destinationCaseType === undefined
+					? {}
+					: { caseType: relation.destinationCaseType }),
+			}),
 			anchor: descendOnDeviceCaseAnchor(ctx.anchor, relation.via),
 			bindings:
 				relation.via.kind === "self"
 					? ctx.bindings
-					: clearLookupRowScope(ctx.bindings),
+					: {
+							...clearLookupRowScope(ctx.bindings),
+							emitSelfProperty: undefined,
+						},
 		},
 	};
+}
+
+function datumPath(datum: DatumRef, ctx: Context): WirePath {
+	const id = ctx.bindings.datumId?.(datum);
+	if (id === undefined)
+		throw new Error(
+			`The '${datum.kind}' session datum has no emitted id in this expression context.`,
+		);
+	return w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("data"),
+		w.step(id),
+	]);
+}
+
+function workerProperty(property: string): WireExpr {
+	return w.expansion(
+		"worker",
+		w.append(USERCASE_CASE_SELECTOR, [w.step(property)]),
+	);
+}
+
+function locationSteps(
+	input: Extract<Term, { kind: "location-field" }>,
+	ctx: Context,
+): readonly WireStep[] {
+	const field = input.field;
+	if (typeof field === "string")
+		return [field === "id" || field === "type" ? w.attr(field) : w.step(field)];
+	if ("level" in field) {
+		const level = ctx.bindings.organizationLevels?.[field.level];
+		if (level === undefined)
+			throw new Error(
+				`Organization level '${field.level}' has no emitted location attribute.`,
+			);
+		return [w.attr(`${level.code}_id`)];
+	}
+	const slug = ctx.bindings.locationPropertySlugs?.get(field.property);
+	if (slug === undefined)
+		throw new Error(
+			`Location property '${field.property}' has no emitted field name.`,
+		);
+	return [w.step("location_data"), w.step(slug)];
+}
+
+/** A projection appends relative row steps. Outer selected-case callbacks
+ * must never intercept this explicitly selected row. */
+function rowLeafSteps(input: Term, ctx: Context): readonly WireStep[] {
+	switch (input.kind) {
+		case "prop":
+			if (input.via !== undefined && input.via.kind !== "self")
+				throw new Error(
+					"A projected property cannot traverse another relation.",
+				);
+			return [casePropertyStep(input.property)];
+		case "case-row-type":
+			return [w.attr("case_type")];
+		case "case-index":
+			return [w.step("index"), w.step(input.identifier)];
+		case "table-column": {
+			const lookup = ctx.bindings.lookup;
+			if (lookup === undefined)
+				throw new Error(
+					"A projected table column needs the Project lookup naming catalog.",
+				);
+			return [
+				w.step(
+					lookup.naming.tableFor(input.tableId).wireNameFor(input.columnId),
+				),
+			];
+		}
+		case "location-field":
+			return locationSteps(input, ctx);
+		default:
+			throw new Error(`The '${input.kind}' term is not a projected row value.`);
+	}
 }
 
 function term(input: Term, ctx: Context): WireExpr {
@@ -216,16 +335,50 @@ function term(input: Term, ctx: Context): WireExpr {
 				throw new Error(
 					"Selected form record is unavailable in this expression context.",
 				);
-			return bindings.formCaseProperty(input.caseType, input.property);
+			return w.expansion(
+				"case",
+				bindings.formCaseProperty(input.caseType, input.property),
+			);
 		}
-		case "field": {
-			const result = bindings.formFields?.get(input.uuid);
-			if (result === undefined)
+		case "field":
+		case "form-node":
+		case "repeat-row": {
+			const result =
+				input.kind === "field" &&
+				input.role === undefined &&
+				input.filters === undefined
+					? bindings.formFields?.get(input.uuid)
+					: undefined;
+			if (result !== undefined) return result;
+			if (ctx.form === undefined)
 				throw new Error(
-					`Form field '${input.uuid}' has no XPath binding in this expression context.`,
+					"A form read reached wire emission without the owning form-node projection.",
 				);
-			return result;
+			return formReadToWire(input, ctx.types, ctx.form, (expression, types) =>
+				emitExpression(expression, { ...ctx, types }),
+			);
 		}
+		case "choice":
+			return w.str(choiceValue(input, ctx.types.facts.options));
+
+		case "case-type":
+			return w.str(input.caseType);
+		case "case-row-type":
+			return w.context([w.attr("case_type")]);
+		case "case-index":
+			return w.context([w.step("index"), w.step(input.identifier)]);
+		case "session-datum":
+			return datumPath(input.datum, ctx);
+		case "location-level": {
+			const level = bindings.organizationLevels?.[input.levelUuid];
+			if (level === undefined)
+				throw new Error(
+					`Organization level '${input.levelUuid}' has no emitted code.`,
+				);
+			return w.str(level.code);
+		}
+		case "location-field":
+			return w.context(locationSteps(input, ctx));
 		case "prop": {
 			const self = input.via === undefined || input.via.kind === "self";
 			if (self && bindings.emitSelfProperty !== undefined)
@@ -290,12 +443,19 @@ function term(input: Term, ctx: Context): WireExpr {
 					`Search input identity '${input.searchInputUuid}' has no current runtime-name binding.`,
 				);
 			const id = bindings.searchInputInstanceId ?? "search-input:results";
-			return w.instance(searchInputInstance(id), [
-				w.step("input"),
-				w.step("field", [w.eq(w.context([w.attr("name")]), w.str(name))]),
-			]);
+			return w.expansion(
+				"search",
+				w.instance(searchInputInstance(id), [
+					w.step("input"),
+					w.step("field", [w.eq(w.context([w.attr("name")]), w.str(name))]),
+				]),
+			);
 		}
 		case "session-user":
+			if (input.source === "worker-record")
+				return (
+					bindings.workerProperty?.(input.field) ?? workerProperty(input.field)
+				);
 			return w.instance(sessionInstance(), [
 				w.step("session"),
 				w.step("user"),
@@ -308,6 +468,8 @@ function term(input: Term, ctx: Context): WireExpr {
 				throw new Error(
 					`Worker-information property '${input.userPropertyUuid}' has no current saved-name binding.`,
 				);
+			if (input.source === "worker-record")
+				return bindings.workerProperty?.(slug) ?? workerProperty(slug);
 			return w.instance(sessionInstance(), [
 				w.step("session"),
 				w.step("user"),
@@ -362,13 +524,14 @@ function term(input: Term, ctx: Context): WireExpr {
 		}
 		case "table-column": {
 			const lookup = bindings.lookup;
-			if (lookup?.rowScope === undefined)
+			const row = activeRowScope(ctx.types);
+			if (lookup === undefined || row?.kind !== "table")
 				throw new Error(
 					"A lookup-table column term needs an explicit fixture-row scope before wire emission.",
 				);
-			if (lookup.rowScope.tableId !== input.tableId)
+			if (row.tableId !== input.tableId)
 				throw new Error(
-					`Lookup column reads table '${input.tableId}' inside the row scope of '${lookup.rowScope.tableId}'.`,
+					`Lookup column reads table '${input.tableId}' inside the row scope of '${row.tableId}'.`,
 				);
 			return w.context([
 				w.step(
@@ -379,14 +542,147 @@ function term(input: Term, ctx: Context): WireExpr {
 	}
 }
 
-function value(expr: ValueExpression, ctx: Context): WireExpr {
-	const issue = findOnDeviceScalarExpressionIssue(expr, ctx.types);
-	if (issue?.reason === "multi-valued-relation-read")
+function operand(input: Expression | Term, ctx: Context): WireExpr {
+	return isExpression(input) ? emitExpression(input, ctx) : term(input, ctx);
+}
+
+function queryContext(expression: Expression, ctx: Context): Context {
+	const row = expressionRowScope(expression, ctx.types);
+	if (row === undefined)
 		throw new Error(
-			`Case property '${issue.property.property}' uses a '${issue.property.via?.kind}' relation that can produce several values in a scalar on-device expression. Use count(...) or a predicate relation scope.`,
+			`The '${expression.kind}' expression has no typed row scope.`,
 		);
-	const emit = (input: ValueExpression) => value(input, ctx);
+	return {
+		...ctx,
+		types: pushRowScope(ctx.types, row),
+		...(row.kind === "case" ? { root: row.root } : {}),
+		anchor: { kind: "unaddressable" },
+		bindings: {
+			...clearLookupRowScope(ctx.bindings),
+			emitSelfProperty: undefined,
+			caseProperty: undefined,
+			rootCaseIdWireExpr: undefined,
+		},
+	};
+}
+
+function emitExpression(expr: Expression, ctx: Context): WireExpr {
+	const overridden = ctx.overrides?.get(expr);
+	if (overridden !== undefined) return overridden;
+	const emit = (input: Expression) => emitExpression(input, ctx);
+	const val = emit;
+	const pred = emit;
 	switch (expr.kind) {
+		case "negate":
+			return w.neg(emit(expr.value));
+		case "call":
+			return expr.fn === "normalize-space"
+				? w.call("replace", [
+						w.call("replace", [
+							emit(expr.args[0]),
+							w.str("[ \\t\\r\\n]+"),
+							w.str(" "),
+						]),
+						w.str("^ | $"),
+						w.str(""),
+					])
+				: w.call(expr.fn, expr.args.map(emit));
+		case "here":
+			return w.call("here");
+		case "itext": {
+			const id = ctx.bindings.itextId?.(expr.unit);
+			if (id === undefined)
+				throw new Error(
+					`The translation unit for field '${expr.unit.field}' has no emitted text id.`,
+				);
+			return w.call("jr:itext", [w.str(id)]);
+		}
+		case "choice-name": {
+			const path = ctx.form?.path({ kind: "field", uuid: expr.field });
+			if (path === undefined)
+				throw new Error(
+					`Choice field '${expr.field}' has no emitted form path.`,
+				);
+			return w.call("jr:choice-name", [
+				emit(expr.value),
+				w.str(path.toXPath()),
+			]);
+		}
+		case "cases": {
+			const child = queryContext(expr, ctx);
+			const root = expr.source === "casedb" ? "casedb" : "results:inline";
+			return caseNodes(root, [
+				...(expr.source === "search-results"
+					? [
+							w.not(
+								w.eq(
+									w.context([w.step("commcare_is_related_case")]),
+									w.call("true"),
+								),
+							),
+						]
+					: []),
+				...expr.where.map((where) => emitExpression(where, child)),
+			]);
+		}
+		case "table-rows": {
+			const lookup = ctx.bindings.lookup;
+			if (lookup === undefined)
+				throw new Error(
+					"A lookup-row query needs the Project lookup naming catalog.",
+				);
+			const table = lookup.naming.tableFor(expr.tableId);
+			const child = queryContext(expr, ctx);
+			return w.instance(
+				lookupInstance(expr.tableId, lookup.naming, lookup.instanceScope),
+				[
+					w.step(table.listElementName),
+					w.step(
+						table.rowElementName,
+						expr.where.map((where) => emitExpression(where, child)),
+					),
+				],
+			);
+		}
+		case "locations": {
+			const child = queryContext(expr, ctx);
+			return w.instance(locationsInstance(), [
+				w.step("locations"),
+				w.step(
+					"location",
+					expr.where.map((where) => emitExpression(where, child)),
+				),
+			]);
+		}
+		case "selected-cases": {
+			const id = ctx.bindings.datumId?.({
+				kind: "selected-case",
+				module: expr.module,
+			});
+			if (id === undefined)
+				throw new Error(
+					`The selected cases for module '${expr.module}' have no emitted datum id.`,
+				);
+			return w.instance(selectedCasesInstance(id), [
+				w.step("results"),
+				w.step("value"),
+			]);
+		}
+		case "project": {
+			const base = emit(expr.of);
+			if (base.k !== "path")
+				throw new Error(
+					"A row projection must lower from a selected node-set path.",
+				);
+			return w.append(
+				base,
+				rowLeafSteps(expr.value, queryContext(expr.of, ctx)),
+			);
+		}
+		case "value-list":
+			throw new Error(
+				"A CSQL value list cannot be emitted as on-device XPath.",
+			);
 		case "term": {
 			const input = expr.term;
 			if (
@@ -395,9 +691,10 @@ function value(expr: ValueExpression, ctx: Context): WireExpr {
 				input.via.kind === "self"
 			)
 				return term(input, ctx);
+			const scope = relationScope(ctx);
 			const relation = canonicalizeRelationPath(input.via, {
-				...ctx.types,
-				currentCaseType: ctx.types.currentCaseType ?? input.caseType,
+				...scope,
+				currentCaseType: scope.currentCaseType ?? input.caseType,
 			});
 			return term({ ...input, via: relation.via }, ctx);
 		}
@@ -424,37 +721,13 @@ function value(expr: ValueExpression, ctx: Context): WireExpr {
 		case "arith": {
 			const left = emit(expr.left),
 				right = emit(expr.right);
-			if (expr.op === "div") {
-				const lookupTables =
-					ctx.types.lookupTables ??
-					new Map(
-						ctx.bindings.lookup?.naming.tables.map((table) => [
-							table.tableId,
-							new Map(
-								table.columns.map((column) => [column.id, column.dataType]),
-							),
-						]),
-					);
-				const rowTableId = ctx.bindings.lookup?.rowScope?.tableId;
-				const columns =
-					rowTableId === undefined ? undefined : lookupTables.get(rowTableId);
-				const type = resolveNumericExpressionType(expr, {
-					...ctx.types,
-					caseTypes: [...(ctx.types.caseTypes ?? [])],
-					knownInputs: [...(ctx.types.knownInputs ?? [])],
-					lookupTables,
-					...(rowTableId !== undefined && columns !== undefined
-						? { tableScope: { tableId: rowTableId, columns } }
-						: {}),
-				});
-				if (type === "int")
-					return w.call("if", [
+			return expr.op === "quotient"
+				? w.call("if", [
 						w.eq(right, w.num(0)),
 						w.div(left, right),
 						w.div(w.sub(left, w.mod(left, right)), right),
-					]);
-			}
-			return w.arith(expr.op, left, right);
+					])
+				: w.arith(expr.op, left, right);
 		}
 		case "concat":
 			return w.call("concat", expr.parts.map(emit));
@@ -462,7 +735,10 @@ function value(expr: ValueExpression, ctx: Context): WireExpr {
 			return w.call("coalesce", expr.values.map(emit));
 		case "if":
 			return w.call("if", [
-				predicate(normalizeRelationEvaluationScopes(expr.cond, ctx.types), ctx),
+				emitExpression(
+					normalizeRelationEvaluationScopes(expr.cond, relationScope(ctx)),
+					ctx,
+				),
 				emit(expr.then),
 				emit(expr.else),
 			]);
@@ -471,7 +747,7 @@ function value(expr: ValueExpression, ctx: Context): WireExpr {
 			let result = emit(expr.fallback);
 			for (const entry of [...expr.cases].reverse())
 				result = w.call("if", [
-					w.eq(on, wireLiteral(entry.when.value)),
+					w.eq(on, term(entry.when, ctx)),
 					emit(entry.then),
 					result,
 				]);
@@ -480,14 +756,16 @@ function value(expr: ValueExpression, ctx: Context): WireExpr {
 		case "format-date":
 			return w.call("format-date", [
 				emit(expr.date),
-				w.str(resolveCommCareDatePattern(expr.pattern)),
+				typeof expr.pattern === "string"
+					? w.str(resolveCommCareDatePattern(expr.pattern))
+					: emit(expr.pattern),
 			]);
 		case "date-add": {
 			if (expr.interval === "months" || expr.interval === "years")
 				throw new Error(
 					`Calendar-relative date-add interval '${expr.interval}' cannot run faithfully in JavaRosa's on-device XPath evaluator.`,
 				);
-			if (inferStructuralTemporalType(expr.date) === "datetime")
+			if (scalarDataType(typeOf(expr.date, ctx.types)?.data) === "datetime")
 				throw new Error(
 					"A date-add with a structurally datetime-typed base cannot use JavaRosa's epoch-day fallback because it would discard the time-of-day.",
 				);
@@ -507,7 +785,9 @@ function value(expr: ValueExpression, ctx: Context): WireExpr {
 			]);
 		}
 		case "count":
-			return count(expr.via, expr.where, ctx);
+			return isRelationPath(expr.via)
+				? count(expr.via, expr.where, ctx)
+				: w.call("count", [emit(expr.via)]);
 		case "table-lookup": {
 			const lookup = ctx.bindings.lookup;
 			if (lookup === undefined)
@@ -518,6 +798,14 @@ function value(expr: ValueExpression, ctx: Context): WireExpr {
 			const where = simplifyForEmission(expr.where);
 			const whereContext = {
 				...ctx,
+				types: pushRowScope(ctx.types, {
+					kind: "table",
+					root: "table",
+					tableId: expr.tableId,
+					...(caseRow(ctx.types) === undefined
+						? {}
+						: { capturedCase: caseRow(ctx.types) }),
+				}),
 				bindings: {
 					...ctx.bindings,
 					lookup: {
@@ -529,8 +817,8 @@ function value(expr: ValueExpression, ctx: Context): WireExpr {
 			const filters = isMatchAll(where)
 				? []
 				: [
-						predicate(
-							normalizeRelationEvaluationScopes(where, ctx.types),
+						emitExpression(
+							normalizeRelationEvaluationScopes(where, relationScope(ctx)),
 							whereContext,
 						),
 					];
@@ -543,11 +831,142 @@ function value(expr: ValueExpression, ctx: Context): WireExpr {
 				],
 			);
 		}
+		case "match-all":
+			return w.call("true");
+		case "match-none":
+			return w.call("false");
+		case "and":
+			return w.and(...expr.clauses.map(pred));
+		case "or":
+			return w.or(...expr.clauses.map(pred));
+		case "not":
+			return w.not(pred(expr.clause));
+		case "eq":
+		case "neq":
+		case "lt":
+		case "lte":
+		case "gt":
+		case "gte":
+			return w.cmp(comparison[expr.kind], val(expr.left), val(expr.right));
+		case "is-blank":
+			return w.eq(
+				w.call("string-length", [w.call("string", [val(expr.left)])]),
+				w.num(0),
+			);
+		case "in":
+			return w.or(
+				...expr.values.map((item) => w.eq(val(expr.left), term(item, ctx))),
+			);
+		case "between": {
+			const clauses: WireExpr[] = [];
+			if (expr.lower !== undefined)
+				clauses.push(
+					w.cmp(
+						expr.lowerInclusive ? ">=" : ">",
+						val(expr.left),
+						val(expr.lower),
+					),
+				);
+			if (expr.upper !== undefined)
+				clauses.push(
+					w.cmp(
+						expr.upperInclusive ? "<=" : "<",
+						val(expr.left),
+						val(expr.upper),
+					),
+				);
+			if (clauses.length === 0)
+				throw new Error(
+					"'between' has no bounds; the schema's at-least-one-bound refinement was bypassed.",
+				);
+			return w.and(...clauses);
+		}
+		case "match": {
+			if (!matchModeRunsOnDevice(expr.mode))
+				throw new Error(
+					`The '${expr.mode}' match mode is a case-search function that CommCare Core's on-device XPath evaluator does not register.`,
+				);
+			return w.call("starts-with", [
+				operand(expr.property, ctx),
+				val(expr.value),
+			]);
+		}
+		case "multi-select-contains": {
+			const parts = expr.values.map((item) =>
+				w.call("selected", [operand(expr.property, ctx), operand(item, ctx)]),
+			);
+			return expr.quantifier === "any" ? w.or(...parts) : w.and(...parts);
+		}
+		case "matches-pattern":
+			return w.call("regex", [
+				val(expr.left),
+				typeof expr.pattern === "string"
+					? w.str(expr.pattern)
+					: emit(expr.pattern),
+			]);
+		case "when-input-present":
+			return w.call("if", [
+				w.call("count", [term(expr.input, ctx)]),
+				pred(expr.clause),
+				w.call("true"),
+			]);
+		case "exists":
+		case "missing": {
+			const relation = related(expr.via, ctx);
+			const where =
+				expr.where === undefined
+					? undefined
+					: emitExpression(expr.where, relation.context);
+			if (relation.via.kind === "self" && where === undefined)
+				return w.call(expr.kind === "exists" ? "true" : "false");
+			const presence =
+				relation.via.kind === "self"
+					? (where ?? w.call("true"))
+					: immediateRelationPresence(
+							relation.via,
+							where,
+							ctx.root,
+							origin(ctx),
+						);
+			return expr.kind === "exists" ? presence : w.not(presence);
+		}
+		case "within-distance": {
+			if (typeof expr.distance !== "number" || typeof expr.unit !== "string")
+				throw new Error(
+					"A runtime distance radius or unit needs the CSQL query lowering.",
+				);
+			const property = term(expr.property, ctx),
+				raw = val(expr.center),
+				center = normalizeGeopoint(raw);
+			const latitude = w.call("double", [
+				w.call("selected-at", [property, w.num(0)]),
+			]);
+			const longitude = w.call("double", [
+				w.call("selected-at", [property, w.num(1)]),
+			]);
+			const distance = w.call("distance", [property, center]);
+			return w.and(
+				w.call("regex", [property, w.str(GEOPOINT_PROPERTY_PATTERN)]),
+				validGeopointCenter(raw, center),
+				w.gte(latitude, w.num(-90)),
+				w.lte(latitude, w.num(90)),
+				w.gte(longitude, w.num(-180)),
+				w.lte(longitude, w.num(180)),
+				w.gte(distance, w.num(0)),
+				w.lte(distance, w.num(distanceToMeters(expr.distance, expr.unit))),
+			);
+		}
+		default: {
+			const exhaustive: never = expr;
+			throw new Error(
+				`Unknown expression reached wire emission: ${String(exhaustive)}.`,
+			);
+		}
 	}
 }
 function count(
 	via: RelationPath,
-	where: Predicate | undefined,
+	where: Expression | undefined,
 	ctx: Context,
 ): WireExpr {
 	const relation = related(via, ctx);
@@ -555,7 +974,10 @@ function count(
 	const filter =
 		where === undefined
 			? undefined
-			: predicate(normalizeRelationEvaluationScopes(where, child.types), child);
+			: emitExpression(
+					normalizeRelationEvaluationScopes(where, relationScope(child)),
+					child,
+				);
 	const asCount = (condition: WireExpr) =>
 		w.call("if", [condition, w.num(1), w.num(0)]);
 	if (relation.via.kind === "self")
@@ -595,8 +1017,8 @@ function count(
 	const ancestorFilter =
 		where === undefined
 			? undefined
-			: predicate(
-					normalizeRelationEvaluationScopes(where, child.types),
+			: emitExpression(
+					normalizeRelationEvaluationScopes(where, relationScope(child)),
 					ancestorContext,
 				);
 	return w.add(
@@ -610,125 +1032,4 @@ function count(
 		),
 		subcaseCount,
 	);
-}
-function predicate(expr: Predicate, ctx: Context): WireExpr {
-	const val = (input: ValueExpression) => value(input, ctx);
-	const pred = (input: Predicate) => predicate(input, ctx);
-	switch (expr.kind) {
-		case "match-all":
-			return w.call("true");
-		case "match-none":
-			return w.call("false");
-		case "and":
-			return w.and(...expr.clauses.map(pred));
-		case "or":
-			return w.or(...expr.clauses.map(pred));
-		case "not":
-			return w.not(pred(expr.clause));
-		case "eq":
-		case "neq":
-		case "lt":
-		case "lte":
-		case "gt":
-		case "gte":
-			return w.cmp(comparison[expr.kind], val(expr.left), val(expr.right));
-		case "is-blank":
-			return w.eq(
-				w.call("string-length", [w.call("string", [val(expr.left)])]),
-				w.num(0),
-			);
-		case "in":
-			return w.or(
-				...expr.values.map((item) =>
-					w.eq(val(expr.left), wireLiteral(item.value)),
-				),
-			);
-		case "between": {
-			const clauses: WireExpr[] = [];
-			if (expr.lower !== undefined)
-				clauses.push(
-					w.cmp(
-						expr.lowerInclusive ? ">=" : ">",
-						val(expr.left),
-						val(expr.lower),
-					),
-				);
-			if (expr.upper !== undefined)
-				clauses.push(
-					w.cmp(
-						expr.upperInclusive ? "<=" : "<",
-						val(expr.left),
-						val(expr.upper),
-					),
-				);
-			if (clauses.length === 0)
-				throw new Error(
-					"'between' has no bounds; the schema's at-least-one-bound refinement was bypassed.",
-				);
-			return w.and(...clauses);
-		}
-		case "match": {
-			if (!matchModeRunsOnDevice(expr.mode))
-				throw new Error(
-					`The '${expr.mode}' match mode is a case-search function that CommCare Core's on-device XPath evaluator does not register.`,
-				);
-			return w.call("starts-with", [term(expr.property, ctx), val(expr.value)]);
-		}
-		case "multi-select-contains": {
-			const parts = expr.values.map((item) =>
-				w.call("selected", [term(expr.property, ctx), wireLiteral(item.value)]),
-			);
-			return expr.quantifier === "any" ? w.or(...parts) : w.and(...parts);
-		}
-		case "matches-pattern":
-			return w.call("regex", [val(expr.left), w.str(expr.pattern)]);
-		case "when-input-present":
-			return w.call("if", [
-				w.call("count", [term(expr.input, ctx)]),
-				pred(expr.clause),
-				w.call("true"),
-			]);
-		case "exists":
-		case "missing": {
-			const relation = related(expr.via, ctx);
-			const where =
-				expr.where === undefined
-					? undefined
-					: predicate(expr.where, relation.context);
-			if (relation.via.kind === "self" && where === undefined)
-				return w.call(expr.kind === "exists" ? "true" : "false");
-			const presence =
-				relation.via.kind === "self"
-					? (where ?? w.call("true"))
-					: immediateRelationPresence(
-							relation.via,
-							where,
-							ctx.root,
-							origin(ctx),
-						);
-			return expr.kind === "exists" ? presence : w.not(presence);
-		}
-		case "within-distance": {
-			const property = term(expr.property, ctx),
-				raw = val(expr.center),
-				center = normalizeGeopoint(raw);
-			const latitude = w.call("double", [
-				w.call("selected-at", [property, w.num(0)]),
-			]);
-			const longitude = w.call("double", [
-				w.call("selected-at", [property, w.num(1)]),
-			]);
-			const distance = w.call("distance", [property, center]);
-			return w.and(
-				w.call("regex", [property, w.str(GEOPOINT_PROPERTY_PATTERN)]),
-				validGeopointCenter(raw, center),
-				w.gte(latitude, w.num(-90)),
-				w.lte(latitude, w.num(90)),
-				w.gte(longitude, w.num(-180)),
-				w.lte(longitude, w.num(180)),
-				w.gte(distance, w.num(0)),
-				w.lte(distance, w.num(distanceToMeters(expr.distance, expr.unit))),
-			);
-		}
-	}
 }

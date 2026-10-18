@@ -35,6 +35,7 @@ const unavailable: AuthoringValueDecoders = {
 	relationship: noDecoder,
 	moduleIcon: noDecoder,
 	formIcon: noDecoder,
+	datum: noDecoder,
 };
 
 it("removes storage expression families from every registered tool while retaining unrelated objects", () => {

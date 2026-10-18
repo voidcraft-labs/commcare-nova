@@ -12,8 +12,9 @@ import {
 } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { compilePredicate, type Database } from "@/lib/case-store/sql";
+import { requireExpressionContext } from "@/lib/commcare/expressionContext";
 import { composeXPathQueryEmission } from "@/lib/commcare/suite/case-search/xpathQuery";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
@@ -25,12 +26,12 @@ import {
 	fuzzyMode,
 	hiddenSearchInputDef,
 	phoneticMode,
+	plainColumn,
 	rangeMode,
 	searchInputDefSchema,
 	simpleSearchInputDef,
 	startsWithMode,
 } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	ancestorPath,
 	and,
@@ -47,6 +48,7 @@ import {
 	double,
 	eq,
 	exists,
+	expressionSchema,
 	formatDate,
 	gt,
 	gte,
@@ -63,7 +65,6 @@ import {
 	not,
 	now,
 	or,
-	predicateSchema,
 	prop,
 	relationStep,
 	sessionContext,
@@ -74,8 +75,10 @@ import {
 	today,
 	whenInput,
 	within,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import {
 	DATE_RANGE_INVALID_MESSAGE,
 	DATE_RANGE_ORDER_MESSAGE,
@@ -96,7 +99,7 @@ function composeRuntimeFilter(
 ) {
 	for (const input of args[0]) searchInputDefSchema.parse(input);
 	const result = composeRuntimeFilterProduction(...args);
-	predicateSchema.parse(result);
+	expressionSchema.parse(result);
 	return result;
 }
 
@@ -233,6 +236,36 @@ const CASE_TYPE_SCHEMAS = new Map<string, CaseType>([
 	],
 ]);
 
+/** Wire comparison uses the actual module that owns these authored inputs. */
+function wireFilterContext(config: CaseListConfig) {
+	const moduleUuid = testUuid("runtime-binding-wire-module");
+	const doc = assertAdmittedPreviewDoc(
+		buildDoc({
+			caseTypes: [
+				{
+					name: PATIENT,
+					properties: [{ name: "region", label: "Region", data_type: "text" }],
+				},
+			],
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "Patients",
+					caseType: PATIENT,
+					caseListConfig: config,
+					caseListOnly: true,
+					forms: [],
+				},
+			],
+		}),
+	);
+	return requireExpressionContext(doc, {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_filter",
+	});
+}
+
 describe("bindSearchInputValuesInPredicate", () => {
 	const regionUuid = testUuid("region");
 	const regionInput = simpleSearchInputDef(
@@ -280,7 +313,7 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 			PATIENT,
 		);
 		expect(result).toEqual(matchAll());
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("returns matchAll() when every input value is empty / absent", () => {
@@ -358,7 +391,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		);
 		const expected = eq(prop(PATIENT, "case_name"), literal("alice"));
 		expect(result).toEqual(expected);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("uses date-shaped whole-day bounds for an exact date property", () => {
@@ -403,7 +436,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 				),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("uses UTC datetime whole-day bounds for an exact custom datetime property", () => {
@@ -448,7 +481,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 				),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("uses the same UTC datetime bounds for indexed date_opened metadata", () => {
@@ -481,7 +514,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 				),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("drops a calendar-invalid exact date instead of querying with it", () => {
@@ -559,7 +592,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 				),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("defaults to `exact` for `text` inputs when mode is absent", () => {
@@ -609,7 +642,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		expect(result).toEqual(
 			match(prop(PATIENT, "case_name"), literal("alic"), "fuzzy"),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("builds a `starts-with` `match` clause for `starts-with` mode", () => {
@@ -687,7 +720,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 			PATIENT,
 		);
 		expect(result).toEqual(eq(prop(PATIENT, "region", via), literal("north")));
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 });
 
@@ -727,7 +760,7 @@ describe("composeRuntimeFilter — range mode", () => {
 				term: { kind: "literal", value: "2010-12-31", data_type: "date" },
 			},
 		});
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("defaults to `range` for `date-range` inputs (per-type default)", () => {
@@ -812,7 +845,7 @@ describe("composeRuntimeFilter — range mode", () => {
 				),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("rejects a lower-only draft because CommCare daterange requires a pair", () => {
@@ -1075,22 +1108,28 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"unused_prompt",
 			"Optional prompt",
 			"text",
-			eq(prop(PATIENT, "status"), literal("active")),
+			eq(prop(PATIENT, "status"), literal("open")),
 		);
 		const config = resolveCaseListConfig({
-			columns: [],
+			columns: [
+				plainColumn(testUuid("binding-wire-name"), "case_name", "Name"),
+			],
 			searchInputs: [advanced],
 		}) satisfies CaseListConfig;
 
 		expect(composeRuntimeFilter([advanced], new Map(), PATIENT)).toEqual(
-			eq(prop(PATIENT, "status"), literal("active")),
+			eq(prop(PATIENT, "status"), literal("open")),
 		);
-		const wire = composeXPathQueryEmission(config, PATIENT)
+		const wire = composeXPathQueryEmission(
+			config,
+			PATIENT,
+			wireFilterContext(config),
+		)
 			?.clauseWrappers.map(
 				(clause) => serializeWire(clause, { target: "suite" }).text,
 			)
 			.join("\n");
-		expect(wire).toContain("status = 'active'");
+		expect(wire).toContain("status = 'open'");
 		expect(wire).not.toContain("unused_prompt");
 	});
 
@@ -1113,7 +1152,9 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"region",
 		);
 		const config = resolveCaseListConfig({
-			columns: [],
+			columns: [
+				plainColumn(testUuid("binding-wire-name"), "case_name", "Name"),
+			],
 			searchInputs: [advanced, region],
 		}) satisfies CaseListConfig;
 
@@ -1129,7 +1170,11 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				eq(prop(PATIENT, "region"), literal("north")),
 			),
 		);
-		const wire = composeXPathQueryEmission(config, PATIENT)
+		const wire = composeXPathQueryEmission(
+			config,
+			PATIENT,
+			wireFilterContext(config),
+		)
 			?.clauseWrappers.map(
 				(clause) => serializeWire(clause, { target: "suite" }).text,
 			)
@@ -1164,7 +1209,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				literal("__range__2025-01-02__2025-03-04"),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("substitutes a value-position `input(name)` term across `compare`", () => {
@@ -1184,7 +1229,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// Substitution replaces `term(input("name_search"))` with
 		// `term(literal("alice"))`. `prop("case_name")` is unchanged.
 		expect(result).toEqual(eq(prop(PATIENT, "case_name"), literal("alice")));
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("substitutes through `match.value`", () => {
@@ -1233,7 +1278,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("substitutes through `arith` operands inside a comparison (cross-family)", () => {
@@ -1303,7 +1348,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				literal("yes"),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("substitutes through `switch.cases[].then` and `switch.fallback`", () => {
@@ -1368,7 +1413,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				literal(0),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("substitutes inside a `not(...)` clause", () => {
@@ -1409,7 +1454,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			PATIENT,
 		);
 		expect(result).toEqual(eq(prop(PATIENT, "case_name"), literal("alice")));
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("resolves cross-input gates only from their own submitted values", () => {
@@ -1460,7 +1505,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				eq(prop(PATIENT, "region"), literal("north")),
 			),
 		);
-		expect(predicateSchema.parse(withRegion)).toEqual(withRegion);
+		expect(expressionSchema.parse(withRegion)).toEqual(withRegion);
 	});
 
 	it("leaves orphan `input(other)` references untouched", () => {
@@ -1602,7 +1647,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				literal("alice-vip"),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("substitutes through `coalesce.values` (advanced arm)", () => {
@@ -1657,7 +1702,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 	});
 
 	it("substitutes through `within-distance.center` (advanced arm)", () => {
-		// The `center` slot accepts a `ValueExpression`; an
+		// The `center` slot accepts an `Expression`; an
 		// input-ref-driven center expression is the load-bearing case
 		// for runtime distance filtering.
 		const advanced = advancedSearchInputDef(
@@ -1685,11 +1730,11 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				"miles",
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("substitutes through `in.left` and preserves the literal-only `values` slot", () => {
-		// `in.left` is `ValueExpression` — substitution reaches it.
+		// `in.left` is an `Expression` — substitution reaches it.
 		// `in.values` is literal-only (schema-enforced); the runtime
 		// passes the values list through unchanged.
 		const advanced = advancedSearchInputDef(
@@ -1720,7 +1765,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 	});
 
 	it("substitutes through `between` bounds (advanced arm)", () => {
-		// `between.lower` / `between.upper` are `ValueExpression` slots;
+		// `between.lower` / `between.upper` are value-expression slots;
 		// an input-ref-driven bound exercises both.
 		const advanced = advancedSearchInputDef(
 			testUuid("max_age"),
@@ -1743,7 +1788,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				upper: term(literal("100")),
 			}),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("substitutes through `between.left` (advanced arm)", () => {
@@ -1773,7 +1818,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				upper: literal(100),
 			}),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("substitutes through `gt` (a comparison-family alias) inside an `and`", () => {
@@ -1832,12 +1877,12 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 				match(prop(PATIENT, "case_name"), literal("alice"), "fuzzy"),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("collapses to the lone clause when only one input contributes", () => {
 		// `and(...)` reduces a one-clause conjunction to the lone
-		// clause (per `lib/domain/predicate/reduction.ts`). The result
+		// clause (per `lib/domain/expression/reduction.ts`). The result
 		// should be the bare `eq` clause, not a one-clause `and`
 		// envelope.
 		const inputs = [
@@ -1901,7 +1946,7 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 				eq(prop(PATIENT, "case_name"), literal("alice")),
 			);
 		}
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("unwraps to the lone clause when one input is populated and others are empty", () => {
@@ -1954,7 +1999,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 				eq(prop("household", "owner"), literal("alice@example.com")),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("preserves `match-all` unchanged when wrapped in an advanced predicate", () => {
@@ -1965,7 +2010,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 		// through both clauses — a regression that touches the
 		// sentinel surfaces as a structural mismatch on the `and.clauses[0]`
 		// slot. The builder's `reduceAndImpl` only collapses
-		// empty / single-clause inputs (per `lib/domain/predicate/reduction.ts`),
+		// empty / single-clause inputs (per `lib/domain/expression/reduction.ts`),
 		// so the constructed multi-clause `and` keeps the sentinel
 		// at index 0 and substitution flows through to index 1.
 		const advanced = advancedSearchInputDef(
@@ -1983,7 +2028,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 		expect(result).toEqual(
 			and(matchAll(), eq(prop(PATIENT, "case_name"), literal("alice"))),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("preserves `match-none` unchanged when wrapped in an advanced predicate", () => {
@@ -2007,11 +2052,11 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 		expect(result).toEqual(
 			or(matchNone(), eq(prop(PATIENT, "case_name"), literal("alice"))),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 });
 
-describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side arm coverage", () => {
+describe("composeRuntimeFilter — advanced arm rewriter, value-expression arm coverage", () => {
 	it("substitutes through `date-add` operands (both `date` AND `quantity` slots)", () => {
 		// Two-input fixture so we can pin that BOTH the `date` slot
 		// and the `quantity` slot recurse. A single-input + single-
@@ -2053,7 +2098,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 				literal("2025-01-15"),
 			),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("substitutes through `date-add`'s `quantity` slot when the input drives that operand", () => {
@@ -2223,7 +2268,7 @@ describe("composeRuntimeFilter — choice and hidden prompts", () => {
 			PATIENT,
 		);
 		expect(result).toEqual(eq(prop(PATIENT, "region"), literal("north")));
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("binds nothing for an unanswered `select`", () => {
@@ -2251,7 +2296,7 @@ describe("composeRuntimeFilter — choice and hidden prompts", () => {
 		expect(result).toEqual(
 			isIn(prop(PATIENT, "region"), literal("north"), literal("south")),
 		);
-		expect(predicateSchema.parse(result)).toEqual(result);
+		expect(expressionSchema.parse(result)).toEqual(result);
 	});
 
 	it("compiles a single `multi-select` token as a one-member any-of", () => {

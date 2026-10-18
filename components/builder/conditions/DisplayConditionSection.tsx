@@ -46,6 +46,7 @@ export function DisplayConditionSection({
 	const {
 		copy,
 		condition,
+		expressionContext,
 		commit,
 		hiddenFromMenu,
 		setHiddenFromMenu,
@@ -113,6 +114,7 @@ export function DisplayConditionSection({
 				)}
 			</div>
 			<ConditionSlotSetting
+				expressionContext={expressionContext}
 				title={copy.settingTitle}
 				description={copy.settingDescription}
 				value={condition}

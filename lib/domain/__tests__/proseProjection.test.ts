@@ -6,15 +6,15 @@ import {
 	printProseTemplate,
 	projectProseTemplate,
 	proseTemplateText,
+	type ReferenceNamesDoc,
 	resolveProseTemplate,
-	type XPathPrintableDoc,
 } from "@/lib/domain";
 
 const FORM = testUuid("prose-form");
 const FIELD = testUuid("prose-field");
 const USER_PROPERTY = testUuid("prose-user-property");
 
-function makeDoc(): XPathPrintableDoc {
+function makeDoc(): ReferenceNamesDoc {
 	return {
 		forms: { [FORM]: {} },
 		fields: { [FIELD]: { id: "first_name" } },

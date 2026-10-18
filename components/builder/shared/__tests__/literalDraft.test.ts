@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dateLiteral, literal } from "@/lib/domain/predicate";
+import { dateLiteral, literal } from "@/lib/domain/expression";
 import { planLiteralDraft } from "../literalDraft";
 
 describe("literal input commit plans", () => {

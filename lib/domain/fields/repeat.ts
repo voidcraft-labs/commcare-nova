@@ -42,7 +42,7 @@
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { containerFieldBase, xpathExpressionSchema } from "./base";
+import { containerFieldBase, formLogicSchema } from "./base";
 
 /**
  * Shared shape for all three repeat variants — `kind` discriminator,
@@ -52,7 +52,7 @@ import { containerFieldBase, xpathExpressionSchema } from "./base";
  */
 const repeatBase = containerFieldBase.extend({
 	kind: z.literal("repeat"),
-	relevant: xpathExpressionSchema.optional(),
+	relevant: formLogicSchema.optional(),
 });
 
 /**
@@ -89,7 +89,7 @@ export const userControlledRepeatSchema = repeatBase.extend({
  */
 export const countBoundRepeatSchema = repeatBase.extend({
 	repeat_mode: z.literal("count_bound"),
-	repeat_count: xpathExpressionSchema,
+	repeat_count: formLogicSchema,
 });
 
 /**
@@ -103,7 +103,7 @@ export const queryBoundRepeatSchema = repeatBase.extend({
 	repeat_mode: z.literal("query_bound"),
 	data_source: z.strictObject({
 		/** XPath returning a space-separated list of case ids to iterate. */
-		ids_query: xpathExpressionSchema,
+		ids_query: formLogicSchema,
 	}),
 });
 

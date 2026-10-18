@@ -9,9 +9,9 @@ import {
 	type LookupOptionsSource,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { matchNone } from "@/lib/domain/expression";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
-import { matchNone } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { validateLookupRowValues } from "@/lib/lookup/coercion";
 import type {

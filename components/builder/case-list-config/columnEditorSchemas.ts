@@ -3,8 +3,8 @@
 // Declarative registry mapping every `ColumnKind` to its card
 // component, label, icon, default-value factory, and per-property
 // applicability predicate. Mirrors the per-kind shape used by
-// `editorSchemas.ts` (the Predicate-side registry) and
-// `expressionEditorSchemas.ts` (the ValueExpression-side registry):
+// `editorSchemas.ts` (the Expression-side registry) and
+// `expressionEditorSchemas.ts` (the Expression-side registry):
 // adding a new column kind to `lib/domain/modules.ts`'s
 // `ColumnKind` union without a parallel entry here is a compile-
 // time error, so the editor can never silently bypass a kind.
@@ -28,7 +28,7 @@ import tablerPhone from "@iconify-icons/tabler/phone";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import tablerTextSize from "@iconify-icons/tabler/text-size";
 import type { ComponentType } from "react";
-import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
+import type { CaseProperty, CaseType, UserProperty, Uuid } from "@/lib/domain";
 import {
 	type Column,
 	type ColumnKind,
@@ -44,7 +44,7 @@ import {
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { CalculatedColumnCard } from "./cards/column/CalculatedColumnCard";
 import { DateColumnCard } from "./cards/column/DateColumnCard";
 import { IdMappingCard } from "./cards/column/IdMappingCard";
@@ -68,6 +68,10 @@ import { newUuid } from "./uuid";
  * editing has no search-input-binding shape to consume.
  */
 export interface ColumnEditContext {
+	readonly moduleUuid?: Uuid;
+	readonly expressionContextForColumn?: (
+		column: Column,
+	) => import("@/lib/domain/expression").ExpressionContext | undefined;
 	readonly caseTypes: readonly CaseType[];
 	/** The case-type the column reads against. */
 	readonly currentCaseType: string;

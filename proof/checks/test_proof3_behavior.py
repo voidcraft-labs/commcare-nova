@@ -481,7 +481,7 @@ def _document():
     """A document as ``document.json`` holds one: a parent and an extension type, a mapped column, a filter."""
     prose = {"parts": [{"kind": "text", "text": "Label"}]}
     term = lambda value: {"kind": "term", "term": value}  # noqa: E731
-    return {
+    document = {
         "doc": {
             "caseTypes": [
                 {
@@ -520,13 +520,15 @@ def _document():
                         },
                     },
                     "caseSearchConfig": {
-                        "excludedOwnerIds": term({"kind": "session-user", "field": "excluded_owners"}),
+                        "excludedOwnerIds": term({"kind": "session-user", "field": "excluded_owners"})
                     },
                 }
             },
             "userProperties": {"u": {"uuid": "u", "slug": "district"}},
         }
     }
+    document["catalog"] = copy.deepcopy(document["doc"]["caseTypes"])
+    return document
 
 
 def test_the_case_database_holds_what_the_documents_lists_select_in_orders_that_differ():
@@ -556,6 +558,90 @@ def test_the_case_database_holds_what_the_documents_lists_select_in_orders_that_
     )
     assert dict(database.user_data) == {"district": "proof district", "excluded_owners": "proof excluded_owners"}
     assert all(case.owner_id == casedata.USER_ID for case in database.cases)
+
+
+def test_the_case_database_seeds_each_property_from_the_effective_catalog():
+    """The emitted catalog carries writer-filled and writer-derived properties; Python reads those facts,
+    without re-inferring them from the document or injecting standard properties no author declared."""
+    document = _document()
+    patient = document["doc"]["caseTypes"][1]
+    patient["properties"].append({"name": "start_date"})
+    document["doc"]["fields"] = {
+        "date": {"kind": "date", "caseWrite": {"caseType": "patient", "property": "start_date"}},
+        "saved": {"kind": "int", "caseWrite": {"caseType": "patient", "property": "saved_prop"}},
+    }
+    catalog = document["catalog"][1]
+    catalog["properties"].extend(
+        [{"name": "start_date", "data_type": "date"}, {"name": "saved_prop", "data_type": "int"}]
+    )
+    patients = [case for case in casedata.case_database(document).cases if case.case_type == "patient"]
+    for property_name, data_type in (("start_date", "date"), ("saved_prop", "int"), ("weight", "decimal")):
+        assert [dict(case.properties)[property_name] for case in patients[:3]] == list(casedata.VALUES[data_type])
+    assert all(case.external_id is None for case in patients)
+
+
+def test_the_case_database_holds_the_literals_form_logic_compares():
+    """A form condition and a field's case query seed the properties they compare, as module filters do. A
+    worker-record user read names the same seeded user data the session and the worker's usercase receive."""
+    document = _document()
+    term = lambda value: {"kind": "term", "term": value}  # noqa: E731
+    document["doc"]["forms"] = {
+        "form": {
+            "displayCondition": {
+                "kind": "eq",
+                "left": term({"kind": "form-case", "caseType": "patient", "property": "code"}),
+                "right": term({"kind": "literal", "value": "from-form"}),
+            }
+        }
+    }
+    document["doc"]["fields"] = {
+        "count": {
+            "kind": "hidden",
+            "calculate": {
+                "kind": "count",
+                "via": {
+                    "kind": "cases",
+                    "source": "casedb",
+                    "where": [
+                        {
+                            "kind": "eq",
+                            "left": term({"kind": "prop", "caseType": "patient", "property": "code"}),
+                            "right": term({"kind": "literal", "value": "from-query"}),
+                        }
+                    ],
+                },
+            },
+        },
+        **{
+            f"worker_{field}": {
+                "kind": "hidden",
+                "calculate": term({"kind": "session-user", "field": field, "source": "worker-record"}),
+            }
+            for field in ("hq_user_id", "username", "case_name", "role")
+        },
+    }
+    database = casedata.case_database(document)
+    patients = [case for case in database.cases if case.case_type == "patient"]
+    assert {"a", "b", "from-form", "from-query"} <= {dict(case.properties)["code"] for case in patients}
+    [worker] = [case for case in database.cases if case.case_type == casedata.USERCASE_TYPE]
+    assert dict(database.user_data)["role"] == dict(worker.properties)["role"] == "proof role"
+    assert not {"hq_user_id", "username", "case_name"} & dict(database.user_data).keys()
+    assert dict(worker.properties)["hq_user_id"] == database.user_id == casedata.USER_ID
+    assert dict(worker.properties)["username"] == worker.name == database.username == casedata.USERNAME
+    assert len(dict(worker.properties)) == len(worker.properties)
+
+    # Session user data is a separate namespace. Even a raw session read of a
+    # built-in name never overwrites the identity on the worker's case.
+    document["doc"]["fields"]["session_name"] = {
+        "kind": "hidden",
+        "calculate": term({"kind": "session-user", "field": "username"}),
+    }
+    session_database = casedata.case_database(document)
+    [session_worker] = [case for case in session_database.cases if case.case_type == casedata.USERCASE_TYPE]
+    assert dict(session_database.user_data)["username"] == "proof username"
+    assert dict(session_worker.properties)["username"] == casedata.USERNAME
+    assert dict(session_worker.properties)["hq_user_id"] == casedata.USER_ID
+    assert len(dict(session_worker.properties)) == len(session_worker.properties)
 
 
 def _casedb_form():
