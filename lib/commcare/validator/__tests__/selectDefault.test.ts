@@ -80,6 +80,49 @@ describe("select defaults at the validator boundary", () => {
 			),
 		).toEqual([]);
 	});
+	// Core Recalculate.wrapData chooses IntegerData/LongData within 1e-9 of
+	// the saturated Java long; other results retain DecimalData. SetValueAction
+	// then casts that native answer text to the select. These expected strings
+	// cover those branches and OpenJDK 17's distinct decimal spelling.
+	it.each([
+		{ value: 0.0001, answer: "1.0E-4" },
+		{ value: 1e23, answer: "9.999999999999999E22" },
+		{ value: 1.0000000005, answer: "1" },
+		{ value: -1.0000000005, answer: "-1" },
+		{ value: 1e-9, answer: "1.0E-9" },
+		{ value: Number.MIN_VALUE, answer: "0" },
+		{ value: 1_000_000_000_000_000_100, answer: "1000000000000000128" },
+		{ value: 2 ** 63, answer: "9223372036854775807" },
+		{ value: 2 ** 63 + 2048, answer: "9.223372036854778E18" },
+		{ value: -(2 ** 63), answer: "-9223372036854775808" },
+		{ value: -(2 ** 63) - 2048, answer: "-9.223372036854778E18" },
+		{ value: -0, answer: "0" },
+	])(
+		"uses native answer text $answer for numeric default $value",
+		({ value, answer }) => {
+			for (const kind of ["single_select", "multi_select"] as const) {
+				expect(
+					runValidation(
+						candidate(kind, value, [answer, "other"]),
+						LOOKUP_CONTEXT_UNAVAILABLE,
+					),
+				).toEqual([]);
+				const numberText = String(value);
+				if (numberText === answer) continue;
+				const errors = runValidation(
+					candidate(kind, value, [numberText, "other"]),
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				);
+				expect(errors).toHaveLength(1);
+				expect(errors[0]).toMatchObject({
+					code: "SELECT_DEFAULT_NOT_AN_OPTION",
+					location: { fieldUuid: ids.choice, field: "default_value" },
+					details: { value: answer, options: `${numberText}, other` },
+				});
+				expect(errors[0].message).toContain(`"choice" starts on "${answer}"`);
+			}
+		},
+	);
 	it("keeps a computed starting value", () => {
 		expect(
 			runValidation(

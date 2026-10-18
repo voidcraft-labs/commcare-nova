@@ -30,7 +30,7 @@ repo-root-relative paths and includes these sources, `build.sh`, `verify.mjs`,
 and the reviewed generated artifacts. Extract it at the root of a Nova
 checkout, then run the build entrypoint above.
 
-The archive also carries `lib/preview/xpath/openJdk17DoubleString.ts`, Nova's
+The archive also carries `lib/domain/expression/openJdk17DoubleString.ts`, Nova's
 BigInt-backed port of OpenJDK 17 `FloatingDecimal` output semantics. JavaRosa
 uses that spelling whenever XPath converts a number to text; JavaScript's
 native shortest-decimal spelling differs for a small but observable set of

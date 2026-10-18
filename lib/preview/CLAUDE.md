@@ -28,6 +28,10 @@ worker evaluation use `FormEngine.computedFieldValue`; generic XPath string(Date
 remains date-only. Ordinary followup preloads still override defaults, including
 when the stored property is blank. This does not change event-history policy.
 
+Finite numeric calculated/default answers for `single_select` and `multi_select`
+use the shared `numericAnswerText` after unpacking in
+`FormEngine.computedFieldValue`. Generic XPath string conversion remains unchanged.
+
 `regex()` and `replace()` target Formplayer's OpenJDK 17 `Pattern` contract,
 which is the one stable CommCare host runtime. TeaVM compiles the pinned
 OpenJDK sources to static JavaScript under `xpath/vendor/`; this is not native

@@ -1,3 +1,29 @@
+import { openJdk17DoubleToString } from "./openJdk17DoubleString";
+
+const LONG_MIN = BigInt("-9223372036854775808");
+const LONG_MAX = BigInt("9223372036854775807");
+
+/**
+ * Native answer text for a finite numeric result assigned to a select.
+ * Core's Recalculate.wrapData first narrows numbers within 1e-9 of their
+ * truncated Java long to IntegerData or LongData; SetValueAction then casts
+ * their uncast text to the select. Java's long conversion saturates, and its
+ * comparison promotes that long back to a double. Other numbers use
+ * DecimalData's OpenJDK 17 Double.toString spelling.
+ */
+export function numericAnswerText(value: number): string {
+	const truncated = BigInt(Math.trunc(value));
+	const integral =
+		truncated < LONG_MIN
+			? LONG_MIN
+			: truncated > LONG_MAX
+				? LONG_MAX
+				: truncated;
+	return Math.abs(value - Number(integral)) < 1e-9
+		? integral.toString()
+		: openJdk17DoubleToString(value);
+}
+
 /**
  * Compile a finite numeric value to its wire-form decimal literal,
  * avoiding scientific notation. CommCare's XPath grammar at

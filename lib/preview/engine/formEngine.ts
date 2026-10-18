@@ -75,6 +75,7 @@ import {
 	compilerBugMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/expression/errors";
+import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
 import type { FieldExpressionSlotRef } from "@/lib/domain/expression/types";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
@@ -1197,6 +1198,13 @@ export class FormEngine {
 
 	private computedFieldValue(field: Field, result: XPathValue): string {
 		const value = unpackXPathRuntimeValue(result);
+		if (
+			(field.kind === "single_select" || field.kind === "multi_select") &&
+			typeof value === "number" &&
+			Number.isFinite(value)
+		) {
+			return numericAnswerText(value);
+		}
 		// Core wraps a calculated Date using the destination bind. XPath's
 		// generic string(Date) deliberately discards its clock instead.
 		if (

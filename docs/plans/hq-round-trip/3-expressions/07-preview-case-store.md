@@ -483,7 +483,7 @@ In Preview a calculated column runs in Postgres (§5), so `here()` is a bound pa
 `TermBindings.viewerLocation: string | null`, the Formplayer spelling (Preview plays Web Apps' browser
 here; Android's four values are step 4's, with its per-platform Preview), built on the server from the
 plain `{ latitude, longitude } | null` the client sends, formatted by Java's double text
-(`lib/preview/xpath/openJdk17DoubleString.ts`). `null` compiles to `''`, as both runtimes give
+(`lib/domain/expression/openJdk17DoubleString.ts`). `null` compiles to `''`, as both runtimes give
 without a fix. Not refusing it keeps a working affordance working; a refusal would leave every
 distance column blank in Preview while it works on a device.
 
@@ -1066,6 +1066,12 @@ removes `triggerDag.ts`'s inputs, so its form reads come directly from the canon
 `wire/formReads.ts` and the form-node projection. The corresponding `dependencies.ts` and
 `countDependencies.ts` text walkers leave here. This is the dependency-forced ownership change;
 the Preview target, protocol, date semantics and new runtime supplies still land in pull request 7.
+
+**Pull request 5 also owns finite numeric select-answer conversion.** With static-choice default
+admission, `formEngine.ts::computedFieldValue` converts a finite numeric result for a single- or
+multi-select through the shared `lib/domain/expression/numberLiteral.ts::numericAnswerText`, so
+Preview stores the same answer text that admission checks. The full bind-type and `SetValueAction`
+cast infrastructure of §4 remains in pull request 7.
 
 **Pull request 7, Preview**, above pull request 4, the wire tree, and pull request 5, the shape, and
 below pull request 8, the lowering:

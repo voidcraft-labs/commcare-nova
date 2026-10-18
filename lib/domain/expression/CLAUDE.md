@@ -145,7 +145,11 @@ scalar compatibility, relationship resolution, assignment representation rules,
 and slot-specific availability. `ruleSets.ts` owns their scalar tables; editor
 constraints read those tables rather than introducing another checker. Form
 literals must have an exact supported spelling, and static choice defaults must
-name a current choice. Shared storage never admits a record-only expression in
+name a current choice. Numeric defaults use `numericAnswerText`'s native answer
+spelling: Core's integer tolerance and signed-long conversion, then the shared
+OpenJDK 17 formatter for decimal answers. The finding's value uses the same
+spelling; JavaScript's `String(number)` is not the select's answer text. Shared
+storage never admits a record-only expression in
 form logic: a form count takes its filters inside the node-set, and a form row
 property reads the current queried row without a record relation path. New form
 table and location reads remain unavailable until

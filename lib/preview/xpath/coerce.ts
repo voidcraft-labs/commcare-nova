@@ -1,5 +1,5 @@
+import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import { javaTrim } from "./javaString";
-import { openJdk17DoubleToString } from "./openJdk17DoubleString";
 import {
 	isXPathNodeSet,
 	unpackXPathRuntimeValue,

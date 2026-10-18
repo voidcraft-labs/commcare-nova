@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openJdk17DoubleToString } from "../openJdk17DoubleString";
+import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import corpus from "./fixtures/double-text-openjdk17.json";
 
 describe("OpenJDK 17 double text", () => {

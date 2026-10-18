@@ -16,6 +16,7 @@ import {
 	withFormContextNode,
 } from "./context";
 import { formNodeGraph } from "./formNodes";
+import { numericAnswerText } from "./numberLiteral";
 import { resolveRelationDestination } from "./relationDestination";
 import {
 	ANY_TYPE,
@@ -2013,7 +2014,10 @@ function checkChoiceDefault(
 			? structuralChoices.options
 			: ctx.facts.options.get(ctx.slot.uuid);
 	if (choices === undefined) return;
-	const text = String(expression.term.value);
+	const text =
+		typeof expression.term.value === "number"
+			? numericAnswerText(expression.term.value)
+			: expression.term.value;
 	const values =
 		ctx.form?.fields.get(ctx.slot.uuid)?.kind === "multi_select"
 			? text.trim().split(/\s+/)

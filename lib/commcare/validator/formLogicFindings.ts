@@ -4,6 +4,7 @@ import {
 	type LookupTypeIndex,
 	slotContext,
 } from "@/lib/domain/expression/context";
+import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
 import {
 	type CheckError,
 	checkExpression,
@@ -158,7 +159,10 @@ export function formLogicFinding(
 						? field.choices.options
 						: ctx.facts.options.get(ctx.slot.uuid);
 				if (choices !== undefined) {
-					const value = String(term.value);
+					const value =
+						typeof term.value === "number"
+							? numericAnswerText(term.value)
+							: String(term.value);
 					const options = choices.map((option) => option.value).join(", ");
 					details = { value, options };
 					message = `"${field?.id ?? "This question"}" starts on "${value}", which isn't one of its choices (${options}). CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. You can start it on one of its choices, like '${choices[0]?.value ?? ""}', or leave the starting value empty.`;
