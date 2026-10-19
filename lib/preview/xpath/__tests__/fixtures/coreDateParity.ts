@@ -15,7 +15,9 @@
  *
  * The clock is fixed at 01:15 EDT on 1 November 2026, inside New York's
  * repeated hour. Each value is a string; a result that is a number is
- * compared numerically within 1e-9, any other result as text.
+ * compared numerically within 1e-9, any other result as text. A row whose
+ * evaluation Core refuses names the exception Core throws (`throws`) in
+ * place of a value, and Preview must refuse it too.
  *
  * Node storage, by how the device holds the value:
  * - `datetime`: an answer entered through the widget, `DateTimeData` of the
@@ -44,15 +46,33 @@ export interface CoreDateParityNode {
 	readonly value: string;
 }
 
-export interface CoreDateParityRow {
+/** The exceptions a refused row's evaluation throws in Core. */
+export type CoreDateParityRefusal =
+	| "XPathTypeMismatchException"
+	| "NullPointerException";
+
+interface CoreDateParityRowBase {
 	readonly id: string;
 	readonly xpath: string;
 	readonly nodes?: readonly CoreDateParityNode[];
+}
+
+/** A row Core evaluates to a value in each zone. */
+export interface CoreDateParityValueRow extends CoreDateParityRowBase {
 	readonly expect: Readonly<Record<CoreDateParityZone, string>>;
 }
 
+/** A row whose evaluation Core refuses in every zone. */
+export interface CoreDateParityRefusedRow extends CoreDateParityRowBase {
+	readonly throws: CoreDateParityRefusal;
+}
+
+export type CoreDateParityRow =
+	| CoreDateParityValueRow
+	| CoreDateParityRefusedRow;
+
 export interface CoreDateParityTable {
-	readonly schemaVersion: 1;
+	readonly schemaVersion: 2;
 	readonly fixedClock: string;
 	readonly rows: readonly CoreDateParityRow[];
 }
@@ -86,12 +106,22 @@ const laterAnswer = {
 	value: "2026-11-01T06:15:00.000Z",
 } as const;
 const blank = { name: "blank", held: "text", value: "" } as const;
+/** A widget answer at noon UTC on proleptic Gregorian 0100-02-27, which
+ * Java's calendar reads as Julian 0100-02-29 in every zone (each sits at its
+ * local mean time then). */
+const julianLeapAnswer = {
+	name: "jdt",
+	held: "datetime",
+	value: "0100-02-27T12:00:00.000Z",
+} as const;
+/** Julian 0100-02-29 as a day number (proleptic Gregorian 0100-02-27). */
+const JULIAN_LEAP_DAY = -682946;
 const castOf = (value: string) =>
 	[{ name: "cast", held: "setvalue-datetime", value }] as const;
 const CAST_TEXT = "format-date(coalesce(/data/cast, ''), '%Y-%m-%dT%H:%M%Z')";
 
 export const CORE_DATE_PARITY: CoreDateParityTable = {
-	schemaVersion: 1,
+	schemaVersion: 2,
 	fixedClock: "2026-11-01T05:15:00.000Z",
 	rows: [
 		// Core's day number (`daysSinceEpoch`) and its inverse (`dateAdd` from
@@ -360,6 +390,101 @@ export const CORE_DATE_PARITY: CoreDateParityTable = {
 			id: "year-50-text",
 			xpath: "string(date('0050-01-01'))",
 			expect: same("50-01-01"),
+		},
+		// `roundDate` reads `Calendar.YEAR` without its era and sets it on an AD
+		// calendar, so a day before AD 1 folds to AD wherever Core rounds:
+		// `daysSinceEpoch` and `dateAdd`. Text keeps 1 BC (read with `YEAR` alone,
+		// as year 1), and a direct Date from text is never rounded, so its
+		// weekday is 1 BC's.
+		{
+			id: "bc-fold-days",
+			xpath: "number(date('0000-06-15'))",
+			expect: same("-718999"),
+		},
+		{
+			id: "bc-fold-day-number",
+			xpath: "number(date(-719364))",
+			expect: same("-718999"),
+		},
+		{
+			id: "bc-text",
+			xpath: "string(date('0000-06-15'))",
+			expect: same("1-06-15"),
+		},
+		{
+			id: "bc-direct-weekday",
+			xpath: "format-date(date('0000-06-15'), '%Y-%m-%d %a')",
+			expect: same("0001-06-15 Tue"),
+		},
+		{
+			id: "bc-fold-weekday",
+			xpath: "format-date(date(-719364), '%Y-%m-%d %a')",
+			expect: same("0001-06-15 Wed"),
+		},
+		// The smallest `int` day folds about 5.88 million years forward, where
+		// Kiritimati's +14 counts one day less than its 1970 offset.
+		{
+			id: "bc-far-fold-text",
+			xpath: "string(date(-2147483648))",
+			expect: same("5877521-03-03"),
+		},
+		{
+			id: "bc-far-fold-days",
+			xpath: "number(date(-2147483648))",
+			expect: { ...same("2146000997"), kiritimati: "2146000996" },
+		},
+		// `DateFields.check` is proleptic Gregorian, so `roundDate` returns null
+		// for a Julian February 29 in a year it calls common. `date(n)` is then
+		// null, which `coalesce` skips, `expandDateSafe` of a number or a node
+		// turns into no date (`""`), and `toString`, `toNumeric` and `toDate`
+		// refuse; `daysSinceEpoch` of an unrounded Date dereferences the null.
+		{
+			id: "julian-leap-text",
+			xpath: `string(date(${JULIAN_LEAP_DAY}))`,
+			throws: "XPathTypeMismatchException",
+		},
+		{
+			id: "julian-leap-days",
+			xpath: `number(date(${JULIAN_LEAP_DAY}))`,
+			throws: "XPathTypeMismatchException",
+		},
+		{
+			id: "julian-leap-format-null",
+			xpath: `format-date(date(${JULIAN_LEAP_DAY}), '%Y')`,
+			throws: "XPathTypeMismatchException",
+		},
+		{
+			id: "julian-leap-format-day-number",
+			xpath: `format-date(${JULIAN_LEAP_DAY}, '%Y')`,
+			expect: same(""),
+		},
+		{
+			id: "julian-leap-coalesce",
+			xpath: `coalesce(date(${JULIAN_LEAP_DAY}), 'none')`,
+			expect: same("none"),
+		},
+		{
+			id: "julian-leap-next-day",
+			xpath: `string(date(${JULIAN_LEAP_DAY + 1}))`,
+			expect: same("100-03-01"),
+		},
+		{
+			id: "julian-leap-node-text",
+			xpath: "string(/data/jdt)",
+			nodes: [julianLeapAnswer],
+			expect: same("100-02-29"),
+		},
+		{
+			id: "julian-leap-node-format",
+			xpath: "format-date(/data/jdt, '%Y')",
+			nodes: [julianLeapAnswer],
+			expect: same(""),
+		},
+		{
+			id: "julian-leap-node-days",
+			xpath: "number(/data/jdt)",
+			nodes: [julianLeapAnswer],
+			throws: "NullPointerException",
 		},
 		// Day numbers past JavaScript's Date range, inside Java's: Core adds them
 		// in long milliseconds. Kiritimati's +1 from `dateAdd` and -1 from

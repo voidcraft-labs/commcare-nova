@@ -21,11 +21,12 @@ import { javaRosaSplitOnSpaces, javaTrim } from "./javaString";
 import { nodeSetJavaRosaFunctions } from "./nodeSetJavaRosaFunctions";
 import {
 	unpackXPathRuntimeValue,
+	XPathCoreNull,
 	type XPathRuntimeValue,
 } from "./runtimeValues";
 import { scalarJavaRosaFunctions } from "./scalarJavaRosaFunctions";
 import type { XPathFunctionInvocation } from "./types";
-import { XPathDate } from "./types";
+import { isXPathDate, XPathDate } from "./types";
 
 export interface XPathFunctionContext {
 	readonly locale?: string;
@@ -260,10 +261,20 @@ register("now", () => XPathDate.fromInstant(Date.now()));
  * date(value) → `FunctionUtils.toDate` (XPathDateFunc): a number is Core's
  * day number, text is parsed and keeps its clock, a Date (a node holding one
  * included) is rounded to its local date, and `""` and NaN pass through.
+ * Where Core's rounding returns Java's null (a Julian February 29 its date
+ * check refuses), `date()` gives that null (`XPathCoreNull`), which
+ * `coalesce` skips and every other read refuses.
  */
 register("date", (args) => {
 	try {
-		return toDateRounding(args[0] ?? "");
+		const date = toDateRounding(args[0] ?? "");
+		if (date !== null) return date;
+		const value = unpackXPathRuntimeValue(args[0] ?? "");
+		return new XPathCoreNull(
+			isXPathDate(value)
+				? `the date ${value.toISOString()}`
+				: `day number ${xpathToString(Math.trunc(toNumber(value)))}`,
+		);
 	} catch (error) {
 		if (error instanceof XPathDateConversionError) {
 			throw new Error("The XPath date() value is invalid in Preview.");

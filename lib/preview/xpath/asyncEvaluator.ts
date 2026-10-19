@@ -21,6 +21,7 @@ import {
 	missingXPathBinaryOperand,
 } from "./operatorSemantics";
 import {
+	isXPathCoreNull,
 	isXPathNodeSet,
 	unpackXPathRuntimeValue,
 	XPathNodeSet,
@@ -209,9 +210,10 @@ async function evaluateAsyncInvoke(
 			await evaluateAsyncNode(arg, source, context, tools);
 		}
 		for (const arg of args.slice(0, -1)) {
-			const scalar = unpackXPathRuntimeValue(
-				await evaluateAsyncNode(arg, source, context, tools),
-			);
+			const candidate = await evaluateAsyncNode(arg, source, context, tools);
+			// `XpathCoalesceFunc.isNull` skips Java's null as it skips a blank.
+			if (isXPathCoreNull(candidate)) continue;
+			const scalar = unpackXPathRuntimeValue(candidate);
 			if (
 				scalar !== "" &&
 				!(typeof scalar === "number" && Number.isNaN(scalar))

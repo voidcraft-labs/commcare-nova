@@ -11,7 +11,7 @@
 
 import { type Kysely, sql } from "kysely";
 import { Client } from "pg";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
@@ -241,6 +241,7 @@ describe("cases an entry names", () => {
 		const rival = new Client({ connectionString: dbHandle.uri });
 		await rival.connect();
 		let rivalOpen = false;
+		let outcome: Promise<unknown> | undefined;
 		try {
 			await rival.query("BEGIN");
 			rivalOpen = true;
@@ -253,24 +254,28 @@ describe("cases an entry names", () => {
 			);
 			// The rival's row is not yet visible, so only the insert itself can
 			// see the id is taken: it waits on the rival's transaction.
-			const outcome = storeOn()
+			outcome = storeOn()
 				.applySubmission(registration("entry-raced"))
 				.then(
 					() => undefined,
 					(error: unknown) => error,
 				);
-			let waiting = false;
-			for (let attempt = 0; attempt < 200 && !waiting; attempt++) {
-				const blocked = await rival.query<{ count: string }>(
-					"SELECT count(*)::text AS count FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()",
-				);
-				waiting = blocked.rows[0]?.count !== "0";
-				if (!waiting) await new Promise((resolve) => setTimeout(resolve, 25));
-			}
+			// Read from the lock manager, which every query sees live. The
+			// rival is inside its transaction, where `pg_stat_activity` keeps
+			// the snapshot its first read took, so a wait that starts after
+			// that read would never show there.
+			await vi.waitFor(
+				async () => {
+					const blocked = await rival.query<{ count: string }>(
+						"SELECT count(*)::text AS count FROM pg_locks WHERE NOT granted AND pg_backend_pid() = ANY(pg_blocking_pids(pid))",
+					);
+					expect(blocked.rows[0]?.count).not.toBe("0");
+				},
+				{ timeout: 3_000, interval: 25 },
+			);
 			await rival.query("COMMIT");
 			rivalOpen = false;
 			const refusal = await outcome;
-			expect(waiting).toBe(true);
 			expect(refusal).toBeInstanceOf(SubmissionRejectedError);
 			expect((refusal as SubmissionRejectedError).rejection).toEqual({
 				kind: "new-case",
@@ -280,8 +285,14 @@ describe("cases an entry names", () => {
 			expect(await stored("household")).toEqual([]);
 			expect(await stored("member")).toEqual([]);
 		} finally {
-			if (rivalOpen) await rival.query("ROLLBACK");
-			await rival.end();
+			try {
+				// Releasing the rival lets a still-waiting submission finish,
+				// so it is joined before the test ends.
+				if (rivalOpen) await rival.query("ROLLBACK");
+				await outcome;
+			} finally {
+				await rival.end();
+			}
 		}
 	});
 });

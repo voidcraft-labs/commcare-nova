@@ -41,7 +41,7 @@ public class CoreDateParityRuntimeTest {
         try (InputStream input = CoreDateParityRuntimeTest.class.getResourceAsStream("/expression/core-date-parity.json")) {
             assertNotNull("The expression producer did not supply core-date-parity.json", input);
             JSONObject result = new JSONObject(new String(input.readAllBytes(), StandardCharsets.UTF_8));
-            assertEquals("Unknown date parity table version", 1, result.getInt("schemaVersion"));
+            assertEquals("Unknown date parity table version", 2, result.getInt("schemaVersion"));
             return result;
         }
     }
@@ -142,8 +142,21 @@ public class CoreDateParityRuntimeTest {
                 EvaluationContext context = new EvaluationContext(instance);
                 context.addFunctionHandler(clockHandler("now", Date.from(clock)));
                 context.addFunctionHandler(clockHandler("today", DateUtils.roundDate(Date.from(clock))));
-                String expected = row.getJSONObject("expect").getString(label);
                 String message = label + ": " + id + ": " + xpath;
+                if (row.has("throws")) {
+                    // A refused row names the exception Core's own evaluation throws.
+                    assertFalse("A refused row has no value: " + id, row.has("expect"));
+                    String refusal = row.getString("throws");
+                    try {
+                        Object refused = XPathParseTool.parseXPath(xpath).eval(instance, context);
+                        fail(message + ": Core was expected to throw " + refusal + ", and gave "
+                            + (refused == null ? "null" : refused.toString()));
+                    } catch (Exception failure) {
+                        assertEquals(message, refusal, failure.getClass().getSimpleName());
+                    }
+                    continue;
+                }
+                String expected = row.getJSONObject("expect").getString(label);
                 Object result;
                 try {
                     result = FunctionUtils.unpack(XPathParseTool.parseXPath(xpath).eval(instance, context));
@@ -162,7 +175,11 @@ public class CoreDateParityRuntimeTest {
                 "o2a", "o2b", "o2c", "o2d", "r3", "r4", "r10", "d5", "d7", "d8", "cast-repeated-hour",
                 "cast-z-day-late", "cast-skipped-hour", NOW_DEFAULT_ROW, "blank-date", "blank-format-date",
                 "julian-days", "julian-text", "julian-weekday", "julian-day-number", "cutover-gap",
-                "cutover-next-day", "year-50-text", "far-day-number", "far-day-text", "max-int-day-text"})
+                "cutover-next-day", "year-50-text", "far-day-number", "far-day-text", "max-int-day-text",
+                "bc-fold-days", "bc-fold-day-number", "bc-text", "bc-direct-weekday", "bc-fold-weekday",
+                "bc-far-fold-text", "bc-far-fold-days", "julian-leap-text", "julian-leap-days",
+                "julian-leap-format-null", "julian-leap-format-day-number", "julian-leap-coalesce",
+                "julian-leap-next-day", "julian-leap-node-text", "julian-leap-node-format", "julian-leap-node-days"})
                 assertTrue("Missing date parity row: " + required, ids.contains(required));
         } finally {
             CalendarUtils.setArrayDataSource(new LocaleArrayDataSource(new DefaultArrayDataSource()));

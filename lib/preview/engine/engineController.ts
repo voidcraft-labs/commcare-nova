@@ -3537,17 +3537,41 @@ export class EngineController {
 				);
 				const pendingDefaults = [...this.pendingDefaultFieldUuids];
 				const input = this.currentEngineInput();
-				if (input !== undefined) {
-					for (const uuid of pendingDefaults) {
-						const path = this.uuidToPath.get(uuid);
-						const field = input.fields[uuid];
-						if (
-							path !== undefined &&
-							field !== undefined &&
-							!isContainer(field)
-						) {
-							await engine.reevaluateDefaultAsync(path, field, evaluator);
+				// A refused insert's probe inserts a row and then restores the
+				// entry from a checkpoint across worker awaits, so an answer
+				// written meanwhile would be reverted. Once a probe starts, the
+				// revision is indivisible, as a live count's insertion is, and
+				// writes are refused until the probes finish.
+				let probing = false;
+				const beforeProbe = () => {
+					if (probing) return;
+					probing = true;
+					this.atomicRevisionsPending += 1;
+					this.publishEntryState();
+				};
+				try {
+					if (input !== undefined) {
+						for (const uuid of pendingDefaults) {
+							const path = this.uuidToPath.get(uuid);
+							const field = input.fields[uuid];
+							if (
+								path !== undefined &&
+								field !== undefined &&
+								!isContainer(field)
+							) {
+								await engine.reevaluateDefaultAsync(
+									path,
+									field,
+									evaluator,
+									beforeProbe,
+								);
+							}
 						}
+					}
+				} finally {
+					if (probing) {
+						this.atomicRevisionsPending -= 1;
+						this.publishEntryState();
 					}
 				}
 				await engine.settleAsync(evaluator);

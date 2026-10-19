@@ -1,4 +1,4 @@
-import type { XPathValue } from "./types";
+import { CoreUnroundableDateError, type XPathValue } from "./types";
 
 /** One concrete node in an XPath data instance. */
 export interface XPathNode {
@@ -70,7 +70,34 @@ export class XPathSequence {
 	}
 }
 
-export type XPathRuntimeValue = XPathValue | XPathNodeSet | XPathSequence;
+/**
+ * Java's `null` as an XPath value: what Core's `date()` gives where
+ * `DateUtils.roundDate` refuses a day (`coreDays.ts::coreRoundDay`), a
+ * Julian February 29 its date check calls common. Core passes it through
+ * `if`, `cond` and `sleep`, `coalesce` skips it as blank
+ * (`XpathCoalesceFunc.isNull`), and every other read of it throws
+ * (`FunctionUtils.toString`, `toNumeric`, `toBoolean` and `toDate` of null),
+ * so unpacking it throws here.
+ */
+export class XPathCoreNull {
+	readonly kind = "core-null" as const;
+	/** The value Core rounded, as the refusal names it. */
+	readonly what: string;
+
+	constructor(what: string) {
+		this.what = what;
+	}
+}
+
+export function isXPathCoreNull(value: unknown): value is XPathCoreNull {
+	return value instanceof XPathCoreNull;
+}
+
+export type XPathRuntimeValue =
+	| XPathValue
+	| XPathNodeSet
+	| XPathSequence
+	| XPathCoreNull;
 
 export function isXPathNodeSet(value: unknown): value is XPathNodeSet {
 	return value instanceof XPathNodeSet;
@@ -96,6 +123,7 @@ export function unpackXPathRuntimeValue(value: XPathRuntimeValue): XPathValue {
 	if (isXPathSequence(value)) {
 		throw new Error("XPath sequence cannot be converted to a scalar value.");
 	}
+	if (isXPathCoreNull(value)) throw new CoreUnroundableDateError(value.what);
 	if (!isXPathNodeSet(value)) return value;
 	if (!value.validPath) {
 		throw new Error(

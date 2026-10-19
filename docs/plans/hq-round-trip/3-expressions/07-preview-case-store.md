@@ -380,7 +380,12 @@ refuses one outside the `int` range; a direct Date in `toDouble` keeps
 day number. `coerce.ts::toDateRounding` is Core's `toDate` exactly: a parsed string keeps its
 clock, and `''` and NaN pass through, so a blank node in `date()` or `format-date()` gives `''` (a
 Preview bug this fixed). Java's wall-clock resolution (the later occurrence in an overlap, forward by
-the gap) lives in `coreDays.ts::javaWallInstant`, not `types.ts::localDate`. The parse cache is one
+the gap) lives in `coreDays.ts::javaWallInstant`, not `types.ts::localDate`. Day arithmetic is
+Java's: `GregorianCalendar`'s Julian calendar before 1582-10-15, integer days past JavaScript's date
+range, and `DateUtils.roundDate`'s round trip wherever Core rounds, which folds a BC day to AD (the
+year is read without its era) and has no date for a Julian-only 29 February (`DateFields.check`),
+so `date()` there gives Core's null and reading it throws as Core does; the parity rows name Core's
+exception (`CORE_DATE_PARITY` schema version 2). The parse cache is one
 module LRU per JavaScript realm (`evaluator.ts::parseAdmittedXPath`, 2,048 entries), shared by
 `evaluateRuntime` and `evaluateRuntimeAsync`, not one per evaluator instance. A calculated Date is
 held as the node's runtime value (`DataInstance`'s calculated scalars widen to `XPathDate`): a
@@ -692,7 +697,9 @@ worker, caseIds }`, `worker` the persona's uuid or `"me"` for the signed-in memb
 (`lib/session/previewClaims.ts`), not keyed by the identity's `ownerId`; a key other than the
 current app and worker reads none. Every restore-bound action takes `claimedCaseIds` through
 `resolveAuthorizedPreviewContext`, which checks its shape (`previewAuthorization.ts::previewClaimedCaseIds`:
-at most 1,000 distinct ids of 1 to 255 characters) and puts it in `RestoreScope.claimedCaseIds`.
+at most 1,000 distinct ids of 1 to 255 characters) and puts it in `RestoreScope.claimedCaseIds`. The client
+keeps the 1,000 latest claims, a re-claimed id moving to the latest place, so a read never exceeds
+the bound.
 The store does not check the whole set in one read: each claimed id seeds the fixpoint only if it is
 a case of this app in the bound Project, id by id in SQL (`compileRestoreScope.ts`, carrying the
 case's own openness), so an id of another app or Project, or of no case, seeds nothing and refuses
@@ -804,14 +811,16 @@ exact rest of the text. After a successful cast Preview stores Core's held text 
 arms only: a date its normalized date, a date and time the held instant's canonical text, and a time
 its written clock, because Nova's stored time carries a `Z` storage tag that means UTC and holding
 Core's clock converted into the device's zone would move a saved time by the viewer's offset on every
-save. A whole number, a number and a location keep the written text, as Nova's case store holds
-numbers and four-token locations and the display stays the author's. The refusal paths: an
+save. A whole number and a number hold Core's uncast text (`IntegerData` and `DecimalData`, so
+`007` holds `7` and a number `5` holds `5.0`), because that text is what the submission carries; a
+location keeps the written text, as Nova's case store holds four-token locations. The refusal paths: an
 activation preload or starting value makes the entry `refused`
 (`EngineController.recordRefusal`); a person's repeat insert, and a row Preview materializes, is not
 applied and the repeat shows the refusal in place; a refusal from a live default edit, a re-preload
 or a schema heal also makes the entry `refused`, cleared on the next document or case-data change.
 None reaches `faultReporter`. `FormRefusedError extends FormEvaluationInputError` carries
-`form-refused` for `evaluateForm` and App Tests; no served enum changes.
+`form-refused` for `evaluateForm` and App Tests; no served enum changes. After a document edit, Preview tries each refused insert again under an atomic revision, so an
+answer is never written while the probe's checkpoint is open.
 
 **Implementation correction, 2026-10-19, the copy:** no per-value case editor exists, so the preload
 refusal offers no **Open Case data** action and promises no correction in Case data. Its body ends
@@ -1032,7 +1041,8 @@ to false at each negation point, `NOT coalesce(<clause>, false)`: under `not`, u
 `missing(self, where)`, and for `neq`, which is the negation of the `=` atom at the leaf, after
 relation normalization (rewriting first would turn `exists(R, p != x)` into
 `not(exists(R, p = x))` and flip the empty relation); a condition read in value position is
-`coalesce(<condition>, false)`. A positive atom stays bare, and `and`, `or` and `CASE` are monotone,
+`coalesce(<condition>, false)`. A literal null comparand is the blank comparand `''`, as the wire
+and CSQL both print it. A positive atom stays bare, and `and`, `or` and `CASE` are monotone,
 so mapping at the leaves equals mapping the whole. `= ''` and `!= ''` are the absence check; a bound
 comparand that is blank is decided in JavaScript (`compileTerm.ts::boundComparandValue`), so the
 positive comparison keeps its index; two operands read per row that both read as device text are

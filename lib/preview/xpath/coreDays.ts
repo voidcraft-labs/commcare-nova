@@ -334,6 +334,29 @@ export function javaLocalFields(
 	};
 }
 
+/**
+ * `DateUtils.roundDate` of a value on a calendar day, as a day:
+ * `getDate(f.year, f.month, f.day)` over `getFields(d)`. Neither half is the
+ * identity at the calendar's edges, and every `daysSinceEpoch`, `dateAdd`
+ * and `FunctionUtils.toDate` of a Date runs through it:
+ *
+ * - `getFields` reads `Calendar.YEAR` without its era, and `getDate` sets it
+ *   on a fresh calendar whose era is AD, so a day before AD 1 folds to the
+ *   AD date with the same fields (1 BC June 15 becomes AD 1 June 15).
+ * - `getDate` first runs `DateFields.check`, whose leap rule is proleptic
+ *   Gregorian (`isCoreCalendarDate`), and returns null when it fails. The
+ *   Julian calendar before 1582-10-15 has February 29 in years that rule
+ *   calls common (100, 200, 300, 500, ...), so those days round to null.
+ *
+ * Returns null where Core's `roundDate` returns null.
+ */
+export function coreRoundDay(calendarDays: number): number | null {
+	const { year, month, day } = javaCalendarDate(calendarDays);
+	return isCoreCalendarDate(year, month, day)
+		? javaCalendarDays(year, month, day)
+		: null;
+}
+
 /** `DateUtils.EPOCH_TIME` (and `EPOCH_DATE`): the local midnight of
  * 1970-01-01. */
 function coreEpochTime(): number {
@@ -342,25 +365,28 @@ function coreEpochTime(): number {
 
 /** `DateUtils.daysSinceEpoch` of a calendar day: `(roundDate(d) - EPOCH_TIME
  * + DAY / 2)` floor-divided by a fixed day (`MathUtils.divLongNotSuck`),
- * computed on the day and the two small shifts so no instant leaves the
- * range doubles hold exactly. */
-export function coreDaysSinceEpoch(calendarDays: number): number {
+ * computed on the rounded day and the two small shifts so no instant leaves
+ * the range doubles hold exactly. Null where `roundDate` gives null, which
+ * makes Core's `roundDate(date).getTime()` throw a `NullPointerException`. */
+export function coreDaysSinceEpoch(calendarDays: number): number | null {
+	const rounded = coreRoundDay(calendarDays);
+	if (rounded === null) return null;
 	return (
-		calendarDays +
-		Math.floor(
-			(localMidnightShift(calendarDays) - coreEpochTime() + DAY / 2) / DAY,
-		)
+		rounded +
+		Math.floor((localMidnightShift(rounded) - coreEpochTime() + DAY / 2) / DAY)
 	);
 }
 
 /** The calendar day of `DateUtils.dateAdd(getDate(1970, 1, 1), n)`, which is
  * `roundDate(EPOCH + n fixed days + half a day)`; `FunctionUtils.toDate`
  * sends a number through it. The local day of that instant is `n` plus the
- * whole days its offset and the epoch's carry it across. */
-export function coreDateAdd(days: number): number {
+ * whole days its offset and the epoch's carry it across, and `roundDate`
+ * then folds or refuses it (`coreRoundDay`). Null where Core's `dateAdd`
+ * returns null. */
+export function coreDateAdd(days: number): number | null {
 	const epoch = coreEpochTime();
 	const offset = offsetMsAt(epoch + days * DAY + DAY / 2);
-	return days + Math.floor((epoch + DAY / 2 + offset) / DAY);
+	return coreRoundDay(days + Math.floor((epoch + DAY / 2 + offset) / DAY));
 }
 
 /** `DateUtils.fractionalDaysSinceEpoch`: the instant's distance from

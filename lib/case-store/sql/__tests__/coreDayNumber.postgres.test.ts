@@ -71,8 +71,10 @@ test("a device's day number is Core's: fixed days from its local 1970 midnight, 
 }) => {
 	for (const { id, days } of DAY_ROWS) {
 		const row = CORE_DATE_PARITY.rows.find((candidate) => candidate.id === id);
-		if (row === undefined)
-			throw new Error(`The Core date parity fixture has no row '${id}'.`);
+		if (row === undefined || !("expect" in row))
+			throw new Error(
+				`The Core date parity fixture has no row '${id}' with a value.`,
+			);
 		for (const zone of Object.keys(
 			CORE_DATE_PARITY_ZONES,
 		) as CoreDateParityZone[]) {

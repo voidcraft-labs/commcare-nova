@@ -8,10 +8,9 @@
  *
  * `held` is the text Preview keeps after Core accepts the cast: Core's own
  * held text for a date and a date and time (the instant, in Nova's
- * spelling), the written text for a time and a location, and for a whole
- * number or a number the written text when Preview's reader (`Number`) reads
- * it as Core's value, else Core's held text (`IntegerData.uncast`,
- * `DecimalData.uncast`).
+ * spelling), for a whole number (`IntegerData.uncast`,
+ * `DataUtil.integer(n).toString()`) and for a number (`DecimalData.uncast`,
+ * `Double.toString`), and the written text for a time and a location.
  */
 
 import type { CoreAnswerType } from "../../answerCast";
@@ -33,11 +32,11 @@ const refused: AnswerCastOutcome = { refused: true };
 
 export const ANSWER_CASTS: readonly AnswerCastRow[] = [
 	// Integer.parseInt: a sign, leading zeros and BMP decimal digits.
-	{ type: "int", text: "+7", expect: held("+7") },
-	{ type: "int", text: "007", expect: held("007") },
+	{ type: "int", text: "+7", expect: held("7") },
+	{ type: "int", text: "007", expect: held("7") },
 	{ type: "int", text: "٧", expect: held("7") },
 	{ type: "int", text: "-0", expect: held("0") },
-	{ type: "int", text: "-007", expect: held("-007") },
+	{ type: "int", text: "-007", expect: held("-7") },
 	{ type: "int", text: "-2147483648", expect: held("-2147483648") },
 	{ type: "int", text: "2147483647", expect: held("2147483647") },
 	{ type: "int", text: "2147483648", expect: refused },
@@ -47,11 +46,14 @@ export const ANSWER_CASTS: readonly AnswerCastRow[] = [
 	{ type: "int", text: "+", expect: refused },
 	// Double.parseDouble: trimmed, a suffix only on a numeric literal.
 	{ type: "decimal", text: " 1e3d\t", expect: held("1000.0") },
-	{ type: "decimal", text: " 1e3\t", expect: held(" 1e3\t") },
+	{ type: "decimal", text: " 1e3\t", expect: held("1000.0") },
 	{ type: "decimal", text: "1.5d", expect: held("1.5") },
 	{ type: "decimal", text: "2f", expect: held("2.0") },
 	{ type: "decimal", text: "0x1p3", expect: held("8.0") },
-	{ type: "decimal", text: "-0", expect: held("-0") },
+	{ type: "decimal", text: "-0", expect: held("-0.0") },
+	{ type: "decimal", text: "5", expect: held("5.0") },
+	{ type: "decimal", text: "+1.50", expect: held("1.5") },
+	{ type: "decimal", text: "1e21", expect: held("1.0E21") },
 	{ type: "decimal", text: "NaN", expect: held("NaN") },
 	{ type: "decimal", text: "-Infinity", expect: held("-Infinity") },
 	{ type: "decimal", text: "NaNf", expect: refused },

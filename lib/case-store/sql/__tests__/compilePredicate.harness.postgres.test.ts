@@ -1559,7 +1559,7 @@ test("all six comparisons distinguish lower, equal and higher values", async ({
 	}
 });
 
-test("blank and empty equality are one absence check over absent, empty and JSON null, while a null literal matches nothing under any comparison", async ({
+test("blank and empty equality are one absence check over absent, empty and JSON null, and a null literal is the blank comparand every reader prints", async ({
 	db,
 }) => {
 	await seedProperties(db, [
@@ -1571,24 +1571,32 @@ test("blank and empty equality are one absence check over absent, empty and JSON
 		["Carol", { nickname: "Carol" }],
 	]);
 	const name = prop("patient", "nickname");
-	for (const [predicate, expected] of [
-		[isBlank(name), ["absent", "blank", "null"]],
-		[eq(name, literal("")), ["absent", "blank", "null"]],
-		[neq(name, literal("")), ["Alice", "Bob", "Carol"]],
-		[eq(name, literal(null)), []],
-		// "No value" is not a value any row differs from either.
-		[neq(name, literal(null)), []],
-		[neq(literal(null), name), []],
-		[gt(prop("patient", "age"), literal(null)), []],
-		[isIn(name, literal("Alice")), ["Alice"]],
-		[
-			isIn(name, literal("Alice"), literal("Bob"), literal(null)),
-			["Alice", "Bob"],
-		],
-	] as const)
-		expect(await matchedIds(db, predicate), JSON.stringify(predicate)).toEqual(
-			expected,
-		);
+	// A device's wire and a CSQL search both print a literal null as '', so
+	// each reading answers `p = null` as the device and HQ answer `p = ''`.
+	for (const reading of ["casedb", "results", "search"] as const)
+		for (const [predicate, expected] of [
+			[isBlank(name), ["absent", "blank", "null"]],
+			[eq(name, literal("")), ["absent", "blank", "null"]],
+			[neq(name, literal("")), ["Alice", "Bob", "Carol"]],
+			[eq(name, literal(null)), ["absent", "blank", "null"]],
+			[neq(name, literal(null)), ["Alice", "Bob", "Carol"]],
+			[neq(literal(null), name), ["Alice", "Bob", "Carol"]],
+			[
+				eq(literal(null), literal(null)),
+				["Alice", "Bob", "Carol", "absent", "blank", "null"],
+			],
+			[gt(prop("patient", "age"), literal(null)), []],
+			[lt(name, literal(null)), []],
+			[isIn(name, literal("Alice")), ["Alice"]],
+			[
+				isIn(name, literal("Alice"), literal("Bob"), literal(null)),
+				["Alice", "Bob", "absent", "blank", "null"],
+			],
+		] as const)
+			expect(
+				await matchedIds(db, predicate, makeCtx(db, { reading })),
+				`${reading} ${JSON.stringify(predicate)}`,
+			).toEqual(expected);
 });
 
 test("negated atoms, inequality and blank comparisons keep the rows a device and HQ keep", async ({

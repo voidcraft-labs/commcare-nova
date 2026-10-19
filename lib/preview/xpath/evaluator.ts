@@ -12,6 +12,7 @@ import {
 	missingXPathBinaryOperand,
 } from "./operatorSemantics";
 import {
+	isXPathCoreNull,
 	isXPathNodeSet,
 	unpackXPathRuntimeValue,
 	type XPathNode,
@@ -418,7 +419,10 @@ function evalInvoke(
 		// failures and volatile functions make that order observable.
 		for (const arg of argNodes) evalNode(arg, source, ctx);
 		for (const arg of argNodes.slice(0, -1)) {
-			const scalar = unpackXPathRuntimeValue(evalNode(arg, source, ctx));
+			const candidate = evalNode(arg, source, ctx);
+			// `XpathCoalesceFunc.isNull` skips Java's null as it skips a blank.
+			if (isXPathCoreNull(candidate)) continue;
+			const scalar = unpackXPathRuntimeValue(candidate);
 			if (
 				scalar !== "" &&
 				!(typeof scalar === "number" && Number.isNaN(scalar))

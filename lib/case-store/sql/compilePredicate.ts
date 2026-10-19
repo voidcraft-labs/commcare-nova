@@ -367,16 +367,13 @@ function negateTwoValued(predicate: Expression<SqlBool>): Expression<SqlBool> {
 /**
  * The six comparisons. Relation normalization has already run (in
  * `compilePredicate`), so `neq` becomes the two-valued negation of the `=`
- * atom here, at the leaf, never as an AST rewrite before it. A comparison
- * with a literal `null`, the AST's "no value", matches nothing whatever its
- * operator, `neq` included, and is decided here before any SQL is built.
+ * atom here, at the leaf, never as an AST rewrite before it. A literal
+ * `null` is the blank comparand `''` (`constantComparand`).
  */
 function compileComparison(
 	pred: Extract<DomainExpression, { kind: ComparisonKind }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	if (holdsNoValue(pred.left) || holdsNoValue(pred.right))
-		return eb.lit(false) as Expression<SqlBool>;
 	if (pred.kind === "eq") return compileEquality(pred.left, pred.right, ctx);
 	if (pred.kind === "neq")
 		return negateTwoValued(compileEquality(pred.left, pred.right, ctx));
@@ -408,8 +405,6 @@ function compileEquality(
 	right: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	if (holdsNoValue(left) || holdsNoValue(right))
-		return eb.lit(false) as Expression<SqlBool>;
 	const leftConstant = constantComparand(left, ctx);
 	const rightConstant = constantComparand(right, ctx);
 	if (rightConstant?.blank) return compileAbsenceCheck(left, ctx);
@@ -453,20 +448,13 @@ function compileOrderedComparison(
 	return eb(a, operator, b);
 }
 
-/** A literal `null`: the AST's "no value", which equals and orders nothing. */
-function holdsNoValue(expr: DomainExpression): boolean {
-	return (
-		expr.kind === "term" &&
-		expr.term.kind === "literal" &&
-		expr.term.value === null
-	);
-}
-
 /**
  * A comparand decided before the query runs (a literal, a bound term, or
  * `here()`'s bound position, `''` before a fix), and whether it is blank.
- * A literal `null` is decided and never blank: it is the AST's "no value"
- * placeholder (a dropped `in` member), which matches nothing, not `''`.
+ * A literal `null` is blank: every reader prints it as `''`
+ * (`lib/commcare/xpath/wire/fromExpression.ts::wireLiteral` for the device,
+ * `lib/commcare/predicate/termEmitter.ts` for a CSQL search), so `p = null`
+ * is the absence check a device and HQ make of `p = ''`.
  */
 function constantComparand(
 	expr: DomainExpression,
@@ -475,7 +463,8 @@ function constantComparand(
 	if (expr.kind === "here")
 		return { blank: (ctx.bindings.viewerLocation ?? "") === "" };
 	if (expr.kind !== "term") return undefined;
-	if (expr.term.kind === "literal") return { blank: expr.term.value === "" };
+	if (expr.term.kind === "literal")
+		return { blank: expr.term.value === "" || expr.term.value === null };
 	const bound = boundComparandValue(expr.term, ctx);
 	return bound === undefined
 		? undefined

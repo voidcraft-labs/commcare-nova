@@ -22,7 +22,8 @@
  * The most claims one Preview worker holds and sends. The session keeps the
  * most recent ones, and the server refuses a longer list
  * (`lib/preview/engine/previewAuthorization.ts::previewClaimedCaseIds`), so
- * a worker who chooses more cases than this only lets go of the earliest.
+ * a worker who chooses more cases than this lets go of the ones chosen
+ * longest ago.
  */
 export const PREVIEW_CLAIMS_LIMIT = 1000;
 
@@ -33,7 +34,7 @@ export interface PreviewClaims {
 	readonly appId: string;
 	/** The persona's uuid, or {@link PREVIEW_AS_ME_WORKER}. */
 	readonly worker: string;
-	/** Claimed case ids in claim order, each once. */
+	/** Claimed case ids in the order of each one's latest claim, each once. */
 	readonly caseIds: readonly string[];
 }
 
@@ -62,11 +63,13 @@ export function claimsFor(
 }
 
 /**
- * Append newly claimed ids for this worker of this app. Ids already claimed
- * keep their place; a key that differs from the held one starts a fresh set.
- * The set holds the most recent {@link PREVIEW_CLAIMS_LIMIT} ids, so the
- * earliest give way once it is full. Claiming nothing new returns the same
- * reference, so subscribers see no change.
+ * Record ids this worker of this app has just claimed. Each claimed id takes
+ * the most recent place, a re-claimed one moving there from its earlier
+ * place, so the set's order is the order of each id's latest claim; a key
+ * that differs from the held one starts a fresh set. The set holds the most
+ * recent {@link PREVIEW_CLAIMS_LIMIT} ids, so the ones claimed longest ago
+ * give way once it is full. A claim that leaves the order as it was returns
+ * the same reference, so subscribers see no change.
  */
 export function addClaims(
 	claims: PreviewClaims | undefined,
@@ -75,17 +78,24 @@ export function addClaims(
 	caseIds: readonly string[],
 ): PreviewClaims | undefined {
 	const held = claimsFor(claims, appId, worker);
-	const seen = new Set(held);
-	const added: string[] = [];
+	const latest = new Set<string>();
 	for (const caseId of caseIds) {
-		if (caseId.length === 0 || seen.has(caseId)) continue;
-		seen.add(caseId);
-		added.push(caseId);
+		if (caseId.length === 0) continue;
+		// Re-inserting moves an id to the end, its latest claim.
+		latest.delete(caseId);
+		latest.add(caseId);
 	}
-	if (added.length === 0) return claims;
-	return {
-		appId,
-		worker,
-		caseIds: [...held, ...added].slice(-PREVIEW_CLAIMS_LIMIT),
-	};
+	if (latest.size === 0) return claims;
+	const next = [
+		...held.filter((caseId) => !latest.has(caseId)),
+		...latest,
+	].slice(-PREVIEW_CLAIMS_LIMIT);
+	if (
+		claims !== undefined &&
+		next.length === held.length &&
+		next.every((caseId, index) => caseId === held[index])
+	) {
+		return claims;
+	}
+	return { appId, worker, caseIds: next };
 }

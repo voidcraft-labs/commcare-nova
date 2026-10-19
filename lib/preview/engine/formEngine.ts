@@ -105,6 +105,7 @@ import {
 	type XPathInstance,
 } from "../xpath/runtimeValues";
 import {
+	CoreUnroundableDateError,
 	type EvalContext,
 	isXPathDate,
 	type XPathDate,
@@ -1428,10 +1429,21 @@ export class FormEngine {
 		}
 	}
 
+	/**
+	 * Worker-backed counterpart of `rederiveInsertRefusals`. Each probe puts
+	 * the entry back to the checkpoint taken just before it, across worker
+	 * awaits, so an answer written while it runs would be reverted with the
+	 * probe row. `beforeProbe` runs synchronously before the first probe takes
+	 * its checkpoint, so the caller can hold its revision indivisible and
+	 * refuse writes for as long as a probe runs.
+	 */
 	private async rederiveInsertRefusalsAsync(
 		evaluateAsync: FormEngineAsyncEvaluator,
+		beforeProbe?: () => void,
 	): Promise<void> {
-		for (const repeatPath of this.refusedUserRepeats()) {
+		const repeatPaths = this.refusedUserRepeats();
+		if (repeatPaths.length > 0) beforeProbe?.();
+		for (const repeatPath of repeatPaths) {
 			const checkpoint = this.entryCheckpoint();
 			let refusal: SetvalueRefusalDetails | undefined;
 			try {
@@ -1533,7 +1545,12 @@ export class FormEngine {
 		const valueType = fieldValueType(field, this.caseWriteDoc.caseTypes ?? []);
 		if (valueType === "datetime") return result;
 		if (valueType === "time") return undefined;
-		return result.rounded();
+		// `DateData` rounds its Date when read, and a day `roundDate` refuses
+		// leaves it null, which Core's read then dereferences.
+		const rounded = result.rounded();
+		if (rounded === null)
+			throw new CoreUnroundableDateError(`the date ${result.toISOString()}`);
+		return rounded;
 	}
 
 	/** Store the result once. Hidden calculations have no numeric question bind;
@@ -3245,11 +3262,14 @@ export class FormEngine {
 	 * slot; evaluating it on the main thread would bypass the mandatory worker
 	 * for regex, crypto, sleep, and every other admitted expensive function. The
 	 * controller follows this with one full worker settle in the same revision,
-	 * so dependent calculations and validation observe all applied defaults. */
+	 * so dependent calculations and validation observe all applied defaults.
+	 * A refused insert is then probed again (`rederiveInsertRefusalsAsync`),
+	 * and `beforeProbe` runs before that probe touches the entry. */
 	async reevaluateDefaultAsync(
 		path: string,
 		field: Field,
 		evaluateAsync: FormEngineAsyncEvaluator,
+		beforeProbe?: () => void,
 	): Promise<void> {
 		const updates: EngineStoreState = {};
 		for (const concrete of this.materializePaths(path)) {
@@ -3265,7 +3285,7 @@ export class FormEngine {
 			if (current !== undefined) updates[concrete] = { ...current, value };
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
-		await this.rederiveInsertRefusalsAsync(evaluateAsync);
+		await this.rederiveInsertRefusalsAsync(evaluateAsync, beforeProbe);
 	}
 
 	/**

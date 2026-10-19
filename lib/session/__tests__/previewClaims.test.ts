@@ -55,16 +55,22 @@ function launch(personaUuid: string | undefined): EntryPointPreviewLaunch {
 }
 
 describe("previewClaims reducer", () => {
-	it("appends new claims in order and keeps each case once", () => {
+	it("orders the claims by each case's latest claim and keeps each case once", () => {
 		const first = addClaims(undefined, APP, NURSE, ["a", "b"]);
-		const second = addClaims(first, APP, NURSE, ["b", "c", "a", "d"]);
-		expect(claimsFor(second, APP, NURSE)).toEqual(["a", "b", "c", "d"]);
+		const second = addClaims(first, APP, NURSE, ["b", "c", "a", "d", "c"]);
+		expect(claimsFor(second, APP, NURSE)).toEqual(["b", "a", "d", "c"]);
 	});
 
-	it("returns the same claims when nothing new is claimed", () => {
-		const held = addClaims(undefined, APP, NURSE, ["a"]);
-		expect(addClaims(held, APP, NURSE, ["a"])).toBe(held);
+	it("returns the same claims when a claim leaves their order as it was", () => {
+		const held = addClaims(undefined, APP, NURSE, ["a", "b"]);
+		expect(addClaims(held, APP, NURSE, ["b"])).toBe(held);
+		expect(addClaims(held, APP, NURSE, ["a", "b"])).toBe(held);
 		expect(addClaims(held, APP, NURSE, [])).toBe(held);
+		expect(addClaims(held, APP, NURSE, [""])).toBe(held);
+		expect(claimsFor(addClaims(held, APP, NURSE, ["a"]), APP, NURSE)).toEqual([
+			"b",
+			"a",
+		]);
 	});
 
 	it("reads no claims for another app or another worker", () => {
@@ -91,8 +97,24 @@ describe("previewClaims reducer", () => {
 			...ids(PREVIEW_CLAIMS_LIMIT, 2),
 		]);
 		const held = claimsFor(past, APP, NURSE);
-		expect(held).toEqual(ids(2, PREVIEW_CLAIMS_LIMIT));
+		expect(held).toEqual([
+			...ids(3, PREVIEW_CLAIMS_LIMIT - 3),
+			"case-0",
+			...ids(PREVIEW_CLAIMS_LIMIT, 2),
+		]);
 		expect(previewClaimedCaseIds([...held])).toEqual(held);
+		// The case chosen again is the most recent claim, so the next ones to
+		// arrive evict the cases claimed longest ago, never it.
+		const later = addClaims(
+			past,
+			APP,
+			NURSE,
+			ids(PREVIEW_CLAIMS_LIMIT + 2, 997),
+		);
+		expect(claimsFor(later, APP, NURSE)).toEqual([
+			"case-0",
+			...ids(PREVIEW_CLAIMS_LIMIT, 999),
+		]);
 		const burst = addClaims(
 			undefined,
 			APP,
@@ -113,11 +135,11 @@ describe("previewClaims in the session store", () => {
 		const store = previewingAs(NURSE);
 		store.getState().addPreviewClaims(["a"]);
 		store.getState().addPreviewClaims(["b", "a"]);
-		expect(claimedIn(store)).toEqual(["a", "b"]);
+		expect(claimedIn(store)).toEqual(["b", "a"]);
 		expect(store.getState().previewClaims).toEqual({
 			appId: APP,
 			worker: NURSE,
-			caseIds: ["a", "b"],
+			caseIds: ["b", "a"],
 		});
 	});
 

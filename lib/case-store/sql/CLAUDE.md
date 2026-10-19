@@ -118,9 +118,12 @@ operands read per row that both read as device text are also equal when both
 are blank, as `'' = ''` is on a device; numbers and temporal values are not,
 because a device compares a blank number as `NaN` and the instant lowering reads
 a blank as no instant. An ordering against a decided blank comparand is false.
-A literal `null`, the AST's "no value", is decided and never blank: every
-comparison with it, `!=` included, matches nothing, decided in JavaScript
-before the two-valued negation could turn its unknown into a match.
+A literal `null` is a decided blank comparand, the same as `''`: the device's
+wire (`lib/commcare/xpath/wire/fromExpression.ts::wireLiteral`) and a CSQL
+search (`lib/commcare/predicate/termEmitter.ts`) both print it as `''`, so
+`p = null` is the absence check of `p`, `p != null` its two-valued negation,
+an ordering against it is false, and an `in` member that is `null` keeps the
+cases that lack the property.
 `is-blank` is `coalesce(text, '') = ''`, so absent, JSON `null` and empty text
 all read blank.
 

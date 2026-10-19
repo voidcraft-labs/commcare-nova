@@ -296,7 +296,12 @@ it.each([false, true])(
 	},
 );
 
-it("starts at visible entry, preserves answers between calls and persists a close only in disposable records", async () => {
+// A start, fourteen persisted worker actions (two of them submissions) and two
+// evidence reads, each its own durable transaction. Give the journey the same
+// budget as the other complete journeys.
+it("starts at visible entry, preserves answers between calls and persists a close only in disposable records", {
+	timeout: 15_000,
+}, async () => {
 	const doc = await createEvaluationApp(
 		[
 			{

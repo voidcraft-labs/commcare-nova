@@ -687,10 +687,13 @@ export function caseWorkspaceCaseRows(): readonly CaseInsert[] {
  *
  * Two details are load-bearing rather than arbitrary.
  *
- * The datetime's offset is deliberately not the runner's. A form shows the
- * wall clock the answer was entered at rather than converting it, so an
- * assertion on `9:15 AM` holds in every CI timezone — and would fail the
- * moment the field started converting.
+ * The datetime's offset is deliberately not the viewing device's. Core holds
+ * a preloaded datetime as its instant in the device's zone
+ * (`DateTimeData.uncast`) and keeps a time's written clock, so the test that
+ * reads these pins its browser to `Asia/Kolkata` (+05:30, no daylight
+ * saving): `09:15-04:00` reads `6:45 PM` there and `08:45Z` still reads
+ * `8:45 AM`. A field that kept the datetime's written clock, or converted
+ * the time, would show another clock.
  *
  * The time deliberately carries NO milliseconds. That is the shape the
  * writer produced before the padding rule landed, so real rows hold it: it
@@ -704,7 +707,7 @@ const SEEDED_NEXT_DOSE = "08:45:00Z";
 
 /** What those two stored values read as once a person can see them. */
 export const SEEDED_TEMPORAL_DISPLAY = {
-	visitStartedTime: "9:15 AM",
+	visitStartedTime: "6:45 PM",
 	nextDose: "8:45 AM",
 } as const;
 

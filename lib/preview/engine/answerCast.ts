@@ -15,7 +15,8 @@
  *   `applyControlProperties` turning a select's text node into a choice).
  * - `setvalueText`: `Recalculate.wrapData(result, dataType).uncast()`, the
  *   text the cast receives.
- * - `castAnswerText`: the cast itself, and the text Preview then holds.
+ * - `castAnswerText`: the cast itself, and the text Preview then holds,
+ *   which is the text Core's held value uncasts to.
  */
 
 import type { FieldBindType } from "@/lib/commcare/xform/bindType";
@@ -234,19 +235,6 @@ function javaParseInt(text: string): number | undefined {
 }
 
 /**
- * The text a cast number is held as. Preview's instance reads a number
- * node's text with `Number` (`dataInstance.ts::answerXPathValue`), which
- * misses Java spellings Core accepts (another script's digits, a `d` or `f`
- * suffix, a hexadecimal double) and reads `-0` as negative zero. Written
- * text that reads as Core's value is kept as written; any other is replaced
- * by Core's own held text, so form logic reads Core's number and the
- * submission carries Core's text.
- */
-function heldNumberText(text: string, value: number, coreText: string): string {
-	return Object.is(Number(text), value) ? text : coreText;
-}
-
-/**
  * `GeoPointData.cast`: `DataUtil.splitOnSpaces`, at least two tokens (a
  * fifth throws on the fixed four-slot array), each read by
  * `Double.parseDouble`. Latitude and longitude are not range-checked.
@@ -267,12 +255,14 @@ function castsToGeopoint(text: string): boolean {
  * A date holds its normalized calendar date (`DateData`), and a date and
  * time the instant `DateUtils.parseDateTime` resolves, written as Nova's
  * canonical text in `zone` (`DateTimeData`). A time holds its written clock
- * in Nova's stored spelling (see the time arm). A whole number and a number
- * keep the written text when Preview reads it as Core's value, else take
- * Core's held text (`heldNumberText`). A location keeps the text as written
- * once Core accepts it. A multiple choice
- * holds its tokens joined by single spaces (`SelectMultiData`). Text,
- * single choices and untyped nodes never refuse.
+ * in Nova's stored spelling (see the time arm). A whole number holds
+ * `IntegerData`'s text and a number `DecimalData`'s (each `uncast`: the
+ * parsed value printed by Java, so `007` holds `7` and a number's `5` holds
+ * `5.0`), since a later setvalue's uncast and the submission both carry
+ * that text, never the one written. A location keeps the text as written
+ * once Core accepts it. A multiple choice holds its tokens joined by single
+ * spaces (`SelectMultiData`). Text, single choices and untyped nodes never
+ * refuse.
  *
  * `zone` is this realm's zone, the one `XPathDate` reads calendars in.
  */
@@ -295,18 +285,13 @@ export function castAnswerText(
 			};
 		case "int": {
 			const value = javaParseInt(text);
-			return value === undefined
-				? REFUSED
-				: { ok: true, text: heldNumberText(text, value, String(value)) };
+			return value === undefined ? REFUSED : { ok: true, text: String(value) };
 		}
 		case "decimal": {
 			const value = parseJavaDouble(text);
 			return value === undefined
 				? REFUSED
-				: {
-						ok: true,
-						text: heldNumberText(text, value, openJdk17DoubleToString(value)),
-					};
+				: { ok: true, text: openJdk17DoubleToString(value) };
 		}
 		case "geopoint":
 			return castsToGeopoint(text) ? { ok: true, text } : REFUSED;

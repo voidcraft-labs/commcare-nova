@@ -1,5 +1,6 @@
 import {
 	coreDaysSinceEpoch,
+	coreRoundDay,
 	isCoreCalendarDate,
 	type JavaLocalFields,
 	javaCalendarDate,
@@ -139,9 +140,15 @@ export class XPathDate {
 	}
 
 	/** `DateUtils.daysSinceEpoch`: Core's day number of this value, which
-	 * `FunctionUtils.toNumeric` gives a Date. */
+	 * `FunctionUtils.toNumeric` gives a Date. It counts the rounded day
+	 * (`coreDays.ts::coreRoundDay`), so a day before AD 1 counts as its AD
+	 * fold. A day `roundDate` refuses has no number: Core's `daysSinceEpoch`
+	 * throws there, and so does this. */
 	get coreDays(): number {
-		return coreDaysSinceEpoch(this.calendarDays);
+		const days = coreDaysSinceEpoch(this.calendarDays);
+		if (days === null)
+			throw new CoreUnroundableDateError(`the date ${this.toISOString()}`);
+		return days;
 	}
 
 	/** The instant Core's `Date` holds: the clock when there is one, else the
@@ -150,9 +157,13 @@ export class XPathDate {
 		return this.timeMilliseconds ?? localMidnight(this.calendarDays);
 	}
 
-	/** `DateUtils.roundDate`: the date-only value of the same calendar day. */
-	rounded(): XPathDate {
-		return XPathDate.fromCalendarDays(this.calendarDays);
+	/** `DateUtils.roundDate`: the date-only value of the day Core rounds this
+	 * one to (`coreDays.ts::coreRoundDay`): the same day from AD 1 on, the AD
+	 * fold of an earlier one, and null for a Julian February 29 that Core's
+	 * date check refuses, where Core's `roundDate` returns null. */
+	rounded(): XPathDate | null {
+		const days = coreRoundDay(this.calendarDays);
+		return days === null ? null : XPathDate.fromCalendarDays(days);
 	}
 
 	/** XPath string coercion of a Date, `FunctionUtils.toString(Date)`
@@ -171,6 +182,22 @@ export class XPathDate {
 }
 
 const pad2 = (value: number): string => String(value).padStart(2, "0");
+
+/**
+ * A date CommCare's `DateUtils.roundDate` has no date for: February 29 of a
+ * Julian year (before 1582-10-15) that Core's proleptic Gregorian leap rule
+ * calls common. Every read Core makes of that null fails, so Preview stops
+ * the evaluation where Core's does.
+ */
+export class CoreUnroundableDateError extends Error {
+	/** `what` names the value, as "the date 100-02-29" or "day number -679669". */
+	constructor(what: string) {
+		super(
+			`CommCare has no date for ${what}: it falls on February 29 of a year before 1582 that CommCare's calendar check counts as a common year, so a device stops here too. Try a date in another year.`,
+		);
+		this.name = "CoreUnroundableDateError";
+	}
+}
 
 /** `YYYY-MM-DDTHH:MM[:SS[.fff]]` with a `Z` or `±HH[:MM]` designator. */
 const EXACT_INSTANT_TEXT =

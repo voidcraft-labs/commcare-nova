@@ -118,7 +118,8 @@ export function toDate(input: XPathRuntimeValue): XPathDate | null {
 		) {
 			return null;
 		}
-		return XPathDate.fromCalendarDays(coreDateAdd(days));
+		const added = coreDateAdd(days);
+		return added === null ? null : XPathDate.fromCalendarDays(added);
 	}
 	if (typeof v === "string") return XPathDate.parse(v);
 	/* boolean — no date interpretation */
@@ -138,10 +139,15 @@ export class XPathDateConversionError extends Error {}
  *   keeps the clock it reads, or throws
  * - XPathDate → `roundDate`, its local date
  * - boolean → throws
+ *
+ * `dateAdd` and `roundDate` both end in `roundDate`, which folds a day
+ * before AD 1 to AD and returns Java's null for a Julian February 29 that
+ * Core's date check refuses (`coreDays.ts::coreRoundDay`). That null is
+ * returned here as `null`, for each caller to treat as Core does.
  */
 export function toDateRounding(
 	input: XPathRuntimeValue,
-): XPathDate | "" | number {
+): XPathDate | "" | number | null {
 	const v = unpackXPathRuntimeValue(input);
 	if (typeof v === "number") {
 		const days = javaToInt(v);
@@ -155,7 +161,8 @@ export function toDateRounding(
 				"converting out-of-range value to date",
 			);
 		}
-		return XPathDate.fromCalendarDays(coreDateAdd(days));
+		const added = coreDateAdd(days);
+		return added === null ? null : XPathDate.fromCalendarDays(added);
 	}
 	if (typeof v === "string") {
 		if (v.length === 0) return "";
@@ -172,7 +179,8 @@ export function toDateRounding(
 /**
  * `FunctionUtils.expandDateSafe`: a DIRECT Date is returned with its clock;
  * anything else (a node-set included) goes through `toDateRounding`, and a
- * result that is not a Date (`""`, NaN) gives null.
+ * result that is not a Date (`""`, NaN, or the null `roundDate` gives a
+ * refused day) gives null.
  */
 export function expandDateSafe(input: XPathRuntimeValue): XPathDate | null {
 	if (!isXPathNodeSet(input) && isXPathDate(input)) return input;

@@ -194,9 +194,9 @@ export function useSetPreviewPersonaUuid(): (
 }
 
 /** The cases `personaUuid` (undefined: the signed-in member) claimed from a
- *  search in this app, in claim order. Every device-scoped read of that
- *  worker sends them. The array keeps its reference until the claims
- *  change, so it can sit in a request identity. Reads the fallback store
+ *  search in this app, in the order of each one's latest claim. Every
+ *  device-scoped read of that worker sends them. The array keeps its
+ *  reference until the claims change, so it can sit in a request identity. Reads the fallback store
  *  outside a builder, where no worker has claimed anything. */
 export function usePreviewClaimedCaseIds(
 	personaUuid: string | undefined,

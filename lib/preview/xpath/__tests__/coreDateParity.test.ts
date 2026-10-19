@@ -9,7 +9,11 @@ import { buildFieldTree } from "../../engine/fieldTree";
 import { evaluateAsync } from "../asyncEvaluator";
 import { xpathToString } from "../coerce";
 import { evaluate } from "../evaluator";
-import type { EvalContext, XPathValue } from "../types";
+import {
+	CoreUnroundableDateError,
+	type EvalContext,
+	type XPathValue,
+} from "../types";
 import {
 	CORE_DATE_PARITY,
 	CORE_DATE_PARITY_ZONES,
@@ -106,6 +110,18 @@ describe("Preview dates against Core in four device zones", () => {
 				vi.setSystemTime(new Date(CORE_DATE_PARITY.fixedClock));
 				for (const row of CORE_DATE_PARITY.rows) {
 					const name = `${label}: ${row.id}: ${row.xpath}`;
+					if ("throws" in row) {
+						// Every refusal Core makes here is a day `roundDate` refuses.
+						expect(
+							() => evaluate(row.xpath, contextFor(row, zone)),
+							name,
+						).toThrow(CoreUnroundableDateError);
+						await expect(
+							evaluateAsync(row.xpath, contextFor(row, zone)),
+							`${name} (async)`,
+						).rejects.toThrow(CoreUnroundableDateError);
+						continue;
+					}
 					expectCoreResult(
 						evaluate(row.xpath, contextFor(row, zone)),
 						row.expect[label],
