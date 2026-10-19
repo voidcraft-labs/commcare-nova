@@ -18,6 +18,14 @@
  * These reducers are pure; the session store writes through them.
  */
 
+/**
+ * The most claims one Preview worker holds and sends. The session keeps the
+ * most recent ones, and the server refuses a longer list
+ * (`lib/preview/engine/previewAuthorization.ts::previewClaimedCaseIds`), so
+ * a worker who chooses more cases than this only lets go of the earliest.
+ */
+export const PREVIEW_CLAIMS_LIMIT = 1000;
+
 /** Previewing as the signed-in member, the worker no persona names. */
 export const PREVIEW_AS_ME_WORKER = "me";
 
@@ -56,8 +64,9 @@ export function claimsFor(
 /**
  * Append newly claimed ids for this worker of this app. Ids already claimed
  * keep their place; a key that differs from the held one starts a fresh set.
- * Claiming nothing new returns the same reference, so subscribers see no
- * change.
+ * The set holds the most recent {@link PREVIEW_CLAIMS_LIMIT} ids, so the
+ * earliest give way once it is full. Claiming nothing new returns the same
+ * reference, so subscribers see no change.
  */
 export function addClaims(
 	claims: PreviewClaims | undefined,
@@ -74,5 +83,9 @@ export function addClaims(
 		added.push(caseId);
 	}
 	if (added.length === 0) return claims;
-	return { appId, worker, caseIds: [...held, ...added] };
+	return {
+		appId,
+		worker,
+		caseIds: [...held, ...added].slice(-PREVIEW_CLAIMS_LIMIT),
+	};
 }

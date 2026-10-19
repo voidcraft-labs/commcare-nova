@@ -363,11 +363,19 @@ describe("afterSubmitSessionDatums", () => {
 		});
 	});
 
-	it("refuses a registration saved under an id its entry did not mint", () => {
+	it("values a replayed registration with the case its receipt saved", () => {
 		const entry = session(households(), REGISTER);
-		expect(() =>
-			afterSubmitSessionDatums(entry, { childCases: [] }, "another-id"),
-		).toThrow(/different id/);
+		const patient = entry.data.case_id_new_patient_1 as string;
+		const after = afterSubmitSessionDatums(
+			entry,
+			{ caseId: "saved-before-minting", caseName: "Smiths", childCases: [] },
+			"saved-before-minting",
+		);
+		expect(after.get("case_id_new_household_0")).toEqual({
+			value: "saved-before-minting",
+			caseName: "Smiths",
+		});
+		expect(after.get("case_id_new_patient_1")).toEqual({ value: patient });
 	});
 
 	it("holds no session for an entry no running app opened", () => {

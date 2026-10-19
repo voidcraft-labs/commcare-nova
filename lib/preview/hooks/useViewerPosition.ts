@@ -2,9 +2,9 @@
 //
 // The running list's location watch behind `here()`. A list whose Results
 // show a column that reads `here()` starts a watch when it mounts, unless
-// the browser was already asked this session and has not shared (a refusal,
-// an unanswered ask, a browser with no location); the list's note then
-// offers the way forward. The watch stops once a position is good enough or
+// the browser refused this session or has no location; the list's note then
+// offers the way forward. A mount while an ask is still unanswered watches
+// again, so the answer reaches a list that is on screen. The watch stops once a position is good enough or
 // the list unmounts, so each fresh list watches again from the position the
 // last one showed, as Android's `EntitySelectActivity` clears its handler's
 // "good enough" on every fresh list.

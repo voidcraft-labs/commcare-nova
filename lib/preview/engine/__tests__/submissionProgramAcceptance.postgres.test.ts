@@ -20,6 +20,7 @@ import type { Database } from "@/lib/case-store/sql/database";
 import { arithmeticFixture } from "@/lib/commcare/__tests__/arithmeticFixture";
 import type { AppDatabase } from "@/lib/db/pg";
 import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
+import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	eq,
 	formField,
@@ -273,10 +274,14 @@ describe("engine → builder → executor acceptance", () => {
 		});
 		expect(built.ordinaryAction).toEqual({
 			kind: "registration",
+			// The entry's session names the patient and its one visit, so both
+			// are created with the ids the form read; the repeat's orders are
+			// named by no datum.
 			primary: {
 				caseType: "patient",
 				caseName: "Ada",
 				properties: { age: 37 },
+				entryCaseKey: "new-case",
 			},
 			children: [
 				{
@@ -284,6 +289,7 @@ describe("engine → builder → executor acceptance", () => {
 					caseName: "First visit",
 					properties: { notes: "Checkup" },
 					parentRelationship: "child",
+					entryCaseKey: "new-child-case:visit",
 				},
 				{
 					caseType: "medication_order",
@@ -349,6 +355,13 @@ describe("engine → builder → executor acceptance", () => {
 				caseId: expect.any(String),
 			})),
 		);
+		const entryKey = envelope.submissionReceipt.entryKey;
+		const patientId = entryDatumCaseId(APP_ID, entryKey, "new-case");
+		const visitId = entryDatumCaseId(APP_ID, entryKey, "new-child-case:visit");
+		expect(result.primaryCaseIds).toEqual([patientId]);
+		expect(result.createdChildren[0]?.caseId).toBe(visitId);
+		const orderIds = result.createdChildren.slice(1).map((c) => c.caseId);
+		expect(new Set([patientId, visitId, ...orderIds]).size).toBe(4);
 	});
 
 	it("evaluates one committed close condition and closes the complete ordered selection", async () => {

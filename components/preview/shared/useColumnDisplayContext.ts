@@ -23,7 +23,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
-import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
+import type { CaseQueryReading } from "@/lib/domain/expression/temporalType";
 import {
 	type CalculatedTemporalType,
 	type ColumnDisplayContext,
@@ -41,7 +41,13 @@ export function useColumnDisplayContext(
 	config: CaseListConfig | undefined,
 	currentCaseType: string | undefined,
 	fallbackProperties: readonly CaseProperty[],
-	owner: { readonly doc: BlueprintDoc; readonly moduleUuid: Uuid },
+	owner: {
+		readonly doc: BlueprintDoc;
+		readonly moduleUuid: Uuid;
+		/** Which rows the surface shows: the device's cases or HQ's
+		 *  results rows. The read decides it, never the module. */
+		readonly reading: CaseQueryReading["columns"];
+	},
 ): ColumnDisplayContext {
 	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const effectiveCaseType = effectiveCaseTypes.find(
@@ -66,18 +72,7 @@ export function useColumnDisplayContext(
 	const today = useLocalCalendarDay();
 	const projectProse = useProseProjection();
 	const lookupTypes = useExpressionLookupTypes();
-	const { doc, moduleUuid } = owner;
-	// The running list's rows are casedb rows for a browse list and results
-	// rows for an effective Search; the live config decides which.
-	const caseSearchConfig = doc.modules[moduleUuid]?.caseSearchConfig;
-	const columnsReading = useMemo(
-		() =>
-			config === undefined
-				? "casedb"
-				: caseQueryReadingFor({ caseListConfig: config, caseSearchConfig })
-						.columns,
-		[config, caseSearchConfig],
-	);
+	const { doc, moduleUuid, reading: columnsReading } = owner;
 	const calculatedTemporalTypes = useMemo(() => {
 		const types = new Map<Column["uuid"], CalculatedTemporalType>();
 		if (config === undefined) return types;

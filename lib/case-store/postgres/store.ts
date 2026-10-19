@@ -1868,6 +1868,12 @@ export class PostgresCaseStore implements CaseStore {
 	 * is minted/derived up front (the envelope's create allocations);
 	 * `ownerId` overrides the bound owner for an operation's evaluated
 	 * owner expression. Ordinary callers omit both.
+	 *
+	 * `caseIdTaken` makes the insert itself decide whether `caseId` is free:
+	 * the row goes in `ON CONFLICT (case_id) DO NOTHING`, and when another
+	 * row (in any tenant, committed or committing concurrently) already holds
+	 * the id, nothing is written and `caseIdTaken` throws the caller's typed
+	 * refusal inside the same transaction.
 	 */
 	private async insertRowInTransaction(
 		trx: Transaction<Database>,
@@ -1877,6 +1883,7 @@ export class PostgresCaseStore implements CaseStore {
 			caseId?: string;
 			ownerId?: string;
 			parentRelationship?: CaseIndicesTable["relationship"];
+			caseIdTaken?: () => never;
 		},
 	): Promise<string> {
 		const propertiesObject = parseJsonbInput(args.row.properties);
@@ -1927,11 +1934,20 @@ export class PostgresCaseStore implements CaseStore {
 			...creationStamps(args.row),
 			properties: JSON.stringify(propertiesObject),
 		};
-		const inserted = await trx
-			.insertInto("cases")
-			.values(insertRow)
-			.returning("case_id")
-			.executeTakeFirstOrThrow();
+		const plain = trx.insertInto("cases").values(insertRow);
+		const insert =
+			args.caseIdTaken === undefined
+				? plain
+				: plain.onConflict((conflict) =>
+						conflict.column("case_id").doNothing(),
+					);
+		const inserted = await insert.returning("case_id").executeTakeFirst();
+		if (inserted === undefined) {
+			args.caseIdTaken?.();
+			throw new Error(
+				"A case insert wrote no row, yet only an insert that refuses a taken id may skip.",
+			);
+		}
 		const caseId = inserted.case_id;
 
 		// Direct-edge derivation: depth=1 edges only; recursive
@@ -2074,6 +2090,9 @@ export class PostgresCaseStore implements CaseStore {
 					...(a.seed.parentRelationship === undefined
 						? {}
 						: { parentRelationship: a.seed.parentRelationship }),
+					...(a.caseIdTaken === undefined
+						? {}
+						: { caseIdTaken: a.caseIdTaken }),
 				}),
 			updateCase: (trx, a) => this.updateInTransaction(trx, a),
 			updateCases: (trx, a) => {

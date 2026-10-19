@@ -903,6 +903,55 @@ describe("case resource completion and invalidation ownership", () => {
 		expect(h.result.current.fetching).toBe(false);
 		expect(h.result.current.state.kind).toBe("empty");
 	});
+	it("keeps settled rows on screen while a new claim re-reads the list", async () => {
+		let finish: ((value: LoadCasesResult) => void) | undefined;
+		vi.mocked(loadCasesAction)
+			.mockResolvedValueOnce({
+				kind: "rows",
+				rows: [CASE_ROW],
+				constraintSource: "unconstrained",
+			})
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					finish = resolve;
+				}),
+			);
+		const store = createBuilderSessionStore({ appId: APP_ID });
+		const wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+		);
+		const h = renderHook(
+			() => useCases({ appId: APP_ID, caseType: PATIENT.name, search: true }),
+			{ wrapper },
+		);
+		await waitFor(() => expect(h.result.current.state.kind).toBe("rows"));
+
+		act(() => store.getState().addPreviewClaims(["claimed-case"]));
+		expect(h.result.current.state).toMatchObject({
+			kind: "rows",
+			rows: [CASE_ROW],
+		});
+		await waitFor(() => expect(loadCasesAction).toHaveBeenCalledTimes(2));
+		expect(
+			vi.mocked(loadCasesAction).mock.calls[1]?.[0].claimedCaseIds,
+		).toEqual(["claimed-case"]);
+		expect(h.result.current.state.kind).toBe("rows");
+		expect(h.result.current.fetching).toBe(true);
+
+		await act(async () =>
+			finish?.({
+				kind: "rows",
+				rows: [{ ...CASE_ROW, case_id: "claimed-case" }],
+				constraintSource: "unconstrained",
+			}),
+		);
+		await waitFor(() => expect(h.result.current.fetching).toBe(false));
+		expect(h.result.current.state).toMatchObject({
+			kind: "rows",
+			rows: [{ case_id: "claimed-case" }],
+		});
+	});
+
 	it("does not announce source-scope replacement after access refresh", async () => {
 		const session = createBuilderSessionStore({
 			appId: APP_ID,

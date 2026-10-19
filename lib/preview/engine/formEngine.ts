@@ -760,6 +760,7 @@ export class FormEngine {
 			this.restoreEntryCheckpoint(restored.checkpoint);
 			if (!restored.preserveAllValues) this.healEntryContext();
 			else this.evaluateAllInto();
+			this.rederiveInsertRefusals();
 			this.refreshRestoredValidation(restored.checkpoint.state);
 			return;
 		}
@@ -949,6 +950,7 @@ export class FormEngine {
 			if (!restored.preserveAllValues)
 				await this.healEntryContextAsync(evaluateAsync);
 			else await this.settleAsync(evaluateAsync);
+			await this.rederiveInsertRefusalsAsync(evaluateAsync);
 			await this.refreshRestoredValidationAsync(
 				evaluateAsync,
 				restored.checkpoint.state,
@@ -1062,27 +1064,37 @@ export class FormEngine {
 		const checkpoint = this.entryCheckpoint();
 		let index: number;
 		try {
-			index = this.insertRepeatRow(repeatPath);
-			const prefix = `${repeatPath}[${index}]`;
-			const children = this.findTreeNode(repeatPath)?.children ?? [];
-			await this.initializeModelAsync(
-				children,
-				evaluateAsync,
-				prefix,
-				repeatPath,
-			);
-			const updates: EngineStoreState = {};
-			for (const path of Object.keys(this.store.getState())) {
-				if (path.startsWith(`${prefix}/`)) updates[path] = DEFAULT_ENGINE_STATE;
-			}
-			this.initStatesInto(updates, children, prefix);
-			this.store.setState(updates);
+			index = await this.insertRepeatRowAsync(repeatPath, evaluateAsync);
 		} catch (error) {
 			this.refuseInsert(repeatPath, checkpoint, error);
 			return undefined;
 		}
 		this.clearInsertRefusal(repeatPath);
 		await this.settleAsync(evaluateAsync);
+		return index;
+	}
+
+	/** `insertRepeatRow` with the new entry's starting values evaluated by the
+	 * worker. */
+	private async insertRepeatRowAsync(
+		repeatPath: string,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<number> {
+		const index = this.insertRepeatRow(repeatPath);
+		const prefix = `${repeatPath}[${index}]`;
+		const children = this.findTreeNode(repeatPath)?.children ?? [];
+		await this.initializeModelAsync(
+			children,
+			evaluateAsync,
+			prefix,
+			repeatPath,
+		);
+		const updates: EngineStoreState = {};
+		for (const path of Object.keys(this.store.getState())) {
+			if (path.startsWith(`${prefix}/`)) updates[path] = DEFAULT_ENGINE_STATE;
+		}
+		this.initStatesInto(updates, children, prefix);
+		this.store.setState(updates);
 		return index;
 	}
 
@@ -1391,6 +1403,81 @@ export class FormEngine {
 			this.store.setState({
 				[repeatPath]: { ...state, insertRefusal: details },
 			});
+	}
+
+	/**
+	 * A refusal records an insert tried under the document and answers of its
+	 * moment. After the document changes (a restored entry is rebuilt under a
+	 * new document; an edited starting value is applied in place), each
+	 * user-controlled repeat's refused insert is tried again and put back:
+	 * the refusal is kept, with what the new attempt names, when the insert
+	 * is still refused, and cleared when it would now succeed. A repeat the
+	 * document no longer holds as user-controlled keeps no refusal.
+	 */
+	private rederiveInsertRefusals(): void {
+		for (const repeatPath of this.refusedUserRepeats()) {
+			const checkpoint = this.entryCheckpoint();
+			let refusal: SetvalueRefusalDetails | undefined;
+			try {
+				this.insertRepeatRow(repeatPath);
+			} catch (error) {
+				refusal = this.probedRefusal(checkpoint, error);
+			}
+			this.restoreEntryCheckpoint(checkpoint);
+			this.settleRederivedRefusal(repeatPath, refusal);
+		}
+	}
+
+	private async rederiveInsertRefusalsAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		for (const repeatPath of this.refusedUserRepeats()) {
+			const checkpoint = this.entryCheckpoint();
+			let refusal: SetvalueRefusalDetails | undefined;
+			try {
+				await this.insertRepeatRowAsync(repeatPath, evaluateAsync);
+			} catch (error) {
+				refusal = this.probedRefusal(checkpoint, error);
+			}
+			this.restoreEntryCheckpoint(checkpoint);
+			this.settleRederivedRefusal(repeatPath, refusal);
+		}
+	}
+
+	/** The refused repeats a new insert attempt can re-derive; any other
+	 * recorded refusal whose repeat is no longer user-controlled is dropped. */
+	private refusedUserRepeats(): string[] {
+		const paths: string[] = [];
+		for (const repeatPath of [...this.repeatInsertRefusals.keys()]) {
+			const field = this.findTreeNode(repeatPath)?.field;
+			if (field?.kind === "repeat" && field.repeat_mode === "user_controlled")
+				paths.push(repeatPath);
+			else this.clearInsertRefusal(repeatPath);
+		}
+		return paths;
+	}
+
+	/** A probe insert's refusal; any other failure puts the entry back and
+	 * propagates, as a real insert's would. */
+	private probedRefusal(
+		checkpoint: FormEngineEntryCheckpoint,
+		error: unknown,
+	): SetvalueRefusalDetails {
+		if (
+			error instanceof SetvalueRefusal &&
+			error.details.cause === "repeat-insert"
+		)
+			return error.details;
+		this.restoreEntryCheckpoint(checkpoint);
+		throw error;
+	}
+
+	private settleRederivedRefusal(
+		repeatPath: string,
+		refusal: SetvalueRefusalDetails | undefined,
+	): void {
+		if (refusal === undefined) this.clearInsertRefusal(repeatPath);
+		else this.recordInsertRefusal(repeatPath, refusal);
 	}
 
 	/** An insert of the repeat succeeded: its earlier refusal no longer
@@ -3150,6 +3237,7 @@ export class FormEngine {
 
 		/* Cascade — the value changes may affect dependent fields */
 		this.evaluateWork(this.dag.getAffectedWork(concretes, this.repeatCounts));
+		this.rederiveInsertRefusals();
 	}
 
 	/** Worker-backed counterpart of `reevaluateDefault`. Live authoring still
@@ -3177,6 +3265,7 @@ export class FormEngine {
 			if (current !== undefined) updates[concrete] = { ...current, value };
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
+		await this.rederiveInsertRefusalsAsync(evaluateAsync);
 	}
 
 	/**

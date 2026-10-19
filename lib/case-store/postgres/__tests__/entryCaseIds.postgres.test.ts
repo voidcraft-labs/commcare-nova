@@ -10,6 +10,7 @@
 // with the same ids. Every other created case takes a fresh id.
 
 import { type Kysely, sql } from "kysely";
+import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
@@ -234,5 +235,53 @@ describe("cases an entry names", () => {
 			WHERE app_id = ${APP_ID} AND entry_key = 'entry-taken'
 		`.execute(dbHandle.db);
 		expect(intents.rows).toEqual([{ count: "0" }]);
+	});
+	it("refuses an entry id another tenant's save takes while this one runs", async () => {
+		const taken = entryDatumCaseId(APP_ID, "entry-raced", "new-case");
+		const rival = new Client({ connectionString: dbHandle.uri });
+		await rival.connect();
+		let rivalOpen = false;
+		try {
+			await rival.query("BEGIN");
+			rivalOpen = true;
+			await rival.query(
+				"INSERT INTO apps (id, owner, project_id, app_name, app_name_lower) VALUES ('entry-ids-rival', 'rival', 'entry-ids-rival-project', 'Rival', 'rival')",
+			);
+			await rival.query(
+				"INSERT INTO cases (case_id, app_id, project_id, owner_id, case_type, case_name, status, properties) VALUES ($1, 'entry-ids-rival', 'entry-ids-rival-project', 'rival', 'household', 'Rival household', 'open', '{}'::jsonb)",
+				[taken],
+			);
+			// The rival's row is not yet visible, so only the insert itself can
+			// see the id is taken: it waits on the rival's transaction.
+			const outcome = storeOn()
+				.applySubmission(registration("entry-raced"))
+				.then(
+					() => undefined,
+					(error: unknown) => error,
+				);
+			let waiting = false;
+			for (let attempt = 0; attempt < 200 && !waiting; attempt++) {
+				const blocked = await rival.query<{ count: string }>(
+					"SELECT count(*)::text AS count FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()",
+				);
+				waiting = blocked.rows[0]?.count !== "0";
+				if (!waiting) await new Promise((resolve) => setTimeout(resolve, 25));
+			}
+			await rival.query("COMMIT");
+			rivalOpen = false;
+			const refusal = await outcome;
+			expect(waiting).toBe(true);
+			expect(refusal).toBeInstanceOf(SubmissionRejectedError);
+			expect((refusal as SubmissionRejectedError).rejection).toEqual({
+				kind: "new-case",
+				reason: "case-id-taken",
+				caseId: taken,
+			});
+			expect(await stored("household")).toEqual([]);
+			expect(await stored("member")).toEqual([]);
+		} finally {
+			if (rivalOpen) await rival.query("ROLLBACK");
+			await rival.end();
+		}
 	});
 });

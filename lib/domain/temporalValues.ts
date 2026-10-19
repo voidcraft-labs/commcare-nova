@@ -200,6 +200,7 @@ function zoneFormatter(zone: string): Intl.DateTimeFormat {
 		formatter = new Intl.DateTimeFormat("en-US", {
 			timeZone: zone,
 			hourCycle: "h23",
+			era: "short",
 			year: "numeric",
 			month: "2-digit",
 			day: "2-digit",
@@ -221,16 +222,19 @@ function zoneOffsetMinutesAt(zone: string, instantMs: number): number {
 		const part = parts.find((candidate) => candidate.type === type);
 		return part === undefined ? 0 : Number(part.value);
 	};
+	// The formatter counts years in their era (proleptic Gregorian, 1 BC is
+	// year 1 BC), so a BC year is turned back into an astronomical one.
+	const eraYear = read("year");
+	const era = parts.find((candidate) => candidate.type === "era")?.value;
+	const year = era === "BC" ? 1 - eraYear : eraYear;
 	// `hourCycle: "h23"` should already keep midnight at 0, but ICU has
-	// historically reported 24 here and the modulo costs nothing.
-	const wallAsUtc = Date.UTC(
-		read("year"),
-		read("month") - 1,
-		read("day"),
-		read("hour") % 24,
-		read("minute"),
-		read("second"),
-	);
+	// historically reported 24 here and the modulo costs nothing. The fields
+	// go through `setUTCFullYear`, never `Date.UTC`, which reads years 0-99 as
+	// 1900-1999.
+	const wall = new Date(0);
+	wall.setUTCFullYear(year, read("month") - 1, read("day"));
+	wall.setUTCHours(read("hour") % 24, read("minute"), read("second"), 0);
+	const wallAsUtc = wall.getTime();
 	return Math.round((wallAsUtc - instantMs) / 60_000);
 }
 

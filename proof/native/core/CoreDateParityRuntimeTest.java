@@ -160,7 +160,9 @@ public class CoreDateParityRuntimeTest {
             }
             for (String required : new String[]{"core-day-20453", "core-day-20453.7", "core-days-2026-01-01",
                 "o2a", "o2b", "o2c", "o2d", "r3", "r4", "r10", "d5", "d7", "d8", "cast-repeated-hour",
-                "cast-z-day-late", "cast-skipped-hour", NOW_DEFAULT_ROW, "blank-date", "blank-format-date"})
+                "cast-z-day-late", "cast-skipped-hour", NOW_DEFAULT_ROW, "blank-date", "blank-format-date",
+                "julian-days", "julian-text", "julian-weekday", "julian-day-number", "cutover-gap",
+                "cutover-next-day", "year-50-text", "far-day-number", "far-day-text", "max-int-day-text"})
                 assertTrue("Missing date parity row: " + required, ids.contains(required));
         } finally {
             CalendarUtils.setArrayDataSource(new LocaleArrayDataSource(new DefaultArrayDataSource()));

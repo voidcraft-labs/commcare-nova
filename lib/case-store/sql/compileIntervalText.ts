@@ -15,7 +15,10 @@
  * (`lib/preview/columnDisplay.ts::formatIntervalForPreview`):
  *
  *   - `v` is the property's stored text, trimmed, read as text whatever its
- *     declared type, so a malformed stored value never fails the query.
+ *     declared type, so a malformed stored value never fails the query. A
+ *     standard property is the text its reading holds
+ *     (`compileReadingText`): under `results`, `last_modified` is HQ's
+ *     `json_format_datetime` text, as the column shows it.
  *   - `d` is its calendar day in the viewer's zone: a date-only or zone-less
  *     value is read in the viewer's zone and an authored offset is kept
  *     (`compilePinnedInstant`), and the instant's date is taken in the
@@ -40,8 +43,8 @@ import { type AliasableExpression, expressionBuilder } from "kysely";
 import type { CaseType } from "@/lib/domain/blueprint";
 import { prop, term } from "@/lib/domain/expression/builders";
 import {
-	compileExpression,
 	compilePinnedInstant,
+	compileReadingText,
 	compileToday,
 	type ExpressionCompileContext,
 } from "./compileExpression";
@@ -92,7 +95,7 @@ export function compileIntervalText(
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
-	const raw = compileExpression(term(prop(key.caseType, key.property)), {
+	const raw = compileReadingText(term(prop(key.caseType, key.property)), {
 		...ctx,
 		caseTypeSchemas: withTextRead(
 			ctx.caseTypeSchemas,

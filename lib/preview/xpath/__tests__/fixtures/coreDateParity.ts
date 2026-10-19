@@ -315,6 +315,75 @@ export const CORE_DATE_PARITY: CoreDateParityTable = {
 				kiritimati: "2026-11-01T19:15+14",
 			},
 		},
+		// Java's calendar (`Calendar.getInstance()`, a GregorianCalendar): fields
+		// before 1582-10-15 are Julian both ways, so Julian 1500-01-01 is day
+		// -171655 (proleptic Gregorian 1500-01-10). Every zone's local mean time
+		// sits within twelve hours of its 1970 offset, so no day shifts there.
+		{
+			id: "julian-days",
+			xpath: "number(date('1500-01-01'))",
+			expect: same("-171655"),
+		},
+		{
+			id: "julian-text",
+			xpath: "string(date('1500-01-01'))",
+			expect: same("1500-01-01"),
+		},
+		{
+			id: "julian-weekday",
+			xpath: "format-date(date('1500-03-01'), '%Y-%m-%d %a')",
+			expect: same("1500-03-01 Sun"),
+		},
+		{
+			id: "julian-day-number",
+			xpath: "string(date(-200000))",
+			expect: same("1422-05-25"),
+		},
+		{
+			id: "julian-day-number-round-trip",
+			xpath: "number(date(-200000))",
+			expect: same("-200000"),
+		},
+		// A date in the cutover's gap is read as Julian, ten days on.
+		{
+			id: "cutover-gap",
+			xpath: "string(date('1582-10-10'))",
+			expect: same("1582-10-20"),
+		},
+		{
+			id: "cutover-next-day",
+			xpath: "string(date(number(date('1582-10-04')) + 1))",
+			expect: same("1582-10-15"),
+		},
+		// `formatDateISO8601` prints the year unpadded.
+		{
+			id: "year-50-text",
+			xpath: "string(date('0050-01-01'))",
+			expect: same("50-01-01"),
+		},
+		// Day numbers past JavaScript's Date range, inside Java's: Core adds them
+		// in long milliseconds. Kiritimati's +1 from `dateAdd` and -1 from
+		// `daysSinceEpoch` still cancel.
+		{
+			id: "far-day-number",
+			xpath: "number(date(200000000))",
+			expect: same("200000000"),
+		},
+		{
+			id: "far-day-text",
+			xpath: "string(date(200000000))",
+			expect: { ...same("549551-05-28"), kiritimati: "549551-05-29" },
+		},
+		{
+			id: "max-int-day-text",
+			xpath: "string(date(2147483647))",
+			expect: { ...same("5881580-07-11"), kiritimati: "5881580-07-12" },
+		},
+		{
+			id: "max-int-day-number",
+			xpath: "number(date(2147483647))",
+			expect: same("2147483647"),
+		},
 		// A blank node is `""` after unpacking: `toDate` returns it, and
 		// `expandDateSafe` then gives no date, which formats as `""`.
 		{

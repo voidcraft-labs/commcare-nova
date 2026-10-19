@@ -53,6 +53,7 @@ import {
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import {
 	asTemporalType,
+	readingCaseMetadataType,
 	resolveCaseListTemporalType,
 	type TemporalType,
 } from "@/lib/domain/expression/temporalType";
@@ -274,9 +275,38 @@ export function compileExpression(
 	}
 }
 
+/** HQ's `json_format_datetime` as a Postgres pattern: UTC, six fraction
+ *  digits, `Z` (`lib/preview/columnDisplay.ts::hqDatetimeText`). */
+const HQ_DATETIME_PATTERN = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';
+
+/**
+ * A value as the text its reading holds. Every value reads as
+ * `compileExpression` gives it but a standard property the `results` reading
+ * holds as an instant (`last_modified`): HQ's results instance carries it as
+ * `json_format_datetime` text, so its text is that, built at UTC, never the
+ * stored `timestamptz` cast, whose spelling the session's zone decides.
+ */
+export function compileReadingText(
+	expr: DomainExpression,
+	ctx: ExpressionCompileContext,
+): AliasableExpression<unknown> {
+	const compiled = compileExpression(expr, ctx);
+	if (
+		ctx.reading !== "results" ||
+		expr.kind !== "term" ||
+		expr.term.kind !== "prop" ||
+		readingCaseMetadataType(expr.term.property, ctx.reading) !== "datetime"
+	)
+		return compiled;
+	return eb.fn<string>("to_char", [
+		eb.fn<Date>("timezone", [eb.val("UTC"), compiled]),
+		eb.val(HQ_DATETIME_PATTERN),
+	]);
+}
+
 /**
  * A `DomainExpression` as the text a device reads for it, for a case list's
- * order. Every value reads as `compileExpression` gives it, but a multi
+ * order. Every value reads as `compileReadingText` gives it, but a multi
  * select: Nova stores its tokens as a JSON array, and a device reads them
  * joined by one space, so the order compares that text, blank when no token
  * is selected. A stored value that is not an array reads as its own text.
@@ -285,7 +315,7 @@ export function compileDeviceTextExpression(
 	expr: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
-	const compiled = compileExpression(expr, ctx);
+	const compiled = compileReadingText(expr, ctx);
 	if (
 		scalarDataType(typeOf(expr, recordQueryContextFor(ctx))?.data) !==
 		"multi_select"

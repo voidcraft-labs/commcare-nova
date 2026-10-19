@@ -134,10 +134,12 @@ test("a claimed id holds what HQ's claim case brings, for every case of every HQ
 				edges.push(...graph.edges);
 			}
 			// HQ's claim: open, owned by the worker, an extension of the
-			// chosen case.
+			// chosen case. Its id sits outside both worlds' namespaces, since
+			// several HQ graphs name a case `claim` of their own.
+			const claim = `hq-claim/${fixture.name}/${index}`;
 			cases.push(
 				makeCaseRow({
-					case_id: `${real}/claim`,
+					case_id: claim,
 					app_id: APP_ID,
 					project_id: PROJECT_ID,
 					case_type: "commcare-case-claim",
@@ -146,7 +148,7 @@ test("a claimed id holds what HQ's claim case brings, for every case of every HQ
 				}),
 			);
 			edges.push({
-				case_id: `${real}/claim`,
+				case_id: claim,
 				ancestor_id: `${real}/${chosen}`,
 				target_case_type: "test",
 				identifier: "host",

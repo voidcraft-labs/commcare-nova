@@ -4,6 +4,13 @@ import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-repeats-client";
 
+// The visit's starting value is `'2024-01-15T14:30:00.000-05:00'`. Core holds
+// a date-and-time answer as its instant, written in the device's zone
+// (`DateTimeData.uncast`), and the browser stands in for the device, so the
+// held text and the shown clock follow the browser's zone. New York keeps
+// both as authored on every runner.
+test.use({ timezoneId: "America/New_York" });
+
 test("worker date, manual location and live announcements switch language without replacing answers", async ({
 	page,
 }, testInfo) => {

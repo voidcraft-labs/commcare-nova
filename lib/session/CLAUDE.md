@@ -84,7 +84,8 @@ a counter of the moves that re-read a list (the first position, a move of more
 than 30 metres from the shown one, a refusal that takes a shown position away).
 A list read keys on `moves` and sends the latest fix, recording it as shown;
 Details and the tile send the latest without recording it. The browser is
-asked once while Preview runs; each list that mounts starts its own watch
+asked once while Preview runs, and a refusal is never asked again unprompted;
+each list that mounts starts its own watch, an unanswered ask included
 (`lib/preview/hooks/useViewerPosition.ts`), which stops on a fix of 1,600
 metres accuracy or better or when the list goes away. Nothing in it is stored
 or sent anywhere but the read that uses it.

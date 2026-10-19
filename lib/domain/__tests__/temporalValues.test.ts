@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
+	instantDatetimeValue,
 	isReadableTemporalValue,
 	paddedTimeOfDay,
 	storageDatetimeValue,
@@ -325,4 +326,36 @@ describe("stored datetime instants at timezone transitions", () => {
 			).toEqual(nativeInstants);
 		},
 	);
+});
+
+describe("instantDatetimeValue", () => {
+	it("writes the instant's wall clock and offset in the zone", () => {
+		expect(
+			instantDatetimeValue(Date.parse("2024-01-15T19:30:00.000Z"), "UTC"),
+		).toBe("2024-01-15T19:30:00.000Z");
+		expect(
+			instantDatetimeValue(
+				Date.parse("2024-01-15T19:30:00.000Z"),
+				"America/New_York",
+			),
+		).toBe("2024-01-15T14:30:00.000-05:00");
+	});
+
+	it("keeps years 0-99 and BC years in their own century", () => {
+		// New York's local mean time is -4:56:02, which rounds to -04:56.
+		const year50 = Date.parse("0050-01-01T10:00:00.000Z");
+		expect(instantDatetimeValue(year50, "America/New_York")).toBe(
+			"0050-01-01T05:04:00.000-04:56",
+		);
+		expect(instantDatetimeValue(year50, "UTC")).toBe(
+			"0050-01-01T10:00:00.000Z",
+		);
+		// Kolkata's local mean time is +5:53:28, which rounds to +05:53.
+		expect(
+			instantDatetimeValue(
+				Date.parse("-000100-06-01T10:00:00.000Z"),
+				"Asia/Kolkata",
+			),
+		).toMatch(/-06-01T15:53:00\.000\+05:53$/);
+	});
 });

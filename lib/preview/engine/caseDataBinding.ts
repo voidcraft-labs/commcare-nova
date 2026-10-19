@@ -31,6 +31,7 @@ import {
 	type CaseStore,
 	type JsonValue,
 	ParkedValueNotFoundError,
+	type RestoreScope,
 	SEARCH_READING,
 } from "@/lib/case-store";
 import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
@@ -274,7 +275,8 @@ function caseStoreOrder(
 }
 
 /**
- * The reading of a read that names its module: its effective Search decides
+ * The reading of a read that names its module, for a surface not standing at
+ * a device (the review dialog's Details): its effective Search decides
  * (`caseQueryReadingFor`). A read with no module (a raw-row read for a
  * form's case, the selection check by id) is a device's casedb read.
  */
@@ -286,6 +288,29 @@ function environmentReading(
 			? undefined
 			: environment.doc.modules[environment.moduleUuid];
 	return module === undefined ? CASEDB_READING : caseQueryReadingFor(module);
+}
+
+/**
+ * What one running read reads and how: a read of a search's population reads
+ * HQ's search, then the results instance (`SEARCH_READING`); every other
+ * running read is the worker's device, a casedb throughout
+ * (`CASEDB_READING`), even in a module whose Search action sits beside its
+ * browse list. The reading follows the read, never the module alone.
+ */
+function runningRead(
+	searched: boolean,
+	restoreScope: RestoreScope,
+):
+	| {
+			reading: CaseQueryReading;
+			searchPopulation: { heldBy: RestoreScope };
+	  }
+	| { reading: CaseQueryReading; restoreScope: RestoreScope } {
+	// HQ's search reads the Project's open cases, not the restore
+	// (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`).
+	return searched
+		? { reading: SEARCH_READING, searchPopulation: { heldBy: restoreScope } }
+		: { reading: CASEDB_READING, restoreScope };
 }
 
 /**
@@ -533,7 +558,6 @@ export async function loadCasesAction(args: {
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
-			reading: environmentReading(environment),
 			caseIds: args.caseIds,
 			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
@@ -547,12 +571,7 @@ export async function loadCasesAction(args: {
 			// The running Results surface passes a bounded window. The form-selection
 			// caller deliberately omits it because it needs the complete candidate set.
 			page: args.page,
-			// HQ's search reads the Project's open cases, not the restore
-			// (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`);
-			// every other running read is the worker's device.
-			...(searched
-				? { searchPopulation: { heldBy: context.restoreScope } }
-				: { restoreScope: context.restoreScope }),
+			...runningRead(searched, context.restoreScope),
 		});
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
@@ -867,7 +886,6 @@ export async function loadCaseDataAction(
 			appId,
 			caseType,
 			caseId,
-			reading: environmentReading(environment),
 			ancestorDepth,
 			parentCase,
 			caseListConfig,
@@ -887,14 +905,15 @@ export async function loadCaseDataAction(
 						: undefined
 					: buildCaseTypeMap(environment.doc),
 			...(deviceScoped !== true
-				? {}
-				: readsSearchPopulation(
+				? { reading: environmentReading(environment) }
+				: runningRead(
+						readsSearchPopulation(
 							environment?.doc ?? context.blueprint,
 							moduleUuid,
 							search === true,
-						)
-					? { searchPopulation: { heldBy: context.restoreScope } }
-					: { restoreScope: context.restoreScope }),
+						),
+						context.restoreScope,
+					)),
 		});
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)

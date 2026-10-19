@@ -136,6 +136,9 @@ export interface SubmissionEnvelopeHost {
 			};
 			caseId?: string;
 			ownerId?: string;
+			/** Inserts `caseId` only if no row holds it, deciding in the insert
+			 * itself; a taken id writes nothing and calls this, which throws. */
+			caseIdTaken?: () => never;
 		},
 	): Promise<string>;
 	/** The merge + orphan-shed + validate + stamp update core. */
@@ -2198,35 +2201,33 @@ function omitBlankSharedAnswers(
  * The id a case the entry's session names is created with
  * (`SubmissionCaseSeed.entryCaseKey`): the one its form read as
  * `session/data/<datum>` while it ran. A case no datum names takes a fresh
- * id. A taken id refuses the whole submission, checked before the insert so
- * the refusal is a typed rejection rather than an aborted transaction; an
- * exact retry of a saved entry replays its receipt before reaching here.
+ * id. The insert itself decides whether the id is free: a row already holding
+ * it, in any tenant, makes the insert write nothing and refuses the whole
+ * submission with a typed rejection inside the same transaction, never an
+ * upsert. An exact retry of a saved entry replays its receipt before reaching
+ * here.
  */
-async function entryNamedCaseId(
-	trx: Transaction<Database>,
+function entryNamedCaseId(
 	appId: string,
 	args: ApplySubmissionArgs,
 	seed: SubmissionCaseSeed,
-): Promise<{ readonly caseId?: string }> {
+): { readonly caseId?: string; readonly caseIdTaken?: () => never } {
 	if (seed.entryCaseKey === undefined) return {};
 	const caseId = entryDatumCaseId(
 		appId,
 		args.submissionReceipt.entryKey,
 		seed.entryCaseKey,
 	);
-	const taken = await trx
-		.selectFrom("cases")
-		.select("case_id")
-		.where("case_id", "=", caseId)
-		.executeTakeFirst();
-	if (taken !== undefined) {
-		throw new SubmissionRejectedError({
-			kind: "new-case",
-			reason: "case-id-taken",
-			caseId,
-		});
-	}
-	return { caseId };
+	return {
+		caseId,
+		caseIdTaken: () => {
+			throw new SubmissionRejectedError({
+				kind: "new-case",
+				reason: "case-id-taken",
+				caseId,
+			});
+		},
+	};
 }
 
 async function applyOrdinaryAction(
@@ -2250,13 +2251,13 @@ async function applyOrdinaryAction(
 						: { externalId: ordinary.primary.externalId }),
 					properties: ordinary.primary.properties,
 				},
-				...(await entryNamedCaseId(trx, appId, args, ordinary.primary)),
+				...entryNamedCaseId(appId, args, ordinary.primary),
 			});
 			const createdChildren: CreatedChildCaseReceipt[] = [];
 			for (const [authoredChildIndex, child] of ordinary.children.entries()) {
 				const caseId = await host.insertCase(trx, {
 					appId,
-					...(await entryNamedCaseId(trx, appId, args, child)),
+					...entryNamedCaseId(appId, args, child),
 					seed: {
 						caseType: child.caseType,
 						caseName: requireCaseName(child, "child"),
@@ -2331,7 +2332,7 @@ async function applyOrdinaryAction(
 						appId,
 						// Only a one-case form's child is named by its entry; the
 						// server never marks a several-case form's children.
-						...(await entryNamedCaseId(trx, appId, args, child)),
+						...entryNamedCaseId(appId, args, child),
 						seed: {
 							caseType: child.caseType,
 							caseName: requireCaseName(child, "child"),

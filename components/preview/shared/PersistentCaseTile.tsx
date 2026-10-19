@@ -89,7 +89,8 @@ export function PersistentCaseTile({
 		config,
 		caseType,
 		fallbackProperties,
-		{ doc: blueprint, moduleUuid },
+		// The tile reads the device's own copy of the case.
+		{ doc: blueprint, moduleUuid, reading: "casedb" },
 	);
 	const tileColumns = useMemo(
 		() => tileResultsColumns(orderedColumns(config, "list"), config.tile),

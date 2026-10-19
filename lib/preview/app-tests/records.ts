@@ -1,6 +1,8 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import { noMatchesFormOf } from "@/lib/domain";
 import {
+	CASEDB_READING,
+	type CaseQueryReading,
 	caseQueryReadingFor,
 	SEARCH_READING,
 } from "@/lib/domain/expression/temporalType";
@@ -83,7 +85,7 @@ export async function appTestRecords(
 			: await readCases(context.store, {
 					appId: scope.appId,
 					caseType: mod.caseType,
-					reading: caseQueryReadingFor(mod),
+					reading: searchedReading(searched),
 					caseIds: next.screen.registeredCaseId
 						? [next.screen.registeredCaseId]
 						: undefined,
@@ -156,6 +158,16 @@ export async function appTestRecords(
 		result,
 		registration: admission.kind === "admitted" ? candidate : undefined,
 	};
+}
+
+/**
+ * What a session's read stands for: a search's population reads HQ's search,
+ * then the results instance; every other read is the session's device, a
+ * casedb throughout, even in a module whose Search action sits beside its
+ * browse list.
+ */
+export function searchedReading(searched: boolean): CaseQueryReading {
+	return searched ? SEARCH_READING : CASEDB_READING;
 }
 
 /**

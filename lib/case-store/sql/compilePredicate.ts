@@ -367,12 +367,16 @@ function negateTwoValued(predicate: Expression<SqlBool>): Expression<SqlBool> {
 /**
  * The six comparisons. Relation normalization has already run (in
  * `compilePredicate`), so `neq` becomes the two-valued negation of the `=`
- * atom here, at the leaf, never as an AST rewrite before it.
+ * atom here, at the leaf, never as an AST rewrite before it. A comparison
+ * with a literal `null`, the AST's "no value", matches nothing whatever its
+ * operator, `neq` included, and is decided here before any SQL is built.
  */
 function compileComparison(
 	pred: Extract<DomainExpression, { kind: ComparisonKind }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	if (holdsNoValue(pred.left) || holdsNoValue(pred.right))
+		return eb.lit(false) as Expression<SqlBool>;
 	if (pred.kind === "eq") return compileEquality(pred.left, pred.right, ctx);
 	if (pred.kind === "neq")
 		return negateTwoValued(compileEquality(pred.left, pred.right, ctx));
@@ -404,6 +408,8 @@ function compileEquality(
 	right: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	if (holdsNoValue(left) || holdsNoValue(right))
+		return eb.lit(false) as Expression<SqlBool>;
 	const leftConstant = constantComparand(left, ctx);
 	const rightConstant = constantComparand(right, ctx);
 	if (rightConstant?.blank) return compileAbsenceCheck(left, ctx);
@@ -445,6 +451,15 @@ function compileOrderedComparison(
 		expressionContextFor(ctx),
 	);
 	return eb(a, operator, b);
+}
+
+/** A literal `null`: the AST's "no value", which equals and orders nothing. */
+function holdsNoValue(expr: DomainExpression): boolean {
+	return (
+		expr.kind === "term" &&
+		expr.term.kind === "literal" &&
+		expr.term.value === null
+	);
 }
 
 /**

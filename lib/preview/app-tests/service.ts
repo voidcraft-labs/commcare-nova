@@ -11,11 +11,11 @@ import {
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ownRecordValue } from "@/lib/domain";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import type { CaseDatabaseSnapshot } from "../engine/xpathInstances";
 import { appTestExpectationMismatch, bindAppTestAction } from "./addresses";
 import { captureAppTestSnapshot } from "./capture";
 import { appTestLanguage, withAppTestContext } from "./context";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
+import { restoreAppTestState } from "./retainedState";
 import { advanceAppTest, observeAppTest } from "./run";
 import { seedAppTest } from "./seed";
 import {
@@ -28,70 +28,6 @@ import {
 	appTestAuthoredActionSchema,
 	appTestStartSchema,
 } from "./types";
-
-/** Stored checkpoints are server-produced, versioned by the session contract.
- * Rehydrate only database timestamps; user answers remain exact strings. */
-function restoreSession(state: AppTestSessionState): AppTestSessionState {
-	const restore = (snapshot: CaseDatabaseSnapshot): CaseDatabaseSnapshot => ({
-		...snapshot,
-		rows: snapshot.rows.map((row) => ({
-			...row,
-			opened_on: row.opened_on === null ? null : new Date(row.opened_on),
-			modified_on: row.modified_on === null ? null : new Date(row.modified_on),
-			closed_on: row.closed_on === null ? null : new Date(row.closed_on),
-		})),
-	});
-	const restoreTask = <
-		T extends Extract<
-			AppTestSessionState["screen"],
-			{ kind: "menu" | "records" }
-		>,
-	>(
-		entry: T,
-	): T =>
-		entry.taskCases === undefined
-			? entry
-			: { ...entry, taskCases: restore(entry.taskCases) };
-	const screen = (
-		entry: AppTestSessionState["screen"],
-	): AppTestSessionState["screen"] =>
-		entry.kind === "form"
-			? { ...entry, entryCases: restore(entry.entryCases) }
-			: entry.kind === "details"
-				? { ...entry, source: restoreTask(entry.source) }
-				: entry.kind === "menu" || entry.kind === "records"
-					? restoreTask(entry)
-					: entry;
-	return {
-		...state,
-		deviceCases: restore(state.deviceCases),
-		screen: screen(state.screen),
-		history: state.history.map(screen),
-	};
-}
-
-function restoreState(value: Record<string, unknown>): AppTestState {
-	const state = value as unknown as AppTestState;
-	if (
-		typeof state.primarySessionId !== "string" ||
-		!Array.isArray(state.sessionOrder) ||
-		!state.sessions ||
-		!Object.hasOwn(state.sessions, state.primarySessionId)
-	)
-		throw new AppTestActionError(
-			"Retained worker sessions are unavailable. You can finish this test without a session ID and start a new test.",
-		);
-	return {
-		primarySessionId: state.primarySessionId,
-		sessionOrder: state.sessionOrder,
-		sessions: Object.fromEntries(
-			Object.entries(state.sessions).map(([id, session]) => [
-				id,
-				restoreSession(session),
-			]),
-		),
-	};
-}
 
 function sessionObservation(state: AppTestState, sessionId: string) {
 	const session = ownRecordValue(state.sessions, sessionId);
@@ -336,7 +272,7 @@ export async function continueAppTest(
 		advance: async (tx, source, item) => {
 			const snapshot = source.snapshot as unknown as AppTestSnapshot;
 			const doc = hydratePersistedBlueprint(snapshot.blueprint);
-			const retained = restoreState(source.state);
+			const retained = restoreAppTestState(source.state);
 			const authored = appTestActionItemSchema.parse(item);
 			await sql`SAVEPOINT app_test_action`.execute(tx);
 			try {

@@ -259,9 +259,11 @@ export function useCases(args: {
 	/* Query edits within one case type deliberately keep settled rows visible,
 	 * but an app/case-type change is an identity boundary. Keep that identity
 	 * beside the result so the render that precedes the refetch effect can never
-	 * project old rows through the new module's columns or row actions. */
+	 * project old rows through the new module's columns or row actions. A new
+	 * claim is no such boundary: it only adds a case the device holds, so it
+	 * re-reads through the reload token and the settled rows stay on screen. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${claimedCaseIds.join(",")}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -276,6 +278,7 @@ export function useCases(args: {
 			caseTypes,
 			caseDataRevision,
 			positionKey,
+			claimedCaseIds,
 		],
 		[
 			requestIdentity,
@@ -289,6 +292,7 @@ export function useCases(args: {
 			caseTypes,
 			caseDataRevision,
 			positionKey,
+			claimedCaseIds,
 		],
 	);
 	interface KeyedCasesState {

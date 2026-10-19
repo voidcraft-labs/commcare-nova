@@ -18,12 +18,31 @@ describe("viewer position", () => {
 		expect(watchesOnMount("unasked")).toBe(true);
 		const asked = positionAsked(INITIAL_VIEWER_POSITION);
 		expect(asked.status).toBe("waiting");
-		/* An ask the browser has not answered is not repeated unprompted. */
-		expect(watchesOnMount(asked.status)).toBe(false);
+		/* A list that mounts while the ask is unanswered watches for the
+		 * answer; only a refusal is never asked again unprompted. */
+		expect(watchesOnMount(asked.status)).toBe(true);
 		expect(watchesOnMount("sharing")).toBe(true);
 		expect(watchesOnMount("unavailable")).toBe(true);
 		expect(watchesOnMount("refused")).toBe(false);
 		expect(watchesOnMount("unsupported")).toBe(false);
+	});
+
+	it("lets a list that mounts while the prompt is open hear its answer", () => {
+		const store = createViewerPositionStore();
+		/* The first list asks, then goes away before the person answers. */
+		store.getState().asked();
+		expect(store.getState().status).toBe("waiting");
+		/* The next mount (or Strict Mode's second effect) watches again, and
+		 * asking again holds the one pending prompt rather than a new state. */
+		expect(watchesOnMount(store.getState().status)).toBe(true);
+		const waiting = store.getState();
+		store.getState().asked();
+		expect(store.getState()).toBe(waiting);
+		store.getState().reported(HERE);
+		expect(store.getState().status).toBe("sharing");
+		/* A refusal is the one answer no later mount asks again. */
+		store.getState().failed("permission-denied");
+		expect(watchesOnMount(store.getState().status)).toBe(false);
 	});
 
 	it("re-reads for the first position and for a move past 30 metres only", () => {

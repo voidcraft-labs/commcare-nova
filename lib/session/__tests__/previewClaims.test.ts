@@ -7,11 +7,13 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { previewClaimedCaseIds } from "@/lib/preview/engine/previewAuthorization";
 import type { EntryPointPreviewLaunch } from "@/lib/preview/entryPointLaunchTypes";
 import {
 	addClaims,
 	claimsFor,
 	PREVIEW_AS_ME_WORKER,
+	PREVIEW_CLAIMS_LIMIT,
 	previewClaimsWorker,
 } from "../previewClaims";
 import { createBuilderSessionStore } from "../store";
@@ -78,6 +80,26 @@ describe("previewClaims reducer", () => {
 		const doctor = addClaims(nurse, APP, DOCTOR, ["b"]);
 		expect(claimsFor(doctor, APP, DOCTOR)).toEqual(["b"]);
 		expect(claimsFor(doctor, APP, NURSE)).toEqual([]);
+	});
+
+	it("keeps the most recent claims the server reads once the set is full", () => {
+		const ids = (from: number, count: number) =>
+			Array.from({ length: count }, (_, index) => `case-${from + index}`);
+		const full = addClaims(undefined, APP, NURSE, ids(0, PREVIEW_CLAIMS_LIMIT));
+		const past = addClaims(full, APP, NURSE, [
+			"case-0",
+			...ids(PREVIEW_CLAIMS_LIMIT, 2),
+		]);
+		const held = claimsFor(past, APP, NURSE);
+		expect(held).toEqual(ids(2, PREVIEW_CLAIMS_LIMIT));
+		expect(previewClaimedCaseIds([...held])).toEqual(held);
+		const burst = addClaims(
+			undefined,
+			APP,
+			NURSE,
+			ids(0, PREVIEW_CLAIMS_LIMIT + 5),
+		);
+		expect(claimsFor(burst, APP, NURSE)).toEqual(ids(5, PREVIEW_CLAIMS_LIMIT));
 	});
 
 	it("names the signed-in member's worker apart from every persona", () => {

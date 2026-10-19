@@ -23,6 +23,7 @@ import {
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import type { LookupScope } from "@/lib/lookup/types";
+import { PREVIEW_CLAIMS_LIMIT } from "@/lib/session/previewClaims";
 import { schemaHealingCaseStore } from "./caseDataBindingHelpers";
 import {
 	previewAsMe,
@@ -96,9 +97,6 @@ export type AuthorizedPreviewContext =
 export const PERSONA_UNAVAILABLE_MESSAGE =
 	"The selected preview persona is no longer available. Choose another worker and try again.";
 
-/** The most claims one Preview worker sends, the bound entry-point
- *  selections share. */
-export const PREVIEW_CLAIMS_LIMIT = 1000;
 const CASE_ID_MAX_LENGTH = 255;
 
 /**

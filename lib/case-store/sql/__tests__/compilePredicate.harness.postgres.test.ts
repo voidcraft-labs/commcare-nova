@@ -1559,7 +1559,7 @@ test("all six comparisons distinguish lower, equal and higher values", async ({
 	}
 });
 
-test("blank and empty equality are one absence check over absent, empty and JSON null, while a null literal matches nothing", async ({
+test("blank and empty equality are one absence check over absent, empty and JSON null, while a null literal matches nothing under any comparison", async ({
 	db,
 }) => {
 	await seedProperties(db, [
@@ -1576,6 +1576,10 @@ test("blank and empty equality are one absence check over absent, empty and JSON
 		[eq(name, literal("")), ["absent", "blank", "null"]],
 		[neq(name, literal("")), ["Alice", "Bob", "Carol"]],
 		[eq(name, literal(null)), []],
+		// "No value" is not a value any row differs from either.
+		[neq(name, literal(null)), []],
+		[neq(literal(null), name), []],
+		[gt(prop("patient", "age"), literal(null)), []],
 		[isIn(name, literal("Alice")), ["Alice"]],
 		[
 			isIn(name, literal("Alice"), literal("Bob"), literal(null)),

@@ -198,8 +198,9 @@ export function entrySessionData(
  * The entry's session once its submission has landed, what its after-submit
  * links read. The session does not change when the form closes, so every
  * datum keeps its value; a case the submission created gains the name it was
- * saved with. A registration's created case must be the one its entry minted:
- * anything else means the browser and the server derived different ids.
+ * saved with. A registration's datum holds the case the submission actually
+ * created: the id its entry minted, or, for a receipt replayed from before
+ * entries minted ids, the id that receipt saved.
  */
 export function afterSubmitSessionDatums(
 	entry: EntrySessionData | undefined,
@@ -214,21 +215,22 @@ export function afterSubmitSessionDatums(
 	registeredCaseId?: string,
 ): ReadonlyMap<string, SessionDatumValue> {
 	if (entry === undefined) return new Map();
-	if (
-		registeredCaseId !== undefined &&
-		entry.newCaseId !== undefined &&
-		entry.newCaseId !== registeredCaseId
-	)
-		throw new Error(
-			"The saved registration created a case with a different id than the form's session gave it. Both come from the entry key; check `entryCreatedCaseKeys` and `entrySessionData`.",
-		);
+	const minted = entry.newCaseId;
+	const created =
+		registeredCaseId !== undefined && minted !== undefined
+			? registeredCaseId
+			: undefined;
 	const names = new Map<string, string>();
 	if (submission.caseId !== undefined && submission.caseName !== undefined)
 		names.set(submission.caseId, submission.caseName);
 	for (const child of submission.childCases)
 		if (child.caseName !== undefined) names.set(child.caseId, child.caseName);
 	return new Map(
-		[...entry.values].map(([id, held]) => {
+		[...entry.values].map(([id, entryValue]) => {
+			const held =
+				created !== undefined && entryValue.value === minted
+					? { ...entryValue, value: created }
+					: entryValue;
 			const caseName = held.caseName ?? names.get(held.value);
 			return [id, caseName === undefined ? held : { ...held, caseName }];
 		}),

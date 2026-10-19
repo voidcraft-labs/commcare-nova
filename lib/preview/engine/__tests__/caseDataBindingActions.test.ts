@@ -2691,6 +2691,60 @@ describe("loadCasesAction", () => {
 		);
 	});
 
+	it.each([
+		{
+			read: "its browse list",
+			search: false,
+			reading: { filter: "casedb", columns: "casedb" },
+			population: "restoreScope",
+		},
+		{
+			read: "its search's Results",
+			search: true,
+			reading: { filter: "search", columns: "results" },
+			population: "searchPopulation",
+		},
+	] as const)(
+		"reads $read in a module with a Search action the way that read stands for",
+		async ({ search, reading, population }) => {
+			const { getSession } = await import("@/lib/auth-utils");
+			const { withProjectContext } = await import("@/lib/case-store");
+			vi.mocked(getSession).mockResolvedValueOnce({
+				user: { id: OWNER_A },
+			} as unknown as Awaited<ReturnType<typeof getSession>>);
+			const query = appCaseQuery([]);
+			vi.mocked(withProjectContext).mockResolvedValueOnce(
+				actionStore({ query }),
+			);
+
+			const { loadCasesAction } = await import("../caseDataBinding");
+			await loadCasesAction({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypes: [PATIENT_CASE_TYPE],
+				...caseListCandidate(
+					resolveCaseListConfig({
+						columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								testUuid("name-input"),
+								"name",
+								"Name",
+								"text",
+								"case_name",
+							),
+						],
+					}),
+				),
+				search,
+			});
+
+			const queryArg = appCaseQueryArg(query);
+			expect(queryArg?.reading).toEqual(reading);
+			expect(queryArg).toHaveProperty(population);
+		},
+	);
+
 	it("rejects an incomplete date-range request before querying matching cases", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
@@ -3136,6 +3190,77 @@ describe("loadCaseDataAction session projection", () => {
 		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
 		expect(queryArg?.bindings?.sessionUserFallback).toBe("");
 	});
+
+	it.each([
+		{
+			read: "from its browse list",
+			search: false,
+			reading: { filter: "casedb", columns: "casedb" },
+			population: "restoreScope",
+		},
+		{
+			read: "from its search's Results",
+			search: true,
+			reading: { filter: "search", columns: "results" },
+			population: "searchPopulation",
+		},
+	] as const)(
+		"reads a case chosen $read in a module with a Search action the way that read stands for",
+		async ({ search, reading, population }) => {
+			const { getSession } = await import("@/lib/auth-utils");
+			const { withProjectContext } = await import("@/lib/case-store");
+			vi.mocked(getSession).mockResolvedValueOnce({
+				user: { id: OWNER_A },
+			} as unknown as Awaited<ReturnType<typeof getSession>>);
+			const query = appCaseQuery([
+				{
+					...buildSyntheticRow({ name: "Alice" }),
+					case_id: ALICE_CASE_ID,
+					calculated: {},
+				},
+			]);
+			vi.mocked(withProjectContext).mockResolvedValueOnce(
+				actionStore({ query }),
+			);
+			const candidate = caseListCandidate(
+				resolveCaseListConfig({
+					columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+					searchInputs: [
+						simpleSearchInputDef(
+							testUuid("name-input"),
+							"name",
+							"Name",
+							"text",
+							"case_name",
+						),
+					],
+				}),
+			);
+
+			const { loadCaseDataAction } = await import("../caseDataBinding");
+			await loadCaseDataAction(
+				APP_ID,
+				"patient",
+				ALICE_CASE_ID,
+				0,
+				candidate.caseListConfig,
+				[PATIENT_CASE_TYPE],
+				undefined,
+				undefined,
+				undefined,
+				true,
+				undefined,
+				candidate.blueprint,
+				candidate.moduleUuid,
+				[],
+				search,
+			);
+
+			const queryArg = appCaseQueryArg(query);
+			expect(queryArg?.reading).toEqual(reading);
+			expect(queryArg).toHaveProperty(population);
+		},
+	);
 
 	it("refuses a Details calculation detached from its candidate module", async () => {
 		const { getSession } = await import("@/lib/auth-utils");

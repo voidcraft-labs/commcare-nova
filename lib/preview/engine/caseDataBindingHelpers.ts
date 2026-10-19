@@ -335,8 +335,9 @@ export async function readCases(
 	args: {
 		appId: string;
 		caseType: string;
-		/** What the read stands for: `caseQueryReadingFor` of its module
-		 *  (`lib/domain/expression/temporalType.ts`). */
+		/** What the read stands for (`lib/domain/expression/temporalType.ts`):
+		 *  a search's population reads `SEARCH_READING`, the worker's device
+		 *  `CASEDB_READING`, whatever else the module offers. */
 		reading: CaseQueryReading;
 		caseIds?: readonly string[];
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
@@ -1127,8 +1128,10 @@ export async function readCaseData(
 		appId: string;
 		caseType: string;
 		caseId: string;
-		/** What the case's row stands for: `caseQueryReadingFor` of the
-		 *  module it was chosen in (a Search's result is a results row). */
+		/** What the case's row stands for: a case chosen from a search's
+		 *  Results is a results row, one on the worker's device a casedb row,
+		 *  and the review dialog's tenant read follows its module
+		 *  (`caseQueryReadingFor`). */
 		reading: CaseQueryReading;
 		ancestorDepth: number;
 		/** Restrict this identity read to the selected nested-menu parents'

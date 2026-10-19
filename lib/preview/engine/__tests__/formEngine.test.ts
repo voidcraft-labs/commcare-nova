@@ -6606,6 +6606,109 @@ describe("FormEngine setvalue casts", () => {
 		expect(engine.getState("/data/visits").insertRefusal).toBeUndefined();
 	});
 
+	describe("a refused insert after the document changes", () => {
+		const visitsForm = (default_value: string) =>
+			dTree(
+				[
+					{
+						id: "visits",
+						kind: "repeat",
+						repeat_mode: "user_controlled",
+						children: [{ id: "n", kind: "int", default_value }],
+					},
+				],
+				"survey",
+			);
+		const refusedEngine = () => {
+			const engine = new FormEngine(visitsForm("concat('a', 'b')"));
+			expect(engine.addRepeat("/data/visits")).toBeUndefined();
+			expect(engine.getState("/data/visits").insertRefusal).toMatchObject({
+				value: "ab",
+			});
+			return engine;
+		};
+
+		it("clears when an edited starting value now casts", () => {
+			const engine = refusedEngine();
+			const fixed = visitsForm("4");
+			engine.rebuildDag(fixed);
+			engine.reevaluateDefault("/data/visits/n", fieldOf(fixed, "n"));
+			expect(engine.getState("/data/visits").insertRefusal).toBeUndefined();
+			expect(engine.getRepeatCount("/data/visits")).toBe(0);
+			expect(engine.addRepeat("/data/visits")).toBe(0);
+		});
+
+		it("names the new value when an edited starting value is still refused", () => {
+			const engine = refusedEngine();
+			const still = visitsForm("concat('c', 'd')");
+			engine.rebuildDag(still);
+			engine.reevaluateDefault("/data/visits/n", fieldOf(still, "n"));
+			expect(engine.getState("/data/visits").insertRefusal).toMatchObject({
+				value: "cd",
+			});
+			expect(engine.getRepeatCount("/data/visits")).toBe(0);
+		});
+
+		it("clears on a rebuild under a document whose insert now casts", () => {
+			const checkpoint = refusedEngine().entryCheckpoint();
+			const rebuilt = new FormEngine(
+				visitsForm("4"),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ restoredEntry: { checkpoint, preserveAllValues: true } },
+			);
+			expect(rebuilt.getState("/data/visits").insertRefusal).toBeUndefined();
+			expect(rebuilt.getRepeatCount("/data/visits")).toBe(0);
+		});
+
+		it("keeps the refusal on a rebuild whose insert is still refused", () => {
+			const checkpoint = refusedEngine().entryCheckpoint();
+			const rebuilt = new FormEngine(
+				visitsForm("concat('a', 'b')"),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ restoredEntry: { checkpoint, preserveAllValues: true } },
+			);
+			expect(rebuilt.getState("/data/visits").insertRefusal).toMatchObject({
+				value: "ab",
+			});
+			expect(rebuilt.getRepeatCount("/data/visits")).toBe(0);
+		});
+
+		it("clears on a worker rebuild whose insert now casts", async () => {
+			const checkpoint = refusedEngine().entryCheckpoint();
+			const rebuilt = new FormEngine(
+				visitsForm("4"),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					stagedAsync: true,
+					restoredEntry: { checkpoint, preserveAllValues: true },
+				},
+			);
+			const { evaluateAsync, runtime } = fixedWorldEvaluator(
+				rebuilt,
+				"refusal-rebuild",
+			);
+			try {
+				await rebuilt.initializeAsync(evaluateAsync);
+				expect(rebuilt.getState("/data/visits").insertRefusal).toBeUndefined();
+				expect(rebuilt.getRepeatCount("/data/visits")).toBe(0);
+			} finally {
+				runtime.dispose();
+			}
+		});
+	});
+
 	it("refuses an edited starting value and takes the next one that casts", () => {
 		const withDefault = (default_value: string) =>
 			dTree([{ id: "count", kind: "int", default_value }], "survey");

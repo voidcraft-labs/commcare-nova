@@ -16,6 +16,7 @@ import {
 	buildCaseOperationProgramFromDoc,
 	submissionEnvelopeArgs,
 } from "@/lib/preview/engine/caseDataBindingHelpers";
+import { entrySessionData } from "@/lib/preview/engine/entrySessionData";
 import { FormEngine } from "@/lib/preview/engine/formEngine";
 import { previewAsMe } from "@/lib/preview/engine/identity";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
@@ -103,6 +104,17 @@ it("offers only restored cases, includes relationship closure, and updates only 
 	).toEqual([CLINIC_A]);
 	const identity = previewAsMe({ id: "worker-a", name: "Worker" }, doc);
 	if (!identity) throw new Error("Expected a worker identity");
+	// The entry's session names the chosen clinic, which the checklist's
+	// `form-case` filter reads, as a device's does.
+	const session = entrySessionData(doc, choiceUuid("attendance"), {
+		appId,
+		entryKey: choiceUuid("submit"),
+		boundCases: [{ caseId: CLINIC_A }],
+		menuSelections: {},
+		caseDatabase: cases,
+		identity,
+	});
+	expect(session.data).toEqual({ case_id: CLINIC_A });
 	const engine = new FormEngine(
 		caseChoiceInput(doc, choiceUuid("attendance")),
 		"clinic",
@@ -110,6 +122,7 @@ it("offers only restored cases, includes relationship closure, and updates only 
 		identity,
 		undefined,
 		cases,
+		{ sessionData: session.data },
 	);
 	expect(engine.getState("/data/entry/attendees").choices).toHaveLength(30);
 	engine.setValue("/data/entry/attendees", `${memberId(0)} ${memberId(1)}`);

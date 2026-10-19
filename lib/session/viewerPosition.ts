@@ -63,13 +63,16 @@ export const INITIAL_VIEWER_POSITION: ViewerPositionState = Object.freeze({
 	moves: 0,
 });
 
-/** Whether a list that mounts starts watching on its own. A browser that was
- *  asked and has not answered, refused, or cannot share is not asked again
- *  unprompted; the list's note offers the way forward instead. */
+/**
+ * Whether a list that mounts starts watching on its own. A browser that
+ * refused or cannot share is not asked again unprompted; the list's note
+ * offers the way forward instead. An ask still waiting for its answer is
+ * watched again: the browser holds the one prompt it showed rather than
+ * showing another, and a list that went away while it was open (or mounted
+ * twice) needs a watch of its own to hear the answer.
+ */
 export function watchesOnMount(status: ViewerPositionStatus): boolean {
-	return (
-		status === "unasked" || status === "sharing" || status === "unavailable"
-	);
+	return status !== "refused" && status !== "unsupported";
 }
 
 /** A watch started: the browser has now been asked. */

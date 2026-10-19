@@ -126,28 +126,24 @@ const pad = (value: number, width: number): string =>
 	String(value).padStart(width, "0");
 
 /** `DateUtils.formatTimeISO8601(fields, true)`: the device's wall clock. */
-function wallTimeText(local: Date): string {
-	return `${pad(local.getHours(), 2)}:${pad(local.getMinutes(), 2)}:${pad(
-		local.getSeconds(),
+function wallTimeText(value: XPathDate): string {
+	const local = value.localFields();
+	return `${pad(local.hour, 2)}:${pad(local.minute, 2)}:${pad(
+		local.second,
 		2,
-	)}.${pad(local.getMilliseconds(), 3)}`;
+	)}.${pad(local.millisecond, 3)}`;
 }
 
 /**
  * `DateTimeData.uncast`: `DateUtils.formatDateTime(d, FORMAT_ISO8601)`, the
- * device's wall clock stamped with the offset in force at that day's local
- * midnight (`TimeZone.getOffset(era, y, m, d, dow, 0)`), which is not always
- * the offset of the instant itself.
+ * device's wall clock in Java's calendar fields (the year unpadded) stamped
+ * with the offset in force at that day's local midnight
+ * (`TimeZone.getOffset(era, y, m, d, dow, 0)`), which is not always the
+ * offset of the instant itself. The offset prints in whole minutes.
  */
 function coreDateTimeText(value: XPathDate): string {
-	const local = new Date(value.instant());
-	const midnight = new Date(
-		local.getFullYear(),
-		local.getMonth(),
-		local.getDate(),
-	);
-	midnight.setFullYear(local.getFullYear());
-	const offset = -midnight.getTimezoneOffset();
+	const midnight = XPathDate.fromCalendarDays(value.calendarDays).localFields();
+	const offset = Math.trunc(midnight.offsetMinutes);
 	const magnitude = Math.abs(offset);
 	const zone =
 		offset === 0
@@ -155,7 +151,7 @@ function coreDateTimeText(value: XPathDate): string {
 			: `${offset > 0 ? "+" : "-"}${pad(Math.floor(magnitude / 60), 2)}${
 					magnitude % 60 === 0 ? "" : `:${pad(magnitude % 60, 2)}`
 				}`;
-	return `${value.toISOString()}T${wallTimeText(local)}${zone}`;
+	return `${value.toISOString()}T${wallTimeText(value)}${zone}`;
 }
 
 const JAVA_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -176,23 +172,25 @@ const JAVA_MONTHS = [
 
 /**
  * `String.valueOf(java.util.Date)`: `EEE MMM dd HH:mm:ss zzz yyyy` in the
- * device's zone. The zone's short name comes from the browser's English
- * names, which match Java's for zones with a common abbreviation and spell
- * the rest as an offset.
+ * device's zone and calendar. The zone's short name comes from the browser's
+ * English names, which match Java's for zones with a common abbreviation and
+ * spell the rest as an offset.
  */
 function javaDateString(value: XPathDate): string {
-	const local = new Date(value.instant());
+	const local = value.localFields();
+	// A day beyond `Date`'s range takes the zone's name at the nearest edge.
+	const instant = Math.max(-8.64e15, Math.min(8.64e15, value.instant()));
 	const zone =
 		new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
-			.formatToParts(local)
+			.formatToParts(new Date(instant))
 			.find((part) => part.type === "timeZoneName")?.value ?? "GMT";
-	return `${JAVA_DAYS[local.getDay()]} ${JAVA_MONTHS[local.getMonth()]} ${pad(
-		local.getDate(),
+	return `${JAVA_DAYS[local.dayOfWeek]} ${JAVA_MONTHS[local.month - 1]} ${pad(
+		local.day,
 		2,
-	)} ${pad(local.getHours(), 2)}:${pad(local.getMinutes(), 2)}:${pad(
-		local.getSeconds(),
+	)} ${pad(local.hour, 2)}:${pad(local.minute, 2)}:${pad(
+		local.second,
 		2,
-	)} ${zone} ${local.getFullYear()}`;
+	)} ${zone} ${local.year}`;
 }
 
 /**
@@ -215,7 +213,7 @@ export function setvalueText(
 	// A Date: DateTimeData into a datetime node, TimeData into a time node,
 	// DateData (its local calendar date) into every other node.
 	if (type === "datetime") return coreDateTimeText(result);
-	if (type === "time") return wallTimeText(new Date(result.instant()));
+	if (type === "time") return wallTimeText(result);
 	return result.toISOString();
 }
 
@@ -226,12 +224,26 @@ export type AnswerCast =
 
 const REFUSED: AnswerCast = { ok: false };
 
-/** `Integer.parseInt`: Java's integer grammar over `int`'s range. */
-function castsToInt(text: string): boolean {
+/** `Integer.parseInt`: Java's integer grammar over `int`'s range, and the
+ * value `IntegerData` holds (never a negative zero). */
+function javaParseInt(text: string): number | undefined {
 	const normalized = normalizeJavaIntegerLexical(text);
-	if (normalized === undefined) return false;
+	if (normalized === undefined) return undefined;
 	const value = Number(normalized);
-	return value >= INT_MIN && value <= INT_MAX;
+	return value >= INT_MIN && value <= INT_MAX ? value + 0 : undefined;
+}
+
+/**
+ * The text a cast number is held as. Preview's instance reads a number
+ * node's text with `Number` (`dataInstance.ts::answerXPathValue`), which
+ * misses Java spellings Core accepts (another script's digits, a `d` or `f`
+ * suffix, a hexadecimal double) and reads `-0` as negative zero. Written
+ * text that reads as Core's value is kept as written; any other is replaced
+ * by Core's own held text, so form logic reads Core's number and the
+ * submission carries Core's text.
+ */
+function heldNumberText(text: string, value: number, coreText: string): string {
+	return Object.is(Number(text), value) ? text : coreText;
 }
 
 /**
@@ -255,8 +267,10 @@ function castsToGeopoint(text: string): boolean {
  * A date holds its normalized calendar date (`DateData`), and a date and
  * time the instant `DateUtils.parseDateTime` resolves, written as Nova's
  * canonical text in `zone` (`DateTimeData`). A time holds its written clock
- * in Nova's stored spelling (see the time arm). A whole number, a number and
- * a location keep the text as written once Core accepts it. A multiple choice
+ * in Nova's stored spelling (see the time arm). A whole number and a number
+ * keep the written text when Preview reads it as Core's value, else take
+ * Core's held text (`heldNumberText`). A location keeps the text as written
+ * once Core accepts it. A multiple choice
  * holds its tokens joined by single spaces (`SelectMultiData`). Text,
  * single choices and untyped nodes never refuse.
  *
@@ -279,10 +293,21 @@ export function castAnswerText(
 					.filter((token) => token !== "")
 					.join(" "),
 			};
-		case "int":
-			return castsToInt(text) ? { ok: true, text } : REFUSED;
-		case "decimal":
-			return parseJavaDouble(text) === undefined ? REFUSED : { ok: true, text };
+		case "int": {
+			const value = javaParseInt(text);
+			return value === undefined
+				? REFUSED
+				: { ok: true, text: heldNumberText(text, value, String(value)) };
+		}
+		case "decimal": {
+			const value = parseJavaDouble(text);
+			return value === undefined
+				? REFUSED
+				: {
+						ok: true,
+						text: heldNumberText(text, value, openJdk17DoubleToString(value)),
+					};
+		}
 		case "geopoint":
 			return castsToGeopoint(text) ? { ok: true, text } : REFUSED;
 		case "date": {

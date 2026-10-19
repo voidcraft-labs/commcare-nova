@@ -76,21 +76,22 @@ export function formatConcreteCommCareDate(
 }
 
 /** `DateUtils.format(Date, String)` reads `getFields(d)`: the local fields of
- * the instant Core's `Date` holds, and `%Z` from that instant's offset. A
- * date-only value is its local midnight, which a zone that skips midnight
- * shows as the first hour after the gap, as Core does. */
+ * the instant Core's `Date` holds, in Java's calendar (Julian before
+ * 1582-10-15, the year counted in its era), and `%Z` from that instant's
+ * offset. A date-only value is its local midnight, which a zone that skips
+ * midnight shows as the first hour after the gap, as Core does. */
 function dateFields(value: XPathDate): DateFields {
-	const instant = new Date(value.instant());
+	const fields = value.localFields();
 	return {
-		year: instant.getFullYear(),
-		month: instant.getMonth() + 1,
-		day: instant.getDate(),
-		hour: instant.getHours(),
-		minute: instant.getMinutes(),
-		second: instant.getSeconds(),
-		milliseconds: instant.getMilliseconds(),
-		dayOfWeek: instant.getDay(),
-		timezoneOffsetMinutes: -instant.getTimezoneOffset(),
+		year: fields.year,
+		month: fields.month,
+		day: fields.day,
+		hour: fields.hour,
+		minute: fields.minute,
+		second: fields.second,
+		milliseconds: fields.millisecond,
+		dayOfWeek: fields.dayOfWeek,
+		timezoneOffsetMinutes: fields.offsetMinutes,
 	};
 }
 
@@ -152,13 +153,16 @@ function pad(value: number, length: number): string {
  * compileTimezoneOffsetToken`) emits the same shape.
  */
 export function formatTimezoneOffset(offsetMinutes: number): string {
-	const hours = Math.trunc(offsetMinutes / 60);
+	// Core divides an offset in milliseconds by integer arithmetic, so a local
+	// mean time's seconds are truncated away.
+	const wholeMinutes = Math.trunc(offsetMinutes);
+	const hours = Math.trunc(wholeMinutes / 60);
 	const head =
 		hours > 0
 			? `+${pad(hours, 2)}`
 			: hours === 0
 				? "Z"
 				: `-${pad(Math.abs(hours), 2)}`;
-	const remainderMinutes = Math.abs(offsetMinutes) % 60;
+	const remainderMinutes = Math.abs(wholeMinutes) % 60;
 	return remainderMinutes === 0 ? head : `${head}:${pad(remainderMinutes, 2)}`;
 }

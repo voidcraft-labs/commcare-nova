@@ -47,8 +47,8 @@ export function toNumber(input: XPathRuntimeValue): number {
 /**
  * XPath 1.0 type coercion: value → string.
  *
- * XPathDate emits Core's local ISO date (`YYYY-MM-DD`); even `now()` loses its
- * time component under `FunctionUtils.toString(Date)`.
+ * XPathDate emits Core's local ISO date (`XPathDate.toISOString`); even `now()`
+ * loses its time component under `FunctionUtils.toString(Date)`.
  */
 
 export function xpathToString(input: XPathRuntimeValue): string {

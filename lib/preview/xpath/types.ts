@@ -1,5 +1,10 @@
 import {
 	coreDaysSinceEpoch,
+	isCoreCalendarDate,
+	type JavaLocalFields,
+	javaCalendarDate,
+	javaCalendarDays,
+	javaLocalFields,
 	javaWallInstant,
 	localCalendarDays,
 	localMidnight,
@@ -18,8 +23,10 @@ import type {
  * XPath date value, a first-class type in CommCare's XPath variant: Core's
  * `java.util.Date`, an instant, with the views Core takes of it.
  *
- * `calendarDays` is the local calendar date (in this realm's zone, read when
- * the value is built) as days since 1970-01-01, which `toISOString` prints as
+ * `calendarDays` is the local calendar day (in this realm's zone, read when
+ * the value is built) as days since 1970-01-01, one per solar day whatever
+ * the calendar; its fields are Java's (`coreDays.ts::javaCalendarDate`,
+ * Julian before 1582-10-15), which `toISOString` prints as
  * `FunctionUtils.toString(Date)` does. `timeMilliseconds` is the held instant
  * when the value has a clock (`now()`, a datetime answer, parsed datetime
  * text); a date-only value stands for its local midnight, as Core's rounded
@@ -87,17 +94,18 @@ export class XPathDate {
 
 		const time = parseJavaRosaTimeFields(s.slice(separator + 1), date);
 		if (time === null) return null;
-		return XPathDate.fromInstant(
-			javaWallInstant({
-				year: date.year,
-				monthIndex: date.monthIndex,
-				day: date.day,
-				hour: time.hour,
-				minute: time.minute,
-				second: time.second,
-				millisecond: time.milliseconds,
-			}),
-		);
+		const instant = javaWallInstant({
+			year: date.year,
+			monthIndex: date.monthIndex,
+			day: date.day,
+			hour: time.hour,
+			minute: time.minute,
+			second: time.second,
+			millisecond: time.milliseconds,
+		});
+		// A clock beyond `Date`'s range (about ±273,790 years) has no instant
+		// Preview can hold.
+		return Number.isFinite(instant) ? XPathDate.fromInstant(instant) : null;
 	}
 
 	/**
@@ -107,7 +115,9 @@ export class XPathDate {
 	 * the offset of its own instant. No wall clock is re-resolved, so an
 	 * answer in a repeated hour keeps the occurrence it was entered at. Text
 	 * without an offset, and date-only text, read as Core's cast reads them
-	 * (`parse`).
+	 * (`parse`). The fields are proleptic Gregorian, as
+	 * `lib/domain/temporalValues.ts::instantDatetimeValue` writes them, so the
+	 * two round-trip every instant.
 	 */
 	static parseExactInstant(s: string): XPathDate | null {
 		const exact = EXACT_INSTANT_TEXT.exec(s);
@@ -145,15 +155,22 @@ export class XPathDate {
 		return XPathDate.fromCalendarDays(this.calendarDays);
 	}
 
-	/** XPath string coercion for a Date is always the local YYYY-MM-DD date.
-	 * Core's `FunctionUtils.toString(Date)` deliberately discards time. */
+	/** XPath string coercion of a Date, `FunctionUtils.toString(Date)`
+	 * (`DateUtils.formatDate(d, FORMAT_ISO8601)`): the local date in Java's
+	 * fields, the year unpadded (year 21 prints `21-06-15`), the time
+	 * discarded. `DateData.uncast` writes the same text. */
 	toISOString(): string {
-		const d = new Date(this.calendarDays * 86_400_000);
-		const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-		const day = String(d.getUTCDate()).padStart(2, "0");
-		return `${d.getUTCFullYear()}-${m}-${day}`;
+		const { year, month, day } = javaCalendarDate(this.calendarDays);
+		return `${year}-${pad2(month)}-${pad2(day)}`;
+	}
+
+	/** `DateUtils.getFields` of this value in the realm's zone. */
+	localFields(): JavaLocalFields {
+		return javaLocalFields(this.calendarDays, this.timeMilliseconds);
 	}
 }
+
+const pad2 = (value: number): string => String(value).padStart(2, "0");
 
 /** `YYYY-MM-DDTHH:MM[:SS[.fff]]` with a `Z` or `±HH[:MM]` designator. */
 const EXACT_INSTANT_TEXT =
@@ -223,8 +240,6 @@ export interface EvalContext {
 
 // ── Internal helpers ────────────────────────────────────────────────
 
-const MS_PER_DAY = 86_400_000;
-
 interface ParsedDateFields {
 	readonly year: number;
 	readonly monthIndex: number;
@@ -258,26 +273,14 @@ function parseJavaRosaDateFields(value: string): ParsedDateFields | null {
 	const month = parseJavaInteger(pieces[1] ?? "");
 	const day = parseJavaInteger(pieces[2] ?? "");
 	if (year === null || month === null || day === null) return null;
-
-	// Validate via UTC fields so daylight-saving transitions cannot normalize
-	// an otherwise valid calendar date. setUTCFullYear avoids JS's 1900 remap
-	// for years 0000-0099.
-	const date = new Date(0);
-	date.setUTCHours(0, 0, 0, 0);
-	date.setUTCFullYear(year, month - 1, day);
-	if (
-		Number.isNaN(date.getTime()) ||
-		date.getUTCFullYear() !== year ||
-		date.getUTCMonth() !== month - 1 ||
-		date.getUTCDate() !== day
-	) {
-		return null;
-	}
+	// `DateFields.check` validates proleptic Gregorian fields; the day is then
+	// the one `GregorianCalendar` gives them, Julian before its cutover.
+	if (!isCoreCalendarDate(year, month, day)) return null;
 	return {
 		year,
 		monthIndex: month - 1,
 		day,
-		days: Math.round(date.getTime() / MS_PER_DAY),
+		days: javaCalendarDays(year, month, day),
 	};
 }
 

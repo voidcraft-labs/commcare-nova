@@ -194,6 +194,7 @@ import {
 } from "@/lib/preview/runtimeMessages";
 import {
 	claimableCaseIds,
+	deviceCasesHoldingClaims,
 	parentSelectClaimChoices,
 	previewCaseChoiceOf,
 } from "@/lib/preview/searchClaims";
@@ -237,6 +238,7 @@ const EMPTY_SEARCH_INPUT_VALUES: ReadonlyMap<string, string> = new Map();
 /** Stable empty catalog slice: a fresh `[]` per render would defeat the
  *  display context's memo. */
 const NO_CASE_PROPERTIES: readonly CaseProperty[] = [];
+const NO_CLAIMED_CASES: readonly string[] = [];
 
 interface CaseListScreenProps {
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
@@ -370,12 +372,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const config = mod?.caseListConfig;
 	const canonicalConfig = menuSource.doc.modules[moduleUuid]?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
-	const columnDisplayContext = useColumnDisplayContext(
-		config,
-		mod?.caseType,
-		caseType?.properties ?? NO_CASE_PROPERTIES,
-		{ doc: menuSource.doc, moduleUuid },
-	);
 	const projectProse = useProseProjection();
 	const { signIn } = useAuth();
 	/* Whoever Preview is running as: the member, or the persona they
@@ -413,9 +409,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * (a case-first module's form menu renders after selection). The
 	 * decided list drives the auto-continue AND the post-selection menu,
 	 * so a false condition suppresses both. Edit-mode canvases never
-	 * reach this running-app pane, so no edit gate is needed here. */
+	 * reach this running-app pane, so no edit gate is needed here. A case
+	 * the choice just claimed is read once the device holds it: until then a
+	 * condition that reads the device's cases is still loading. */
 	const decideCaseLoadingForms = useCallback(
-		(row: CaseRowWithCalculated) =>
+		(
+			row: CaseRowWithCalculated,
+			claimedCaseIds: readonly string[] = NO_CLAIMED_CASES,
+		) =>
 			caseLoadingForms.map((form) => ({
 				form,
 				visibility: formDisplayVisibility({
@@ -433,7 +434,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						form.uuid,
 						row.case_id,
 					),
-					deviceCases: navigationDeviceCases,
+					deviceCases: deviceCasesHoldingClaims(
+						navigationDeviceCases,
+						claimedCaseIds,
+					),
 					lookup: lookupStatus,
 				}),
 			})),
@@ -956,9 +960,27 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	/* A search action's claim is its remote request's own post, posted as
 	 * soon as a result is chosen; a search-first module posts at the form. */
 	const claimsAtResult = !searchFirst && readsSearchResults;
+	/* Results and the Details opened from them are HQ's results rows; a
+	 * browse list is the device's own cases. */
+	const columnDisplayContext = useColumnDisplayContext(
+		config,
+		mod?.caseType,
+		caseType?.properties ?? NO_CASE_PROPERTIES,
+		{
+			doc: menuSource.doc,
+			moduleUuid,
+			reading: readsSearchResults ? "results" : "casedb",
+		},
+	);
 	const addPreviewClaims = useAddPreviewClaims();
 	const claimChoices = (choices: readonly PreviewCaseChoice[]) =>
 		addPreviewClaims(claimableCaseIds(choices));
+	/* The cases choosing this row claims at the result: none in a module
+	 * whose claim waits for the form. */
+	const claimedAtResult = (row: CaseRowWithCalculated) =>
+		claimsAtResult
+			? claimableCaseIds([previewCaseChoiceOf(row)])
+			: NO_CLAIMED_CASES;
 	const {
 		state,
 		fetching,
@@ -986,7 +1008,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		caseTypes,
 		parentCase: parentCaseConstraint,
 		page: casePage,
-		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
+		/* What the worker owns is the list's identity; its claims re-read the
+		 * list inside `useCases` and keep the settled rows on screen. */
+		requestScopeKey: `${stateScopeKey}\u0000${ownedRestoreScopeKey}`,
 		search: readsSearchResults,
 	});
 	/* Results that show a column reading `here()` watch the viewer's
@@ -1231,6 +1255,34 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			: null;
 	const displayedFormMenuCase =
 		stateBelongsToModule && !routeDrivenExit ? formMenuCase : null;
+	/* A choice whose claim had not reached the device lands on the form menu
+	 * with its device-reading conditions still loading. Once the device holds
+	 * the claimed case, the menu decides, and continues on its own into the
+	 * one form it leaves, as the choice would have done had the case been
+	 * held already. Back, or another choice, ends the wait. */
+	const [autoContinueCaseId, setAutoContinueCaseId] = useState<string | null>(
+		null,
+	);
+	const openFormAfterClaimRef = useRef<
+		((formUuid: Uuid, row: CaseRowWithCalculated) => void) | undefined
+	>(undefined);
+	useEffect(() => {
+		if (autoContinueCaseId === null) return;
+		if (displayedFormMenuCase?.case_id !== autoContinueCaseId) {
+			setAutoContinueCaseId(null);
+			return;
+		}
+		const decided = decideCaseLoadingForms(
+			displayedFormMenuCase,
+			claimedAtResult(displayedFormMenuCase),
+		);
+		if (decided.some((entry) => entry.visibility === "pending")) return;
+		setAutoContinueCaseId(null);
+		const automaticForm =
+			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
+		if (automaticForm !== undefined)
+			openFormAfterClaimRef.current?.(automaticForm, displayedFormMenuCase);
+	});
 	/* Mirror the URL-backed or local selection into session so the sibling
 	 * breadcrumb names the same record the screen is actually showing. */
 	const selectedCase = stateBelongsToModule
@@ -1564,6 +1616,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	};
 	const openFormWithCase = (formUuid: Uuid, row: CaseRowWithCalculated) =>
 		openFormWithCases(formUuid, [previewCaseChoiceOf(row)]);
+	openFormAfterClaimRef.current = openFormWithCase;
 
 	const continueAfterMenuSelection = (
 		cases: readonly (PreviewCaseChoice & {
@@ -1664,7 +1717,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * case-first → the single case-loading form, or the form menu when there
 	 * are several. */
 	const proceedWithCase = (row: CaseRowWithCalculated) => {
-		if (claimsAtResult) claimChoices([previewCaseChoiceOf(row)]);
+		const claimed = claimedAtResult(row);
+		addPreviewClaims(claimed);
 		if (selectsForMenu && moduleUuid && mod.caseType) {
 			continueAfterMenuSelection([
 				{
@@ -1674,9 +1728,13 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			]);
 			return;
 		}
-		const decided = decideCaseLoadingForms(row);
-		const automaticForm =
-			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
+		const decided = decideCaseLoadingForms(row, claimed);
+		const awaitingClaim =
+			claimed.length > 0 &&
+			decided.some((entry) => entry.visibility === "pending");
+		const automaticForm = awaitingClaim
+			? undefined
+			: (retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid));
 		if (automaticForm !== undefined) {
 			openFormWithCase(automaticForm, row);
 		} else if (decided.length > 0) {
@@ -1684,6 +1742,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			 * eligible at all land on the menu: it renders placeholders and
 			 * the hidden-items reveal honestly. */
 			setFormMenuCase(row);
+			setAutoContinueCaseId(awaitingClaim ? row.case_id : null);
 			focusNextFrame(() => formMenuBackRef.current);
 		}
 	};
@@ -2080,7 +2139,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const formMenuDecided =
 		displayedFormMenuCase === null
 			? []
-			: decideCaseLoadingForms(displayedFormMenuCase);
+			: decideCaseLoadingForms(
+					displayedFormMenuCase,
+					claimedAtResult(displayedFormMenuCase),
+				);
 	const formMenuHidden = formMenuDecided
 		.filter((entry) => entry.visibility === "hidden")
 		.map((entry) => ({

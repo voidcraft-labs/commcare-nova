@@ -19,6 +19,7 @@
 // (`buildInlineClaimPost`'s `parentSelect`).
 
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { NavigationDeviceCases } from "@/lib/preview/engine/displayConditionEvaluation";
 import type {
 	PreviewCaseChoice,
 	PreviewMenuCaseSelection,
@@ -66,4 +67,24 @@ export function parentSelectClaimChoices(
 		current = doc.modules[current]?.parentCaseModuleUuid;
 	}
 	return choices;
+}
+
+/**
+ * The device cases a decision made right after a claim reads. A claim posted
+ * at the chosen result syncs before the form menu shows, so the menu's
+ * conditions read a device that holds the claimed cases. Until the snapshot
+ * holds every one of them, this reads as still loading, and each condition
+ * that reads the device's cases waits (`pending`) rather than reading a
+ * claimed case as missing.
+ */
+export function deviceCasesHoldingClaims(
+	deviceCases: NavigationDeviceCases,
+	claimedCaseIds: readonly string[],
+): NavigationDeviceCases {
+	const snapshot = deviceCases.snapshot;
+	if (snapshot === null || claimedCaseIds.length === 0) return deviceCases;
+	const held = new Set(snapshot.rows.map((row) => row.case_id));
+	return claimedCaseIds.every((caseId) => held.has(caseId))
+		? deviceCases
+		: { snapshot: null, caseTypes: deviceCases.caseTypes };
 }

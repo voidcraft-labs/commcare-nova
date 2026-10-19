@@ -58,7 +58,10 @@ the columns half, the filter under the filter half.
 Under `casedb`, `date_opened` and `last_modified` read as the date of
 `timezone(viewerTimeZone, stored_timestamp)`, Core's casedb `DateData`. Under
 `results`, `date_opened` is the UTC calendar date of `opened_on` (HQ's
-`json_format_date`) and `last_modified` its instant. Under `search`, both are
+`json_format_date`) and `last_modified` its instant, whose text (a sort key,
+an interval column's key) is HQ's `json_format_datetime` built at UTC
+(`compileExpression.ts::compileReadingText`), never the session-zoned
+`timestamptz` cast. Under `search`, both are
 the stored instants, and `closed_on` is readable only there
 (`compileTerm.ts::reservedColumnFor`). The reading follows self, parent and
 nested predicate reads, and it decides how a number becomes a date ("Day
@@ -115,6 +118,9 @@ operands read per row that both read as device text are also equal when both
 are blank, as `'' = ''` is on a device; numbers and temporal values are not,
 because a device compares a blank number as `NaN` and the instant lowering reads
 a blank as no instant. An ordering against a decided blank comparand is false.
+A literal `null`, the AST's "no value", is decided and never blank: every
+comparison with it, `!=` included, matches nothing, decided in JavaScript
+before the two-valued negation could turn its unknown into a match.
 `is-blank` is `coalesce(text, '') = ''`, so absent, JSON `null` and empty text
 all read blank.
 

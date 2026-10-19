@@ -44,7 +44,7 @@ import {
 	enterAppTestMenu,
 	selectAppTestRecords,
 } from "./navigation";
-import { appTestRecords, recordsReadSearch } from "./records";
+import { appTestRecords, recordsReadSearch, searchedReading } from "./records";
 import { submitAppTest } from "./submission";
 import type {
 	AppTestAction,
@@ -150,7 +150,12 @@ async function observeScreen(
 			);
 			if (!mod) throw new AppTestActionError("This menu is unavailable.");
 			const registration = read.registration;
-			const cells = appTestCellProjector(context, screen.moduleUuid, "list");
+			const cells = appTestCellProjector(
+				context,
+				screen.moduleUuid,
+				"list",
+				searchedReading(read.searched),
+			);
 			return {
 				state: read.state,
 				observation: {

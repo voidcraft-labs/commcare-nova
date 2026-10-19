@@ -143,6 +143,22 @@ describe("XPath worker runtime", () => {
 		}
 	});
 
+	it("carries a date past JavaScript's Date range back from the worker", async () => {
+		// Core accepts any int day number; Preview's day arithmetic is integral,
+		// so the worker's reply names the day rather than throwing at the seam.
+		const runtime = ownedRuntime({
+			workerFactory: createInProcessXPathWorkerFactory(),
+		});
+		const reply = await runtime.request(request({ source: "date(200000000)" }));
+		expect(reply).toMatchObject({
+			ok: true,
+			value: { kind: "date", timeMilliseconds: null },
+		});
+		const value = reply.ok ? deserializeXPathWorkerValue(reply.value) : null;
+		expect(value).toBeInstanceOf(XPathDate);
+		expect((value as XPathDate).coreDays).toBe(200_000_000);
+	});
+
 	it("detects async functions from the parsed AST without substring guesses", () => {
 		expect(
 			asyncXPathWorkerFunctions(
