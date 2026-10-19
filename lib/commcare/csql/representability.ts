@@ -20,6 +20,7 @@ import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { fixedDatePattern } from "@/lib/domain/expression/datePattern";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { mapExpressionChildren } from "@/lib/domain/expression/mapAst";
+import { isServerSearchValue } from "@/lib/domain/expression/searchRuntimeValues";
 import type {
 	ComparisonKind,
 	Expression,
@@ -30,13 +31,12 @@ import {
 	SYSTEM_DATETIME_CASE_PROPERTIES,
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain/standardCaseProperties";
-import { isNativeCsqlValueExpression } from "../expression/csqlCapabilities";
-import { materializeCsqlChoices } from "../expression/csqlChoices";
+import { materializeCsqlChoices } from "./choices";
+import { isCsqlStringLiteralRepresentable } from "./print";
 import {
 	isRepresentableCalendarDateAddQuantity,
 	isRepresentableSubcaseCountBound,
 } from "./runtimeCsqlNumericSafety";
-import { isCsqlStringLiteralRepresentable } from "./stringQuoting";
 
 export type CsqlRepresentabilityReason =
 	| "comparison-needs-case-property"
@@ -550,8 +550,7 @@ function checkRuntimeValue(
 		checkRuntimePredicate(expression, path, issues);
 		return;
 	}
-	const nativeCsql =
-		dialect === "csql" && isNativeCsqlValueExpression(expression);
+	const nativeCsql = dialect === "csql" && isServerSearchValue(expression);
 	if (
 		dialect === "csql" &&
 		!nativeCsql &&

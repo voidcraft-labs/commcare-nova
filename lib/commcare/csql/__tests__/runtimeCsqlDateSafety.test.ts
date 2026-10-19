@@ -26,7 +26,7 @@ import {
 	searchInputInstance,
 	sessionInstance,
 } from "../../xpath/wire/instances";
-import { emitCsql } from "../csqlEmitter";
+import { emitCsql } from "../emitter";
 
 const worker = testUuid("worker-property");
 const day = testUuid("day");

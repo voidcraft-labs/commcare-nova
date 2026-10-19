@@ -120,7 +120,7 @@ because a device compares a blank number as `NaN` and the instant lowering reads
 a blank as no instant. An ordering against a decided blank comparand is false.
 A literal `null` is a decided blank comparand, the same as `''`: the device's
 wire (`lib/commcare/xpath/wire/fromExpression.ts::wireLiteral`) and a CSQL
-search (`lib/commcare/predicate/termEmitter.ts`) both print it as `''`, so
+search (`lib/commcare/csql/termEmitter.ts`) both print it as `''`, so
 `p = null` is the absence check of `p`, `p != null` its two-valued negation,
 an ordering against it is false, and an `in` member that is `null` keeps the
 cases that lack the property.

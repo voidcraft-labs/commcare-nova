@@ -1,7 +1,7 @@
 import {
 	GEOPOINT_CENTER_PATTERN,
 	GEOPOINT_RAW_CENTER_PATTERN,
-} from "../../predicate/geopoint";
+} from "@/lib/domain/expression/geopoint";
 import { w } from "./builders";
 import type { WireExpr } from "./tree";
 

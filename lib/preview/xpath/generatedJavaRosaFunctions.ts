@@ -1,7 +1,7 @@
 import {
 	GEOPOINT_CENTER_PATTERN,
 	GEOPOINT_RAW_CENTER_PATTERN,
-} from "@/lib/commcare/predicate/geopoint";
+} from "@/lib/domain/expression/geopoint";
 import { xpathToString } from "./coerce";
 import type { XPathFunctionInvocation, XPathValue } from "./types";
 

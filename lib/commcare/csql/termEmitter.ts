@@ -1,5 +1,6 @@
 // CSQL leaves and runtime interpolation. Device lowering lives in xpath/wire.
 import { choiceValue } from "@/lib/domain/expression/choiceValue";
+import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
 import type {
 	PropertyRef,
 	RelationStep,
@@ -10,14 +11,17 @@ import type {
 } from "@/lib/domain/expression/types";
 import type { Uuid } from "@/lib/domain/uuid";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
-import type { CsqlEmissionContext } from "../expression/csqlRuntimeExpression";
 import { w } from "../xpath/wire/builders";
 import type { SearchInputInstanceId } from "../xpath/wire/fromExpression";
 import { toWire } from "../xpath/wire/fromExpression";
-import { searchInputInstance } from "../xpath/wire/instances";
+import {
+	STANDALONE_SEARCH_INPUT_INSTANCE_ID,
+	searchInputInstance,
+} from "../xpath/wire/instances";
 import type { WireExpr } from "../xpath/wire/tree";
-import type { CsqlSegment } from "./csqlSegment";
-import { formatNumeric, quoteLiteral } from "./stringQuoting";
+import { quoteLiteral } from "./print";
+import type { CsqlEmissionContext } from "./runtimeExpression";
+import type { CsqlSegment } from "./segment";
 export type ConstantTermEmission = {
 	readonly kind: "constant";
 	readonly text: string;
@@ -205,9 +209,6 @@ export function emitSearchInputXPath(
 		],
 	);
 }
-
-/** The answer instance of a standalone `<remote-request>` search. */
-export const STANDALONE_SEARCH_INPUT_INSTANCE_ID = "search-input:results";
 
 function resolveSearchInputName(
 	t: SearchInputRef,

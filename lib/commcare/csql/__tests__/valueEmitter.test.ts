@@ -46,7 +46,7 @@ import { compileCcz } from "../../compiler";
 import { expandDoc } from "../../expander";
 import { w } from "../../xpath/wire/builders";
 import { searchInputInstance } from "../../xpath/wire/instances";
-import { emitCsqlExpressionSegments } from "../csqlEmitter";
+import { emitCsqlExpressionSegments } from "../valueEmitter";
 
 // These checks own the private segment IR. Native execution consumes complete
 // accepted exports in CsqlFunctionRuntimeTest and the HQ Search payload proof.

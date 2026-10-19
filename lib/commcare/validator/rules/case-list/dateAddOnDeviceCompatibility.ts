@@ -28,11 +28,11 @@
  * `<prompt default>` is evaluated on-device.
  */
 
+import { walkCsqlOnDeviceNodes } from "@/lib/commcare/csql/runtimeWalk";
 import {
 	findOnDeviceDateAddIssue,
 	type OnDeviceDateAddIssue,
-} from "@/lib/commcare/expression/onDeviceCompatibility";
-import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk";
+} from "@/lib/commcare/validator/onDeviceCompatibility";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";

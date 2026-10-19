@@ -59,7 +59,7 @@ import { csqlFixtureContext } from "../../__tests__/csqlFunctionFixture";
 import {
 	checkCsqlRepresentability,
 	normalizeCsqlPredicate,
-} from "../csqlRepresentability";
+} from "../representability";
 
 const field = (name: string) => prop("patient", name);
 const query = input(testUuid("query"));

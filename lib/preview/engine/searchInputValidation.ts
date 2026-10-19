@@ -164,7 +164,7 @@ export function searchInputRuntimeGlobalError(
  * Whether the exported search finds nothing for this state with no message:
  * a blank value compared where CommCare's search cannot compare one, which
  * the exported `_xpath_query` wrapper answers with `match-none()`
- * (`lib/commcare/predicate/runtimeCsqlDateSafety.ts`). Preview answers the
+ * (`lib/commcare/csql/runtimeCsqlDateSafety.ts`). Preview answers the
  * search with no rows, before it reaches the case store.
  */
 export function searchFindsNothing(

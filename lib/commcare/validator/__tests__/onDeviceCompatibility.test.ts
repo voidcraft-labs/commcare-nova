@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	findOnDeviceDateAddIssue,
 	findOnDeviceDateAddIssueInPredicate,
-} from "@/lib/commcare/expression/onDeviceCompatibility";
+} from "@/lib/commcare/validator/onDeviceCompatibility";
 import {
 	checkExpression,
 	dateAdd,

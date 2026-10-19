@@ -1,5 +1,5 @@
 import { decodeHTML } from "entities";
-import { formatNumeric } from "../../predicate/stringQuoting";
+import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
 import { keyAsVariable } from "../../suite/case-list/keyVariable";
 import { w } from "./builders";
 import { InstanceSink } from "./instances";

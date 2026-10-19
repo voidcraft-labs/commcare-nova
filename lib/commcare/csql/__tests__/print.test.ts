@@ -1,8 +1,5 @@
 import { expect, it } from "vitest";
-import {
-	isCsqlStringLiteralRepresentable,
-	quoteLiteral,
-} from "../stringQuoting";
+import { isCsqlStringLiteralRepresentable, quoteLiteral } from "../print";
 
 it.each([
 	["", "''"],

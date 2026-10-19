@@ -99,7 +99,7 @@ def _expected_navigation(scenario, supplied, query):
         return {"match_all": {}}
     if supplied == "blank":
         # A present, blank answer to an ordered bound: Nova's guard sends match-none() in place of the range HQ
-        # would refuse (``lib/commcare/predicate/runtimeCsqlDateSafety.ts``).
+        # would refuse (``lib/commcare/csql/runtimeCsqlDateSafety.ts``).
         assert scenario == "day-range" and query == "match-none()", (scenario, query)
         return {"match_none": {}}
     if scenario == "date-add":

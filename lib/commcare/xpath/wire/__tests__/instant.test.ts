@@ -7,7 +7,7 @@ import {
 	instantOrderingPairs,
 	instantSpellings,
 } from "@/lib/commcare/__tests__/instantOrderingTable";
-import { emitCsql } from "@/lib/commcare/predicate/csqlEmitter";
+import { emitCsql } from "@/lib/commcare/csql/emitter";
 import { datetimeCaseValueExpression } from "@/lib/commcare/xform/datetimeCaseValue";
 import {
 	between,

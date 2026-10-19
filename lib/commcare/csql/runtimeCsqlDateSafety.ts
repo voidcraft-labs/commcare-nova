@@ -20,7 +20,7 @@ import { SYSTEM_DATETIME_CASE_PROPERTIES } from "@/lib/domain/standardCaseProper
 import { w } from "../xpath/wire/builders";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
-import type { CsqlSegment } from "./csqlSegment";
+import type { CsqlSegment } from "./segment";
 
 /**
  * Whether a comparison of `anchor` with a runtime value can reach HQ with a

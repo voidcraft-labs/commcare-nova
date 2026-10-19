@@ -1,10 +1,10 @@
 /** Target limitations over the exact slot context and canonical expression edges. */
+
+import { walkCsqlOnDeviceNodes } from "@/lib/commcare/csql/runtimeWalk";
 import {
 	findOnDeviceScalarExpressionIssue,
 	walkOnDeviceExpression,
-} from "@/lib/commcare/expression/onDeviceCompatibility";
-import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk";
-import { isValidStaticGeopointCenter } from "@/lib/commcare/predicate/geopoint";
+} from "@/lib/commcare/validator/onDeviceCompatibility";
 import {
 	descendOnDeviceCaseAnchor,
 	type OnDeviceCaseAnchor,
@@ -22,6 +22,7 @@ import {
 	slotContext,
 	walkExpressionNodes,
 } from "@/lib/domain/expression";
+import { isValidStaticGeopointCenter } from "@/lib/domain/expression/geopoint";
 import {
 	canonicalizeRelationPath,
 	normalizeRelationEvaluationScopes,

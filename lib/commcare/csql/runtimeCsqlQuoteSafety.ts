@@ -14,9 +14,9 @@ import { isConditionArm } from "@/lib/domain/expression/types";
  */
 
 import type { Uuid } from "@/lib/domain";
+import { isServerSearchValue } from "@/lib/domain/expression/searchRuntimeValues";
 import type { Expression } from "@/lib/domain/expression/types";
-import { isNativeCsqlValueExpression } from "../expression/csqlCapabilities";
-import { normalizeCsqlPredicate } from "./csqlRepresentability";
+import { normalizeCsqlPredicate } from "./representability";
 
 type OperandPosition = "comparison-operand" | "value";
 
@@ -170,7 +170,7 @@ function collectServerOperandRuntimeStringInputs(
 		return;
 	}
 
-	if (!isNativeCsqlValueExpression(expression)) {
+	if (!isServerSearchValue(expression)) {
 		collectOnDeviceOutputTaint(expression, names);
 		return;
 	}

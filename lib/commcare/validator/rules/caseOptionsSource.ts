@@ -1,7 +1,7 @@
 import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
-import { findOnDeviceDateAddIssueInPredicate } from "@/lib/commcare/expression/onDeviceCompatibility";
+import { matchModeRunsOnDevice } from "@/lib/commcare/csql/matchModes";
 import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
+import { findOnDeviceDateAddIssueInPredicate } from "@/lib/commcare/validator/onDeviceCompatibility";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";

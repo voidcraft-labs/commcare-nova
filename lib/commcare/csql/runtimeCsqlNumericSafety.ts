@@ -1,15 +1,17 @@
 import type { SearchInputDecl } from "@/lib/domain/expression/context";
+import { isServerSearchValue } from "@/lib/domain/expression/searchRuntimeValues";
 import { isConditionArm } from "@/lib/domain/expression/types";
-import { isNativeCsqlValueExpression } from "../expression/csqlCapabilities";
 /** Numeric constraints imposed by CCHQ's server-side case-search parser. */
 
 import type { Uuid } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { w } from "../xpath/wire/builders";
 import type { SearchInputInstanceId } from "../xpath/wire/fromExpression";
-import { searchInputInstance } from "../xpath/wire/instances";
+import {
+	STANDALONE_SEARCH_INPUT_INSTANCE_ID,
+	searchInputInstance,
+} from "../xpath/wire/instances";
 import type { WireExpr } from "../xpath/wire/tree";
-import { STANDALONE_SEARCH_INPUT_INSTANCE_ID } from "./termEmitter";
 
 export type RuntimeCsqlNumericConstraint =
 	| "whole-number"
@@ -236,7 +238,7 @@ function walkRuntimeValue(
 	knownInputs: readonly SearchInputDecl[],
 ): void {
 	const childDialect: RuntimeDialect =
-		dialect === "csql" && isNativeCsqlValueExpression(expression)
+		dialect === "csql" && isServerSearchValue(expression)
 			? "csql"
 			: "on-device";
 	switch (expression.kind) {

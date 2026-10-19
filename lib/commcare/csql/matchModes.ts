@@ -1,4 +1,4 @@
-// lib/commcare/predicate/matchModes.ts
+// lib/commcare/csql/matchModes.ts
 //
 // Which of the four match modes a device can actually evaluate.
 //

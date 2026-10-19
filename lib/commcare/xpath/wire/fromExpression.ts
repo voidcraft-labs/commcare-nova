@@ -11,6 +11,7 @@ import {
 	pushRowScope,
 } from "@/lib/domain/expression/context";
 import { distanceToMeters } from "@/lib/domain/expression/distance";
+import { GEOPOINT_PROPERTY_PATTERN } from "@/lib/domain/expression/geopoint";
 import {
 	comparisonOperands,
 	comparisonPlan,
@@ -43,9 +44,8 @@ import {
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { Uuid } from "@/lib/domain/uuid";
+import { matchModeRunsOnDevice } from "../../csql/matchModes";
 import type { LookupWireNaming } from "../../lookup/naming";
-import { GEOPOINT_PROPERTY_PATTERN } from "../../predicate/geopoint";
-import { matchModeRunsOnDevice } from "../../predicate/matchModes";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";

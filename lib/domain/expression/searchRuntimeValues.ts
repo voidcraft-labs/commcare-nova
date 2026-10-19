@@ -7,7 +7,7 @@
  * and a child-case count on a comparison's query side. Any other value (an
  * `if`, `coalesce`, `switch`, other count, arithmetic, `concat`,
  * `format-date`, …) is evaluated by Core on the device and its answer spliced
- * into the query (`lib/commcare/predicate/csqlEmitter.ts::inlineAsRuntimeOperand`).
+ * into the query (`lib/commcare/csql/emitter.ts::inlineAsRuntimeOperand`).
  *
  * The emitter, the CSQL validators and the checker all read these values here,
  * so none of them evaluates on a device what another sends to the server.
@@ -41,7 +41,7 @@ export function isServerSearchValue(expression: Expression): boolean {
 
 /** A comparison's query side: a case property, or a child-case count. The
  * search puts one authored on the right onto the left before it parses
- * (`lib/commcare/predicate/csqlRepresentability.ts::normalizeCsqlPredicate`). */
+ * (`lib/commcare/csql/representability.ts::normalizeCsqlPredicate`). */
 function isQueryAnchor(expression: Expression): boolean {
 	return (
 		(expression.kind === "term" && expression.term.kind === "prop") ||

@@ -1,7 +1,7 @@
 import { activeRowScope } from "@/lib/domain/expression/context";
 import { isConditionArm } from "@/lib/domain/expression/types";
-import { materializeCsqlChoices } from "../expression/csqlChoices";
-// lib/commcare/predicate/csqlEmitter.ts
+import { materializeCsqlChoices } from "./choices";
+// lib/commcare/csql/emitter.ts
 //
 // Per-dialect emitter producing the on-device XPath wrapper that builds
 // a CSQL `_xpath_query` string at runtime. CSQL is the server-side
@@ -54,7 +54,7 @@ import { materializeCsqlChoices } from "../expression/csqlChoices";
 // without an embedded-quote conflict — the canonical CCHQ pattern
 // documented in `case_search_query_language.rst`. Constant-only string
 // emissions route through `quoteLiteral(value, "csql")` from
-// `stringQuoting.ts`, which uses single-quoted CSQL by default and
+// `print.ts`, which uses single-quoted CSQL by default and
 // switches to double-quoted CSQL when the value contains a single
 // quote. The two strategies coexist because the runtime-interpolation
 // arm has no compile-time knowledge of the user's typed value, so the
@@ -94,7 +94,7 @@ import { materializeCsqlChoices } from "../expression/csqlChoices";
 //   - The seven CSQL value-function whitelist arms (`today`, `now`,
 //     `date-coerce`, `datetime-coerce`, `double`, `date-add`,
 //     plus the `term` lifter) emit through the value-
-//     expression emitter at `lib/commcare/expression/csqlEmitter.ts`
+//     expression emitter at `lib/commcare/csql/valueEmitter.ts`
 //     so the result is CSQL the server parses natively.
 //   - `count` with `via.kind === "subcase"` in comparison-LHS slot
 //     emits as native `subcase-count(...)` per CCHQ's `_is_subcase_count`
@@ -109,39 +109,30 @@ import { materializeCsqlChoices } from "../expression/csqlChoices";
 //     type coercion, so the double-quote wrap is uniform whether the
 //     resolved value parses as a number, string, or date.
 
+import type { Uuid } from "@/lib/domain";
+import {
+	isValidStaticGeopointCenter,
+	normalizeStaticGeopoint,
+} from "@/lib/domain/expression/geopoint";
 import { normalizeRelationEvaluationScopes } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { normalizeRelationPropertyReads } from "@/lib/domain/expression/normalizeRelationReads";
+import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { isServerSearchValue } from "@/lib/domain/expression/searchRuntimeValues";
 import type {
 	ComparisonKind,
 	Expression,
 	RelationStep,
 } from "@/lib/domain/expression/types";
 import {
-	emitCsqlExpressionSegments,
-	isNativeCsqlValueExpression,
-} from "../expression/csqlEmitter";
-import {
-	type CsqlEmissionContext,
-	csqlChildContext,
-	emitCsqlRuntimeExpression,
-} from "../expression/csqlRuntimeExpression";
+	walkConditionArms,
+	walkExpressionTerms,
+} from "@/lib/domain/expression/walk";
 import { assertCsqlQueryFunction } from "../xpath/functionCapabilities";
 import { w } from "../xpath/wire/builders";
 import { normalizeGeopoint, validGeopointCenter } from "../xpath/wire/geopoint";
 import type { WireExpr } from "../xpath/wire/tree";
-import { normalizeCsqlPredicate } from "./csqlRepresentability";
-import {
-	type CsqlSegment,
-	dedupeRuntimeRejections,
-	groupCsqlArgument,
-	mergeAdjacentConstants,
-	type RuntimeCsqlRejection,
-} from "./csqlSegment";
-import {
-	collectGeopointCenterInputNames,
-	isValidStaticGeopointCenter,
-	normalizeStaticGeopoint,
-} from "./geopoint";
+import { quoteLiteral } from "./print";
+import { normalizeCsqlPredicate } from "./representability";
 import {
 	blankComparandGuard,
 	needsBlankComparandGuard,
@@ -151,7 +142,18 @@ import {
 	invalidNonnegativeWholeNumberXPath,
 } from "./runtimeCsqlNumericSafety";
 import { collectRuntimeCsqlStringExpressionInputNames } from "./runtimeCsqlQuoteSafety";
-import { formatNumeric, quoteLiteral } from "./stringQuoting";
+import {
+	type CsqlEmissionContext,
+	csqlChildContext,
+	emitCsqlRuntimeExpression,
+} from "./runtimeExpression";
+import {
+	type CsqlSegment,
+	dedupeRuntimeRejections,
+	groupCsqlArgument,
+	mergeAdjacentConstants,
+	type RuntimeCsqlRejection,
+} from "./segment";
 import {
 	emitCsqlPropertyRefSegment,
 	emitCsqlPropertyRefText,
@@ -161,6 +163,7 @@ import {
 	serializeAncestorPath,
 	wrapTermAsSegmentList,
 } from "./termEmitter";
+import { emitCsqlExpressionSegments } from "./valueEmitter";
 
 /**
  * Output of the CSQL emission pipeline. `wrapper` is the on-device
@@ -876,7 +879,7 @@ function emitSubcaseCountBoundSegments(
  *   4. CSQL value-function whitelist arm (`today`, `now`,
  *      `date-coerce`, `datetime-coerce`, `double`, `date-add`) —
  *      delegates to the value-expression emitter at
- *      `lib/commcare/expression/csqlEmitter.ts`. The wire form is
+ *      `lib/commcare/csql/valueEmitter.ts`. The wire form is
  *      the function-call result which CCHQ's grammar accepts as a
  *      value directly.
  */
@@ -937,7 +940,7 @@ function emitOperandSegments(
 	if (expr.kind === "term") {
 		return wrapTermAsSegmentList(emitTermSegment(expr.term, typeContext));
 	}
-	if (isNativeCsqlValueExpression(expr)) {
+	if (isServerSearchValue(expr)) {
 		// Whitelist arms (`today`, `now`, `date-coerce`,
 		// `datetime-coerce`, `double`, `date-add`)
 		// delegate to the value-expression emitter for native CSQL.
@@ -1219,7 +1222,7 @@ function emitMatchSegments(
 	// through the same wrap — the `match` arm was the lone bypass.
 	const valueSegments = emitOperandSegments(p.value, "value", typeContext);
 	const argument =
-		isNativeCsqlValueExpression(p.value) && p.value.kind !== "term"
+		isServerSearchValue(p.value) && p.value.kind !== "term"
 			? groupCsqlArgument(valueSegments)
 			: valueSegments;
 	return [
@@ -1690,4 +1693,93 @@ function emitFilterArgumentSegments(
 	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	return emitPredicateSegments(p, 0, typeContext);
+}
+
+/** Search inputs whose bytes contribute to a runtime geopoint center. */
+export function collectRuntimeGeopointInputNames(
+	predicate: Expression,
+): ReadonlySet<Uuid> {
+	const names = new Set<Uuid>();
+	walkConditionArms(predicate, (node) => {
+		if (node.kind !== "within-distance") return;
+		for (const name of collectGeopointCenterInputNames(node.center)) {
+			names.add(name);
+		}
+	});
+	return names;
+}
+
+/**
+ * Search prompts whose values can flow into one computed geopoint center.
+ * Expression selectors (`if.cond`, `switch.on`, `count.where`) decide which
+ * output is used but do not themselves become location text, so they are not
+ * blamed with a location-format error.
+ */
+export function collectGeopointCenterInputNames(
+	expression: Expression,
+): ReadonlySet<Uuid> {
+	const names = new Set<Uuid>();
+
+	const visit = (value: Expression): void => {
+		switch (value.kind) {
+			case "term":
+				if (value.term.kind === "input") {
+					names.add(value.term.searchInputUuid);
+				}
+				return;
+			case "today":
+			case "now":
+			case "id-of":
+			case "acting-user":
+			case "unowned":
+				return;
+			case "date-coerce":
+			case "datetime-coerce":
+			case "double":
+				visit(value.value);
+				return;
+			case "format-date":
+				visit(value.date);
+				return;
+			case "date-add":
+				visit(value.date);
+				visit(value.quantity);
+				return;
+			case "arith":
+				visit(value.left);
+				visit(value.right);
+				return;
+			case "concat":
+				for (const part of value.parts) visit(part);
+				return;
+			case "coalesce":
+				for (const candidate of value.values) visit(candidate);
+				return;
+			case "if":
+				visit(value.then);
+				visit(value.else);
+				return;
+			case "switch":
+				for (const entry of value.cases) visit(entry.then);
+				visit(value.fallback);
+				return;
+			case "count":
+				return;
+			case "table-lookup":
+				// The lookup result, not the filter input bytes, becomes the
+				// geopoint. Still collect input refs from the row-selection
+				// predicate because changing one can select a different result.
+				walkExpressionTerms(value.where, (term) => {
+					if (term.kind === "input") {
+						names.add(term.searchInputUuid);
+					}
+				});
+				return;
+			default:
+				return;
+		}
+	};
+
+	visit(expression);
+	return names;
 }

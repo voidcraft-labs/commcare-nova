@@ -78,6 +78,9 @@ export function resultsInstance(
 	return { id, src: `jr://instance/remote/${id}` };
 }
 
+/** The answer instance of a standalone `<remote-request>` search. */
+export const STANDALONE_SEARCH_INPUT_INSTANCE_ID = "search-input:results";
+
 export function searchInputInstance(
 	id: `search-input:${string}`,
 ): InstanceDecl {

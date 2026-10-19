@@ -16,7 +16,7 @@ import {
 	today,
 } from "@/lib/domain/expression";
 import { csqlFixtureContext } from "../../__tests__/csqlFunctionFixture";
-import { walkCsqlOnDeviceNodes } from "../csqlRuntimeWalk";
+import { walkCsqlOnDeviceNodes } from "../runtimeWalk";
 
 function visitedKinds(predicate: Expression): {
 	readonly expressions: readonly Expression["kind"][];

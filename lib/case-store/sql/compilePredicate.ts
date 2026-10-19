@@ -453,7 +453,7 @@ function compileOrderedComparison(
  * `here()`'s bound position, `''` before a fix), and whether it is blank.
  * A literal `null` is blank: every reader prints it as `''`
  * (`lib/commcare/xpath/wire/fromExpression.ts::wireLiteral` for the device,
- * `lib/commcare/predicate/termEmitter.ts` for a CSQL search), so `p = null`
+ * `lib/commcare/csql/termEmitter.ts` for a CSQL search), so `p = null`
  * is the absence check a device and HQ make of `p = ''`.
  */
 function constantComparand(

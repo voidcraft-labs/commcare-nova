@@ -1,5 +1,5 @@
 /** Search-screen slot findings project the checker over each actual input slot. */
-import { findOnDeviceDateAddIssue } from "@/lib/commcare/expression/onDeviceCompatibility";
+import { findOnDeviceDateAddIssue } from "@/lib/commcare/validator/onDeviceCompatibility";
 import {
 	type BlueprintDoc,
 	type Module,

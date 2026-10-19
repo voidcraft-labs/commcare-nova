@@ -200,7 +200,7 @@ export const SEARCH_INPUT_CHECK_SEED_MESSAGE =
 	"Check this answer and try again";
 
 /** What a free-text answer holding both quote marks does on Android: the
- *  search it sends finds nothing (`lib/commcare/predicate/csqlEmitter.ts`,
+ *  search it sends finds nothing (`lib/commcare/csql/emitter.ts`,
  *  the quote cascade's closed arm). */
 const FREE_TEXT_QUOTE_MARKS_HINT =
 	"On Android, an answer that holds both ' and \" finds nothing.";

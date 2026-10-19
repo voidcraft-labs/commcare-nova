@@ -2,8 +2,8 @@
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { walkSearchRuntimeValues } from "@/lib/domain/expression/searchRuntimeValues";
 import { type Expression, isConditionArm } from "@/lib/domain/expression/types";
-import { walkOnDeviceExpression } from "../expression/onDeviceCompatibility";
-import { normalizeCsqlPredicate } from "./csqlRepresentability";
+import { walkOnDeviceExpression } from "../validator/onDeviceCompatibility";
+import { normalizeCsqlPredicate } from "./representability";
 
 export interface CsqlOnDeviceNodeVisitor {
 	readonly visitPredicate?: (

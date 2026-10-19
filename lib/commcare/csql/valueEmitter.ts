@@ -1,4 +1,4 @@
-// lib/commcare/expression/csqlEmitter.ts
+// lib/commcare/csql/valueEmitter.ts
 //
 // Per-dialect value-expression emitter for the CSQL grammar. Produces
 // `CsqlSegment[]` output — the same segment-list IR the predicate-side
@@ -14,7 +14,7 @@
 // `acting-user`, `unowned`)
 // inline as on-device XPath
 // fragments. At predicate-operand boundaries that happens in
-// `lib/commcare/predicate/csqlEmitter.ts::inlineAsRuntimeOperand`;
+// `lib/commcare/csql/emitter.ts::inlineAsRuntimeOperand`;
 // when one is nested below a native value function, this file's
 // `emitCsqlFunctionArgumentSegments` evaluates it on-device and safely
 // quotes the resolved scalar inside the surrounding native call.
@@ -26,9 +26,9 @@
 //
 // File ownership: this file owns operator dispatch for the CSQL
 // value-expression surface. Term emission and shared lexical helpers
-// flow through the shared `../predicate/termEmitter` /
-// `../predicate/stringQuoting` modules; the segment-list IR lives in
-// `../predicate/csqlSegment` and is the single shape both predicate
+// flow through the shared `./termEmitter` /
+// `./print` modules; the segment-list IR lives in
+// `./segment` and is the single shape both predicate
 // and expression emitters return.
 //
 // Coverage of the seven whitelist arms (per CCHQ's
@@ -52,47 +52,45 @@
 //     `datetime-add` entries cover both wire forms; the canonical type
 //     context selects the wire name.
 //   - `term(t)` → delegate to the shared CSQL term-segment emitter at
-//     `../predicate/termEmitter:emitTermSegment`. Property refs and
+//     `./termEmitter:emitTermSegment`. Property refs and
 //     literals emit as constant segments; runtime refs emit through
 //     `quoteRuntimeCsqlValue`, which chooses a safe CSQL string delimiter
 //     from the resolved value and rejects values containing both quote
 //     kinds instead of producing malformed CSQL.
 
+import { isServerSearchValue } from "@/lib/domain/expression/searchRuntimeValues";
 import {
 	asTemporalType,
 	type TemporalType,
 } from "@/lib/domain/expression/temporalType";
 import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
 import type { Expression } from "@/lib/domain/expression/types";
-import { type CsqlSegment, groupCsqlArgument } from "../predicate/csqlSegment";
+import { assertCsqlValueFunction } from "../xpath/functionCapabilities";
+import { w } from "../xpath/wire/builders";
+import { quoteLiteral } from "./print";
 import {
 	classifyCalendarDateAddQuantity,
 	invalidWholeNumberXPath,
-} from "../predicate/runtimeCsqlNumericSafety";
-import { collectRuntimeCsqlStringExpressionInputNames } from "../predicate/runtimeCsqlQuoteSafety";
-import { quoteLiteral } from "../predicate/stringQuoting";
+} from "./runtimeCsqlNumericSafety";
+import { collectRuntimeCsqlStringExpressionInputNames } from "./runtimeCsqlQuoteSafety";
+import {
+	type CsqlEmissionContext,
+	emitCsqlRuntimeExpression,
+} from "./runtimeExpression";
+import { type CsqlSegment, groupCsqlArgument } from "./segment";
 import {
 	emitTermSegment,
 	quoteFreeRuntimeCsqlValue,
 	quoteRuntimeCsqlValue,
 	type RuntimeCsqlQuoteStyle,
-} from "../predicate/termEmitter";
-import { assertCsqlValueFunction } from "../xpath/functionCapabilities";
-import { w } from "../xpath/wire/builders";
-import { isNativeCsqlValueExpression } from "./csqlCapabilities";
-import {
-	type CsqlEmissionContext,
-	emitCsqlRuntimeExpression,
-} from "./csqlRuntimeExpression";
-
-export { isNativeCsqlValueExpression } from "./csqlCapabilities";
+} from "./termEmitter";
 
 /**
  * Compile a `Expression` AST to its CSQL `CsqlSegment[]` IR. The
  * caller composes the segments with surrounding constants (operator
  * tokens, comparison operators, etc.) and routes the final list
  * through the predicate-side wrap layer (`wrapClause` in
- * `../predicate/csqlEmitter.ts`) to produce the on-device XPath
+ * `./emitter.ts`) to produce the on-device XPath
  * `concat(...)` wrapper.
  *
  * The emitter is total over CSQL's value-function whitelist arms.
@@ -200,7 +198,7 @@ export function emitCsqlExpressionSegments(
 			// argument helper. A direct call cannot supply the surrounding
 			// CSQL position, so throwing here defends against broken wire.
 			throw new Error(
-				`csqlExpressionEmitter: tried to emit a value-expression of kind '${expr.kind}' as native CSQL, but CCHQ's CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm. The predicate-side emitter at lib/commcare/predicate/csqlEmitter.ts should have inlined it as an on-device XPath fragment via toWire. Look at the operand dispatch in emitOperandSegments; a new Expression kind needs to route through inlineAsRuntimeOperand.`,
+				`csqlExpressionEmitter: tried to emit a value-expression of kind '${expr.kind}' as native CSQL, but CCHQ's CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm. The predicate-side emitter at lib/commcare/csql/emitter.ts should have inlined it as an on-device XPath fragment via toWire. Look at the operand dispatch in emitOperandSegments; a new Expression kind needs to route through inlineAsRuntimeOperand.`,
 			);
 		default:
 			throw new Error(
@@ -239,7 +237,7 @@ function emitCsqlFunctionArgumentSegments(
 	typeContext: CsqlEmissionContext,
 	runtimeQuoteStyle: RuntimeCsqlQuoteStyle,
 ): CsqlSegment[] {
-	if (isNativeCsqlValueExpression(expr)) {
+	if (isServerSearchValue(expr)) {
 		return emitCsqlExpressionSegments(expr, typeContext, runtimeQuoteStyle);
 	}
 	return quoteRuntimeCsqlValue(
@@ -282,7 +280,7 @@ function emitDateAddSegments(
 	const intervalLiteral = quoteLiteral(expr.interval, "csql");
 	const quantitySegments = emitDateAddQuantitySegments(expr, typeContext);
 	const quantityArgument =
-		isNativeCsqlValueExpression(expr.quantity) && expr.quantity.kind !== "term"
+		isServerSearchValue(expr.quantity) && expr.quantity.kind !== "term"
 			? groupCsqlArgument(quantitySegments)
 			: quantitySegments;
 	return [

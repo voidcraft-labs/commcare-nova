@@ -69,13 +69,12 @@ import {
 	type SearchRuntimeValidationKind,
 	searchRuntimeValidationMessage,
 } from "@/lib/domain/searchRuntimeValidationMessages";
+import { collectRelatedCaseQueries, emitCsql } from "../../csql/emitter";
+import { checkCsqlRepresentability } from "../../csql/representability";
 import {
-	checkCsqlRepresentability,
-	collectRelatedCaseQueries,
 	dedupeRuntimeRejections,
-	emitCsql,
 	type RuntimeCsqlRejection,
-} from "../../predicate";
+} from "../../csql/segment";
 import {
 	combineRuntimeCsqlPromptValidations,
 	getAdvancedArmPredicates,
@@ -277,7 +276,7 @@ export function composeXPathQueryEmission(
 	// means the validator was bypassed (an AST built at runtime, an
 	// `as any` cast, or a partial discriminated-union widening).
 	// Same shape as the defensive throw at
-	// `lib/commcare/predicate/csqlEmitter.ts::emitComparisonOperandSegments`
+	// `lib/commcare/csql/emitter.ts::emitComparisonOperandSegments`
 	// for `count` arms the hoist pass should have lifted.
 	assertNoBareSearchInputRefs(composed);
 	assertCsqlRepresentable(composed, typeContext);

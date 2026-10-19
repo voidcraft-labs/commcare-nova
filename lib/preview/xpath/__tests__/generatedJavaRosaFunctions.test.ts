@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	GEOPOINT_CENTER_PATTERN,
 	GEOPOINT_RAW_CENTER_PATTERN,
-} from "@/lib/commcare/predicate/geopoint";
+} from "@/lib/domain/expression/geopoint";
 import { invokeGeneratedJavaRosaFunction } from "../generatedJavaRosaFunctions";
 import { javaRosaRegex, javaRosaReplace } from "../javaPatternRuntime";
 

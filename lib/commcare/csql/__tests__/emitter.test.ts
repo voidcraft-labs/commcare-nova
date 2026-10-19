@@ -49,14 +49,14 @@ import {
 	csqlInputContext,
 	functionLookupContext,
 } from "../../__tests__/csqlFunctionFixture";
-import type { CsqlEmissionContext } from "../../expression/csqlRuntimeExpression";
 import { runValidation } from "../../validator/runner";
 import { w } from "../../xpath/wire/builders";
 import {
 	searchInputInstance,
 	sessionInstance,
 } from "../../xpath/wire/instances";
-import { emitCsql } from "../csqlEmitter";
+import { emitCsql } from "../emitter";
+import type { CsqlEmissionContext } from "../runtimeExpression";
 
 // Private formatting and normalization contracts, with positive predicates
 // admitted inside real apps. Native query evaluation/compilation lives in the

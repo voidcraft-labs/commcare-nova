@@ -32,16 +32,12 @@
  */
 
 import { produce } from "immer";
-import {
-	findOnDeviceDateAddIssue,
-	type OnDeviceDateAddIssue,
-} from "@/lib/commcare/expression/onDeviceCompatibility";
+import { matchModeRunsOnDevice } from "@/lib/commcare/csql/matchModes";
 import {
 	type CsqlRepresentabilityIssue,
 	checkCsqlRepresentability,
-} from "@/lib/commcare/predicate/csqlRepresentability";
-import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk";
-import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
+} from "@/lib/commcare/csql/representability";
+import { walkCsqlOnDeviceNodes } from "@/lib/commcare/csql/runtimeWalk";
 import { classifyRelatedCaseSearchExpression } from "@/lib/commcare/suite/case-search/relatedCaseProjection";
 import type { ValidationScope } from "@/lib/commcare/validator";
 import {
@@ -56,6 +52,10 @@ import {
 } from "@/lib/commcare/validator/gate";
 import { validateLookupReferences } from "@/lib/commcare/validator/lookupReferences";
 import { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
+import {
+	findOnDeviceDateAddIssue,
+	type OnDeviceDateAddIssue,
+} from "@/lib/commcare/validator/onDeviceCompatibility";
 
 export { formLogicFinding } from "@/lib/commcare/validator/formLogicFindings";
 export { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
@@ -187,7 +187,7 @@ export function expressionEditVerdict(
  * The builder asks the same question the on-device emitter and the two
  * portability rules ask, through this boundary rather than by restating a
  * CommCare fact in React code — the mode table lives once, at
- * `lib/commcare/predicate/matchModes.ts`. A picker needs it because the
+ * `lib/commcare/csql/matchModes.ts`. A picker needs it because the
  * refusal is otherwise invisible until commit: the three case-search modes
  * type-check perfectly, so nothing short of the wire dialect knows they
  * cannot run.

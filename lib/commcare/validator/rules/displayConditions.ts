@@ -1,4 +1,5 @@
 import { slotContext } from "@/lib/domain/expression/context";
+
 /**
  * Shared validation for module/form navigation display conditions.
  *
@@ -21,12 +22,11 @@ import { slotContext } from "@/lib/domain/expression/context";
  * blanket presence guard that would change equality or inequality semantics.
  */
 
+import { matchModeRunsOnDevice } from "@/lib/commcare/csql/matchModes";
 import {
 	findOnDeviceDateAddIssueInPredicate,
 	findOnDeviceScalarExpressionIssue,
-} from "@/lib/commcare/expression/onDeviceCompatibility";
-import { isValidStaticGeopointCenter } from "@/lib/commcare/predicate/geopoint";
-import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
+} from "@/lib/commcare/validator/onDeviceCompatibility";
 import {
 	type BlueprintDoc,
 	type Form,
@@ -42,6 +42,7 @@ import {
 	walkConditionArms,
 	walkExpressionNodes,
 } from "@/lib/domain/expression";
+import { isValidStaticGeopointCenter } from "@/lib/domain/expression/geopoint";
 import { type ValidationError, validationError } from "../errors";
 import {
 	checkErrorDetails,
