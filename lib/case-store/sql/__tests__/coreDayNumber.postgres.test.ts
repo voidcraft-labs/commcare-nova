@@ -20,6 +20,9 @@ import { expect, test } from "./setup";
 const DAY_ROWS = [
 	{ id: "core-day-20453", days: 20453 },
 	{ id: "core-day-20453.7", days: 20453.7 },
+	// Before 1900 Java reads a zone at its standard offset, not local mean
+	// time: Kiritimati's +14:00 lands this day a day apart from the others.
+	{ id: "cutoff-day-number-text", days: -25568 },
 ] as const;
 
 /** Two zones apart from every viewer zone below, so the session never
