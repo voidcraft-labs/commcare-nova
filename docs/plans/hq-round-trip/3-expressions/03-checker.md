@@ -1385,14 +1385,13 @@ refuses `datetime` into `date` or `text`, so only a copy chain reaches this rule
 midnight.
 
 Integral functions type `int` (part 01 §3.3): `int`, `round`, `floor`, `ceiling`,
-`string-length`, `count-selected`, `position` and `index-of` carry `integral: true` in `FUNCTION_REGISTRY`,
+`string-length`, `count-selected` and `position` carry `integral: true` in `FUNCTION_REGISTRY`,
 because Core stores an integral `Double` as `IntegerData` (`Recalculate.wrapData`: `isIntegral` →
 `IntegerData`) and step 2's manifest reader already types `count`, `count-selected` and `int` as
 integers. So a Hidden Value `int(#form/n div 2)` can write an `int` property under this rule, and a
 `repeat_count` of `round(…)` is an integer. **Implementation correction, 2026-10-19:** Core's
 `round` has one argument (`XPathRoundFunc`'s `EXPECTED_ARG_COUNT`), so the plan's "(one argument)"
-named no other form; `index-of` is integral too (`XPathIndexOfFunc.java::evalBody` returns an
-integral `Double` or `''`, which stores no value).
+named no other form; `index-of` is not integral: `XPathIndexOfFunc.java::evalBody` returns `''` when nothing matches, so its result is text or a number by data.
 
 Validator message: `Hidden value "<field>" in "<form>" saves <text> to "<property>" on "<type>",
 which holds <a date> (<declared | saved by "<writer>" in "<form>">). A form that fills a question from

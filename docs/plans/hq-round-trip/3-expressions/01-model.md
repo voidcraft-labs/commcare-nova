@@ -125,10 +125,10 @@ inventory" is `docs/research/2026-09-26-hq-round-trip/inventory/expressions-and-
     `window_width`, `applanguage` (step 4; the stored enum holds all seven). Search results read
     in the forms of an inline-search module stay in step 3 (`cases.source: "search-results"`).
 15. **Integral functions are `int`.** The calls `int`, `round`, `floor`,
-    `ceiling`, `string-length`, `count-selected`, `position` and `index-of`, like the `count` arm, return
+    `ceiling`, `string-length`, `count-selected` and `position`, like the `count` arm, return
     `int`, because Core stores an integral `Double` as `IntegerData`. **Implementation correction,
     2026-10-19:** Core's `round` has one argument (`XPathRoundFunc`'s `EXPECTED_ARG_COUNT`), so
-    "(one argument)" named no other form; `index-of` returns an integral `Double` or `''`.
+    "(one argument)" named no other form; `index-of` is not integral: `XPathIndexOfFunc.java::evalBody` returns `''` when nothing matches, so its result is text or a number by data.
 16. **`many-values` is structural only.** A node-set used as one value is refused only where its
     plurality is the app's shape: a repeat's answer read from outside that repeat, and a
     several-case module's `selected-cases`. A `cases`, `table-rows` or `locations` query used as
@@ -937,7 +937,7 @@ date-and-time property; pull request 8 refuses it in an implicit instant compari
 | `cases`, `table-rows`, `locations` | `{ nodes: <row kind>, cardinality }` (`one` when a predicate fixes `@case_id`, or a `[1]` closes it), never `structural`; a `cases` row typed by §1.3 | predicates `boolean` |
 | `project` | `{ nodes: <value type>, cardinality and structural of of }` | a row node-set |
 | `selected-cases` | `{ nodes: "text", many, structural }`, `caseIdOf` the module's type | none |
-| `call` | the function's declared return (`lib/domain/expressionFunctions.ts::FUNCTION_REGISTRY`, and each Core function class's `evalBody` under `org/javarosa/xpath/expr/`) lifted onto the lattice: Boolean `boolean`, Double `decimal` except an integral function `int`, String `text`, Date `date`, `distinct-values` `sequence`; held likewise. The integral functions are `int`, `round`, `floor`, `ceiling`, `string-length`, `count-selected`, `position` and `index-of` (**implementation correction, 2026-10-19:** Core's `round` has one argument, and `index-of` is integral, decision 15), marked `integral: true` in `FUNCTION_REGISTRY`: Core stores an integral `Double` as `IntegerData` (`Recalculate.java::wrapData`, `isIntegral`), and step 2's manifest reader already types `count`, `count-selected` and `int` as integers (step 2 part 09, "Corpus changes") | the registry's `paramTypes`, with form coercions |
+| `call` | the function's declared return (`lib/domain/expressionFunctions.ts::FUNCTION_REGISTRY`, and each Core function class's `evalBody` under `org/javarosa/xpath/expr/`) lifted onto the lattice: Boolean `boolean`, Double `decimal` except an integral function `int`, String `text`, Date `date`, `distinct-values` `sequence`; held likewise. The integral functions are `int`, `round`, `floor`, `ceiling`, `string-length`, `count-selected` and `position` (**implementation correction, 2026-10-19:** Core's `round` has one argument, and `index-of` is not integral: `XPathIndexOfFunc.java::evalBody` returns `''` when nothing matches, so its result is text or a number by data, decision 15), marked `integral: true` in `FUNCTION_REGISTRY`: Core stores an integral `Double` as `IntegerData` (`Recalculate.java::wrapData`, `isIntegral`), and step 2's manifest reader already types `count`, `count-selected` and `int` as integers (step 2 part 09, "Corpus changes") | the registry's `paramTypes`, with form coercions |
 | `here` | `geopoint`, held `string` | none |
 | `project-day` | held by step 6 (§1.6) | none |
 | `value-list` | `{ nodes: <item type>, many }` | items agree; an item is a scalar or a `many` node-set of the item type, flattened (part 06 §3.6) |
