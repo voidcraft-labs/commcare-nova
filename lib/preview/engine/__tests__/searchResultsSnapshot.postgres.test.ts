@@ -119,12 +119,35 @@ describe("a completed search's snapshot", () => {
 		expect(snapshot.rows.some((row) => row.case_id === "p-closed")).toBe(false);
 	});
 
+	// One insert statement and one read, inside the default five seconds: the
+	// test above, sixty-one store writes and a read, takes under one in CI.
+	// Writing the cap's 503 rows through the store, one validated transaction
+	// each, took fourteen. This test is about the read's cap, not how a row is
+	// written, so the rows go straight to the table.
 	it("stops at the cap and counts every match", async () => {
-		const mine = storeAs(WORKER);
-		for (let index = 0; index < SEARCH_RESULTS_CAP + 3; index += 1)
-			await mine.insert(patient(`p-${String(index).padStart(4, "0")}`));
+		const opened = new Date("2026-05-02T12:00:00Z");
+		await (dbHandle.db as unknown as Kysely<Database>)
+			.insertInto("cases")
+			.values(
+				Array.from({ length: SEARCH_RESULTS_CAP + 3 }, (_, index) => {
+					const caseId = `p-${String(index).padStart(4, "0")}`;
+					return {
+						case_id: caseId,
+						case_name: caseId,
+						case_type: "patient",
+						app_id: APP_ID,
+						project_id: PROJECT,
+						owner_id: WORKER,
+						status: "open",
+						opened_on: opened,
+						modified_on: opened,
+						properties: JSON.stringify({ district: "north" }),
+					};
+				}),
+			)
+			.execute();
 
-		const snapshot = await readSearchResultsSnapshot(mine, SEARCH);
+		const snapshot = await readSearchResultsSnapshot(storeAs(WORKER), SEARCH);
 		expect(snapshot.rows).toHaveLength(SEARCH_RESULTS_CAP);
 		expect(snapshot.totalMatches).toBe(SEARCH_RESULTS_CAP + 3);
 	});

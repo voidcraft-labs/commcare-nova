@@ -147,7 +147,9 @@ export function textReads() {
 				form,
 				request: {
 					locale,
-					answers: [{ path: "/data/color", value: "blue" }],
+					/* Web Apps answers a select with the chosen option's place
+					 * in its list, counted from one: Blue is the second. */
+					answers: [{ path: "/data/color", value: "2" }],
 					expressions: [
 						"/data/color_text",
 						"/data/blue_text",

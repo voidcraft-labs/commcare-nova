@@ -332,18 +332,28 @@ public class LookupRuntimeTest {
      * ({@code targeted-instance-reads}): the form's hidden values read the first row whose code matches and count
      * the rows, and its second link fires on that count where its first, which reads a place, does not. Both on
      * the local archive and on HQ's regenerated form and hand-assembled suite, over the table a sync delivers
-     * (the rows the local archive embeds, given the user's id) and a worker with no places.
+     * (the rows the local archive embeds, given the user's id) and a worker whose one place is a region, so no
+     * clinic. The places are in the shape HQ's {@code FlatLocationSerializer.get_xml_nodes} writes. A worker with
+     * no place at all gets an empty {@code <locations/>}, which leaves Core no {@code location} path to read, and
+     * Core refuses any read of it ({@code XPathPathExpr.evalRaw}'s {@code hasTemplatePath} check).
      */
     @Test public void formLogicAndItsLinkReadTheTableByItsTag() throws Exception {
         java.nio.file.Path document = SessionReadAssertions.targeted("lookup", "targeted-instance-reads");
         byte[] table = embeddedFixture(targeted(document, false, "suite.xml", "hq.suite.xml"), "item-list:regions", "worker-north");
-        byte[] noPlaces = "<fixture id=\"locations\" user_id=\"worker-north\"><locations/></fixture>".getBytes(StandardCharsets.UTF_8);
+        byte[] regionOnly = ("<OpenRosaResponse xmlns=\"http://openrosa.org/http/response\">"
+                + "<schema id=\"locations\"><indices><index>@clinic_id</index><index>@district_id</index>"
+                + "<index>@id</index><index>@region_id</index><index>@type</index><index>name</index></indices></schema>"
+                + "<fixture id=\"locations\" user_id=\"worker-north\" indexed=\"true\"><locations>"
+                + "<location type=\"region\" id=\"place-1\" region_id=\"place-1\" district_id=\"\" clinic_id=\"\">"
+                + "<name>region &amp; North</name><site_code>site-1</site_code><external_id/><latitude/><longitude/>"
+                + "<location_type>region</location_type><supply_point_id/>"
+                + "<location_data><ward/><unset/></location_data></location></locations></fixture></OpenRosaResponse>")
+                .getBytes(StandardCharsets.UTF_8);
         for (boolean hq : new boolean[]{false, true}) {
             Runtime runtime = new Runtime("north", "north");
-            for (byte[] fixture : new byte[][]{table, noPlaces}) {
-                new FixtureXmlParser(ElementParser.instantiateParser(new ByteArrayInputStream(fixture)), true,
-                        runtime.sandbox.getUserFixtureStorage()).parse();
-            }
+            new FixtureXmlParser(ElementParser.instantiateParser(new ByteArrayInputStream(table)), true,
+                    runtime.sandbox.getUserFixtureStorage()).parse();
+            org.commcare.core.parse.ParseUtils.parseIntoSandbox(new ByteArrayInputStream(regionOnly), runtime.sandbox);
             FormDef form = org.javarosa.xform.util.XFormUtils.getFormFromInputStream(
                     new ByteArrayInputStream(targeted(document, hq, "modules-0/forms-0.xml", "hq.0.xml")));
             form.initialize(true, runtime);

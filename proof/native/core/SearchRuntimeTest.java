@@ -10,6 +10,7 @@ import java.util.zip.ZipFile;
 import java.util.*;
 import org.commcare.suite.model.*;
 import org.commcare.session.SessionFrame;
+import org.commcare.session.SessionInstanceBuilder;
 import org.commcare.session.CommCareSession;
 import org.commcare.session.RemoteQuerySessionManager;
 import org.commcare.util.CommCarePlatform;
@@ -262,10 +263,12 @@ public class SearchRuntimeTest {
             if (id.startsWith("search-input:")) return new ConcreteInstanceRoot(null);
             TreeElement root;
             if (id.equals("commcaresession")) {
-                root = node("session", null);
-                TreeElement data = node("data", null);
-                data.addChild(node("case_id", "patient-lake"));
-                root.addChild(data);
+                /* A device's session holds the chosen case and its context (device id, app version, user),
+                 * which the form's metadata reads when it opens. */
+                SessionFrame frame = new SessionFrame();
+                frame.pushStep(new StackFrameStep(SessionFrame.STATE_DATUM_VAL, "case_id", "patient-lake"));
+                root = SessionInstanceBuilder.getSessionInstance(frame, "device", "1", 0L, "worker", "worker-id",
+                        new Hashtable<>(), "400", "en");
             } else if (id.equals("results:inline")) {
                 root = node("results", null);
                 int index = 0;

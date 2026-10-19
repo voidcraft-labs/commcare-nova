@@ -93,6 +93,9 @@ export function useAuth() {
 export async function loadLookupFixtureDataAction(): Promise<never> {
 	throw new Error("Unexpected lookup data request in case layout evidence");
 }
+export async function loadSearchResultsSnapshotAction(): Promise<never> {
+	throw new Error("Unexpected search results request in case layout evidence");
+}
 export async function launchEntryPointAction(): Promise<never> {
 	throw new Error("Unexpected entry point launch in case layout evidence");
 }
