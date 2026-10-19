@@ -360,7 +360,7 @@ async function evaluateAsyncFilter(
 		);
 		if (xpathPredicateMatches(value, index)) selected.push(candidate);
 	}
-	return new XPathNodeSet(selected, base.validPath, base.schemaNodes);
+	return new XPathNodeSet(selected, base.validity, base.schemaNodes);
 }
 
 function containsAsyncFunction(node: SyntaxNode, source: string): boolean {

@@ -342,7 +342,7 @@ describe("a survey menu's case type", () => {
 		const source = hq._attachments[`${hidden.forms[0].unique_id}.xml`];
 		expectXPath(
 			one(source, "setvalue", { ref: "/data/case_name" }).attribs.value,
-			"instance('search-input:results:inline')/input/field[@name = 'patient_name']",
+			"if(count(instance('search-input:results:inline')/input/field) > 0, instance('search-input:results:inline')/input/field[@name = 'patient_name'], '')",
 		);
 		expect(
 			one(source, "instance", { id: "search-input:results:inline" }).attribs

@@ -47,7 +47,8 @@ normal authoring always uses the current declared structure.
 declarations it reads. Generated scaffolding uses `w` directly. All authored
 form slots, including Connect and after-submit links, use this boundary; no
 stored or branded authored string crosses an executable XML or HQ JSON slot.
-`wire/CLAUDE.md` owns target modes, literals, shadow eligibility and declarations.
+`wire/CLAUDE.md` owns target modes, literals, shadow eligibility, declarations
+and the guard on a value read of rows that may be empty.
 `wire/instant.ts` is the date-and-time lowering (below).
 
 `functionCapabilities.ts` records independently sourced runtime capabilities.

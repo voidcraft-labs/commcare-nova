@@ -164,6 +164,13 @@ When the earlier answer changes in Preview, the available choices update
 immediately. A selected value that the new row rule no longer offers is cleared,
 so the form cannot submit an answer hidden by its current filter.
 
+A table needs at least one row before a question can take its choices from it.
+A phone won't open a question whose table has no rows, and the same goes for a
+Search screen whose field takes its choices from one, so Preview shows that in
+place of the form or Search screen, and downloading or publishing the app waits
+until the table has a row. A row rule that leaves no choices is fine: the
+question opens with nothing to pick.
+
 Switching between a table and a typed-in list replaces the question's complete
 choice source. Nova opens the new source for editing and saves the switch only
 after that source is complete; cancelling leaves the current source unchanged.

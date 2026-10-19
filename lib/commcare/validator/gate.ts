@@ -535,6 +535,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: "environment",
 	LOOKUP_SELECT_SOURCE_LABEL_BLANK: "environment",
+	LOOKUP_SELECT_SOURCE_EMPTY: "environment",
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: "environment",
 	LOOKUP_HQ_PUSH_TOO_LARGE: "environment",
 	// HQ regeneration cannot preserve these proven nested selection shapes.

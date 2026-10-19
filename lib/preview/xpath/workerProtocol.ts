@@ -195,9 +195,21 @@ export interface XPathRuntimeSuccess {
 	readonly nodesetValues?: readonly string[];
 }
 
+/**
+ * The data a device would refuse to read: a value read through a path that
+ * reached nothing in a secondary instance (no places, a table with no rows).
+ * It names the instance, which is author data, so it rides beside the
+ * diagnostic `error` rather than inside it; the host presents it as a
+ * refusal and never reports it.
+ */
+export interface XPathEmptyInstanceRefusal {
+	readonly instanceId: string;
+}
+
 export interface XPathRuntimeFailure {
 	readonly ok: false;
 	readonly error: XPathRuntimeError;
+	readonly refusal?: XPathEmptyInstanceRefusal;
 }
 
 export type XPathRuntimeResult = XPathRuntimeSuccess | XPathRuntimeFailure;
@@ -213,6 +225,7 @@ export interface XPathWorkerEvaluateFailure extends XPathWorkerMessageIdentity {
 	readonly operation: "evaluate";
 	readonly ok: false;
 	readonly error: XPathRuntimeError;
+	readonly refusal?: XPathEmptyInstanceRefusal;
 }
 
 /** Pause the host's CPU watchdog only while a JavaRosa function intentionally

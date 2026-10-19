@@ -76,6 +76,7 @@ import type {
 	PropertyRef,
 } from "@/lib/domain/expression/types";
 import { w } from "../xpath/wire/builders";
+import { guardValue } from "../xpath/wire/emptyRows";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
 import {
 	type InstanceSink,
@@ -1726,7 +1727,15 @@ export function buildCaseOperations(
 					attributes: { event: nested ? "jr-insert" : "xforms-ready" },
 					xpath: {
 						ref: idsPath.toWire(),
-						value: w.call("join", [w.str(" "), selectedValues]),
+						// No case is chosen only through a session endpoint: Web Apps' own list sets
+						// the datum for one or more (`MultiSelectEntityScreen.validateSelectionSize`
+						// refuses 0), but Formplayer builds an endpoint's selection from the link's
+						// argument with `split(",")`
+						// (`MenuSessionRunnerService.processEndpointArgumentsForVirualInstance`), which
+						// reads `","` as no ids, and the replay accepts that (`prcessSelectionAsGuid` →
+						// `validateEntitiesInInstance` loops over none). Core refuses a `join` of the
+						// empty instance, so it is guarded (`wire/emptyRows.ts`).
+						value: w.call("join", [w.str(" "), guardValue(selectedValues)]),
 					},
 				},
 				context,

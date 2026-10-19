@@ -958,12 +958,10 @@ export const SEARCH_INPUT_INSTANCE_ID = "search-input:results";
  * reads as blank beside another answer.
  *
  * Core's instance has no templates, so when NO prompt was answered it
- * refuses every `field` read. Preview keeps a `field` template instead and
- * reads blank there: Nova prints a prompt read unguarded, so a faithful
- * instance would refuse a conditional requirement on every Search screen as
- * it first opens, as a device does. The emitted read is what needs the
- * guard (`docs/plans/hq-round-trip/3-expressions/05-instances-session.md`,
- * implementation correction of 2026-10-19).
+ * refuses every `field` read, and so does this one. Nova prints each prompt
+ * read guarded by the answers' count
+ * (`lib/commcare/xpath/wire/fromExpression.ts`, `guardValue`), which reads
+ * blank here as on a device.
  */
 export function searchInputXPathInstance(
 	answers: ReadonlyMap<string, string>,
@@ -971,7 +969,6 @@ export function searchInputXPathInstance(
 ): XPathInstance {
 	return new StaticXPathInstance(instanceId, {
 		name: "input",
-		childTemplates: ["field"],
 		children: [...answers].flatMap(([name, value]) =>
 			value === ""
 				? []

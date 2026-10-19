@@ -892,19 +892,30 @@ Preview now builds each instance as Core checks it (`lib/preview/engine/xpathIns
 and `@relationship` on a case with no indices, and `results:inline` no longer serves HQ's
 `<results id="case">` id, which the spec does not name; the search answers drop a blank answer.
 `lookupEvaluation.ts::lookupChoicesFromNodeset` refuses a choice list over a table with no rows.
-A refused read reaches Preview's existing containment: a form's runtime fault, and in a menu or a
-Search prompt's choices, the Preview error boundary. `lib/preview/engine/__tests__/emptyInstanceParity.test.ts`
-holds every row of the table above to the probe's answers.
+A refused read is a refusal, not a fault (`lib/preview/engine/dataRefusal.ts`): the evaluator's
+`XPathInvalidPathError` names the secondary instance the path missed (the worker sends it beside
+its diagnostics as `XPathRuntimeFailure.refusal`), and a form, its links, a menu's display
+condition and a Search screen each show what a phone does and what to change, reporting nothing
+(`lib/preview/CLAUDE.md`, "Empty data is a refusal, never a fault").
+`lib/preview/engine/__tests__/emptyInstanceParity.test.ts` holds every row of the table above to
+the probe's answers.
 
-One divergence is held on purpose: the search answers keep a `field` template, so with no prompt
-answered Preview reads `''` where Core refuses. Nova prints a prompt read unguarded
-(`fromExpression.ts`, the `input` term), and `validateUserAnswers` evaluates every required
-condition when the Search screen opens, so a Search screen with "phone is required when the name
-is blank" does not open on a device unless some prompt has a default; a faithful instance would
-crash Preview's Search screen on its first render for the same apps
-(`SearchInputForm.tsx`, `searchInputRequiredMarks` in render). The same unguarded print reaches a
-no-matches form's `#search/` read after a search with every prompt blank, and a hidden value that
-reads a prompt at submission.
+Before option 1 below, the search answers kept a `field` template, so with no prompt answered
+Preview read `''` where Core refuses: Nova printed a prompt read unguarded, and
+`validateUserAnswers` evaluates every required condition when the Search screen opens (its
+`validation` only for an answered prompt), so a Search screen with "phone is required when the
+name is blank" did not open on a device unless some prompt had a default. The same print reached
+a no-matches form's `#search/` read after a search with every prompt blank, and a hidden value
+that reads a prompt at submission. **Implementation correction, 2026-10-19 (pull request 9):**
+option 1 is emitted, so the template is gone and Preview's search answers are Core's.
+
+The lane did not show either way. On main's newest nightly with every reader (run 38872985627,
+whose `stops` section holds), no walk evaluated one of these reads over empty data:
+`localization-prompts`, the one corpus document whose required condition reads another prompt
+with no prompt defaulted, has a registration-only module, so no walk reaches its Search screen;
+`prompt-widgets` reads one with other prompts defaulted, so a `field` exists; and the no-matches
+documents reach their form only from the typed search. The decision rests on Core's source and
+the probes.
 
 Open, for the person: Nova emits every one of these reads unguarded, so an app can be one a
 worker cannot open. Options, with the probe's evidence that a count guard evaluates cleanly in
@@ -917,15 +928,58 @@ every row above:
    consumer-aware lowering, since `count(#search/x)` takes the term as a node-set. This makes the
    reads valid by construction whatever the data, and Preview's search-answer template can then
    go.
+   **Implementation correction, 2026-10-19 (pull request 9):** emitted by
+   `lib/commcare/xpath/wire/fromExpression.ts` (`guardValue`, `emitCall`), so every target that
+   prints device XPath through it carries it: the XForm, the suite, HQ JSON's device carriers and
+   the CSQL runtime segments `toWire` prints. A prompt read inside CSQL text is built by
+   `predicate/termEmitter.ts::emitSearchInputXPath` and stays bare, since the validator admits it
+   only inside a presence envelope (`searchInputRefUsesWhenInputPresent`), whose
+   `if(count(<field>), …)` already keeps it from running unanswered. The guarded instances are those Core builds from data (`src` a
+   `jr://fixture/…`, `jr://instance/selected-entities/…` or `jr://instance/search-input/…`), and
+   the rows are the read's first two steps with no predicates. By consumer, each probed at the
+   pinned Core over every instance above, empty and not: a value Core unpacks (a comparison,
+   arithmetic, a string or number argument, an `if` condition) is guarded with `''`; so are the
+   node-set arguments of `join`, `concat`, `join-chunked` and `checklist`, which read one `''` as
+   they read an empty set, and of `min` and `max`, which read it as NaN, their answer for no
+   values; `sum` and `index-of` keep the argument bare and guard the call, reading `0` and `''`;
+   `count`, and a branch of `if`, `switch`, `coalesce` or `cond` it reads, keep the bare path,
+   since `count('')` throws where `count` of the bare path reads 0; and `position`,
+   `distinct-values`, `weighted-checklist` and `depend`'s later arguments keep it bare, since no
+   string reads as their empty set (Core refuses `position` of any empty set). With any row
+   present each guarded text answers as the bare one, since `if` returns its branch unconverted;
+   the Search screen opens with phone required, and a typed name clears it.
+   The generated `join` of the chosen cases (a batch form's ids, a nested child list's parent
+   filter, tile grouping) takes the same guard (`wire/emptyRows.ts::guardValue`). Web Apps' list
+   never continues with none (`MultiSelectEntityScreen.validateSelectionSize` refuses 0, and
+   Android at the pin has no several-case list), but a session endpoint can: Formplayer builds
+   the selection with `split(",")` of the link's argument
+   (`MenuSessionRunnerService.processEndpointArgumentsForVirualInstance`), `","` splits to no
+   ids, and the replay's `validateEntitiesInInstance` accepts none. A `<data nodeset>` over the
+   chosen cases stays bare: `ListQueryData.getValues` expands it as a `TreeReference`, which an
+   empty instance answers with no values.
 2. An itemset cannot be guarded. A lookup-backed choice list over a table with no rows is refused
    on the device whatever Nova prints, so it needs a word at publish (the plan or the check:
    "`<question>`'s choices come from `<table>`, which has no rows, so a device won't open it"),
    not a commit gate, since rows are lookup data and change without a document mutation.
+   **Implementation correction, 2026-10-19 (pull request 9):** the word is the export boundary's
+   row-dependent refusal `LOOKUP_SELECT_SOURCE_EMPTY` (`lib/commcare/lookup/selectSourceRows.ts`),
+   `environment`-class like `LOOKUP_SELECT_SOURCE_VALUE_BLANK`, so it never gates a commit and
+   stops every mode alike: the `.ccz`, the HQ import file and a publish, in the browser and over
+   MCP, each against the Project lookup snapshot the export reads. It refuses rather than warns
+   because the boundary's existing rule refuses a choice list the device cannot use (a blank or
+   duplicated saved value), and a question that never opens is the stronger case. Its builder
+   sentence: "The question "`<id>`" in "`<form>`" gets its choices from "`<table>`", which has
+   no rows, so a phone won't open it. You can add rows to "`<table>`" in Project data, or choose
+   another table for its choices." (a Search field: "… so a phone won't open its Search
+   screen. …").
 3. Preview's surface for a refusal Core makes is a runtime fault reported to telemetry, or the
    error boundary outside forms. A designed refusal, as a setvalue refusal has
    (`EngineController.recordRefusal`), would say what the device does and what to change.
+   **Implementation correction, 2026-10-19 (pull request 9):** done as above; the entry
+   refusal is `EngineFormRefusal`'s `data` kind, and outside a form `PreviewDataRefusalScope`
+   catches the refusal on the home, module and case-list screens and rethrows anything else.
 
-No emission changes in pull request 9.
+Pull request 9 emits option 1; options 2 and 3 are as corrected above.
 
 ### 2.5 The batch form's selected cases
 

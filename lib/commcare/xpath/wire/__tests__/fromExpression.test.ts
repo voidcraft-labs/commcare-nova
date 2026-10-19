@@ -215,16 +215,26 @@ describe("domain expressions become typed wire trees", () => {
 			]),
 			bindings: { searchInputInstanceId: "search-input:custom" },
 		});
+		const answers = searchInputInstance("search-input:custom");
 		expect(tree).toEqual(
-			w.expansion(
-				"search",
-				w.instance(searchInputInstance("search-input:custom"), [
-					w.step("input"),
-					w.step("field", [
-						w.eq(w.context([w.attr("name")]), w.str("current_name")),
+			w.call("if", [
+				w.gt(
+					w.call("count", [
+						w.instance(answers, [w.step("input"), w.step("field")]),
 					]),
-				]),
-			),
+					w.num(0),
+				),
+				w.expansion(
+					"search",
+					w.instance(answers, [
+						w.step("input"),
+						w.step("field", [
+							w.eq(w.context([w.attr("name")]), w.str("current_name")),
+						]),
+					]),
+				),
+				w.str(""),
+			]),
 		);
 		expect([...serializeWire(tree, { target: "suite" }).instances]).toEqual([
 			searchInputInstance("search-input:custom"),
@@ -575,18 +585,18 @@ describe("instance arms declare what they read, per target", () => {
 			eq(tableColumn(table.id, value.id), literal("north")),
 		);
 		expect(printed(read, "xform")).toEqual({
-			text: "instance('regions')/regions_list/regions[value = 'north'][1]/label",
+			text: "if(count(instance('regions')/regions_list/regions) > 0, instance('regions')/regions_list/regions[value = 'north'][1]/label, '')",
 			instances: [["regions", "jr://fixture/item-list:regions"]],
 		});
 		expect(printed(read, "suite")).toEqual({
-			text: "instance('item-list:regions')/regions_list/regions[value = 'north'][1]/label",
+			text: "if(count(instance('item-list:regions')/regions_list/regions) > 0, instance('item-list:regions')/regions_list/regions[value = 'north'][1]/label, '')",
 			instances: [["item-list:regions", "jr://fixture/item-list:regions"]],
 		});
 	});
 
 	it("declares places for a row read and nothing for a level's code", () => {
 		expect(printed(clinicNames(), "suite")).toEqual({
-			text: "instance('locations')/locations/location[@type = 'clinic']/name",
+			text: "if(count(instance('locations')/locations/location) > 0, instance('locations')/locations/location[@type = 'clinic']/name, '')",
 			instances: [["locations", "jr://fixture/locations"]],
 		});
 		const clinic = doc.organizationLevelOrder?.[2];
@@ -595,6 +605,65 @@ describe("instance arms declare what they read, per target", () => {
 		expect(
 			printed(term({ kind: "location-level", levelUuid: clinic }), "xform"),
 		).toEqual({ text: "'clinic'", instances: [] });
+	});
+
+	// Core refuses a value read of a path whose step reaches no node, and a
+	// fixture, the chosen cases and the search answers build that path from
+	// their rows alone, so each value read is guarded by its rows' count.
+	// `count` reads such a path as 0 and keeps it bare.
+	describe("a read of rows that may be empty", () => {
+		const places =
+			"instance('locations')/locations/location[@type = 'clinic']/name";
+		const guarded = (read: string, empty = "''") =>
+			`if(count(instance('locations')/locations/location) > 0, ${read}, ${empty})`;
+		const call = (
+			fn: Extract<Expression, { kind: "call" }>["fn"],
+			...args: Expression[]
+		): Expression => ({ kind: "call", fn, args });
+
+		it("keeps count's node-set bare", () => {
+			expect(printed(count(clinicNames()), "suite").text).toBe(
+				`count(${places})`,
+			);
+		});
+
+		it("guards a value, and a node-set join or concat reads as an empty string", () => {
+			expect(printed(eq(clinicNames(), literal("x")), "suite").text).toBe(
+				`${guarded(places)} = 'x'`,
+			);
+			expect(
+				printed(call("join", term(literal(" ")), clinicNames()), "suite").text,
+			).toBe(`join(' ', ${guarded(places)})`);
+			expect(printed(concat(clinicNames()), "suite").text).toBe(
+				`concat(${guarded(places)})`,
+			);
+		});
+
+		it("guards a sum at the call, which reads 0 with no rows", () => {
+			expect(printed(call("sum", clinicNames()), "suite").text).toBe(
+				guarded(`sum(${places})`, "0"),
+			);
+		});
+
+		it("leaves distinct-values bare, since no guard reads as its empty sequence", () => {
+			expect(
+				printed(call("distinct-values", clinicNames()), "suite").text,
+			).toBe(`distinct-values(${places})`);
+		});
+
+		it("keeps a branch bare when count reads what the branch passes through", () => {
+			const branch = ifExpr(
+				eq(literal(1), literal(1)),
+				clinicNames(),
+				clinicNames(),
+			);
+			expect(printed(count(branch), "suite").text).toBe(
+				`count(if(1 = 1, ${places}, ${places}))`,
+			);
+			expect(printed(eq(branch, literal("x")), "suite").text).toBe(
+				`if(1 = 1, ${guarded(places)}, ${guarded(places)}) = 'x'`,
+			);
+		});
 	});
 
 	it("reads the chosen cases under the datum id the entry gives them", () => {

@@ -675,7 +675,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 		);
 		expect(errors.get("email")).toBe("Enter an email address.");
 		expect(sources).toEqual([
-			"regex(instance('search-input:results')/input/field[@name = 'email'], '@')",
+			"regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'email'], ''), '@')",
 		]);
 	});
 

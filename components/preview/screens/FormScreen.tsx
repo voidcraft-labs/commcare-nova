@@ -25,6 +25,7 @@ import {
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { PersistentCaseTile } from "@/components/preview/shared/PersistentCaseTile";
+import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -81,6 +82,7 @@ import {
 	overlayCaseDatabasePatch,
 	submissionWorkerValues,
 } from "@/lib/preview/engine/caseDatabasePatch";
+import { previewDataRefusalOf } from "@/lib/preview/engine/dataRefusal";
 import type { EngineValidationCompletion } from "@/lib/preview/engine/engineController";
 import {
 	afterSubmitSessionDatums,
@@ -761,10 +763,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const engineEntry = useEngineEntry();
 	const runtimeFault =
 		engineEntry.fault?.formUuid === formUuid ? engineEntry.fault : undefined;
-	const formRefusal =
+	const entryRefusal =
 		engineEntry.refusal?.formUuid === formUuid
-			? engineEntry.refusal.details
+			? engineEntry.refusal
 			: undefined;
+	const formRefusal =
+		entryRefusal?.kind === "setvalue" ? entryRefusal.details : undefined;
+	const dataRefusal = entryRefusal?.kind === "data" ? entryRefusal : undefined;
 	const caseDatabaseWait =
 		engineEntry.caseDatabaseWait?.formUuid === formUuid
 			? engineEntry.caseDatabaseWait
@@ -1674,7 +1679,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 					);
 				}
 			}
-		} catch {
+		} catch (error) {
+			/* The links read data a phone holds none of. The engine holds that
+			 * refusal and this screen shows it; it is the Project's data, not a
+			 * fault, so nothing is reported. */
+			if (previewDataRefusalOf(error) !== undefined) {
+				announceWrite();
+				settleAttempt({ kind: "idle" });
+				return;
+			}
 			failAfterSave(
 				"Your answers were saved, but the next screen could not be chosen. Reload the app and try again.",
 				"evaluation-failed",
@@ -2370,6 +2383,22 @@ export function FormScreen({ screen }: FormScreenProps) {
 				}}
 				onBackToList={() => navigate.openCaseList(moduleUuid)}
 				onBack={() => navigate.openModule(moduleUuid)}
+			/>
+		);
+	}
+
+	/* The device holds none of the data this form read (no places, a table
+	 * with no rows), so a phone stops here. Rows or places added, or an edit,
+	 * open it again. */
+	if (mode === "preview" && dataRefusal !== undefined) {
+		return (
+			<PreviewDataRefusalPanel
+				surface={dataRefusal.stage}
+				reason={dataRefusal.reason}
+				action={{
+					label: runtimeMessage(language.language, "back"),
+					onClick: () => navigate.openModule(moduleUuid),
+				}}
 			/>
 		);
 	}

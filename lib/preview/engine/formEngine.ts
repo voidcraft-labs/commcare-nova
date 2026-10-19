@@ -137,6 +137,7 @@ import type {
 	SubmissionOperationAnswers,
 } from "./caseDataBindingTypes";
 import { DataInstance, type DataInstanceSnapshot } from "./dataInstance";
+import { PreviewDataRefusal } from "./dataRefusal";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import {
 	type FormExpressionRuntime,
@@ -5253,11 +5254,30 @@ export class FormEngine {
 			}),
 			{ target: "preview" },
 		).text;
-		return lookupChoicesFromNodeset(
-			source,
-			data,
-			evaluateRuntime(nodeset, ctx),
-		);
+		try {
+			return lookupChoicesFromNodeset(
+				source,
+				data,
+				evaluateRuntime(nodeset, ctx),
+			);
+		} catch (error) {
+			/* A table with no rows refuses this question on a device; the
+			 * refusal names it so Preview can say which. */
+			if (
+				error instanceof PreviewDataRefusal &&
+				error.reason.kind === "empty-choice-table"
+			) {
+				const field = this.findField(questionPath);
+				throw new PreviewDataRefusal(
+					{
+						...error.reason,
+						...(field === undefined ? {} : { fieldUuid: field.uuid }),
+					},
+					error.stage,
+				);
+			}
+			throw error;
+		}
 	}
 
 	/** uuid → generic path over the live tree, cached per tree identity —

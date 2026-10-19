@@ -39,7 +39,10 @@ import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LookupFixtureRow } from "@/lib/lookup/types";
 import type { LocationFixtureRow } from "@/lib/organization/footprint";
 import { evaluate } from "../../xpath/evaluator";
-import type { XPathInstance } from "../../xpath/runtimeValues";
+import {
+	type XPathInstance,
+	XPathInvalidPathError,
+} from "../../xpath/runtimeValues";
 import { previewLookupData } from "../lookupEvaluation";
 import {
 	caseDatabaseXPathInstance,
@@ -65,11 +68,8 @@ function read(id: string, instance: XPathInstance, expression: string) {
 				requested === id ? instance : undefined,
 		});
 	} catch (error) {
-		if (
-			error instanceof Error &&
-			error.message ===
-				"XPath references a path that does not exist in the instance."
-		)
+		/* Core's refusal names the instance the path missed: always this one. */
+		if (error instanceof XPathInvalidPathError && error.missedIn === id)
 			return REFUSED;
 		throw error;
 	}
@@ -302,14 +302,11 @@ describe("the search answers", () => {
 	const answers = (entries: readonly (readonly [string, string])[]) =>
 		searchInputXPathInstance(new Map(entries), SEARCH_INPUT_INSTANCE_ID);
 
-	it("reads blank where Core refuses, when no prompt was answered", () => {
-		// Core refuses the three value reads here. Preview holds a `field`
-		// template until Nova's printed prompt reads carry a count guard
-		// (`searchInputXPathInstance`); counts and guarded reads already agree.
+	it("refuses every read below the list when no prompt was answered", () => {
 		expectReads(
 			SEARCH_INPUT_INSTANCE_ID,
 			answers([]),
-			shapes(base, "field", "@name = 'x'", ".", blankReads),
+			shapes(base, "field", "@name = 'x'", ".", refusedReads),
 		);
 	});
 

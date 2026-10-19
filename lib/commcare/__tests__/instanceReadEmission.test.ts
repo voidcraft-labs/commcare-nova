@@ -80,7 +80,7 @@ describe("form logic and Connect reads declare their instances in the XForm", ()
 			Object.fromEntries([
 				[
 					"/data/region_label",
-					"instance('regions')/regions_list/regions[value = 'north'][1]/label",
+					"if(count(instance('regions')/regions_list/regions) > 0, instance('regions')/regions_list/regions[value = 'north'][1]/label, '')",
 				],
 				[
 					"/data/region_count",
@@ -88,19 +88,19 @@ describe("form logic and Connect reads declare their instances in the XForm", ()
 				],
 				[
 					"/data/region_labels",
-					"join(' ', instance('regions')/regions_list/regions/label)",
+					"join(' ', if(count(instance('regions')/regions_list/regions) > 0, instance('regions')/regions_list/regions/label, ''))",
 				],
 				[
 					"/data/clinic_name",
-					"instance('locations')/locations/location[@type = 'clinic']/name",
+					"if(count(instance('locations')/locations/location) > 0, instance('locations')/locations/location[@type = 'clinic']/name, '')",
 				],
 				[
 					"/data/district_of_clinics",
-					"instance('locations')/locations/location/@district_id",
+					"if(count(instance('locations')/locations/location) > 0, instance('locations')/locations/location/@district_id, '')",
 				],
 				[
 					"/data/visit/deliver/entity_name",
-					"instance('regions')/regions_list/regions[value = 'south'][1]/label",
+					"if(count(instance('regions')/regions_list/regions) > 0, instance('regions')/regions_list/regions[value = 'south'][1]/label, '')",
 				],
 			]),
 		);

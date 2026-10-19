@@ -69,6 +69,13 @@ import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
+import {
+	PreviewDataRefusal,
+	type PreviewDataRefusalReason,
+	type PreviewDataRefusalStage,
+	previewDataRefusalOf,
+	workerFailureError,
+} from "./dataRefusal";
 import { buildEngineInput, repeatCountNamesOf } from "./engineInput";
 import {
 	type EntrySessionData,
@@ -177,9 +184,11 @@ export interface EngineEntryState {
 	 * this observable UI contract. */
 	readonly fault: EngineRuntimeFault | undefined;
 	/** CommCare refuses to open this entry: a setvalue's cast turned away a
-	 * preloaded value or a starting value (`answerCast.ts`). Author data, not
-	 * a fault, so it is never reported; it clears on the next document
-	 * revision or case-data change, which open the form again. */
+	 * preloaded value or a starting value (`answerCast.ts`), or the entry read
+	 * data the device holds none of (`dataRefusal.ts`). Author or Project
+	 * data, not a fault, so it is never reported; it clears on the next
+	 * document revision or case-data change, and a data refusal on the next
+	 * lookup snapshot too, which open the form again. */
 	readonly refusal: EngineFormRefusal | undefined;
 	/** A casedb-dependent form requested before its device snapshot is ready.
 	 * This is resource readiness, not an invalid-document fault. */
@@ -242,10 +251,18 @@ export type EngineFaultOperation =
 	| "reset"
 	| "submission";
 
-export interface EngineFormRefusal {
-	readonly formUuid: Uuid;
-	readonly details: SetvalueRefusalDetails;
-}
+export type EngineFormRefusal =
+	| {
+			readonly kind: "setvalue";
+			readonly formUuid: Uuid;
+			readonly details: SetvalueRefusalDetails;
+	  }
+	| {
+			readonly kind: "data";
+			readonly formUuid: Uuid;
+			readonly reason: PreviewDataRefusalReason;
+			readonly stage: PreviewDataRefusalStage;
+	  };
 
 export interface EngineRuntimeFault {
 	readonly formUuid: Uuid;
@@ -1082,7 +1099,21 @@ export class EngineController {
 		error: unknown,
 	): void {
 		if (error instanceof SetvalueRefusal) {
-			this.recordRefusal(formUuid, error.details);
+			this.recordRefusal({
+				kind: "setvalue",
+				formUuid,
+				details: error.details,
+			});
+			return;
+		}
+		const dataRefusal = previewDataRefusalOf(error);
+		if (dataRefusal !== undefined) {
+			this.recordRefusal({
+				kind: "data",
+				formUuid,
+				reason: dataRefusal.reason,
+				stage: dataRefusal.stage,
+			});
 			return;
 		}
 		if (this.runtimeFault !== undefined) return;
@@ -1111,36 +1142,49 @@ export class EngineController {
 	 * opens it again, so an author's fix is seen at once. A case-data change
 	 * re-activates through the ordinary activation path.
 	 */
-	private recordRefusal(formUuid: Uuid, details: SetvalueRefusalDetails): void {
+	private recordRefusal(refusal: EngineFormRefusal): void {
 		if (this.runtimeFault !== undefined || this.formRefusal !== undefined)
 			return;
 		this.clearActiveForm();
-		this.formRefusal = { formUuid, details };
+		this.formRefusal = refusal;
 		const docStore = this.docStore;
-		const requested = this.requestedActivation;
-		if (docStore !== undefined && requested?.formUuid === formUuid) {
+		if (
+			docStore !== undefined &&
+			this.requestedActivation?.formUuid === refusal.formUuid
+		) {
 			const refusedState = docStore.getState();
 			const unsubscribe = docStore.subscribe((current) => {
 				if (current === refusedState) return;
-				this.clearRefusal();
-				if (this.xpathRuntime) {
-					this.activateFormAsync(
-						requested.formUuid,
-						requested.caseData,
-						requested.caseDatabase,
-						requested.searchAnswers,
-					).catch(() => undefined);
-				} else
-					this.activateForm(
-						requested.formUuid,
-						requested.caseData,
-						requested.caseDatabase,
-						requested.searchAnswers,
-					);
+				this.reopenRefusedEntry();
 			});
 			this.stopWatchingRefusal = unsubscribe;
 		}
 		this.publishEntryState();
+	}
+
+	/** Open the refused entry again, as it was requested. */
+	private reopenRefusedEntry(): void {
+		const refusal = this.formRefusal;
+		const requested = this.requestedActivation;
+		this.clearRefusal();
+		if (refusal === undefined || requested?.formUuid !== refusal.formUuid) {
+			this.publishEntryState();
+			return;
+		}
+		if (this.xpathRuntime) {
+			this.activateFormAsync(
+				requested.formUuid,
+				requested.caseData,
+				requested.caseDatabase,
+				requested.searchAnswers,
+			).catch(() => undefined);
+		} else
+			this.activateForm(
+				requested.formUuid,
+				requested.caseData,
+				requested.caseDatabase,
+				requested.searchAnswers,
+			);
 	}
 
 	private clearRefusal(): void {
@@ -1209,9 +1253,7 @@ export class EngineController {
 			) {
 				throw new Error("The XPath evaluation revision was retired.");
 			}
-			if (!result.ok) {
-				throw new PreviewXPathRuntimeError(result.error);
-			}
+			if (!result.ok) throw workerFailureError(result);
 			if (
 				resultMode === "nodeset-values-or-scalar" &&
 				result.nodesetValues !== undefined
@@ -1542,6 +1584,7 @@ export class EngineController {
 		 * waiting for a later snapshot rather than calling a table missing. */
 		requestedTableIds?: readonly string[],
 	): void {
+		const previousData = this.lookupData;
 		this.lookupData = data;
 		this.lookupRequestedTableIds =
 			data === null ? undefined : requestedTableIds;
@@ -1551,6 +1594,11 @@ export class EngineController {
 			return;
 		}
 		if (data === null) return;
+		/* Rows added to a table the entry found empty: open it again. */
+		if (this.formRefusal?.kind === "data" && data !== previousData) {
+			this.reopenRefusedEntry();
+			return;
+		}
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined || this.engine === undefined) return;
 		/* Rebuild only when the active engine's CAPTURED snapshot fails to
@@ -3291,7 +3339,15 @@ export class EngineController {
 							"The after-submit XPath evaluation did not complete.",
 						);
 					}
-					if (!result.ok) throw new PreviewXPathRuntimeError(result.error);
+					if (!result.ok) {
+						/* A link reads after the form is saved, so a refusal there
+						 * stops the entry at its links. */
+						const error = workerFailureError(result);
+						const refusal = previewDataRefusalOf(error);
+						throw refusal === undefined
+							? error
+							: new PreviewDataRefusal(refusal.reason, "links");
+					}
 					return deserializeXPathWorkerValue(result.value);
 				};
 				return { completed: true, value: await run(evaluate) };
@@ -3299,6 +3355,11 @@ export class EngineController {
 			undefined,
 		);
 		if (outcome === undefined) {
+			/* The links read data the device holds none of: the entry holds
+			 * the refusal, and its caller learns it was one, not a fault. */
+			const refusal = this.formRefusal;
+			if (refusal?.kind === "data" && refusal.formUuid === formUuid)
+				throw new PreviewDataRefusal(refusal.reason, refusal.stage);
 			throw new Error("Preview could not evaluate the after-submit route.");
 		}
 		return outcome.value;

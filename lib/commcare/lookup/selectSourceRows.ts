@@ -12,7 +12,13 @@
  * - duplicate values after scalar lexicalization, by exact code-point
  *   equality — no trim, case folding, or Unicode normalization; and
  * - a missing label or one whose lexicalized value trims to empty. The check
- *   never alters the emitted label; duplicate labels stay valid.
+ *   never alters the emitted label; duplicate labels stay valid; and
+ * - a table with no rows at all. CommCare checks an itemset's path before it
+ *   reads it, and a path that reaches no row is refused outright
+ *   (`ItemSetUtils.populateDynamicChoices`, and for a Search prompt
+ *   `RemoteQuerySessionManager.populateItemSetChoices`), so the question or
+ *   the Search screen does not open on a device. A filter that leaves no
+ *   choice over rows that exist is fine: the path still reaches a row.
  *
  * Findings aggregate per select and check kind so a 5,000-row table cannot
  * flood the verdict; details carry the offending 1-based row positions
@@ -175,6 +181,31 @@ function sourceFindings(args: {
 	return errors;
 }
 
+function emptySourceFinding(
+	carrier: LookupOptionsSourceCarrier,
+	table: LookupTableDefinition,
+): ValidationError {
+	const owner = describeLookupOptionsSourceOwner(carrier.owner);
+	const opens =
+		carrier.owner.kind === "field" ? "the question" : "its Search screen";
+	return validationError(
+		"LOOKUP_SELECT_SOURCE_EMPTY",
+		carrier.location.scope,
+		`${owner} builds its choices from lookup table "${table.name}", which has no rows, so a device won't open ${opens}. Add rows to "${table.name}" in Project data, or choose another table for its choices.`,
+		carrier.location,
+		{
+			tableId: table.id as string,
+			tableTag: table.tag,
+			tableName: table.name,
+			ownerKind: carrier.owner.kind,
+			...(carrier.owner.kind === "search-input" && {
+				inputName: carrier.owner.inputName,
+				inputLabel: carrier.owner.inputLabel,
+			}),
+		},
+	);
+}
+
 /**
  * Validate every persisted lookup-backed select against the fixture
  * snapshot's complete rows. A source whose table or columns are absent from
@@ -201,6 +232,10 @@ export function lookupSelectSourceRowFindings(
 			(column) => column.id === carrier.source.labelColumnId,
 		);
 		if (valueColumn === undefined || labelColumn === undefined) continue;
+		if (rows.length === 0) {
+			errors.push(emptySourceFinding(carrier, table));
+			continue;
+		}
 		errors.push(
 			...sourceFindings({ carrier, table, rows, valueColumn, labelColumn }),
 		);

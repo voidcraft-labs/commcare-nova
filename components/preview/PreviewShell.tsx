@@ -72,6 +72,7 @@ import {
 	useSetPreviewTaskContinuation,
 } from "@/lib/session/hooks";
 import { HomeScreen } from "./screens/HomeScreen";
+import { PreviewDataRefusalScope } from "./shared/PreviewDataRefusal";
 
 function BuilderSurfaceLoading() {
 	return (
@@ -560,7 +561,9 @@ export function PreviewShell() {
 					>
 						<PortaledContentDirectionProvider direction={direction}>
 							<div dir={direction} className="contents">
-								<HomeScreen />
+								<PreviewDataRefusalScope screenKey="home">
+									<HomeScreen />
+								</PreviewDataRefusalScope>
 							</div>
 						</PortaledContentDirectionProvider>
 					</Activity>
@@ -576,10 +579,14 @@ export function PreviewShell() {
 					>
 						<PortaledContentDirectionProvider direction={direction}>
 							<div dir={direction} className="contents">
-								<ModuleScreen
-									key={screenKey(moduleScreenRef.current)}
-									screen={moduleScreenRef.current}
-								/>
+								<PreviewDataRefusalScope
+									screenKey={screenKey(moduleScreenRef.current)}
+								>
+									<ModuleScreen
+										key={screenKey(moduleScreenRef.current)}
+										screen={moduleScreenRef.current}
+									/>
+								</PreviewDataRefusalScope>
 							</div>
 						</PortaledContentDirectionProvider>
 					</Activity>
@@ -679,10 +686,15 @@ export function PreviewShell() {
 					>
 						<PortaledContentDirectionProvider direction={direction}>
 							<div dir={direction} className="contents">
-								<CaseListScreen
-									key={screenKey(caseListScreenRef.current)}
-									screen={caseListScreenRef.current}
-								/>
+								<PreviewDataRefusalScope
+									screenKey={screenKey(caseListScreenRef.current)}
+									moduleUuid={caseListScreenRef.current.moduleUuid}
+								>
+									<CaseListScreen
+										key={screenKey(caseListScreenRef.current)}
+										screen={caseListScreenRef.current}
+									/>
+								</PreviewDataRefusalScope>
 							</div>
 						</PortaledContentDirectionProvider>
 					</Activity>

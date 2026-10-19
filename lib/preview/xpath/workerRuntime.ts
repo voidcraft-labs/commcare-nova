@@ -15,6 +15,7 @@ import {
 	isXPathNodeSet,
 	unpackXPathRuntimeValue,
 	type XPathInstance,
+	XPathInvalidPathError,
 	type XPathNode,
 	XPathNodesetCardinalityError,
 } from "./runtimeValues";
@@ -26,6 +27,7 @@ import {
 import {
 	XPATH_WORKER_BUILD_ID,
 	XPATH_WORKER_PROTOCOL_VERSION,
+	type XPathEmptyInstanceRefusal,
 	type XPathRuntimeErrorCode,
 	type XPathRuntimeFailureReason,
 	type XPathWorkerEvaluateRequest,
@@ -328,6 +330,7 @@ function safeError(
 	request: XPathWorkerEvaluateRequest,
 	code: XPathRuntimeErrorCode,
 	reason?: XPathRuntimeFailureReason,
+	refusal?: XPathEmptyInstanceRefusal,
 ): XPathWorkerResponse {
 	return {
 		protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
@@ -346,16 +349,22 @@ function safeError(
 			revision: request.revision,
 			profile: request.profile,
 		},
+		...(refusal === undefined ? {} : { refusal }),
 	};
 }
 
 class XPathWorkerEvaluationFailure extends Error {
 	readonly reason: XPathRuntimeFailureReason;
+	readonly refusal: XPathEmptyInstanceRefusal | undefined;
 
 	constructor(reason: XPathRuntimeFailureReason, cause: unknown) {
 		super("The XPath worker evaluation failed.", { cause });
 		this.name = "XPathWorkerEvaluationFailure";
 		this.reason = reason;
+		this.refusal =
+			cause instanceof XPathInvalidPathError && cause.missedIn !== null
+				? { instanceId: cause.missedIn }
+				: undefined;
 	}
 }
 
@@ -369,12 +378,11 @@ function classifyWorkerFailure(
 	else if (error instanceof DOMException) kind = "dom-exception";
 	else if (error instanceof XPathNodesetCardinalityError)
 		kind = "nodeset-cardinality";
+	else if (error instanceof XPathInvalidPathError) kind = "invalid-path";
 	else if (error instanceof Error) {
 		const message = error.message;
 		if (message === "The XPath worker evaluation world is unavailable.") {
 			kind = "world-unavailable";
-		} else if (message.includes("path that does not exist")) {
-			kind = "invalid-path";
 		} else if (message.includes("did not pass admission")) {
 			kind = "admission";
 		} else if (message.includes("Unsupported")) {
@@ -661,15 +669,14 @@ export function createXPathWorkerDispatcher(args: {
 				})
 				.catch((error: unknown) => {
 					if (retired || active.get(request.requestId) !== controller) return;
-					const reason =
-						error instanceof XPathWorkerEvaluationFailure
-							? error.reason
-							: undefined;
+					const failure =
+						error instanceof XPathWorkerEvaluationFailure ? error : undefined;
 					args.postMessage(
 						safeError(
 							request,
 							controller.signal.aborted ? "cancelled" : "evaluation-failed",
-							controller.signal.aborted ? undefined : reason,
+							controller.signal.aborted ? undefined : failure?.reason,
+							controller.signal.aborted ? undefined : failure?.refusal,
 						),
 					);
 				})

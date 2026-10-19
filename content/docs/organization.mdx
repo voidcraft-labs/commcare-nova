@@ -253,11 +253,8 @@ places; you can read them in the form's questions instead.
 
 A worker's device holds the places in their address book, so a formula finds
 only those, and Preview reads the same places for the persona you preview as.
-For a worker assigned nowhere that list is empty, and CommCare can't read a
-place's name or information from it: the form stops with "not a valid question
-or value", in Preview as on a phone. Counting places still works there, so
-`if(count(instance('locations')/locations/location) > 0, …, '')` reads a place
-only when the worker has one.
+For a worker assigned nowhere that list is empty, and a place's name or
+information reads blank, in Preview as on a phone.
 A formula can read places once the app has organization levels. A level or a
 piece of place information that a formula reads can't be removed until that
 formula changes.

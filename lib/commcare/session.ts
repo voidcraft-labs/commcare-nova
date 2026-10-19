@@ -58,6 +58,7 @@ import {
 	USERCASE_MISSING_LOCALE_ID,
 } from "./usercaseWire";
 import { w } from "./xpath/wire/builders";
+import { guardValue } from "./xpath/wire/emptyRows";
 import {
 	caseDbInstance,
 	type InstanceDecl,
@@ -395,10 +396,24 @@ function sessionRef(datumId: string): WireExpr {
 		w.step(datumId),
 	]);
 }
-function selectedValues(datumId: string): WireExpr {
-	return w.instance(selectedCasesInstance(datumId), [
-		w.step("results"),
-		w.step("value"),
+/** The chosen case ids as one space-separated value. */
+// No case is chosen only through a session endpoint: Web Apps' own list sets
+// the datum for one or more (`MultiSelectEntityScreen.validateSelectionSize`
+// refuses 0), but Formplayer builds an endpoint's selection from the link's
+// argument with `split(",")`
+// (`MenuSessionRunnerService.processEndpointArgumentsForVirualInstance`), which
+// reads `","` as no ids, and the replay accepts that (`prcessSelectionAsGuid` →
+// `validateEntitiesInInstance` loops over none). Core refuses a `join` of the
+// empty instance, so it is guarded (`wire/emptyRows.ts`).
+function joinedSelectedValues(datumId: string): WireExpr {
+	return w.call("join", [
+		w.str(" "),
+		guardValue(
+			w.instance(selectedCasesInstance(datumId), [
+				w.step("results"),
+				w.step("value"),
+			]),
+		),
 	]);
 }
 
@@ -466,10 +481,7 @@ export function deriveCaseSelectionDatum(args: {
 						w.call("count", [
 							parentIndexes([
 								w.call("selected", [
-									w.call("join", [
-										w.str(" "),
-										selectedValues(parentSelection.id),
-									]),
+									joinedSelectedValues(parentSelection.id),
 									w.context([w.self()]),
 								]),
 							]),
@@ -701,7 +713,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 				caseSelectDatum.maxSelectValue === undefined
 					? w.eq(w.context([w.attr("case_id")]), sessionRef(caseSelectDatum.id))
 					: w.call("selected", [
-							w.call("join", [w.str(" "), selectedValues(caseSelectDatum.id)]),
+							joinedSelectedValues(caseSelectDatum.id),
 							w.context([w.attr("case_id")]),
 						]);
 			return w.call("join", [

@@ -72,6 +72,39 @@ datums are suite-only. An endpoint argument must be one grammar-valid local
 name and comes only from generated endpoint metadata. The HQ enum placeholder
 is HQ-JSON-only. None is reachable from an authored expression.
 
+## Reads of rows that may be empty
+
+Core checks an absolute path before reading it (`XPathPathExpr.evalRaw` →
+`DataInstance.hasTemplatePath`, predicates ignored), and an instance Core
+builds from its data alone has no template: a lookup table, the flat place
+list, the selected entities and the search answers (`src` a `jr://fixture/…`,
+`jr://instance/selected-entities/…` or `jr://instance/search-input/…`). With
+no rows, `count` of a path into one reads 0 and every value read throws.
+`casedb` and `results:inline` read the case template and are never guarded.
+So `emitExpression` lowers every expression for its consumer (`Use`): a value
+read of such an instance prints `if(count(<root>/<row>) > 0, <read>, '')`,
+the rows being the read's first two steps with no predicates. With any row
+present the read answers as written, since `if` returns its branch
+unconverted; with none it reads blank. `count`, and the branches of `if`,
+`switch`, `coalesce` or a pass-through call that `count` reads, take the bare
+path (`count('')` throws). A call's node-set arguments follow
+`NODE_SET_ARGUMENT`: `join`, `concat`, `join-chunked`, `checklist`, `min` and
+`max` take the `''` guard, which they read as an empty set; `sum` and
+`index-of` take the bare path and the call is guarded with `0` and `''`;
+`position`, `distinct-values`, `weighted-checklist` and `depend` keep it bare,
+since no string reads as their empty set. An itemset or repeat nodeset is
+generated, never lowered here, and stays bare, and so is a prompt read inside
+CSQL text (`predicate/termEmitter.ts::emitSearchInputXPath`), which the
+validator admits only inside a presence envelope whose `count` covers it.
+Generated scaffolding that reads such an instance as a value applies
+`emptyRows.ts::guardValue` itself: the several-case `join` of the chosen ids
+in a batch form, a nested child list's parent filter and tile grouping. Zero
+chosen cases is reachable through a session endpoint (Formplayer splits the
+link's argument on commas), never through the list. A `<data nodeset>` over
+the chosen cases is a `TreeReference` that Core expands
+(`ListQueryData.getValues`), never checked by `XPathPathExpr`, so it stays bare. The plan's part 05, §2.4's
+corrections of 2026-10-19, records the probes at the pinned Core.
+
 ## Instances and element slots
 
 Every instance root holds the declaration from `instances.ts`. Serialization

@@ -1241,8 +1241,8 @@ evaluation alike.
 path before reading it (`DataInstance.hasTemplatePath`): every step must reach
 a template child or some concrete child, predicates ignored. A path that
 reaches nothing is an invalid nodeset: `count()` reads 0, and a value read or
-`join` is refused ("XPath references a path that does not exist in the
-instance", the same containment as any other Core evaluation error). The
+`join` is refused (`runtimeValues.ts::XPathInvalidPathError`, whose `missedIn`
+names the secondary instance the path missed, `null` for the form's own). The
 places, the lookup tables and the selected cases are plain `TreeElement`s on a
 device, so their instances declare their data and no templates: an empty list
 refuses every read below it, and a choice list over a table with no rows
@@ -1250,13 +1250,52 @@ refuses its question (`lookupEvaluation.ts::lookupChoicesFromNodeset`, as
 `ItemSetUtils` does). `casedb` and `results:inline` are checked against
 Core's static casedb spec, whatever the data holds, so they carry that spec
 (`xpathInstances.ts::caseTemplate`). The search answers hold only non-blank
-answers, but keep a `field` template, so with no prompt answered Preview reads
-`''` where Core refuses: Nova prints prompt reads unguarded, and a faithful
-instance would refuse a conditional requirement on every Search screen as it
-opens. `engine/__tests__/emptyInstanceParity.test.ts` holds each instance to
-the answers of a probe of Core at the pin; the plan
+answers and no template, so with no prompt answered they refuse as Core does.
+Nova prints every value read of these data-built instances guarded by its
+rows' count (`lib/commcare/xpath/wire/CLAUDE.md`, "Reads of rows that may be
+empty"), so the Search screen's required marks, a no-matches form's search
+reads and a form's place and table reads read blank over empty data here as
+on a device; what still refuses is a read Nova leaves bare (an itemset, and
+the few node-set arguments listed there).
+`engine/__tests__/emptyInstanceParity.test.ts` holds each instance to the
+answers of a probe of Core at the pin; the plan
 (`docs/plans/hq-round-trip/3-expressions/05-instances-session.md`, §2.4's
-correction of 2026-10-19) records the probe and the open emission question.
+correction of 2026-10-19) records the probe and the guard.
+
+**Empty data is a refusal, never a fault** (`engine/dataRefusal.ts`). A miss
+in a secondary instance (no places for the worker, a table with no rows) and
+a choice list over a table with no rows (`lookupChoicesFromNodeset` throws
+`PreviewDataRefusal`, which `FormEngine.computeLookupChoices` stamps with the
+question) are the Project's data turned away, so `previewDataRefusalOf` tells
+them apart from a fault by the error's type, never its message; a miss in the
+form's own instance stays a fault. The worker carries the instance id as
+`XPathRuntimeFailure.refusal`, beside the diagnostic `error` (which names no
+authored data), and `workerFailureError` raises it on the host as the same
+`XPathInvalidPathError`. Each surface says what a phone does and what to
+change (`runtimeMessages.ts::dataRefusalCopy`, from
+`previewDataRefusalSubject`: places, a table by name, a question's or Search
+field's choices, a blank search answer), and nothing reaches `faultReporter`
+or the client error funnel:
+
+- A form: `EngineController.recordRuntimeFault` records an entry refusal of
+  kind `data` (`EngineFormRefusal`, beside the setvalue refusal), with stage
+  `form`, or `links` when `evaluateFormLinkXPaths` read it after the save; the
+  after-submit route then settles quietly and `FormScreen` shows the panel. The
+  next document revision, case-data change (the places ride the device
+  snapshot) or new lookup snapshot opens the form again.
+- A menu's display condition and a Search prompt's choices are read while
+  their screen renders, so `PreviewShell` wraps the home, module and case-list
+  screens in `PreviewDataRefusalScope` (`components/preview/shared/PreviewDataRefusal.tsx`),
+  an error boundary that renders the refusal for `previewDataRefusalOf` errors
+  and rethrows every other error to the canvas boundary. A refused choice list
+  there is the Search screen's; any other read is the menu's. It tries again
+  when the document, the lookup status or the screen changes.
+- `evaluateFormSnapshot` (App Tests, `evaluate_form`) reports the same refusal
+  as a `FormEvaluationInputError` carrying the English sentence.
+
+A choice list Preview computes at form open, so Preview refuses the form at
+open where a phone refuses when the question is reached. The export boundary
+refuses the same choice list (`LOOKUP_SELECT_SOURCE_EMPTY`, `lib/export`).
 
 ## End-of-form links
 

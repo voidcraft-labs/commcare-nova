@@ -308,7 +308,7 @@ describe("preview case-search expression evaluation", () => {
 			new Map([["clinic", "Kolda"]]),
 		);
 		expect(xpath.source).toBe(
-			"instance('search-input:results')/input/field[@name = 'clinic'] = 'Kolda'",
+			"if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'clinic'], '') = 'Kolda'",
 		);
 		expect(
 			xpath.instances

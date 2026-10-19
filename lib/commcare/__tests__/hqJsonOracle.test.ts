@@ -1077,12 +1077,12 @@ describe("HQ-JSON oracle — search prompt children", () => {
 		expect(email).toMatchObject({
 			name: "email",
 			required: {
-				test: "string-length(string(instance('search-input:results')/input/field[@name = 'case_name'])) = 0",
+				test: "string-length(string(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'case_name'], ''))) = 0",
 				text: { en: "Give an email when the name is blank." },
 			},
 			validations: [
 				{
-					test: "regex(instance('search-input:results')/input/field[@name = 'email'], '@')",
+					test: "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'email'], ''), '@')",
 					text: { en: "Enter an email address." },
 				},
 			],

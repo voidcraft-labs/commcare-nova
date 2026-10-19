@@ -249,7 +249,10 @@ describe("evaluateLookupChoices", () => {
 			eq(term(tableColumn(TABLE, COL_REGION)), literal("north")),
 		])
 			expect(() => evaluateLookupChoices(source(filter), empty)).toThrow(
-				/which has no rows/,
+				expect.objectContaining({
+					name: "PreviewDataRefusal",
+					reason: { kind: "empty-choice-table", tableId: TABLE },
+				}),
 			);
 	});
 

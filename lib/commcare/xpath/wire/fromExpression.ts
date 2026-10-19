@@ -30,6 +30,7 @@ import {
 	typeOf,
 } from "@/lib/domain/expression/typeChecker";
 import {
+	type CallFunction,
 	type DatumRef,
 	type Expression,
 	type ItextUnit,
@@ -39,6 +40,7 @@ import {
 	type RelationPath,
 	type Term,
 } from "@/lib/domain/expression/types";
+import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { LookupWireNaming } from "../../lookup/naming";
@@ -47,6 +49,7 @@ import { matchModeRunsOnDevice } from "../../predicate/matchModes";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
+import { emptiableRows, guardRead, guardValue } from "./emptyRows";
 import { formReadToWire } from "./formReads";
 import { normalizeGeopoint, validGeopointCenter } from "./geopoint";
 import {
@@ -577,7 +580,9 @@ function term(input: Term, ctx: Context): WireExpr {
 }
 
 function operand(input: Expression | Term, ctx: Context): WireExpr {
-	return isExpression(input) ? emitExpression(input, ctx) : term(input, ctx);
+	return isExpression(input)
+		? emitExpression(input, ctx)
+		: guardValue(term(input, ctx));
 }
 
 function queryContext(expression: Expression, ctx: Context): Context {
@@ -672,7 +677,78 @@ function switchTests(
 	);
 }
 
-function emitExpression(expr: Expression, ctx: Context): WireExpr {
+/** How the enclosing expression consumes a lowered value: Core unpacks a
+ * `value`, and reads `nodes` as the node-set itself (`count`, a node-set
+ * argument that needs no guard, a branch passed through to either). */
+type Use = "value" | "nodes";
+
+/** How each node-set argument Core reads whole (`expressionFunctions.ts`,
+ * `manyArguments`) takes an instance read. `value`: the guarded read, whose
+ * `''` these functions read as they read an empty set (`join`, `concat`,
+ * `join-chunked` and `checklist` read one empty string; `min` and `max`
+ * read it as NaN, their answer for no values). A number or string: the
+ * argument stays bare and the call is guarded, reading that constant (what
+ * the function answers for an empty set) when there are no rows. `nodes`:
+ * the argument stays bare, since Core answers no empty set there
+ * (`position`, `distinct-values`'s sequence, `weighted-checklist`'s paired
+ * sets) or never reads it (`depend`'s later arguments). */
+const NODE_SET_ARGUMENT: Partial<
+	Record<string, "value" | "nodes" | { readonly empty: WireExpr }>
+> = {
+	join: "value",
+	"join-chunked": "value",
+	checklist: "value",
+	min: "value",
+	max: "value",
+	sum: { empty: w.num(0) },
+	"index-of": { empty: w.str("") },
+	position: "nodes",
+	"distinct-values": "nodes",
+	"weighted-checklist": "nodes",
+	depend: "nodes",
+};
+
+function emitCall(
+	fn: Exclude<CallFunction, "normalize-space">,
+	callArgs: readonly Expression[],
+	ctx: Context,
+	use: Use,
+): WireExpr {
+	const spec = FUNCTION_REGISTRY.get(fn);
+	const many = spec?.manyArguments?.(callArgs.length);
+	const passThrough = spec?.passThrough?.(callArgs.length);
+	const argument = NODE_SET_ARGUMENT[fn] ?? "nodes";
+	let guard: { readonly rows: WirePath; readonly empty: WireExpr } | undefined;
+	const args = callArgs.map((arg, index) => {
+		if (many?.has(index) === true) {
+			if (argument === "value") return emitExpression(arg, ctx);
+			const bare = emitExpression(arg, ctx, "nodes");
+			if (argument !== "nodes") {
+				const rows = emptiableRows(bare);
+				if (rows !== undefined) guard = { rows, empty: argument.empty };
+			}
+			return bare;
+		}
+		return emitExpression(
+			arg,
+			ctx,
+			passThrough?.has(index) === true ? use : "value",
+		);
+	});
+	const call = w.call(fn, args);
+	return guard === undefined ? call : guardRead(call, guard.rows, guard.empty);
+}
+
+function emitExpression(
+	expr: Expression,
+	ctx: Context,
+	use: Use = "value",
+): WireExpr {
+	const lowered = lowerExpression(expr, ctx, use);
+	return use === "value" ? guardValue(lowered) : lowered;
+}
+
+function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 	const overridden = ctx.overrides?.get(expr);
 	if (overridden !== undefined) return overridden;
 	if (
@@ -682,7 +758,7 @@ function emitExpression(expr: Expression, ctx: Context): WireExpr {
 		expr.kind !== "coalesce" &&
 		expr.kind !== "switch"
 	)
-		return emitExpression(expr, { ...ctx, dayComparison: undefined });
+		return lowerExpression(expr, { ...ctx, dayComparison: undefined }, use);
 	const plain: Context =
 		ctx.dayComparison === true ? { ...ctx, dayComparison: undefined } : ctx;
 	const emit = (input: Expression) => emitExpression(input, ctx);
@@ -702,7 +778,7 @@ function emitExpression(expr: Expression, ctx: Context): WireExpr {
 						w.str("^ | $"),
 						w.str(""),
 					])
-				: w.call(expr.fn, expr.args.map(emit));
+				: emitCall(expr.fn, expr.args, ctx, use);
 		case "here":
 			return w.call("here");
 		case "itext": {
@@ -785,7 +861,7 @@ function emitExpression(expr: Expression, ctx: Context): WireExpr {
 			]);
 		}
 		case "project": {
-			const base = emit(expr.of);
+			const base = emitExpression(expr.of, ctx, "nodes");
 			if (base.k !== "path")
 				throw new Error(
 					"A row projection must lower from a selected node-set path.",
@@ -854,25 +930,39 @@ function emitExpression(expr: Expression, ctx: Context): WireExpr {
 		case "concat":
 			return w.call("concat", expr.parts.map(emit));
 		case "coalesce":
-			return w.call("coalesce", expr.values.map(emit));
+			// Core unpacks every value but the last, which it returns as it evaluates.
+			return w.call(
+				"coalesce",
+				expr.values.map((value, index) =>
+					emitExpression(
+						value,
+						ctx,
+						index === expr.values.length - 1 ? use : "value",
+					),
+				),
+			);
 		case "if":
 			return w.call("if", [
 				emitExpression(
 					normalizeRelationEvaluationScopes(expr.cond, relationScope(plain)),
 					plain,
 				),
-				emit(expr.then),
-				emit(expr.else),
+				emitExpression(expr.then, ctx, use),
+				emitExpression(expr.else, ctx, use),
 			]);
 		case "switch": {
 			const tests = switchTests(expr, plain);
-			let result = emit(expr.fallback);
+			let result = emitExpression(expr.fallback, ctx, use);
 			for (let index = expr.cases.length - 1; index >= 0; index--) {
 				const entry = expr.cases[index];
 				const test = tests[index];
 				if (entry === undefined || test === undefined)
 					throw new Error("A switch case has no test in its emitted chain.");
-				result = w.call("if", [test, emit(entry.then), result]);
+				result = w.call("if", [
+					test,
+					emitExpression(entry.then, ctx, use),
+					result,
+				]);
 			}
 			return result;
 		}
@@ -910,7 +1000,7 @@ function emitExpression(expr: Expression, ctx: Context): WireExpr {
 		case "count":
 			return isRelationPath(expr.via)
 				? count(expr.via, expr.where, ctx)
-				: w.call("count", [emit(expr.via)]);
+				: w.call("count", [emitExpression(expr.via, ctx, "nodes")]);
 		case "table-lookup": {
 			const lookup = ctx.bindings.lookup;
 			if (lookup === undefined)

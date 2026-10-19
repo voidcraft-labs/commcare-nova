@@ -1,6 +1,7 @@
 import { toBoolean, toNumber, xpathToString } from "./coerce";
 import { javaRosaSplitOnSpaces } from "./javaString";
 import {
+	invalidPathError,
 	isXPathNodeSet,
 	isXPathSequence,
 	type XPathRuntimeValue,
@@ -16,11 +17,7 @@ function requireNodeSetValues(value: XPathRuntimeValue): readonly XPathValue[] {
 	if (!isXPathNodeSet(value)) {
 		throw new Error("XPath function requires a nodeset argument.");
 	}
-	if (!value.validPath) {
-		throw new Error(
-			"XPath references a path that does not exist in the instance.",
-		);
-	}
+	if (!value.validPath) throw invalidPathError(value);
 	return value.nodes.map((node) => node.value());
 }
 

@@ -446,7 +446,7 @@ describe("ordinary nested-menu wire projection", () => {
 			"session",
 		)[0].children.filter(isTag);
 		expect(emittedSelectors[1].attribs.nodeset).toContain(
-			"[count(index/*[not(@relationship = 'extension')][selected(join(' ', instance('selected_cases')/results/value), .)]) > 0]",
+			"[count(index/*[not(@relationship = 'extension')][selected(join(' ', if(count(instance('selected_cases')/results/value) > 0, instance('selected_cases')/results/value, '')), .)]) > 0]",
 		);
 		expect(
 			directChildren(childEntry, "instance").some(
@@ -500,7 +500,7 @@ describe("ordinary nested-menu wire projection", () => {
 			"session",
 		)[0].children.filter(isTag);
 		expect(emittedSelectors[1].attribs.nodeset).toContain(
-			"[count(index/*[not(@relationship = 'extension')][selected(join(' ', instance('selected_cases')/results/value), .)]) > 0]",
+			"[count(index/*[not(@relationship = 'extension')][selected(join(' ', if(count(instance('selected_cases')/results/value) > 0, instance('selected_cases')/results/value, '')), .)]) > 0]",
 		);
 		expect(
 			directChildren(childEntry, "instance").map((instance) => ({

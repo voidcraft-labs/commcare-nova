@@ -449,6 +449,7 @@ export type ValidationErrorCode =
 	| "LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE"
 	| "LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE"
 	| "LOOKUP_SELECT_SOURCE_LABEL_BLANK"
+	| "LOOKUP_SELECT_SOURCE_EMPTY"
 	// What each carrier can hold: fixture bytes a downloadable app embeds,
 	// rows CommCare HQ's importer takes in one workbook, and the sheet name
 	// its importer keeps for its own list of tables.

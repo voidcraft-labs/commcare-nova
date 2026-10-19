@@ -39,6 +39,7 @@ import type {
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import { isXPathNodeSet, type XPathRuntimeValue } from "../xpath/runtimeValues";
+import { PreviewDataRefusal } from "./dataRefusal";
 import type { LookupChoice } from "./types";
 
 /**
@@ -268,9 +269,10 @@ export function lookupChoicesFromNodeset(
 	 * path and Core's `ItemSetUtils.populateDynamicChoices` refuses the
 	 * question rather than offering no choices. */
 	if (!nodeset.validPath)
-		throw new Error(
-			`The choices for this question come from the lookup table \`${table.name}\`, which has no rows, and CommCare refuses to open a question whose choice table has no rows ("Make sure the lookup table is available"). The question opens once the table holds a row.`,
-		);
+		throw new PreviewDataRefusal({
+			kind: "empty-choice-table",
+			tableId: table.id,
+		});
 	const valueColumn = requireColumn(
 		table,
 		source.valueColumnId,

@@ -17,6 +17,7 @@ import {
 	unpackXPathRuntimeValue,
 	type XPathNode,
 	XPathNodeSet,
+	type XPathPathValidity,
 	type XPathRuntimeValue,
 } from "./runtimeValues";
 import { selectCondArgument } from "./scalarJavaRosaFunctions";
@@ -575,7 +576,7 @@ export function contextualizeAbsolutePathSelection(
 	);
 	return bound.length === 0
 		? selection
-		: new XPathNodeSet(bound, selection.validPath, bound);
+		: new XPathNodeSet(bound, selection.validity, bound);
 }
 
 export function applyStructuralStep(
@@ -624,7 +625,7 @@ function selectNamedNodes(base: XPathNodeSet, name: string): XPathNodeSet {
 	if (name === "*") return base;
 	return new XPathNodeSet(
 		base.candidates.filter((node) => node.name === name),
-		base.validPath,
+		base.validity,
 		base.schemaNodes.filter((node) => node.name === name),
 	);
 }
@@ -646,7 +647,7 @@ function selectParents(base: XPathNodeSet): XPathNodeSet {
 	};
 	return new XPathNodeSet(
 		uniqueParents(base.candidates),
-		base.validPath,
+		base.validity,
 		uniqueParents(base.schemaNodes),
 	);
 }
@@ -659,7 +660,11 @@ function selectChildren(base: XPathNodeSet, name: string): XPathNodeSet {
 	const templateExists = base.schemaNodes.some((node) =>
 		node.hasChildTemplate(name),
 	);
-	return new XPathNodeSet(nodes, base.validPath && templateExists, schemaNodes);
+	return new XPathNodeSet(
+		nodes,
+		stepValidity(base, templateExists),
+		schemaNodes,
+	);
 }
 
 function selectAttributes(base: XPathNodeSet, name: string): XPathNodeSet {
@@ -670,7 +675,24 @@ function selectAttributes(base: XPathNodeSet, name: string): XPathNodeSet {
 	const templateExists = base.schemaNodes.some((node) =>
 		node.hasAttributeTemplate(name),
 	);
-	return new XPathNodeSet(nodes, base.validPath && templateExists, schemaNodes);
+	return new XPathNodeSet(
+		nodes,
+		stepValidity(base, templateExists),
+		schemaNodes,
+	);
+}
+
+/**
+ * A step keeps its base's validity, or, where no template or node of that
+ * name exists below the base, misses in the base's instance.
+ */
+export function stepValidity(
+	base: XPathNodeSet,
+	templateExists: boolean,
+): XPathPathValidity {
+	if (base.validity !== true || templateExists) return base.validity;
+	const representative = base.schemaNodes[0] ?? base.candidates[0];
+	return { missedIn: representative?.instanceId ?? null };
 }
 
 function indexedPathSegments(
@@ -723,7 +745,7 @@ function evalStructuralFilter(
 		);
 		if (xpathPredicateMatches(value, index)) selected.push(candidate);
 	}
-	return new XPathNodeSet(selected, base.validPath, base.schemaNodes);
+	return new XPathNodeSet(selected, base.validity, base.schemaNodes);
 }
 
 export function directExpressionChildren(node: SyntaxNode): SyntaxNode[] {

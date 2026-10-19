@@ -14,7 +14,11 @@ import {
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
-import { refusalCopy, runtimeMessage } from "../runtimeMessages";
+import {
+	dataRefusalCopy,
+	refusalCopy,
+	runtimeMessage,
+} from "../runtimeMessages";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -22,6 +26,12 @@ import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathRuntimeError } from "../xpath/workerProtocol";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import { caseDatabaseToFormPreloads } from "./caseDataBindingClient";
+import {
+	type PreviewDataRefusal,
+	previewDataRefusalOf,
+	previewDataRefusalSubject,
+	workerFailureError,
+} from "./dataRefusal";
 import { buildEngineInput } from "./engineInput";
 import { entrySessionData } from "./entrySessionData";
 import { evaluationAnswerValue } from "./formAnswerValue";
@@ -90,6 +100,37 @@ function formRefusal(
 		sentence:
 			copy.title === undefined ? copy.body : `${copy.title}. ${copy.body}`,
 	};
+}
+
+/** Data the device holds none of, as an evaluation reports it: the sentence
+ * Preview's refusal shows, naming the persona, question and table. */
+function dataRefusalSentence(
+	doc: BlueprintDoc,
+	refusal: PreviewDataRefusal,
+	context: FormEvaluationContext,
+): string {
+	const { reason } = refusal;
+	const field =
+		reason.kind === "empty-choice-table" && reason.fieldUuid !== undefined
+			? doc.fields[reason.fieldUuid]
+			: undefined;
+	const question =
+		field !== undefined && "label" in field && field.label
+			? projectProseTemplate(field.label, doc).text
+			: undefined;
+	const personaUuid = context.identity.personaUuid;
+	const worker =
+		personaUuid === undefined ? undefined : doc.personas?.[personaUuid]?.name;
+	const copy = dataRefusalCopy(
+		"eng",
+		refusal.stage,
+		previewDataRefusalSubject(reason, previewLookupData(context.lookup)),
+		{
+			...(worker === undefined ? {} : { worker }),
+			...(question ? { question } : {}),
+		},
+	);
+	return `${copy.title}. ${copy.body}`;
 }
 
 /** Observe a form against one captured runtime context. No stores are reachable
@@ -216,6 +257,8 @@ export async function evaluateFormSnapshot(
 			},
 			{ signal },
 		);
+		if (!result.ok && result.refusal !== undefined)
+			throw workerFailureError(result);
 		if (!result.ok)
 			throw new FormEvaluationXPathError(result.error, {
 				path,
@@ -473,6 +516,11 @@ export async function evaluateFormSnapshot(
 		if (error instanceof SetvalueRefusal)
 			throw new FormRefusedError(
 				formRefusal(doc, error.details, context.cases),
+			);
+		const dataRefusal = previewDataRefusalOf(error);
+		if (dataRefusal !== undefined)
+			throw new FormEvaluationInputError(
+				dataRefusalSentence(doc, dataRefusal, context),
 			);
 		if (error instanceof FormEvaluationXPathError)
 			throw new FormEvaluationInputError(

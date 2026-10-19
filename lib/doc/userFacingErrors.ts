@@ -1312,6 +1312,18 @@ const USER_MESSAGE_BY_CODE: Record<
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "tableName", "the lookup table")} repeats the same value in several rows. Make the values unique or choose another value column.`,
 	LOOKUP_SELECT_SOURCE_LABEL_BLANK: (e) =>
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its labels, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another label column.`,
+	LOOKUP_SELECT_SOURCE_EMPTY: (e) => {
+		const table = q(det(e, "tableName", "its data table"));
+		const next = `You can add rows to ${table} in Project data, or choose another table for its choices.`;
+		if (e.details?.ownerKind === "search-input") {
+			const input = q(
+				present(e.details.inputLabel ?? e.details.inputName, "this field"),
+			);
+			return `Search field ${input} gets its choices from ${table}, which has no rows, so a phone won't open its Search screen. ${next}`;
+		}
+		const form = e.location.formName ? ` in ${q(e.location.formName)}` : "";
+		return `The question ${q(fieldName(e))}${form} gets its choices from ${table}, which has no rows, so a phone won't open it. ${next}`;
+	},
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: () =>
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
 	LOOKUP_HQ_PUSH_TOO_LARGE: () =>
