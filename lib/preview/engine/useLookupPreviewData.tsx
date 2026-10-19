@@ -17,6 +17,7 @@ import {
 	createContext,
 	memo,
 	type ReactNode,
+	useCallback,
 	useContext,
 	useEffect,
 	useMemo,
@@ -51,7 +52,15 @@ export type PreviewLookupStatus =
 	| { kind: "data"; data: PreviewLookupData }
 	| { kind: "error" };
 
-type LookupDataState = PreviewLookupStatus;
+/** The provider's own state: a snapshot also names the referenced tables it
+ * was read for, which tells a waiting form whether a newer read is coming. */
+type LookupDataState =
+	| Exclude<PreviewLookupStatus, { kind: "data" }>
+	| {
+			kind: "data";
+			data: PreviewLookupData;
+			tableIds: readonly string[];
+	  };
 
 function sameIdList(a: readonly string[], b: readonly string[]): boolean {
 	return a.length === b.length && a.every((id, i) => id === b[i]);
@@ -89,7 +98,10 @@ function manifestRevisionKey(
 		.join(" ");
 }
 
-function useLookupPreviewDataResource(): PreviewLookupStatus {
+function useLookupPreviewDataResource(): {
+	readonly status: LookupDataState;
+	readonly reload: () => Promise<void>;
+} {
 	const appId = useAppId();
 	const accessPhase = useAccessPhase();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -116,7 +128,7 @@ function useLookupPreviewDataResource(): PreviewLookupStatus {
 		[runtimeScopeId, scopeEpoch, appId, tableIds, revisionKey],
 	);
 
-	const { state } = useReloadableResource<LookupDataState>({
+	const { state, reload } = useReloadableResource<LookupDataState>({
 		prepare: () => {
 			if (
 				appId === undefined ||
@@ -140,6 +152,7 @@ function useLookupPreviewDataResource(): PreviewLookupStatus {
 					if (result.kind !== "data") return { kind: "error" };
 					return {
 						kind: "data",
+						tableIds: ids,
 						data: previewLookupData({
 							projectRevision: result.data.projectRevision,
 							definitions: result.data.definitions,
@@ -159,31 +172,40 @@ function useLookupPreviewDataResource(): PreviewLookupStatus {
 		reloadToken,
 	});
 
-	return state;
+	return { status: state, reload };
 }
 
 const PreviewLookupDataContext = createContext<PreviewLookupStatus>({
 	kind: "idle",
 });
 
+/** Read the session's lookup data again, after a failed load. */
+const PreviewLookupReloadContext = createContext<() => void>(() => undefined);
+
 function samePreviewLookupStatus(
-	left: PreviewLookupStatus,
-	right: PreviewLookupStatus,
+	left: LookupDataState,
+	right: LookupDataState,
 ): boolean {
 	if (left === right) return true;
 	if (left.kind !== right.kind) return false;
+	/* The Project revision alone is not the snapshot's identity: an edit
+	 * that reads one more unchanged table reads a snapshot at the same
+	 * revision with that table in it. */
 	return (
 		left.kind === "data" &&
 		right.kind === "data" &&
-		left.data.projectRevision === right.data.projectRevision
+		left.data.projectRevision === right.data.projectRevision &&
+		sameIdList(left.tableIds, right.tableIds)
 	);
 }
 
 const PreviewLookupDataBoundary = memo(function PreviewLookupDataBoundary({
 	status,
+	reload,
 	children,
 }: {
 	readonly status: PreviewLookupStatus;
+	readonly reload: () => void;
 	readonly children: ReactNode;
 }) {
 	return (
@@ -195,7 +217,9 @@ const PreviewLookupDataBoundary = memo(function PreviewLookupDataBoundary({
 				data-state={status.kind}
 			/>
 			<PreviewLookupDataContext value={status}>
-				{children}
+				<PreviewLookupReloadContext value={reload}>
+					{children}
+				</PreviewLookupReloadContext>
 			</PreviewLookupDataContext>
 		</>
 	);
@@ -214,18 +238,27 @@ export function PreviewLookupDataProvider({
 	children: ReactNode;
 }) {
 	const controller = useEngineController();
-	const calculatedStatus = useLookupPreviewDataResource();
+	const { status: calculatedStatus, reload } = useLookupPreviewDataResource();
 	const stableStatusRef = useRef(calculatedStatus);
 	if (!samePreviewLookupStatus(stableStatusRef.current, calculatedStatus)) {
 		stableStatusRef.current = calculatedStatus;
 	}
 	const status = stableStatusRef.current;
 	const data = status.kind === "data" ? status.data : null;
+	const tableIds = status.kind === "data" ? status.tableIds : undefined;
+	const failed = status.kind === "error";
 	useEffect(() => {
-		controller.setLookupData(data);
-	}, [controller, data]);
+		controller.setLookupData(data, tableIds);
+	}, [controller, data, tableIds]);
+	useEffect(() => {
+		controller.setLookupLoadFailed(failed);
+	}, [controller, failed]);
+	const retry = useCallback(() => {
+		controller.setLookupLoadFailed(false);
+		reload().catch(() => undefined);
+	}, [controller, reload]);
 	return (
-		<PreviewLookupDataBoundary status={status}>
+		<PreviewLookupDataBoundary status={status} reload={retry}>
 			{children}
 		</PreviewLookupDataBoundary>
 	);
@@ -235,4 +268,9 @@ export function PreviewLookupDataProvider({
  *  is also correct for surfaces rendered outside the builder. */
 export function usePreviewLookupStatus(): PreviewLookupStatus {
 	return useContext(PreviewLookupDataContext);
+}
+
+/** Read the session's lookup data again: the retry a failed load offers. */
+export function usePreviewLookupReload(): () => void {
+	return useContext(PreviewLookupReloadContext);
 }

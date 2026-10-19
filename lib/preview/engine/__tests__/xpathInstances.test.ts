@@ -11,6 +11,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
+import type { LocationFixtureRow } from "@/lib/organization/footprint";
 import { evaluate } from "../../xpath/evaluator";
 import type { XPathInstance } from "../../xpath/runtimeValues";
 import { XPathDate } from "../../xpath/types";
@@ -23,7 +24,6 @@ import {
 	INLINE_SEARCH_INPUT_INSTANCE_ID,
 	locationsXPathInstance,
 	lookupXPathInstances,
-	type PreviewLocationRow,
 	SEARCH_INPUT_INSTANCE_ID,
 	searchInputXPathInstance,
 	searchScreenXPathInstances,
@@ -617,9 +617,9 @@ describe("the flat locations fixture", () => {
 		locationPropertyOrder: [beds.uuid, ward.uuid],
 	};
 	const place = (
-		overrides: Partial<PreviewLocationRow> &
-			Pick<PreviewLocationRow, "id" | "siteCode" | "levelUuid">,
-	): PreviewLocationRow => ({
+		overrides: Partial<LocationFixtureRow> &
+			Pick<LocationFixtureRow, "id" | "siteCode" | "levelUuid">,
+	): LocationFixtureRow => ({
 		name: overrides.id,
 		externalId: null,
 		latitude: null,

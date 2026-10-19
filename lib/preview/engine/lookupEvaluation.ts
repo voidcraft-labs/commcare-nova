@@ -19,13 +19,13 @@ import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
-import {
-	type BlueprintDoc,
-	expressionSlotValues,
-	type LookupColumnId,
-	type LookupOptionsSource,
-	type LookupTableId,
-	type Uuid,
+import { formExpressionSlotValues } from "@/lib/doc/fieldWalk";
+import type {
+	BlueprintDoc,
+	LookupColumnId,
+	LookupOptionsSource,
+	LookupTableId,
+	Uuid,
 } from "@/lib/domain";
 import { typeCheckerBypassMessage } from "@/lib/domain/expression";
 import {
@@ -205,21 +205,11 @@ export function formLogicLookupsCovered(
 	formUuid: Uuid,
 	data: PreviewLookupData | undefined,
 ): boolean {
-	const covered = (owner: {
-		readonly entity: "form" | "field";
-		readonly uuid: Uuid;
-	}) =>
-		expressionSlotValues(doc, owner).every(
-			({ ref, expression }) =>
-				ref.slot === "lookup_options_source" ||
-				expressionLookupsCovered(expression, data),
-		);
-	if (!covered({ entity: "form", uuid: formUuid })) return false;
-	const visit = (parent: Uuid): boolean =>
-		(doc.fieldOrder[parent] ?? []).every(
-			(uuid) => covered({ entity: "field", uuid }) && visit(uuid),
-		);
-	return visit(formUuid);
+	return formExpressionSlotValues(doc, formUuid).every(
+		({ ref, expression }) =>
+			ref.slot === "lookup_options_source" ||
+			expressionLookupsCovered(expression, data),
+	);
 }
 
 /**

@@ -26,6 +26,7 @@ import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
+import { appReadsPlaces } from "../engine/expressionCaseReads";
 import { availablePages } from "../engine/sectionPaging";
 import {
 	recordsReadSearch,
@@ -72,13 +73,15 @@ type Scope = AppTestScope & {
 type Observation = Record<string, unknown>;
 type FormScreen = Extract<AppTestScreen, { kind: "form" }>;
 
-/** The entry's device world: its cases and the worker's `locations`
- * fixture, which the session's restore delivers beside them. */
+/** The entry's device world: its cases and, for an app whose forms read
+ * places, the worker's `locations` fixture, which the session's restore
+ * delivers beside them (as Preview's snapshot carries it). */
 function appTestEntryCases(
 	context: AppTestContext,
 	state: AppTestSessionState,
 	cases: CaseDatabaseSnapshot,
 ): CaseDatabaseSnapshot {
+	if (!appReadsPlaces(context.doc)) return cases;
 	const persona =
 		state.personaUuid === null
 			? undefined
@@ -136,27 +139,35 @@ async function appTestSearchResults(
 	return found;
 }
 
-/** The world a form evaluation of this session reads. */
+/**
+ * The world a form evaluation of this session reads, and the form screen
+ * holding what the module's search returned to the entry. That snapshot is
+ * taken once, at the entry's first evaluation, and every later step and the
+ * submission read the one the screen holds, as Preview's form keeps the
+ * snapshot it opened with (`hooks/useSearchResultsSnapshot.ts`). A new entry
+ * (Back to a form, a linked form, another search) carries none and takes its
+ * own.
+ */
 async function appTestFormContext(
 	context: AppTestContext,
 	scope: AppTestScope,
 	state: AppTestSessionState,
 	screen: FormScreen,
 ) {
-	const searchResults = await appTestSearchResults(
-		context,
-		scope,
-		state,
-		screen,
-	);
+	const searchResults =
+		screen.searchResults ??
+		(await appTestSearchResults(context, scope, state, screen));
 	return {
-		identity: context.identity,
-		cases: appTestEntryCases(context, state, screen.entryCases),
-		lookup: context.lookup,
-		entry: screen.entry,
-		captureEntry: true,
-		session: { appId: scope.appId, menuSelections: state.selections },
-		...(searchResults === undefined ? {} : { searchResults }),
+		screen: searchResults === undefined ? screen : { ...screen, searchResults },
+		formContext: {
+			identity: context.identity,
+			cases: appTestEntryCases(context, state, screen.entryCases),
+			lookup: context.lookup,
+			entry: screen.entry,
+			captureEntry: true,
+			session: { appId: scope.appId, menuSelections: state.selections },
+			...(searchResults === undefined ? {} : { searchResults }),
+		},
 	};
 }
 
@@ -329,6 +340,7 @@ async function observeScreen(
 			};
 		}
 		case "form": {
+			const held = await appTestFormContext(context, scope, state, screen);
 			const evaluated = await evaluateForm(
 				context.doc,
 				{
@@ -338,14 +350,17 @@ async function observeScreen(
 					answers: [],
 					searchAnswers: screen.searchAnswers,
 				},
-				await appTestFormContext(context, scope, state, screen),
+				held.formContext,
 			);
 			const pages = availablePages(evaluated.sections);
 			const currentPage = pages.findIndex(
 				(page) => page.uuid === evaluated.presentation.currentSectionUuid,
 			);
 			return {
-				state: { ...state, screen: { ...screen, entry: evaluated.entry } },
+				state: {
+					...state,
+					screen: { ...held.screen, entry: evaluated.entry },
+				},
 				observation: {
 					screen: "form",
 					worker,
@@ -574,7 +589,12 @@ export async function advanceAppTest(
 				...state,
 				screen:
 					prior.kind === "form"
-						? { ...prior, entry: undefined, entryCases: state.deviceCases }
+						? {
+								...prior,
+								entry: undefined,
+								entryCases: state.deviceCases,
+								searchResults: undefined,
+							}
 						: prior,
 				history: state.history.slice(0, -1),
 			};
@@ -846,6 +866,7 @@ export async function advanceAppTest(
 		case "pagePrevious": {
 			if (screen.kind !== "form")
 				throw new AppTestActionError("Open a form before turning its pages.");
+			const held = await appTestFormContext(context, scope, state, screen);
 			const evaluated = await evaluateForm(
 				context.doc,
 				{
@@ -855,7 +876,7 @@ export async function advanceAppTest(
 					answers: [],
 					searchAnswers: screen.searchAnswers,
 				},
-				await appTestFormContext(context, scope, state, screen),
+				held.formContext,
 			);
 			const pages = availablePages(evaluated.sections);
 			const current = pages.findIndex(
@@ -872,7 +893,7 @@ export async function advanceAppTest(
 			return advanceAppTest(
 				context,
 				scope,
-				{ ...state, screen: { ...screen, entry: evaluated.entry } },
+				{ ...state, screen: { ...held.screen, entry: evaluated.entry } },
 				{ kind: "section", sectionUuid: target.uuid },
 			);
 		}
@@ -880,6 +901,7 @@ export async function advanceAppTest(
 		case "answer": {
 			if (screen.kind !== "form")
 				throw new AppTestActionError("Open a form before answering questions.");
+			const held = await appTestFormContext(context, scope, state, screen);
 			const evaluated = await evaluateForm(
 				context.doc,
 				{
@@ -892,9 +914,9 @@ export async function advanceAppTest(
 						action.kind === "section" ? action.sectionUuid : undefined,
 					searchAnswers: screen.searchAnswers,
 				},
-				await appTestFormContext(context, scope, state, screen),
+				held.formContext,
 			);
-			next = { ...state, screen: { ...screen, entry: evaluated.entry } };
+			next = { ...state, screen: { ...held.screen, entry: evaluated.entry } };
 			if (action.kind === "section")
 				extra = {
 					completed: evaluated.sections.some(
@@ -912,7 +934,7 @@ export async function advanceAppTest(
 				context,
 				scope,
 				state,
-				await appTestFormContext(context, scope, state, screen),
+				(await appTestFormContext(context, scope, state, screen)).formContext,
 			);
 			context = { ...context, identity: saved.identity };
 			next = saved.state;

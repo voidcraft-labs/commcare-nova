@@ -1020,14 +1020,20 @@ export async function loadCaseDataAction(
 }
 
 /** Load the selected worker's complete device casedb. The client supplies only
- * an app id, an optional persona selector and the worker's claims;
- * authorization, committed topology, actor/owner separation, and restore-scope
- * expansion are all server-owned. */
+ * an app id, an optional persona selector, the worker's claims and whether a
+ * form reads places; authorization, committed topology, actor/owner
+ * separation, and restore-scope expansion are all server-owned. */
 export async function loadCaseDatabaseSnapshotAction(
 	appId: string,
 	personaUuid?: string,
 	/** The worker's claims (`lib/session/previewClaims.ts`), a plain array. */
 	claimedCaseIds?: readonly string[],
+	/** Some form reads places (`expressionCaseReads.ts::appReadsPlaces`, over
+	 * the builder's document, which an edit reaches before its save), so the
+	 * snapshot carries the worker's `locations` fixture. Places are the
+	 * worker's own, so asking for them reveals nothing the worker's device
+	 * would not hold. */
+	includePlaces = false,
 ): Promise<LoadCaseDatabaseSnapshotResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -1042,6 +1048,7 @@ export async function loadCaseDatabaseSnapshotAction(
 			appId,
 			restoreScope: context.restoreScope,
 		});
+		if (!includePlaces) return { kind: "data", snapshot };
 		return {
 			kind: "data",
 			snapshot: {

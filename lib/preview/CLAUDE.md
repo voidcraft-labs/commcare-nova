@@ -834,8 +834,18 @@ entry whose logic reads a table the snapshot does not cover, and
 same-entry rebuild that has to wait (an edit added an uncovered read
 mid-entry) keeps its entry key and the checkpoint it began with, and the
 covering snapshot resumes that entry with its answers; opening the form again
-while it waits starts a fresh entry instead. `engineControllerLookupWait.test.ts`
-holds both paths.
+while it waits starts a fresh entry instead. While it waits the controller
+watches the document, so an edit that removes the uncovered read (or the
+form) starts or resumes the entry without a new snapshot, and
+`EngineEntryState.lookupWait` says why it waits: `loading`; `error` when the
+lookup load failed (`setLookupLoadFailed`, from `useLookupPreviewData.tsx`),
+which `FormScreen` offers to try again (`usePreviewLookupReload`); or
+`unavailable` when a snapshot read for exactly the tables the document
+references (`setLookupData`'s `requestedTableIds`) still lacks one, which
+`FormScreen` sends back to Edit. The provider compares snapshots by Project
+revision and the tables read, since an edit that reads one more unchanged
+table reads a snapshot at the same revision. `engineControllerLookupWait.test.ts`
+holds these paths.
 
 Navigation display conditions (`displayConditionEvaluation.ts`) evaluate at
 render through the same printing path: module conditions gate the home
@@ -1176,21 +1186,31 @@ Running Results reads at most 50 cases per page. The action clamps every caller 
 
 A form or link that reads places reads `xpathInstances.ts::locationsXPathInstance(rows, organization)`,
 HQ's flat `locations` fixture (`locations/fixtures.py::FlatLocationSerializer`):
-places ordered by site code, each `<location>` with `@type` (its level code),
+places ordered by site code (code point; HQ's `order_by('site_code')` runs
+under its database's default collation, which `SQLLocation.site_code` does not
+pin and Nova cannot read, so codes that differ at a `_` or `-` can sort
+differently on a device than here, while codes of letters and digits agree),
+each `<location>` with `@type` (its level code),
 `@id`, and an `@<code>_id` for every level, filled from the place's own id and
 then its parents' as HQ walks them, so an ancestor at the place's own level
 wins, the rest empty; the children `name`, `site_code`, `external_id`,
 `latitude`, `longitude` (ten decimal places), `location_type` (the level's
 name, as HQ writes it), `supply_point_id` and `location_data` with one child
 per place property, empty where unset. The rows are the worker's fixture
-(`lib/organization/footprint.ts::locationFixtureRows`), returned as plain JSON
-by `loadCaseDatabaseSnapshotAction` beside the device's cases, so they follow
+(`lib/organization/footprint.ts::locationFixtureRows`, one
+`LocationFixtureRow` type), returned as plain JSON by
+`loadCaseDatabaseSnapshotAction` beside the device's cases, so they follow
 its restore-scope key; a read of places loads that snapshot
-(`expressionCaseReads.ts`), a submission's patch keeps them
+(`expressionCaseReads.ts`), and the snapshot carries places only when some
+form reads them (`expressionCaseReads.ts::appReadsPlaces`: a `locations`
+read or an `owner-location-at-level` owner, over the builder's document,
+passed as the action's `includePlaces` and part of the snapshot's reload
+key), a submission's patch keeps them
 (`caseDatabasePatch.ts`), and a worker assigned nowhere, or an app with no
 levels, reads an empty list. `engine/workerLocationFixture.ts::workerLocationFixture`
-loads them for that action and for the form check (`evaluate_form`), so a form
-reads the same places wherever it runs. Only form logic and form links read
+loads them for that action and for the form check (`evaluate_form`), and App
+Tests build them from their pinned places, each by the same `appReadsPlaces`
+answer, so a form reads the same places wherever it runs. Only form logic and form links read
 places: every module and case-list slot, and a form's display condition, is a
 record rule, which refuses a `locations` read (`typeChecker.ts::admission`),
 so menus and case lists need no place instance.
@@ -1299,14 +1319,23 @@ query step, and a new attempt reads again. The engine waits for it
 the after-submit links read the same snapshot. With no completed attempt the
 form shows the no-matches form's refusal panel with **Go to Search** and the
 engine never activates; while the snapshot loads one line says so, and a
-failed read offers to try again. When the search found more than 500 cases,
+failed read offers to try again. A search its own inputs or settings refuse
+(`invalid-search`, `useSearchResultsSnapshot.ts::searchResultsLoadState`)
+fails the same way on every try, so the form shows that refusal's message in
+the same panel with **Go to Search**, never a retry. When the search found more than 500 cases,
 one line says the form reads 500 of them, as a device does. `evaluateFormSnapshot`
 refuses a form that reads search results when its caller supplies no
 snapshot, with the panel's sentence. The server-side runs of a session, an
 App Test's steps and the form check (`evaluate_form`), compose the same read
 through `engine/serverSearchRead.ts::serverRecordsRead` (the search screen in
 the bounded worker, then the Results read without a page window) and
-`serverSearchResults`, which hands it to `readSearchResultsSnapshot`.
+`serverSearchResults`, which hands it to `readSearchResultsSnapshot`. An App
+Test reads it once, at the entry's first evaluation, and holds it on the form
+screen for every later step and the submission (`app-tests/run.ts::appTestFormContext`);
+a new entry reads again. The form check runs the search screen first and
+refuses with its own sentence when the module's Search action is hidden for
+the worker (its display condition is false), since no `searchAnswers` can
+open that form (`evaluationContext.ts::formSearchResults`).
 
 The no-matches registration form (`Form.entry`, the wire's `case_list_form`)
 is admitted or refused by `lib/preview/noMatchesForm.ts::noMatchesFormAdmission`,

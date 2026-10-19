@@ -14,9 +14,11 @@ import {
 	personasOf,
 	type UserCollections,
 } from "@/lib/domain";
-import { locationFixtureRows } from "@/lib/organization/footprint";
+import {
+	type LocationFixtureRow,
+	locationFixtureRows,
+} from "@/lib/organization/footprint";
 import { readOrganizationPlaces } from "@/lib/organization/service";
-import type { PreviewLocationRow } from "./xpathInstances";
 
 /**
  * The places a worker's device holds. Previewing as yourself, or as a persona
@@ -28,7 +30,7 @@ export async function workerLocationFixture(
 	appId: string,
 	doc: (OrganizationCollections & UserCollections) | undefined,
 	personaUuid: string | undefined,
-): Promise<readonly PreviewLocationRow[]> {
+): Promise<readonly LocationFixtureRow[]> {
 	if (doc === undefined || personaUuid === undefined) return [];
 	if (orderedOrganizationLevels(doc).length === 0) return [];
 	const persona = ownRecordValue(personasOf(doc), personaUuid);

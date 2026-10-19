@@ -28,6 +28,7 @@ import {
 	type EvaluationScenario,
 	evaluationScenarioCases,
 } from "@/lib/preview/engine/evaluationScenario";
+import { appReadsPlaces } from "@/lib/preview/engine/expressionCaseReads";
 import type { FormEvaluationContext } from "@/lib/preview/engine/formEvaluationTypes";
 import { previewAsMe, previewAsPersona } from "@/lib/preview/engine/identity";
 import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
@@ -125,8 +126,9 @@ export async function loadFormEvaluationContext(
 			appId: ctx.appId,
 			restoreScope,
 		});
-	// The places are the organization's, real in a scenario as lookup data is.
-	if (ctx.appId)
+	// The places are the organization's, real in a scenario as lookup data
+	// is, and loaded for an app whose forms read them, as Preview loads them.
+	if (ctx.appId && appReadsPlaces(doc))
 		cases = {
 			...cases,
 			locations: await workerLocationFixture(
@@ -180,7 +182,7 @@ export async function loadFormEvaluationContext(
  * capped as Preview's read is (`serverSearchRead.ts`). A device reaches such a
  * form only through that search, so a form that does not read it needs none.
  */
-async function formSearchResults(
+export async function formSearchResults(
 	doc: BlueprintDoc,
 	form: EvaluatedForm,
 	world: {
@@ -206,32 +208,49 @@ async function formSearchResults(
 		throw new FormEvaluationInputError(
 			"This form reads what its module's search found, and test records give the search nothing to run over. Leave out the scenario to search the app's records, or start an app test that runs the search before opening the form.",
 		);
-	const { search, read } = await serverRecordsRead(
-		{
-			doc: { ...doc, caseTypes: doc.caseTypes ?? [] },
-			language: resolveAppLanguage(doc.localization, form.language),
-			appId: world.appId ?? doc.appId,
-			identity: world.identity,
-			deviceCases: world.cases,
-			lookup: world.lookup,
-			caseTypeSchemas: buildCaseTypeMap(doc),
-			timeZone: viewerTimeZone(),
-			restoreScope: world.restoreScope ?? { ownerIds: [] },
-			selections: {},
-		},
+	const searchWorld = {
+		doc: { ...doc, caseTypes: doc.caseTypes ?? [] },
+		language: resolveAppLanguage(doc.localization, form.language),
+		appId: world.appId ?? doc.appId,
+		identity: world.identity,
+		deviceCases: world.cases,
+		lookup: world.lookup,
+		caseTypeSchemas: buildCaseTypeMap(doc),
+		timeZone: viewerTimeZone(),
+		restoreScope: world.restoreScope ?? { ownerIds: [] },
+		selections: {},
+	};
+	const refuse = (reason: "no-record-list" | "parent-required") =>
+		new FormEvaluationInputError(
+			reason === "parent-required"
+				? "This form's search reads the records of a parent chosen before it, which a form check cannot choose. Start an app test to choose the parent and run the search."
+				: "This form's menu has no record list to search.",
+		);
+	/* The search screen first, as the worker reaches it: a Search action its
+	 * display condition hides is one the worker never runs, so there is no
+	 * search for the form to read, whatever answers are supplied. */
+	const opened = await serverRecordsRead(
+		searchWorld,
 		{
 			moduleUuid,
 			...(form.searchAnswers === undefined
-				? { answers: [] }
+				? {}
 				: { submitted: form.searchAnswers }),
 		},
-		(reason) =>
-			new FormEvaluationInputError(
-				reason === "parent-required"
-					? "This form's search reads the records of a parent chosen before it, which a form check cannot choose. Start an app test to choose the parent and run the search."
-					: "This form's menu has no record list to search.",
-			),
+		refuse,
 	);
+	if (!opened.search.relevant)
+		throw new FormEvaluationInputError(
+			"This form reads what its module's search found, but the module's Search action is hidden for this worker: its display condition is false here, so the worker never runs the search and the form cannot open. Check the form as a worker the Search action shows for (personaUuid), or change the Search action's display condition so this worker sees it.",
+		);
+	const { search, read } =
+		form.searchAnswers === undefined
+			? await serverRecordsRead(
+					searchWorld,
+					{ moduleUuid, answers: [] },
+					refuse,
+				)
+			: opened;
 	const [firstError] = Object.values(search.errors);
 	if (firstError !== undefined)
 		throw new FormEvaluationInputError(

@@ -15,6 +15,10 @@
 
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { isContainer, ownRecordValue } from "@/lib/domain";
+import {
+	type ExpressionSlotValue,
+	expressionSlotValues,
+} from "@/lib/domain/referenceSlots";
 
 /**
  * The membership arrays (`moduleOrder` / `formOrder[m]` / `fieldOrder[p]`) ARE
@@ -55,6 +59,21 @@ export function descendantFieldUuids(
 	};
 	walk(parentUuid);
 	return uuids;
+}
+
+/** Every expression a form carries: its own slots (its Connect block, case
+ * operations and after-submit links among them), then each field's beneath
+ * it, in document order. */
+export function formExpressionSlotValues(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): ExpressionSlotValue[] {
+	return [
+		...expressionSlotValues(doc, { entity: "form", uuid: formUuid }),
+		...[...descendantFieldUuids(doc, formUuid)].flatMap((uuid) =>
+			expressionSlotValues(doc, { entity: "field", uuid }),
+		),
+	];
 }
 
 /**

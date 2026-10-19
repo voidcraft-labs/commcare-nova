@@ -149,6 +149,9 @@ export async function submitAppTest(
 					: { searchResults: formContext.searchResults }),
 			},
 		);
+		/* The back stack records destinations; Back opens a fresh entry,
+		 * which takes its own search results. */
+		const { searchResults: _taken, ...retiredScreen } = screen;
 		let nextState: AppTestSessionState = {
 			...state,
 			selections: next.selections,
@@ -237,7 +240,7 @@ export async function submitAppTest(
 						nextState,
 						next.route.moduleUuid,
 					),
-					history: [...state.history, screen],
+					history: [...state.history, retiredScreen],
 				};
 				break;
 			case "form": {
@@ -255,7 +258,7 @@ export async function submitAppTest(
 						caseIds: ids,
 						entryCases: cases,
 					},
-					history: [...state.history, screen],
+					history: [...state.history, retiredScreen],
 				};
 				break;
 			}
@@ -265,7 +268,12 @@ export async function submitAppTest(
 		if (nextState.screen.kind === "form")
 			nextState = {
 				...nextState,
-				screen: { ...nextState.screen, entry: undefined, entryCases: cases },
+				screen: {
+					...nextState.screen,
+					entry: undefined,
+					entryCases: cases,
+					searchResults: undefined,
+				},
 			};
 		return {
 			state: nextState,

@@ -232,6 +232,7 @@ const english = {
 	searchResultsRefusalBody:
 		"This form reads what the search found. You can run the search, then choose the case again.",
 	goToSearch: "Go to Search",
+	searchResultsInvalidTitle: "The search before this form can't run",
 	searchResultsLoading: "Nova is loading what the search found for this form.",
 	searchResultsLoadFailed:
 		"What the search found didn't load. You can try again.",
@@ -478,6 +479,8 @@ const spanish: Record<RuntimeMessage, string> = {
 	searchResultsRefusalBody:
 		"Este formulario lee lo que encontró la búsqueda. Puedes hacer la búsqueda y luego elegir el registro de nuevo.",
 	goToSearch: "Ir a la búsqueda",
+	searchResultsInvalidTitle:
+		"La búsqueda anterior a este formulario no se puede hacer",
 	searchResultsLoading:
 		"Nova está cargando lo que encontró la búsqueda para este formulario.",
 	searchResultsLoadFailed:

@@ -5,6 +5,7 @@
  * instance Preview supplies, so a print and its instance that disagree (an
  * id, a path, an element name) show here as a wrong value.
  */
+
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	INSTANCE_READS,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/commcare/__tests__/instanceReadFixture";
 import { LOCATION_LEVELS } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { LocationFixtureRow } from "@/lib/organization/footprint";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
@@ -26,14 +28,13 @@ import {
 } from "../lookupEvaluation";
 import type {
 	CaseDatabaseSnapshot,
-	PreviewLocationRow,
 	SearchResultRow,
 	SearchResultsSnapshot,
 } from "../xpathInstances";
 
 const [region, district, clinic] = LOCATION_LEVELS;
 
-const central: PreviewLocationRow = {
+const central: LocationFixtureRow = {
 	id: "place-central",
 	levelUuid: clinic.uuid,
 	siteCode: "central",

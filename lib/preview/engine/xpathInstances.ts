@@ -2,11 +2,11 @@ import type { CaseIndexRow } from "@/lib/case-store";
 import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
 import { INLINE_SEARCH_RESULTS_INSTANCE } from "@/lib/commcare/session";
 import { COMMCARE_SESSION_CONTEXT_FIELDS } from "@/lib/commcare/sessionContext";
+import { formExpressionSlotValues } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	type CasePropertyDataType,
 	type CaseType,
-	expressionSlotValues,
 	type OrganizationCollections,
 	orderedLocationProperties,
 	orderedOrganizationLevels,
@@ -15,6 +15,7 @@ import {
 import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
+import type { LocationFixtureRow } from "@/lib/organization/footprint";
 import type {
 	XPathInstance,
 	XPathNode,
@@ -43,24 +44,7 @@ export interface CaseDatabaseSnapshot {
 	 * (`lib/organization/footprint.ts::personaFootprint`). It travels with the
 	 * device's cases because a restore delivers both. Absent where nothing
 	 * read the organization; empty for a worker assigned nowhere. */
-	readonly locations?: readonly PreviewLocationRow[];
-}
-
-/** One place in the worker's flat location fixture, as plain JSON. */
-export interface PreviewLocationRow {
-	readonly id: string;
-	readonly levelUuid: string;
-	readonly siteCode: string;
-	readonly name: string;
-	readonly externalId: string | null;
-	/** Exact decimal text; a coordinate is never a float here. */
-	readonly latitude: string | null;
-	readonly longitude: string | null;
-	/** Place information keyed by location-property UUID. */
-	readonly values: Readonly<Record<string, string>>;
-	/** Level UUID → the id of this place's ancestor at that level, read
-	 * from the whole place tree, as HQ walks a place's parents. */
-	readonly lineage: Readonly<Record<string, string>>;
+	readonly locations?: readonly LocationFixtureRow[];
 }
 
 /** One case a completed search found, as plain JSON. */
@@ -622,8 +606,18 @@ function hqCoordinateText(value: string | null): string {
 	return `${negative ? "-" : ""}${whole}.${fraction.padEnd(10, "0").slice(0, 10)}`;
 }
 
-/** Code-point order, the order a `site_code` sort gives ASCII codes. */
-function bySiteCode(a: PreviewLocationRow, b: PreviewLocationRow): number {
+/**
+ * Places by site code, in code-point order. HQ sorts them in SQL
+ * (`FlatLocationSerializer._get_fixture_node`: `order_by('site_code')`), and
+ * `SQLLocation.site_code` declares no `db_collation`, so its order is the
+ * HQ database's default collation, which the deployment sets and Nova cannot
+ * read. A site code is lowercase letters, digits, `_` and `-`
+ * (`lib/organization/schema.ts::SITE_CODE_PATTERN`). Codes of letters and
+ * digits alone sort the same under code point, `C` and the usual libc and
+ * ICU collations; codes that differ at a `_` or `-` can sort differently on
+ * an HQ database that collates punctuation by language rules.
+ */
+function bySiteCode(a: LocationFixtureRow, b: LocationFixtureRow): number {
 	return a.siteCode < b.siteCode ? -1 : a.siteCode > b.siteCode ? 1 : 0;
 }
 
@@ -631,7 +625,7 @@ function bySiteCode(a: PreviewLocationRow, b: PreviewLocationRow): number {
  * HQ's flat location fixture for one worker
  * (`corehq/apps/locations/fixtures.py::FlatLocationSerializer._get_fixture_node`):
  * `<locations>` with one `<location type id <code>_id…>` per place, ordered
- * by site code, an `@<code>_id` for every level of the organization (the
+ * by site code ({@link bySiteCode} says where that order can differ), an `@<code>_id` for every level of the organization (the
  * place's own and its ancestors' filled, the rest empty), then `name`,
  * `site_code`, `external_id`, `latitude`, `longitude`, `location_type` (the
  * level's NAME, as `str(LocationType)` prints it), `supply_point_id` and
@@ -640,7 +634,7 @@ function bySiteCode(a: PreviewLocationRow, b: PreviewLocationRow): number {
  * A worker assigned nowhere gets an empty `<locations>`.
  */
 export function locationsXPathInstance(
-	rows: readonly PreviewLocationRow[],
+	rows: readonly LocationFixtureRow[],
 	organization: OrganizationCollections,
 ): XPathInstance {
 	const levels = orderedOrganizationLevels(organization);
@@ -862,20 +856,8 @@ export function formReadsSearchResults(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): boolean {
-	const owners: { readonly entity: "form" | "field"; readonly uuid: Uuid }[] = [
-		{ entity: "form", uuid: formUuid },
-	];
-	const visit = (parent: Uuid) => {
-		for (const uuid of doc.fieldOrder[parent] ?? []) {
-			owners.push({ entity: "field", uuid });
-			visit(uuid);
-		}
-	};
-	visit(formUuid);
-	return owners.some((owner) =>
-		expressionSlotValues(doc, owner).some(({ expression }) =>
-			readsSearchResults(expression),
-		),
+	return formExpressionSlotValues(doc, formUuid).some(({ expression }) =>
+		readsSearchResults(expression),
 	);
 }
 

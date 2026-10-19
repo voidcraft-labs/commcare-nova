@@ -1255,7 +1255,10 @@ and finds no patient in (part 08 §4.5: "`#search/<name>` in the no-matches form
   reference index; **Clear form keeps the entry's snapshot** (part 07 §3.2's correction).
   `evaluateFormSnapshot` refuses a form that reads results with no snapshot supplied; App Tests read
   the session's latest search; the MCP `evaluate_form` and App Tests' after-submit evaluation supply
-  none yet (open).
+  none yet (open). **Implementation correction, 2026-10-19:** both now supply it,
+  and an App Test reads it once per entry and holds it for every step and the submission; an
+  `invalid-search` refusal shows its own message with **Go to Search** (part 07 §3.2's review
+  correction).
 - **Native proof and lane.** `formReadsTheResultsItsSearchReturned` reads the targeted document
   `targeted-inline-search-reads` rather than the `inline` producer scenario (part 08 §2.6's
   correction). The document as built: "Find patient" opens on Search, its "Check in" form counts the

@@ -478,6 +478,29 @@ no predicate (part 04 §4), so Preview's casedb read returns the rows the device
 - `secondaryXPathInstances` serves the selected cases, the search results, the places and the
   table aliases, for the form engine and link evaluation alike.
 
+**Implementation correction, 2026-10-19 (pull request 9 review):**
+
+- The lookup wait has its failure and exit paths. `EngineEntryState.lookupWait` reports `loading`,
+  `error` (the lookup load failed; `FormScreen` offers to try again through
+  `useLookupPreviewData.tsx::usePreviewLookupReload`) or `unavailable` (a snapshot read for exactly
+  the tables the document references still lacks one; `FormScreen` returns to Edit). While it waits
+  the controller watches the document, so an edit that removes the uncovered read opens the form,
+  and a waiting same-entry rebuild resumes with its answers. The lookup provider now tells snapshots
+  apart by Project revision and the tables read: an edit that reads one more unchanged table reads a
+  snapshot at the same revision, which the revision alone kept from ever reaching the controller.
+- Places load only for an app that reads them. `expressionCaseReads.ts::appReadsPlaces` (a
+  `locations` read or an `owner-location-at-level` owner in any form, question or link) decides for
+  Preview's snapshot (the builder's document passes `includePlaces`, part of the snapshot's reload
+  key, since an edit reaches the builder before its save), for App Tests and for `evaluate_form`.
+  `footprint.ts::LocationFixtureRow` is the one row type; `PreviewLocationRow` is gone.
+- Site-code order is not HQ's in every case. HQ sorts the flat fixture with
+  `order_by('site_code')`, and `SQLLocation.site_code` declares no `db_collation`, so the order is
+  the HQ database's default collation, which the deployment sets (the HQ checkout pins none) and
+  Nova cannot read. Preview sorts by code point. Nova's site codes are lowercase letters, digits,
+  `_` and `-`; codes of letters and digits alone sort alike under code point, `C` and the usual
+  libc and ICU collations, while codes that differ at a `_` or `-` can sort differently on an HQ
+  database that collates punctuation by language rules. That difference stays open.
+
 ### 3.1 Selected cases
 
 `xpathInstances.ts::selectedCasesXPathInstance(datumId, caseIds)` (new) builds
@@ -583,6 +606,16 @@ toggle, because no API key reads a project space's toggles. The tests are part 0
   and a search inside a parent chosen before the form are refused with a sentence naming the next
   step. An unpublished workspace has no records, so its search finds none. The tool's input schema
   and description are unchanged.
+
+**Implementation correction, 2026-10-19 (pull request 9 review):** an App Test reads the search
+results once per entry, at its first evaluation, and the form screen holds them (`searchResults`)
+for every later step and the submission, as Preview's form keeps the snapshot it opened with; Back
+to a form, a linked form and another search start a new entry that reads again
+(`app-tests/__tests__/searchResultsEntry.test.ts`). `FormScreen` shows an `invalid-search` refusal's
+own message with **Go to Search**, not the failed line with try again, because the same search fails
+again. `evaluate_form` runs the search screen first and names a hidden Search action (its display
+condition false for the worker) as the reason the form cannot open, rather than asking for
+`searchAnswers` (`authoring/__tests__/formSearchResults.test.ts`).
 
 ### 3.3 `jr:itext` and `jr:choice-name`
 

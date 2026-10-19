@@ -68,11 +68,13 @@ export interface LocationFixtureRow {
 	readonly siteCode: string;
 	readonly name: string;
 	readonly externalId: string | null;
+	/** Exact decimal text; a coordinate is never a float here. */
 	readonly latitude: string | null;
 	readonly longitude: string | null;
 	/** Place information keyed by location-property UUID. */
 	readonly values: Readonly<Record<string, string>>;
-	/** Level UUID → the id of this place's ancestor at that level. */
+	/** Level UUID → the id of this place's ancestor at that level, read
+	 * from the whole place tree, as HQ walks a place's parents. */
 	readonly lineage: Readonly<Record<string, string>>;
 }
 

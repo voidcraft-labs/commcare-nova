@@ -18,6 +18,7 @@
 
 import {
 	entryDatumIds,
+	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 } from "@/lib/commcare/formLinkProjection";
 import { lookupTypeIndex } from "@/lib/doc/commitVerdicts";
@@ -200,6 +201,20 @@ function datumLabel(
 	}
 }
 
+/** Each document snapshot's entry-datum projection. It is app-wide and a
+ * lint context is built for every slot, so one snapshot builds it once (as
+ * `validator/rules/form.ts::projectionContextFor` does); the context holds
+ * each form's datums once computed. */
+const entryProjections = new WeakMap<BlueprintDoc, FormLinkProjectionContext>();
+
+function entryProjectionFor(doc: BlueprintDoc): FormLinkProjectionContext {
+	const held = entryProjections.get(doc);
+	if (held !== undefined) return held;
+	const built = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	entryProjections.set(doc, built);
+	return built;
+}
+
 /**
  * The secondary instances the slot reads, from the same facts the parser
  * binds against and the checker admits by: the Project's tables, places
@@ -219,7 +234,7 @@ function slotInstanceReads(
 			? []
 			: entryDatumIds(
 					doc,
-					formLinkProjectionContext(doc, { entryMetadataOnly: true }),
+					entryProjectionFor(doc),
 					form.moduleUuid,
 					form.formUuid,
 				);

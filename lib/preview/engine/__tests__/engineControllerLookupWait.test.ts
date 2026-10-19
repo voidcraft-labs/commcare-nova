@@ -19,6 +19,7 @@ import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerCl
 import { XPathRuntime } from "../../xpath/workerClient";
 import { EngineController } from "../engineController";
 import { previewLookupData } from "../lookupEvaluation";
+import { applyControllerEdit } from "./fixtures/controllerDoc";
 
 const FORM = testUuid("lookup-wait-form");
 const NAME = testUuid("lookup-wait-name");
@@ -53,6 +54,10 @@ afterEach(async () => {
 });
 
 function controller(async: boolean): EngineController {
+	return controllerWithStore(async).ctrl;
+}
+
+function controllerWithStore(async: boolean) {
 	const store = createBlueprintDocStore();
 	store.getState().load(
 		toPersistableDoc(
@@ -98,7 +103,7 @@ function controller(async: boolean): EngineController {
 	);
 	controllers.push(ctrl);
 	ctrl.setDocStore(store);
-	return ctrl;
+	return { ctrl, store };
 }
 
 describe("an entry waiting for its lookup snapshot", () => {
@@ -168,5 +173,70 @@ describe("an entry waiting for its lookup snapshot", () => {
 		expect(ctrl.formUuid).toBe(FORM);
 		expect(ctrl.entryStore.getState().entryKey).not.toBe(entryKey);
 		expect(ctrl.store.getState()[NAME]?.value).toBe("");
+	});
+
+	it("shows a failed lookup load, and opens the form when a retry covers it", async () => {
+		const ctrl = controller(true);
+		await ctrl.activateFormAsync(FORM);
+		expect(ctrl.entryStore.getState().lookupWait).toEqual({
+			formUuid: FORM,
+			status: "loading",
+		});
+
+		ctrl.setLookupLoadFailed(true);
+		expect(ctrl.entryStore.getState().lookupWait).toEqual({
+			formUuid: FORM,
+			status: "error",
+		});
+
+		ctrl.setLookupLoadFailed(false);
+		ctrl.setLookupData(covering("3"), [table.id]);
+		await ctrl.awaitSettled();
+		expect(ctrl.formUuid).toBe(FORM);
+		expect(ctrl.entryStore.getState().lookupWait).toBeUndefined();
+	});
+
+	it("calls a table missing once a read for the form's tables still lacks it", async () => {
+		const ctrl = controller(true);
+		// Read for other tables: a read for this one is still coming.
+		ctrl.setLookupData(withoutTable, []);
+		await ctrl.activateFormAsync(FORM);
+		expect(ctrl.entryStore.getState().lookupWait?.status).toBe("loading");
+
+		ctrl.setLookupData(withoutTable, [table.id]);
+		expect(ctrl.entryStore.getState().lookupWait).toEqual({
+			formUuid: FORM,
+			status: "unavailable",
+		});
+	});
+
+	it("opens the form when an edit removes the read it waits on", async () => {
+		const { ctrl, store } = controllerWithStore(true);
+		ctrl.setLookupData(withoutTable, [table.id]);
+		await ctrl.activateFormAsync(FORM);
+		expect(ctrl.formUuid).toBeUndefined();
+
+		applyControllerEdit(store, [{ kind: "removeField", uuid: REGION }]);
+		await ctrl.awaitSettled();
+		expect(ctrl.formUuid).toBe(FORM);
+		expect(ctrl.entryStore.getState().lookupWait).toBeUndefined();
+	});
+
+	it("resumes a waiting rebuild with its answers when an edit removes the read", async () => {
+		const { ctrl, store } = controllerWithStore(true);
+		ctrl.setLookupData(covering("1"));
+		await ctrl.activateFormAsync(FORM);
+		await ctrl.onValueChangeAsync(NAME, "Ada");
+		const entryKey = ctrl.entryStore.getState().entryKey;
+
+		ctrl.setLookupData(withoutTable);
+		await ctrl.rebuildActiveFormAsync(FORM);
+		expect(ctrl.formUuid).toBeUndefined();
+
+		applyControllerEdit(store, [{ kind: "removeField", uuid: REGION }]);
+		await ctrl.awaitSettled();
+		expect(ctrl.formUuid).toBe(FORM);
+		expect(ctrl.entryStore.getState().entryKey).toBe(entryKey);
+		expect(ctrl.store.getState()[NAME]?.value).toBe("Ada");
 	});
 });

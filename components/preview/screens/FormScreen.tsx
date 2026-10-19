@@ -102,6 +102,7 @@ import {
 } from "@/lib/preview/engine/previousTask";
 import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { usePreviewLookupReload } from "@/lib/preview/engine/useLookupPreviewData";
 import {
 	type CaseDatabaseSnapshot,
 	formReadsSearchResults,
@@ -768,6 +769,11 @@ export function FormScreen({ screen }: FormScreenProps) {
 		engineEntry.caseDatabaseWait?.formUuid === formUuid
 			? engineEntry.caseDatabaseWait
 			: undefined;
+	const lookupWait =
+		engineEntry.lookupWait?.formUuid === formUuid
+			? engineEntry.lookupWait
+			: undefined;
+	const reloadLookupData = usePreviewLookupReload();
 	const entryKey =
 		engineEntry.formUuid === formUuid ? engineEntry.entryKey : undefined;
 	const engineReady =
@@ -2273,21 +2279,36 @@ export function FormScreen({ screen }: FormScreenProps) {
 
 	/* A device reaches this form only through its search, so with no
 	 * completed search the engine does not activate and the form offers the
-	 * way back to Search, as the no-matches form's refusal does. */
-	if (mode === "preview" && searchResultsRefused) {
+	 * way back to Search, as the no-matches form's refusal does. A search
+	 * whose inputs or settings refuse it fails the same way every time, so
+	 * it says why and offers Search too, never a retry. */
+	const invalidSearch =
+		readsSearchResults && searchResults.state.kind === "invalid-search"
+			? searchResults.state
+			: undefined;
+	if (mode === "preview" && (searchResultsRefused || invalidSearch)) {
 		return (
 			<div className="flex h-full items-center justify-center px-6 py-10">
 				<div
 					role="status"
-					data-search-results-refusal="no-completed-search"
+					data-search-results-refusal={
+						searchResultsRefused ? "no-completed-search" : "invalid-search"
+					}
 					className="flex max-w-md flex-col items-start gap-4 rounded-2xl border border-pv-input-border bg-pv-surface p-6 shadow-sm"
 				>
 					<div className="space-y-2">
 						<h2 className="text-lg font-semibold text-nova-text">
-							{runtimeMessage(language.language, "searchResultsRefusalTitle")}
+							{runtimeMessage(
+								language.language,
+								searchResultsRefused
+									? "searchResultsRefusalTitle"
+									: "searchResultsInvalidTitle",
+							)}
 						</h2>
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
-							{runtimeMessage(language.language, "searchResultsRefusalBody")}
+							{invalidSearch !== undefined && !searchResultsRefused
+								? invalidSearch.message
+								: runtimeMessage(language.language, "searchResultsRefusalBody")}
 						</p>
 					</div>
 					<button
@@ -2350,6 +2371,63 @@ export function FormScreen({ screen }: FormScreenProps) {
 				onBackToList={() => navigate.openCaseList(moduleUuid)}
 				onBack={() => navigate.openModule(moduleUuid)}
 			/>
+		);
+	}
+
+	/* A form whose logic reads a data table opens once the session's lookup
+	 * snapshot covers it (`EngineController.awaitsLookupCoverage`). A failed
+	 * load can be read again; a table the snapshot still lacks is the form's
+	 * to change. */
+	if (mode === "preview" && lookupWait !== undefined && !engineReady) {
+		const copy =
+			lookupWait.status === "error"
+				? {
+						title: "Data tables couldn't load",
+						body: "This form reads a data table that didn't load. You can try again.",
+					}
+				: lookupWait.status === "unavailable"
+					? {
+							title: "A data table this form reads isn't available",
+							body: "This form reads a data table or column this Project doesn't have. You can return to Edit to change what the form reads.",
+						}
+					: {
+							title: "Preparing data tables",
+							body: "This form will open when the data tables it reads are ready.",
+						};
+		return (
+			<div className="flex h-full items-center justify-center px-6 py-10">
+				<div
+					role="status"
+					data-lookup-wait={lookupWait.status}
+					className="flex max-w-md flex-col items-start gap-4 rounded-2xl border border-pv-input-border bg-pv-surface p-6 shadow-sm"
+				>
+					<div className="space-y-2">
+						<h2 className="text-lg font-semibold text-nova-text">
+							{copy.title}
+						</h2>
+						<p className="text-sm leading-relaxed text-nova-text-secondary">
+							{copy.body}
+						</p>
+					</div>
+					{lookupWait.status === "error" ? (
+						<button
+							type="button"
+							onClick={reloadLookupData}
+							className={FORM_PRIMARY_ACTION_CLS}
+						>
+							Try again
+						</button>
+					) : lookupWait.status === "unavailable" ? (
+						<button
+							type="button"
+							onClick={() => setPreviewing(false)}
+							className={FORM_PRIMARY_ACTION_CLS}
+						>
+							Return to Edit
+						</button>
+					) : null}
+				</div>
+			</div>
 		);
 	}
 

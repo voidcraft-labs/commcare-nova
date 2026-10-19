@@ -79,10 +79,9 @@ export interface EntrySessionData {
 	readonly newCaseId?: string;
 	/** Each several-case datum's cases in selection order, keyed by the
 	 *  datum id the selected-entities instance is declared under. */
-	readonly selectedCases: Readonly<
-		Record<string, readonly string[]>
-	> /** What the entry's search returned, which its form and its links read
-	 *  as `results:inline`. */;
+	readonly selectedCases: Readonly<Record<string, readonly string[]>>;
+	/** What the entry's search returned, which its form and its links read
+	 *  as `results:inline`. */
 	readonly searchResults?: SearchResultsSnapshot;
 }
 

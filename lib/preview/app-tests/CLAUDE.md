@@ -57,12 +57,19 @@ readiness. The narrow store cannot alter schemas or dispatch media effects.
 
 Navigation shares production menu, selection and routing projections.
 Form evaluation receives a captured record snapshot before initialization,
-with the worker's `locations` fixture beside it. A form of a search-first
+with the worker's `locations` fixture beside it when some form of the app
+reads places (`engine/expressionCaseReads.ts::appReadsPlaces`, as Preview's
+snapshot carries them). A form of a search-first
 module that reads what the search found also receives the search's results
 snapshot, read from the isolated store as the browser reads it: the session's
 latest search of that module, read again without a page window and capped at
 500, each row with its direct indices as `index` children (the namespace
-store's `readCaseDatabasePatch`, inside the step's transaction). The paged
+store's `readCaseDatabasePatch`, inside the step's transaction). It is read
+once, at the entry's first evaluation, and the form screen holds it
+(`searchResults`), so every step and the submission of that entry read the
+same set, as the browser's form keeps the snapshot it opened with; Back to a
+form, a linked form and another search start a new entry that reads again
+(`__tests__/searchResultsEntry.test.ts`). The paged
 Results read and this one are one composition (`records.ts::prepareAppTestRecords`
 over `engine/serverSearchRead.ts`). A form reached without that search is
 refused with the browser's refusal sentence. Submitting hands the after-submit

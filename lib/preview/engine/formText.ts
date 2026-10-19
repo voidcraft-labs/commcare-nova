@@ -16,10 +16,10 @@ import {
 	itextIdFor,
 	itextTranslationUnitId,
 } from "@/lib/commcare/xform/itextIds";
+import { formExpressionSlotValues } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	effectiveAppLocalization,
-	expressionSlotValues,
 	type Field,
 	fieldKindCarriesValidation,
 	filledProse,
@@ -93,20 +93,8 @@ function readsFormText(expression: Expression): boolean {
 /** Whether any of a form's questions or its own slots reads its text, so
  * its evaluations need the table at all. */
 export function formReadsFormText(doc: BlueprintDoc, formUuid: Uuid): boolean {
-	const owners: { readonly entity: "form" | "field"; readonly uuid: Uuid }[] = [
-		{ entity: "form", uuid: formUuid },
-	];
-	const visit = (parent: Uuid) => {
-		for (const uuid of doc.fieldOrder[parent] ?? []) {
-			owners.push({ entity: "field", uuid });
-			visit(uuid);
-		}
-	};
-	visit(formUuid);
-	return owners.some((owner) =>
-		expressionSlotValues(doc, owner).some(({ expression }) =>
-			readsFormText(expression),
-		),
+	return formExpressionSlotValues(doc, formUuid).some(({ expression }) =>
+		readsFormText(expression),
 	);
 }
 

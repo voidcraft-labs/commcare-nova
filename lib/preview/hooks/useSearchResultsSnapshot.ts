@@ -19,7 +19,10 @@ import type { BlueprintDoc, CaseType, Uuid } from "@/lib/domain";
 import { loadSearchResultsSnapshotAction } from "@/lib/preview/engine/caseDataBinding";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { ParentCaseSelection } from "@/lib/preview/engine/caseDataBindingTypes";
-import type { SearchResultsSnapshot } from "@/lib/preview/engine/xpathInstances";
+import type {
+	LoadSearchResultsSnapshotResult,
+	SearchResultsSnapshot,
+} from "@/lib/preview/engine/xpathInstances";
 import {
 	useAccessPhase,
 	usePreviewClaimedCaseIds,
@@ -31,7 +34,31 @@ export type SearchResultsSnapshotState =
 	| { readonly kind: "idle" }
 	| { readonly kind: "loading" }
 	| { readonly kind: "data"; readonly snapshot: SearchResultsSnapshot }
+	/** The search itself cannot run (its inputs or settings refuse it): the
+	 * same search fails again, so the worker goes back to Search. */
+	| { readonly kind: "invalid-search"; readonly message: string }
 	| { readonly kind: "error"; readonly message: string };
+
+/** What one load of the snapshot leaves the form with. A search its inputs
+ * or settings refuse keeps its own message and is not retried; any other
+ * failure can be tried again. */
+export function searchResultsLoadState(
+	loaded: LoadSearchResultsSnapshotResult,
+): Exclude<SearchResultsSnapshotState, { kind: "idle" | "loading" }> {
+	switch (loaded.kind) {
+		case "data":
+			return { kind: "data", snapshot: loaded.snapshot };
+		case "invalid-search":
+			return { kind: "invalid-search", message: loaded.message };
+		case "unauthenticated":
+			return {
+				kind: "error",
+				message: "You're signed out, so what the search found can't load.",
+			};
+		default:
+			return { kind: "error", message: loaded.message };
+	}
+}
 
 export function useSearchResultsSnapshot(args: {
 	/** The form reads what its module's search found. */
@@ -126,16 +153,7 @@ export function useSearchResultsSnapshot(args: {
 				if (!current) return;
 				setResult({
 					key,
-					state:
-						loaded.kind === "data"
-							? { kind: "data", snapshot: loaded.snapshot }
-							: {
-									kind: "error",
-									message:
-										"message" in loaded
-											? loaded.message
-											: "You're signed out, so what the search found can't load.",
-								},
+					state: searchResultsLoadState(loaded),
 				});
 			},
 			() => {
