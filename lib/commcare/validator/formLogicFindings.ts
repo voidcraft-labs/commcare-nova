@@ -24,6 +24,7 @@ import type {
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import { FIELD_REFERENCE_SLOTS } from "@/lib/domain/referenceSlots";
 import type { Uuid } from "@/lib/domain/uuid";
 import { valueKindPhrase } from "@/lib/domain/valueKindPhrases";
 import {
@@ -118,7 +119,8 @@ function slotOwner(ctx: ExpressionContext | undefined): {
 	/** `"visit"'s display condition` or `This after-submit link condition`. */
 	readonly slotSubject: string;
 } {
-	const label = expressionSlotLabel(ctx?.slot.slot ?? "relevant");
+	const label =
+		ctx === undefined ? "formula" : expressionSlotLabel(ctx.slot.slot);
 	const field =
 		ctx?.slot.entity === "field"
 			? ctx.form?.fields.get(ctx.slot.uuid)
@@ -181,15 +183,14 @@ function selectedCasesMessage(slotSubject: string, menu: string): string {
 	return `${slotSubject} reads the cases chosen in ${menu} in a place that needs one value. This form works on several cases at once, so CommCare stops the form when more than one is chosen. You can count them, or join them.`;
 }
 
+/** The field slots that hold text, which shows a reference as written. */
+const PROSE_SLOTS: ReadonlySet<string> = new Set(
+	FIELD_REFERENCE_SLOTS.filter((entry) => entry.kind === "prose").map(
+		(entry) => entry.slot,
+	),
+);
 /** The repeat a structurally several read crosses: the outermost repeat on
  * the read's leaf that the slot's own question is not inside. */
-const PROSE_SLOTS: ReadonlySet<string> = new Set([
-	"label",
-	"hint",
-	"help",
-	"validate_msg",
-	"option_label",
-]);
 function repeatCrossed(
 	error: CheckError,
 	ctx: ExpressionContext | undefined,

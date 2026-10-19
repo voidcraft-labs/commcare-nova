@@ -1663,7 +1663,11 @@ function branchResult(
 	let result: NodeType | undefined;
 	for (const type of types) {
 		if (type === undefined) continue;
-		if (result === undefined || result.data === ANY_TYPE) {
+		// An unknown branch (null, or a Hidden Value nothing types yet) holds
+		// no opinion of the result's type.
+		if (scalarDataType(type.data) === ANY_TYPE && result !== undefined)
+			continue;
+		if (result === undefined || scalarDataType(result.data) === ANY_TYPE) {
 			result = type;
 			continue;
 		}

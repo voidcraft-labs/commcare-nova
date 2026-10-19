@@ -256,7 +256,8 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	],
 	// XPathIndexOfFunc reads its first argument through getSequence and returns
 	// a zero-based integral Double when found, the empty string otherwise.
-	["index-of", { ...any(2, 2), manyArguments: onlyWith(2, 0), integral: true }],
+	// XPathIndexOfFunc returns "" when nothing matches, so it is not integral.
+	["index-of", { ...any(2, 2), manyArguments: onlyWith(2, 0) }],
 
 	// ── Checklist ─────────────────────────────────────────────────────
 	// XPathChecklistFunc: the third of three may be a node-set.

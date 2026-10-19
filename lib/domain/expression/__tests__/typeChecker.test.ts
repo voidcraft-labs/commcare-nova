@@ -3156,6 +3156,13 @@ describe("a Hidden Value read", () => {
 			"depend(now(), #form/n)",
 		);
 		expect(typeOf(fresh, ctx)?.clockLost).toBeUndefined();
+		// A branch nothing types yet holds no opinion of the result's type.
+		const branches = parseFixtureExpression(
+			doc,
+			fieldSlot(RULES.n, "relevant"),
+			"if(#form/n > 1, #form/probe, #form/n)",
+		);
+		expect(scalarDataType(typeOf(branches, ctx)?.data)).toBe("int");
 	});
 	it("refuses a lost clock written into a date-and-time property", () => {
 		const base = rulesDoc();

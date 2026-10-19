@@ -229,10 +229,22 @@ const NAMED_BY_INFERENCE = new WeakMap<PersistableDoc, ReadonlySet<string>>();
 
 /** Every string a Hidden Value's value or a case operation holds anywhere in
  * its tree: a superset of every field uuid inference reads a position of. */
+const EVERY_FIELD = "\u0000every-field";
 function namedByInference(doc: PersistableDoc): ReadonlySet<string> {
 	const cached = NAMED_BY_INFERENCE.get(doc);
 	if (cached !== undefined) return cached;
 	const named = new Set<string>();
+	// A Hidden Value reading a generated node is typed through another slot
+	// (a repeat's count, a Connect value) that may read any field.
+	if (
+		Object.values(doc.fields).some(
+			(field) =>
+				field.kind === "hidden" &&
+				(readsGeneratedNode(field.calculate) ||
+					readsGeneratedNode(field.default_value)),
+		)
+	)
+		named.add(EVERY_FIELD);
 	const visit = (value: unknown): void => {
 		if (typeof value === "string") named.add(value);
 		else if (Array.isArray(value)) for (const item of value) visit(item);
@@ -273,7 +285,8 @@ export function shareInferenceAcrossMove(
 			field === undefined ||
 			field.kind === "hidden" ||
 			fieldCaseWrite(field) !== undefined ||
-			named.has(uuid)
+			named.has(uuid) ||
+			named.has(EVERY_FIELD)
 		)
 			return false;
 	}
