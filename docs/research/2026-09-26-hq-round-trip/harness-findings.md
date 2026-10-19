@@ -1130,7 +1130,7 @@ control.
     two such properties, `/caseList/rows/*/caseId` on the local export;
     manifest: the local archive's suite holds a REFUSED `time-operand` use
     under `XPathCmpExpr` and `LT`).
-    *Fixed (#PR8):* Nova lowers each operand of an ordering over two dates
+    *Fixed (#783):* Nova lowers each operand of an ordering over two dates
     and times by its type to zone-free integer microseconds
     (`lib/commcare/xpath/wire/instant.ts`), in the form, in its Vellum
     shadow and in the suite, so a device orders by instant in every zone,
@@ -1264,7 +1264,7 @@ shown. It has a targeted document with its register entries and its control.
     Formplayer's answer at
     `/hq/app_aware_remote_search/500/corehq.apps.es.exceptions.ESError` and
     `/runs/*/steps/*/response/exception`).
-    *Device half fixed (#PR8):* `=`, `!=`, `in` and `switch` between two
+    *Device half fixed (#783):* `=`, `!=`, `in` and `switch` between two
     dates and times lower to an equality of integer microseconds
     (`lib/commcare/xpath/wire/instant.ts`), exact at that resolution, so
     the device lists the cases Preview lists. Its two entries are in the

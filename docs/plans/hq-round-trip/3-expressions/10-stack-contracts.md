@@ -619,7 +619,7 @@ session map's):
   the date refusals, and adds that two blank dates and times are not equal, that a Hidden Value
   copying the time without saving it to a date-and-time property keeps only the day, and that a
   hidden value whose kind Nova can't tell yet is read as the moment its text names.
-  `harness-findings.md` writes `#PR8` where this pull request's number goes, replaced when it is
+  `harness-findings.md` writes `#783` where this pull request's number goes, replaced when it is
   opened.
 - **Reader dispatch.** Part 04 §6's command also names `fuzz-expression-20260930-0` to `-7`, whose
   bytes change with the staging's removal (part 08 §4.3).
