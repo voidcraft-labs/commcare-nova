@@ -1,9 +1,17 @@
 /** Session names bind at parse time; saved reads retain domain entry identity. */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
+import {
+	chosen,
+	chosenCase,
+	chosenCaseDoc,
+	chosenCaseProperty,
+} from "@/lib/domain/__tests__/chosenCaseFixture";
+import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import {
 	formFixture,
 	ids,
@@ -13,7 +21,10 @@ import {
 	reads,
 	setCalculate,
 } from "@/lib/domain/expression/__tests__/instanceReadsFixture";
+import { eq, literal, prop, term } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
+import { advancedSearchInputDef } from "@/lib/domain/modules";
+import type { Uuid } from "@/lib/domain/uuid";
 import { runValidation } from "../runner";
 
 const selectedCase: Expression = {
@@ -251,5 +262,147 @@ describe("session datum admission", () => {
 		if (added === undefined) throw new Error("The link is missing.");
 		added.condition = read.expression;
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+});
+
+describe("the case chosen in an earlier menu, read by a record slot", () => {
+	const villageOfHousehold = eq(
+		term(prop("member", "village_name")),
+		chosenCaseProperty(chosen.households, "household", "village_name"),
+	);
+	const withFilter = (
+		doc: BlueprintDoc,
+		module: Uuid,
+		filter: Expression,
+	): BlueprintDoc => {
+		const mod = doc.modules[module];
+		doc.modules[module] = {
+			...mod,
+			caseListConfig: {
+				...(mod.caseListConfig ?? caseListConfig([])),
+				filter,
+			},
+		};
+		return doc;
+	};
+	const validate = (doc: BlueprintDoc) =>
+		runValidation(structuredClone(doc), LOOKUP_CONTEXT_UNAVAILABLE);
+
+	it("admits a child's case list filter reading the household its entries chose", () => {
+		expect(validate(chosenCaseDoc())).toEqual([]);
+		expect(
+			validate(withFilter(chosenCaseDoc(), chosen.members, villageOfHousehold)),
+		).toEqual([]);
+	});
+	it("refuses the read once the module stops choosing its household first", () => {
+		const doc = withFilter(chosenCaseDoc(), chosen.members, villageOfHousehold);
+		doc.modules[chosen.members].parentCaseModuleUuid = undefined;
+		const [finding, ...rest] = validate(doc);
+		expect(rest).toEqual([]);
+		expect(finding).toMatchObject({
+			code: "SESSION_DATUM_NOT_SUPPLIED",
+			details: {
+				carrier: "case-list",
+				reason: "not-before",
+				slotCode: "CASE_LIST_FILTER_TYPE_ERROR",
+				datumModuleName: "Households",
+			},
+		});
+		expect(userFacingError(finding)).toBe(
+			'The case list of "Members" reads the case chosen in "Households", but "Members" no longer opens after "Households", so CommCare has no chosen case to read there. You can open "Members" from "Households" again, or remove that read.',
+		);
+	});
+	it("refuses a list another module shows with the choice in another place", () => {
+		const doc = withFilter(
+			chosenCaseDoc(),
+			chosen.households,
+			eq(term(literal("x")), chosenCase(chosen.villages)),
+		);
+		const [finding, ...rest] = validate(doc);
+		expect(rest).toEqual([]);
+		expect(finding).toMatchObject({
+			code: "SESSION_DATUM_NOT_SUPPLIED",
+			details: { carrier: "case-list", reason: "differs" },
+		});
+		expect(userFacingError(finding)).toBe(
+			'The case list of "Households" reads the case chosen in "Villages", but "Members" also shows this list, and there CommCare keeps that choice in another place, so the read would not find that case. You can remove the read, or give "Members" its own list to choose from.',
+		);
+		// Without a module choosing through it, Households' list runs in its
+		// own entries alone.
+		doc.modules[chosen.members].parentCaseModuleUuid = undefined;
+		expect(validate(doc)).toEqual([]);
+	});
+	it("admits the read in an advanced search field's condition", () => {
+		const doc = chosenCaseDoc();
+		const members = doc.modules[chosen.members];
+		doc.modules[chosen.members] = {
+			...members,
+			caseSearchConfig: {},
+			caseListConfig: {
+				...(members.caseListConfig ?? caseListConfig([])),
+				searchInputs: [
+					advancedSearchInputDef(
+						testUuid("chosen-search-input"),
+						"same_village",
+						"Same village",
+						"text",
+						villageOfHousehold,
+					),
+				],
+			},
+		};
+		expect(validate(doc)).toEqual([]);
+	});
+	it("admits a case-first form's display condition and refuses it once the module lists forms first", () => {
+		const doc = chosenCaseDoc();
+		doc.forms[chosen.memberForm].displayCondition = villageOfHousehold;
+		expect(validate(doc)).toEqual([]);
+		const registration = testUuid("chosen-member-registration");
+		doc.forms[registration] = {
+			uuid: registration,
+			id: "register_member",
+			name: "Register member",
+			type: "registration",
+		};
+		doc.formOrder[chosen.members] = [
+			...doc.formOrder[chosen.members],
+			registration,
+		];
+		doc.fieldOrder[registration] = [];
+		const findings = validate(doc).filter(
+			(finding) => finding.code === "SESSION_DATUM_NOT_SUPPLIED",
+		);
+		expect(findings).toMatchObject([
+			{
+				details: { carrier: "form-display-condition", reason: "not-before" },
+			},
+		]);
+		expect(userFacingError(findings[0])).toBe(
+			'"Visit member" shows only when the case chosen in "Households" matches, but its menu shows before that case is chosen. You can choose the case before this menu, or base the condition on the worker instead.',
+		);
+	});
+	it("refuses a module's display condition and a several-case menu", () => {
+		const menu = chosenCaseDoc();
+		menu.modules[chosen.members].displayCondition = villageOfHousehold;
+		expect(validate(menu).map((finding) => finding.code)).toContain(
+			"MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
+		);
+		const several = withFilter(
+			chosenCaseDoc(),
+			chosen.members,
+			villageOfHousehold,
+		);
+		several.modules[chosen.households] = {
+			...several.modules[chosen.households],
+			caseListConfig: {
+				...caseListConfig([{ field: "case_name", header: "Name" }]),
+				selection: { kind: "multiple", maximum: 3 },
+			},
+		};
+		expect(
+			validate(several).find(
+				(finding) => finding.code === "SESSION_DATUM_NOT_SUPPLIED",
+			),
+		).toMatchObject({ details: { reason: "several-cases" } });
 	});
 });

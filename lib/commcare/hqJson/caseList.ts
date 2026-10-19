@@ -75,10 +75,12 @@ import {
 	simplifyForEmission,
 	substituteUnansweredSearchInputs,
 } from "@/lib/domain/expression";
+import type { DatumRef } from "@/lib/domain/expression/types";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
 } from "../expressionContext";
+import { caseListStepDatumId } from "../formLinkProjection";
 import { caseSearchConfigShell, detailColumn, detailPair } from "../hqShells";
 import {
 	type CommCareLocalization,
@@ -486,7 +488,8 @@ function projectCaseListFilter(
 	filter: CaseListConfig["filter"],
 	excludedOwnerIds: DomainCaseSearchConfig["excludedOwnerIds"],
 	expressions: ModuleExpressionContexts,
-	lookupNaming?: LookupWireNaming,
+	lookupNaming: LookupWireNaming | undefined,
+	datumId: (ref: DatumRef) => string | undefined,
 ): HqXPath | null {
 	// This slot lands in CCHQ's ordinary case-loading datum nodeset
 	// (`EntriesHelper.get_filter_xpath`), which evaluates before any
@@ -512,11 +515,12 @@ function projectCaseListFilter(
 			: toWire(effective, {
 					target: "hq-json",
 					types: expressions({ slot: "case_list_filter" }),
-					...(lookupNaming && {
-						bindings: {
+					bindings: {
+						datumId,
+						...(lookupNaming && {
 							lookup: { naming: lookupNaming, instanceScope: "suite" },
-						},
-					}),
+						}),
+					},
 				});
 	const ownerFilter =
 		excludedOwnerIds === undefined
@@ -731,7 +735,8 @@ function buildSearchConfigDocument(
 	moduleUuid: string,
 	localization: CommCareLocalization,
 	expressions: ModuleExpressionContexts,
-	lookupNaming?: LookupWireNaming,
+	lookupNaming: LookupWireNaming | undefined,
+	datumId: (ref: DatumRef) => string | undefined,
 ): WireCaseSearchConfig<HqXPath> {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
 	// `hqShells.ts`. Mutate the shell with authored overrides so the
@@ -808,9 +813,10 @@ function buildSearchConfigDocument(
 		const xpathQueryEmission = composeXPathQueryEmission(
 			caseListConfig,
 			_caseType,
-			expressions({ slot: "case_list_filter" }),
+			expressions,
 			lookupNaming,
 			inputInstanceId,
+			datumId,
 		);
 		config.properties = projectSearchProperties(
 			caseListConfig.searchInputs,
@@ -948,11 +954,17 @@ export function projectCaseListForHq(
 	const longColumns = longSourceColumns.map((column) =>
 		projectColumnToDetail(column, ctx, "details"),
 	);
+	// HQ's build writes this filter into each chain datum's nodeset before
+	// it aligns a child entry with its root menu, then renames session
+	// variables (`suite_xml/sections/entries.py::EntriesHelper.get_case_datums_basic_module`,
+	// `add_parent_datums`), so a chosen case prints under its id from before
+	// root alignment here, and under the aligned id everywhere else.
 	const filter = projectCaseListFilter(
 		caseListConfig?.filter,
 		mod.caseSearchConfig?.excludedOwnerIds,
 		expressions,
 		lookupNaming,
+		caseListStepDatumId(doc, mod.uuid, "chainId"),
 	);
 
 	// `detailPair` from `hqShells` seeds the `(short, long)` pair
@@ -984,6 +996,7 @@ export function projectCaseListForHq(
 		localization,
 		expressions,
 		lookupNaming,
+		caseListStepDatumId(doc, mod.uuid, "id"),
 	);
 
 	return { caseDetails: pair, searchConfig };

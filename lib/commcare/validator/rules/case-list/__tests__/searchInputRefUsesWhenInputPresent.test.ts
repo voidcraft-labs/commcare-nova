@@ -16,8 +16,10 @@ import {
 	concat,
 	type Expression,
 	eq,
+	ifExpr,
 	input,
 	literal,
+	matchAll,
 	prop,
 	term,
 	whenInput,
@@ -123,6 +125,34 @@ describe("search input envelope scope", () => {
 			);
 		},
 	);
+	it("needs no gate for an input read on the device before the search runs", () => {
+		// A condition that chooses between clauses, and a clause that reads no
+		// case, are worked out on the device, where an unanswered input reads
+		// blank; only an input whose value enters the query needs the gate.
+		const choice = ifExpr(
+			eq(term(input(first.uuid)), term(literal("all"))),
+			matchAll(),
+			eq(prop("patient", "case_name"), literal("A")),
+		);
+		const rowFree = eq(term(input(first.uuid)), term(literal("A")));
+		const advanced = (predicate: Expression) =>
+			findings(
+				configured((config) => {
+					config.searchInputs.push(
+						advancedSearchInputDef(
+							testUuid("advanced"),
+							"advanced",
+							"Advanced",
+							"text",
+							predicate,
+						),
+					);
+				}),
+			).map((error) => error.code);
+		expect(advanced(choice)).toEqual([]);
+		expect(advanced(rowFree)).toEqual([]);
+		expect(advanced(ifExpr(rowFree, matchAll(), equal()))).toEqual([bare]);
+	});
 	it("checks an advanced predicate at its exact input location", () => {
 		const errors = findings(
 			configured((config) => {

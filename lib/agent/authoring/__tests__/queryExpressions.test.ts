@@ -1,9 +1,12 @@
+import fc from "fast-check";
 import { v7 as uuidv7 } from "uuid";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
+	type BlueprintDoc,
+	type CaseType,
 	calculatedColumn,
 	proseText,
 	simpleSearchInputDef,
@@ -14,6 +17,12 @@ import {
 	term,
 	termSchema,
 } from "@/lib/domain/expression";
+import {
+	chosenCaseId,
+	chosenCaseProperty,
+} from "@/lib/domain/expression/chosenCase";
+import { DISTANCE_UNITS } from "@/lib/domain/expression/distance";
+import type { Expression } from "@/lib/domain/expression/types";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import {
 	previewAsMe,
@@ -23,6 +32,7 @@ import {
 	evaluatePreviewSearchExpression,
 	evaluatePreviewSearchPredicate,
 } from "@/lib/preview/engine/searchExpressionEvaluation";
+import { AuthoringScope } from "../bindings";
 import { AuthoringInputError } from "../errors";
 import {
 	parseAuthoringExpression,
@@ -65,6 +75,9 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 			],
 		}),
 		identity,
+		chosenCaseMenu(name) {
+			return { module: asUuid(identity("module", name)), caseType: "Client" };
+		},
 		reference(namespace, path) {
 			const name = path.join("/");
 			if (namespace === "form")
@@ -499,4 +512,353 @@ it("rejects unresolved paths, incomplete syntax, and unsupported calls instead o
 	expect(() =>
 		parseQueryPredicate("when-provided(#Client/age, true())", scope),
 	).toThrow("Search answer");
+});
+
+it("reads back every widened record arm by the call shape it parses from", () => {
+	const values = [
+		"record-type()",
+		"date(19000)",
+		"date(-1)",
+		"date(#Client/day_count)",
+		"datetime(literal(19000.5, 'decimal'))",
+	];
+	for (const source of values) {
+		const parsed = parseQueryValue(source, scope);
+		expect(parseQueryValue(printer.value(parsed), scope), source).toEqual(
+			parsed,
+		);
+	}
+	const conditions = [
+		"record-type() = 'visit'",
+		"record-type() != 'visit'",
+		"record-type() = literal('visit')",
+		"in(record-type(), 'visit', 'referral')",
+		"#Client/closed_on >= datetime('2026-01-01')",
+		"not(#Client/closed_on < datetime('2026-01-01'))",
+		"selected-any(#Client/tags, 'a', #search/tags)",
+		"selected-all(#Client/tags, #search/tags)",
+		"selected-any(#Client/tags, concat('a', 'b'), concat(#search/tags, ' b'))",
+		"within-distance(#Client/location, #search/here, #search/radius, 'meters')",
+		"within-distance(#Client/location, '1 2', 10, #search/unit)",
+		"within-distance(#Client/location, '1 2', 10, literal('parsecs'))",
+		"within-distance(#Client/location, '1 2', literal(10, 'int'), 'yards')",
+		...DISTANCE_UNITS.map(
+			(unit) => `within-distance(#Client/location, '1 2', 3, '${unit}')`,
+		),
+		"if(#user/role = 'supervisor', true(), #Client/owner_id = session('userid'))",
+		"if(session('username') = 'ada', #Client/age > 1, not(#Client/age > 1))",
+		"switch(session('username'), 'ada', #Client/age > 1, 'bo', false(), true())",
+	];
+	for (const source of conditions) {
+		const parsed = parseQueryPredicate(source, scope);
+		expect(
+			parseQueryPredicate(printer.predicate(parsed), scope),
+			source,
+		).toEqual(parsed);
+	}
+});
+
+it("stores a quoted name opposite record-type() as a record type, and keeps lists of values literal", () => {
+	expect(parseQueryPredicate("record-type() = 'visit'", scope)).toEqual({
+		kind: "eq",
+		left: { kind: "term", term: { kind: "case-row-type" } },
+		right: { kind: "term", term: { kind: "case-type", caseType: "visit" } },
+	});
+	expect(parseQueryPredicate("'visit' != record-type()", scope)).toMatchObject({
+		left: { kind: "term", term: { kind: "case-type", caseType: "visit" } },
+	});
+	const text = parseQueryPredicate("record-type() = literal('visit')", scope);
+	expect(text).toMatchObject({
+		right: { kind: "term", term: { kind: "literal", value: "visit" } },
+	});
+	expect(printer.predicate(text)).toBe("(record-type() = literal('visit'))");
+	expect(
+		parseQueryPredicate("in(record-type(), 'visit', 'referral')", scope),
+	).toMatchObject({
+		values: [
+			{ kind: "literal", value: "visit" },
+			{ kind: "literal", value: "referral" },
+		],
+	});
+});
+
+it("takes a value as a distance, a unit and a selected choice, and refuses a unit CommCare doesn't know", () => {
+	expect(
+		parseQueryPredicate(
+			"within-distance(#Client/location, '1 2', #search/radius, 'km')",
+			scope,
+		),
+	).toMatchObject({
+		distance: { kind: "term", term: { kind: "input" } },
+		unit: "kilometers",
+	});
+	expect(
+		parseQueryPredicate("selected-any(#Client/tags, 'a', #search/tags)", scope),
+	).toMatchObject({
+		values: [
+			{ kind: "literal", value: "a" },
+			{ kind: "term", term: { kind: "input" } },
+		],
+	});
+	expect(() =>
+		parseQueryPredicate(
+			"within-distance(#Client/location, '1 2', 10, 'parsecs')",
+			scope,
+		),
+	).toThrow(
+		"CommCare doesn't measure distance in parsecs. Use one of miles, yards, feet, inch, kilometers, meters, centimeters, millimeters, nauticalmiles.",
+	);
+	expect(() => parseQueryPredicate("record-type()", scope)).toThrow(
+		/record-type\(\).*condition/,
+	);
+});
+
+// --- The chosen case -------------------------------------------------------
+
+const householdType: CaseType = {
+	name: "Household",
+	properties: [
+		{ name: "village", label: proseText("Village"), data_type: "text" },
+	],
+};
+const memberType: CaseType = {
+	name: "Member",
+	parent_type: "Household",
+	relationship: "child",
+	properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
+};
+function menuDoc(): BlueprintDoc {
+	return buildDoc({
+		caseTypes: [householdType, memberType],
+		modules: [
+			{ uuid: "menu-households", name: "Households", caseType: "Household" },
+			{
+				uuid: "menu-members",
+				name: "Members",
+				caseType: "Member",
+				parentCaseModuleUuid: "menu-households",
+			},
+			{ uuid: "menu-survey", name: "Survey" },
+			{
+				uuid: "menu-group",
+				name: "Group visits",
+				caseType: "Household",
+				caseListConfig: {
+					...caseListConfig([]),
+					selection: { kind: "multiple", maximum: 5 },
+				},
+			},
+			{ uuid: "menu-twin-a", name: "Twins", caseType: "Household" },
+			{ uuid: "menu-twin-b", name: "Twins", caseType: "Household" },
+		],
+	});
+}
+const menus = menuDoc();
+const [households, members, , , twinA, twinB] = menus.moduleOrder;
+const memberScope = new AuthoringScope({
+	doc: menus,
+	moduleUuid: members,
+	currentCaseType: "Member",
+});
+const memberPrinter = queryPrinter(memberScope);
+
+it("reads the case chosen in a menu by the menu's name, id or UUID, and prints it by name", () => {
+	expect(parseQueryValue("chosen-case('Households')", memberScope)).toEqual(
+		chosenCaseId(households),
+	);
+	const village = parseQueryValue(
+		"chosen-case-property('Households', 'village')",
+		memberScope,
+	);
+	expect(village).toEqual(
+		chosenCaseProperty(households, "Household", "village"),
+	);
+	expect(memberPrinter.value(village)).toBe(
+		"chosen-case-property('Households', 'village')",
+	);
+	for (const address of ["households", households]) {
+		const parsed = parseQueryValue(`chosen-case('${address}')`, memberScope);
+		expect(parsed).toEqual(chosenCaseId(households));
+		expect(memberPrinter.value(parsed)).toBe("chosen-case('Households')");
+	}
+	// A name two menus share prints the stable address, which reads back.
+	const twin = parseQueryValue(`chosen-case('${twinA}')`, memberScope);
+	expect(memberPrinter.value(twin)).toBe(`chosen-case('${twinA}')`);
+	expect(parseQueryValue(memberPrinter.value(twin), memberScope)).toEqual(twin);
+	for (const source of [
+		"via(ancestor('parent'), #case/case_id) = chosen-case('Households')",
+		"#case/age > 0 and chosen-case-property('Households', 'village') = 'North'",
+		"in(chosen-case-property('Households', 'village'), 'North', 'South')",
+		"#case/closed_on >= datetime('2026-01-01')",
+	]) {
+		const parsed = parseQueryPredicate(source, memberScope);
+		expect(
+			parseQueryPredicate(memberPrinter.predicate(parsed), memberScope),
+			source,
+		).toEqual(parsed);
+	}
+	expect(
+		parseQueryPredicate(
+			"#case/closed_on >= datetime('2026-01-01')",
+			memberScope,
+		),
+	).toMatchObject({
+		left: {
+			kind: "term",
+			term: { kind: "prop", caseType: "Member", property: "closed_on" },
+		},
+	});
+});
+
+it("refuses a chosen-case read of a menu that has no one chosen case", () => {
+	const refusal = (source: string) => {
+		try {
+			parseQueryValue(source, memberScope);
+		} catch (error) {
+			expect(error).toBeInstanceOf(AuthoringInputError);
+			return (error as Error).message;
+		}
+		throw new Error(`${source} was accepted`);
+	};
+	expect(refusal("chosen-case('Clinics')")).toBe(
+		"This app has no menu called Clinics. You can use one of its menus: Households, Members, Survey, Group visits, Twins, Twins.",
+	);
+	expect(refusal("chosen-case('Twins')")).toBe(
+		`More than one menu is called Twins. You can name the one you mean by its ID: ${twinA}, ${twinB}.`,
+	);
+	expect(refusal("chosen-case('Survey')")).toBe(
+		"Survey doesn't ask the worker to choose a case, so there's no chosen case to read. You can use a menu that does, such as Households.",
+	);
+	expect(refusal("chosen-case-property('Group visits', 'village')")).toBe(
+		"In Group visits the worker chooses several cases at once, so there's no one chosen case to read. You can use a menu where one case is chosen.",
+	);
+	expect(() =>
+		parseQueryPredicate("chosen-case('Households')", memberScope),
+	).toThrow(/chosen-case\(\).*condition/);
+});
+
+/**
+ * The record dialect's round trip over drawn trees: every arm this pull
+ * request widens, the chosen case drawn only from the menu the Members list's
+ * entry passes through (its parent selection, Households).
+ */
+it("prints and parses back every drawn record condition unchanged", () => {
+	const text = fc.constantFrom("North", "it's", 'say "hi"', "");
+	const literalValue = fc.oneof(
+		text.map((value) => ({ kind: "term", term: { kind: "literal", value } })),
+		fc
+			.integer({ min: -1000, max: 1000 })
+			.map((value) => ({ kind: "term", term: { kind: "literal", value } })),
+	) as fc.Arbitrary<Expression>;
+	const prop = (property: string): Expression => ({
+		kind: "term",
+		term: { kind: "prop", caseType: "Member", property },
+	});
+	const runtime = fc.constantFrom<Expression>(
+		{ kind: "term", term: { kind: "session-context", field: "username" } },
+		chosenCaseId(households),
+		chosenCaseProperty(households, "Household", "village"),
+	);
+	const value = fc.oneof(
+		literalValue,
+		runtime,
+		fc.constantFrom<Expression>(
+			prop("age"),
+			prop("case_name"),
+			{ kind: "today" },
+			{ kind: "date-coerce", value: prop("age") },
+			{
+				kind: "datetime-coerce",
+				value: {
+					kind: "term",
+					term: { kind: "literal", value: 19000.5, data_type: "decimal" },
+				},
+			},
+			{ kind: "term", term: { kind: "case-row-type" } },
+		),
+	);
+	const { condition } = fc.letrec<{ condition: Expression }>((tie) => ({
+		condition: fc.oneof(
+			{ depthSize: "small", withCrossShrink: true },
+			fc
+				.tuple(fc.constantFrom("eq", "neq", "gt", "lte"), value, value)
+				.map(([kind, left, right]) => ({ kind, left, right }) as Expression),
+			fc.constantFrom("Household", "Member").map(
+				(caseType): Expression => ({
+					kind: "eq",
+					left: { kind: "term", term: { kind: "case-row-type" } },
+					right: { kind: "term", term: { kind: "case-type", caseType } },
+				}),
+			),
+			fc
+				.tuple(
+					fc.constantFrom("any", "all"),
+					fc.array(
+						fc.oneof(
+							fc
+								.constantFrom("a", "b")
+								.map((value) => ({ kind: "literal", value })),
+							runtime,
+						),
+						{ minLength: 1, maxLength: 3 },
+					),
+				)
+				.map(
+					([quantifier, values]) =>
+						({
+							kind: "multi-select-contains",
+							quantifier,
+							property: { kind: "prop", caseType: "Member", property: "age" },
+							values,
+						}) as Expression,
+				),
+			fc
+				.tuple(
+					fc.oneof(
+						fc.integer({ min: 1, max: 100 }),
+						fc.constant<Expression>({ kind: "double", value: prop("age") }),
+					),
+					fc.oneof(fc.constantFrom(...DISTANCE_UNITS), runtime),
+				)
+				.map(
+					([distance, unit]) =>
+						({
+							kind: "within-distance",
+							property: { kind: "prop", caseType: "Member", property: "age" },
+							center: {
+								kind: "term",
+								term: { kind: "literal", value: "1 2" },
+							},
+							distance,
+							unit,
+						}) as Expression,
+				),
+			fc
+				.tuple(tie("condition"), tie("condition"))
+				.map(([a, b]) => ({ kind: "and", clauses: [a, b] }) as Expression),
+			tie("condition").map((clause) => ({ kind: "not", clause }) as Expression),
+			fc
+				.tuple(tie("condition"), tie("condition"), tie("condition"))
+				.map(
+					([cond, then, otherwise]) =>
+						({ kind: "if", cond, then, else: otherwise }) as Expression,
+				),
+			fc.tuple(runtime, tie("condition"), tie("condition")).map(
+				([on, then, fallback]) =>
+					({
+						kind: "switch",
+						on,
+						cases: [{ when: { kind: "literal", value: "North" }, then }],
+						fallback,
+					}) as Expression,
+			),
+		),
+	}));
+	fc.assert(
+		fc.property(condition, (tree) => {
+			const printed = memberPrinter.predicate(tree);
+			expect(parseQueryPredicate(printed, memberScope), printed).toEqual(tree);
+		}),
+		{ seed: 20261019, numRuns: 300 },
+	);
 });

@@ -14,6 +14,7 @@ import {
 	concat,
 	count,
 	dateAdd,
+	dateCoerce,
 	dateLiteral,
 	datetimeCoerce,
 	datetimeLiteral,
@@ -105,12 +106,6 @@ describe("private CSQL boundary diagnostics", () => {
 			["right"],
 		],
 		[
-			"no anchor",
-			eq(literal("a"), literal("b")),
-			"comparison-needs-case-property",
-			["left"],
-		],
-		[
 			"calculated anchor",
 			eq(concat(term(field("name")), safe), safe),
 			"comparison-needs-case-property",
@@ -134,7 +129,6 @@ describe("private CSQL boundary diagnostics", () => {
 			"related-count-on-value-side",
 			["right"],
 		],
-		["blank input", isBlank(query), "comparison-needs-case-property", ["left"]],
 		[
 			"case condition in value",
 			eq(
@@ -568,5 +562,83 @@ describe("the system dates at the gate", () => {
 				),
 			),
 		).toEqual([]);
+	});
+});
+
+describe("positions decide what HQ reads (06-csql.md §2, §3)", () => {
+	const valueList = (...items: Expression[]): Expression => ({
+		kind: "value-list",
+		items: [items[0] ?? safe, ...items.slice(1)],
+	});
+
+	it.each([
+		[
+			"a fractional day count HQ's date() refuses",
+			eq(field("dob"), dateCoerce(term(literal(1.5)))),
+			[{ reason: "epoch-days-not-whole", path: ["right", "value"] }],
+		],
+		[
+			"a value only HQ computes, in an argument HQ reads as written",
+			match(
+				field("name"),
+				datetimeCoerce(term(literal("2026-01-01"))),
+				"starts-with",
+			),
+			[{ reason: "raw-argument-not-evaluated", path: ["value"] }],
+		],
+		[
+			"a list ordered against a property",
+			gt(field("name"), valueList(safe)),
+			[{ reason: "value-list-placement", path: ["right"] }],
+		],
+		[
+			"a list compared with the case status",
+			eq(field("status"), valueList(safe)),
+			[{ reason: "value-list-placement", path: ["right"] }],
+		],
+	] as const)("refuses %s", (_label, predicate, expected) => {
+		expect(issues(predicate)).toEqual(expected);
+	});
+
+	it.each([
+		["a whole day count", eq(field("dob"), dateCoerce(term(literal(19000))))],
+		["a list compared for equality", eq(field("name"), valueList(safe, bad))],
+		["a clause that reads no case row", eq(literal("a"), literal("b"))],
+		["an unanswered input's emptiness", isBlank(query)],
+		[
+			"a choice between clauses the device makes",
+			ifExpr(dynamic, eq(field("name"), safe), matchAll()),
+		],
+		[
+			"a choice whose condition reads the row",
+			ifExpr(
+				eq(field("age"), literal(1)),
+				eq(field("name"), safe),
+				matchNone(),
+			),
+		],
+		[
+			"a runtime radius and unit",
+			within(field("location"), literal("1 2"), term(query), term(query)),
+		],
+		[
+			"a selected value the device works out",
+			{
+				kind: "multi-select-contains",
+				property: field("tags"),
+				values: [literal("a"), term(query)],
+				quantifier: "any",
+			} satisfies Expression,
+		],
+		[
+			"the record's case type",
+			eq(
+				term({ kind: "case-row-type" }),
+				term({ kind: "case-type", caseType: "patient" }),
+			),
+		],
+		["today as the worker's day", gte(field("dob"), today())],
+	] as const)("admits %s", (_label, predicate) => {
+		expect(issues(predicate)).toEqual([]);
 	});
 });

@@ -30,6 +30,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 	type WireStringSource,
 } from "@/lib/domain";
+import type { DatumRef } from "@/lib/domain/expression/types";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import {
 	buildClaimPost,
@@ -78,6 +79,9 @@ export function buildRemoteRequest(args: {
 	readonly lookupNaming?: LookupWireNaming;
 	/** Printed reads from the short and long details this request references. */
 	readonly detailInstances?: Iterable<InstanceDecl>;
+	/** The id each case chosen before the module's case list step prints
+	 * under (`formLinkProjection.ts::caseListStepDatumId`). */
+	readonly datumId?: (ref: DatumRef) => string | undefined;
 }): RemoteRequestBuild {
 	const { module: mod, moduleIndex } = args;
 	const platformContext = args.platformContext ?? DEFAULT_PLATFORM_CONTEXT;
@@ -131,6 +135,7 @@ export function buildRemoteRequest(args: {
 		expressions: args.expressions,
 		lookupNaming: args.lookupNaming,
 		runtimeTarget: args.runtimeTarget,
+		...(args.datumId === undefined ? {} : { datumId: args.datumId }),
 	});
 
 	const instances = new InstanceSink(sessionEmission.instances);

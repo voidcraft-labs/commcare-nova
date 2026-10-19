@@ -22,23 +22,42 @@ import {
 	type BlueprintDoc,
 	blueprintDocSchema,
 	type CaseListConfig,
+	type CaseType,
 	plainColumn,
 	proseText,
 	type SearchInputDef,
 } from "@/lib/domain";
 import {
+	ancestorPath,
+	dateCoerce,
 	datetimeCoerce,
 	datetimeLiteral,
+	double,
 	type Expression,
 	eq,
+	gte,
+	ifExpr,
 	input,
 	isIn,
+	literal,
+	lt,
 	matchAll,
+	matchNone,
+	multiSelectAll,
+	multiSelectAny,
 	neq,
+	not,
 	prop,
+	relationStep,
 	term,
 	whenInput,
+	within,
 } from "@/lib/domain/expression";
+import {
+	chosenCaseId,
+	chosenCaseProperty,
+} from "@/lib/domain/expression/chosenCase";
+import type { DistanceUnit } from "@/lib/domain/expression/distance";
 import { runValidation } from "../validator/runner";
 
 /** One case as HQ's receiver is asked to save it (`CaseBlock` fields). */
@@ -65,6 +84,22 @@ export interface CsqlSending {
 	readonly id: string;
 	/** Each search input's answer by its wire name; `null` leaves it unanswered. */
 	readonly answers?: Readonly<Record<string, string | null>>;
+	/**
+	 * The session the search is sent from, beyond the worker: the case chosen
+	 * in each menu the entry passed through, by that menu's module UUID.
+	 */
+	readonly session?: {
+		readonly chosenCaseIds?: Readonly<Record<string, string>>;
+	};
+	/**
+	 * The composed query this sending means once Core has evaluated its
+	 * runtime segments, runtime choices and obligations
+	 * (`lib/commcare/csql/fold.ts::foldCsqlRuntime`'s answer): each runtime
+	 * value a literal, each choice its chosen branch, a failed obligation
+	 * `match-none`. Present exactly when the module's composed query reads a
+	 * runtime value; absent, the composed query is already server-side.
+	 */
+	readonly folded?: Expression;
 	/** The case ids the search means, in any order. */
 	readonly expected: readonly string[];
 }
@@ -289,11 +324,19 @@ export const datetimeEquality: CsqlScenario = {
 				{
 					id: "plus-05",
 					answers: { [SEEN_INPUT]: "2026-01-02T09:30:00.000+05" },
+					folded: eq(
+						prop(VISIT, "seen"),
+						datetimeCoerce(term(literal("2026-01-02T09:30:00.000+05"))),
+					),
 					expected: atInstant,
 				},
 				{
 					id: "zulu",
 					answers: { [SEEN_INPUT]: "2026-01-02T04:30:00.000Z" },
+					folded: eq(
+						prop(VISIT, "seen"),
+						datetimeCoerce(term(literal("2026-01-02T04:30:00.000Z"))),
+					),
 					expected: atInstant,
 				},
 			],
@@ -320,6 +363,948 @@ export const datetimeEquality: CsqlScenario = {
 
 /** Every scenario, in the order the family writes and checks them. */
 export const csqlScenarios: readonly CsqlScenario[] = [datetimeEquality];
+
+// --- The other constructs (§3.1–§3.12) -------------------------------------
+//
+// Each block below is one scenario in the same shape. Preview's Postgres check
+// answers every one (`lib/case-store/sql/__tests__/csqlComposition.postgres.test.ts`);
+// each joins `csqlScenarios`, and so HQ's check and Core's class, once the
+// native side builds its sessions (the chosen case's datums among them).
+
+/** One module of a scenario document: a search over `caseType`. */
+interface ScenarioModule {
+	readonly name: string;
+	readonly caseType: string;
+	/** The module whose case the worker chooses before this module's list. */
+	readonly parentModule?: string;
+	readonly filter?: Expression;
+	readonly inputs?: readonly SearchInputDef[];
+}
+
+/** A scenario's document: one Search-effective module per search, each with
+ *  a follow-up form, as `datetimeEqualityDoc` builds its own. */
+function scenarioDoc(
+	scenario: string,
+	appName: string,
+	caseTypes: readonly CaseType[],
+	modules: readonly ScenarioModule[],
+): BlueprintDoc {
+	const id = (name: string) => uuid(scenario, name);
+	const doc = buildDoc({
+		appId: `csql-${scenario}`,
+		appName,
+		caseTypes: [...caseTypes],
+		modules: modules.map((module) => {
+			const column = id(`${module.name}-name`);
+			return {
+				uuid: id(`${module.name}-module`),
+				name: module.name,
+				caseType: module.caseType,
+				...(module.parentModule !== undefined && {
+					parentCaseModuleUuid: id(`${module.parentModule}-module`),
+				}),
+				caseSearchConfig: {},
+				caseListConfig: {
+					columns: [plainColumn(column, "case_name", "Name")],
+					listColumnOrder: [column],
+					detailColumnOrder: [column],
+					searchInputs: [...(module.inputs ?? [])],
+					...(module.filter !== undefined && { filter: module.filter }),
+				},
+				forms: [
+					{
+						uuid: id(`${module.name}-review`),
+						name: "Review",
+						type: "followup" as const,
+						fields: [
+							f({
+								kind: "text",
+								uuid: id(`${module.name}-note`),
+								id: "note",
+								label: proseText("Note"),
+							}),
+						],
+					},
+				],
+			};
+		}),
+	});
+	return admitted(doc);
+}
+
+/** A fixed condition in an advanced Search input whose answer it never reads. */
+function fixedRule(
+	scenario: string,
+	module: string,
+	predicate: Expression,
+): SearchInputDef[] {
+	return [
+		advancedSearchInputDef(
+			uuid(scenario, `${module}-rule`),
+			"rule",
+			"Rule",
+			"text",
+			predicate,
+		),
+	];
+}
+
+const textProperty = (
+	name: string,
+	dataType?: CaseType["properties"][number]["data_type"],
+) => ({
+	name,
+	label: proseText(name),
+	...(dataType !== undefined && { data_type: dataType }),
+});
+
+const MODIFIED = "2026-01-01T08:00:00.000000Z";
+
+// closed_on (§3.1): HQ's search reads open cases, so a case has no closed_on
+// there, and only a negation keeps it (part 07 §5.5).
+
+const CLOSING = "visit";
+const closedOnCases: readonly CsqlCase[] = [
+	{
+		id: "csql-closed-open",
+		type: CLOSING,
+		name: "Open visit",
+		properties: {},
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-closed-closed",
+		type: CLOSING,
+		name: "Closed visit",
+		properties: {},
+		modified: "2026-02-01T08:00:00.000000Z",
+		closed: true,
+	},
+];
+const CLOSED_SINCE = term(datetimeLiteral("2026-01-01T00:00:00Z"));
+const closedOnSearches = [
+	["closed-since", gte(prop(CLOSING, "closed_on"), CLOSED_SINCE)],
+	["not-closed-before", not(lt(prop(CLOSING, "closed_on"), CLOSED_SINCE))],
+	[
+		"closed-differs",
+		neq(
+			prop(CLOSING, "closed_on"),
+			term(datetimeLiteral("2026-02-01T08:00:00Z")),
+		),
+	],
+] as const;
+export const closedOn: CsqlScenario = {
+	id: "closed-on",
+	caseTypes: [CLOSING],
+	cases: closedOnCases,
+	searches: [
+		{ id: "closed-since", sendings: [{ id: "literal", expected: [] }] },
+		{
+			id: "not-closed-before",
+			sendings: [{ id: "literal", expected: ["csql-closed-open"] }],
+		},
+		{
+			id: "closed-differs",
+			sendings: [{ id: "literal", expected: ["csql-closed-open"] }],
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"closed-on",
+			"Closed visits",
+			[{ name: CLOSING, properties: [textProperty("case_name")] }],
+			closedOnSearches.map(([name, predicate]) => ({
+				name,
+				caseType: CLOSING,
+				inputs: fixedRule("closed-on", name, predicate),
+			})),
+		),
+};
+
+// Case types (§3.2): the record's own type compared with a type name.
+
+const HOME = "household";
+const caseTypeCases: readonly CsqlCase[] = [
+	{
+		id: "csql-type-a",
+		type: HOME,
+		name: "A",
+		properties: {},
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-type-b",
+		type: HOME,
+		name: "B",
+		properties: {},
+		modified: MODIFIED,
+	},
+];
+const recordType = term({ kind: "case-row-type" });
+const caseTypeSearches = [
+	["is-household", eq(recordType, term({ kind: "case-type", caseType: HOME }))],
+	[
+		"not-household",
+		neq(recordType, term({ kind: "case-type", caseType: HOME })),
+	],
+	["household-or-visit", isIn(recordType, literal(HOME), literal("visit"))],
+] as const;
+export const caseTypes: CsqlScenario = {
+	id: "case-types",
+	caseTypes: [HOME, "visit"],
+	cases: caseTypeCases,
+	searches: [
+		{
+			id: "is-household",
+			sendings: [{ id: "literal", expected: ["csql-type-a", "csql-type-b"] }],
+		},
+		{ id: "not-household", sendings: [{ id: "literal", expected: [] }] },
+		{
+			id: "household-or-visit",
+			sendings: [{ id: "literal", expected: ["csql-type-a", "csql-type-b"] }],
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"case-types",
+			"Record types",
+			[
+				{ name: HOME, properties: [textProperty("case_name")] },
+				{
+					name: "visit",
+					parent_type: HOME,
+					relationship: "child",
+					properties: [textProperty("case_name")],
+				},
+			],
+			caseTypeSearches.map(([name, predicate]) => ({
+				name,
+				caseType: HOME,
+				inputs: fixedRule("case-types", name, predicate),
+			})),
+		),
+};
+
+// Epoch coercions (§3.5): day 19000 is 2022-01-08.
+
+const EVENT = "event";
+const epochCases: readonly CsqlCase[] = [
+	{
+		id: "csql-epoch-on",
+		type: EVENT,
+		name: "On the day",
+		properties: { day: "2022-01-08", at: "2022-01-08T12:00:00.000Z" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-epoch-before",
+		type: EVENT,
+		name: "The day before",
+		properties: { day: "2022-01-07", at: "2022-01-08T11:00:00.000Z" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-epoch-none",
+		type: EVENT,
+		name: "No day",
+		properties: {},
+		modified: MODIFIED,
+	},
+];
+const epochSearches = [
+	["day-19000", eq(prop(EVENT, "day"), dateCoerce(term(literal(19000))))],
+	["day-after-epoch", gte(prop(EVENT, "day"), dateCoerce(term(literal(-1))))],
+	["at-noon", gte(prop(EVENT, "at"), datetimeCoerce(term(literal(19000.5))))],
+] as const;
+export const epochDays: CsqlScenario = {
+	id: "epoch-days",
+	caseTypes: [EVENT],
+	cases: epochCases,
+	searches: [
+		{
+			id: "day-19000",
+			sendings: [{ id: "literal", expected: ["csql-epoch-on"] }],
+		},
+		{
+			id: "day-after-epoch",
+			sendings: [
+				{ id: "literal", expected: ["csql-epoch-on", "csql-epoch-before"] },
+			],
+		},
+		{
+			id: "at-noon",
+			sendings: [{ id: "literal", expected: ["csql-epoch-on"] }],
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"epoch-days",
+			"Event days",
+			[
+				{
+					name: EVENT,
+					properties: [
+						textProperty("case_name"),
+						textProperty("day", "date"),
+						textProperty("at", "datetime"),
+					],
+				},
+			],
+			epochSearches.map(([name, predicate]) => ({
+				name,
+				caseType: EVENT,
+				inputs: fixedRule("epoch-days", name, predicate),
+			})),
+		),
+};
+
+// A list of values (§3.6), held for import: HQ's exact any-of.
+
+const ITEM = "item";
+const valueListCases: readonly CsqlCase[] = [
+	{
+		id: "csql-list-red",
+		type: ITEM,
+		name: "Red",
+		properties: { color: "red" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-list-quote",
+		type: ITEM,
+		name: "Quote",
+		properties: { color: "it's" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-list-blue",
+		type: ITEM,
+		name: "Blue",
+		properties: { color: "blue" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-list-none",
+		type: ITEM,
+		name: "None",
+		properties: {},
+		modified: MODIFIED,
+	},
+];
+const COLORS: Expression = {
+	kind: "value-list",
+	items: [term(literal("red")), term(literal("it's"))],
+};
+export const valueList: CsqlScenario = {
+	id: "value-list",
+	caseTypes: [ITEM],
+	cases: valueListCases,
+	searches: [
+		{
+			id: "in-list",
+			sendings: [
+				{ id: "literal", expected: ["csql-list-red", "csql-list-quote"] },
+			],
+		},
+		{
+			id: "not-in-list",
+			sendings: [
+				{ id: "literal", expected: ["csql-list-blue", "csql-list-none"] },
+			],
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"value-list",
+			"Colors",
+			[
+				{
+					name: ITEM,
+					properties: [textProperty("case_name"), textProperty("color")],
+				},
+			],
+			(
+				[
+					["in-list", eq(prop(ITEM, "color"), COLORS)],
+					["not-in-list", neq(prop(ITEM, "color"), COLORS)],
+				] as const
+			).map(([name, predicate]) => ({
+				name,
+				caseType: ITEM,
+				inputs: fixedRule("value-list", name, predicate),
+			})),
+		),
+};
+
+// Runtime selected values (§3.7): a runtime value is a list of tokens.
+
+const TAGGED = "client";
+const TAGS_INPUT = "tags";
+const selectedCases: readonly CsqlCase[] = [
+	{
+		id: "csql-tags-a",
+		type: TAGGED,
+		name: "A",
+		properties: { tags: "a" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-tags-ab",
+		type: TAGGED,
+		name: "AB",
+		properties: { tags: "a b" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-tags-c",
+		type: TAGGED,
+		name: "C",
+		properties: { tags: "c" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-tags-none",
+		type: TAGGED,
+		name: "None",
+		properties: {},
+		modified: MODIFIED,
+	},
+];
+const allTagged = selectedCases.map((row) => row.id);
+const tags = prop(TAGGED, "tags");
+function selectedSearch(quantifier: "any" | "all"): ScenarioModule {
+	const answer = uuid("runtime-selected", `${quantifier}-input`);
+	return {
+		name: `${quantifier}-of-answer`,
+		caseType: TAGGED,
+		inputs: [
+			advancedSearchInputDef(
+				answer,
+				TAGS_INPUT,
+				"Tags",
+				"text",
+				whenInput(input(answer), {
+					kind: "multi-select-contains",
+					property: tags,
+					quantifier,
+					values: [term(input(answer))],
+				}),
+			),
+		],
+	};
+}
+export const runtimeSelected: CsqlScenario = {
+	id: "runtime-selected",
+	caseTypes: [TAGGED],
+	cases: selectedCases,
+	searches: [
+		{
+			id: "any-of-answer",
+			sendings: [
+				{
+					id: "two-tokens",
+					answers: { [TAGS_INPUT]: "a b" },
+					folded: multiSelectAny(tags, literal("a"), literal("b")),
+					expected: ["csql-tags-a", "csql-tags-ab"],
+				},
+				{
+					id: "unanswered",
+					answers: { [TAGS_INPUT]: null },
+					folded: matchAll(),
+					expected: allTagged,
+				},
+			],
+		},
+		{
+			id: "all-of-answer",
+			sendings: [
+				{
+					id: "two-tokens",
+					answers: { [TAGS_INPUT]: "a b" },
+					folded: multiSelectAll(tags, literal("a"), literal("b")),
+					expected: ["csql-tags-ab"],
+				},
+			],
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"runtime-selected",
+			"Tagged clients",
+			[
+				{
+					name: TAGGED,
+					properties: [
+						textProperty("case_name"),
+						textProperty("tags", "multi_select"),
+					],
+				},
+			],
+			[selectedSearch("any"), selectedSearch("all")],
+		),
+};
+
+// Distance units and runtime distance operands (§3.8): Near is about 111 m
+// from the center and Far about 1,112 m.
+
+const SITE = "site";
+const NEAR = "csql-site-near";
+const FAR = "csql-site-far";
+const siteCases: readonly CsqlCase[] = [
+	{
+		id: NEAR,
+		type: SITE,
+		name: "Near",
+		properties: { gps: "0.001 0" },
+		modified: MODIFIED,
+	},
+	{
+		id: FAR,
+		type: SITE,
+		name: "Far",
+		properties: { gps: "0.01 0" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-site-unplaced",
+		type: SITE,
+		name: "Unplaced",
+		properties: {},
+		modified: MODIFIED,
+	},
+];
+const gps = prop(SITE, "gps");
+const CENTER = term(literal("0 0"));
+/** Each unit's radius between Near and Far, and one taking both. */
+const UNIT_RADII: readonly (readonly [
+	DistanceUnit,
+	number,
+	readonly string[],
+])[] = [
+	["miles", 0.1, [NEAR]],
+	["yards", 250, [NEAR]],
+	["feet", 600, [NEAR]],
+	["inch", 8000, [NEAR]],
+	["kilometers", 0.2, [NEAR]],
+	["meters", 200, [NEAR]],
+	["centimeters", 20000, [NEAR]],
+	["millimeters", 200000, [NEAR]],
+	["nauticalmiles", 0.1, [NEAR]],
+	["kilometers", 2, [NEAR, FAR]],
+];
+const RADIUS_INPUT = "radius";
+const UNIT_INPUT = "unit";
+const radiusAnswer = uuid("distance-units", "radius-input");
+const unitAnswer = uuid("distance-units", "unit-input");
+const radiusSearch: ScenarioModule = {
+	name: "runtime-radius",
+	caseType: SITE,
+	inputs: [
+		advancedSearchInputDef(
+			radiusAnswer,
+			RADIUS_INPUT,
+			"Radius",
+			"text",
+			whenInput(
+				input(radiusAnswer),
+				within(gps, CENTER, double(term(input(radiusAnswer))), "meters"),
+			),
+		),
+	],
+};
+const unitSearch: ScenarioModule = {
+	name: "runtime-unit",
+	caseType: SITE,
+	inputs: [
+		advancedSearchInputDef(
+			unitAnswer,
+			UNIT_INPUT,
+			"Unit",
+			"text",
+			whenInput(
+				input(unitAnswer),
+				within(gps, CENTER, 200, term(input(unitAnswer))),
+			),
+		),
+	],
+};
+export const distanceUnits: CsqlScenario = {
+	id: "distance-units",
+	caseTypes: [SITE],
+	cases: siteCases,
+	searches: [
+		...UNIT_RADII.map(([unit, radius, expected]) => ({
+			id: `${radius}-${unit}`,
+			sendings: [{ id: "literal", expected }],
+		})),
+		{
+			id: "runtime-radius",
+			sendings: [
+				{
+					id: "200",
+					answers: { [RADIUS_INPUT]: "200" },
+					folded: within(gps, CENTER, 200, "meters"),
+					expected: [NEAR],
+				},
+				{
+					id: "2000",
+					answers: { [RADIUS_INPUT]: "2000" },
+					folded: within(gps, CENTER, 2000, "meters"),
+					expected: [NEAR, FAR],
+				},
+				// `positive-number`: the search finds nothing.
+				{
+					id: "zero",
+					answers: { [RADIUS_INPUT]: "0" },
+					folded: matchNone(),
+					expected: [],
+				},
+				{
+					id: "word",
+					answers: { [RADIUS_INPUT]: "abc" },
+					folded: matchNone(),
+					expected: [],
+				},
+			],
+		},
+		{
+			id: "runtime-unit",
+			sendings: [
+				{
+					id: "meters",
+					answers: { [UNIT_INPUT]: "meters" },
+					folded: within(gps, CENTER, 200, "meters"),
+					expected: [NEAR],
+				},
+				{
+					id: "kilometers",
+					answers: { [UNIT_INPUT]: "kilometers" },
+					folded: within(gps, CENTER, 200, "kilometers"),
+					expected: [NEAR, FAR],
+				},
+				// `distance-unit`: the search finds nothing.
+				{
+					id: "parsecs",
+					answers: { [UNIT_INPUT]: "parsecs" },
+					folded: matchNone(),
+					expected: [],
+				},
+			],
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"distance-units",
+			"Sites",
+			[
+				{
+					name: SITE,
+					properties: [
+						textProperty("case_name"),
+						textProperty("gps", "geopoint"),
+					],
+				},
+			],
+			[
+				...UNIT_RADII.map(([unit, radius]) => {
+					const name = `${radius}-${unit}`;
+					return {
+						name,
+						caseType: SITE,
+						inputs: fixedRule(
+							"distance-units",
+							name,
+							within(gps, CENTER, radius, unit),
+						),
+					};
+				}),
+				radiusSearch,
+				unitSearch,
+			],
+		),
+};
+
+// Runtime choice among clauses (§3.10), and a row-reading `if`.
+
+const PERSON = "person";
+const MODE_INPUT = "mode";
+const modeAnswer = uuid("runtime-choice", "mode-input");
+const personCases: readonly CsqlCase[] = [
+	{
+		id: "csql-person-young",
+		type: PERSON,
+		name: "Young",
+		properties: { age: "10" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-person-adult",
+		type: PERSON,
+		name: "Adult",
+		properties: { age: "30" },
+		modified: MODIFIED,
+	},
+	{
+		id: "csql-person-unknown",
+		type: PERSON,
+		name: "Unknown",
+		properties: {},
+		modified: MODIFIED,
+	},
+];
+const age = prop(PERSON, "age");
+const adult = gte(age, term(literal(18)));
+const child = lt(age, term(literal(18)));
+export const runtimeChoice: CsqlScenario = {
+	id: "runtime-choice",
+	caseTypes: [PERSON],
+	cases: personCases,
+	searches: [
+		{
+			id: "by-mode",
+			sendings: [
+				{
+					id: "adults",
+					answers: { [MODE_INPUT]: "adults" },
+					folded: adult,
+					expected: ["csql-person-adult"],
+				},
+				{
+					id: "children",
+					answers: { [MODE_INPUT]: "children" },
+					folded: child,
+					expected: ["csql-person-young"],
+				},
+				// An unanswered input reads '' on a device, so the condition is false.
+				{
+					id: "unanswered",
+					answers: { [MODE_INPUT]: null },
+					folded: child,
+					expected: ["csql-person-young"],
+				},
+			],
+		},
+		{
+			id: "row-if",
+			sendings: [{ id: "literal", expected: ["csql-person-adult"] }],
+		},
+		// A row whose condition is unknown takes the else branch.
+		{
+			id: "row-if-else",
+			sendings: [
+				{
+					id: "literal",
+					expected: ["csql-person-young", "csql-person-unknown"],
+				},
+			],
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"runtime-choice",
+			"People",
+			[
+				{
+					name: PERSON,
+					properties: [textProperty("case_name"), textProperty("age", "int")],
+				},
+			],
+			[
+				{
+					name: "by-mode",
+					caseType: PERSON,
+					inputs: [
+						advancedSearchInputDef(
+							modeAnswer,
+							MODE_INPUT,
+							"Mode",
+							"text",
+							ifExpr(
+								eq(term(input(modeAnswer)), term(literal("adults"))),
+								adult,
+								child,
+							),
+						),
+					],
+				},
+				{
+					name: "row-if",
+					caseType: PERSON,
+					inputs: fixedRule(
+						"runtime-choice",
+						"row-if",
+						ifExpr(adult, matchAll(), matchNone()),
+					),
+				},
+				{
+					name: "row-if-else",
+					caseType: PERSON,
+					inputs: fixedRule(
+						"runtime-choice",
+						"row-if-else",
+						ifExpr(adult, matchNone(), matchAll()),
+					),
+				},
+			],
+		),
+};
+
+// The case chosen in an earlier menu (§3.9) and the flag-free ancestor case id
+// (§3.12): "Members by household" narrows its search to the chosen
+// household's children; "Members by village" lists, and searches for, the
+// members whose home village is the chosen household's. Each Members module
+// selects its household in "Households" first.
+
+const HOUSEHOLD = "household";
+const MEMBER = "member";
+const NORTH = "csql-household-north";
+const SOUTH = "csql-household-south";
+const chosenCaseCases: readonly CsqlCase[] = [
+	{
+		id: NORTH,
+		type: HOUSEHOLD,
+		name: "North house",
+		properties: { village: "North" },
+		modified: MODIFIED,
+	},
+	{
+		id: SOUTH,
+		type: HOUSEHOLD,
+		name: "South house",
+		properties: { village: "South" },
+		modified: MODIFIED,
+	},
+	...(
+		[
+			["csql-member-north-north", NORTH, "North"],
+			["csql-member-north-south", NORTH, "South"],
+			["csql-member-south-north", SOUTH, "North"],
+			["csql-member-south-south", SOUTH, "South"],
+		] as const
+	).map(
+		([id, household, village]): CsqlCase => ({
+			id,
+			type: MEMBER,
+			name: id,
+			properties: { home_village: village },
+			modified: MODIFIED,
+			indices: [
+				{
+					identifier: "parent",
+					caseType: HOUSEHOLD,
+					caseId: household,
+					relationship: "child",
+				},
+			],
+		}),
+	),
+];
+const householdsModule = uuid("chosen-case", "Households-module");
+const chosenHousehold = chosenCaseId(householdsModule);
+const chosenVillage = chosenCaseProperty(
+	householdsModule,
+	HOUSEHOLD,
+	"village",
+);
+const parentId = prop(MEMBER, "case_id", ancestorPath(relationStep("parent")));
+const homeVillage = prop(MEMBER, "home_village");
+const choosing = (household: string) => ({
+	chosenCaseIds: { [householdsModule]: household },
+});
+export const chosenCase: CsqlScenario = {
+	id: "chosen-case",
+	caseTypes: [HOUSEHOLD, MEMBER],
+	cases: chosenCaseCases,
+	searches: [
+		{ id: "Households", sendings: [{ id: "all", expected: [NORTH, SOUTH] }] },
+		{
+			id: "Members by household",
+			sendings: [
+				{
+					id: "north",
+					session: choosing(NORTH),
+					folded: eq(parentId, term(literal(NORTH))),
+					expected: ["csql-member-north-north", "csql-member-north-south"],
+				},
+				{
+					id: "south",
+					session: choosing(SOUTH),
+					folded: eq(parentId, term(literal(SOUTH))),
+					expected: ["csql-member-south-north", "csql-member-south-south"],
+				},
+			],
+		},
+		{
+			id: "Members by village",
+			sendings: [
+				{
+					id: "north",
+					session: choosing(NORTH),
+					folded: eq(homeVillage, term(literal("North"))),
+					expected: ["csql-member-north-north", "csql-member-south-north"],
+				},
+				{
+					id: "south",
+					session: choosing(SOUTH),
+					folded: eq(homeVillage, term(literal("South"))),
+					expected: ["csql-member-north-south", "csql-member-south-south"],
+				},
+			],
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"chosen-case",
+			"Households",
+			[
+				{
+					name: HOUSEHOLD,
+					properties: [textProperty("case_name"), textProperty("village")],
+				},
+				{
+					name: MEMBER,
+					parent_type: HOUSEHOLD,
+					relationship: "child",
+					properties: [textProperty("case_name"), textProperty("home_village")],
+				},
+			],
+			[
+				{ name: "Households", caseType: HOUSEHOLD },
+				{
+					name: "Members by household",
+					caseType: MEMBER,
+					parentModule: "Households",
+					inputs: fixedRule(
+						"chosen-case",
+						"Members by household",
+						eq(parentId, chosenHousehold),
+					),
+				},
+				{
+					name: "Members by village",
+					caseType: MEMBER,
+					parentModule: "Households",
+					filter: eq(homeVillage, chosenVillage),
+				},
+			],
+		),
+};
+
+/**
+ * Every scenario Preview answers: the native family's, and the ones its
+ * native side does not run yet.
+ */
+export const csqlPostgresScenarios: readonly CsqlScenario[] = [
+	...csqlScenarios,
+	closedOn,
+	caseTypes,
+	epochDays,
+	valueList,
+	runtimeSelected,
+	distanceUnits,
+	runtimeChoice,
+	chosenCase,
+];
 
 function admitted(doc: BlueprintDoc): BlueprintDoc {
 	blueprintDocSchema.parse(toPersistableDoc(doc));

@@ -34,11 +34,10 @@ FAMILIES = ("csql",)
 DOMAIN = "nova-csql-evidence"
 OWNER = "csql-owner"
 
-# Pull request 10's emitter commit flips this to True: from then the query
-# Nova emits for a datetime equality is the closed range, and HQ's search over
-# it must find the fixture's expected ids. Until then each emitted query is
-# held to what HQ answers today (``TODAY_EMITTED``), finding 75's text half.
-EMITTER_WRITES_RANGES = False
+# From pull request 10 the query Nova emits for a datetime equality is the
+# closed range (part 06 §3.13), and HQ's search over every emitted query must
+# find the fixture's expected ids. Recorded in the evidence.
+EMITTER_WRITES_RANGES = True
 
 # --- datetime-equality ---------------------------------------------------------
 
@@ -46,31 +45,11 @@ AT_INSTANT = ["csql-visit-plus-0530", "csql-visit-minus-05", "csql-visit-zulu"]
 OTHER = "csql-visit-other"
 UNSEEN = "csql-visit-unseen"
 OPENED = "csql-visit-opened"
-EVERY_VISIT = [*AT_INSTANT, OTHER, UNSEEN, OPENED]
 NOT_AT_INSTANT = [OTHER, UNSEEN, OPENED]
 ERROR = "error"
 # HQ's stored spelling of 2026-01-02 04:30 UTC, whatever spelling was
 # submitted (``form_processor/utils/xform.py::adjust_datetimes``).
 STORED_INSTANT = "2026-01-02T04:30:00.000000Z"
-
-# What HQ's search answers today for the query Nova's emitter writes
-# (part 06 §3.13, "Finding 75"): text equality on ``case_properties.value.exact``
-# finds no case for an equality and every case for ``!=``; a system date
-# compared with ``=`` reaches Elasticsearch as a raw term, which the index's
-# date formats refuse without seconds, so the search fails.
-# FLIPS WITH THE EMITTER: once EMITTER_WRITES_RANGES is True these are no
-# longer read; the fixture's expected ids are.
-TODAY_EMITTED = {
-    "eq-naive": [],
-    "eq-zulu": [],
-    "eq-minute": [],
-    "eq-runtime": [],
-    "neq-naive": EVERY_VISIT,
-    "in-two": [],
-    "date_opened-minute": ERROR,
-    "last_modified-minute": ERROR,
-}
-
 
 def _eq(field, value):
     return f"({field} >= {value} and {field} <= {value})"
@@ -276,11 +255,7 @@ def test_hqs_search_finds_each_scenarios_meant_cases(native):
                 assert len(record["queries"]) == 1, record
                 query = record["queries"][0]
                 compiled, found, error = _search(state, case_types, query)
-                if EMITTER_WRITES_RANGES:
-                    expected = meant[(record["search"], record["sending"])]
-                else:
-                    # FLIPS WITH THE EMITTER: today's answer, finding 75's text half.
-                    expected = TODAY_EMITTED[record["search"]]
+                expected = meant[(record["search"], record["sending"])]
                 agrees, expected = _verdict(found, expected)
                 label = f"emitted {record['search']}/{record['sending']}@{record['carrier']}"
                 row = {

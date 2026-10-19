@@ -19,6 +19,7 @@ import {
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import {
+	caseListStepDatumId,
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
@@ -304,6 +305,33 @@ describe("entry datum identities on the emitted session", () => {
 				scalar: true,
 			},
 		]);
+	});
+
+	it("holds an aligned child's chosen parent at the root's id and at its own chain id", () => {
+		// Members, a child of the root, case-first Households menu, with
+		// parent-select Households: HQ's build writes Members' filter with
+		// the household as `parent_id`, then renames it to the root's
+		// `case_id` as it aligns (part 05 §1.3, "The case list filter's two
+		// prints").
+		const doc = produce(parentSelectionDoc(false), (draft) => {
+			draft.modules[CHILD].parentModuleUuid = ROOT;
+		});
+		const household = { kind: "selected-case", module: ROOT } as const;
+		const member = { kind: "selected-case", module: CHILD } as const;
+		expect(
+			entryDatumIds(doc, formLinkProjectionContext(doc), CHILD, CHILD_FORM)
+				.filter((row) => row.refs.length > 0)
+				.map(({ id, chainId, refs }) => ({ id, chainId, refs })),
+		).toEqual([
+			{ id: "case_id", chainId: "parent_id", refs: [household] },
+			{ id: "case_id_member", chainId: "case_id", refs: [member] },
+		]);
+		expect(caseListStepDatumId(doc, CHILD)(household)).toBe("case_id");
+		expect(caseListStepDatumId(doc, CHILD, "chainId")(household)).toBe(
+			"parent_id",
+		);
+		// The list's own case is chosen at that very step, so it has no id there.
+		expect(caseListStepDatumId(doc, CHILD)(member)).toBeUndefined();
 	});
 
 	it("identifies worker, non-repeat child, and grouped-tile supplies by their owning entries", () => {

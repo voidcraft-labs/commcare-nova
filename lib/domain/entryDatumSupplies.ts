@@ -53,7 +53,14 @@ export interface EntryDatumSupplies {
 		readonly scalar: boolean;
 	}[];
 	readonly searchResults?: { readonly module: Uuid };
-	readonly differs?: readonly DatumRef[];
+	/** At a `case-list` or `search` point: the refs the module's own entries
+	 * supply before its selection, which another entry the list runs in
+	 * (`module`'s) holds in another place or not at all, so no one datum id
+	 * names the chosen case in every entry. */
+	readonly differs?: readonly {
+		readonly ref: DatumRef;
+		readonly module: Uuid;
+	}[];
 }
 
 const EMPTY_SUPPLIES: EntryDatumSupplies = { refs: [] };
@@ -301,6 +308,146 @@ export function formLinkTargetSupplies(
 	return { refs: [...refs.values()] };
 }
 
+/**
+ * One selection an entry makes, in its session's order, with a key that is
+ * equal for two selections exactly when they print one datum id. The id half
+ * (`lib/commcare/formLinkProjection.ts::selectableDatums`, `::alignWithRootMenu`)
+ * spells that id from two facts this key holds without spelling it: the
+ * selection's place counted back from the entry's last selection (the
+ * `parent_` prefixes, and whether it holds several cases), and the root
+ * alignment, under which an aligned selection takes the root datum's id and
+ * an unaligned one that collides with a root datum is renamed by its case
+ * type. A root datum other than a selection never collides with one.
+ */
+interface EntrySelection {
+	readonly module: Uuid;
+	readonly refs: readonly DatumRef[];
+	readonly scalar: boolean;
+	readonly key: string;
+}
+
+function entrySelections(
+	doc: BlueprintDoc,
+	entry: DatumEntry,
+	visiting: ReadonlySet<Uuid> = new Set(),
+): readonly EntrySelection[] {
+	if (visiting.has(entry.module)) return [];
+	const chain = [...parentSelectionChain(doc, entry.module), entry.module];
+	const alignment = rootSelectionAlignment(doc, entry);
+	const parent =
+		alignment.parentEntry === undefined
+			? []
+			: entrySelections(
+					doc,
+					alignment.parentEntry,
+					new Set([...visiting, entry.module]),
+				);
+	const parentKeys = new Set(parent.map((row) => row.key));
+	return selectionModules(doc, entry).map((module) => {
+		const mod = doc.modules[module];
+		const scalar = caseSelectionCardinality(mod) === "single";
+		const match = alignment.matches.find(
+			(pair) => pair.targetModuleUuid === module,
+		);
+		const refs: DatumRef[] = [{ kind: "selected-case", module }];
+		if (match !== undefined && match.sourceModuleUuid !== module)
+			refs.push({ kind: "selected-case", module: match.sourceModuleUuid });
+		const aligned =
+			match === undefined
+				? undefined
+				: parent.find((row) => row.module === match.sourceModuleUuid);
+		const place = chain.length - 1 - chain.indexOf(module);
+		const own = JSON.stringify(["chain", place, scalar]);
+		const key =
+			aligned !== undefined
+				? aligned.key
+				: parentKeys.has(own)
+					? JSON.stringify(["renamed", place, scalar, mod?.caseType ?? ""])
+					: own;
+		return { module, refs, scalar, key };
+	});
+}
+
+/** The modules whose entries choose `moduleUuid`'s case before their own:
+ * every module whose parent-selection chain passes through it. Their case
+ * lists run in entries that hold `moduleUuid`'s choice. */
+export function modulesSelectingThrough(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): readonly Uuid[] {
+	return (Object.keys(doc.modules) as Uuid[]).filter(
+		(uuid) =>
+			uuid !== moduleUuid &&
+			parentSelectionChain(doc, uuid).includes(moduleUuid),
+	);
+}
+
+/** The entry that stands for every entry of `moduleUuid` that selects its
+ * case: they share one selection chain and one root alignment, so one is
+ * enough. None when the module has neither a case-loading form nor a case
+ * list of its own. */
+function selectingEntry(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): DatumEntry | undefined {
+	const mod = doc.modules[moduleUuid];
+	if (mod?.caseType === undefined) return undefined;
+	const form = menuFormUuidsOf(doc, moduleUuid).find((uuid) => {
+		const candidate = doc.forms[uuid];
+		return (
+			candidate !== undefined && CASE_LOADING_FORM_TYPES.has(candidate.type)
+		);
+	});
+	if (form !== undefined) return { kind: "form", module: moduleUuid, form };
+	return mod.caseListOnly === true
+		? { kind: "browse", module: moduleUuid }
+		: undefined;
+}
+
+/**
+ * The set at a module's case list step (its `case-list` and `search`
+ * points): the selections every entry whose session reaches the module's
+ * list makes before the module's own selection. Those entries are the
+ * module's own entries that select its case and the entries of every module
+ * that selects through it as a parent (part 05 §1.3, "One id per slot"). The
+ * filter, the detail and the remote request are each one text per module,
+ * so a selection one of them supplies at another datum id, or not at all,
+ * is in `differs` rather than `refs`.
+ */
+function caseListStepSupplies(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): EntryDatumSupplies {
+	const reaching = [moduleUuid, ...modulesSelectingThrough(doc, moduleUuid)];
+	const befores = reaching.flatMap((module) => {
+		const entry = selectingEntry(doc, module);
+		if (entry === undefined) return [];
+		const selections = entrySelections(doc, entry);
+		const own = selections.findIndex((row) => row.module === moduleUuid);
+		return own < 0 ? [] : [{ module, rows: selections.slice(0, own) }];
+	});
+	const [primary, ...others] = befores;
+	if (primary === undefined) return EMPTY_SUPPLIES;
+	const refs: { ref: DatumRef; scalar: boolean }[] = [];
+	const differs: { ref: DatumRef; module: Uuid }[] = [];
+	for (const row of primary.rows)
+		for (const ref of row.refs) {
+			const elsewhere = others.find(
+				(other) =>
+					!other.rows.some(
+						(candidate) =>
+							candidate.key === row.key &&
+							candidate.refs.some(
+								(held) => datumRefKey(held) === datumRefKey(ref),
+							),
+					),
+			);
+			if (elsewhere === undefined) refs.push({ ref, scalar: row.scalar });
+			else differs.push({ ref, module: elsewhere.module });
+		}
+	return differs.length === 0 ? { refs } : { refs, differs };
+}
+
 /** Domain identities available at the evaluating slot, without session names. */
 export function entryDatumSupplies(
 	doc: BlueprintDoc,
@@ -326,10 +473,8 @@ export function entryDatumSupplies(
 				refs: entry.refs.filter(({ ref }) => ref.kind === "selected-case"),
 			};
 		}
-	}
+	} else result = caseListStepSupplies(doc, point.module);
 	if (prepared !== undefined) return result;
-	// The before-selection record points acquire their across-entry identity
-	// proof with the record chosen-case surface; no such read is admitted yet.
 	let byPoint = supplies.get(doc);
 	if (byPoint === undefined) {
 		byPoint = new Map();

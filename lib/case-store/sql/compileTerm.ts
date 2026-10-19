@@ -10,7 +10,8 @@
 // for `RESERVED_SCALAR_COLUMN_BY_PROPERTY`), `literal` (delegates to
 // `compileLiteral`), `input` / `session-user` / `session-context`
 // (parameter-bound from `ctx.bindings`; missing bindings throw
-// rather than emit `NULL`).
+// rather than emit `NULL`), and the chosen case's `session-datum`
+// (its id bound from `ctx.bindings.chosenCaseIds`).
 //
 // ## Non-self via reads as scalar subqueries
 //
@@ -185,6 +186,17 @@ export interface TermBindings {
 	 * not. Validated at the compile site, never trusted raw.
 	 */
 	viewerTimeZone?: string;
+
+	/**
+	 * The case chosen in each menu the list's entry passes through, keyed by
+	 * that menu's module UUID: the id a `selected-case` datum reads in a browse
+	 * list's case list filter (`chosen-case('<menu>')`), and the row its
+	 * properties read from (`chosen-case-property('<menu>', '<property>')`).
+	 * Preview carries it as plain JSON from its menu case map. Each id is bound
+	 * as one text parameter. A CSQL slot never reads it: the fold has already
+	 * replaced the chosen case by the values Core gives.
+	 */
+	chosenCaseIds?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -329,9 +341,10 @@ export function compileTerm(
 						"The operation program builder resolves each `choice` to the text literal the XForm prints, from the committed document, before the program reaches the store; no other Postgres slot admits a static-select read.",
 				}),
 			);
+		case "session-datum":
+			return eb.cast(eb.val(chosenCaseId(term, ctx)), "text");
 		case "form-node":
 		case "case-index":
-		case "session-datum":
 		case "repeat-row":
 		case "location-level":
 		case "location-field":
@@ -541,6 +554,102 @@ export function compileTerm(
 		}
 	}
 }
+
+/**
+ * The id of the case chosen in a menu, from `TermBindings.chosenCaseIds`. The
+ * checker admits only a `selected-case` datum supplied before the module's
+ * case list step, so any other datum, or one the read does not carry, is an
+ * invariant.
+ */
+function chosenCaseId(
+	term: Extract<Term, { kind: "session-datum" }>,
+	ctx: TermCompileContext,
+): string {
+	const id = chosenCaseBinding(term, ctx);
+	if (id !== undefined) return id;
+	throw new Error(
+		compilerBugMessage({
+			where: "compileTerm.chosenCaseId",
+			invariant:
+				term.datum.kind === "selected-case"
+					? `the read carries no chosen case for menu '${term.datum.module}'`
+					: `a \`${term.datum.kind}\` datum reached a server record query`,
+			detail:
+				"A browse list's filter reads only a case chosen in a menu before its case list step, and Preview carries that choice as `TermBindings.chosenCaseIds`; a CSQL slot's fold has already replaced the chosen case.",
+		}),
+	);
+}
+
+function chosenCaseBinding(
+	term: Extract<Term, { kind: "session-datum" }>,
+	ctx: TermCompileContext,
+): string | undefined {
+	const { datum } = term;
+	const ids = ctx.bindings.chosenCaseIds;
+	if (datum.kind !== "selected-case" || ids === undefined) return undefined;
+	return Object.hasOwn(ids, datum.module) ? ids[datum.module] : undefined;
+}
+
+/**
+ * One property of the case chosen in a menu: a read of that case's row, the
+ * shape the worker-record read takes. The row is the Project's case of the
+ * menu's case type whose `case_id` is the bound chosen id, not held, inside
+ * the restore scope when the read has one, and the property reads under the
+ * slot's reading as the anchor's would. An id that names no such row reads no
+ * row, so the property is absent (`NULL`), which the two-valued comparisons
+ * read as a device reads an absent node.
+ */
+export function compileChosenCaseProperty(
+	read: {
+		readonly datum: Extract<Term, { kind: "session-datum" }>;
+		readonly caseType: string;
+		readonly property: string;
+	},
+	ctx: TermCompileContext,
+): AliasableExpression<unknown> {
+	const { caseType, property } = read;
+	const caseId = eb.cast<string>(eb.val(chosenCaseId(read.datum, ctx)), "text");
+	const reserved = reservedColumnFor(property, ctx);
+	const value =
+		reserved !== undefined
+			? scalarColumnRef(CHOSEN_CASE_ALIAS, reserved.column)
+			: jsonbColumnRead({
+					sourceAlias: CHOSEN_CASE_ALIAS,
+					property,
+					dataType: lookupDataType(caseType, property, ctx.caseTypeSchemas),
+				});
+	let query = ctx.db
+		.selectFrom(`cases as ${CHOSEN_CASE_ALIAS}`)
+		.where(`${CHOSEN_CASE_ALIAS}.app_id`, "=", ctx.appId)
+		.where(`${CHOSEN_CASE_ALIAS}.project_id`, "=", ctx.projectId)
+		.where(`${CHOSEN_CASE_ALIAS}.case_type`, "=", caseType)
+		.where((builder) =>
+			builder(builder.ref(`${CHOSEN_CASE_ALIAS}.case_id`), "=", caseId),
+		)
+		.where(({ not, exists, selectFrom }) =>
+			not(
+				exists(
+					selectFrom("parked_case_values as chosen_case_held")
+						.select("chosen_case_held.id")
+						.whereRef(
+							"chosen_case_held.case_id",
+							"=",
+							`${CHOSEN_CASE_ALIAS}.case_id`,
+						)
+						.where("chosen_case_held.dismissed_at", "is", null),
+				),
+			),
+		)
+		.select(compileReadingDate(value, property, ctx).as("value"))
+		.limit(1);
+	if (ctx.restrictToRestoreScope !== undefined)
+		query = ctx.restrictToRestoreScope(query, CHOSEN_CASE_ALIAS);
+	return query as unknown as AliasableExpression<unknown>;
+}
+
+/** The chosen case's row is uncorrelated with the anchor, so every read of it
+ *  can share one alias. */
+const CHOSEN_CASE_ALIAS = "chosen_case";
 
 /** Worker-record reads use the same tenant and held-row boundary as case reads. */
 function compileWorkerProperty(
@@ -1199,6 +1308,10 @@ export function boundComparandValue(
 		}
 		case "session-context":
 			return bound(term.field, ctx.bindings.sessionContext, "");
+		case "session-datum": {
+			const id = chosenCaseBinding(term, ctx);
+			return id === undefined ? undefined : { value: id };
+		}
 		case "field":
 			if (
 				term.role !== undefined ||

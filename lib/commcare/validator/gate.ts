@@ -224,6 +224,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_EXPRESSION_NOT_ON_DEVICE: "soundness",
 	CASE_LIST_STRICT_NULL_NOT_PORTABLE: "soundness",
 	CASE_LIST_CSQL_NOT_REPRESENTABLE: "soundness",
+	CASE_LIST_CLOSED_ON_NOT_ON_DEVICE: "soundness",
 	MULTI_SELECT_PERSISTENT_TILE: "soundness",
 	MULTI_SELECT_NO_BATCH_CONSUMER: "soundness",
 	// Tile geometry and coverage are soundness: a cell off the grid, two

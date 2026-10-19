@@ -8,12 +8,18 @@ import {
 	functionArityIssue,
 } from "../expressionFunctions";
 import type { TranslationUnitId } from "../localization";
-import { STANDARD_CASE_LIST_PROPERTY_DATA_TYPES } from "../standardCaseProperties";
+import {
+	isSearchOnlyCaseProperty,
+	SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES,
+	type SearchOnlyCaseProperty,
+	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+} from "../standardCaseProperties";
 import { itextUnitTranslationId } from "../translationUnits";
 import type { Uuid } from "../uuid";
 import { term as termExpression } from "./builders";
 import { type ExpressionChild, expressionChildren } from "./children";
 import { selectAnswerTokens } from "./choiceValue";
+import { readChosenCaseProperty } from "./chosenCase";
 import {
 	activeRowScope,
 	type ExpressionContext,
@@ -25,6 +31,7 @@ import {
 	type TypingContext,
 	withFormContextNode,
 } from "./context";
+import { csqlPositionAt, csqlPositions } from "./csqlPositions";
 import { fixedDatePattern, isIsoDateText } from "./datePattern";
 import { formNodeGraph } from "./formNodes";
 import {
@@ -62,6 +69,7 @@ import { walkSearchRuntimeValues } from "./searchRuntimeValues";
 import {
 	type CheckPath,
 	type ComparisonKind,
+	type DatumRef,
 	datumRefKey,
 	type Expression,
 	type FormNodeRef,
@@ -164,7 +172,14 @@ export type CheckErrorCode =
 	| "record-position"
 	| "many-values"
 	| "datetime-literal-precision"
-	| "format-date-pattern-not-fixed";
+	| "format-date-pattern-not-fixed"
+	| "closed-on-not-on-device"
+	| "case-type-ordering"
+	| "epoch-fraction-on-device"
+	| "runtime-selected-value-type"
+	| "runtime-selected-value-on-device"
+	| "distance-not-numeric"
+	| "distance-unit-type";
 export interface CheckError {
 	readonly path: CheckPath;
 	readonly code: CheckErrorCode;
@@ -177,6 +192,15 @@ export interface CheckError {
 	 * whether it is an equality, the casedb system date a device keeps as its
 	 * day, and the form value whose clock is gone. */
 	readonly instant?: InstantRefusal;
+	/** On `datum-not-supplied` in a record slot: where the slot reads the
+	 * case chosen in `module` (`chosenCaseCarrier`), and, for the reason
+	 * `differs`, a module whose entries also show the list and hold that
+	 * choice in another place there. */
+	readonly chosen?: {
+		readonly carrier: "case-list" | "search" | "form-display-condition";
+		readonly module: Uuid;
+		readonly otherModule?: Uuid;
+	};
 }
 export interface InstantRefusal {
 	readonly comparison: "ordering" | "equality";
@@ -656,7 +680,11 @@ export function checkExpression(
 		ctx,
 		expectation.kind === "condition" ? "condition" : "value",
 	);
-	const errors = [...outcome.errors, ...searchRuntimeFindings(expression, ctx)];
+	const errors = [
+		...outcome.errors,
+		...searchRuntimeFindings(expression, ctx),
+		...csqlFindings(expression, ctx),
+	];
 	const slot = ctx.slot;
 	if (
 		slot.entity === "form" &&
@@ -745,7 +773,8 @@ function admission(
 		if (refused !== undefined) return refused;
 	}
 	if (
-		expression.kind === "value-list" ||
+		(expression.kind === "value-list" &&
+			!(ctx.ruleSet === "record" && serverOnlySearchSlot(profile))) ||
 		(ctx.ruleSet === "record" &&
 			["itext", "choice-name", "selected-cases"].includes(expression.kind))
 	)
@@ -785,6 +814,27 @@ function admission(
 			expression.kind,
 		);
 	if (ctx.ruleSet === "record") {
+		// The case chosen in an earlier menu, read through its id
+		// (part 06 §3.9): the one query a record slot evaluated after that
+		// choice admits.
+		if (
+			expression.kind === "project" &&
+			chosenCaseCarrier(ctx) !== undefined &&
+			chosenCaseProject(expression, ctx) !== undefined
+		)
+			return undefined;
+		// A server search reads a query of the device's data in a value the
+		// device works out before the search runs: held for import, and
+		// admitted only there (`csqlFindings`, part 06 §3.9).
+		if (
+			serverOnlySearchSlot(profile) &&
+			!(
+				expression.kind === "cases" && expression.source === "search-results"
+			) &&
+			(HELD_SEARCH_READ_KINDS.has(expression.kind) ||
+				(expression.kind === "count" && !isRelationPath(expression.via)))
+		)
+			return undefined;
 		// Places reach the device as the `locations` fixture, which an XForm
 		// or a form link's source entry declares; no menu, case list or
 		// search setting declares it, so none of them can read places.
@@ -807,9 +857,12 @@ function admission(
 				"This expression is not available in a record rule.",
 				expression.kind,
 			);
+		// A search chooses between clauses on the device (part 06 §3.10), so
+		// a slot CommCare's server search reads admits the choice.
 		if (
 			(expression.kind === "if" || expression.kind === "switch") &&
-			position === "condition"
+			position === "condition" &&
+			!profile.targets.has("CS")
 		)
 			return refusal(
 				"arm-unavailable",
@@ -961,12 +1014,13 @@ function termAdmission(
 			[
 				"form-node",
 				"repeat-row",
-				"case-type",
-				"case-row-type",
 				"case-index",
 				"location-field",
 				"location-level",
 			].includes(term.kind) ||
+			// A case's type is read where a case row is in scope (part 06 §3.2).
+			((term.kind === "case-type" || term.kind === "case-row-type") &&
+				activeRowScope(ctx)?.kind !== "case") ||
 			(term.kind === "field" &&
 				(term.role !== undefined ||
 					term.filters !== undefined ||
@@ -1043,12 +1097,7 @@ function termAdmission(
 				"The new record type this session value names no longer exists.",
 				"datum-case-type",
 			);
-		if (ctx.ruleSet === "record")
-			return refusal(
-				"arm-unavailable",
-				"A selected-case datum is not available in this record rule.",
-				"session-datum",
-			);
+		if (ctx.ruleSet === "record") return chosenCaseAdmission(datum, ctx);
 		if (
 			!ctx.supplies.refs.some(
 				(supply) =>
@@ -1062,6 +1111,135 @@ function termAdmission(
 			);
 	}
 	return undefined;
+}
+
+/** Reads a server search admits in a value the device works out first, and
+ * no other record slot reads: a query of the device's cases, a lookup
+ * table's rows or the places, and a value projected from one. */
+const HELD_SEARCH_READ_KINDS: ReadonlySet<string> = new Set([
+	"cases",
+	"table-rows",
+	"locations",
+	"project",
+]);
+
+/** A slot only CommCare's server search and Postgres read, which no device
+ * evaluates (part 01 §4): today an advanced search input's condition. */
+function serverOnlySearchSlot(profile: ExpressionContext["profile"]): boolean {
+	return (
+		profile.targets.has("CS") &&
+		!profile.targets.has("SU") &&
+		!profile.targets.has("XF")
+	);
+}
+
+/** The carrier of a record slot evaluated after an earlier menu's case is
+ * chosen (part 05 §1.3, "Evaluation points"), or undefined for any other. */
+export function chosenCaseCarrier(
+	ctx: Pick<ExpressionContext, "slot">,
+): "case-list" | "search" | "form-display-condition" | undefined {
+	switch (ctx.slot.slot) {
+		case "case_list_filter":
+			return "case-list";
+		case "search_input_predicate":
+			return "search";
+		case "form_display_condition":
+			return "form-display-condition";
+		default:
+			return undefined;
+	}
+}
+
+/**
+ * The one query a record slot admits (part 01 §4, "Chosen case"): a
+ * property of the case chosen in a menu, read from the casedb row whose id is
+ * that menu's `selected-case` datum, the row typed by the menu's case type.
+ */
+export function chosenCaseProject(
+	expression: Extract<Expression, { kind: "project" }>,
+	ctx: Pick<ExpressionContext, "facts">,
+):
+	| {
+			readonly module: Uuid;
+			readonly caseType: string;
+			readonly datum: Extract<Term, { kind: "session-datum" }>;
+			readonly datumPath: CheckPath;
+	  }
+	| undefined {
+	const read = readChosenCaseProperty(expression);
+	if (
+		read === undefined ||
+		ctx.facts.moduleCaseTypes.get(read.module) !== read.caseType
+	)
+		return undefined;
+	return {
+		module: read.module,
+		caseType: read.caseType,
+		datum: read.datum,
+		datumPath: ["project", "of", "cases", "where", 0, "right"],
+	};
+}
+
+/**
+ * The case chosen in an earlier menu, read by a record slot (part 03 §3.9):
+ * admitted in a case list's filter, an advanced search input's condition and
+ * a form's display condition, where the ref must be supplied, as one case,
+ * before the slot evaluates (`ctx.supplies`, the slot's evaluation point).
+ * Its id the entries the list runs in hold in different places is `differs`.
+ */
+function chosenCaseAdmission(
+	datum: DatumRef,
+	ctx: ExpressionContext,
+): CheckError | undefined {
+	const carrier = chosenCaseCarrier(ctx);
+	if (carrier === undefined)
+		return ctx.slot.slot === "module_display_condition"
+			? refusal(
+					"case-data-unavailable",
+					"A menu shows before any case is chosen, so its display condition can't read a chosen case.",
+				)
+			: refusal(
+					"arm-unavailable",
+					"A selected-case datum is not available in this record rule.",
+					"session-datum",
+				);
+	if (datum.kind !== "selected-case")
+		return refusal(
+			"arm-unavailable",
+			"Only the case chosen in an earlier menu can be read here. You can read that case, or one of its properties.",
+			"session-datum",
+		);
+	const key = datumRefKey(datum);
+	const supplied = ctx.supplies.refs.find(
+		(supply) => datumRefKey(supply.ref) === key,
+	);
+	if (supplied?.scalar === true) return undefined;
+	const other = ctx.supplies.differs?.find(
+		(entry) => datumRefKey(entry.ref) === key,
+	);
+	if (other !== undefined)
+		return {
+			...refusal(
+				"datum-not-supplied",
+				"Another menu also shows this list and keeps that choice in another place there, so the read would not find that case. You can remove the read, or give that menu its own list to choose from.",
+				"differs",
+			),
+			chosen: { carrier, module: datum.module, otherModule: other.module },
+		};
+	return {
+		...(supplied !== undefined
+			? refusal(
+					"datum-not-supplied",
+					"That menu lets workers choose several cases, so there is no one chosen case to read. You can let that menu choose one case, or remove this read.",
+					"several-cases",
+				)
+			: refusal(
+					"datum-not-supplied",
+					"This reads the case chosen in a menu that isn't chosen before this runs, so CommCare has no chosen case to read here. You can read a case chosen in an earlier menu, or remove this read.",
+					"not-before",
+				)),
+		chosen: { carrier, module: datum.module },
+	};
 }
 
 /**
@@ -1684,6 +1862,23 @@ function inferNode(
 						unreadableDatetimeError(unreadable.literal.value, ["value"]),
 					);
 			}
+			// A number is days since 1 January 1970 (HQ's
+			// `value_functions.py::value_to_date`, Core's
+			// `XPathDateFunc.java::evalBody`); the device drops a fraction
+			// (`FunctionUtils.java::toDate` takes `toInt`), so a date and time
+			// it works out from one keeps no time of day (part 06 §3.5).
+			if (
+				ctx.ruleSet === "record" &&
+				expression.kind === "datetime-coerce" &&
+				inner === "decimal" &&
+				onDeviceContext(ctx) !== undefined
+			)
+				errors.push({
+					path: ["value"],
+					code: "epoch-fraction-on-device",
+					message:
+						"This turns a number with a fraction into a date and time, but on a device CommCare counts only whole days, so the time of day would be lost. You can use a whole number of days.",
+				});
 			if (
 				ctx.ruleSet === "record" &&
 				inner !== undefined &&
@@ -1691,7 +1886,7 @@ function inferNode(
 				!TEXT_SHAPED_TYPES.has(inner) &&
 				!(expression.kind === "double"
 					? isNumeric(inner)
-					: isDateOrDatetime(inner))
+					: isDateOrDatetime(inner) || isNumeric(inner))
 			)
 				errors.push({
 					path: ["value"],
@@ -1702,7 +1897,7 @@ function inferNode(
 					message:
 						expression.kind === "double"
 							? `double requires a text-shaped or numeric operand; got '${describe(inner)}'.`
-							: `${expression.kind} requires a text-shaped or date-shaped operand (text / single_select / multi_select / date / datetime); got '${describe(inner)}'.`,
+							: `${expression.kind} requires a text-shaped, date-shaped or numeric operand (text / single_select / multi_select / date / datetime / int / decimal); got '${describe(inner)}'.`,
 				});
 			return scalar(
 				expression.kind === "double"
@@ -1960,6 +2155,40 @@ function inferNode(
 			);
 		}
 		case "project": {
+			const chosen =
+				ctx.ruleSet === "record" && "profile" in ctx
+					? chosenCaseProject(expression, ctx)
+					: undefined;
+			if (chosen !== undefined) {
+				// The chosen case's row is that menu's casedb row; its id is the
+				// datum read, admitted by the slot's supply (`chosenCaseAdmission`).
+				if (
+					inferTerm(chosen.datum, ctx, errors, chosen.datumPath) === undefined
+				)
+					return undefined;
+				const value = inferTerm(
+					expression.value,
+					rebind(ctx, {
+						kind: "case",
+						root: "casedb",
+						caseType: chosen.caseType,
+					}),
+					errors,
+					["project", "value"],
+				);
+				const data = scalarDataType(value?.data);
+				if (value === undefined || data === undefined) return value;
+				return nodes(
+					data,
+					typeof value.held === "object"
+						? value.held.nodes
+						: value.held === "sequence"
+							? "string"
+							: value.held,
+					"many",
+					value.caseIdOf,
+				);
+			}
 			read(expression.of, ["project", "of"]);
 			const row = expressionRowScope(expression.of, ctx);
 			const value = inferTerm(
@@ -2383,6 +2612,13 @@ function inferTerm(
 					origin === undefined &&
 					(term.via === undefined || term.via.kind === "self")
 				) {
+					if (isSearchOnlyCaseProperty(term.property))
+						return searchOnlyProperty(
+							term.property,
+							ctx,
+							fail,
+							row !== undefined && "root" in row ? row.root : undefined,
+						);
 					const type = Object.hasOwn(
 						STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 						term.property,
@@ -2849,6 +3085,8 @@ function propertyType(
 	const declared = type.properties.find(
 		(candidate) => candidate.name === property,
 	);
+	if (declared === undefined && isSearchOnlyCaseProperty(property))
+		return searchOnlyProperty(property, ctx, fail, root);
 	if (declared === undefined)
 		return fail(
 			"unknown-property",
@@ -2864,6 +3102,34 @@ function propertyType(
 		property,
 		root ?? "",
 	);
+}
+export const CLOSED_ON_NOT_ON_DEVICE_MESSAGE =
+	"Date closed is known only to CommCare's server search, so it can't be read here. Case status shows whether a case is closed.";
+/**
+ * A property only CommCare's server search reads (`closed_on`,
+ * `standardCaseProperties.ts::SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES`): a
+ * date and time where no device evaluates the read, that is in a slot whose
+ * targets exclude the form and the suite, on the search's own row or a case
+ * related to it, and in no value a device works out first. A row of a query
+ * of the device's cases, and every other slot, hold none (part 06 §3.1). A
+ * case store query has no slot: the gate decided it, and the store reads the
+ * search's column.
+ */
+function searchOnlyProperty(
+	property: SearchOnlyCaseProperty,
+	ctx: TypingContext,
+	fail: (code: CheckErrorCode, message: string) => undefined,
+	root: string | undefined,
+): NodeType | undefined {
+	const type = SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES[property];
+	if (!("profile" in ctx)) return nodes(type, "string");
+	return !ctx.profile.targets.has("SU") &&
+		!ctx.profile.targets.has("XF") &&
+		ctx.runsOnDevice !== true &&
+		root !== "casedb" &&
+		root !== "results:inline"
+		? nodes(type, "string")
+		: fail("closed-on-not-on-device", CLOSED_ON_NOT_ON_DEVICE_MESSAGE);
 }
 /**
  * How a row holds a system date. Core holds `date_opened` and
@@ -2976,8 +3242,14 @@ function checkComparison(
 	const leftType = scalarDataType(leftNode?.data);
 	const rightType = scalarDataType(rightNode?.data);
 	if (leftType === undefined || rightType === undefined) return;
+	if (kind === "eq" || kind === "neq")
+		checkCaseTypeLiteral(left, right, ctx, errors, path);
 
 	if (kind !== "eq" && kind !== "neq") {
+		if (isCaseRowType(left) || isCaseRowType(right)) {
+			errors.push(caseTypeOrderingError(path));
+			return;
+		}
 		if (leftType === "time" || rightType === "time") {
 			errors.push({
 				path,
@@ -3023,6 +3295,58 @@ function checkComparison(
 		errors,
 		path,
 	);
+}
+
+function isCaseRowType(expression: Expression | undefined): boolean {
+	return (
+		expression?.kind === "term" && expression.term.kind === "case-row-type"
+	);
+}
+function caseTypeOrderingError(path: CheckPath): CheckError {
+	return {
+		path,
+		code: "case-type-ordering",
+		message:
+			"Case types can be compared only as equal or not equal. You can check whether the case type is one you choose.",
+	};
+}
+/** A text literal opposite the record's case type names a case type, which
+ * must be one of the app's (part 06 §3.2; a literal a parser has not turned
+ * into a `case-type` leaf, as `in` keeps its values). */
+function checkCaseTypeLiteral(
+	left: Expression,
+	right: Expression,
+	ctx: TypingContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	for (const [row, other, side] of [
+		[left, right, "right"],
+		[right, left, "left"],
+	] as const) {
+		if (!isCaseRowType(row)) continue;
+		const literal = directLiteral(other);
+		if (literal !== undefined)
+			caseTypeLiteralError(literal, ctx, errors, [...path, side]);
+	}
+}
+function caseTypeLiteralError(
+	literal: Literal,
+	ctx: TypingContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	if (
+		typeof literal.value !== "string" ||
+		literal.data_type !== undefined ||
+		ctx.facts.caseTypes.some((type) => type.name === literal.value)
+	)
+		return;
+	errors.push({
+		path,
+		code: "unknown-case-type",
+		message: `This app has no case type '${literal.value}'. Choose one of its case types.`,
+	});
 }
 
 /** A date against a date and time: CommCare compares a date by its day and a
@@ -3201,22 +3525,121 @@ function searchRuntimeFindings(
 	const found: CheckError[] = [];
 	const key = (error: CheckError) =>
 		JSON.stringify([error.path, error.code, error.reason ?? null]);
-	walkSearchRuntimeValues(expression, ctx, (value, valueContext, path) => {
-		let device = runningOnDevice.get(valueContext);
-		if (device === undefined) {
-			device = { ...valueContext, runsOnDevice: true };
-			runningOnDevice.set(valueContext, device);
-		}
-		const served = new Map<string, number>();
-		for (const error of infer(value, valueContext, "value").errors)
-			served.set(key(error), (served.get(key(error)) ?? 0) + 1);
-		for (const error of infer(value, device, "value").errors) {
-			const count = served.get(key(error)) ?? 0;
-			if (count > 0) served.set(key(error), count - 1);
-			else found.push({ ...error, path: [...path, ...error.path] });
-		}
-	});
+	walkSearchRuntimeValues(
+		expression,
+		ctx,
+		(value, valueContext, path, within) => {
+			let device = runningOnDevice.get(valueContext);
+			if (device === undefined) {
+				device = { ...valueContext, runsOnDevice: true };
+				runningOnDevice.set(valueContext, device);
+			}
+			const position = within === "query" ? "condition" : "value";
+			const served = new Map<string, number>();
+			for (const error of infer(value, valueContext, position).errors)
+				served.set(key(error), (served.get(key(error)) ?? 0) + 1);
+			for (const error of infer(value, device, position).errors) {
+				const count = served.get(key(error)) ?? 0;
+				if (count > 0) served.set(key(error), count - 1);
+				else found.push({ ...error, path: [...path, ...error.path] });
+			}
+		},
+	);
 	return found;
+}
+
+/**
+ * The findings a node's place in a CommCare search query decides
+ * (`csqlPositions.ts`) that are type facts, in a slot CommCare's server
+ * search reads: a list of values' items share the type of the case value
+ * they are compared with, and a read of the device's cases, a lookup
+ * table's rows or the places is held for import and admitted only in a value
+ * the device works out. Where a position alone decides (`epoch-days-not-whole`,
+ * `raw-argument-not-evaluated`, `value-list-placement`) the finding is
+ * `lib/commcare/csql/representability.ts`'s.
+ */
+function csqlFindings(
+	root: Expression,
+	ctx: ExpressionContext,
+): readonly CheckError[] {
+	if (
+		ctx.ruleSet !== "record" ||
+		!ctx.profile.targets.has("CS") ||
+		ctx.profile.expectation.kind !== "condition"
+	)
+		return [];
+	const positions = csqlPositions(root);
+	const serverOnly = serverOnlySearchSlot(ctx.profile);
+	const found: CheckError[] = [];
+	const typeAt = (value: Expression, path: CheckPath) =>
+		scalarDataType(
+			typeOf(value, expressionContextAtPath(root, ctx, path))?.data,
+		);
+	const visit = (
+		node: Expression,
+		path: CheckPath,
+		parent: { readonly node: Expression; readonly path: CheckPath } | undefined,
+	): void => {
+		const position = csqlPositionAt(positions, path);
+		if (node.kind === "value-list" && serverOnly)
+			valueListItems(node, path, parent, typeAt, found);
+		if (
+			serverOnly &&
+			position !== "runtime" &&
+			(HELD_SEARCH_READ_KINDS.has(node.kind) ||
+				(node.kind === "count" && !isRelationPath(node.via))) &&
+			!(node.kind === "project" && chosenCaseProject(node, ctx) !== undefined)
+		)
+			found.push({
+				...refusal(
+					"arm-unavailable",
+					"A search reads this only in a value the device works out before the search runs.",
+					node.kind,
+				),
+				path,
+			});
+		for (const child of expressionChildren(node, path))
+			if (child.kind === "expression")
+				visit(child.value, child.path, { node, path });
+	};
+	visit(root, [], undefined);
+	return found;
+}
+
+function valueListItems(
+	list: Extract<Expression, { kind: "value-list" }>,
+	path: CheckPath,
+	parent: { readonly node: Expression; readonly path: CheckPath } | undefined,
+	typeAt: (value: Expression, path: CheckPath) => ScalarType | undefined,
+	found: CheckError[],
+): void {
+	const comparison =
+		parent?.node.kind === "eq" || parent?.node.kind === "neq"
+			? parent.node
+			: undefined;
+	if (comparison === undefined || parent === undefined) return;
+	const anchorSide =
+		comparison.right === list
+			? "left"
+			: comparison.left === list
+				? "right"
+				: undefined;
+	if (anchorSide === undefined) return;
+	const anchorType = typeAt(comparison[anchorSide], [
+		...parent.path,
+		anchorSide,
+	]);
+	if (!isKnown(anchorType)) return;
+	for (const [index, item] of list.items.entries()) {
+		const itemPath: CheckPath = [...path, "items", index];
+		const itemType = typeAt(item, itemPath);
+		if (isKnown(itemType) && !typesCompatible(anchorType, itemType))
+			found.push({
+				path: itemPath,
+				code: "incompatible-values",
+				message: `Each value of the list needs to be the same kind as ${describe(anchorType)}, and this one is ${describe(itemType)}.`,
+			});
+	}
 }
 const isKnown = (type: ScalarType | undefined): type is ScalarType =>
 	type !== undefined && type !== ANY_TYPE;
@@ -3500,6 +3923,8 @@ function checkIn(
 	if (leftType === undefined) return;
 	for (let i = 0; i < p.values.length; i++) {
 		const value = p.values[i];
+		if (isCaseRowType(p.left) && value.kind === "literal")
+			caseTypeLiteralError(value, ctx, errors, [...path, "values", i]);
 		if (
 			directProperty(p.left) === "status" &&
 			value.kind === "literal" &&
@@ -3548,10 +3973,29 @@ function checkWithinDistance(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
-	if (typeof p.distance !== "number")
-		inferScalar(p.distance, ctx, errors, [...path, "distance"]);
-	if (typeof p.unit !== "string")
-		inferScalar(p.unit, ctx, errors, [...path, "unit"]);
+	// A value in place of the radius or the unit (part 06 §3.8): HQ reads the
+	// radius with `float()` and the unit as one of its nine names.
+	if (typeof p.distance !== "number") {
+		const distance = inferScalar(p.distance, ctx, errors, [
+			...path,
+			"distance",
+		]);
+		if (isKnown(distance) && !isNumeric(distance))
+			errors.push({
+				path: [...path, "distance"],
+				code: "distance-not-numeric",
+				message: `The distance needs to be a number, and this value is ${describe(distance)}. You can choose a number value.`,
+			});
+	}
+	if (typeof p.unit !== "string") {
+		const unit = inferScalar(p.unit, ctx, errors, [...path, "unit"]);
+		if (isKnown(unit) && unit !== "text" && unit !== "single_select")
+			errors.push({
+				path: [...path, "unit"],
+				code: "distance-unit-type",
+				message: `The distance unit needs to be text naming a unit, like miles or meters, and this value is ${describe(unit)}. You can choose a text value or a single choice.`,
+			});
+	}
 	const propType = inferOperand(p.property, ctx, errors, [...path, "property"]);
 	if (propType !== undefined && propType !== "geopoint") {
 		errors.push({
@@ -3641,12 +4085,13 @@ function checkMultiSelectContains(
 	}
 	if (propType === undefined) return;
 	for (let i = 0; i < p.values.length; i++) {
-		const valType = inferOperand(p.values[i], ctx, errors, [
-			...path,
-			"values",
-			i,
-		]);
+		const value = p.values[i];
+		const valType = inferOperand(value, ctx, errors, [...path, "values", i]);
 		if (valType === undefined) continue;
+		if (isExpression(value)) {
+			runtimeSelectedValue(valType, ctx, errors, [...path, "values", i]);
+			continue;
+		}
 		if (!typesCompatible(propType, valType)) {
 			errors.push({
 				path: [...path, "values", i],
@@ -3655,6 +4100,37 @@ function checkMultiSelectContains(
 			});
 		}
 	}
+}
+
+/**
+ * A value in place of a choice of `selected-any` / `selected-all` (part 06
+ * §3.7): a space-separated list of choices, so text or a choice. HQ matches
+ * each of its words; a device tests the whole value as one choice
+ * (`XPathSelectedFunc.java::multiSelected`), so where a device evaluates it,
+ * it must be one choice.
+ */
+function runtimeSelectedValue(
+	type: ScalarType,
+	ctx: TypingContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	if (!isKnown(type)) return;
+	if (type !== "text" && type !== "single_select" && type !== "multi_select") {
+		errors.push({
+			path,
+			code: "runtime-selected-value-type",
+			message: `A value that names choices needs to be text or a choice, and this value is ${describe(type)}. You can choose a text value or a choice question's answer.`,
+		});
+		return;
+	}
+	if (type !== "single_select" && onDeviceContext(ctx) !== undefined)
+		errors.push({
+			path,
+			code: "runtime-selected-value-on-device",
+			message:
+				"This value can hold several choices, which the device reads differently from the server. Choose a single-choice value here, or use it in a search field's condition.",
+		});
 }
 
 function checkPatternMatch(
@@ -3685,6 +4161,10 @@ function checkBetween(
 	const before = errors.length;
 	const leftType = inferScalar(p.left, ctx, errors, [...path, "left"]);
 	if (leftType === undefined) return;
+	if (isCaseRowType(p.left)) {
+		errors.push(caseTypeOrderingError(path));
+		return;
+	}
 	if (leftType === "time") {
 		errors.push({
 			path,

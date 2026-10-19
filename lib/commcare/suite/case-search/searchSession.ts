@@ -28,6 +28,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 	type WireStringSource,
 } from "@/lib/domain";
+import type { DatumRef } from "@/lib/domain/expression/types";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import { validateCaseType } from "../../identifierValidation";
 import type { LookupWireNaming } from "../../lookup/naming";
@@ -130,6 +131,9 @@ export interface SearchQueryArgs {
 	 * (`RemoteRequestFactory._remote_request_query_datums`).
 	 */
 	readonly ancestorCaseType?: string;
+	/** The id each case chosen before the module's case list step prints
+	 * under (`formLinkProjection.ts::caseListStepDatumId`). */
+	readonly datumId?: (ref: DatumRef) => string | undefined;
 }
 
 /**
@@ -271,9 +275,10 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	const xpathQueryEmission = composeXPathQueryEmission(
 		caseListConfig,
 		caseType,
-		args.expressions({ slot: "case_list_filter" }),
+		args.expressions,
 		args.lookupNaming,
 		searchInputInstanceId(wire),
+		args.datumId,
 	);
 	// A search with no input and no clause sends the zero-input sentinel,
 	// as HQ's build of the same search does.

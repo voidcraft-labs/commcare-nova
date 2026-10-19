@@ -42,6 +42,7 @@ import {
 } from "./index";
 import { validateLookupReferences } from "./lookupReferences";
 import { lookupTypeIndex } from "./lookupTypeContext";
+import { sharedRecordFinding } from "./recordFindings";
 import { APP_RULES } from "./rules/app";
 import { runFieldRules } from "./rules/field";
 import { entryPlanContext, runFormRules } from "./rules/form";
@@ -268,7 +269,7 @@ export function runValidation(
 
 	errors.push(...runDeepValidation(doc, scope, lookupTables));
 
-	return errors;
+	return errors.map((error) => sharedRecordFinding(doc, error));
 }
 
 /**

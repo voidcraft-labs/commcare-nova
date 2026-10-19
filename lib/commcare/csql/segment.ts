@@ -3,56 +3,43 @@ import type { WireExpr } from "../xpath/wire/tree";
 
 // lib/commcare/csql/segment.ts
 //
-// Shared segment-list IR for the CSQL emitter family. The CSQL wire
+// The IR `print.ts::printCsql` yields from a CSQL tree. The CSQL wire
 // dialect lives inside an on-device XPath `concat(...)` wrapper that
-// builds the `_xpath_query` string at runtime — the canonical CCHQ
+// builds the `_xpath_query` string at runtime, the canonical CCHQ
 // pattern at `case_search_query_language.rst::"Example Query + Tips"`.
-// Each emitter (predicate-side `csqlEmitter.ts`, value-expression-side
-// `lib/commcare/csql/valueEmitter.ts`) walks a sub-AST and emits
-// a `CsqlSegment[]`. The wrap layer composes the lists from every
-// surface, merges adjacent constants, and lifts each segment into one
-// `concat(...)` argument.
-//
-// The two-arm shape lets the wrap layer emit each segment as a
-// separate `concat(...)` argument without parsing the emitted CSQL
-// string back out — runtime-resolved instance paths embed single
-// quotes, and the wrapping CSQL string carries both single and double
-// quotes interchangeably, so a string-only round trip is ambiguous.
-//
-// Owning this IR in a shared module rather than in either of the two
-// emitter files keeps the predicate ↔ expression composition surface
-// uniform: both emitters return the same `CsqlSegment[]` type, the
-// wrap layer is the only place that converts segment lists to the
-// final `concat(...)` wire tree, and a downstream package never
-// needs to learn two different segment shapes.
+// A segment is either constant CSQL text or a runtime value the device
+// splices in; the wrapper lifts each segment into one `concat(...)`
+// argument without parsing the CSQL text back out (runtime-resolved
+// instance paths embed single quotes, and the wrapping CSQL string
+// carries both quote kinds, so a string round trip is ambiguous).
 
 /**
  * Two-arm IR carrying one piece of a CSQL value's wire build-up.
  *
- *   - `constant` — a literal CSQL fragment (operator tokens, a
- *     compile-time-known value, a quoted property name). The wrap
- *     layer holds each constant run in a wire string node. The sole
- *     wire serializer chooses the literal spelling, including split
- *     literals when both quote characters occur.
- *   - `runtime` — a wire tree evaluated on-device whose string
- *     result interpolates into the CSQL fragment. Runtime value segments
- *     may also carry a `rejectWhen` proof obligation when no CSQL literal
- *     can represent the resolved bytes. Runtime segments pass through as
- *     their own concat argument; the wrap layer never parses or splits them.
- *
- * The discriminator field is `kind`, matching the predicate AST's
- * own discriminator pattern so a reader scanning either surface sees
- * the same dispatch shape.
+ *   - `constant`: printed CSQL text. The wrapper holds each constant run
+ *     in a wire string node, and the sole wire serializer chooses its
+ *     spelling.
+ *   - `runtime`: a wire tree evaluated on-device whose string result
+ *     interpolates into the CSQL text, with the value XPath it reads and
+ *     the segment key Preview's fold substitutes by. It may carry one
+ *     `rejectWhen` obligation; the wrapper lifts every obligation ahead of
+ *     the whole clause.
  */
 export type CsqlSegment =
 	| { readonly kind: "constant"; readonly text: string }
 	| {
 			readonly kind: "runtime";
 			readonly xpath: WireExpr;
+			/** The raw on-device read this segment splices in, before quoting.
+			 * Absent on a carrier that splices nothing. */
+			readonly value?: WireExpr;
+			/** The checker path, in the prepared clause, of the subtree this
+			 * segment evaluates (`csqlPositionKey`). */
+			readonly key?: string;
 			/**
 			 * The raw on-device value XPath this segment quotes into the CSQL
-			 * text with a delimiter chosen at runtime. Present only on segments
-			 * produced by `quoteRuntimeCsqlValue`'s double-preferred choose form.
+			 * text with a delimiter chosen at runtime. Present only on a
+			 * `quoted` hole's segment.
 			 * The clause wrap layer uses it to restructure a clause whose ONLY
 			 * runtime interpolation is this one string value into the flat
 			 * quote cascade (`if(contains(v, '"'), …)`) instead of nesting the
@@ -88,7 +75,21 @@ export type RuntimeCsqlRejectionKind =
 	| "whole-number"
 	| "nonnegative-whole-number"
 	| "geopoint"
-	| "blank-comparand";
+	| "blank-comparand"
+	| "decimal-number"
+	| "positive-number"
+	| "distance-unit"
+	| "list-item";
+
+/** The obligations no worker can repair: a blank comparand and a list item
+ * that would break its JSON. The search finds nothing, with no message. */
+export type SilentRuntimeCsqlRejectionKind = "blank-comparand" | "list-item";
+
+export function isSilentRuntimeCsqlRejection(
+	kind: RuntimeCsqlRejectionKind,
+): kind is SilentRuntimeCsqlRejectionKind {
+	return kind === "blank-comparand" || kind === "list-item";
+}
 
 export interface RuntimeCsqlRejection {
 	readonly condition: WireExpr;
@@ -118,59 +119,4 @@ export function dedupeRuntimeRejections(
 		);
 	}
 	return [...byKey.values()];
-}
-
-/**
- * Coalesce adjacent constant segments into one. Centralised here so
- * per-arm emitters across both predicate and expression surfaces
- * produce raw segment lists without needing their own merge passes.
- *
- * Without this pass, an emitted predicate composes its operator
- * tokens and operand emissions as separate constant segments — for
- * example, an `eq(prop, literal)` reaches the wrap layer as
- * `[const "name", const " = ", const "'Alice'"]` rather than the
- * single constant `name = 'Alice'`. The merge keeps the segment list
- * to one constant per contiguous constant run, which produces shorter
- * `concat(...)` argument lists at the wrap boundary.
- *
- * Runtime segments pass through untouched — they always sit as their
- * own segment because `concat(...)` argument boundaries are the one
- * place a constant↔runtime transition is authoritative.
- */
-export function mergeAdjacentConstants(
-	segments: readonly CsqlSegment[],
-): CsqlSegment[] {
-	const merged: CsqlSegment[] = [];
-	for (const seg of segments) {
-		const last = merged[merged.length - 1];
-		if (
-			seg.kind === "constant" &&
-			last !== undefined &&
-			last.kind === "constant"
-		) {
-			merged[merged.length - 1] = {
-				kind: "constant",
-				text: last.text + seg.text,
-			};
-			continue;
-		}
-		merged.push(seg);
-	}
-	return merged;
-}
-
-/**
- * HQ's eulxml lexer omits COMMA from OPERATOR_FORCERS, so a function
- * immediately after a comma is tokenized as a path name. Group an argument
- * that can contain functions; OPEN_PAREN restores function recognition.
- * This operates on emission segments, never reparses XPath or CSQL strings.
- */
-export function groupCsqlArgument(
-	segments: readonly CsqlSegment[],
-): CsqlSegment[] {
-	return [
-		{ kind: "constant", text: "(" },
-		...segments,
-		{ kind: "constant", text: ")" },
-	];
 }

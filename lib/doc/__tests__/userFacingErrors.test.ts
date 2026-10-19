@@ -987,6 +987,109 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		);
 	});
 
+	it.each([
+		[
+			{ carrier: "case-list", reason: "not-before" },
+			'The case list of "Clients" reads the case chosen in "Households", but "Clients" no longer opens after "Households", so CommCare has no chosen case to read there. You can open "Clients" from "Households" again, or remove that read.',
+		],
+		[
+			{ carrier: "search", reason: "not-before" },
+			'The search in "Clients" reads the case chosen in "Households", but "Clients" no longer opens after "Households", so CommCare has no chosen case to read there. You can open "Clients" from "Households" again, or remove that read.',
+		],
+		[
+			{ carrier: "case-list", reason: "differs", otherModuleName: "Visits" },
+			'The case list of "Clients" reads the case chosen in "Households", but "Visits" also shows this list, and there CommCare keeps that choice in another place, so the read would not find that case. You can remove the read, or give "Visits" its own list to choose from.',
+		],
+		[
+			{ carrier: "search", reason: "several-cases" },
+			'The search in "Clients" reads the case chosen in "Households", but "Households" now lets workers choose several cases, so there is no one chosen case to read. You can let "Households" choose one case, or remove that read.',
+		],
+		[
+			{ carrier: "form-display-condition", reason: "not-before" },
+			'"Register Client" shows only when the case chosen in "Households" matches, but its menu shows before that case is chosen. You can choose the case before this menu, or base the condition on the worker instead.',
+		],
+	])(
+		"says where a record setting reads a chosen case its entries don't hold: %o",
+		(details, copy) => {
+			expect(
+				userFacingError(
+					finding("SESSION_DATUM_NOT_SUPPLIED", {
+						...details,
+						datumKind: "selected-case",
+						datumModuleName: "Households",
+					}),
+				),
+			).toBe(copy);
+		},
+	);
+
+	it.each([
+		[
+			"epoch-days-not-whole",
+			'The condition for search field "Lookup" turns a number with a fraction into a date. CommCare\'s search counts days in whole numbers. Use a whole number of days.',
+		],
+		[
+			"raw-argument-not-evaluated",
+			"The condition for search field \"Lookup\" gives the search a value to work out. CommCare's search uses this value as written and won't calculate it. Choose a fixed value or one the device can work out.",
+		],
+		[
+			"value-list-placement",
+			"The condition for search field \"Lookup\" compares a list of values in a way CommCare's search can't. A list of values can be compared only as equal or not equal to a case value.",
+		],
+	])(
+		"names a search shape CommCare's search can't read: %s",
+		(reason, copy) => {
+			expect(
+				userFacingError(
+					finding("CASE_LIST_CSQL_NOT_REPRESENTABLE", {
+						reason,
+						inputLabel: "Lookup",
+					}),
+				),
+			).toBe(copy);
+		},
+	);
+
+	it("names the setting that reads Date closed where a device evaluates it", () => {
+		expect(
+			userFacingError(
+				finding("CASE_LIST_CLOSED_ON_NOT_ON_DEVICE", {
+					checkCode: "closed-on-not-on-device",
+					slotCode: "CASE_LIST_FILTER_TYPE_ERROR",
+				}),
+			),
+		).toBe(
+			"The Cases available setting in \"Clients\" reads Date closed. Date closed is known only to CommCare's server search, so it can't be read here. Case status shows whether a case is closed.",
+		);
+		expect(
+			userFacingError(
+				finding("CASE_LIST_CLOSED_ON_NOT_ON_DEVICE", {
+					checkCode: "closed-on-not-on-device",
+				}),
+			),
+		).toBe(
+			'A formula on "visit_check" in "Register Client" reads Date closed. Date closed is known only to CommCare\'s server search, so it can\'t be read here. Case status shows whether a case is closed.',
+		);
+	});
+
+	it.each([
+		[
+			"case-type-ordering",
+			'The Cases available setting in "Clients" orders case types. Case types can be compared only as equal or not equal. You can check whether the case type is one you choose.',
+		],
+		[
+			"runtime-selected-value-on-device",
+			'The Cases available setting in "Clients" looks for choices named by a value that can hold several of them, which the device reads differently from the server. Choose a single-choice value here, or use it in a search field\'s condition.',
+		],
+	])(
+		"names a search shape a record setting can't hold: %s",
+		(checkCode, copy) => {
+			expect(
+				userFacingError(finding("CASE_LIST_FILTER_TYPE_ERROR", { checkCode })),
+			).toBe(copy);
+		},
+	);
+
 	it("names a link and a CommCare Connect setting as the carrier that reads a form's value", () => {
 		const atForm = (
 			code: ValidationErrorCode,

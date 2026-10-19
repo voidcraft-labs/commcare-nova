@@ -69,6 +69,7 @@ import {
 import type { Expression } from "@/lib/domain/expression";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import type { ModuleExpressionSlotRef } from "@/lib/domain/expression/types";
+import type { Uuid } from "@/lib/domain/uuid";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 
@@ -457,11 +458,23 @@ export function searchInputSuppressesAutoMatch(input: SearchInputDef): boolean {
  */
 export function getAdvancedArmPredicates(
 	searchInputs: ReadonlyArray<SearchInputDef>,
-): ReadonlyArray<{ readonly name: string; readonly predicate: Expression }> {
-	const out: { readonly name: string; readonly predicate: Expression }[] = [];
+): ReadonlyArray<{
+	readonly uuid: Uuid;
+	readonly name: string;
+	readonly predicate: Expression;
+}> {
+	const out: {
+		readonly uuid: Uuid;
+		readonly name: string;
+		readonly predicate: Expression;
+	}[] = [];
 	for (const input of searchInputs) {
 		if (input.kind === "advanced") {
-			out.push({ name: input.name, predicate: input.predicate });
+			out.push({
+				uuid: input.uuid,
+				name: input.name,
+				predicate: input.predicate,
+			});
 		}
 	}
 	return out;

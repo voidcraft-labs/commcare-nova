@@ -20,7 +20,7 @@ import { SYSTEM_DATETIME_CASE_PROPERTIES } from "@/lib/domain/standardCaseProper
 import { w } from "../xpath/wire/builders";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
-import type { CsqlSegment } from "./segment";
+import type { CsqlNode, CsqlObligation } from "./tree";
 
 /**
  * Whether a comparison of `anchor` with a runtime value can reach HQ with a
@@ -37,44 +37,66 @@ export function needsBlankComparandGuard(
 }
 
 /**
- * The on-device value XPath of every runtime interpolation in one value's
- * segments: the raw read a quoted segment carries, or the read a quote-free
- * segment interpolates as it is. A segment that only carries another
- * obligation interpolates nothing and is skipped.
+ * The on-device reads a value splices in: each runtime hole's raw read, unless
+ * a typed obligation already proves the value is well formed (a geopoint, a
+ * number), which no blank passes.
  */
-function runtimeValueXPaths(segments: readonly CsqlSegment[]): WireExpr[] {
-	const values: WireExpr[] = [];
-	for (const segment of segments) {
-		if (segment.kind !== "runtime") continue;
-		if (segment.stringValueXPath !== undefined) {
-			values.push(segment.stringValueXPath);
-		} else if (segment.rejectWhen === undefined) {
-			values.push(segment.xpath);
-		}
+function runtimeReads(node: CsqlNode, out: WireExpr[]): void {
+	switch (node.k) {
+		case "runtime":
+			if (node.hole.neverBlank === true) return;
+			if (node.hole.quoting === "quoted") out.push(node.hole.value);
+			else if (node.hole.obligation === undefined)
+				out.push(node.hole.print ?? node.hole.value);
+			return;
+		case "json-list":
+			for (const item of node.items)
+				if (item.k === "runtime" && item.hole.obligation === undefined)
+					out.push(item.hole.value);
+			return;
+		case "cmp":
+			runtimeReads(node.left, out);
+			runtimeReads(node.right, out);
+			return;
+		case "and":
+		case "or":
+			for (const item of node.items) runtimeReads(item, out);
+			return;
+		case "not":
+		case "group":
+		case "guarded":
+			runtimeReads(node.item, out);
+			return;
+		case "query-call":
+		case "value-call":
+			for (const arg of node.args) runtimeReads(arg, out);
+			return;
+		case "step":
+		case "literal":
+		case "number":
+		case "choice":
+		case "presence":
+			return;
 	}
-	return values;
 }
 
 /**
- * The carrier segment that guards the runtime values among `values`, or
- * nothing where they interpolate no runtime value. Its `xpath` is `''`, so
- * the CSQL bytes of a value that is not blank do not change.
+ * The obligation that guards the runtime values among `values`, or nothing
+ * where they splice no runtime value. It rides an empty carrier, so the CSQL
+ * bytes of a value that is not blank do not change.
  */
 export function blankComparandGuard(
-	values: readonly (readonly CsqlSegment[])[],
-): CsqlSegment[] {
+	values: readonly CsqlNode[],
+): CsqlObligation | undefined {
+	const reads: WireExpr[] = [];
+	for (const value of values) runtimeReads(value, reads);
 	const byText = new Map<string, WireExpr>();
-	for (const read of values.flatMap(runtimeValueXPaths)) {
+	for (const read of reads)
 		byText.set(serializeWire(read, { target: "suite" }).text, read);
-	}
-	const reads = [...byText.values()];
-	if (reads.length === 0) return [];
-	return [
-		{
-			kind: "runtime",
-			xpath: w.str(""),
-			rejectWhen: w.or(...reads.map((read) => w.eq(read, w.str("")))),
-			rejectionKind: "blank-comparand",
-		},
-	];
+	const distinct = [...byText.values()];
+	if (distinct.length === 0) return undefined;
+	return {
+		condition: w.or(...distinct.map((read) => w.eq(read, w.str("")))),
+		kind: "blank-comparand",
+	};
 }

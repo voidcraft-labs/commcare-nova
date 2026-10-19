@@ -283,6 +283,48 @@ of `lib/commcare` gains `positions.ts` and `fold.ts`. Their consumers are
 `lib/preview/engine/caseDataBinding.ts`, and `biome.json`'s `lib/commcare` allowlist already admits
 `lib/preview/engine/**` and `lib/preview/xpath/**`, so it needs no change while they stay there.
 
+**Implementation correction, 2026-10-19** (the emitter, pull request 10):
+
+- The position function's core is `lib/domain/expression/csqlPositions.ts` (decision D1: the checker
+  in `lib/domain` reads it and cannot import `lib/commcare`); `lib/commcare/csql/positions.ts`
+  re-exports it. It takes the root alone, `csqlPositions(root): CsqlPositionMap`, keyed by
+  `csqlPositionKey(path)` over the checker's `CheckPath` (`children.ts::expressionChildren`'s paths,
+  the key spans and child types use; a `term` expression and its term share one), with
+  `csqlRuntimeRoots(root)` (each maximal runtime subtree and the position it sits in),
+  `isRuntimeSubtreeRoot`, `isCsqlQueryAnchor` (a property, `case-row-type`, a child-case count),
+  `isCsqlServerValueFunction` (`now`, `date-coerce`, `datetime-coerce`, `double`, `date-add`,
+  `value-list`) and `readsSearchRow` (a property, `case-row-type`, `case-index` or a relation,
+  outside a `cases`, `table-rows`, `locations` or `project` of its own). A comparison is read by its
+  query side, so the authored tree and its `normalizeCsqlPredicate` form agree. Rules the table
+  leaves open: `and`, `or`, `not` and `when-input-present` never become a runtime clause (each clause
+  decides); `match-all`, `match-none` and `is-blank` of a literal stay `query`; a `switch`'s `on` and
+  `when` values are `runtime`; a property or `case-row-type` in a value position keeps that position,
+  so representability names it (`case-property-on-value-side`); `value-list`'s items are `raw`.
+- `CsqlNode` lives in `lib/commcare/csql/tree.ts` (new) with its constructors (`c`), beside
+  `xpath/wire/tree.ts`'s shape. `print.ts` holds `printCsql` and `csqlClauseWrapper` (the presence
+  cascade, the flat quote cascade and the general guard, built from `w.*`). `termEmitter.ts`,
+  `valueEmitter.ts` and `runtimeExpression.ts` are deleted: their prints are `emitter.ts`'s nodes, a
+  runtime read is a hole holding its `toWire` tree, and `CsqlEmissionContext` is exported from
+  `emitter.ts`. `emitter.ts::prepareCsqlClause` is the clause the emitter reads (choices
+  materialized, `normalizeCsqlPredicate`, relation scopes, the CSQL lift); segment keys are checker
+  paths in it, so the fold prepares a clause the same way before it substitutes. A choice's key is
+  its `if` path, a `switch` case's its `when` path, a `when-input-present`'s its own path.
+- A runtime segment carries `value` (the raw read) and `key`; `stringValueXPath` stays for the quote
+  cascade. `segment.ts::isSilentRuntimeCsqlRejection` names the kinds with no worker message
+  (`blank-comparand`, `list-item`).
+- `formatNumeric` stays `lib/domain/expression/numberLiteral.ts`'s, which the CSQL printer, the wire
+  serializer and `lookup/cellText.ts` all read (decision D9).
+- Dead halves removed with the move: `runtimeCsqlQuoteSafety.ts::collectRuntimeCsqlStringInputNames`
+  (each quoted hole names its own prompts), `runtimeCsqlNumericSafety.ts::collectRuntimeCsqlNumericInputConstraints`
+  and `::promptWholeNumberTest`, and `collectRuntimeGeopointInputNames`, none of which had a caller.
+- Composition (decision D7): `suite/case-search/xpathQuery.ts::composeXPathQueryClauses` returns each
+  clause with its source's context (the filter's, each advanced input's own
+  `search_input_predicate`, and the filter's for a simple input's derived clause, which has no slot
+  of its own); each source is simplified alone, a `match-none()` source makes the search
+  `match-none()`, and `composeXPathQueryEmission` accepts either `ModuleExpressionContexts` or one
+  shared context. The bare-input assertion skips an input inside a runtime subtree in `query`
+  position, as the gate rule does (§3.10's correction).
+
 ---
 
 ## 3. The constructs
@@ -342,6 +384,23 @@ open and a closed case; the same rows from Postgres. Already executed in the lan
 `closed_on = '2026-01-01'` compiles and `closed_on = ''` raises
 (`proof/hq/test_case_search.py::test_a_blank_or_numeric_date_comparison_is_refused`).
 
+**Implementation correction, 2026-10-19** (the checker, pull request 10):
+
+- `closed_on` resolves only where no device holds the row it reads as well as in a slot whose
+  targets exclude SU and XF: a `casedb` row (the chosen case's `project`, a held `cases` read), a
+  `results:inline` row and a value the device works out first (`runsOnDevice`) answer
+  `closed-on-not-on-device` even in `searchInputs[advanced].predicate`. A case store query (no slot)
+  reads it as `datetime`, the gate having decided the slot.
+- The table is `SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES` with `SEARCH_ONLY_CASE_PROPERTY_LABELS`
+  ("Date closed") and `SEARCH_ONLY_CASE_PROPERTY_DESCRIPTIONS` ("When the case was closed. Only
+  CommCare's server search knows it. Case status shows whether a case is closed.").
+- Every record rule wraps the finding in its slot code as before; `runValidation` re-codes it to
+  `CASE_LIST_CLOSED_ON_NOT_ON_DEVICE` once, in `lib/commcare/validator/recordFindings.ts::sharedRecordFinding`,
+  keeping the rule's code as `details.slotCode`, so no rule needs its own mapping and a new rule
+  inherits it. Form logic maps it in `formLogicFindings.ts`. The person sentence is "<setting> reads
+  Date closed. Date closed is known only to CommCare's server search, so it can't be read here.
+  Case status shows whether a case is closed."
+
 ### 3.2 Case-type terms
 
 **HQ.** `@case_type` is metadata compared as `type.exact` (`INDEXED_METADATA_BY_KEY`), through
@@ -377,6 +436,13 @@ creates one.
 **Proofs.** Family `csql`: `subcase-exists('parent', @case_type = 'visit')` and `@case_type != 'x'`
 compiled and run; device: `NavigationRuntimeTest`-style evaluation of the on-device filter over a
 casedb holding two types.
+
+**Implementation correction, 2026-10-19** (the checker): a text literal opposite `case-row-type`
+in `eq` or `neq`, and each `in` value with `case-row-type` on the left, must name a catalog case
+type (`unknown-case-type`, "This app has no case type '<name>'. Choose one of its case types."),
+as decision D5 keeps `in.values` literal. `case-row-type` and `case-type` stay refused
+(`arm-unavailable`) in a record slot with no case row in scope. `case-type-ordering` covers `between`
+too.
 
 ### 3.3 Project-timezone day comparisons
 
@@ -495,6 +561,14 @@ expression holds one and the cutover lifts nothing to it.
 **Proofs.** Family `csql`: `date(19000)`, `date(-1)`, a runtime `date(number(…))`, `datetime(19000.5)`
 compiled by HQ to their dates; a runtime `1.5` answers `match-none()`.
 
+**Implementation correction, 2026-10-19** (the checker): the record `date-coerce` and
+`datetime-coerce` admit `int` and `decimal` operands in every record slot. `epoch-days-not-whole` is
+`lib/commcare/csql/representability.ts`'s reason (a position fact), under
+`CASE_LIST_CSQL_NOT_REPRESENTABLE` with this section's sentence. `epoch-fraction-on-device` (a `decimal` operand of `datetime-coerce`
+wherever a device evaluates it, including a search value the device works out first) has the copy
+"This turns a number with a fraction into a date and time, but on a device CommCare counts only
+whole days, so the time of day would be lost. You can use a whole number of days."
+
 ### 3.6 List values (`unwrap-list`)
 
 **HQ.** `unwrap-list(x)` is a value function whose argument is a raw string literal holding JSON
@@ -543,6 +617,12 @@ coalesce(= any(…), false)`, matching HQ's `NOT(terms)`.
 
 **Proofs.** Family `csql`: a literal list with a `'` item, a runtime list of two session values, an
 item holding `"` answering `match-none()`.
+
+**Implementation correction, 2026-10-19** (the checker): `value-list` is admitted only in a slot
+whose targets are CS and PG alone (`searchInputs[advanced].predicate`); in every other slot it stays
+`arm-unavailable`, since no on-device print exists. `value-list-placement` is
+`lib/commcare/csql/representability.ts`'s reason; the checker holds the type fact, an item of another
+kind than the anchor being `incompatible-values` at the item's path.
 
 ### 3.7 Runtime values in raw arguments
 
@@ -602,6 +682,14 @@ value compiled and run; Core's evaluation of the single-choice form on device.
 none holds a native value function under `starts-with` or `phonetic`, and none a runtime `selected*`
 value; nothing lifts.
 
+**Implementation correction, 2026-10-19** (the checker): both runtime-`selected*` rules hold in every
+record slot, not only the CSQL ones (a device-evaluated slot is one with XF or SU among its targets,
+or a value a device works out first). `raw-argument-not-evaluated` is
+`lib/commcare/csql/representability.ts`'s reason (a position fact). Copy written
+where this section gives none: `runtime-selected-value-type`, "A value that names choices needs to be
+text or a choice, and this value is <kind>. You can choose a text value or a choice question's
+answer."
+
 ### 3.8 Distance units and runtime distance operands
 
 **HQ.** `within-distance(prop, coords, distance, unit)`: `float(distance)` (a string `"5"` reads, a
@@ -653,6 +741,13 @@ geometry.
 
 **Production.** No effective `_xpath_query` holds a `within-distance`; nothing lifts and no byte
 moves.
+
+**Implementation correction, 2026-10-19** (the checker): copy where this section gives none:
+`distance-not-numeric`, "The distance needs to be a number, and this value is <kind>. You can
+choose a number value."; `distance-unit-type`, "The distance unit needs to be text naming a unit,
+like miles or meters, and this value is <kind>. You can choose a text value or a single choice."
+The three worker messages are in `lib/domain/searchRuntimeValidationMessages.ts` with §5's
+`decimal-number`; a combined message now starts with a capital letter whatever its first kind.
 
 ### 3.9 The chosen case, worker and context values in runtime segments and the case list filter
 
@@ -810,6 +905,43 @@ built by the fixture directly. The lane: `targeted-csql-composition` (§8).
 term), so nothing lifts and no byte moves; the reads serve searches and lists authored from pull
 request 10.
 
+**Implementation correction, 2026-10-19** (the checker and `entryDatumSupplies`):
+
+- Held `cases`, `table-rows`, `locations`, `project` and non-relation `count` reads are admitted only
+  in `searchInputs[advanced].predicate`, and there only in a `runtime` position (the checker's
+  position pass refuses one elsewhere, `arm-unavailable`). `caseListConfig.filter` with Search
+  effective admits none: its device nodeset and Preview's Postgres read evaluate the same node, which
+  no fold reaches. The chosen case's own `project` shape is admitted in all three record slots.
+- A simple-arm clause carries no supply set: it is derived from the input's property and reads no
+  chosen case.
+- A ref listed at the point but held as several cases is refused with a third reason,
+  `several-cases`: "<list> reads the case chosen in <menu>, but <menu> now lets workers choose
+  several cases, so there is no one chosen case to read. You can let <menu> choose one case, or
+  remove that read." (for a form's display condition: "`<form>` shows only when the case chosen in
+  <menu> matches, but <menu> now lets workers choose several cases, so there is no one chosen case
+  to read. You can let <menu> choose one case, or base the condition on the worker instead.").
+- `EntryDatumSupplies.differs` entries are `{ ref, module }`, `module` naming an entry's module that
+  holds the choice in another place or not at all, so the `differs` sentence can name
+  <other module>. A ref the module's own entries supply before the list and another entry holds
+  nowhere is `differs`, not `not-before`.
+- The checker's refusal carries `CheckError.chosen` (`carrier`, `module`, `otherModule`), which
+  `checkErrorDetails` writes as `carrier`, `datumModule` and `otherModule`; `runValidation` re-codes a
+  record slot's finding to `SESSION_DATUM_NOT_SUPPLIED` (`recordFindings.ts::sharedRecordFinding`),
+  with the sentence above as both the validator message and the person's line.
+
+**Implementation correction, 2026-10-19** (the emitter, decision D8): every carrier prints the chosen
+case through a datum resolver. `formLinkProjection.ts::caseListStepDatumId(doc, module, "id" |
+"chainId")` maps each ref to the id the rows before the module's own selection datum hold in its
+case-list entry, built lazily over its own metadata-only projection so a carrier printed while the
+session projection runs never re-enters it: `"id"` (after root alignment) for the remote request
+(`buildRemoteRequest`, `inlineSearchFor`), HQ JSON's `default_properties` and the project-space
+check, `"chainId"` for HQ JSON's `case_details.short.filter`. The local suite's case list filter
+reads a per-chain resolver in `selectableDatums` over the datums before it in that entry, read when
+`deriveCaseSelectionDatum`'s `renderNodeset` runs, which now prints the filter on every render, so the
+render after `alignWithRootMenu` names the aligned id. `suite/case-search/moduleXPathQuery.ts::composeModuleXPathQueryEmission(doc,
+module, options)` composes a module's search with both, the entry point Preview's
+`searchInputValidation.ts` calls.
+
 ### 3.10 Runtime choice among clauses
 
 **Arms.** `if { cond, then, else }` and `switch` whose branches are `boolean` clauses, and any clause
@@ -851,6 +983,15 @@ slot: the record compiler's `predicate` accepts `if` and `switch` with condition
 branch not rejecting the search, and a datetime ordering in the condition evaluated in two device
 zones with the value written in a third (finding 56's seventh requirement, through part 04's
 lowering).
+
+**Implementation correction, 2026-10-19** (the checker and the gate rule): `if` and `switch` in a
+condition position are admitted in every slot whose targets include CS, since every condition
+position there is `query` or `runtime`. `CASE_LIST_BARE_SEARCH_INPUT_REF`
+(`searchInputRefUsesWhenInputPresent.ts`) skips an input inside a `runtime` subtree in `query`
+position (a choice's condition, a clause that reads no case) in an advanced predicate and in the
+case list filter while Search is effective; without Search the filter keeps the gate everywhere.
+`searchRuntimeValues.ts::walkSearchRuntimeValues` visits `csqlRuntimeRoots` and passes each root's
+`within`, and the checker infers a `query` root as a condition.
 
 ### 3.11 Several `_xpath_query` rows
 
@@ -908,6 +1049,13 @@ publish; the rule serves searches authored from step 3.
 with two children and another parent's child, its comparand a `case-index` and, in the
 `chosen-case` scenario (§3.9), the chosen parent's id; the lane's `csql@A` shows no refusal for it
 under a configuration without the flag (`targeted-csql-composition`, §8).
+
+**Implementation correction, 2026-10-19** (the emitter): the comparand qualifies when it is no
+literal, reads no case row (`readsSearchRow`), sits in a `server-value` or `runtime` position, and
+its type names a case id (`caseIdOf`) that every step's qualifier names, if one has a qualifier. A
+`case-index` reads the row, which HQ has none of where it evaluates a value, so it is no comparand
+here: the flag-free form's common and only step-3 case is the chosen case's id.
+`lib/commcare/csql/__tests__/ancestorCaseId.test.ts` holds it over the `chosen-case` scenario.
 
 ### 3.13 Equality on a date and time (finding 75)
 
@@ -1066,14 +1214,25 @@ are evaluated by HQ into `isoformat()`, so neither can be put in HQ's spelling; 
 also stay wrong for any value a non-receiver path stored (a date-only value in a datetime property).
 The range is one rule over every operand.
 
-**Read, not yet executed: the closed range itself.** The stored-spellings run executed orderings and
-text equality, not `p >= v and p <= v` with `v` the stored instant; reading
-(`case_property_range_query`, `es_format_datetime`, `DATE_FORMATS_ARR`) says it matches at the
-millisecond. The `csql` family's `datetime-equality` scenario executes it in pull request 10 before
-the emitter change is written, together with HQ's parse of the picker's minute-precision literal
-(`_parse_date_or_datetime` is Django's, `~=5.2.17` per HQ's `pyproject.toml`, and Django is not in the
-checkouts). If the scenario disagrees with the reading, pull request 10 stops and this section is
-revised before the emitter changes.
+**Executed: the closed range itself** (GitHub Actions run 39315022018, the gate run with the `csql`
+family's `datetime-equality` scenario, `native/csql/csql-payload.evidence.json`). HQ at the pin answered
+as the reading says: `(p >= v and p <= v)` finds exactly the three cases at the instant for `v` naive,
+`Z`, `+05`, `+05:30`, minute precision, minute with `+05:30`, millisecond `Z`, millisecond naive, HQ's
+stored spelling, `datetime("…+05")` and `datetime("…Z")`; one millisecond later it finds none;
+`not(…)` finds the case at another instant, the case without the property and the opened case; `in`
+as ORed ranges finds the three and the other instant; and the `date_opened` / `last_modified` ranges
+with minute, `Z`, `+05` and millisecond bounds find the opened case alone, a millisecond later none.
+Today's text equality found none (`!=` every case), and `date_opened = '…T09:30'` /
+`last_modified = '…T09:30'` failed with Elasticsearch's 400. So Django's parse reads the picker's
+minute-precision literal, and the emitter change was written.
+
+**Implementation correction, 2026-10-19** (the emitter): `emitter.ts::readsInstantByRange` decides the
+anchor by its typed data (`typeOf`, `datetime`): a custom property in every CSQL slot, and
+`date_opened`, `last_modified` and `closed_on` where the slot's targets hold neither SU nor XF. `v` is
+one value node printed in both bounds, so a runtime `v`'s quote obligation is deduplicated and the
+clause takes the general guard, not the flat quote cascade; every runtime `v` carries
+`blank-comparand`. `proof/native/test_csql_payload.py` holds every emitted query to the fixture's
+expected ids (`EMITTER_WRITES_RANGES = True`), the pre-range `TODAY_EMITTED` table removed.
 
 Resolution. Elasticsearch 6.8 indexes a date at millisecond resolution; HQ's stored text holds
 microseconds that Nova's writer fills with `000`. Postgres compares at microseconds. A datetime
@@ -1316,6 +1475,19 @@ messages; their strings join the app's translation inventory as the existing fou
 and one scope stay: every obligation answers the whole row `'match-none()'`
 (`wrapClause`), and `dedupeRuntimeRejections` keys them as today.
 
+**Implementation correction, 2026-10-19** (the emitter): the obligations as written. `decimal-number`
+is `not(number(x) = number(x)) or contains(string(number(x)), 'E')` over the raw read, spliced
+unquoted as `number(x)`; `whole-number` for a runtime `date` epoch is the calendar quantity's
+`not(number(x) = floor(number(x)))`. `positive-number` is `not(number(d) > 0)` and `distance-unit`
+`not(u = 'miles' or … or u = 'nauticalmiles')`, each on its own value between fixed double quotes,
+blaming the prompts whose bytes reach it. `list-item` is `regex(v, '["\\\p{Cntrl}]') or contains(v,
+"'")`, and for a node-set item whose wire tree is a path, `count(<path>[regex(., …) or contains(.,
+"'")]) > 0` with the item printed `join('","', <path>)`. A choice's obligations travel out as
+`<condition> and (…)` for the branch it takes and `not(<condition>) and (…)` for the other; a runtime
+`selected-any`/`selected-all` call carries its own `blank-comparand` guard; `today()` is never
+blank, so no guard reads it. `lib/commcare/csql/__tests__/obligations.test.ts` evaluates each with
+Preview's evaluator over fixed answers.
+
 ---
 
 ## 6. Scope: authored in step 3 or held
@@ -1384,6 +1556,40 @@ request 10, which makes every construct here emittable.
 - The `../nova-plugin` sweep looks for the claims "miles or kilometers" and "Search compares a case
   property" in its skills.
 - Refusals reach the SA and MCP as `AuthoringInputError` or the gate's finding, with §3's copy.
+
+**Implementation correction, 2026-10-19 (pull request 10, the record dialect):**
+
+- `MODEL_CONTEXT_VERSION` is not bumped here (decision 19 and the bullet above): the stack deploys
+  once, and pull request 12 sets the value it deploys, which retires every model context made
+  before it, as part 02's pull request 9 correction records. The served schemas and descriptions are
+  unchanged: the widening is text inside the same schema positions.
+- A value in `within-distance`'s distance is any argument but a number written as one; a value in its
+  unit is any argument but quoted text, which must be one of the nine units or an alias of one
+  (`km`, `kilometer`, `mi`, `mile`), else `AuthoringInputError` "CommCare doesn't measure distance in
+  {name}. Use one of miles, yards, feet, inch, kilometers, meters, centimeters, millimeters,
+  nauticalmiles." A `selected-any` / `selected-all` value is a literal when `literal()` reads it as one
+  (quoted text, a number, `true()`, `null()`, `literal(…)`, a `concat` of quoted text) and a value
+  otherwise. A quoted name compared with `record-type()` parses to a `case-type` leaf only when it is
+  a valid case-type name; `literal('…')` there, and every value of `in(record-type(), …)`, stays a
+  literal (decision D5). The printer keeps each round trip: a stored text literal opposite
+  `record-type()` prints as `literal('…')`, and a computed unit that is text naming no unit prints as
+  `literal('…')`.
+- The held arms (`value-list`, and `cases`, `table-rows`, `locations`, `selected-cases` and any
+  `project` but the chosen case's) have no record spelling, and `queryPrinter` refuses to print them
+  rather than print a spelling the parser cannot read back. No step-3 surface stores one, so no
+  read meets the refusal in step 3; step 6, which imports them, decides how a read presents them.
+- One recognizer serves the record printer, the checker and Postgres:
+  `lib/domain/expression/chosenCase.ts` (`chosenCaseId`, `chosenCaseProperty`,
+  `readChosenCaseProperty`), so each reads exactly the shape the parser builds.
+
+**Implementation correction, 2026-10-19 (pull request 10, Postgres):** a runtime radius or unit
+reaches Postgres unfolded where no fold runs: a browse list's filter (Search not effective) may read a
+worker value as the distance or the unit. So `compilePredicate.ts::compileWithinDistance` compiles a
+runtime radius as Core's `number()` of plain decimal text kept only above zero, and a runtime unit as
+a `CASE` over the nine names (`METERS_PER_DISTANCE_UNIT`), as part 07 §5.1 states; a CSQL slot still
+arrives with both folded to literals. `TermBindings.chosenCaseIds` is a plain object (module UUID to
+case id), the shape the Results read carries; a `value-list` item must be decided before the query
+runs (a literal or a bound value), as the fold leaves it.
 
 ---
 

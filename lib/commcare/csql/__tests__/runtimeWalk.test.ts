@@ -41,7 +41,11 @@ describe("walkCsqlOnDeviceNodes", () => {
 	it("leaves a direct native date-add entirely on the CSQL server", () => {
 		const predicate = eq(
 			prop("patient", "dob"),
-			dateAdd(today(), "months", term(literal(1))),
+			dateAdd(
+				dateCoerce(term(literal("2026-01-01"))),
+				"months",
+				term(literal(1)),
+			),
 		);
 		expect(visitedKinds(predicate)).toEqual({
 			expressions: [],
@@ -93,7 +97,11 @@ describe("walkCsqlOnDeviceNodes", () => {
 		const predicate = eq(
 			prop("patient", "dob"),
 			dateAdd(
-				dateAdd(today(), "years", term(literal(1))),
+				dateAdd(
+					dateCoerce(term(literal("2026-01-01"))),
+					"years",
+					term(literal(1)),
+				),
 				"months",
 				term(literal(1)),
 			),
@@ -125,7 +133,11 @@ describe("walkCsqlOnDeviceNodes", () => {
 				subcasePath("parent"),
 				eq(
 					prop("patient", "dob"),
-					dateAdd(today(), "months", term(literal(1))),
+					dateAdd(
+						dateCoerce(term(literal("2026-01-01"))),
+						"months",
+						term(literal(1)),
+					),
 				),
 			),
 			literal(0),

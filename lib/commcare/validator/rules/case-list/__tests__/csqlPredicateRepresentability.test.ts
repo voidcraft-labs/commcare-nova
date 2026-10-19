@@ -366,15 +366,10 @@ describe("csqlPredicateRepresentability", () => {
 		}
 	});
 
-	it("rejects a comparison with no case-property query anchor", () => {
-		const doc = docWithFilter(eq(literal(1), literal(2)));
-
-		const hits = csqlFindings(doc);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].details).toMatchObject({
-			reason: "comparison-needs-case-property",
-			path: "left",
-		});
+	it("admits a clause that reads no case row, which the device decides", () => {
+		// 06-csql.md §3.10: a row-free clause is a runtime choice between
+		// `match-all()` and `match-none()`.
+		expect(csqlFindings(docWithFilter(eq(literal(1), literal(2))))).toEqual([]);
 	});
 
 	it("rejects a parent-case count in the query-anchor position", () => {

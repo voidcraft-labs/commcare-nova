@@ -16,17 +16,31 @@
  * case where the sole query anchor was authored on the right.
  */
 
+import { expressionChildren } from "@/lib/domain/expression/children";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
+import {
+	type CsqlPosition,
+	type CsqlPositionMap,
+	csqlPositionAt,
+	csqlPositionKey,
+	csqlPositions,
+	csqlRuntimeRoots,
+	isCsqlQueryAnchor,
+} from "@/lib/domain/expression/csqlPositions";
 import { fixedDatePattern } from "@/lib/domain/expression/datePattern";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { mapExpressionChildren } from "@/lib/domain/expression/mapAst";
-import { isServerSearchValue } from "@/lib/domain/expression/searchRuntimeValues";
+import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
 import type {
 	ComparisonKind,
 	Expression,
 	Literal,
 } from "@/lib/domain/expression/types";
-import { isConditionArm, type Term } from "@/lib/domain/expression/types";
+import {
+	isConditionArm,
+	isRelationPath,
+	type Term,
+} from "@/lib/domain/expression/types";
 import {
 	SYSTEM_DATETIME_CASE_PROPERTIES,
 	standardCasePropertyDisplayLabel,
@@ -51,9 +65,10 @@ export type CsqlRepresentabilityReason =
 	| "multiple-property-scopes"
 	| "form-context-value-not-csql"
 	| "pattern-match-not-csql"
-	| "system-datetime-value";
-
-type RuntimeValueDialect = "csql" | "on-device";
+	| "system-datetime-value"
+	| "epoch-days-not-whole"
+	| "raw-argument-not-evaluated"
+	| "value-list-placement";
 
 export interface CsqlRepresentabilityIssue {
 	readonly reason: CsqlRepresentabilityReason;
@@ -83,7 +98,18 @@ export function checkCsqlRepresentability(
 	context: ExpressionContext,
 ): readonly CsqlRepresentabilityIssue[] {
 	const issues: CsqlRepresentabilityIssue[] = [];
-	checkQueryPredicate(materializeCsqlChoices(predicate, context), [], issues);
+	const tree = materializeCsqlChoices(predicate, context);
+	check(tree, [], {
+		positions: csqlPositions(tree),
+		runtimeRoots: new Map(
+			csqlRuntimeRoots(tree).map((root) => [
+				csqlPositionKey(root.path),
+				root.within,
+			]),
+		),
+		context,
+		issues,
+	});
 	return issues;
 }
 
@@ -110,8 +136,8 @@ export function normalizeCsqlPredicate(expression: Expression): Expression {
 			normalized.kind === "lte" ||
 			normalized.kind === "gt" ||
 			normalized.kind === "gte") &&
-		!isQueryAnchor(normalized.left) &&
-		isQueryAnchor(normalized.right)
+		!isCsqlQueryAnchor(normalized.left) &&
+		isCsqlQueryAnchor(normalized.right)
 	) {
 		return {
 			kind: SWAPPED_COMPARISON_KIND[normalized.kind],
@@ -131,12 +157,57 @@ function normalizeTerm(term: Term): Term {
 	);
 }
 
-function checkQueryPredicate(
-	predicate: Expression,
-	path: readonly (string | number)[],
-	issues: CsqlRepresentabilityIssue[],
-): void {
-	if (!isConditionArm(predicate)) {
+type Path = readonly (string | number)[];
+
+interface Walk {
+	readonly positions: CsqlPositionMap;
+	/** Each runtime subtree's root, by key, and the position it sits in. */
+	readonly runtimeRoots: ReadonlyMap<string, CsqlPosition>;
+	readonly context: ExpressionContext;
+	readonly issues: CsqlRepresentabilityIssue[];
+}
+
+function positionOf(walk: Walk, path: Path): CsqlPosition | undefined {
+	return csqlPositionAt(walk.positions, path);
+}
+
+/**
+ * One switch over (arm, position). Each node is checked where it sits: a
+ * clause in a query position, a comparison's query side as an anchor, a
+ * value HQ evaluates or reads as written, and a subtree the device works out
+ * before HQ sees the text.
+ */
+function check(node: Expression, path: Path, walk: Walk): void {
+	switch (positionOf(walk, path)) {
+		case "runtime":
+			checkRuntime(node, path, walk);
+			return;
+		case "server-value":
+		case "raw":
+			checkValue(node, path, walk);
+			return;
+		case "anchor":
+			checkAnchor(node, path, walk);
+			return;
+		default:
+			checkQuery(node, path, walk);
+	}
+}
+
+function children(node: Expression, path: Path, walk: Walk): void {
+	for (const child of expressionChildren(node, path))
+		if (child.kind === "expression") check(child.value, child.path, walk);
+		else if (child.kind === "term")
+			checkTermValue(child.value, child.path, walk);
+}
+
+function checkQuery(node: Expression, path: Path, walk: Walk): void {
+	const { issues } = walk;
+	if (!isConditionArm(node)) {
+		if (node.kind === "if" || node.kind === "switch") {
+			children(node, path, walk);
+			return;
+		}
 		issues.push({
 			reason: "comparison-needs-case-property",
 			path,
@@ -144,7 +215,7 @@ function checkQueryPredicate(
 		});
 		return;
 	}
-	switch (predicate.kind) {
+	switch (node.kind) {
 		case "match-all":
 		case "match-none":
 			return;
@@ -154,7 +225,7 @@ function checkQueryPredicate(
 		case "gte":
 		case "lt":
 		case "lte": {
-			if (hasMultiplePropertyScopes([predicate.left, predicate.right])) {
+			if (hasMultiplePropertyScopes([node.left, node.right])) {
 				issues.push({
 					reason: "multiple-property-scopes",
 					path,
@@ -163,46 +234,32 @@ function checkQueryPredicate(
 				});
 				return;
 			}
-			const leftAnchor = isQueryAnchor(predicate.left);
-			const rightAnchor = isQueryAnchor(predicate.right);
-			checkSystemDatetimeValue(
-				leftAnchor ? predicate.left : predicate.right,
-				[leftAnchor ? predicate.right : predicate.left],
-				path,
-				issues,
-			);
-			if (leftAnchor) {
-				checkQueryAnchor(predicate.left, [...path, "left"], issues);
-				if (isSubcaseCountQueryAnchor(predicate.left)) {
-					checkSubcaseCountBound(predicate.right, [...path, "right"], issues);
-				} else {
-					checkRuntimeValue(
-						predicate.right,
-						[...path, "right"],
-						issues,
-						"csql",
-					);
-				}
-				return;
-			}
-			if (rightAnchor) {
-				// The emitter reverses the comparison before CSQL parsing.
-				checkQueryAnchor(predicate.right, [...path, "right"], issues);
-				if (isSubcaseCountQueryAnchor(predicate.right)) {
-					checkSubcaseCountBound(predicate.left, [...path, "left"], issues);
-				} else {
-					checkRuntimeValue(predicate.left, [...path, "left"], issues, "csql");
-				}
-				return;
-			}
-			checkQueryAnchor(predicate.left, [...path, "left"], issues);
+			const swapped =
+				!isCsqlQueryAnchor(node.left) && isCsqlQueryAnchor(node.right);
+			const anchor = swapped ? node.right : node.left;
+			const other = swapped ? node.left : node.right;
+			checkSystemDatetimeValue(anchor, [other], path, issues);
+			if (
+				anchor.kind === "count" &&
+				isRelationPath(anchor.via) &&
+				anchor.via.kind === "subcase"
+			)
+				checkSubcaseCountBound(
+					other,
+					[...path, swapped ? "left" : "right"],
+					issues,
+				);
+			if (node.kind !== "eq" && node.kind !== "neq" && containsValueList(other))
+				pushValueListPlacement([...path, swapped ? "left" : "right"], issues);
+			else if (containsValueList(other) && !admitsValueList(anchor))
+				pushValueListPlacement([...path, swapped ? "left" : "right"], issues);
+			children(node, path, walk);
 			return;
 		}
-		case "in":
-			checkQueryAnchor(predicate.left, [...path, "left"], issues);
+		case "in": {
 			checkSystemDatetimeValue(
-				predicate.left,
-				predicate.values.map(
+				node.left,
+				node.values.map(
 					(value): Expression => ({
 						kind: "term",
 						term: { kind: "literal", value: literalValue(value) },
@@ -211,36 +268,32 @@ function checkQueryPredicate(
 				path,
 				issues,
 			);
-			for (let index = 0; index < predicate.values.length; index += 1) {
-				const valuePath = [...path, "values", index] as const;
-				if (isSubcaseCountQueryAnchor(predicate.left)) {
+			const subcase =
+				node.left.kind === "count" &&
+				isRelationPath(node.left.via) &&
+				node.left.via.kind === "subcase";
+			node.values.forEach((value, index) => {
+				const valuePath = [...path, "values", index];
+				if (subcase)
 					checkSubcaseCountBound(
 						{
 							kind: "term",
-							term: {
-								kind: "literal",
-								value: literalValue(predicate.values[index]),
-							},
+							term: { kind: "literal", value: literalValue(value) },
 						},
 						valuePath,
 						issues,
 					);
-				} else {
-					checkCsqlLiteral(
-						literalValue(predicate.values[index]),
-						valuePath,
-						issues,
-					);
-				}
-			}
+				else checkCsqlLiteral(literalValue(value), valuePath, issues);
+			});
+			check(node.left, [...path, "left"], walk);
 			return;
+		}
 		case "between": {
-			const scopeExpressions = [
-				predicate.left,
-				...(predicate.lower === undefined ? [] : [predicate.lower]),
-				...(predicate.upper === undefined ? [] : [predicate.upper]),
+			const bounds = [
+				...(node.lower === undefined ? [] : [node.lower]),
+				...(node.upper === undefined ? [] : [node.upper]),
 			];
-			if (hasMultiplePropertyScopes(scopeExpressions)) {
+			if (hasMultiplePropertyScopes([node.left, ...bounds])) {
 				issues.push({
 					reason: "multiple-property-scopes",
 					path,
@@ -249,61 +302,39 @@ function checkQueryPredicate(
 				});
 				return;
 			}
-			checkQueryAnchor(predicate.left, [...path, "left"], issues);
-			checkSystemDatetimeValue(
-				predicate.left,
-				[
-					...(predicate.lower === undefined ? [] : [predicate.lower]),
-					...(predicate.upper === undefined ? [] : [predicate.upper]),
-				],
-				path,
-				issues,
-			);
-			if (predicate.lower !== undefined) {
-				if (isSubcaseCountQueryAnchor(predicate.left)) {
-					checkSubcaseCountBound(predicate.lower, [...path, "lower"], issues);
-				} else {
-					checkRuntimeValue(
-						predicate.lower,
-						[...path, "lower"],
-						issues,
-						"csql",
-					);
-				}
+			checkSystemDatetimeValue(node.left, bounds, path, issues);
+			if (
+				node.left.kind === "count" &&
+				isRelationPath(node.left.via) &&
+				node.left.via.kind === "subcase"
+			) {
+				if (node.lower !== undefined)
+					checkSubcaseCountBound(node.lower, [...path, "lower"], issues);
+				if (node.upper !== undefined)
+					checkSubcaseCountBound(node.upper, [...path, "upper"], issues);
 			}
-			if (predicate.upper !== undefined) {
-				if (isSubcaseCountQueryAnchor(predicate.left)) {
-					checkSubcaseCountBound(predicate.upper, [...path, "upper"], issues);
-				} else {
-					checkRuntimeValue(
-						predicate.upper,
-						[...path, "upper"],
-						issues,
-						"csql",
-					);
-				}
+			for (const slot of ["lower", "upper"] as const) {
+				const bound = node[slot];
+				if (bound !== undefined && containsValueList(bound))
+					pushValueListPlacement([...path, slot], issues);
 			}
+			children(node, path, walk);
 			return;
 		}
-		case "is-blank":
-			if (
-				predicate.left.kind === "term" &&
-				predicate.left.term.kind === "literal"
-			)
+		case "is-blank": {
+			if (node.left.kind === "term" && node.left.term.kind === "literal")
 				return;
-			checkPropertyOnlyLeft(predicate.left, [...path, "left"], issues);
-			{
-				const system = systemDatetimeProperty(predicate.left);
-				if (system !== undefined) {
-					issues.push({
-						reason: "system-datetime-value",
-						path,
-						message: `CommCare's search can't ask whether ${standardCasePropertyDisplayLabel(system)} is blank. Every case has one.`,
-						details: { property: system, shape: "is-blank" },
-					});
-				}
-			}
+			checkPropertyOnlyLeft(node.left, [...path, "left"], issues);
+			const system = systemDatetimeProperty(node.left);
+			if (system !== undefined)
+				issues.push({
+					reason: "system-datetime-value",
+					path,
+					message: `CommCare's search can't ask whether ${standardCasePropertyDisplayLabel(system)} is blank. Every case has one.`,
+					details: { property: system, shape: "is-blank" },
+				});
 			return;
+		}
 		case "matches-pattern":
 			issues.push({
 				reason: "pattern-match-not-csql",
@@ -313,122 +344,341 @@ function checkQueryPredicate(
 			});
 			return;
 		case "match":
-			checkPropertyOnlyLeft(
-				predicate.property.kind === "prop"
-					? { kind: "term", term: predicate.property }
-					: predicate.property,
-				[...path, "property"],
-				issues,
-			);
-			checkRuntimeValue(predicate.value, [...path, "value"], issues, "csql");
-			return;
-		case "within-distance":
-			if (
-				typeof predicate.distance !== "number" ||
-				typeof predicate.unit !== "string"
-			) {
-				issues.push({
-					reason: "form-context-value-not-csql",
-					path,
-					message: "Remote search uses a fixed distance and distance unit.",
-				});
-			}
-			checkRuntimeValue(predicate.center, [...path, "center"], issues, "csql");
-			return;
 		case "multi-select-contains":
 			checkPropertyOnlyLeft(
-				predicate.property.kind === "prop"
-					? { kind: "term", term: predicate.property }
-					: predicate.property,
+				node.property.kind === "prop"
+					? { kind: "term", term: node.property }
+					: node.property,
 				[...path, "property"],
 				issues,
 			);
-			for (let index = 0; index < predicate.values.length; index += 1) {
-				const value = predicate.values[index];
-				if (value.kind !== "literal") {
-					issues.push({
-						reason: "form-context-value-not-csql",
-						path: [...path, "values", index],
-						message:
-							"Remote search compares selected answers with fixed choices.",
-					});
-					continue;
-				}
-				checkCsqlLiteral(value.value, [...path, "values", index], issues);
-			}
+			children(node, path, walk);
 			return;
-		case "and":
-		case "or":
-			for (let index = 0; index < predicate.clauses.length; index += 1) {
-				checkQueryPredicate(
-					predicate.clauses[index],
-					[...path, predicate.kind, index],
-					issues,
-				);
-			}
-			return;
-		case "not":
-			checkQueryPredicate(predicate.clause, [...path, "not", "clause"], issues);
-			return;
-		case "when-input-present":
-			checkQueryPredicate(
-				predicate.clause,
-				[...path, "when-input-present", "clause"],
-				issues,
-			);
+		case "within-distance":
+			children(node, path, walk);
 			return;
 		case "exists":
 		case "missing":
-			if (predicate.via.kind === "self") {
+			if (node.via.kind === "self")
 				issues.push({
 					reason: "self-relation-not-queryable",
-					path: [...path, predicate.kind, "via"],
+					path: [...path, node.kind, "via"],
 					message:
 						"Choose a parent or child relationship for this related-case condition. 'This case' does not point to a related case.",
 				});
-			}
-			if (predicate.where !== undefined) {
-				checkQueryPredicate(
-					predicate.where,
-					[...path, predicate.kind, "where"],
-					issues,
-				);
-			}
+			children(node, path, walk);
+			return;
+		case "and":
+		case "or":
+		case "not":
+		case "when-input-present":
+			children(node, path, walk);
 			return;
 		default: {
-			const _exhaustive: never = predicate;
+			const exhaustive: never = node;
 			throw new Error(
 				unhandledKindMessage({
 					where: "checkCsqlRepresentability",
 					family: "Expression",
-					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: [
-						"match-all",
-						"match-none",
-						"eq",
-						"neq",
-						"gt",
-						"gte",
-						"lt",
-						"lte",
-						"in",
-						"between",
-						"is-blank",
-						"matches-pattern",
-						"match",
-						"within-distance",
-						"multi-select-contains",
-						"and",
-						"or",
-						"not",
-						"when-input-present",
-						"exists",
-						"missing",
-					],
+					received: (exhaustive as { kind?: unknown })?.kind ?? exhaustive,
+					knownKinds: [],
 				}),
 			);
 		}
 	}
+}
+
+function checkAnchor(node: Expression, path: Path, walk: Walk): void {
+	if (node.kind === "term") {
+		if (node.term.kind === "prop" || node.term.kind === "case-row-type") return;
+	} else if (node.kind === "count") {
+		if (!isRelationPath(node.via) || node.via.kind !== "subcase") {
+			walk.issues.push({
+				reason: "unsupported-related-count",
+				path,
+				message:
+					"This search can count child cases, but not parent cases or relationships in either direction. Choose a child relationship.",
+			});
+			return;
+		}
+		children(node, path, walk);
+		return;
+	}
+	walk.issues.push({
+		reason: "comparison-needs-case-property",
+		path,
+		message:
+			"Choose one case property as the field to search, then compare it with a fixed, entered, or calculated value.",
+	});
+}
+
+/** A term child of a value node: a literal HQ reads, or a case read on the
+ * value side. */
+function checkTermValue(term: Term, path: Path, walk: Walk): void {
+	const position = positionOf(walk, path);
+	if (position === "runtime" || position === "anchor") return;
+	if (term.kind === "literal") checkCsqlLiteral(term.value, path, walk.issues);
+	else if (term.kind === "prop" || term.kind === "case-row-type")
+		pushPropertyOnValueSide(path, walk.issues);
+}
+
+function pushPropertyOnValueSide(
+	path: Path,
+	issues: CsqlRepresentabilityIssue[],
+): void {
+	issues.push({
+		reason: "case-property-on-value-side",
+		path,
+		message:
+			"This search compares two case properties. Choose one property and compare it with a fixed value, a search answer, or a user detail instead.",
+	});
+}
+
+/** A value HQ evaluates (`server-value`) or reads as written (`raw`). */
+function checkValue(node: Expression, path: Path, walk: Walk): void {
+	const { issues } = walk;
+	switch (node.kind) {
+		case "term":
+			checkTermValue(node.term, path, walk);
+			return;
+		case "date-add":
+			if (
+				(node.interval === "months" || node.interval === "years") &&
+				!isRepresentableCalendarDateAddQuantity(node.quantity)
+			)
+				issues.push({
+					reason: "calendar-date-add-needs-whole-number",
+					path: [...path, "quantity"],
+					message:
+						"Month and year shifts need a whole number. Use a fixed whole number or convert one search answer to Number; use days or weeks for fractional durations.",
+				});
+			children(node, path, walk);
+			return;
+		case "date-coerce": {
+			// HQ's `date()` counts whole days and refuses a float
+			// (`value_functions.py::value_to_date`).
+			const operand = node.value;
+			const data = scalarDataType(typeOf(operand, walk.context)?.data);
+			const literal =
+				operand.kind === "term" && operand.term.kind === "literal"
+					? operand.term.value
+					: undefined;
+			if (
+				(typeof literal === "number" && !Number.isInteger(literal)) ||
+				(literal === undefined && data === "decimal")
+			)
+				issues.push({
+					reason: "epoch-days-not-whole",
+					path: [...path, "value"],
+					message:
+						"CommCare's search counts days in whole numbers. Use a whole number of days.",
+				});
+			children(node, path, walk);
+			return;
+		}
+		case "value-list":
+			// A fixed item is JSON inside one CSQL literal, its quotes escaped
+			// (`print.ts`), so any text is representable; an item the device
+			// works out is held to the `list-item` obligation.
+			for (const child of expressionChildren(node, path))
+				if (
+					child.kind === "expression" &&
+					positionOf(walk, child.path) === "runtime"
+				)
+					check(child.value, child.path, walk);
+			return;
+		default:
+			children(node, path, walk);
+	}
+}
+
+/** A subtree the device works out inside the `_xpath_query` concat. */
+function checkRuntime(node: Expression, path: Path, walk: Walk): void {
+	const { issues } = walk;
+	const within = runtimeRootPosition(walk, path);
+	if (within === "raw" && computedOnlyByHq(node))
+		issues.push({
+			reason: "raw-argument-not-evaluated",
+			path,
+			message:
+				"CommCare's search uses this value as written and won't calculate it. Choose a fixed value or one the device can work out.",
+		});
+	if (
+		(within === "server-value" || within === "raw") &&
+		hasReachableStaticallyUnquotableOutput(node)
+	)
+		pushUnquotableCsqlStringIssue(path, issues);
+	checkRuntimeNode(node, path, walk);
+}
+
+/** The position a runtime subtree's root sits in. */
+function runtimeRootPosition(walk: Walk, path: Path): CsqlPosition | undefined {
+	return walk.runtimeRoots.get(csqlPositionKey(path));
+}
+
+/** A value only HQ's search can calculate, which a raw argument never runs. */
+function computedOnlyByHq(node: Expression): boolean {
+	if (node.kind === "datetime-coerce") return true;
+	if (
+		node.kind === "date-add" &&
+		(node.interval === "months" || node.interval === "years")
+	)
+		return true;
+	return expressionChildren(node).some(
+		(child) => child.kind === "expression" && computedOnlyByHq(child.value),
+	);
+}
+
+function checkRuntimeNode(
+	node: Expression | Term,
+	path: Path,
+	walk: Walk,
+): void {
+	const { issues } = walk;
+	switch (node.kind) {
+		case "prop":
+		case "case-row-type":
+		case "case-index":
+			pushPropertyOnValueSide(path, issues);
+			return;
+		case "term":
+			checkRuntimeNode(node.term, path, walk);
+			return;
+		case "field":
+		case "form-node":
+		case "repeat-row":
+		case "form-case":
+			issues.push({
+				reason: "form-context-value-not-csql",
+				path,
+				message:
+					"A form-field value is available during form submission, not while the remote case-search query runs.",
+			});
+			return;
+		case "id-of":
+		case "acting-user":
+		case "unowned":
+			issues.push({
+				reason: "form-context-value-not-csql",
+				path,
+				message:
+					node.kind === "id-of"
+						? "A case-operation id is available during form submission, not while the remote case-search query runs."
+						: "An operation owner identity is available during form submission, not while the remote case-search query runs.",
+			});
+			return;
+		case "call":
+		case "itext":
+		case "choice-name":
+		case "here":
+		case "selected-cases":
+			issues.push({
+				reason: "form-context-value-not-csql",
+				path,
+				message:
+					"This value is unavailable while the remote case-search query runs.",
+			});
+			return;
+		case "value-list":
+			pushValueListPlacement(path, issues);
+			return;
+		case "count":
+			if (isRelationPath(node.via)) {
+				issues.push({
+					reason: "related-count-on-value-side",
+					path,
+					message:
+						"Put the child-case count on the left side of the condition, then compare it with a fixed or entered whole number.",
+				});
+				return;
+			}
+			break;
+		case "match":
+		case "multi-select-contains":
+		case "within-distance":
+		case "exists":
+		case "missing":
+			issues.push({
+				reason: "case-query-in-runtime-value",
+				path,
+				message:
+					"This calculation needs a case row before search results exist. Move the case condition out of the calculation and into the surrounding rule.",
+			});
+			return;
+		case "table-lookup":
+			// A lookup row's own filter is typed and checked in its row scope by
+			// the checker and the device rules; CSQL's grammar does not reach it.
+			return;
+		case "cases":
+		case "table-rows":
+		case "locations":
+		case "project":
+			// Held reads of their own rows (part 06 §3.9): their filters read
+			// those rows, never the search's.
+			return;
+		default:
+			break;
+	}
+	for (const child of expressionChildren(node, path))
+		if (child.kind !== "relation")
+			checkRuntimeNode(child.value, child.path, walk);
+}
+
+function checkPropertyOnlyLeft(
+	expression: Expression,
+	path: Path,
+	issues: CsqlRepresentabilityIssue[],
+): void {
+	if (isPropertyExpression(expression)) return;
+	issues.push({
+		reason: "comparison-needs-case-property",
+		path,
+		message:
+			"Choose a case property as the field to search. Use inputs and calculations only for the value.",
+	});
+}
+
+function checkSubcaseCountBound(
+	expression: Expression,
+	path: Path,
+	issues: CsqlRepresentabilityIssue[],
+): void {
+	if (!isRepresentableSubcaseCountBound(expression))
+		issues.push({
+			reason: "subcase-count-needs-nonnegative-whole-number",
+			path,
+			message:
+				"Compare the child-case count with a whole number that is zero or greater. Use a fixed number or convert one search answer to Number.",
+		});
+}
+
+/** Anchors HQ compares with a list (`comparison.py::_create_system_query`,
+ * `es/case_search.py::case_property_query`); `@status` and the system dates
+ * are not among them. */
+function admitsValueList(anchor: Expression): boolean {
+	if (anchor.kind !== "term") return false;
+	if (anchor.term.kind === "case-row-type") return true;
+	if (anchor.term.kind !== "prop") return false;
+	const property = anchor.term.property;
+	if (property === "status" || SYSTEM_DATETIME_CASE_PROPERTIES.has(property))
+		return false;
+	return true;
+}
+
+function containsValueList(node: Expression): boolean {
+	return node.kind === "value-list";
+}
+
+function pushValueListPlacement(
+	path: Path,
+	issues: CsqlRepresentabilityIssue[],
+): void {
+	issues.push({
+		reason: "value-list-placement",
+		path,
+		message:
+			"A list of values can be compared only as equal or not equal to a case value.",
+	});
 }
 
 /**
@@ -472,313 +722,6 @@ function checkSystemDatetimeValue(
 		message: `${standardCasePropertyDisplayLabel(system)} is compared with a date and time.`,
 		details: { property: system, shape: "null-value" },
 	});
-}
-
-function checkPropertyOnlyLeft(
-	expression: Expression,
-	path: readonly (string | number)[],
-	issues: CsqlRepresentabilityIssue[],
-): void {
-	if (isPropertyExpression(expression)) return;
-	issues.push({
-		reason: "comparison-needs-case-property",
-		path,
-		message:
-			"Choose a case property as the field to search. Use inputs and calculations only for the value.",
-	});
-}
-
-function checkQueryAnchor(
-	expression: Expression,
-	path: readonly (string | number)[],
-	issues: CsqlRepresentabilityIssue[],
-): void {
-	if (isPropertyExpression(expression)) return;
-	if (expression.kind === "count") {
-		if (expression.via.kind !== "subcase") {
-			issues.push({
-				reason: "unsupported-related-count",
-				path,
-				message:
-					"This search can count child cases, but not parent cases or relationships in either direction. Choose a child relationship.",
-			});
-			return;
-		}
-		if (expression.where !== undefined) {
-			checkQueryPredicate(
-				expression.where,
-				[...path, "count", "where"],
-				issues,
-			);
-		}
-		return;
-	}
-	issues.push({
-		reason: "comparison-needs-case-property",
-		path,
-		message:
-			"Choose one case property as the field to search, then compare it with a fixed, entered, or calculated value.",
-	});
-}
-
-function checkSubcaseCountBound(
-	expression: Expression,
-	path: readonly (string | number)[],
-	issues: CsqlRepresentabilityIssue[],
-): void {
-	if (!isRepresentableSubcaseCountBound(expression)) {
-		issues.push({
-			reason: "subcase-count-needs-nonnegative-whole-number",
-			path,
-			message:
-				"Compare the child-case count with a whole number that is zero or greater. Use a fixed number or convert one search answer to Number.",
-		});
-	}
-	// Keep the ordinary runtime-value walk as defense in depth: a rejected
-	// computed bound may also contain a candidate-case property, which cannot be
-	// evaluated while Core is constructing the remote query.
-	checkRuntimeValue(expression, path, issues, "csql");
-}
-
-function checkRuntimeValue(
-	expression: Expression,
-	path: readonly (string | number)[],
-	issues: CsqlRepresentabilityIssue[],
-	dialect: RuntimeValueDialect,
-): void {
-	if (isConditionArm(expression)) {
-		checkRuntimePredicate(expression, path, issues);
-		return;
-	}
-	const nativeCsql = dialect === "csql" && isServerSearchValue(expression);
-	if (
-		dialect === "csql" &&
-		!nativeCsql &&
-		hasReachableStaticallyUnquotableOutput(expression)
-	) {
-		pushUnquotableCsqlStringIssue(path, issues);
-	}
-	const childDialect: RuntimeValueDialect = nativeCsql ? "csql" : "on-device";
-
-	switch (expression.kind) {
-		case "term":
-			if (expression.term.kind === "prop") {
-				issues.push({
-					reason: "case-property-on-value-side",
-					path,
-					message:
-						"This search compares two case properties. Choose one property and compare it with a fixed value, a search answer, or a user detail instead.",
-				});
-			} else if (expression.term.kind === "field") {
-				issues.push({
-					reason: "form-context-value-not-csql",
-					path,
-					message:
-						"A form-field value is available during form submission, not while the remote case-search query runs.",
-				});
-			} else if (dialect === "csql" && expression.term.kind === "literal") {
-				checkCsqlLiteral(expression.term.value, path, issues);
-			}
-			return;
-		case "today":
-		case "now":
-			return;
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-			issues.push({
-				reason: "form-context-value-not-csql",
-				path,
-				message:
-					expression.kind === "id-of"
-						? "A case-operation id is available during form submission, not while the remote case-search query runs."
-						: "An operation owner identity is available during form submission, not while the remote case-search query runs.",
-			});
-			return;
-		case "date-add":
-			if (
-				dialect === "csql" &&
-				(expression.interval === "months" || expression.interval === "years") &&
-				!isRepresentableCalendarDateAddQuantity(expression.quantity)
-			) {
-				issues.push({
-					reason: "calendar-date-add-needs-whole-number",
-					path: [...path, "quantity"],
-					message:
-						"Month and year shifts need a whole number. Use a fixed whole number or convert one search answer to Number; use days or weeks for fractional durations.",
-				});
-			}
-			checkRuntimeValue(
-				expression.date,
-				[...path, "date"],
-				issues,
-				childDialect,
-			);
-			checkRuntimeValue(
-				expression.quantity,
-				[...path, "quantity"],
-				issues,
-				childDialect,
-			);
-			return;
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-		case "negate":
-			checkRuntimeValue(
-				expression.value,
-				[...path, "value"],
-				issues,
-				childDialect,
-			);
-			return;
-		case "arith":
-			checkRuntimeValue(
-				expression.left,
-				[...path, "left"],
-				issues,
-				"on-device",
-			);
-			checkRuntimeValue(
-				expression.right,
-				[...path, "right"],
-				issues,
-				"on-device",
-			);
-			return;
-		case "concat":
-			for (let index = 0; index < expression.parts.length; index += 1) {
-				checkRuntimeValue(
-					expression.parts[index],
-					[...path, "parts", index],
-					issues,
-					"on-device",
-				);
-			}
-			return;
-		case "coalesce":
-			for (let index = 0; index < expression.values.length; index += 1) {
-				checkRuntimeValue(
-					expression.values[index],
-					[...path, "values", index],
-					issues,
-					"on-device",
-				);
-			}
-			return;
-		case "if":
-			checkRuntimePredicate(expression.cond, [...path, "if", "cond"], issues);
-			checkRuntimeValue(
-				expression.then,
-				[...path, "if", "then"],
-				issues,
-				"on-device",
-			);
-			checkRuntimeValue(
-				expression.else,
-				[...path, "if", "else"],
-				issues,
-				"on-device",
-			);
-			return;
-		case "switch":
-			checkRuntimeValue(
-				expression.on,
-				[...path, "switch", "on"],
-				issues,
-				"on-device",
-			);
-			for (let index = 0; index < expression.cases.length; index += 1) {
-				checkRuntimeValue(
-					expression.cases[index].then,
-					[...path, "switch", "cases", index, "then"],
-					issues,
-					"on-device",
-				);
-			}
-			checkRuntimeValue(
-				expression.fallback,
-				[...path, "switch", "fallback"],
-				issues,
-				"on-device",
-			);
-			return;
-		case "count":
-			issues.push({
-				reason: "related-count-on-value-side",
-				path,
-				message:
-					"Put the child-case count on the left side of the condition, then compare it with a fixed or entered whole number.",
-			});
-			if (expression.where !== undefined) {
-				checkQueryPredicate(
-					expression.where,
-					[...path, "count", "where"],
-					issues,
-				);
-			}
-			return;
-		case "format-date":
-			checkRuntimeValue(
-				expression.date,
-				[...path, "date"],
-				issues,
-				"on-device",
-			);
-			return;
-		case "table-lookup":
-			// This is a runtime on-device XPath fragment. Its predicate is typed
-			// and validated in lookup-row scope by the shared checker and the
-			// on-device compatibility rule; applying CSQL's case-query grammar to
-			// that nested row predicate would manufacture false anchor errors.
-			return;
-		case "call":
-		case "itext":
-		case "choice-name":
-		case "here":
-		case "value-list":
-		case "cases":
-		case "table-rows":
-		case "locations":
-		case "selected-cases":
-		case "project":
-			issues.push({
-				reason: "form-context-value-not-csql",
-				path,
-				message:
-					"This value is unavailable while the remote case-search query runs.",
-			});
-			return;
-		default: {
-			const _exhaustive: never = expression;
-			throw new Error(
-				unhandledKindMessage({
-					where: "checkCsqlRuntimeValue",
-					family: "Expression",
-					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: [
-						"term",
-						"today",
-						"now",
-						"id-of",
-						"acting-user",
-						"unowned",
-						"date-add",
-						"date-coerce",
-						"datetime-coerce",
-						"double",
-						"arith",
-						"concat",
-						"coalesce",
-						"if",
-						"switch",
-						"count",
-						"format-date",
-					],
-				}),
-			);
-		}
-	}
 }
 
 function checkCsqlLiteral(
@@ -1270,144 +1213,8 @@ function agreedStaticString(
 	return values.every((value) => value === first) ? first : undefined;
 }
 
-/** Predicates inside a runtime-only `if` value cannot read case rows. */
-function checkRuntimePredicate(
-	predicate: Expression,
-	path: readonly (string | number)[],
-	issues: CsqlRepresentabilityIssue[],
-): void {
-	if (!isConditionArm(predicate)) {
-		checkRuntimeValue(predicate, path, issues, "on-device");
-		return;
-	}
-	switch (predicate.kind) {
-		case "match-all":
-		case "match-none":
-			return;
-		case "eq":
-		case "neq":
-		case "gt":
-		case "gte":
-		case "lt":
-		case "lte":
-			checkRuntimeValue(predicate.left, [...path, "left"], issues, "on-device");
-			checkRuntimeValue(
-				predicate.right,
-				[...path, "right"],
-				issues,
-				"on-device",
-			);
-			return;
-		case "in":
-			checkRuntimeValue(predicate.left, [...path, "left"], issues, "on-device");
-			return;
-		case "between":
-			checkRuntimeValue(predicate.left, [...path, "left"], issues, "on-device");
-			if (predicate.lower !== undefined) {
-				checkRuntimeValue(
-					predicate.lower,
-					[...path, "lower"],
-					issues,
-					"on-device",
-				);
-			}
-			if (predicate.upper !== undefined) {
-				checkRuntimeValue(
-					predicate.upper,
-					[...path, "upper"],
-					issues,
-					"on-device",
-				);
-			}
-			return;
-		case "is-blank":
-		case "matches-pattern":
-			checkRuntimeValue(predicate.left, [...path, "left"], issues, "on-device");
-			return;
-		case "and":
-		case "or":
-			for (let index = 0; index < predicate.clauses.length; index += 1) {
-				checkRuntimePredicate(
-					predicate.clauses[index],
-					[...path, predicate.kind, index],
-					issues,
-				);
-			}
-			return;
-		case "not":
-			checkRuntimePredicate(
-				predicate.clause,
-				[...path, "not", "clause"],
-				issues,
-			);
-			return;
-		case "when-input-present":
-			checkRuntimePredicate(
-				predicate.clause,
-				[...path, "when-input-present", "clause"],
-				issues,
-			);
-			return;
-		case "match":
-		case "multi-select-contains":
-		case "within-distance":
-		case "exists":
-		case "missing":
-			issues.push({
-				reason: "case-query-in-runtime-value",
-				path,
-				message:
-					"This calculation needs a case row before search results exist. Move the case condition out of the calculation and into the surrounding rule.",
-			});
-			return;
-		default: {
-			const _exhaustive: never = predicate;
-			throw new Error(
-				unhandledKindMessage({
-					where: "checkCsqlRuntimePredicate",
-					family: "Expression",
-					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: [
-						"match-all",
-						"match-none",
-						"eq",
-						"neq",
-						"gt",
-						"gte",
-						"lt",
-						"lte",
-						"in",
-						"between",
-						"is-blank",
-						"matches-pattern",
-						"and",
-						"or",
-						"not",
-						"when-input-present",
-						"match",
-						"multi-select-contains",
-						"within-distance",
-						"exists",
-						"missing",
-					],
-				}),
-			);
-		}
-	}
-}
-
 function isPropertyExpression(expression: Expression): boolean {
 	return expression.kind === "term" && expression.term.kind === "prop";
-}
-
-function isSubcaseCountQueryAnchor(expression: Expression): boolean {
-	return expression.kind === "count" && expression.via.kind === "subcase";
-}
-
-function isQueryAnchor(expression: Expression): boolean {
-	return (
-		isPropertyExpression(expression) || isSubcaseCountQueryAnchor(expression)
-	);
 }
 
 /**

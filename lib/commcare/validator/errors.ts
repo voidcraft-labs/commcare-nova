@@ -117,6 +117,7 @@ export type ValidationErrorCode =
 	| "CASE_LIST_EXPRESSION_NOT_ON_DEVICE"
 	| "CASE_LIST_STRICT_NULL_NOT_PORTABLE"
 	| "CASE_LIST_CSQL_NOT_REPRESENTABLE"
+	| "CASE_LIST_CLOSED_ON_NOT_ON_DEVICE"
 	| "MULTI_SELECT_PERSISTENT_TILE"
 	| "MULTI_SELECT_NO_BATCH_CONSUMER"
 	// Case-tile layout rules. Geometry rules run on every stored cell,

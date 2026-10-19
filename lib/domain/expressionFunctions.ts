@@ -416,6 +416,11 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		"when-provided": [2, 2],
 		exists: [1, 2],
 		missing: [1, 2],
+		// The record's own case type, and the case chosen in an earlier menu
+		// with one of its properties (part 06 §3.2, §3.9).
+		"record-type": [0, 0],
+		"chosen-case": [1, 1],
+		"chosen-case-property": [2, 2],
 	}).map(([name, [minArgs, maxArgs]]): [string, FunctionArity] => [
 		name,
 		{ minArgs, maxArgs },

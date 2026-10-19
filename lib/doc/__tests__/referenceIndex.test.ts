@@ -52,6 +52,11 @@ import {
 	userPropertyTargetKey,
 } from "@/lib/domain";
 import {
+	chosen,
+	chosenCaseDoc,
+	chosenCaseProperty,
+} from "@/lib/domain/__tests__/chosenCaseFixture";
+import {
 	ancestorPath,
 	and,
 	eq,
@@ -634,6 +639,36 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		expect(slots[formUuid]).toEqual({ form_display_condition: true });
 		expect(referencingCarrierUuids(doc, caseTypeTargetKey("patient"))).toEqual(
 			expect.arrayContaining([moduleUuid, formUuid]),
+		);
+	});
+
+	it("indexes a case list's read of the case chosen in an earlier menu under that menu's module", () => {
+		const doc = chosenCaseDoc();
+		const members = doc.modules[chosen.members];
+		doc.modules[chosen.members] = {
+			...members,
+			caseListConfig: {
+				...(members.caseListConfig ??
+					resolveCaseListConfig({ columns: [], searchInputs: [] })),
+				filter: eq(
+					term(prop("member", "village_name")),
+					chosenCaseProperty(chosen.households, "household", "village_name"),
+				),
+			},
+		};
+		assertAdmittedDoc(doc);
+		expect(slotsFor(doc, entityTargetKey(chosen.households))).toMatchObject({
+			[chosen.members]: { case_list_filter: true },
+		});
+		expect(
+			slotsFor(doc, casePropertyTargetKey("household", "village_name")),
+		).toMatchObject({ [chosen.members]: { case_list_filter: true } });
+		// A rename of the menu rewrites nothing: the read names its identity.
+		const renamed = apply(doc, [
+			{ kind: "renameModule", uuid: chosen.households, newId: "Homes" },
+		]);
+		expect(renamed.modules[chosen.members].caseListConfig?.filter).toEqual(
+			doc.modules[chosen.members].caseListConfig?.filter,
 		);
 	});
 

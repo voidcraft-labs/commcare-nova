@@ -1,5 +1,6 @@
 /** Running-preview validation that mirrors exported CommCare search prompts. */
 
+import { isSilentRuntimeCsqlRejection } from "@/lib/commcare/csql/segment";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
 	buildRuntimeCsqlPromptValidations,
@@ -149,13 +150,14 @@ export function searchInputRuntimeGlobalError(
 		return undefined;
 	}
 	for (const rejection of emission?.runtimeRejections ?? []) {
-		if (rejection.kind === "blank-comparand") continue;
+		const kind = rejection.kind;
+		if (isSilentRuntimeCsqlRejection(kind)) continue;
 		if (skipSessionBackedRejection(rejection, options)) continue;
 		if ((rejection.inputNames?.length ?? 0) > 0) continue;
 		if (!runtimeRejectionApplies(rejection, caseListConfig, values, session)) {
 			continue;
 		}
-		return searchRuntimeGlobalValidationMessage(rejection.kind).message;
+		return searchRuntimeGlobalValidationMessage(kind).message;
 	}
 	return undefined;
 }

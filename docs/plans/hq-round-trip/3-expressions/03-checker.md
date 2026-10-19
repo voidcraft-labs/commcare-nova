@@ -477,6 +477,19 @@ position today.
 
 ---
 
+**Implementation correction, 2026-10-19** (pull request 10): `closed-on-not-on-device` and a
+record slot's `datum-not-supplied` are not mapped rule by rule. Each record rule keeps wrapping its
+findings in its slot code with `checkErrorDetails`, and `runValidation` re-codes the two once
+(`lib/commcare/validator/recordFindings.ts::sharedRecordFinding`) to `CASE_LIST_CLOSED_ON_NOT_ON_DEVICE`
+and `SESSION_DATUM_NOT_SUPPLIED`, keeping the rule's code as `details.slotCode`, which
+`lib/doc/userFacingErrors.ts` reads to name the setting. A record slot's other part 06 §3 findings
+(`case-type-ordering`, `epoch-fraction-on-device`, the runtime-`selected*` and distance codes) stay
+under the slot's `*_TYPE_ERROR`, and `recordFindingCopy` gives each its sentence;
+`CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR` now reads `recordFindingCopy` too. `epoch-days-not-whole`,
+`raw-argument-not-evaluated` and `value-list-placement` are representability reasons under
+`CASE_LIST_CSQL_NOT_REPRESENTABLE` (position facts), with part 06's sentences in `userFacingErrors.ts`. `CheckError` gains
+`chosen` (`carrier`, `module`, `otherModule`) for a chosen-case refusal.
+
 ## 2. Every rule over expressions today, and where it goes
 
 ### 2.1 Form logic

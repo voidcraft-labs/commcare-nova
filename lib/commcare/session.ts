@@ -40,7 +40,7 @@ import type {
 	PostSubmitDestination,
 } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
-import type { Expression } from "@/lib/domain/expression/types";
+import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import type { ModuleExpressionContexts } from "./expressionContext";
 import type { MatchedChild, ProjectedFormLinks } from "./formLinkProjection";
 import { validateCaseType } from "./identifierValidation";
@@ -329,11 +329,13 @@ export function caseLoadingNodeset(
 	excludedOwnerIds: Expression | undefined,
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
+	datumId?: (ref: DatumRef) => string | undefined,
 ): WireExpr {
 	const filter = emitNodesetFilter(
 		caseListFilter,
 		expressions({ slot: "case_list_filter" }),
 		lookupNaming,
+		datumId,
 	);
 	const owners = emitExcludedOwnerNodesetFilter(
 		excludedOwnerIds,
@@ -356,11 +358,13 @@ export function inlineSearchNodeset(
 	caseListFilter: Expression | undefined,
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
+	datumId?: (ref: DatumRef) => string | undefined,
 ): WireExpr {
 	const filter = emitNodesetFilter(
 		caseListFilter,
 		expressions({ slot: "case_list_filter" }),
 		lookupNaming,
+		datumId,
 	);
 	return w.instance(resultsInstance("results:inline"), [
 		w.step("results"),
@@ -415,6 +419,12 @@ export function deriveCaseSelectionDatum(args: {
 	readonly caseSource?: "casedb" | "results:inline";
 	/** The owner frame algorithm needs identity and presence, not XPath. */
 	readonly entryMetadataOnly?: boolean;
+	/**
+	 * The id each case chosen before this selection prints under, read when
+	 * the nodeset renders, so a nodeset re-rendered after root alignment
+	 * names the aligned id.
+	 */
+	readonly datumId?: (ref: DatumRef) => string | undefined;
 }): SessionDatum {
 	const selection = {
 		id: args.id,
@@ -426,21 +436,25 @@ export function deriveCaseSelectionDatum(args: {
 	if (args.entryMetadataOnly)
 		return { ...selection, projectionOnlySelection: true };
 	const inline = args.caseSource === "results:inline";
-	const base = inline
-		? inlineSearchNodeset(
-				args.caseType,
-				args.caseListFilter,
-				args.expressions,
-				args.lookupNaming,
-			)
-		: caseLoadingNodeset(
-				args.caseType,
-				args.caseListFilter,
-				args.excludedOwnerIds,
-				args.expressions,
-				args.lookupNaming,
-			);
+	const renderBase = (): WireExpr =>
+		inline
+			? inlineSearchNodeset(
+					args.caseType,
+					args.caseListFilter,
+					args.expressions,
+					args.lookupNaming,
+					args.datumId,
+				)
+			: caseLoadingNodeset(
+					args.caseType,
+					args.caseListFilter,
+					args.excludedOwnerIds,
+					args.expressions,
+					args.lookupNaming,
+					args.datumId,
+				);
 	const renderNodeset = (parentSelection?: SessionDatum): WireExpr => {
+		const base = renderBase();
 		if (parentSelection === undefined) return base;
 		if (base.k !== "path")
 			throw new Error("A case selector must remain a generated path.");

@@ -13,8 +13,12 @@ import {
 	literal,
 	match,
 	multiSelectAny,
+	neq,
 	prop,
+	sessionUser,
 	subcasePath,
+	term,
+	within,
 } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -124,4 +128,57 @@ it.each([
 	expect(() =>
 		compilePredicate(predicate, makeCtx({ currentCaseType: "household" })),
 	).toThrow(expect.objectContaining({ reason: "mixed-property-scopes" }));
+});
+
+it("binds a list of values as one array parameter, and negates it two-valued", () => {
+	const hostile = "x'); SELECT 1; --";
+	const list = {
+		kind: "value-list" as const,
+		items: [term(literal("a")), term(literal(hostile))] as [
+			ReturnType<typeof term>,
+			ReturnType<typeof term>,
+		],
+	};
+	const equal = db
+		.selectFrom("cases as c")
+		.select("c.case_id")
+		.where(compilePredicate(eq(prop("patient", "nickname"), list), makeCtx()))
+		.compile();
+	expect(equal.sql).toContain("= any($1)");
+	expect(equal.parameters).toEqual([["a", hostile]]);
+	const differs = db
+		.selectFrom("cases as c")
+		.select("c.case_id")
+		.where(compilePredicate(neq(prop("patient", "nickname"), list), makeCtx()))
+		.compile();
+	expect(differs.sql).toMatch(/not coalesce\(.*= any\(\$1\), false\)/);
+});
+
+it("binds a runtime radius and unit and never inlines them", () => {
+	const ctx = makeCtx({
+		bindings: {
+			sessionUser: new Map([
+				["radius", "5'); SELECT 1; --"],
+				["unit", "meters'); SELECT 1; --"],
+			]),
+		},
+	});
+	const compiled = db
+		.selectFrom("cases as c")
+		.select("c.case_id")
+		.where(
+			compilePredicate(
+				within(
+					prop("patient", "loc"),
+					term(literal("1 2")),
+					term(sessionUser("radius")),
+					term(sessionUser("unit")),
+				),
+				ctx,
+			),
+		)
+		.compile();
+	expect(compiled.parameters).toContain("5'); SELECT 1; --");
+	expect(compiled.parameters).toContain("meters'); SELECT 1; --");
+	expect(compiled.sql).not.toContain("SELECT 1");
 });

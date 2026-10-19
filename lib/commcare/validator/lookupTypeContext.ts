@@ -74,10 +74,22 @@ export function checkErrorDetails(
 		instant?.field === undefined
 			? undefined
 			: ctx?.form?.fields.get(instant.field)?.id;
+	const chosen = error.chosen;
 	return {
 		checkCode: error.code,
 		path: error.path.join("."),
 		...(error.reason === undefined ? {} : { checkReason: error.reason }),
+		...(chosen === undefined
+			? {}
+			: {
+					carrier: chosen.carrier,
+					datumKind: "selected-case",
+					datumModule: chosen.module,
+					ref: JSON.stringify({ kind: "selected-case", module: chosen.module }),
+					...(chosen.otherModule === undefined
+						? {}
+						: { otherModule: chosen.otherModule }),
+				}),
 		...(instant === undefined
 			? {}
 			: {

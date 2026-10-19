@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { simpleSearchInputDef } from "@/lib/domain";
 import {
 	arith,
 	coalesce,
@@ -20,10 +21,10 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/expression";
-import {
-	collectRuntimeCsqlStringExpressionInputNames,
-	collectRuntimeCsqlStringInputNames,
-} from "../runtimeCsqlQuoteSafety";
+import type { Expression } from "@/lib/domain/expression/types";
+import { csqlInputContext } from "../../__tests__/csqlFunctionFixture";
+import { emitCsql } from "../emitter";
+import { collectRuntimeCsqlStringExpressionInputNames } from "../runtimeCsqlQuoteSafety";
 
 const names = [
 	"direct",
@@ -42,12 +43,24 @@ const inputs = names.map((name) => ({
 }));
 const ref = (name: (typeof names)[number]) => input(testUuid(name));
 const value = (name: (typeof names)[number]) => term(ref(name));
-const collect = (
-	predicate: Parameters<typeof collectRuntimeCsqlStringInputNames>[0],
-) => collectRuntimeCsqlStringInputNames(predicate, inputs);
+const context = csqlInputContext(
+	names.map((name) =>
+		simpleSearchInputDef(testUuid(name), name, name, "text", "case_name"),
+	),
+);
+/** The prompts the emitted quote obligations blame: the ones a worker is asked
+ * to repair when a value mixes both quote marks. */
+const collect = (predicate: Expression | undefined) =>
+	new Set(
+		predicate === undefined
+			? []
+			: (emitCsql(predicate, context).runtimeRejections ?? [])
+					.filter((rejection) => rejection.kind === "quote")
+					.flatMap((rejection) => rejection.inputNames ?? []),
+	);
 
-// Private conservative byte-flow analysis; complete query composition and real
-// runtime error assignment are exercised by the admitted Search prompt corpus.
+// Which prompts a quote obligation blames: a value's bytes that reach the
+// quoted CSQL text, never a gate's or a branch selector's.
 it("distinguishes raw native function arguments from already converted device output", () => {
 	expect(collect(eq(prop("patient", "case_name"), ref("direct")))).toEqual(
 		new Set(["direct"]),
@@ -126,10 +139,10 @@ it("finds a server-side count filter after reversing the authored comparison", (
 	const predicate = gt(
 		literal(2),
 		count(
-			subcasePath("parent", "visit"),
+			subcasePath("parent", "child"),
 			whenInput(
 				ref("visit_name"),
-				eq(prop("visit", "case_name"), ref("visit_name")),
+				eq(prop("child", "case_name"), ref("visit_name")),
 			),
 		),
 	);

@@ -52,6 +52,7 @@ import {
 import {
 	caseListFormReturnFrame,
 	caseListSessionDatums,
+	caseListStepDatumId,
 	entryFrameDatums,
 	entrySessionDatums,
 	type FormLinkProjectionContext,
@@ -591,6 +592,7 @@ export function compileCcz(
 							moduleIndex: mIdx,
 							expressions,
 							lookupNaming,
+							datumId: caseListStepDatumId(doc, moduleUuid),
 							detailInstances: [
 								...(searchShort?.instances ?? []),
 								...(searchLong?.instances ?? []),

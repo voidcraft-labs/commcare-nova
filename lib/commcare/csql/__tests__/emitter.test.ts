@@ -41,6 +41,7 @@ import {
 	sessionUserProperty,
 	subcasePath,
 	term,
+	today as todayValue,
 } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
 import {
@@ -55,8 +56,9 @@ import {
 	searchInputInstance,
 	sessionInstance,
 } from "../../xpath/wire/instances";
-import { emitCsql } from "../emitter";
-import type { CsqlEmissionContext } from "../runtimeExpression";
+import type { CsqlEmissionContext } from "../emitter";
+import { emitCsql, emitCsqlTree } from "../emitter";
+import { printCsql } from "../print";
 
 // Private formatting and normalization contracts, with positive predicates
 // admitted inside real apps. Native query evaluation/compilation lives in the
@@ -265,7 +267,7 @@ it("requires current saved-name bindings for custom worker identities", () => {
 		},
 	]);
 	expect(() => emitCsql(predicate, csqlFixtureContext())).toThrow(
-		`worker-information property '${uuid}' has no current saved-name binding`,
+		`Worker-information property '${uuid}' has no current saved-name binding`,
 	);
 });
 
@@ -281,7 +283,7 @@ it("refuses compiler bypasses that cannot preserve property scope", () => {
 		);
 	}
 	expect(() => emitCsql(exists(selfPath()), csqlFixtureContext())).toThrow(
-		/self-walk relation/,
+		/over 'this case'/,
 	);
 	expect(() =>
 		emitCsql(eq(name, literal(`both'"`)), csqlFixtureContext()),
@@ -348,4 +350,20 @@ it("folds every obligation of a clause into one match-none() guard", () => {
 	);
 	expect(wrapper.args[1]).toEqual(w.str("match-none()"));
 	expect(wrapper.args[2]).toMatchObject({ k: "call", fn: "concat" });
+});
+
+it("sends today as the worker's day, a runtime segment between fixed quotes that is never blank", () => {
+	// 06-csql.md §3.4: Core's today() is the device's date; HQ's is the project
+	// time zone's. HQ reads the spliced `yyyy-MM-dd` as a date.
+	const predicate = gte(age, todayValue());
+	const segments = printCsql(emitCsqlTree(predicate, csqlFixtureContext()));
+	expect(segments).toMatchObject([
+		{ kind: "constant", text: 'age >= "' },
+		{ kind: "runtime", xpath: w.call("today") },
+		{ kind: "constant", text: '"' },
+	]);
+	expect(segments.some((segment) => "rejectWhen" in segment)).toBe(false);
+	expect(emitCsql(predicate, csqlFixtureContext()).runtimeRejections).toBe(
+		undefined,
+	);
 });

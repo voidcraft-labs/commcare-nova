@@ -11,6 +11,8 @@ import {
 	reads,
 } from "../expression/__tests__/instanceReadsFixture";
 import { formStructure } from "../expression/formStructure";
+import type { Uuid } from "../uuid";
+import { chosen, chosenCaseDoc } from "./chosenCaseFixture";
 
 const ROOT = testUuid("datum-root");
 const CHILD = testUuid("datum-child");
@@ -230,5 +232,93 @@ describe("entry datums at their evaluation points", () => {
 				form: reads.checkIn,
 			}).searchResults,
 		).toBeUndefined();
+	});
+});
+
+describe("the case list step of each module (case-list and search points)", () => {
+	const village = { kind: "selected-case", module: chosen.villages } as const;
+	const household = {
+		kind: "selected-case",
+		module: chosen.households,
+	} as const;
+	const atList = (doc: ReturnType<typeof chosenCaseDoc>, module: Uuid) => ({
+		caseList: entryDatumSupplies(doc, { kind: "case-list", module }),
+		search: entryDatumSupplies(doc, { kind: "search", module }),
+	});
+
+	it("supplies the choices before a module's own selection, never its own", () => {
+		const { caseList, search } = atList(chosenCaseDoc(), chosen.members);
+		for (const point of [caseList, search]) {
+			expect(point.refs).toEqual([
+				{ ref: village, scalar: true },
+				{ ref: household, scalar: true },
+			]);
+			expect(point.differs).toBeUndefined();
+		}
+		const villages = atList(chosenCaseDoc(), chosen.villages);
+		expect(villages.caseList).toEqual({ refs: [] });
+	});
+
+	it("holds a choice in differs where a module that selects through the list keeps it in another place", () => {
+		// Households' list runs in its own entries, where the village is one
+		// choice back, and as Members' parent choice, where it is two back.
+		const { caseList, search } = atList(chosenCaseDoc(), chosen.households);
+		for (const point of [caseList, search]) {
+			expect(point.refs).toEqual([]);
+			expect(point.differs).toEqual([{ ref: village, module: chosen.members }]);
+		}
+	});
+
+	it("follows a change of parent selection", () => {
+		const doc = chosenCaseDoc();
+		doc.modules[chosen.members].parentCaseModuleUuid = undefined;
+		expect(atList(doc, chosen.members).caseList).toEqual({ refs: [] });
+		// Households no longer runs as anyone's parent choice.
+		expect(atList(doc, chosen.households).caseList).toEqual({
+			refs: [{ ref: village, scalar: true }],
+		});
+	});
+
+	it("marks a several-case menu's choice as no one case", () => {
+		const doc = chosenCaseDoc();
+		doc.modules[chosen.villages].caseListConfig = {
+			...caseListConfig([]),
+			selection: { kind: "multiple", maximum: 3 },
+		};
+		expect(atList(doc, chosen.members).caseList.refs).toContainEqual({
+			ref: village,
+			scalar: false,
+		});
+	});
+
+	it("holds a case list nested under its root's menu at the root's choice", () => {
+		const doc = chosenCaseDoc();
+		// Members nests under Households' menu and picks its household from
+		// Households' list: the root's selection is aligned with Members'
+		// parent choice, so the household is chosen before Members' own.
+		doc.modules[chosen.members].parentModuleUuid = chosen.households;
+		const { caseList } = atList(doc, chosen.members);
+		expect(caseList.refs).toContainEqual({ ref: household, scalar: true });
+		expect(caseList.differs).toBeUndefined();
+	});
+
+	it("gives a case-first form menu its own module's choice and a forms-first one none", () => {
+		const doc = chosenCaseDoc();
+		const menu = {
+			kind: "form-menu",
+			module: chosen.members,
+			form: chosen.memberForm,
+		} as const;
+		expect(entryDatumSupplies(doc, menu).refs).toEqual([
+			{ ref: village, scalar: true },
+			{ ref: household, scalar: true },
+			{
+				ref: { kind: "selected-case", module: chosen.members },
+				scalar: true,
+			},
+		]);
+		const formsFirst = chosenCaseDoc();
+		formsFirst.forms[chosen.memberForm].type = "registration";
+		expect(entryDatumSupplies(formsFirst, menu).refs).toEqual([]);
 	});
 });
