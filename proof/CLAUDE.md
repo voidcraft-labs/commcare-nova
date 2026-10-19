@@ -513,7 +513,11 @@ harness keeps, each with its reason.
   TypeScript tests under `proof/**/__tests__/` run in ordinary CI's Vitest.
   Only the per-document checks run over `Corpus.documents`, the run's sample
   of the corpus where the weekly audits sample it; every other test reads
-  `Corpus.emitted`, so it holds alike over a sample and the whole corpus.
+  `Corpus.emitted`, so it holds alike over a sample and the whole corpus. A
+  test that parametrizes over an emitted document carries that document's
+  group only where the run checks it (`test_branches.py`'s `Branched`,
+  `test_controls.py`'s `Retained`), else its items run in a document group no
+  queue holds and the gate's "Every block ran exactly once" fails.
 - **What runs with no image stays on Python 3.12's standard library.** The
   gate, the queue builder, `proof.store.pack`, `proof.store.audit` and
   `proof.native.produce` run on a hosted runner's own `python3` (no workflow

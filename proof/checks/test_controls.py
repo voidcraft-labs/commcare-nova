@@ -30,33 +30,91 @@ the fixed ones, so the entry stops showing and the check's blindness hides.
 
 The accepted case is the lane's own corpus: a document with an edit and a
 targeted one with expectations and a restore, each retained into a directory
-of its own.
+of its own. Those documents are read from the whole emitted corpus, and a
+test of one runs in that document's group only where the run checks it; one
+the run's sample or selection leaves out runs in this package's group, which
+the queue accounts for. The plausible failure: a selection of targeted
+documents alone, whose edited document then ran in a group no queue holds.
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from proof.checks import cases, controls, corpus, registers
+from proof.checks import cases, controls, corpus, registers, sharding
 from proof.checks.intent import intent_of
 from proof.checks.proof1 import document_lookup_tags
 from proof.observe import unit
 from proof.observe.casedata import document_case_database
 
 
-def _documents():
+@dataclass(frozen=True)
+class Retained:
+    """A document a control is retained from, and the lane group its items run in (None for this package's)."""
+
+    document: corpus.Document
+    group: str | None
+
+
+def _documents(loaded=None):
     """An edited corpus document and a targeted one with a local archive, each where the corpus holds one (a
-    corpus of a run's own may hold neither)."""
-    documents = cases.load_corpus().emitted
+    corpus of a run's own may hold neither), the run's checked documents first.
+
+    Only a document the run checks has a group a queue holds, so a test of it runs in that group; one the run's
+    sample or selection leaves out is retained by this package's own items, which the queue accounts for."""
+    loaded = cases.load_corpus() if loaded is None else loaded
+    checked = {document.id for document in loaded.documents}
+    documents = loaded.emitted
     edited = next((document for document in documents if document.edit is not None and not document.targeted), None)
     targeted = next((d for d in documents if d.targeted and d.local_ccz is not None), None)
-    return [pytest.param(d, id=name) for name, d in (("edited", edited), ("targeted", targeted)) if d is not None]
+    return [
+        pytest.param(Retained(d, d.group if d.id in checked else None), id=name)
+        for name, d in (("edited", edited), ("targeted", targeted))
+        if d is not None
+    ]
 
 
-@pytest.mark.parametrize("document", _documents())
-def test_a_control_reads_what_its_documents_checks_derive_and_holds_no_document(document, tmp_path):
+def test_a_document_the_run_leaves_out_is_retained_in_this_packages_group():
+    """A run over documents named by hand, all of them targeted, checks no edited document: the edited one this
+    module retains is one the run leaves out, and its items run in proof/checks's group, which the queue accounts
+    for, never in a document group no queue runs (the gate's "Every block ran exactly once")."""
+
+    def stub(identifier, *, targeted, edit):
+        return SimpleNamespace(
+            id=identifier,
+            group=f"corpus:{identifier}",
+            targeted=targeted,
+            edit=SimpleNamespace() if edit else None,
+            local_ccz=Path("local.ccz") if targeted else None,
+        )
+
+    named, left_out = stub("named", targeted=True, edit=False), stub("left-out", targeted=False, edit=True)
+
+    def groups(loaded):
+        found = {}
+        for param in _documents(loaded):
+            (retained,) = param.values
+            item = SimpleNamespace(callspec=SimpleNamespace(params={"retained_from": retained}), path=__file__)
+            found[param.id] = sharding.item_group(item)
+        return found
+
+    own = sharding.item_group(SimpleNamespace(path=__file__))
+    assert own == "proof/checks"
+    selected = SimpleNamespace(documents=(named,), emitted=(named, left_out))
+    assert groups(selected) == {"edited": own, "targeted": "corpus:named"}
+    # Where the run checks the edited document too, its items run in its own group, as every check's do.
+    whole = SimpleNamespace(documents=(named, left_out), emitted=(named, left_out))
+    assert groups(whole) == {"edited": "corpus:left-out", "targeted": "corpus:named"}
+
+
+@pytest.mark.parametrize("retained_from", _documents())
+def test_a_control_reads_what_its_documents_checks_derive_and_holds_no_document(retained_from, tmp_path):
+    document = retained_from.document
     # Under a name of its own: the control the document's id names may hold pre-fix bytes an entry keeps showing
     # on, which ``retain`` refuses to replace.
     retained = controls.retain(document, ["proof1"], tmp_path, name=f"{document.id}-retained")
@@ -143,8 +201,10 @@ def test_case_property_types_read_the_emitted_effective_catalog_without_inferenc
     }
 
 
-@pytest.mark.parametrize("document", _documents()[:1])
-def test_a_control_keeps_the_edit_and_each_local_archive_only_for_a_check_that_reads_it(document, tmp_path):
+@pytest.mark.parametrize("retained_from", _documents()[:1])
+def test_a_control_keeps_the_edit_and_each_local_archive_only_for_a_check_that_reads_it(retained_from, tmp_path):
+    document = retained_from.document
+
     def files(checks):
         retained = controls.retain(document, checks, tmp_path / "-".join(checks), name=f"{document.id}-retained")
         assert not (retained / "inputs.json").exists() and not list(retained.rglob("outcome.json"))
@@ -171,10 +231,11 @@ def test_a_control_keeps_the_edit_and_each_local_archive_only_for_a_check_that_r
     assert not kept & archives and not any(path.startswith("edit/") for path in kept)
 
 
-@pytest.mark.parametrize("document", _documents()[:1])
+@pytest.mark.parametrize("retained_from", _documents()[:1])
 def test_a_control_retained_under_a_name_is_written_there_and_a_fixed_or_stopped_control_is_never_retained_again(
-    document, tmp_path, monkeypatch
+    retained_from, tmp_path, monkeypatch
 ):
+    document = retained_from.document
     root = corpus.corpus_root()
     into = tmp_path / "controls"
     own = into / document.id

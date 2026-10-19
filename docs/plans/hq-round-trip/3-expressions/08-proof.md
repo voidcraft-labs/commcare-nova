@@ -760,6 +760,13 @@ entry under existing finding 74, owned by step 4. Its stop on `targeted-datetime
 unchanged; no new defect or control is added. The post-shape list holds 25 stops (30 minus six,
 plus this one).
 
+**Implementation correction, 2026-10-19 (pull request 9):** `targeted-instance-reads` reads places
+in its form and its link, and Formplayer's walk meets finding 69 there as it does on
+`location-direct` and `location-multirung` (its restore names no app, so HQ syncs no locations
+fixture). Pull request 9 adds the document's Formplayer `notification:unable-to-find-lookup-table`
+stop under finding 69, so the list holds 26 stops from pull request 9; pull request 10's move of
+finding 75's stop to its control keeps the count at 26.
+
 **R5 correction, defect 21's removed viewport.** The same run shows the third class on both
 `targeted-list-first-places` and its unchanged control, and on `fuzz-suite-20260930-8`.
 The Case List save changes only `search_config.auto_launch` from false to true at that setting.
