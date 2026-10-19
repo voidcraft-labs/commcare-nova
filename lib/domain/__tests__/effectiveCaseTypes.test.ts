@@ -110,7 +110,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 					kind: "hidden",
 					id: "visit_date",
 					caseWrite: { caseType: "patient", property: "visit_date" },
-					default_value: "today()",
+					calculate: "today()",
 				}),
 			],
 		});
@@ -126,7 +126,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 					kind: "hidden",
 					id: "stamp",
 					caseWrite: { caseType: "patient", property: "stamp" },
-					default_value: "  now()  ",
+					calculate: "  now()  ",
 				}),
 			],
 		});
@@ -182,7 +182,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 									kind: "hidden",
 									id: "dob",
 									caseWrite: { caseType: "visit", property: "dob" },
-									default_value: "#patient/dob",
+									calculate: "#patient/dob",
 								}),
 							],
 						},
@@ -201,7 +201,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 					kind: "hidden",
 					id: "score",
 					caseWrite: { caseType: "patient", property: "score" },
-					default_value: "1 + 2",
+					calculate: "#patient/score + 1",
 				}),
 			],
 		});
@@ -253,13 +253,13 @@ describe("effectiveCaseTypes — writer derivation", () => {
 					kind: "hidden",
 					id: "left",
 					caseWrite: { caseType: "patient", property: "left" },
-					default_value: "#patient/right",
+					calculate: "#patient/right",
 				}),
 				f({
 					kind: "hidden",
 					id: "right",
 					caseWrite: { caseType: "patient", property: "right" },
-					default_value: "#patient/left",
+					calculate: "#patient/left",
 				}),
 			],
 		});

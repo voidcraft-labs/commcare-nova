@@ -139,10 +139,37 @@ root, source form node, profile, or supplies. Internal `inferRecordQuery` expose
 errors for writer inference and retained scalar rules. It is not an alternative
 stored-slot admission entry point.
 
-Form positions retain Core coercion and the existing time-ordering and literal
-numeric refusals. Record positions retain the typed condition/value grammar,
-scalar compatibility, relationship resolution, assignment representation rules,
-and slot-specific availability. `ruleSets.ts` owns their scalar tables; editor
+Form positions keep Core's coercions and refuse only comparisons Core would
+answer wrongly, one finding per comparison: a time ordered before or after
+(`time-ordering`); a date against a date and time with no `date()` on either
+side, an ordering of a date and time against a known value that is none, and
+`true()`/`false()` against a known non-yes/no value (`incompatible-values`,
+reasons `date-datetime`, `datetime-ordering` and `boolean`); then a provably
+non-numeric literal in an ordering. A string literal opposite a typed operand
+takes the type its ISO date, date-and-time or `HH:MM[:SS]` shape spells. Record
+positions keep the typed condition/value grammar, scalar compatibility (a
+date/datetime pair is `incompatible-values` reason `date-datetime`),
+relationship resolution, assignment representation rules, and slot-specific
+availability.
+
+Both rule sets refuse a structural many: a read of a repeat's answer from outside
+that repeat, across a step no filter narrows, or a `selected-cases` read, in a
+position that needs one value (`many-values`, reason `repeat` or
+`selected-cases`). Positions that take a node-set (`expressionFunctions.ts`'
+`manyArguments`, a node-set profile or expectation) admit it; pass-through
+positions (`if` branches, `coalesce`'s last, `switch` results) carry the mark
+to their consumer. A date-and-time literal finer than a millisecond is
+`datetime-literal-precision` in every profile; a `format-date` pattern that is
+not one fixed CommCare pattern is `format-date-pattern-not-fixed` where the
+profile targets the case store. `here()` is admitted only where the profile's
+`here` fact holds, a case-list calculated column; elsewhere it is
+`arm-unavailable` reason `here`. `choice-name` is unavailable everywhere, reason
+`choice-name-dynamic` when the named question's choices are not inline. A
+Hidden Value leaf reads inference's data type, held class and lost clock
+(`inference.ts`); an untyped one is `_any` with its held class, so it holds no
+opinion yet stays comparable. A date and time whose clock may be gone carries
+`clockLost`, and an assignment of it to a date-and-time destination is
+`expected-value` reason `clock-lost`. `ruleSets.ts` owns their scalar tables; editor
 constraints read those tables rather than introducing another checker. Form
 literals must have an exact supported spelling, and static choice defaults must
 name a current choice. Numeric defaults use `numericAnswerText`'s native answer
@@ -155,8 +182,7 @@ property reads the current queried row without a record relation path. New form
 table and location reads remain unavailable until
 their complete emission and instance-declaration boundary ships; existing record
 lookup and owner-location carriers, including a form choice filter, keep their
-current admission. Later inference or target-admission work must not silently
-change this shape cutover's retained scalar rules.
+current admission.
 
 `entryDatumSupplies` owns domain entry identities. The checker admits a scalar
 session datum only when that entry supplies that identity as scalar. A worker-record datum needs an active write; a `session-user` leaf

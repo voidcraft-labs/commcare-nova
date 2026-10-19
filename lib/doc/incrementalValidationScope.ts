@@ -7,11 +7,21 @@
  * lookup rule. The scoped-run equivalence then proves the untouched portion
  * remains valid. Unknown, cross-scope, or structurally ambiguous mutations
  * return `undefined` and take the absolute whole-document gate.
+ *
+ * Expression inference is document-wide: a Hidden Value's type, a case
+ * operation's write opinion and every effective case-property type are one
+ * fixpoint over all forms, so an edit in one form can move a verdict in any
+ * other form or module through it. A form outside the footprint was not
+ * edited, and its verdicts read only its own content, its module, and those
+ * inferred facts. A batch therefore keeps its footprint only while
+ * `inferenceFingerprint` is the same before and after it; any change to an
+ * inferred fact takes the absolute gate.
  */
 
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import { noMatchesFormOf, orderedCaseOperations } from "@/lib/domain";
+import { inferenceFingerprint } from "@/lib/domain/expression/inference";
 
 /** Structural twin of the validator scope kept on the domain side of the
  * CommCare boundary. `commitVerdicts` is the allowlisted adapter that passes
@@ -98,8 +108,25 @@ function addFieldForm(
 	return true;
 }
 
-/** Return the exact validator footprint for a conservatively safe batch. */
+/** Return the exact validator footprint for a conservatively safe batch.
+ * `doc` is the valid snapshot the batch applies to and `nextDoc` the
+ * candidate it produces. */
 export function incrementalValidationScope(
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+	nextDoc: BlueprintDoc,
+): IncrementalValidationScope | undefined {
+	const scope = mutationFootprint(doc, mutations);
+	if (scope === undefined) return undefined;
+	if (
+		nextDoc !== doc &&
+		inferenceFingerprint(doc) !== inferenceFingerprint(nextDoc)
+	)
+		return undefined;
+	return scope;
+}
+
+function mutationFootprint(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 ): IncrementalValidationScope | undefined {
@@ -143,13 +170,13 @@ export function incrementalValidationScope(
 			case "removeColumn":
 			case "moveColumn":
 			case "addSearchInput":
-			case "updateSearchInput":
 			case "moveSearchInput":
 				scope.moduleUuids.add(mutation.moduleUuid);
 				break;
 			/* A no-matches registration form reads the module's Search prompts
-			 * by identity, so removing one can leave a dangling read on that
-			 * form. */
+			 * by identity: an input's kind types every read of it there, and
+			 * removing one can leave a dangling read on that form. */
+			case "updateSearchInput":
 			case "removeSearchInput": {
 				scope.moduleUuids.add(mutation.moduleUuid);
 				const noMatchesForm = noMatchesFormOf(doc, mutation.moduleUuid);

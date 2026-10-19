@@ -32,6 +32,10 @@ export interface SlotProfile {
 	readonly operationIds: ReadonlySet<Uuid>;
 	readonly ownerValues: boolean;
 	readonly patternMatching: boolean;
+	/** `here()` has a handler only where a case list or detail installs one
+	 * (Formplayer `MenuSessionRunnerService.java::addHereFuncHandler`, Android
+	 * `EntitySelectActivity.getHereFunctionHandler`); no form context does. */
+	readonly here: boolean;
 }
 
 export function slotProfile(
@@ -48,6 +52,7 @@ export function slotProfile(
 			| "operationIds"
 			| "ownerValues"
 			| "patternMatching"
+			| "here"
 		>
 	> = {},
 ): SlotProfile {
@@ -62,6 +67,7 @@ export function slotProfile(
 		operationIds: new Set(),
 		ownerValues: false,
 		patternMatching: false,
+		here: false,
 		...facts,
 	};
 }

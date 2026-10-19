@@ -193,9 +193,9 @@ export const expressionCardSchemas: {
 	},
 	here: {
 		kind: "here",
-		label: "This value",
+		label: "Worker's location",
 		icon: tablerVariable,
-		description: "Use the value being evaluated",
+		description: "Use the worker's current location",
 		component: HereCard,
 		defaultValue: () => ({ kind: "here" }),
 	},

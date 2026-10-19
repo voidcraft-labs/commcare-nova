@@ -15,8 +15,18 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { type CaseType, caseTypeSchema } from "@/lib/domain";
+import {
+	buildDoc,
+	caseListConfig,
+	f,
+	parseFixtureExpression,
+} from "@/lib/__tests__/docHelpers";
+import {
+	type BlueprintDoc,
+	type CaseType,
+	calculatedColumn,
+	caseTypeSchema,
+} from "@/lib/domain";
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import { advancedSearchInputDef } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
@@ -57,6 +67,7 @@ import {
 	or,
 	ownerLocationAtLevel,
 	prop,
+	qualifiedLiteral,
 	relationStep,
 	selfPath,
 	sessionContext,
@@ -76,8 +87,9 @@ import {
 	checkExpression,
 	inferRecordQuery,
 	scalarDataType,
+	typeOf,
 } from "../typeChecker";
-import type { Expression } from "../types";
+import type { Expression, ExpressionSlotRef } from "../types";
 
 type QueryFixture = Parameters<typeof recordQueryContext>[0] & {
 	readonly ownerValues?: boolean;
@@ -2732,5 +2744,523 @@ describe("assignmentVerdict — directional storage compatibility", () => {
 				emptyDate.errors.map((error) => error.message).join(" "),
 			).toContain("empty typed temporal literal");
 		}
+	});
+});
+
+// ── The form rule set and the slot facts ─────────────────────────────
+//
+// One follow-up form whose fields cover each operand kind the form rules
+// read, a repeat with answers inside it, and a calculated case-list column.
+// Each case parses its source in the slot that stores it and checks it there.
+
+const RULES = Object.fromEntries(
+	[
+		"module",
+		"form",
+		"consent",
+		"n",
+		"t",
+		"d",
+		"dt",
+		"probe",
+		"timeHidden",
+		"intHidden",
+		"stamp",
+		"rep",
+		"q",
+		"w",
+		"inside",
+		"members",
+		"column",
+		"operation",
+	].map((name) => [name, testUuid(`form-rules-${name}`)]),
+) as Record<string, ReturnType<typeof testUuid>>;
+
+function rulesDoc(
+	columnExpression: Expression = term(literal("x")),
+): BlueprintDoc {
+	return buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "seen_at", label: "Seen", data_type: "datetime" },
+					{ name: "note", label: "Note", data_type: "text" },
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: RULES.module,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					...caseListConfig([{ field: "case_name", header: "Name" }]),
+					columns: [calculatedColumn(RULES.column, "Here", columnExpression)],
+					listColumnOrder: [RULES.column],
+					detailColumnOrder: [RULES.column],
+				},
+				forms: [
+					{
+						uuid: RULES.form,
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								uuid: RULES.consent,
+								id: "consent",
+								kind: "single_select",
+								label: "Consent",
+								options: [
+									{ value: "yes", label: "Yes" },
+									{ value: "no", label: "No" },
+								],
+							}),
+							f({ uuid: RULES.n, id: "n", kind: "int", label: "N" }),
+							f({ uuid: RULES.t, id: "t", kind: "time", label: "T" }),
+							f({ uuid: RULES.d, id: "d", kind: "date", label: "D" }),
+							f({ uuid: RULES.dt, id: "dt", kind: "datetime", label: "DT" }),
+							f({ uuid: RULES.probe, id: "probe", kind: "hidden" }),
+							f({
+								uuid: RULES.timeHidden,
+								id: "time_hidden",
+								kind: "hidden",
+								default_value: "#form/t",
+							}),
+							f({
+								uuid: RULES.intHidden,
+								id: "int_hidden",
+								kind: "hidden",
+								default_value: "#form/n",
+							}),
+							f({
+								uuid: RULES.stamp,
+								id: "stamp",
+								kind: "hidden",
+								calculate: "now()",
+							}),
+							f({
+								uuid: RULES.members,
+								id: "members",
+								kind: "single_select",
+								label: "Member",
+								optionsSource: {
+									kind: "cases",
+									caseType: "patient",
+									labelProperty: "case_name",
+								},
+							}),
+							f({
+								uuid: RULES.rep,
+								id: "rep",
+								kind: "repeat",
+								children: [
+									f({ uuid: RULES.q, id: "q", kind: "text", label: "Q" }),
+									f({ uuid: RULES.w, id: "w", kind: "int", label: "W" }),
+									f({ uuid: RULES.inside, id: "inside", kind: "hidden" }),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+function fieldSlot(
+	uuid: string,
+	slot: "calculate" | "relevant" | "default_value" = "calculate",
+): ExpressionSlotRef {
+	return { entity: "field", uuid: uuid as never, slot };
+}
+function slotOutcome(
+	doc: BlueprintDoc,
+	slot: ExpressionSlotRef,
+	expression: Expression,
+) {
+	const ctx = slotContext(doc, slot, new Map());
+	if (ctx === undefined) throw new Error("The rules fixture has no such slot.");
+	return checkExpression(expression, ctx);
+}
+/** Parse form XPath in a slot and check it there. */
+function formErrors(source: string, slot = fieldSlot(RULES.probe)) {
+	const doc = rulesDoc();
+	return slotOutcome(doc, slot, parseFixtureExpression(doc, slot, source))
+		.errors;
+}
+const codes = (errors: readonly { code: string; reason?: string }[]) =>
+	errors.map((error) =>
+		error.reason === undefined ? error.code : `${error.code}:${error.reason}`,
+	);
+
+describe("form comparisons", () => {
+	it.each([
+		["#form/t < '10:00'", ["time-ordering"]],
+		["'09:30' < #form/n", ["time-ordering"]],
+		["#form/time_hidden < 5", ["time-ordering"]],
+		["#form/n < 'a:b'", ["number-value"]],
+		["#form/d = now()", ["incompatible-values:date-datetime"]],
+		["#form/dt < '2026-01-01'", ["incompatible-values:date-datetime"]],
+		["today() != #form/dt", ["incompatible-values:date-datetime"]],
+		["#form/dt < 5", ["incompatible-values:datetime-ordering"]],
+		["now() > #form/consent", ["incompatible-values:datetime-ordering"]],
+		["#form/consent = true()", ["incompatible-values:boolean"]],
+		["false() != #form/n", ["incompatible-values:boolean"]],
+	])("refuses %s, one finding per comparison", (source, expected) => {
+		expect(codes(formErrors(source))).toEqual(expected);
+	});
+	it.each([
+		"#form/t = #form/t",
+		"#form/n < '10'",
+		"#form/int_hidden < 5",
+		"date(now()) = #form/d",
+		"date(#form/dt) < now()",
+		"#form/dt < now()",
+		"#form/d < '2026-01-01'",
+		"#form/dt < '2026-01-01T10:00:00'",
+		"#form/dt = ''",
+		"#form/consent = 'yes'",
+		"(#form/n > 1) = true()",
+		"true() + 1",
+		"#form/probe < now()",
+	])("admits %s", (source) => {
+		expect(formErrors(source)).toEqual([]);
+	});
+	it("refuses a date-and-time literal finer than a millisecond", () => {
+		expect(codes(formErrors("#form/dt < '2026-01-01T10:00:00.1234'"))).toEqual([
+			"datetime-literal-precision:datetime-literal-precision",
+		]);
+		expect(formErrors("#form/dt < '2026-01-01T10:00:00.123'")).toEqual([]);
+	});
+});
+
+describe("record comparisons", () => {
+	it("names a date against a date and time, keeping the refusal", () => {
+		expect(
+			conditionVerdict(
+				eq(term(prop("patient", "dob")), term(prop("patient", "last_seen"))),
+				ctx,
+			),
+		).toEqual({
+			ok: false,
+			errors: [
+				expect.objectContaining({
+					code: "incompatible-values",
+					reason: "date-datetime",
+				}),
+			],
+		});
+		expect(
+			conditionVerdict(
+				gt(
+					term(prop("patient", "last_seen")),
+					datetimeCoerce(term(literal("2026-01-01"))),
+				),
+				ctx,
+			).ok,
+		).toBe(true);
+	});
+	it("refuses a microsecond literal beside a millisecond and a minute", () => {
+		const at = (value: string) =>
+			gt(
+				term(prop("patient", "last_seen")),
+				term(qualifiedLiteral(value, "datetime")),
+			);
+		expect(
+			conditionVerdict(at("2026-01-01T10:00:00.1234Z"), ctx),
+		).toMatchObject({
+			ok: false,
+			errors: [{ code: "datetime-literal-precision", path: ["right"] }],
+		});
+		expect(conditionVerdict(at("2026-01-01T10:00:00.123Z"), ctx).ok).toBe(true);
+		expect(conditionVerdict(at("2026-01-01T10:00"), ctx).ok).toBe(true);
+		expect(
+			conditionVerdict(
+				gt(
+					term(prop("patient", "last_seen")),
+					datetimeCoerce(term(literal("2026-01-01T10:00:00.000001Z"))),
+				),
+				ctx,
+			),
+		).toMatchObject({
+			ok: false,
+			errors: [
+				{ code: "datetime-literal-precision", path: ["right", "value"] },
+			],
+		});
+	});
+});
+
+describe("several values where one is needed", () => {
+	const repeatSlot = fieldSlot(RULES.inside);
+	it.each([
+		"#form/rep/q = 'yes'",
+		"concat(#form/rep/q, 'x')",
+		"boolean(#form/rep/q)",
+		"string(#form/rep/q)",
+		"max(#form/rep/w, 1)",
+		"join(' ', #form/rep/q, 'x')",
+		"checklist(1, -1, #form/rep/q, 'x')",
+		"weighted-checklist(0, 5, #form/rep/q, 2)",
+		"coalesce(#form/rep/q, 'x')",
+		"coalesce('', #form/rep/q)",
+		"if(true(), #form/rep/q, '')",
+		"#form/rep/q",
+		"selected(#form/rep/q, 'a')",
+	])("refuses %s outside the repeat", (source) => {
+		expect(formErrors(source)).toContainEqual(
+			expect.objectContaining({ code: "many-values", reason: "repeat" }),
+		);
+	});
+	it.each([
+		"count(#form/rep/q)",
+		"join(' ', #form/rep/q)",
+		"sum(#form/rep/w)",
+		"max(#form/rep/w)",
+		"concat(#form/rep/q)",
+		"index-of(#form/rep/q, 'x')",
+		"depend(#form/n, #form/rep/q)",
+		"checklist(1, -1, #form/rep/q)",
+		"weighted-checklist(0, 5, #form/rep/q, #form/rep/w)",
+		"#form/rep[1]/q = 'yes'",
+		"#form/rep[q = 'yes']/q = 'yes'",
+		"count(#form/rep[#form/rep/q = 'yes'])",
+		"instance('casedb')/casedb/case[@case_type = 'patient']/case_name = 'x'",
+	])("admits %s outside the repeat", (source) => {
+		expect(formErrors(source)).toEqual([]);
+	});
+	it.each(["#form/rep/q = 'yes'", "../q = 'yes'", "current()/../q"])(
+		"admits %s inside the repeat",
+		(source) => {
+			expect(formErrors(source, repeatSlot)).toEqual([]);
+		},
+	);
+	it("names the repeat in its finding", () => {
+		expect(formErrors("#form/rep/q = 'yes'")).toEqual([
+			expect.objectContaining({
+				path: ["left"],
+				message: expect.stringContaining('the repeat "rep"'),
+			}),
+		]);
+	});
+	it("refuses an answer from every entry as a label part outside the repeat", () => {
+		const doc = rulesDoc();
+		const read: Expression = term({ kind: "field", uuid: RULES.q });
+		const outside = slotContext(
+			doc,
+			{ entity: "field", uuid: RULES.consent, slot: "label" },
+			new Map(),
+		);
+		const inside = slotContext(
+			doc,
+			{ entity: "field", uuid: RULES.w, slot: "label" },
+			new Map(),
+		);
+		if (outside === undefined || inside === undefined)
+			throw new Error("The rules fixture has no label slot.");
+		expect(codes(checkExpression(read, outside).errors)).toEqual([
+			"many-values:repeat",
+		]);
+		expect(checkExpression(read, inside).errors).toEqual([]);
+	});
+	it("reads a repeated case operation's own entry, and every entry without one", () => {
+		const base = rulesDoc();
+		const operation = (forEach: boolean): BlueprintDoc => ({
+			...base,
+			forms: {
+				...base.forms,
+				[RULES.form]: {
+					...base.forms[RULES.form],
+					caseOperations: [
+						{
+							uuid: RULES.operation,
+							id: "visit",
+							action: "update",
+							caseType: "patient",
+							target: { kind: "session" },
+							...(forEach ? { forEach: { repeat: RULES.rep } } : {}),
+							writes: [
+								{
+									property: "note",
+									value: term({ kind: "field", uuid: RULES.q }),
+								},
+							],
+						},
+					],
+				},
+			},
+		});
+		const slot: ExpressionSlotRef = {
+			entity: "form",
+			uuid: RULES.form,
+			slot: "case_operation_write_value",
+			member: { operationUuid: RULES.operation, property: "note" },
+		};
+		const value = term({ kind: "field", uuid: RULES.q });
+		expect(slotOutcome(operation(true), slot, value).errors).toEqual([]);
+		expect(codes(slotOutcome(operation(false), slot, value).errors)).toEqual([
+			"many-values:repeat",
+		]);
+	});
+});
+
+describe("a Hidden Value read", () => {
+	it("keeps an untyped Hidden Value's held class with no type opinion", () => {
+		const doc = rulesDoc();
+		const ctx = slotContext(doc, fieldSlot(RULES.n, "relevant"), new Map());
+		if (ctx === undefined) throw new Error("The rules fixture has no slot.");
+		expect(typeOf(term({ kind: "field", uuid: RULES.probe }), ctx)).toEqual({
+			data: { nodes: "_any", cardinality: "one" },
+			held: { nodes: "string" },
+		});
+		expect(
+			typeOf(term({ kind: "field", uuid: RULES.stamp }), ctx),
+		).toMatchObject({
+			data: { nodes: "datetime" },
+			held: { nodes: "date" },
+			clockLost: true,
+		});
+	});
+	it("refuses a lost clock written into a date-and-time property", () => {
+		const base = rulesDoc();
+		const write = (value: Expression): BlueprintDoc => ({
+			...base,
+			forms: {
+				...base.forms,
+				[RULES.form]: {
+					...base.forms[RULES.form],
+					caseOperations: [
+						{
+							uuid: RULES.operation,
+							id: "visit",
+							action: "update",
+							caseType: "patient",
+							target: { kind: "session" },
+							writes: [{ property: "seen_at", value }],
+						},
+					],
+				},
+			},
+		});
+		const slot: ExpressionSlotRef = {
+			entity: "form",
+			uuid: RULES.form,
+			slot: "case_operation_write_value",
+			member: { operationUuid: RULES.operation, property: "seen_at" },
+		};
+		const copy = term({ kind: "field", uuid: RULES.stamp });
+		expect(codes(slotOutcome(write(copy), slot, copy).errors)).toEqual([
+			"expected-value:clock-lost",
+		]);
+		expect(slotOutcome(write(now()), slot, now()).errors).toEqual([]);
+	});
+});
+
+describe("integral functions", () => {
+	it.each(["int(#form/n div 2)", "round(1.5)", "string-length('ab')"])(
+		"types %s as an integer",
+		(source) => {
+			const doc = rulesDoc();
+			const slot = fieldSlot(RULES.probe);
+			const ctx = slotContext(doc, slot, new Map());
+			if (ctx === undefined) throw new Error("The rules fixture has no slot.");
+			expect(
+				scalarDataType(
+					typeOf(parseFixtureExpression(doc, slot, source), ctx)?.data,
+				),
+			).toBe("int");
+		},
+	);
+});
+
+describe("slot facts", () => {
+	const columnSlot: ExpressionSlotRef = {
+		entity: "module",
+		uuid: RULES.module,
+		slot: "case_list_column_expression",
+		member: { columnUuid: RULES.column },
+	};
+	it("admits here() in a calculated column only", () => {
+		const here: Expression = { kind: "here" };
+		const doc = rulesDoc(here);
+		const column = slotContext(doc, columnSlot, new Map());
+		if (column === undefined) throw new Error("The column slot is missing.");
+		expect(checkExpression(here, column)).toEqual({
+			type: { data: "geopoint", held: "string" },
+			errors: [],
+		});
+		expect(codes(formErrors("here()"))).toEqual(["arm-unavailable:here"]);
+		expect(
+			codes(
+				slotOutcome(
+					doc,
+					{
+						entity: "module",
+						uuid: RULES.module,
+						slot: "module_display_condition",
+					},
+					eq(here, term(literal("x"))),
+				).errors,
+			),
+		).toContain("arm-unavailable:here");
+	});
+	it("names a choice label read over choices that are not written in the form", () => {
+		const read = (field: string): Expression => ({
+			kind: "choice-name",
+			field: field as never,
+			value: term(literal("yes")),
+		});
+		const doc = rulesDoc();
+		expect(
+			codes(
+				slotOutcome(doc, fieldSlot(RULES.probe), read(RULES.members)).errors,
+			),
+		).toEqual(["arm-unavailable:choice-name-dynamic"]);
+		expect(
+			codes(
+				slotOutcome(doc, fieldSlot(RULES.probe), read(RULES.consent)).errors,
+			),
+		).toEqual(["arm-unavailable:choice-name"]);
+	});
+	it("refuses a date format the case store cannot fix before it reads a row", () => {
+		const computed = formatDate(
+			today(),
+			concat(term(literal("%")), term(literal("Y"))),
+		);
+		const doc = rulesDoc(computed);
+		expect(codes(slotOutcome(doc, columnSlot, computed).errors)).toEqual([
+			"format-date-pattern-not-fixed",
+		]);
+		const unknownToken = formatDate(
+			today(),
+			term(qualifiedLiteral("%Q", "text")),
+		);
+		expect(
+			codes(
+				slotOutcome(rulesDoc(unknownToken), columnSlot, unknownToken).errors,
+			),
+		).toEqual(["format-date-pattern-not-fixed"]);
+		const fixed = formatDate(today(), term(qualifiedLiteral("%Y", "text")));
+		expect(slotOutcome(rulesDoc(fixed), columnSlot, fixed).errors).toEqual([]);
+		expect(formErrors("format-date(today(), concat('%', 'Y'))")).toEqual([]);
+	});
+	it("splits a multiple choice default on spaces alone", () => {
+		const doc = rulesDoc();
+		const field = doc.fields[RULES.consent];
+		const multi = {
+			...doc,
+			fields: {
+				...doc.fields,
+				[RULES.consent]: { ...field, kind: "multi_select" },
+			},
+		} as BlueprintDoc;
+		const slot = fieldSlot(RULES.consent, "default_value");
+		expect(
+			codes(slotOutcome(multi, slot, term(literal("yes\tno"))).errors),
+		).toEqual(["default-not-a-choice"]);
+		expect(slotOutcome(multi, slot, term(literal("yes  no"))).errors).toEqual(
+			[],
+		);
 	});
 });

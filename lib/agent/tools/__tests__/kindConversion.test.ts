@@ -989,10 +989,10 @@ describe("editField — demotions", () => {
 	});
 
 	it("text → hidden as the last typed writer pins the undeclared property to text", async () => {
-		// Hidden writers are exempt from the agreement rules, so a later
-		// calculate edit could silently retype the property via expression
-		// inference — the pin freezes the entry at the type its rows
-		// already hold.
+		// The converted Hidden Value holds no type opinion until it has a
+		// value, so the pin freezes the entry at the type its rows already
+		// hold: a later value of another type meets writer agreement
+		// instead of retyping the property.
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -1039,24 +1039,47 @@ describe("editField — demotions", () => {
 		const h = makeToolWorkspaceHarness(doc);
 		const result = await h.runTool(editFieldTool, {
 			...address(doc, "visit_note"),
-			updates: { kind: "hidden", calculate: today() },
+			updates: { kind: "hidden" },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());
 
 		const after = h.currentDoc().fields[soleField(doc, "visit_note").uuid];
 		expect(after?.kind).toBe("hidden");
-		const entry = h
-			.currentDoc()
-			.caseTypes?.find((ct) => ct.name === "patient")
-			?.properties.find((p) => p.name === "visit_note");
-		expect(entry?.data_type).toBe("text");
+		const declared = () =>
+			h
+				.currentDoc()
+				.caseTypes?.find((ct) => ct.name === "patient")
+				?.properties.find((p) => p.name === "visit_note")?.data_type;
+		expect(declared()).toBe("text");
 		// The result reports the pinned type, never "hidden" (not a data
 		// type) — the SA trusts mutation-tool prose verbatim.
 		expect(result.result).toMatchObject({
 			ok: true,
 			conversion: { caseProperty: { declaredType: "text" } },
 		});
+
+		const dated = await h.runTool(editFieldTool, {
+			...address(doc, "visit_note"),
+			updates: { kind: "hidden", calculate: today() },
+		});
+		expect(dated.result).toHaveProperty("error");
+		if (!("error" in dated.result))
+			throw new Error("A date was saved over the pinned text property.");
+		expect(dated.result.error).toContain(
+			'saves a date to "visit_note" on "patient", which holds text',
+		);
+		expect(declared()).toBe("text");
+		const texted = await h.runTool(editFieldTool, {
+			...address(doc, "visit_note"),
+			updates: {
+				kind: "hidden",
+				calculate: concat(term(literal("seen")), term(literal(" today"))),
+			},
+		});
+		if ("error" in texted.result) throw new Error(texted.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(declared()).toBe("text");
 	});
 
 	it("single ↔ multi conversions keep the existing verbatim-options path (no seed consumed)", async () => {

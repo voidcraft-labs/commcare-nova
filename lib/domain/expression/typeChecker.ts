@@ -2,12 +2,19 @@
  * rules and native held classes share the same lexical contexts and cache. */
 import type { CasePropertyDataType } from "../casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
-import { FUNCTION_REGISTRY, functionArityIssue } from "../expressionFunctions";
+import {
+	FUNCTION_REGISTRY,
+	type FunctionSpec,
+	functionArityIssue,
+} from "../expressionFunctions";
 import { STANDARD_CASE_LIST_PROPERTY_DATA_TYPES } from "../standardCaseProperties";
+import type { Uuid } from "../uuid";
 import { type ExpressionChild, expressionChildren } from "./children";
+import { selectAnswerTokens } from "./choiceValue";
 import {
 	activeRowScope,
 	type ExpressionContext,
+	type FormExpressionFacts,
 	pushRowScope,
 	type RecordQueryContext,
 	type RecordQueryRowScope,
@@ -15,6 +22,7 @@ import {
 	type TypingContext,
 	withFormContextNode,
 } from "./context";
+import { fixedDatePattern } from "./datePattern";
 import { formNodeGraph } from "./formNodes";
 import { numericAnswerText } from "./numberLiteral";
 import { resolveRelationDestination } from "./relationDestination";
@@ -25,6 +33,7 @@ import {
 	isDateOrDatetime,
 	isNumeric,
 	isValueStorageAssignable,
+	literalShape,
 	literalType,
 	MATCH_PROPERTY_TYPES_BY_MODE,
 	ORDERED_TYPES,
@@ -54,7 +63,12 @@ export type ExpressionType =
 	| {
 			readonly nodes: ScalarType | "case" | "table" | "location" | "repeat";
 			readonly cardinality: "one" | "many";
+			/** Several nodes by the app's shape, not its data: a form read that
+			 * crosses a repeat its context is not inside, or `selected-cases`. */
 			readonly structural?: true;
+			/** A group, section, form root or Connect block: a container node,
+			 * whose text value is its descendants' text. */
+			readonly container?: true;
 	  }
 	| "sequence";
 export type Held =
@@ -64,10 +78,23 @@ export type Held =
 	| "date"
 	| { readonly nodes: "boolean" | "number" | "string" | "date" }
 	| "sequence";
+/** What one scalar value or one node unpacks to. */
+export type ScalarHeld = Exclude<Held, object | "sequence">;
+/** Why a node-set holds several values by the app's shape. */
+export type StructuralSource =
+	| { readonly reason: "repeat"; readonly repeat: Uuid }
+	| { readonly reason: "selected-cases"; readonly module: Uuid };
 export interface NodeType {
 	readonly data: ExpressionType;
 	readonly held: Held;
 	readonly caseIdOf?: string;
+	/** A date and time that may hold only its day: some value it can be is a
+	 * Hidden Value whose clock is gone (`inference.ts`). */
+	readonly clockLost?: true;
+	/** Present on a structurally several-valued node-set, and on the result of
+	 * a position that passes one through (`if` and `switch` branches, the last
+	 * `coalesce` argument, a function's pass-through argument). */
+	readonly several?: StructuralSource;
 }
 export type CheckErrorCode =
 	| "unknown-property"
@@ -111,12 +138,17 @@ export type CheckErrorCode =
 	| "search-answer-unavailable"
 	| "row-scope"
 	| "datum-not-supplied"
-	| "record-position";
+	| "record-position"
+	| "many-values"
+	| "datetime-literal-precision"
+	| "format-date-pattern-not-fixed";
 export interface CheckError {
 	readonly path: CheckPath;
 	readonly code: CheckErrorCode;
 	readonly message: string;
 	readonly reason?: string;
+	/** On `many-values`: the repeat or menu that makes the read several. */
+	readonly several?: StructuralSource;
 }
 export interface CheckOutcome {
 	readonly type: NodeType | undefined;
@@ -154,7 +186,7 @@ export function scalarDataType(
 		? undefined
 		: (data.nodes as ScalarType);
 }
-function scalarHeld(data: ScalarType): Exclude<Held, object | "sequence"> {
+function scalarHeld(data: ScalarType): ScalarHeld {
 	return data === "boolean"
 		? "boolean"
 		: isNumeric(data)
@@ -172,7 +204,7 @@ function scalar(
 }
 function nodes(
 	data: ScalarType | "case" | "table" | "location" | "repeat",
-	held: Exclude<Held, object | "sequence"> = "string",
+	held: ScalarHeld = "string",
 	cardinality: "one" | "many" = "one",
 	caseIdOf?: string,
 ): NodeType {
@@ -180,6 +212,18 @@ function nodes(
 		data: { nodes: data, cardinality },
 		held: { nodes: held },
 		...(caseIdOf === undefined ? {} : { caseIdOf }),
+	};
+}
+/** A node-set the app's shape makes several-valued. */
+function severalNodes(
+	type: NodeType,
+	several: StructuralSource | undefined,
+): NodeType {
+	if (several === undefined || typeof type.data !== "object") return type;
+	return {
+		...type,
+		data: { ...type.data, cardinality: "many", structural: true },
+		several,
 	};
 }
 function caseScope(
@@ -238,6 +282,13 @@ const cached = new WeakMap<
 	TypingContext,
 	WeakMap<Expression, Map<RecordPosition | undefined, CheckOutcome>>
 >();
+/** Each node's walk records its children's types by path, so the one
+ * consumption rule below reads them without walking a second time. */
+const childTypes = new WeakMap<
+	CheckError[],
+	Map<string, NodeType | undefined>
+>();
+const pathKey = (path: CheckPath): string => JSON.stringify(path);
 function infer(
 	expression: Expression,
 	ctx: TypingContext,
@@ -279,7 +330,13 @@ function infer(
 						: "This position takes a condition. Compare this value with something.",
 			});
 	}
-	const type = inferNode(expression, ctx, errors, position);
+	childTypes.set(errors, new Map());
+	const type = settle(
+		expression,
+		ctx,
+		errors,
+		inferNode(expression, ctx, errors, position),
+	);
 	const outcome = { type, errors };
 	byPosition.set(position, outcome);
 	return outcome;
@@ -294,6 +351,7 @@ function inferAt(
 	const outcome = infer(expression, ctx, position);
 	for (const error of outcome.errors)
 		errors.push({ ...error, path: [...path, ...error.path] });
+	childTypes.get(errors)?.set(pathKey(path), outcome.type);
 	return outcome.type;
 }
 function inferScalar(
@@ -321,6 +379,168 @@ function inferCondition(
 	path: CheckPath,
 ): void {
 	inferAt(expression, ctx, errors, path, "condition");
+}
+
+/**
+ * How a node consumes a child's value. Core unpacks every value it reads as
+ * one (`FunctionUtils.unpack`, `toNumeric`, `toString`, `toBoolean`, `toDate`),
+ * which throws on more than one node (`XPathNodeset.java::unpack`). A few
+ * positions read a node-set whole (`many`), a few return their argument for
+ * the caller to unpack (`pass`), and `datetime-coerce` and `date-add` keep a
+ * date and time's clock, or its loss (`inherit`).
+ */
+type ChildUse = "scalar" | "many" | "pass" | "inherit";
+function childUse(
+	parent: Expression,
+	child: ExpressionChild,
+	spec: FunctionSpec | undefined,
+	jointlyAdmitted: boolean,
+): ChildUse {
+	const role = child.role;
+	switch (parent.kind) {
+		case "if":
+			return role.kind === "operand" &&
+				(role.slot === "then" || role.slot === "else")
+				? "pass"
+				: "scalar";
+		case "switch":
+			return (role.kind === "switch-case" && role.slot === "then") ||
+				(role.kind === "operand" && role.slot === "fallback")
+				? "pass"
+				: "scalar";
+		case "coalesce":
+			// XpathCoalesceFunc.evalBody unpacks every argument but the last.
+			return role.kind === "item" && role.index === parent.values.length - 1
+				? "pass"
+				: "scalar";
+		case "concat":
+			// XPathConcatFunc: one node-set argument is joined whole.
+			return parent.parts.length === 1 ? "many" : "scalar";
+		case "call": {
+			if (role.kind !== "item") return "scalar";
+			const argumentCount = parent.args.length;
+			if (
+				spec?.manyArguments?.(argumentCount).has(role.index) === true &&
+				(spec.manyArgumentsJointly !== true || jointlyAdmitted)
+			)
+				return "many";
+			return spec?.passThrough?.(argumentCount).has(role.index) === true
+				? "pass"
+				: "scalar";
+		}
+		// A count's node-set, a query's rows and every row predicate's own
+		// content are read whole; a value list flattens its items.
+		case "count":
+		case "exists":
+		case "missing":
+		case "table-lookup":
+		case "cases":
+		case "table-rows":
+		case "locations":
+		case "project":
+		case "value-list":
+			return "many";
+		case "datetime-coerce":
+			return "inherit";
+		case "date-add":
+			return role.kind === "operand" && role.slot === "date"
+				? "inherit"
+				: "scalar";
+		default:
+			return "scalar";
+	}
+}
+function manyValuesError(
+	source: StructuralSource,
+	path: CheckPath,
+	ctx: TypingContext,
+): CheckError {
+	const repeat =
+		source.reason === "repeat" && "form" in ctx
+			? ctx.form?.fields.get(source.repeat)?.id
+			: undefined;
+	return {
+		path,
+		code: "many-values",
+		reason: source.reason,
+		several: source,
+		message:
+			source.reason === "repeat"
+				? `This reads an answer from every entry of the repeat "${repeat ?? "repeat"}" where it needs one value. You can count or join the entries, or read just one of them.`
+				: "This reads every case chosen in its menu where it needs one value. You can count or join them.",
+	};
+}
+/** Apply the consumption rule to a node's recorded children: refuse a
+ * structurally several-valued child in a position that reads one value, and
+ * carry the several mark and a lost clock through the positions that keep them. */
+function settle(
+	expression: Expression,
+	ctx: TypingContext,
+	errors: CheckError[],
+	result: NodeType | undefined,
+): NodeType | undefined {
+	if (expression.kind === "term") return result;
+	const recorded = childTypes.get(errors);
+	if (recorded === undefined || recorded.size === 0) return result;
+	const children = expressionChildren(expression).flatMap((child) =>
+		child.kind === "expression"
+			? [{ child, type: recorded.get(pathKey(child.path)) }]
+			: [],
+	);
+	const spec =
+		expression.kind === "call"
+			? FUNCTION_REGISTRY.get(expression.fn)
+			: undefined;
+	const jointlyAdmitted =
+		spec?.manyArgumentsJointly === true &&
+		expression.kind === "call" &&
+		[...(spec.manyArguments?.(expression.args.length) ?? [])].every(
+			(index) =>
+				typeof recorded.get(pathKey(["call", "args", index]))?.data ===
+				"object",
+		);
+	let several: StructuralSource | undefined;
+	let clockLost = false;
+	for (const { child, type } of children) {
+		if (type === undefined) continue;
+		const use = childUse(expression, child, spec, jointlyAdmitted);
+		if (use === "pass" || use === "inherit")
+			clockLost ||= type.clockLost === true;
+		if (use === "pass") {
+			several ??= type.several;
+			continue;
+		}
+		if (use !== "many" && type.several !== undefined)
+			errors.push(manyValuesError(type.several, child.path, ctx));
+	}
+	if (result === undefined)
+		return several === undefined
+			? undefined
+			: {
+					data: { nodes: ANY_TYPE, cardinality: "many", structural: true },
+					held: { nodes: "string" },
+					several,
+				};
+	// A branch's own marks never pass through a position that reads one value.
+	const data =
+		several === undefined &&
+		typeof result.data === "object" &&
+		result.data.structural === true
+			? {
+					nodes: result.data.nodes,
+					cardinality: result.data.cardinality,
+					...(result.data.container === true
+						? { container: true as const }
+						: {}),
+				}
+			: result.data;
+	return {
+		data,
+		held: result.held,
+		...(result.caseIdOf === undefined ? {} : { caseIdOf: result.caseIdOf }),
+		...(clockLost ? { clockLost: true as const } : {}),
+		...(several === undefined ? {} : { several }),
+	};
 }
 
 export function typeOf(
@@ -382,6 +602,11 @@ export function checkExpression(
 				message: `Expression resolves to '${describe(data)}', which is not compatible with expected '${expectation.type}'.`,
 			});
 	}
+	if (
+		outcome.type?.several !== undefined &&
+		!(expectation.kind === "value" && expectation.many === true)
+	)
+		errors.push(manyValuesError(outcome.type.several, [], ctx));
 	if (expectation.kind === "assignment")
 		assignmentErrors(expression, ctx, expectation.destinations, errors);
 	if (ctx.slot.entity === "field" && ctx.slot.slot === "default_value")
@@ -428,12 +653,32 @@ function admission(
 			return refusal("arm-unavailable", issue, "function-arity");
 	}
 
+	if (expression.kind === "here" && !profile.here)
+		return refusal(
+			"arm-unavailable",
+			"here() reads the worker's location, which CommCare offers only in a case list's calculated column. You can read a location question's answer instead.",
+			"here",
+		);
+	if (expression.kind === "choice-name") {
+		// FormDef.initEvalContext's handler reads QuestionDef.getChoices, which
+		// is null for a question whose choices come from an itemset.
+		const choices = ctx.form?.fields.get(expression.field)?.choices;
+		return choices !== undefined && choices.kind !== "inline"
+			? refusal(
+					"arm-unavailable",
+					"This question's choices come from a lookup table or a case list, so CommCare can't read a choice's label. You can read the answer itself instead.",
+					"choice-name-dynamic",
+				)
+			: refusal(
+					"arm-unavailable",
+					"A choice's label can't be read in this setting. You can read the answer itself instead.",
+					"choice-name",
+				);
+	}
 	if (
 		[
-			"here",
 			"value-list",
 			"itext",
-			"choice-name",
 			"selected-cases",
 			"table-rows",
 			"locations",
@@ -963,17 +1208,14 @@ function inferNode(
 				else inferTerm(child.value, next, errors, child.path);
 			}
 			if (
-				["gt", "gte", "lt", "lte"].includes(expression.kind) &&
-				"left" in expression &&
-				"right" in expression
-			) {
-				const left = scalarDataType(infer(expression.left, ctx).type?.data);
-				const right = scalarDataType(infer(expression.right, ctx).type?.data);
-				if (left === "time" || right === "time")
-					errors.push(refusal("time-ordering", TIME_ORDERING_MESSAGE));
-				numericLiteral(expression.left, ["left"], errors);
-				numericLiteral(expression.right, ["right"], errors);
-			}
+				expression.kind === "eq" ||
+				expression.kind === "neq" ||
+				expression.kind === "gt" ||
+				expression.kind === "gte" ||
+				expression.kind === "lt" ||
+				expression.kind === "lte"
+			)
+				checkFormComparison(expression, ctx, errors);
 		} else checkConditionNode(expression, ctx, errors);
 		return scalar("boolean");
 	}
@@ -1090,6 +1332,8 @@ function inferNode(
 		case "datetime-coerce":
 		case "double": {
 			const inner = readScalar(expression.value, ["value"]);
+			if (expression.kind === "datetime-coerce")
+				datetimeLiteralPrecision(expression.value, ["value"], errors, true);
 			if (
 				ctx.ruleSet === "record" &&
 				inner !== undefined &&
@@ -1134,9 +1378,25 @@ function inferNode(
 					code: "date-value",
 					message: `format-date requires a date or datetime; got '${describe(inner)}'.`,
 				});
-			if (typeof expression.pattern !== "string")
+			if (typeof expression.pattern !== "string") {
 				read(expression.pattern, ["pattern"]);
-			else if (
+				// The case store compiles a format-date to SQL, which needs the
+				// whole pattern when it compiles (compileExpression.ts::compileFormatDate).
+				const fixed = fixedDatePattern(expression.pattern);
+				if (
+					"profile" in ctx &&
+					ctx.profile.targets.has("PG") &&
+					(fixed === undefined ||
+						fixed.length === 0 ||
+						!COMMCARE_DATE_PATTERN_REGEX.test(fixed))
+				)
+					errors.push({
+						path: ["pattern"],
+						code: "format-date-pattern-not-fixed",
+						message:
+							"This date format can't change from row to row here, because the case list reads it before it reads any row. You can choose a fixed date format.",
+					});
+			} else if (
 				ctx.ruleSet === "form" &&
 				["short", "long", "iso"].includes(expression.pattern)
 			)
@@ -1194,6 +1454,7 @@ function inferNode(
 					errors.push({
 						path: ["switch", "cases", index, "when"],
 						code: "incompatible-values",
+						...dateDatetimeReason(on, when),
 						message: `switch case 'when' literal '${describe(when)}' is not comparable with switch.on type '${describe(on)}'.`,
 					});
 				agreed = branchResult(
@@ -1341,6 +1602,7 @@ function inferNode(
 				if (spec?.paramTypes?.[index] === "number")
 					numericLiteral(argument, ["call", "args", index], errors);
 			}
+			if (spec?.integral === true) return scalar("int", "number");
 			if (spec?.returnType === "boolean") return scalar("boolean");
 			if (spec?.returnType === "number") return scalar("decimal", "number");
 			if (spec?.returnType === "sequence")
@@ -1351,12 +1613,25 @@ function inferNode(
 			return undefined;
 		}
 		case "selected-cases":
-			return nodes("text", "string", "many");
+			// A several-case form's chosen cases are several by the module's
+			// declaration, as a repeat holds several entries.
+			return severalNodes(
+				nodes(
+					"text",
+					"string",
+					"many",
+					"profile" in ctx
+						? ctx.facts.moduleCaseTypes.get(expression.module)
+						: undefined,
+				),
+				{ reason: "selected-cases", module: expression.module },
+			);
 		case "itext":
 		case "choice-name":
 			return scalar("text");
 		case "here":
-			return nodes("case");
+			// Formplayer's handler returns GeoPointData.getDisplayText().
+			return scalar("geopoint", "string");
 		case "value-list":
 			for (const [index, item] of expression.items.entries())
 				read(item, ["items", index]);
@@ -1544,6 +1819,12 @@ function inferTerm(
 	};
 	switch (term.kind) {
 		case "literal":
+			if (
+				term.data_type === "datetime" &&
+				typeof term.value === "string" &&
+				(literalShape(term.value)?.fractionDigits ?? 0) > 3
+			)
+				errors.push(datetimePrecisionError(path));
 			return scalar(
 				literalType(term),
 				typeof term.value === "number" ? "number" : "string",
@@ -1682,6 +1963,10 @@ function inferTerm(
 					);
 				return scalar(ctx.bindings.formFieldTypes.get(term.uuid) ?? "text");
 			}
+			const several =
+				ctx.form === undefined
+					? undefined
+					: structuralSeveral(term, ctx, ctx.form);
 			const form = ctx.form;
 			const node: FormNodeRef = term.kind === "form-node" ? term.node : term;
 			if (form === undefined || !formNodeGraph(form).has(node))
@@ -1717,27 +2002,44 @@ function inferTerm(
 			if (term.kind === "field") {
 				const field = form.fields.get(term.uuid);
 				if (field === undefined) return undefined;
-				if (field.kind === "repeat") return nodes("repeat", "string", "many");
+				if (field.kind === "repeat")
+					return severalNodes(nodes("repeat", "string"), several);
 				if (field.kind === "group" || field.kind === "section")
-					return {
-						data: { nodes: "text", cardinality: "one", structural: true },
-						held: { nodes: "string" },
-					};
-				if (field.type === undefined && ctx.ruleSet === "form")
-					return undefined;
-				const caseIdOf =
-					field.choices?.kind === "cases" ? field.choices.caseType : undefined;
-				return nodes(
-					field.type ?? "text",
+					return severalNodes(
+						{
+							data: { nodes: "text", cardinality: "one", container: true },
+							held: { nodes: "string" },
+						},
+						several,
+					);
+				const held =
 					typeof field.held === "object" || field.held === "sequence"
 						? "string"
-						: field.held,
-					"one",
-					caseIdOf,
+						: field.held;
+				const caseIdOf =
+					field.choices?.kind === "cases" ? field.choices.caseType : undefined;
+				if (field.kind === "hidden") {
+					// Unknown has no opinion, but its bind still decides what Core holds.
+					const hidden = nodes(field.type ?? ANY_TYPE, held, "one", caseIdOf);
+					return severalNodes(
+						ctx.facts.clockLost.has(term.uuid)
+							? { ...hidden, clockLost: true }
+							: hidden,
+						several,
+					);
+				}
+				if (field.type === undefined && ctx.ruleSet === "form")
+					return several === undefined
+						? undefined
+						: severalNodes(nodes(ANY_TYPE), several);
+				return severalNodes(
+					nodes(field.type ?? "text", held, "one", caseIdOf),
+					several,
 				);
 			}
 			if (term.kind === "repeat-row") {
-				if (term.attribute === "index") return nodes("int", "string");
+				if (term.attribute === "index")
+					return severalNodes(nodes("int", "string"), several);
 				const query = form.expressionAt({
 					entity: "field",
 					uuid: term.repeat,
@@ -1750,11 +2052,14 @@ function inferTerm(
 								query.kind === "project" ? query.of : query,
 								ctx,
 							);
-				return nodes(
-					"text",
-					"string",
-					"one",
-					row?.kind === "case" ? row.caseType : undefined,
+				return severalNodes(
+					nodes(
+						"text",
+						"string",
+						"one",
+						row?.kind === "case" ? row.caseType : undefined,
+					),
+					several,
 				);
 			}
 			if (
@@ -1763,24 +2068,29 @@ function inferTerm(
 				term.node.role === "content"
 			)
 				return {
-					data: { nodes: "text", cardinality: "one", structural: true },
+					data: { nodes: "text", cardinality: "one", container: true },
 					held: { nodes: "string" },
 				};
 			if (term.node.kind === "repeat") {
-				if (term.node.role === "query-ids") return nodes("text", "string");
+				if (term.node.role === "query-ids")
+					return severalNodes(nodes("text", "string"), several);
 				if (
 					term.node.role === "query-count" ||
 					term.node.role === "query-position"
 				)
-					return nodes("int", "number");
+					return severalNodes(nodes("int", "number"), several);
 				const expression = form.expressionAt({
 					entity: "field",
 					uuid: term.node.repeat,
 					slot: "repeat_count",
 				});
-				const countType =
-					expression === undefined ? undefined : infer(expression, ctx).type;
-				return nodes(scalarDataType(countType?.data) ?? "decimal", "number");
+				const countType = isExpression(expression)
+					? infer(expression, ctx).type
+					: undefined;
+				return severalNodes(
+					nodes(scalarDataType(countType?.data) ?? "decimal", "number"),
+					several,
+				);
 			}
 			if (
 				term.node.kind === "connect-learn" &&
@@ -1934,6 +2244,52 @@ function inferTerm(
 	}
 }
 
+/**
+ * The repeat a form read crosses: one on the read's path that its context
+ * node is not inside, whose step carries no filter. Core contextualizes an
+ * absolute read against its context only along their common path, and only
+ * where the read's own step has no predicate (`TreeReference.java::contextualize`),
+ * so a crossed repeat gives one node for every entry. The context is the
+ * slot's source node for `current()`, else its lexical context node; a slot
+ * with neither has every repeat crossed. Any filter on the crossed step leaves
+ * the count to the data.
+ */
+function structuralSeveral(
+	term: Extract<Term, { kind: "field" | "form-node" | "repeat-row" }>,
+	ctx: ExpressionContext,
+	form: FormExpressionFacts,
+): StructuralSource | undefined {
+	const graph = formNodeGraph(form);
+	const repeatsOn = (node: FormNodeRef | undefined): readonly Uuid[] =>
+		node === undefined
+			? []
+			: (graph.path(node) ?? []).flatMap((step) =>
+					step.kind === "field" &&
+					step.role === undefined &&
+					form.fields.get(step.uuid)?.kind === "repeat"
+						? [step.uuid]
+						: [],
+				);
+	const base =
+		"spelling" in term && term.spelling === "current"
+			? ctx.sourceNode
+			: ctx.contextNode;
+	const inside = new Set(repeatsOn(base));
+	const filtered = new Set(
+		(term.filters ?? []).flatMap((filter) =>
+			filter.step.kind === "field" && filter.step.role === undefined
+				? [filter.step.uuid]
+				: [],
+		),
+	);
+	const crossed = repeatsOn(term.kind === "form-node" ? term.node : term).find(
+		(repeat) => !inside.has(repeat) && !filtered.has(repeat),
+	);
+	return crossed === undefined
+		? undefined
+		: { reason: "repeat", repeat: crossed };
+}
+
 const resolvingGenerated = new WeakMap<ExpressionContext, Set<string>>();
 function generatedCalculation(
 	slot: import("./types").FormExpressionSlotRef,
@@ -1947,7 +2303,8 @@ function generatedCalculation(
 	}
 	if (resolving.has(key)) return undefined;
 	const expression = ctx.form?.expressionAt(slot);
-	if (expression === undefined) return undefined;
+	// A document being assembled can still hold the slot's source text.
+	if (!isExpression(expression)) return undefined;
 	resolving.add(key);
 	try {
 		const type = infer(expression, ctx).type;
@@ -2020,7 +2377,7 @@ function checkChoiceDefault(
 			: expression.term.value;
 	const values =
 		ctx.form?.fields.get(ctx.slot.uuid)?.kind === "multi_select"
-			? text.trim().split(/\s+/)
+			? selectAnswerTokens(text)
 			: [text];
 	if (values.some((value) => !choices.some((option) => option.value === value)))
 		errors.push(
@@ -2047,7 +2404,16 @@ function assignmentErrors(
 		});
 	assignmentRepresentationErrors(expression, [], "storage", ctx, errors);
 	visitAssignmentOutputs(expression, [], (output, path) => {
-		const type = scalarDataType(infer(output, ctx).type?.data);
+		const node = infer(output, ctx).type;
+		if (node?.clockLost === true && destinations.includes("datetime"))
+			errors.push({
+				path,
+				code: "expected-value",
+				reason: "clock-lost",
+				message:
+					"This value has kept only the day of a date and time, so saving it here would record midnight instead of the moment. You can read the date and time from the question or value that first recorded it, or save it to a date property.",
+			});
+		const type = scalarDataType(node?.data);
 		if (type === undefined || type === ANY_TYPE) return;
 		for (const destination of new Set(destinations))
 			if (!isValueStorageAssignable(type, destination))
@@ -2097,9 +2463,175 @@ function checkComparison(
 		errors.push({
 			path,
 			code: "incompatible-values",
+			...dateDatetimeReason(leftType, rightType),
 			message: `Type mismatch: '${describe(leftType)}' and '${describe(rightType)}' are not comparable.`,
 		});
 	}
+}
+
+/** A date against a date and time: CommCare compares a date by its day and a
+ * date and time by its moment (`XPathCmpExpr.evalRaw`, `FunctionUtils.toNumeric`). */
+function dateDatetimeReason(
+	left: ScalarType,
+	right: ScalarType,
+): { readonly reason?: "date-datetime" } {
+	return (left === "date" && right === "datetime") ||
+		(left === "datetime" && right === "date")
+		? { reason: "date-datetime" }
+		: {};
+}
+
+const isKnown = (type: ScalarType | undefined): type is ScalarType =>
+	type !== undefined && type !== ANY_TYPE;
+function isDateCoerce(expression: Expression): boolean {
+	return expression.kind === "date-coerce";
+}
+/** A string literal's own type in a form comparison: its shape, where the
+ * comparison orders it or the other side has a type of its own. */
+function comparisonOperandType(
+	operand: Expression,
+	type: ScalarType | undefined,
+	other: ScalarType | undefined,
+	otherIsLiteral: boolean,
+	ordering: boolean,
+): ScalarType | undefined {
+	const literal = directLiteral(operand);
+	if (
+		literal === undefined ||
+		literal.data_type !== undefined ||
+		typeof literal.value !== "string"
+	)
+		return type;
+	const shape = literalShape(literal.value);
+	if (shape === undefined) return type;
+	return ordering || (isKnown(other) && !otherIsLiteral) ? shape.type : type;
+}
+
+const DATE_DATETIME_MESSAGE =
+	"This compares a date with a date and time. CommCare compares a date by its day and a date and time by its moment, so the two don't line up. You can wrap the date and time in date() to compare days.";
+const DATETIME_ORDERING_MESSAGE =
+	"This orders a date and time against a value that isn't one. CommCare can only order two dates and times by their moment. You can compare it with another date and time, or wrap it in date() to compare days.";
+const BOOLEAN_COMPARISON_MESSAGE =
+	"This compares true() or false() with an answer. CommCare reads any answer that isn't blank as true, so \"no\" would count as true too. You can compare the answer with the choice's value instead.";
+
+/**
+ * The form rule set's comparison refusals, one finding per comparison, in
+ * order: a time ordered (Core orders by `toNumeric`, and a time is text, so
+ * NaN), a date against a date and time, a date and time ordered against a
+ * value that is none, a yes/no compared with an answer (`XPathEqExpr.evalRaw`
+ * turns the other side through `toBoolean`, so any non-blank answer is true),
+ * then a provably non-numeric literal in an ordering.
+ */
+function checkFormComparison(
+	expression: Extract<
+		Expression,
+		{ kind: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" }
+	>,
+	ctx: TypingContext,
+	errors: CheckError[],
+): void {
+	const ordering = expression.kind !== "eq" && expression.kind !== "neq";
+	const leftType = scalarDataType(infer(expression.left, ctx).type?.data);
+	const rightType = scalarDataType(infer(expression.right, ctx).type?.data);
+	const leftIsLiteral = directLiteral(expression.left) !== undefined;
+	const rightIsLiteral = directLiteral(expression.right) !== undefined;
+	const left = comparisonOperandType(
+		expression.left,
+		leftType,
+		rightType,
+		rightIsLiteral,
+		ordering,
+	);
+	const right = comparisonOperandType(
+		expression.right,
+		rightType,
+		leftType,
+		leftIsLiteral,
+		ordering,
+	);
+	if (left === "datetime")
+		datetimeLiteralPrecision(expression.left, ["left"], errors, false);
+	if (right === "datetime")
+		datetimeLiteralPrecision(expression.right, ["right"], errors, false);
+	if (ordering && (left === "time" || right === "time")) {
+		errors.push(refusal("time-ordering", TIME_ORDERING_MESSAGE));
+		return;
+	}
+	if (
+		!isDateCoerce(expression.left) &&
+		!isDateCoerce(expression.right) &&
+		((left === "date" && right === "datetime") ||
+			(left === "datetime" && right === "date"))
+	) {
+		errors.push(
+			refusal("incompatible-values", DATE_DATETIME_MESSAGE, "date-datetime"),
+		);
+		return;
+	}
+	const notDatetime = (type: ScalarType | undefined) =>
+		isKnown(type) && type !== "datetime" && type !== "date";
+	if (
+		ordering &&
+		((left === "datetime" && notDatetime(right)) ||
+			(right === "datetime" && notDatetime(left)))
+	) {
+		errors.push(
+			refusal(
+				"incompatible-values",
+				DATETIME_ORDERING_MESSAGE,
+				"datetime-ordering",
+			),
+		);
+		return;
+	}
+	const notBoolean = (type: ScalarType | undefined) =>
+		isKnown(type) && type !== "boolean";
+	if (
+		!ordering &&
+		((left === "boolean" && notBoolean(right)) ||
+			(right === "boolean" && notBoolean(left)))
+	) {
+		errors.push(
+			refusal("incompatible-values", BOOLEAN_COMPARISON_MESSAGE, "boolean"),
+		);
+		return;
+	}
+	// A literal its shape types is a date or a date and time, not a number
+	// written as text (`FunctionUtils.toNumeric` reads date text as its day).
+	if (ordering) {
+		if (left === leftType) numericLiteral(expression.left, ["left"], errors);
+		if (right === rightType)
+			numericLiteral(expression.right, ["right"], errors);
+	}
+}
+
+/** A date and time names one millisecond in every target, so a literal with
+ * more than three fraction digits names none of them exactly. */
+function datetimeLiteralPrecision(
+	expression: Expression,
+	path: CheckPath,
+	errors: CheckError[],
+	untypedOnly: boolean,
+): void {
+	const literal = directLiteral(expression);
+	if (
+		literal === undefined ||
+		typeof literal.value !== "string" ||
+		(untypedOnly && literal.data_type !== undefined)
+	)
+		return;
+	const shape = literalShape(literal.value);
+	if (shape?.type === "datetime" && shape.fractionDigits > 3)
+		errors.push(datetimePrecisionError(path));
+}
+function datetimePrecisionError(path: CheckPath): CheckError {
+	return {
+		path,
+		code: "datetime-literal-precision",
+		reason: "datetime-literal-precision",
+		message:
+			"CommCare compares times to the millisecond, and this time is finer than that. You can choose a time to the millisecond, second or minute.",
+	};
 }
 
 const CASE_STATUS_VALUES = new Set(["open", "closed"]);
@@ -2178,6 +2710,7 @@ function checkIn(
 			errors.push({
 				path: [...path, "values", i],
 				code: "incompatible-values",
+				...dateDatetimeReason(leftType, valType),
 				message: `Type mismatch: literal '${describe(valType)}' is not comparable with property type '${describe(leftType)}'.`,
 			});
 		}
@@ -2348,6 +2881,7 @@ function checkBetween(
 			errors.push({
 				path: [...path, "lower"],
 				code: "incompatible-values",
+				...dateDatetimeReason(leftType, lowerType),
 				message: `Type mismatch: lower bound '${describe(lowerType)}' is not comparable with left operand type '${describe(leftType)}'.`,
 			});
 		}
@@ -2358,6 +2892,7 @@ function checkBetween(
 			errors.push({
 				path: [...path, "upper"],
 				code: "incompatible-values",
+				...dateDatetimeReason(leftType, upperType),
 				message: `Type mismatch: upper bound '${describe(upperType)}' is not comparable with left operand type '${describe(leftType)}'.`,
 			});
 		}
@@ -2524,7 +3059,9 @@ function assignmentRepresentationErrors(
 	}
 }
 
-function visitAssignmentOutputs(
+/** Every value an expression can end with: each `if`, `switch` and
+ * `coalesce` branch, or the expression itself. */
+export function visitAssignmentOutputs(
 	expression: Expression,
 	path: CheckPath,
 	visit: (output: Expression, path: CheckPath) => void,

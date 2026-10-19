@@ -1,19 +1,48 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	mutationCommitVerdict,
 	mutationCommitVerdictWithPrevalidation,
+	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
 import { incrementalValidationScope as actualScope } from "@/lib/doc/incrementalValidationScope";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { asUuid, type Mutation } from "@/lib/doc/types";
-import type { CaseOperation } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/expression/builders";
+import {
+	type CaseOperation,
+	type Column,
+	dateColumn,
+	simpleSearchInputDef,
+} from "@/lib/domain";
+import {
+	concat,
+	dateCoerce,
+	formField,
+	input,
+	isBlank,
+	literal,
+	not,
+	now,
+	prop,
+	term,
+} from "@/lib/domain/expression/builders";
+import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
-function incrementalValidationScope(...args: Parameters<typeof actualScope>) {
-	assertAdmittedDoc(args[0]);
-	return actualScope(...args);
+/** The footprint the Builder gate computes: over the valid snapshot and the
+ * candidate the batch produces from it. */
+function incrementalValidationScope(
+	doc: ReturnType<typeof buildDoc>,
+	mutations: Mutation[],
+) {
+	assertAdmittedDoc(doc);
+	const { nextDoc } = prepareMutationCandidate(
+		doc,
+		admitMutationBatch(mutations),
+	);
+	return actualScope(doc, mutations, nextDoc);
 }
 const PARENT_MODULE = asUuid("00000000-0000-4000-8000-000000000101");
 const CHILD_MODULE = asUuid("00000000-0000-4000-8000-000000000102");
@@ -91,23 +120,66 @@ describe("incrementalValidationScope", () => {
 		expect(scope).toEqual({ formUuids: new Set([formUuid]) });
 	});
 
-	it("rechecks module rules when a case destination changes", () => {
-		const { doc, moduleUuid, formUuid, fieldUuid } = fixture();
-		const scope = incrementalValidationScope(doc, [
+	it("rechecks module rules when a case destination changes and every inferred fact stays", () => {
+		/* Two text writers of one declared text property: dropping one leaves
+		 * the catalog and every writer opinion as they were. */
+		const writer = (id: string) =>
+			f({
+				kind: "text",
+				id,
+				caseWrite: { caseType: "patient", property: "note" },
+			});
+		const doc = buildDoc({
+			appName: "Two writers",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "note", label: "Note", data_type: "text" }],
+				},
+			],
+			modules: [
+				{
+					uuid: LINK_MODULE,
+					name: "Visit",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: LINK_FORM,
+							name: "Visit form",
+							type: "followup",
+							fields: [writer("note")],
+						},
+						{
+							uuid: SECOND_FORM,
+							name: "Review form",
+							type: "followup",
+							fields: [writer("remark")],
+						},
+					],
+				},
+			],
+		});
+		const fieldUuid = doc.fieldOrder[LINK_FORM]?.[0];
+		if (fieldUuid === undefined) throw new Error("writer fixture missing");
+		const mutations: Mutation[] = [
 			{
 				kind: "updateField",
 				uuid: fieldUuid,
 				targetKind: "text",
-				patch: { caseWrite: { caseType: "person", property: "name" } },
+				patch: { caseWrite: null },
 			},
-		]);
-		expect(scope).toEqual({
-			moduleUuids: new Set([moduleUuid]),
-			formUuids: new Set([formUuid]),
+		];
+		expect(incrementalValidationScope(doc, mutations)).toEqual({
+			moduleUuids: new Set([LINK_MODULE]),
+			formUuids: new Set([LINK_FORM]),
 		});
+		expect(expectCommitParity(doc, mutations).ok).toBe(true);
 	});
 
-	it("rechecks operation forms whose inferred writer types a case destination can change", () => {
+	it("takes the absolute gate when a case destination changes an operation's inferred writer types", () => {
 		const doc = buildDoc({
 			appName: "Writer and operation dependency",
 			caseTypes: [
@@ -200,10 +272,7 @@ describe("incrementalValidationScope", () => {
 			},
 		];
 
-		expect(incrementalValidationScope(doc, mutations)).toEqual({
-			moduleUuids: new Set(doc.moduleOrder),
-			formUuids: new Set([authorFormUuid, operationFormUuid]),
-		});
+		expect(incrementalValidationScope(doc, mutations)).toBeUndefined();
 		assertAdmittedDoc(doc);
 		const absolute = mutationCommitVerdict(
 			doc,
@@ -716,5 +785,464 @@ describe("incrementalValidationScope", () => {
 		);
 		expect(absolute.ok).toBe(false);
 		expect(incremental).toEqual(absolute);
+	});
+});
+
+/* Inference is one fixpoint over every form, so a scoped commit is sound only
+ * while it leaves every inferred fact where it was. Each batch below moves a
+ * verdict in a form or module its own footprint never names, and the Builder
+ * gate must refuse it exactly as the absolute gate does. */
+describe("scoped commits under document-wide inference", () => {
+	const AUTHOR_MODULE = testUuid("scope-author-module");
+	const AUTHOR_FORM = testUuid("scope-author-form");
+	const READER_MODULE = testUuid("scope-reader-module");
+	const READER_FORM = testUuid("scope-reader-form");
+	const WRITER = testUuid("scope-writer");
+	const READER = testUuid("scope-reader");
+	const NAME = testUuid("scope-name");
+	const FLAG = testUuid("scope-flag");
+	/* `concat('on ', #form/name)`: text where the writer used to save a date. */
+	const textValue = concat(term(literal("on ")), term(formField(NAME)));
+
+	function dateColumnConfig(property: string) {
+		const column: Column = dateColumn(
+			testUuid(`scope-column-${property}`),
+			property,
+			"Visit",
+			"%d/%m/%Y",
+		);
+		return {
+			...caseListConfig([]),
+			columns: [column],
+			listColumnOrder: [column.uuid],
+			detailColumnOrder: [column.uuid],
+		};
+	}
+
+	function twoModules(args: {
+		readonly properties?: NonNullable<
+			NonNullable<Parameters<typeof buildDoc>[0]>["caseTypes"]
+		>[number]["properties"];
+		readonly author: ReturnType<typeof f>[];
+		readonly reader: ReturnType<typeof f>[];
+		readonly readerCaseList?: ReturnType<typeof dateColumnConfig>;
+	}) {
+		return buildDoc({
+			appName: "Inference footprint",
+			caseTypes: [{ name: "patient", properties: args.properties ?? [] }],
+			modules: [
+				{
+					uuid: AUTHOR_MODULE,
+					name: "Author",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: AUTHOR_FORM,
+							name: "Author form",
+							type: "followup",
+							fields: args.author,
+						},
+					],
+				},
+				{
+					uuid: READER_MODULE,
+					name: "Reader",
+					caseType: "patient",
+					caseListConfig:
+						args.readerCaseList ??
+						caseListConfig([{ field: "case_name", header: "Name" }]),
+					forms: [
+						{
+							uuid: READER_FORM,
+							name: "Reader form",
+							type: "followup",
+							fields: args.reader,
+						},
+					],
+				},
+			],
+		});
+	}
+
+	function expectAbsoluteRefusal(
+		doc: ReturnType<typeof buildDoc>,
+		mutations: Mutation[],
+		code: string,
+		anchoredAt: { readonly formUuid?: string; readonly moduleUuid?: string },
+	) {
+		expect(incrementalValidationScope(doc, mutations)).toBeUndefined();
+		const verdict = expectCommitParity(doc, mutations);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok)
+			expect(verdict.findings).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code,
+						location: expect.objectContaining(anchoredAt),
+					}),
+				]),
+			);
+		return verdict;
+	}
+
+	it("refuses dropping the only writer of a property another form reads", () => {
+		const doc = twoModules({
+			author: [
+				f({
+					uuid: WRITER,
+					kind: "text",
+					id: "nickname",
+					caseWrite: { caseType: "patient", property: "nickname" },
+				}),
+			],
+			reader: [
+				f({
+					kind: "text",
+					id: "greeting",
+					relevant: "#patient/nickname != ''",
+				}),
+			],
+		});
+		const drop: Mutation = {
+			kind: "updateField",
+			uuid: WRITER,
+			targetKind: "text",
+			patch: { caseWrite: null },
+		};
+		expectAbsoluteRefusal(doc, [drop], "INVALID_CASE_REF", {
+			formUuid: READER_FORM,
+		});
+	});
+
+	it("refuses a Hidden Value calculation that retypes a property another module and form read", () => {
+		const doc = twoModules({
+			properties: [
+				{ name: "visit", label: "Visit" },
+				{ name: "last_visit", label: "Last visit", data_type: "date" },
+			],
+			author: [
+				f({ uuid: NAME, kind: "text", id: "name", label: "Name" }),
+				f({
+					uuid: WRITER,
+					kind: "hidden",
+					id: "visit",
+					calculate: "today()",
+					caseWrite: { caseType: "patient", property: "visit" },
+				}),
+			],
+			reader: [f({ kind: "text", id: "note" })],
+			readerCaseList: dateColumnConfig("visit"),
+		});
+		/* The reader form copies the property into a date through a case
+		 * operation, a form-logic read that its own type check holds. */
+		const copy: CaseOperation = {
+			uuid: testUuid("scope-copy-visit"),
+			id: "copy_visit",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes: [
+				{ property: "last_visit", value: term(prop("patient", "visit")) },
+			],
+		};
+		doc.forms[READER_FORM] = {
+			...doc.forms[READER_FORM],
+			caseOperations: [copy],
+		};
+		const verdict = expectAbsoluteRefusal(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: WRITER,
+					targetKind: "hidden",
+					patch: { calculate: textValue },
+				},
+			],
+			"CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH",
+			{ moduleUuid: READER_MODULE },
+		);
+		if (!verdict.ok)
+			expect(verdict.findings).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code: "CASE_OPERATION_EXPRESSION_TYPE",
+						location: expect.objectContaining({ formUuid: READER_FORM }),
+					}),
+				]),
+			);
+	});
+
+	it("refuses a retype that reaches another form through a chain of Hidden Values", () => {
+		const doc = twoModules({
+			properties: [
+				{ name: "visit", label: "Visit" },
+				{ name: "last_seen", label: "Last seen" },
+			],
+			author: [
+				f({ uuid: NAME, kind: "text", id: "name", label: "Name" }),
+				f({
+					uuid: WRITER,
+					kind: "hidden",
+					id: "visit",
+					calculate: "today()",
+					caseWrite: { caseType: "patient", property: "visit" },
+				}),
+			],
+			reader: [
+				f({
+					kind: "hidden",
+					id: "copy",
+					calculate: "#patient/visit",
+					caseWrite: { caseType: "patient", property: "last_seen" },
+				}),
+			],
+			readerCaseList: dateColumnConfig("last_seen"),
+		});
+		expectAbsoluteRefusal(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: WRITER,
+					targetKind: "hidden",
+					patch: { calculate: textValue },
+				},
+			],
+			"CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH",
+			{ moduleUuid: READER_MODULE },
+		);
+	});
+
+	it("refuses a Hidden Value whose new value no longer fits the type another form's question sets", () => {
+		const doc = twoModules({
+			properties: [{ name: "score", label: "Score", data_type: "int" }],
+			author: [
+				f({
+					uuid: WRITER,
+					kind: "hidden",
+					id: "score_copy",
+					calculate: "1",
+					caseWrite: { caseType: "patient", property: "score" },
+				}),
+			],
+			reader: [
+				f({
+					kind: "int",
+					id: "score",
+					caseWrite: { caseType: "patient", property: "score" },
+				}),
+			],
+		});
+		expectAbsoluteRefusal(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: WRITER,
+					targetKind: "hidden",
+					patch: { calculate: term(literal("high")) },
+				},
+			],
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{ formUuid: AUTHOR_FORM },
+		);
+	});
+
+	it("refuses removing the choice another form's Hidden Value saves to a property this select starts on", () => {
+		const doc = twoModules({
+			properties: [
+				{ name: "level", label: "Level", data_type: "single_select" },
+			],
+			author: [
+				f({
+					uuid: WRITER,
+					kind: "hidden",
+					id: "level_seed",
+					calculate: "'high'",
+					caseWrite: { caseType: "patient", property: "level" },
+				}),
+			],
+			reader: [
+				f({
+					uuid: READER,
+					kind: "single_select",
+					id: "level",
+					caseWrite: { caseType: "patient", property: "level" },
+					options: [
+						{ uuid: "scope-level-high", value: "high", label: "High" },
+						{ uuid: "scope-level-low", value: "low", label: "Low" },
+						{ uuid: "scope-level-none", value: "none", label: "None" },
+					],
+				}),
+			],
+		});
+		const removal: Mutation = {
+			kind: "removeOption",
+			fieldUuid: READER,
+			uuid: testUuid("scope-level-high"),
+		};
+		/* Choices type nothing, so the footprint stays narrow; the rule that
+		 * holds the writer to them is app-wide and runs under every scope. */
+		expect(incrementalValidationScope(doc, [removal])).toEqual({
+			formUuids: new Set([READER_FORM]),
+		});
+		const verdict = expectCommitParity(doc, [removal]);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok)
+			expect(verdict.findings).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code: "SELECT_PRELOAD_WRITE_NOT_AN_OPTION",
+						location: expect.objectContaining({ formUuid: AUTHOR_FORM }),
+					}),
+				]),
+			);
+		const keep: Mutation = {
+			kind: "removeOption",
+			fieldUuid: READER,
+			uuid: testUuid("scope-level-low"),
+		};
+		expect(expectCommitParity(doc, [keep]).ok).toBe(true);
+	});
+
+	it("refuses a Search prompt retype that a no-matches form's Hidden Value saves", () => {
+		const SEARCH_MODULE = testUuid("scope-search-module");
+		const REGISTER = testUuid("scope-search-register");
+		const VISIT_INPUT = testUuid("scope-search-visit");
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		config.searchInputs = [
+			simpleSearchInputDef(VISIT_INPUT, "visit_on", "Visit on", "date", "seen"),
+		];
+		const doc = buildDoc({
+			appName: "No-matches footprint",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "seen", label: "Seen", data_type: "date" },
+					],
+				},
+			],
+			modules: [
+				{
+					uuid: SEARCH_MODULE,
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: config,
+					caseSearchConfig: { searchFirst: true },
+					forms: [
+						{
+							uuid: testUuid("scope-search-visit-form"),
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+						{
+							uuid: REGISTER,
+							name: "Register patient",
+							type: "registration",
+							entry: { kind: "search-no-matches" },
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								f({
+									kind: "hidden",
+									id: "visit_on",
+									default_value: term(input(VISIT_INPUT)),
+									caseWrite: { caseType: "patient", property: "visit_on" },
+								}),
+							],
+						},
+					],
+				},
+				{
+					uuid: READER_MODULE,
+					name: "Reader",
+					caseType: "patient",
+					caseListConfig: dateColumnConfig("visit_on"),
+					forms: [
+						{
+							uuid: READER_FORM,
+							name: "Reader form",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+		const { uuid: _uuid, ...content } = simpleSearchInputDef(
+			VISIT_INPUT,
+			"visit_on",
+			"Visit on",
+			"text",
+			"case_name",
+		);
+		expectAbsoluteRefusal(
+			doc,
+			[
+				{
+					kind: "updateSearchInput",
+					moduleUuid: SEARCH_MODULE,
+					uuid: VISIT_INPUT,
+					searchInput: content,
+				},
+			],
+			"CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH",
+			{ moduleUuid: READER_MODULE },
+		);
+	});
+
+	it("keeps the narrow footprint for edits that move no inferred fact", () => {
+		const doc = twoModules({
+			properties: [{ name: "visit", label: "Visit" }],
+			author: [
+				f({ uuid: FLAG, kind: "text", id: "flag", label: "Flag" }),
+				f({
+					uuid: WRITER,
+					kind: "hidden",
+					id: "visit",
+					calculate: "today()",
+					caseWrite: { caseType: "patient", property: "visit" },
+				}),
+			],
+			reader: [f({ kind: "text", id: "note" })],
+			readerCaseList: dateColumnConfig("visit"),
+		});
+		for (const mutation of [
+			{
+				kind: "updateField",
+				uuid: FLAG,
+				targetKind: "text",
+				patch: { label: proseText("Did we visit?") },
+			},
+			{
+				kind: "updateField",
+				uuid: WRITER,
+				targetKind: "hidden",
+				patch: { relevant: not(isBlank(formField(FLAG))) },
+			},
+			/* A different calculation that saves the same type. */
+			{
+				kind: "updateField",
+				uuid: WRITER,
+				targetKind: "hidden",
+				patch: { calculate: dateCoerce(now()) },
+			},
+		] satisfies Mutation[]) {
+			const mutations: Mutation[] = [mutation];
+			expect(incrementalValidationScope(doc, mutations)).toEqual({
+				formUuids: new Set([AUTHOR_FORM]),
+			});
+			expect(expectCommitParity(doc, mutations).ok).toBe(true);
+		}
 	});
 });

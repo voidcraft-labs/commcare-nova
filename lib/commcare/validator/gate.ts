@@ -238,6 +238,11 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_TILE_GROUP_HEADER_EMPTY: "soundness",
 	FIELD_KIND_PROPERTY_TYPE_MISMATCH: "soundness",
 	FIELD_KIND_WRITERS_DISAGREE: "soundness",
+	// A form that fills a question from the property would stop on the value.
+	HIDDEN_VALUE_WRITER_TYPE_MISMATCH: "soundness",
+	// Web Apps can't open a form whose choice question starts on a value it
+	// doesn't offer (`Selection.attachChoice`).
+	SELECT_PRELOAD_WRITE_NOT_AN_OPTION: "soundness",
 	// ── Case-search-config rules ─────────────────────────────────────
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: "soundness",
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: "soundness",
@@ -529,6 +534,12 @@ export const VALIDITY_CLASS_BY_CODE = {
 	XPATH_FUNCTION_CONTEXT_UNAVAILABLE: "soundness",
 	// Core orders by number and a time of day is NaN: never true.
 	XPATH_TIME_ORDERING: "soundness",
+	// A date against a date and time, a date and time ordered against
+	// something that isn't one, and a yes/no compared with an answer.
+	XPATH_INCOMPATIBLE_VALUES: "soundness",
+	// A read of every entry of a repeat where one value is needed: Core's
+	// `XPathNodeset.unpack` stops the form on more than one node.
+	XPATH_MANY_VALUES: "soundness",
 	INVALID_REF: "soundness",
 	INVALID_CASE_REF: "soundness",
 	INVALID_SEARCH_REF: "soundness",

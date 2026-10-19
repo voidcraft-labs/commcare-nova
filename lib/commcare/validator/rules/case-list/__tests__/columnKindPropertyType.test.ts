@@ -33,13 +33,25 @@ describe("column property semantics at the whole admission gate", () => {
 		},
 		{
 			name: "honestly unknown hidden inference",
+			// A copy of a Hidden Value that has no value: nothing types it.
+			field: f({
+				kind: "hidden",
+				id: "value",
+				calculate: "#form/seed",
+				caseWrite: { caseType: "patient", property: "value" },
+			}),
+			others: [f({ kind: "hidden", id: "seed" })],
+			expected: [],
+		},
+		{
+			name: "hidden text inference",
 			field: f({
 				kind: "hidden",
 				id: "value",
 				calculate: "concat('a', 'b')",
 				caseWrite: { caseType: "patient", property: "value" },
 			}),
-			expected: [],
+			expected: ["CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH"],
 		},
 		{
 			name: "text writer mismatch",
@@ -51,8 +63,13 @@ describe("column property semantics at the whole admission gate", () => {
 			}),
 			expected: ["CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH"],
 		},
-	])("$name", ({ field, expected }) => {
-		const base = admittedCaseListDoc({ fields: [field] });
+	] as {
+		name: string;
+		field: FieldSpec;
+		others?: FieldSpec[];
+		expected: string[];
+	}[])("$name", ({ field, others, expected }) => {
+		const base = admittedCaseListDoc({ fields: [...(others ?? []), field] });
 		const result = findings(
 			withColumns(base, [dateColumn(id, "value", "Date", "%Y-%m-%d")]),
 		);

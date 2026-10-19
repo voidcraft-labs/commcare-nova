@@ -302,7 +302,7 @@ function compiler(bindings: QueryBindings) {
 				right,
 			};
 		}
-		if (["today", "now", "acting-user", "unowned"].includes(name)) {
+		if (["today", "now", "here", "acting-user", "unowned"].includes(name)) {
 			arity(name, args);
 			return { kind: name };
 		}

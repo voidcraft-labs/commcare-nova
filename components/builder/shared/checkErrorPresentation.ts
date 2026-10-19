@@ -4,7 +4,7 @@
 // findings. The checker keeps precise implementation detail in
 // `CheckError.message` for agents, logs, and developer diagnostics. A
 // person editing a condition instead sees one concise next action,
-// selected from the stable error code and the slot path.
+// selected from the stable error code, its reason, and the slot path.
 //
 // Never inspect or pattern-match `message` here. Checker prose is free
 // to improve without changing the editor's UX contract.
@@ -15,7 +15,7 @@ import type {
 	CheckPath,
 } from "@/lib/domain/expression";
 
-type DiagnosticPresenter = (path: CheckPath) => string;
+type DiagnosticPresenter = (path: CheckPath, reason?: string) => string;
 
 /** Return the closest named slot, skipping array indexes. */
 function lastNamedSlot(path: CheckPath): string | undefined {
@@ -78,8 +78,18 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"lookup-table-scope": () => "Choose a column from the lookup table used here",
 	"property-scope": () => "Choose information from the related case shown here",
 	"case-status-value": () => "Use open or closed for built-in case status",
-	"incompatible-values": () =>
-		"Choose values that use compatible kinds of information",
+	"incompatible-values": (_path, reason) => {
+		switch (reason) {
+			case "date-datetime":
+				return "A date and a date and time don't line up. You can wrap the date and time in date() to compare days";
+			case "datetime-ordering":
+				return "A date and time can only be ordered against another date and time. You can wrap it in date() to compare days";
+			case "boolean":
+				return "Any answer that isn't blank counts as true. You can compare it with the choice's value instead";
+			default:
+				return "Choose values that use compatible kinds of information";
+		}
+	},
 	"ordered-values": () => "Use numbers or dates for this comparison",
 	"time-ordering": () =>
 		"A time of day can't be compared with before or after. A date can be compared this way.",
@@ -125,6 +135,12 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"datum-not-supplied": () =>
 		"Choose information supplied when this screen opens",
 	"record-position": () => "Use position only while checking a list of records",
+	"many-values": () =>
+		"This needs one value. You can read one entry, or count or join them",
+	"datetime-literal-precision": () =>
+		"CommCare compares times to the millisecond. You can choose a time to the millisecond, second or minute",
+	"format-date-pattern-not-fixed": () =>
+		"This date format can't change from row to row here. You can choose a fixed format",
 };
 
 /**
@@ -136,5 +152,5 @@ export function presentCheckErrorForEditor(error: CheckError): string {
 	const presenter = (
 		PRESENT_BY_CODE as Partial<Record<string, DiagnosticPresenter>>
 	)[error.code];
-	return presenter?.(error.path) ?? nextActionForPath(error.path);
+	return presenter?.(error.path, error.reason) ?? nextActionForPath(error.path);
 }

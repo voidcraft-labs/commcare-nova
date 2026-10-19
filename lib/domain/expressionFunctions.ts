@@ -1,7 +1,8 @@
 /**
  * Expression function signatures shared by authoring, validation and documentation.
  *
- * Source of truth for arities: commcare-core's ASTNodeFunctionCall.java
+ * Source of truth for arities: each commcare-core function class's
+ * `EXPECTED_ARG_COUNT` / `validateArgCount`, dispatched from ASTNodeFunctionCall.java
  * Source of truth for types: XPath 1.0 spec + CommCare runtime behavior
  *
  * -1 for maxArgs means variadic (no upper limit).
@@ -28,7 +29,35 @@ export interface FunctionSpec {
 	paramTypes?: XPathType[];
 	/** Variadic groups add this many arguments after the minimum. */
 	argumentStep?: number;
+	/**
+	 * Argument positions Core reads as a node-set without unpacking it, for a
+	 * call with this many arguments: each function class's `evalBody` tests
+	 * `instanceof XPathNodeset` or reads `FunctionUtils.getSequence`. Every other
+	 * argument is unpacked (`FunctionUtils.unpack`, `toString`, `toNumeric`,
+	 * `toBoolean`), which throws on more than one node
+	 * (`org/javarosa/xpath/XPathNodeset.java::unpack`).
+	 */
+	manyArguments?: (argumentCount: number) => ReadonlySet<number>;
+	/** The node-set positions are admitted only together: Core takes its
+	 * node-set branch only when every listed argument is a node-set. */
+	manyArgumentsJointly?: true;
+	/** Argument positions Core returns unchanged, so the caller unpacks them and
+	 * the call's result carries what the argument holds. */
+	passThrough?: (argumentCount: number) => ReadonlySet<number>;
+	/** Core returns an integral Double, which `Recalculate.java::wrapData`
+	 * stores as `IntegerData`, so the call types `int`. */
+	integral?: true;
 }
+
+const NO_ARGUMENTS: ReadonlySet<number> = new Set();
+const onlyWith =
+	(count: number, ...positions: number[]) =>
+	(argumentCount: number): ReadonlySet<number> =>
+		argumentCount === count ? new Set(positions) : NO_ARGUMENTS;
+const fromSecond = (argumentCount: number): ReadonlySet<number> =>
+	new Set(
+		Array.from({ length: Math.max(argumentCount - 1, 0) }, (_, i) => i + 1),
+	);
 
 // Shorthand constructors for common patterns
 const num = (
@@ -79,7 +108,8 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	// ── Type conversion ───────────────────────────────────────────────
 	["boolean", bool(1, 1)], // any → boolean (explicit cast)
 	["number", num(1, 1)], // any → number (explicit cast)
-	["int", num(1, 1)], // any → integer
+	// XPathIntFunc: FunctionUtils.toInt truncates through long.
+	["int", { ...num(1, 1), integral: true }], // any → integer
 	["double", num(1, 1)], // any → double
 	["string", str(1, 1)], // any → string (explicit cast)
 	["boolean-from-string", bool(1, 1)], // string → boolean
@@ -90,9 +120,12 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 
 	// ── Numeric (1 arg) ───────────────────────────────────────────────
 	["abs", num(1, 1, ["number"])],
-	["ceiling", num(1, 1, ["number"])],
-	["floor", num(1, 1, ["number"])],
-	["round", num(1, 1, ["number"])],
+	// XPathCeilingFunc: Math.ceil.
+	["ceiling", { ...num(1, 1, ["number"]), integral: true }],
+	// XPathFloorFunc: Math.floor.
+	["floor", { ...num(1, 1, ["number"]), integral: true }],
+	// XPathRoundFunc: Math.floor(x + 0.5); Core has no two-argument round.
+	["round", { ...num(1, 1, ["number"]), integral: true }],
 	["log", num(1, 1, ["number"])],
 	["log10", num(1, 1, ["number"])],
 	["sqrt", num(1, 1, ["number"])],
@@ -109,7 +142,8 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	["atan2", num(2, 2, ["number", "number"])],
 
 	// ── String functions ──────────────────────────────────────────────
-	["string-length", num(1, 1, ["string"])],
+	// XPathStringLengthFunc: Double.valueOf(s.length()).
+	["string-length", { ...num(1, 1, ["string"]), integral: true }],
 	["upper-case", str(1, 1, ["string"])],
 	["lower-case", str(1, 1, ["string"])],
 	["normalize-space", str(1, 1, ["string"])],
@@ -124,24 +158,51 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	["regex", bool(2, 2, ["string", "string"])],
 
 	// ── Nodeset / Aggregation ─────────────────────────────────────────
-	["count", num(1, 1)],
-	["sum", num(1, 1)],
-	["position", num(0, 1)],
+	// XPathCountFunc / XPathSumFunc: a non-node-set argument throws.
+	["count", { ...num(1, 1), manyArguments: onlyWith(1, 0) }],
+	["sum", { ...num(1, 1), manyArguments: onlyWith(1, 0) }],
+	// XPathPositionFunc casts its argument to XPathNodeset and reads its first
+	// reference, so several nodes are read; the result is an integral Double.
+	["position", { ...num(0, 1), manyArguments: onlyWith(1, 0), integral: true }],
 
 	// ── Multi-select helpers ──────────────────────────────────────────
 	["selected", bool(2, 2, ["string", "string"])],
 	["is-selected", bool(2, 2, ["string", "string"])],
-	["count-selected", num(1, 1, ["string"])],
+	// XPathCountSelectedFunc: Double.valueOf(splitOnSpaces(s).length).
+	["count-selected", { ...num(1, 1, ["string"]), integral: true }],
 	["selected-at", str(2, 2, ["string", "number"])],
 
 	// ── Variadic (all-any params) ─────────────────────────────────────
-	["concat", str(0, -1)],
-	["join", str(1, -1)],
-	["join-chunked", str(3, -1)],
-	["coalesce", any(1, -1)],
-	["depend", { ...any(1, -1), volatile: true }],
-	["min", num(1, -1)],
-	["max", num(1, -1)],
+	// XPathConcatFunc: one node-set argument is joined; otherwise each unpacks.
+	["concat", { ...str(0, -1), manyArguments: onlyWith(1, 0) }],
+	// XPathJoinFunc: the second of two may be a node-set or a sequence.
+	["join", { ...str(1, -1), manyArguments: onlyWith(2, 1) }],
+	// XPathJoinChunkFunc: the third of three may be a node-set.
+	["join-chunked", { ...str(3, -1), manyArguments: onlyWith(3, 2) }],
+	// XpathCoalesceFunc: arguments before the last unpack; the last is returned
+	// as it evaluates.
+	[
+		"coalesce",
+		{
+			...any(1, -1),
+			passThrough: (argumentCount) => new Set([argumentCount - 1]),
+		},
+	],
+	// XPathDependFunc: returns its first argument as evaluated and never reads
+	// the rest.
+	[
+		"depend",
+		{
+			...any(1, -1),
+			volatile: true,
+			manyArguments: fromSecond,
+			passThrough: () => new Set([0]),
+		},
+	],
+	// XPathMinFunc / XPathMaxFunc: one node-set argument is read whole;
+	// otherwise each argument goes through toNumeric.
+	["min", { ...num(1, -1), manyArguments: onlyWith(1, 0) }],
+	["max", { ...num(1, -1), manyArguments: onlyWith(1, 0) }],
 
 	// ── Conditionals (polymorphic return) ─────────────────────────────
 	[
@@ -150,6 +211,8 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 			...any(3, 3, ["boolean"]),
 			returnType: "any",
 			evaluation: "lazy",
+			// XPathIfFunc: the branch taken is returned without unpacking.
+			passThrough: () => new Set([1, 2]),
 		},
 	],
 	[
@@ -158,6 +221,14 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 			...any(3, -1),
 			evaluation: "lazy",
 			argumentStep: 2,
+			// XPathCondFunc: each condition goes through toBoolean; the branch
+			// taken (an odd argument, or the last) is returned as it evaluates.
+			passThrough: (argumentCount) =>
+				new Set(
+					Array.from({ length: argumentCount }, (_, index) => index).filter(
+						(index) => index % 2 === 1 || index === argumentCount - 1,
+					),
+				),
 		},
 	],
 
@@ -173,17 +244,32 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	// ── Sort / Collection ─────────────────────────────────────────────
 	["sort", str(1, 2)],
 	["sort-by", str(2, 3)],
-	["distinct-values", { minArgs: 1, maxArgs: 1, returnType: "sequence" }],
-	// Core returns a zero-based number when found and the empty string otherwise.
-	["index-of", any(2, 2)],
+	// XPathDistinctValuesFunc reads its argument through getSequence.
+	[
+		"distinct-values",
+		{
+			minArgs: 1,
+			maxArgs: 1,
+			returnType: "sequence",
+			manyArguments: onlyWith(1, 0),
+		},
+	],
+	// XPathIndexOfFunc reads its first argument through getSequence and returns
+	// a zero-based integral Double when found, the empty string otherwise.
+	["index-of", { ...any(2, 2), manyArguments: onlyWith(2, 0), integral: true }],
 
 	// ── Checklist ─────────────────────────────────────────────────────
-	["checklist", bool(2, -1)],
+	// XPathChecklistFunc: the third of three may be a node-set.
+	["checklist", { ...bool(2, -1), manyArguments: onlyWith(3, 2) }],
+	// XPathWeightedChecklistFunc: the third and fourth of four are read as
+	// node-sets only when both are; otherwise every argument unpacks.
 	[
 		"weighted-checklist",
 		{
 			...bool(2, -1),
 			argumentStep: 2,
+			manyArguments: onlyWith(4, 2, 3),
+			manyArgumentsJointly: true,
 		},
 	],
 
@@ -212,7 +298,15 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	["decrypt-string", str(3, 3, ["string", "string", "string"])],
 	["json-property", str(2, 2, ["string", "string"])],
 	["id-compress", str(5, 5)],
-	["sleep", { ...any(2, 2, ["number", "any"]), volatile: true }],
+	// XPathSleepFunc: returns its second argument as evaluated.
+	[
+		"sleep",
+		{
+			...any(2, 2, ["number", "any"]),
+			volatile: true,
+			passThrough: () => new Set([1]),
+		},
+	],
 ]);
 
 /** Case-insensitive lookup for suggesting corrections (e.g. "Today" → "today"). */
@@ -253,6 +347,7 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 	}),
 	...Object.entries({
 		null: [0, 0],
+		here: [0, 0],
 		self: [0, 0],
 		unbounded: [0, 0],
 		"acting-user": [0, 0],

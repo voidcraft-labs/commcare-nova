@@ -4,7 +4,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { admitConstraintMessageFixture } from "@/lib/commcare/__tests__/constraintMessageFixture";
 import type { LanguageTag, ProseTemplate } from "@/lib/domain";
-import { proseText } from "@/lib/domain";
+import { proseText, USERCASE_CASE_TYPE } from "@/lib/domain";
 import { xpathToString } from "../../xpath/coerce";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { PreviewXPathRuntimeError } from "../../xpath/runtimeError";
@@ -12,36 +12,58 @@ import { XPathNodeSet } from "../../xpath/runtimeValues";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
 import type { XPathRuntimeError } from "../../xpath/workerProtocol";
+import type { CaseRow } from "../caseDataBindingTypes";
 import {
 	FormEngine,
 	type FormEngineAsyncEvaluator,
 	type FormEngineInput,
 } from "../formEngine";
+import { previewAsMe } from "../identity";
 import {
 	resolveConstraintMessage,
 	resolveConstraintMessageAsync,
 } from "../labelRefs";
 
-const VALUE = testUuid("message-repeat-value");
-const COUNT = testUuid("message-repeat-count");
 const CHECKED = testUuid("message-checked");
-const REF: ProseTemplate = { parts: [{ kind: "field-ref", uuid: VALUE }] };
-const MESSAGE: ProseTemplate = {
-	parts: [
-		{ kind: "text", text: "Literal ${0}: " },
-		{ kind: "field-ref", uuid: VALUE },
-	],
+const WORKER = "worker-7";
+const IDENTITY = previewAsMe({ id: WORKER, email: "worker@example.org" });
+/** The worker's record is a case-database read, so only the device's data
+ * decides how many records answer it: the document is admitted, and several
+ * matching records meet Core's one-node unpack at run time. */
+const REF: ProseTemplate = {
+	parts: [{ kind: "user-ref", property: "username" }],
 };
+const MESSAGE: ProseTemplate = {
+	parts: [{ kind: "text", text: "Literal ${0}: " }, REF.parts[0]],
+};
+
+function workerRecord(index: number, username: string | undefined): CaseRow {
+	return {
+		case_id: `worker-record-${index}`,
+		app_id: "app-1",
+		case_type: USERCASE_CASE_TYPE,
+		owner_id: WORKER,
+		status: "open",
+		opened_on: null,
+		modified_on: null,
+		closed_on: null,
+		case_name: `Worker record ${index}`,
+		external_id: null,
+		parent_case_id: null,
+		properties: {
+			hq_user_id: WORKER,
+			...(username === undefined ? {} : { username }),
+		},
+	};
+}
 
 function input(
 	language: LanguageTag,
 	options: {
 		empty?: boolean;
 		refOnly?: boolean;
-		blankValue?: boolean;
 		ruleReadsMany?: boolean;
 		labelReadsMany?: boolean;
-		userControlled?: boolean;
 	} = {},
 ): FormEngineInput {
 	const doc = buildDoc({
@@ -53,37 +75,6 @@ function input(
 						name: "Check",
 						type: "survey",
 						fields: [
-							f({
-								kind: "int",
-								uuid: COUNT,
-								id: "count",
-								default_value:
-									options.ruleReadsMany || options.labelReadsMany
-										? "2"
-										: options.blankValue
-											? "1"
-											: "0",
-							}),
-							f({
-								kind: "repeat",
-								id: "rows",
-								...(options.userControlled
-									? { repeat_mode: "user_controlled" as const }
-									: {
-											repeat_mode: "count_bound" as const,
-											repeat_count: "#form/count",
-										}),
-								children: [
-									f({
-										kind: "text",
-										uuid: VALUE,
-										id: "value",
-										default_value: options.blankValue
-											? "''"
-											: "'Data ${0} / ${00}'",
-									}),
-								],
-							}),
 							...(options.labelReadsMany
 								? [f({ kind: "label", id: "ordinary", label: REF })]
 								: []),
@@ -93,7 +84,7 @@ function input(
 								id: "checked",
 								default_value: "4",
 								validate: options.ruleReadsMany
-									? "#form/rows/value = 'never'"
+									? "#user/username = 'never'"
 									: ". < 10",
 								validate_msg: options.empty
 									? proseText("")
@@ -118,6 +109,23 @@ function input(
 		caseTypes: [],
 		language,
 	};
+}
+
+/** A form engine for the worker whose device holds these worker records. */
+function engineFor(
+	engineInput: FormEngineInput,
+	records: readonly CaseRow[],
+	stagedAsync = false,
+): FormEngine {
+	return new FormEngine(
+		engineInput,
+		undefined,
+		undefined,
+		IDENTITY,
+		undefined,
+		{ rows: records, indices: [] },
+		{ stagedAsync },
+	);
 }
 
 /** Own the real worker dispatcher, snapshots, requests, and terminal teardown. */
@@ -158,65 +166,51 @@ describe.each([false, true])(
 		it.each(["eng", "spa"] as const)(
 			"uses the existing %s invalid wording only for an ambiguous reference",
 			async (language) => {
-				const engine = new FormEngine(
-					input(language),
-					undefined,
-					undefined,
-					undefined,
-					undefined,
-					undefined,
-					{
+				for (const records of [1, 2]) {
+					const engine = engineFor(
+						input(language),
+						Array.from({ length: records }, (_, index) =>
+							workerRecord(index, "Data ${0} / ${00}"),
+						),
 						stagedAsync,
-					},
-				);
-				const owned = worker(engine);
-				try {
-					if (stagedAsync) await engine.initializeAsync(owned.evaluateAsync);
-					const set = async (path: string, value: string) => {
-						if (stagedAsync)
-							await engine.setValueAsync(path, value, owned.evaluateAsync);
-						else engine.setValue(path, value);
-					};
-					await set("/data/checked", "99");
-					// Count decreases retain existing rows and their answers on device.
-					for (const [count, rows] of [
-						[0, 0],
-						[1, 1],
-						[2, 2],
-						[1, 2],
-					]) {
-						await set("/data/count", String(count));
-						expect(engine.getRepeatCount("/data/rows")).toBe(rows);
+					);
+					const owned = worker(engine);
+					try {
+						if (stagedAsync) {
+							await engine.initializeAsync(owned.evaluateAsync);
+							await engine.setValueAsync(
+								"/data/checked",
+								"99",
+								owned.evaluateAsync,
+							);
+						} else engine.setValue("/data/checked", "99");
 						expect(
 							engine.getState("/data/checked"),
-							`validation wording after live count ${count}`,
+							`validation wording beside ${records} worker records`,
 						).toMatchObject({
 							value: "99",
 							valid: false,
 							errorMessage:
-								rows === 2
+								records === 2
 									? language === "spa"
 										? "Valor no válido"
 										: "Invalid value"
-									: rows === 0
-										? "Literal ${0}: "
-										: "Literal ${0}: Data ${0} / ${00}",
+									: "Literal ${0}: Data ${0} / ${00}",
 						});
-						if (count === 1)
-							expect(engine.getState("/data/rows[0]/value").value).toBe(
-								"Data ${0} / ${00}",
-							);
+						if (stagedAsync && records === 2) {
+							expect(owned.failures.length).toBeGreaterThan(0);
+							for (const failure of owned.failures)
+								expect(failure).toMatchObject({
+									code: "evaluation-failed",
+									reason: {
+										phase: "evaluation",
+										kind: "nodeset-cardinality",
+									},
+								});
+						}
+					} finally {
+						owned.runtime.dispose();
 					}
-					if (stagedAsync) {
-						expect(owned.failures.length).toBeGreaterThan(0);
-						for (const failure of owned.failures)
-							expect(failure).toMatchObject({
-								code: "evaluation-failed",
-								reason: { phase: "evaluation", kind: "nodeset-cardinality" },
-							});
-					}
-				} finally {
-					owned.runtime.dispose();
 				}
 			},
 		);
@@ -224,32 +218,24 @@ describe.each([false, true])(
 		it.each(["literal", "zero-nodes", "blank-node"] as const)(
 			"uses the standard warning for resolved empty %s wording",
 			async (emptyMode) => {
-				const engine = new FormEngine(
+				const engine = engineFor(
 					input("eng", {
 						empty: emptyMode === "literal",
 						refOnly: emptyMode !== "literal",
-						blankValue: emptyMode === "blank-node",
 					}),
-					undefined,
-					undefined,
-					undefined,
-					undefined,
-					undefined,
-					{ stagedAsync },
+					[workerRecord(0, emptyMode === "zero-nodes" ? undefined : "")],
+					stagedAsync,
 				);
 				const owned = worker(engine);
 				try {
-					if (stagedAsync) await engine.initializeAsync(owned.evaluateAsync);
-					expect(engine.getRepeatCount("/data/rows")).toBe(
-						emptyMode === "blank-node" ? 1 : 0,
-					);
-					if (stagedAsync)
+					if (stagedAsync) {
+						await engine.initializeAsync(owned.evaluateAsync);
 						await engine.setValueAsync(
 							"/data/checked",
 							"99",
 							owned.evaluateAsync,
 						);
-					else engine.setValue("/data/checked", "99");
+					} else engine.setValue("/data/checked", "99");
 					expect(engine.getState("/data/checked")).toMatchObject({
 						value: "99",
 						valid: false,
@@ -261,67 +247,23 @@ describe.each([false, true])(
 			},
 		);
 
-		it("restores exact custom wording after an authored repeat row is removed", async () => {
-			const engine = new FormEngine(
-				input("eng", { userControlled: true }),
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				{ stagedAsync },
-			);
-			const owned = worker(engine);
-			try {
-				if (stagedAsync) {
-					await engine.initializeAsync(owned.evaluateAsync);
-					await engine.setValueAsync(
-						"/data/checked",
-						"99",
-						owned.evaluateAsync,
-					);
-					await engine.addRepeatAsync("/data/rows", owned.evaluateAsync);
-				} else {
-					engine.setValue("/data/checked", "99");
-					engine.addRepeat("/data/rows");
-				}
-				expect(engine.getRepeatCount("/data/rows")).toBe(2);
-				expect(engine.getState("/data/checked")).toMatchObject({
-					value: "99",
-					valid: false,
-					errorMessage: "Invalid value",
-				});
-				if (stagedAsync)
-					await engine.removeRepeatAsync("/data/rows", 1, owned.evaluateAsync);
-				else engine.removeRepeat("/data/rows", 1);
-				expect(engine.getRepeatCount("/data/rows")).toBe(1);
-				expect(engine.getState("/data/checked")).toMatchObject({
-					value: "99",
-					valid: false,
-					errorMessage: "Literal ${0}: Data ${0} / ${00}",
-				});
-			} finally {
-				owned.runtime.dispose();
-			}
-		});
-
 		it.each(["ruleReadsMany", "labelReadsMany"] as const)(
 			"retains the %s cardinality failure",
 			async (surface) => {
+				const records = [workerRecord(0, "first"), workerRecord(1, "second")];
 				if (!stagedAsync) {
 					expect(
-						() => new FormEngine(input("eng", { [surface]: true })),
+						engineFor(input("eng", { [surface]: true }), records.slice(0, 1)),
+					).toBeInstanceOf(FormEngine);
+					expect(() =>
+						engineFor(input("eng", { [surface]: true }), records),
 					).toThrow("XPath nodeset has more than one node");
 					return;
 				}
-				const engine = new FormEngine(
+				const engine = engineFor(
 					input("eng", { [surface]: true }),
-					undefined,
-					undefined,
-					undefined,
-					undefined,
-					undefined,
-					{ stagedAsync },
+					records,
+					stagedAsync,
 				);
 				const owned = worker(engine);
 				try {

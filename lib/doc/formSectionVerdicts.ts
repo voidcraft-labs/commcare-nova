@@ -4,12 +4,12 @@
 //
 // A section is a page of a form, and "a sectioned form" is a closed state
 // the validator holds with three rules (`FORM_SECTION_NOT_TOP_LEVEL`,
-// `FORM_SECTIONS_INCOMPLETE`, `FORM_SECTION_USER_REPEAT`). Every surface
-// that lets a field LAND somewhere — the drag gate, the keyboard move, the
-// inspector's move menu, the SA's `add_fields` / `move_field` pre-checks —
-// asks `fieldPlacementVerdict` first, so a refusal is explained before a
-// batch is built and the three editors say one sentence. The commit gate
-// stays the authority; this module exists so nobody meets it by surprise.
+// `FORM_SECTIONS_INCOMPLETE`, `FORM_SECTION_USER_REPEAT`). The drag gate and
+// the SA's `add_fields` / `move_field` pre-checks ask `fieldPlacementVerdict`
+// before a batch is built, so those refusals are explained up front in one
+// sentence. The keyboard move and the inspector's move menu build their
+// batch directly and meet the commit gate's refusal instead. The commit gate
+// stays the authority for every editor.
 
 import { produce } from "immer";
 import {
@@ -21,11 +21,26 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	type CaseWriteInventoryIssue,
+	caseWriteInventoryIssues,
+	deriveCaseWriteInventory,
+} from "@/lib/domain/caseWriteInventory";
+import {
 	type LookupTypeIndex,
 	slotContext,
 } from "@/lib/domain/expression/context";
-import { checkExpression } from "@/lib/domain/expression/typeChecker";
-import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
+import {
+	type CheckError,
+	checkExpression,
+} from "@/lib/domain/expression/typeChecker";
+import type { SlotContextRef } from "@/lib/domain/expression/types";
+import {
+	expressionAt,
+	prosePartTerm,
+	proseReadSlotRef,
+	proseSurfaceReads,
+} from "@/lib/domain/expressionSource";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
 	type ExpressionCarrierRef,
 	expressionSlotValues,
@@ -134,7 +149,9 @@ type SectionPlacementRefusal =
 export type FieldPlacementRefusal =
 	| SectionPlacementRefusal
 	| "expression-no-path"
-	| "expression-invalid-after-move";
+	| "expression-many-values"
+	| "expression-invalid-after-move"
+	| "case-write-placement";
 
 export type FieldPlacementVerdict =
 	| { readonly ok: true }
@@ -146,7 +163,8 @@ export type FieldPlacementVerdict =
 			readonly message: string;
 	  };
 
-/** The four refusal messages, one home. */
+/** The four section refusal messages, one home. The expression refusals
+ *  name the moved question and its reader, so they are composed per move. */
 export const FIELD_PLACEMENT_MESSAGES: Readonly<
 	Record<SectionPlacementRefusal, string>
 > = {
@@ -179,12 +197,16 @@ export interface FieldPlacementArgs {
 }
 
 /**
- * Checks section placement and the expressions whose paths or context change.
- * The commit gate stays authoritative for the complete candidate document.
  * May a field of `kind` (an existing `uuid`, or one being added) land under
- * `toParentUuid`? Sibling position is never the question — only the parent
- * decides — so a drag's placeholder, a keyboard move, the inspector, and a
- * tool pre-check all ask this once per destination.
+ * `toParentUuid`? Checks section placement, then, for an existing field
+ * moving to a new parent in its own form, every expression and prose
+ * reference whose path or context the move changes: the moved subtree's own
+ * slots and every slot that reads a field in it. A refusal is a finding the
+ * checker raises after the move and not before it, such as a reader left
+ * without a path, or a one-value reader that would read every entry of a
+ * repeat. The question is asked once per destination parent; a rule that
+ * reads sibling order is answered for the parent's first position. The
+ * commit gate stays authoritative for the complete candidate document.
  */
 export function fieldPlacementVerdict(
 	doc: BlueprintDoc,
@@ -234,17 +256,23 @@ const expressionPlacements = new WeakMap<
 	Map<Uuid, Map<Uuid, FieldPlacementVerdict>>
 >();
 
-const SLOT_LABELS: Partial<Record<ExpressionSlotRef["slot"], string>> = {
+const SLOT_LABELS: Partial<Record<SlotContextRef["slot"], string>> = {
 	relevant: "display condition",
 	validate: "validation rule",
+	validate_msg: "validation message",
 	calculate: "calculated value",
 	default_value: "starting value",
 	required: "required condition",
 	repeat_count: "repeat count",
 	ids_query: "case query",
+	lookup_options_source: "choice list",
 	assessment_user_score: "assessment score",
 	deliver_entity_id: "delivery identifier",
 	deliver_entity_name: "delivery name",
+	label: "label",
+	hint: "hint",
+	help: "help text",
+	option_label: "choice label",
 };
 
 function expressionOwner(
@@ -261,29 +289,144 @@ function expressionOwner(
 		: { entity: "module", uuid: module.uuid };
 }
 
-function noPath(
-	doc: BlueprintDoc,
-	moved: Uuid,
-	slot: ExpressionSlotRef,
-): FieldPlacementVerdict {
+/** How a refusal names what moves and what it breaks: the moved question
+ *  and the reader's slot, in the words the builder shows. */
+function moveWords(doc: BlueprintDoc, moved: Uuid, slot: SlotContextRef) {
 	const reader =
 		slot.entity === "field"
 			? doc.fields[slot.uuid]?.id
 			: slot.entity === "form"
 				? doc.forms[slot.uuid]?.name
 				: doc.modules[slot.uuid]?.name;
-	const label = SLOT_LABELS[slot.slot] ?? "formula";
 	return {
-		ok: false,
-		reason: "expression-no-path",
-		message: `Moving "${doc.fields[moved]?.id ?? "this question"}" here would leave "${reader ?? "this reader"}"'s ${label} without a path to it. Change that formula before moving the question.`,
+		question: doc.fields[moved]?.id ?? "this question",
+		reader: reader ?? "this reader",
+		label: SLOT_LABELS[slot.slot] ?? "formula",
 	};
 }
 
+function noPath(
+	doc: BlueprintDoc,
+	moved: Uuid,
+	slot: SlotContextRef,
+): FieldPlacementVerdict {
+	const { question, reader, label } = moveWords(doc, moved, slot);
+	return {
+		ok: false,
+		reason: "expression-no-path",
+		message: `Moving "${question}" here would leave "${reader}"'s ${label} without a path to it. Change that formula before moving the question.`,
+	};
+}
+
+function contextLost(
+	doc: BlueprintDoc,
+	moved: Uuid,
+	slot: SlotContextRef,
+): FieldPlacementVerdict {
+	const { question, reader, label } = moveWords(doc, moved, slot);
+	return {
+		ok: false,
+		reason: "expression-invalid-after-move",
+		message: `Moving "${question}" here would leave "${reader}"'s ${label} without a place in the form to run. You can move the question somewhere else, or change that ${label} first.`,
+	};
+}
+
+/** What a form's case writes refuse, keyed so the same issue matches on
+ *  both sides of a move. */
+function caseWriteIssues(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): ReadonlyMap<string, CaseWriteInventoryIssue> {
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	const form = doc.forms[formUuid];
+	const issues = new Map<string, CaseWriteInventoryIssue>();
+	if (module === undefined || form === undefined) return issues;
+	for (const issue of caseWriteInventoryIssues(
+		deriveCaseWriteInventory(doc, formUuid, module, form.type),
+	))
+		issues.set(
+			JSON.stringify([
+				issue.kind,
+				"writer" in issue ? issue.writer.fieldUuid : null,
+				"bucket" in issue ? issue.bucket.caseType : null,
+				"property" in issue ? issue.property : null,
+			]),
+			issue,
+		);
+	return issues;
+}
+
+/** A move that leaves the form's case writes in a state CommCare can't save:
+ *  a writer of the form's own case or the worker's record inside a repeat,
+ *  or a new case left without its name. Projecting such a candidate's
+ *  expressions would ask for case actions it has none of, so this comes
+ *  first. */
+function caseWriteRefusal(
+	doc: BlueprintDoc,
+	candidate: BlueprintDoc,
+	formUuid: Uuid,
+	moved: Uuid,
+): FieldPlacementVerdict | undefined {
+	const before = caseWriteIssues(doc, formUuid);
+	for (const [key, issue] of caseWriteIssues(candidate, formUuid)) {
+		if (before.has(key)) continue;
+		const question = doc.fields[moved]?.id ?? "This question";
+		const lead = `Moving "${question}" here`;
+		const saver =
+			"writer" in issue
+				? (doc.fields[issue.writer.fieldUuid]?.id ?? "a question")
+				: undefined;
+		const entries =
+			"writer" in issue && issue.writer.repeatUuid !== undefined
+				? (candidate.fields[issue.writer.repeatUuid]?.id ?? "the repeat")
+				: "the repeat";
+		const message =
+			issue.kind === "primary-writer-in-repeat"
+				? `${lead} would put "${saver}", which saves to the case this form works on, inside the repeat "${entries}", and a form saves that case once. You can keep it outside the repeat, or save the repeat's answers to new cases instead.`
+				: issue.kind === "usercase-writer-in-repeat"
+					? `${lead} would put "${saver}", which saves to the worker's own record, inside the repeat "${entries}", and a form saves that record once. You can keep it outside the repeat.`
+					: issue.kind === "create-name-missing"
+						? `${lead} would leave the new "${issue.bucket.caseType}" case without the question that names it. You can move the naming question with it, or keep it where it is.`
+						: `${lead} would change which case "${saver ?? question}" saves to, and the form's case writes would no longer fit together. You can keep it where it is.`;
+		return { ok: false, reason: "case-write-placement", message };
+	}
+	return undefined;
+}
+
+/** A new checker finding, in the checker's own sentence after a lead that
+ *  names the move and the reader it changes. */
+function newFinding(
+	doc: BlueprintDoc,
+	moved: Uuid,
+	slot: SlotContextRef,
+	issue: CheckError,
+): FieldPlacementVerdict {
+	if (issue.reason === "form-filter-step") return noPath(doc, moved, slot);
+	const { question, reader, label } = moveWords(doc, moved, slot);
+	return {
+		ok: false,
+		reason:
+			issue.code === "many-values"
+				? "expression-many-values"
+				: "expression-invalid-after-move",
+		message: `Moving "${question}" here changes "${reader}"'s ${label}. ${issue.message}`,
+	};
+}
+
+/** A finding's identity across the move: what went wrong and where, never
+ *  its sentence, which prints current paths and so changes with the move. */
+function findingKey(issue: CheckError, part = 0): string {
+	return JSON.stringify([part, issue.code, issue.reason ?? null, issue.path]);
+}
+
 /** Only affected carriers are read: inbound references to the moved subtree,
- * plus that subtree's own expressions, whose evaluation context also moves.
- * Running the production move keeps generated nodes and reverse maps exact.
- * The slot checker supplies every semantic refusal; this layer adds no rule. */
+ * plus that subtree's own expressions and prose, whose evaluation context
+ * also moves. Running the production move keeps generated nodes and reverse
+ * maps exact. The slot checker supplies every semantic refusal; this layer
+ * adds no rule. The candidate places the field first under its new parent,
+ * so a rule that reads sibling order is answered for that position; the
+ * commit gate judges the position the move actually names. */
 function expressionPlacementVerdict(
 	doc: BlueprintDoc,
 	uuid: Uuid,
@@ -326,62 +469,14 @@ function expressionPlacementVerdict(
 			after: null,
 		});
 	});
-	let verdict: FieldPlacementVerdict = OK;
+	// A structural move changes no external definition, so an empty lookup
+	// index answers the same before and after. A finding it raises is
+	// identical on both sides, and a lookup's own `where` goes unread here;
+	// the commit gate reads it with the real tables.
 	const lookup: LookupTypeIndex = new Map();
-	for (const carrier of carriers) {
-		const owner = expressionOwner(doc, carrier);
-		if (owner === undefined) continue;
-		for (const { ref, expression } of expressionSlotValues(doc, owner)) {
-			const context = slotContext(candidate, ref, lookup);
-			const beforeContext = slotContext(doc, ref, lookup);
-			if (context === undefined || beforeContext === undefined) continue;
-			if (context.ruleSet === "form") {
-				const before = projectFormExpression(
-					doc,
-					ref,
-					expression,
-					"unavailable",
-				);
-				const after = projectFormExpression(
-					candidate,
-					ref,
-					expression,
-					"unavailable",
-				);
-				const known = new Set(
-					before.unresolved.map((issue) => JSON.stringify(issue)),
-				);
-				if (
-					after.unresolved.some((issue) => !known.has(JSON.stringify(issue)))
-				) {
-					verdict = noPath(doc, uuid, ref);
-					break;
-				}
-			}
-			// No lookup snapshot is needed for a structural move. Findings that
-			// depend on unavailable external definitions are identical before it.
-			const before = new Set(
-				checkExpression(expression, beforeContext).errors.map((issue) =>
-					JSON.stringify(issue),
-				),
-			);
-			const issue = checkExpression(expression, context).errors.find(
-				(error) => !before.has(JSON.stringify(error)),
-			);
-			if (issue !== undefined) {
-				verdict =
-					issue.reason === "form-filter-step"
-						? noPath(doc, uuid, ref)
-						: {
-								ok: false,
-								reason: "expression-invalid-after-move",
-								message: issue.message,
-							};
-				break;
-			}
-		}
-		if (!verdict.ok) break;
-	}
+	const verdict =
+		caseWriteRefusal(doc, candidate, home, uuid) ??
+		firstRefusal(doc, candidate, uuid, carriers, lookup);
 	let byField = expressionPlacements.get(doc);
 	if (byField === undefined) {
 		byField = new Map();
@@ -394,4 +489,89 @@ function expressionPlacementVerdict(
 	}
 	byDestination.set(toParentUuid, verdict);
 	return verdict;
+}
+
+function firstRefusal(
+	doc: BlueprintDoc,
+	candidate: BlueprintDoc,
+	moved: Uuid,
+	carriers: ReadonlySet<string>,
+	lookup: LookupTypeIndex,
+): FieldPlacementVerdict {
+	for (const carrier of carriers) {
+		const owner = expressionOwner(candidate, carrier);
+		if (owner === undefined) continue;
+		for (const { ref, expression } of expressionSlotValues(candidate, owner)) {
+			const context = slotContext(candidate, ref, lookup);
+			const beforeContext = slotContext(doc, ref, lookup);
+			if (beforeContext === undefined) continue;
+			if (context === undefined) return contextLost(doc, moved, ref);
+			if (context.ruleSet === "form") {
+				const beforeExpression = expressionAt(doc, ref) ?? expression;
+				const before = projectFormExpression(
+					doc,
+					ref,
+					beforeExpression,
+					"unavailable",
+				);
+				const after = projectFormExpression(
+					candidate,
+					ref,
+					expression,
+					"unavailable",
+				);
+				const known = new Set(
+					before.unresolved.map((issue) => JSON.stringify(issue)),
+				);
+				if (after.unresolved.some((issue) => !known.has(JSON.stringify(issue))))
+					return noPath(doc, moved, ref);
+			}
+			const before = new Set(
+				checkExpression(
+					expressionAt(doc, ref) ?? expression,
+					beforeContext,
+				).errors.map((issue) => findingKey(issue)),
+			);
+			const issue = checkExpression(expression, context).errors.find(
+				(error) => !before.has(findingKey(error)),
+			);
+			if (issue !== undefined) return newFinding(doc, moved, ref, issue);
+		}
+		if (owner.entity !== "field") continue;
+		const field = candidate.fields[owner.uuid];
+		const previous = doc.fields[owner.uuid];
+		if (field === undefined || previous === undefined) continue;
+		for (const read of proseSurfaceReads(field, candidate)) {
+			const ref = proseReadSlotRef(field, read);
+			if (ref === undefined) continue;
+			const beforeContext = slotContext(doc, ref, lookup);
+			if (beforeContext === undefined) continue;
+			const context = slotContext(candidate, ref, lookup);
+			if (context === undefined) return contextLost(doc, moved, ref);
+			const before = new Set<string>();
+			for (const prior of proseSurfaceReads(previous, doc)) {
+				if (prior.slot !== read.slot || prior.indices[0] !== read.indices[0])
+					continue;
+				prior.template.parts.forEach((part, index) => {
+					const term = prosePartTerm(part);
+					if (term === undefined) return;
+					for (const issue of checkExpression(
+						{ kind: "term", term },
+						beforeContext,
+					).errors)
+						before.add(findingKey(issue, index));
+				});
+			}
+			for (const [index, part] of read.template.parts.entries()) {
+				const term = prosePartTerm(part);
+				if (term === undefined) continue;
+				const issue = checkExpression(
+					{ kind: "term", term },
+					context,
+				).errors.find((error) => !before.has(findingKey(error, index)));
+				if (issue !== undefined) return newFinding(doc, moved, ref, issue);
+			}
+		}
+	}
+	return OK;
 }

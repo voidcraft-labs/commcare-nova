@@ -139,7 +139,7 @@ Every JavaRosa call name is recognized in Nova's form-expression profile today (
 | `jr:choice-name(value, 'path')` on a static-choice select | **HELD-NEW**: choice-label lookup bound to the field | RUNS / RUNS | printed |
 | `jr:choice-name` on a lookup (itemset) select | **REFUSED**: broken at runtime: "error in evaluation of xpath function [choice-name]" on both | — | — |
 | `here()` in a form | **REFUSED**: broken at runtime: no form-context handler ("cannot handle function 'here'") | — | — |
-| `here()` in a case-list calculated column or sort | **HELD-NEW**: row-context `here()` (admission and authoring land in pull request 6) | UNAVAILABLE in case-list rows and sorts (Core's São Paulo placeholder, `EntityScreen`), RUNS in the case detail with the browser's location, blank until granted (`MenuSessionRunnerService`, `FormplayerHereFunctionHandler`) / RUNS | printed |
+| `here()` in a case-list calculated column or sort | **HELD**: the `here` arm, admitted only in a case-list calculated column | UNAVAILABLE in case-list rows and sorts (Core's São Paulo placeholder, `EntityScreen`), RUNS in the case detail with the browser's location, blank until granted (`MenuSessionRunnerService`, `FormplayerHereFunctionHandler`) / RUNS | printed |
 | any other function name | **REFUSED**: broken at runtime: `XPathCustomRuntimeFunc` throws at evaluation | — | — |
 | union `a \| b` | **REFUSED**: broken at runtime: `XPathUnionExpr` throws "nodeset union operation" | — | — |
 | filter expression `(expr)[…]` (root other than `instance()`/`current()`) | **REFUSED**: broken at runtime: `XPathUnsupportedException("filter expression")` (followed by a path step in a bind, not HQ-buildable: Core's parse refuses it) | — | — |

@@ -66,6 +66,11 @@ planning" lists the reads.
    effective catalog in one memoised build that replaces `effectiveCaseTypes.ts::WHOLE_EXPRESSION_TYPES`.
    A Hidden Value's bind keeps today's rule (`lib/domain/fieldValueType.ts::fieldValueType`, the
    writer destination; part 04 §5.4), so `fieldValueType` stays.
+   **Implementation correction, 2026-10-19:** `WHOLE_EXPRESSION_TYPES` no longer existed at the
+   stack's pull request 5 head, which had replaced it with the closed
+   `effectiveCaseTypes.ts::inferHiddenWriterType` / `inferExpressionType`; pull request 6 deletes
+   those two. `effectiveCaseTypes`, `materializableCaseTypes` and `concreteCasePropertyWriterTypes`
+   keep their names and callers as projections of `lib/domain/expression/inference.ts::inferExpressionTypes`.
 8. **The gate gets cheaper.** Executed during planning: today's gate makes 12.0 Lezer parses per
    form-logic slot (60,720 on the 3,000-field fixture, 108 ms of its 270 ms); the record checker
    costs 0.07 µs a node. Memoisation is per document and per form, never per slot.
@@ -137,7 +142,9 @@ ctx, ds)` is `{ kind: "assignment", destinations: ds }`. The three names leave w
 the package. A `CheckError` keeps today's shape (`path`, `code`, `message`;
 `typeChecker.ts::CheckError`) and gains an optional `reason`, a closed string per code that the
 projection (§1.5) copies into `details.reason` (`incompatible-values` carries `date-datetime`,
-`datetime-ordering`, `boolean` or `day-only-on-device`). A finding names a node by its path in the
+`datetime-ordering`, `boolean` or `day-only-on-device`; **implementation correction, 2026-10-19:**
+also `clock-lost` from pull request 8, and `expected-value` carries `clock-lost` from pull request 6,
+§5.1). A finding names a node by its path in the
 tree, never by a text offset, and the form-XPath printer's span map (part 02 §1.5,
 `lib/domain/expression/spans.ts::spanFor`) turns a path into the range the XPath linter underlines.
 
@@ -331,8 +338,9 @@ after the form closes) and, for its `datums[].name`, the target form's set as `t
 the record slots that read a chosen case from pull request 10 (§3.9), the set at the slot's
 `case-list`, `search` or `form-menu` point (part 05 §1.3, "Evaluation points"). The validator, the XPath linter (through
 `checkFormLogicSlot`, §1.5), the card editor's live verdicts and the builder's move verdicts
-(`lib/doc/formSectionVerdicts.ts::fieldPlacementVerdict`, `lib/doc/navigation.ts`) all build their
-contexts through `slotContext`. The card editor and the move verdicts need nothing beyond
+(`lib/doc/formSectionVerdicts.ts::fieldPlacementVerdict`) all build their
+contexts through `slotContext` (**implementation correction, 2026-10-19:** `lib/doc/navigation.ts`
+holds no verdict and builds no context; `fieldPlacementVerdict` is the one move verdict, §3.4). The card editor and the move verdicts need nothing beyond
 `lib/domain`, so neither reaches `lib/commcare`, and no `biome.json` line changes: the builder
 readers that do reach it, for datum ids and the form-logic parse, are the XPath editor's linter and
 field (`lib/codemirror`, `components/builder/XPathField.tsx`), both allowlisted today.
@@ -606,7 +614,7 @@ own snapshot, which no code change touches.
 |---|---|
 | `INVALID_SEARCH_REF` | `"X" in "F" reads a search answer this form can't get to. A form can read Search answers only when it opens after a search finds no matches.` |
 | `XPATH_FUNCTION_CONTEXT_UNAVAILABLE`, reason `here` | `A formula on "X" in "F" uses here(), which is where the worker is. A case list knows that and a form doesn't. You can add a location question instead.` |
-| same, reason `choice-name-dynamic` | `A formula on "X" in "F" asks for the label of a choice of "Q", whose choices come from a lookup table or from cases. You can read the label from the same table instead.` |
+| same, reason `choice-name-dynamic` | `A formula on "X" in "F" asks for the label of a choice of "Q", whose choices come from a Project data table or from cases, so there is no label to read. You can read the label from where the choices come from instead.` (**Implementation correction, 2026-10-19:** the earlier "from the same table" did not fit a case-backed select) |
 | same, reason `itext-reference` | `A formula on "X" in "F" reads the wording of "Q", which shows an answer. CommCare would show a placeholder there instead of the answer. You can read the answer itself instead.` |
 | `INVALID_REF`, `details.identity: "choice"` | `A formula on "X" in "F" uses a choice that "Q" no longer has. You can choose one of its current choices.` |
 | `SESSION_DATUM_NOT_SUPPLIED` | part 05 §1.6's sentence for the `details.reason` kind, with step 2's carrier wording for links and Connect |
@@ -838,6 +846,24 @@ a node-set (`ids_query`, part 01 §4), and a `value-list` item, which the list f
 its Core class. Prose parts are covered too: a label that shows `#form/visits/date` from outside
 `visits` is refused.
 
+**Implementation correction, 2026-10-19.** Crossing is decided by the context node
+(`typeChecker.ts::structuralSeveral`): the repeats on the leaf's path that the context node's path
+does not hold, the context being the slot's source node for `current()` and its lexical context node
+otherwise. Inside a step predicate the step is the context, which is what the "step predicate's own
+content" exemption above amounts to; it is no blanket exemption, since Core's `XPathEqExpr.evalRaw`
+unpacks inside a predicate too. A case operation with `forEach` evaluates in its repeat's iteration
+(`context.ts::slotContext`), and a slot with no context node (a form link's slots, an operation
+without `forEach`) crosses every repeat. Any filter on the crossed step makes the read not
+structural: a positional `[1]` gives one, another filter leaves the count to the data. `form-node`
+leaves count as `field` and `repeat-row` do. The node-set arguments add `index-of`'s first of two
+(`XPathIndexOfFunc.java::evalBody`, through `FunctionUtils.getSequence`) and `depend`'s second and
+later (`XPathDependFunc.java::evalBody` never reads them); `weighted-checklist`'s third and fourth
+are admitted only jointly (`manyArgumentsJointly`: with one node-set Core unpacks both). The
+pass-through positions carry the mark to their caller rather than exempting it: `if` and `switch`
+branches, `coalesce`'s last argument, `depend`'s first, `sleep`'s second and `cond`'s branches
+(`FunctionSpec.passThrough`). The old `structural` mark on groups, sections, the form root and
+Connect blocks is renamed `container`, so `structural` means only several by shape.
+
 **`selected-cases`** (part 05 §2.5). A several-case form's `instance('<datum id>')/results/value`
 holds every case the worker chose in the module, and the module selects several cases by
 declaration, as a repeat holds several rows: its shape decides that there are several, not its
@@ -870,6 +896,13 @@ Moves. Moving a field into a repeat, or a reader out of one, can make a stored r
 gate refuses the move naming the read (part 01 §5, "Move"), and the builder's move verdicts
 (`lib/doc/navigation.ts`, `formSectionVerdicts.ts::fieldPlacementVerdict`) ask the same checker
 before offering the move (part 02).
+**Implementation correction, 2026-10-19:** `lib/doc/navigation.ts` holds no verdict. The move
+verdict is `fieldPlacementVerdict`, which the drag gate (`landingGuards.ts`) and the SA's
+`add_fields` and `move_field` ask; a keyboard or inspector move builds its batch directly and the
+gate refuses it. The preflight reads the candidate document's expressions, checks prose references
+too (`expressionSource.ts::prosePartTerm`, shared with the gate, and `proseReadSlotRef`), refuses a
+slot that loses its context, keys its before/after diff on code, reason and path, and refuses a
+structural many with reason `expression-many-values`.
 
 Corpus (executed during planning): 22 reads of a repeat answer from outside its repeat in 6
 documents, every one in an admitted position (count 10, join 6, inside a step predicate 6); none in a
@@ -994,6 +1027,16 @@ under the slot's type code, and the form parser of pull request 5 reads `here()`
 form logic, the parse issue `unknown-function` that today's `XPATH_FUNCTION_UNAVAILABLE` trigger
 maps onto (§2.3); pull request 6 parses it into the arm and refuses it in admission.
 
+**Implementation correction, 2026-10-19.** On Web Apps a case list's rows and sorts are evaluated
+with Core's placeholder handler in `EntityScreen`, and the detail with the browser's location, as
+the surface entry's platform cell says; `addHereFuncHandler` is not the rows' handler. Pull request 6
+also gives the record dialect `here()`, parse and print (`lib/agent/authoring/queryExpressions.ts`,
+`printQueryExpression.ts`, `here: [0, 0]` in `QUERY_FUNCTIONS`), because the calculated-column
+profile admits the arm and every stored arm must print; it does not bump `MODEL_CONTEXT_VERSION`,
+because the stack deploys once at pull request 12's value (part 02 §3.3). The surface entry
+`expressions-and-data/here-in-a-case-list-calculated-column-or-sort` and its inventory row flip to
+`HELD` in pull request 6. The builder's `here` card and focus title read "Worker's location".
+
 Tests (pure): `here()` in a calculated column accepted; in a field `calculate` and in a module
 display condition refused.
 
@@ -1027,6 +1070,11 @@ placeholder there instead of the answer. You can read the answer itself instead.
 needs Core's `${n}` (part 07 §3.3).
 
 Production holds no `jr:itext` and no `jr:choice-name` read; the corpus none either.
+
+**Implementation correction, 2026-10-19:** accepting an inline `choice-name` is pull request 9's,
+where profiles admit the read. Until then the arm stays refused over an inline select, reason
+`choice-name`, and pull request 6 tests the `choice-name-dynamic` refusal with a case-backed select
+beside it; the inline acceptance below joins in pull request 9.
 
 Tests (pure): `choice-name` over an inline select accepted; over a lookup-backed and a case-backed
 select refused; `itext` of a unit whose text is plain accepted beside the same unit with a
@@ -1258,6 +1306,12 @@ type), `FIELD_KIND_WRITERS_DISAGREE` (two visible writers), and `CASE_OPERATION_
 declared type, else another writer's, by `isValueStorageAssignable`). Hidden Value writers are skipped
 (`fieldKindMatchesPropertyType.ts`, "`hidden` … skipped"), and their structural inference gives a type
 only to a lone `today()`, `now()` or case-property copy (`effectiveCaseTypes.ts::inferExpressionType`).
+**Implementation correction, 2026-10-19:** the validator compares an operation write against the
+declared type ∪ the concrete writer opinions (`concreteCasePropertyWriterTypes`, read in
+`context.ts::slotContext`'s operation branch), not against `caseOperationWriteValueType`, which is a
+builder helper (`lib/doc/hooks/useCaseOperations.ts`). Those opinions already held the closed Hidden
+opinions above, so an operation co-writer was the one route by which a Hidden Value writer met a
+finding.
 
 ### 4.2 Nova's own writers can put text where a typed question reads it back
 
@@ -1302,12 +1356,28 @@ write is:
   codes in `runner.ts::SCOPE_EXEMPT_CODES`), one finding per writer, field-located; Hidden-only
   disagreement reports each Hidden writer.
 
-Integral functions type `int` (part 01 §3.3): `int`, `round` (one argument), `floor`, `ceiling`,
-`string-length`, `count-selected` and `position` carry `integral: true` in `FUNCTION_REGISTRY`,
+**Implementation correction, 2026-10-19** (`inference.ts::hiddenWriterVerdicts`,
+`rules/hiddenValueWriterAgreement.ts`). The opinion is taken output by output: a blank `''` output
+and a yes/no output hold none, as an unknown one does, and the writer's opinion is the agreed type of
+its typed outputs. A starting value with no calculation that its own form preloads holds no opinion
+at all, since the preload overwrites it (the order this section's select-preload rule cites below),
+and it is never a finding. A writer whose output's clock may be gone (§5.1) and whose property is a
+date and time is `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` with `details.reason: "clock-lost"`; a case
+operation's write of such a value into a date-and-time destination is `CASE_OPERATION_EXPRESSION_TYPE`
+with the same reason (the checker's `expected-value`, reason `clock-lost`). Writer agreement already
+refuses `datetime` into `date` or `text`, so only a copy chain reaches this rule: a Hidden Value
+`now()` that writes nothing, copied by one that writes a date-and-time property, would save
+midnight.
+
+Integral functions type `int` (part 01 §3.3): `int`, `round`, `floor`, `ceiling`,
+`string-length`, `count-selected`, `position` and `index-of` carry `integral: true` in `FUNCTION_REGISTRY`,
 because Core stores an integral `Double` as `IntegerData` (`Recalculate.wrapData`: `isIntegral` →
 `IntegerData`) and step 2's manifest reader already types `count`, `count-selected` and `int` as
 integers. So a Hidden Value `int(#form/n div 2)` can write an `int` property under this rule, and a
-`repeat_count` of `round(…)` is an integer.
+`repeat_count` of `round(…)` is an integer. **Implementation correction, 2026-10-19:** Core's
+`round` has one argument (`XPathRoundFunc`'s `EXPECTED_ARG_COUNT`), so the plan's "(one argument)"
+named no other form; `index-of` is integral too (`XPathIndexOfFunc.java::evalBody` returns an
+integral `Double` or `''`, which stores no value).
 
 Validator message: `Hidden value "<field>" in "<form>" saves <text> to "<property>" on "<type>",
 which holds <a date> (<declared | saved by "<writer>" in "<form>">). A form that fills a question from
@@ -1323,7 +1393,10 @@ Consequences:
   undeclared property to the source kind's type; the pin stays (a Hidden Value with no value source
   holds no opinion), and the comment says why.
 - `effectiveCaseTypes.ts::concreteCasePropertyWriterTypes` gains the Hidden opinions, so the
-  validators that read it (`caseOperations.ts`) see them.
+  validators that read it (`caseOperations.ts`) see them. **Implementation correction,
+  2026-10-19:** it already held the closed Hidden opinions (§4.1); from pull request 6 it is a
+  projection of `inference.ts::inferExpressionTypes`'s `writerOpinions`, the fixpoint's opinions
+  of every writer kind, a preloaded starting value excluded.
 - A typed read now refuses what it admitted: a Hidden Value read in a record slot (a case operation
   value, a lookup or case choice filter) has its inferred type where today it is unknown
   (`effectiveCaseTypes.ts::collectFormFieldTypes` maps a Hidden Value to `undefined`).
@@ -1394,6 +1467,17 @@ select reader, `'a z'` refused beside `'a b'` accepted; `1` against an option `1
 Hidden Value with no `calculate` and the starting value `'z'` that preloads the same property
 accepted (the preload overwrites it), beside the same writer with `calculate` `'z'` refused.
 
+**Implementation correction, 2026-10-19.** The rule counts typed and untyped literals alike (a
+`literal('z', 'single_select')` write is a literal write) and is independent of storage
+assignability, which is writer agreement's question. So the `1` into an option `"1"` and the `'a b'`
+into a multiple cases above assert only this rule's absence: storage refuses an untyped number into a
+`single_select` property and untyped text into a `multi_select` one, under
+`HIDDEN_VALUE_WRITER_TYPE_MISMATCH` or `CASE_OPERATION_EXPRESSION_TYPE`. A multiple's tokens split
+as Core's `DataUtil.splitOnSpaces` does, on runs of U+0020 with empty tokens dropped
+(`expression/choiceValue.ts::selectAnswerTokens`, which `checkChoiceDefault` shares), so a tab is
+part of a token. A case operation finding is located through `rules/caseOperations.ts::caseOperationError`,
+the shared form of `opError`. Its corpus effect is read as §7 corrects.
+
 ### 4.4 Beyond authoring
 
 A case written by another app, an import, a case update rule, HQ's case API or an HQ edit, or by this
@@ -1454,6 +1538,32 @@ holds, so `if(c, #form/dt, '')` writing a date and time property keeps its `xsd:
 give (`Recalculate.java::wrapData`: text is `StringData`, a `Date` is `DateData` under any bind but
 `xsd:dateTime`; part 01 §3.2), which the lowering reads.
 
+**Implementation correction, 2026-10-19: clock provenance.** The fixpoint computes a fourth vector,
+`C`, beside `H`, `P` and `O`, and a held class per Hidden Value (`ExpressionInference.hiddenHeld`,
+`clockLost`; `expressionFacts` carries both beside `hiddenTypes`). The held class comes from bind ×
+source slot × result: a `calculate` is stored through `Recalculate.java::wrapData`, so text holds
+`string` under any bind, a number `number`, and a `Date` `date` (`DateTimeData` under
+`xsd:dateTime`, otherwise `DateData`, rounded to the day); a `default_value` is a setvalue, whose
+`SetValueAction.java::processAction` casts the wrapped value's text through the bind's answer class,
+so a starting value under `xsd:string` holds text (`YYYY-MM-DD` for a `Date`) and one under
+`xsd:dateTime` holds `date`. A date and time whose clock may be gone is `clockLost`: a `Date` result
+of datetime or unknown data under an `xsd:string` bind, from either slot, and anything that copies
+such a value through any Hidden Value, `if` / `coalesce` / `switch` branch or bind, since an
+`xsd:dateTime` bind cannot restore a lost clock. `date-coerce` clears the mark (an explicit `date()`
+is a day by request), `datetime-coerce` and `date-add` keep it, and text results carry none;
+`today()`, `date()` and date questions are days by meaning, never `clockLost`. The checker's
+`NodeType` carries it (`clockLost?: true`). Pull request 6 refuses a clock-lost value written into a
+date-and-time property (§4.3, reason `clock-lost`); pull request 8, the lowering, refuses an implicit
+instant comparison with a clock-lost operand (`incompatible-values`, reason `clock-lost`), because a
+bare comparison before the lowering compares days and the lowering would read the day's text as NaN;
+an explicit `date()` on both sides stays admitted. The bind keeps today's rule (`fieldValueType`),
+unchanged, and a Hidden Value that writes nothing keeps `xsd:string` whatever `H` is. An untyped
+Hidden Value's field leaf is `_any` with its held class, so it holds no opinion yet keeps its held
+representation. Inference types over its own concrete catalog and an empty lookup index (data tables
+are no document fact), so `#case/p + 1` writing an untyped `p` stays unknown. The type passes keep
+the `|H| + |O| + 2` bound; held classes and `C` then settle over the settled types in a fixpoint of
+their own (`Inference.finish`, at most `|H| + 1` passes), so neither moves a data type.
+
 ### 5.2 What it replaces
 
 - `lib/domain/fieldValueType.ts::fieldValueType` stays, with its seven callers
@@ -1470,6 +1580,12 @@ give (`Recalculate.java::wrapData`: text is `StringData`, a `Date` is `DateData`
 - `effectiveCaseTypes.ts::WHOLE_EXPRESSION_TYPES`, `inferHiddenWriterType` and `inferExpressionType`
   are deleted; `writerTypeResolver` reads `H`. `effectiveCaseTypes` and `materializableCaseTypes`
   keep their names and callers and become projections of `expressionFacts(doc).caseTypes`.
+  **Implementation correction, 2026-10-19:** at pull request 5's head only `inferHiddenWriterType`
+  and `inferExpressionType` remained, and pull request 6 deletes them with `writerTypeResolver`'s
+  index. `effectiveCaseTypes`, `materializableCaseTypes` and `concreteCasePropertyWriterTypes` are
+  projections of `inference.ts::inferExpressionTypes` (its `caseTypes` and `writerOpinions`), which
+  `expressionFacts` also reads; the build lives in `inference.ts`, so `effectiveCaseTypes.ts` imports
+  inference and no cycle runs back through `context.ts`.
 - `timeOrdering.ts::TimeReader.leafIsTime`'s recursion into a calculate is the same inference, now
   shared.
 
@@ -1554,6 +1670,12 @@ count:
 10. The full finding multiset of the lifted documents against the same documents at the base, so that
     a code no row above names still surfaces; a finding the base does not hold is a blocker too.
 
+**Implementation correction, 2026-10-19:** the dry run also counts clock-lost writes (§5.1) as
+blockers: `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` and `CASE_OPERATION_EXPRESSION_TYPE` with
+`details.reason: "clock-lost"` (item 1's codes, counted apart by reason), and, from pull request 8,
+`XPATH_INCOMPATIBLE_VALUES` with reason `clock-lost` (item 3's). Production's blank tests `= ''`
+against an `if(…, now(), …)` Hidden Value stay bare and admitted. Expected none or few; blockers.
+
 ---
 
 ## 6. The gate's cost
@@ -1587,6 +1709,14 @@ Memoisation, decided:
   so a hit is never stale.
 - `formExpressionFacts(doc, formUuid)`: a `WeakMap<doc, Map<formUuid, …>>`, built on first use, so a
   scoped commit (`lib/doc/incrementalValidationScope.ts`) builds only the touched forms'.
+  **Implementation correction, 2026-10-19:** a scoped commit is sound only while inference moves
+  nothing outside its footprint, since `expressionFacts` is document-wide. So
+  `incrementalValidationScope(prevDoc, mutations, nextDoc)` falls back to the absolute gate when
+  `inference.ts::inferenceFingerprint` (catalog types by name, Hidden data types, held classes,
+  clock loss, writer opinions; memoised per document) differs between the two documents, and
+  `lib/doc/commitVerdicts.ts::mutationCommitVerdictWithPrevalidation` passes the candidate.
+  `updateSearchInput` adds the module's no-matches form, whose reads the input's kind types. A
+  batch that leaves the fingerprint unchanged keeps its footprint.
 - `typeOf(expression, ctx)`: a `WeakMap` on the expression node inside one context object, for
   emitters and the lowering, which ask the same node more than once in one run.
 - No cross-commit, per-slot verdict cache. A slot's verdict depends on document-wide facts (Hidden
@@ -1616,6 +1746,17 @@ which is how it proves that moving a rule into the checker (§1.4, §2.2) moved 
 §4.1 runs the same comparison in pull request 5, the shape, and pull request 6, the checker, runs it
 again for its narrowings). Executed during planning, the emission at `main`: 371 documents, none
 refused.
+
+**Implementation correction, 2026-10-19.** Every admission point refuses on the first finding
+(`emitCorpus.ts::admittedDoc`, `fuzzSample.ts::admitted`, `editBatches.ts::hydrateAdmittedDocument`),
+so a base-and-head multiset over two emitted corpora is empty by construction and shows no moved
+verdict. The comparison that does is head code validating the base corpus: a read-only runner, kept
+outside the repository, runs the head's `runValidation` (with `publishFindings`) over every base
+document D and its edit D′ and lists each finding by document, variant, code, location and reason;
+then `index.json`'s census (each kind's `landed`, `refused` by code) and each `edit/batch.json` are
+diffed at base and head, since one edit candidate the head refuses can reorder other documents'
+batches; then the head emission, which must not stop. A finding the runner lists is a document to
+rewrite in its producer or a fuzz draw to map (part 08 §4.2).
 
 What each narrowing of this part does to the corpus at `main`:
 
@@ -1691,6 +1832,19 @@ which an untyped query may read, and 5 of them reading a row value in another pr
   question starts on must be one of its choices), the date-and-time and system-date rows in pull request 8, the results-row day in pull
   request 9. Wording that shows an answer stays out of the public docs: no surface offers `jr:itext`
   (part 02 §4.2; part 10).
+- **Implementation correction, 2026-10-19**, files pull request 6 also changes:
+  `lib/domain/expression/choiceValue.ts` (`selectAnswerTokens`, §4.3); `lib/domain/expressionSource.ts`
+  (`prosePartTerm`, which the gate and the move preflight share, and `proseReadSlotRef`, §3.4);
+  `lib/domain/expression/CLAUDE.md` (the rule sets and inference as they are);
+  `lib/doc/incrementalValidationScope.ts` and `lib/doc/commitVerdicts.ts` (§6);
+  `lib/doc/formSectionVerdicts.ts` (§3.4); `lib/commcare/validator/rules/caseOperations.ts`
+  (`caseOperationError`, the `clock-lost` reason) and `rules/app.ts` (`APP_RULES` runs both writer
+  rules under every scope); `lib/commcare/validator/index.ts` (the shared prose mapping);
+  `lib/agent/authoring/queryExpressions.ts` and `printQueryExpression.ts` (the record dialect's
+  `here()`, §3.6); `components/builder/shared/RuleFocusContext.tsx` and `expressionEditorSchemas.ts`
+  (the `here` label); `components/preview/form/virtual/landingGuards.ts` (header);
+  `lib/commcare/surface/entries/expressions-and-data.json` and
+  `docs/research/2026-09-26-hq-round-trip/inventory/expressions-and-data.md` (the `here` flip).
 
 ---
 
@@ -1724,6 +1878,16 @@ sits beside the accepted neighbour that differs from it in one fact.
 | projections and classes | `lib/commcare/validator/__tests__/gate.test.ts` (exists) | each new code gates a commit | an unchanged document passes |
 | copy | `components/builder/shared/__tests__/checkErrorPresentation.test.ts`, `lib/doc/__tests__/userFacingErrors.test.ts` (exist) | each new code and reason renders its own line | each existing code keeps its line |
 | scale | `gateScale.test.ts` (kept) | the dangling leaf in the last form | the 3,000-field fixture clean |
+
+**Implementation correction, 2026-10-19:** the `jr:choice-name` row's inline acceptance is pull
+request 9's (§3.7); pull request 6's neighbour is the same read over an inline select refused with
+reason `choice-name`. The select-preload row's `'a b'` and `1` neighbours assert only that rule's
+absence (§4.3). Hidden inference adds clock loss (a copy of `now()` through Hidden Values, a branch
+and a cycle lost, a text copy kept) and Hidden writer agreement its `clock-lost` refusal beside a
+writer of `now()` itself admitted. The move rows run through `fieldPlacementVerdict` and
+`mutationCommitVerdict` in `lib/doc/__tests__/formSectionVerdicts.test.ts`, and the inference
+fallback through `lib/doc/__tests__/incrementalValidationScope.test.ts`'s scoped-against-absolute
+parity.
 
 The existing suites of every record rule (`rules/case-list/__tests__`, `rules/case-search/__tests__`,
 `lookupOptionsSource.test.ts`, `caseOperations.test.ts`, `lib/domain/predicate/__tests__/typeChecker.test.ts`
@@ -1773,9 +1937,20 @@ the stack head refuses.
    reads that part 05 makes authorable (`selected-cases`, `jr:choice-name`) are pure
    `typeChecker.test.ts` cases here; their gate cases join in pull request 9, where profiles admit the
    reads.
+   **Implementation correction, 2026-10-19:** inference replaces `inferHiddenWriterType` and
+   `inferExpressionType`, `WHOLE_EXPRESSION_TYPES` having left in pull request 5 (decision 7), and
+   computes held classes and clock loss (§5.1); writer agreement refuses a clock-lost write
+   (`clock-lost`, §4.3); the record dialect gains `here()` with no `MODEL_CONTEXT_VERSION` bump and
+   the surface flips `here` to `HELD` (§3.6); inline `choice-name` stays refused until pull request 9
+   (§3.7); the scoped commit falls back on an inference change (§6); the move preflight checks prose
+   and refuses with `expression-many-values` (§3.4). Its corpus run is §7's head-over-base runner,
+   not a multiset of two emitted corpora.
 3. **Pull request 8, the lowering**: the day rule, `day-only-on-device` over `date_opened` and
    `last_modified` read from `casedb` (§3.2, §3.10), beside finding 56's lowering, which is what makes
    a comparison of two moments sound, and whose day-aligned comparisons stay bare (part 04 §3.4).
+   **Implementation correction, 2026-10-19:** with it, `incompatible-values` reason `clock-lost`, an
+   implicit instant comparison with a clock-lost operand (§5.1), since the lowering is what makes
+   such a comparison read NaN.
 4. **Pull request 9, instances and session**: the day rule over search results rows (§3.2), where
    results rows first exist; the admission of `search-results` with part 05's
    `SEARCH_RESULTS_NOT_SUPPLIED` and this part's `SEARCH_RESULTS_READ_INVALID` with its two checker

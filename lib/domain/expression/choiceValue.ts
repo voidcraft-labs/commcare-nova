@@ -25,3 +25,13 @@ export function choiceValue(
 		})
 		.join(" ");
 }
+
+/**
+ * The selections a select answer's text names: runs of U+0020 separate them
+ * and empty tokens name none. Core casts a multiple select's text through
+ * `org/javarosa/core/util/DataUtil.java::splitOnSpaces` (`split("[ ]+")`), so a
+ * tab or a no-break space is part of a token, never a separator.
+ */
+export function selectAnswerTokens(text: string): readonly string[] {
+	return text.split(/ +/).filter((token) => token.length > 0);
+}

@@ -3202,8 +3202,9 @@
 		"item": "`here()` in a case-list calculated column or sort",
 		"surfaceKeys": ["jr-handler:here"],
 		"valueClass": "case-list-row-context",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: row-context `here()` (admission and authoring land in pull request 6)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the `here` arm, admitted only in a case-list calculated column",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE in case-list rows and sorts (Core's São Paulo placeholder, `EntityScreen`), RUNS in the case detail with the browser's location, blank until granted (`MenuSessionRunnerService`, `FormplayerHereFunctionHandler`) / RUNS",

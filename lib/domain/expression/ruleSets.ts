@@ -92,6 +92,30 @@ export function accumulateBranchType(
 	return agreed;
 }
 
+const ISO_DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATETIME_SHAPE =
+	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.(\d+))?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/;
+const TIME_SHAPE = /^\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+
+/**
+ * The type a string literal's text spells: an ISO date, an ISO date and time
+ * (with how many fraction digits its seconds carry), or a time of day. This
+ * reads a literal's value, never expression text.
+ */
+export function literalShape(
+	text: string,
+):
+	| { readonly type: "date" | "time"; readonly fractionDigits: 0 }
+	| { readonly type: "datetime"; readonly fractionDigits: number }
+	| undefined {
+	if (ISO_DATE_SHAPE.test(text)) return { type: "date", fractionDigits: 0 };
+	const datetime = ISO_DATETIME_SHAPE.exec(text);
+	if (datetime !== null)
+		return { type: "datetime", fractionDigits: datetime[1]?.length ?? 0 };
+	if (TIME_SHAPE.test(text)) return { type: "time", fractionDigits: 0 };
+	return undefined;
+}
+
 export function literalType(lit: Literal): ResolvedType {
 	if (lit.data_type) return lit.data_type;
 	if (lit.value === null) return ANY_TYPE;

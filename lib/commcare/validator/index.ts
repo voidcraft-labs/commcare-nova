@@ -8,7 +8,7 @@ import {
 	type FieldProseSlotId,
 	type FormLinkExpressionSlotId,
 	fieldRegistry,
-	type ProseTemplate,
+	prosePartTerm,
 	proseSurfaceReads,
 	type Uuid,
 } from "@/lib/domain";
@@ -17,11 +17,7 @@ import {
 	slotContext,
 } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
-import {
-	datumRefKey,
-	type ProseSlotRef,
-	type Term,
-} from "@/lib/domain/expression/types";
+import { datumRefKey, type ProseSlotRef } from "@/lib/domain/expression/types";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type CycleReport, TriggerDag } from "@/lib/preview/engine/triggerDag";
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
@@ -217,7 +213,7 @@ export function validateBlueprintDeep(
 						continue;
 					}
 					for (const part of template.parts) {
-						const term = proseTerm(part);
+						const term = prosePartTerm(part);
 						if (term === undefined) continue;
 						if (
 							term.kind === "field" &&
@@ -312,25 +308,4 @@ export function validateBlueprintDeep(
 		}
 	}
 	return errors;
-}
-function proseTerm(part: ProseTemplate["parts"][number]): Term | undefined {
-	switch (part.kind) {
-		case "text":
-			return undefined;
-		case "field-ref":
-			return { kind: "field", uuid: part.uuid };
-		case "case-ref":
-			return {
-				kind: "form-case",
-				caseType: part.caseType,
-				property: part.property,
-			};
-		case "user-property-ref":
-			return {
-				kind: "session-user-property",
-				userPropertyUuid: part.userPropertyUuid,
-			};
-		case "user-ref":
-			return { kind: "session-user", field: part.property };
-	}
 }
