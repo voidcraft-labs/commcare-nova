@@ -263,6 +263,14 @@ export function lookupChoicesFromNodeset(
 		source.tableId,
 		"lookupChoicesFromNodeset",
 	);
+	/* A table with no rows has no row step on a device (a plain
+	 * `TreeElement`, no templates), so the itemset's nodeset is an invalid
+	 * path and Core's `ItemSetUtils.populateDynamicChoices` refuses the
+	 * question rather than offering no choices. */
+	if (!nodeset.validPath)
+		throw new Error(
+			`The choices for this question come from the lookup table \`${table.name}\`, which has no rows, and CommCare refuses to open a question whose choice table has no rows ("Make sure the lookup table is available"). The question opens once the table holds a row.`,
+		);
 	const valueColumn = requireColumn(
 		table,
 		source.valueColumnId,

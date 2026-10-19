@@ -855,6 +855,78 @@ setting is the space's, which no API key reads. That is defect 14 / finding 69's
   user fixture `locations` (`corehq/apps/locations/fixtures.py::flat_location_fixture_generator`)
   and the archive never embeds, so an app whose link reads places compiles to a `.ccz`.
 
+**Implementation correction, 2026-10-19 (pull request 9): what Core does with an empty instance.**
+Core checks an absolute path before reading it (`XPathPathExpr.evalRaw` →
+`DataInstance.hasTemplatePath`): each step must reach a template child or, failing that, some
+concrete child, predicates ignored. A path that reaches nothing is an invalid nodeset: `count()`
+reads it as 0 (`XPathNodeset.size`), every value read throws "Logic references … which is not a
+valid question or value" (`unpack`, `toArgList`, so a scalar read and `join`), and `if()` evaluates
+only its chosen branch, so `if(count(<list>) > 0, <read>, '')` never runs the refused read. Probed
+at the pinned Core through its own parsers and builders (restore XML into `MockUserDataSandbox`, a
+Formplayer-shaped fixture initializer, `VirtualInstances`, `ExternalDataInstanceSource.buildRemote`,
+`RemoteQuerySessionManager`):
+
+| Instance | Path check | Empty: `count` / value read / `join` / count-guarded read |
+|---|---|---|
+| `locations`, worker with no places | data: HQ's empty indexed `<locations/>` registers no index paths (`IndexedFixtureXmlParser.processRoot`), so Formplayer and Android read the flat copy, a plain `TreeElement` | 0 / refused / refused / `''` |
+| `locations`, with places | the indexed fixture's template, its first place | a place that is not there reads `''` |
+| a lookup table with no rows (Nova's are unindexed, `FixtureXmlParser`) | data | 0 / refused / refused / `''` |
+| `selected_cases` with no value (`buildSelectedValuesInstance`) | data | 0 / refused / refused / `''` |
+| `search-input:*` with no prompt answered (`buildSearchInputInstance` over `getUserQueryValues(false)`) | data | 0 / refused / refused / `''` |
+| `casedb` (by its id) and `results:inline` (`template="case"`) | `CaseDataInstance`: the static `casedb_instance_structure.xml`, never the data | 0 / `''` / `''` / `''` |
+
+The suite and the XForm read these alike: Formplayer and Android build fixtures with the same
+`setupFixtureData`, and a module's display condition, a Search prompt's itemset and a form's
+logic all reach the same instance. An itemset over an invalid path is refused outright
+(`ItemSetUtils.populateDynamicChoices`: "Make sure the '…' lookup table is available"), so a
+question whose choices come from a table with no rows does not open. A blank Search prompt is no
+answer on either device (Android's `QueryRequestUiController.answerUserPrompt` sends null, Web
+Apps' `query.js::encodeValue` leaves it out). One case Preview cannot model: a worker who had
+places and then syncs to none keeps the stale index paths, and Core then fails even `count()`
+(`NoSuchElementException: No record for ID 1` on the mock storage, `StorageInstanceTreeElement.getModelTemplate`
+reading record 1).
+
+Preview now builds each instance as Core checks it (`lib/preview/engine/xpathInstances.ts`):
+`locations`, the lookup tables and the selected cases declare their data and no templates;
+`casedb` and `results:inline` carry the casedb spec, including `index/<identifier>/@case_type`
+and `@relationship` on a case with no indices, and `results:inline` no longer serves HQ's
+`<results id="case">` id, which the spec does not name; the search answers drop a blank answer.
+`lookupEvaluation.ts::lookupChoicesFromNodeset` refuses a choice list over a table with no rows.
+A refused read reaches Preview's existing containment: a form's runtime fault, and in a menu or a
+Search prompt's choices, the Preview error boundary. `lib/preview/engine/__tests__/emptyInstanceParity.test.ts`
+holds every row of the table above to the probe's answers.
+
+One divergence is held on purpose: the search answers keep a `field` template, so with no prompt
+answered Preview reads `''` where Core refuses. Nova prints a prompt read unguarded
+(`fromExpression.ts`, the `input` term), and `validateUserAnswers` evaluates every required
+condition when the Search screen opens, so a Search screen with "phone is required when the name
+is blank" does not open on a device unless some prompt has a default; a faithful instance would
+crash Preview's Search screen on its first render for the same apps
+(`SearchInputForm.tsx`, `searchInputRequiredMarks` in render). The same unguarded print reaches a
+no-matches form's `#search/` read after a search with every prompt blank, and a hidden value that
+reads a prompt at submission.
+
+Open, for the person: Nova emits every one of these reads unguarded, so an app can be one a
+worker cannot open. Options, with the probe's evidence that a count guard evaluates cleanly in
+every row above:
+
+1. Emit the guard. A value read through a fixture or search-input path lowers as
+   `if(count(<list step>) > 0, <read>, '')`, and a `join` the same way. Wherever Core answers the
+   unguarded read it answers this identically (an empty valid set reads `''`), so no app changes
+   meaning; `count()` and predicates already answer and keep the raw path. It needs a
+   consumer-aware lowering, since `count(#search/x)` takes the term as a node-set. This makes the
+   reads valid by construction whatever the data, and Preview's search-answer template can then
+   go.
+2. An itemset cannot be guarded. A lookup-backed choice list over a table with no rows is refused
+   on the device whatever Nova prints, so it needs a word at publish (the plan or the check:
+   "`<question>`'s choices come from `<table>`, which has no rows, so a device won't open it"),
+   not a commit gate, since rows are lookup data and change without a document mutation.
+3. Preview's surface for a refusal Core makes is a runtime fault reported to telemetry, or the
+   error boundary outside forms. A designed refusal, as a setvalue refusal has
+   (`EngineController.recordRefusal`), would say what the device does and what to change.
+
+No emission changes in pull request 9.
+
 ### 2.5 The batch form's selected cases
 
 `selected-cases { module }` prints `instance('<datum id>')/results/value` (part 01 §2.3), the

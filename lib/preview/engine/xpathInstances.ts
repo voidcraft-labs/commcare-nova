@@ -361,6 +361,28 @@ const CASE_ATTRIBUTE_TEMPLATES = [
 	"state",
 ] as const;
 
+/** `index` as Core's casedb spec names it: any identifier, each with its
+ * `case_type` and `relationship`. */
+const CASE_INDEX_TEMPLATE: ElementSpec = {
+	name: "index",
+	childTemplates: ["*"],
+	templateChildren: [
+		{ name: "*", attributeTemplates: ["case_type", "relationship"] },
+	],
+};
+
+const CASE_ATTACHMENT_TEMPLATE: ElementSpec = {
+	name: "attachment",
+	childTemplates: ["*"],
+};
+
+/**
+ * Core's `casedb_instance_structure.xml`, the spec a case-shaped instance's
+ * paths are checked against (`CaseDataInstance.hasTemplatePath`): `casedb`
+ * by its id, and a `template="case"` source such as `results:inline`. The
+ * check reads the spec, never the data, so these paths are valid with no
+ * case at all and with cases that lack an `index` or `attachment`.
+ */
 function caseTemplate(): ElementSpec {
 	return {
 		name: "case",
@@ -370,8 +392,8 @@ function caseTemplate(): ElementSpec {
 			{ name: "case_name" },
 			{ name: "date_opened" },
 			{ name: "last_modified" },
-			{ name: "index", childTemplates: ["*"] },
-			{ name: "attachment", childTemplates: ["*"] },
+			CASE_INDEX_TEMPLATE,
+			CASE_ATTACHMENT_TEMPLATE,
 		],
 	};
 }
@@ -417,14 +439,7 @@ function caseElement(
 				: [{ name: "external_id", value: row.external_id }]),
 			...properties,
 			{
-				name: "index",
-				childTemplates: ["*"],
-				templateChildren: [
-					{
-						name: "*",
-						attributeTemplates: ["case_type", "relationship"],
-					},
-				],
+				...CASE_INDEX_TEMPLATE,
 				children: indices.map((index) => ({
 					name: index.identifier,
 					value: index.ancestor_id,
@@ -434,7 +449,7 @@ function caseElement(
 					},
 				})),
 			},
-			{ name: "attachment", childTemplates: ["*"] },
+			CASE_ATTACHMENT_TEMPLATE,
 		],
 	};
 }
@@ -528,7 +543,13 @@ export function commcareSessionXPathInstance(
 }
 
 /** Build every XForm-local lookup instance (`instance('<tag>')`) from the
- * exact lookup snapshot the engine captured at activation. */
+ * exact lookup snapshot the engine captured at activation.
+ *
+ * A device parses a lookup table into a plain `TreeElement`
+ * (`FixtureXmlParser`), which holds no templates, so Core's path check
+ * (`DataInstance.hasTemplatePath`) finds a row step only where a row exists:
+ * a table with no rows refuses every read below its list, and `count()` of
+ * its rows is 0. The instance therefore declares its rows and nothing more. */
 export function lookupXPathInstances(
 	data: PreviewLookupData | null,
 	options: { readonly includeFixtureAliases?: boolean } = {},
@@ -540,16 +561,8 @@ export function lookupXPathInstances(
 			const create = (instanceId: string) =>
 				new StaticXPathInstance(instanceId, {
 					name: table.listElementName,
-					childTemplates: [table.rowElementName],
-					templateChildren: [
-						{
-							name: table.rowElementName,
-							childTemplates: table.columns.map((column) => column.wireName),
-						},
-					],
 					children: rows.map((row) => ({
 						name: table.rowElementName,
-						childTemplates: table.columns.map((column) => column.wireName),
 						children: table.columns.map((column) => ({
 							name: column.wireName,
 							value: lookupFixtureCellText(
@@ -573,7 +586,9 @@ export function lookupXPathInstances(
  * The selected-entities instance a several-case datum fills
  * (`org/commcare/data/xml/VirtualInstances.java::buildSelectedValuesInstance`):
  * `<results><value>id</value>…</results>` in selection order, under the
- * datum's own id, which the form declares as the instance id.
+ * datum's own id, which the form declares as the instance id. It is a plain
+ * `TreeElement` with no templates, so with nothing selected `count()` of its
+ * values is 0 and every value read is refused.
  */
 export function selectedCasesXPathInstance(
 	datumId: string,
@@ -581,7 +596,6 @@ export function selectedCasesXPathInstance(
 ): XPathInstance {
 	return new StaticXPathInstance(datumId, {
 		name: "results",
-		childTemplates: ["value"],
 		children: caseIds.map((caseId) => ({ name: "value", value: caseId })),
 	});
 }
@@ -631,7 +645,17 @@ function bySiteCode(a: LocationFixtureRow, b: LocationFixtureRow): number {
  * level's NAME, as `str(LocationType)` prints it), `supply_point_id` and
  * `location_data` with one child per place-information field, empty where
  * the place holds none (`::_fill_in_location_element`, `::_get_metadata_node`).
- * A worker assigned nowhere gets an empty `<locations>`.
+ *
+ * A worker assigned nowhere gets an empty `<locations>`, and on a device that
+ * empty list has no `location` step at all. HQ marks the fixture indexed, but
+ * `IndexedFixtureXmlParser.processRoot` registers index paths only for a list
+ * with an entry, so Formplayer and Android read the flat copy, a plain
+ * `TreeElement` with no templates. Core's path check
+ * (`DataInstance.hasTemplatePath`) then refuses every read below the list
+ * ("not a valid question or value") while `count()` of its places is 0. With
+ * places, the indexed fixture's template is its first place, and every place
+ * has the same attributes and children, so a place that is not there reads
+ * as blank. The instance therefore declares its places and nothing more.
  */
 export function locationsXPathInstance(
 	rows: readonly LocationFixtureRow[],
@@ -642,16 +666,8 @@ export function locationsXPathInstance(
 		levels.map((level) => [level.uuid, level]),
 	);
 	const properties = orderedLocationProperties(organization);
-	const levelAttributes = levels.map((level) => `${level.code}_id`);
-	const locationTemplate = {
-		name: "location",
-		attributeTemplates: ["type", "id", ...levelAttributes],
-		childTemplates: [...LOCATION_FIXTURE_FIELDS, "location_data"],
-	};
 	return new StaticXPathInstance("locations", {
 		name: "locations",
-		childTemplates: ["location"],
-		templateChildren: [locationTemplate],
 		children: [...rows].sort(bySiteCode).flatMap((row): ElementSpec[] => {
 			const level = levelByUuid.get(row.levelUuid);
 			if (level === undefined) return [];
@@ -666,7 +682,7 @@ export function locationsXPathInstance(
 			};
 			return [
 				{
-					...locationTemplate,
+					name: "location",
 					attributes: {
 						type: level.code,
 						id: row.id,
@@ -687,7 +703,6 @@ export function locationsXPathInstance(
 						})),
 						{
 							name: "location_data",
-							childTemplates: properties.map((property) => property.slug),
 							children: properties.map((property) => ({
 								name: property.slug,
 								value: row.values[property.uuid] ?? "",
@@ -743,6 +758,13 @@ function searchResultPropertyText(
  * `commcare_is_related_case` mark and `commcare_search_score` are not
  * built, because the read always excludes the first and no catalog
  * property names the others.
+ *
+ * The suite declares the instance `template="case"`, so Core checks its
+ * paths against the casedb spec ({@link caseTemplate}), not its data: every
+ * case read is valid with no case found, and a case without indices still
+ * reads `index/<identifier>/@case_type` as blank. The spec names no
+ * attribute on the list, so HQ's `<results id="case">` id is not readable
+ * and is not built.
  */
 export function searchResultsXPathInstance(
 	rows: readonly SearchResultRow[],
@@ -759,22 +781,10 @@ export function searchResultsXPathInstance(
 			),
 		]),
 	);
-	const template: ElementSpec = {
-		name: "case",
-		childTemplates: ["*"],
-		attributeTemplates: ["case_id", "case_type", "owner_id", "status"],
-		children: [
-			{ name: "case_name" },
-			{ name: "last_modified" },
-			{ name: "date_opened" },
-			{ name: "index", childTemplates: ["*"] },
-		],
-	};
 	return new StaticXPathInstance(INLINE_SEARCH_RESULTS_INSTANCE, {
 		name: "results",
-		attributes: { id: "case" },
 		childTemplates: ["case"],
-		templateChildren: [template],
+		templateChildren: [caseTemplate()],
 		children: rows.map((row): ElementSpec => {
 			const types = propertyTypes.get(row.case_type);
 			const indices = [...row.indices].sort((a, b) =>
@@ -789,7 +799,8 @@ export function searchResultsXPathInstance(
 					owner_id: row.owner_id ?? "",
 					status: "open",
 				},
-				attributeTemplates: template.attributeTemplates,
+				attributeTemplates: CASE_ATTRIBUTE_TEMPLATES,
+				templateChildren: [CASE_INDEX_TEMPLATE, CASE_ATTACHMENT_TEMPLATE],
 				children: [
 					{ name: "case_name", value: row.case_name ?? "" },
 					...(row.modified_on === null
@@ -816,14 +827,7 @@ export function searchResultsXPathInstance(
 						? []
 						: [
 								{
-									name: "index",
-									childTemplates: ["*"],
-									templateChildren: [
-										{
-											name: "*",
-											attributeTemplates: ["case_type", "relationship"],
-										},
-									],
+									...CASE_INDEX_TEMPLATE,
 									children: indices.map((index) => ({
 										name: index.identifier,
 										value: index.ancestor_id,
@@ -946,7 +950,20 @@ export const SEARCH_INPUT_INSTANCE_ID = "search-input:results";
  * answered prompt. A no-matches form's search reads print as
  * `instance('search-input:results:inline')/input/field[@name='<name>']`, and
  * the Search screen's as `instance('search-input:results')/…`, so the same
- * path resolves here.
+ * path resolves here. Only answered prompts have a field
+ * (`RemoteQuerySessionManager.getUserQueryValues(false)`), and a blank answer
+ * is no answer: Android answers a blank prompt with null
+ * (`QueryRequestUiController.answerUserPrompt`) and Web Apps leaves it out of
+ * the request (`query.js::encodeValue`), so a blank prompt counts as 0 and
+ * reads as blank beside another answer.
+ *
+ * Core's instance has no templates, so when NO prompt was answered it
+ * refuses every `field` read. Preview keeps a `field` template instead and
+ * reads blank there: Nova prints a prompt read unguarded, so a faithful
+ * instance would refuse a conditional requirement on every Search screen as
+ * it first opens, as a device does. The emitted read is what needs the
+ * guard (`docs/plans/hq-round-trip/3-expressions/05-instances-session.md`,
+ * implementation correction of 2026-10-19).
  */
 export function searchInputXPathInstance(
 	answers: ReadonlyMap<string, string>,
@@ -955,11 +972,17 @@ export function searchInputXPathInstance(
 	return new StaticXPathInstance(instanceId, {
 		name: "input",
 		childTemplates: ["field"],
-		children: [...answers].map(([name, value]) => ({
-			name: "field",
-			value,
-			attributes: { name },
-		})),
+		children: [...answers].flatMap(([name, value]) =>
+			value === ""
+				? []
+				: [
+						{
+							name: "field",
+							value,
+							attributes: { name },
+						},
+					],
+		),
 	});
 }
 

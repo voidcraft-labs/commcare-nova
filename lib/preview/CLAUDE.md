@@ -1207,7 +1207,9 @@ read or an `owner-location-at-level` owner, over the builder's document,
 passed as the action's `includePlaces` and part of the snapshot's reload
 key), a submission's patch keeps them
 (`caseDatabasePatch.ts`), and a worker assigned nowhere, or an app with no
-levels, reads an empty list. `engine/workerLocationFixture.ts::workerLocationFixture`
+levels, reads an empty list, in which, as on a device, `count()` is 0 and
+every read of a place's field is refused (the path rule below).
+`engine/workerLocationFixture.ts::workerLocationFixture`
 loads them for that action and for the form check (`evaluate_form`), and App
 Tests build them from their pinned places, each by the same `appReadsPlaces`
 answer, so a form reads the same places wherever it runs. Only form logic and form links read
@@ -1234,6 +1236,27 @@ protocol 8, since the page and the worker ship in one build.
 `commcaresession` and the lookup tables: the selected cases, the search
 results, the places and the table aliases, for the form engine and link
 evaluation alike.
+
+**Each instance is built as Core checks its paths.** Core checks an absolute
+path before reading it (`DataInstance.hasTemplatePath`): every step must reach
+a template child or some concrete child, predicates ignored. A path that
+reaches nothing is an invalid nodeset: `count()` reads 0, and a value read or
+`join` is refused ("XPath references a path that does not exist in the
+instance", the same containment as any other Core evaluation error). The
+places, the lookup tables and the selected cases are plain `TreeElement`s on a
+device, so their instances declare their data and no templates: an empty list
+refuses every read below it, and a choice list over a table with no rows
+refuses its question (`lookupEvaluation.ts::lookupChoicesFromNodeset`, as
+`ItemSetUtils` does). `casedb` and `results:inline` are checked against
+Core's static casedb spec, whatever the data holds, so they carry that spec
+(`xpathInstances.ts::caseTemplate`). The search answers hold only non-blank
+answers, but keep a `field` template, so with no prompt answered Preview reads
+`''` where Core refuses: Nova prints prompt reads unguarded, and a faithful
+instance would refuse a conditional requirement on every Search screen as it
+opens. `engine/__tests__/emptyInstanceParity.test.ts` holds each instance to
+the answers of a probe of Core at the pin; the plan
+(`docs/plans/hq-round-trip/3-expressions/05-instances-session.md`, §2.4's
+correction of 2026-10-19) records the probe and the open emission question.
 
 ## End-of-form links
 

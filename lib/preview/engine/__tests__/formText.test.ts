@@ -3,6 +3,7 @@ import {
 	INSTANCE_READS,
 	instanceReadFixture,
 } from "@/lib/commcare/__tests__/instanceReadFixture";
+import { LOCATION_LEVELS } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { itextTranslationUnitId } from "@/lib/commcare/xform/itextIds";
 import { proseText, translationUnitsById } from "@/lib/domain";
 import type { ItextUnit } from "@/lib/domain/expression/types";
@@ -102,7 +103,25 @@ describe("previewFormText", () => {
 				definitions: [table],
 				rowsByTable: new Map([[table.id, rows]]),
 			}),
-			{ rows: [], indices: [], locations: [] },
+			{
+				rows: [],
+				indices: [],
+				// The form also reads places, which a device refuses for a
+				// worker with none (emptyInstanceParity.test.ts).
+				locations: [
+					{
+						id: "place-central",
+						levelUuid: LOCATION_LEVELS[2].uuid,
+						siteCode: "central",
+						name: "Central",
+						externalId: null,
+						latitude: null,
+						longitude: null,
+						values: {},
+						lineage: {},
+					},
+				],
+			},
 		);
 		expect(engine.getState("/data/color_text").value).toBe("Couleur");
 		engine.setValue("/data/color", "red");

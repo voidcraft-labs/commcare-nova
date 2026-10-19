@@ -105,9 +105,12 @@ describe("searchResultsXPathInstance", () => {
 
 	it("is the results:inline instance with HQ's root", () => {
 		expect(instance.id).toBe("results:inline");
-		expect(evaluate("instance('results:inline')/results/@id", ctx)).toBe(
-			"case",
-		);
+		// HQ writes `<results id="case">`, but the suite's `template="case"`
+		// has Core check paths against the casedb spec, which names no
+		// attribute on the list: Core refuses this read.
+		expect(() =>
+			evaluate("instance('results:inline')/results/@id", ctx),
+		).toThrow("does not exist in the instance");
 		// The canonical print of the arm counts the cases the search found.
 		expect(
 			evaluate(

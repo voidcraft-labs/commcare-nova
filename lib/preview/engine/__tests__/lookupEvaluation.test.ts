@@ -235,6 +235,24 @@ describe("evaluateLookupChoices", () => {
 		}
 	});
 
+	it("refuses the question when its table has no rows, as Core does", () => {
+		// Core's itemset over a table with no rows is an invalid path
+		// (emptyInstanceParity.test.ts), and `ItemSetUtils.populateDynamicChoices`
+		// throws for it instead of offering no choices.
+		const empty = previewLookupData({
+			projectRevision: parseLookupRevision("7"),
+			definitions: [DEFINITION],
+			rowsByTable: new Map([[TABLE, []]]),
+		});
+		for (const filter of [
+			undefined,
+			eq(term(tableColumn(TABLE, COL_REGION)), literal("north")),
+		])
+			expect(() => evaluateLookupChoices(source(filter), empty)).toThrow(
+				/which has no rows/,
+			);
+	});
+
 	it("is-blank matches missing cells and stored-empty cells alike", () => {
 		const choices = evaluateLookupChoices(
 			source(isBlank(term(tableColumn(TABLE, COL_NAME)))),

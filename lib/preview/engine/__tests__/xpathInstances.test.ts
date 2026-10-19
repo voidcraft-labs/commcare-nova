@@ -471,7 +471,7 @@ describe("Preview structural XPath instances", () => {
 		).toBe("Northern");
 	});
 
-	it("keeps an empty lookup table row path valid", () => {
+	it("counts no rows in an empty lookup table", () => {
 		const tableId = lookupTableIdSchema.parse(
 			"11111111-1111-7111-8111-111111111111",
 		);
@@ -556,7 +556,7 @@ describe("the selected-entities instance of a several-case datum", () => {
 		).toBe(true);
 	});
 
-	it("reads an empty selection as no values, not a missing instance", () => {
+	it("counts no values in an empty selection, not a missing instance", () => {
 		const empty = selectedCasesXPathInstance("selected_cases", []);
 		expect(
 			evaluate(
@@ -760,12 +760,14 @@ describe("the flat locations fixture", () => {
 		expect(
 			evaluate("count(instance('locations')/locations/location)", empty),
 		).toBe(0);
-		expect(
+		// The device reads the flat copy of an empty fixture, which has no
+		// `location` step, and refuses the read (emptyInstanceParity.test.ts).
+		expect(() =>
 			evaluate(
 				"instance('locations')/locations/location[@type = 'clinic']/name",
 				empty,
 			),
-		).toBe("");
+		).toThrow("does not exist in the instance");
 	});
 
 	it("rides the device snapshot into the engine's instances", () => {
