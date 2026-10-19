@@ -147,3 +147,55 @@ it("keeps the closure proportional to the restore, not to the tenant", async () 
 	// `(app_id, project_id, owner_id)` index; adding one is a decision about
 	// every owner-filtered read, not about this closure.
 }, 300_000);
+
+it("probes the edge table once per live case before a tenant's rows are analyzed", async () => {
+	// A tenant's first rows carry no statistics, so `cases`' `(app_id,
+	// project_id)` estimate is tiny. A plan that pairs the worktable with
+	// `cases` before reaching the edge table then looks cheap and probes
+	// `case_indices` once per (live case, tenant case) pair, 253,009 probes
+	// for these 503 cases where one per live case is the bound.
+	const owned = 503;
+	await handle.pool.query(
+		`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
+		 VALUES ($1, $2, $2, $1, lower($1))`,
+		[APP, PROJECT],
+	);
+	await handle.pool.query(
+		`INSERT INTO cases (case_id, app_id, project_id, case_type, owner_id, status, case_name, properties)
+		 SELECT 'p'||i, $1, $2, 'patient', 'owner1', 'open', 'patient '||i, '{}'::jsonb
+		 FROM generate_series(1, ${owned}) i`,
+		[APP, PROJECT],
+	);
+
+	// The search read: every open patient, each saying whether the worker's
+	// restore holds it.
+	const { creator, holds } = buildRestoreScope(db, {
+		appId: APP,
+		projectId: PROJECT,
+		ownerIds: ["owner1"],
+	});
+	const compiled = creator
+		.selectFrom("cases as c")
+		.select(["c.case_id", holds("c").as("held")])
+		.where("c.app_id", "=", APP)
+		.where("c.project_id", "=", PROJECT)
+		.where("c.case_type", "=", "patient")
+		.limit(500)
+		.compile();
+	const explained = await handle.pool.query(
+		`EXPLAIN (ANALYZE) ${compiled.sql}`,
+		[...compiled.parameters],
+	);
+	const plan = explained.rows
+		.map((row: Record<string, string>) => row["QUERY PLAN"])
+		.join("\n");
+
+	// Every scan of the propagation's edge alias, with how many times it ran.
+	const edgeScanLoops = [
+		...plan.matchAll(/ on case_indices ci\b.*\bloops=(\d+)/g),
+	].map((match) => Number(match[1]));
+	expect(edgeScanLoops, plan).not.toHaveLength(0);
+	for (const loops of edgeScanLoops) {
+		expect(loops, plan).toBeLessThanOrEqual(owned);
+	}
+}, 60_000);

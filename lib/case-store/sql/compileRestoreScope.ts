@@ -308,11 +308,32 @@ export function buildRestoreScope(
 								]),
 							),
 						)
-						.innerJoin("cases as nxt", (join) =>
-							join
-								.on((on) => on(on.ref("nxt.case_id"), "=", nextCaseId(on)))
-								.on("nxt.app_id", "=", appId)
-								.on("nxt.project_id", "=", projectId),
+						// The next case is looked up per edge, never joined. Its key
+						// is a `CASE` over the edge and the live row, so as a join
+						// clause it names three relations, and the planner may then
+						// pair the worktable with the tenant's `cases` before it
+						// reaches the edge: a cross product it costs as cheap
+						// whenever the `(app_id, project_id)` estimate is small, as it
+						// is before a tenant's new rows are analyzed. That plan probes
+						// `case_indices` once per (live case, tenant case) pair, so
+						// it grows with the square of an edgeless restore. As a
+						// LATERAL lookup it can only run once the edge is known.
+						// `limit 1` trims nothing, because `case_id` is the key; it
+						// is what stops Postgres flattening the lookup back into
+						// that join.
+						.innerJoinLateral(
+							(lateral) =>
+								lateral
+									.selectFrom("cases as next_case")
+									.select("next_case.status")
+									.where((eb) =>
+										eb(eb.ref("next_case.case_id"), "=", nextCaseId(eb)),
+									)
+									.where("next_case.app_id", "=", appId)
+									.where("next_case.project_id", "=", projectId)
+									.limit(1)
+									.as("nxt"),
+							(join) => join.onTrue(),
 						)
 						.select((inner) => nextCaseId(inner).as("case_id"))
 						.where((inner) =>
@@ -363,11 +384,12 @@ export function buildRestoreScope(
 
 /**
  * The next case in a propagation hop: the ancestor when the live case is the
- * subordinate, the subordinate when the live case is the host. The join
- * condition and the projection must agree exactly, so both call this.
+ * subordinate, the subordinate when the live case is the host. The lookup
+ * that reads the next case and the projection must agree exactly, so both
+ * call this.
  *
  * Typed structurally for the same reason `compileRelationPath`'s `DynamicQuery`
- * is: the join callback and the select callback hand out expression builders
+ * is: the lookup callback and the select callback hand out expression builders
  * over different table sets, and the expression itself is identical.
  */
 interface CaseHopBuilder {
