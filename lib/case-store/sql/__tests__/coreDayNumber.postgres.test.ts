@@ -18,11 +18,11 @@ import { expect, test } from "./setup";
 
 /** The fixture rows this test reads, with the number each one converts. */
 const DAY_ROWS = [
-	{ id: "core-day-20453", days: 20453 },
-	{ id: "core-day-20453.7", days: 20453.7 },
+	{ id: "core-day-20453", days: 20453, search: "2025-12-31" },
+	{ id: "core-day-20453.7", days: 20453.7, search: "2025-12-31" },
 	// Before 1900 Java reads a zone at its standard offset, not local mean
 	// time: Kiritimati's +14:00 lands this day a day apart from the others.
-	{ id: "cutoff-day-number-text", days: -25568 },
+	{ id: "cutoff-day-number-text", days: -25568, search: "1899-12-31" },
 ] as const;
 
 /** Two zones apart from every viewer zone below, so the session never
@@ -104,10 +104,10 @@ test("HQ's search counts calendar days from 1970-01-01, which no zone moves", as
 	// its own runtime's answer.
 	for (const zone of Object.values(CORE_DATE_PARITY_ZONES)) {
 		await pgClient.query(`SET LOCAL TIME ZONE '${zone}'`);
-		for (const { days } of DAY_ROWS)
+		for (const { days, search } of DAY_ROWS)
 			expect(
 				await dayOf(db, days, context(db, "search", zone)),
 				`${zone} ${days}`,
-			).toBe("2025-12-31");
+			).toBe(search);
 	}
 });
