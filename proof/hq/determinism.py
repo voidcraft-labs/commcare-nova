@@ -64,6 +64,10 @@ with ``time.monotonic`` never arrives, and so do the timeouts of
 ``subprocess.run``, ``Popen.wait``, ``Popen.communicate`` and
 ``queue.Queue.get``, which all count down with ``time.monotonic``: each waits
 for as long as its peer takes, and forever for one that never answers.
+A value cached with a timeout inside an operation expires at that clock's
+instant plus the timeout, so it is read inside an operation too: read on the
+real clock, it is gone once the timeout has passed since ``EPOCH`` (an HQ
+session's fourteen days, for one).
 
 Nesting. An ``operation`` opened inside another replaces it for its block:
 its own DRBG, clock, global ``random`` state, ``uuid1`` node and timestamp
