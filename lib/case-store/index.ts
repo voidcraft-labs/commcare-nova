@@ -97,6 +97,7 @@ export type {
 	RestoreScope,
 	SchemaCaseStore,
 	SchemaChangeKind,
+	SearchPopulation,
 	SortKey,
 	TransactionalSchemaCaseStore,
 } from "./store";

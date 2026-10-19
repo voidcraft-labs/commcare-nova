@@ -44,6 +44,7 @@ export async function submitAppTest(
 			lookup: context.lookup,
 			entry: screen.entry,
 			captureEntry: true,
+			session: { appId: scope.appId, menuSelections: state.selections },
 		},
 	);
 	if (!evaluated.valid || !evaluated.submission)
@@ -136,7 +137,12 @@ export async function submitAppTest(
 				result,
 				selections: state.selections,
 			},
-			{ identity, cases, lookup: context.lookup },
+			{
+				identity,
+				cases,
+				lookup: context.lookup,
+				session: { appId: scope.appId, menuSelections: state.selections },
+			},
 		);
 		let nextState: AppTestSessionState = {
 			...state,

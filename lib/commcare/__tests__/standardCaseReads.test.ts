@@ -41,7 +41,22 @@ it("admits and evaluates implicit metadata on the selected record and its parent
 		records,
 		null,
 		null,
-		{ rows, indices: [] },
+		// The device's world: the selected visit in the entry's session and
+		// its parent through the casedb index the wire walks.
+		{
+			rows,
+			indices: [
+				{
+					case_id: "visit-1",
+					ancestor_id: "household-1",
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+					target_case_type: "household",
+				},
+			],
+		},
+		{ sessionData: { case_id: "visit-1" } },
 	);
 	for (const [type, properties] of records)
 		for (const [property, value] of properties) {

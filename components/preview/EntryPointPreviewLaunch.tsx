@@ -23,6 +23,7 @@ import {
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 import {
 	useAppId,
+	usePreviewClaimedCaseIds,
 	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
@@ -73,8 +74,8 @@ export function EntryPointPreviewLaunch({
 					</SelectContent>
 				</Select>
 				<FieldDescription>
-					Preview uses this worker’s real cases. It does not claim or sync cases
-					from HQ.
+					Preview uses this worker’s cases, including ones they chose from a
+					search.
 				</FieldDescription>
 			</Field>
 			{requirements.map((requirement) => {
@@ -160,9 +161,27 @@ function EntryPointCasePicker(props: {
 	const id = useId();
 	const [page, setPage] = useState(0);
 	const parentKey = JSON.stringify(props.parentCase);
+	/* A claimed case is held, so the picker offers it like any other. */
+	const claimedCaseIds = usePreviewClaimedCaseIds(props.personaUuid);
 	const reloadToken = useMemo(
-		() => [appId, epoch, props.caseType, props.personaUuid, parentKey, page],
-		[appId, epoch, props.caseType, props.personaUuid, parentKey, page],
+		() => [
+			appId,
+			epoch,
+			props.caseType,
+			props.personaUuid,
+			parentKey,
+			page,
+			claimedCaseIds,
+		],
+		[
+			appId,
+			epoch,
+			props.caseType,
+			props.personaUuid,
+			parentKey,
+			page,
+			claimedCaseIds,
+		],
 	);
 	type State = LoadCasesResult | { kind: "loading" };
 	const { state, reload } = useReloadableResource<State>({
@@ -174,6 +193,7 @@ function EntryPointCasePicker(props: {
 								appId,
 								caseType: props.caseType,
 								personaUuid: props.personaUuid,
+								claimedCaseIds: [...claimedCaseIds],
 								parentCase: props.parentCase,
 								page: { offset: page * 50, limit: 50 },
 							}),

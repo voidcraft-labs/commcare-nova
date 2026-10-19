@@ -21,6 +21,7 @@ import { previewMenuCaseContext } from "../menuProjection";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
+import { recordsReadSearch } from "./records";
 import type { AppTestSessionState } from "./types";
 
 /** Details addresses the selected identity, not its old Results page/filter. */
@@ -67,7 +68,10 @@ export async function appTestDetails(
 				new Map(table.columns.map((column) => [column.id, column.dataType])),
 			]),
 		),
-		restoreScope: context.restoreScope,
+		// A record chosen from a search's Results reads as the search found it.
+		...(recordsReadSearch(mod, screen.source)
+			? { searchPopulation: { heldBy: context.restoreScope } }
+			: { restoreScope: context.restoreScope }),
 		parentCase: selected.parentCase
 			? {
 					caseType: selected.parentCase.caseType,

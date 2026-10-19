@@ -50,6 +50,15 @@ export interface SubmissionCaseSeed {
 	/** Server-derived from the committed child case type. Present only when
 	 * this seed is linked to an ordinary form's parent case. */
 	readonly parentRelationship?: NonNullable<CaseType["relationship"]>;
+	/**
+	 * Server-derived from the committed entry's session datums: the key of the
+	 * `uuid()` datum that names this case (`new-case`,
+	 * `new-child-case:<type>`), whose id the form read while it ran
+	 * (`lib/domain/entryCaseIdentity.ts`). The case is created with that id.
+	 * Absent for a case no datum names (a repeat's child, a several-case
+	 * form's children), which takes a fresh id.
+	 */
+	readonly entryCaseKey?: string;
 }
 
 /**

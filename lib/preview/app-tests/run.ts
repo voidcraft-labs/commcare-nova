@@ -1,7 +1,9 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import {
 	assignedLocationUuids,
+	CASE_LOADING_FORM_TYPES,
 	caseSelectionCardinality,
+	moduleOpensOnSearch,
 	orderedColumns,
 } from "@/lib/domain";
 import { languageDirection } from "@/lib/domain/languageRegistry";
@@ -14,13 +16,21 @@ import {
 	projectLocalizedForm,
 	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
-import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import type {
+	PreviewCaseChoice,
+	PreviewMenuCaseSelection,
+} from "@/lib/session/types";
 import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
 import { availablePages } from "../engine/sectionPaging";
 import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
+import {
+	claimableCaseIds,
+	parentSelectClaimChoices,
+	previewCaseChoiceOf,
+} from "../searchClaims";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import { appTestCellProjector, appTestDetails } from "./details";
@@ -34,7 +44,7 @@ import {
 	enterAppTestMenu,
 	selectAppTestRecords,
 } from "./navigation";
-import { appTestRecords } from "./records";
+import { appTestRecords, recordsReadSearch } from "./records";
 import { submitAppTest } from "./submission";
 import type {
 	AppTestAction,
@@ -228,6 +238,7 @@ async function observeScreen(
 					lookup: context.lookup,
 					entry: screen.entry,
 					captureEntry: true,
+					session: { appId: scope.appId, menuSelections: state.selections },
 				},
 			);
 			const pages = availablePages(evaluated.sections);
@@ -368,6 +379,80 @@ export async function observeAppTest(
 	};
 }
 
+/**
+ * Post the claims CommCare posts at this step, as the browser's Preview does
+ * (`lib/preview/searchClaims.ts`): a search action's claim when its result is
+ * chosen (`resultSource` names the records screen the choice was made on), a
+ * search-first module's claim when its case-loading form opens, with the
+ * entry's other case datums under a selected parent. A claim for a case the
+ * session's restore does not hold appends it to the session's claims, and the
+ * session's device snapshot is read again with them, as a device restores
+ * after a new claim; a form entered at this step opens over that snapshot.
+ */
+async function postAppTestClaims(
+	context: AppTestContext,
+	scope: AppTestScope,
+	before: AppTestSessionState,
+	next: AppTestSessionState,
+	chosen: readonly PreviewCaseChoice[],
+	resultSource?: Extract<AppTestScreen, { kind: "records" }>,
+): Promise<{ context: AppTestContext; state: AppTestSessionState }> {
+	const sourceModule =
+		resultSource === undefined
+			? undefined
+			: context.doc.modules[resultSource.moduleUuid];
+	const atResult =
+		resultSource !== undefined &&
+		sourceModule !== undefined &&
+		next.screen.kind !== "details" &&
+		!moduleOpensOnSearch(sourceModule) &&
+		recordsReadSearch(sourceModule, resultSource)
+			? chosen
+			: [];
+	const screen = next.screen;
+	const formModule =
+		screen.kind === "form" && before.screen.kind !== "form"
+			? context.doc.modules[screen.moduleUuid]
+			: undefined;
+	const atForm =
+		screen.kind === "form" &&
+		formModule !== undefined &&
+		moduleOpensOnSearch(formModule) &&
+		CASE_LOADING_FORM_TYPES.has(context.doc.forms[screen.formUuid].type)
+			? [
+					...chosen.filter((choice) => screen.caseIds.includes(choice.caseId)),
+					...parentSelectClaimChoices(
+						context.doc,
+						screen.moduleUuid,
+						next.selections,
+					),
+				]
+			: [];
+	const held = new Set(next.claimedCaseIds);
+	const added = [...new Set(claimableCaseIds([...atResult, ...atForm]))].filter(
+		(caseId) => !held.has(caseId),
+	);
+	if (added.length === 0) return { context, state: next };
+	const claimedCaseIds = [...next.claimedCaseIds, ...added];
+	const restoreScope = { ...context.restoreScope, claimedCaseIds };
+	const deviceCases = await context.store.readDeviceCaseDatabase({
+		appId: scope.appId,
+		restoreScope,
+	});
+	return {
+		context: { ...context, restoreScope },
+		state: {
+			...next,
+			claimedCaseIds,
+			deviceCases,
+			screen:
+				screen.kind === "form" && screen.entryCases === before.deviceCases
+					? { ...screen, entryCases: deviceCases }
+					: screen,
+		},
+	};
+}
+
 /** Only actions available on the observed screen can advance this worker. */
 export async function advanceAppTest(
 	context: AppTestContext,
@@ -414,6 +499,14 @@ export async function advanceAppTest(
 				[read.result.row],
 			);
 			next = { ...next, history: [...state.history, screen] };
+			({ context, state: next } = await postAppTestClaims(
+				context,
+				scope,
+				state,
+				next,
+				[previewCaseChoiceOf(read.result.row)],
+				screen.source,
+			));
 			break;
 		}
 		case "home":
@@ -535,7 +628,7 @@ export async function advanceAppTest(
 			break;
 		}
 		case "form": {
-			if (screen.kind === "menu")
+			if (screen.kind === "menu") {
 				next = {
 					...state,
 					screen: enterAppTestForm(
@@ -550,7 +643,14 @@ export async function advanceAppTest(
 						? state.history
 						: [...state.history, screen],
 				};
-			else if (screen.kind === "records") {
+				({ context, state: next } = await postAppTestClaims(
+					context,
+					scope,
+					state,
+					next,
+					appTestMenuSelection(context, state, screen.moduleUuid)?.cases ?? [],
+				));
+			} else if (screen.kind === "records") {
 				const read = await appTestRecords(context, scope, state);
 				if (read.registration?.uuid !== action.formUuid)
 					throw new AppTestActionError(
@@ -619,6 +719,14 @@ export async function advanceAppTest(
 						}
 					: selectAppTestRecords(context, read.state, selected);
 			next = { ...next, history: [...state.history, read.state.screen] };
+			({ context, state: next } = await postAppTestClaims(
+				context,
+				scope,
+				state,
+				next,
+				selected.map(previewCaseChoiceOf),
+				recordsScreen,
+			));
 			extra = {
 				selected: selected.map((row) => ({
 					id: row.case_id,
@@ -653,6 +761,7 @@ export async function advanceAppTest(
 					lookup: context.lookup,
 					entry: screen.entry,
 					captureEntry: true,
+					session: { appId: scope.appId, menuSelections: state.selections },
 				},
 			);
 			const pages = availablePages(evaluated.sections);
@@ -696,6 +805,7 @@ export async function advanceAppTest(
 					lookup: context.lookup,
 					entry: screen.entry,
 					captureEntry: true,
+					session: { appId: scope.appId, menuSelections: state.selections },
 				},
 			);
 			next = { ...state, screen: { ...screen, entry: evaluated.entry } };

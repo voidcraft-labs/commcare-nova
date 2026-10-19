@@ -17,6 +17,7 @@ import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import {
 	useAccessPhase,
 	useAppId,
+	usePreviewClaimedCaseIds,
 	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
@@ -84,7 +85,7 @@ export function caseDatabaseRequirements(
 		expressionSlotValues(doc, owner).some(
 			({ ref, expression }) =>
 				slotContext(doc, ref, new Map())?.ruleSet === "form" &&
-				expressionReadsCaseDatabase(expression),
+				expressionReadsCaseDatabase(expression, doc),
 		),
 	);
 	// Prose has typed references too, but deliberately is not an XPath carrier.
@@ -166,6 +167,7 @@ export function PreviewCaseDatabaseProvider({
 	const scopeEpoch = useProjectScopeEpoch();
 	const personaUuid = usePreviewPersonaUuid();
 	const restoreScopeKey = useRestoreScopeKey(personaUuid);
+	const claimedCaseIds = usePreviewClaimedCaseIds(personaUuid);
 	const reconciler = useReconcilerContext();
 	const runtimeScopeId = reconciler?.projectScopeId ?? "provider-light";
 	const requirements = useCaseDatabaseRequirements();
@@ -210,6 +212,7 @@ export function PreviewCaseDatabaseProvider({
 					const result = await loadCaseDatabaseSnapshotAction(
 						selectedAppId,
 						personaUuid,
+						[...claimedCaseIds],
 					);
 					return result.kind === "data"
 						? { kind: "data", token: reloadToken, snapshot: result.snapshot }

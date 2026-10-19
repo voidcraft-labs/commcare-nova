@@ -1,4 +1,14 @@
+import { caseTypeDepthMap } from "@/lib/commcare/caseTypeDepths";
+import {
+	entryDatumIdResolver,
+	entryDatumIds,
+	formLinkProjectionContext,
+	owningModuleOf,
+	selectedCaseSessionDatum,
+	sessionDataRef,
+} from "@/lib/commcare/formLinkProjection";
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
+import { formCasePropertyRead } from "@/lib/commcare/xform/formCaseRead";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import {
 	type FormNodeProjection,
@@ -75,6 +85,69 @@ export function previewFormNodeProjection(
 			}
 			return result;
 		},
+	};
+}
+
+/**
+ * The session bindings a form's logic prints with, the XForm emitter's own:
+ * each session datum by the id the entry prints (`entryDatumIds`), and the
+ * form's case as the casedb walk keyed on the session datum that holds it
+ * (`formCasePropertyRead`). Preview then serves `session/data` from the
+ * entry's session map (`entrySessionData.ts`) and casedb from the device
+ * snapshot, so a case read evaluates the text a device reads.
+ */
+export function formSessionBindings(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Required<Pick<WireTermBindings, "datumId" | "formCaseProperty">> {
+	/* Derived on the first read: deriving an entry runs the form's case
+	 * actions, which a form reading no session never needs. */
+	let derived:
+		| Pick<WireTermBindings, "datumId" | "formCaseProperty">
+		| undefined;
+	const bindings = () => {
+		derived ??= deriveFormSessionBindings(doc, formUuid);
+		return derived;
+	};
+	return {
+		datumId: (datum) => bindings().datumId?.(datum),
+		formCaseProperty: (caseType, property) => {
+			const read = bindings().formCaseProperty;
+			if (read === undefined)
+				throw new Error(
+					"This form belongs to no module, so it has no case to read.",
+				);
+			return read(caseType, property);
+		},
+	};
+}
+
+function deriveFormSessionBindings(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Pick<WireTermBindings, "datumId" | "formCaseProperty"> {
+	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	const moduleUuid = owningModuleOf(ctx, formUuid);
+	const form = doc.forms[formUuid];
+	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	if (moduleUuid === undefined || form === undefined || mod === undefined)
+		return {};
+	const own = selectedCaseSessionDatum(doc, ctx, moduleUuid, formUuid);
+	return {
+		datumId: entryDatumIdResolver(
+			entryDatumIds(doc, ctx, moduleUuid, formUuid),
+		),
+		formCaseProperty: formCasePropertyRead({
+			formType: form.type,
+			caseTypeDepths: caseTypeDepthMap(mod.caseType, doc.caseTypes ?? []),
+			moduleCaseType: mod.caseType,
+			// A several-case form names no one case; the emitter keys its case
+			// reads on `session/data/case_id` there, and so does Preview.
+			...(own !== undefined &&
+				own.maxSelectValue === undefined && {
+					selectedCaseId: sessionDataRef(own.id),
+				}),
+		}),
 	};
 }
 

@@ -161,7 +161,10 @@ import {
 } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
-import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
+import {
+	useOwnedRestoreScopeKey,
+	useRestoreScopeKey,
+} from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
@@ -181,13 +184,20 @@ import {
 	type RuntimeMessage,
 	runtimeMessage,
 } from "@/lib/preview/runtimeMessages";
+import {
+	claimableCaseIds,
+	parentSelectClaimChoices,
+	previewCaseChoiceOf,
+} from "@/lib/preview/searchClaims";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
+	useAddPreviewClaims,
 	useAppId,
 	useCanEdit,
 	usePreviewCaseTarget,
+	usePreviewClaimedCaseIds,
 	usePreviewing,
 	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
@@ -787,7 +797,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	// request so an assignment edit or a place move re-asks instead of serving
 	// the previous worker's rows.
 	const restoreScopeKey = useRestoreScopeKey(previewPersonaUuid);
-	const selectionScopeKey = `${stateScopeKey}\u0000${restoreScopeKey}`;
+	const claimedCaseIds = usePreviewClaimedCaseIds(previewPersonaUuid);
+	/* A selection follows what the worker owns, not its claims: claiming the
+	 * cases being chosen must not retire the choice that claimed them. */
+	const ownedRestoreScopeKey = useOwnedRestoreScopeKey(previewPersonaUuid);
+	const selectionScopeKey = `${stateScopeKey}\u0000${ownedRestoreScopeKey}`;
 	const [multiSelectionState, setMultiSelectionState] = useState<{
 		readonly scopeKey: string;
 		readonly choices: readonly PreviewCaseChoice[];
@@ -922,6 +936,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				: undefined,
 		[searchState],
 	);
+	/* A completed or submitted search's Results read HQ's search population,
+	 * not the worker's restore; so do the reads of cases chosen from them. */
+	const readsSearchResults =
+		registeredCaseIds !== undefined || activeSearchInputValues !== undefined;
+	/* A search action's claim is its remote request's own post, posted as
+	 * soon as a result is chosen; a search-first module posts at the form. */
+	const claimsAtResult = !searchFirst && readsSearchResults;
+	const addPreviewClaims = useAddPreviewClaims();
+	const claimChoices = (choices: readonly PreviewCaseChoice[]) =>
+		addPreviewClaims(claimableCaseIds(choices));
 	const {
 		state,
 		fetching,
@@ -950,6 +974,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		parentCase: parentCaseConstraint,
 		page: casePage,
 		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
+		search: readsSearchResults,
 	});
 	/* Settle the module's search once the query the worker's Search fired has
 	 * come back. `awaitingSearchFetchRef` is what makes "come back" exact: the
@@ -1040,6 +1065,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		// the worker's device does not hold.
 		deviceScoped: true,
 		scopeKey: restoreScopeKey,
+		search: readsSearchResults,
 	});
 	const retryCasesWithFocus = useCallback(async () => {
 		const pending = reloadCases();
@@ -1483,6 +1509,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		cases: readonly PreviewCaseChoice[],
 	) => {
 		if (!moduleUuid) return;
+		/* A search-first module's claim sits in the form's entry: choosing
+		 * the form posts it, for the chosen cases and, under a selected
+		 * parent, the entry's other case datums. Claiming before navigating
+		 * re-reads the device snapshot, so the form opens with them held. */
+		if (searchFirst) {
+			claimChoices([
+				...cases,
+				...parentSelectClaimChoices(menuSource, moduleUuid, menuCaseSelections),
+			]);
+		}
 		setOpenCase(null);
 		setFormMenuCase(null);
 		setMultiFormMenuOpen(false);
@@ -1508,9 +1544,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		navigate.openForm(moduleUuid, formUuid);
 	};
 	const openFormWithCase = (formUuid: Uuid, row: CaseRowWithCalculated) =>
-		openFormWithCases(formUuid, [
-			{ caseId: row.case_id, caseName: row.case_name },
-		]);
+		openFormWithCases(formUuid, [previewCaseChoiceOf(row)]);
 
 	const continueAfterMenuSelection = (
 		cases: readonly (PreviewCaseChoice & {
@@ -1611,11 +1645,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * case-first → the single case-loading form, or the form menu when there
 	 * are several. */
 	const proceedWithCase = (row: CaseRowWithCalculated) => {
+		if (claimsAtResult) claimChoices([previewCaseChoiceOf(row)]);
 		if (selectsForMenu && moduleUuid && mod.caseType) {
 			continueAfterMenuSelection([
 				{
-					caseId: row.case_id,
-					caseName: row.case_name,
+					...previewCaseChoiceOf(row),
 					caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 				},
 			]);
@@ -1642,10 +1676,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	);
 	const toggleMultipleCase = (row: CaseRowWithCalculated) => {
 		if (validatingSelection) return;
-		const choice = {
-			caseId: row.case_id,
-			caseName: row.case_name,
-		};
+		const choice = previewCaseChoiceOf(row);
 		const alreadySelected = selectedChoices.some(
 			(selected) => selected.caseId === choice.caseId,
 		);
@@ -1659,7 +1690,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		const next = togglePreviewCaseChoice(selectedChoices, choice);
 		setSelectedChoices(next);
 		announce(alreadySelected ? "caseRemoved" : "caseSelected", {
-			name: choice.caseName,
+			name: row.case_name,
 			count: next.length,
 		});
 	};
@@ -1669,10 +1700,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			filteredGroups === undefined
 				? filteredRows
 				: filteredGroups.map((group) => group.header);
-		const visibleChoices = selectableRows.map((row) => ({
-			caseId: row.case_id,
-			caseName: row.case_name,
-		}));
+		const visibleChoices = selectableRows.map(previewCaseChoiceOf);
 		const result = addVisiblePreviewCaseChoices(
 			selectedChoices,
 			visibleChoices,
@@ -1709,6 +1737,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			);
 			return;
 		}
+		if (claimsAtResult) claimChoices(choices);
 		if (selectsForMenu) {
 			continueAfterMenuSelection(choices);
 			return;
@@ -1751,6 +1780,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				parentCase: parentCaseConstraint,
 				viewerTimeZone: viewerTimeZone(),
 				personaUuid: previewPersonaUuid,
+				claimedCaseIds: [...claimedCaseIds],
+				/* Cases chosen from a search's Results are checked against the
+				 * search's population, as HQ's claim accepts any case it finds. */
+				...(readsSearchResults && moduleUuid !== undefined
+					? { search: true, moduleUuid }
+					: {}),
 			});
 			const validationIsCurrent =
 				selectionValidationTokenRef.current === validationToken &&
@@ -1771,7 +1806,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					setReviewSelection(reconciled.choices.length > 0);
 					return;
 				}
-				finishSelectedCaseNavigation(reconciled.choices);
+				/* The check is the latest word on which choices the device holds. */
+				finishSelectedCaseNavigation(reconciled.rows.map(previewCaseChoiceOf));
 				return;
 			}
 			if (result.kind === "empty") {

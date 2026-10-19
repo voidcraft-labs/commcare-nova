@@ -72,6 +72,11 @@ import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import { buildEngineInput, repeatCountNamesOf } from "./engineInput";
+import {
+	type EntrySessionData,
+	type EntrySessionInput,
+	entrySessionData,
+} from "./entrySessionData";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
 import {
@@ -626,8 +631,12 @@ export class EngineController {
 				readonly caseData?: CaseDataByType;
 				readonly caseDatabase?: CaseDatabaseSnapshot;
 				readonly searchAnswers?: ReadonlyMap<string, string>;
+				readonly session?: EntrySessionInput;
 		  }
 		| undefined;
+	/** The mounted entry's session map, built from its entry key; a rebuild in
+	 * the same entry mints the same ids, a new entry mints new ones. */
+	private activeEntrySession: EntrySessionData | undefined;
 	private repeatCompactionListeners = new Set<
 		(event: RepeatCompactionEvent) => void
 	>();
@@ -767,6 +776,35 @@ export class EngineController {
 		return this.requestedActivation?.formUuid === formUuid
 			? this.requestedActivation.caseDatabase
 			: undefined;
+	}
+
+	/** The session the requested entry starts from, kept through every
+	 * rebuild of the same entry. */
+	private sessionFor(formUuid: Uuid): EntrySessionInput | undefined {
+		return this.requestedActivation?.formUuid === formUuid
+			? this.requestedActivation.session
+			: undefined;
+	}
+
+	/** Build the mounted entry's session map. Without a session input (an
+	 * entry no running app opened) no datum is valued. */
+	private mountEntrySession(
+		state: BlueprintDocState,
+		formUuid: Uuid,
+		entryKey: string,
+		caseDatabase: CaseDatabaseSnapshot | null | undefined,
+	): EntrySessionData | undefined {
+		const input = this.sessionFor(formUuid);
+		this.activeEntrySession =
+			input === undefined
+				? undefined
+				: entrySessionData(state, formUuid, {
+						...input,
+						entryKey,
+						caseDatabase: caseDatabase ?? null,
+						identity: this.previewIdentity,
+					});
+		return this.activeEntrySession;
 	}
 
 	/** The admitted search answers of the requested no-matches launch, kept
@@ -1367,6 +1405,7 @@ export class EngineController {
 				requested.caseData,
 				requested.caseDatabase,
 				requested.searchAnswers,
+				requested.session,
 			).catch(() => undefined);
 		} else {
 			this.activateForm(
@@ -1374,6 +1413,7 @@ export class EngineController {
 				requested.caseData,
 				requested.caseDatabase,
 				requested.searchAnswers,
+				requested.session,
 			);
 		}
 	}
@@ -1412,6 +1452,7 @@ export class EngineController {
 		caseData?: CaseDataByType,
 		caseDatabase?: CaseDatabaseSnapshot,
 		searchAnswers?: ReadonlyMap<string, string>,
+		session?: EntrySessionInput,
 	): void {
 		if (this.previewIdentityBlocked) {
 			this.deactivate();
@@ -1422,6 +1463,7 @@ export class EngineController {
 			caseData,
 			caseDatabase,
 			searchAnswers,
+			session: session ?? this.sessionFor(formUuid),
 		};
 		this.runtimeFault = undefined;
 		this.clearRefusal();
@@ -1447,9 +1489,16 @@ export class EngineController {
 		caseData?: CaseDataByType,
 		caseDatabase?: CaseDatabaseSnapshot,
 		searchAnswers?: ReadonlyMap<string, string>,
+		session?: EntrySessionInput,
 	): Promise<boolean> {
 		if (this.xpathRuntime === undefined) {
-			this.activateForm(formUuid, caseData, caseDatabase, searchAnswers);
+			this.activateForm(
+				formUuid,
+				caseData,
+				caseDatabase,
+				searchAnswers,
+				session,
+			);
 			return this.engine !== undefined;
 		}
 		if (this.previewIdentityBlocked) {
@@ -1461,6 +1510,7 @@ export class EngineController {
 			caseData,
 			caseDatabase,
 			searchAnswers,
+			session: session ?? this.sessionFor(formUuid),
 		};
 		this.runtimeFault = undefined;
 		this.clearRefusal();
@@ -1486,7 +1536,9 @@ export class EngineController {
 		formUuid: Uuid,
 		caseData?: CaseDataByType,
 		preserveAllValues = false,
+		session?: EntrySessionInput,
 	): Promise<boolean> {
+		this.updateEntrySessionInput(formUuid, session);
 		if (this.deferCaseDatabaseRebuild(formUuid, caseData)) return false;
 		if (this.xpathRuntime === undefined) {
 			this.rebuildActiveForm(formUuid, caseData, preserveAllValues);
@@ -1624,6 +1676,12 @@ export class EngineController {
 		this.currentEntryKey = entryKey;
 		const caseDatabase = caseDatabaseOverride ?? this.caseDatabaseSnapshot;
 		const searchAnswers = this.searchAnswersFor(formUuid);
+		const session = this.mountEntrySession(
+			state,
+			formUuid,
+			entryKey,
+			caseDatabase,
+		);
 		const engine = new FormEngine(
 			input,
 			state.modules[moduleUuid]?.caseType,
@@ -1635,6 +1693,7 @@ export class EngineController {
 				stagedAsync: true,
 				restoredEntry: restore,
 				...(searchAnswers === undefined ? {} : { searchAnswers }),
+				...(session === undefined ? {} : { sessionData: session.data }),
 			},
 		);
 		this.engine = engine;
@@ -1785,6 +1844,20 @@ export class EngineController {
 		});
 	}
 
+	/** A later session input for the same requested entry: the bound case
+	 * that settled after activation. The entry key stays, so its minted ids
+	 * stay too. */
+	private updateEntrySessionInput(
+		formUuid: Uuid,
+		session: EntrySessionInput | undefined,
+	): void {
+		if (
+			session !== undefined &&
+			this.requestedActivation?.formUuid === formUuid
+		)
+			this.requestedActivation = { ...this.requestedActivation, session };
+	}
+
 	private deferCaseDatabaseRebuild(
 		formUuid: Uuid,
 		caseData?: CaseDataByType,
@@ -1855,6 +1928,7 @@ export class EngineController {
 		const mod = s.modules[moduleUuid];
 		const caseDatabase = caseDatabaseOverride ?? this.caseDatabaseSnapshot;
 		const searchAnswers = this.searchAnswersFor(formUuid);
+		const session = this.mountEntrySession(s, formUuid, entryKey, caseDatabase);
 		this.engine = new FormEngine(
 			input,
 			mod?.caseType,
@@ -1865,6 +1939,7 @@ export class EngineController {
 			{
 				restoredEntry,
 				...(searchAnswers === undefined ? {} : { searchAnswers }),
+				...(session === undefined ? {} : { sessionData: session.data }),
 			},
 		);
 		this.mountedCaseDatabaseSnapshot = caseDatabase;
@@ -1924,6 +1999,7 @@ export class EngineController {
 		this.pathToUuid = new Map();
 		this.activeFormUuid = undefined;
 		this.activeCaseData = undefined;
+		this.activeEntrySession = undefined;
 		this.currentEntryKey = undefined;
 		if (!this.rebuilding) this.store.setState({}, true);
 	}
@@ -2003,6 +2079,12 @@ export class EngineController {
 	 *  active. Capture widgets stage against it; submission reconciles it. */
 	get entryKey(): string | undefined {
 		return this.currentEntryKey;
+	}
+
+	/** The mounted entry's session map: what its form read as `session/data`
+	 *  and what its after-submit links read once it closes. */
+	get entrySession(): EntrySessionData | undefined {
+		return this.activeEntrySession;
 	}
 
 	/** The form identity paired with `entryKey`, for queued-mutation fencing. */

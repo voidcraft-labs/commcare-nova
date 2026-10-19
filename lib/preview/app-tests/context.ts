@@ -136,6 +136,8 @@ async function contextFor(
 			ownerIds: persona
 				? personaOwnerIds(doc, persona, snapshot.locations)
 				: memberOwnerIds(scope.actorUserId),
+			// The session's claims seed its Results, Details, preloads and Sync.
+			claimedCaseIds: state.claimedCaseIds,
 		},
 		lookup: previewLookupData({
 			...snapshot.lookup,

@@ -31,6 +31,8 @@ const requestSchema = z.strictObject({
 			}),
 		)
 		.max(100),
+	/** The chosen worker's claims; the context checks their shape. */
+	claimedCaseIds: z.array(z.string()).max(1000).optional(),
 });
 
 export async function launchEntryPointAction(input: {
@@ -39,6 +41,9 @@ export async function launchEntryPointAction(input: {
 	personaUuid?: string;
 	expectedSeq: number;
 	selections: readonly EntryPointSelection[];
+	/** The chosen worker's claims (`lib/session/previewClaims.ts`): a
+	 *  claimed case is held, so the launch's device snapshot holds it. */
+	claimedCaseIds?: readonly string[];
 }): Promise<EntryPointLaunchResult> {
 	const parsed = requestSchema.safeParse(input);
 	if (!parsed.success)
@@ -51,6 +56,7 @@ export async function launchEntryPointAction(input: {
 		const context = await resolveAuthorizedPreviewContext({
 			appId: args.appId,
 			personaUuid: args.personaUuid,
+			claimedCaseIds: args.claimedCaseIds,
 			required: "view",
 			loadBlueprint: true,
 		});

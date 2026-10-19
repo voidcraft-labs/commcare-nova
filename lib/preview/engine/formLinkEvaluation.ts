@@ -26,27 +26,22 @@
  *     target's projected own-case selection datum, matched exactly the way
  *     the wire matches it. A manual datum under that projected id is
  *     evaluated; otherwise the frame reads the source datum
- *     `matchFrameToSource` picked, and
- *     `sourceSessionDatums` says what each source datum is worth once the
- *     submission has landed: the projected own-case datum is the case the
- *     form loaded, projected ancestor/inherited selections come from the
- *     resolved menu/session case map, `case_id_new_<type>_0` on a
- *     registration is the case it created, and a subcase datum is the child
- *     case of that type the submission created. A value the preview cannot
- *     name is blank, which is what the device's session holds for a datum
- *     nothing filled.
+ *     `matchFrameToSource` picked. Each source datum is worth what the
+ *     entry's session map held (`entrySessionData.ts`): the device's session
+ *     does not change when the form closes, so the own-case datum is the
+ *     case the form loaded, ancestor selections are the menu's choices, and
+ *     a `uuid()` datum is the id the entry minted, which the submission
+ *     created its case with. A datum the session did not value reads blank,
+ *     as on a device.
  */
 
 import {
 	entryDatumIdResolver,
 	entryFrameDatums,
-	entrySelectionDatumSources,
-	type FrameDatum,
 	formLinkIsConditional,
 	formLinkProjectionContext,
 	formLinkTargetDatumIds,
 	matchFrameToSource,
-	moduleCaseTypeForActions,
 	owningModuleOf,
 	projectFormLinkSessionExpression,
 	selectedCaseDatumId,
@@ -55,7 +50,6 @@ import {
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	type BlueprintDoc,
-	deriveCaseWriteInventory,
 	type FormLink,
 	type FormLinkDatum,
 	materializableCaseTypes,
@@ -104,14 +98,6 @@ export interface SessionDatumValue {
 	readonly caseName?: string;
 }
 
-/** A case selection already resolved in Preview's menu/session model, keyed
- * by the module whose projected entry datum consumes it. */
-export interface SelectedCaseSessionValue extends SessionDatumValue {
-	readonly caseType: string;
-}
-
-export type SelectedCaseSession = ReadonlyMap<Uuid, SelectedCaseSessionValue>;
-
 /** What the source form's submission produced, in the preview's terms. */
 export interface CarriedSubmission {
 	/** The case the source form loaded or created; absent for a survey. */
@@ -136,7 +122,8 @@ export interface FormLinkEvaluationInput {
 	readonly session: PreviewSearchSessionValues;
 	/** The worker's usercase, which `#user/<prop>` reads. */
 	readonly usercase: Readonly<Record<string, string>>;
-	/** The source entry's own datums, from `sourceSessionDatums`. */
+	/** The source entry's session map once its submission landed
+	 *  (`entrySessionData.ts::afterSubmitSessionDatums`). */
 	readonly sessionDatums: ReadonlyMap<string, SessionDatumValue>;
 	readonly caseData: PostSubmissionCaseData;
 	/** The entry-captured device snapshot with the committed submission patch
@@ -166,7 +153,7 @@ export function formLinksRequireCaseDatabase(doc: BlueprintDoc): boolean {
 			({ ref, expression }) =>
 				(ref.slot === "form_link_condition" ||
 					ref.slot === "form_link_datum_xpath") &&
-				expressionReadsCaseDatabase(expression),
+				expressionReadsCaseDatabase(expression, doc),
 		),
 	);
 }
@@ -443,146 +430,6 @@ export async function evaluateLinkDatumAsync(
 		formLinkWorkerInstances(input, source, world),
 	);
 	return xpathToString(value);
-}
-
-/**
- * What each datum of the source form's entry holds once the submission has
- * landed, keyed by datum id. This is the ONE mapping from the wire's datum
- * vocabulary to the preview's submission result; both the automatic match
- * and a manual `instance('commcaresession')/session/data/<id>` read it.
- *
- * A datum the preview cannot value is absent from the map (its session read
- * is an absent node, its carried value blank): the worker's usercase datum,
- * the grouped-tile companion, and a subcase whose created case it cannot
- * name (see `subcaseValue`). Selected ancestors are supplied explicitly by
- * stable module UUID after Preview has resolved its menu/session context.
- */
-export function sourceSessionDatums(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	submission: CarriedSubmission,
-	selectedCases: SelectedCaseSession = new Map(),
-): ReadonlyMap<string, SessionDatumValue> {
-	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
-	const moduleUuid = owningModuleOf(ctx, formUuid);
-	const form = doc.forms[formUuid];
-	if (moduleUuid === undefined || form === undefined) return new Map();
-	const moduleCaseType = moduleCaseTypeForActions(doc, moduleUuid);
-	const ownCaseDatumId = selectedCaseDatumId(doc, ctx, moduleUuid, formUuid);
-	const selectionSources = new Map(
-		entrySelectionDatumSources(doc, ctx, moduleUuid, formUuid).map((source) => [
-			source.id,
-			source,
-		]),
-	);
-	const datums = new Map<string, SessionDatumValue>();
-	const bound = (): SessionDatumValue | undefined =>
-		submission.caseId === undefined
-			? undefined
-			: {
-					value: submission.caseId,
-					...(submission.caseName !== undefined && {
-						caseName: submission.caseName,
-					}),
-				};
-	let inventory: ReturnType<typeof deriveCaseWriteInventory> | undefined;
-	const subcaseValue = (caseType: string): SessionDatumValue | undefined => {
-		/* A subcase datum is minted for the form's ONE non-repeat child
-		 * bucket of its case type (`deriveSessionDatums` skips repeat-context
-		 * subcases). The submission reports its created children by case
-		 * type in creation order, so when the form has no repeat bucket of
-		 * that type, the one child of that type is the datum's case. With a
-		 * repeat bucket of the same type the children of that type cannot be
-		 * told apart, so the datum stays unvalued rather than guessed. */
-		inventory ??= deriveCaseWriteInventory(
-			doc,
-			formUuid,
-			{ caseType: moduleCaseType },
-			form.type,
-		);
-		const ambiguous = inventory.buckets.some(
-			(bucket) =>
-				bucket.kind === "child" &&
-				bucket.caseType === caseType &&
-				bucket.repeatUuid !== undefined,
-		);
-		if (ambiguous) return undefined;
-		const created = submission.childCases.filter(
-			(child) => child.caseType === caseType,
-		);
-		const [child] = created;
-		if (created.length !== 1 || child === undefined) return undefined;
-		return {
-			value: child.caseId,
-			...(child.caseName !== undefined && { caseName: child.caseName }),
-		};
-	};
-	for (const datum of entryFrameDatums(doc, ctx, moduleUuid, formUuid)) {
-		const held = sourceDatumValue(datum, {
-			formType: form.type,
-			moduleCaseType,
-			ownCaseDatumId,
-			bound,
-			selectedCase: (datumId, caseType) => {
-				const source = selectionSources.get(datumId);
-				if (source === undefined || source.caseType !== caseType)
-					return undefined;
-				const selected = selectedCases.get(source.moduleUuid);
-				return selected?.caseType !== caseType
-					? undefined
-					: {
-							value: selected.value,
-							...(selected.caseName !== undefined && {
-								caseName: selected.caseName,
-							}),
-						};
-			},
-			subcaseValue,
-		});
-		if (held !== undefined) datums.set(datum.id, held);
-	}
-	return datums;
-}
-
-function sourceDatumValue(
-	datum: FrameDatum,
-	source: {
-		readonly formType: string;
-		readonly moduleCaseType: string;
-		readonly ownCaseDatumId?: string;
-		readonly bound: () => SessionDatumValue | undefined;
-		readonly selectedCase: (
-			datumId: string,
-			caseType: string,
-		) => SessionDatumValue | undefined;
-		readonly subcaseValue: (caseType: string) => SessionDatumValue | undefined;
-	},
-): SessionDatumValue | undefined {
-	// The case the form loaded.
-	if (datum.requiresSelection) {
-		if (datum.id === source.ownCaseDatumId) return source.bound();
-		return datum.caseType === undefined
-			? undefined
-			: source.selectedCase(datum.id, datum.caseType);
-	}
-	// A function datum with no case type (the grouped-tile companion) and
-	// the worker's own usercase datum name nothing the submission created.
-	if (datum.caseType === undefined || datum.function === undefined) {
-		return undefined;
-	}
-	if (datum.caseType === "commcare-user") return undefined;
-	// A registration's primary create datum is the case it just created; a
-	// create datum of any other type is a subcase. (A self-parented type
-	// could register a child of its own type too; `findBestMatch` takes the
-	// first datum in source order, which is the primary, so the primary is
-	// what a same-type match ever reads.)
-	if (
-		source.formType === "registration" &&
-		datum.caseType === source.moduleCaseType
-	) {
-		return source.bound();
-	}
-	return source.subcaseValue(datum.caseType);
 }
 
 /**

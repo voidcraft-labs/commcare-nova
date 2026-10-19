@@ -257,6 +257,27 @@ export interface RestoreScope {
 	 * refuses an empty set rather than answering it with an empty restore.
 	 */
 	readonly ownerIds: readonly string[];
+	/**
+	 * The worker's claims: searched cases it chose that its restore did not
+	 * hold. Each seeds the fixpoint as HQ's claim, an open extension case the
+	 * worker owns, would (`compileRestoreScope.ts`), and only if it is a case
+	 * of this app in the bound Project; any other id seeds nothing. Absent or
+	 * empty is a worker that claimed nothing.
+	 */
+	readonly claimedCaseIds?: readonly string[];
+}
+
+/**
+ * HQ's case search population, for a read that stands for a search
+ * (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`:
+ * `.case_type(...).is_closed(False)`): every open case of the type in the
+ * bound Project, bound by no restore. `heldBy` is the restore of the worker
+ * searching; each row a query returns says whether that restore holds it
+ * (`heldOnDevice`), computed in the same statement, so a caller claims only
+ * the cases the worker's device does not hold.
+ */
+export interface SearchPopulation {
+	readonly heldBy: RestoreScope;
 }
 
 /**
@@ -354,6 +375,11 @@ export interface QueryArgs {
 	 * the whole tenant, which is what every authoring surface wants.
 	 */
 	restoreScope?: RestoreScope;
+	/**
+	 * Read as a search does. See {@link SearchPopulation}; never together
+	 * with `restoreScope`.
+	 */
+	searchPopulation?: SearchPopulation;
 }
 
 /**
@@ -510,6 +536,9 @@ export type CountArgs =
 			 * involved.
 			 */
 			restoreScope?: RestoreScope;
+			/** Same population contract as `QueryArgs.searchPopulation`. A count
+			 * holds no rows, so it only reads the open cases. */
+			searchPopulation?: SearchPopulation;
 	  }
 	| {
 			/**
@@ -644,6 +673,9 @@ export type CalculatedValue = JsonValue | Date;
  */
 export type CaseRowWithCalculated = CaseRow & {
 	readonly calculated: Readonly<Record<string, CalculatedValue>>;
+	/** Whether the searching worker's restore holds this row; present only
+	 *  on a read with a `searchPopulation`. */
+	readonly heldOnDevice?: boolean;
 };
 
 /**
@@ -1076,7 +1108,9 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
 export interface CaseStore extends SchemaCaseStore {
 	/** Read the complete bound worker restore without partitioning through the
 	 * active Blueprint catalog. The restore closure and tenant predicates live
-	 * in SQL; callers cannot supply case ids or approximate its population. */
+	 * in SQL. The only caller-supplied ids are the worker's claims
+	 * (`RestoreScope.claimedCaseIds`), each of which seeds the closure only if
+	 * it is a case of this app in the bound Project. */
 	readDeviceCaseDatabase(args: {
 		readonly appId: string;
 		readonly restoreScope: RestoreScope;

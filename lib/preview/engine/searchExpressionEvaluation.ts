@@ -276,7 +276,14 @@ function searchSessionEvalContext(
 export function sessionInstancePathValue(
 	path: string,
 	session: PreviewSearchSessionValues,
+	/** The entry's session map, `session/data/<id>` → value. */
+	data: Readonly<Record<string, string>> = {},
 ): string | undefined {
+	const dataPrefix = "/session/data/";
+	if (path.startsWith(dataPrefix)) {
+		return ownRecordValue(data, path.slice(dataPrefix.length));
+	}
+
 	const contextPrefix = "/session/context/";
 	if (path.startsWith(contextPrefix)) {
 		const field = path.slice(contextPrefix.length) as SessionContextField;

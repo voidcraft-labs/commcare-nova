@@ -86,6 +86,9 @@ export type AuthorizedPreviewContext =
 			 * Postgres. Putting a server-only field on the shared identity would
 			 * make the client's copy quietly wrong, and `samePreviewIdentity`
 			 * would then compare a field only one side can fill.
+			 *
+			 * It carries the worker's claims the caller sent, so every read
+			 * bound by it holds the cases the worker chose from a search.
 			 */
 			restoreScope: RestoreScope;
 	  };
@@ -93,14 +96,52 @@ export type AuthorizedPreviewContext =
 export const PERSONA_UNAVAILABLE_MESSAGE =
 	"The selected preview persona is no longer available. Choose another worker and try again.";
 
+/** The most claims one Preview worker sends, the bound entry-point
+ *  selections share. */
+export const PREVIEW_CLAIMS_LIMIT = 1000;
+const CASE_ID_MAX_LENGTH = 255;
+
+/**
+ * Check a client's claimed case ids at the trust boundary. A claim can only
+ * widen a device read to cases of this app in the member's own Project, which
+ * the store fences per id in SQL, so the check here is shape: a plain array of
+ * distinct, non-empty ids of at most 255 characters, at most
+ * {@link PREVIEW_CLAIMS_LIMIT} of them. A malformed list refuses the read,
+ * never shrinks silently into a different one.
+ */
+export function previewClaimedCaseIds(value: unknown): readonly string[] {
+	if (value === undefined) return [];
+	if (
+		!Array.isArray(value) ||
+		value.length > PREVIEW_CLAIMS_LIMIT ||
+		value.some(
+			(id) =>
+				typeof id !== "string" ||
+				id.length === 0 ||
+				id.length > CASE_ID_MAX_LENGTH,
+		) ||
+		new Set(value).size !== value.length
+	) {
+		throw new Error(
+			`Preview sent the cases this worker claimed in a shape it cannot read. It expects a list of up to ${PREVIEW_CLAIMS_LIMIT} distinct case ids, each 1 to ${CASE_ID_MAX_LENGTH} characters. Check the caller that builds \`claimedCaseIds\` from the session's \`previewClaims\`.`,
+		);
+	}
+	return value as readonly string[];
+}
+
 export async function resolveAuthorizedPreviewContext(args: {
 	readonly appId: string;
 	readonly personaUuid?: string;
+	/** The worker's claims from the session (`lib/session/previewClaims.ts`),
+	 *  client input checked by {@link previewClaimedCaseIds}. They seed the
+	 *  returned `restoreScope`. */
+	readonly claimedCaseIds?: unknown;
 	readonly required: AppCapability;
 	/** Submission program derivation needs the committed blueprint even while
 	 * previewing as the signed-in member. Persona selection implies a load. */
 	readonly loadBlueprint?: boolean;
 }): Promise<AuthorizedPreviewContext> {
+	const claimedCaseIds = previewClaimedCaseIds(args.claimedCaseIds);
 	const session = await getSession();
 	const memberIdentity = previewAsMe(session?.user);
 	if (memberIdentity === null) return { kind: "unauthenticated" };
@@ -198,14 +239,18 @@ export async function resolveAuthorizedPreviewContext(args: {
 		store,
 	});
 
+	const ownedScope = await resolveRestoreScope({
+		appId: args.appId,
+		identity: identityOnRecord,
+		blueprint,
+	});
 	return {
 		kind: "ready",
 		identity: identityOnRecord,
-		restoreScope: await resolveRestoreScope({
-			appId: args.appId,
-			identity: identityOnRecord,
-			blueprint,
-		}),
+		restoreScope:
+			claimedCaseIds.length === 0
+				? ownedScope
+				: { ...ownedScope, claimedCaseIds },
 		store,
 		scope: {
 			projectId: access.projectId,

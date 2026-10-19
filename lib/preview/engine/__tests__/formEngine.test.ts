@@ -6643,3 +6643,102 @@ describe("FormEngine setvalue casts", () => {
 		expect(engine.getState("/data/count").value).toBe("7");
 	});
 });
+
+describe("FormEngine session data", () => {
+	const patient: CaseType = {
+		name: "patient",
+		properties: [{ name: "village", label: proseText("Village") }],
+	};
+
+	it("reads a selected case's session datum from the entry's session map", () => {
+		// Form logic reading `session/data` once made printing throw while the
+		// engine built its trigger graph: Preview had no datum ids to print.
+		const engine = new FormEngine(
+			dTree(
+				[
+					{
+						id: "chosen",
+						kind: "hidden",
+						calculate: "instance('commcaresession')/session/data/case_id",
+					},
+				],
+				"followup",
+				[patient],
+				"patient",
+			),
+			"patient",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ sessionData: { case_id: "p-1" } },
+		);
+		expect(engine.getState("/data/chosen").value).toBe("p-1");
+	});
+
+	it("reads a registration's allocated id, its own case_id, from the session", () => {
+		const input = dTree(
+			[
+				{
+					id: "name",
+					kind: "text",
+					caseWrite: { caseType: "patient", property: "case_name" },
+				},
+				{
+					id: "allocated",
+					kind: "hidden",
+					calculate: "#patient/case_id",
+				},
+			],
+			"registration",
+			[patient],
+			"patient",
+		);
+		const engine = new FormEngine(
+			input,
+			"patient",
+			undefined,
+			undefined,
+			undefined,
+			{ rows: [], indices: [] },
+			{ sessionData: { case_id_new_patient_0: "minted-id" } },
+		);
+		expect(engine.getState("/data/allocated").value).toBe("minted-id");
+	});
+
+	it("reads a follow-up's case property through casedb keyed on its datum", () => {
+		const engine = new FormEngine(
+			dTree(
+				[{ id: "where", kind: "hidden", calculate: "#patient/village" }],
+				"followup",
+				[patient],
+				"patient",
+			),
+			"patient",
+			undefined,
+			undefined,
+			undefined,
+			{
+				rows: [
+					{
+						case_id: "p-1",
+						app_id: "app",
+						case_type: "patient",
+						owner_id: "u1",
+						status: "open",
+						case_name: "Ada",
+						external_id: null,
+						opened_on: null,
+						closed_on: null,
+						modified_on: null,
+						parent_case_id: null,
+						properties: { village: "North" },
+					} as never,
+				],
+				indices: [],
+			},
+			{ sessionData: { case_id: "p-1" } },
+		);
+		expect(engine.getState("/data/where").value).toBe("North");
+	});
+});

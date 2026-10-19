@@ -67,4 +67,14 @@ export interface FormEvaluationContext {
 		PreviewLookupData,
 		"projectRevision" | "definitions" | "rowsByTable"
 	>;
+	/** The running session the entry starts from: the app its `uuid()`
+	 * datums are minted in and the menu's case choices
+	 * (`entrySessionData.ts`). Without it the entry holds its selected
+	 * records alone. */
+	session?: {
+		readonly appId: string;
+		readonly menuSelections: Readonly<
+			Record<string, import("@/lib/session/types").PreviewMenuCaseSelection>
+		>;
+	};
 }

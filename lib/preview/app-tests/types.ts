@@ -317,6 +317,11 @@ export interface AppTestSessionState {
 	/** The worker's device holds this snapshot until sync or identity switch;
 	 * submissions overlay their transaction-captured patch, including closed rows. */
 	deviceCases: CaseDatabaseSnapshot;
+	/** Searched cases this worker chose that its restore did not hold, in
+	 * claim order. They seed the session's restore, as HQ's claims seed a
+	 * device's; another session never holds them. Home keeps them, a change of
+	 * worker drops them. */
+	claimedCaseIds: readonly string[];
 }
 
 /** One bounded journey and record namespace, with independent retained workers. */

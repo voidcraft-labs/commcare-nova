@@ -15,12 +15,12 @@ import {
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "../afterSubmitRouting";
-import { previewMenuCaseContext } from "../menuProjection";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import { caseDatabaseToFormPreloads } from "./caseDataBindingClient";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
+import { afterSubmitSessionDatums, entrySessionData } from "./entrySessionData";
 import type { FormEvaluationContext } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
 import {
@@ -29,8 +29,6 @@ import {
 	evaluateFormLinksAsync,
 	type FormLinkAsyncEvaluator,
 	projectTargetCaseSelectionsAsync,
-	type SelectedCaseSessionValue,
-	sourceSessionDatums,
 } from "./formLinkEvaluation";
 import { previewSessionValues } from "./identity";
 import { previewLookupData } from "./lookupEvaluation";
@@ -89,30 +87,29 @@ export async function evaluatePostSubmissionSnapshot(
 		}),
 	};
 	const menuSource = { ...doc, doc, caseTypes: doc.caseTypes ?? [] };
-	const selectedCases = new Map<Uuid, SelectedCaseSessionValue>();
-	for (const uuid of doc.moduleOrder) {
-		const selected = previewMenuCaseContext(
-			menuSource,
-			uuid,
-			args.selections,
-		).selectedCase;
-		if (selected?.cases.length === 1)
-			selectedCases.set(uuid, {
-				caseType: selected.caseType,
-				value: selected.cases[0].caseId,
-				caseName: selected.cases[0].caseName,
-			});
-	}
+	/* The entry's own session map, rebuilt from its entry key: the device's
+	 * session does not change when the form closes, so a link reads the ids
+	 * the form read, created cases included. */
+	const entry = entrySessionData(doc, args.formUuid, {
+		appId: context.session?.appId,
+		entryKey: args.mutation.entryKey,
+		boundCases:
+			"caseIds" in args.mutation
+				? args.mutation.caseIds.map((caseId) => ({ caseId }))
+				: [],
+		menuSelections: args.selections,
+		caseDatabase: context.cases,
+		identity: context.identity,
+	});
 	const input = {
 		doc,
 		formUuid: args.formUuid,
 		session: previewSessionValues(context.identity),
 		usercase: context.identity.usercase,
-		sessionDatums: sourceSessionDatums(
-			doc,
-			args.formUuid,
+		sessionDatums: afterSubmitSessionDatums(
+			entry,
 			submission,
-			selectedCases,
+			args.mutation.kind === "registration" ? ids[0] : undefined,
 		),
 		caseData,
 		caseDatabase: context.cases,

@@ -46,6 +46,7 @@ import type {
 	LookupTableSchemas,
 	OrdinarySubmissionAction,
 	RestoreScope,
+	SearchPopulation,
 	SubmissionCaseSeed,
 	SubmissionReceiptIdentity,
 	TermBindings,
@@ -157,6 +158,7 @@ import type {
 } from "./caseDataBindingTypes";
 import type { CaseListOrderLocale } from "./caseListOrder";
 import { answerXPathValue } from "./dataInstance";
+import { entryCreatedCaseKeys } from "./entrySessionData";
 import type { ResolvedPreviewIdentity } from "./identity";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
 import {
@@ -220,6 +222,7 @@ function caseReadCore(
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly restoreScope?: RestoreScope;
+		readonly searchPopulation?: SearchPopulation;
 		readonly caseListConfig?: CaseListConfig;
 	},
 	predicate: Expression | undefined,
@@ -240,6 +243,7 @@ function caseReadCore(
 			data_type: searchInputRuntimeValueType(input),
 		})),
 		restoreScope: args.restoreScope,
+		searchPopulation: args.searchPopulation,
 	};
 }
 
@@ -359,6 +363,13 @@ export async function readCases(
 		 * the tenant, because neither is standing at a device.
 		 */
 		restoreScope?: RestoreScope;
+		/**
+		 * Read as a search does: the Project's open cases, each row saying
+		 * whether the searching worker's restore holds it. Never with
+		 * `restoreScope`; the Results of a search show no restore note,
+		 * because HQ's search is not a restore.
+		 */
+		searchPopulation?: SearchPopulation;
 	},
 ): Promise<LoadCasesResult> {
 	const composedQuery = composeQueryPredicate(
@@ -608,6 +619,7 @@ async function countAuthoredCasePopulation(
 		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly authoredExcludedOwnerIds?: readonly string[];
 		readonly restoreScope?: RestoreScope;
+		readonly searchPopulation?: SearchPopulation;
 	},
 ): Promise<number> {
 	const authoredQuery = composeQueryPredicate(
@@ -1140,6 +1152,9 @@ export async function readCaseData(
 		 * up-rule), so the chain cannot leave the restore.
 		 */
 		restoreScope?: RestoreScope;
+		/** Read a case chosen from a search's Results as the search found it
+		 *  (`readCases`' contract); its row says whether the worker holds it. */
+		searchPopulation?: SearchPopulation;
 	},
 ): Promise<LoadCaseDataResult> {
 	const rows = await store.query({
@@ -1765,6 +1780,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 			? {}
 			: { closeCase: ordinaryCloseCase }),
 		childRelationships: ordinaryChildRelationships,
+		entryCaseKeys: entryCreatedCaseKeys(doc, formUuid),
 	});
 	const ordinaryStructure = {
 		ordinaryAction,
@@ -1998,6 +2014,8 @@ function projectOrdinaryDestinationValues(
 function projectOrdinaryChildren(args: {
 	readonly mutation: Exclude<SubmissionMutation, { kind: "survey" }>;
 	readonly authorities: ReadonlyMap<string, OrdinaryChildAuthority>;
+	/** The cases the committed entry's session names (`entryCreatedCaseKeys`). */
+	readonly entryCaseKeys: ReadonlySet<string>;
 }): ReadonlyArray<SubmissionCaseSeed> {
 	const identities = args.mutation.ordinaryChildBuckets;
 	if (args.mutation.children.length === 0) {
@@ -2049,10 +2067,18 @@ function projectOrdinaryChildren(args: {
 			if (seenRepeatInstances.has(instance)) return rejectOrdinaryStructure();
 			seenRepeatInstances.add(instance);
 		}
+		/* The entry's one non-repeat child of a type is the case its
+		 * `case_id_new_<type>` datum names, so it takes the id the form read. */
+		const entryCaseKey =
+			authority.bucket.repeatUuid === undefined
+				? `new-child-case:${authority.bucket.caseType}`
+				: undefined;
 		return {
 			caseType: authority.bucket.caseType,
 			...projectOrdinaryDestinationValues(child, authority.destination),
 			parentRelationship: authority.relationship,
+			...(entryCaseKey !== undefined &&
+				args.entryCaseKeys.has(entryCaseKey) && { entryCaseKey }),
 		};
 	});
 }
@@ -2069,6 +2095,7 @@ function projectOrdinaryAction(args: {
 		string,
 		NonNullable<CaseType["relationship"]>
 	>;
+	readonly entryCaseKeys: ReadonlySet<string>;
 }): OrdinarySubmissionAction {
 	if (args.form.type !== args.mutation.kind) return rejectOrdinaryStructure();
 	if (args.form.type === "survey") return { kind: "none" };
@@ -2095,6 +2122,7 @@ function projectOrdinaryAction(args: {
 	const children = projectOrdinaryChildren({
 		mutation: args.mutation,
 		authorities: childAuthorities,
+		entryCaseKeys: args.entryCaseKeys,
 	});
 	const primaryAuthority = ordinaryDestinationAuthority(primary);
 
@@ -2110,6 +2138,9 @@ function projectOrdinaryAction(args: {
 					args.mutation.primary,
 					primaryAuthority,
 				),
+				...(args.entryCaseKeys.has("new-case") && {
+					entryCaseKey: "new-case",
+				}),
 			},
 			children,
 		};

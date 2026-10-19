@@ -98,5 +98,14 @@ export async function loadFormEvaluationContext(
 		);
 	const lookup = await getLookupFixtureData(scope, tableIds);
 	await authorize();
-	return { identity, cases, lookup };
+	return {
+		identity,
+		cases,
+		lookup,
+		// The entry's `uuid()` datums are minted in this app; the check runs
+		// outside any menu, so no case was chosen before the form.
+		...(!ctx.appId
+			? {}
+			: { session: { appId: ctx.appId, menuSelections: {} } }),
+	};
 }

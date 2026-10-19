@@ -63,10 +63,13 @@ import {
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 import {
 	useAccessPhase,
+	usePreviewClaimedCaseIds,
 	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
+
+const NO_CLAIMS: readonly string[] = [];
 
 function parentCaseSelectionKey(
 	parentCase: ParentCaseSelection | undefined,
@@ -156,6 +159,10 @@ type LoadingState<T extends { kind: string }> =
  * Optional `excludedOwnerIdsExpression` remains a typed expression until the
  * authenticated Server Action so session-backed values (notably the current
  * worker id) resolve authoritatively before the local query is composed.
+ *
+ * The worker's claims (`lib/session/previewClaims.ts`) ride every read: they
+ * widen the restore of a device read and decide which rows of a search's
+ * population the device already holds.
  */
 export function useCases(args: {
 	appId: string | undefined;
@@ -184,6 +191,10 @@ export function useCases(args: {
 	 * with different modules/configuration. Rows stay stale only within this
 	 * scope while prompt edits revalidate. */
 	requestScopeKey?: string;
+	/** The read is the Results of a completed search of `moduleUuid`
+	 *  (submitted `inputValues` say the same), so it reads the search's
+	 *  population rather than the worker's restore. */
+	search?: boolean;
 }): {
 	state: LoadingState<LoadCasesResult>;
 	/** Server-derived cause of the effective query's narrowing. Blank prompt
@@ -213,6 +224,7 @@ export function useCases(args: {
 		caseTypes,
 		page,
 		requestScopeKey = "",
+		search = false,
 	} = args;
 	const caseIdsKey = caseIds === undefined ? "all" : caseIds.join("\u0001");
 	const pageOffset = page?.offset;
@@ -229,13 +241,14 @@ export function useCases(args: {
 	 * the query returns (owner-scoped rules, session-backed prompt values),
 	 * so it must re-fire the load, not reuse another worker's rows. */
 	const personaUuid = usePreviewPersonaUuid();
+	const claimedCaseIds = usePreviewClaimedCaseIds(personaUuid);
 	const ready = Boolean(appId && caseType && accessPhase === "authorized");
 	/* Query edits within one case type deliberately keep settled rows visible,
 	 * but an app/case-type change is an identity boundary. Keep that identity
 	 * beside the result so the render that precedes the refetch effect can never
 	 * project old rows through the new module's columns or row actions. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${claimedCaseIds.join(",")}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -305,6 +318,8 @@ export function useCases(args: {
 										: { offset: pageOffset, limit: pageLimit },
 								viewerTimeZone: viewerTimeZone(),
 								personaUuid,
+								claimedCaseIds: [...claimedCaseIds],
+								...(search && { search }),
 							}),
 						}),
 					},
@@ -581,6 +596,9 @@ export function useCaseData(args: {
 	 * tree rather than in any argument here — `useRestoreScopeKey` signs them
 	 * and the running surfaces pass it. */
 	scopeKey?: string;
+	/** A device-scoped read of a case chosen from the Results of a search of
+	 *  `moduleUuid`: it reads the case as the search found it. */
+	search?: boolean;
 }): {
 	state: LoadingState<LoadCaseDataResult>;
 	reload: () => Promise<void>;
@@ -598,6 +616,7 @@ export function useCaseData(args: {
 		includeHeld,
 		deviceScoped,
 		scopeKey = "",
+		search = false,
 	} = args;
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
@@ -606,6 +625,10 @@ export function useCaseData(args: {
 	 * calculated columns that read the session, so two personas asking for
 	 * the same row are two different requests. */
 	const personaUuid = usePreviewPersonaUuid();
+	/* A device-scoped read holds the worker's claimed cases, so it cannot
+	 * forget them; any other read is the tenant and sends none. */
+	const workerClaims = usePreviewClaimedCaseIds(personaUuid);
+	const claimedCaseIds = deviceScoped === true ? workerClaims : NO_CLAIMS;
 	const ready = Boolean(
 		appId && caseType && caseId && accessPhase === "authorized",
 	);
@@ -614,7 +637,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${claimedCaseIds.join(",")}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -670,6 +693,8 @@ export function useCaseData(args: {
 									? undefined
 									: toRscSerializableDoc(blueprint),
 								moduleUuid,
+								[...claimedCaseIds],
+								search,
 							),
 						}),
 					},

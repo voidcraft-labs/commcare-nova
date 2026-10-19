@@ -81,6 +81,10 @@ import {
 	submissionWorkerValues,
 } from "@/lib/preview/engine/caseDatabasePatch";
 import type { EngineValidationCompletion } from "@/lib/preview/engine/engineController";
+import {
+	afterSubmitSessionDatums,
+	type EntrySessionData,
+} from "@/lib/preview/engine/entrySessionData";
 import type { InvalidFieldTarget } from "@/lib/preview/engine/formEngine";
 import {
 	type CarriedSubmission,
@@ -89,8 +93,6 @@ import {
 	evaluateFormLinksAsync,
 	type PostSubmissionCaseData,
 	projectTargetCaseSelectionsAsync,
-	type SelectedCaseSessionValue,
-	sourceSessionDatums,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import {
@@ -285,6 +287,8 @@ function describeSubmissionRejection(
 			return rejection.reason === "case-link-target-is-self"
 				? "Nothing was saved: a case automation tried to connect a case to itself."
 				: "Nothing was saved: this form's case automations disagree about a case's type partway through the submission. Review the automations' order and types.";
+		case "new-case":
+			return "This form's new case is already saved. You can open it from the case list.";
 		case "retype-not-portable": {
 			const lines = rejection.failures.map((f) => {
 				const field = f.path === "" ? "<root>" : f.path.replace(/^\//, "");
@@ -336,6 +340,8 @@ interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
 	readonly doc: BlueprintDoc;
 	/** The exact device casedb captured when this form entry opened. */
 	readonly caseDatabase: CaseDatabaseSnapshot;
+	/** The entry's session map: what the form read as `session/data`. */
+	readonly entrySession: EntrySessionData | undefined;
 	/** The materializable catalog from the same submit-time revision. */
 	readonly caseTypes: readonly CaseType[];
 }
@@ -678,12 +684,27 @@ export function FormScreen({ screen }: FormScreenProps) {
 
 	const editable = isReady;
 
+	/* The running session the entry starts from: its bound cases and the
+	 * menu's choices. The controller builds the entry's session map, which
+	 * the form reads as `session/data` and its links read after submit. */
+	const entrySession = useMemo(
+		() =>
+			appId === undefined || mode !== "preview"
+				? undefined
+				: {
+						appId,
+						boundCases: effectiveCases ?? [],
+						menuSelections: menuCaseSelections,
+					},
+		[appId, mode, effectiveCases, menuCaseSelections],
+	);
 	const controller = useFormEngine(
 		formUuid,
 		caseData,
 		carriedCaseDatabase,
 		searchAnswers,
 		caseBindingReady,
+		entrySession,
 	);
 	const engineEntry = useEngineEntry();
 	const runtimeFault =
@@ -1274,40 +1295,18 @@ export function FormScreen({ screen }: FormScreenProps) {
 					parentCaseIds: resultCaseIds,
 				}),
 			};
-			/* Form-link evaluation consumes module-keyed CASE SESSION values, not
-			 * raw menu ancestry. The canonical menu projection resolves same-type
-			 * structural inheritance and case-type parent selection first; the wire
-			 * projection then maps those stable module identities to final datum ids. */
-			const selectedCases = new Map<Uuid, SelectedCaseSessionValue>();
-			for (const selectedModuleUuid of routeMenuSource.moduleOrder) {
-				const selected = previewMenuCaseContext(
-					routeMenuSource,
-					selectedModuleUuid,
-					menuCaseSelections,
-				).selectedCase;
-				const selectedChoice = selected?.cases[0];
-				if (
-					selected === undefined ||
-					selected.cases.length !== 1 ||
-					selectedChoice === undefined
-				)
-					continue;
-				selectedCases.set(selectedModuleUuid, {
-					caseType: selected.caseType,
-					value: selectedChoice.caseId,
-					caseName: selectedChoice.caseName,
-				});
-			}
 			const input = {
 				doc,
 				formUuid: sourceFormUuid,
 				session: previewSessionValues(previewIdentity),
 				usercase: postSubmissionUsercase,
-				sessionDatums: sourceSessionDatums(
-					doc,
-					sourceFormUuid,
+				/* The entry's own session map: the device's session does not
+				 * change when the form closes, so a link reads the ids its form
+				 * read, created cases included. */
+				sessionDatums: afterSubmitSessionDatums(
+					submitted.entrySession,
 					submission,
-					selectedCases,
+					result.kind === "registration" ? result.caseId : undefined,
 				),
 				caseData,
 				caseDatabase: refreshedCaseDatabase,
@@ -1796,6 +1795,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				links: submittedForm?.formLinks,
 				doc,
 				caseDatabase: controller.previewCaseDatabaseSnapshot,
+				entrySession: controller.entrySession,
 				caseTypes: materializableCaseTypesFromDoc(doc),
 			};
 		};

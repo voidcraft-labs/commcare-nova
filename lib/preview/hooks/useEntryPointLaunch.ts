@@ -16,6 +16,7 @@ import {
 import { entryPointInventory, type Uuid } from "@/lib/domain";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { usePreviewEntryPointLaunch } from "@/lib/session/hooks";
+import { claimsFor, previewClaimsWorker } from "@/lib/session/previewClaims";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { launchEntryPointAction } from "../entryPointLaunchAction";
 import type {
@@ -62,6 +63,13 @@ export function useEntryPointLaunch() {
 				selections,
 				personaUuid,
 				expectedSeq,
+				claimedCaseIds: [
+					...claimsFor(
+						before.previewClaims,
+						before.appId,
+						previewClaimsWorker(personaUuid),
+					),
+				],
 			});
 			const current = session.getState();
 			if (

@@ -88,7 +88,7 @@ export function prepareEntryPointLaunch(args: {
 			selectedRows.some((row) => !row || row.case_type !== requirement.caseType)
 		)
 			return refuse(
-				"One or more cases are unavailable to this Preview worker. Choose cases on this worker’s device. Preview does not claim or sync cases from HQ.",
+				"One or more cases are unavailable to this Preview worker. Choose cases this worker has. Preview uses this worker’s cases, including ones they chose from a search.",
 			);
 		menuSelections[requirement.moduleUuid] = {
 			caseType: requirement.caseType,

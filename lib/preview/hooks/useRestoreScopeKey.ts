@@ -9,6 +9,7 @@
 //   2. which levels own cases, and how far down each one reaches
 //      (blueprint: `organizationLevels`)
 //   3. the place tree itself (Postgres: `app_locations`)
+//   4. the cases the worker claimed from a search (session: `previewClaims`)
 //
 // Change any one and the same persona holds a different set of cases. Without
 // this key the preview keeps serving the previous worker's rows with nothing
@@ -21,6 +22,7 @@ import { useEffect, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { assignedLocationUuids } from "@/lib/domain";
+import { usePreviewClaimedCaseIds } from "@/lib/session/hooks";
 
 /**
  * A monotonic clock for this app's place tree.
@@ -48,15 +50,32 @@ function useOrganizationClock(): number {
  *
  * Fold this into `requestScopeKey` on every preview surface that reads cases
  * through a restore. It is a signature, not a description: its only contract
- * is that it differs whenever the resolved owner set could differ, so it is
+ * is that it differs whenever the resolved restore could differ, so it is
  * deliberately coarse — the whole level catalog rather than the fields today's
  * derivation happens to consult. A narrower signature would have to be revised
  * every time `personaOwnerIds` grew an input, and forgetting is silent.
  *
- * Previewing as the signed-in member is a worker assigned nowhere, so its
- * owner set is their own id and depends on none of this.
+ * The worker's claims widen the restore, so a claim re-reads every surface
+ * keyed on this, as a device restores after a new claim.
  */
 export function useRestoreScopeKey(personaUuid: string | undefined): string {
+	const owned = useOwnedRestoreScopeKey(personaUuid);
+	const claims = usePreviewClaimedCaseIds(personaUuid).join(",");
+	return `${owned} ${claims}`;
+}
+
+/**
+ * The part of {@link useRestoreScopeKey} that decides what the worker OWNS:
+ * its assignment, the levels and the place tree, without its claims. A choice
+ * the worker is making keys on this, because a claim only adds cases the
+ * device holds and never takes away one the worker already chose.
+ *
+ * Previewing as the signed-in member is a worker assigned nowhere, so its
+ * owner set is their own id and depends on none of the document.
+ */
+export function useOwnedRestoreScopeKey(
+	personaUuid: string | undefined,
+): string {
 	const clock = useOrganizationClock();
 	const assignment = useBlueprintDoc((state) => {
 		if (personaUuid === undefined) return "me";

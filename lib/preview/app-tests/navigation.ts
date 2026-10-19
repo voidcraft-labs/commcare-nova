@@ -22,6 +22,7 @@ import {
 	previewMenuModuleUuids,
 	previewModuleVisibility,
 } from "../menuProjection";
+import { previewCaseChoiceOf } from "../searchClaims";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
 import type { AppTestScreen, AppTestSessionState } from "./types";
@@ -230,7 +231,7 @@ export function selectAppTestRecords(
 	const selection = {
 		caseType: mod.caseType,
 		cases: rows.map((row) => ({
-			caseId: row.case_id,
+			...previewCaseChoiceOf(row),
 			caseName: row.case_name || "Case",
 			caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 		})),

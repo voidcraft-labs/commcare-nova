@@ -57,7 +57,6 @@ import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
 import { serializeXml } from "@/lib/commcare/serializeXml";
-import { newCaseIdDatumId } from "@/lib/commcare/session";
 import type {
 	HqCaseSaveReference,
 	OpenSubCaseAction,
@@ -121,12 +120,8 @@ import {
 } from "../formLinkProjection";
 import { w } from "../xpath/wire/builders";
 import { toWire } from "../xpath/wire/fromExpression";
-import {
-	InstanceSink,
-	lookupInstance,
-	sessionInstance,
-} from "../xpath/wire/instances";
-import { caseById, casePropertyStep } from "../xpath/wire/rowScope";
+import { InstanceSink, lookupInstance } from "../xpath/wire/instances";
+import { casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
 import { fieldBindType } from "./bindType";
 import { protectConstraintMessage } from "./constraintMessage";
@@ -134,6 +129,7 @@ import {
 	datetimeCaseValueCalculate,
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
+import { formCasePropertyRead } from "./formCaseRead";
 import {
 	type FormExpressionEmission,
 	formExpressionEmission,
@@ -1541,39 +1537,12 @@ function deriveLookupSelectKit(
 	return {
 		naming,
 		userPropertySlugs: userPropertySlugsByUuid(doc),
-		formCaseProperty: (caseType, property) => {
-			const depth = caseTypeDepths.get(caseType);
-			if (depth === undefined)
-				throw new Error("The form cannot read this record type.");
-			if (
-				doc.forms[formUuid].type === "registration" &&
-				depth === 0 &&
-				property === "case_id"
-			) {
-				if (moduleCaseType === undefined)
-					throw new Error(
-						"A registration form needs its record type to read its allocated id.",
-					);
-				return w.instance(sessionInstance(), [
-					w.step("session"),
-					w.step("data"),
-					w.step(newCaseIdDatumId(moduleCaseType)),
-				]);
-			}
-			let id: WireExpr =
-				selectedCaseId ??
-				w.instance(sessionInstance(), [
-					w.step("session"),
-					w.step("data"),
-					w.step("case_id"),
-				]);
-			for (let hop = 0; hop < depth; hop++)
-				id = w.append(caseById(id, "casedb"), [
-					w.step("index"),
-					w.step("parent"),
-				]);
-			return w.append(caseById(id, "casedb"), [casePropertyStep(property)]);
-		},
+		formCaseProperty: formCasePropertyRead({
+			formType: doc.forms[formUuid].type,
+			caseTypeDepths,
+			moduleCaseType,
+			...(selectedCaseId === undefined ? {} : { selectedCaseId }),
+		}),
 		filterFieldPaths: (questionPath) => {
 			fieldLocations ??= collectFieldLocations(doc, formUuid);
 			return bindLookupFilterFieldPaths(fieldLocations, questionPath);

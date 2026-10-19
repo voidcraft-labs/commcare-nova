@@ -47,6 +47,11 @@ import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
+import {
+	addClaims,
+	type PreviewClaims,
+	previewClaimsWorker,
+} from "./previewClaims";
 import type {
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
@@ -274,6 +279,13 @@ export interface BuilderSessionState {
 	 *  Leaving Preview clears it before edit-mode case tools return, so a
 	 *  hidden running identity can never influence authoring data surfaces. */
 	previewPersonaUuid: string | undefined;
+
+	/** The cases this Preview worker claimed from a search
+	 *  (`./previewClaims.ts`), keyed by app and worker. Home, Clear form and
+	 *  an engine reset keep them, because a claim on HQ outlives the task; a
+	 *  change of worker, leaving Preview, a confirmed Project change and
+	 *  `reset()` drop them. */
+	previewClaims: PreviewClaims | undefined;
 
 	// ── Chrome ───────────────────────────────────────────────────────────
 
@@ -621,6 +633,9 @@ export interface BuilderSessionState {
 	 *  member. Changing identity mid-session drops the case target: the
 	 *  case one worker picked is not the case the next one is looking at. */
 	setPreviewPersonaUuid: (personaUuid: string | undefined) => void;
+	/** Add searched cases the current worker chose to that worker's claims.
+	 *  The app and the worker come from the session, never from the caller. */
+	addPreviewClaims: (caseIds: readonly string[]) => void;
 
 	/** Update which field has focus. No-ops when the value is unchanged to
 	 *  avoid unnecessary subscriber notifications. */
@@ -809,6 +824,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					| undefined,
 				previewSearchStates: {} as Readonly<Record<string, PreviewSearchState>>,
 				previewPersonaUuid: undefined as string | undefined,
+				previewClaims: undefined as PreviewClaims | undefined,
 
 				/* Chrome */
 				sidebars: {
@@ -1004,6 +1020,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewParentCaseRequest: undefined,
 										previewSearchStates: {},
 										previewPersonaUuid: undefined,
+										previewClaims: undefined,
 									}
 								: {}),
 						};
@@ -1172,6 +1189,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewing: true,
 						previewPersonaUuid: launch.personaUuid,
+						/* A launch as another worker is a change of worker. */
+						...(launch.personaUuid === s.previewPersonaUuid
+							? {}
+							: { previewClaims: undefined }),
 						previewEntryPointLaunch: launch,
 						previewTaskContinuation: undefined,
 						previewCaseTarget: launch.formTarget,
@@ -1240,6 +1261,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewing: false,
 						previewPersonaUuid: undefined,
+						previewClaims: undefined,
 						previewCaseTarget: undefined,
 						previewTaskContinuation: undefined,
 						previewEntryPointLaunch: undefined,
@@ -1267,6 +1289,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * selected has no standing in the next worker's session. */
 					set({
 						previewPersonaUuid: personaUuid,
+						previewClaims: undefined,
 						previewCaseTarget: undefined,
 						previewTaskContinuation: undefined,
 						previewEntryPointLaunch: undefined,
@@ -1275,6 +1298,18 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 					});
+				},
+
+				addPreviewClaims(caseIds: readonly string[]) {
+					const s = get();
+					if (s.appId === undefined) return;
+					const next = addClaims(
+						s.previewClaims,
+						s.appId,
+						previewClaimsWorker(s.previewPersonaUuid),
+						caseIds,
+					);
+					if (next !== s.previewClaims) set({ previewClaims: next });
 				},
 
 				setActiveFieldId(fieldId: string | undefined) {
@@ -1698,6 +1733,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 						previewPersonaUuid: undefined,
+						previewClaims: undefined,
 
 						/* Chrome */
 						sidebars: {

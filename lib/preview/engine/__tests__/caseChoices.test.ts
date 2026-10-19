@@ -69,7 +69,8 @@ describe("case choices in the captured device world", () => {
 				undefined,
 				undefined,
 				caseChoiceSnapshot(),
-				{ stagedAsync },
+				// The entry's session holds the chosen clinic, as a device's does.
+				{ stagedAsync, sessionData: { case_id: CLINIC_A } },
 			);
 			const { runtime, evaluateAsync } = workerFor(engine);
 			try {

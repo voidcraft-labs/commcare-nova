@@ -58,6 +58,7 @@ import {
 	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
+import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
@@ -2193,6 +2194,41 @@ function omitBlankSharedAnswers(
 	};
 }
 
+/**
+ * The id a case the entry's session names is created with
+ * (`SubmissionCaseSeed.entryCaseKey`): the one its form read as
+ * `session/data/<datum>` while it ran. A case no datum names takes a fresh
+ * id. A taken id refuses the whole submission, checked before the insert so
+ * the refusal is a typed rejection rather than an aborted transaction; an
+ * exact retry of a saved entry replays its receipt before reaching here.
+ */
+async function entryNamedCaseId(
+	trx: Transaction<Database>,
+	appId: string,
+	args: ApplySubmissionArgs,
+	seed: SubmissionCaseSeed,
+): Promise<{ readonly caseId?: string }> {
+	if (seed.entryCaseKey === undefined) return {};
+	const caseId = entryDatumCaseId(
+		appId,
+		args.submissionReceipt.entryKey,
+		seed.entryCaseKey,
+	);
+	const taken = await trx
+		.selectFrom("cases")
+		.select("case_id")
+		.where("case_id", "=", caseId)
+		.executeTakeFirst();
+	if (taken !== undefined) {
+		throw new SubmissionRejectedError({
+			kind: "new-case",
+			reason: "case-id-taken",
+			caseId,
+		});
+	}
+	return { caseId };
+}
+
 async function applyOrdinaryAction(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
@@ -2214,11 +2250,13 @@ async function applyOrdinaryAction(
 						: { externalId: ordinary.primary.externalId }),
 					properties: ordinary.primary.properties,
 				},
+				...(await entryNamedCaseId(trx, appId, args, ordinary.primary)),
 			});
 			const createdChildren: CreatedChildCaseReceipt[] = [];
 			for (const [authoredChildIndex, child] of ordinary.children.entries()) {
 				const caseId = await host.insertCase(trx, {
 					appId,
+					...(await entryNamedCaseId(trx, appId, args, child)),
 					seed: {
 						caseType: child.caseType,
 						caseName: requireCaseName(child, "child"),
@@ -2291,6 +2329,9 @@ async function applyOrdinaryAction(
 				for (const parentCaseId of ordinary.caseIds) {
 					const caseId = await host.insertCase(trx, {
 						appId,
+						// Only a one-case form's child is named by its entry; the
+						// server never marks a several-case form's children.
+						...(await entryNamedCaseId(trx, appId, args, child)),
 						seed: {
 							caseType: child.caseType,
 							caseName: requireCaseName(child, "child"),

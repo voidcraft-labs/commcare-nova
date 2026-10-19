@@ -23,6 +23,7 @@ import {
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { FormLink, FormLinkDatum, Uuid } from "@/lib/domain";
+import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	eq,
 	literal,
@@ -40,11 +41,19 @@ import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
+import type {
+	PreviewCaseChoice,
+	PreviewMenuCaseSelection,
+} from "@/lib/session/types";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { evaluate } from "../../xpath/evaluator";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
+import {
+	afterSubmitSessionDatums,
+	entrySessionData,
+} from "../entrySessionData";
 import {
 	carriedCaseFor as carriedCaseForProduction,
 	createFormLinkWorkerWorld,
@@ -56,7 +65,6 @@ import {
 	formLinkEvalContext,
 	formLinkWorkerInstances,
 	projectTargetCaseSelections as projectTargetCaseSelectionsProduction,
-	sourceSessionDatums as sourceSessionDatumsProduction,
 } from "../formLinkEvaluation";
 import type { PreviewSearchSessionValues } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
@@ -82,11 +90,45 @@ function buildDoc(input: DocSpec) {
 
 	return assertAdmittedPreviewDoc(doc);
 }
-function sourceSessionDatums(
-	...args: Parameters<typeof sourceSessionDatumsProduction>
+const ENTRY_KEY = "entry-1";
+
+/** The id entry `ENTRY_KEY` minted for the case `key` names. */
+function minted(doc: ReturnType<typeof buildDoc>, key: string): string {
+	return entryDatumCaseId(doc.appId, ENTRY_KEY, key);
+}
+
+/** The session an entry of `formUuid` holds once its submission landed:
+ *  its bound case, the menu's choices, and the names of the cases it saved. */
+function submittedSession(
+	doc: ReturnType<typeof buildDoc>,
+	formUuid: Uuid,
+	args: {
+		readonly bound?: PreviewCaseChoice;
+		readonly selections?: Readonly<Record<string, PreviewMenuCaseSelection>>;
+		readonly savedNames?: Readonly<Record<string, string>>;
+	} = {},
 ) {
-	assertAdmittedPreviewDoc(args[0]);
-	return sourceSessionDatumsProduction(...args);
+	const entry = entrySessionData(doc, formUuid, {
+		appId: doc.appId,
+		entryKey: ENTRY_KEY,
+		boundCases: args.bound === undefined ? [] : [args.bound],
+		menuSelections: args.selections ?? {},
+		caseDatabase: null,
+		identity: null,
+	});
+	return afterSubmitSessionDatums(entry, {
+		childCases: Object.entries(args.savedNames ?? {}).map(
+			([caseId, caseName]) => ({ caseId, caseName }),
+		),
+	});
+}
+
+function followupSession(
+	doc: ReturnType<typeof buildDoc>,
+	formUuid: Uuid,
+	caseId: string,
+) {
+	return submittedSession(doc, formUuid, { bound: { caseId } });
 }
 
 const HOUSEHOLDS = testUuid("mod-households");
@@ -320,10 +362,7 @@ describe("form-link worker instances", () => {
 		const caseId = "household-1";
 		const input = inputFor(doc, {
 			formUuid: UPDATE,
-			sessionDatums: sourceSessionDatums(doc, UPDATE, {
-				caseId,
-				childCases: [],
-			}),
+			sessionDatums: followupSession(doc, UPDATE, caseId),
 			caseData: new Map([
 				[
 					"household",
@@ -455,10 +494,7 @@ describe("evaluateFormLinks", () => {
 		const submittedHousehold = (village: string) =>
 			inputFor(doc, {
 				formUuid: UPDATE,
-				sessionDatums: sourceSessionDatums(doc, UPDATE, {
-					caseId: "household-1",
-					childCases: [],
-				}),
+				sessionDatums: followupSession(doc, UPDATE, "household-1"),
 				caseDatabase: {
 					rows: [
 						{
@@ -621,90 +657,18 @@ describe("formLinkEvalContext", () => {
 	});
 });
 
-describe("sourceSessionDatums", () => {
-	it("values a child menu's renamed own-case datum", () => {
-		const doc = nestedPatientDoc();
-		const datums = sourceSessionDatums(doc, VISIT, {
-			caseId: "p1",
-			caseName: "Ada",
-			childCases: [],
-		});
-		expect([...datums]).toEqual([
-			["case_id_patient", { value: "p1", caseName: "Ada" }],
-		]);
-	});
-
-	it("values a follow-up's case_id with the case it loaded", () => {
-		const doc = buildDoc(spec());
-		const datums = sourceSessionDatums(doc, UPDATE, {
-			caseId: "h1",
-			caseName: "Smith",
-			childCases: [],
-		});
-		expect(datums.get("case_id")).toEqual({ value: "h1", caseName: "Smith" });
-	});
-
-	it("values a registration's own create datum and its subcase datum", () => {
-		const doc = buildDoc(spec());
-		const datums = sourceSessionDatums(doc, REGISTER, {
-			caseId: "h9",
-			caseName: "Smiths",
-			childCases: [{ caseType: "patient", caseId: "p1", caseName: "Pat" }],
-		});
-		expect(datums.get("case_id_new_household_0")).toEqual({
-			value: "h9",
-			caseName: "Smiths",
-		});
-		expect(datums.get("case_id_new_patient_1")).toEqual({
-			value: "p1",
-			caseName: "Pat",
-		});
-	});
-
-	it("leaves a subcase datum unvalued when no child of its type was created", () => {
-		const doc = buildDoc(spec());
-		const datums = sourceSessionDatums(doc, REGISTER, {
-			caseId: "h9",
-			childCases: [],
-		});
-		expect(datums.has("case_id_new_household_0")).toBe(true);
-		expect(datums.has("case_id_new_patient_1")).toBe(false);
-	});
-
-	it("leaves a subcase datum unvalued when a repeat also creates that type", () => {
-		// The non-repeat patient and a repeat's patients come back as one list
-		// of patient ids; which one the session datum minted cannot be told.
-		const doc = buildDoc(spec({ patientsInRepeat: true }));
-		const datums = sourceSessionDatums(doc, REGISTER, {
-			caseId: "h9",
-			childCases: [{ caseType: "patient", caseId: "p1" }],
-		});
-		expect(datums.has("case_id_new_patient_1")).toBe(false);
-	});
-});
-
 describe("carriedCaseFor", () => {
 	it("carries the selected ancestor from a child source into an ancestor form", () => {
 		const doc = nestedPatientDoc();
-		const sessionDatums = sourceSessionDatums(
-			doc,
-			VISIT,
-			{
-				caseId: "p1",
-				caseName: "Ada",
-				childCases: [],
+		const sessionDatums = submittedSession(doc, VISIT, {
+			bound: { caseId: "p1", caseName: "Ada" },
+			selections: {
+				[HOUSEHOLDS]: {
+					caseType: "household",
+					cases: [{ caseId: "h1", caseName: "Smith household" }],
+				},
 			},
-			new Map([
-				[
-					HOUSEHOLDS,
-					{
-						caseType: "household",
-						value: "h1",
-						caseName: "Smith household",
-					},
-				],
-			]),
-		);
+		});
 		expect([...sessionDatums]).toEqual([
 			["case_id", { value: "h1", caseName: "Smith household" }],
 			["case_id_patient", { value: "p1", caseName: "Ada" }],
@@ -724,10 +688,8 @@ describe("carriedCaseFor", () => {
 
 	it("carries a nested target through its renamed selected-case datum", () => {
 		const doc = nestedPatientDoc();
-		const sessionDatums = sourceSessionDatums(doc, VISIT, {
-			caseId: "p1",
-			caseName: "Ada",
-			childCases: [],
+		const sessionDatums = submittedSession(doc, VISIT, {
+			bound: { caseId: "p1", caseName: "Ada" },
 		});
 		const automatic: FormLink = {
 			uuid: testUuid("nested-auto-link"),
@@ -769,28 +731,10 @@ describe("carriedCaseFor", () => {
 
 	it("carries the created child into a follow-up on the child's type", () => {
 		const doc = buildDoc(spec());
-		const submission = {
-			caseId: "h9",
-			childCases: [{ caseType: "patient", caseId: "p1", caseName: "Pat" }],
-		};
+		const child = minted(doc, "new-child-case:patient");
 		const input = inputFor(doc, {
-			sessionDatums: sourceSessionDatums(doc, REGISTER, submission),
-		});
-		expect(
-			carriedCaseFor(
-				input,
-				REGISTER,
-				linkNamed(doc, "frm-register", "lnk-visit"),
-			),
-		).toEqual({ kind: "carried", caseId: "p1", caseName: "Pat" });
-	});
-
-	it("carries a blank id when the matched datum was never valued", () => {
-		const doc = buildDoc(spec());
-		const input = inputFor(doc, {
-			sessionDatums: sourceSessionDatums(doc, REGISTER, {
-				caseId: "h9",
-				childCases: [],
+			sessionDatums: submittedSession(doc, REGISTER, {
+				savedNames: { [child]: "Pat" },
 			}),
 		});
 		expect(
@@ -799,16 +743,33 @@ describe("carriedCaseFor", () => {
 				REGISTER,
 				linkNamed(doc, "frm-register", "lnk-visit"),
 			),
-		).toEqual({ kind: "carried", caseId: "" });
+		).toEqual({ kind: "carried", caseId: child, caseName: "Pat" });
+	});
+
+	it("carries the child's session id even when the form saved no such case", () => {
+		// A `uuid()` datum is valued when the session reaches it, whatever the
+		// form then creates, so the link carries the id the session holds.
+		const doc = buildDoc(spec());
+		const input = inputFor(doc, {
+			sessionDatums: submittedSession(doc, REGISTER),
+		});
+		expect(
+			carriedCaseFor(
+				input,
+				REGISTER,
+				linkNamed(doc, "frm-register", "lnk-visit"),
+			),
+		).toEqual({
+			kind: "carried",
+			caseId: minted(doc, "new-child-case:patient"),
+		});
 	});
 
 	it("carries the loaded case from a follow-up into another form of its module", () => {
 		const doc = buildDoc(spec());
 		const input = inputFor(doc, {
-			sessionDatums: sourceSessionDatums(doc, UPDATE, {
-				caseId: "h1",
-				caseName: "Smith",
-				childCases: [],
+			sessionDatums: submittedSession(doc, UPDATE, {
+				bound: { caseId: "h1", caseName: "Smith" },
 			}),
 		});
 		expect(
@@ -822,16 +783,15 @@ describe("carriedCaseFor", () => {
 			uuid: testUuid("lnk-update"),
 			target: { type: "form", moduleUuid: HOUSEHOLDS, formUuid: UPDATE },
 		};
+		const household = minted(doc, "new-case");
 		const input = inputFor(doc, {
-			sessionDatums: sourceSessionDatums(doc, REGISTER, {
-				caseId: "h9",
-				caseName: "Smiths",
-				childCases: [],
+			sessionDatums: submittedSession(doc, REGISTER, {
+				savedNames: { [household]: "Smiths" },
 			}),
 		});
 		expect(carriedCaseFor(input, REGISTER, link)).toEqual({
 			kind: "carried",
-			caseId: "h9",
+			caseId: household,
 			caseName: "Smiths",
 		});
 	});
@@ -864,10 +824,7 @@ describe("carriedCaseFor", () => {
 	it("lets a manual datum read the source entry's own session datums", () => {
 		const doc = buildDoc(spec());
 		const input = inputFor(doc, {
-			sessionDatums: sourceSessionDatums(doc, REGISTER, {
-				caseId: "h9",
-				childCases: [{ caseType: "patient", caseId: "p1" }],
-			}),
+			sessionDatums: submittedSession(doc, REGISTER),
 		});
 		const link = linkNamed(doc, "frm-register", "lnk-visit");
 		const datum: FormLinkDatum = {
@@ -888,7 +845,9 @@ describe("carriedCaseFor", () => {
 			},
 			"instance('commcaresession')/session/data/case_id_new_patient_1",
 		);
-		expect(evaluateLinkDatum(datum, candidate, link.uuid)).toBe("p1");
+		expect(evaluateLinkDatum(datum, candidate, link.uuid)).toBe(
+			minted(doc, "new-child-case:patient"),
+		);
 	});
 
 	it("lets a manual datum aggregate named session values", () => {
@@ -958,13 +917,12 @@ describe("projectTargetCaseSelections", () => {
 
 	it("maps every automatic nested target selection to its owning module", () => {
 		const doc = nestedPatientDoc();
-		const submission = {
-			caseId: "h9",
-			caseName: "Smiths",
-			childCases: [{ caseType: "patient", caseId: "p1", caseName: "Pat" }],
-		};
+		const household = minted(doc, "new-case");
+		const patient = minted(doc, "new-child-case:patient");
 		const input = inputFor(doc, {
-			sessionDatums: sourceSessionDatums(doc, REGISTER, submission),
+			sessionDatums: submittedSession(doc, REGISTER, {
+				savedNames: { [household]: "Smiths", [patient]: "Pat" },
+			}),
 		});
 		const link: FormLink = {
 			uuid: testUuid("nested-created-cases-link"),
@@ -976,14 +934,14 @@ describe("projectTargetCaseSelections", () => {
 				datumId: "case_id",
 				moduleUuid: HOUSEHOLDS,
 				caseType: "household",
-				caseId: "h9",
+				caseId: household,
 				caseName: "Smiths",
 			},
 			{
 				datumId: "case_id_patient",
 				moduleUuid: PATIENTS,
 				caseType: "patient",
-				caseId: "p1",
+				caseId: patient,
 				caseName: "Pat",
 			},
 		]);

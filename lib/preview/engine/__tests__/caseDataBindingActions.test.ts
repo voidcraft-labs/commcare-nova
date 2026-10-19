@@ -862,6 +862,8 @@ describe("submitFormAction", () => {
 					caseType: "patient",
 					caseName: "Alice",
 					properties: { age: 30 },
+					// The cases the entry's session named, which take its minted ids.
+					entryCaseKey: "new-case",
 				},
 				children: [
 					{
@@ -869,6 +871,7 @@ describe("submitFormAction", () => {
 						caseName: "First visit",
 						properties: { notes: "checkup" },
 						parentRelationship: "child",
+						entryCaseKey: "new-child-case:visit",
 					},
 				],
 			},

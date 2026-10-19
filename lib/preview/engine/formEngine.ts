@@ -39,6 +39,7 @@ import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type {
 	BlueprintDoc,
 	CaseOptionsSource,
@@ -133,6 +134,7 @@ import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import {
 	type FormExpressionRuntime,
 	formExpressionRuntime,
+	formSessionBindings,
 } from "./formExpressionRuntime";
 import {
 	previewSessionValues,
@@ -406,6 +408,10 @@ export interface FormEngineRuntimeOptions {
 	 * `search-input:results:inline` instance holds them. Absent (every other
 	 * form, and a no-matches form previewed without a search) reads blank. */
 	readonly searchAnswers?: ReadonlyMap<string, string>;
+	/** The entry's session map, `session/data/<id>` → value
+	 *  (`entrySessionData.ts`). Absent, no datum is valued and each reads
+	 *  blank. */
+	readonly sessionData?: Readonly<Record<string, string>>;
 }
 
 interface RepeatInitializationSnapshot {
@@ -645,6 +651,8 @@ export class FormEngine {
 	private readonly presentationLanguage: LanguageTag | undefined;
 	/** `#search/<name>` reads; empty outside an admitted no-matches launch. */
 	private readonly searchAnswers: ReadonlyMap<string, string>;
+	/** `session/data/<id>` reads: the entry's session map. */
+	private readonly sessionData: Readonly<Record<string, string>>;
 	private readonly hasCaseSnapshot: boolean;
 	private readonly choiceCaseNodes = new Map<string, XPathNode>();
 	/** The zone a setvalue's cast reads calendars in: this realm's, the one
@@ -681,11 +689,13 @@ export class FormEngine {
 		);
 		this.caseData = caseData ?? new Map();
 		this.searchAnswers = runtimeOptions.searchAnswers ?? new Map();
+		this.sessionData = runtimeOptions.sessionData ?? {};
 		this.secondaryInstances = secondaryXPathInstances({
 			identity: this.previewIdentity,
 			lookupData: this.lookupData,
 			caseDatabase: caseDatabase ?? null,
 			caseTypes: input.caseTypes,
+			sessionData: this.sessionData,
 			searchAnswers: this.searchAnswers,
 		});
 		for (const node of this.secondaryInstances
@@ -1901,6 +1911,7 @@ export class FormEngine {
 	}
 
 	private expressionRuntime(): FormExpressionRuntime {
+		const session = formSessionBindings(this.printDoc, this.inputFormUuid);
 		return formExpressionRuntime(
 			this.printDoc,
 			this.inputFormUuid,
@@ -1908,17 +1919,30 @@ export class FormEngine {
 			{
 				searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID,
 				workerProperty: this.workerProperty,
-				formCaseProperty: (caseType, property) => {
-					const data = this.caseData.get(caseType);
-					const caseId = data?.get("case_id");
-					return caseId === undefined
-						? w.str(data?.get(property) ?? "")
-						: w.append(caseById(w.str(caseId), "casedb"), [
-								casePropertyStep(property),
-							]);
-				},
+				datumId: session.datumId,
+				formCaseProperty: this.formCaseProperty(session.formCaseProperty),
 			},
 		);
+	}
+
+	/**
+	 * A form's case read. Over a device snapshot it is the device's own read,
+	 * the casedb walk keyed on the entry's session datum. An engine built with
+	 * no device world holds only the preloaded rows, so it reads those.
+	 */
+	private formCaseProperty(
+		deviceRead: (caseType: string, property: string) => WireExpr,
+	): (caseType: string, property: string) => WireExpr {
+		if (this.hasCaseSnapshot) return deviceRead;
+		return (caseType, property) => {
+			const data = this.caseData.get(caseType);
+			const caseId = data?.get("case_id");
+			return caseId === undefined
+				? w.str(data?.get(property) ?? "")
+				: w.append(caseById(w.str(caseId), "casedb"), [
+						casePropertyStep(property),
+					]);
+		};
 	}
 
 	private expressionSource(
@@ -4166,7 +4190,11 @@ export class FormEngine {
 				instanceId === "commcaresession"
 					? {
 							kind: "supported",
-							value: sessionInstancePathValue(instancePath, session),
+							value: sessionInstancePathValue(
+								instancePath,
+								session,
+								this.sessionData,
+							),
 						}
 					: { kind: "unsupported" },
 			resolveHashtag: (ref: string) => {
@@ -4964,15 +4992,10 @@ export class FormEngine {
 							fieldReference(path),
 						]),
 					),
-					formCaseProperty: (caseType, property) => {
-						const data = this.caseData.get(caseType);
-						const caseId = data?.get("case_id");
-						return caseId === undefined
-							? w.str(data?.get(property) ?? "")
-							: w.append(caseById(w.str(caseId), "casedb"), [
-									casePropertyStep(property),
-								]);
-					},
+					formCaseProperty: this.formCaseProperty(
+						formSessionBindings(this.printDoc, this.inputFormUuid)
+							.formCaseProperty,
+					),
 					userPropertySlugs: previewUserPropertySlugMap(
 						previewSessionValues(this.previewIdentity),
 					),
@@ -5072,12 +5095,14 @@ export class FormEngine {
 		const session = previewSessionValues(this.previewIdentity);
 		return {
 			...base,
-			getValue: (p) => sessionInstancePathValue(p, session) ?? base.getValue(p),
+			getValue: (p) =>
+				sessionInstancePathValue(p, session, this.sessionData) ??
+				base.getValue(p),
 			resolveInstance: (instanceId, path) =>
 				instanceId === "commcaresession"
 					? {
 							kind: "supported",
-							value: sessionInstancePathValue(path, session),
+							value: sessionInstancePathValue(path, session, this.sessionData),
 						}
 					: (base.resolveInstance?.(instanceId, path) ?? {
 							kind: "unsupported",

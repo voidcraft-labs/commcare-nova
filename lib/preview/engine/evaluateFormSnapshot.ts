@@ -22,6 +22,7 @@ import type { XPathRuntimeError } from "../xpath/workerProtocol";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import { caseDatabaseToFormPreloads } from "./caseDataBindingClient";
 import { buildEngineInput } from "./engineInput";
+import { entrySessionData } from "./entrySessionData";
 import { evaluationAnswerValue } from "./formAnswerValue";
 import { FormEngine, type FormEngineAsyncEvaluator } from "./formEngine";
 import type {
@@ -132,6 +133,22 @@ export async function evaluateFormSnapshot(
 		ids.length === 1 && caseSelectionCardinality(module) === "single"
 			? caseDatabaseToFormPreloads(context.cases, ids[0], reachable)
 			: undefined;
+	/* The entry key comes first: the entry's session mints its created cases'
+	 * ids from it, and the engine reads them as `session/data`. */
+	const entryKey = context.entry?.entryKey ?? randomUUID();
+	const session = entrySessionData(doc, input.formUuid, {
+		appId: context.session?.appId,
+		entryKey,
+		boundCases: ids.map((caseId) => {
+			const caseName = context.cases.rows.find(
+				(row) => row.case_id === caseId,
+			)?.case_name;
+			return caseName === undefined ? { caseId } : { caseId, caseName };
+		}),
+		menuSelections: context.session?.menuSelections ?? {},
+		caseDatabase: context.cases,
+		identity: context.identity,
+	});
 	const engine = new FormEngine(
 		engineInput,
 		module.caseType,
@@ -141,6 +158,7 @@ export async function evaluateFormSnapshot(
 		context.cases,
 		{
 			stagedAsync: true,
+			sessionData: session.data,
 			...(context.entry && context.entry.language !== engineInput.language
 				? {
 						restoredEntry: {
@@ -160,7 +178,6 @@ export async function evaluateFormSnapshot(
 	const runtime = new XPathRuntime({
 		workerFactory: createInProcessXPathWorkerFactory(),
 	});
-	const entryKey = context.entry?.entryKey ?? randomUUID();
 	const world = engine.createWorkerWorld(entryKey);
 	const signal = AbortSignal.timeout(30_000);
 	const evaluate = (async (

@@ -45,6 +45,7 @@ vi.mock("@/lib/preview/hooks/useRestoreScopeKey", () => ({
 vi.mock("@/lib/session/hooks", () => ({
 	useAccessPhase: () => "authorized",
 	useAppId: () => "app-1",
+	usePreviewClaimedCaseIds: () => [],
 	usePreviewPersonaUuid: () => undefined,
 	useProjectScopeEpoch: () => 0,
 }));
