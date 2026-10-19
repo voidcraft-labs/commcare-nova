@@ -9,10 +9,12 @@
 // Never inspect or pattern-match `message` here. Checker prose is free
 // to improve without changing the editor's UX contract.
 
-import type {
-	CheckError,
-	CheckErrorCode,
-	CheckPath,
+import {
+	type CheckError,
+	type CheckErrorCode,
+	type CheckPath,
+	dayOnlyRefusalCopy,
+	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression";
 
 type DiagnosticPresenter = (
@@ -91,20 +93,13 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 			case "boolean":
 				return "Anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own";
 			case "day-only-on-device": {
-				const when =
-					error?.instant?.property === "last_modified"
-						? "last changed"
-						: error?.instant?.property === "date_opened"
-							? "opened"
-							: "opened or last changed";
-				return error?.instant?.comparison === "equality"
-					? `A device keeps only the day a case was ${when}, so it never matches a moment. You can compare it with a date, or check a range of days`
-					: `A device keeps only the day a case was ${when}. You can compare it with a date instead`;
+				const copy = dayOnlyRefusalCopy(error?.instant);
+				return `${copy.kept}. ${copy.next.slice(0, -1)}`;
 			}
 			case "clock-lost":
 				return "This value has kept only the day of a date and time. You can compare the date and time that first recorded it, or wrap both sides in date() to compare days";
 			case "unreadable-datetime":
-				return "CommCare can't read this date and time. You can write it like 2026-01-02T10:30:00Z";
+				return `CommCare can't read this date and time. ${UNREADABLE_DATETIME_NEXT.slice(0, -1)}`;
 			case "datetime-equality":
 				return "A date and time never matches something that isn't one. You can compare it with another date and time, or check whether it's blank";
 			default:

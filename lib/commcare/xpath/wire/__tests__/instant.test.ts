@@ -28,18 +28,22 @@ import {
 	switchExpr,
 	term,
 } from "@/lib/domain/expression/builders";
+import { literalInstantMicros } from "@/lib/domain/expression/instantOperand";
 import type { Expression } from "@/lib/domain/expression/types";
 import { w } from "../builders";
 import {
-	foldInstant,
 	instantCanonicalText,
 	instantMicros,
-	instantMicrosOperand,
 	typedInstantText,
 } from "../instant";
 import { serializeWire } from "../serialize";
 import type { WireExpr } from "../tree";
 import { instantFixture } from "./instantFixture";
+import {
+	instantMicrosOperand,
+	parsedLiteralTexts,
+	wireNodes,
+} from "./instantParse";
 
 /** Part 04 §3.1's parse with the lookup spellings widened: `Zz+-` marks an
  * offset, and the offset's minutes are its last two characters. */
@@ -47,21 +51,6 @@ const parse = (T: string) =>
 	`((floor((number(substr(${T}, 0, 4)) - (number(substr(${T}, 5, 7)) <= 2)) div 400) * 146097 + ((number(substr(${T}, 0, 4)) - (number(substr(${T}, 5, 7)) <= 2) - floor((number(substr(${T}, 0, 4)) - (number(substr(${T}, 5, 7)) <= 2)) div 400) * 400) * 365 + floor((number(substr(${T}, 0, 4)) - (number(substr(${T}, 5, 7)) <= 2) - floor((number(substr(${T}, 0, 4)) - (number(substr(${T}, 5, 7)) <= 2)) div 400) * 400) div 4) - floor((number(substr(${T}, 0, 4)) - (number(substr(${T}, 5, 7)) <= 2) - floor((number(substr(${T}, 0, 4)) - (number(substr(${T}, 5, 7)) <= 2)) div 400) * 400) div 100) + (floor((153 * ((number(substr(${T}, 5, 7)) + 9) mod 12) + 2) div 5) + number(substr(${T}, 8, 10)) - 1)) - 719468) * 86400 + number(substr(${T}, 11, 13)) * 3600 + number(substr(${T}, 14, 16)) * 60 + number(substr(${T}, 17, 19)) - if(if(contains(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), substring-after(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), '') = '', 0, if(contains(substr(${T}, 19), '-'), -1, 1) * (number(substr(if(contains(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), substring-after(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), ''), 0, 2)) * 3600 + if(string-length(if(contains(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), substring-after(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), '')) > 2, number(substr(if(contains(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), substring-after(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), ''), string-length(if(contains(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), substring-after(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), '')) - 2)) * 60, 0)))) * 1000000 + if(starts-with(substr(${T}, 19), '.'), round(number(concat('0', substring-before(concat(translate(substr(${T}, 19), 'Zz+-', '||||'), '|'), '|'))) * 1000000), 0)`;
 
 /** Every wire node of a tree, depth first. */
-function nodes(wire: WireExpr): WireExpr[] {
-	const found: WireExpr[] = [];
-	const visit = (value: unknown): void => {
-		if (typeof value !== "object" || value === null) return;
-		if (Array.isArray(value)) {
-			for (const item of value) visit(item);
-			return;
-		}
-		if ("k" in value) found.push(value as WireExpr);
-		for (const child of Object.values(value)) visit(child);
-	};
-	visit(wire);
-	return found;
-}
-
 /** The two instant texts of a lowered comparison. */
 function loweredTexts(wire: WireExpr): readonly [WireExpr, WireExpr] {
 	if (wire.k !== "cmp") throw new Error("Expected a comparison.");
@@ -101,13 +90,17 @@ describe("folding a literal", () => {
 				spelled.set(pair.left.id, pair.left);
 		expect(spelled.size).toBe(instantSpellings.length);
 		for (const { value, instant } of spelled.values())
-			expect(foldInstant(value), value).toBe(tableMicros(instant));
+			expect(literalInstantMicros(value), value).toBe(tableMicros(instant));
 	});
 
 	it("names the planned integers", () => {
-		expect(foldInstant("2026-01-01T00:00:00Z")).toBe(1767225600000000);
-		expect(foldInstant("2026-01-02T10:00:00.000+05:30")).toBe(1767328200000000);
-		expect(foldInstant("2026-01-02T04:30:00.000000Z")).toBe(1767328200000000);
+		expect(literalInstantMicros("2026-01-01T00:00:00Z")).toBe(1767225600000000);
+		expect(literalInstantMicros("2026-01-02T10:00:00.000+05:30")).toBe(
+			1767328200000000,
+		);
+		expect(literalInstantMicros("2026-01-02T04:30:00.000000Z")).toBe(
+			1767328200000000,
+		);
 	});
 
 	it("reads minutes, dates, lowercase marks, a space and every offset shape", () => {
@@ -126,7 +119,7 @@ describe("folding a literal", () => {
 			["2024-02-29T00:00:00Z", Date.UTC(2024, 1, 29) * 1000],
 			["9999-12-31T23:59:59Z", Date.UTC(9999, 11, 31, 23, 59, 59) * 1000],
 		] as const)
-			expect(foldInstant(text), text).toBe(micros);
+			expect(literalInstantMicros(text), text).toBe(micros);
 	});
 
 	it("names no moment for text no instant spelling reads", () => {
@@ -141,7 +134,25 @@ describe("folding a literal", () => {
 			"2026-01-02T04:30:00Zjunk",
 			" 2026-01-02T04:30:00Z",
 		])
-			expect(foldInstant(text), text).toBeUndefined();
+			expect(literalInstantMicros(text), text).toBeUndefined();
+	});
+
+	it("names no moment outside the years a device's text spells", () => {
+		// Core reads a four-digit year (`DateUtils.parseDateTime`).
+		const yearZero = new Date(Date.UTC(2000, 0, 1));
+		yearZero.setUTCFullYear(0);
+		expect(literalInstantMicros("0000-01-01T00:00:00Z")).toBe(
+			yearZero.getTime() * 1000,
+		);
+		expect(literalInstantMicros("0000-01-01")).toBe(yearZero.getTime() * 1000);
+		expect(literalInstantMicros("9999-12-31T23:59:59.999Z")).toBe(
+			Date.UTC(9999, 11, 31, 23, 59, 59, 999) * 1000,
+		);
+		for (const text of [
+			"9999-12-31T23:00:00-05:00",
+			"0000-01-01T00:30:00+01:00",
+		])
+			expect(literalInstantMicros(text), text).toBeUndefined();
 	});
 
 	it("spells a folded moment as text the parse reads back", () => {
@@ -185,7 +196,7 @@ describe("each operand takes the instant text of how its device holds it", () =>
 	it("never takes date() of now() or of a typed answer", () => {
 		const wire = fx.lowerForm(lt(now(), fx.field("dt")));
 		expect(
-			nodes(wire).filter((node) => node.k === "call" && node.fn === "date"),
+			wireNodes(wire).filter((node) => node.k === "call" && node.fn === "date"),
 		).toEqual([]);
 	});
 
@@ -223,7 +234,7 @@ describe("each operand takes the instant text of how its device holds it", () =>
 			expect(left).toEqual(value(fx.field("u")));
 			expect(right).toEqual(typedInstantText(w.call("now")));
 		}
-		const member = nodes(
+		const member = wireNodes(
 			fx.lowerForm(
 				isIn(fx.field("u"), datetimeLiteral("2026-01-02T04:30:00Z")),
 			),
@@ -325,7 +336,7 @@ describe("each operand takes the instant text of how its device holds it", () =>
 		expect(first).toEqual(
 			w.eq(
 				instantMicros(fx.lowerRecord(seen)),
-				w.num(foldInstant(a) ?? Number.NaN),
+				w.num(literalInstantMicros(a) ?? Number.NaN),
 			),
 		);
 		expect(second.left).toBe(first.left);
@@ -345,7 +356,7 @@ describe("each operand takes the instant text of how its device holds it", () =>
 			),
 		);
 		expect(upper.left).toBe(lower.left);
-		expect(upper.right).toEqual(w.num(foldInstant(b) ?? Number.NaN));
+		expect(upper.right).toEqual(w.num(literalInstantMicros(b) ?? Number.NaN));
 
 		expect(
 			fx.lowerRecord(
@@ -359,7 +370,7 @@ describe("each operand takes the instant text of how its device holds it", () =>
 			w.call("if", [
 				w.eq(
 					instantMicros(fx.lowerRecord(seen)),
-					w.num(foldInstant(a) ?? Number.NaN),
+					w.num(literalInstantMicros(a) ?? Number.NaN),
 				),
 				w.str("x"),
 				w.str("y"),
@@ -422,6 +433,43 @@ describe("each operand takes the instant text of how its device holds it", () =>
 			]),
 		);
 	});
+
+	it("keeps date() for a coerced value that names no moment", () => {
+		for (const value of [literal(""), literal(true)])
+			expect(fx.lowerRecord(datetimeCoerce(term(value)))).toEqual(
+				w.call("date", [fx.lowerRecord(term(value))]),
+			);
+	});
+
+	it("folds a form literal branch its comparison types as a date and time", () => {
+		const n1 = eq(fx.field("n"), term(literal(1)));
+		expect(
+			parsedLiteralTexts(
+				fx.lowerForm(
+					lt(
+						fx.field("dt"),
+						ifExpr(n1, term(literal("2026-01-02T10:00+05:30")), now()),
+					),
+				),
+			),
+		).toEqual(["2026-01-02T04:30:00.000Z"]);
+		expect(
+			parsedLiteralTexts(
+				fx.lowerForm(
+					gt(
+						coalesce(fx.field("dt"), term(literal("2030-01-01T09:00"))),
+						now(),
+					),
+				),
+			),
+		).toEqual(["2030-01-01T09:00:00.000Z"]);
+		// A literal no comparison could read as a moment is no instant text.
+		expect(() =>
+			fx.lowerForm(
+				lt(fx.field("dt"), ifExpr(n1, term(literal("nope")), now())),
+			),
+		).toThrow(/literal of another kind \('nope'\)/);
+	});
 });
 
 describe("CSQL text holds no device lowering", () => {
@@ -436,7 +484,7 @@ describe("CSQL text holds no device lowering", () => {
 		]) {
 			const { wrapper } = emitCsql(predicate, ctx);
 			expect(
-				nodes(wrapper).filter(
+				wireNodes(wrapper).filter(
 					(node) => instantMicrosOperand(node) !== undefined,
 				),
 			).toEqual([]);

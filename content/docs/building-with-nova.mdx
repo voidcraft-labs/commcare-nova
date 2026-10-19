@@ -333,11 +333,16 @@ question, `date()` gives the day on the worker's device, and for a date and
 time saved as text, it keeps the day the text was written with. Checking
 whether a date and time is blank, with `= ''`, still asks only whether it is
 blank, and two blank dates and times aren't equal to each other, since neither
-names a moment.
+names a moment. A date and time no device can read as a moment, such as
+`2026-02-30T10:00` or one past the year 9999, is refused wherever a device
+would compare it or turn it into a date and time. Text that names no moment,
+such as `'soon'`, can't stand in for one either, for example as one branch of
+an `if()` compared with a date and time.
 
 On a device, a case's opened date and last-changed date hold only the day, so
-Nova refuses comparing them with a moment such as `now()`. You can compare
-their day instead, for example `date(#household/date_opened) = today()`. In the
+Nova refuses comparing them with a moment such as `now()`. You can wrap both
+sides in `date()` to compare days instead, for example
+`date(#household/date_opened) = date(now())`. In the
 same way, a hidden value that copies the current time or a date-and-time
 answer without saving it to a date-and-time case property keeps only the day
 on a device, so Nova refuses comparing it with a moment too. You can compare

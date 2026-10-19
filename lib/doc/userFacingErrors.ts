@@ -59,6 +59,10 @@ import {
 	entryPointIdProblemSentence,
 } from "@/lib/domain/entryPoints";
 import {
+	dayOnlyRefusalCopy,
+	UNREADABLE_DATETIME_NEXT,
+} from "@/lib/domain/expression/typeChecker";
+import {
 	type CaseOperationNameProblem,
 	caseOperationNameSentence,
 	type QuestionIdProblem,
@@ -314,13 +318,16 @@ const formulaSubject = (e: ValidationError): string =>
 			: `A formula in ${q(formName(e))}`
 		: `A formula on ${q(fieldName(e))} in ${q(formName(e))}`;
 
-/** When a casedb system date names its case: `opened` or `last changed`. */
-const systemDateWhen = (e: ValidationError): string =>
-	e.details?.systemDate === "last_modified"
-		? "last changed"
-		: e.details?.systemDate === "date_opened"
-			? "opened"
-			: "opened or last changed";
+/** A finding's day-only refusal sentences (`typeChecker.ts::dayOnlyRefusalCopy`),
+ * from the comparison and system date its details name. */
+const dayOnlyCopy = (e: ValidationError) =>
+	dayOnlyRefusalCopy({
+		comparison: e.details?.comparison === "equality" ? "equality" : "ordering",
+		...(e.details?.systemDate === "date_opened" ||
+		e.details?.systemDate === "last_modified"
+			? { property: e.details.systemDate }
+			: {}),
+	});
 
 /** A record slot's sentence for a comparison a device can't run between two
  * moments (`typeChecker.ts::checkInstantComparison`), or undefined for any
@@ -333,10 +340,8 @@ const instantComparisonCopy = (
 	if (e.details?.checkCode !== "incompatible-values") return undefined;
 	switch (e.details.checkReason ?? e.details.reason) {
 		case "day-only-on-device": {
-			const when = systemDateWhen(e);
-			return e.details?.comparison === "equality"
-				? `${subject} checks whether a case was ${when} at an exact moment. On a device CommCare keeps only the day a case was ${when}, so the two never match. You can compare it with a date, or check a range of days.`
-				: `${subject} compares when a case was ${when} with a moment. On a device CommCare keeps only the day a case was ${when}, so it can't tell. You can compare it with a date instead.`;
+			const copy = dayOnlyCopy(e);
+			return `${subject} ${copy.asks}. ${copy.kept}${copy.consequence} ${copy.next}`;
 		}
 		case "clock-lost":
 			return `${subject} compares ${e.details?.clockSource === undefined ? "a value" : q(e.details.clockSource)}, which has kept only the day of a date and time, with a moment, so the two can't line up. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.`;
@@ -1207,15 +1212,13 @@ const USER_MESSAGE_BY_CODE: Record<
 			case "boolean":
 				return `${formulaSubject(e)} compares a true-or-false result with another kind of value, and anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.`;
 			case "day-only-on-device": {
-				const when = systemDateWhen(e);
-				return e.details?.comparison === "equality"
-					? `${formulaSubject(e)} checks whether the case was ${when} at an exact moment, and a device keeps only the day. You can compare it with a date, or check a range of days.`
-					: `${formulaSubject(e)} compares when the case was ${when} with a moment, and a device keeps only the day. You can compare it with a date instead.`;
+				const copy = dayOnlyCopy(e);
+				return `${formulaSubject(e)} ${copy.asks}. ${copy.kept}${copy.consequence} ${copy.next}`;
 			}
 			case "clock-lost":
 				return `${formulaSubject(e)} compares ${e.details?.clockSource === undefined ? "a value" : q(e.details.clockSource)}, which has kept only the day of a date and time, with a moment. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.`;
 			case "unreadable-datetime":
-				return `${formulaSubject(e)} compares a moment with a date and time CommCare can't read. You can write it like 2026-01-02T10:30:00Z.`;
+				return `${formulaSubject(e)} uses a date and time CommCare can't read. ${UNREADABLE_DATETIME_NEXT}`;
 			case "datetime-equality":
 				return `${formulaSubject(e)} compares a date and time with something that isn't one, so the two never match. You can compare it with another date and time, or check whether it's blank.`;
 			default:

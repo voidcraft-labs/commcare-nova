@@ -1809,7 +1809,7 @@ describe("case-operation links and on-device totality", () => {
 		);
 	});
 
-	it("names a condition that compares when a case was opened with a moment", () => {
+	it("names a condition that compares when the case was opened with a moment", () => {
 		const finding = errorsFor([
 			update({
 				condition: lt(term(prop("patient", "date_opened")), now()),
@@ -1827,7 +1827,7 @@ describe("case-operation links and on-device totality", () => {
 		expect(finding?.details?.reason).toBeUndefined();
 		if (finding === undefined) throw new Error("Expected the finding.");
 		expect(userFacingError(finding)).toBe(
-			"This case operation compares when a case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can't tell. You can compare it with a date instead.",
+			"This case operation compares when the case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can't tell. You can wrap both sides in date() to compare days.",
 		);
 	});
 

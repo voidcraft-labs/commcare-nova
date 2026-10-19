@@ -929,7 +929,11 @@ date-and-time text as itself; a typed instant as
 still falls through); coerced text as itself, or its UTC midnight when it is a
 date; a coerced day number as `x * 86400000000` with no parse; and a literal
 folded to its integer at emission (a literal inside a branch prints as
-canonical `…Z` text, since one parse reads whichever branch is chosen).
+canonical `…Z` text, since one parse reads whichever branch is chosen; a form
+string literal branch is typed by its comparison as a direct one is). A
+literal names no moment outside the years 0000 to 9999, since a device's text
+has a four-digit year, so the checker refuses it and the canonical text never
+meets one.
 `now()` is not hoisted, because a generated node would read the clock at
 another moment. A value of unknown type compared with a moment takes the row
 of what it holds, text or a typed date, under an equality as under an
@@ -948,7 +952,10 @@ the moment as text: a date as its UTC midnight `…T00:00:00.000Z` under a blank
 guard, text as itself, a typed instant as `instant.ts::typedInstantValue`
 (the same spelling `xform/datetimeCaseValue.ts::datetimeCaseValueExpression`
 writes), a day number as its UTC midnight. A value with no moment to print, a
-`casedb` system date or a clock-lost value, keeps Core's `date()`, a day.
+`casedb` system date, a clock-lost value or a value that names no moment
+(blank, a yes/no), keeps Core's `date()`, a day, the bytes it had before; a
+literal that names no moment is refused there by the checker
+(`unreadable-datetime`), in every slot whose expressions reach `toWire`.
 `date-coerce` is unchanged,
 `date(x)`. On a device `date_opened` and `last_modified` from `casedb` are
 days (`CaseChildElement` holds them as `DateData`): ordered against a
@@ -958,7 +965,13 @@ them ordered against any other date and time, or under `=` / `!=` against any
 date and time, day-aligned included. A value whose clock may be lost has no
 instant text either and is refused the same way (`clock-lost`). The emitter
 throws an invariant on any leaf the checker refuses rather than print a
-comparison that answers wrongly. `InstantOrderingRuntimeTest` holds the
+comparison that answers wrongly. In a server search condition the checker
+holds the same rules over exactly the values a device works out before the
+search runs, the runtime segments, by the walk the CSQL emitter picks them by
+(`lib/domain/expression/searchRuntimeValues.ts`). `instantAgreement.test.ts`
+holds the checker and the print together over every leaf class, literal
+branches, a `datetime-coerce` printed as a value, extreme years and a Search
+field's runtime value. `InstantOrderingRuntimeTest` holds the
 lowering in every zone of the `expression` native family, and
 `lib/preview/xpath/__tests__/instantLowering.test.ts` holds Preview's
 evaluation of the same text per zone.

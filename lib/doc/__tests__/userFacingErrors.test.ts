@@ -676,7 +676,7 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 				comparison: "ordering",
 				systemDate: "date_opened",
 			},
-			'A formula on "visit_check" in "Register Client" compares when the case was opened with a moment, and a device keeps only the day. You can compare it with a date instead.',
+			'A formula on "visit_check" in "Register Client" compares when the case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can\'t tell. You can wrap both sides in date() to compare days.',
 		],
 		[
 			"XPATH_INCOMPATIBLE_VALUES",
@@ -685,7 +685,7 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 				comparison: "equality",
 				systemDate: "last_modified",
 			},
-			'A formula on "visit_check" in "Register Client" checks whether the case was last changed at an exact moment, and a device keeps only the day. You can compare it with a date, or check a range of days.',
+			'A formula on "visit_check" in "Register Client" checks whether the case was last changed at an exact moment. On a device CommCare keeps only the day a case was last changed, so the two never match. You can wrap both sides in date() to compare days.',
 		],
 		[
 			"XPATH_INCOMPATIBLE_VALUES",
@@ -700,7 +700,7 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		[
 			"XPATH_INCOMPATIBLE_VALUES",
 			{ reason: "unreadable-datetime" },
-			'A formula on "visit_check" in "Register Client" compares a moment with a date and time CommCare can\'t read. You can write it like 2026-01-02T10:30:00Z.',
+			'A formula on "visit_check" in "Register Client" uses a date and time CommCare can\'t read. You can write it like 2026-01-02T10:30:00Z.',
 		],
 		[
 			"XPATH_INCOMPATIBLE_VALUES",
@@ -715,7 +715,7 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 				comparison: "equality",
 				systemDate: "date_opened",
 			},
-			'The Cases available setting in "Clients" checks whether a case was opened at an exact moment. On a device CommCare keeps only the day a case was opened, so the two never match. You can compare it with a date, or check a range of days.',
+			'The Cases available setting in "Clients" checks whether the case was opened at an exact moment. On a device CommCare keeps only the day a case was opened, so the two never match. You can wrap both sides in date() to compare days.',
 		],
 		[
 			"CASE_LIST_FILTER_TYPE_ERROR",
@@ -723,7 +723,7 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 				checkCode: "incompatible-values",
 				checkReason: "day-only-on-device",
 			},
-			'The Cases available setting in "Clients" compares when a case was opened or last changed with a moment. On a device CommCare keeps only the day a case was opened or last changed, so it can\'t tell. You can compare it with a date instead.',
+			'The Cases available setting in "Clients" compares when the case was opened or last changed with a moment. On a device CommCare keeps only the day a case was opened or last changed, so it can\'t tell. You can wrap both sides in date() to compare days.',
 		],
 		[
 			"CASE_LIST_FILTER_TYPE_ERROR",
@@ -757,7 +757,7 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 				comparison: "ordering",
 				systemDate: "last_modified",
 			},
-			'The display condition for "Clients" compares when a case was last changed with a moment. On a device CommCare keeps only the day a case was last changed, so it can\'t tell. You can compare it with a date instead.',
+			'The display condition for "Clients" compares when the case was last changed with a moment. On a device CommCare keeps only the day a case was last changed, so it can\'t tell. You can wrap both sides in date() to compare days.',
 		],
 		[
 			"XPATH_INCOMPATIBLE_VALUES",

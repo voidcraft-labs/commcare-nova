@@ -701,9 +701,9 @@ properties. Forms and Results or Details columns read the two dates at
 calendar-day precision, matching CommCare devices. Stored timestamps and server
 search retain their time. Because a device keeps only the day, Nova refuses a
 formula or filter that runs on a device and compares either date with a moment
-such as `now()`, or checks it for an exact date and time. You can compare it
-with a date turned into a date and time instead, which compares the days. A
-clock format cannot recover time from these built-in
+such as `now()`, or checks it for an exact date and time. You can wrap both
+sides in `date()` to compare days instead. A clock format cannot recover time
+from these built-in
 column values. An event whose time of day workers need to see can use its own
 saved datetime property.
 

@@ -140,50 +140,9 @@ export function instantMicros(t: WireExpr): WireExpr {
 	return w.add(w.mul(seconds, w.num(1_000_000)), fraction);
 }
 
-/** The operand `instantMicros` reads, when `wire` is that parse. */
-export function instantMicrosOperand(wire: WireExpr): WireExpr | undefined {
-	if (wire.k !== "arith" || wire.op !== "+") return undefined;
-	const fraction = wire.right;
-	if (fraction.k !== "call" || fraction.fn !== "if") return undefined;
-	const test = fraction.args[0];
-	if (test?.k !== "call" || test.fn !== "starts-with") return undefined;
-	const tail = test.args[0];
-	if (tail?.k !== "call" || tail.fn !== "substr") return undefined;
-	const operand = tail.args[0];
-	return operand !== undefined && sameWire(wire, instantMicros(operand))
-		? operand
-		: undefined;
-}
-
-function sameWire(a: unknown, b: unknown): boolean {
-	if (a === b) return true;
-	if (
-		typeof a !== "object" ||
-		typeof b !== "object" ||
-		a === null ||
-		b === null
-	)
-		return false;
-	if (Array.isArray(a) !== Array.isArray(b)) return false;
-	const keys = Object.keys(a);
-	if (keys.length !== Object.keys(b).length) return false;
-	return keys.every((key) =>
-		sameWire(
-			(a as Record<string, unknown>)[key],
-			(b as Record<string, unknown>)[key],
-		),
-	);
-}
-
-/** A literal's moment in integer microseconds, or undefined when it names
- * none (`instantOperand.ts::literalInstantMicros`, the grammar the checker
- * refuses by). */
-export function foldInstant(text: string): number | undefined {
-	return literalInstantMicros(text);
-}
-
 /** The text of a moment the parse reads back to the same microseconds:
- * `YYYY-MM-DDTHH:MM:SS` and `.mmm` or `.mmmmmm`, then `Z`. */
+ * `YYYY-MM-DDTHH:MM:SS` and `.mmm` or `.mmmmmm`, then `Z`. Every moment a
+ * literal names lies in the years 0000 to 9999 (`literalInstantMicros`). */
 export function instantCanonicalText(micros: number): string {
 	const seconds = Math.floor(micros / 1_000_000);
 	const fraction = micros - seconds * 1_000_000;
@@ -197,10 +156,10 @@ export function instantCanonicalText(micros: number): string {
 }
 
 function folded(leaf: Extract<InstantLeaf, { class: "literal-instant" }>) {
-	const micros = foldInstant(leaf.literal.value);
+	const micros = literalInstantMicros(leaf.literal.value);
 	if (micros === undefined)
 		throw new Error(
-			`The date-and-time value '${leaf.literal.value}' names no moment, so it cannot be compared as one. The checker should refuse it before emission.`,
+			`The date-and-time value '${leaf.literal.value}' names no moment, so no device text spells it. The checker should refuse it (unreadable-datetime) before emission.`,
 		);
 	return micros;
 }
@@ -259,6 +218,12 @@ export interface InstantEmission {
 	): readonly WireExpr[];
 }
 
+function directLiteralValue(expression: Expression) {
+	return expression.kind === "term" && expression.term.kind === "literal"
+		? expression.term.value
+		: undefined;
+}
+
 function refuseUnlowerable(operand: InstantOperand): void {
 	const [leaf] = unlowerableLeaves(operand);
 	if (leaf === undefined) return;
@@ -268,9 +233,11 @@ function refuseUnlowerable(operand: InstantOperand): void {
 			: leaf.class === "clock-lost"
 				? "A date and time whose clock may be lost reached an instant comparison. The checker should refuse it (clock-lost) before emission."
 				: leaf.class === "literal-instant"
-					? `The date-and-time value '${leaf.literal.value}' names no moment, so it cannot be compared as one. The checker should refuse it before emission.`
+					? `The date-and-time value '${leaf.literal.value}' names no moment, so no device text spells it. The checker should refuse it (unreadable-datetime) before emission.`
 					: leaf.class === "not-instant"
-						? "A date reached an instant comparison with a date and time. The checker should refuse it (date-datetime) before emission."
+						? leaf.data === "date"
+							? "A date reached an instant comparison with a date and time. The checker should refuse it (date-datetime) before emission."
+							: `A literal of another kind ('${String(directLiteralValue(leaf.value))}') reached an instant comparison, where it would read as no moment. The checker should refuse it (datetime-ordering or datetime-equality) before emission.`
 						: "A value of unknown type whose node holds neither text nor a typed date reached an instant comparison, so it has no instant text.",
 	);
 }
@@ -356,15 +323,6 @@ function operandText(
 	}
 }
 
-/** The instant text `T` of an operand, each branch in its own row. */
-export function instantText(
-	operand: InstantOperand,
-	emit: InstantEmission,
-): WireExpr {
-	refuseUnlowerable(operand);
-	return operandText(operand, emit, false);
-}
-
 /** One side of a lowered comparison: a folded literal, a day number scaled,
  * a value that names no moment as itself, or the parse of its instant text. */
 export function instantOperandWire(
@@ -393,8 +351,8 @@ export function instantOperandWire(
  * `format-date` operand): the moment as text. A date is its UTC midnight
  * under a blank guard, date-and-time text itself, a typed date and time in
  * `datetimeCaseValueExpression`'s shape, a day number its UTC midnight. A
- * casedb system date or a clock-lost value has no moment to print; it keeps
- * Core's `date()`, a day.
+ * casedb system date, a clock-lost value or a value that names no moment has
+ * no moment to print; it keeps Core's `date()`, a day.
  */
 export function datetimeCoerceValue(
 	operand: InstantOperand,
@@ -455,14 +413,13 @@ export function datetimeCoerceValue(
 			const value = emit.value(operand.value);
 			return blankGuard(value, epochDayMidnight(value, "T00:00:00.000Z"));
 		}
-		case "not-instant":
-			return emit.value(operand.value);
 		case "unknown":
 			return operand.held === "date"
 				? typedInstantValue(emit.value(operand.value))
 				: operand.held === "string"
 					? emit.value(operand.value)
 					: w.call("date", [emit.value(operand.value)]);
+		case "not-instant":
 		case "day-only":
 		case "clock-lost":
 			return w.call("date", [emit.value(operand.value)]);

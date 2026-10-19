@@ -139,6 +139,10 @@ export interface ExpressionContext {
 	readonly lookupTables: LookupTypeIndex;
 	readonly supplies: EntryDatumSupplies;
 	readonly targetSupplies?: EntryDatumSupplies;
+	/** A value of a server search condition that a device works out before
+	 * the search runs (`searchRuntimeValues.ts`): the slot names no device
+	 * target, yet Core evaluates this expression. */
+	readonly runsOnDevice?: true;
 }
 export type RecordQueryRowScope =
 	| { readonly kind: "case"; readonly caseType?: string }

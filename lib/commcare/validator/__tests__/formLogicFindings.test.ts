@@ -361,10 +361,10 @@ describe("comparisons a device can't run between two moments", () => {
 				"compares when the case was opened with a moment",
 			);
 			expect(refused[0]?.message).toContain(
-				"On a device CommCare keeps only the day a case was opened, so it can't tell. You can compare it with a date instead.",
+				"On a device CommCare keeps only the day a case was opened, so it can't tell. You can wrap both sides in date() to compare days.",
 			);
 			expect(userFacingError(refused[0])).toContain(
-				"compares when the case was opened with a moment, and a device keeps only the day. You can compare it with a date instead.",
+				"compares when the case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can't tell. You can wrap both sides in date() to compare days.",
 			);
 			expect(
 				atCarrier(carrier, {
@@ -396,7 +396,7 @@ describe("comparisons a device can't run between two moments", () => {
 			}),
 		]);
 		expect(refused[0]?.message).toBe(
-			'"text" checks whether the case was last changed at an exact moment in its display condition. On a device CommCare keeps only the day a case was last changed, so the two never match. You can compare it with a date, or check a range of days.',
+			'"text" checks whether the case was last changed at an exact moment in its display condition. On a device CommCare keeps only the day a case was last changed, so the two never match. You can wrap both sides in date() to compare days.',
 		);
 	});
 

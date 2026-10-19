@@ -868,6 +868,49 @@ Closed in the same pull request (**implementation correction, 2026-10-19**):
 - `lib/commcare/xpath/wire/__tests__/instantAgreement.test.ts` holds the checker and `toWire` to
   one verdict over every leaf class, operator and slot kind (part 04 §6's correction).
 
+**Implementation correction, 2026-10-19: five gaps between the checker and the print, closed.**
+Review found five places where the checker admitted what `toWire` could not print as a moment, or
+printed wrongly, each now closed at its root and held by `instantAgreement.test.ts`, which also
+asserts that every literal an instant parse can read is printed as canonical text:
+
+- **A. Extreme years.** `literalInstantMicros`, the one grammar, names no moment for a literal
+  whose UTC moment falls outside 0000-01-01T00:00:00Z to the last microsecond of 9999, since a
+  device's text has a four-digit year (`DateUtils.parseDateTime`): `9999-12-31T23:00:00-05:00` is
+  `unreadable-datetime` everywhere it is compared or coerced, and `instantCanonicalText` never meets
+  one.
+- **B. Literal branches.** A form literal branch of an `if`, `coalesce` or `switch` is typed as a
+  direct literal of its comparison (`typeChecker.ts::formLiteralsShaped`, which
+  `formComparisonOperandTypes` and `comparisonOperands` share), so `#form/dt < if(c,
+  '2026-01-02T10:00Z', now())` folds the branch to its canonical text, and a date-shaped branch
+  (`date-datetime`), an unreadable one (`unreadable-datetime`), one finer than a millisecond
+  (`datetime-literal-precision`) and a non-blank literal of another kind (`'nope'`:
+  `datetime-ordering`, or `datetime-equality` under `=` / `!=`) are refused as a direct operand is;
+  a blank literal names no moment and is admitted. `instantOperand.ts::unlowerableLeaves` holds the
+  other-kind literal, so the emitter throws on one rather than printing it into the parse.
+- **C. `datetime-coerce` as a value.** Wherever `toWire` prints the expression, a `datetime-coerce`
+  of a literal that names no moment (`is-blank(datetime-coerce('2026-02-30'))`) is
+  `unreadable-datetime`, at the coercion's `value`; before, only a comparison refused one.
+- **D. A Search field's condition.** Its slot names `CS` and `PG` only, yet each value its server
+  comparison does not work out itself is printed by `toWire({ target: "csql-runtime" })`. The walk
+  that picks those values is now one, `lib/domain/expression/searchRuntimeValues.ts` (the
+  emitter's `isNativeCsqlValueExpression` and `csqlRuntimeWalk.ts` read it), and
+  `checkExpression` infers each such value again with `ExpressionContext.runsOnDevice`, adding the
+  findings that adds, so `note = if(seen < datetime '2026-02-30T10:00:00', 'a', 'b')` is
+  `unreadable-datetime` at `["right", "if", "cond"]` while the server's own `seen < …` stays
+  admitted.
+- **E. The day-only next step.** "You can compare it with a date instead" suggested a rewrite the
+  checker refuses (`date-datetime`), and the equality's a refused day-aligned one. Every surface now
+  assembles `typeChecker.ts::dayOnlyRefusalCopy` around its subject, with one next step the checker
+  admits, "You can wrap both sides in date() to compare days."; `systemDateWhen` replaces the four
+  copies of "opened" / "last changed", and every surface says "the case". `unreadable-datetime`
+  reads "uses a date and time CommCare can't read", true of a comparison and of a coercion.
+
+`checkFormComparison` takes its finding count before its operands are read, as `checkComparison`
+does; each comparison's inference has its own accumulator, so no sibling's finding reached it
+before either. Corpus: the head emission is byte-identical to the previous head (388 documents,
+14,083 files, only `timings.json` differs), and the base corpus's 732 documents validate with no
+finding.
+
 Left open: the classifier reads the held class, not the row's root, and the standard-property
 fallback in `typeChecker.ts` (no known case type) holds a system date as `date` whatever the root,
 so a results-row `last_modified` would be read as day-only; pull request 9 fixes the fallback by

@@ -658,6 +658,15 @@ held `date`), `clock-lost`, `not-instant` or `unknown`. `instant.ts` gives each 
   (`comparisonPlan`, below). **Implementation correction, 2026-10-19:** the equality first kept an
   unknown side bare, comparing an untyped Hidden Value's text with Core's day string; it now lowers.
 
+**Implementation correction, 2026-10-19: literal branches, extreme years.** A form literal branch is
+typed by its comparison as a direct literal is (part 03 §3.2's correction B), so a branch shaped as
+a date and time folds to its canonical text, never prints as written; a literal of another kind
+(`'nope'`) is a leaf the emitter throws on, which the checker refuses. A literal whose UTC moment
+falls outside the years 0000 to 9999 names no moment (correction A), so `instantCanonicalText`
+never meets one. `instantOperand.ts` memoises an operand per typing context within one `toWire`
+call (`Context.instants`), so a `switch` subject or a side `in` and `between` share is classified
+once, and the checker passes the types it has already inferred for a comparison's sides.
+
 ### 3.3 Which comparisons
 
 `toWire` lowers both operands of `lt`, `lte`, `gt`, `gte` when either is `datetime` (the checker
@@ -929,6 +938,14 @@ their Vellum shadows), `targeted-datetime-operands` (`seen < now()`, and the cas
 lowered equality of two texts, the lookup path repeated about 30 times);
 `targeted-search-hq-compile` is byte-stable (emission over the corpus, 388 documents, 41 of 14,083
 files changed, none in any other document).
+
+**Implementation correction, 2026-10-19: a value that names no moment.** The first build printed a
+`not-instant` operand as itself (`datetime-coerce('')` as `''`); it keeps `date(x)`, the bytes it had
+before, as the correction above says. A `datetime-coerce` of a literal that names no moment
+(`'2026-02-30'`, `datetime '2026-01-02T25:00:00Z'`, a year past 9999) is refused by the checker in
+every slot whose expressions reach `toWire`, a Search field's runtime values included (part 03
+§3.2's corrections C and D), so `datetimeCoerceValue` never meets one. The corpus holds none of
+these: its emission is byte-identical across the change.
 
 ### 3.9 Size, and the cost of the gate
 

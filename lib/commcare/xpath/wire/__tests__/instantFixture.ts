@@ -2,14 +2,20 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { formCasePropertyRead } from "@/lib/commcare/xform/formCaseRead";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { proseText } from "@/lib/domain";
-import { formField, now, term } from "@/lib/domain/expression/builders";
+import { advancedSearchInputDef, proseText } from "@/lib/domain";
+import {
+	formField,
+	matchAll,
+	now,
+	term,
+} from "@/lib/domain/expression/builders";
 import {
 	type ExpressionContext,
 	slotContext,
 } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
+import { emitCsql } from "../../../predicate/csqlEmitter";
 import { formNodeProjection } from "../../formNodeProjection";
 import { toWire, type WireTarget } from "../fromExpression";
 import type { WireExpr } from "../tree";
@@ -33,6 +39,7 @@ export type HeldKind =
 const FORM = testUuid("instant-form");
 const MODULE = testUuid("instant-module");
 const PROBE = testUuid("instant-probe");
+const SEARCH_INPUT = testUuid("instant-search-input");
 
 function fieldSpec(id: string, kind: HeldKind) {
 	const uuid = testUuid(`instant-${id}`);
@@ -82,6 +89,14 @@ export interface InstantFixture {
 	readonly record: ExpressionContext;
 	lowerForm(expression: Expression, target?: WireTarget): WireExpr;
 	lowerRecord(expression: Expression, target?: WireTarget): WireExpr;
+	/** With `search`: an advanced Search field's condition, which only the
+	 * server search and the case store read but whose values outside the
+	 * server's own a device works out first, and its emitted `_xpath_query`
+	 * value. */
+	readonly search?: {
+		readonly ctx: ExpressionContext;
+		lower(expression: Expression): WireExpr;
+	};
 }
 
 /** One follow-up form on case type `visit` (properties `seen` and `due`,
@@ -89,6 +104,7 @@ export interface InstantFixture {
  * each named field as its kind. */
 export function instantFixture(
 	fields: Readonly<Record<string, HeldKind>>,
+	options: { readonly search?: boolean } = {},
 ): InstantFixture {
 	const doc = buildDoc({
 		caseTypes: [
@@ -108,7 +124,22 @@ export function instantFixture(
 				uuid: MODULE,
 				name: "Visits",
 				caseType: "visit",
-				caseListConfig: caseListConfig([]),
+				caseListConfig:
+					options.search === true
+						? {
+								...caseListConfig([]),
+								searchInputs: [
+									advancedSearchInputDef(
+										SEARCH_INPUT,
+										"when",
+										"When",
+										"text",
+										matchAll(),
+									),
+								],
+							}
+						: caseListConfig([]),
+				...(options.search === true ? { caseSearchConfig: {} } : {}),
 				forms: [
 					{
 						uuid: FORM,
@@ -140,6 +171,21 @@ export function instantFixture(
 		{ entity: "module", uuid: MODULE, slot: "case_list_filter" },
 		new Map(),
 	);
+	const search =
+		options.search === true
+			? slotContext(
+					doc,
+					{
+						entity: "module",
+						uuid: MODULE,
+						slot: "search_input_predicate",
+						member: { searchInputUuid: SEARCH_INPUT },
+					},
+					new Map(),
+				)
+			: undefined;
+	if (options.search === true && search === undefined)
+		throw new Error("The instant fixture's Search field is missing.");
 	const structure = formStructure(doc, FORM);
 	if (form === undefined || record === undefined || structure === undefined)
 		throw new Error("The instant fixture's slots are missing.");
@@ -164,5 +210,14 @@ export function instantFixture(
 			}),
 		lowerRecord: (expression, target = "suite") =>
 			toWire(expression, { target, types: record }),
+		...(search === undefined
+			? {}
+			: {
+					search: {
+						ctx: search,
+						lower: (expression: Expression) =>
+							emitCsql(expression, { types: search }).wrapper,
+					},
+				}),
 	};
 }

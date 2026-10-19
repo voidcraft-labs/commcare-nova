@@ -9,6 +9,7 @@ import {
 } from "../expressionFunctions";
 import { STANDARD_CASE_LIST_PROPERTY_DATA_TYPES } from "../standardCaseProperties";
 import type { Uuid } from "../uuid";
+import { term as termExpression } from "./builders";
 import { type ExpressionChild, expressionChildren } from "./children";
 import { selectAnswerTokens } from "./choiceValue";
 import {
@@ -34,6 +35,7 @@ import {
 	instantOperand,
 	literalInstantMicros,
 	unlowerableLeaves,
+	unreadableInstantLiterals,
 } from "./instantOperand";
 import { numericAnswerText } from "./numberLiteral";
 import { resolveRelationDestination } from "./relationDestination";
@@ -54,6 +56,7 @@ import {
 	TIME_ORDERING_MESSAGE,
 	typesCompatible,
 } from "./ruleSets";
+import { walkSearchRuntimeValues } from "./searchRuntimeValues";
 import {
 	type CheckPath,
 	type ComparisonKind,
@@ -171,6 +174,45 @@ export interface InstantRefusal {
 	readonly property?: "date_opened" | "last_modified";
 	readonly field?: Uuid;
 }
+/** How a case's system date names the case: when it was `opened`, or when
+ * it was `last changed`; both where the property is not known. */
+export function systemDateWhen(property: string | undefined): string {
+	return property === "last_modified"
+		? "last changed"
+		: property === "date_opened"
+			? "opened"
+			: "opened or last changed";
+}
+/**
+ * The sentences of a `day-only-on-device` refusal, which every surface
+ * (the checker, form findings, record findings and the editor) assembles
+ * around its own subject: what the comparison asks (`asks`, after the
+ * subject), what a device keeps (`kept`), why that cannot answer it
+ * (`consequence`, after `kept`), and the rewrite the checker admits
+ * (`next`): `date()` on both sides compares a day with a day.
+ */
+export function dayOnlyRefusalCopy(
+	instant: Pick<InstantRefusal, "comparison" | "property"> | undefined,
+): {
+	readonly asks: string;
+	readonly kept: string;
+	readonly consequence: string;
+	readonly next: string;
+} {
+	const when = systemDateWhen(instant?.property);
+	const equality = instant?.comparison === "equality";
+	return {
+		asks: equality
+			? `checks whether the case was ${when} at an exact moment`
+			: `compares when the case was ${when} with a moment`,
+		kept: `On a device CommCare keeps only the day a case was ${when}`,
+		consequence: equality ? ", so the two never match." : ", so it can't tell.",
+		next: "You can wrap both sides in date() to compare days.",
+	};
+}
+/** A date-and-time literal no device text spells, wherever it is used. */
+export const UNREADABLE_DATETIME_NEXT =
+	"You can write it like 2026-01-02T10:30:00Z.";
 export interface CheckOutcome {
 	readonly type: NodeType | undefined;
 	readonly errors: readonly CheckError[];
@@ -604,7 +646,7 @@ export function checkExpression(
 		ctx,
 		expectation.kind === "condition" ? "condition" : "value",
 	);
-	const errors = [...outcome.errors];
+	const errors = [...outcome.errors, ...searchRuntimeFindings(expression, ctx)];
 	const slot = ctx.slot;
 	if (
 		slot.entity === "form" &&
@@ -1229,6 +1271,7 @@ function inferNode(
 		return inferTerm(expression.term, ctx, errors, []);
 	if (isConditionArm(expression)) {
 		if (ctx.ruleSet === "form") {
+			const before = errors.length;
 			for (const child of expressionChildren(expression)) {
 				if (child.kind === "relation") continue;
 				const next = expressionChildContext(expression, child, ctx);
@@ -1244,7 +1287,7 @@ function inferNode(
 				expression.kind === "lt" ||
 				expression.kind === "lte"
 			)
-				checkFormComparison(expression, ctx, errors);
+				checkFormComparison(expression, ctx, errors, before);
 		} else checkConditionNode(expression, ctx, errors);
 		return scalar("boolean");
 	}
@@ -1373,8 +1416,20 @@ function inferNode(
 		case "datetime-coerce":
 		case "double": {
 			const inner = readScalar(expression.value, ["value"]);
-			if (expression.kind === "datetime-coerce")
+			if (expression.kind === "datetime-coerce") {
 				datetimeLiteralPrecision(expression.value, ["value"], errors, true);
+				// A device prints the moment a literal names, which one naming
+				// none has not (`instant.ts::datetimeCoerceValue`).
+				const device = onDeviceContext(ctx);
+				const [unreadable] =
+					device === undefined
+						? []
+						: unreadableInstantLiterals(instantOperand(expression, device));
+				if (unreadable !== undefined)
+					errors.push(
+						unreadableDatetimeError(unreadable.literal.value, ["value"]),
+					);
+			}
 			if (
 				ctx.ruleSet === "record" &&
 				inner !== undefined &&
@@ -2594,8 +2649,10 @@ function checkComparison(
 ): void {
 	const before = errors.length;
 	checkCaseStatusComparison(left, right, errors, path);
-	const leftType = inferScalar(left, ctx, errors, [...path, "left"]);
-	const rightType = inferScalar(right, ctx, errors, [...path, "right"]);
+	const leftNode = inferAt(left, ctx, errors, [...path, "left"], "value");
+	const rightNode = inferAt(right, ctx, errors, [...path, "right"], "value");
+	const leftType = scalarDataType(leftNode?.data);
+	const rightType = scalarDataType(rightNode?.data);
 	if (leftType === undefined || rightType === undefined) return;
 
 	if (kind !== "eq" && kind !== "neq") {
@@ -2627,8 +2684,23 @@ function checkComparison(
 			message: `Type mismatch: '${describe(leftType)}' and '${describe(rightType)}' are not comparable.`,
 		});
 	}
-	if (errors.length === before)
-		checkInstantSides(kind, left, right, ctx, errors, path);
+	const device = errors.length === before ? onDeviceContext(ctx) : undefined;
+	if (device === undefined) return;
+	// Without a finding here each side's inference held none, so its type at
+	// a value position is the one the classification reads.
+	const known = (value: Expression) =>
+		value === left
+			? leftNode
+			: value === right
+				? rightNode
+				: typeOf(value, device);
+	checkInstantComparison(
+		kind,
+		instantOperand(left, device, { typeOf: known }),
+		instantOperand(right, device, { typeOf: known }),
+		errors,
+		path,
+	);
 }
 
 /** A date against a date and time: CommCare compares a date by its day and a
@@ -2643,10 +2715,6 @@ function dateDatetimeReason(
 		: {};
 }
 
-const SYSTEM_DATE_PHRASE = {
-	date_opened: "opened",
-	last_modified: "last changed",
-} as const;
 /** Which leaf names a refusal, most specific first: a system date, a lost
  * clock, a date, an unreadable literal, then a value of another kind. */
 function refusalRank(leaf: InstantLeaf): number {
@@ -2663,6 +2731,14 @@ function refusalRank(leaf: InstantLeaf): number {
 			return 4;
 	}
 }
+function unreadableDatetimeError(value: string, path: CheckPath): CheckError {
+	return {
+		path,
+		code: "incompatible-values",
+		reason: "unreadable-datetime",
+		message: `This uses '${value}', which isn't a date and time CommCare can read. ${UNREADABLE_DATETIME_NEXT}`,
+	};
+}
 function instantRefusal(
 	leaf: InstantLeaf,
 	kind: InstantComparisonKind,
@@ -2672,15 +2748,14 @@ function instantRefusal(
 	const comparison = ordering ? "ordering" : "equality";
 	switch (leaf.class) {
 		case "day-only": {
-			const when = SYSTEM_DATE_PHRASE[leaf.property];
+			const instant = { comparison, property: leaf.property } as const;
+			const copy = dayOnlyRefusalCopy(instant);
 			return {
 				path,
 				code: "incompatible-values",
 				reason: "day-only-on-device",
-				instant: { comparison, property: leaf.property },
-				message: ordering
-					? `This compares when the case was ${when} with a moment. On a device CommCare keeps only the day a case was ${when}, so it can't tell. You can compare it with a date instead.`
-					: `This checks whether the case was ${when} at an exact moment. On a device CommCare keeps only the day a case was ${when}, so the two never match. You can compare it with a date, or check a range of days.`,
+				instant,
+				message: `This ${copy.asks}. ${copy.kept}${copy.consequence} ${copy.next}`,
 			};
 		}
 		case "clock-lost":
@@ -2698,12 +2773,7 @@ function instantRefusal(
 					"This compares a value that has kept only the day of a date and time with a moment, so CommCare can't line the two up. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.",
 			};
 		case "literal-instant":
-			return {
-				path,
-				code: "incompatible-values",
-				reason: "unreadable-datetime",
-				message: `This compares a moment with '${leaf.literal.value}', which isn't a date and time CommCare can read. You can write it like 2026-01-02T10:30:00Z.`,
-			};
+			return unreadableDatetimeError(leaf.literal.value, path);
 		case "not-instant":
 			if (leaf.data === "date")
 				return {
@@ -2735,12 +2805,14 @@ function instantRefusal(
  * (`instantOperand.ts::comparisonPlan`) whose sides include a value with no
  * moment to print: a casedb system date, which Core holds as the device's
  * day (`CaseChildElement.java::buildAndCacheInternalTree`, `DateData`), a
- * date and time whose clock is gone, a date, a literal no spelling reads, a
- * value of unknown type holding neither text nor a typed date, or a value of
- * another known kind. The on-device emitter lowers exactly these comparisons
- * and cannot print the first five, so the slot is refused here; a slot no
- * device evaluates (no `XF`, no `SU`) never lowers. One finding per
- * comparison, and none where the comparison already holds another.
+ * date and time whose clock is gone, a date, a literal no spelling reads or
+ * of another kind, a value of unknown type holding neither text nor a typed
+ * date, or a value of another known kind. The on-device emitter lowers
+ * exactly these comparisons and cannot print the first six, so the slot is
+ * refused here, wherever `toWire` prints the comparison
+ * (`onDeviceContext`): in a slot a form or the suite evaluates, and in a
+ * value a server search condition works out on a device first. One finding
+ * per comparison, and none where the comparison already holds another.
  */
 function checkInstantComparison(
 	kind: InstantComparisonKind,
@@ -2773,66 +2845,107 @@ function otherKindLeaves(operand: InstantOperand): readonly InstantLeaf[] {
 			!isDateOrDatetime(leaf.data),
 	);
 }
-/** The context of a slot a device evaluates, where comparisons of moments
- * are lowered. */
+/** The context of an expression a device evaluates, where comparisons of
+ * moments are lowered: every expression of a slot a form or the suite
+ * evaluates, and a value of a server search condition a device works out
+ * first (`ExpressionContext.runsOnDevice`). */
 function onDeviceContext(ctx: TypingContext): ExpressionContext | undefined {
 	return "profile" in ctx &&
-		(ctx.profile.targets.has("XF") || ctx.profile.targets.has("SU"))
+		(ctx.runsOnDevice === true ||
+			ctx.profile.targets.has("XF") ||
+			ctx.profile.targets.has("SU"))
 		? ctx
 		: undefined;
 }
-function checkInstantSides(
-	kind: InstantComparisonKind,
-	left: Expression,
-	right: Expression,
-	ctx: TypingContext,
-	errors: CheckError[],
-	path: CheckPath,
-): void {
-	const device = onDeviceContext(ctx);
-	if (device === undefined) return;
-	checkInstantComparison(
-		kind,
-		instantOperand(left, device),
-		instantOperand(right, device),
-		errors,
-		path,
-	);
+const runningOnDevice = new WeakMap<ExpressionContext, ExpressionContext>();
+/**
+ * The instant findings of the values of a server search condition that a
+ * device works out before the search runs (`searchRuntimeValues.ts`), in a
+ * slot no form or suite evaluates: each such value is inferred again as one a
+ * device evaluates, and every finding that adds is this slot's. Its other
+ * findings are the slot's already, from its own inference.
+ */
+function searchRuntimeFindings(
+	expression: Expression,
+	ctx: ExpressionContext,
+): readonly CheckError[] {
+	const targets = ctx.profile.targets;
+	if (
+		!targets.has("CS") ||
+		onDeviceContext(ctx) !== undefined ||
+		ctx.profile.expectation.kind !== "condition"
+	)
+		return [];
+	const found: CheckError[] = [];
+	const key = (error: CheckError) =>
+		JSON.stringify([error.path, error.code, error.reason ?? null]);
+	walkSearchRuntimeValues(expression, ctx, (value, valueContext, path) => {
+		let device = runningOnDevice.get(valueContext);
+		if (device === undefined) {
+			device = { ...valueContext, runsOnDevice: true };
+			runningOnDevice.set(valueContext, device);
+		}
+		const served = new Map<string, number>();
+		for (const error of infer(value, valueContext, "value").errors)
+			served.set(key(error), (served.get(key(error)) ?? 0) + 1);
+		for (const error of infer(value, device, "value").errors) {
+			const count = served.get(key(error)) ?? 0;
+			if (count > 0) served.set(key(error), count - 1);
+			else found.push({ ...error, path: [...path, ...error.path] });
+		}
+	});
+	return found;
 }
-const termExpression = (value: Term): Expression => ({
-	kind: "term",
-	term: value,
-});
-
 const isKnown = (type: ScalarType | undefined): type is ScalarType =>
 	type !== undefined && type !== ANY_TYPE;
-/** A string literal's own type in a form comparison: its shape, where the
- * comparison orders it or the other side has a type of its own. */
+/**
+ * Where a form comparison types an untyped string literal by the ISO date,
+ * date-and-time or `HH:MM[:SS]` shape it spells, on each side: wherever the
+ * comparison orders it, or where the other side has a type of its own and is
+ * no literal. A literal branch of an `if`, `coalesce` or `switch` operand is
+ * typed by its side's answer as a direct literal is
+ * (`instantOperand.ts::comparisonOperands`).
+ */
+export function formLiteralsShaped(
+	expression: Extract<
+		Expression,
+		{ kind: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" }
+	>,
+	leftType: ScalarType | undefined,
+	rightType: ScalarType | undefined,
+): { readonly left: boolean; readonly right: boolean } {
+	const ordering = expression.kind !== "eq" && expression.kind !== "neq";
+	return {
+		left:
+			ordering ||
+			(isKnown(rightType) && directLiteral(expression.right) === undefined),
+		right:
+			ordering ||
+			(isKnown(leftType) && directLiteral(expression.left) === undefined),
+	};
+}
+/** A string literal's own type in a form comparison: its shape, where its
+ * side is shaped (`formLiteralsShaped`). */
 function comparisonOperandType(
 	operand: Expression,
 	type: ScalarType | undefined,
-	other: ScalarType | undefined,
-	otherIsLiteral: boolean,
-	ordering: boolean,
+	shaped: boolean,
 ): ScalarType | undefined {
 	const literal = directLiteral(operand);
 	if (
 		literal === undefined ||
 		literal.data_type !== undefined ||
-		typeof literal.value !== "string"
+		typeof literal.value !== "string" ||
+		!shaped
 	)
 		return type;
-	const shape = literalShape(literal.value);
-	if (shape === undefined) return type;
-	return ordering || (isKnown(other) && !otherIsLiteral) ? shape.type : type;
+	return literalShape(literal.value)?.type ?? type;
 }
 
 /**
  * Both sides of a form comparison as the form rule set types them, from
  * each side's inferred type: an untyped string literal takes the type its
- * ISO date, date-and-time or `HH:MM[:SS]` shape spells where the comparison
- * orders it, or where the other side has a type of its own and is no
- * literal.
+ * shape spells where its side is shaped (`formLiteralsShaped`).
  */
 export function formComparisonOperandTypes(
 	expression: Extract<
@@ -2845,22 +2958,10 @@ export function formComparisonOperandTypes(
 	readonly left: ScalarType | undefined;
 	readonly right: ScalarType | undefined;
 } {
-	const ordering = expression.kind !== "eq" && expression.kind !== "neq";
+	const shaped = formLiteralsShaped(expression, leftType, rightType);
 	return {
-		left: comparisonOperandType(
-			expression.left,
-			leftType,
-			rightType,
-			directLiteral(expression.right) !== undefined,
-			ordering,
-		),
-		right: comparisonOperandType(
-			expression.right,
-			rightType,
-			leftType,
-			directLiteral(expression.left) !== undefined,
-			ordering,
-		),
+		left: comparisonOperandType(expression.left, leftType, shaped.left),
+		right: comparisonOperandType(expression.right, rightType, shaped.right),
 	};
 }
 
@@ -2889,10 +2990,16 @@ function checkFormComparison(
 	>,
 	ctx: TypingContext,
 	errors: CheckError[],
+	/** The findings before this comparison's operands were read: one held
+	 * by an operand or by this comparison withholds its instant refusal, a
+	 * finding of anything else never does. */
+	before: number,
 ): void {
 	const ordering = expression.kind !== "eq" && expression.kind !== "neq";
-	const leftType = scalarDataType(infer(expression.left, ctx).type?.data);
-	const rightType = scalarDataType(infer(expression.right, ctx).type?.data);
+	const leftNode = infer(expression.left, ctx).type;
+	const rightNode = infer(expression.right, ctx).type;
+	const leftType = scalarDataType(leftNode?.data);
+	const rightType = scalarDataType(rightNode?.data);
 	const { left, right } = formComparisonOperandTypes(
 		expression,
 		leftType,
@@ -2958,10 +3065,33 @@ function checkFormComparison(
 			numericLiteral(expression.right, ["right"], errors);
 	}
 	// A string literal shaped as a date and time is one where the comparison
-	// types it so (`instantOperand.ts::comparisonOperands`).
-	const device = errors.length === 0 ? onDeviceContext(ctx) : undefined;
-	if (device === undefined) return;
-	const sides = comparisonOperands(expression, device);
+	// types it so, a branch's as a direct one's
+	// (`instantOperand.ts::comparisonOperands`).
+	if (!("profile" in ctx)) return;
+	const sides = comparisonOperands(expression, ctx, {
+		typeOf: (value) =>
+			value === expression.left
+				? leftNode
+				: value === expression.right
+					? rightNode
+					: typeOf(value, ctx),
+	});
+	// A branch literal names a moment to the millisecond as a direct one does.
+	for (const [side, operand] of [
+		["left", sides.left],
+		["right", sides.right],
+	] as const)
+		if (operand.kind !== "leaf")
+			for (const leaf of instantLeaves(operand))
+				if (
+					leaf.class === "literal-instant" &&
+					leaf.literal.data_type === undefined &&
+					(literalShape(leaf.literal.value)?.fractionDigits ?? 0) > 3
+				) {
+					errors.push(datetimePrecisionError([side]));
+					return;
+				}
+	if (errors.length !== before || onDeviceContext(ctx) === undefined) return;
 	checkInstantComparison(expression.kind, sides.left, sides.right, errors, []);
 }
 

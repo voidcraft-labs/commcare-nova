@@ -1,6 +1,9 @@
 import type { OrganizationLevel } from "@/lib/domain";
 import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
-import { isMatchAll } from "@/lib/domain/expression/builders";
+import {
+	isMatchAll,
+	term as termExpression,
+} from "@/lib/domain/expression/builders";
 import { choiceValue } from "@/lib/domain/expression/choiceValue";
 import {
 	activeRowScope,
@@ -13,6 +16,7 @@ import {
 	comparisonPlan,
 	type InstantComparisonKind,
 	type InstantOperand,
+	type InstantOperandMemo,
 	instantOperand,
 } from "@/lib/domain/expression/instantOperand";
 import {
@@ -129,6 +133,10 @@ type Context = WireBuildContext & {
 	 * a day-aligned operand): a `datetime-coerce` there is Core's `date()`. It
 	 * reaches only the operand's own branches, never their conditions. */
 	readonly dayComparison?: true;
+	/** The operands this lowering has classified, per typing context, so an
+	 * expression met again (a `switch` subject, a side `in` or `between`
+	 * shares) is classified once. */
+	readonly instants: WeakMap<ExpressionContext, InstantOperandMemo>;
 };
 const comparison: Record<
 	"eq" | "neq" | "lt" | "lte" | "gt" | "gte",
@@ -139,6 +147,7 @@ export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 	const bindings = ctx.bindings ?? {};
 	const context: Context = {
 		...ctx,
+		instants: new WeakMap(),
 		root: ctx.root ?? caseRow(ctx.types)?.root ?? DEFAULT_INSTANCE_ROOT,
 		anchor: ctx.anchor ?? ROOT_ON_DEVICE_CASE_ANCHOR,
 		bindings: {
@@ -178,6 +187,15 @@ export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 				},
 	);
 	return emitExpression(normalized, { ...context, overrides });
+}
+/** The classification memo of the context `ctx` types in. */
+function instantMemo(ctx: Context): InstantOperandMemo {
+	let memo = ctx.instants.get(ctx.types);
+	if (memo === undefined) {
+		memo = new WeakMap();
+		ctx.instants.set(ctx.types, memo);
+	}
+	return memo;
 }
 
 /** Legacy table lookups explicitly capture their one containing case row.
@@ -594,7 +612,9 @@ interface ComparisonSide {
 function comparisonSide(
 	expression: Expression,
 	ctx: Context,
-	operand: InstantOperand = instantOperand(expression, ctx.types),
+	operand: InstantOperand = instantOperand(expression, ctx.types, {
+		memo: instantMemo(ctx),
+	}),
 ): ComparisonSide {
 	return { expression, operand };
 }
@@ -635,9 +655,6 @@ function compareSides(
 		}
 	};
 	return w.cmp(comparison[kind], wire(left), wire(right));
-}
-function termExpression(input: Term): Expression {
-	return { kind: "term", term: input };
 }
 /** Each case's test of a `switch`, its subject emitted once. */
 function switchTests(
@@ -818,7 +835,7 @@ function emitExpression(expr: Expression, ctx: Context): WireExpr {
 			return ctx.dayComparison === true
 				? w.call("date", [emitExpression(expr.value, plain)])
 				: datetimeCoerceValue(
-						instantOperand(expr, ctx.types),
+						instantOperand(expr, ctx.types, { memo: instantMemo(ctx) }),
 						instantEmission(ctx),
 					);
 		case "double":
@@ -953,7 +970,9 @@ function emitExpression(expr: Expression, ctx: Context): WireExpr {
 		case "lte":
 		case "gt":
 		case "gte": {
-			const { left, right } = comparisonOperands(expr, ctx.types);
+			const { left, right } = comparisonOperands(expr, ctx.types, {
+				memo: instantMemo(ctx),
+			});
 			return compareSides(
 				expr.kind,
 				comparisonSide(expr.left, ctx, left),

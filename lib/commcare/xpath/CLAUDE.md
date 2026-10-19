@@ -100,12 +100,15 @@ by Core's `%Z`, a sub-minute error before 1900.
 equality between a date and time and a date and time or a value of unknown
 type, in every device target, choosing each
 operand's instant text by `lib/domain/expression/instantOperand.ts`'s class of
-it and folding a literal (`foldInstant`, the same grammar as
-`literalInstantMicros`, computed with the device's own double operations in
-the device's order, so a fold equals the parse even past 2^53). It never
+it and folding a literal by `literalInstantMicros`, the checker's own
+grammar, computed with the device's own double operations in the device's
+order, so a fold equals the parse even past 2^53; it names no moment outside
+the years 0000 to 9999, which no device text spells. A literal branch of an
+`if`, `coalesce` or `switch` folds to its moment's canonical text. It never
 applies inside CSQL text: CSQL comparisons print through the CSQL emitter, and
-only a runtime segment reaches `toWire`. `instantMicrosOperand` recognises the
-parse structurally, for tests that read the tree rather than its text.
+only a runtime segment reaches `toWire`. The tests' `instantParse.ts`
+recognises the parse structurally, so they read the tree rather than its
+text.
 `lib/commcare/CLAUDE.md`, "Dates and times compare as moments on a device",
 holds the operand rows and the day rule.
 

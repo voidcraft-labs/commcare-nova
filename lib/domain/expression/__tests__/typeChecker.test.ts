@@ -87,6 +87,7 @@ import { recordQueryContext, slotContext } from "../context";
 import {
 	type CheckOutcome,
 	checkExpression,
+	dayOnlyRefusalCopy,
 	inferRecordQuery,
 	scalarDataType,
 	typeOf,
@@ -3577,7 +3578,7 @@ describe("comparisons a device runs between two moments", () => {
 			},
 		]);
 		expect(filterErrors(gte(opened, now()))[0]?.message).toBe(
-			"This compares when the case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can't tell. You can compare it with a date instead.",
+			"This compares when the case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can't tell. You can wrap both sides in date() to compare days.",
 		);
 	});
 	it("admits a casedb system date ordered against a day, and two system dates under any operator", () => {
@@ -3595,7 +3596,7 @@ describe("comparisons a device runs between two moments", () => {
 			{
 				instant: { comparison: "equality", property: "last_modified" },
 				message:
-					"This checks whether the case was last changed at an exact moment. On a device CommCare keeps only the day a case was last changed, so the two never match. You can compare it with a date, or check a range of days.",
+					"This checks whether the case was last changed at an exact moment. On a device CommCare keeps only the day a case was last changed, so the two never match. You can wrap both sides in date() to compare days.",
 			},
 		]);
 	});
@@ -3657,7 +3658,7 @@ describe("comparisons a device runs between two moments", () => {
 			"incompatible-values:day-only-on-device",
 		]);
 	});
-	it("admits the same comparisons in a slot no device evaluates", () => {
+	it("admits the same comparisons where the server search makes them itself", () => {
 		const doc = searchDoc();
 		expect(slotOutcome(doc, PREDICATE, gte(opened, now())).errors).toEqual([]);
 		expect(slotOutcome(doc, PREDICATE, eq(opened, day)).errors).toEqual([]);
@@ -3778,5 +3779,170 @@ describe("comparisons a device runs between two moments", () => {
 				gt(seen, term(qualifiedLiteral("2026-01-02 10:00:00z", "datetime"))),
 			),
 		).toEqual([]);
+	});
+	it("refuses a date-and-time literal whose moment falls outside the years a device spells, wherever it is", () => {
+		const late = term(
+			qualifiedLiteral("9999-12-31T23:00:00-05:00", "datetime"),
+		);
+		expect(codes(filterErrors(lt(seen, late)))).toEqual([
+			"incompatible-values:unreadable-datetime",
+		]);
+		expect(codes(filterErrors(lt(seen, coalesce(seen, late))))).toEqual([
+			"incompatible-values:unreadable-datetime",
+		]);
+		expect(
+			filterErrors(
+				lt(
+					seen,
+					coalesce(
+						seen,
+						term(qualifiedLiteral("9999-12-31T23:59:59.999Z", "datetime")),
+					),
+				),
+			),
+		).toEqual([]);
+		expect(
+			codes(
+				formErrors(
+					"#form/dt > if(#form/n = 1, '0000-01-01T00:30:00+01:00', now())",
+				),
+			),
+		).toEqual(["incompatible-values:unreadable-datetime"]);
+	});
+	it("types a form literal branch as a direct literal of its comparison", () => {
+		// Ordered, a branch shaped as a date and time is one, and is folded.
+		expect(
+			formErrors("#form/dt < if(#form/n = 1, '2026-01-02T10:00Z', now())"),
+		).toEqual([]);
+		expect(
+			formErrors("coalesce(#form/dt, '2030-01-01T09:00') > now()"),
+		).toEqual([]);
+		// Against a typed side, a date shape is a date, refused as directly.
+		expect(
+			codes(formErrors("#form/dt = if(#form/n = 1, now(), '2026-01-02')")),
+		).toEqual(["incompatible-values:date-datetime"]);
+		// Text that spells no moment reads as none.
+		expect(
+			codes(formErrors("#form/dt < if(#form/n = 1, 'nope', now())")),
+		).toEqual(["incompatible-values:datetime-ordering"]);
+		expect(
+			codes(formErrors("#form/dt = if(#form/n = 1, 'nope', now())")),
+		).toEqual(["incompatible-values:datetime-equality"]);
+		expect(
+			codes(
+				formErrors("#form/dt < if(#form/n = 1, '2026-02-30T10:00', now())"),
+			),
+		).toEqual(["incompatible-values:unreadable-datetime"]);
+		expect(
+			codes(
+				formErrors(
+					"#form/dt < coalesce(#form/dt, '2026-01-02T10:00:00.1234Z')",
+				),
+			),
+		).toEqual(["datetime-literal-precision:datetime-literal-precision"]);
+		// A blank branch names no moment and reads as none.
+		expect(formErrors("coalesce(#form/dt, '') < now()")).toEqual([]);
+	});
+	it("refuses a datetime-coerce of a literal that names no moment, where a device prints it as a value", () => {
+		for (const value of [
+			literal("2026-02-30"),
+			dateLiteral("2026-02-30"),
+			qualifiedLiteral("2026-01-02T25:00:00Z", "datetime"),
+			qualifiedLiteral("9999-12-31T23:00:00-05:00", "datetime"),
+		])
+			expect(filterErrors(isBlank(datetimeCoerce(term(value))))).toMatchObject([
+				{
+					code: "incompatible-values",
+					reason: "unreadable-datetime",
+					path: ["left", "value"],
+				},
+			]);
+		expect(
+			codes(
+				filterErrors(
+					isBlank(
+						datetimeCoerce(
+							ifExpr(
+								eq(term(prop("patient", "note")), term(literal("x"))),
+								term(qualifiedLiteral("2026-01-02T25:00:00Z", "datetime")),
+								now(),
+							),
+						),
+					),
+				),
+			),
+		).toEqual(["incompatible-values:unreadable-datetime"]);
+		expect(
+			filterErrors(isBlank(datetimeCoerce(term(dateLiteral("2026-01-02"))))),
+		).toEqual([]);
+		// The server works out a datetime-coerce on a search comparison itself.
+		expect(
+			slotOutcome(
+				searchDoc(),
+				PREDICATE,
+				gte(seen, datetimeCoerce(term(dateLiteral("2026-02-30")))),
+			).errors,
+		).toEqual([]);
+	});
+	it("applies the device's rules to a value of a Search condition a device works out first", () => {
+		const doc = searchDoc();
+		const note = term(prop("patient", "note"));
+		const chosen = (condition: Expression) =>
+			eq(note, ifExpr(condition, term(literal("a")), term(literal("b"))));
+		const unreadable = term(
+			qualifiedLiteral("2026-02-30T10:00:00", "datetime"),
+		);
+		expect(
+			slotOutcome(doc, PREDICATE, chosen(lt(seen, unreadable))).errors,
+		).toMatchObject([
+			{ reason: "unreadable-datetime", path: ["right", "if", "cond"] },
+		]);
+		expect(
+			codes(
+				slotOutcome(
+					doc,
+					PREDICATE,
+					eq(
+						note,
+						formatDate(datetimeCoerce(term(dateLiteral("2026-02-30"))), "%Y"),
+					),
+				).errors,
+			),
+		).toEqual(["incompatible-values:unreadable-datetime"]);
+		// A comparison the server makes itself, and one a device can print.
+		expect(slotOutcome(doc, PREDICATE, lt(seen, unreadable)).errors).toEqual(
+			[],
+		);
+		expect(
+			slotOutcome(doc, PREDICATE, chosen(gte(seen, now()))).errors,
+		).toEqual([]);
+	});
+	it("admits each rewrite a day-only refusal suggests", () => {
+		// "You can wrap both sides in date() to compare days."
+		expect(filterErrors(lt(dateCoerce(opened), dateCoerce(now())))).toEqual([]);
+		expect(filterErrors(eq(dateCoerce(changed), dateCoerce(seen)))).toEqual([]);
+		expect(formErrors("date(#patient/date_opened) = date(now())")).toEqual([]);
+		expect(formErrors("date(#patient/last_modified) < date(#form/dt)")).toEqual(
+			[],
+		);
+		// An ordering against a date turned into a date and time compares days.
+		expect(filterErrors(gte(opened, day))).toEqual([]);
+		for (const comparison of ["ordering", "equality"] as const)
+			expect(
+				dayOnlyRefusalCopy({ comparison, property: "date_opened" }).next,
+			).toBe("You can wrap both sides in date() to compare days.");
+	});
+	it("refuses each comparison on its own, whatever a sibling holds", () => {
+		expect(
+			codes(
+				formErrors(
+					"#form/n < 'a:b' and #patient/date_opened < now() and #form/dt = if(#form/n = 1, 'nope', now())",
+				),
+			),
+		).toEqual([
+			"number-value",
+			"incompatible-values:day-only-on-device",
+			"incompatible-values:datetime-equality",
+		]);
 	});
 });

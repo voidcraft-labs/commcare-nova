@@ -1,37 +1,8 @@
 /**
- * Pure CSQL value-expression capability classification.
- *
- * Validation and dialect walkers need this closed-set question without the
- * considerably larger CSQL emission pipeline. Keeping it in a dependency-free
- * leaf prevents client-side authoring validation from loading wire emitters it
- * never executes.
+ * Pure CSQL value-expression capability classification: the values CCHQ's
+ * search language evaluates itself. The one predicate lives beside the walk
+ * the checker shares (`lib/domain/expression/searchRuntimeValues.ts`), a
+ * dependency-light leaf, so client-side authoring validation loads no wire
+ * emitter it never executes.
  */
-
-import type { Expression } from "@/lib/domain/expression/types";
-
-export function isNativeCsqlValueExpression(expr: Expression): boolean {
-	switch (expr.kind) {
-		case "term":
-		case "today":
-		case "now":
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-		case "date-add":
-			return true;
-		case "arith":
-		case "concat":
-		case "coalesce":
-		case "if":
-		case "switch":
-		case "count":
-		case "format-date":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-		case "table-lookup":
-			return false;
-		default:
-			return false;
-	}
-}
+export { isServerSearchValue as isNativeCsqlValueExpression } from "@/lib/domain/expression/searchRuntimeValues";

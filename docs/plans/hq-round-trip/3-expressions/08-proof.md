@@ -337,9 +337,10 @@ passing); and requires every lowered text to be read. The class was checked agai
 reading them at the pin; CI compiles and runs it first. Locally, every one of the 25,302 lowered
 pairs that needs no clock was evaluated by Preview over the produced texts with the Java test's
 expectations: none disagreed, in UTC and in `America/New_York`; and of the 28 malformed texts,
-exactly the eight read as a number in Preview. The producer prints the comparisons without running
-the checker over them: a leaf the emitter cannot print throws there, but a shape the checker alone
-refuses (a branch of another kind) would be printed unnoticed; none of the seven classes is one.
+exactly the eight read as a number in Preview. The producer runs the checker over each comparison
+in its slot before printing it (`emit-expression-evidence.ts::loweredText` throws on any finding),
+so a shape the checker refuses, a branch of another kind among them, never reaches the lane; none
+of the seven classes is one.
 
 ### 2.3 Finding 56's seven requirements, each to its test
 

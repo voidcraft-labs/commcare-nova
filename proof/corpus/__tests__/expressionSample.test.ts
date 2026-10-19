@@ -10,8 +10,8 @@ import { caseTypeDepthMap } from "@/lib/commcare/caseTypeDepths";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { formCasePropertyRead } from "@/lib/commcare/xform/formCaseRead";
 import { formExpressionEmission } from "@/lib/commcare/xform/formExpressions";
+import { instantMicrosOperand } from "@/lib/commcare/xpath/wire/__tests__/instantParse";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
-import { instantMicrosOperand } from "@/lib/commcare/xpath/wire/instant";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	hydratePersistedBlueprint,

@@ -84,13 +84,13 @@ describe("a case-list filter that compares a system date with a moment", () => {
 			),
 			comparison: "equality",
 			systemDate: "date_opened",
-			line: "checks whether a case was opened at an exact moment. On a device CommCare keeps only the day a case was opened, so the two never match. You can compare it with a date, or check a range of days.",
+			line: "checks whether the case was opened at an exact moment. On a device CommCare keeps only the day a case was opened, so the two never match. You can wrap both sides in date() to compare days.",
 		},
 		{
 			predicate: gt(prop("patient", "last_modified"), now()),
 			comparison: "ordering",
 			systemDate: "last_modified",
-			line: "compares when a case was last changed with a moment. On a device CommCare keeps only the day a case was last changed, so it can't tell. You can compare it with a date instead.",
+			line: "compares when the case was last changed with a moment. On a device CommCare keeps only the day a case was last changed, so it can't tell. You can wrap both sides in date() to compare days.",
 		},
 	])(
 		"names the $systemDate $comparison",

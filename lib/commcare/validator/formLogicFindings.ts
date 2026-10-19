@@ -10,11 +10,13 @@ import { expressionSlotLabel } from "@/lib/domain/expression/slotLabels";
 import {
 	type CheckError,
 	checkExpression,
+	dayOnlyRefusalCopy,
 	expressionContextAtPath,
 	formComparisonOperandTypes,
 	type ScalarType,
 	scalarDataType,
 	typeOf,
+	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression/typeChecker";
 import type {
 	Expression,
@@ -361,21 +363,14 @@ export function formLogicFinding(
 				message = `${owner.subject} orders a date and time against ${valueKindPhrase(other, "a value that isn't one")}${owner.inSlot}. CommCare can only order two dates and times by their moment. You can compare it with another date and time, or wrap it in date() to compare days.`;
 			} else if (error.reason === "day-only-on-device") {
 				const property = error.instant?.property;
-				const when =
-					property === "last_modified"
-						? "last changed"
-						: property === "date_opened"
-							? "opened"
-							: "opened or last changed";
 				const equality = error.instant?.comparison === "equality";
 				details = {
 					reason: error.reason,
 					comparison: equality ? "equality" : "ordering",
 					...(property === undefined ? {} : { systemDate: property }),
 				};
-				message = equality
-					? `${owner.subject} checks whether the case was ${when} at an exact moment${owner.inSlot}. On a device CommCare keeps only the day a case was ${when}, so the two never match. You can compare it with a date, or check a range of days.`
-					: `${owner.subject} compares when the case was ${when} with a moment${owner.inSlot}. On a device CommCare keeps only the day a case was ${when}, so it can't tell. You can compare it with a date instead.`;
+				const copy = dayOnlyRefusalCopy(error.instant);
+				message = `${owner.subject} ${copy.asks}${owner.inSlot}. ${copy.kept}${copy.consequence} ${copy.next}`;
 			} else if (error.reason === "clock-lost") {
 				const field = error.instant?.field;
 				const source =
@@ -388,7 +383,7 @@ export function formLogicFinding(
 				};
 				message = `${owner.subject} compares ${source === undefined ? "a value" : `"${source}"`}, which has kept only the day of a date and time, with a moment${owner.inSlot}, so CommCare can't line the two up. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.`;
 			} else if (error.reason === "unreadable-datetime")
-				message = `${owner.subject} compares a moment with a date and time CommCare can't read${owner.inSlot}. You can write it like 2026-01-02T10:30:00Z.`;
+				message = `${owner.subject} uses a date and time CommCare can't read${owner.inSlot}. ${UNREADABLE_DATETIME_NEXT}`;
 			else if (error.reason === "datetime-equality")
 				message = `${owner.subject} compares a date and time with a value that isn't one${owner.inSlot}, so the two never match. You can compare it with another date and time, or check whether it's blank.`;
 			else if (error.reason === "boolean") {

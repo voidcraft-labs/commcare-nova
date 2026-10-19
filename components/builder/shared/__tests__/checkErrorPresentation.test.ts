@@ -128,7 +128,7 @@ describe("PredicateCardEditor — reasons and the checker's newer codes", () => 
 		],
 		[
 			"day-only-on-device",
-			"A device keeps only the day a case was opened or last changed. You can compare it with a date instead",
+			"On a device CommCare keeps only the day a case was opened or last changed. You can wrap both sides in date() to compare days",
 		],
 	])(
 		"gives a comparison a device can't run between moments, %s, its own line",
@@ -147,10 +147,10 @@ describe("PredicateCardEditor — reasons and the checker's newer codes", () => 
 				instant,
 			});
 		expect(dayOnly({ comparison: "ordering", property: "date_opened" })).toBe(
-			"A device keeps only the day a case was opened. You can compare it with a date instead",
+			"On a device CommCare keeps only the day a case was opened. You can wrap both sides in date() to compare days",
 		);
 		expect(dayOnly({ comparison: "equality", property: "last_modified" })).toBe(
-			"A device keeps only the day a case was last changed, so it never matches a moment. You can compare it with a date, or check a range of days",
+			"On a device CommCare keeps only the day a case was last changed. You can wrap both sides in date() to compare days",
 		);
 	});
 

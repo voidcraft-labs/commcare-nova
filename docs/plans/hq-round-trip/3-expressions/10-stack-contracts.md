@@ -636,6 +636,20 @@ session map's):
   `lib/commcare/validator/lookupTypeContext.ts`, `rules/caseOperations.ts`,
   `rules/caseOptionsSource.ts` and `rules/lookupOptionsSource.ts`, with tests in
   `caseOperations.test.ts` and `rules/case-list/__tests__/filterTypeCheck.test.ts`.
+- **Implementation correction, 2026-10-19: five review gaps closed** (part 03 §3.2's correction,
+  part 04 §3.2 and §3.8). A literal outside the years 0000 to 9999 names no moment
+  (`literalInstantMicros`); a form literal branch is typed by its comparison and folded, or refused
+  as a direct literal is; a `datetime-coerce` of a literal that names no moment is
+  `unreadable-datetime` wherever `toWire` prints it, and one of a value that names none keeps
+  `date(x)`; a Search field's runtime values meet the device's rules through
+  `lib/domain/expression/searchRuntimeValues.ts` (new), the walk the CSQL emitter shares, with
+  `ExpressionContext.runsOnDevice`; and every day-only surface reads
+  `typeChecker.ts::dayOnlyRefusalCopy`, whose next step, `date()` on both sides, the checker
+  admits. `instant.ts` loses `instantText`, `instantMicrosOperand` and `foldInstant` (the parse
+  recogniser moves to `xpath/wire/__tests__/instantParse.ts`), `instantOperand.ts` loses
+  `lowersComparison`, and the builders' `term` serves the checker and the emitter. Public docs:
+  `case-workspace.mdx`, `building-with-nova.mdx` and `display-conditions.mdx` name the admitted
+  rewrite. The corpus emission is byte-identical; the base corpus validates with no finding.
 - **Left open:** the standard-property fallback holds a system date as a day in a results row (pull
   request 9).
 

@@ -14,9 +14,14 @@
  * since `now()` is a scalar and the read a node).
  */
 import type { ExpressionContext } from "./context";
-import { ANY_TYPE, literalShape, TEXT_SHAPED_TYPES } from "./ruleSets";
 import {
-	formComparisonOperandTypes,
+	ANY_TYPE,
+	literalShape,
+	literalType,
+	TEXT_SHAPED_TYPES,
+} from "./ruleSets";
+import {
+	formLiteralsShaped,
 	type NodeType,
 	type ScalarType,
 	scalarDataType,
@@ -43,6 +48,12 @@ function daysFromCivil(year: number, month: number, day: number): number {
 	return era * 146097 + dayOfEra - 719468;
 }
 
+/** The moments a device's date-and-time text spells: Core reads a four-digit
+ * year (`DateUtils.parseDateTime`), so a literal whose UTC moment falls before
+ * 0000-01-01T00:00:00Z or after the last microsecond of 9999 names none. */
+const FIRST_MICROS = daysFromCivil(0, 1, 1) * 86_400_000_000;
+const END_MICROS = daysFromCivil(10000, 1, 1) * 86_400_000_000;
+
 function daysInMonth(year: number, month: number): number {
 	return month === 2
 		? year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
@@ -58,8 +69,9 @@ function daysInMonth(year: number, month: number): number {
  * names none. It reads a date (its UTC midnight) or a date and time with a
  * `T`, `t` or space, minutes, seconds or any fraction (rounded to the
  * microsecond as the device parse rounds it), and `Z`, `z`, `±HH`, `±HHMM`,
- * `±HH:MM` or no offset (UTC). This reads a literal's value, never
- * expression text.
+ * `±HH:MM` or no offset (UTC), and names none when its UTC moment falls
+ * outside the years 0000 to 9999, which no device text spells. This reads a
+ * literal's value, never expression text.
  */
 export function literalInstantMicros(text: string): number | undefined {
 	const match = LITERAL_INSTANT.exec(text);
@@ -102,7 +114,8 @@ export function literalInstantMicros(text: string): number | undefined {
 			: Math.floor(Number(`0.${fraction}`) * 1_000_000 + 0.5);
 	// The device parse's own double operations, in its order: past 2^53
 	// microseconds (the year 2255) both round alike.
-	return seconds * 1_000_000 + micros;
+	const total = seconds * 1_000_000 + micros;
+	return total < FIRST_MICROS || total >= END_MICROS ? undefined : total;
 }
 
 export type InstantComparisonKind = "eq" | "neq" | "lt" | "lte" | "gt" | "gte";
@@ -265,6 +278,30 @@ function literalInstant(
 		: { kind: "leaf", class: "not-instant", value, data: "datetime" };
 }
 
+/**
+ * How one operand's leaves are typed:
+ * - `literals`: in form logic, how an untyped literal leaf is typed, branch or
+ *   direct operand alike. `shaped` where the comparison types a string literal
+ *   by the ISO shape it spells (`typeChecker.ts::formLiteralsShaped`), `text`
+ *   where it stays text; absent in a record slot, where a literal has the type
+ *   its `data_type` names and no other.
+ * - `typeOf`: the type of a leaf, where the caller already holds it; the
+ *   checker's own inference otherwise.
+ * - `memo`: operands already classified in this context, so a caller that
+ *   meets one expression several times (a `switch` subject, a side shared by
+ *   `in` or `between`) classifies it once.
+ */
+export interface InstantOperandTyping {
+	readonly literals?: "shaped" | "text";
+	readonly typeOf?: (expression: Expression) => NodeType | undefined;
+	readonly memo?: InstantOperandMemo;
+}
+/** Operands classified in one context, by expression and literal typing. */
+export type InstantOperandMemo = WeakMap<
+	Expression,
+	Partial<Record<"shaped" | "text" | "record", InstantOperand>>
+>;
+
 /** A leaf classified by its type and held representation. */
 function byType(
 	value: Expression,
@@ -301,31 +338,49 @@ function byType(
 	return { kind: "leaf", class: "not-instant", value, data };
 }
 
+/** A literal leaf's type: its `data_type`, or in form logic the type the
+ * form rule set gives it (`literalType`, a string by its shape where the
+ * comparison shapes it). */
+function literalLeafType(
+	literal: Literal,
+	literals: InstantOperandTyping["literals"],
+): ScalarType | undefined {
+	if (literal.data_type !== undefined) return literal.data_type;
+	if (literals === undefined) return undefined;
+	if (literals === "shaped" && typeof literal.value === "string")
+		return literalShape(literal.value)?.type ?? literalType(literal);
+	return literalType(literal);
+}
+
 /** The leaves a `datetime-coerce` of `inner` holds. */
-function coerced(inner: Expression, ctx: ExpressionContext): InstantOperand {
+function coerced(
+	inner: Expression,
+	ctx: ExpressionContext,
+	typeOfLeaf: (expression: Expression) => NodeType | undefined,
+): InstantOperand {
 	switch (inner.kind) {
 		case "if":
 			return {
 				kind: "if",
 				source: inner,
-				whenTrue: coerced(inner.then, ctx),
-				whenFalse: coerced(inner.else, ctx),
+				whenTrue: coerced(inner.then, ctx, typeOfLeaf),
+				whenFalse: coerced(inner.else, ctx, typeOfLeaf),
 			};
 		case "coalesce":
 			return {
 				kind: "coalesce",
 				source: inner,
-				values: inner.values.map((value) => coerced(value, ctx)),
+				values: inner.values.map((value) => coerced(value, ctx, typeOfLeaf)),
 			};
 		case "switch":
 			return {
 				kind: "switch",
 				source: inner,
-				cases: inner.cases.map((entry) => coerced(entry.then, ctx)),
-				fallback: coerced(inner.fallback, ctx),
+				cases: inner.cases.map((entry) => coerced(entry.then, ctx, typeOfLeaf)),
+				fallback: coerced(inner.fallback, ctx, typeOfLeaf),
 			};
 		case "datetime-coerce":
-			return coerced(inner.value, ctx);
+			return coerced(inner.value, ctx, typeOfLeaf);
 		default:
 			break;
 	}
@@ -350,7 +405,7 @@ function coerced(inner: Expression, ctx: ExpressionContext): InstantOperand {
 			);
 		return { kind: "leaf", class: "coerced-text", value: inner };
 	}
-	const type = typeOf(inner, ctx);
+	const type = typeOfLeaf(inner);
 	const data = scalarDataType(type?.data);
 	const held = heldOf(type) ?? fieldHeld(inner, ctx);
 	if (type?.clockLost === true)
@@ -383,82 +438,108 @@ function coerced(inner: Expression, ctx: ExpressionContext): InstantOperand {
 }
 
 /**
- * One operand's leaves. `literalType` is the type a direct literal operand
- * takes in its comparison (`formComparisonOperandTypes`): a form string
- * literal shaped as a date and time is one only where its comparison types
- * it so.
+ * One operand's leaves. A literal leaf, a direct operand or a branch of an
+ * `if`, `coalesce` or `switch`, is typed as `typing.literals` says, so a form
+ * string literal shaped as a date and time is one wherever its comparison
+ * types it so, and is folded as one.
  */
 export function instantOperand(
 	expression: Expression,
 	ctx: ExpressionContext,
-	literalType?: ScalarType,
+	typing: InstantOperandTyping = {},
 ): InstantOperand {
+	const slot = typing.literals ?? "record";
+	const memoised = typing.memo?.get(expression)?.[slot];
+	if (memoised !== undefined) return memoised;
+	const operand = classifyOperand(expression, ctx, typing);
+	if (typing.memo !== undefined)
+		typing.memo.set(expression, {
+			...typing.memo.get(expression),
+			[slot]: operand,
+		});
+	return operand;
+}
+function classifyOperand(
+	expression: Expression,
+	ctx: ExpressionContext,
+	typing: InstantOperandTyping,
+): InstantOperand {
+	const typeOfLeaf =
+		typing.typeOf ?? ((value: Expression) => typeOf(value, ctx));
+	const branch = (value: Expression): InstantOperand =>
+		instantOperand(value, ctx, { ...typing, typeOf: typeOfLeaf });
 	switch (expression.kind) {
 		case "if":
 			return {
 				kind: "if",
 				source: expression,
-				whenTrue: instantOperand(expression.then, ctx),
-				whenFalse: instantOperand(expression.else, ctx),
+				whenTrue: branch(expression.then),
+				whenFalse: branch(expression.else),
 			};
 		case "coalesce":
 			return {
 				kind: "coalesce",
 				source: expression,
-				values: expression.values.map((value) => instantOperand(value, ctx)),
+				values: expression.values.map(branch),
 			};
 		case "switch":
 			return {
 				kind: "switch",
 				source: expression,
-				cases: expression.cases.map((entry) => instantOperand(entry.then, ctx)),
-				fallback: instantOperand(expression.fallback, ctx),
+				cases: expression.cases.map((entry) => branch(entry.then)),
+				fallback: branch(expression.fallback),
 			};
 		case "datetime-coerce":
-			return coerced(expression.value, ctx);
+			return coerced(expression.value, ctx, typeOfLeaf);
 		default:
 			break;
 	}
 	const literal = directLiteral(expression);
 	if (literal !== undefined) {
-		const type =
-			literal.data_type ??
-			(typeof literal.value === "string" && literalType === "datetime"
-				? "datetime"
-				: undefined);
-		return type === "datetime"
+		const data = literalLeafType(literal, typing.literals);
+		return data === "datetime"
 			? literalInstant(expression, literal, false)
 			: {
 					kind: "leaf",
 					class: "not-instant",
 					value: expression,
-					...((literal.data_type ?? literalType) === undefined
-						? {}
-						: { data: literal.data_type ?? literalType }),
+					...(data === undefined ? {} : { data }),
 				};
 	}
-	return byType(expression, typeOf(expression, ctx), ctx);
+	return byType(expression, typeOfLeaf(expression), ctx);
 }
 
-/** Both sides of a comparison, a direct form string literal typed by the
- * comparison as the form rule set types it. */
+/** Both sides of a comparison, each literal leaf typed as the form rule set
+ * types the comparison's own literals (`typeChecker.ts::formLiteralsShaped`).
+ * `typing.typeOf` serves the types the caller already holds. */
 export function comparisonOperands(
 	expression: Extract<Expression, { kind: InstantComparisonKind }>,
 	ctx: ExpressionContext,
+	typing: Omit<InstantOperandTyping, "literals"> = {},
 ): { readonly left: InstantOperand; readonly right: InstantOperand } {
 	if (ctx.ruleSet !== "form")
 		return {
-			left: instantOperand(expression.left, ctx),
-			right: instantOperand(expression.right, ctx),
+			left: instantOperand(expression.left, ctx, typing),
+			right: instantOperand(expression.right, ctx, typing),
 		};
-	const { left, right } = formComparisonOperandTypes(
+	const typeOfLeaf =
+		typing.typeOf ?? ((value: Expression) => typeOf(value, ctx));
+	const shaped = formLiteralsShaped(
 		expression,
-		scalarDataType(typeOf(expression.left, ctx)?.data),
-		scalarDataType(typeOf(expression.right, ctx)?.data),
+		scalarDataType(typeOfLeaf(expression.left)?.data),
+		scalarDataType(typeOfLeaf(expression.right)?.data),
 	);
 	return {
-		left: instantOperand(expression.left, ctx, left),
-		right: instantOperand(expression.right, ctx, right),
+		left: instantOperand(expression.left, ctx, {
+			...typing,
+			literals: shaped.left ? "shaped" : "text",
+			typeOf: typeOfLeaf,
+		}),
+		right: instantOperand(expression.right, ctx, {
+			...typing,
+			literals: shaped.right ? "shaped" : "text",
+			typeOf: typeOfLeaf,
+		}),
 	};
 }
 
@@ -557,21 +638,27 @@ export function comparisonPlan(
 	return "lowered";
 }
 
-/** An ordering lowers when either side is a moment, an equality (`=`, `!=`,
- * each `in` member, each `switch` case) when one is and the other is a moment
- * or of unknown type. */
-export function lowersComparison(
-	kind: InstantComparisonKind,
-	left: InstantOperand,
-	right: InstantOperand,
-): boolean {
-	return comparisonPlan(kind, left, right) === "lowered";
+/** A literal of a known kind other than a date and time that is not blank
+ * (text that spells no moment, a number, a date): a lowered comparison would
+ * read it as no moment. A blank literal names no moment and reads as none. */
+function otherKindLiteral(leaf: InstantLeaf): boolean {
+	if (leaf.class !== "not-instant") return false;
+	const literal = directLiteral(leaf.value);
+	return (
+		literal !== undefined &&
+		literal.value !== null &&
+		literal.value !== "" &&
+		leaf.data !== undefined &&
+		leaf.data !== ANY_TYPE &&
+		leaf.data !== "datetime"
+	);
 }
 
 /** The leaves a lowered comparison cannot print as an instant: a casedb
  * system date (its day only), a clock-lost value, a date, a date-and-time
- * literal that names no moment, and a value of unknown type whose node holds
- * neither text nor a typed date. Empty when every leaf has an instant text. */
+ * literal that names no moment, a literal of another kind, and a value of
+ * unknown type whose node holds neither text nor a typed date. Empty when
+ * every leaf has an instant text. */
 export function unlowerableLeaves(
 	operand: InstantOperand,
 ): readonly InstantLeaf[] {
@@ -582,8 +669,22 @@ export function unlowerableLeaves(
 				literalInstantMicros(leaf.literal.value) === undefined) ||
 			leaf.class === "clock-lost" ||
 			(leaf.class === "not-instant" && leaf.data === "date") ||
+			otherKindLiteral(leaf) ||
 			(leaf.class === "unknown" &&
 				leaf.held !== "string" &&
 				leaf.held !== "date"),
+	);
+}
+
+/** The literal leaves of an operand that name no moment though written as a
+ * date or a date and time: what a `datetime-coerce` printed as a value
+ * cannot spell (`instant.ts::datetimeCoerceValue`). */
+export function unreadableInstantLiterals(
+	operand: InstantOperand,
+): readonly Extract<InstantLeaf, { class: "literal-instant" }>[] {
+	return instantLeaves(operand).filter(
+		(leaf): leaf is Extract<InstantLeaf, { class: "literal-instant" }> =>
+			leaf.class === "literal-instant" &&
+			literalInstantMicros(leaf.literal.value) === undefined,
 	);
 }
