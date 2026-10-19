@@ -179,7 +179,10 @@ public class CoreDateParityRuntimeTest {
                 "bc-fold-days", "bc-fold-day-number", "bc-text", "bc-direct-weekday", "bc-fold-weekday",
                 "bc-far-fold-text", "bc-far-fold-days", "julian-leap-text", "julian-leap-days",
                 "julian-leap-format-null", "julian-leap-format-day-number", "julian-leap-coalesce",
-                "julian-leap-next-day", "julian-leap-node-text", "julian-leap-node-format", "julian-leap-node-days"})
+                "julian-leap-next-day", "julian-leap-node-text", "julian-leap-node-format", "julian-leap-node-days",
+                "cutoff-before-clock", "cutoff-before-days", "cutoff-before-fraction", "cutoff-after-clock",
+                "cutoff-after-days", "cutoff-after-fraction", "cutoff-days-1899-12-31", "cutoff-days-1900-01-01",
+                "cutoff-day-number-text", "cutoff-cast-kolkata-repeated", "cutoff-cast-kiritimati-repeated"})
                 assertTrue("Missing date parity row: " + required, ids.contains(required));
         } finally {
             CalendarUtils.setArrayDataSource(new LocaleArrayDataSource(new DefaultArrayDataSource()));

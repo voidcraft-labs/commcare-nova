@@ -16,15 +16,28 @@
 // 1970-01-01, one per solar day); only the fields a day is read as or written
 // from follow Java's calendar (`javaCalendarDate`, `javaCalendarDays`).
 //
+// The zone's offset is Java's (`lib/domain/javaZoneOffset.ts`): the IANA
+// history from 1900-01-01T00:00Z on, and the zone's current standard offset
+// before it, where `java.util.TimeZone` keeps no history. JavaScript's own
+// local getters follow the IANA history further back (local mean time), so
+// every local field here is read off the instant shifted by Java's offset,
+// never through `Date`'s local getters.
+//
 // Core does every step in `long` milliseconds, so any `int` day number has a
 // date. JavaScript's `Date` holds only ±8.64e15 ms (about ±273,790 years), so
-// the day counts are integer arithmetic on days, and a zone's offset beyond
-// that range is the offset at its nearest edge: the zone's local mean time in
-// the past and its final rule in the future, as both the JDK and ICU extend
-// them.
+// the day counts are integer arithmetic on days. Before 1900 the offset is
+// constant, so it holds for the far past exactly; beyond `Date`'s future
+// range it is the offset at the edge, the zone's final rule, as both the JDK
+// and ICU extend it.
 //
 // Every function reads the realm's zone at the call: a browser page keeps one
 // zone, and a test that assigns `process.env.TZ` sees the new one.
+
+import {
+	JAVA_ZONE_HISTORY_START_MS,
+	javaZoneOffsetMs,
+	standardOffsetInstant,
+} from "@/lib/domain/javaZoneOffset";
 
 const DAY = 86_400_000;
 
@@ -191,11 +204,11 @@ export function isCoreCalendarDate(
 }
 
 /**
- * The zone's offset at an instant in milliseconds, seconds included (a local
- * mean time such as New York's -4:56:02 keeps them). An instant beyond
- * `Date`'s range takes the offset at the nearest edge.
+ * The realm zone's IANA offset at an instant in milliseconds, seconds
+ * included (a local mean time such as Kolkata's +5:21:10 keeps them). An
+ * instant beyond `Date`'s range takes the offset at the nearest edge.
  */
-function offsetMsAt(instantMs: number): number {
+function ianaOffsetMs(instantMs: number): number {
 	const clamped = withinLocalLimit(instantMs);
 	const local = new Date(clamped);
 	const wall = new Date(0);
@@ -209,6 +222,42 @@ function offsetMsAt(instantMs: number): number {
 	return wall.getTime() - clamped;
 }
 
+/** The offset `java.util.TimeZone` gives the realm's zone at an instant: the
+ * IANA offset from 1900 on, the zone's standard offset before it. */
+function offsetMsAt(instantMs: number): number {
+	return javaZoneOffsetMs(instantMs, ianaOffsetMs);
+}
+
+/** The instant whose IANA zone name is the one Java gives an instant: the
+ * instant itself from 1900 on, and before it an instant in the zone's
+ * standard time, since Java reads every earlier instant at its standard
+ * offset. */
+export function javaZoneNameInstant(instantMs: number): number {
+	return instantMs < JAVA_ZONE_HISTORY_START_MS
+		? standardOffsetInstant(ianaOffsetMs)
+		: instantMs;
+}
+
+/** Milliseconds since 1970-01-01 of an instant's wall clock in the realm's
+ * zone, read as if UTC: the instant plus Java's offset there. */
+function wallMs(instantMs: number): number {
+	return instantMs + offsetMsAt(instantMs);
+}
+
+/** The wall clock of an instant in the realm's zone, as Java reads it. */
+export function javaLocalClock(
+	instantMs: number,
+): Pick<WallClock, "hour" | "minute" | "second" | "millisecond"> {
+	const wall = wallMs(instantMs);
+	const msOfDay = wall - floorDiv(wall, DAY) * DAY;
+	return {
+		hour: Math.floor(msOfDay / 3_600_000),
+		minute: Math.floor(msOfDay / 60_000) % 60,
+		second: Math.floor(msOfDay / 1000) % 60,
+		millisecond: msOfDay % 1000,
+	};
+}
+
 /**
  * The instant `java.util.Calendar` gives a wall clock in this realm's zone
  * (`DateUtils.getDate(DateFields, String)` sets each field on a lenient
@@ -219,9 +268,11 @@ function offsetMsAt(instantMs: number): number {
  * takes the new offset, its LATER occurrence, and a skipped one takes the old
  * offset, moving forward by the gap.
  *
- * JavaScript's `setHours` agrees in a gap and takes the EARLIER occurrence in
- * an overlap, so the candidates are tested here and the latest one kept; the
- * `Date` setters answer only when no candidate exists. Authoring stamps a
+ * The candidate instants each nearby offset gives are tested here and the
+ * latest one kept; when none reads back (a gap), the wall clock takes the
+ * smaller offset, the one before the gap. Java's 1900 cutoff is such a
+ * transition too: Kiritimati's +14:00 gives way to -10:29:20 there, so a
+ * day of wall clocks repeats and the later reading wins. Authoring stamps a
  * picked wall clock at its earlier occurrence instead
  * (`lib/domain/temporalValues.ts::zoneDesignatorForWallTime`); the two
  * policies answer different questions and stay separate.
@@ -244,28 +295,14 @@ function wallInstantOnDay(
 		clock.millisecond;
 	const wallUtc = days * DAY + clockMs;
 	if (Math.abs(wallUtc) > LOCAL_LIMIT_MS - DAY) return Number.NaN;
+	const offsets = [wallUtc - DAY, wallUtc, wallUtc + DAY].map(offsetMsAt);
 	let latest: number | null = null;
-	for (const probe of [wallUtc - DAY, wallUtc, wallUtc + DAY]) {
-		const candidate = wallUtc - offsetMsAt(probe);
-		if (localCalendarDays(candidate) !== days) continue;
-		const local = new Date(candidate);
-		if (
-			local.getHours() !== clock.hour ||
-			local.getMinutes() !== clock.minute ||
-			local.getSeconds() !== clock.second ||
-			local.getMilliseconds() !== clock.millisecond
-		) {
-			continue;
-		}
+	for (const offset of offsets) {
+		const candidate = wallUtc - offset;
+		if (wallMs(candidate) !== wallUtc) continue;
 		if (latest === null || candidate > latest) latest = candidate;
 	}
-	if (latest !== null) return latest;
-	// `Date`'s setters take proleptic Gregorian fields.
-	const date = gregorianDate(days);
-	const forward = new Date(0);
-	forward.setFullYear(date.year, date.month - 1, date.day);
-	forward.setHours(clock.hour, clock.minute, clock.second, clock.millisecond);
-	return forward.getTime();
+	return latest ?? wallUtc - Math.min(...offsets);
 }
 
 const MIDNIGHT = { hour: 0, minute: 0, second: 0, millisecond: 0 } as const;
@@ -287,18 +324,12 @@ export function localMidnight(calendarDays: number): number {
 	return calendarDays * DAY + localMidnightShift(calendarDays);
 }
 
-/** The local calendar day an instant falls on, as days since 1970-01-01.
- * Fields copy via `setUTCFullYear`, never `Date.UTC`, whose two-digit-year
- * remapping would move a year 0001-0099 date nineteen centuries. */
+/** The local calendar day an instant falls on, as days since 1970-01-01:
+ * its wall clock under Java's offset, floored to a day. An instant outside
+ * `Date`'s range has none (NaN). */
 export function localCalendarDays(instantMs: number): number {
-	const local = new Date(instantMs);
-	const midnight = new Date(0);
-	midnight.setUTCFullYear(
-		local.getFullYear(),
-		local.getMonth(),
-		local.getDate(),
-	);
-	return Math.round(midnight.getTime() / DAY);
+	if (!(Math.abs(instantMs) <= DATE_LIMIT_MS)) return Number.NaN;
+	return floorDiv(wallMs(instantMs), DAY);
 }
 
 /**
@@ -322,13 +353,9 @@ export function javaLocalFields(
 			offsetMinutes: offsetMsAt(instant) / 60_000,
 		};
 	}
-	const local = new Date(instant);
 	return {
 		...date,
-		hour: local.getHours(),
-		minute: local.getMinutes(),
-		second: local.getSeconds(),
-		millisecond: local.getMilliseconds(),
+		...javaLocalClock(instant),
 		dayOfWeek,
 		offsetMinutes: offsetMsAt(instant) / 60_000,
 	};
@@ -389,15 +416,20 @@ export function coreDateAdd(days: number): number | null {
 	return coreRoundDay(days + Math.floor((epoch + DAY / 2 + offset) / DAY));
 }
 
+/** `java.util.Date.getTimezoneOffset`: minutes WEST of UTC, the zone's
+ * (never a provider's) offset in milliseconds negated and divided as an
+ * `int`, so a local mean time's seconds truncate toward zero. */
+function javaTimezoneOffsetMinutes(instantMs: number): number {
+	return Math.trunc(-offsetMsAt(instantMs) / 60_000);
+}
+
 /** `DateUtils.fractionalDaysSinceEpoch`: the instant's distance from
- * `EPOCH_DATE` corrected by the change in `Date.getTimezoneOffset` (the
- * zone's, in whole minutes, never a provider's) between the two, so it
- * follows the wall clock. */
+ * `EPOCH_DATE` corrected by the change in `Date.getTimezoneOffset` between
+ * the two, so it follows the wall clock. */
 export function coreFractionalDays(instantMs: number): number {
 	const epoch = coreEpochTime();
 	const drift =
-		(new Date(withinLocalLimit(instantMs)).getTimezoneOffset() -
-			new Date(epoch).getTimezoneOffset()) *
+		(javaTimezoneOffsetMinutes(instantMs) - javaTimezoneOffsetMinutes(epoch)) *
 		60_000;
 	return (instantMs - epoch - drift) / DAY;
 }

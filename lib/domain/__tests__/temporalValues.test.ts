@@ -342,20 +342,39 @@ describe("instantDatetimeValue", () => {
 	});
 
 	it("keeps years 0-99 and BC years in their own century", () => {
-		// New York's local mean time is -4:56:02, which rounds to -04:56.
+		// Java's zone holds no history before 1900, so an earlier instant takes
+		// the zone's standard offset, never its local mean time (-4:56:02).
 		const year50 = Date.parse("0050-01-01T10:00:00.000Z");
 		expect(instantDatetimeValue(year50, "America/New_York")).toBe(
-			"0050-01-01T05:04:00.000-04:56",
+			"0050-01-01T05:00:00.000-05:00",
 		);
 		expect(instantDatetimeValue(year50, "UTC")).toBe(
 			"0050-01-01T10:00:00.000Z",
 		);
-		// Kolkata's local mean time is +5:53:28, which rounds to +05:53.
 		expect(
 			instantDatetimeValue(
 				Date.parse("-000100-06-01T10:00:00.000Z"),
 				"Asia/Kolkata",
 			),
-		).toMatch(/-06-01T15:53:00\.000\+05:53$/);
+		).toMatch(/-06-01T15:30:00\.000\+05:30$/);
+	});
+
+	it("reads each zone as Java does either side of 1900-01-01T00:00Z", () => {
+		// From the cutoff on, the tzdb's own offset, local mean time included;
+		// the stored text rounds it to whole minutes and still round-trips.
+		const before = Date.parse("1899-12-31T23:59:59.000Z");
+		const after = Date.parse("1900-01-01T00:00:01.000Z");
+		expect(instantDatetimeValue(before, "Asia/Kolkata")).toBe(
+			"1900-01-01T05:29:59.000+05:30",
+		);
+		expect(instantDatetimeValue(after, "Asia/Kolkata")).toBe(
+			"1900-01-01T05:21:01.000+05:21",
+		);
+		expect(instantDatetimeValue(before, "Pacific/Kiritimati")).toBe(
+			"1900-01-01T13:59:59.000+14:00",
+		);
+		expect(instantDatetimeValue(after, "Pacific/Kiritimati")).toBe(
+			"1899-12-31T13:31:01.000-10:29",
+		);
 	});
 });

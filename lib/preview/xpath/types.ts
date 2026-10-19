@@ -5,6 +5,7 @@ import {
 	type JavaLocalFields,
 	javaCalendarDate,
 	javaCalendarDays,
+	javaLocalClock,
 	javaLocalFields,
 	javaWallInstant,
 	localCalendarDays,
@@ -369,12 +370,12 @@ function parseJavaRosaTimeFields(
 	const utc = new Date(0);
 	utc.setUTCHours(hour, minute, second, milliseconds);
 	utc.setUTCFullYear(date.year, date.monthIndex, date.day);
-	const adjusted = new Date(utc.getTime() - offsetMinutes * 60_000);
+	const adjusted = javaLocalClock(utc.getTime() - offsetMinutes * 60_000);
 	return {
-		hour: adjusted.getHours(),
-		minute: adjusted.getMinutes(),
-		second: adjusted.getSeconds(),
-		milliseconds: adjusted.getMilliseconds(),
+		hour: adjusted.hour,
+		minute: adjusted.minute,
+		second: adjusted.second,
+		milliseconds: adjusted.millisecond,
 	};
 }
 

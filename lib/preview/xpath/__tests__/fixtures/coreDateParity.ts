@@ -106,16 +106,32 @@ const laterAnswer = {
 	value: "2026-11-01T06:15:00.000Z",
 } as const;
 const blank = { name: "blank", held: "text", value: "" } as const;
-/** A widget answer at noon UTC on proleptic Gregorian 0100-02-27, which
- * Java's calendar reads as Julian 0100-02-29 in every zone (each sits at its
- * local mean time then). */
+/** A widget answer at 07:00 UTC on proleptic Gregorian 0100-02-27, which
+ * Java's calendar reads as Julian 0100-02-29 in every zone: Java reads an
+ * instant before 1900 at the zone's standard offset, and 07:00Z is that day
+ * from New York's -05:00 to Kiritimati's +14:00. */
 const julianLeapAnswer = {
 	name: "jdt",
 	held: "datetime",
-	value: "0100-02-27T12:00:00.000Z",
+	value: "0100-02-27T07:00:00.000Z",
 } as const;
-/** Julian 0100-02-29 as a day number (proleptic Gregorian 0100-02-27). */
-const JULIAN_LEAP_DAY = -682946;
+/** Core's day number of Julian 0100-02-29 (proleptic Gregorian 0100-02-27)
+ * in the device's zone: one past Julian 0100-02-28's, whose date Core reads.
+ * It is -682946 in three zones and one less in Kiritimati, whose +14:00 before
+ * 1900 sits more than twelve hours from its 1970 offset. */
+const JULIAN_LEAP_DAY = "(number(date('0100-02-28')) + 1)";
+/** Widget answers one second either side of 1900-01-01T00:00:00Z, where
+ * Java's zone history begins (`lib/domain/javaZoneOffset.ts`). */
+const cutoffBefore = {
+	name: "before",
+	held: "datetime",
+	value: "1899-12-31T23:59:59.000Z",
+} as const;
+const cutoffAfter = {
+	name: "after",
+	held: "datetime",
+	value: "1900-01-01T00:00:01.000Z",
+} as const;
 const castOf = (value: string) =>
 	[{ name: "cast", held: "setvalue-datetime", value }] as const;
 const CAST_TEXT = "format-date(coalesce(/data/cast, ''), '%Y-%m-%dT%H:%M%Z')";
@@ -347,12 +363,14 @@ export const CORE_DATE_PARITY: CoreDateParityTable = {
 		},
 		// Java's calendar (`Calendar.getInstance()`, a GregorianCalendar): fields
 		// before 1582-10-15 are Julian both ways, so Julian 1500-01-01 is day
-		// -171655 (proleptic Gregorian 1500-01-10). Every zone's local mean time
-		// sits within twelve hours of its 1970 offset, so no day shifts there.
+		// -171655 (proleptic Gregorian 1500-01-10). Java reads every instant
+		// before 1900 at the zone's standard offset, so Kiritimati's +14:00 sits
+		// 24h40m from its 1970 offset there too and counts one day less, and
+		// `date(n)` lands one day later.
 		{
 			id: "julian-days",
 			xpath: "number(date('1500-01-01'))",
-			expect: same("-171655"),
+			expect: { ...same("-171655"), kiritimati: "-171656" },
 		},
 		{
 			id: "julian-text",
@@ -367,7 +385,7 @@ export const CORE_DATE_PARITY: CoreDateParityTable = {
 		{
 			id: "julian-day-number",
 			xpath: "string(date(-200000))",
-			expect: same("1422-05-25"),
+			expect: { ...same("1422-05-25"), kiritimati: "1422-05-26" },
 		},
 		{
 			id: "julian-day-number-round-trip",
@@ -399,7 +417,7 @@ export const CORE_DATE_PARITY: CoreDateParityTable = {
 		{
 			id: "bc-fold-days",
 			xpath: "number(date('0000-06-15'))",
-			expect: same("-718999"),
+			expect: { ...same("-718999"), kiritimati: "-719000" },
 		},
 		{
 			id: "bc-fold-day-number",
@@ -419,19 +437,20 @@ export const CORE_DATE_PARITY: CoreDateParityTable = {
 		{
 			id: "bc-fold-weekday",
 			xpath: "format-date(date(-719364), '%Y-%m-%d %a')",
-			expect: same("0001-06-15 Wed"),
+			expect: { ...same("0001-06-15 Wed"), kiritimati: "0001-06-16 Thu" },
 		},
 		// The smallest `int` day folds about 5.88 million years forward, where
-		// Kiritimati's +14 counts one day less than its 1970 offset.
+		// Kiritimati's +14 counts one day less than its 1970 offset; `dateAdd`
+		// reached it a day later there, so the two cancel in its number.
 		{
 			id: "bc-far-fold-text",
 			xpath: "string(date(-2147483648))",
-			expect: same("5877521-03-03"),
+			expect: { ...same("5877521-03-03"), kiritimati: "5877521-03-04" },
 		},
 		{
 			id: "bc-far-fold-days",
 			xpath: "number(date(-2147483648))",
-			expect: { ...same("2146000997"), kiritimati: "2146000996" },
+			expect: same("2146000997"),
 		},
 		// `DateFields.check` is proleptic Gregorian, so `roundDate` returns null
 		// for a Julian February 29 in a year it calls common. `date(n)` is then
@@ -465,7 +484,7 @@ export const CORE_DATE_PARITY: CoreDateParityTable = {
 		},
 		{
 			id: "julian-leap-next-day",
-			xpath: `string(date(${JULIAN_LEAP_DAY + 1}))`,
+			xpath: `string(date(${JULIAN_LEAP_DAY} + 1))`,
 			expect: same("100-03-01"),
 		},
 		{
@@ -508,6 +527,110 @@ export const CORE_DATE_PARITY: CoreDateParityTable = {
 			id: "max-int-day-number",
 			xpath: "number(date(2147483647))",
 			expect: same("2147483647"),
+		},
+		// Java's zone history begins at 1900-01-01T00:00Z: before it every zone
+		// reads its standard offset, from it the tzdb's (Kolkata's local mean
+		// time +5:21:10, Kiritimati's -10:29:20). Kiritimati's clock steps back a
+		// day there, so day -25568 has no midnight Core counts and a wall clock
+		// on 1900-01-01 repeats; Kolkata's repeats 8m50s. A repeated wall clock
+		// takes its later reading, and `%Z` truncates the seconds.
+		{
+			id: "cutoff-before-clock",
+			xpath: "format-date(coalesce(/data/before, ''), '%Y-%m-%d %H:%M:%S%Z')",
+			nodes: [cutoffBefore],
+			expect: {
+				utc: "1899-12-31 23:59:59Z",
+				"new-york": "1899-12-31 18:59:59-05",
+				kolkata: "1900-01-01 05:29:59+05:30",
+				kiritimati: "1900-01-01 13:59:59+14",
+			},
+		},
+		{
+			id: "cutoff-before-days",
+			xpath: "number(/data/before)",
+			nodes: [cutoffBefore],
+			expect: { ...same("-25568"), kolkata: "-25567", kiritimati: "-25567" },
+		},
+		{
+			id: "cutoff-before-fraction",
+			xpath: "double(coalesce(/data/before, ''))",
+			nodes: [cutoffBefore],
+			expect: {
+				utc: "-25567.000011574073",
+				"new-york": "-25567.20834490741",
+				kolkata: "-25566.77084490741",
+				kiritimati: "-25566.41667824074",
+			},
+		},
+		{
+			id: "cutoff-after-clock",
+			xpath: "format-date(coalesce(/data/after, ''), '%Y-%m-%d %H:%M:%S%Z')",
+			nodes: [cutoffAfter],
+			expect: {
+				utc: "1900-01-01 00:00:01Z",
+				"new-york": "1899-12-31 19:00:01-05",
+				kolkata: "1900-01-01 05:21:11+05:21",
+				kiritimati: "1899-12-31 13:30:41-10:29",
+			},
+		},
+		{
+			id: "cutoff-after-days",
+			xpath: "number(/data/after)",
+			nodes: [cutoffAfter],
+			expect: {
+				utc: "-25567",
+				"new-york": "-25568",
+				kolkata: "-25567",
+				kiritimati: "-25569",
+			},
+		},
+		{
+			id: "cutoff-after-fraction",
+			xpath: "double(coalesce(/data/after, ''))",
+			nodes: [cutoffAfter],
+			expect: {
+				utc: "-25566.999988425927",
+				"new-york": "-25567.20832175926",
+				kolkata: "-25566.777071759258",
+				kiritimati: "-25567.43679398148",
+			},
+		},
+		{
+			id: "cutoff-days-1899-12-31",
+			xpath: "number(date('1899-12-31'))",
+			expect: { ...same("-25568"), kiritimati: "-25569" },
+		},
+		{
+			id: "cutoff-days-1900-01-01",
+			xpath: "number(date('1900-01-01'))",
+			expect: same("-25567"),
+		},
+		{
+			id: "cutoff-day-number-text",
+			xpath: "string(date(-25568))",
+			expect: { ...same("1899-12-31"), kiritimati: "1900-01-01" },
+		},
+		{
+			id: "cutoff-cast-kolkata-repeated",
+			xpath: CAST_TEXT,
+			nodes: castOf("1900-01-01T05:25:00"),
+			expect: {
+				utc: "1900-01-01T05:25Z",
+				"new-york": "1900-01-01T05:25-05",
+				kolkata: "1900-01-01T05:25+05:21",
+				kiritimati: "1900-01-01T05:25-10:29",
+			},
+		},
+		{
+			id: "cutoff-cast-kiritimati-repeated",
+			xpath: CAST_TEXT,
+			nodes: castOf("1900-01-01T00:00:00"),
+			expect: {
+				utc: "1900-01-01T00:00Z",
+				"new-york": "1900-01-01T00:00-05",
+				kolkata: "1900-01-01T00:00+05:30",
+				kiritimati: "1900-01-01T00:00-10:29",
+			},
 		},
 		// A blank node is `""` after unpacking: `toDate` returns it, and
 		// `expandDateSafe` then gives no date, which formats as `""`.

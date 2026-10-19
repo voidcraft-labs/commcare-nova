@@ -153,8 +153,9 @@ function pad(value: number, length: number): string {
  * compileTimezoneOffsetToken`) emits the same shape.
  */
 export function formatTimezoneOffset(offsetMinutes: number): string {
-	// Core divides an offset in milliseconds by integer arithmetic, so a local
-	// mean time's seconds are truncated away.
+	// Core divides an offset in milliseconds by integer arithmetic, so the
+	// seconds of a local mean time Java's zone holds from 1900 on (Kolkata's
+	// +5:21:10) are truncated away.
 	const wholeMinutes = Math.trunc(offsetMinutes);
 	const hours = Math.trunc(wholeMinutes / 60);
 	const head =

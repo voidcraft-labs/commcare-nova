@@ -26,6 +26,7 @@ import {
 	instantDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
+import { javaZoneNameInstant } from "@/lib/preview/xpath/coreDays";
 import { parseJavaDouble } from "@/lib/preview/xpath/javaDouble";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
 import { javaRosaSplitOnSpaces } from "@/lib/preview/xpath/javaString";
@@ -179,8 +180,9 @@ const JAVA_MONTHS = [
  */
 function javaDateString(value: XPathDate): string {
 	const local = value.localFields();
-	// A day beyond `Date`'s range takes the zone's name at the nearest edge.
-	const instant = Math.max(-8.64e15, Math.min(8.64e15, value.instant()));
+	// Before 1900 Java names the zone's standard time (`javaZoneNameInstant`);
+	// a day beyond `Date`'s future range takes the name at the edge.
+	const instant = javaZoneNameInstant(Math.min(8.64e15, value.instant()));
 	const zone =
 		new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
 			.formatToParts(new Date(instant))

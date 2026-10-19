@@ -64,6 +64,8 @@
 // Nova stores the spelling that cannot be invalidated by a stricter
 // validator later.
 
+import { javaZoneOffsetMs } from "./javaZoneOffset";
+
 /** The three kinds of temporal answer, spelled the same way by a field's
  *  `kind` and a case property's `data_type`. */
 export type TemporalValueKind = "date" | "time" | "datetime";
@@ -215,9 +217,12 @@ function zoneFormatter(zone: string): Intl.DateTimeFormat {
 	return formatter;
 }
 
-/** Minutes `zone` is ahead of UTC at a given instant. */
-function zoneOffsetMinutesAt(zone: string, instantMs: number): number {
-	const parts = zoneFormatter(zone).formatToParts(new Date(instantMs));
+/** Milliseconds `zone` is ahead of UTC at an instant in the IANA history,
+ * seconds included. The formatter reads whole seconds, so the instant is
+ * floored to its second first. */
+function ianaZoneOffsetMs(zone: string, instantMs: number): number {
+	const second = Math.floor(instantMs / 1000) * 1000;
+	const parts = zoneFormatter(zone).formatToParts(new Date(second));
 	const read = (type: Intl.DateTimeFormatPartTypes): number => {
 		const part = parts.find((candidate) => candidate.type === type);
 		return part === undefined ? 0 : Number(part.value);
@@ -234,8 +239,17 @@ function zoneOffsetMinutesAt(zone: string, instantMs: number): number {
 	const wall = new Date(0);
 	wall.setUTCFullYear(year, read("month") - 1, read("day"));
 	wall.setUTCHours(read("hour") % 24, read("minute"), read("second"), 0);
-	const wallAsUtc = wall.getTime();
-	return Math.round((wallAsUtc - instantMs) / 60_000);
+	return wall.getTime() - second;
+}
+
+/** Minutes `zone` is ahead of UTC at an instant, as `java.util.TimeZone`
+ * gives it (`javaZoneOffset.ts`): the IANA offset from 1900 on, the zone's
+ * standard offset before it. */
+function zoneOffsetMinutesAt(zone: string, instantMs: number): number {
+	const offsetMs = javaZoneOffsetMs(instantMs, (instant) =>
+		ianaZoneOffsetMs(zone, instant),
+	);
+	return Math.round(offsetMs / 60_000);
 }
 
 function formatZoneOffset(offsetMinutes: number): string {

@@ -385,7 +385,11 @@ Java's: `GregorianCalendar`'s Julian calendar before 1582-10-15, integer days pa
 range, and `DateUtils.roundDate`'s round trip wherever Core rounds, which folds a BC day to AD (the
 year is read without its era) and has no date for a Julian-only 29 February (`DateFields.check`),
 so `date()` there gives Core's null and reading it throws as Core does; the parity rows name Core's
-exception (`CORE_DATE_PARITY` schema version 2). The parse cache is one
+exception (`CORE_DATE_PARITY` schema version 2). The zone offset is Java's too, not the IANA
+history: `java.util.TimeZone` keeps transitions only from 1900-01-01T00:00Z and reads every earlier
+instant at the zone's current standard offset, never its local mean time, so Kiritimati counts
+Julian 1500-01-01 as day -171656 and its clock steps back a day at the cutoff
+(`lib/domain/javaZoneOffset.ts`, the `cutoff-*` parity rows). The parse cache is one
 module LRU per JavaScript realm (`evaluator.ts::parseAdmittedXPath`, 2,048 entries), shared by
 `evaluateRuntime` and `evaluateRuntimeAsync`, not one per evaluator instance. A calculated Date is
 held as the node's runtime value (`DataInstance`'s calculated scalars widen to `XPathDate`): a
