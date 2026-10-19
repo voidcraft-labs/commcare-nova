@@ -5,6 +5,7 @@ import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
+import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
 import {
 	previewMenuCaseContext,
 	previewModuleVisibility,
@@ -43,14 +44,16 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 		identityState.kind === "ready" ? identityState.identity : null;
 	const session = useMemo(() => previewSessionValues(identity), [identity]);
 	const lookup = usePreviewLookupStatus();
+	const deviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 	const moduleVisibility = useMemo(
 		() =>
 			previewModuleVisibility(menuSource.doc, {
 				authoring: mode === "edit" || bypass,
 				session,
 				lookup,
+				deviceCases,
 			}),
-		[lookup, menuSource, mode, session, bypass],
+		[lookup, menuSource, mode, session, bypass, deviceCases],
 	);
 	const atCaseRecord = loc.kind === "cases" && loc.caseId !== undefined;
 	const directRunningModuleUuid =

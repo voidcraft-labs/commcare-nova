@@ -30,6 +30,7 @@ import {
 	assertAndProjectCaseWriteInventory,
 	type ProjectedCaseWriteInventory,
 } from "@/lib/commcare/caseWriteAdmission";
+import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { fieldBindType } from "@/lib/commcare/xform/bindType";
 import {
 	type XFormDataRootRuntimeAttributes,
@@ -37,6 +38,7 @@ import {
 } from "@/lib/commcare/xform/dataRootAttributes";
 import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
 import { w } from "@/lib/commcare/xpath/wire/builders";
+import type { WireTermBindings } from "@/lib/commcare/xpath/wire/fromExpression";
 import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
@@ -53,6 +55,7 @@ import type {
 	FormType,
 	LanguageTag,
 	LookupOptionsSource,
+	ProseReferencePart,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -68,18 +71,21 @@ import {
 	isContainer,
 	isReadableTemporalValue,
 	orderedCaseOperations,
-	ownRecordValue,
 	prepareCaseScalarTextValue,
 	proseSource,
 	storageDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain";
+import { isMatchAll, isMatchNone } from "@/lib/domain/expression/builders";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/expression/errors";
 import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
-import type { FieldExpressionSlotRef } from "@/lib/domain/expression/types";
+import type {
+	FieldExpressionSlotRef,
+	ProseSlotRef,
+} from "@/lib/domain/expression/types";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
@@ -105,10 +111,8 @@ import {
 	type XPathValue,
 } from "../xpath/types";
 import {
-	serializeXPathWorkerHashtagValue,
 	serializeXPathWorkerValue,
 	snapshotXPathWorkerInstance,
-	xpathWorkerHashtagReferences,
 } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import {
@@ -153,7 +157,7 @@ import {
 	resolveLabelAsync,
 } from "./labelRefs";
 import {
-	evaluateLookupChoices,
+	lookupChoicesFromNodeset,
 	lookupOptionsSourceCovered,
 	type PreviewLookupData,
 	predicateLookupsCovered,
@@ -176,10 +180,27 @@ import { previewWorkerPropertyBinding } from "./workerExpressionBindings";
 import {
 	type CaseDatabaseSnapshot,
 	INLINE_SEARCH_INPUT_INSTANCE_ID,
-	previewHashtagNodeSet,
 	secondaryXPathInstances,
 	xpathNodeAtPath,
 } from "./xpathInstances";
+
+/** The prose slot a field's own text sits in, which its references print
+ * under. */
+function fieldProseSlot(
+	field: Field,
+	slot: "label" | "hint" | "help" | "validate_msg",
+): ProseSlotRef {
+	return { entity: "field", uuid: field.uuid, slot };
+}
+
+function optionProseSlot(field: Field, optionUuid: Uuid): ProseSlotRef {
+	return {
+		entity: "field",
+		uuid: field.uuid,
+		slot: "option_label",
+		member: { optionUuid },
+	};
+}
 
 const JAVA_INT_MIN = BigInt("-2147483648");
 const JAVA_INT_MAX = BigInt("2147483647");
@@ -403,8 +424,8 @@ export interface FormEngineRuntimeOptions {
 	/** Construct only the immutable form world. `initializeAsync` performs the
 	 * structural/default/cascade stages before the controller publishes it. */
 	readonly stagedAsync?: boolean;
-	/** The completed search's answers a no-matches registration form reads
-	 * through `#search/<name>`: prompt name → value, as the device's
+	/** The completed search's answers a no-matches registration form reads:
+	 * prompt name → value, as the device's
 	 * `search-input:results:inline` instance holds them. Absent (every other
 	 * form, and a no-matches form previewed without a search) reads blank. */
 	readonly searchAnswers?: ReadonlyMap<string, string>;
@@ -592,7 +613,7 @@ export class FormEngine {
 	 *  every walker inside the engine agrees on the same snapshot. */
 	private tree: FieldTreeNode[];
 	private caseData: CaseDataByType;
-	/** The resolved identity `#user/*` reads — fixed for the engine's
+	/** The resolved identity worker reads see, fixed for the engine's
 	 *  lifetime; an identity change rebuilds the engine so every computed
 	 *  value agrees on one evaluation world. `null` (signed-out client
 	 *  paint) reads every user slice as absent. */
@@ -649,7 +670,8 @@ export class FormEngine {
 	private initializationStates: EngineStoreState | undefined;
 	private initializationContext: XPathInitializationContext | undefined;
 	private readonly presentationLanguage: LanguageTag | undefined;
-	/** `#search/<name>` reads; empty outside an admitted no-matches launch. */
+	/** The search answers a no-matches form reads; empty outside an admitted
+	 * no-matches launch. */
 	private readonly searchAnswers: ReadonlyMap<string, string>;
 	/** `session/data/<id>` reads: the entry's session map. */
 	private readonly sessionData: Readonly<Record<string, string>>;
@@ -751,10 +773,9 @@ export class FormEngine {
 
 	// ── Public API ───────────────────────────────────────────────────
 
-	/** Structured-clone projection for one evaluation. Only parsed hashtag
-	 * tokens are copied into the request world. */
+	/** Structured-clone projection for one evaluation: the world's instances
+	 * on its first request, then only the values and relevance that changed. */
 	workerInstances(
-		source: string,
 		path: string,
 		world?: FormEngineWorkerWorld,
 		stateOverrides?: Readonly<EngineStoreState>,
@@ -829,13 +850,6 @@ export class FormEngine {
 			...(changedRelevance.length === 0
 				? {}
 				: { pathRelevance: changedRelevance }),
-			hashtagValues: xpathWorkerHashtagReferences(source).map((reference) =>
-				serializeXPathWorkerHashtagValue(
-					reference,
-					context.resolveHashtagValue?.(reference) ??
-						context.resolveHashtag(reference),
-				),
-			),
 			contextPath: context.contextPath,
 			...(this.initializationContext === undefined
 				? {}
@@ -1952,6 +1966,17 @@ export class FormEngine {
 		return this.expressions.source({ entity: "field", uuid: field.uuid, slot });
 	}
 
+	/** A `required` that is the constant match-all. Requiredness decides by
+	 * the stored tree, never by comparing printed text. */
+	private requiredAlways(field: Field): boolean {
+		const expression = this.expressions.expression({
+			entity: "field",
+			uuid: field.uuid,
+			slot: "required",
+		});
+		return expression !== undefined && isMatchAll(expression);
+	}
+
 	/**
 	 * Derive and admit case writes through the same path-aware inventory used
 	 * by validation and wire emission. Preview never re-interprets field ids as
@@ -2760,11 +2785,19 @@ export class FormEngine {
 	 * which owns it.
 	 */
 	reseedRequired(pathTemplate: string, field: Field): void {
-		const source = this.expressionSource(field, "required");
-		if (source !== undefined && source !== "true()" && source !== "false()") {
+		const expression = this.expressions.expression({
+			entity: "field",
+			uuid: field.uuid,
+			slot: "required",
+		});
+		if (
+			expression !== undefined &&
+			!isMatchAll(expression) &&
+			!isMatchNone(expression)
+		) {
 			return;
 		}
-		const required = source === "true()";
+		const required = expression !== undefined && isMatchAll(expression);
 		const updates: EngineStoreState = {};
 		const states = this.store.getState();
 		for (const path of this.materializePaths(pathTemplate)) {
@@ -2856,7 +2889,7 @@ export class FormEngine {
 		const concretes = this.materializePaths(path);
 
 		/* Seed DataInstance values + runtime states */
-		const isRequired = this.expressionSource(field, "required") === "true()";
+		const isRequired = this.requiredAlways(field);
 		const states: EngineStoreState = {};
 		for (const concrete of concretes) {
 			if (!this.instance.has(concrete)) {
@@ -3055,8 +3088,7 @@ export class FormEngine {
 		const updates: EngineStoreState = {};
 		const createdPaths: string[] = [];
 		const isStructural = isContainer(field);
-		const isRequired =
-			!isStructural && this.expressionSource(field, "required") === "true()";
+		const isRequired = !isStructural && this.requiredAlways(field);
 
 		for (const concrete of this.materializePaths(path)) {
 			const existing = current[concrete];
@@ -3491,22 +3523,22 @@ export class FormEngine {
 				case "output": {
 					const field = this.findField(path);
 					if (field === undefined) break;
-					const resolve = async (source: string) =>
-						xpathToString(await evaluateAsync(source, path));
+					const resolve =
+						(slot: ProseSlotRef) => async (part: ProseReferencePart) =>
+							xpathToString(
+								await evaluateAsync(this.expressions.prose(part, slot), path),
+							);
 					const nextLabel = await resolveLabelAsync(
 						fieldProseTemplate(field, "label"),
-						this.printDoc,
-						resolve,
+						resolve(fieldProseSlot(field, "label")),
 					);
 					const nextHint = await resolveLabelAsync(
 						fieldProseTemplate(field, "hint"),
-						this.printDoc,
-						resolve,
+						resolve(fieldProseSlot(field, "hint")),
 					);
 					const nextHelp = await resolveLabelAsync(
 						fieldProseTemplate(field, "help"),
-						this.printDoc,
-						resolve,
+						resolve(fieldProseSlot(field, "help")),
 					);
 					let nextOptions: Record<string, string> | undefined;
 					if (
@@ -3517,8 +3549,7 @@ export class FormEngine {
 						for (const option of field.optionsSource.options) {
 							const label = await resolveLabelAsync(
 								option.label,
-								this.printDoc,
-								resolve,
+								resolve(optionProseSlot(field, option.uuid)),
 							);
 							if (label !== undefined) entries.push([option.uuid, label]);
 						}
@@ -3707,22 +3738,23 @@ export class FormEngine {
 				case "output": {
 					const f = this.findField(path);
 					if (f) {
-						const resolve = (exprStr: string): string =>
-							xpathToString(evaluate(exprStr, ctx));
+						const resolve =
+							(slot: ProseSlotRef) =>
+							(part: ProseReferencePart): string =>
+								xpathToString(
+									evaluate(this.expressions.prose(part, slot), ctx),
+								);
 						const rl = resolveLabel(
 							fieldProseTemplate(f, "label"),
-							this.printDoc,
-							resolve,
+							resolve(fieldProseSlot(f, "label")),
 						);
 						const rh = resolveLabel(
 							fieldProseTemplate(f, "hint"),
-							this.printDoc,
-							resolve,
+							resolve(fieldProseSlot(f, "hint")),
 						);
 						const rhelp = resolveLabel(
 							fieldProseTemplate(f, "help"),
-							this.printDoc,
-							resolve,
+							resolve(fieldProseSlot(f, "help")),
 						);
 						const roptions =
 							(f.kind === "single_select" || f.kind === "multi_select") &&
@@ -3731,8 +3763,7 @@ export class FormEngine {
 										f.optionsSource.options.flatMap((option) => {
 											const value = resolveLabel(
 												option.label,
-												this.printDoc,
-												resolve,
+												resolve(optionProseSlot(f, option.uuid)),
 											);
 											return value === undefined
 												? []
@@ -3931,9 +3962,16 @@ export class FormEngine {
 							async () =>
 								(await resolveLabelAsync(
 									fieldProseTemplate(field, "validate_msg"),
-									this.printDoc,
-									async (source) =>
-										xpathToString(await evaluateAsync(source, path)),
+									async (part) =>
+										xpathToString(
+											await evaluateAsync(
+												this.expressions.prose(
+													part,
+													fieldProseSlot(field, "validate_msg"),
+												),
+												path,
+											),
+										),
 								)) ?? proseSource(field, "validate_msg", this.printDoc),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
@@ -4001,8 +4039,16 @@ export class FormEngine {
 							() =>
 								resolveLabel(
 									fieldProseTemplate(field, "validate_msg"),
-									this.printDoc,
-									(source) => xpathToString(evaluate(source, ctx)),
+									(part) =>
+										xpathToString(
+											evaluate(
+												this.expressions.prose(
+													part,
+													fieldProseSlot(field, "validate_msg"),
+												),
+												ctx,
+											),
+										),
 								) ?? proseSource(field, "validate_msg", this.printDoc),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
@@ -4120,7 +4166,7 @@ export class FormEngine {
 					path,
 					value: this.instance.get(path) ?? "",
 					visible: true,
-					required: this.expressionSource(f, "required") === "true()",
+					required: this.requiredAlways(f),
 					valid: true,
 					touched: false,
 				};
@@ -4174,7 +4220,7 @@ export class FormEngine {
 				? initializationContextNode(carrierParent, carrier)
 				: xpathNodeAtPath(mainInstance, path);
 
-		const context: EvalContext = {
+		return {
 			invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 			...(this.presentationLanguage === undefined
 				? {}
@@ -4197,70 +4243,12 @@ export class FormEngine {
 							),
 						}
 					: { kind: "unsupported" },
-			resolveHashtag: (ref: string) => {
-				if (ref.startsWith("#form/")) {
-					const fieldId = ref.slice(6);
-					return read(`/data/${fieldId}`) ?? "";
-				}
-				/* `#user/<prop>` is the USERCASE, not the session block: on the
-				 * wire it expands to the `commcare-user` case joined on the
-				 * session's user id (`lib/commcare/hashtags.ts`), which HQ
-				 * builds from a different set of built-in keys than the
-				 * registration block does. The identity carries both
-				 * projections for exactly this reason. An absent key reads
-				 * blank — the device exposes a missing property as an empty
-				 * node. */
-				if (ref.startsWith("#user/")) {
-					const prop = ref.slice(6);
-					return ownRecordValue(this.previewIdentity?.usercase, prop) ?? "";
-				}
-				/* `#search/<name>` is the completed search's answer, what the
-				 * wire reads from `instance('search-input:results:inline')`. A
-				 * prompt the search left blank, or a form running without an
-				 * admitted launch, reads blank. */
-				if (ref.startsWith("#search/")) {
-					return this.searchAnswers.get(ref.slice("#search/".length)) ?? "";
-				}
-				// Legacy evaluator adapters can still request a case hashtag.
-				// Resolve its namespace through the per-type case
-				// data: the form's OWN module case type addresses the loaded
-				// case (wire depth 0), an ANCESTOR type addresses the matching
-				// row of the parent chain (the preview counterpart of the
-				// wire's `…/index/parent × depth …` casedb walk — depth is
-				// implicit in which row claimed the type name). On a
-				// registration form has no loaded case, so its map is empty
-				// and every case ref reads blank, matching the wire's
-				// narrowing (the new case isn't in casedb at form init).
-				const match = /^#([^/]+)\/(.+)$/.exec(ref);
-				if (match) {
-					const namespace = match[1];
-					if (namespace === "case") {
-						throw new Error(
-							'Authored "#case/..." is not a Nova reference; Preview requires an explicit case-type namespace',
-						);
-					}
-					const data =
-						namespace !== undefined ? this.caseData.get(namespace) : undefined;
-					return data?.get(match[2] ?? "") ?? "";
-				}
-				return "";
-			},
 			contextPath: path,
 			// Predicate evaluation supplies its own 1-based context position.
 			// Everywhere else JavaRosa position() reads the context reference's
 			// zero-based final multiplicity through contextNode.
 			position: undefined,
 		};
-		context.resolveHashtagValue = (ref) =>
-			previewHashtagNodeSet(ref, {
-				casedb: this.secondaryInstances.get("casedb"),
-				caseData: this.caseData,
-				userId: this.previewIdentity?.session.context.userid,
-				searchInputs: this.secondaryInstances.get(
-					INLINE_SEARCH_INPUT_INSTANCE_ID,
-				),
-			}) ?? context.resolveHashtag(ref);
-		return context;
 	}
 
 	/** Defaults and query snapshots retain authored action order. Live counts
@@ -4939,7 +4927,7 @@ export class FormEngine {
 	 *  edit referencing a table/column the snapshot predates. Both are
 	 *  the typed loading state the renderer presents; the controller's
 	 *  coverage-keyed rebuild resolves them when fresh data arrives.
-	 *  Only a COVERED snapshot evaluates, so `evaluateLookupChoices`'s
+	 *  Only a COVERED snapshot evaluates, so `lookupChoicesFromNodeset`'s
 	 *  identity throws stay a genuine validation-bypass surface. */
 	private caseChoiceDataCovered(source: CaseOptionsSource): boolean {
 		return (
@@ -4959,12 +4947,13 @@ export class FormEngine {
 		});
 	}
 
-	private caseChoiceQuery(
-		source: CaseOptionsSource,
-		questionPath: string,
-	): string {
-		// Itemset predicates change the context to a candidate case. Keep
-		// earlier answers anchored on the question's own repeat iteration.
+	/**
+	 * The bindings a choice list's filter prints with: form logic's own, but
+	 * with each answer read relative to the question. Itemset predicates
+	 * change the context to a candidate row, so an earlier answer stays
+	 * anchored on the question's own repeat iteration through `current()`.
+	 */
+	private choiceBindings(questionPath: string): WireTermBindings {
 		const from = stripIndices(questionPath).split("/").filter(Boolean);
 		const fieldReference = (path: string) => {
 			const to = path.split("/").filter(Boolean);
@@ -4981,24 +4970,33 @@ export class FormEngine {
 			];
 			return w.current(steps.length === 0 ? [w.self()] : steps);
 		};
+		const session = formSessionBindings(this.printDoc, this.inputFormUuid);
+		return {
+			formFields: new Map(
+				[...this.fieldPathsByUuid()].map(([uuid, path]) => [
+					uuid,
+					fieldReference(path),
+				]),
+			),
+			datumId: session.datumId,
+			formCaseProperty: this.formCaseProperty(session.formCaseProperty),
+			workerProperty: this.workerProperty,
+			userPropertySlugs: previewUserPropertySlugMap(
+				previewSessionValues(this.previewIdentity),
+			),
+		};
+	}
+
+	private caseChoiceQuery(
+		source: CaseOptionsSource,
+		questionPath: string,
+	): string {
 		return serializeWire(
 			caseOptionsNodeset(
 				source,
 				this.choiceContext(questionPath),
 				{
-					formFields: new Map(
-						[...this.fieldPathsByUuid()].map(([uuid, path]) => [
-							uuid,
-							fieldReference(path),
-						]),
-					),
-					formCaseProperty: this.formCaseProperty(
-						formSessionBindings(this.printDoc, this.inputFormUuid)
-							.formCaseProperty,
-					),
-					userPropertySlugs: previewUserPropertySlugMap(
-						previewSessionValues(this.previewIdentity),
-					),
+					...this.choiceBindings(questionPath),
 					...(this.lookupData && {
 						lookup: {
 							naming: this.lookupData.naming,
@@ -5008,7 +5006,7 @@ export class FormEngine {
 				},
 				this.expressions.projection,
 			),
-			{ target: "xform", constraint: false },
+			{ target: "preview" },
 		).text;
 	}
 
@@ -5078,36 +5076,23 @@ export class FormEngine {
 		if (data === null || !lookupOptionsSourceCovered(source, data)) {
 			return undefined;
 		}
-		return evaluateLookupChoices(source, data, {
-			outer: this.lookupOuterContext(ctx),
-			formFields: this.fieldPathsByUuid(),
-			types: this.choiceContext(ctx.contextPath ?? "/data"),
-			userPropertySlugs: previewUserPropertySlugMap(
-				previewSessionValues(this.previewIdentity),
-			),
-		});
-	}
-
-	/** The engine's eval context extended with the session-instance path
-	 *  spellings the on-device emitters print for session/user terms —
-	 *  a lookup filter's non-row reads resolve here. */
-	private lookupOuterContext(base: EvalContext): EvalContext {
-		const session = previewSessionValues(this.previewIdentity);
-		return {
-			...base,
-			getValue: (p) =>
-				sessionInstancePathValue(p, session, this.sessionData) ??
-				base.getValue(p),
-			resolveInstance: (instanceId, path) =>
-				instanceId === "commcaresession"
-					? {
-							kind: "supported",
-							value: sessionInstancePathValue(path, session, this.sessionData),
-						}
-					: (base.resolveInstance?.(instanceId, path) ?? {
-							kind: "unsupported",
-						}),
-		};
+		const questionPath = ctx.contextPath ?? "/data";
+		const nodeset = serializeWire(
+			lookupOptionsNodeset(source, {
+				target: "preview",
+				types: this.choiceContext(questionPath),
+				naming: data.naming,
+				instanceScope: "xform",
+				form: this.expressions.projection,
+				bindings: this.choiceBindings(questionPath),
+			}),
+			{ target: "preview" },
+		).text;
+		return lookupChoicesFromNodeset(
+			source,
+			data,
+			evaluateRuntime(nodeset, ctx),
+		);
 	}
 
 	/** uuid → generic path over the live tree, cached per tree identity —

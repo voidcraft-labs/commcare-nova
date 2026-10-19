@@ -1308,7 +1308,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 					submission,
 					result.kind === "registration" ? result.caseId : undefined,
 				),
-				caseData,
 				caseDatabase: refreshedCaseDatabase,
 				lookupData: controller.previewLookupDataSnapshot,
 			};

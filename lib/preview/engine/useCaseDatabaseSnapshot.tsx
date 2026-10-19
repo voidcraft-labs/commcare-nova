@@ -101,6 +101,18 @@ export function caseDatabaseRequirements(
 			),
 		),
 	);
+	/* Menu display conditions are navigation XPath, not form XPath, so the
+	 * scan above passes over them; one that reads the device's cases (a
+	 * worker property, a case-first form's chosen case) waits on the same
+	 * snapshot (`displayConditionEvaluation.ts`). */
+	const navigationReference = [
+		...Object.values(doc.modules),
+		...Object.values(doc.forms),
+	].some(
+		(item) =>
+			item.displayCondition !== undefined &&
+			expressionReadsCaseDatabase(item.displayCondition, doc),
+	);
 	/* After-submit routing can carry an existing case, select an unchanged
 	 * related case, or walk an unchanged ancestor even when none of its authored
 	 * XPath mentions `instance('casedb')`. The transaction patch contains only
@@ -123,6 +135,7 @@ export function caseDatabaseRequirements(
 		caseChoices ||
 		explicitReference ||
 		proseReference ||
+		navigationReference ||
 		(hasAfterSubmitTask && hasCaseBearingModule);
 	const caseTypes = required
 		? [

@@ -956,6 +956,8 @@ describe("compileExpression — epoch numbers, positions and conditions as value
 	}) => {
 		for (const [viewerLocation, expected] of [
 			["42.3736 -71.1097 0.0 12.0", "42.3736 -71.1097 0.0 12.0"],
+			// Preview's two-value browser spelling, Java's E-notation kept.
+			["5.0E-4 -0.187", "5.0E-4 -0.187"],
 			// Never interpolated: a quote is data, not SQL.
 			["1' or '1'='1", "1' or '1'='1"],
 			[null, ""],
@@ -1560,7 +1562,6 @@ describe("compileExpression — round-trip — format-date arm", () => {
 
 const EMPTY_PREVIEW_CONTEXT: EvalContext = {
 	getValue: () => undefined,
-	resolveHashtag: () => "",
 	contextPath: "/data/current",
 	position: 1,
 };

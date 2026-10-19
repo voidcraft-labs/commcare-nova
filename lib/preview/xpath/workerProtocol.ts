@@ -73,23 +73,6 @@ export interface XPathWorkerPathRelevance {
 	readonly relevant: boolean;
 }
 
-export interface XPathWorkerScalarHashtagValue {
-	readonly reference: string;
-	readonly kind: "scalar";
-	readonly value: SerializedXPathValue;
-}
-
-export interface XPathWorkerNodesetHashtagValue {
-	readonly reference: string;
-	readonly kind: "nodeset";
-	readonly candidates: readonly XPathWorkerNodeAddress[];
-	readonly validPath: boolean;
-}
-
-export type XPathWorkerHashtagValue =
-	| XPathWorkerScalarHashtagValue
-	| XPathWorkerNodesetHashtagValue;
-
 /**
  * One immutable evaluation-world projection. The host may provide a
  * structural main instance, named secondary instances, scalar path fallbacks,
@@ -109,7 +92,6 @@ export interface XPathWorkerInstances {
 	 * Ancestor relevance is folded in by the host before crossing the worker
 	 * boundary, matching the relevant flags in the initial snapshot. */
 	readonly pathRelevance?: readonly XPathWorkerPathRelevance[];
-	readonly hashtagValues?: readonly XPathWorkerHashtagValue[];
 	readonly contextPath: string;
 	readonly initializationContext?: XPathInitializationContext;
 	readonly position?: number;

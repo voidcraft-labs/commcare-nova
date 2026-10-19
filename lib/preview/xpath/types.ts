@@ -208,10 +208,6 @@ export interface EvalContext {
 	contextNode?: XPathNode;
 	/** Captured outer node used by current() while predicates rescope context. */
 	originalContextNode?: XPathNode;
-	/** Nodeset-aware identity resolver. Falls back to resolveHashtag when absent. */
-	resolveHashtagValue?(ref: string): XPathRuntimeValue;
-	/** Resolve a hashtag ref (#patient/prop, #user/prop, #form/question_id). */
-	resolveHashtag(ref: string): string;
 	/** Current field path (for '.') */
 	contextPath: string;
 	/** Current predicate position, 1-based. Outside a predicate this should be

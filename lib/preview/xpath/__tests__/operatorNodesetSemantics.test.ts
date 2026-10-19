@@ -75,7 +75,6 @@ function fixture(): EvalContext {
 		contextPath: contextNode.path,
 		position: undefined,
 		getValue: (path) => data.get(path),
-		resolveHashtag: () => "",
 	};
 }
 

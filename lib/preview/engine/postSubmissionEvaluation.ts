@@ -111,7 +111,6 @@ export async function evaluatePostSubmissionSnapshot(
 			submission,
 			args.mutation.kind === "registration" ? ids[0] : undefined,
 		),
-		caseData,
 		caseDatabase: context.cases,
 		lookupData: previewLookupData(context.lookup),
 	};

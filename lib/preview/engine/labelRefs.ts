@@ -1,15 +1,11 @@
 /**
- * Projects and resolves the typed references in canonical label/hint prose.
+ * Resolves the typed references in canonical label/hint prose.
  *
- * `resolveLabel()` is the unified entry point for the form engine — evaluates
- * bare hashtag refs and returns the resolved text.
+ * `resolveLabel()` is the form engine's entry point: literal text stays as
+ * written, and each reference part is evaluated by the caller, which prints
+ * it at the Preview target as the XForm's `<output>` for it reads.
  */
-import {
-	type ProseTemplate,
-	printProseTemplate,
-	type ReferenceNamesDoc,
-	resolveProseTemplate,
-} from "@/lib/domain";
+import type { ProseReferencePart, ProseTemplate } from "@/lib/domain";
 import { isNodesetCardinalityFailure } from "../xpath/runtimeError";
 
 /** Only ambiguous custom validation wording uses the standard warning.
@@ -41,32 +37,32 @@ export async function resolveConstraintMessageAsync(
 /**
  * Resolve each typed prose reference against the captured runtime context.
  * Literal text is preserved, including text that looks like a reference.
+ * A template with no reference resolves to `undefined`: the renderer shows
+ * its authored text.
  */
 export function resolveLabel(
 	template: ProseTemplate | undefined,
-	doc: ReferenceNamesDoc,
-	evaluator: (expr: string) => string,
+	evaluator: (part: ProseReferencePart) => string,
 ): string | undefined {
-	if (!template) return undefined;
-	return resolveProseTemplate(template, doc, evaluator);
+	if (!template?.parts.some((part) => part.kind !== "text")) return undefined;
+	let resolved = "";
+	for (const part of template.parts)
+		resolved += part.kind === "text" ? part.text : evaluator(part);
+	return resolved;
 }
 
 /** Async counterpart used by the browser XPath boundary. Text remains literal
- * while each typed reference is projected and evaluated in document order. */
+ * while each typed reference is evaluated in document order. */
 export async function resolveLabelAsync(
 	template: ProseTemplate | undefined,
-	doc: ReferenceNamesDoc,
-	evaluator: (expr: string) => Promise<string>,
+	evaluator: (part: ProseReferencePart) => Promise<string>,
 ): Promise<string | undefined> {
 	if (!template?.parts.some((part) => part.kind !== "text")) {
 		return undefined;
 	}
 	let resolved = "";
 	for (const part of template.parts) {
-		resolved +=
-			part.kind === "text"
-				? part.text
-				: await evaluator(printProseTemplate({ parts: [part] }, doc));
+		resolved += part.kind === "text" ? part.text : await evaluator(part);
 	}
 	return resolved;
 }

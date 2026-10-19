@@ -108,7 +108,6 @@ function contextAt(data: DataInstance, contextPath: string): EvalContext {
 		contextPath,
 		position: undefined,
 		getValue: (path) => data.get(path),
-		resolveHashtag: () => "",
 	};
 }
 
@@ -134,7 +133,6 @@ function context(
 		contextPath,
 		position: undefined,
 		getValue: (path) => data.get(path),
-		resolveHashtag: () => "",
 	};
 }
 
@@ -243,19 +241,11 @@ describe("structural XPath evaluation", () => {
 		);
 	});
 
-	it("rebases canonical form references onto the active repeat", () => {
+	it("rebases index-free form paths onto the active repeat", () => {
 		const data = repeatedInstance();
 		const secondItem = context(data, "/data/items[1]/value");
-		expect(evaluate("#form/items/value", secondItem)).toBe("b");
-		expect(evaluate("#form/items/rank", secondItem)).toBe(20);
-	});
-
-	it("keeps #form structural when a custom hashtag resolver is installed", () => {
-		const data = repeatedInstance();
-		const outsideRepeat = contextForRoot(data);
-		outsideRepeat.resolveHashtagValue = () => "collapsed";
-
-		expect(evaluate("count(#form/items/value)", outsideRepeat)).toBe(2);
+		expect(evaluate("/data/items/value", secondItem)).toBe("b");
+		expect(evaluate("/data/items/rank", secondItem)).toBe(20);
 	});
 
 	it("traverses wildcard, self, and parent steps without losing order", () => {
@@ -327,6 +317,5 @@ function contextForRoot(data: DataInstance): EvalContext {
 		contextPath: "/",
 		position: undefined,
 		getValue: (path) => data.get(path),
-		resolveHashtag: () => "",
 	};
 }

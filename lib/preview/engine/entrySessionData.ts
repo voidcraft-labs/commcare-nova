@@ -289,11 +289,6 @@ function evaluateDatumFunction(
 		},
 		resolveXPathInstance: (instanceId) =>
 			instances.get(instanceId as "commcaresession" | "casedb"),
-		resolveHashtag: (reference) => {
-			throw new Error(
-				`A session datum cannot read "${reference}": its function is printed with instance paths only.`,
-			);
-		},
 		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 	};
 	return xpathToString(evaluate(source, context));

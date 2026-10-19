@@ -10,6 +10,7 @@ import {
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
 import { formCasePropertyRead } from "@/lib/commcare/xform/formCaseRead";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { proseReferenceExpression } from "@/lib/commcare/xform/proseExpression";
 import {
 	type FormNodeProjection,
 	formNodeProjection,
@@ -32,8 +33,11 @@ import {
 	type ExpressionSlotRef,
 	type FormNodeRef,
 	formNodeKey,
+	type ProseSlotRef,
+	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { expressionAt } from "@/lib/domain/expressionSource";
+import type { ProseReferencePart } from "@/lib/domain/prose";
 import type { PreviewLookupData } from "./lookupEvaluation";
 
 /** The current Preview instance stores query rows directly beneath their
@@ -155,13 +159,26 @@ export interface FormExpressionRuntime {
 	readonly doc: BlueprintDoc;
 	readonly formUuid: Uuid;
 	readonly projection: FormNodeProjection;
-	context(slot: ExpressionSlotRef): ExpressionContext;
+	context(slot: SlotContextRef): ExpressionContext;
+	/** The slot's stored tree, for reads that decide by its shape. */
+	expression(slot: ExpressionSlotRef): Expression | undefined;
+	/** The slot's printed text, printed once per runtime. */
 	source(slot: ExpressionSlotRef): string | undefined;
-	lower(expression: Expression, slot: ExpressionSlotRef): string;
+	/** One prose reference's printed text, the value the XForm's `<output>`
+	 * for it reads (`xform/formExpressions.ts::prose`), printed once per
+	 * runtime. */
+	prose(part: ProseReferencePart, slot: ProseSlotRef): string;
+	lower(expression: Expression, slot: SlotContextRef): string;
 }
 
 /** Stored trees enter the shared wire emitter with their real owning slot.
- * The resulting text is an evaluator input, never a display-text round trip. */
+ * The resulting text is an evaluator input, never a display-text round trip.
+ *
+ * A runtime is fixed to one document, lookup capture and set of bindings, and
+ * the engine builds a new one whenever any of them changes, so each slot's
+ * text is printed once per runtime and held here. The text depends on the
+ * bindings (a worker read with no `commcare-user` row prints the identity's
+ * literal), so the memo belongs to the runtime and never to the document. */
 export function formExpressionRuntime(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -170,7 +187,7 @@ export function formExpressionRuntime(
 ): FormExpressionRuntime {
 	const projection = previewFormNodeProjection(doc, formUuid);
 	const contexts = new Map<string, ExpressionContext>();
-	const context = (slot: ExpressionSlotRef): ExpressionContext => {
+	const context = (slot: SlotContextRef): ExpressionContext => {
 		const key = JSON.stringify(slot);
 		const cached = contexts.get(key);
 		if (cached !== undefined) return cached;
@@ -186,7 +203,7 @@ export function formExpressionRuntime(
 		contexts.set(key, result);
 		return result;
 	};
-	const lower = (expression: Expression, slot: ExpressionSlotRef): string => {
+	const lower = (expression: Expression, slot: SlotContextRef): string => {
 		for (const { node } of formReads(expression)) {
 			if (
 				(node.kind === "field" && node.role === "query-wrapper") ||
@@ -216,15 +233,31 @@ export function formExpressionRuntime(
 			{ target: "preview" },
 		).text;
 	};
+	const texts = new Map<string, string | undefined>();
+	const proseTexts = new Map<string, string>();
 	return {
 		doc,
 		formUuid,
 		projection,
 		context,
 		lower,
+		expression: (slot) => expressionAt(doc, slot),
 		source(slot) {
+			const key = JSON.stringify(slot);
+			if (texts.has(key)) return texts.get(key);
 			const expression = expressionAt(doc, slot);
-			return expression === undefined ? undefined : lower(expression, slot);
+			const text =
+				expression === undefined ? undefined : lower(expression, slot);
+			texts.set(key, text);
+			return text;
+		},
+		prose(part, slot) {
+			const key = JSON.stringify([slot, part]);
+			const cached = proseTexts.get(key);
+			if (cached !== undefined) return cached;
+			const text = lower(proseReferenceExpression(part), slot);
+			proseTexts.set(key, text);
+			return text;
 		},
 	};
 }

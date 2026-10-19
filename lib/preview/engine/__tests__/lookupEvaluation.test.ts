@@ -5,53 +5,43 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
-import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type {
 	LookupColumnId,
 	LookupOptionsSource,
 	LookupTableId,
-	Uuid,
 } from "@/lib/domain";
 import {
-	and,
 	arith,
 	eq,
-	formField,
 	gt,
 	isBlank,
 	literal,
-	qualifiedLiteral,
 	tableColumn,
-	tableLookup,
 	term,
 } from "@/lib/domain/expression";
 import { slotContext } from "@/lib/domain/expression/context";
-import type { Expression } from "@/lib/domain/expression/types";
 import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
-import { evaluate } from "@/lib/preview/xpath/evaluator";
-import type { EvalContext } from "@/lib/preview/xpath/types";
+import { evaluateRuntime } from "@/lib/preview/xpath/evaluator";
+import { XPathNodeSet } from "@/lib/preview/xpath/runtimeValues";
 import {
-	evaluateLookupChoices as evaluateChoices,
-	evaluateTableLookup as evaluateLookup,
-	foldTableLookupsInExpression as foldExpression,
-	foldTableLookupsInPredicate as foldPredicate,
-	type LookupEvaluationBindings,
+	lookupChoicesFromNodeset,
 	type PreviewLookupData,
 	previewLookupData,
 } from "../lookupEvaluation";
+import { lookupXPathInstances } from "../xpathInstances";
 
 const TABLE = "018f0000-0000-7000-8000-000000000001" as LookupTableId;
 const COL_CODE = "018f0000-0000-7000-8000-0000000000c1" as LookupColumnId;
 const COL_NAME = "018f0000-0000-7000-8000-0000000000c2" as LookupColumnId;
 const COL_STOCK = "018f0000-0000-7000-8000-0000000000c3" as LookupColumnId;
 const COL_REGION = "018f0000-0000-7000-8000-0000000000c4" as LookupColumnId;
-const FIELD_UUID = "018f0000-0000-7000-8000-00000000f001" as Uuid;
 
 const DEFINITION: LookupTableDefinition = {
 	id: TABLE,
@@ -109,41 +99,28 @@ function data(): PreviewLookupData {
 	});
 }
 
-function lookupContext(
-	expression: Expression,
+/** The choice question's slot context in a one-form app. */
+function choiceContext(
+	choices: LookupOptionsSource,
 	fixtureData: PreviewLookupData,
-	choices?: LookupOptionsSource,
 ) {
-	const FORM = testUuid("lookup-form"),
-		VALUE = testUuid("lookup-value"),
-		CHOICE = testUuid("lookup-choice");
+	const CHOICE = testUuid("lookup-choice");
 	const doc = buildDoc({
 		modules: [
 			{
 				name: "Clinics",
 				forms: [
 					{
-						uuid: FORM,
+						uuid: testUuid("lookup-form"),
 						name: "Visit",
 						type: "survey",
 						fields: [
-							{ kind: "text", id: "chosen_region", uuid: FIELD_UUID },
 							{
-								kind: "hidden",
-								id: "value",
-								uuid: VALUE,
-								calculate: expression,
+								kind: "single_select" as const,
+								id: "choice",
+								uuid: CHOICE,
+								optionsSource: choices,
 							},
-							...(choices === undefined
-								? []
-								: [
-										{
-											kind: "single_select" as const,
-											id: "choice",
-											uuid: CHOICE,
-											optionsSource: choices,
-										},
-									]),
 						],
 					},
 				],
@@ -152,76 +129,42 @@ function lookupContext(
 	});
 	const context = slotContext(
 		doc,
-		{
-			entity: "field",
-			uuid: choices === undefined ? VALUE : CHOICE,
-			slot: choices === undefined ? "calculate" : "lookup_options_source",
-		},
+		{ entity: "field", uuid: CHOICE, slot: "lookup_options_source" },
 		lookupTypeIndexFromNaming(fixtureData.naming) ?? new Map(),
 	);
 	if (context === undefined)
 		throw new Error("The lookup fixture has no owning slot.");
 	return context;
 }
-type Bindings = Omit<LookupEvaluationBindings, "types">;
+
+/** The choices as Preview computes them: the form's itemset nodeset printed
+ * at the Preview target and evaluated over the fixture instance. */
 function evaluateLookupChoices(
 	source: LookupOptionsSource,
-	data: PreviewLookupData,
-	bindings: Bindings,
+	fixtureData: PreviewLookupData,
 	sortColumn?: LookupColumnId,
 ) {
-	return evaluateChoices(
+	const nodeset = serializeWire(
+		lookupOptionsNodeset(source, {
+			target: "preview",
+			types: choiceContext(source, fixtureData),
+			naming: fixtureData.naming,
+			instanceScope: "xform",
+		}),
+		{ target: "preview" },
+	).text;
+	const instances = lookupXPathInstances(fixtureData);
+	return lookupChoicesFromNodeset(
 		source,
-		data,
-		{
-			...bindings,
-			types: lookupContext(
-				source.filter ?? { kind: "match-all" },
-				data,
-				source,
-			),
-		},
+		fixtureData,
+		evaluateRuntime(nodeset, {
+			contextPath: "",
+			position: undefined,
+			getValue: () => undefined,
+			resolveXPathInstance: (id) => instances.get(id),
+		}),
 		sortColumn,
 	);
-}
-function evaluateTableLookup(
-	expression: Extract<Expression, { kind: "table-lookup" }>,
-	data: PreviewLookupData,
-	bindings: Bindings,
-) {
-	return evaluateLookup(expression, data, {
-		...bindings,
-		types: lookupContext(expression, data),
-	});
-}
-function foldTableLookupsInExpression(
-	expression: Expression,
-	data: PreviewLookupData,
-	bindings: Bindings,
-) {
-	return foldExpression(expression, data, {
-		...bindings,
-		types: lookupContext(expression, data),
-	});
-}
-function foldTableLookupsInPredicate(
-	expression: Expression,
-	data: PreviewLookupData,
-	bindings: Bindings,
-) {
-	return foldPredicate(expression, data, {
-		...bindings,
-		types: lookupContext(expression, data),
-	});
-}
-
-function outerContext(values: Record<string, string> = {}): EvalContext {
-	return {
-		contextPath: "",
-		position: 1,
-		resolveHashtag: () => "",
-		getValue: (path) => values[path],
-	};
 }
 
 function source(filter?: LookupOptionsSource["filter"]): LookupOptionsSource {
@@ -236,9 +179,7 @@ function source(filter?: LookupOptionsSource["filter"]): LookupOptionsSource {
 
 describe("evaluateLookupChoices", () => {
 	it("returns every row in authored order when unfiltered", () => {
-		const choices = evaluateLookupChoices(source(), data(), {
-			outer: outerContext(),
-		});
+		const choices = evaluateLookupChoices(source(), data());
 		expect(choices).toEqual([
 			{
 				key: "018f0000-0000-7000-8000-0000000000a1",
@@ -258,7 +199,6 @@ describe("evaluateLookupChoices", () => {
 		const choices = evaluateLookupChoices(
 			source(eq(term(tableColumn(TABLE, COL_REGION)), literal("north"))),
 			data(),
-			{ outer: outerContext() },
 		);
 		expect(choices).toEqual([
 			{
@@ -273,45 +213,32 @@ describe("evaluateLookupChoices", () => {
 		const choices = evaluateLookupChoices(
 			source(gt(term(tableColumn(TABLE, COL_STOCK)), literal(2))),
 			data(),
-			{ outer: outerContext() },
 		);
 		expect(choices.map((c) => c.value)).toEqual(["a1", "c3"]);
 	});
 
-	it.each(["/data/chosen_region", "/data/visits[2]/chosen_region"])(
-		"resolves the form-answer binding at %s",
-		(path) => {
-			const filter = eq(
-				term(tableColumn(TABLE, COL_REGION)),
-				term(formField(FIELD_UUID)),
+	it("distinguishes quotient from real division in the row filter", () => {
+		for (const [op, expected] of [
+			["quotient", ["a1"]],
+			["div", []],
+		] as const) {
+			const choices = evaluateLookupChoices(
+				source(
+					eq(
+						arith(op, term(tableColumn(TABLE, COL_STOCK)), term(literal(3))),
+						literal(1),
+					),
+				),
+				data(),
 			);
-			const bindings = {
-				outer: outerContext({ [path]: "south" }),
-				formFields: new Map([[FIELD_UUID, path]]),
-			};
-			const choices = evaluateLookupChoices(source(filter), data(), bindings);
-			expect(choices.map((c) => c.value)).toEqual(["b2"]);
-		},
-	);
-
-	it("an unanswered form answer matches only blank cells", () => {
-		const filter = eq(
-			term(tableColumn(TABLE, COL_REGION)),
-			term(formField(FIELD_UUID)),
-		);
-		const bindings = {
-			outer: outerContext({}),
-			formFields: new Map([[FIELD_UUID, "/data/chosen_region"]]),
-		};
-		const choices = evaluateLookupChoices(source(filter), data(), bindings);
-		expect(choices.map((c) => c.value)).toEqual(["c3"]);
+			expect(choices.map((c) => c.value)).toEqual(expected);
+		}
 	});
 
 	it("is-blank matches missing cells and stored-empty cells alike", () => {
 		const choices = evaluateLookupChoices(
 			source(isBlank(term(tableColumn(TABLE, COL_NAME)))),
 			data(),
-			{ outer: outerContext() },
 		);
 		expect(choices.map((c) => c.value)).toEqual(["c3"]);
 	});
@@ -336,12 +263,7 @@ describe("evaluateLookupChoices", () => {
 			});
 
 		it("orders by the column's text code unit by code unit, ties in row order", () => {
-			const choices = evaluateLookupChoices(
-				source(),
-				sortData(),
-				{ outer: outerContext() },
-				COL_NAME,
-			);
+			const choices = evaluateLookupChoices(source(), sortData(), COL_NAME);
 			expect(choices.map((c) => c.label)).toEqual([
 				"10",
 				"9",
@@ -359,19 +281,12 @@ describe("evaluateLookupChoices", () => {
 		});
 
 		it("keeps the table's row order without one", () => {
-			const choices = evaluateLookupChoices(source(), sortData(), {
-				outer: outerContext(),
-			});
+			const choices = evaluateLookupChoices(source(), sortData());
 			expect(choices.map((c) => c.label)).toEqual(labels);
 		});
 
 		it("orders by a column other than the label", () => {
-			const choices = evaluateLookupChoices(
-				source(),
-				data(),
-				{ outer: outerContext() },
-				COL_STOCK,
-			);
+			const choices = evaluateLookupChoices(source(), data(), COL_STOCK);
 			expect(choices.map((c) => c.value)).toEqual(["b2", "a1", "c3"]);
 		});
 	});
@@ -381,8 +296,10 @@ describe("evaluateLookupChoices", () => {
 			...source(),
 			tableId: "018f0000-0000-7000-8000-00000000dead" as LookupTableId,
 		};
+		// Printing the itemset already refuses a table the naming lacks; the
+		// read-back refuses one the snapshot lacks.
 		expect(() =>
-			evaluateLookupChoices(orphan, data(), { outer: outerContext() }),
+			lookupChoicesFromNodeset(orphan, data(), new XPathNodeSet([])),
 		).toThrow(/not in the loaded fixture snapshot/);
 	});
 
@@ -391,132 +308,8 @@ describe("evaluateLookupChoices", () => {
 			...source(),
 			valueColumnId: "018f0000-0000-7000-8000-00000000dead" as LookupColumnId,
 		};
-		expect(() =>
-			evaluateLookupChoices(orphan, data(), { outer: outerContext() }),
-		).toThrow(/not declared on lookup table/);
-	});
-});
-
-describe("evaluateTableLookup", () => {
-	it("distinguishes quotient from real division in row filters", () => {
-		for (const [op, expected] of [
-			["quotient", "a1"],
-			["div", ""],
-		] as const) {
-			const lookup = tableLookup(
-				TABLE,
-				COL_CODE,
-				eq(
-					arith(op, term(tableColumn(TABLE, COL_STOCK)), term(literal(3))),
-					literal(1),
-				),
-			);
-			expect(
-				evaluateTableLookup(lookup, data(), { outer: outerContext() }),
-			).toBe(expected);
-		}
-	});
-	it("returns the FIRST matching row's result cell in authored order", () => {
-		const lookup = tableLookup(
-			TABLE,
-			COL_CODE,
-			gt(term(tableColumn(TABLE, COL_STOCK)), literal(-1)),
+		expect(() => evaluateLookupChoices(orphan, data())).toThrow(
+			/not declared on lookup table/,
 		);
-		expect(evaluateTableLookup(lookup, data(), { outer: outerContext() })).toBe(
-			"a1",
-		);
-	});
-
-	it("no match folds to the empty string", () => {
-		const lookup = tableLookup(
-			TABLE,
-			COL_CODE,
-			eq(term(tableColumn(TABLE, COL_REGION)), literal("nowhere")),
-		);
-		expect(evaluateTableLookup(lookup, data(), { outer: outerContext() })).toBe(
-			"",
-		);
-	});
-
-	it("a matched row's absent result cell reads blank", () => {
-		const lookup = tableLookup(
-			TABLE,
-			COL_NAME,
-			eq(term(tableColumn(TABLE, COL_CODE)), literal("c3")),
-		);
-		expect(evaluateTableLookup(lookup, data(), { outer: outerContext() })).toBe(
-			"",
-		);
-	});
-
-	it("lexicalizes int result cells exponent-free", () => {
-		const lookup = tableLookup(
-			TABLE,
-			COL_STOCK,
-			eq(term(tableColumn(TABLE, COL_CODE)), literal("c3")),
-		);
-		expect(evaluateTableLookup(lookup, data(), { outer: outerContext() })).toBe(
-			"9",
-		);
-	});
-});
-
-describe("foldTableLookupsInPredicate", () => {
-	it("retains the declared numeric result type after replacing a lookup with its current value", () => {
-		const lookup = tableLookup(
-			TABLE,
-			COL_STOCK,
-			eq(term(tableColumn(TABLE, COL_CODE)), literal("a1")),
-		);
-		const expression = arith("quotient", lookup, term(literal(3)));
-		const folded = foldTableLookupsInExpression(expression, data(), {
-			outer: outerContext(),
-		});
-		expect(folded).toEqual(
-			arith("quotient", term(qualifiedLiteral("4", "int")), term(literal(3))),
-		);
-		expect(
-			evaluate(
-				serializeWire(
-					toWire(folded, {
-						target: "suite",
-						types: lookupContext(folded, data()),
-					}),
-					{
-						target: "suite",
-					},
-				).text,
-				outerContext(),
-			),
-		).toBe(1);
-	});
-	it("replaces a nested table-lookup with its literal result", () => {
-		const predicate = and(
-			eq(
-				tableLookup(
-					TABLE,
-					COL_NAME,
-					eq(term(tableColumn(TABLE, COL_CODE)), literal("b2")),
-				),
-				literal("Bario Health Post"),
-			),
-			eq(literal("x"), literal("x")),
-		);
-		const folded = foldTableLookupsInPredicate(predicate, data(), {
-			outer: outerContext(),
-		});
-		expect(folded).toEqual(
-			and(
-				eq(literal("Bario Health Post"), literal("Bario Health Post")),
-				eq(literal("x"), literal("x")),
-			),
-		);
-	});
-
-	it("shares the predicate by reference when no lookup is present", () => {
-		const predicate = eq(literal("x"), literal("x"));
-		expect(
-			foldTableLookupsInPredicate(predicate, data(), { outer: outerContext() }),
-		).toBe(predicate);
 	});
 });

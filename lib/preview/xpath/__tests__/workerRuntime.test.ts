@@ -1,14 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	caseDatabaseXPathInstance,
-	previewHashtagNodeSet,
+	commcareSessionXPathInstance,
 } from "../../engine/xpathInstances";
 import { createInProcessXPathWorkerFactory } from "../inProcessWorkerClient";
 import { XPathDate } from "../types";
 import { XPathRuntime } from "../workerClient";
 import {
 	deserializeXPathWorkerValue,
-	serializeXPathWorkerHashtagValue,
 	serializeXPathWorkerValue,
 	snapshotXPathWorkerInstance,
 } from "../workerProjection";
@@ -182,7 +181,7 @@ describe("XPath worker runtime", () => {
 			value: 42,
 		});
 		await expect(
-			runtime.request(request({ source: "count(#form/age)" })),
+			runtime.request(request({ source: "count(/data/age)" })),
 		).resolves.toMatchObject({ ok: true, value: 1 });
 		runtime.dispose();
 	});
@@ -249,7 +248,7 @@ describe("XPath worker runtime", () => {
 		runtime.dispose();
 	});
 
-	it("preserves hashtag nodesets through structured clone", async () => {
+	it("evaluates a case read over the casedb and session it was sent, with no hashtag values", async () => {
 		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
@@ -272,28 +271,26 @@ describe("XPath worker runtime", () => {
 			],
 			indices: [],
 		});
-		const reference = "#patient/status_text";
-		const nodeset = previewHashtagNodeSet(reference, {
-			casedb,
-			caseData: new Map([["patient", new Map([["case_id", "case-1"]])]]),
-			userId: undefined,
-		});
-		expect(nodeset).toBeDefined();
+		// The Preview print of a form's case read: the casedb walk keyed on the
+		// entry's session datum.
+		const caseRead =
+			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/status_text";
+		const instances = {
+			main: mainInstance(),
+			secondary: [
+				snapshotXPathWorkerInstance(casedb),
+				snapshotXPathWorkerInstance(
+					commcareSessionXPathInstance(null, { case_id: "case-1" }),
+				),
+			],
+			contextPath: "/data/age",
+		};
 
 		await expect(
-			runtime.request(
-				request({
-					source: `count(${reference})`,
-					instances: {
-						main: mainInstance(),
-						secondary: [snapshotXPathWorkerInstance(casedb)],
-						hashtagValues: [
-							serializeXPathWorkerHashtagValue(reference, nodeset ?? ""),
-						],
-						contextPath: "/data/age",
-					},
-				}),
-			),
+			runtime.request(request({ source: caseRead, instances })),
+		).resolves.toMatchObject({ ok: true, value: "open" });
+		await expect(
+			runtime.request(request({ source: `count(${caseRead})`, instances })),
 		).resolves.toMatchObject({ ok: true, value: 1 });
 		runtime.dispose();
 	});

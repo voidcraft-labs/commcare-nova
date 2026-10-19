@@ -29,8 +29,16 @@ interface GeodeticCurve {
 
 export function javaRosaDistance(from: string, to: string): number {
 	if (from === "" || to === "") return -1;
-	const start = parsePoint(from);
-	const end = parsePoint(to);
+	return javaRosaPointDistance(parsePoint(from), parsePoint(to));
+}
+
+/** Core's spherical haversine distance in metres between two points given
+ *  as numbers (`GeoPointUtils.computeDistanceBetween`), for a caller that
+ *  holds coordinates rather than geopoint text. */
+export function javaRosaPointDistance(
+	start: { readonly latitude: number; readonly longitude: number },
+	end: { readonly latitude: number; readonly longitude: number },
+): number {
 	const lat1 = toRadians(start.latitude);
 	const lat2 = toRadians(end.latitude);
 	const deltaLongitude = toRadians(start.longitude - end.longitude);

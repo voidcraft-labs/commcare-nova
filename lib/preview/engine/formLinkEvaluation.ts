@@ -18,10 +18,10 @@
  *   - **What the evaluation can see** (`formLinkEvalContext`): the device
  *     evaluates a link after the XForm has closed, in the entry's session
  *     scope. So `instance('commcaresession')/session/...` reads the
- *     worker's session plus the source entry's own datums, `#user/<prop>`
- *     reads the worker's usercase, `#<type>/<prop>` reads the case rows AS
- *     THEY ARE AFTER THE SUBMISSION, and any read of the closed form (a
- *     `/data/...` path or `#form/...`) throws.
+ *     worker's session plus the source entry's own datums, a worker read
+ *     reads the worker's usercase, a case read walks the device casedb AS
+ *     IT IS AFTER THE SUBMISSION, and any read of the closed form (a
+ *     `/data/...` path) throws.
  *   - **Which case the next form opens with** (`carriedCaseFor`): the
  *     target's projected own-case selection datum, matched exactly the way
  *     the wire matches it. A manual datum under that projected id is
@@ -65,11 +65,7 @@ import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import type { EvalContext, XPathValue } from "../xpath/types";
-import {
-	serializeXPathWorkerHashtagValue,
-	snapshotXPathWorkerInstance,
-	xpathWorkerHashtagReferences,
-} from "../xpath/workerProjection";
+import { snapshotXPathWorkerInstance } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import { expressionReadsCaseDatabase } from "./expressionCaseReads";
 import type { PreviewSearchSessionValues } from "./identity";
@@ -80,7 +76,6 @@ import {
 	caseDatabaseXPathInstance,
 	commcareSessionXPathInstance,
 	lookupXPathInstances,
-	previewHashtagNodeSet,
 } from "./xpathInstances";
 
 /** Case rows after the submission, case-type name → property map. */
@@ -125,7 +120,6 @@ export interface FormLinkEvaluationInput {
 	/** The source entry's session map once its submission landed
 	 *  (`entrySessionData.ts::afterSubmitSessionDatums`). */
 	readonly sessionDatums: ReadonlyMap<string, SessionDatumValue>;
-	readonly caseData: PostSubmissionCaseData;
 	/** The entry-captured device snapshot with the committed submission patch
 	 * applied. A fresh restore is not equivalent: it can omit a case the local
 	 * device just closed or reassigned and still retains until sync. */
@@ -257,46 +251,22 @@ export function formLinkEvalContext(
 	] as const);
 	const closedFormRead = (what: string): never => {
 		throw new Error(
-			`A form link cannot read ${what}: the form has already closed when its links are checked. A link can read session values, #user properties, and case properties, not the form's answers.`,
+			`A form link cannot read ${what}: the form has already closed when its links are checked. A link can read session values, worker properties and case properties, not the form's answers.`,
 		);
 	};
-	const context: EvalContext = {
+	return {
 		contextPath: "",
 		position: 1,
 		getValue: (path) => closedFormRead(`"${path}"`),
 		resolveXPathInstance: (instanceId) => secondaryInstances.get(instanceId),
-		resolveHashtag: (ref) => {
-			if (ref.startsWith("#form/")) return closedFormRead(`"${ref}"`);
-			if (ref.startsWith("#user/")) {
-				return input.usercase[ref.slice("#user/".length)] ?? "";
-			}
-			const match = /^#([^/]+)\/(.+)$/.exec(ref);
-			if (match === null) return "";
-			const namespace = match[1] ?? "";
-			if (namespace === "case") {
-				throw new Error(
-					'Authored "#case/..." is not a Nova reference; Preview requires an explicit case-type namespace',
-				);
-			}
-			return input.caseData.get(namespace)?.get(match[2] ?? "") ?? "";
-		},
 		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 	};
-	context.resolveHashtagValue = (ref) =>
-		previewHashtagNodeSet(ref, {
-			casedb: secondaryInstances.get("casedb"),
-			caseData: input.caseData,
-			userId: input.session.context.userid,
-		}) ?? context.resolveHashtag(ref);
-	return context;
 }
 
 export function formLinkWorkerInstances(
 	input: FormLinkEvaluationInput,
-	source: string,
 	world?: FormLinkWorkerWorld,
 ): XPathWorkerInstances {
-	const context = formLinkEvalContext(input);
 	const initializeWorld = world !== undefined && !world.initialized;
 	if (world !== undefined) world.initialized = true;
 	return {
@@ -307,13 +277,6 @@ export function formLinkWorkerInstances(
 					initializeWorld,
 					...(initializeWorld ? { secondary: world.secondary } : {}),
 				}),
-		hashtagValues: xpathWorkerHashtagReferences(source).map((reference) =>
-			serializeXPathWorkerHashtagValue(
-				reference,
-				context.resolveHashtagValue?.(reference) ??
-					context.resolveHashtag(reference),
-			),
-		),
 		contextPath: "",
 		position: 1,
 	};
@@ -386,7 +349,7 @@ export async function evaluateFormLinksAsync(args: {
 		const source = conditionSource(args.input, link);
 		const result = await args.evaluate(
 			source,
-			formLinkWorkerInstances(args.input, source, args.world),
+			formLinkWorkerInstances(args.input, args.world),
 		);
 		if (toBoolean(result)) return { kind: "link", link, index };
 	}
@@ -427,7 +390,7 @@ export async function evaluateLinkDatumAsync(
 	});
 	const value = await evaluateAsync(
 		source,
-		formLinkWorkerInstances(input, source, world),
+		formLinkWorkerInstances(input, world),
 	);
 	return xpathToString(value);
 }

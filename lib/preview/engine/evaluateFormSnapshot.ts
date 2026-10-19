@@ -193,7 +193,7 @@ export async function evaluateFormSnapshot(
 				profile: "form",
 				source,
 				resultMode,
-				instances: engine.workerInstances(source, path, world, stateOverrides),
+				instances: engine.workerInstances(path, world, stateOverrides),
 			},
 			{ signal },
 		);

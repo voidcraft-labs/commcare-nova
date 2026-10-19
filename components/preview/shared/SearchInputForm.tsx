@@ -90,6 +90,7 @@ import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import {
 	type PreviewSearchEnvironment,
 	resolveSearchInputChoices,
+	type SearchScreenXPath,
 } from "@/lib/preview/engine/searchExpressionEvaluation";
 import {
 	searchInputRequiredMarks,
@@ -149,7 +150,7 @@ interface SearchInputFormProps {
 	 * It judges a pattern-bearing required condition or check; without it
 	 * such a constraint is left unjudged, as the server leaves it.
 	 */
-	readonly evaluateOnDevice?: (source: string) => Promise<boolean>;
+	readonly evaluateOnDevice?: (xpath: SearchScreenXPath) => Promise<boolean>;
 	/** The actual module and held lookup snapshot own every evaluated slot. */
 	readonly environment: PreviewSearchEnvironment;
 	/** Controlled per-input value bag. `<name>:from` / `<name>:to`

@@ -38,6 +38,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerCurrentLocation from "@iconify-icons/tabler/current-location";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerLogin2 from "@iconify-icons/tabler/login-2";
 import tablerPlus from "@iconify-icons/tabler/plus";
@@ -141,7 +142,10 @@ import type {
 	CaseQueryConstraintContext,
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
-import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
+import {
+	formDisplayVisibility,
+	navigationSelectedCase,
+} from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { predicateLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
@@ -149,10 +153,13 @@ import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import {
 	evaluatePreviewSearchPredicate,
 	type PreviewSearchEnvironment,
+	type SearchScreenXPath,
 } from "@/lib/preview/engine/searchExpressionEvaluation";
 import { searchOutcomeFromLoad } from "@/lib/preview/engine/searchPhase";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
+import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
+import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import {
 	useCaseCount,
@@ -167,6 +174,7 @@ import {
 } from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { useViewerPositionWatch } from "@/lib/preview/hooks/useViewerPosition";
 import {
 	moduleHasChildren,
 	previewAutomaticForm,
@@ -217,6 +225,7 @@ import {
 	settleSearch,
 } from "@/lib/session/previewSearchState";
 import type { PreviewCaseChoice } from "@/lib/session/types";
+import type { ViewerPositionStatus } from "@/lib/session/viewerPosition";
 import { useWorkerMessage, WorkerText } from "../shared/WorkerText";
 
 /** Canvas width where search sits beside the results instead of above
@@ -383,17 +392,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * starts a fresh one. */
 	const engine = useBuilderFormEngine();
 	const evaluateSearchScreenXPath = useCallback(
-		async (source: string) =>
-			toBoolean(
-				await engine.evaluateSearchScreenXPath(
-					moduleUuid,
-					source,
-					searchSession,
-				),
-			),
-		[engine, moduleUuid, searchSession],
+		async (xpath: SearchScreenXPath) =>
+			toBoolean(await engine.evaluateSearchScreenXPath(moduleUuid, xpath)),
+		[engine, moduleUuid],
 	);
 	const lookupStatus = usePreviewLookupStatus();
+	const navigationDeviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 	const searchEnvironment = useMemo<PreviewSearchEnvironment>(
 		() => ({
 			doc: menuSource.doc,
@@ -403,16 +407,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		[menuSource.doc, moduleUuid, lookupStatus],
 	);
 
-	/* Case-first form conditions evaluate at THIS screen, against the
-	 * SELECTED row's projection: the wire's `<command relevant>` locus
+	/* Case-first form conditions evaluate at THIS screen, with the
+	 * SELECTED row in the session under the form's datum and the device's
+	 * cases to read it from: the wire's `<command relevant>` locus
 	 * (a case-first module's form menu renders after selection). The
 	 * decided list drives the auto-continue AND the post-selection menu,
 	 * so a false condition suppresses both. Edit-mode canvases never
 	 * reach this running-app pane, so no edit gate is needed here. */
 	const decideCaseLoadingForms = useCallback(
-		(row: CaseRowWithCalculated) => {
-			const projection = caseRowToFormPreload(row);
-			return caseLoadingForms.map((form) => ({
+		(row: CaseRowWithCalculated) =>
+			caseLoadingForms.map((form) => ({
 				form,
 				visibility: formDisplayVisibility({
 					condition: form.displayCondition,
@@ -423,15 +427,22 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
 						searchEnvironment.lookup,
 					),
-					caseProjection: projection,
+					selectedCase: navigationSelectedCase(
+						menuSource.doc,
+						moduleUuid,
+						form.uuid,
+						row.case_id,
+					),
+					deviceCases: navigationDeviceCases,
 					lookup: lookupStatus,
 				}),
-			}));
-		},
+			})),
 		[
 			caseLoadingForms,
 			searchSession,
 			menuSource.doc,
+			moduleUuid,
+			navigationDeviceCases,
 			lookupStatus,
 			searchEnvironment.lookup,
 		],
@@ -454,6 +465,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
 						searchEnvironment.lookup,
 					),
+					deviceCases: navigationDeviceCases,
 					lookup: lookupStatus,
 				}),
 			})),
@@ -461,6 +473,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			caseLoadingForms,
 			searchSession,
 			menuSource.doc,
+			navigationDeviceCases,
 			lookupStatus,
 			searchEnvironment.lookup,
 		],
@@ -976,6 +989,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
 		search: readsSearchResults,
 	});
+	/* Results that show a column reading `here()` watch the viewer's
+	 * position while they are on screen (`useViewerPositionWatch`). */
+	const resultsReadHere =
+		step !== "search" && columnsReadHere(canonicalConfig, "list");
+	const viewerPosition = useViewerPositionWatch(resultsReadHere);
 	/* Settle the module's search once the query the worker's Search fired has
 	 * come back. `awaitingSearchFetchRef` is what makes "come back" exact: the
 	 * submit commits before the query effect fires, so the first render after
@@ -1066,6 +1084,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		deviceScoped: true,
 		scopeKey: restoreScopeKey,
 		search: readsSearchResults,
+		positionScreen: "detail",
 	});
 	const retryCasesWithFocus = useCallback(async () => {
 		const pending = reloadCases();
@@ -2353,6 +2372,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			{outsideRestoreCount !== undefined && state.kind === "rows" && (
 				<RestoreScopeNote count={outsideRestoreCount} worker={previewWorker} />
 			)}
+			{resultsReadHere && viewerPosition.status !== "sharing" && (
+				<HereLocationNote
+					status={viewerPosition.status}
+					onShare={viewerPosition.share}
+				/>
+			)}
 			<ResultsBody
 				state={state}
 				unfilteredCountState={unfilteredCountState}
@@ -2507,6 +2532,54 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 }
 
 // ── Results body ──────────────────────────────────────────────────
+
+/** What a list that shows `here()` says while the browser shares no
+ *  position, with the one step that can change it. */
+function HereLocationNote({
+	status,
+	onShare,
+}: {
+	readonly status: Exclude<ViewerPositionStatus, "sharing">;
+	readonly onShare: () => void;
+}) {
+	const message = useWorkerMessage();
+	const copy =
+		status === "refused"
+			? { text: message("hereColumnsRefused"), action: undefined }
+			: status === "unsupported"
+				? { text: message("hereColumnsUnsupported"), action: undefined }
+				: status === "unavailable"
+					? {
+							text: message("hereColumnsUnavailable"),
+							action: message("tryAgain"),
+						}
+					: {
+							text: message("hereColumnsWaiting"),
+							action: message("shareYourLocation"),
+						};
+	return (
+		<div
+			data-here-location-note={status}
+			className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs leading-relaxed text-nova-text-muted"
+		>
+			<p className="flex min-w-0 flex-1 basis-64 items-start gap-2">
+				<Icon
+					icon={tablerCurrentLocation}
+					width="14"
+					height="14"
+					className="mt-0.5 shrink-0"
+					aria-hidden
+				/>
+				<span>{copy.text}</span>
+			</p>
+			{copy.action !== undefined && (
+				<Button type="button" variant="outline" onClick={onShare}>
+					{copy.action}
+				</Button>
+			)}
+		</div>
+	);
+}
 
 /** The list's loading arm: shown before the first settle and while a
  *  stale-empty view revalidates. */

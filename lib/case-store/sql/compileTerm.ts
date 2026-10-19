@@ -165,9 +165,11 @@ export interface TermBindings {
 	actingUserId?: TermBindingValue;
 	/**
 	 * The worker's current position as `here()` reads it: a CommCare location
-	 * handler's text (`lat lon altitude accuracy`), supplied by a runtime that
-	 * owns location access. `null` or absent is no fix yet, which both
-	 * runtimes read as `''`. Always bound as one text parameter.
+	 * handler's text, supplied by a runtime that owns location access.
+	 * Preview binds Formplayer's two values (`lat lon`); a device's handler
+	 * gives four (`lat lon altitude accuracy`), which the compiler reads the
+	 * same way. `null` or absent is no fix yet, which both runtimes read as
+	 * `''`. Always bound as one text parameter.
 	 */
 	viewerLocation?: string | null;
 

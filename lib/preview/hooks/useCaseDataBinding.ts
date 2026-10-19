@@ -55,12 +55,14 @@ import {
 	type SearchInputValues,
 	searchInputValuesToWire,
 } from "@/lib/preview/engine/runtimeBindings";
+import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import {
 	invalidateCaseData,
 	useCaseDataReplacementRevision,
 	useCaseDataRevision,
 } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
+import { useViewerPositionMoves } from "@/lib/preview/hooks/useViewerPosition";
 import {
 	useAccessPhase,
 	usePreviewClaimedCaseIds,
@@ -68,6 +70,7 @@ import {
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
+import { viewerPositionStore } from "@/lib/session/viewerPosition";
 
 const NO_CLAIMS: readonly string[] = [];
 
@@ -163,6 +166,13 @@ type LoadingState<T extends { kind: string }> =
  * The worker's claims (`lib/session/previewClaims.ts`) ride every read: they
  * widen the restore of a device read and decide which rows of a search's
  * population the device already holds.
+ *
+ * A list whose Results show a column that reads `here()` sends the viewer's
+ * latest position with each read and records it as the one the list shows
+ * (`lib/session/viewerPosition.ts`). A move that re-reads the list (the first
+ * position, then each one past 30 metres) re-fires the load, keeping the
+ * settled rows on screen while it runs, as any other query edit does. Other
+ * lists send no position and never re-read for one.
  */
 export function useCases(args: {
 	appId: string | undefined;
@@ -242,6 +252,9 @@ export function useCases(args: {
 	 * so it must re-fire the load, not reuse another worker's rows. */
 	const personaUuid = usePreviewPersonaUuid();
 	const claimedCaseIds = usePreviewClaimedCaseIds(personaUuid);
+	const readsHere = columnsReadHere(caseListConfig, "list");
+	const positionMoves = useViewerPositionMoves();
+	const positionKey = readsHere ? positionMoves : "no-position";
 	const ready = Boolean(appId && caseType && accessPhase === "authorized");
 	/* Query edits within one case type deliberately keep settled rows visible,
 	 * but an app/case-type change is an identity boundary. Keep that identity
@@ -262,6 +275,7 @@ export function useCases(args: {
 			parentCase,
 			caseTypes,
 			caseDataRevision,
+			positionKey,
 		],
 		[
 			requestIdentity,
@@ -274,6 +288,7 @@ export function useCases(args: {
 			parentCase,
 			caseTypes,
 			caseDataRevision,
+			positionKey,
 		],
 	);
 	interface KeyedCasesState {
@@ -320,6 +335,9 @@ export function useCases(args: {
 								personaUuid,
 								claimedCaseIds: [...claimedCaseIds],
 								...(search && { search }),
+								viewerLocation: readsHere
+									? viewerPositionStore.getState().takeForListRead()
+									: null,
 							}),
 						}),
 					},
@@ -599,6 +617,12 @@ export function useCaseData(args: {
 	/** A device-scoped read of a case chosen from the Results of a search of
 	 *  `moduleUuid`: it reads the case as the search found it. */
 	search?: boolean;
+	/** The running screen that shows this row's calculated columns: `"detail"`
+	 *  for Details, `"list"` for the tile pinned above a form. When that
+	 *  screen shows a column that reads `here()`, the read sends the viewer's
+	 *  latest position. It is not part of the read's identity: like Android's
+	 *  Details, the row does not re-read as the position moves. */
+	positionScreen?: "list" | "detail";
 }): {
 	state: LoadingState<LoadCaseDataResult>;
 	reload: () => Promise<void>;
@@ -617,7 +641,12 @@ export function useCaseData(args: {
 		deviceScoped,
 		scopeKey = "",
 		search = false,
+		positionScreen,
 	} = args;
+	const sendsPosition =
+		deviceScoped === true &&
+		positionScreen !== undefined &&
+		columnsReadHere(caseListConfig, positionScreen);
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
@@ -695,6 +724,9 @@ export function useCaseData(args: {
 								moduleUuid,
 								[...claimedCaseIds],
 								search,
+								sendsPosition
+									? viewerPositionStore.getState().latestLocation()
+									: null,
 							),
 						}),
 					},

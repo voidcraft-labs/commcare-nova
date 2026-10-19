@@ -1,19 +1,24 @@
 // lib/preview/engine/searchExpressionEvaluation.ts
 //
-// Runtime evaluation for the two case-search expression surfaces:
-// prompt defaults and the excluded-owner expression. The shipped app
-// evaluates both with CommCare's on-device XPath evaluator. Preview reuses
-// Nova's existing XPath evaluator over the exact emitted expression instead
-// of growing a second, subtly different AST interpreter.
+// Runtime evaluation for the case-search expression surfaces: prompt
+// defaults and hidden values, the excluded-owner expression, prompt
+// conditions and checks, and lookup-backed prompt choices. The device
+// evaluates each over its query screen's instances, so Preview prints the
+// stored tree with the shared wire emitter at the Preview target and
+// evaluates that text over the same instances
+// (`xpathInstances.ts::searchScreenXPathInstances`): the session, the
+// answers as `search-input:results`, and the lookup fixtures under their
+// suite ids. Nothing is substituted or folded into the tree first.
 //
-// The evaluator intentionally has no case-row context. Search prompt defaults
-// and hidden query values run against the session/search-input instances, not
-// against a selected case. A property/relation read therefore resolves blank
-// here, matching a search screen before a case has been selected.
+// There is no case row on this screen. Search prompt defaults and hidden
+// query values run against the session and search-input instances, not
+// against a selected case.
 
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
+import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	ownRecordValue,
 	type SearchInputDef,
@@ -33,28 +38,29 @@ import type {
 } from "@/lib/domain/expression/types";
 import type { Uuid } from "@/lib/domain/uuid";
 import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
-import { evaluate } from "@/lib/preview/xpath/evaluator";
+import { evaluate, evaluateRuntime } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
+import type { XPathInstance } from "@/lib/preview/xpath/runtimeValues";
 import type { EvalContext } from "@/lib/preview/xpath/types";
+import { snapshotXPathWorkerInstance } from "@/lib/preview/xpath/workerProjection";
+import type { XPathWorkerInstances } from "@/lib/preview/xpath/workerProtocol";
 import {
 	type PreviewSearchSessionValues,
 	previewUserPropertySlugMap,
 } from "./identity";
 import {
-	evaluateLookupChoices,
 	expressionLookupsCovered,
-	foldTableLookupsInExpression,
-	foldTableLookupsInPredicate,
 	type LookupChoice,
+	lookupChoicesFromNodeset,
 	lookupOptionsSourceCovered,
 	type PreviewLookupData,
 } from "./lookupEvaluation";
 import type { SearchInputValues } from "./runtimeBindings";
+import { searchInputInstanceValues } from "./runtimeBindings";
 import {
-	bindSearchInputValuesInExpression,
-	bindSearchInputValuesInPredicate,
-	withSearchInputExpressionValues,
-} from "./runtimeBindings";
+	SEARCH_INPUT_INSTANCE_ID,
+	searchScreenXPathInstances,
+} from "./xpathInstances";
 
 /** Bulk helpers evaluate several different slots. Each one obtains its own
  * context from the same saved module and held lookup snapshot. */
@@ -62,6 +68,18 @@ export interface PreviewSearchEnvironment {
 	readonly doc: BlueprintDoc;
 	readonly moduleUuid: Uuid;
 	readonly lookup?: PreviewLookupData;
+	/** The session datums chosen before this Search screen, `session/data`. */
+	readonly sessionData?: Readonly<Record<string, string>>;
+}
+
+/**
+ * One Search screen evaluation: the printed text and the instances it reads.
+ * A caller with another evaluator (the XPath worker, for a pattern-bearing
+ * constraint) runs the same text over the same instances.
+ */
+export interface SearchScreenXPath {
+	readonly source: string;
+	readonly instances: ReadonlyMap<string, XPathInstance>;
 }
 
 function searchInputContext(
@@ -91,11 +109,64 @@ function searchInputContext(
 	return context;
 }
 
+/** The worker request world of one Search screen evaluation: its instances
+ * as structured-clone snapshots, with no main instance and no context node. */
+export function searchScreenWorkerInstances(
+	xpath: SearchScreenXPath,
+): XPathWorkerInstances {
+	return {
+		secondary: [...xpath.instances.values()].map(snapshotXPathWorkerInstance),
+		contextPath: "",
+		position: 1,
+	};
+}
+
+/** Print a Search screen tree as the device reads it, at the Preview
+ * target: answers through `search-input:results`, lookups through their
+ * suite fixture ids. */
+function printSearchScreenTree(wire: WireExpr): string {
+	return serializeWire(wire, { target: "preview" }).text;
+}
+
+function searchScreenTree(
+	expression: Expression,
+	types: ExpressionContext,
+	session: PreviewSearchSessionValues,
+	lookupData: PreviewLookupData | undefined,
+): WireExpr {
+	return toWire(expression, {
+		target: "preview",
+		types,
+		bindings: {
+			searchInputInstanceId: SEARCH_INPUT_INSTANCE_ID,
+			userPropertySlugs: previewUserPropertySlugMap(session),
+			...(lookupData === undefined
+				? {}
+				: {
+						lookup: { naming: lookupData.naming, instanceScope: "suite" },
+					}),
+		},
+	});
+}
+
+/** The structural world of the Search screen: no case row and no form
+ *  instance, only the named instances the device's query screen holds. */
+function searchScreenEvalContext(
+	instances: ReadonlyMap<string, XPathInstance>,
+): EvalContext {
+	return {
+		contextPath: "",
+		position: 1,
+		getValue: () => undefined,
+		resolveXPathInstance: (instanceId) => instances.get(instanceId),
+		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
+	};
+}
+
 /**
- * Evaluate one search expression with the same XPath implementation the
- * form preview already uses. Runtime search-input refs are first substituted
- * into the AST because the scalar preview evaluator deliberately does not
- * model XML nodeset predicates such as `field[@name='query']`.
+ * Evaluate one search expression over the Search screen's instances, with
+ * `inputValues` as the answers the search-input instance holds (a completed
+ * date range as Core's one `__range__` value).
  */
 export function evaluatePreviewSearchExpression(
 	expression: Expression,
@@ -104,48 +175,29 @@ export function evaluatePreviewSearchExpression(
 	inputValues: SearchInputValues = new Map(),
 	searchInputs: readonly SearchInputDef[] = [],
 	lookupData?: PreviewLookupData,
+	sessionData?: Readonly<Record<string, string>>,
 ): string {
-	const bound = bindSearchInputValuesInExpression(
-		expression,
-		inputValues,
-		searchInputs,
-	);
-	/* Lookup carriers fold AFTER input binding (their row filters may
-	 * read Search answers) and BEFORE emission — the on-device emitter
-	 * has no naming here, and the scalar evaluator models no fixture
-	 * instance. Callers whose slots can carry lookups supply the loaded
-	 * snapshot; without one, a carrier-bearing expression throws the
-	 * emitter's loud missing-naming error rather than resolving blank. */
-	const folded =
-		lookupData === undefined
-			? bound
-			: foldTableLookupsInExpression(bound, lookupData, {
-					types,
-					outer: searchSessionEvalContext(session),
-					userPropertySlugs: previewUserPropertySlugMap(session),
-				});
+	const instances = searchScreenXPathInstances({
+		session,
+		answers: searchInputInstanceValues(searchInputs, inputValues),
+		...(lookupData === undefined ? {} : { lookupData }),
+		...(sessionData === undefined ? {} : { sessionData }),
+	});
 	return xpathToString(
-		evaluatePreviewSearchXPath(
-			serializeWire(
-				toWire(folded, {
-					target: "suite",
-					types,
-					bindings: { userPropertySlugs: previewUserPropertySlugMap(session) },
-				}),
-				{ target: "suite" },
-			).text,
-			session,
+		evaluate(
+			printSearchScreenTree(
+				searchScreenTree(expression, types, session, lookupData),
+			),
+			searchScreenEvalContext(instances),
 		),
 	);
 }
 
 /**
  * Evaluate a search-screen predicate against the same values CommCare exposes
- * while the worker is filling the search form. Input refs read the live draft,
- * including CommCare's scalar projection for a completed date range; session
- * refs read the authenticated preview worker. There is deliberately no selected
- * case on this screen, so property/relation reads resolve blank just as they do
- * for search expressions before case selection.
+ * while the worker is filling the search form. Input reads see the live
+ * draft, a completed date range as Core's one value; session reads see the
+ * authenticated preview worker. There is no selected case on this screen.
  */
 export function evaluatePreviewSearchPredicate(
 	predicate: Expression,
@@ -155,33 +207,32 @@ export function evaluatePreviewSearchPredicate(
 	session: PreviewSearchSessionValues,
 	inputValues: SearchInputValues = new Map(),
 ): boolean {
+	const xpath = emitPreviewSearchPredicate(
+		predicate,
+		types,
+		environment,
+		searchInputs,
+		session,
+		inputValues,
+	);
 	return toBoolean(
-		evaluatePreviewSearchXPath(
-			emitPreviewSearchPredicate(
-				predicate,
-				types,
-				environment,
-				searchInputs,
-				session,
-				inputValues,
-			),
-			session,
-		),
+		evaluate(xpath.source, searchScreenEvalContext(xpath.instances)),
 	);
 }
 
 /**
- * The exact on-device XPath a search-screen predicate evaluates as, with
- * the draft's answers bound in and lookup carriers folded, so that a caller
- * with a different evaluator (the XPath worker, for a pattern-bearing
- * constraint) runs the same bytes the scalar path does. Only the session
- * instance remains to be resolved.
+ * The text a search-screen predicate evaluates as, with the instances it
+ * reads, so that a caller with a different evaluator (the XPath worker, for
+ * a pattern-bearing constraint) runs the same bytes over the same world the
+ * scalar path does.
  *
  * A hidden input the bag does not carry is seeded here: the device holds
  * every hidden prompt's value from the moment it builds the query screen
- * (`util/screen/QueryScreen.java::init`), so a condition reading one judges
- * the seeded value before the worker searches, not blank. A bag that
- * already carries the value (the submitted answers) keeps it.
+ * (`org/commcare/session/RemoteQuerySessionManager.java::initUserAnswers`,
+ * which `util/screen/QueryScreen.java::init` reaches through
+ * `buildQuerySessionManager`), so a condition reading one judges the seeded
+ * value before the worker searches, not blank. A bag that already carries
+ * the value (the submitted answers) keeps it.
  */
 export function emitPreviewSearchPredicate(
 	predicate: Expression,
@@ -190,34 +241,24 @@ export function emitPreviewSearchPredicate(
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
 	inputValues: SearchInputValues = new Map(),
-): string {
+): SearchScreenXPath {
 	const lookupData = environment.lookup;
-	const expressionValues = withSearchInputExpressionValues(
-		searchInputs,
-		withSeededHiddenValues(searchInputs, inputValues, session, environment),
-	);
-	const bound = bindSearchInputValuesInPredicate(
-		predicate,
-		expressionValues,
-		new Set(searchInputs.map((input) => input.uuid)),
-		searchInputs,
-	);
-	const folded =
-		lookupData === undefined
-			? bound
-			: foldTableLookupsInPredicate(bound, lookupData, {
-					types,
-					outer: searchSessionEvalContext(session),
-					userPropertySlugs: previewUserPropertySlugMap(session),
-				});
-	return serializeWire(
-		toWire(folded, {
-			target: "suite",
-			types,
-			bindings: { userPropertySlugs: previewUserPropertySlugMap(session) },
+	return {
+		source: printSearchScreenTree(
+			searchScreenTree(predicate, types, session, lookupData),
+		),
+		instances: searchScreenXPathInstances({
+			session,
+			answers: searchInputInstanceValues(
+				searchInputs,
+				withSeededHiddenValues(searchInputs, inputValues, session, environment),
+			),
+			...(lookupData === undefined ? {} : { lookupData }),
+			...(environment.sessionData === undefined
+				? {}
+				: { sessionData: environment.sessionData }),
 		}),
-		{ target: "suite" },
-	).text;
+	};
 }
 
 /** The bag with every hidden input it lacks resolved in, or the bag
@@ -236,33 +277,6 @@ function withSeededHiddenValues(
 		...inputValues,
 		...resolveSearchHiddenValues(missing, session, environment),
 	]);
-}
-
-function evaluatePreviewSearchXPath(
-	xpath: string,
-	session: PreviewSearchSessionValues,
-) {
-	return evaluate(xpath, searchSessionEvalContext(session));
-}
-
-/** The session-only evaluation world of the search surfaces — no case
- *  row, no form instance; session/user instance paths resolve, all
- *  else reads blank. Shared with lookup folding so a row filter's
- *  non-row reads see the same world its containing slot does. */
-function searchSessionEvalContext(
-	session: PreviewSearchSessionValues,
-): EvalContext {
-	return {
-		contextPath: "",
-		position: 1,
-		getValue: (path) => sessionInstancePathValue(path, session),
-		resolveInstance: (instanceId, path) =>
-			instanceId === "commcaresession"
-				? { kind: "supported", value: sessionInstancePathValue(path, session) }
-				: { kind: "unsupported" },
-		resolveHashtag: () => "",
-		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
-	};
 }
 
 /**
@@ -332,6 +346,7 @@ export function resolveSearchInputDefaults(
 			undefined,
 			undefined,
 			lookupData,
+			environment.sessionData,
 		).trim();
 		if (value === "") continue;
 		values.set(input.name, value);
@@ -368,6 +383,7 @@ export function resolveSearchHiddenValues(
 			undefined,
 			undefined,
 			lookupData,
+			environment.sessionData,
 		);
 		if (value === "") continue;
 		values.set(input.name, value);
@@ -398,18 +414,31 @@ export function resolveSearchInputChoices(
 	) {
 		return undefined;
 	}
-	return evaluateLookupChoices(
-		input.options,
+	const instances = searchScreenXPathInstances({
+		session,
+		answers: new Map(),
 		lookupData,
-		{
+		...(environment.sessionData === undefined
+			? {}
+			: { sessionData: environment.sessionData }),
+	});
+	const nodeset = printSearchScreenTree(
+		lookupOptionsNodeset(input.options, {
+			target: "preview",
 			types: searchInputContext(
 				environment,
 				input.uuid,
 				"search_input_options",
 			),
-			outer: searchSessionEvalContext(session),
-			userPropertySlugs: previewUserPropertySlugMap(session),
-		},
+			naming: lookupData.naming,
+			instanceScope: "suite",
+			bindings: { userPropertySlugs: previewUserPropertySlugMap(session) },
+		}),
+	);
+	return lookupChoicesFromNodeset(
+		input.options,
+		lookupData,
+		evaluateRuntime(nodeset, searchScreenEvalContext(instances)),
 		sortColumnId,
 	);
 }

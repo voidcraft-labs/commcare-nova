@@ -219,6 +219,15 @@ const english = {
 		"This browser can't share your location. You can enter coordinates manually.",
 	locationUnexpected:
 		"Couldn't get your location. You can try again or enter coordinates manually.",
+	hereColumnsWaiting:
+		"Columns that use your location stay blank until your browser shares it.",
+	hereColumnsRefused:
+		"Your browser isn't sharing your location, so columns that use it stay blank. You can allow location for this site in your browser's settings.",
+	hereColumnsUnavailable:
+		"Your browser couldn't find your location, so columns that use it stay blank. You can try again.",
+	hereColumnsUnsupported:
+		"This browser can't share your location, so columns that use it stay blank.",
+	shareYourLocation: "Share your location",
 } as const;
 
 export type RuntimeMessage = keyof typeof english;
@@ -447,6 +456,15 @@ const spanish: Record<RuntimeMessage, string> = {
 		"Este navegador no puede compartir tu ubicación. Puedes introducir las coordenadas manualmente.",
 	locationUnexpected:
 		"No pude obtener tu ubicación. Puedes intentarlo de nuevo o introducir las coordenadas manualmente.",
+	hereColumnsWaiting:
+		"Las columnas que usan tu ubicación quedan en blanco hasta que el navegador la comparta.",
+	hereColumnsRefused:
+		"El navegador no está compartiendo tu ubicación, así que las columnas que la usan quedan en blanco. Puedes permitir la ubicación para este sitio en la configuración del navegador.",
+	hereColumnsUnavailable:
+		"El navegador no pudo encontrar tu ubicación, así que las columnas que la usan quedan en blanco. Puedes intentarlo de nuevo.",
+	hereColumnsUnsupported:
+		"Este navegador no puede compartir tu ubicación, así que las columnas que la usan quedan en blanco.",
+	shareYourLocation: "Compartir tu ubicación",
 };
 
 export function runtimeLanguage(language: LanguageTag | null | undefined) {

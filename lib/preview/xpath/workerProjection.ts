@@ -2,37 +2,13 @@
  * must stay independent of workerRuntime/asyncEvaluator so preparing a request
  * never downloads the evaluator or the OpenJDK Pattern compatibility engine
  * into the Builder's JavaScript realm. */
-import { parser } from "@/lib/commcare/xpath/parser";
-import {
-	isXPathNodeSet,
-	unpackXPathRuntimeValue,
-	type XPathInstance,
-	type XPathNode,
-	type XPathRuntimeValue,
-} from "./runtimeValues";
+import type { XPathInstance, XPathNode } from "./runtimeValues";
 import { isXPathDate, XPathDate, type XPathValue } from "./types";
 import type {
 	SerializedXPathValue,
-	XPathWorkerHashtagValue,
 	XPathWorkerInstanceSnapshot,
 	XPathWorkerNodeSnapshot,
 } from "./workerProtocol";
-
-/** Parsed hashtag tokens used to snapshot only the values one request can
- * observe. This deliberately does not regex-scan authored text. */
-export function xpathWorkerHashtagReferences(
-	source: string,
-): readonly string[] {
-	const found = new Set<string>();
-	parser.parse(source).iterate({
-		enter(node) {
-			if (node.type.name === "HashtagRef") {
-				found.add(source.slice(node.from, node.to));
-			}
-		},
-	});
-	return [...found];
-}
 
 export function serializeXPathWorkerValue(
 	value: XPathValue,
@@ -52,30 +28,6 @@ export function deserializeXPathWorkerValue(
 	// The sent calendar day is kept, never re-read in this realm: host and
 	// worker share one zone, and the value names the day it was built on.
 	return XPathDate.fromParts(value.calendarDays, value.timeMilliseconds);
-}
-
-/** Preserve hashtag nodesets across structured clone instead of flattening
- * them before nodeset-aware JavaRosa functions can inspect cardinality. */
-export function serializeXPathWorkerHashtagValue(
-	reference: string,
-	value: XPathRuntimeValue,
-): XPathWorkerHashtagValue {
-	if (isXPathNodeSet(value)) {
-		return {
-			reference,
-			kind: "nodeset",
-			candidates: value.candidates.map((node) => ({
-				instanceId: node.instanceId,
-				path: node.path,
-			})),
-			validPath: value.validPath,
-		};
-	}
-	return {
-		reference,
-		kind: "scalar",
-		value: serializeXPathWorkerValue(unpackXPathRuntimeValue(value)),
-	};
 }
 
 function snapshotNode(node: XPathNode): XPathWorkerNodeSnapshot {

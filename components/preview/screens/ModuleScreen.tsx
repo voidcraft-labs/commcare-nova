@@ -37,12 +37,16 @@ import {
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { caseDatabaseToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
-import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
+import {
+	formDisplayVisibility,
+	navigationSelectedCase,
+} from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { previousTaskFormSelectors } from "@/lib/preview/engine/previousTask";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
+import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
@@ -130,19 +134,14 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	const onlySelectedMenuCase =
 		selectedMenuChoices.length === 1 ? selectedMenuChoices[0] : undefined;
 	const requiredParentCase = menuCaseContext.requiredParentCase;
-	const selectedCaseProjection = useMemo(
-		() =>
-			onlySelectedMenuCase?.caseProperties
-				? new Map(Object.entries(onlySelectedMenuCase.caseProperties))
-				: undefined,
-		[onlySelectedMenuCase?.caseProperties],
-	);
+	const selectedMenuCaseId = onlySelectedMenuCase?.caseId;
+	const deviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 
-	/* The running preview gates the forms-first form menu exactly as a
-	 * device would (`<command relevant>`). Forms-first conditions are
-	 * session-only (the validator admits property reads only in the
-	 * case-first flow, whose menu lives on the case-list screen), so no
-	 * case projection exists here. Edit mode shows everything. */
+	/* The running preview gates the form menu exactly as a device would
+	 * (`<command relevant>`), over the device's cases with the menu's chosen
+	 * case under its session datum. Forms-first conditions read the session
+	 * only (the validator admits property reads only in the case-first flow,
+	 * whose menu lives on the case-list screen). Edit mode shows everything. */
 	const formVisibility = useMemo(
 		() =>
 			new Map(
@@ -163,12 +162,30 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 									},
 									lookup.kind === "data" ? lookup.data : undefined,
 								),
-								caseProjection: selectedCaseProjection,
+								selectedCase:
+									selectedMenuCaseId === undefined
+										? undefined
+										: navigationSelectedCase(
+												menuSource.doc,
+												moduleUuid,
+												form.uuid,
+												selectedMenuCaseId,
+											),
+								deviceCases,
 								lookup,
 							}),
 				]),
 			),
-		[forms, mode, session, lookup, menuSource.doc, selectedCaseProjection],
+		[
+			forms,
+			mode,
+			session,
+			lookup,
+			menuSource.doc,
+			moduleUuid,
+			selectedMenuCaseId,
+			deviceCases,
+		],
 	);
 	const hiddenForms = useMemo(
 		() =>
@@ -192,8 +209,9 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 			authoring: mode === "edit",
 			session,
 			lookup,
+			deviceCases,
 		});
-	}, [lookup, menuSource, mode, session]);
+	}, [lookup, menuSource, mode, session, deviceCases]);
 	const hiddenChildren = useMemo(
 		() =>
 			children

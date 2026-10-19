@@ -98,7 +98,7 @@ async function observeScreen(
 					identities: Object.values(context.doc.personas ?? {}).map(
 						(persona) => ({ uuid: persona.uuid, name: persona.name }),
 					),
-					menus: appTestMenus(context, null),
+					menus: appTestMenus(context, null, state),
 				},
 			};
 		case "menu":
@@ -112,7 +112,7 @@ async function observeScreen(
 						screen.moduleUuid,
 					)?.name,
 					worker,
-					menus: appTestMenus(context, screen.moduleUuid),
+					menus: appTestMenus(context, screen.moduleUuid, state),
 					forms: appTestForms(context, state, screen.moduleUuid).map(
 						({ form, visibility }) => ({
 							uuid: form.uuid,
@@ -591,6 +591,7 @@ export async function advanceAppTest(
 				!appTestMenus(
 					context,
 					screen.kind === "home" ? null : screen.moduleUuid,
+					state,
 				).some(
 					(menu) =>
 						menu.uuid === action.moduleUuid && menu.visibility === "shown",

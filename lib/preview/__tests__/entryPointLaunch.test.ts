@@ -230,7 +230,8 @@ describe("entry point Preview admission", () => {
 		input.database.rows = [];
 		expect(launch(input)).toMatchObject({
 			kind: "refused",
-			message: expect.stringContaining("does not claim"),
+			message:
+				"One or more cases are unavailable to this Preview worker. Choose cases this worker has. Preview uses this worker’s cases, including ones they chose from a search.",
 		});
 	});
 	it("preserves a bare module menu destination", () => {

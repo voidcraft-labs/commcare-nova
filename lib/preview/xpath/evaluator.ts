@@ -174,22 +174,14 @@ function evalNode(
 		return raw.slice(1, -1);
 	}
 
-	// ── Hashtag references (#<case-type>/prop, #form/id, #user/prop) ──
+	// ── Hashtag references ──
+	// Every surface prints its text from the stored tree through the Preview
+	// target, which spells each reference as the path the device reads, so no
+	// printed source holds a hashtag.
 	if (type === T.HashtagRef) {
-		const text = source.slice(node.from, node.to);
-		// The main-instance projection owns #form even when the context also
-		// installs the structural resolver used by case and user hashtags. Taking
-		// that hook first collapses repeat children to its scalar fallback before
-		// nodeset-aware functions can observe their cardinality.
-		if (text.startsWith("#form/") && ctx.mainInstance) {
-			return selectFormSegments(
-				ctx.mainInstance.root(),
-				["data", ...text.slice("#form/".length).split("/")],
-				ctx.contextNode,
-			);
-		}
-		if (ctx.resolveHashtagValue) return ctx.resolveHashtagValue(text);
-		return ctx.resolveHashtag(text);
+		throw new Error(
+			`Preview received the hashtag "${source.slice(node.from, node.to)}" to evaluate. Preview evaluates only the text it prints from a stored expression, and that print spells every reference as a path, so the text came from somewhere other than the Preview print.`,
+		);
 	}
 
 	// ── Variable references ($var) ──
@@ -673,47 +665,6 @@ function selectAttributes(base: XPathNodeSet, name: string): XPathNodeSet {
 		node.hasAttributeTemplate(name),
 	);
 	return new XPathNodeSet(nodes, base.validPath && templateExists, schemaNodes);
-}
-
-/**
- * Resolve a canonical #form path while preserving every repeat multiplicity
- * already fixed by the evaluating node. JavaRosa's references are index-free
- * in the model, but a calculation inside `/data/items[1]` reads the sibling
- * fields from `items[1]`, not every `items` occurrence in the instance.
- */
-function selectFormSegments(
-	root: XPathNode,
-	segments: readonly string[],
-	contextNode: XPathNode | undefined,
-): XPathNodeSet {
-	const contextualSegments = contextNode
-		? indexedPathSegments(contextNode.path)
-		: [];
-	let selected = new XPathNodeSet([root]);
-	for (let index = 0; index < segments.length; index += 1) {
-		const segment = segments[index] ?? "";
-		selected = selectChildren(selected, segment);
-		const contextual = contextualSegments[index];
-		if (
-			contextual?.name === segment &&
-			contextual.multiplicity !== undefined &&
-			segments
-				.slice(0, index + 1)
-				.every(
-					(name, segmentIndex) =>
-						contextualSegments[segmentIndex]?.name === name,
-				)
-		) {
-			selected = new XPathNodeSet(
-				selected.candidates.filter(
-					(node) => node.multiplicity === contextual.multiplicity,
-				),
-				selected.validPath,
-				selected.schemaNodes,
-			);
-		}
-	}
-	return selected;
 }
 
 function indexedPathSegments(

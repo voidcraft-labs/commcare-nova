@@ -147,7 +147,7 @@ function worker(engine: FormEngine) {
 			profile: "form",
 			source,
 			resultMode,
-			instances: engine.workerInstances(source, path, world, stateOverrides),
+			instances: engine.workerInstances(path, world, stateOverrides),
 		});
 		if (!result.ok) {
 			failures.push(result.error);

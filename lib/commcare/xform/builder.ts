@@ -106,8 +106,6 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
-import { isMatchAll } from "@/lib/domain/expression/builders";
-import { simplifyForEmission } from "@/lib/domain/expression/simplify";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
 import { formWireName } from "@/lib/domain/formWireName";
@@ -118,9 +116,9 @@ import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
+import { lookupOptionsNodeset } from "../lookupOptions";
 import { w } from "../xpath/wire/builders";
-import { toWire } from "../xpath/wire/fromExpression";
-import { InstanceSink, lookupInstance } from "../xpath/wire/instances";
+import { InstanceSink } from "../xpath/wire/instances";
 import { casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
 import { fieldBindType } from "./bindType";
@@ -1573,46 +1571,25 @@ function buildLookupItemset(
 	if (!lookupSelects.naming)
 		throw new Error("Lookup choices need a wire naming catalog.");
 	const table = lookupSelects.naming.tableFor(source.tableId);
-	const predicates: WireExpr[] = [];
-	if (source.filter !== undefined) {
-		const filter = simplifyForEmission(source.filter);
-		if (!isMatchAll(filter))
-			predicates.push(
-				toWire(filter, {
+	return xel(
+		"itemset",
+		{
+			xpath: {
+				nodeset: lookupOptionsNodeset(source, {
 					target: "xform",
 					types: expressions.context({
 						entity: "field",
 						uuid: fieldUuid,
 						slot: "lookup_options_source",
 					}),
+					naming: lookupSelects.naming,
+					instanceScope: "xform",
 					form: expressions.projection,
-					anchor: { kind: "unaddressable" },
 					bindings: {
 						formFields: lookupSelects.filterFieldPaths(nodePath),
 						userPropertySlugs: lookupSelects.userPropertySlugs,
-						lookup: {
-							naming: lookupSelects.naming,
-							instanceScope: "xform",
-							rowScope: {
-								tableId: source.tableId,
-								caseAnchor: { kind: "unaddressable" },
-							},
-						},
 					},
 				}),
-			);
-	}
-	return xel(
-		"itemset",
-		{
-			xpath: {
-				nodeset: w.instance(
-					lookupInstance(source.tableId, lookupSelects.naming, "xform"),
-					[
-						w.step(table.listElementName),
-						w.step(table.rowElementName, predicates),
-					],
-				),
 			},
 		},
 		context,

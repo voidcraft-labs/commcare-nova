@@ -25,7 +25,7 @@
  * - **Label/hint without refs, options, kind** → do nothing
  * - **Field kind change (retype)** → drop the stale value, re-init the field
  * - **Expression field** → rebuild DAG, re-evaluate that field + cascade
- * - **Label/hint with hashtag refs** → re-evaluate resolved labels only
+ * - **Label/hint with references** → re-evaluate resolved labels only
  * - **Field ID rename** → already handled by the preceding batch-topology pass
  * - **Default value** → re-evaluate default + cascade
  *
@@ -64,10 +64,7 @@ import type { ProseTemplate } from "@/lib/domain/prose";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
-import {
-	deserializeXPathWorkerValue,
-	snapshotXPathWorkerInstance,
-} from "../xpath/workerProjection";
+import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
@@ -88,17 +85,14 @@ import {
 	type SectionPage,
 } from "./formEngine";
 import type { FormLinkAsyncEvaluator } from "./formLinkEvaluation";
-import {
-	type PreviewSearchSessionValues,
-	type ResolvedPreviewIdentity,
-	samePreviewIdentity,
-} from "./identity";
+import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
-import { type FieldState, fieldStatesEqual } from "./types";
 import {
-	type CaseDatabaseSnapshot,
-	commcareSessionXPathInstance,
-} from "./xpathInstances";
+	type SearchScreenXPath,
+	searchScreenWorkerInstances,
+} from "./searchExpressionEvaluation";
+import { type FieldState, fieldStatesEqual } from "./types";
+import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 // ── Runtime store types ─────────────────────────────────────────────────
 
@@ -689,6 +683,7 @@ export class EngineController {
 	private caseDatabaseGate: CaseDatabaseControllerState = { required: false };
 	private caseDatabaseState: CaseDatabaseControllerState = { required: false };
 	private caseDatabaseSnapshot: CaseDatabaseSnapshot | null = null;
+	private readonly caseDatabaseListeners = new Set<() => void>();
 	private mountedCaseDatabaseSnapshot: CaseDatabaseSnapshot | null | undefined;
 	/** Selected worker-content language for presentation-bearing engine input.
 	 * `null` keeps standalone/non-Builder controller consumers canonical. */
@@ -979,12 +974,7 @@ export class EngineController {
 					revision,
 					profile: "form",
 					source,
-					instances: engine.workerInstances(
-						source,
-						path,
-						world,
-						stateOverrides,
-					),
+					instances: engine.workerInstances(path, world, stateOverrides),
 					resultMode,
 				},
 				{ signal },
@@ -1341,6 +1331,23 @@ export class EngineController {
 		} else this.rebuildActiveForm(formUuid, this.activeCaseData);
 	}
 
+	/** The worker's device cases as the menus read them: the provider's ready
+	 * snapshot, or `null` while none is ready. A post-submit entry's patched
+	 * world belongs to that entry, not to the menus. */
+	get deviceCaseDatabase(): CaseDatabaseSnapshot | null {
+		return this.caseDatabaseSnapshot;
+	}
+
+	/** Observe {@link deviceCaseDatabase}; returns the unsubscribe. */
+	readonly subscribeDeviceCaseDatabase = (
+		listener: () => void,
+	): (() => void) => {
+		this.caseDatabaseListeners.add(listener);
+		return () => {
+			this.caseDatabaseListeners.delete(listener);
+		};
+	};
+
 	/** Reconcile the device-case resource state after commit. A required form never runs
 	 * against a guessed empty casedb: its activation request waits here until a
 	 * real snapshot arrives. Snapshot identity remains the material-version
@@ -1360,6 +1367,7 @@ export class EngineController {
 		this.caseDatabaseGate = state;
 		this.caseDatabaseSnapshot =
 			state.required && state.status === "ready" ? state.snapshot : null;
+		for (const listener of this.caseDatabaseListeners) listener();
 		/* A direct post-submit form link carries the submitting entry's patched
 		 * local-device snapshot. Provider refreshes still update the base snapshot
 		 * for the next ordinary entry, but cannot replace or clear this entry's
@@ -2037,17 +2045,17 @@ export class EngineController {
 	}
 
 	/**
-	 * Evaluate one emitted Search-screen XPath in the worker, where the
-	 * device's Java Pattern engine runs. The draft's answers are already bound
-	 * into `source` (`emitPreviewSearchPredicate`); only the session instance
-	 * is supplied. `scopeKey` names the module's Search screen, so repeated
+	 * Evaluate one printed Search screen XPath in the worker, where the
+	 * device's Java Pattern engine runs, over the instances it reads
+	 * (`emitPreviewSearchPredicate`): the session with the datums chosen so
+	 * far, the draft's answers as `search-input:results`, and the lookup
+	 * fixtures. `scopeKey` names the module's Search screen, so repeated
 	 * submissions reuse one loaded worker and a module switch starts a fresh
 	 * one. There is no revision: every request carries its complete input.
 	 */
 	async evaluateSearchScreenXPath(
 		scopeKey: string,
-		source: string,
-		session: PreviewSearchSessionValues,
+		xpath: SearchScreenXPath,
 		signal?: AbortSignal,
 	): Promise<XPathValue> {
 		if (this.searchXPathRuntime === undefined) {
@@ -2060,14 +2068,8 @@ export class EngineController {
 				entryKey: `search:${scopeKey}`,
 				revision: 0,
 				profile: "search",
-				source,
-				instances: {
-					secondary: [
-						snapshotXPathWorkerInstance(commcareSessionXPathInstance(session)),
-					],
-					contextPath: "",
-					position: 1,
-				},
+				source: xpath.source,
+				instances: searchScreenWorkerInstances(xpath),
 			},
 			signal === undefined ? {} : { signal },
 		);
@@ -3783,7 +3785,7 @@ export class EngineController {
 		this.syncPathsToStore(affectedPaths);
 	}
 
-	/** A field's label/hint with hashtag references changed. Rebuild the
+	/** A field's label/hint with references changed. Rebuild the
 	 *  DAG (it carries the printDoc the output resolution reads the new
 	 *  label text through), then re-resolve at every live instance. */
 	private onLabelRefsChanged(uuid: Uuid): void {

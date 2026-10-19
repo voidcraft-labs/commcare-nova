@@ -1,78 +1,41 @@
 // lib/preview/engine/lookupEvaluation.ts
 //
-// Client-side evaluation of the lookup-table carriers over one
-// loaded fixture snapshot: `table-lookup` first-match values and
-// lookup-backed select choices.
-//
-// The evaluation strategy is the shipped search-surface pattern
-// (`searchExpressionEvaluation.ts`): print the authored AST through
-// the SAME on-device predicate emitter the wire uses, then evaluate
-// the printed XPath with the preview evaluator — never a second AST
-// interpreter. The one lookup-specific twist is the fixture-row
-// scope: the emitter prints same-table `table-column` terms as bare
-// row-relative wire names (exactly the device's itemset-predicate
-// shape), and the per-row `EvalContext` resolves those names against
-// the row's lexicalized cells. The `item-list:` instance vocabulary
-// never appears — the row scope is established by iterating the
-// loaded rows, not by resolving a fixture instance ref.
+// Lookup-backed choices over one loaded fixture snapshot. A choice list
+// evaluates as the itemset Core evaluates: the caller prints the nodeset the
+// wire writes (`lib/commcare/lookupOptions.ts::lookupOptionsNodeset`) at the
+// Preview target and evaluates it over the fixture instances
+// (`xpathInstances.ts::lookupXPathInstances`); this module reads each
+// selected row node back as its row and projects the value and label cells.
+// The row filter is never folded or evaluated row by row here: `position()`,
+// `current()` and every non-row read mean what they mean on the device
+// because the device's own text runs over the device's own instance shape.
 //
 // Blank semantics are the fixture boundary's: a missing cell and a
-// stored-empty cell both read as empty text (`lookupFixtureCellText`
-// — the wire emits every defined column, empty element for both), and
-// a no-match `table-lookup` folds to the empty string, which is what
-// CommCare Core's scalar unpack produces for the wire's empty
-// node-set (`""` under string operators, `NaN` under numeric
-// coercion). Folding to a PLAIN text literal is exact device parity
-// because the emitters coerce only through explicit AST nodes — a
-// node read and a string literal are unpacked identically by every
-// scalar operator.
-//
-// Rows hold the authored `(order_key, row uuid)` order the snapshot
-// reader delivers; the first row whose filter matches is the wire's
-// `[<where>][1]` positional first-match.
+// stored-empty cell both read as empty text (`lookupFixtureCellText`, the
+// wire emits every defined column, an empty element for both).
 
 import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
 import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
-import { w } from "@/lib/commcare/xpath/wire/builders";
-import {
-	toWire,
-	type WireTermBindings,
-} from "@/lib/commcare/xpath/wire/fromExpression";
-import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
-import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type {
 	LookupColumnId,
 	LookupOptionsSource,
 	LookupTableId,
-	Uuid,
 } from "@/lib/domain";
-import {
-	literal,
-	qualifiedLiteral,
-	typeCheckerBypassMessage,
-} from "@/lib/domain/expression";
-import {
-	activeRowScope,
-	type ExpressionContext,
-	pushRowScope,
-} from "@/lib/domain/expression/context";
+import { typeCheckerBypassMessage } from "@/lib/domain/expression";
 import {
 	type AstMapHooks,
 	mapExpressionAst,
 } from "@/lib/domain/expression/mapAst";
-import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
 import type { Expression } from "@/lib/domain/expression/types";
 import type {
 	LookupColumn,
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
-import { toBoolean } from "../xpath/coerce";
-import { evaluate } from "../xpath/evaluator";
-import type { EvalContext } from "../xpath/types";
+import { isXPathNodeSet, type XPathRuntimeValue } from "../xpath/runtimeValues";
 import type { LookupChoice } from "./types";
 
 /**
@@ -108,31 +71,6 @@ export function previewLookupData(snapshot: {
 }
 
 export type { LookupChoice } from "./types";
-
-/**
- * Non-row bindings for one carrier evaluation. `outer` resolves
- * everything that is NOT the fixture row — absolute `/data/` form
- * paths, `/session/` identity paths, and (for form display
- * conditions) the self-property paths `emitSelfProperty` builds.
- * `formFields` maps referenced form-answer uuids to the absolute
- * paths `outer.getValue` resolves. Their wire bindings are private identity
- * paths, so instantiated repeat paths never need reparsing as XPath.
- * `emitSelfProperty` builds a direct self case-property path understood by
- * `outer.getValue`.
- */
-export interface LookupEvaluationBindings {
-	readonly types: ExpressionContext;
-	readonly outer: EvalContext;
-	readonly formFields?: ReadonlyMap<Uuid, string>;
-	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
-	readonly emitSelfProperty?: (property: {
-		readonly property: string;
-	}) => WireExpr;
-}
-
-function formAnswerBinding(uuid: Uuid): WireExpr {
-	return w.context([w.step("__nova_form_answers"), w.step(`field_${uuid}`)]);
-}
 
 function requireTable(
 	data: PreviewLookupData,
@@ -171,240 +109,6 @@ function requireColumn(
 			hint: "the definitions snapshot and the doc disagree. Refresh the lookup data; if the column was deleted, the commit validator owns the repair.",
 		}),
 	);
-}
-
-/**
- * Per-row `EvalContext`: a bare single-segment path is a row-relative
- * column wire name (the emitter's row-scope printing) and reads the
- * row's lexicalized cell; everything else — absolute form paths,
- * session paths, hashtags — delegates to the outer context.
- * `position()` is the row's position over the COMPLETE row sequence, the
- * device's nodeset-predicate context.
- */
-function rowEvalContext(
-	columnsByWireName: ReadonlyMap<string, LookupColumn>,
-	row: LookupFixtureRow,
-	position: number,
-	outer: EvalContext,
-	formAnswers: ReadonlyMap<string, string>,
-): EvalContext {
-	return {
-		contextPath: "",
-		position,
-		resolveHashtag: (ref) => outer.resolveHashtag(ref),
-		...(outer.resolveInstance === undefined
-			? {}
-			: { resolveInstance: outer.resolveInstance }),
-		...(outer.invokeGeneratedFunction === undefined
-			? {}
-			: { invokeGeneratedFunction: outer.invokeGeneratedFunction }),
-		getValue: (path) => {
-			const answerPath = formAnswers.get(path);
-			if (answerPath !== undefined) return outer.getValue(answerPath);
-			const segments = path.split("/").filter(Boolean);
-			if (segments.length === 1) {
-				const column = columnsByWireName.get(segments[0]);
-				if (column !== undefined) {
-					return lookupFixtureCellText(column.dataType, row.values[column.id]);
-				}
-			}
-			return outer.getValue(path);
-		},
-	};
-}
-
-function emissionContext(
-	data: PreviewLookupData,
-	tableId: LookupTableId,
-	bindings: LookupEvaluationBindings,
-): WireTermBindings {
-	return {
-		...(bindings.formFields !== undefined && {
-			formFields: new Map(
-				[...bindings.formFields.keys()].map((uuid) => [
-					uuid,
-					formAnswerBinding(uuid),
-				]),
-			),
-		}),
-		...(bindings.emitSelfProperty !== undefined && {
-			emitSelfProperty: bindings.emitSelfProperty,
-		}),
-		...(bindings.userPropertySlugs !== undefined && {
-			userPropertySlugs: bindings.userPropertySlugs,
-		}),
-		lookup: {
-			naming: data.naming,
-			instanceScope: "suite",
-			// `unaddressable` keeps the anchor honest: a bare self
-			// case-property read inside a row filter either goes through
-			// `emitSelfProperty` (form display conditions) or throws the
-			// emitter's validation-bypass error loudly.
-			rowScope: { tableId, caseAnchor: { kind: "unaddressable" } },
-		},
-	};
-}
-
-/**
- * Evaluate one row filter across a table's complete ordered rows.
- * The filter is emitted ONCE (row-scoped) and evaluated per row —
- * the device's prompt-rebuild re-filter over its embedded fixture.
- * Nested `table-lookup`s inside the filter are folded to their
- * literal results first (validation rejects them today; folding keeps
- * this module total if that ever loosens).
- */
-function matchingRows(
-	data: PreviewLookupData,
-	tableId: LookupTableId,
-	filter: Expression | undefined,
-	bindings: LookupEvaluationBindings,
-	caller: string,
-): {
-	table: LookupTableDefinition;
-	rows: readonly LookupFixtureRow[];
-	matches: (row: LookupFixtureRow, index: number) => boolean;
-} {
-	const { table, rows } = requireTable(data, tableId, caller);
-	if (filter === undefined) {
-		return { table, rows, matches: () => true };
-	}
-	const folded = foldTableLookupsInExpression(filter, data, bindings);
-	const emitted = serializeWire(
-		toWire(folded, {
-			target: "suite",
-			types: bindings.types,
-			anchor: { kind: "unaddressable" },
-			bindings: emissionContext(data, tableId, bindings),
-		}),
-		{ target: "suite" },
-	).text;
-	const formAnswers = new Map(
-		[...(bindings.formFields ?? [])].map(([uuid, path]) => [
-			`/${serializeWire(formAnswerBinding(uuid), { target: "suite" }).text}`,
-			path,
-		]),
-	);
-	const columnsByWireName = new Map(
-		table.columns.map((column) => [column.wireName, column]),
-	);
-	return {
-		table,
-		rows,
-		matches: (row, index) =>
-			toBoolean(
-				evaluate(
-					emitted,
-					rowEvalContext(
-						columnsByWireName,
-						row,
-						index + 1,
-						bindings.outer,
-						formAnswers,
-					),
-				),
-			),
-	};
-}
-
-/**
- * Evaluate a `table-lookup` to its scalar text result: the first row
- * in authored order matching `where`, reading the result column's
- * lexicalized cell. No match is the empty string — Core's scalar
- * unpack of the wire's empty node-set.
- */
-export function evaluateTableLookup(
-	expr: Extract<Expression, { kind: "table-lookup" }>,
-	data: PreviewLookupData,
-	bindings: LookupEvaluationBindings,
-): string {
-	const active = activeRowScope(bindings.types);
-	const capturedCase =
-		active?.kind === "case"
-			? active
-			: active?.kind === "table"
-				? active.capturedCase
-				: undefined;
-	const { table, rows, matches } = matchingRows(
-		data,
-		expr.tableId,
-		expr.where,
-		{
-			...bindings,
-			types: pushRowScope(bindings.types, {
-				kind: "table",
-				root: "table",
-				tableId: expr.tableId,
-				...(capturedCase === undefined ? {} : { capturedCase }),
-			}),
-		},
-		"evaluateTableLookup",
-	);
-	const resultColumn = requireColumn(
-		table,
-		expr.resultColumnId,
-		"evaluateTableLookup",
-	);
-	for (const [index, row] of rows.entries()) {
-		if (matches(row, index)) {
-			return lookupFixtureCellText(
-				resultColumn.dataType,
-				row.values[resultColumn.id],
-			);
-		}
-	}
-	return "";
-}
-
-/**
- * Fold every `table-lookup` in a predicate to its literal result so
- * downstream emission and evaluation never meet the carrier kinds.
- */
-export function foldTableLookupsInPredicate(
-	predicate: Expression,
-	data: PreviewLookupData,
-	bindings: LookupEvaluationBindings,
-): Expression {
-	return mapExpressionAst(predicate, foldHooks(data, bindings, predicate));
-}
-
-/** Expression twin of {@link foldTableLookupsInExpression}. */
-export function foldTableLookupsInExpression(
-	expression: Expression,
-	data: PreviewLookupData,
-	bindings: LookupEvaluationBindings,
-): Expression {
-	return mapExpressionAst(expression, foldHooks(data, bindings, expression));
-}
-
-function foldHooks(
-	data: PreviewLookupData,
-	bindings: LookupEvaluationBindings,
-	root: Expression,
-) {
-	return {
-		mapExpression: (expr: Expression, path: readonly (string | number)[]) => {
-			if (expr.kind !== "table-lookup") return undefined;
-			const { table } = requireTable(data, expr.tableId, "foldHooks");
-			const { dataType } = requireColumn(
-				table,
-				expr.resultColumnId,
-				"foldHooks",
-			);
-			const types = expressionContextAtPath(root, bindings.types, path);
-			if (types === undefined)
-				throw new Error(
-					"A lookup expression has no typed context at its stored operand path.",
-				);
-			const value = evaluateTableLookup(expr, data, { ...bindings, types });
-			return {
-				kind: "term" as const,
-				term:
-					dataType === "int" || dataType === "decimal"
-						? qualifiedLiteral(value, dataType)
-						: literal(value),
-			};
-		},
-	};
 }
 
 // ── Snapshot coverage ────────────────────────────────────────────────
@@ -506,51 +210,61 @@ export function lookupOptionsSourceCovered(
 }
 
 /**
- * Compute a lookup-backed select's live choices: the filtered rows, each
- * projected to its value/label column cell text. Rows whose cells are blank
- * stay included — row-dependent validity (blank values, duplicates) is the
- * export boundary's verdict, and the running preview renders the fixture the
- * device would carry.
+ * A lookup-backed select's live choices from its evaluated itemset nodeset:
+ * each selected row, projected to its value/label column cell text. Rows
+ * whose cells are blank stay included: row-dependent validity (blank values,
+ * duplicates) is the export boundary's verdict, and the running preview
+ * renders the fixture the device would carry.
  *
- * Without `sortColumnId` the choices keep the table's row order, as a form
- * select's do. With it they are ordered by that column's cell text compared
- * code unit by code unit, ties in row order: the order Core gives an
- * `<itemset>` with a `<sort>` (`ItemsetBinding.sortChoices` compares Java
- * strings with a stable sort), never a locale's collation.
+ * A row node's sibling multiplicity is its position in the table's ordered
+ * rows, which is the order the fixture instance holds them in.
+ *
+ * Without `sortColumnId` the choices keep the nodeset's order, the table's
+ * row order, as a form select's do. With it they are ordered by that
+ * column's cell text compared code unit by code unit, ties in row order: the
+ * order Core gives an `<itemset>` with a `<sort>`
+ * (`ItemsetBinding.sortChoices` compares Java strings with a stable sort),
+ * never a locale's collation.
  */
-export function evaluateLookupChoices(
+export function lookupChoicesFromNodeset(
 	source: LookupOptionsSource,
 	data: PreviewLookupData,
-	bindings: LookupEvaluationBindings,
+	nodeset: XPathRuntimeValue,
 	sortColumnId?: LookupColumnId,
 ): readonly LookupChoice[] {
-	const { table, rows, matches } = matchingRows(
+	if (!isXPathNodeSet(nodeset))
+		throw new Error(
+			"A lookup choice list's itemset did not select rows. Preview evaluates the nodeset the form writes, which always names the table's rows.",
+		);
+	const { table, rows } = requireTable(
 		data,
 		source.tableId,
-		source.filter,
-		bindings,
-		"evaluateLookupChoices",
+		"lookupChoicesFromNodeset",
 	);
 	const valueColumn = requireColumn(
 		table,
 		source.valueColumnId,
-		"evaluateLookupChoices",
+		"lookupChoicesFromNodeset",
 	);
 	const labelColumn = requireColumn(
 		table,
 		source.labelColumnId,
-		"evaluateLookupChoices",
+		"lookupChoicesFromNodeset",
 	);
 	const sortColumn =
 		sortColumnId === undefined
 			? undefined
-			: requireColumn(table, sortColumnId, "evaluateLookupChoices");
+			: requireColumn(table, sortColumnId, "lookupChoicesFromNodeset");
 	const choices: {
 		readonly choice: LookupChoice;
 		readonly sortText: string;
 	}[] = [];
-	for (const [index, row] of rows.entries()) {
-		if (!matches(row, index)) continue;
+	for (const node of nodeset.nodes) {
+		const row = rows[node.multiplicity];
+		if (row === undefined)
+			throw new Error(
+				`A lookup choice list selected row ${node.multiplicity + 1} of table \`${table.name}\`, which holds ${rows.length} rows in the loaded snapshot.`,
+			);
 		choices.push({
 			choice: {
 				key: row.id as string,

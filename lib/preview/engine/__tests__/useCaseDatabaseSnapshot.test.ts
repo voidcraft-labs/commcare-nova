@@ -258,9 +258,18 @@ describe("caseDatabaseRequirements", () => {
 				required: requirements.required,
 				status: "loading",
 			});
+			// The record's name reads the device's cases through the entry's
+			// session datum, so the entry opens with the record it was chosen for.
 			await ctrl.activateFormAsync(
 				formUuid,
 				caseRowsToFormPreloads(row, [], [{ name: "repair", depth: 0 }]),
+				undefined,
+				undefined,
+				{
+					appId: doc.appId,
+					boundCases: [{ caseId: row.case_id, caseName: row.case_name }],
+					menuSelections: {},
+				},
 			);
 			expect(ctrl.entryStore.getState().caseDatabaseWait).toEqual({
 				formUuid,

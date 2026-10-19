@@ -10,7 +10,6 @@ import type { EvalContext } from "../types";
 
 const context: EvalContext = {
 	getValue: () => undefined,
-	resolveHashtag: () => "",
 	contextPath: "/data/current",
 	position: 1,
 };

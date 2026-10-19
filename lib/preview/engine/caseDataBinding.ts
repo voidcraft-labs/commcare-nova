@@ -133,6 +133,7 @@ import {
 	searchInputRuntimeGlobalError,
 	searchInputSubmissionErrors,
 } from "./searchInputValidation";
+import type { ViewerLocation } from "./viewerLocation";
 import type { LoadCaseDatabaseSnapshotResult } from "./xpathInstances";
 
 // Errors thrown by the case-store layer are caught and mapped to
@@ -341,6 +342,11 @@ export async function loadCasesAction(args: {
 	 *  of a completed search, or a check of cases chosen from them. Submitted
 	 *  `inputValues` say the same. */
 	search?: boolean;
+	/** The viewer's latest position, which a calculated column's `here()`
+	 *  reads; `null` or omitted while the browser has shared none. It travels
+	 *  in this request and the query's bound parameters only, and is never
+	 *  stored or logged. */
+	viewerLocation?: ViewerLocation | null;
 }): Promise<LoadCasesResult> {
 	try {
 		const inputValues = args.inputValues
@@ -459,6 +465,7 @@ export async function loadCasesAction(args: {
 			args.caseListConfig?.searchInputs,
 			expressionInputValues,
 			args.viewerTimeZone,
+			args.viewerLocation ?? null,
 		);
 		/* Lookup carriers: the SQL-bound slots (filter / calc columns /
 		 * advanced predicates) compile natively against a rows-free
@@ -811,6 +818,9 @@ export async function loadCaseDataAction(
 	/** The case was chosen from the Results of a search of `moduleUuid`, so a
 	 *  device-scoped read reads it as the search found it. */
 	search?: boolean,
+	/** The viewer's latest position for a Details column's `here()`; `null`
+	 *  or omitted while the browser has shared none. Never stored or logged. */
+	viewerLocation?: ViewerLocation | null,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -868,6 +878,7 @@ export async function loadCaseDataAction(
 				caseListConfig?.searchInputs,
 				expressionInputValues,
 				viewerTimeZone,
+				viewerLocation ?? null,
 			),
 			caseTypeSchemas:
 				environment === undefined
@@ -1352,6 +1363,9 @@ export async function loadFilterPreviewAction(args: {
 					new Map(),
 				),
 				args.viewerTimeZone,
+				/* The builder's sample is the author's view of stored data, not
+				 * a worker standing somewhere: `here()` reads blank. */
+				null,
 			),
 			excludedOwnerIds,
 			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),

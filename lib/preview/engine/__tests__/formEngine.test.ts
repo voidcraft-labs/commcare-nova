@@ -13,6 +13,8 @@ import {
 	type FieldSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { formExpressionEmission } from "@/lib/commcare/xform/formExpressions";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type {
 	CaseType,
 	CaseWrite,
@@ -43,6 +45,7 @@ import {
 	type FormEngineAsyncEvaluator,
 	type FormEngineInput,
 } from "../formEngine";
+import { formExpressionRuntime } from "../formExpressionRuntime";
 import { previewAsMe } from "../identity";
 import { engineFixtureInput } from "./fixtures/engineInput";
 
@@ -159,7 +162,7 @@ function fixedWorldEvaluator(engine: FormEngine, worldKey: string) {
 			profile: "form",
 			source,
 			resultMode,
-			instances: engine.workerInstances(source, path, world, stateOverrides),
+			instances: engine.workerInstances(path, world, stateOverrides),
 		});
 		if (!result.ok) throw new Error(result.error.code);
 		if (result.nodesetValues !== undefined) {
@@ -522,7 +525,7 @@ describe("FormEngine", () => {
 				profile: "form",
 				source,
 				resultMode,
-				instances: engine.workerInstances(source, path),
+				instances: engine.workerInstances(path),
 			});
 			if (!result.ok) throw new Error(result.error.code);
 			if (result.nodesetValues !== undefined) {
@@ -715,12 +718,7 @@ describe("FormEngine", () => {
 					profile: "form",
 					source,
 					resultMode,
-					instances: engine.workerInstances(
-						source,
-						path,
-						world,
-						stateOverrides,
-					),
+					instances: engine.workerInstances(path, world, stateOverrides),
 				});
 				if (!result.ok) throw new Error(result.error.code);
 				if (result.nodesetValues !== undefined) {
@@ -4892,12 +4890,7 @@ describe("FormEngine", () => {
 					profile: "form",
 					source,
 					resultMode,
-					instances: asyncEngine.workerInstances(
-						source,
-						path,
-						world,
-						stateOverrides,
-					),
+					instances: asyncEngine.workerInstances(path, world, stateOverrides),
 				});
 				if (!result.ok) throw new Error(result.error.code);
 				if (result.nodesetValues !== undefined) {
@@ -4954,12 +4947,7 @@ describe("FormEngine", () => {
 					profile: "form",
 					source,
 					resultMode,
-					instances: engine.workerInstances(
-						source,
-						path,
-						world,
-						stateOverrides,
-					),
+					instances: engine.workerInstances(path, world, stateOverrides),
 				});
 				if (!result.ok) throw new Error(result.error.code);
 				if (result.nodesetValues !== undefined) {
@@ -5111,12 +5099,7 @@ describe("FormEngine", () => {
 					profile: "form",
 					source,
 					resultMode,
-					instances: engine.workerInstances(
-						source,
-						path,
-						world,
-						stateOverrides,
-					),
+					instances: engine.workerInstances(path, world, stateOverrides),
 				});
 				if (!result.ok) throw new Error(result.error.code);
 				if (result.nodesetValues !== undefined) {
@@ -6243,7 +6226,7 @@ describe("the form's data node name", () => {
 			const engine = new FormEngine(input);
 			expect(formWireName(doc, FORM)).toBe("Registrar");
 			const data = engine
-				.workerInstances("", "/data/answer")
+				.workerInstances("/data/answer")
 				.main?.root.children.find((node) => node.name === "data");
 			expect(
 				data?.attributes.find((attribute) => attribute.name === "name")?.value,
@@ -6740,5 +6723,97 @@ describe("FormEngine session data", () => {
 			{ sessionData: { case_id: "p-1" } },
 		);
 		expect(engine.getState("/data/where").value).toBe("North");
+	});
+});
+
+describe("form logic's Preview print", () => {
+	const CALC = testUuid("form.total");
+	const calculateSlot = {
+		entity: "field" as const,
+		uuid: CALC,
+		slot: "calculate" as const,
+	};
+	function printFixture(calculate: string) {
+		return dTree([
+			{ id: "count", kind: "int" },
+			{
+				id: "visit",
+				kind: "group",
+				children: [{ id: "fee", kind: "int" }],
+			},
+			{
+				id: "items",
+				kind: "repeat",
+				children: [{ id: "qty", kind: "int" }],
+			},
+			{ id: "total", kind: "hidden", calculate },
+		]);
+	}
+
+	it("decides requiredness by the stored tree", () => {
+		const input = dTree([
+			{ id: "always", kind: "text", required: "true()" },
+			{ id: "never", kind: "text", required: "false()" },
+		]);
+		const stored = (id: string) => {
+			const field = input.doc.fields[testUuid(`form.${id}`)];
+			return field !== undefined && "required" in field
+				? field.required
+				: undefined;
+		};
+		expect(stored("always")).toEqual({ kind: "match-all" });
+		expect(stored("never")).toEqual({ kind: "match-none" });
+		const engine = new FormEngine(input);
+		expect(engine.getState("/data/always").required).toBe(true);
+		expect(engine.getState("/data/never").required).toBe(false);
+	});
+
+	it("prints the text the XForm writes for the same tree", () => {
+		const input = printFixture(
+			"#form/count + #form/visit/fee + count(#form/items) + sum(#form/items/qty)",
+		);
+		const field = input.doc.fields[CALC];
+		if (field?.kind !== "hidden" || field.calculate === undefined)
+			throw new Error("The fixture lost its sum.");
+		const expression = field.calculate;
+		const wire = serializeWire(
+			formExpressionEmission(input.doc, input.formUuid, undefined, {}).lower(
+				expression,
+				calculateSlot,
+			),
+			{ target: "xform", constraint: false },
+		).text;
+		expect(
+			formExpressionRuntime(input.doc, input.formUuid, undefined, {}).source(
+				calculateSlot,
+			),
+		).toBe(wire);
+		expect(wire).toBe(
+			"/data/count + /data/visit/fee + count(/data/items) + sum(/data/items/qty)",
+		);
+	});
+
+	it("prints each slot once per runtime, and a new runtime prints the current tree", () => {
+		const input = printFixture("#form/count + 1");
+		const doc = structuredClone(input.doc);
+		const runtime = formExpressionRuntime(doc, input.formUuid, undefined, {});
+		expect(runtime.source(calculateSlot)).toBe("/data/count + 1");
+		const replacement = printFixture("#form/count + 2").doc.fields[CALC];
+		if (replacement?.kind !== "hidden") throw new Error("Expected a hidden.");
+		doc.fields[CALC] = replacement;
+		expect(runtime.source(calculateSlot)).toBe("/data/count + 1");
+		expect(
+			formExpressionRuntime(doc, input.formUuid, undefined, {}).source(
+				calculateSlot,
+			),
+		).toBe("/data/count + 2");
+	});
+
+	it("reprints after updateSchema", () => {
+		const engine = new FormEngine(printFixture("#form/count + 1"));
+		engine.setValue("/data/count", "4");
+		expect(engine.getState("/data/total").value).toBe("5");
+		engine.updateSchema(printFixture("#form/count + 2"));
+		expect(engine.getState("/data/total").value).toBe("6");
 	});
 });

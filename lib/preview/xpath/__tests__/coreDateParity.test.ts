@@ -76,7 +76,6 @@ function contextFor(row: CoreDateParityRow, zone: string): EvalContext {
 		contextPath: "/",
 		position: undefined,
 		getValue: (path) => data.get(path),
-		resolveHashtag: () => "",
 	};
 }
 

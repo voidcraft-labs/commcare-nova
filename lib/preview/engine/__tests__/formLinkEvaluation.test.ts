@@ -311,7 +311,6 @@ function inputFor(
 		session: SESSION,
 		usercase: { role: "supervisor" },
 		sessionDatums: new Map(),
-		caseData: new Map(),
 		...overrides,
 	};
 }
@@ -363,15 +362,6 @@ describe("form-link worker instances", () => {
 		const input = inputFor(doc, {
 			formUuid: UPDATE,
 			sessionDatums: followupSession(doc, UPDATE, caseId),
-			caseData: new Map([
-				[
-					"household",
-					new Map([
-						["case_id", caseId],
-						["village", "north"],
-					]),
-				],
-			]),
 			caseDatabase: {
 				rows: [
 					{
@@ -457,7 +447,7 @@ describe("form-link worker instances", () => {
 					revision: 1,
 					profile: "form-link",
 					source,
-					instances: formLinkWorkerInstances(input, source),
+					instances: formLinkWorkerInstances(input),
 				}),
 			).resolves.toMatchObject({ ok: true, value: "north" });
 		}
@@ -642,18 +632,6 @@ describe("formLinkEvalContext", () => {
 		expect(() => ctx.getValue("/data/village")).toThrow(
 			/cannot read "\/data\/village"/,
 		);
-		expect(() => ctx.resolveHashtag("#form/village")).toThrow(
-			/cannot read "#form\/village"/,
-		);
-		expect(() => ctx.resolveHashtag("#case/village")).toThrow(/#case/);
-	});
-
-	it("reads #user from the usercase and an unknown namespace as blank", () => {
-		const doc = buildDoc(spec());
-		const ctx = formLinkEvalContext(inputFor(doc));
-		expect(ctx.resolveHashtag("#user/role")).toBe("supervisor");
-		expect(ctx.resolveHashtag("#user/missing")).toBe("");
-		expect(ctx.resolveHashtag("#clinic/name")).toBe("");
 	});
 });
 

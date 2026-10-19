@@ -81,6 +81,9 @@ export function PersistentCaseTile({
 		// selected on their device.
 		deviceScoped: true,
 		scopeKey: restoreScopeKey,
+		// Its cells are the list's tile, so a `here()` cell reads the latest
+		// position the list's watch saw.
+		positionScreen: "list",
 	});
 	const displayContext = useColumnDisplayContext(
 		config,

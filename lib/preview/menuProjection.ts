@@ -15,6 +15,7 @@ import { previewExpressionContext } from "@/lib/preview/engine/expressionContext
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import {
 	moduleDisplayVisibility,
+	type NavigationDeviceCases,
 	type NavigationItemVisibility,
 } from "./engine/displayConditionEvaluation";
 import type { PreviewSearchSessionValues } from "./engine/identity";
@@ -85,6 +86,9 @@ export function previewModuleVisibility(
 		readonly authoring: boolean;
 		readonly session: PreviewSearchSessionValues;
 		readonly lookup: PreviewLookupStatus;
+		/** The worker's device cases, which a worker property reads; a
+		 * condition that reads them stays `pending` without them. */
+		readonly deviceCases?: NavigationDeviceCases;
 	},
 ): ReadonlyMap<Uuid, NavigationItemVisibility> {
 	const own = new Map(
@@ -104,6 +108,9 @@ export function previewModuleVisibility(
 							hiddenFromMenu: mod.hiddenFromMenu === true,
 							session: args.session,
 							lookup: args.lookup,
+							...(args.deviceCases === undefined
+								? {}
+								: { deviceCases: args.deviceCases }),
 						}),
 			] as const;
 		}),

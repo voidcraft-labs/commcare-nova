@@ -42,6 +42,7 @@ import {
 	term,
 	unhandledKindMessage,
 } from "@/lib/domain/expression";
+import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	dateRangeInputErrors,
@@ -49,6 +50,7 @@ import {
 	isValidCalendarDate,
 	SearchInputValuesError,
 } from "./dateRangeInputValidation";
+import type { ViewerLocation } from "./viewerLocation";
 
 /**
  * Wire-form date shape — the ISO `YYYY-MM-DD` pattern this module
@@ -155,39 +157,6 @@ export function searchInputInstanceValues(
 }
 
 /**
- * Bind every `input(name)` leaf in a Expression to the current running
- * search value. The preview XPath evaluator is scalar and intentionally does
- * not model the search-input XML nodeset, so substitution happens while the
- * expression is still a typed AST. Missing inputs become the empty string —
- * the same value CommCare's virtual search-input instance exposes for an
- * unanswered prompt.
- */
-export function bindSearchInputValuesInExpression(
-	expression: Expression,
-	inputValues: SearchInputValues,
-	searchInputs: readonly SearchInputDef[] = [],
-): Expression {
-	const runtimeBindings = searchInputRuntimeBindings(searchInputs);
-	const uuids = new Set<Uuid>();
-	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "input") uuids.add(term.searchInputUuid);
-	});
-
-	let bound = expression;
-	for (const uuid of uuids) {
-		const input = runtimeBindings.get(uuid);
-		if (input === undefined) continue;
-		bound = substituteInputInExpression(
-			bound,
-			input,
-			inputValues.get(input.name) ?? "",
-			true,
-		);
-	}
-	return bound;
-}
-
-/**
  * Bind declared search-input refs in an authored Expression and resolve each
  * matching `when-input-present` gate from that input's own submitted value.
  * Unknown refs deliberately stay structural: validation rejects them, and a
@@ -202,8 +171,7 @@ export function bindSearchInputValuesInExpression(
  * RemoteQuerySessionManager.answerUserPrompt` → the `search-input` virtual
  * instance) and interpolates it verbatim into `_xpath_query`, so a
  * whitespace-padded answer matches nothing on the deployed app; Preview must
- * agree rather than quietly matching the trimmed spelling. The sibling
- * expression binder above binds the same raw value.
+ * agree rather than quietly matching the trimmed spelling.
  */
 export function bindSearchInputValuesInPredicate(
 	predicate: Expression,
@@ -571,18 +539,6 @@ function substituteInputInPredicate(
 	);
 }
 
-function substituteInputInExpression(
-	expr: Expression,
-	target: RuntimeInputBinding,
-	value: string,
-	resolvePresence = false,
-): Expression {
-	return mapExpressionAst(
-		expr,
-		substitutionHooks(target, value, resolvePresence),
-	);
-}
-
 /**
  * Project the authenticated Preview session into the case-store compiler's
  * runtime binding vocabulary. Search-input expressions read the submitted
@@ -595,6 +551,7 @@ export function previewCaseStoreBindings(
 	searchInputs: readonly SearchInputDef[] = [],
 	inputValues: SearchInputValues = new Map(),
 	viewerTimeZone?: string,
+	viewerLocation: ViewerLocation | null = null,
 ): TermBindings {
 	const boundInputs = new Map<Uuid, string>();
 	for (const input of searchInputs) {
@@ -613,5 +570,52 @@ export function previewCaseStoreBindings(
 		userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
 		sessionUserFallback: "",
 		...(viewerTimeZone === undefined ? {} : { viewerTimeZone }),
+		viewerLocation: viewerLocationText(viewerLocation),
 	};
+}
+
+/**
+ * The text `here()` reads for the viewer's position, or `null` when the
+ * browser has shared none, which the compiler reads as `''`, as both
+ * runtimes give before a fix.
+ *
+ * The spelling is the one a CommCare handler that is given a browser
+ * position returns: Formplayer's `util/FormplayerHereFunctionHandler.java::
+ * eval` builds `GeoPointData(new double[]{lat, lon}).getDisplayText()`,
+ * which for two values is `Double.toString(lat) + " " + Double.toString(lon)`
+ * (`GeoPointData.java::getDisplayText`). So 40 reads `40.0` and 0.0005
+ * reads `5.0E-4`.
+ *
+ * The position arrives from the client, so it is checked rather than
+ * trusted: a latitude outside [-90, 90], a longitude outside [-180, 180] or
+ * a value that is not a finite number is refused, never repaired.
+ */
+export function viewerLocationText(
+	viewerLocation: ViewerLocation | null | undefined,
+): string | null {
+	if (viewerLocation === null || viewerLocation === undefined) return null;
+	const { latitude, longitude } = viewerLocation;
+	if (
+		typeof latitude !== "number" ||
+		typeof longitude !== "number" ||
+		!Number.isFinite(latitude) ||
+		!Number.isFinite(longitude) ||
+		latitude < -90 ||
+		latitude > 90 ||
+		longitude < -180 ||
+		longitude > 180
+	) {
+		throw new ViewerLocationError();
+	}
+	return `${openJdk17DoubleToString(latitude)} ${openJdk17DoubleToString(longitude)}`;
+}
+
+/** A position that is not a place on Earth reached the case-list read. */
+export class ViewerLocationError extends Error {
+	constructor() {
+		super(
+			"The position sent with this list isn't a place on Earth. A latitude runs from -90 to 90 and a longitude from -180 to 180, each a finite number of degrees. Look at what the browser's location watch reported.",
+		);
+		this.name = "ViewerLocationError";
+	}
 }

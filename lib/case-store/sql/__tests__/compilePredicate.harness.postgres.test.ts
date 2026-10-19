@@ -1858,6 +1858,15 @@ test("a distance center takes the E-notation a location handler's Double.toStrin
 		await matchedIds(db, within(point, literal("5.0E-4 0.0"), 1, "kilometers")),
 	).toEqual(["near"]);
 	const nearHere = within(point, { kind: "here" }, 1, "kilometers");
+	// Formplayer's two values, which Preview binds.
+	expect(
+		await matchedIds(
+			db,
+			nearHere,
+			makeCtx(db, { bindings: { viewerLocation: "5.0E-4 0.0" } }),
+		),
+	).toEqual(["near"]);
+	// A device handler's four values.
 	expect(
 		await matchedIds(
 			db,
