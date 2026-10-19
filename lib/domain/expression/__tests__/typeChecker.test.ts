@@ -3138,6 +3138,20 @@ describe("a Hidden Value read", () => {
 			held: { nodes: "date" },
 			clockLost: true,
 		});
+		// depend() returns its first argument as it was held
+		// (XPathDependFunc.evalBody), so the lost clock comes through.
+		const depend = parseFixtureExpression(
+			doc,
+			fieldSlot(RULES.n, "relevant"),
+			"depend(#form/stamp, #form/n)",
+		);
+		expect(typeOf(depend, ctx)).toMatchObject({ clockLost: true });
+		const fresh = parseFixtureExpression(
+			doc,
+			fieldSlot(RULES.n, "relevant"),
+			"depend(now(), #form/n)",
+		);
+		expect(typeOf(fresh, ctx)?.clockLost).toBeUndefined();
 	});
 	it("refuses a lost clock written into a date-and-time property", () => {
 		const base = rulesDoc();

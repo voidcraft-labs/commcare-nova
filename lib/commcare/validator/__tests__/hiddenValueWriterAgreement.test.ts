@@ -467,6 +467,40 @@ describe("Hidden Values that alone type a property", () => {
 		]);
 	});
 
+	it("leaves a property whose visible writers disagree to their own rule, not to a Hidden Value beside them", () => {
+		const errors = validate(
+			doc({
+				register: [
+					f({
+						kind: "text",
+						id: "score_text",
+						label: "Score",
+						caseWrite: { caseType: "patient", property: "score" },
+					}),
+					hidden(
+						"mixed",
+						{ calculate: "if(#form/flag = 'yes', 1, 'high')" },
+						"score",
+					),
+				],
+				followUp: [
+					f({
+						kind: "int",
+						id: "score_number",
+						label: "Score",
+						caseWrite: { caseType: "patient", property: "score" },
+					}),
+				],
+			}),
+		);
+		expect(errors.map((error) => error.code)).toContain(
+			"FIELD_KIND_WRITERS_DISAGREE",
+		);
+		expect(errors.map((error) => error.code)).not.toContain(
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+		);
+	});
+
 	it("reports a writer whose own results disagree once, as its own disagreement", () => {
 		const errors = validate(
 			doc({

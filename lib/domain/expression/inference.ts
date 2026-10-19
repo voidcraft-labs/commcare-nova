@@ -136,6 +136,9 @@ export interface PropertyAgreement {
 	/** Undefined when nothing decides it or its writers disagree. */
 	readonly type: CasePropertyDataType | undefined;
 	readonly origin: PropertyTypeOrigin | undefined;
+	/** Its visible or case-operation writers name different types, which their
+	 * own rules report; Hidden Values then hold no opinion of their own. */
+	readonly writersDisagree?: true;
 }
 
 export interface ExpressionInference {
@@ -357,7 +360,10 @@ export function hiddenWriterVerdicts(
 						...(output.type === undefined ? {} : { type: output.type }),
 					});
 			}
-		} else if (hiddenOnlyDisagreement(inference, writer)) {
+		} else if (
+			property.writersDisagree !== true &&
+			hiddenOnlyDisagreement(inference, writer)
+		) {
 			for (const output of writer.outputs)
 				if (output.type !== undefined)
 					findings.push({
@@ -1055,7 +1061,7 @@ class Inference {
 					key,
 					opinions.size === 1
 						? { type: only[0], origin: only[1] }
-						: { type: undefined, origin: undefined },
+						: { type: undefined, origin: undefined, writersDisagree: true },
 				);
 				return;
 			}

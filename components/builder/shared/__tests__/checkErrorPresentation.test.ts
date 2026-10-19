@@ -104,7 +104,7 @@ describe("PredicateCardEditor — reasons and the checker's newer codes", () => 
 		],
 		[
 			"boolean",
-			"Anything that isn't blank or zero counts as true. You can compare it with the choice's value instead",
+			"Anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own",
 		],
 	])(
 		"gives values that don't line up for %s their own line",

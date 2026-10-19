@@ -518,7 +518,10 @@ function settle(
 	}
 	if (result === undefined)
 		return several === undefined
-			? undefined
+			? clockLost
+				? // A pass-through call keeps the lost clock of the value it returns.
+					{ data: ANY_TYPE, held: "date", clockLost: true }
+				: undefined
 			: {
 					data: { nodes: ANY_TYPE, cardinality: "many", structural: true },
 					held: { nodes: "string" },
@@ -2591,9 +2594,9 @@ function checkFormComparison(
 		rightType,
 	);
 	if (left === "datetime")
-		datetimeLiteralPrecision(expression.left, ["left"], errors, false);
+		datetimeLiteralPrecision(expression.left, ["left"], errors, true);
 	if (right === "datetime")
-		datetimeLiteralPrecision(expression.right, ["right"], errors, false);
+		datetimeLiteralPrecision(expression.right, ["right"], errors, true);
 	if (ordering && (left === "time" || right === "time")) {
 		errors.push(refusal("time-ordering", TIME_ORDERING_MESSAGE));
 		return;

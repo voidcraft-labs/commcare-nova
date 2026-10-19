@@ -21,6 +21,7 @@ import {
 	isContainer,
 	type Uuid,
 } from "@/lib/domain";
+import { fieldCaseWrite } from "@/lib/domain/caseTypes";
 import {
 	type CaseWriteInventoryIssue,
 	caseWriteInventoryIssues,
@@ -357,12 +358,28 @@ function deriveCaseWriteIssues(
  *  or a new case left without its name. Projecting such a candidate's
  *  expressions would ask for case actions it has none of, so this comes
  *  first. */
+function subtreeWritesCase(doc: BlueprintDoc, root: Uuid): boolean {
+	const pending = [root];
+	const seen = new Set<Uuid>();
+	while (pending.length > 0) {
+		const uuid = pending.pop();
+		if (uuid === undefined || seen.has(uuid)) continue;
+		seen.add(uuid);
+		const field = doc.fields[uuid];
+		if (field !== undefined && fieldCaseWrite(field) !== undefined) return true;
+		pending.push(...orderedFieldUuids(doc, uuid));
+	}
+	return false;
+}
+
 function caseWriteRefusal(
 	doc: BlueprintDoc,
 	candidate: BlueprintDoc,
 	formUuid: Uuid,
 	moved: Uuid,
 ): FieldPlacementVerdict | undefined {
+	// Only a case writer moving changes the form's case writes.
+	if (!subtreeWritesCase(doc, moved)) return undefined;
 	const before = caseWriteIssues(doc, formUuid);
 	for (const [key, issue] of caseWriteIssues(candidate, formUuid)) {
 		if (before.has(key)) continue;
