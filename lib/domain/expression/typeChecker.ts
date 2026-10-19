@@ -504,7 +504,10 @@ function settle(
 	for (const { child, type } of children) {
 		if (type === undefined) continue;
 		const use = childUse(expression, child, spec, jointlyAdmitted);
-		if (use === "pass" || use === "inherit")
+		// XpathCoalesceFunc.evalBody returns the first non-empty argument, and an
+		// unpacked argument is the value it held: its lost clock carries through
+		// even where the argument is read as one value.
+		if (use === "pass" || use === "inherit" || expression.kind === "coalesce")
 			clockLost ||= type.clockLost === true;
 		if (use === "pass") {
 			several ??= type.several;
@@ -1383,19 +1386,25 @@ function inferNode(
 				// The case store compiles a format-date to SQL, which needs the
 				// whole pattern when it compiles (compileExpression.ts::compileFormatDate).
 				const fixed = fixedDatePattern(expression.pattern);
-				if (
-					"profile" in ctx &&
-					ctx.profile.targets.has("PG") &&
-					(fixed === undefined ||
+				if ("profile" in ctx && ctx.profile.targets.has("PG")) {
+					if (fixed === undefined)
+						errors.push({
+							path: ["pattern"],
+							code: "format-date-pattern-not-fixed",
+							message:
+								"This date format needs to be a fixed one of CommCare's formats here, because Nova's case store works it out before the expression runs. You can choose a fixed format.",
+						});
+					else if (
 						fixed.length === 0 ||
-						!COMMCARE_DATE_PATTERN_REGEX.test(fixed))
-				)
-					errors.push({
-						path: ["pattern"],
-						code: "format-date-pattern-not-fixed",
-						message:
-							"This date format can't change from row to row here, because the case list reads it before it reads any row. You can choose a fixed date format.",
-					});
+						!COMMCARE_DATE_PATTERN_REGEX.test(fixed)
+					)
+						errors.push({
+							path: ["pattern"],
+							code: "format-date-pattern-not-fixed",
+							message:
+								"This date format isn't one of CommCare's formats, and Nova's case store needs one to work it out before the expression runs. You can choose one of CommCare's formats.",
+						});
+				}
 			} else if (
 				ctx.ruleSet === "form" &&
 				["short", "long", "iso"].includes(expression.pattern)
@@ -1674,6 +1683,9 @@ function numericLiteral(
 		expression.kind !== "term" ||
 		expression.term.kind !== "literal" ||
 		typeof expression.term.value !== "string" ||
+		// A typed literal states its own kind; form logic refuses it as a
+		// literal it can't spell, not as text that isn't a number.
+		expression.term.data_type !== undefined ||
 		expression.term.value.trim() === ""
 	)
 		return;

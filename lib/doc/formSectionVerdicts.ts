@@ -36,6 +36,7 @@ import {
 import type { SlotContextRef } from "@/lib/domain/expression/types";
 import {
 	expressionAt,
+	type ProseRead,
 	prosePartTerm,
 	proseReadSlotRef,
 	proseSurfaceReads,
@@ -204,9 +205,10 @@ export interface FieldPlacementArgs {
  * slots and every slot that reads a field in it. A refusal is a finding the
  * checker raises after the move and not before it, such as a reader left
  * without a path, or a one-value reader that would read every entry of a
- * repeat. The question is asked once per destination parent; a rule that
- * reads sibling order is answered for the parent's first position. The
- * commit gate stays authoritative for the complete candidate document.
+ * repeat. The question is asked once per destination parent, so a finding
+ * that depends on the field's position among its new siblings is left to the
+ * commit gate, which stays authoritative for the complete candidate
+ * document.
  */
 export function fieldPlacementVerdict(
 	doc: BlueprintDoc,
@@ -331,9 +333,31 @@ function contextLost(
 	};
 }
 
+const caseWriteIssuesByDoc = new WeakMap<
+	BlueprintDoc,
+	Map<Uuid, ReadonlyMap<string, CaseWriteInventoryIssue>>
+>();
+
 /** What a form's case writes refuse, keyed so the same issue matches on
- *  both sides of a move. */
+ *  both sides of a move. Memoized per document, so the side before a move is
+ *  derived once however many destinations are asked about. */
 function caseWriteIssues(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): ReadonlyMap<string, CaseWriteInventoryIssue> {
+	let byForm = caseWriteIssuesByDoc.get(doc);
+	if (byForm === undefined) {
+		byForm = new Map();
+		caseWriteIssuesByDoc.set(doc, byForm);
+	}
+	const cached = byForm.get(formUuid);
+	if (cached !== undefined) return cached;
+	const issues = deriveCaseWriteIssues(doc, formUuid);
+	byForm.set(formUuid, issues);
+	return issues;
+}
+
+function deriveCaseWriteIssues(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): ReadonlyMap<string, CaseWriteInventoryIssue> {
@@ -414,6 +438,14 @@ function newFinding(
 	};
 }
 
+/** A finding whose truth depends on the moved field's position among its
+ *  new siblings: a choice filter that reads an answer not yet given. The
+ *  candidate places the field first under its new parent, which is not the
+ *  position the move names, so only the commit gate can judge it. */
+function dependsOnSiblingPosition(issue: CheckError): boolean {
+	return issue.reason === "field-not-earlier";
+}
+
 /** A finding's identity across the move: what went wrong and where, never
  *  its sentence, which prints current paths and so changes with the move. */
 function findingKey(issue: CheckError, part = 0): string {
@@ -425,8 +457,8 @@ function findingKey(issue: CheckError, part = 0): string {
  * also moves. Running the production move keeps generated nodes and reverse
  * maps exact. The slot checker supplies every semantic refusal; this layer
  * adds no rule. The candidate places the field first under its new parent,
- * so a rule that reads sibling order is answered for that position; the
- * commit gate judges the position the move actually names. */
+ * so a finding that reads sibling order is set aside here; the commit gate
+ * judges the position the move actually names. */
 function expressionPlacementVerdict(
 	doc: BlueprintDoc,
 	uuid: Uuid,
@@ -491,6 +523,13 @@ function expressionPlacementVerdict(
 	return verdict;
 }
 
+/** A prose read's whole identity: its slot and every index of its place
+ *  in the field, so a read before the move is compared with the same read
+ *  after it. */
+function proseReadKey(read: Pick<ProseRead, "slot" | "indices">): string {
+	return JSON.stringify([read.slot, read.indices]);
+}
+
 function firstRefusal(
 	doc: BlueprintDoc,
 	candidate: BlueprintDoc,
@@ -533,7 +572,8 @@ function firstRefusal(
 				).errors.map((issue) => findingKey(issue)),
 			);
 			const issue = checkExpression(expression, context).errors.find(
-				(error) => !before.has(findingKey(error)),
+				(error) =>
+					!dependsOnSiblingPosition(error) && !before.has(findingKey(error)),
 			);
 			if (issue !== undefined) return newFinding(doc, moved, ref, issue);
 		}
@@ -550,8 +590,7 @@ function firstRefusal(
 			if (context === undefined) return contextLost(doc, moved, ref);
 			const before = new Set<string>();
 			for (const prior of proseSurfaceReads(previous, doc)) {
-				if (prior.slot !== read.slot || prior.indices[0] !== read.indices[0])
-					continue;
+				if (proseReadKey(prior) !== proseReadKey(read)) continue;
 				prior.template.parts.forEach((part, index) => {
 					const term = prosePartTerm(part);
 					if (term === undefined) return;
@@ -568,7 +607,11 @@ function firstRefusal(
 				const issue = checkExpression(
 					{ kind: "term", term },
 					context,
-				).errors.find((error) => !before.has(findingKey(error, index)));
+				).errors.find(
+					(error) =>
+						!dependsOnSiblingPosition(error) &&
+						!before.has(findingKey(error, index)),
+				);
 				if (issue !== undefined) return newFinding(doc, moved, ref, issue);
 			}
 		}

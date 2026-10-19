@@ -115,9 +115,11 @@ export function materializableCaseTypes(
 /**
  * Every concrete type opinion supplied by a writer, grouped by
  * `(caseType, property)`: a visible question's kind, a case operation's
- * value, and a Hidden Value's agreed output type. A writer whose value no
- * fact types, and a Hidden Value's preloaded starting value, contribute no
- * opinion. Validators use the set size to reject conflicting operation
+ * value, and a Hidden Value's agreed output type. An operation's or a Hidden
+ * Value's value counts as the property's agreed type where it is
+ * storage-assignable to it, so a writer that agrees adds no type. A writer
+ * whose value no fact types, and a Hidden Value's preloaded starting value,
+ * contribute no opinion. Validators use the set size to reject conflicting operation
  * writers before an ambiguous effective type can reach schema
  * materialization.
  */

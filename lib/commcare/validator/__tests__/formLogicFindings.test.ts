@@ -320,7 +320,10 @@ describe("comparisons whose values don't line up, at every carrier", () => {
 				}),
 			]);
 			expect(refused[0].message).toContain(
-				"CommCare reads any answer that isn't blank as true",
+				"compares a true-or-false result with text",
+			);
+			expect(refused[0].message).toContain(
+				"anything that isn't blank or zero counts as true",
 			);
 			expect(
 				atCarrier(
@@ -331,6 +334,62 @@ describe("comparisons whose values don't line up, at every carrier", () => {
 			).toEqual([]);
 		},
 	);
+});
+
+describe("the operand a comparison refusal names, typed as the checker typed it", () => {
+	const relevant = {
+		entity: "field",
+		uuid: ids.text,
+		slot: "relevant",
+	} as const;
+	const findingsOf = (source: string) => {
+		const doc = formFixture();
+		return formLogicFindings(
+			parseFixtureExpression(doc, relevant, source),
+			requireContext(doc, relevant),
+		);
+	};
+
+	it("names a number, not text, against a date-and-time literal, beside a date-and-time question", () => {
+		const refused = findingsOf("'2026-01-01T10:00' > #form/number");
+		expect(refused).toEqual([
+			expect.objectContaining({
+				code: "XPATH_INCOMPATIBLE_VALUES",
+				details: { reason: "datetime-ordering", otherType: "int" },
+			}),
+		]);
+		expect(refused[0]?.message).toContain(
+			"orders a date and time against a number",
+		);
+		expect(findingsOf("'2026-01-01T10:00' > now()")).toEqual([]);
+	});
+
+	it.each([
+		{
+			source: "selected(#form/choice, 'yes') = 'yes'",
+			otherType: "text",
+			kind: "text",
+		},
+		{ source: "(#form/number > 3) = 1", otherType: "int", kind: "a number" },
+	])(
+		"names what $source sets against its true-or-false result",
+		({ source, otherType, kind }) => {
+			const refused = findingsOf(source);
+			expect(refused).toEqual([
+				expect.objectContaining({
+					code: "XPATH_INCOMPATIBLE_VALUES",
+					details: { reason: "boolean", otherType },
+				}),
+			]);
+			expect(refused[0]?.message).toBe(
+				`"text" compares a true-or-false result with ${kind} in its display condition. CommCare turns ${kind} into true or false before comparing, and anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.`,
+			);
+		},
+	);
+
+	it("admits the true-or-false result on its own", () => {
+		expect(findingsOf("selected(#form/choice, 'yes')")).toEqual([]);
+	});
 });
 
 describe("a read of every entry of a repeat where one value is needed", () => {

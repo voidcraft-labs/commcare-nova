@@ -426,6 +426,7 @@ they do, are named under their pull request.
 
 - `lib/domain/CLAUDE.md` ("Property types are derived facts": Hidden writers are typed writers), `lib/doc/CLAUDE.md`, `lib/commcare/CLAUDE.md`, `lib/case-store/CLAUDE.md`, as "Contract sentences" assigns; **implementation correction, 2026-10-19:** with `lib/domain/expression/CLAUDE.md` ("The semantic authority": the rule sets and inference as they are)
 - `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (finding 73 fixed at authoring)
+- `docs/plans/hq-round-trip/4-platforms.md` (item 8: a form read inside a row predicate, decided by the evaluation Core gives it; **Implementation correction, 2026-10-19**, part 03 §3.4)
 - `content/docs/building-with-nova.mdx` (part 03's other refusals; the hidden value paragraph)
 
 ### Pull request 7: Preview

@@ -150,6 +150,7 @@ describe("the four Hidden-writer documents", () => {
 					reason: "type",
 					valueType: "text",
 					propertyType: "date",
+					consequence: "stops-form",
 					origin: "field",
 					originField: "visit_date",
 					originForm: "Visit",
@@ -157,7 +158,7 @@ describe("the four Hidden-writer documents", () => {
 			}),
 		]);
 		expect(errors[0].message).toBe(
-			'Hidden value "stamp" in "Register" saves text to "visit_date" on "patient", which holds a date (saved by "visit_date" in "Visit"). A form that fills a question from "visit_date" would stop on a value that isn\'t a date. You can change the calculation so it gives a date, or save it to another property.',
+			'Hidden value "stamp" in "Register" saves text to "visit_date" on "patient", which holds a date (saved by "visit_date" in "Visit"). A form that fills a question from "visit_date" would stop when it opens on a value that isn\'t a date. You can change the calculation so it gives a date, or save it to another property.',
 		);
 	});
 
@@ -307,6 +308,115 @@ describe("a Hidden Value's outputs against the property", () => {
 	});
 });
 
+describe("one finding per writer, its consequence told by the property's type", () => {
+	it("refuses a writer whose two results don't fit a date once, naming both paths, beside one that fits", () => {
+		const errors = validate(
+			doc({
+				register: [
+					hidden(
+						"when",
+						{ calculate: "if(#form/flag = 'yes', 'soon', 'later')" },
+						"visit_date",
+					),
+				],
+				followUp: [visitDateQuestion],
+			}),
+		);
+		expect(errors).toEqual([
+			expect.objectContaining({
+				code: "HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+				location: expect.objectContaining({ fieldUuid: uuid("when") }),
+				details: expect.objectContaining({
+					reason: "type",
+					valueType: "text",
+					paths: JSON.stringify([
+						["if", "then"],
+						["if", "else"],
+					]),
+				}),
+			}),
+		]);
+		expect(errors[0].message).toContain(
+			'saves text to "visit_date" on "patient", which holds a date',
+		);
+		expect(
+			validate(
+				doc({
+					register: [
+						hidden(
+							"when",
+							{ calculate: "if(#form/flag = 'yes', today(), '')" },
+							"visit_date",
+						),
+					],
+					followUp: [visitDateQuestion],
+				}),
+			),
+		).toEqual([]);
+	});
+
+	it("names several choices apart from text, and tells what a choice property's readers get", () => {
+		const errors = validate(
+			doc({
+				properties: [
+					{ name: "tags", label: "Tags", data_type: "multi_select" },
+				],
+				register: [hidden("tag", { calculate: "concat('a', 'b')" }, "tags")],
+			}),
+		);
+		expect(errors).toEqual([
+			expect.objectContaining({
+				code: "HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+				details: expect.objectContaining({
+					reason: "type",
+					valueType: "text",
+					propertyType: "multi_select",
+					consequence: "wrong-kind",
+				}),
+			}),
+		]);
+		expect(errors[0].message).toBe(
+			'Hidden value "tag" in "Register" saves text to "tags" on "patient", which holds several choices (as the case type declares it). Forms and case lists that read "tags" would get text where they expect several choices. You can change the calculation so it gives several choices, or save it to another property.',
+		);
+	});
+
+	it("tells a choice property's readers get a number, beside a whole-number property's form that stops", () => {
+		const choice = validate(
+			doc({
+				properties: [
+					{ name: "stage", label: "Stage", data_type: "single_select" },
+				],
+				register: [hidden("count", { calculate: "1 + 1" }, "stage")],
+			}),
+		);
+		expect(choice).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({
+					valueType: "int",
+					consequence: "wrong-kind",
+				}),
+			}),
+		]);
+		expect(choice[0].message).toContain(
+			'Forms and case lists that read "stage" would get a whole number where they expect a choice.',
+		);
+		const whole = validate(
+			doc({
+				properties: [{ name: "score", label: "Score", data_type: "int" }],
+				register: [hidden("half", { calculate: "1.5" }, "score")],
+			}),
+		);
+		expect(whole).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({ consequence: "stops-form" }),
+			}),
+		]);
+		expect(whole[0].message).toContain(
+			"would stop when it opens on a value that isn't a whole number",
+		);
+	});
+});
+
 describe("Hidden Values that alone type a property", () => {
 	it("agrees an integer and a decimal on a decimal", () => {
 		const built = doc({
@@ -347,7 +457,42 @@ describe("Hidden Values that alone type a property", () => {
 			],
 		]);
 		expect(errors[0].message).toContain(
-			'saves a number to "score" on "patient", and other hidden values save text there',
+			'saves a whole number to "score" on "patient", and other hidden values save text there',
+		);
+		expect(errors.map(({ details }) => details?.disagreement)).toEqual([
+			"others",
+			"others",
+		]);
+	});
+
+	it("reports a writer whose own results disagree once, as its own disagreement", () => {
+		const errors = validate(
+			doc({
+				register: [
+					hidden(
+						"mixed",
+						{ calculate: "if(#form/flag = 'yes', 1, 'high')" },
+						"score",
+					),
+				],
+			}),
+		);
+		expect(errors).toEqual([
+			expect.objectContaining({
+				code: "HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+				location: expect.objectContaining({ fieldUuid: uuid("mixed") }),
+				details: expect.objectContaining({
+					reason: "hidden-disagreement",
+					disagreement: "own",
+					paths: JSON.stringify([
+						["if", "then"],
+						["if", "else"],
+					]),
+				}),
+			}),
+		]);
+		expect(errors[0].message).toBe(
+			'Hidden value "mixed" in "Register" saves a whole number or text to "score" on "patient" from different results, so the property has no one type. A form that fills a question from "score" can\'t know what it holds. You can make every result of the calculation give the same kind of value, or save it to another property.',
 		);
 	});
 

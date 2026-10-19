@@ -672,7 +672,7 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		[
 			"XPATH_INCOMPATIBLE_VALUES",
 			{ reason: "boolean" },
-			'A formula on "visit_check" in "Register Client" compares true or false with an answer, so any answer that isn\'t blank counts as true. You can compare it with the choice\'s value instead.',
+			'A formula on "visit_check" in "Register Client" compares a true-or-false result with another kind of value, and CommCare counts anything that isn\'t blank or zero as true. You can compare the two values themselves, or use the true-or-false result on its own.',
 		],
 		[
 			"XPATH_MANY_VALUES",
@@ -711,8 +711,32 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 				property: "visit_date",
 				valueType: "text",
 				propertyType: "date",
+				consequence: "stops-form",
 			},
-			'"visit_check" saves text to "visit_date", which holds dates. You can change its calculation to give a date, or save it somewhere else.',
+			'"visit_check" saves text to "visit_date", which holds dates. A form that fills a question from it would stop when it opens. You can change its calculation to give a date, or save it somewhere else.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "type",
+				property: "tags",
+				valueType: "text",
+				propertyType: "multi_select",
+				consequence: "wrong-kind",
+			},
+			'"visit_check" saves text to "tags", which holds several choices. Forms and case lists that read it would get the wrong kind of value. You can change its calculation to give several choices, or save it somewhere else.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "type",
+				property: "visit_date",
+				valueType: "text",
+				valueTypes: "text,int",
+				propertyType: "date",
+				consequence: "stops-form",
+			},
+			'"visit_check" saves text or a whole number to "visit_date", which holds dates. A form that fills a question from it would stop when it opens. You can change its calculation to give a date, or save it somewhere else.',
 		],
 		[
 			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
@@ -721,8 +745,24 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		],
 		[
 			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
-			{ reason: "hidden-disagreement", property: "score", valueType: "int" },
-			'"visit_check" saves a number to "score", but other hidden values save a different kind of value there. You can have them all give the same kind, or save this one somewhere else.',
+			{
+				reason: "hidden-disagreement",
+				disagreement: "others",
+				property: "score",
+				valueType: "int",
+			},
+			'"visit_check" saves a whole number to "score", but other hidden values save a different kind of value there. You can have them all give the same kind, or save this one somewhere else.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "hidden-disagreement",
+				disagreement: "own",
+				property: "score",
+				valueType: "int",
+				valueTypes: "int,text",
+			},
+			'"visit_check" saves a whole number or text to "score" from different results, so the property has no one kind of value. You can have every result of its calculation give the same kind.',
 		],
 		[
 			"SELECT_PRELOAD_WRITE_NOT_AN_OPTION",
@@ -748,7 +788,7 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 				),
 			),
 		).toBe(
-			'"visit_check" saves text to "score", which holds numbers. You can change its starting value to give a number, or save it somewhere else.',
+			'"visit_check" saves text to "score", which holds whole numbers. You can change its starting value to give a whole number, or save it somewhere else.',
 		);
 	});
 

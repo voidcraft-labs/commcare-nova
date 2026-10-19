@@ -153,7 +153,9 @@ export interface ExpressionInference {
 	readonly clockLost: ReadonlySet<Uuid>;
 	/** Every concrete opinion of every writer kind, by case type and
 	 * property: visible kinds, case operations, and Hidden Values (preloaded
-	 * starting values excluded). */
+	 * starting values excluded). An operation's or a Hidden Value's opinion is
+	 * the property's agreed type where its value is storage-assignable to it,
+	 * else the value's own type, so a writer that agrees adds no type. */
 	readonly writerOpinions: ReadonlyMap<
 		string,
 		ReadonlyMap<string, ReadonlySet<CasePropertyDataType>>
@@ -382,6 +384,8 @@ interface HiddenWriterSite {
 	readonly write:
 		| { readonly caseType: string; readonly property: string }
 		| undefined;
+	/** Its form fills it from the case it writes when the form opens. */
+	readonly preloaded: boolean;
 	readonly preloadedDefault: boolean;
 }
 interface OperationWrite {
@@ -486,8 +490,10 @@ class Inference {
 		};
 		const history: TypingState[] = [state];
 		const seen = new Map<string, number>([[signature(state), 0]]);
-		const bound = this.hiddenSites.length + this.operationWrites.length + 2;
-		for (let pass = 0; pass <= bound; pass += 1) {
+		// Every fact ranges over finitely many types, so the passes reach a
+		// fixed point or revisit a state: each pass that does neither records a
+		// new signature, and there are finitely many.
+		for (;;) {
 			const next = this.pass(state);
 			const key = signature(next);
 			if (key === signature(state)) {
@@ -627,6 +633,10 @@ class Inference {
 		const module =
 			moduleUuid === undefined ? undefined : this.doc.modules[moduleUuid];
 		const savedForm = form === undefined ? undefined : this.doc.forms[form];
+		const preloaded =
+			module !== undefined &&
+			savedForm !== undefined &&
+			writerPreloadsFromLoadedCase(field, module, savedForm);
 		return {
 			field,
 			form,
@@ -644,11 +654,8 @@ class Inference {
 				write === undefined
 					? undefined
 					: { caseType: write.caseType, property: write.property },
-			preloadedDefault:
-				source === "default_value" &&
-				module !== undefined &&
-				savedForm !== undefined &&
-				writerPreloadsFromLoadedCase(field, module, savedForm),
+			preloaded,
+			preloadedDefault: source === "default_value" && preloaded,
 		};
 	}
 
@@ -1008,14 +1015,31 @@ class Inference {
 			}
 			if (type !== undefined) types.add(type);
 		};
-		for (const writer of this.fieldWriters)
+		for (const writer of this.fieldWriters) {
+			if (writer.field.kind !== "hidden") {
+				add(
+					writer.caseType,
+					writer.property,
+					caseDataTypeForFieldKind(writer.field.kind),
+				);
+				continue;
+			}
+			// A Hidden Value supplies a value to the property's storage, as an
+			// operation does: an opinion its agreed type stores is that type.
+			const opinion = hiddenOpinions.get(writer.field.uuid)?.opinion;
+			const destination = state.properties.get(
+				propertyKey(writer.caseType, writer.property),
+			)?.type;
 			add(
 				writer.caseType,
 				writer.property,
-				writer.field.kind === "hidden"
-					? hiddenOpinions.get(writer.field.uuid)?.opinion
-					: caseDataTypeForFieldKind(writer.field.kind),
+				opinion !== undefined &&
+					destination !== undefined &&
+					isValueStorageAssignable(opinion, destination)
+					? destination
+					: opinion,
 			);
+		}
 		this.operationWrites.forEach((write, index) => {
 			add(write.caseType, write.property, state.operations[index]);
 		});
@@ -1065,7 +1089,11 @@ function heldOf(
 	analysis: HiddenAnalysis | undefined,
 	dateTimeBind: boolean,
 ): ScalarHeld {
-	if (site.source === undefined) return "string";
+	// A field with no value holds what its form preloads into it, which a
+	// setvalue casts through the bind's answer class like a default
+	// (SetValueAction.processAction); with nothing preloaded it stays blank.
+	if (site.source === undefined)
+		return site.preloaded && dateTimeBind ? "date" : "string";
 	// SetValueAction casts through the bind's answer class.
 	if (site.source === "default_value") return dateTimeBind ? "date" : "string";
 	// Recalculate.wrapData: the result's own class decides, the bind only

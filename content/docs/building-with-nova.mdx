@@ -312,9 +312,14 @@ Some formulas look fine but would give a worker the wrong answer or stop the
 form on their device, so Nova points them out while you edit and suggests what
 you can write instead. These include comparing a date with a date and time,
 ordering a date and time before or after something that isn't one, comparing
-`true()` or `false()` with an answer, and reading an answer from every entry of
-a repeat where the formula needs one value. `here()`, the worker's current
-location, works only in a case list's calculated column.
+a true-or-false result with another kind of value, and reading an answer from
+every entry of a repeat where the formula needs one value.
+
+`here()`, the worker's current location, belongs in a case list's calculated
+column. On Android it shows the worker's location in the list and in the
+case's details. On Web Apps it shows it in the case's details, once the browser
+shares its location, while the list's rows and sorts don't know where the
+worker is.
 
 Choices and record filters that use a Project data table keep their table and
 column references when those names change. Formulas can read the records and

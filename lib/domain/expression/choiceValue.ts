@@ -27,11 +27,19 @@ export function choiceValue(
 }
 
 /**
- * The selections a select answer's text names: runs of U+0020 separate them
- * and empty tokens name none. Core casts a multiple select's text through
- * `org/javarosa/core/util/DataUtil.java::splitOnSpaces` (`split("[ ]+")`), so a
- * tab or a no-break space is part of a token, never a separator.
+ * The selections a multiple select answer's text names, as Core casts it:
+ * `org/javarosa/core/model/data/SelectMultiData.java::cast` splits the text
+ * with `org/javarosa/core/util/DataUtil.java::splitOnSpaces`, which reads
+ * empty text as no selection and otherwise runs Java's `split("[ ]+")`. Runs
+ * of U+0020 separate tokens (a tab or a no-break space is part of a token),
+ * trailing empty tokens are dropped, and a leading one is kept: `" a"` names
+ * `""` and `"a"`, while `"a "` and `"a  b"` name only their words and text of
+ * spaces alone names none. Core then matches each token to a choice
+ * (`Selection.java::attachChoice`), and no choice matches `""`.
  */
 export function selectAnswerTokens(text: string): readonly string[] {
-	return text.split(/ +/).filter((token) => token.length > 0);
+	if (text === "") return [];
+	const tokens = text.split(/ +/);
+	while (tokens.length > 0 && tokens[tokens.length - 1] === "") tokens.pop();
+	return tokens;
 }

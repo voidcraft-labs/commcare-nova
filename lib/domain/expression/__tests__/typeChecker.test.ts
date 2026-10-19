@@ -2933,6 +2933,23 @@ describe("form comparisons", () => {
 		]);
 		expect(formErrors("#form/dt < '2026-01-01T10:00:00.123'")).toEqual([]);
 	});
+	it("refuses a typed date-and-time literal in a form comparison once, as a literal a form can't spell", () => {
+		const doc = rulesDoc();
+		const slot = fieldSlot(RULES.probe);
+		const parsed = parseFixtureExpression(doc, slot, "#form/dt = '2026'");
+		if (parsed.kind !== "eq") throw new Error("The comparison did not parse.");
+		const typed: Expression = {
+			...parsed,
+			right: term(qualifiedLiteral("2026-01-01T10:00:00.1234", "datetime")),
+		};
+		expect(codes(slotOutcome(doc, slot, typed).errors)).toEqual([
+			"arm-unavailable:literal-not-spellable",
+		]);
+		const ordered: Expression = { ...typed, kind: "lt" } as Expression;
+		expect(codes(slotOutcome(doc, slot, ordered).errors)).toEqual([
+			"arm-unavailable:literal-not-spellable",
+		]);
+	});
 });
 
 describe("record comparisons", () => {
@@ -3154,6 +3171,14 @@ describe("a Hidden Value read", () => {
 			"expected-value:clock-lost",
 		]);
 		expect(slotOutcome(write(now()), slot, now()).errors).toEqual([]);
+		// Core's coalesce returns its first non-empty argument as it held it,
+		// so a lost clock in any argument reaches the result.
+		const shifted = dateAdd(coalesce(copy, now()), "days", term(literal(1)));
+		expect(codes(slotOutcome(write(shifted), slot, shifted).errors)).toEqual([
+			"expected-value:clock-lost",
+		]);
+		const kept = dateAdd(coalesce(now(), now()), "days", term(literal(1)));
+		expect(slotOutcome(write(kept), slot, kept).errors).toEqual([]);
 	});
 });
 
@@ -3229,18 +3254,26 @@ describe("slot facts", () => {
 			concat(term(literal("%")), term(literal("Y"))),
 		);
 		const doc = rulesDoc(computed);
-		expect(codes(slotOutcome(doc, columnSlot, computed).errors)).toEqual([
-			"format-date-pattern-not-fixed",
+		expect(slotOutcome(doc, columnSlot, computed).errors).toMatchObject([
+			{
+				code: "format-date-pattern-not-fixed",
+				message:
+					"This date format needs to be a fixed one of CommCare's formats here, because Nova's case store works it out before the expression runs. You can choose a fixed format.",
+			},
 		]);
 		const unknownToken = formatDate(
 			today(),
 			term(qualifiedLiteral("%Q", "text")),
 		);
 		expect(
-			codes(
-				slotOutcome(rulesDoc(unknownToken), columnSlot, unknownToken).errors,
-			),
-		).toEqual(["format-date-pattern-not-fixed"]);
+			slotOutcome(rulesDoc(unknownToken), columnSlot, unknownToken).errors,
+		).toMatchObject([
+			{
+				code: "format-date-pattern-not-fixed",
+				message:
+					"This date format isn't one of CommCare's formats, and Nova's case store needs one to work it out before the expression runs. You can choose one of CommCare's formats.",
+			},
+		]);
 		const fixed = formatDate(today(), term(qualifiedLiteral("%Y", "text")));
 		expect(slotOutcome(rulesDoc(fixed), columnSlot, fixed).errors).toEqual([]);
 		expect(formErrors("format-date(today(), concat('%', 'Y'))")).toEqual([]);

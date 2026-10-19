@@ -11,7 +11,9 @@ import {
 	type FieldSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc } from "@/lib/domain";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
 import { fieldValueType } from "../../fieldValueType";
 import {
 	hiddenWriterVerdicts,
@@ -84,6 +86,29 @@ const hidden = (
 			? {}
 			: { caseWrite: { caseType: "patient", property } }),
 	});
+/** The follow-up form's one update operation, with these writes. */
+function withFollowUpWrites(
+	built: BlueprintDoc,
+	writes: CaseOperation["writes"],
+): BlueprintDoc {
+	built.forms[FOLLOW_UP].caseOperations = [
+		{
+			uuid: uuid("operation"),
+			id: "update_patient",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes,
+		},
+	];
+	return built;
+}
+const literalValue = (value: string | number) =>
+	({ kind: "term", term: { kind: "literal", value } }) as const;
+const fieldValue = (name: string) =>
+	({ kind: "term", term: { kind: "field", uuid: uuid(name) } }) as const;
+const validate = (built: BlueprintDoc) =>
+	runValidation(built, LOOKUP_CONTEXT_UNAVAILABLE);
 function propertyType(built: BlueprintDoc, property: string) {
 	return inferExpressionTypes(built)
 		.caseTypes.find((type) => type.name === "patient")
@@ -131,6 +156,32 @@ describe("Hidden Value data types", () => {
 		expect(inferExpressionTypes(built).hiddenTypes.get(uuid("again"))).toBe(
 			"date",
 		);
+	});
+
+	it("settles a long chain of operations and Hidden Values that each copy the one before", () => {
+		// Each link needs its own pass, and an operation's write reaches a
+		// Hidden Value's read one pass later, so the chain takes about two
+		// passes per link before it settles.
+		const links = 24;
+		const hiddenLinks: FieldSpec[] = [];
+		const writes: NonNullable<CaseOperation["writes"]> = [
+			{ property: "step_0", value: literalValue(1) },
+		];
+		for (let index = 1; index <= links; index += 1) {
+			hiddenLinks.push(
+				hidden(`link_${index}`, {
+					calculate: `#patient/step_${index - 1}`,
+				}),
+			);
+			writes.push({
+				property: `step_${index}`,
+				value: fieldValue(`link_${index}`),
+			});
+		}
+		const built = withFollowUpWrites(doc({ followUp: hiddenLinks }), writes);
+		const inference = inferExpressionTypes(built);
+		expect(propertyType(built, `step_${links}`)).toBe("int");
+		expect(inference.hiddenTypes.get(uuid(`link_${links}`))).toBe("int");
 	});
 
 	it("leaves a self-copying writer and a copy cycle unknown", () => {
@@ -299,6 +350,89 @@ describe("Hidden Value writer opinions", () => {
 	});
 });
 
+describe("writer opinions beside a case operation's write", () => {
+	const status = f({
+		kind: "single_select",
+		id: "stage",
+		label: "Stage",
+		caseWrite: { caseType: "patient", property: "stage" },
+		options: [
+			{ value: "open", label: "Open" },
+			{ value: "closed", label: "Closed" },
+		],
+	});
+	const amount = f({
+		kind: "decimal",
+		id: "amount",
+		label: "Amount",
+		caseWrite: { caseType: "patient", property: "amount" },
+	});
+	const properties = [
+		{ name: "stage", label: "Stage" },
+		{ name: "amount", label: "Amount" },
+	];
+	const conflicts = (built: BlueprintDoc) =>
+		validate(built).filter(
+			(error) => error.code === "CASE_OPERATION_EXPRESSION_TYPE",
+		);
+
+	it("counts a Hidden Value's text that a choice property stores as that choice type", () => {
+		const agreeing = withFollowUpWrites(
+			doc({
+				register: [status],
+				properties,
+				followUp: [hidden("closing", { calculate: "'closed'" }, "stage")],
+			}),
+			[{ property: "stage", value: literalValue("open") }],
+		);
+		expect(
+			inferExpressionTypes(agreeing)
+				.writerOpinions.get("patient")
+				?.get("stage"),
+		).toEqual(new Set(["single_select"]));
+		expect(validate(agreeing)).toEqual([]);
+		const disagreeing = withFollowUpWrites(
+			doc({
+				register: [status],
+				properties,
+				followUp: [hidden("closing", { calculate: "today()" }, "stage")],
+			}),
+			[{ property: "stage", value: literalValue("open") }],
+		);
+		expect(conflicts(disagreeing).map((error) => error.message)).toContain(
+			'Case property "stage" on patient has conflicting writer types: date, single_select.',
+		);
+	});
+
+	it("counts a Hidden Value's integer that a decimal property stores as decimal", () => {
+		const agreeing = withFollowUpWrites(
+			doc({
+				register: [amount],
+				properties,
+				followUp: [hidden("rounded", { calculate: "round(2.5)" }, "amount")],
+			}),
+			[{ property: "amount", value: literalValue(1.5) }],
+		);
+		expect(
+			inferExpressionTypes(agreeing)
+				.writerOpinions.get("patient")
+				?.get("amount"),
+		).toEqual(new Set(["decimal"]));
+		expect(validate(agreeing)).toEqual([]);
+		const disagreeing = withFollowUpWrites(
+			doc({
+				register: [amount],
+				properties,
+				followUp: [hidden("rounded", { calculate: "'many'" }, "amount")],
+			}),
+			[{ property: "amount", value: literalValue(1.5) }],
+		);
+		expect(conflicts(disagreeing).map((error) => error.message)).toContain(
+			'Case property "amount" on patient has conflicting writer types: decimal, text.',
+		);
+	});
+});
+
 describe("what Core holds for a Hidden Value", () => {
 	it("follows the source slot: a calculate keeps its result's class, a default the bind's", () => {
 		const built = doc({
@@ -422,6 +556,44 @@ describe("clock loss", () => {
 		expect(inference.hiddenTypes.get(uuid("text_copy"))).toBe("datetime");
 		expect(inference.hiddenHeld.get(uuid("text_copy"))).toBe("string");
 		expect(inference.clockLost.size).toBe(0);
+	});
+	it("holds a preloaded date and time as a date, so a copy under a text bind loses its clock", () => {
+		const chain: FieldSpec[] = [
+			// No value: the form fills it from the case's date and time.
+			f({
+				uuid: uuid("carried"),
+				kind: "hidden",
+				id: "carried",
+				caseWrite: { caseType: "patient", property: "seen_at" },
+			}),
+			hidden("text_copy", { calculate: "#form/carried" }),
+			hidden("saved", { calculate: "#form/text_copy" }, "checked_at"),
+		];
+		const properties = [
+			{ name: "seen_at", label: "Seen", data_type: "datetime" as const },
+			{ name: "checked_at", label: "Checked", data_type: "datetime" as const },
+		];
+		const preloaded = doc({ followUp: chain, properties });
+		const inference = inferExpressionTypes(preloaded);
+		// SetValueAction casts the preload through DateTimeData.
+		expect(inference.hiddenHeld.get(uuid("carried"))).toBe("date");
+		expect(inference.clockLost.has(uuid("carried"))).toBe(false);
+		expect(inference.clockLost.has(uuid("text_copy"))).toBe(true);
+		expect(
+			hiddenWriterVerdicts(preloaded).map((verdict) => [
+				verdict.writer.field,
+				verdict.findings,
+			]),
+		).toEqual([
+			[uuid("saved"), [{ reason: "clock-lost", path: [], type: "datetime" }]],
+		]);
+		// A registration form preloads nothing, so the field stays blank text.
+		const blank = doc({ register: chain, properties });
+		expect(inferExpressionTypes(blank).hiddenHeld.get(uuid("carried"))).toBe(
+			"string",
+		);
+		expect(inferExpressionTypes(blank).clockLost.size).toBe(0);
+		expect(hiddenWriterVerdicts(blank)).toEqual([]);
 	});
 });
 

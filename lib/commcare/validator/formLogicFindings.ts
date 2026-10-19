@@ -5,6 +5,7 @@ import {
 	slotContext,
 } from "@/lib/domain/expression/context";
 import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
+import { ANY_TYPE, literalShape } from "@/lib/domain/expression/ruleSets";
 import {
 	type CheckError,
 	checkExpression,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/domain/expression/typeChecker";
 import type {
 	Expression,
+	Literal,
 	SlotContextRef,
 	Term,
 } from "@/lib/domain/expression/types";
@@ -199,26 +201,78 @@ export function valueKindPhrase(type: ScalarType | undefined): string {
 	}
 }
 
-/** The kind of the operand an ordering sets against a date and time. */
-function nonDatetimeOperand(
+/**
+ * The two sides of the comparison at `path`, typed as the form checker types
+ * them (`typeChecker.ts::checkFormComparison`): an untyped string literal
+ * takes the type its ISO date, date-and-time or `HH:MM[:SS]` shape spells
+ * where the comparison orders it, or where the other side has a type of its
+ * own and is no literal.
+ */
+function comparisonSides(
 	root: Expression | undefined,
 	path: CheckError["path"],
 	ctx: ExpressionContext | undefined,
-): ScalarType | undefined {
+):
+	| {
+			readonly left: ScalarType | undefined;
+			readonly right: ScalarType | undefined;
+	  }
+	| undefined {
 	if (root === undefined || ctx === undefined) return undefined;
 	const node = expressionAt(root, path);
 	if (
 		node === undefined ||
-		(node.kind !== "gt" &&
+		(node.kind !== "eq" &&
+			node.kind !== "neq" &&
+			node.kind !== "gt" &&
 			node.kind !== "gte" &&
 			node.kind !== "lt" &&
 			node.kind !== "lte")
 	)
 		return undefined;
+	const ordering = node.kind !== "eq" && node.kind !== "neq";
 	const at = expressionContextAtPath(root, ctx, path);
-	const left = scalarDataType(typeOf(node.left, at)?.data);
-	const right = scalarDataType(typeOf(node.right, at)?.data);
-	return left === "datetime" ? right : left;
+	const leftType = scalarDataType(typeOf(node.left, at)?.data);
+	const rightType = scalarDataType(typeOf(node.right, at)?.data);
+	const shaped = (
+		operand: Expression,
+		type: ScalarType | undefined,
+		other: ScalarType | undefined,
+		otherOperand: Expression,
+	): ScalarType | undefined => {
+		const literal = directLiteral(operand);
+		if (
+			literal === undefined ||
+			literal.data_type !== undefined ||
+			typeof literal.value !== "string"
+		)
+			return type;
+		const shape = literalShape(literal.value);
+		if (shape === undefined) return type;
+		const otherKnown = other !== undefined && other !== ANY_TYPE;
+		return ordering || (otherKnown && directLiteral(otherOperand) === undefined)
+			? shape.type
+			: type;
+	};
+	return {
+		left: shaped(node.left, leftType, rightType, node.right),
+		right: shaped(node.right, rightType, leftType, node.left),
+	};
+}
+function directLiteral(expression: Expression): Literal | undefined {
+	return expression.kind === "term" && expression.term.kind === "literal"
+		? expression.term
+		: undefined;
+}
+/** The side of a comparison that isn't `kind`, where one side is. */
+function operandOtherThan(
+	sides: ReturnType<typeof comparisonSides>,
+	kind: ScalarType,
+): ScalarType | undefined {
+	if (sides === undefined) return undefined;
+	if (sides.left === kind) return sides.right;
+	if (sides.right === kind) return sides.left;
+	return undefined;
 }
 function selectedCasesMessage(slotSubject: string, menu: string): string {
 	return `${slotSubject} reads the cases chosen in ${menu} in a place that needs one value. This form works on several cases at once, so CommCare stops the form when more than one is chosen. You can count them, or join them.`;
@@ -386,14 +440,30 @@ export function formLogicFinding(
 			if (error.reason === "date-datetime")
 				message = `${owner.subject} compares a date with a date and time${owner.inSlot}. CommCare compares a date by its day and a date and time by its moment, so the two don't line up. You can wrap the date and time in date() to compare days.`;
 			else if (error.reason === "datetime-ordering") {
-				const other = nonDatetimeOperand(expression, error.path, ctx);
+				const other = operandOtherThan(
+					comparisonSides(expression, error.path, ctx),
+					"datetime",
+				);
 				details = {
 					reason: error.reason,
 					...(other === undefined ? {} : { otherType: other }),
 				};
 				message = `${owner.subject} orders a date and time against ${valueKindPhrase(other)}${owner.inSlot}. CommCare can only order two dates and times by their moment. You can compare it with another date and time, or wrap it in date() to compare days.`;
-			} else if (error.reason === "boolean")
-				message = `${owner.subject} compares true() or false() with an answer${owner.inSlot}. CommCare reads any answer that isn't blank as true, so "no" would count as true too. You can compare the answer with the choice's value instead, like #form/consent = 'yes'.`;
+			} else if (error.reason === "boolean") {
+				const other = operandOtherThan(
+					comparisonSides(expression, error.path, ctx),
+					"boolean",
+				);
+				const kind =
+					other === undefined || other === ANY_TYPE
+						? "another kind of value"
+						: valueKindPhrase(other);
+				details = {
+					reason: error.reason,
+					...(other === undefined ? {} : { otherType: other }),
+				};
+				message = `${owner.subject} compares a true-or-false result with ${kind}${owner.inSlot}. CommCare turns ${kind} into true or false before comparing, and anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.`;
+			}
 			break;
 		}
 		case "many-values": {

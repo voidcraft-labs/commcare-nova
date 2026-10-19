@@ -313,6 +313,7 @@ const formulaSubject = (e: ValidationError): string =>
 const oneValuePhrase = (type: string | undefined): string => {
 	switch (type) {
 		case "int":
+			return "a whole number";
 		case "decimal":
 			return "a number";
 		case "date":
@@ -322,11 +323,13 @@ const oneValuePhrase = (type: string | undefined): string => {
 		case "time":
 			return "a time";
 		case "geopoint":
-			return "a place";
+			return "a location";
 		case "text":
-		case "single_select":
-		case "multi_select":
 			return "text";
+		case "single_select":
+			return "a choice";
+		case "multi_select":
+			return "several choices";
 		default:
 			return "a value";
 	}
@@ -336,6 +339,7 @@ const oneValuePhrase = (type: string | undefined): string => {
 const heldValuesPhrase = (type: string | undefined): string => {
 	switch (type) {
 		case "int":
+			return "whole numbers";
 		case "decimal":
 			return "numbers";
 		case "date":
@@ -345,14 +349,28 @@ const heldValuesPhrase = (type: string | undefined): string => {
 		case "time":
 			return "times";
 		case "geopoint":
-			return "places";
+			return "locations";
 		case "text":
-		case "single_select":
-		case "multi_select":
 			return "text";
+		case "single_select":
+			return "a choice";
+		case "multi_select":
+			return "several choices";
 		default:
 			return "another kind of value";
 	}
+};
+
+/** Several kinds as one phrase, from a comma-joined list of types. */
+const valuesPhrase = (types: string | undefined, first: string | undefined) => {
+	const phrases = [
+		...new Set(
+			(types === undefined ? [first] : types.split(",")).map(oneValuePhrase),
+		),
+	];
+	return phrases.length <= 1
+		? (phrases[0] ?? "a value")
+		: `${phrases.slice(0, -1).join(", ")} or ${phrases[phrases.length - 1]}`;
 };
 
 // ── The code → builder table ───────────────────────────────────────
@@ -799,19 +817,27 @@ const USER_MESSAGE_BY_CODE: Record<
 	HIDDEN_VALUE_WRITER_TYPE_MISMATCH: (e) => {
 		const field = q(fieldName(e));
 		const property = q(det(e, "property", "a case property"));
-		const value = oneValuePhrase(e.details?.valueType);
+		const value = valuesPhrase(e.details?.valueTypes, e.details?.valueType);
+		const source =
+			e.location.field === "default_value"
+				? "its starting value"
+				: "its calculation";
 		switch (e.details?.reason) {
 			case "clock-lost":
 				return `${field} saves to ${property}, which holds dates and times, but its value keeps only the day because ${q(det(e, "clockSource", "an earlier hidden value"))} doesn't keep the time. You can save it from a question or now() instead.`;
 			case "hidden-disagreement":
-				return `${field} saves ${value} to ${property}, but other hidden values save a different kind of value there. You can have them all give the same kind, or save this one somewhere else.`;
+				return e.details?.disagreement === "own"
+					? `${field} saves ${value} to ${property} from different results, so the property has no one kind of value. You can have every result of ${source} give the same kind.`
+					: `${field} saves ${value} to ${property}, but other hidden values save a different kind of value there. You can have them all give the same kind, or save this one somewhere else.`;
 			default: {
 				const wanted = e.details?.propertyType;
-				const source =
-					e.location.field === "default_value"
-						? "its starting value"
-						: "its calculation";
-				return `${field} saves ${value} to ${property}, which holds ${heldValuesPhrase(wanted)}. You can change ${source} to give ${wanted === undefined ? "the same kind" : oneValuePhrase(wanted)}, or save it somewhere else.`;
+				const consequence =
+					e.details?.consequence === "stops-form"
+						? " A form that fills a question from it would stop when it opens."
+						: e.details?.consequence === "wrong-kind"
+							? " Forms and case lists that read it would get the wrong kind of value."
+							: "";
+				return `${field} saves ${value} to ${property}, which holds ${heldValuesPhrase(wanted)}.${consequence} You can change ${source} to give ${wanted === undefined ? "the same kind" : oneValuePhrase(wanted)}, or save it somewhere else.`;
 			}
 		}
 	},
@@ -1162,7 +1188,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			case "datetime-ordering":
 				return `${formulaSubject(e)} orders a date and time against something that isn't one. You can compare it with another date and time, or wrap it in date() to compare days.`;
 			case "boolean":
-				return `${formulaSubject(e)} compares true or false with an answer, so any answer that isn't blank counts as true. You can compare it with the choice's value instead.`;
+				return `${formulaSubject(e)} compares a true-or-false result with another kind of value, and CommCare counts anything that isn't blank or zero as true. You can compare the two values themselves, or use the true-or-false result on its own.`;
 			default:
 				return `${formulaSubject(e)} compares two kinds of information that don't line up. You can compare it with a value of the same kind instead.`;
 		}

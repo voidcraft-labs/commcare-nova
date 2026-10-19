@@ -23,12 +23,18 @@ import {
 	sectionOf,
 	subtreeHasUserRepeat,
 } from "@/lib/doc/formSectionVerdicts";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+} from "@/lib/doc/lookupReferences";
 import { applyMutation } from "@/lib/doc/mutations";
 import { mutationSchema, type Uuid } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { eq, formField, tableColumn, term } from "@/lib/domain/expression";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
+import type { LookupRevision } from "@/lib/lookup/types";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const FORM = testUuid("frm-sectioned");
@@ -758,5 +764,116 @@ describe("fieldPlacementVerdict and the form's own case writes", () => {
 				toParentUuid: ELSEWHERE,
 			}),
 		).toEqual({ ok: true });
+	});
+});
+
+describe("fieldPlacementVerdict and a choice filter's earlier answers", () => {
+	const TABLE = "00000000-0000-7000-8000-0000000000c1" as LookupTableId;
+	const COLUMN = "10000000-0000-7000-8000-0000000000c1" as LookupColumnId;
+	const REVISION = "1" as LookupRevision;
+	const lookupContext: LookupValidationContext = {
+		kind: "available",
+		projectId: "project-1",
+		projectRevision: REVISION,
+		definitions: [
+			{
+				id: TABLE,
+				name: "Districts",
+				tag: "districts",
+				definitionRevision: REVISION,
+				columns: [
+					{ id: COLUMN, wireName: "region", label: "Region", dataType: "text" },
+				],
+			},
+		],
+	};
+	const REGION = testUuid("fld-filter-region");
+	const PLACE = testUuid("fld-filter-place");
+	const DISTRICT = testUuid("fld-filter-district");
+
+	/** A group holding the answer the filter reads, and the lookup choice
+	 *  question that reads it, below the group at the form's root. */
+	function filterFixture(): BlueprintDoc {
+		const doc = buildDoc({
+			appName: "Choice filter moves",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									uuid: PLACE,
+									id: "place",
+									children: [f({ kind: "text", uuid: REGION, id: "region" })],
+								}),
+								f({
+									kind: "single_select",
+									uuid: DISTRICT,
+									id: "district",
+									optionsSource: {
+										kind: "lookup",
+										tableId: TABLE,
+										valueColumnId: COLUMN,
+										labelColumnId: COLUMN,
+										filter: eq(
+											tableColumn(TABLE, COLUMN),
+											term(formField(REGION)),
+										),
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(mutationCommitVerdict(doc, [], lookupContext)).toMatchObject({
+			ok: true,
+		});
+		return doc;
+	}
+
+	it("admits moving the question into the group below the answer it reads, and the gate refuses the move that puts it above", () => {
+		const doc = filterFixture();
+		expect(
+			fieldPlacementVerdict(doc, {
+				uuid: DISTRICT,
+				kind: "single_select",
+				toParentUuid: PLACE,
+			}),
+		).toEqual({ ok: true });
+		expect(
+			mutationCommitVerdict(
+				doc,
+				[
+					{
+						kind: "moveField",
+						uuid: DISTRICT,
+						toParentUuid: PLACE,
+						after: REGION,
+					},
+				],
+				lookupContext,
+			),
+		).toMatchObject({ ok: true });
+		const above = mutationCommitVerdict(
+			doc,
+			[{ kind: "moveField", uuid: DISTRICT, toParentUuid: PLACE, after: null }],
+			lookupContext,
+		);
+		expect(above.ok).toBe(false);
+		if (above.ok)
+			throw new Error("Expected the move above the answer to be refused.");
+		expect(above.findings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER",
+				}),
+			]),
+		);
 	});
 });

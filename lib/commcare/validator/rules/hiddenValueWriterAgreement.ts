@@ -5,21 +5,24 @@
  * The property's type is its declared type, else the one type its visible
  * questions and case operations agree on, else the one type its Hidden Value
  * writers agree on (`int` and `decimal` agreeing on `decimal`); the facts come
- * from `lib/domain/expression/inference.ts::hiddenWriterVerdicts`. A finding
- * is one of three:
+ * from `lib/domain/expression/inference.ts::hiddenWriterVerdicts`. Each
+ * writer is one finding, whose `details.paths` lists every offending output
+ * and whose reason is the most serious of three:
  *
  * - `type`: some value the Hidden Value can end with (a branch of `if`,
  *   `switch` or `coalesce`, or the whole expression) is not
  *   storage-assignable to the property. A follow-up question that fills
- *   itself from the property casts the saved text through its own answer
- *   class at form open (`SetValueAction.java::processAction` →
- *   `AnswerDataFactory.templateByDataType(...).cast`), and text that is no
- *   date stops the form.
+ *   itself from a date, time, number or location property casts the saved
+ *   text through its own answer class at form open, and text the class
+ *   can't read stops the form (`CASTING_PROPERTY_TYPES`); a text or choice
+ *   property takes any text, so its readers get the wrong kind of value.
  * - `clock-lost`: the value is a date and time whose clock an earlier Hidden
  *   Value dropped, saved to a date-and-time property, so the case would hold
  *   midnight instead of the moment.
  * - `hidden-disagreement`: only Hidden Values type the property and they name
- *   different types, so the property has none.
+ *   different types, so the property has none. `details.disagreement` says
+ *   whether the writer's own results disagree (`own`) or it disagrees with
+ *   the other Hidden Value writers (`others`).
  *
  * A blank `''` fits every property (`Recalculate.wrapData` stores no value),
  * an output nothing types holds no opinion, and a starting value a preload
@@ -49,12 +52,15 @@ import { type ValidationError, validationError } from "../errors";
 export function dataTypePhrase(type: CasePropertyDataType | undefined): string {
 	switch (type) {
 		case "int":
+			return "a whole number";
 		case "decimal":
 			return "a number";
 		case "text":
-		case "single_select":
-		case "multi_select":
 			return "text";
+		case "single_select":
+			return "a choice";
+		case "multi_select":
+			return "several choices";
 		case "date":
 			return "a date";
 		case "datetime":
@@ -62,28 +68,64 @@ export function dataTypePhrase(type: CasePropertyDataType | undefined): string {
 		case "time":
 			return "a time";
 		case "geopoint":
-			return "a place";
+			return "a location";
 		default:
 			return "a value";
 	}
 }
 
+/**
+ * The property types whose question casts the saved text through its own
+ * answer class when a form fills it from the case, and stops the form on
+ * text the class can't read (`SetValueAction.java::processAction` →
+ * `AnswerDataFactory.templateByDataType(...).cast`: `DateData`,
+ * `DateTimeData`, `TimeData`, `IntegerData`, `DecimalData` and
+ * `GeoPointData` throw `IllegalArgumentException`). Text and both choice
+ * classes take any text (`StringData.cast`, `SelectOneData.cast`,
+ * `SelectMultiData.cast`).
+ */
+export const CASTING_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> =
+	new Set(["date", "datetime", "time", "int", "decimal", "geopoint"]);
+
+/** Several kinds as one phrase: `text`, `text or a whole number`. */
+function kindsPhrase(
+	types: Iterable<CasePropertyDataType | undefined>,
+): string {
+	const phrases = [...new Set([...types].map(dataTypePhrase))];
+	return phrases.length <= 1
+		? (phrases[0] ?? "a value")
+		: `${phrases.slice(0, -1).join(", ")} or ${phrases[phrases.length - 1]}`;
+}
+
+const REASON_ORDER: readonly HiddenWriterFinding["reason"][] = [
+	"type",
+	"hidden-disagreement",
+	"clock-lost",
+];
+
+/** One finding per writer: its most serious reason, every offending output
+ * of that reason, and every offending output's path. */
 export function hiddenValueWriterAgreement(
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	const errors: ValidationError[] = [];
-	for (const verdict of hiddenWriterVerdicts(doc))
-		for (const finding of verdict.findings)
-			errors.push(writerError(doc, verdict, finding));
-	return errors;
+	return hiddenWriterVerdicts(doc).map((verdict) => writerError(doc, verdict));
 }
 
 function writerError(
 	doc: BlueprintDoc,
 	verdict: HiddenWriterVerdict,
-	finding: HiddenWriterFinding,
 ): ValidationError {
 	const { writer, property } = verdict;
+	const reason =
+		REASON_ORDER.find((candidate) =>
+			verdict.findings.some((finding) => finding.reason === candidate),
+		) ?? "type";
+	const primary = verdict.findings.filter(
+		(finding) => finding.reason === reason,
+	);
+	const clockAlso =
+		reason !== "clock-lost" &&
+		verdict.findings.some((finding) => finding.reason === "clock-lost");
 	const field = doc.fields[writer.field];
 	const fieldId = field?.id ?? "this hidden value";
 	const formUuid = writer.form;
@@ -96,13 +138,36 @@ function writerError(
 	const holds = dataTypePhrase(property.type);
 	const origin = originDetails(doc, property);
 	const clockSource =
-		finding.reason === "clock-lost" ? clockLostOrigin(doc, writer) : undefined;
+		reason === "clock-lost" || clockAlso
+			? clockLostOrigin(doc, writer)
+			: undefined;
+	const clockName =
+		clockSource === undefined ? "an earlier hidden value" : `"${clockSource}"`;
+	const valueTypes = [
+		...new Set(
+			primary.flatMap((finding) =>
+				finding.type === undefined ? [] : [finding.type],
+			),
+		),
+	];
+	const disagreement = writer.outputsDisagree ? "own" : "others";
+	const gives = kindsPhrase(valueTypes);
+	const stopsForm =
+		property.type !== undefined && CASTING_PROPERTY_TYPES.has(property.type);
+	const consequence = stopsForm
+		? `A form that fills a question from "${writer.property}" would stop when it opens on a value that isn't ${holds}.`
+		: `Forms and case lists that read "${writer.property}" would get ${gives} where they expect ${holds}.`;
+	const change =
+		writer.source === "default_value" ? "starting value" : "calculation";
 	const message =
-		finding.reason === "clock-lost"
-			? `${subject} saves a date and time to ${target}, which holds a date and time, but the value keeps only the day because ${clockSource === undefined ? "an earlier hidden value" : `"${clockSource}"`} doesn't keep the time. The case would hold midnight instead of the moment. You can save it from a question or from now() instead.`
-			: finding.reason === "hidden-disagreement"
-				? `${subject} saves ${dataTypePhrase(finding.type)} to ${target}, and ${writer.outputsDisagree ? "its other results give" : "other hidden values save"} ${otherHiddenPhrase(doc, writer, finding.type)} there, so the property has no one type. A form that fills a question from "${writer.property}" can't know what it holds. You can make every hidden value that saves there give the same kind of value, or save this one to another property.`
-				: `${subject} saves ${dataTypePhrase(finding.type)} to ${target}, which holds ${holds} (${origin.phrase}). A form that fills a question from "${writer.property}" would stop on a value that isn't ${holds}. You can change the ${writer.source === "default_value" ? "starting value" : "calculation"} so it gives ${holds}, or save it to another property.`;
+		reason === "clock-lost"
+			? `${subject} saves a date and time to ${target}, which holds a date and time, but the value keeps only the day because ${clockName} doesn't keep the time. The case would hold midnight instead of the moment. You can save it from a question or from now() instead.`
+			: reason === "hidden-disagreement"
+				? disagreement === "own"
+					? `${subject} saves ${gives} to ${target} from different results, so the property has no one type. A form that fills a question from "${writer.property}" can't know what it holds. You can make every result of the ${change} give the same kind of value, or save it to another property.`
+					: `${subject} saves ${dataTypePhrase(writer.opinion ?? valueTypes[0])} to ${target}, and other hidden values save ${otherHiddenPhrase(doc, writer)} there, so the property has no one type. A form that fills a question from "${writer.property}" can't know what it holds. You can make every hidden value that saves there give the same kind of value, or save this one to another property.`
+				: `${subject} saves ${gives} to ${target}, which holds ${holds} (${origin.phrase}). ${consequence} You can change the ${change} so it gives ${holds}, or save it to another property.${clockAlso ? ` Another of its results also keeps only the day because ${clockName} doesn't keep the time.` : ""}`;
+	const paths = verdict.findings.map((finding) => finding.path);
 	return validationError(
 		"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
 		"field",
@@ -119,9 +184,19 @@ function writerError(
 		{
 			caseType: writer.caseType,
 			property: writer.property,
-			reason: finding.reason,
-			path: JSON.stringify(finding.path),
-			...(finding.type === undefined ? {} : { valueType: finding.type }),
+			reason,
+			path: JSON.stringify(primary[0]?.path ?? []),
+			paths: JSON.stringify(paths),
+			...(reason === "hidden-disagreement" ? { disagreement } : {}),
+			...(reason === "type"
+				? { consequence: stopsForm ? "stops-form" : "wrong-kind" }
+				: {}),
+			...(reason === "hidden-disagreement" && writer.opinion !== undefined
+				? { valueType: writer.opinion }
+				: valueTypes[0] === undefined
+					? {}
+					: { valueType: valueTypes[0] }),
+			...(valueTypes.length > 1 ? { valueTypes: valueTypes.join(",") } : {}),
 			...(property.type === undefined ? {} : { propertyType: property.type }),
 			...origin.details,
 			...(clockSource === undefined ? {} : { clockSource }),
@@ -183,35 +258,19 @@ function originDetails(
 	}
 }
 
-/** What the other Hidden Value writers of the property, or this writer's
- * other results, give instead. */
-function otherHiddenPhrase(
-	doc: BlueprintDoc,
-	writer: HiddenOpinion,
-	own: CasePropertyDataType | undefined,
-): string {
-	const others = new Set<string>();
-	if (writer.outputsDisagree) {
-		for (const output of writer.outputs)
-			if (output.type !== undefined && output.type !== own)
-				others.add(dataTypePhrase(output.type));
-	} else {
-		for (const other of inferExpressionTypes(doc).hiddenOpinions.values())
-			if (
-				other.field !== writer.field &&
-				other.caseType === writer.caseType &&
-				other.property === writer.property &&
-				other.opinion !== undefined
-			)
-				others.add(dataTypePhrase(other.opinion));
-		others.delete(dataTypePhrase(own));
-	}
-	const list = [...others];
-	return list.length === 0
-		? "something different"
-		: list.length === 1
-			? list[0]
-			: `${list.slice(0, -1).join(", ")} or ${list[list.length - 1]}`;
+/** What the other Hidden Value writers of the property give instead. */
+function otherHiddenPhrase(doc: BlueprintDoc, writer: HiddenOpinion): string {
+	const others = new Set<CasePropertyDataType>();
+	for (const other of inferExpressionTypes(doc).hiddenOpinions.values())
+		if (
+			other.field !== writer.field &&
+			other.caseType === writer.caseType &&
+			other.property === writer.property &&
+			other.opinion !== undefined &&
+			other.opinion !== writer.opinion
+		)
+			others.add(other.opinion);
+	return others.size === 0 ? "something different" : kindsPhrase(others);
 }
 
 /** The Hidden Value whose date and time first lost its clock, reached from

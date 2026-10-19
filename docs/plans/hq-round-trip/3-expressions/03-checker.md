@@ -892,6 +892,21 @@ stops the form when more than one is chosen. You can count them with
 count(instance('<id>')/results/value), or join them.`; builder line `A formula on "X" in "F" reads
 every case chosen in "<module>" where it needs one value. You can count or join them.`
 
+
+**Implementation correction, 2026-10-19: a form read inside a row predicate.** Inside a `cases`,
+`table-rows`, `locations` or `table-lookup` predicate, a form read other than `current()` is
+checked against the slot's own context node. Core evaluates such a predicate one of two ways. Where
+its predicate index answers the comparison (`org/commcare/cases/util/StorageBackedTreeRoot.java::collectNativePredicateProfiles`,
+`org/javarosa/core/model/instance/utils/TreeUtilities.java::tryBatchChildFetch`, for example an
+`@case_id` comparison), the right-hand side is evaluated in the outer, form context, so a read of
+the current entry of the slot's repeat names one node, as the checker says. Where Core evaluates
+the predicate row by row (`EvaluationContext.java::expandReferenceAccumulator`), the context is the
+row on another instance, `TreeReference.java::contextualize` copies no repeat position, and the read
+names every entry. Refusing every such read would refuse the indexed spelling Core runs; refusing
+only the row-by-row ones would tie the gate to Core's index choice. The checker keeps the first
+reading, and choosing between Core's two evaluations by construction is held for step 4, which owns
+platform evaluation differences. `current()/…` names the entry in both.
+
 Moves. Moving a field into a repeat, or a reader out of one, can make a stored read structural; the
 gate refuses the move naming the read (part 01 §5, "Move"), and the builder's move verdicts
 (`lib/doc/navigation.ts`, `formSectionVerdicts.ts::fieldPlacementVerdict`) ask the same checker
