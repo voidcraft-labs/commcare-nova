@@ -51,7 +51,7 @@ import {
 	expressionSlotValues,
 } from "@/lib/domain/referenceSlots";
 import { projectFormExpression } from "./expressionText";
-import { orderedFieldUuids } from "./fieldWalk";
+import { descendantFieldUuids, orderedFieldUuids } from "./fieldWalk";
 import { applyMutation } from "./mutations";
 import { referencingCarrierUuids } from "./referenceIndex";
 
@@ -345,6 +345,7 @@ function deriveCaseWriteIssues(
 			JSON.stringify([
 				issue.kind,
 				"writer" in issue ? issue.writer.fieldUuid : null,
+				"writer" in issue ? (issue.writer.repeatUuid ?? null) : null,
 				"bucket" in issue ? issue.bucket.caseType : null,
 				"property" in issue ? issue.property : null,
 			]),
@@ -359,17 +360,10 @@ function deriveCaseWriteIssues(
  *  expressions would ask for case actions it has none of, so this comes
  *  first. */
 function subtreeWritesCase(doc: BlueprintDoc, root: Uuid): boolean {
-	const pending = [root];
-	const seen = new Set<Uuid>();
-	while (pending.length > 0) {
-		const uuid = pending.pop();
-		if (uuid === undefined || seen.has(uuid)) continue;
-		seen.add(uuid);
+	return [root, ...descendantFieldUuids(doc, root)].some((uuid) => {
 		const field = doc.fields[uuid];
-		if (field !== undefined && fieldCaseWrite(field) !== undefined) return true;
-		pending.push(...orderedFieldUuids(doc, uuid));
-	}
-	return false;
+		return field !== undefined && fieldCaseWrite(field) !== undefined;
+	});
 }
 
 function caseWriteRefusal(

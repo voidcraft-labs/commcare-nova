@@ -534,7 +534,12 @@ class Inference {
 		this.siteReads = new Map(
 			hiddenSites.map((site) => [
 				site.field.uuid,
-				namedUuids(site.expression, hiddenUuids),
+				// A generated node (a repeat's count, a Connect value) is typed
+				// through another slot's expression, which can read any Hidden
+				// Value, so such an analysis is never reused.
+				readsGeneratedNode(site.expression)
+					? [...hiddenUuids].sort()
+					: namedUuids(site.expression, hiddenUuids),
 			]),
 		);
 		this.readsCatalog = new Set(
@@ -1354,6 +1359,20 @@ function mayReadCatalog(expression: Expression | undefined): boolean {
 		return Object.values(value).some(visit);
 	};
 	return visit(expression);
+}
+
+function readsGeneratedNode(expression: Expression | undefined): boolean {
+	let found = false;
+	const visit = (value: unknown): void => {
+		if (found) return;
+		if (Array.isArray(value)) for (const item of value) visit(item);
+		else if (typeof value === "object" && value !== null) {
+			if ((value as { kind?: unknown }).kind === "form-node") found = true;
+			else for (const item of Object.values(value)) visit(item);
+		}
+	};
+	visit(expression);
+	return found;
 }
 
 /** Every uuid of `candidates` an expression names anywhere in its tree. */

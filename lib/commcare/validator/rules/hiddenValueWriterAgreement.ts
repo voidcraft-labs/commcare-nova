@@ -136,7 +136,9 @@ function writerError(
 					? `${subject} saves ${gives} to ${target} from different results, so the property has no one type. A form that fills a question from "${writer.property}" can't know what it holds. You can make every result of the ${change} give the same kind of value, or save it to another property.`
 					: `${subject} saves ${valueKindPhrase(writer.opinion ?? valueTypes[0])} to ${target}, and other hidden values save ${otherHiddenPhrase(doc, writer)} there, so the property has no one type. A form that fills a question from "${writer.property}" can't know what it holds. You can make every hidden value that saves there give the same kind of value, or save this one to another property.`
 				: `${subject} saves ${gives} to ${target}, which holds ${holds} (${origin.phrase}). ${consequence} You can change the ${change} so it gives ${holds}, or save it to another property.${clockAlso ? ` Another of its results also keeps only the day because ${clockName} doesn't keep the time.` : ""}`;
-	const paths = verdict.findings.map((finding) => finding.path);
+	const paths = verdict.findings
+		.filter((finding) => finding.reason === reason)
+		.map((finding) => finding.path);
 	return validationError(
 		"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
 		"field",

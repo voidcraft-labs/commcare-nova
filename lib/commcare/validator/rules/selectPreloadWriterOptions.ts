@@ -1,3 +1,4 @@
+import { descendantFieldUuids } from "@/lib/doc/fieldWalk";
 /**
  * Rule: a fixed value saved into a property that a choice question starts
  * on is one of that question's choices.
@@ -216,17 +217,9 @@ function writerError(writer: Writer, reader: Reader): ValidationError {
 
 /** Every field of a form, in tree order. */
 function formFields(doc: BlueprintDoc, formUuid: Uuid): Field[] {
-	const fields: Field[] = [];
-	const visit = (parent: Uuid) => {
-		for (const child of doc.fieldOrder[parent] ?? []) {
-			const field = doc.fields[child];
-			if (field === undefined) continue;
-			fields.push(field);
-			visit(child);
-		}
-	};
-	visit(formUuid);
-	return fields;
+	return [...descendantFieldUuids(doc, formUuid)].map(
+		(uuid) => doc.fields[uuid],
+	);
 }
 
 /** JSON-encoded so no two `(caseType, property)` pairs share a key. */

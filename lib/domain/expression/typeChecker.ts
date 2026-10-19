@@ -2500,9 +2500,6 @@ function dateDatetimeReason(
 
 const isKnown = (type: ScalarType | undefined): type is ScalarType =>
 	type !== undefined && type !== ANY_TYPE;
-function isDateCoerce(expression: Expression): boolean {
-	return expression.kind === "date-coerce";
-}
 /** A string literal's own type in a form comparison: its shape, where the
  * comparison orders it or the other side has a type of its own. */
 function comparisonOperandType(
@@ -2566,7 +2563,7 @@ const DATE_DATETIME_MESSAGE =
 const DATETIME_ORDERING_MESSAGE =
 	"This orders a date and time against a value that isn't one. CommCare can only order two dates and times by their moment. You can compare it with another date and time, or wrap it in date() to compare days.";
 const BOOLEAN_COMPARISON_MESSAGE =
-	"This compares true() or false() with an answer. CommCare turns the answer into true or false first, and anything that isn't blank or zero counts as true, so \"no\" would count as true too. You can compare the answer with the choice's value instead.";
+	"This compares a true-or-false result with another kind of value. CommCare turns that value into true or false before comparing, and anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.";
 
 /**
  * The form rule set's comparison refusals, one finding per comparison, in
@@ -2601,11 +2598,12 @@ function checkFormComparison(
 		errors.push(refusal("time-ordering", TIME_ORDERING_MESSAGE));
 		return;
 	}
+	// date() on the date-and-time side makes both sides dates, so the pair
+	// never reaches here; date() on a side that is already a date leaves the
+	// pair a date against a date and time.
 	if (
-		!isDateCoerce(expression.left) &&
-		!isDateCoerce(expression.right) &&
-		((left === "date" && right === "datetime") ||
-			(left === "datetime" && right === "date"))
+		(left === "date" && right === "datetime") ||
+		(left === "datetime" && right === "date")
 	) {
 		errors.push(
 			refusal("incompatible-values", DATE_DATETIME_MESSAGE, "date-datetime"),

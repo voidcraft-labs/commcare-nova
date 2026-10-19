@@ -2903,6 +2903,10 @@ describe("form comparisons", () => {
 		["#form/d = now()", ["incompatible-values:date-datetime"]],
 		["#form/dt < '2026-01-01'", ["incompatible-values:date-datetime"]],
 		["today() != #form/dt", ["incompatible-values:date-datetime"]],
+		// date() on the side that is already a date leaves a date against a
+		// date and time; the date and time is the side to wrap.
+		["date(#form/dt) < now()", ["incompatible-values:date-datetime"]],
+		["date(#form/d) = now()", ["incompatible-values:date-datetime"]],
 		["#form/dt < 5", ["incompatible-values:datetime-ordering"]],
 		["now() > #form/consent", ["incompatible-values:datetime-ordering"]],
 		["#form/consent = true()", ["incompatible-values:boolean"]],
@@ -2915,7 +2919,7 @@ describe("form comparisons", () => {
 		"#form/n < '10'",
 		"#form/int_hidden < 5",
 		"date(now()) = #form/d",
-		"date(#form/dt) < now()",
+		"date(#form/dt) < date(now())",
 		"#form/dt < now()",
 		"#form/d < '2026-01-01'",
 		"#form/dt < '2026-01-01T10:00:00'",
