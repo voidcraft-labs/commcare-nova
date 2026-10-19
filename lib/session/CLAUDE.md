@@ -55,13 +55,47 @@ the attempt pins the form to the search it was offered on. Both clear with the
 case facts: entering or leaving Preview, a persona change, `reset()`, and a
 confirmed Project boundary.
 
+`previewClaims` holds the running worker's claims (`previewClaims.ts`, pure
+reducers): one slot `{ appId, worker, caseIds }`, `worker` the persona's uuid
+or `"me"` for the signed-in member, `caseIds` ordered and duplicate-free.
+Choosing a search result the worker's device does not hold (one case, or each
+such case of a several-case selection) adds its id, as HQ's claim adds the case
+to the worker's device; a result row says whether the device holds it
+(`heldOnDevice`), and `lib/preview/searchClaims.ts` decides which choices are
+claimable. `claimsFor` returns none for any other app or worker, so a claim of
+another key is unreadable by construction. Every device-scoped read of that
+worker sends the set as plain JSON `claimedCaseIds`, and the restore scope key
+(`lib/preview/hooks/useRestoreScopeKey.ts`) names it, so the device reads run
+again when it grows. Claims last while the worker, the app's Project and the
+page stay; Home, **Clear form** and an engine reset keep them, because a claim
+on HQ outlives the task. A change of worker (an entry-point launch as another
+worker included), leaving Preview, a confirmed Project change and `reset()`
+drop them. An App Test journey holds its claims in its own state on the server
+(`lib/preview/app-tests/CLAUDE.md`), never here, and never reads these. A
+claimed case is held for an entry-point launch, whose device snapshot sends
+the claims like every other device-scoped read.
+
+`viewerPosition.ts` is a separate module store, `viewerPositionStore`, for the
+browser's position behind a case list's `here()` column, one per tab as
+CommCare Android keeps one location handler for every list. It holds the
+sharing status (`unasked`, `waiting`, `sharing`, `refused`, `unavailable`,
+`unsupported`), the latest fix, the position a list last showed, and `moves`,
+a counter of the moves that re-read a list (the first position, a move of more
+than 30 metres from the shown one, a refusal that takes a shown position away).
+A list read keys on `moves` and sends the latest fix, recording it as shown;
+Details and the tile send the latest without recording it. The browser is
+asked once while Preview runs; each list that mounts starts its own watch
+(`lib/preview/hooks/useViewerPosition.ts`), which stops on a fix of 1,600
+metres accuracy or better or when the list goes away. Nothing in it is stored
+or sent anywhere but the read that uses it.
+
 Every collection is ordered and duplicate-free. Continue copies the exact set
 into the Form target; same-type inheritance may reuse it only when the
 destination has the same scalar/collection cardinality and its authored maximum
 is large enough. A scalar/set transition or a different case type starts a fresh
 target selection. Search, paging, Details, Back, and compatible menu navigation
 retain the set. Home clears the current task's case facts and search context,
-without changing worker identity or authorization. Preview reset, persona change, Project boundary, or module
+without changing worker identity, authorization or the worker's claims. Preview reset, persona change, Project boundary, or module
 removal clears it. A maximum change does not trim it: the running screen holds
 the over-limit set until the worker removes enough cases.
 

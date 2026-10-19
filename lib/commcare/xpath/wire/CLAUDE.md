@@ -28,7 +28,15 @@ mixed-quote split. This preserves the generated scaffold; actual nested
 `concat` nodes retain their structure. No emitter or constructor handles quote
 spelling, and the printer never parses rendered text to flatten a call.
 
-The modes are `xform`, `vellum`, `suite`, `hq-json` and `preview`. XForm/Vellum
+The modes are `xform`, `vellum`, `suite`, `hq-json` and `preview`. `preview`
+prints as `suite` does, with the instance ids the wire declares: no `./.`
+protection, no HQ literal splitting, and a generated suite variable is an
+invariant failure. Preview evaluates that text over instances shaped like the
+device's. Its one addressing difference is not the printer's: Preview passes
+`toWire` its own form-node projection
+(`lib/preview/engine/formExpressionRuntime.ts::previewFormNodeProjection`), in
+which a field in a query-bound repeat resolves without the `item` step,
+because Preview's main instance flattens a query repeat's rows. XForm/Vellum
 printing knows whether the slot is a constraint. A lone self path inside a
 non-constraint predicate prints `./.` so Vellum does not mistake it for the
 question's own answer. A Vellum shadow requires a form-field read with hashtag

@@ -4,11 +4,11 @@ Lowers `Expression` / `RelationPath` AST nodes into Kysely typed-builder calls P
 
 ## Dispatch + the cycle break
 
-Every operand is one `Expression`; condition arms dispatch through the predicate compiler and value arms through the expression compiler. `expressionContextFor` lifts a predicate context into an expression context by attaching a `compilePredicate` callback — that callback is the cycle break letting the expression compiler's predicate-bearing arms (`if.cond`, `count.where`) recurse back without an import cycle. The per-data-type cast/read-operator tables live in one data-only module so extending the `data_type` enum surfaces a single `Record` exhaustivity error.
+Every operand is one `Expression`; condition arms dispatch through the predicate compiler and value arms through the expression compiler. `expressionContextFor` lifts a predicate context into an expression context by attaching a `compilePredicate` callback — that callback is the cycle break letting the expression compiler's predicate-bearing arms (`if.cond`, `count.where`) recurse back without an import cycle. The per-data-type cast/read-operator tables live in one data-only module so extending the `data_type` enum surfaces a single `Record` exhaustivity error. An arm no profile with a Postgres target admits, and a read no reading holds (`closed_on` outside `search`), throws an invariant through `lib/domain/expression/errors.ts::compilerBugMessage`, whose sentence names the profile rule that keeps it out.
 
 Every type-dependent SQL decision uses `recordQueryContextFor`: a `RecordQueryContext` derived from the current row schemas, lookup-row scope, form field types, search input declarations, and resolved operation identities. This runtime context has no authored slot or device profile. It is rebuilt after lexical rebinding rather than cached beside mutable compiler metadata.
 
-The generic AST also carries contextual case-operation leaves: `field { uuid }`, `id-of { opUuid }`, `acting-user`, and `unowned`. SQL callers that genuinely evaluate an operation must supply `TermBindings.formFields`, `TermBindings.operationIds`, and a server-resolved `TermBindings.actingUserId` when referenced; each runtime identity is bound as data, never interpolated. `formFields` alone admits the real multi-select answer shape (`readonly string[]`); the term compiler serializes that array and casts it explicitly to JSONB, rather than letting node-postgres turn it into a Postgres text array. Other binding namespaces remain scalar. `unowned` resolves only to Nova's fixed CommCare `-` sentinel. Case-list/search callers omit submission bindings and the compiler throws a missing-binding invariant if a contextual leaf escapes its admitted context. There is no fallback to UUID text or client-provided identity.
+The generic AST also carries contextual case-operation leaves: `field { uuid }`, `id-of { opUuid }`, `acting-user`, and `unowned`. SQL callers that genuinely evaluate an operation must supply `TermBindings.formFields`, `TermBindings.operationIds`, and a server-resolved `TermBindings.actingUserId` when referenced; each runtime identity is bound as data, never interpolated. `formFields` alone admits the real multi-select answer shape (`readonly string[]`); the term compiler serializes that array and casts it explicitly to JSONB, rather than letting node-postgres turn it into a Postgres text array. Other binding namespaces remain scalar. `here` binds `TermBindings.viewerLocation` as one text parameter: the text a CommCare location handler given a browser position returns, two Java `Double.toString` values (`lib/preview/engine/runtimeBindings.ts::viewerLocationText` builds it on the server from the client's checked `{ latitude, longitude }`); `null` or absent compiles to `''`, as both runtimes give before a fix. A `within-distance` center therefore accepts Java's E-notation (`5.0E-4`). `unowned` resolves only to Nova's fixed CommCare `-` sentinel. Case-list/search callers omit submission bindings and the compiler throws a missing-binding invariant if a contextual leaf escapes its admitted context. There is no fallback to UUID text or client-provided identity.
 
 ## Relation walks
 
@@ -26,37 +26,117 @@ The stack emits no `sql.raw`. `sql` tagged templates appear only in `compilePred
 
 - `today` takes the date of `timezone(viewerTimeZone, now())`: the transaction-stable instant in the viewer's local calendar, matching form/device `today()`, with the same validated UTC fallback as `format-date`. The database session timezone cannot change overdue decisions.
 - `interval` isn't in Kysely's castable types → `date-add` builds through `make_interval(...)`, which returns interval directly. Fixed-duration units multiply a one-unit interval by a `float8` quantity so fractions remain representable. Calendar units check `q = trunc(q)` before adapting to `make_interval`'s integer slot: integral decimal spellings such as `1.0` work, while `1.5` raises instead of Postgres silently rounding it. The compiler resolves the base through the canonical temporal type rules: date bases cast the shifted result back to `date`, while datetime bases remain `timestamptz`, matching CCHQ's distinct `date-add` / `datetime-add` results.
-- `datetime-coerce` must match CCHQ CSQL rather than Postgres's session defaults: every NAIVE value — a date-only string AND a zone-less datetime-with-time — resolves as UTC even when the connection `TimeZone` is not UTC (CCHQ parses naive values on its UTC servers). Offset-bearing values still use `timestamptz` parsing so an explicit `Z` or numeric offset wins. Naive `data_type: "datetime"` literals pin the same way, statically, in `compileLiteral`. `today` and `format-date` use the viewer's local calendar; `format-date` it parses naive operands and renders wall-clock tokens in the viewer's timezone (`TermBindings.viewerTimeZone`, browser-supplied, UTC fallback) because the device formats in ITS local zone and the browser stands in for the device — this keeps calculated columns and client-side date columns showing the same wall time. Keep the non-UTC Postgres harnesses for the coercion, the literal, the exact/range calendar-search lowerings, and the viewer-zone rendering.
+- `datetime-coerce` must match CCHQ CSQL rather than Postgres's session defaults: every NAIVE value — a date-only string AND a zone-less datetime-with-time — resolves as UTC even when the connection `TimeZone` is not UTC (CCHQ parses naive values on its UTC servers). Offset-bearing values still use `timestamptz` parsing so an explicit `Z` or numeric offset wins. Naive `data_type: "datetime"` literals pin the same way, statically, in `compileLiteral`. A custom `datetime` property read is strict (`compileTerm.ts::compileStoredInstant`): its text names an instant only in the shape a writer stores (`yyyy-MM-ddTHH:mm:ss`, any fraction, then `Z`, `±HH`, `±HH:MM` or no offset) and where `pg_input_is_valid` reads it, a naive value as UTC; any other text, padded text included, is `NULL`, so it neither fails the query nor follows the session `TimeZone`. `today` and `format-date` use the viewer's local calendar; `format-date` it parses naive operands and renders wall-clock tokens in the viewer's timezone (`TermBindings.viewerTimeZone`, browser-supplied, UTC fallback) because the device formats in ITS local zone and the browser stands in for the device — this keeps calculated columns and client-side date columns showing the same wall time. Keep the non-UTC Postgres harnesses for the coercion, the literal, the exact/range calendar-search lowerings, and the viewer-zone rendering.
 - `geography` isn't castable either → `within-distance` builds via `ST_GeogFromText('POINT(lon lat)')` (SRID 4326 default per postgis.net docs), with the WKT composed through `concat(...)` so numerics stay typed-builder arguments.
 - `concat` casts every part to `text` explicitly, which is already the AST's per-part coercion rule. Do not rely on Postgres's variadic `concat(any...)` overload to infer prepared-parameter types: the valid one-part editor draft `concat(literal(""))` otherwise fails with `42P18` before the live row sample or match count can run.
 
 A new arm needing an off-surface Postgres feature follows the same shape: find the function-call form that returns the typed value directly; never reach for `sql.raw`.
 
-## Portable case-list column reads
+## Readings
 
-Calculated Results/Details values set `TermCompileContext.portableCaseDates`.
-Only in that context, `date_opened` and `last_modified` read as the date of
-`timezone(viewerTimeZone, stored_timestamp)`, matching Core's casedb DateData.
-The flag follows self, parent and nested predicate reads. Calculated sort keys
-carry the same flag through ordinary and grouped ordering. Ordinary server
-filters, search, operations and stored row metadata retain datetime resolution.
+Every compile site states what the rows it reads stand for, in a required
+`TermCompileContext.reading: CaseReading` (`lib/domain/expression/temporalType.ts`):
 
-Portable temporal result inference does not revalidate an admitted expression
-against different property types. It follows value branches independently of
-conditions. Mixed date/datetime branches explicitly promote their calendar arm
-to midnight in the validated viewer timezone before PostgreSQL merges them;
-connection timezone must not decide that instant. Typed mixed temporal
-comparisons, membership, ranges and switch selectors apply the same promotion,
-including nested predicates. This preserves Nova's existing typed SQL comparison
-contract; native raw DateData-versus-string generalized comparisons have their
-own coercion behavior and are not proven equivalent by this date-read change.
-Calendar-only branches and
-custom datetime values retain their existing shapes.
+- `casedb`, a device evaluating over its casedb: a browse list's filter,
+  calculated columns and sort keys, the filter preview of a module without an
+  effective Search, and case operations (`postgres/submissionEnvelope.ts`).
+- `results`, a device evaluating over HQ's search results instance: the
+  calculated columns and sort keys of an effective Search's results.
+- `search`, HQ's case search: an effective Search's composed query, a count,
+  and every tenant-wide authoring read (the case workspace, sample data, the
+  rename preflight, internal fixed filters), which read the stored truth.
+
+One case-list read can hold two readings, so `QueryArgs.reading` is a
+`CaseQueryReading { filter, columns }`: `CASEDB_READING` is casedb throughout,
+`SEARCH_READING` is `search` for the filter and `results` for the columns. A
+count takes only the filter half (`CaseFilterReading`).
+`caseQueryReadingFor(module)` chooses from the module's effective Search,
+through the projection `lib/commcare/suite/case-search/xpathQuery.ts` reads for
+the wire. Calculated columns and sort keys, ordinary and grouped, compile under
+the columns half, the filter under the filter half.
+
+Under `casedb`, `date_opened` and `last_modified` read as the date of
+`timezone(viewerTimeZone, stored_timestamp)`, Core's casedb `DateData`. Under
+`results`, `date_opened` is the UTC calendar date of `opened_on` (HQ's
+`json_format_date`) and `last_modified` its instant. Under `search`, both are
+the stored instants, and `closed_on` is readable only there
+(`compileTerm.ts::reservedColumnFor`). The reading follows self, parent and
+nested predicate reads, and it decides how a number becomes a date ("Day
+numbers").
+
+Temporal result inference (`resolveCaseListTemporalType`, which takes the
+reading) does not revalidate an admitted expression against different property
+types. It follows value branches independently of conditions. Under `casedb`, a
+mixed date/datetime branch, and a system date compared with an instant, promote
+the calendar value to midnight in the validated viewer timezone before
+PostgreSQL merges or compares them, because the `Date` Core holds is local
+midnight; connection timezone must not decide that instant. No other implicit
+promotion exists: the checker refuses an uncoerced date against a date and time
+in every profile. Calendar-only branches and custom datetime values retain
+their existing shapes.
+
+## Datetime comparisons
+
+Every comparison of two datetimes compiles as an instant comparison, equality
+included. A custom `datetime` property is the strict stored-instant read, and a
+naive literal pins to UTC; `now` is the transaction instant; `datetime-coerce`
+of text or a date is `compilePinnedInstant(value, "UTC")`, so a date is UTC
+midnight, HQ's meaning; `datetime-coerce` of a number is that many days of
+elapsed time after the UTC epoch (`coreDayNumber.ts::compileEpochDayInstant`,
+24-hour intervals, which no zone's daylight saving moves). A `casedb` system
+date is the viewer-midnight instant of the `DateData` a device holds, a
+`results` `date_opened` is the UTC date the results instance holds, and a
+`search` system date is the stored instant.
+`__tests__/instantOrdering.postgres.test.ts` computes each verdict of the
+operand and pair table Core's `InstantOrderingRuntimeTest` reads from the
+operands' instants, and holds Postgres to it under every reading, in four viewer
+and session zones chosen apart.
+
+## Two-valued predicates
+
+A predicate over a missing value is false, never SQL `NULL`. So `not`, `!=` and
+`= ''` keep a case that lacks the property, as a device (an absent node unpacks
+to `''`, and `!=` negates `=`) and HQ (`!=` and `not` are `NOT` of the match)
+both keep it. The compiler maps unknown to false at each negation point,
+`NOT coalesce(<clause>, false)`: under `not`, under `missing(self, where)`, and
+for `neq`, which is the negation of the `=` atom at the leaf, after relation
+normalization (rewriting first would turn `exists(R, p != x)` into
+`not(exists(R, p = x))` and flip the empty relation). A positive atom stays
+bare, where `NULL` and false both exclude the row, so its expression index
+still applies; `and`, `or` and `CASE` are monotone, so mapping unknown to false
+at the leaves equals mapping the whole. A condition read as a value
+(`compileExpression`) is `coalesce(<condition>, false)`.
+
+Equality is `compilePredicate.ts::compileEquality`. A comparand decided before
+the query runs (a literal, a bound term, `here()`'s bound position) that is
+blank makes the comparison the absence check of the other operand, whatever its
+type, decided in JavaScript so the positive comparison keeps its index. Two
+operands read per row that both read as device text are also equal when both
+are blank, as `'' = ''` is on a device; numbers and temporal values are not,
+because a device compares a blank number as `NaN` and the instant lowering reads
+a blank as no instant. An ordering against a decided blank comparand is false.
+`is-blank` is `coalesce(text, '') = ''`, so absent, JSON `null` and empty text
+all read blank.
+
+## Day numbers
+
+`coreDayNumber.ts::compileCoreDayNumber` compiles `date-coerce` of a number by
+reading. Under `casedb` and `results` it is Core's, in the validated viewer zone
+`z`: `n` truncated toward zero as Core's `toInt` does, then
+`timezone(z, E + n * interval '24 hours' + interval '12 hours')::date`, with
+`E = timezone(z, timestamp '1970-01-01 00:00:00')`, as `DateUtils.dateAdd`
+computes it; the `integer` cast refuses a day outside the `int` range as Core
+does. Under `search` it is HQ's calendar arithmetic,
+`date '1970-01-01' + trunc(n)::integer`. The two agree except in the five Pacific
+zones whose offset moved by more than twelve hours after 1970, where a device's
+list and HQ's search differ by a day and Preview shows each as its runtime does.
+The compiler has no formula for a date read as a number: no slot with a
+Postgres target reaches one.
 
 ## Case-list sort keys
 
 A Results read orders by the case list's order plan
-(`lib/domain/caseListOrder.ts`), each rule one `SortKey` of `lib/case-store/store.ts`.
+(`lib/domain/caseListOrder.ts`), each rule one `SortKey` of `lib/case-store/store.ts`. Each key compiles under the read's columns reading (`QueryArgs.reading.columns`, "Readings").
 Most keys are a `Expression` this compiler already compiles (a property,
 a calculation, a select's label `switch`, a link's markdown `concat`), read as the text a device reads
 (`compileExpression.ts::compileDeviceTextExpression`): a multi select's stored
@@ -118,7 +198,7 @@ literal null discriminator selects the fallback.
 
 ## Blank semantics
 
-`is-blank` matches absent-or-empty, the one absence meaning Nova's Postgres runtime and every CommCare wire target can preserve identically.
+`is-blank` matches absent-or-empty, the one absence meaning Nova's Postgres runtime and every CommCare wire target can preserve identically. A comparison with the literal `''` compiles as the same check ("Two-valued predicates").
 
 Computed and bound scalar operands check their text projection for null or empty.
 Comparing a numeric, boolean, or timestamp value directly to `''` makes Postgres

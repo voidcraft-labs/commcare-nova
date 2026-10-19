@@ -701,6 +701,8 @@ coercion" (`docs/plans/hq-round-trip/3-expressions.md`, "Carried from step 2").
 - Two `datetime` operands are admitted, under an ordering, `between`, `=`, `!=`, `in` and `switch`
   alike; the lowering part lowers each of them, form logic included (part 04 §3.3).
 
+**Implementation correction, 2026-10-19:** the exemption is a `date()` on the date-and-time side, which makes both sides dates (in a record slot a `datetime-coerce` on the date side likewise makes both dates and times). A `date()` on the date side leaves the pair a date against a date and time, and it is refused: `date(#form/dt) < now()` is refused, `date(#form/dt) < date(now())` is admitted (`typeChecker.ts::dateDatetimeReason` reads the two operand types alone).
+
 Code: `XPATH_INCOMPATIBLE_VALUES` (form logic), the slot's `*_TYPE_ERROR` (record). Validator
 message, `date-datetime`: `"<field>" compares a date with a date and time in its <slot>. CommCare
 compares a date by its day and a date and time by its moment, so the two don't line up. You can wrap
@@ -1581,6 +1583,11 @@ holds, so `if(c, #form/dt, '')` writing a date and time property keeps its `xsd:
 `xsd:string` bind whatever its inferred type, and its held class is the one that bind and its result
 give (`Recalculate.java::wrapData`: text is `StringData`, a `Date` is `DateData` under any bind but
 `xsd:dateTime`; part 01 §3.2), which the lowering reads.
+
+**Implementation correction, 2026-10-19:** an analysis whose expression reads a generated node (a
+repeat's count, a Connect value) is never reused across passes: such a node is typed through another
+slot's expression, which can read any Hidden Value, so the site counts as reading every one
+(`inference.ts`, `siteReads`, and `namedByInference` for the incremental gate).
 
 **Implementation correction, 2026-10-19: clock provenance.** The fixpoint computes a fourth vector,
 `C`, beside `H`, `P` and `O`, and a held class per Hidden Value (`ExpressionInference.hiddenHeld`,

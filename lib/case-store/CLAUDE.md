@@ -3,7 +3,18 @@
 The runtime storage layer for case data. Cloud SQL Postgres is the
 live runtime; the AST→Kysely compiler of the stored `Expression` union's
 record arms (`./sql`, the union in `lib/domain/expression`) is the only
-evaluator. There is no in-memory variant, no parallel JS evaluator, no parity tests.
+evaluator of case rows. It decides which case rows a list, a count, a page, a
+group, a search result set or an operation target holds; no JavaScript filters,
+sorts, counts or pages rows of the store. `CaseStore.readDeviceCaseDatabase` is
+the store's one read of what a worker's device holds. Preview's XPath evaluator
+evaluates form logic, case-backed choices, case and worker reads, and display
+conditions over that snapshot as Core evaluates over its casedb, and it never
+decides which rows a list shows. Neither substitutes for the other: a list's
+rows never come from the snapshot, and a form's casedb read never queries
+Postgres. Where one expression reaches both, agreement tests hold them together:
+`sql/__tests__/instantOrdering.postgres.test.ts` for datetimes, and the absent
+and blank rows of `sql/__tests__/compilePredicate.harness.postgres.test.ts` for
+every atom.
 
 ## Public surface — barrel
 
@@ -40,8 +51,12 @@ is explanatory and never substitutes for rename Phase A's locked recheck.
 read. It applies the bound worker's restore closure across every retained case
 type, including types no longer present in the active Blueprint, and returns
 the visible rows plus their direct parent/custom index edges under one
-repeatable-read transaction. It never accepts a caller-supplied case-id list;
-both endpoints of every edge are re-fenced by app and bound Project in SQL.
+repeatable-read transaction. Its only caller-supplied ids are the worker's
+claims (`RestoreScope.claimedCaseIds`: searched cases the worker chose that its
+restore did not hold). Each seeds the fixpoint only if it is a case of this app
+in the bound Project, checked id by id in SQL, so an id of another app, another
+Project or no case seeds nothing and never refuses the rest; both endpoints of
+every edge are re-fenced by app and bound Project in SQL.
 Each edge persists `target_case_type`, matching Core's
 `CaseIndex.mTargetCaseType`: the type is captured when the relationship is
 written and never re-derived from the target row on read, so a later target
@@ -113,7 +128,7 @@ the field to audio. There is no post-commit GCS await: accepted case effects
 categorically point at a verified durable generation outside the staging
 lifecycle prefix.
 
-`CaseStore.applySubmission` applies one whole form submission — the ordinary form action (registration primary+children, followup update+children, close including final writes) plus the advanced case-operation program — in ONE transaction under the standard lock order (authorize → relationship advisory → schema locks sorted up front; a followup/close bound case's type is discovered inside the update core, the same pattern `update` uses). The executor (`postgres/submissionEnvelope.ts`) mirrors the XForm emission in `lib/commcare/xform/caseOps.ts` phase for phase: expand the authored `(order, uuid)` sequence over the physical multiplicity scopes (root first, then repeats iteration-major; single-case forms preserve authored operation order, while multiple-selection forms run form-level operations once per iteration followed by the session-targeted operations for each selected case; the caller supplies per-iteration form-answer bindings plus the doc-level analysis from `lib/doc/caseOperationOrder.ts`, since the blueprint never crosses this boundary); allocate every create identity in TypeScript before any evaluation (generated ids mint `uuidv7()`; authored keys run the shared `deriveAuthoredCaseId` and abort on blank/over-205 keys BEFORE any DML — the pinned TS↔XPath identity vector runs against this executor); evaluate every condition, value, and runtime target through the AST→Kysely compiler anchored on the loaded case for every operation in a single-case form, including creates and expression targets; multiple-selection forms give each session-targeted operation its selected case and keep form-level operations anchor-free even when only one row is selected (the advisory lock plus evaluate-before-effects gives operation record reads one current pre-effect transaction view, while submitted form-answer bindings retain entry values; native calculates can retain an initialized form's record view across other local submissions, so this does not establish native current-at-submit or compare-and-set behavior; `TermBindings.actingUserId` is populated from the store's bound actor, never the client); resolve and reauthorize targets (`session` = that selected case, `op` = the transaction's allocation record, `expression` = tenant-bound load + `validateCaseOperationTargetDescriptor` against the immutable snapshot type, with expression targets inheriting the running app's hold exclusion); then run `validateResolvedCaseOperationTypeSequence` over the whole server-resolved sequence — including the ordinary action as a final implicit type consumer for every selected id when it is type-sensitive — before the first write. Effects apply in physical order (per operation: create → property writes → rename/retype → close → links; the ordinary action last, matching the wire where advanced blocks precede the ordinary `FormActions` block). A several-case ordinary action applies its one admitted patch to every selected case in selection order, then fans children across that same order, then closes the selected cases; all share the envelope's single receipt and transaction. Every evaluated fixed-text scalar passes through `prepareCaseScalarTextValue`: boundary U+0000..U+0020 code units are removed and the 255 UTF-16-unit cap is enforced; create-name, rename, and owner reject blank, while `external_id` keeps an explicit blank as `""`. Ordinary field writes use the same contract. `case_name` and `external_id` route to dedicated row columns across single/bulk create, update, merge, and retype and never enter JSONB. Retype executes ONLY the wirePortable subset, applied with the operation's writes and rename as ONE unit — the wire emits them in a single `<update>` block, so writes are typed against the DESTINATION declaration and the case ends as the destination type carrying them; a retained document (properties minus source-schema orphans, the same proof the update merge sheds by) the destination schema cannot hold rejects the envelope — never a conversion/parking plan. Link CRUD is identifier-keyed (delete-then-insert; null target removes) and persists the AUTHORED `child`/`extension` relationship; a `parent` identifier also maintains the denormalized `parent_case_id`. A duplicate authored id merges create-of-existing style — onto a prior submission's row or onto a row this same envelope created. Multi-select answers serialize to JSONB arrays explicitly, and a BLANK-evaluated custom-property write (SQL NULL, `''`, an empty selection) projects to key-absent — omitted on create, REMOVED from the stored document on update — because the wire's `''` write has no representable typed-storage form and Nova's two-state collapse reads absent as blank (`storageValueFromEvaluation`). A link-only operation still advances `modified_on`, the wire's per-block `@date_modified` stamp. A `followup` or `close` submission of one selected case that writes no property, name or external id stamps the case's `modified_on` (`postgres/submissionEnvelope.ts::applyOrdinaryAction`), as HQ's processing of the touch block does; a several-case submission is not stamped. Any failure rolls the entire submission back with a typed error: `SubmissionRejectedError` (a discriminated `rejection` union: authored-key, text-value, target, sequence, retype-not-portable) for operation-contract rejections, the standard typed errors otherwise — partial success is unobservable. The production supplier is `lib/preview`'s `buildSubmissionOperationProgram` (one authorized committed-doc snapshot, capture authority, durable receipt identity, and the engine's collected per-scope answers); the program is exercised by `postgres/__tests__/submissionEnvelope.postgres.test.ts` and end-to-end by the preview acceptance suite.
+`CaseStore.applySubmission` applies one whole form submission — the ordinary form action (registration primary+children, followup update+children, close including final writes) plus the advanced case-operation program — in ONE transaction under the standard lock order (authorize → relationship advisory → schema locks sorted up front; a followup/close bound case's type is discovered inside the update core, the same pattern `update` uses). The executor (`postgres/submissionEnvelope.ts`) mirrors the XForm emission in `lib/commcare/xform/caseOps.ts` phase for phase: expand the authored `(order, uuid)` sequence over the physical multiplicity scopes (root first, then repeats iteration-major; single-case forms preserve authored operation order, while multiple-selection forms run form-level operations once per iteration followed by the session-targeted operations for each selected case; the caller supplies per-iteration form-answer bindings plus the doc-level analysis from `lib/doc/caseOperationOrder.ts`, since the blueprint never crosses this boundary); allocate every create identity in TypeScript before any evaluation (generated ids mint `uuidv7()`; authored keys run the shared `deriveAuthoredCaseId` and abort on blank/over-205 keys BEFORE any DML — the pinned TS↔XPath identity vector runs against this executor); evaluate every condition, value, and runtime target through the AST→Kysely compiler anchored on the loaded case for every operation in a single-case form, including creates and expression targets; multiple-selection forms give each session-targeted operation its selected case and keep form-level operations anchor-free even when only one row is selected (the advisory lock plus evaluate-before-effects gives operation record reads one current pre-effect transaction view, while submitted form-answer bindings retain entry values; native calculates can retain an initialized form's record view across other local submissions, so this does not establish native current-at-submit or compare-and-set behavior; `TermBindings.actingUserId` is populated from the store's bound actor, never the client); resolve and reauthorize targets (`session` = that selected case, `op` = the transaction's allocation record, `expression` = tenant-bound load + `validateCaseOperationTargetDescriptor` against the immutable snapshot type, with expression targets inheriting the running app's hold exclusion); then run `validateResolvedCaseOperationTypeSequence` over the whole server-resolved sequence — including the ordinary action as a final implicit type consumer for every selected id when it is type-sensitive — before the first write. Effects apply in physical order (per operation: create → property writes → rename/retype → close → links; the ordinary action last, matching the wire where advanced blocks precede the ordinary `FormActions` block). A several-case ordinary action applies its one admitted patch to every selected case in selection order, then fans children across that same order, then closes the selected cases; all share the envelope's single receipt and transaction. Every evaluated fixed-text scalar passes through `prepareCaseScalarTextValue`: boundary U+0000..U+0020 code units are removed and the 255 UTF-16-unit cap is enforced; create-name, rename, and owner reject blank, while `external_id` keeps an explicit blank as `""`. Ordinary field writes use the same contract. `case_name` and `external_id` route to dedicated row columns across single/bulk create, update, merge, and retype and never enter JSONB. Retype executes ONLY the wirePortable subset, applied with the operation's writes and rename as ONE unit — the wire emits them in a single `<update>` block, so writes are typed against the DESTINATION declaration and the case ends as the destination type carrying them; a retained document (properties minus source-schema orphans, the same proof the update merge sheds by) the destination schema cannot hold rejects the envelope — never a conversion/parking plan. Link CRUD is identifier-keyed (delete-then-insert; null target removes) and persists the AUTHORED `child`/`extension` relationship; a `parent` identifier also maintains the denormalized `parent_case_id`. A duplicate authored id merges create-of-existing style — onto a prior submission's row or onto a row this same envelope created. Multi-select answers serialize to JSONB arrays explicitly, and a BLANK-evaluated custom-property write (SQL NULL, `''`, an empty selection) projects to key-absent — omitted on create, REMOVED from the stored document on update — because the wire's `''` write has no representable typed-storage form and Nova's two-state collapse reads absent as blank (`storageValueFromEvaluation`). A link-only operation still advances `modified_on`, the wire's per-block `@date_modified` stamp. A `followup` or `close` submission of one selected case that writes no property, name or external id stamps the case's `modified_on` (`postgres/submissionEnvelope.ts::applyOrdinaryAction`), as HQ's processing of the touch block does; a several-case submission is not stamped. Any failure rolls the entire submission back with a typed error: `SubmissionRejectedError` (a discriminated `rejection` union: authored-key, text-value, target, sequence, new-case with reason `case-id-taken`, retype-not-portable) for operation-contract rejections, the standard typed errors otherwise — partial success is unobservable. The ordinary action's registration primary, and each child of a one-case form that no repeat creates, take the id the entry's session minted: the program marks the seed with the datum's key (`SubmissionCaseSeed.entryCaseKey`, `new-case` or `new-child-case:<type>`), and the envelope derives `lib/domain/entryCaseIdentity.ts::entryDatumCaseId(appId, entryKey, key)`, the id the form's logic read as `session/data/<datum>`. Repeat children, a several-case form's children and generated operation creates mint `uuidv7()`. An entry id that names an existing case refuses the submission (`case-id-taken`, checked before the insert) and is never an upsert; an exact retry of a saved entry replays its receipt before reaching that check. The production supplier is `lib/preview`'s `buildSubmissionOperationProgram` (one authorized committed-doc snapshot, capture authority, durable receipt identity, and the engine's collected per-scope answers); the program is exercised by `postgres/__tests__/submissionEnvelope.postgres.test.ts` and end-to-end by the preview acceptance suite.
 
 Referenced lookup tables are held `FOR SHARE` in UUID order after the store's
 app authorization, relationship advisory, and schema locks. Lookup writers take
@@ -126,7 +141,10 @@ value entirely, including arithmetic on unanswered form fields; it preserves
 the existing property rather than making a blank overwrite. All guards and
 values keep their physical instance's bindings and run before effects under
 the same app/Project advisory lock. Executing expressions retain their normal
-numeric errors, which roll back the whole submission. The focused real-Postgres
+numeric errors, which roll back the whole submission. Operations compile
+under the `casedb` reading, and a condition over a property the case lacks is
+two-valued (`sql/CLAUDE.md`, "Two-valued predicates"): a negated or `!=`
+condition holds for it, as the form's own evaluation on a device does. The focused real-Postgres
 `postgres/__tests__/conditionalWrite.postgres.test.ts` checks both omitted and
 executing calculations, including decimal inputs, numeric zero and failures.
 
@@ -317,6 +335,25 @@ is the rule, carries the citations, and is pinned against all 45 graphs of HQ's
 own `case_relationship_tests.json` — the oracle is that FILE, not `livequery.py`'s
 module docstring, whose eighth example the pinned fixtures contradict.
 
+**A claim seeds it too.** `RestoreScope.claimedCaseIds` carries the worker's
+claims, and `compileRestoreScope.ts` seeds the fixpoint with each claimed case,
+carrying its own openness, which is the closure HQ's claim gives less the claim
+row: HQ's `commcare-case-claim` case is an owned open seed whose one extension
+hop reaches the chosen case, so an open claimed case becomes live, and a closed
+one relays nothing, as a closed host kills a real claim. The seed reads
+`cases`, so a claimed id of another app or Project never enters the scope. The
+store writes no claim row. `sql/__tests__/restoreScopeClaims.postgres.test.ts`
+holds the rule over HQ's graphs with a claim added.
+
+**A search reads past it.** `QueryArgs.searchPopulation { heldBy }` is HQ's
+case search population (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`):
+every open case of the type in the bound Project, bound by no restore. A read
+carries `restoreScope` or `searchPopulation`, never both (a compiler
+invariant). `heldBy` is the searching worker's restore, and each returned row
+says, from the same statement, whether that restore holds it (`heldOnDevice`),
+so a caller claims only the cases the worker's device does not hold. A count
+with a search population reads the open cases.
+
 `QueryArgs.parentCases` / the case-type arm of `CountArgs.parentCases` is a
 separate running-menu constraint: an ordered, unique set of at most 100 parent
 ids plus its declared case type. One id is the ordinary parent-first flow;
@@ -331,7 +368,11 @@ Four things about it that are load-bearing:
 - **Absent means the whole tenant, and that is a contract rather than a
   default.** Authoring surfaces — the case workspace, sample data, the rename
   preflight, the automation sweep — read the tenant because none of them is
-  standing at a device. Only the RUNNING preview passes a scope. `loadCaseDataAction`
+  standing at a device. Only the RUNNING preview passes a scope, and only for
+  what a device holds (a browse list, the device snapshot, a form's preload,
+  the persistent tile). A search's Results, and the cases chosen from them,
+  pass a search population instead, because HQ's case search reads the
+  Project's open cases of the type, not a restore. `loadCaseDataAction`
   serves both, which is why it takes an explicit `deviceScoped` argument
   instead of deriving one.
 - **Relation walks carry it too.** `whereVisible` applies the hold and the

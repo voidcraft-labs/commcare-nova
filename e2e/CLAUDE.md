@@ -98,9 +98,13 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **Profiles include their own prerequisites.** App-list and delete journeys need
   another active app or destination Project for the UI they assert. Organization,
   case changes, after-submit, search-first, localization and deep-link journeys
-  each own the full authored fixture. A journey may switch its active Project or
-  change a member's role without affecting another scenario. Viewer contexts use
-  that attempt's separate viewer cookie.
+  each own the full authored fixture, as do the refused-preload, location-column
+  and search-claim Preview journeys (`e2e/lib/previewRuntimeSeeds.ts`). The
+  refused preload's record is written straight into `cases`, as an import leaves
+  it, because the case store's own writers refuse a date property that is not a
+  date. A journey may switch its active Project or change a member's role
+  without affecting another scenario. Viewer contexts use that attempt's
+  separate viewer cookie.
 - **Browser component tests own local peers and contexts.** `e2e/tests/browser/`
   runs in Chromium against ephemeral component peers, using production CSS and the
   emitted XPath worker. It starts no Nova server or Postgres. Only immutable build
