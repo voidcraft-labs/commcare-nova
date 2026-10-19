@@ -1,5 +1,5 @@
 import type { Uuid } from "@/lib/domain";
-import { w } from "../xpath/wire/builders";
+import { typedInstantValue } from "../xpath/wire/instant";
 import type { WireExpr } from "../xpath/wire/tree";
 import type { FormPath } from "./formPath";
 import type { GeneratedNodePlan } from "./generatedNodes";
@@ -26,19 +26,11 @@ export function datetimeCaseValuePath(
  * row's bind with no `type`, so a typed leaf loses its clock on the first
  * save; this calculate keeps the instant on an untyped node, with the
  * device's offset and milliseconds. A value that is already a string is
- * parsed and printed again in the device's zone.
+ * parsed and printed again in the device's zone. The spelling is the instant
+ * lowering's typed instant text (`xpath/wire/instant.ts`), under a blank guard.
  */
 export function datetimeCaseValueExpression(expression: WireExpr): WireExpr {
-	// Core format-date(node-set) passes through toDate(), which rounds a
-	// typed Date to midnight. coalesce unpacks the selected value first.
-	return w.call("if", [
-		w.eq(expression, w.str("")),
-		w.str(""),
-		w.call("format-date", [
-			w.call("coalesce", [expression, w.str("")]),
-			w.str("%Y-%m-%dT%H:%M:%S.%3%Z"),
-		]),
-	]);
+	return typedInstantValue(expression);
 }
 
 export function datetimeCaseValueCalculate(path: FormPath): WireExpr {

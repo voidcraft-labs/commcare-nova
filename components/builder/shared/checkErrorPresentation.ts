@@ -15,7 +15,11 @@ import type {
 	CheckPath,
 } from "@/lib/domain/expression";
 
-type DiagnosticPresenter = (path: CheckPath, reason?: string) => string;
+type DiagnosticPresenter = (
+	path: CheckPath,
+	reason?: string,
+	error?: CheckError,
+) => string;
 
 /** Return the closest named slot, skipping array indexes. */
 function lastNamedSlot(path: CheckPath): string | undefined {
@@ -78,7 +82,7 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"lookup-table-scope": () => "Choose a column from the lookup table used here",
 	"property-scope": () => "Choose information from the related case shown here",
 	"case-status-value": () => "Use open or closed for built-in case status",
-	"incompatible-values": (_path, reason) => {
+	"incompatible-values": (_path, reason, error) => {
 		switch (reason) {
 			case "date-datetime":
 				return "A date and a date and time don't line up. You can wrap the date and time in date() to compare days";
@@ -86,6 +90,23 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 				return "A date and time can only be ordered against another date and time. You can wrap it in date() to compare days";
 			case "boolean":
 				return "Anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own";
+			case "day-only-on-device": {
+				const when =
+					error?.instant?.property === "last_modified"
+						? "last changed"
+						: error?.instant?.property === "date_opened"
+							? "opened"
+							: "opened or last changed";
+				return error?.instant?.comparison === "equality"
+					? `A device keeps only the day a case was ${when}, so it never matches a moment. You can compare it with a date, or check a range of days`
+					: `A device keeps only the day a case was ${when}. You can compare it with a date instead`;
+			}
+			case "clock-lost":
+				return "This value has kept only the day of a date and time. You can compare the date and time that first recorded it, or wrap both sides in date() to compare days";
+			case "unreadable-datetime":
+				return "CommCare can't read this date and time. You can write it like 2026-01-02T10:30:00Z";
+			case "datetime-equality":
+				return "A date and time never matches something that isn't one. You can compare it with another date and time, or check whether it's blank";
 			default:
 				return "Choose values that use compatible kinds of information";
 		}
@@ -152,5 +173,8 @@ export function presentCheckErrorForEditor(error: CheckError): string {
 	const presenter = (
 		PRESENT_BY_CODE as Partial<Record<string, DiagnosticPresenter>>
 	)[error.code];
-	return presenter?.(error.path, error.reason) ?? nextActionForPath(error.path);
+	return (
+		presenter?.(error.path, error.reason, error) ??
+		nextActionForPath(error.path)
+	);
 }

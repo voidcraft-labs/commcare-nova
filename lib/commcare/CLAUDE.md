@@ -435,7 +435,7 @@ relative-only expressions have none, nor do generated absolute paths; a
 hashtag-looking string literal does not count as a read. Generated bind calculations and setvalue defaults never
 request expression shadows.
 
-Shadows emit ONLY vocabulary the editor is GUARANTEED to know for the form, never merely plausible vocabulary: an unknown hashtag makes the editor's XPath engine (`Vellum/src/xpath.js::isValidNamespace`) mark the whole expression unparseable and re-serialize it VERBATIM into the real attribute on the user's next save — raw hashtags on the wire, failing HQ's next build ("Couldn't understand the expression"). `vellum` mode owns this projection: a field read spelled `#form/` prints `#form/<path>`. A case, worker, or Search read is an `expansion` in the tree and withholds the shadow. No shadow carries `#case/`, because a `#case/` hashtag over `case_id`, `owner_id` or `status` is saved as a child element the case database does not have, and one over a property HQ's schema does not list is an unknown question on every save. With the raw casedb path in the real attribute, the form builder's reverse map turns a listed property into its own `#case/<property>` on load and saves the same real attribute, and leaves every other read raw. `vellum` mode also withholds the shadow when a `#form/` read carries a predicate or heads a longer path: the form builder cannot parse that, writes the shadow verbatim into the real attribute, and HQ's next build fails. Outside a validation condition the serializer prints a predicate's own node as `./.` in `xform` and `vellum` modes, because the form builder reads a bare `.` in any other condition as the question referring to itself. There is NO way to teach the editor more: it reads hashtag metadata only from head elements, only as a pre-datasources fallback, and `Vellum/src/form.js::_updateHashtags` resets namespaces to `#form` + data sources once they load.
+Shadows emit ONLY vocabulary the editor is GUARANTEED to know for the form, never merely plausible vocabulary: an unknown hashtag makes the editor's XPath engine (`Vellum/src/xpath.js::isValidNamespace`) mark the whole expression unparseable and re-serialize it VERBATIM into the real attribute on the user's next save — raw hashtags on the wire, failing HQ's next build ("Couldn't understand the expression"). `vellum` mode owns this projection: a field read spelled `#form/` prints `#form/<path>`. A case, worker, or Search read is an `expansion` in the tree and withholds the shadow. No shadow carries `#case/`, because a `#case/` hashtag over `case_id`, `owner_id` or `status` is saved as a child element the case database does not have, and one over a property HQ's schema does not list is an unknown question on every save. With the raw casedb path in the real attribute, the form builder's reverse map turns a listed property into its own `#case/<property>` on load and saves the same real attribute, and leaves every other read raw. `vellum` mode also withholds the shadow when a `#form/` read carries a predicate or heads a longer path: the form builder cannot parse that, writes the shadow verbatim into the real attribute, and HQ's next build fails. Outside a validation condition the serializer prints a predicate's own node as `./.` in `xform` and `vellum` modes, because the form builder reads a bare `.` in any other condition as the question referring to itself. There is NO way to teach the editor more: it reads hashtag metadata only from head elements, only as a pre-datasources fallback, and `Vellum/src/form.js::_updateHashtags` resets namespaces to `#form` + data sources once they load. A comparison of two dates and times carries its lowering in the shadow too. The form builder prefers the shadow on load (`parser.js::parseVellumAttrs`), so a shadow holding the bare comparison would put it back at the next save. A person who opens such a form in HQ's form builder therefore sees the longer lowered formula in the question's logic field; it keeps its meaning.
 
 Two attribute names are not what you'd guess, both verified against `Vellum/src/parser.js` (only POPPED attributes round-trip; an unread `vellum:*` attribute lands in `rawBindAttributes` and accretes an extra prefix on every editor save — HQ's own wash template app carries `vellum:vellum__required` chains from this): a conditional required's shadow is `vellum:requiredCondition` (never `vellum:required`; the bare `requiredCondition` attribute Vellum itself writes is deliberately NOT emitted — JavaRosa ignores it with an "unrecognized attributes" warning and rebuilds the condition from `required`), and the native editor spelling for a repeat count is `vellum:jr__count` (`:` → `__`). Count-bound repeats emit a shadow naming the same question or calculated helper as `jr:count`. For expression counts the authored formula belongs on the helper calculate, never on the repeat shadow. Query-repeat shadow behavior is unchanged.
 
@@ -907,6 +907,61 @@ ordinary rules: `validateCaseOperations` runs on every form carrying them, and
 its `CASE_OPERATION_*` findings gate a commit exactly like any other soundness
 code. The builder, SA, and MCP share the semantic planners, complete lookup
 table/table-row/column/form-field term vocabulary, and one commit gate.
+
+### Dates and times compare as moments on a device
+
+A comparison of two dates and times (`<`, `<=`, `>`, `>=`, `between`, and `=`,
+`!=`, `in` or `switch` between two date-and-time operands) is lowered inline,
+per operand, to zone-free integer microseconds
+(`xpath/wire/instant.ts::instantMicros`) wherever a device evaluates it: XForm
+binds, setvalues, outputs, itemset filters and repeat counts; suite datum
+filters, details, display conditions and search prompts; form-link conditions
+and datums; case operation conditions; and the runtime segments of
+`_xpath_query`. `toWire` lowers in every target, with no target switch, because
+every target it prints is evaluated by Core. Which comparisons lower, and each
+operand's class, come from `lib/domain/expression/instantOperand.ts`, the
+classification the checker refuses by. Each operand's instant text follows what
+Core holds, branch by branch inside `if`, `coalesce` and `switch`:
+date-and-time text as itself; a typed instant as
+`format-date(coalesce(x, ''), '%Y-%m-%dT%H:%M:%S.%3%Z')`, so Core's
+`format-date` does not round it; a coerced date as its UTC midnight
+(`concat(…, 'T00:00:00Z')`, under a blank guard inside `coalesce` so a blank
+still falls through); coerced text as itself, or its UTC midnight when it is a
+date; a coerced day number as `x * 86400000000` with no parse; and a literal
+folded to its integer at emission (a literal inside a branch prints as
+canonical `…Z` text, since one parse reads whichever branch is chosen).
+`now()` is not hoisted, because a generated node would read the clock at
+another moment. A value of unknown type compared with a moment takes the row
+of what it holds, text or a typed date, under an equality as under an
+ordering; two values of unknown type are compared as written. An equality
+whose other side is neither a date and time nor of unknown type, such as the
+blank test `x = ''`, stays bare; two blanks are no longer equal, because a
+blank names no moment. Each side is built once and shared across the
+comparisons of an `in`, `between` or `switch`, and the parse shares its own
+sub-terms, so the memoised print stays linear.
+
+`datetime-coerce` of a moment never emits `date()` on a device, because Core's
+`date()` of a typed `Date` rounds it to the device's day; only a comparison by
+day prints it, as `date(x)`. As a
+value (a case write, a calculated column, a `format-date` operand) it prints
+the moment as text: a date as its UTC midnight `…T00:00:00.000Z` under a blank
+guard, text as itself, a typed instant as `instant.ts::typedInstantValue`
+(the same spelling `xform/datetimeCaseValue.ts::datetimeCaseValueExpression`
+writes), a day number as its UTC midnight. A value with no moment to print, a
+`casedb` system date or a clock-lost value, keeps Core's `date()`, a day.
+`date-coerce` is unchanged,
+`date(x)`. On a device `date_opened` and `last_modified` from `casedb` are
+days (`CaseChildElement` holds them as `DateData`): ordered against a
+day-aligned operand, or against each other, they compare by day with
+unchanged bytes (`date_opened >= date('2026-01-01')`), and the checker refuses
+them ordered against any other date and time, or under `=` / `!=` against any
+date and time, day-aligned included. A value whose clock may be lost has no
+instant text either and is refused the same way (`clock-lost`). The emitter
+throws an invariant on any leaf the checker refuses rather than print a
+comparison that answers wrongly. `InstantOrderingRuntimeTest` holds the
+lowering in every zone of the `expression` native family, and
+`lib/preview/xpath/__tests__/instantLowering.test.ts` holds Preview's
+evaluation of the same text per zone.
 
 ### Repeat-context subcase splice + nest decision
 

@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
 import {
+	datetimeCoerce,
 	type Expression,
 	eq,
 	gt,
 	literal,
+	now,
 	prop,
+	term,
 } from "@/lib/domain/expression";
 import { admittedCaseListDoc, findings } from "./caseListRuleFixture";
 
@@ -69,4 +73,44 @@ describe("case-list filter type admission", () => {
 		]);
 		expect(errors[0].message).toContain(message);
 	});
+});
+
+describe("a case-list filter that compares a system date with a moment", () => {
+	it.each([
+		{
+			predicate: eq(
+				prop("patient", "date_opened"),
+				datetimeCoerce(term(literal("2026-01-01"))),
+			),
+			comparison: "equality",
+			systemDate: "date_opened",
+			line: "checks whether a case was opened at an exact moment. On a device CommCare keeps only the day a case was opened, so the two never match. You can compare it with a date, or check a range of days.",
+		},
+		{
+			predicate: gt(prop("patient", "last_modified"), now()),
+			comparison: "ordering",
+			systemDate: "last_modified",
+			line: "compares when a case was last changed with a moment. On a device CommCare keeps only the day a case was last changed, so it can't tell. You can compare it with a date instead.",
+		},
+	])(
+		"names the $systemDate $comparison",
+		({ predicate, comparison, systemDate, line }) => {
+			const errors = findings(candidate(predicate));
+			expect(errors).toMatchObject([
+				{
+					code: "CASE_LIST_FILTER_TYPE_ERROR",
+					details: {
+						checkCode: "incompatible-values",
+						checkReason: "day-only-on-device",
+						comparison,
+						systemDate,
+					},
+				},
+			]);
+			expect(userFacingError(errors[0])).toMatch(
+				/^The Cases available setting in /,
+			);
+			expect(userFacingError(errors[0])).toContain(line);
+		},
+	);
 });

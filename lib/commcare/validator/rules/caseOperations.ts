@@ -71,6 +71,7 @@ import {
 } from "@/lib/domain/questionId";
 import { type ValidationError, validationError } from "../errors";
 import {
+	checkErrorDetails,
 	type LookupTypeIndex,
 	semanticCheckErrors,
 } from "../lookupTypeContext";
@@ -730,13 +731,19 @@ function validateExpressionSlot(
 				"CASE_OPERATION_EXPRESSION_TYPE",
 				`An expression in case operation "${operation.id}" is not valid here: ${typeErrors.map((error) => error.message).join("; ")}`,
 				// The midnight reason names the whole finding only when every error
-				// is the lost clock; another error keeps the ordinary message.
+				// is a write's lost clock; otherwise a refused comparison between
+				// moments (or else the first error) rides as `checkCode` and
+				// `checkReason`, so that comparison takes its own copy.
 				typeErrors.every(
 					(error) =>
 						error.code === "expected-value" && error.reason === "clock-lost",
 				)
 					? { reason: "clock-lost" }
-					: undefined,
+					: checkErrorDetails(
+							typeErrors.find((error) => error.instant !== undefined) ??
+								typeErrors[0],
+							typeContext,
+						),
 			),
 		);
 	else if (result.errors.length === 0)

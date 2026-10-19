@@ -2704,7 +2704,12 @@ submission expressions in the evaluator's process timezone and include that
 clock in observations. This is not a geographic timezone inferred from a place.
 The Postgres regression uses independent Intl calendar projections in zones
 25 hours apart and non-UTC connection settings, so it exposes the midnight
-disagreement at any test execution time.
+disagreement at any test execution time. A comparison of two dates and times
+compares the moments on every device: Nova lowers each operand to zone-free
+integer microseconds wherever a device evaluates it, Preview evaluates that
+same text, and Postgres compares instants. A person who opens such a form in
+HQ's form builder sees the longer lowered formula in the logic field; it keeps
+its meaning.
 
 ### Live counted repeats
 
@@ -2738,10 +2743,12 @@ conversion crosses midnight; Nova follows that existing custom-string parsing
 behavior. Full timestamp storage does not establish universal cross-timezone
 localization.
 
-The narrower metadata read does not establish generalized comparison parity:
-Core compares a raw DateData metadata value differently from an uncast custom
-timestamp string. Explicit native `date(custom_value)` changes that comparison.
-Nova's existing typed SQL comparisons retain their typed contract; mixed
+Because a device holds `date_opened` and `last_modified` as days, in every slot
+a device evaluates an ordering of either against a date and time that is not
+day-aligned is refused, and so is an equality with any date and time; an
+ordering against a day-aligned one (a date turned into a date and time, or the
+other system date) compares by day, and a comparison with a date is refused as
+any date against a date and time is. Nova's existing typed SQL comparisons retain their typed contract; mixed
 calendar/datetime operands are promoted in the worker timezone so the database
 connection timezone cannot introduce a new result difference.
 

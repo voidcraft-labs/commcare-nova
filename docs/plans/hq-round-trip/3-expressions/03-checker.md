@@ -797,6 +797,82 @@ against `now()` refused and under `=` against `datetime-coerce('2026-01-01')` re
 `datetime-coerce('2026-01-01')` under `>=` accepted, and a results-row `last_modified > now()`
 accepted.
 
+**Implementation correction, 2026-10-19: the instant refusals, as built.** The day rule cannot be
+read from `NodeType`: a casedb `date_opened` and a date-and-time question are both `datetime` held
+`date`. The checker and the on-device emitter therefore share one structural classifier,
+`lib/domain/expression/instantOperand.ts` (part 04 §3.2's correction), which recurses into `if`,
+`coalesce` and `switch` branches, so `if(c, #case/date_opened, now()) < now()` is caught; a
+day-only leaf is a `prop`, `form-case` or `project` read of `date_opened` or `last_modified` held
+`date`. `typeChecker.ts::checkInstantComparison` runs in `checkFormComparison` (through
+`comparisonOperands`, so a date-and-time-shaped form literal counts as one), `checkComparison`,
+`checkIn` (each member), `checkBetween` (each bound) and the record `switch` (each case against
+its subject). It refuses only where three things hold: `comparisonPlan` is `lowered` (so an
+ordering against a day-aligned operand, two system dates under any operator, and an equality with
+a side that is neither a moment nor of unknown type never reach it), the slot's targets include `XF` or `SU` (every slot's
+comparisons that reach `toWire`; `search_input_predicate`, targets `CS` and `PG`, is the only slot
+without them, and prints through CSQL), and the comparison holds no other error, so
+`#form/missing < now()` keeps its one finding. It gives one finding per comparison, the most
+specific leaf first:
+
+| Leaf | Reason |
+|---|---|
+| a casedb system date | `day-only-on-device`, with the ordering or the equality copy |
+| a value whose clock is lost | `clock-lost` (§5.1's correction) |
+| a date | `date-datetime` |
+| a literal no spelling reads (`literalInstantMicros`, the fold's grammar) | `unreadable-datetime` (new) |
+| a branch of another known kind (`if(c, #form/n, now()) < now()`), or of unknown type holding neither text nor a typed date | `datetime-ordering`, or `datetime-equality` (new) under `=` / `!=` |
+
+The other-kind row is stricter than the emitter, which would print such a branch as itself and read
+NaN; it matches the direct operand's `datetime-ordering`, and record slots already refuse it through
+`branch-values`. `CheckError` gains `instant?: { comparison: "ordering" | "equality", property?,
+field? }`. Copy: the validator messages are this section's, worded "This compares when the case was
+opened with a moment…" in the checker and with the slot's owner in `formLogicFindings.ts`, whose
+details carry `comparison` and `systemDate`; `unreadable-datetime`: `<owner> compares a moment with a
+date and time CommCare can't read<slot>. You can write it like 2026-01-02T10:30:00Z.`;
+`datetime-equality`: `<owner> compares a date and time with a value that isn't one<slot>, so the two
+never match. You can compare it with another date and time, or check whether it's blank.` The
+builder lines (`checkErrorPresentation.ts`, whose presenter now receives the error, so it names
+"opened" or "last changed"): `A device keeps only the day a case was opened. You can compare it with
+a date instead` and, for an equality, `A device keeps only the day a case was opened, so it never
+matches a moment. You can compare it with a date, or check a range of days`. Record slots'
+`*_TYPE_ERROR` copy was generic; `userFacingErrors.ts::instantComparisonCopy` gives the day-only and
+clock-lost sentences in twelve renderers (the display conditions, the calculated column, the filter,
+the Search inputs' required, check, hidden and row rules, the excluded owners, the Search button,
+`LOOKUP_SELECT_FILTER_TYPE_ERROR` and `CASE_SELECT_FILTER_INVALID`). A record finding carries the
+checker's reason as `details.checkReason` beside `checkCode` (`lookupTypeContext.ts::checkErrorDetails`),
+not as `details.reason`, so the copy reads `checkReason`, falls back to `reason`, and applies only when
+`checkCode` is `incompatible-values`. Corpus: no new finding over the base or the head emission (732
+documents validated, none refused); swapping `targeted-search-hq-compile`'s day-aligned operand for
+`now()` gives `CASE_LIST_FILTER_TYPE_ERROR` with `checkReason: day-only-on-device`.
+
+Closed in the same pull request (**implementation correction, 2026-10-19**):
+
+- `lookupTypeContext.ts::checkErrorDetails(error, ctx?)` carries `error.instant` as
+  `details.comparison`, `details.systemDate` and, resolved in the slot's form, `details.clockSource`,
+  so record copy takes the equality or the ordering sentence and names "opened" or "last changed"
+  (and the value whose clock is lost, in a form's choice filter).
+- `rules/caseOperations.ts::validateExpressionSlot` gives `CASE_OPERATION_EXPRESSION_TYPE` the
+  checker's `checkCode` and `checkReason` (a refused comparison of moments first) whenever the
+  finding is not a write's lost clock, whose `reason: "clock-lost"` keeps its own sentence;
+  `userFacingErrors.ts` gives the case operation the day-only and clock-lost sentences
+  ("This case operation compares when a case was opened with a moment…").
+- An unknown operand against a moment under `=` / `!=` (each `in` member, each `switch` case) takes
+  the row of its held representation and the equality is lowered, as an ordering already is (part
+  04 §3.2's cycle rule), so `#form/probe = now()` over an untyped Hidden Value compares moments; two
+  unknown operands, and an unknown against a value that names no moment, stay bare. Lowered, such
+  an equality meets the refusals an ordering does: `#case/date_opened = #form/probe` is
+  `day-only-on-device`, and an unknown holding neither text nor a typed date is
+  `datetime-equality`.
+- `checkBetween`'s `range-order` orders two date-and-time literal bounds by their folded instants
+  (`literalInstantMicros`), and leaves the order alone when either names no moment.
+- `lib/commcare/xpath/wire/__tests__/instantAgreement.test.ts` holds the checker and `toWire` to
+  one verdict over every leaf class, operator and slot kind (part 04 §6's correction).
+
+Left open: the classifier reads the held class, not the row's root, and the standard-property
+fallback in `typeChecker.ts` (no known case type) holds a system date as `date` whatever the root,
+so a results-row `last_modified` would be read as day-only; pull request 9 fixes the fallback by
+root with the results-row half of the rule.
+
 ### 3.3 A boolean against an answer
 
 **Evidence.** `XPathEqExpr.evalRaw` unpacks both sides and calls `testEquality`, which compares as
@@ -1614,6 +1690,21 @@ representation. Inference types over its own concrete catalog and an empty looku
 are no document fact), so `#case/p + 1` writing an untyped `p` stays unknown. The type passes keep
 the `|H| + |O| + 2` bound; held classes and `C` then settle over the settled types in a fixpoint of
 their own (`Inference.finish`, at most `|H| + 1` passes), so neither moves a data type.
+
+**Implementation correction, 2026-10-19: the clock-lost comparison, as built.** A leaf is
+`clock-lost` when its `NodeType` carries `clockLost` and its data is `datetime`, `_any` or unknown,
+or when it is any `clockLost` operand of a `datetime-coerce`. Refused by §3.2's correction's rule
+(after a system date, before a date) wherever the comparison lowers, so `date()` on both sides stays
+admitted (two dates, bare). Copy, in Nova's voice: the checker's `This compares a value that has
+kept only the day of a date and time with a moment, so CommCare can't line the two up. You can
+compare the date and time from the question or value that first recorded it, or wrap both sides in
+date() to compare days.`; the validator's names the Hidden Value (`details.clockSource`, its id):
+`<owner> compares "<id>", which has kept only the day of a date and time, with a moment<slot>, so
+CommCare can't line the two up. …`; the builder line `This value has kept only the day of a date and
+time. You can compare the date and time that first recorded it, or wrap both sides in date() to
+compare days`; and record slots `<subject> compares a value that has kept only the day of a date
+and time with a moment, so the two can't line up. …` (`instantComparisonCopy`). Tests: a copy of
+`now()` under `xsd:string` refused against `now()`, admitted with `date()` on both sides.
 
 ### 5.2 What it replaces
 

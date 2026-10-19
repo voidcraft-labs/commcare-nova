@@ -314,6 +314,37 @@ const formulaSubject = (e: ValidationError): string =>
 			: `A formula in ${q(formName(e))}`
 		: `A formula on ${q(fieldName(e))} in ${q(formName(e))}`;
 
+/** When a casedb system date names its case: `opened` or `last changed`. */
+const systemDateWhen = (e: ValidationError): string =>
+	e.details?.systemDate === "last_modified"
+		? "last changed"
+		: e.details?.systemDate === "date_opened"
+			? "opened"
+			: "opened or last changed";
+
+/** A record slot's sentence for a comparison a device can't run between two
+ * moments (`typeChecker.ts::checkInstantComparison`), or undefined for any
+ * other finding. The checker's code and reason reach a record finding as
+ * `checkCode` and `checkReason`. */
+const instantComparisonCopy = (
+	e: ValidationError,
+	subject: string,
+): string | undefined => {
+	if (e.details?.checkCode !== "incompatible-values") return undefined;
+	switch (e.details.checkReason ?? e.details.reason) {
+		case "day-only-on-device": {
+			const when = systemDateWhen(e);
+			return e.details?.comparison === "equality"
+				? `${subject} checks whether a case was ${when} at an exact moment. On a device CommCare keeps only the day a case was ${when}, so the two never match. You can compare it with a date, or check a range of days.`
+				: `${subject} compares when a case was ${when} with a moment. On a device CommCare keeps only the day a case was ${when}, so it can't tell. You can compare it with a date instead.`;
+		}
+		case "clock-lost":
+			return `${subject} compares ${e.details?.clockSource === undefined ? "a value" : q(e.details.clockSource)}, which has kept only the day of a date and time, with a moment, so the two can't line up. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.`;
+		default:
+			return undefined;
+	}
+};
+
 /** Several kinds as one phrase, from a comma-joined list of types. */
 const valuesPhrase = (types: string | undefined, first: string | undefined) =>
 	valueKindsPhrase(types === undefined ? [first] : types.split(","));
@@ -540,10 +571,12 @@ const USER_MESSAGE_BY_CODE: Record<
 	MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`${q(modName(e))} is shown before a case is chosen, so its display condition can't use case information. Use current-user information or a fixed value.`,
 	MODULE_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
+		instantComparisonCopy(e, `The display condition for ${q(modName(e))}`) ??
 		`The display condition for ${q(modName(e))} compares values that don't go together. Open it and adjust the comparison.`,
 	FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`The display condition for ${q(formName(e))} uses case information that isn't available there. Use information from the selected case only when this module chooses a case first, or use current-user information.`,
 	FORM_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
+		instantComparisonCopy(e, `The display condition for ${q(formName(e))}`) ??
 		`The display condition for ${q(formName(e))} compares values that don't go together. Open it and adjust the comparison.`,
 	DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE: () =>
 		"A display condition reads a search answer before anyone has searched. Remove that reference and use current-user information or a fixed value.",
@@ -582,8 +615,13 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_COLUMN_OVER_ATTACHMENT_SLOT: (e) =>
 		`An item in ${q(modName(e))} shows ${q(det(e, "field", "case information"))}, but that case property holds an attached file rather than a value, so the item would stay empty on every case. Show something else, or change the question that saves it so it saves a link to the file instead.`,
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: (e) =>
+		instantComparisonCopy(e, `A calculated value in ${q(modName(e))}`) ??
 		`A calculated value in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and fix the calculation.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
+		instantComparisonCopy(
+			e,
+			`The Cases available setting in ${q(modName(e))}`,
+		) ??
 		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
 		`Two items in ${q(modName(e))}'s Default order use the same position. Move one of them or remove it from the order.`,
@@ -637,20 +675,36 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE: (e) =>
 		`The starting value for search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it always comes back empty. Use a fixed value, today's date, or current-user information, or clear it.`,
 	CASE_LIST_SEARCH_INPUT_REQUIRED_CONDITION_TYPE_ERROR: (e) =>
+		instantComparisonCopy(
+			e,
+			`The required condition for search field ${q(det(e, "inputName", "in this module"))}`,
+		) ??
 		`The required condition for search field ${q(det(e, "inputName", "in this module"))} compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_REQUIRED_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`The required condition for search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it can never hold. Compare other search answers, fixed values, or current-user information instead.`,
 	CASE_LIST_SEARCH_INPUT_VALIDATION_RULE_TYPE_ERROR: (e) =>
+		instantComparisonCopy(
+			e,
+			`The check on search field ${q(det(e, "inputName", "in this module"))}`,
+		) ??
 		`The check on search field ${q(det(e, "inputName", "in this module"))} compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_VALIDATION_RULE_CASE_DATA_UNAVAILABLE: (e) =>
 		`The check on search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it can never pass. Compare other search answers, fixed values, or current-user information instead.`,
 	CASE_LIST_SEARCH_INPUT_HIDDEN_VALUE_TYPE_ERROR: (e) =>
+		instantComparisonCopy(
+			e,
+			`The hidden search value ${q(det(e, "inputName", "in this module"))}`,
+		) ??
 		`The hidden search value ${q(det(e, "inputName", "in this module"))} is built from values that don't go together. Open it and adjust the calculation.`,
 	CASE_LIST_SEARCH_INPUT_HIDDEN_VALUE_CASE_DATA_UNAVAILABLE: (e) =>
 		`The hidden search value ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it always comes back empty. Use the current time, today's date, a fixed value, or current-user information.`,
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_SCOPE: (e) =>
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} reads something the Search screen can't see yet. Use columns from the data table, fixed values, or current-user information.`,
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_TYPE_ERROR: (e) =>
+		instantComparisonCopy(
+			e,
+			`The row rule for search field ${q(det(e, "inputName", "in this module"))}`,
+		) ??
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_NOT_ON_DEVICE: (e) =>
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} uses a date calculation the device can't run. Use a whole date with seconds, minutes, hours, days, or weeks.`,
@@ -805,8 +859,16 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: (e) =>
 		`The assigned cases setting on ${q(modName(e))} tries to read a case before one has been selected. Replace it with Show in Results or Hide from Results.`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: (e) =>
+		instantComparisonCopy(
+			e,
+			`The assigned cases setting on ${q(modName(e))}`,
+		) ??
 		`The assigned cases setting on ${q(modName(e))} isn't coming out as text. Check the formula, or clear it.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
+		instantComparisonCopy(
+			e,
+			`The condition that controls whether ${q(modName(e))}'s Search button appears`,
+		) ??
 		`The condition that controls whether ${q(modName(e))}'s Search button appears has an error. Fix it or clear the condition to always show the button.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`The condition that controls whether ${q(modName(e))}'s Search button appears tries to read a case before one has been selected. Use fixed values or current-user information, or clear the condition to always show the button.`,
@@ -990,7 +1052,10 @@ const USER_MESSAGE_BY_CODE: Record<
 		if (e.details?.reason === "calendar-interval") {
 			return "A date calculation in this case operation uses months or years, which aren't available here. Use seconds, minutes, hours, days, or weeks.";
 		}
-		return "A value or condition in this case operation doesn't fit where it's used. Review the highlighted operation.";
+		return (
+			instantComparisonCopy(e, "This case operation") ??
+			"A value or condition in this case operation doesn't fit where it's used. Review the highlighted operation."
+		);
 	},
 	CASE_OPERATION_TARGET_INVALID: () =>
 		"A case operation can't resolve the case it should work on. Choose a valid target.",
@@ -1082,10 +1147,15 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_SELECT_SOURCE_INVALID: (e) =>
 		`${q(fieldName(e))} needs a record type and label property that are available in this app. You can choose them in the choice source settings.`,
 	CASE_SELECT_FILTER_INVALID: (e) =>
+		instantComparisonCopy(e, `The choice filter of ${q(fieldName(e))}`) ??
 		`${q(fieldName(e))} uses information that isn't available in its choice filter. You can use candidate records, the selected record, worker information, and earlier answers in the same form and repeat.`,
 	CASE_SELECT_FILTER_NOT_ON_DEVICE: (e) =>
 		`${q(fieldName(e))} uses a choice filter that can't run on a device. You can choose another comparison or calculation.`,
 	LOOKUP_SELECT_FILTER_TYPE_ERROR: (e) =>
+		instantComparisonCopy(
+			e,
+			`The lookup-choice filter of ${q(fieldName(e))} in ${q(formName(e))}`,
+		) ??
 		`${q(fieldName(e))} in ${q(formName(e))} has a lookup-choice filter whose values don't fit the comparison. Adjust the referenced columns, values, or operator.`,
 	LOOKUP_SELECT_FILTER_NOT_ON_DEVICE: (e) =>
 		e.details?.reason === "datetime-base"
@@ -1136,6 +1206,18 @@ const USER_MESSAGE_BY_CODE: Record<
 				return `${formulaSubject(e)} orders a date and time against something that isn't one. You can compare it with another date and time, or wrap it in date() to compare days.`;
 			case "boolean":
 				return `${formulaSubject(e)} compares a true-or-false result with another kind of value, and anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.`;
+			case "day-only-on-device": {
+				const when = systemDateWhen(e);
+				return e.details?.comparison === "equality"
+					? `${formulaSubject(e)} checks whether the case was ${when} at an exact moment, and a device keeps only the day. You can compare it with a date, or check a range of days.`
+					: `${formulaSubject(e)} compares when the case was ${when} with a moment, and a device keeps only the day. You can compare it with a date instead.`;
+			}
+			case "clock-lost":
+				return `${formulaSubject(e)} compares ${e.details?.clockSource === undefined ? "a value" : q(e.details.clockSource)}, which has kept only the day of a date and time, with a moment. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.`;
+			case "unreadable-datetime":
+				return `${formulaSubject(e)} compares a moment with a date and time CommCare can't read. You can write it like 2026-01-02T10:30:00Z.`;
+			case "datetime-equality":
+				return `${formulaSubject(e)} compares a date and time with something that isn't one, so the two never match. You can compare it with another date and time, or check whether it's blank.`;
 			default:
 				return `${formulaSubject(e)} compares two kinds of information that don't line up. You can compare it with a value of the same kind instead.`;
 		}

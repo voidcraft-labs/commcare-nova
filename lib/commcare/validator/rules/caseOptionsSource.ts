@@ -80,7 +80,7 @@ export function validateCaseOptionsSources(
 				finding(
 					"CASE_SELECT_FILTER_INVALID",
 					`Choices for "${field.id}": ${error.message}`,
-					checkErrorDetails(error),
+					checkErrorDetails(error, context),
 				);
 			if (findOnDeviceDateAddIssueInPredicate(source.filter, context))
 				finding(

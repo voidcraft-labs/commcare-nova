@@ -24,7 +24,9 @@ import {
 	ifExpr,
 	input,
 	literal,
+	lt,
 	match,
+	neq,
 	now,
 	prop,
 	relationStep,
@@ -46,8 +48,10 @@ import {
 	searchInputInstance,
 	sessionInstance,
 } from "../instances";
+import { instantMicros } from "../instant";
 import { casePropertyStep } from "../rowScope";
 import { serializeWire } from "../serialize";
+import { instantFixture } from "./instantFixture";
 
 const MODULE = testUuid("wire-module");
 function wireContext(
@@ -427,5 +431,93 @@ describe("wire lowering preserves the prior defensive refusals", () => {
 		};
 		expect(expressionSchema.safeParse(bypassed).success).toBe(false);
 		expect(() => lower(bypassed)).toThrow(/range without a bound/);
+	});
+});
+
+describe("a comparison no device can answer between moments never reaches the wire", () => {
+	const fx = instantFixture({
+		dt: "typed",
+		stamp: "clock-lost",
+		d: "date",
+		u: "unknown",
+		u2: "unknown",
+	});
+	const opened = term(prop("visit", "date_opened"));
+	it("refuses a casedb system date against a moment", () => {
+		expect(() => fx.lowerRecord(gt(opened, now()))).toThrow(
+			/only the day of 'date_opened'.*day-only-on-device/s,
+		);
+		expect(() =>
+			fx.lowerRecord(eq(opened, datetimeCoerce(term(literal("2026-01-01"))))),
+		).toThrow(/day-only-on-device/);
+		expect(() =>
+			fx.lowerForm(
+				gt(
+					term({
+						kind: "form-case",
+						caseType: "visit",
+						property: "last_modified",
+					}),
+					fx.field("dt"),
+				),
+			),
+		).toThrow(/only the day of 'last_modified'/);
+	});
+	it("refuses a date and time whose clock may be lost", () => {
+		expect(() => fx.lowerForm(gt(fx.field("stamp"), now()))).toThrow(
+			/clock may be lost.*clock-lost/s,
+		);
+	});
+	it("refuses a date-and-time literal that names no moment", () => {
+		expect(() =>
+			fx.lowerRecord(
+				lt(
+					term(prop("visit", "seen")),
+					datetimeLiteral("2026-13-45T10:00:00Z"),
+				),
+			),
+		).toThrow(/'2026-13-45T10:00:00Z' names no moment/);
+	});
+	it("refuses a date branch compared as a moment", () => {
+		expect(() =>
+			fx.lowerForm(
+				gt(ifExpr(eq(literal(1), literal(1)), today(), now()), fx.field("dt")),
+			),
+		).toThrow(/date-datetime/);
+		expect(() =>
+			fx.lowerForm(lt(fx.field("dt"), literal("2026-01-02"))),
+		).toThrow(/date-datetime/);
+	});
+	it("keeps every comparison without a moment as written", () => {
+		const name = term(prop("visit", "note"));
+		expect(fx.lowerRecord(eq(name, literal("x")))).toEqual(
+			w.eq(fx.lowerRecord(name), w.str("x")),
+		);
+		expect(fx.lowerForm(gt(fx.field("d"), today()))).toEqual(
+			w.gt(fx.lowerForm(fx.field("d")), w.call("today")),
+		);
+		expect(
+			fx.lowerForm(
+				eq(dateCoerce(fx.field("dt")), dateCoerce(fx.field("stamp"))),
+			),
+		).toEqual(
+			w.eq(
+				w.call("date", [fx.lowerForm(fx.field("dt"))]),
+				w.call("date", [fx.lowerForm(fx.field("stamp"))]),
+			),
+		);
+		expect(fx.lowerForm(neq(fx.field("stamp"), literal("")))).toEqual(
+			w.ne(fx.lowerForm(fx.field("stamp")), w.str("")),
+		);
+		expect(fx.lowerForm(eq(fx.field("u"), fx.field("u2")))).toEqual(
+			w.eq(fx.lowerForm(fx.field("u")), fx.lowerForm(fx.field("u2"))),
+		);
+	});
+	it("compares a value of unknown type with a moment as a moment, under = as under <", () => {
+		for (const comparison of [eq, neq, lt] as const) {
+			const wire = fx.lowerForm(comparison(fx.field("u"), now()));
+			if (wire.k !== "cmp") throw new Error("Expected a comparison.");
+			expect(wire.left).toEqual(instantMicros(fx.lowerForm(fx.field("u"))));
+		}
 	});
 });

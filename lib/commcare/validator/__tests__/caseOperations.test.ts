@@ -6,6 +6,7 @@ import {
 	LOOKUP_CONTEXT_UNAVAILABLE,
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
@@ -31,7 +32,9 @@ import {
 	ifExpr,
 	isBlank,
 	literal,
+	lt,
 	match,
+	now,
 	ownerLocationAtLevel,
 	prop,
 	subcasePath,
@@ -1803,6 +1806,28 @@ describe("case-operation links and on-device totality", () => {
 		expect(conditionFinding?.message).toContain("would discard the time");
 		expect(conditionFinding?.details).toEqual(
 			expect.objectContaining({ reason: "datetime-base", interval: "hours" }),
+		);
+	});
+
+	it("names a condition that compares when a case was opened with a moment", () => {
+		const finding = errorsFor([
+			update({
+				condition: lt(term(prop("patient", "date_opened")), now()),
+			}),
+		]).find((error) => error.code === "CASE_OPERATION_EXPRESSION_TYPE");
+		expect(finding?.details).toEqual(
+			expect.objectContaining({
+				checkCode: "incompatible-values",
+				checkReason: "day-only-on-device",
+				comparison: "ordering",
+				systemDate: "date_opened",
+			}),
+		);
+		// The write's own `reason: "clock-lost"` names a saved value, never this.
+		expect(finding?.details?.reason).toBeUndefined();
+		if (finding === undefined) throw new Error("Expected the finding.");
+		expect(userFacingError(finding)).toBe(
+			"This case operation compares when a case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can't tell. You can compare it with a date instead.",
 		);
 	});
 

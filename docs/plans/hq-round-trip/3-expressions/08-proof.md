@@ -311,6 +311,36 @@ Rows, each run in all seven setups:
 | `now()` | a typed answer and a text operand against `now()` under the run's clock, bounded by the instants before and after |
 | Malformed-input corpus | the probe's 28 texts against a typed answer and each other; this is an input corpus, not a strict grammar classification. Every lowered evaluation must finish without throwing. The bare control preserves Core's date-only exception: `2026-01-02` orders as a calendar day (`commcare-core` at `8e9ba8d908e9`, `org/javarosa/xpath/expr/FunctionUtils.java::toNumeric`, its character check followed by `attemptDateConversion`; `DateUtils.java::parseDateTime` accepts a date without `T`). Its other datetime spellings are NaN in bare numeric comparisons. The lowering's eight numeric results, a valid nine-digit fraction and seven permissive malformed shapes, retain part 04 §3.1's specified results rather than an incorrect all-false assertion. No numeric result claims the text is a valid authored datetime. |
 
+**Implementation correction, 2026-10-19: the lowered half, as built.** "For every pair, the
+comparison" would be about 25,400 texts of 2 to 9 KB, over 100 MB of JSON, and the lowered text
+depends only on how each side is held and on the operator, since the values live in the instance.
+So `orderings.json` is `schemaVersion: 2`: a deduplicated `lowered` map keyed
+`<left class>|<op>|<right class>`, 60 texts, each pair carrying its `key` (25,362 pairs, about
+10 MB). The classes are `datetime`, `now`, `text` (the table's text, Core-written text and malformed
+operands, all `StringData` on Core and lowered alike), `date`, `date-text`, `coerced-date` and
+`coerced-date-text`. Each text is `serializeWire(toWire(…, { target: "xform", types, form:
+formNodeProjection(…) }), { target: "xform", constraint: false })` over a follow-up form built with
+`buildDoc`, whose fields are `left` and `right` so the print reads `/data/left` and `/data/right`: a
+date-and-time question, a Hidden Value copying the date-and-time property `#visit/seen` (text), a
+date question, or a Hidden Value copying the date property `#visit/day`. Plain rows are typed in
+the probe's `relevant` slot; coerced rows, which form logic cannot spell, in a
+`case_operation_condition` (a record rule set whose targets include `XF` and which reads form
+answers). `InstantOrderingRuntimeTest`'s version check is 2, its bare test unchanged, and the new
+`@Test` `loweredComparisonsOrderEveryPairAsItsTwoMoments`: checks each pair's key against the class
+it derives itself from the row; requires, for a date against a date, the stored bare text and Core's
+bare answer; requires, for every other pair, a text other than the bare one, no throw, and the order
+of the two `java.time` microsecond instants (a coerced date at its UTC midnight; the wall-clock pairs
+are ordinary typed pairs here, ordered as instants); holds the eight numeric malformed decodes as
+named constants, each naming an input the table holds (part 04 §3.1's correction lists them, Preview's
+decodes recomputed by hand against Core, so a different Core decode fails by name rather than
+passing); and requires every lowered text to be read. The class was checked against Core's APIs by
+reading them at the pin; CI compiles and runs it first. Locally, every one of the 25,302 lowered
+pairs that needs no clock was evaluated by Preview over the produced texts with the Java test's
+expectations: none disagreed, in UTC and in `America/New_York`; and of the 28 malformed texts,
+exactly the eight read as a number in Preview. The producer prints the comparisons without running
+the checker over them: a leaf the emitter cannot print throws there, but a shape the checker alone
+refuses (a branch of another kind) would be printed unnoticed; none of the seven classes is one.
+
 ### 2.3 Finding 56's seven requirements, each to its test
 
 | # | Requirement (outline) | Test | Boundary |
@@ -914,6 +944,19 @@ types while also proving that the underlying reads remain datetime-typed.
 - **Cost.** Fuzz documents are the lane's heaviest: the 24 take 15.6 box-seconds at the median
   without the readers and 1,062 with them. Eight more add about 125 box-seconds to the 4,403 of a
   whole lane without the readers (under 3%) and about 8,500 to the 496,353 with them (under 2%).
+
+**Implementation correction, 2026-10-19: the staging is removed.** `expressionDocArbitrary.ts`
+loses the two-operand `date-coerce` map, its `datetime` parameter and the `dateCoerce` import (the
+date field's `date-coerce(literal)` stays); draws, source types, identities and the calculated-column
+destinations are unchanged. `expressionSample.test.ts`'s staged-day test becomes: source types stay
+`["datetime", "datetime"]` and no operand is a `date-coerce`; each slot is lowered as its device
+target emits it (form slots through `formExpressionEmission` with `formCasePropertyRead`, columns
+through `toWire` with target `suite`); the lowered comparisons, recognised by
+`instant.ts::instantMicrosOperand` or a folded number, equal the domain's datetime comparison count,
+and none holds a `date` call; the column destination, `dateRecordFilters > 0` and the operator set
+are kept. Because `proof/corpus/fuzzSample.ts` draws this generator live, the eight
+`fuzz-expression-20260930-*` documents' bytes change with the removal, so pull request 8's reader
+dispatch names them too (part 04 §6's correction).
 
 ### 4.4 `casedata.py` reads the union and the effective catalog
 

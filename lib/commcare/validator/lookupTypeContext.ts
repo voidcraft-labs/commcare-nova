@@ -10,7 +10,10 @@
  */
 
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
-import type { LookupTypeIndex } from "@/lib/domain/expression/context";
+import type {
+	ExpressionContext,
+	LookupTypeIndex,
+} from "@/lib/domain/expression/context";
 import type {
 	CheckError,
 	CheckOutcome,
@@ -58,11 +61,31 @@ export function semanticCheckErrors(
 	);
 }
 
-/** Typed semantic identity survives the user-facing projection. */
-export function checkErrorDetails(error: CheckError): Record<string, string> {
+/** Typed semantic identity survives the user-facing projection. A refused
+ * comparison between moments also carries whether it is an ordering or an
+ * equality, the casedb system date it reads, and the id of the value whose
+ * clock is lost, resolved in `ctx`'s form, so the record copy names each. */
+export function checkErrorDetails(
+	error: CheckError,
+	ctx?: ExpressionContext,
+): Record<string, string> {
+	const instant = error.instant;
+	const clockSource =
+		instant?.field === undefined
+			? undefined
+			: ctx?.form?.fields.get(instant.field)?.id;
 	return {
 		checkCode: error.code,
 		path: error.path.join("."),
 		...(error.reason === undefined ? {} : { checkReason: error.reason }),
+		...(instant === undefined
+			? {}
+			: {
+					comparison: instant.comparison,
+					...(instant.property === undefined
+						? {}
+						: { systemDate: instant.property }),
+					...(clockSource === undefined ? {} : { clockSource }),
+				}),
 	};
 }

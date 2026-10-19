@@ -563,6 +563,82 @@ session map's):
 - `lib/domain/CLAUDE.md` (`date_opened` and `last_modified` on a device), `lib/commcare/CLAUDE.md`, `lib/commcare/xpath/CLAUDE.md` (the lowering)
 - `content/docs/building-with-nova.mdx` (comparing dates and times), `content/docs/case-workspace.mdx` ("Built-in record information"), `content/docs/display-conditions.mdx`
 
+**Implementation correction, 2026-10-19** (each part records its own in its section: part 04
+§3.1, §3.2, §3.3, §3.7, §3.8, §3.9 and §6; part 03 §3.2 and §5.1; part 08 §2.2 and §4.3):
+
+- **Decisions.** (1) One pure classifier shared by the checker and the emitter,
+  `lib/domain/expression/instantOperand.ts`: `instantOperand` recurses `if`, `coalesce` and `switch`
+  branches and classifies each leaf; `comparisonPlan` lowers an ordering when either side names a
+  moment and an equality (`=`, `!=`, each `in` member, each `switch` case) when one does and the
+  other names a moment or is of unknown type, and keeps a
+  casedb system date against a day-aligned operand, or two system dates, by day. (2) The parse reads
+  every spelling a lookup cell admits: `'Zz+-'` to `'||||'`, the offset's minutes as its last two
+  characters, any fraction rounded to the microsecond. (3) A coerced date inside a `coalesce` takes a
+  blank guard, so a blank still falls through. (4) A form string literal shaped as a date and time
+  ordered against one folds, as a record literal does. (5) Preview's one-argument `round` is Core's
+  `Math.floor(x + 0.5)`. (6) The producer writes a deduplicated map of lowered texts keyed
+  `<left class>|<op>|<right class>`, each pair carrying its key, `orderings.json` `schemaVersion: 2`.
+  (7) Record slots' `*_TYPE_ERROR` copy takes the day-only and clock-lost sentences, keyed on
+  `details.checkReason` (where `checkErrorDetails` puts the checker's reason, not
+  `details.reason`), and the clock-lost comparison has copy of its own.
+- **Beyond them, as built.** Coerced text reads as itself, or its UTC midnight when it is a date; a
+  branch naming no moment prints as itself; a literal or a day number inside a branch prints as
+  canonical text; an unknown side takes its held row in an ordering and, by the correction below, in
+  an equality; as a
+  value, `datetime-coerce` of a system date or a clock-lost value keeps `date(x)`; the fold computes
+  with the device's own double operations, so it needs no safe-integer limit. The checker refuses
+  only where the comparison lowers, the slot targets `XF` or `SU`, and the comparison holds no other
+  error; it adds the reasons `unreadable-datetime` and `datetime-equality`, refuses a branch of
+  another known kind, and carries `CheckError.instant`. The emitter throws an invariant on every
+  leaf the checker refuses. The typed-instant spelling moves to `instant.ts::typedInstantValue`,
+  which `xform/datetimeCaseValue.ts` calls.
+- **What pull request 8 changes, as built.** New: `lib/domain/expression/instantOperand.ts`,
+  `lib/commcare/xpath/wire/instant.ts`, `lib/commcare/xpath/wire/__tests__/instant.test.ts` and
+  `instantFixture.ts`, `lib/preview/xpath/__tests__/instantLowering.test.ts`. Changed:
+  `lib/commcare/xpath/wire/fromExpression.ts` (`compareSides`, the `day` plan, `datetime-coerce`),
+  `lib/commcare/xform/datetimeCaseValue.ts` (bytes unchanged), `lib/preview/xpath/functions.ts`
+  (`round`), `lib/domain/expression/typeChecker.ts`, `lib/commcare/validator/formLogicFindings.ts`,
+  `lib/doc/userFacingErrors.ts`, `components/builder/shared/checkErrorPresentation.ts`, and their
+  tests (`fromExpression.test.ts`, `typeChecker.test.ts`, `formLogicFindings.test.ts`,
+  `userFacingErrors.test.ts`, `checkErrorPresentation.test.ts`); the lane's
+  `InstantOrderingRuntimeTest.java`, `emit-expression-evidence.ts`, `expressionDocArbitrary.ts`,
+  `expressionSample.test.ts`, `registers.py` (its comment now names finding 75 only),
+  `known-defects.json` and `fixed-defects.json` (286 live, 730 fixed), and `datetimeOrdering.ts`.
+  Docs, beyond the list above: `lib/domain/expression/CLAUDE.md` (the classifier and the refusals),
+  `lib/commcare/xpath/wire/CLAUDE.md` (`compareSides`), `docs/architecture/complex-apps.md` (its two
+  rows, which describe this pull request's behavior), and `docs/plans/hq-round-trip/6-import.md`
+  (the import template's constants and shapes).
+- **Contract sentences, as written.** `lib/commcare/xpath/CLAUDE.md` has no layout list at this
+  head, so `instant.ts` joins its "Emission and capabilities" paragraph, and "The instant lowering"
+  states the widened spellings, the sub-hour `%Z` limit (`Z:MM`, NaN) and the malformed shapes that
+  read as a number. The `lib/commcare/CLAUDE.md` section also states the operand rows the
+  classifier adds, `datetime-coerce`'s value print, the clock-lost refusal and the invariant throws,
+  and that a value of unknown type against a moment takes its held row under an equality as under
+  an ordering, so its bare-equality sentence names "neither a date and time nor of unknown type".
+  In `building-with-nova.mdx` the paragraph follows "Some formulas look fine…", which already lists
+  the date refusals, and adds that two blank dates and times are not equal, that a Hidden Value
+  copying the time without saving it to a date-and-time property keeps only the day, and that a
+  hidden value whose kind Nova can't tell yet is read as the moment its text names.
+  `harness-findings.md` writes `#PR8` where this pull request's number goes, replaced when it is
+  opened.
+- **Reader dispatch.** Part 04 §6's command also names `fuzz-expression-20260930-0` to `-7`, whose
+  bytes change with the staging's removal (part 08 §4.3).
+- **Implementation correction, 2026-10-19: closed before the pull request opened** (part 03 §3.2's
+  correction, part 04 §3.2 and §6). An unknown operand against a moment takes the row of its held
+  representation under an equality too, so `#form/probe = now()` over an untyped Hidden Value is
+  lowered rather than comparing text with Core's day string; two unknown operands stay bare.
+  `checkErrorDetails(error, ctx?)` carries `error.instant` as `comparison`, `systemDate` and
+  `clockSource`; `CASE_OPERATION_EXPRESSION_TYPE` passes `checkCode` and `checkReason` beside the
+  write's own `reason: "clock-lost"`, with its arm in `userFacingErrors.ts`; `range-order` orders
+  datetime literal bounds by their folded instants; `instantAgreement.test.ts` (new) holds the
+  checker admitting exactly what `toWire` prints; and `emit-expression-evidence.ts` refuses to write
+  a lowered text the checker refuses in its slot. Files beyond the list above:
+  `lib/commcare/validator/lookupTypeContext.ts`, `rules/caseOperations.ts`,
+  `rules/caseOptionsSource.ts` and `rules/lookupOptionsSource.ts`, with tests in
+  `caseOperations.test.ts` and `rules/case-list/__tests__/filterTypeCheck.test.ts`.
+- **Left open:** the standard-property fallback holds a system date as a day in a results row (pull
+  request 9).
+
 ### Pull request 9: Instances and session
 
 **Nova source**

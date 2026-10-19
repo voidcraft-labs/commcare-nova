@@ -6,20 +6,28 @@ import {
 	expressionDocArbitrary,
 	landedExpressionShapes,
 } from "@/lib/commcare/__tests__/expressionDocArbitrary";
+import { caseTypeDepthMap } from "@/lib/commcare/caseTypeDepths";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { formCasePropertyRead } from "@/lib/commcare/xform/formCaseRead";
+import { formExpressionEmission } from "@/lib/commcare/xform/formExpressions";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import { instantMicrosOperand } from "@/lib/commcare/xpath/wire/instant";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { blueprintDocSchema } from "@/lib/domain";
+import { type BlueprintDoc, blueprintDocSchema, type Uuid } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
 import {
 	expressionContextAtPath,
 	scalarDataType,
 	typeOf,
 } from "@/lib/domain/expression/typeChecker";
+import type { Expression, SlotContextRef } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
+import { formOfField } from "@/lib/domain/fieldForm";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import {
 	DEFAULT_CORPUS_SEED,
@@ -62,7 +70,62 @@ it("lands every typed expression shape in the admitted fixed-seed sample", () =>
 	).toEqual([]);
 });
 
-it("stages datetime comparisons as explicit days while preserving the typed reads", () => {
+/** Every wire node of a tree, depth first. */
+function wireNodes(wire: WireExpr): WireExpr[] {
+	const found: WireExpr[] = [];
+	const visit = (value: unknown): void => {
+		if (typeof value !== "object" || value === null) return;
+		if (Array.isArray(value)) {
+			for (const item of value) visit(item);
+			return;
+		}
+		if ("k" in value) found.push(value as WireExpr);
+		for (const child of Object.values(value)) visit(child);
+	};
+	visit(wire);
+	return found;
+}
+
+/** A comparison of two moments as the device receives it: each side the
+ * instant parse of an operand's text or a folded literal, at least one a
+ * parse. Read from the tree's structure, never its text. */
+function lowered(wire: WireExpr): boolean {
+	if (wire.k !== "cmp") return false;
+	const sides = [wire.left, wire.right];
+	const parsed = sides.filter(
+		(side) => instantMicrosOperand(side) !== undefined,
+	).length;
+	return (
+		parsed > 0 && parsed + sides.filter((side) => side.k === "num").length === 2
+	);
+}
+
+/** A form slot's expression as the XForm builder lowers it, the form's own
+ * case read included. */
+function formSlotWire(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+	expression: Expression,
+	slot: SlotContextRef,
+): WireExpr {
+	const formUuid = formOfField(doc, fieldUuid);
+	const moduleUuid =
+		formUuid === undefined
+			? undefined
+			: doc.moduleOrder.find((uuid) => doc.formOrder[uuid]?.includes(formUuid));
+	if (formUuid === undefined || moduleUuid === undefined)
+		throw new Error("A sampled form slot needs its form and module.");
+	const moduleCaseType = doc.modules[moduleUuid]?.caseType;
+	return formExpressionEmission(doc, formUuid, undefined, {
+		formCaseProperty: formCasePropertyRead({
+			formType: doc.forms[formUuid].type,
+			caseTypeDepths: caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []),
+			moduleCaseType,
+		}),
+	}).lower(expression, slot);
+}
+
+it("lowers the drawn datetime comparisons as instants over the typed reads", () => {
 	const surfaces = new Set<string>();
 	const operators = new Set<string>();
 	let dateRecordFilters = 0;
@@ -84,18 +147,14 @@ it("stages datetime comparisons as explicit days while preserving the typed read
 					throw new Error(
 						"A sampled expression needs its actual slot context.",
 					);
+				let datetimeComparisons = 0;
 				walkExpressionNodes(expression, (node, path) => {
 					if (node.kind !== "eq" && node.kind !== "lt" && node.kind !== "gt")
 						return;
 					const scoped = expressionContextAtPath(expression, context, path);
 					const operands = [node.left, node.right];
 					const sourceTypes = operands.map((operand) =>
-						scalarDataType(
-							typeOf(
-								operand.kind === "date-coerce" ? operand.value : operand,
-								scoped,
-							)?.data,
-						),
+						scalarDataType(typeOf(operand, scoped)?.data),
 					);
 					if (!sourceTypes.includes("datetime")) {
 						if (
@@ -107,23 +166,32 @@ it("stages datetime comparisons as explicit days while preserving the typed read
 						}
 						return;
 					}
-					// Removing either coercion must fail even while PR5 admits the
-					// underlying datetime comparison; changing the source type fails too.
+					// The drawn reads compare as dates and times, with no day
+					// coercion between them and the comparison.
 					expect(sourceTypes).toEqual(["datetime", "datetime"]);
-					expect(operands.map((operand) => operand.kind)).toEqual([
-						"date-coerce",
-						"date-coerce",
-					]);
-					expect(
-						operands.map((operand) =>
-							scalarDataType(typeOf(operand, scoped)?.data),
-						),
-					).toEqual(["date", "date"]);
+					for (const operand of operands)
+						expect(operand.kind).not.toBe("date-coerce");
 					if (ref.entity === "module")
 						expect(ref.slot).toBe("case_list_column_expression");
 					surfaces.add(ref.entity === "module" ? "record" : "form");
 					operators.add(node.kind);
+					datetimeComparisons++;
 				});
+				if (datetimeComparisons === 0) continue;
+				// The slot as its device target emits it: each datetime comparison
+				// is a lowered comparison, and none applies date() to its operands.
+				const wire =
+					ref.entity === "field"
+						? formSlotWire(doc, ref.uuid, expression, ref)
+						: toWire(expression, { target: "suite", types: context });
+				const comparisons = wireNodes(wire).filter(lowered);
+				expect(comparisons).toHaveLength(datetimeComparisons);
+				for (const comparison of comparisons)
+					expect(
+						wireNodes(comparison).some(
+							(node) => node.k === "call" && node.fn === "date",
+						),
+					).toBe(false);
 			}
 	}
 	expect([...surfaces].sort()).toEqual(["form", "record"]);

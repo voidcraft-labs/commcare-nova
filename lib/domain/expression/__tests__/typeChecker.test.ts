@@ -49,6 +49,7 @@ import {
 	fixedLocation,
 	formatDate,
 	gt,
+	gte,
 	ifExpr,
 	input,
 	isBlank,
@@ -62,6 +63,7 @@ import {
 	missing,
 	multiSelectAll,
 	multiSelectAny,
+	neq,
 	not,
 	now,
 	or,
@@ -3498,5 +3500,283 @@ describe("slot facts", () => {
 		expect(slotOutcome(multi, slot, term(literal("yes  no"))).errors).toEqual(
 			[],
 		);
+	});
+});
+
+// ── Comparisons a device runs between two moments ────────────────────
+//
+// The on-device emitter lowers a date-and-time comparison to integer
+// microseconds (`instantOperand.ts::comparisonPlan`). A casedb system date is
+// a day on a device and a lost clock has no moment, so a slot a device
+// evaluates refuses such a comparison here, where the emitter would have no
+// instant text to print.
+
+describe("comparisons a device runs between two moments", () => {
+	const FILTER: ExpressionSlotRef = {
+		entity: "module",
+		uuid: RULES.module,
+		slot: "case_list_filter",
+	};
+	const SEARCH_INPUT = testUuid("form-rules-advanced-input");
+	const PREDICATE: ExpressionSlotRef = {
+		entity: "module",
+		uuid: RULES.module,
+		slot: "search_input_predicate",
+		member: { searchInputUuid: SEARCH_INPUT },
+	};
+	/** The rules doc with an advanced Search field, whose predicate only
+	 * CommCare's server search and Nova's case store read. */
+	function searchDoc(): BlueprintDoc {
+		const doc = rulesDoc();
+		const module = doc.modules[RULES.module];
+		const config = module.caseListConfig;
+		if (config === undefined) throw new Error("The rules module has no list.");
+		return {
+			...doc,
+			modules: {
+				...doc.modules,
+				[RULES.module]: {
+					...module,
+					caseSearchConfig: {},
+					caseListConfig: {
+						...config,
+						searchInputs: [
+							advancedSearchInputDef(
+								SEARCH_INPUT,
+								"opened",
+								"Opened",
+								"text",
+								matchAll(),
+							),
+						],
+					},
+				},
+			},
+		};
+	}
+	const opened = term(prop("patient", "date_opened"));
+	const changed = term(prop("patient", "last_modified"));
+	const seen = term(prop("patient", "seen_at"));
+	const day = datetimeCoerce(term(dateLiteral("2026-01-01")));
+	const filterErrors = (expression: Expression) =>
+		slotOutcome(rulesDoc(), FILTER, expression).errors;
+
+	it("refuses a casedb system date ordered against a moment in a case list filter", () => {
+		expect(filterErrors(gte(opened, now()))).toMatchObject([
+			{
+				code: "incompatible-values",
+				reason: "day-only-on-device",
+				path: [],
+				instant: { comparison: "ordering", property: "date_opened" },
+			},
+		]);
+		expect(filterErrors(lt(changed, seen))).toMatchObject([
+			{
+				reason: "day-only-on-device",
+				instant: { comparison: "ordering", property: "last_modified" },
+			},
+		]);
+		expect(filterErrors(gte(opened, now()))[0]?.message).toBe(
+			"This compares when the case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can't tell. You can compare it with a date instead.",
+		);
+	});
+	it("admits a casedb system date ordered against a day, and two system dates under any operator", () => {
+		expect(filterErrors(gte(opened, day))).toEqual([]);
+		expect(filterErrors(lt(datetimeCoerce(today()), changed))).toEqual([]);
+		expect(filterErrors(gt(changed, opened))).toEqual([]);
+		expect(filterErrors(eq(changed, opened))).toEqual([]);
+	});
+	it("refuses a casedb system date compared by equality with any moment, a day included", () => {
+		for (const other of [day, now(), seen])
+			expect(codes(filterErrors(eq(opened, other)))).toEqual([
+				"incompatible-values:day-only-on-device",
+			]);
+		expect(filterErrors(neq(changed, day))).toMatchObject([
+			{
+				instant: { comparison: "equality", property: "last_modified" },
+				message:
+					"This checks whether the case was last changed at an exact moment. On a device CommCare keeps only the day a case was last changed, so the two never match. You can compare it with a date, or check a range of days.",
+			},
+		]);
+	});
+	it("refuses each lowered member of in, bound of between and case of switch", () => {
+		expect(
+			filterErrors(
+				isIn(
+					opened,
+					qualifiedLiteral("2026-01-01T00:00:00Z", "datetime"),
+					qualifiedLiteral("2026-01-02T00:00:00Z", "datetime"),
+				),
+			),
+		).toMatchObject([
+			{ reason: "day-only-on-device", path: ["values", 0] },
+			{ reason: "day-only-on-device", path: ["values", 1] },
+		]);
+		expect(
+			filterErrors(between(opened, { lower: day, upper: now() })),
+		).toMatchObject([{ reason: "day-only-on-device", path: ["upper"] }]);
+		expect(filterErrors(between(opened, { lower: day, upper: day }))).toEqual(
+			[],
+		);
+		const label = switchExpr(
+			opened,
+			[
+				switchCase(
+					qualifiedLiteral("2026-01-01T00:00:00Z", "datetime"),
+					term(literal("new year")),
+				),
+			],
+			term(literal("other")),
+		);
+		expect(
+			slotOutcome(
+				rulesDoc(label),
+				{
+					entity: "module",
+					uuid: RULES.module,
+					slot: "case_list_column_expression",
+					member: { columnUuid: RULES.column },
+				},
+				label,
+			).errors,
+		).toMatchObject([
+			{
+				reason: "day-only-on-device",
+				path: ["switch", "cases", 0, "when"],
+				instant: { comparison: "equality", property: "date_opened" },
+			},
+		]);
+	});
+	it("refuses a branch that is a casedb system date, whatever its other branches hold", () => {
+		const mixed = ifExpr(
+			eq(term(prop("patient", "note")), term(literal("x"))),
+			opened,
+			now(),
+		);
+		expect(codes(filterErrors(lt(mixed, now())))).toEqual([
+			"incompatible-values:day-only-on-device",
+		]);
+	});
+	it("admits the same comparisons in a slot no device evaluates", () => {
+		const doc = searchDoc();
+		expect(slotOutcome(doc, PREDICATE, gte(opened, now())).errors).toEqual([]);
+		expect(slotOutcome(doc, PREDICATE, eq(opened, day)).errors).toEqual([]);
+		expect(codes(slotOutcome(doc, FILTER, gte(opened, now())).errors)).toEqual([
+			"incompatible-values:day-only-on-device",
+		]);
+	});
+	it("refuses a casedb system date against a moment in form logic, beside two system dates", () => {
+		expect(formErrors("#patient/last_modified > now()")).toMatchObject([
+			{
+				reason: "day-only-on-device",
+				instant: { comparison: "ordering", property: "last_modified" },
+			},
+		]);
+		expect(codes(formErrors("#patient/date_opened = #form/dt"))).toEqual([
+			"incompatible-values:day-only-on-device",
+		]);
+		expect(
+			codes(formErrors("if(#form/n > 1, #patient/date_opened, now()) < now()")),
+		).toEqual(["incompatible-values:day-only-on-device"]);
+		expect(formErrors("#patient/last_modified > #patient/date_opened")).toEqual(
+			[],
+		);
+		// A blank test names no moment, so it stays the text test it is.
+		expect(formErrors("#patient/date_opened = ''")).toEqual([]);
+		expect(formErrors("date(#patient/date_opened) < today()")).toEqual([]);
+	});
+	it("refuses a copy of now() under an xsd:string bind compared with now(), beside date() on both sides", () => {
+		// "stamp" calculates now() and writes nothing, so its bind is
+		// xsd:string and Core holds the value as DateData, its day.
+		expect(formErrors("#form/stamp < now()")).toMatchObject([
+			{
+				code: "incompatible-values",
+				reason: "clock-lost",
+				path: [],
+				instant: { comparison: "ordering", field: RULES.stamp },
+			},
+		]);
+		expect(codes(formErrors("now() = #form/stamp"))).toEqual([
+			"incompatible-values:clock-lost",
+		]);
+		expect(
+			codes(formErrors("if(#form/n > 1, #form/stamp, now()) >= #form/dt")),
+		).toEqual(["incompatible-values:clock-lost"]);
+		expect(formErrors("date(#form/stamp) < date(now())")).toEqual([]);
+		expect(formErrors("#form/stamp = ''")).toEqual([]);
+		expect(formErrors("#form/dt < now()")).toEqual([]);
+	});
+	it("refuses a date branch in a comparison of moments", () => {
+		expect(
+			codes(formErrors("if(#form/n > 1, today(), now()) < now()")),
+		).toEqual(["incompatible-values:date-datetime"]);
+		expect(
+			codes(formErrors("if(#form/n > 1, #form/d, #form/dt) = now()")),
+		).toEqual(["incompatible-values:date-datetime"]);
+		// A branch of another kind reads as no moment, as it does directly.
+		expect(
+			codes(formErrors("if(#form/n > 1, #form/n, now()) < now()")),
+		).toEqual(["incompatible-values:datetime-ordering"]);
+		expect(
+			codes(formErrors("if(#form/n > 1, #form/consent, now()) = now()")),
+		).toEqual(["incompatible-values:datetime-equality"]);
+		// Mixed held representations of moments each keep their own text.
+		expect(formErrors("if(#form/n > 1, now(), #form/dt) < #form/dt")).toEqual(
+			[],
+		);
+		expect(formErrors("if(#form/n > 1, '', #form/dt) < now()")).toEqual([]);
+	});
+	it("compares a value of unknown type with a moment as a moment, under = as under <", () => {
+		// The untyped Hidden Value "probe" holds text, so it takes the text row
+		// and the equality is lowered, as the ordering already is.
+		expect(formErrors("#form/probe = now()")).toEqual([]);
+		expect(formErrors("#form/dt != #form/probe")).toEqual([]);
+		expect(formErrors("#form/probe = #form/probe")).toEqual([]);
+		// Lowered, an equality meets the day-only rule an ordering already does.
+		expect(codes(formErrors("#patient/date_opened = #form/probe"))).toEqual([
+			"incompatible-values:day-only-on-device",
+		]);
+		expect(codes(formErrors("#patient/date_opened < #form/probe"))).toEqual([
+			"incompatible-values:day-only-on-device",
+		]);
+		expect(formErrors("#form/probe = ''")).toEqual([]);
+	});
+	it("orders between's date-and-time bounds by the moments they name", () => {
+		// 10:00 at +05:30 is 04:30Z, before 05:00Z, though its text sorts after.
+		expect(
+			filterErrors(
+				between(seen, {
+					lower: qualifiedLiteral("2026-01-02T10:00:00+05:30", "datetime"),
+					upper: qualifiedLiteral("2026-01-02T05:00:00Z", "datetime"),
+				}),
+			),
+		).toEqual([]);
+		// 09:30 at +05:30 is 04:00Z, before the lower bound, though its text sorts after.
+		expect(
+			codes(
+				filterErrors(
+					between(seen, {
+						lower: qualifiedLiteral("2026-01-02T04:30:00Z", "datetime"),
+						upper: qualifiedLiteral("2026-01-02T09:30:00+05:30", "datetime"),
+					}),
+				),
+			),
+		).toEqual(["range-order"]);
+	});
+	it("refuses a date-and-time literal no spelling reads, where it is compared as a moment", () => {
+		expect(formErrors("#form/dt < '2026-02-30T10:00:00'")).toMatchObject([
+			{ code: "incompatible-values", reason: "unreadable-datetime" },
+		]);
+		expect(formErrors("#form/dt < '2026-01-02T10:00:00+05:30'")).toEqual([]);
+		expect(
+			codes(
+				filterErrors(gt(seen, term(qualifiedLiteral("tomorrow", "datetime")))),
+			),
+		).toEqual(["incompatible-values:unreadable-datetime"]);
+		expect(
+			filterErrors(
+				gt(seen, term(qualifiedLiteral("2026-01-02 10:00:00z", "datetime"))),
+			),
+		).toEqual([]);
 	});
 });

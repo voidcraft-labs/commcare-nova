@@ -24,6 +24,17 @@ import {
 } from "./context";
 import { fixedDatePattern, isIsoDateText } from "./datePattern";
 import { formNodeGraph } from "./formNodes";
+import {
+	comparisonOperands,
+	comparisonPlan,
+	type InstantComparisonKind,
+	type InstantLeaf,
+	type InstantOperand,
+	instantLeaves,
+	instantOperand,
+	literalInstantMicros,
+	unlowerableLeaves,
+} from "./instantOperand";
 import { numericAnswerText } from "./numberLiteral";
 import { resolveRelationDestination } from "./relationDestination";
 import {
@@ -149,6 +160,16 @@ export interface CheckError {
 	readonly reason?: string;
 	/** On `many-values`: the repeat or menu that makes the read several. */
 	readonly several?: StructuralSource;
+	/** On a comparison a device cannot run between two moments
+	 * (`incompatible-values`, reasons `day-only-on-device` and `clock-lost`):
+	 * whether it is an equality, the casedb system date a device keeps as its
+	 * day, and the form value whose clock is gone. */
+	readonly instant?: InstantRefusal;
+}
+export interface InstantRefusal {
+	readonly comparison: "ordering" | "equality";
+	readonly property?: "date_opened" | "last_modified";
+	readonly field?: Uuid;
 }
 export interface CheckOutcome {
 	readonly type: NodeType | undefined;
@@ -1460,9 +1481,18 @@ function inferNode(
 			return agreed ?? scalar(ANY_TYPE);
 		}
 		case "switch": {
+			const beforeOn = errors.length;
 			const on = readScalar(expression.on, ["switch", "on"]);
+			// Each case is an equality with the subject (`fromExpression.ts`).
+			const device =
+				errors.length === beforeOn ? onDeviceContext(ctx) : undefined;
+			const onOperand =
+				device === undefined
+					? undefined
+					: instantOperand(expression.on, device);
 			let agreed: NodeType | undefined;
 			for (const [index, branch] of expression.cases.entries()) {
+				const beforeCase = errors.length;
 				const when = scalarDataType(
 					inferTerm(branch.when, ctx, errors, [
 						"switch",
@@ -1483,6 +1513,18 @@ function inferNode(
 						...dateDatetimeReason(on, when),
 						message: `switch case 'when' literal '${describe(when)}' is not comparable with switch.on type '${describe(on)}'.`,
 					});
+				if (
+					device !== undefined &&
+					onOperand !== undefined &&
+					errors.length === beforeCase
+				)
+					checkInstantComparison(
+						"eq",
+						onOperand,
+						instantOperand(termExpression(branch.when), device),
+						errors,
+						["switch", "cases", index, "when"],
+					);
 				agreed = branchResult(
 					[
 						agreed,
@@ -2550,6 +2592,7 @@ function checkComparison(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
+	const before = errors.length;
 	checkCaseStatusComparison(left, right, errors, path);
 	const leftType = inferScalar(left, ctx, errors, [...path, "left"]);
 	const rightType = inferScalar(right, ctx, errors, [...path, "right"]);
@@ -2584,6 +2627,8 @@ function checkComparison(
 			message: `Type mismatch: '${describe(leftType)}' and '${describe(rightType)}' are not comparable.`,
 		});
 	}
+	if (errors.length === before)
+		checkInstantSides(kind, left, right, ctx, errors, path);
 }
 
 /** A date against a date and time: CommCare compares a date by its day and a
@@ -2597,6 +2642,167 @@ function dateDatetimeReason(
 		? { reason: "date-datetime" }
 		: {};
 }
+
+const SYSTEM_DATE_PHRASE = {
+	date_opened: "opened",
+	last_modified: "last changed",
+} as const;
+/** Which leaf names a refusal, most specific first: a system date, a lost
+ * clock, a date, an unreadable literal, then a value of another kind. */
+function refusalRank(leaf: InstantLeaf): number {
+	switch (leaf.class) {
+		case "day-only":
+			return 0;
+		case "clock-lost":
+			return 1;
+		case "not-instant":
+			return leaf.data === "date" ? 2 : 4;
+		case "literal-instant":
+			return 3;
+		default:
+			return 4;
+	}
+}
+function instantRefusal(
+	leaf: InstantLeaf,
+	kind: InstantComparisonKind,
+	path: CheckPath,
+): CheckError {
+	const ordering = kind !== "eq" && kind !== "neq";
+	const comparison = ordering ? "ordering" : "equality";
+	switch (leaf.class) {
+		case "day-only": {
+			const when = SYSTEM_DATE_PHRASE[leaf.property];
+			return {
+				path,
+				code: "incompatible-values",
+				reason: "day-only-on-device",
+				instant: { comparison, property: leaf.property },
+				message: ordering
+					? `This compares when the case was ${when} with a moment. On a device CommCare keeps only the day a case was ${when}, so it can't tell. You can compare it with a date instead.`
+					: `This checks whether the case was ${when} at an exact moment. On a device CommCare keeps only the day a case was ${when}, so the two never match. You can compare it with a date, or check a range of days.`,
+			};
+		}
+		case "clock-lost":
+			return {
+				path,
+				code: "incompatible-values",
+				reason: "clock-lost",
+				instant: {
+					comparison,
+					...(leaf.value.kind === "term" && leaf.value.term.kind === "field"
+						? { field: leaf.value.term.uuid }
+						: {}),
+				},
+				message:
+					"This compares a value that has kept only the day of a date and time with a moment, so CommCare can't line the two up. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.",
+			};
+		case "literal-instant":
+			return {
+				path,
+				code: "incompatible-values",
+				reason: "unreadable-datetime",
+				message: `This compares a moment with '${leaf.literal.value}', which isn't a date and time CommCare can read. You can write it like 2026-01-02T10:30:00Z.`,
+			};
+		case "not-instant":
+			if (leaf.data === "date")
+				return {
+					path,
+					code: "incompatible-values",
+					reason: "date-datetime",
+					message: DATE_DATETIME_MESSAGE,
+				};
+			break;
+		default:
+			break;
+	}
+	return ordering
+		? {
+				path,
+				code: "incompatible-values",
+				reason: "datetime-ordering",
+				message: DATETIME_ORDERING_MESSAGE,
+			}
+		: {
+				path,
+				code: "incompatible-values",
+				reason: "datetime-equality",
+				message: DATETIME_EQUALITY_MESSAGE,
+			};
+}
+/**
+ * A comparison a device runs between two moments
+ * (`instantOperand.ts::comparisonPlan`) whose sides include a value with no
+ * moment to print: a casedb system date, which Core holds as the device's
+ * day (`CaseChildElement.java::buildAndCacheInternalTree`, `DateData`), a
+ * date and time whose clock is gone, a date, a literal no spelling reads, a
+ * value of unknown type holding neither text nor a typed date, or a value of
+ * another known kind. The on-device emitter lowers exactly these comparisons
+ * and cannot print the first five, so the slot is refused here; a slot no
+ * device evaluates (no `XF`, no `SU`) never lowers. One finding per
+ * comparison, and none where the comparison already holds another.
+ */
+function checkInstantComparison(
+	kind: InstantComparisonKind,
+	left: InstantOperand,
+	right: InstantOperand,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	if (comparisonPlan(kind, left, right) !== "lowered") return;
+	const leaves = [
+		...unlowerableLeaves(left),
+		...unlowerableLeaves(right),
+		...otherKindLeaves(left),
+		...otherKindLeaves(right),
+	];
+	const [leaf] = [...leaves].sort((a, b) => refusalRank(a) - refusalRank(b));
+	if (leaf !== undefined) errors.push(instantRefusal(leaf, kind, path));
+}
+/** The branches of an operand that are values of a known kind other than a
+ * date or a date and time (a number, a text answer, a choice): the lowering
+ * prints them as themselves, which reads as no moment, so a comparison with
+ * one is refused as a direct operand of that kind already is. A literal or a
+ * value of unknown kind holds no such opinion. */
+function otherKindLeaves(operand: InstantOperand): readonly InstantLeaf[] {
+	return instantLeaves(operand).filter(
+		(leaf) =>
+			leaf.class === "not-instant" &&
+			directLiteral(leaf.value) === undefined &&
+			isKnown(leaf.data) &&
+			!isDateOrDatetime(leaf.data),
+	);
+}
+/** The context of a slot a device evaluates, where comparisons of moments
+ * are lowered. */
+function onDeviceContext(ctx: TypingContext): ExpressionContext | undefined {
+	return "profile" in ctx &&
+		(ctx.profile.targets.has("XF") || ctx.profile.targets.has("SU"))
+		? ctx
+		: undefined;
+}
+function checkInstantSides(
+	kind: InstantComparisonKind,
+	left: Expression,
+	right: Expression,
+	ctx: TypingContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	const device = onDeviceContext(ctx);
+	if (device === undefined) return;
+	checkInstantComparison(
+		kind,
+		instantOperand(left, device),
+		instantOperand(right, device),
+		errors,
+		path,
+	);
+}
+const termExpression = (value: Term): Expression => ({
+	kind: "term",
+	term: value,
+});
 
 const isKnown = (type: ScalarType | undefined): type is ScalarType =>
 	type !== undefined && type !== ANY_TYPE;
@@ -2662,6 +2868,8 @@ const DATE_DATETIME_MESSAGE =
 	"This compares a date with a date and time. CommCare compares a date by its day and a date and time by its moment, so the two don't line up. You can wrap the date and time in date() to compare days.";
 const DATETIME_ORDERING_MESSAGE =
 	"This orders a date and time against a value that isn't one. CommCare can only order two dates and times by their moment. You can compare it with another date and time, or wrap it in date() to compare days.";
+const DATETIME_EQUALITY_MESSAGE =
+	"This compares a date and time with a value that isn't one, so the two never match. You can compare it with another date and time, or check whether it's blank.";
 const BOOLEAN_COMPARISON_MESSAGE =
 	"This compares a true-or-false result with another kind of value. CommCare turns that value into true or false before comparing, and anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.";
 
@@ -2749,6 +2957,12 @@ function checkFormComparison(
 		if (right === rightType)
 			numericLiteral(expression.right, ["right"], errors);
 	}
+	// A string literal shaped as a date and time is one where the comparison
+	// types it so (`instantOperand.ts::comparisonOperands`).
+	const device = errors.length === 0 ? onDeviceContext(ctx) : undefined;
+	if (device === undefined) return;
+	const sides = comparisonOperands(expression, device);
+	checkInstantComparison(expression.kind, sides.left, sides.right, errors, []);
 }
 
 /** A date and time names one millisecond in every target, so a literal with
@@ -2829,6 +3043,7 @@ function checkIn(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
+	const before = errors.length;
 	const leftType = inferScalar(p.left, ctx, errors, [...path, "left"]);
 	if (leftType === undefined) return;
 	for (let i = 0; i < p.values.length; i++) {
@@ -2861,6 +3076,18 @@ function checkIn(
 			});
 		}
 	}
+	// Each member is an equality with the left operand (`fromExpression.ts`).
+	const device = errors.length === before ? onDeviceContext(ctx) : undefined;
+	if (device === undefined) return;
+	const left = instantOperand(p.left, device);
+	for (const [index, value] of p.values.entries())
+		checkInstantComparison(
+			"eq",
+			left,
+			instantOperand(termExpression(value), device),
+			errors,
+			[...path, "values", index],
+		);
 }
 
 function checkWithinDistance(
@@ -3003,6 +3230,7 @@ function checkBetween(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
+	const before = errors.length;
 	const leftType = inferScalar(p.left, ctx, errors, [...path, "left"]);
 	if (leftType === undefined) return;
 	if (leftType === "time") {
@@ -3050,7 +3278,7 @@ function checkBetween(
 		upperLit !== undefined &&
 		lowerLit.value !== null &&
 		upperLit.value !== null &&
-		lowerLit.value > upperLit.value
+		literalsOutOfOrder(lowerLit, upperLit, leftType)
 	) {
 		errors.push({
 			path,
@@ -3058,6 +3286,47 @@ function checkBetween(
 			message: `Operator 'between' has lower bound '${String(lowerLit.value)}' greater than upper bound '${String(upperLit.value)}'; the interval is empty.`,
 		});
 	}
+	// Each bound is an ordering against the left operand (`fromExpression.ts`).
+	const device = errors.length === before ? onDeviceContext(ctx) : undefined;
+	if (device === undefined) return;
+	const left = instantOperand(p.left, device);
+	for (const [bound, value, kind] of [
+		["lower", p.lower, p.lowerInclusive ? "gte" : "gt"],
+		["upper", p.upper, p.upperInclusive ? "lte" : "lt"],
+	] as const)
+		if (value !== undefined)
+			checkInstantComparison(
+				kind,
+				left,
+				instantOperand(value, device),
+				errors,
+				[...path, bound],
+			);
+}
+
+/** Two `between` bounds that leave an empty interval. Two dates and times
+ * order by their moments (`literalInstantMicros`), so bounds written with
+ * different offsets order as the instants they name; bounds of which one
+ * names no moment leave the order to the refusal that literal meets. */
+function literalsOutOfOrder(
+	lower: Literal,
+	upper: Literal,
+	leftType: ScalarType,
+): boolean {
+	const datetime =
+		lower.data_type === "datetime" ||
+		upper.data_type === "datetime" ||
+		leftType === "datetime";
+	if (
+		datetime &&
+		typeof lower.value === "string" &&
+		typeof upper.value === "string"
+	) {
+		const from = literalInstantMicros(lower.value),
+			to = literalInstantMicros(upper.value);
+		return from !== undefined && to !== undefined && from > to;
+	}
+	return (lower.value ?? "") > (upper.value ?? "");
 }
 
 function unwrapLiteralOperand(

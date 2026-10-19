@@ -671,6 +671,96 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		],
 		[
 			"XPATH_INCOMPATIBLE_VALUES",
+			{
+				reason: "day-only-on-device",
+				comparison: "ordering",
+				systemDate: "date_opened",
+			},
+			'A formula on "visit_check" in "Register Client" compares when the case was opened with a moment, and a device keeps only the day. You can compare it with a date instead.',
+		],
+		[
+			"XPATH_INCOMPATIBLE_VALUES",
+			{
+				reason: "day-only-on-device",
+				comparison: "equality",
+				systemDate: "last_modified",
+			},
+			'A formula on "visit_check" in "Register Client" checks whether the case was last changed at an exact moment, and a device keeps only the day. You can compare it with a date, or check a range of days.',
+		],
+		[
+			"XPATH_INCOMPATIBLE_VALUES",
+			{ reason: "clock-lost", comparison: "ordering", clockSource: "stamp" },
+			'A formula on "visit_check" in "Register Client" compares "stamp", which has kept only the day of a date and time, with a moment. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.',
+		],
+		[
+			"XPATH_INCOMPATIBLE_VALUES",
+			{ reason: "clock-lost" },
+			'A formula on "visit_check" in "Register Client" compares a value, which has kept only the day of a date and time, with a moment. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.',
+		],
+		[
+			"XPATH_INCOMPATIBLE_VALUES",
+			{ reason: "unreadable-datetime" },
+			'A formula on "visit_check" in "Register Client" compares a moment with a date and time CommCare can\'t read. You can write it like 2026-01-02T10:30:00Z.',
+		],
+		[
+			"XPATH_INCOMPATIBLE_VALUES",
+			{ reason: "datetime-equality" },
+			'A formula on "visit_check" in "Register Client" compares a date and time with something that isn\'t one, so the two never match. You can compare it with another date and time, or check whether it\'s blank.',
+		],
+		[
+			"CASE_LIST_FILTER_TYPE_ERROR",
+			{
+				checkCode: "incompatible-values",
+				checkReason: "day-only-on-device",
+				comparison: "equality",
+				systemDate: "date_opened",
+			},
+			'The Cases available setting in "Clients" checks whether a case was opened at an exact moment. On a device CommCare keeps only the day a case was opened, so the two never match. You can compare it with a date, or check a range of days.',
+		],
+		[
+			"CASE_LIST_FILTER_TYPE_ERROR",
+			{
+				checkCode: "incompatible-values",
+				checkReason: "day-only-on-device",
+			},
+			'The Cases available setting in "Clients" compares when a case was opened or last changed with a moment. On a device CommCare keeps only the day a case was opened or last changed, so it can\'t tell. You can compare it with a date instead.',
+		],
+		[
+			"CASE_LIST_FILTER_TYPE_ERROR",
+			{ checkCode: "incompatible-values", checkReason: "date-datetime" },
+			'The Cases available setting in "Clients" compares values that don\'t go together. Open the condition and adjust the comparison.',
+		],
+		[
+			"LOOKUP_SELECT_FILTER_TYPE_ERROR",
+			{
+				checkCode: "incompatible-values",
+				checkReason: "clock-lost",
+				reason: "clock-lost",
+			},
+			'The lookup-choice filter of "visit_check" in "Register Client" compares a value, which has kept only the day of a date and time, with a moment, so the two can\'t line up. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.',
+		],
+		[
+			"CASE_SELECT_FILTER_INVALID",
+			{
+				checkCode: "incompatible-values",
+				checkReason: "clock-lost",
+				comparison: "equality",
+				clockSource: "stamp",
+			},
+			'The choice filter of "visit_check" compares "stamp", which has kept only the day of a date and time, with a moment, so the two can\'t line up. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.',
+		],
+		[
+			"MODULE_DISPLAY_CONDITION_TYPE_ERROR",
+			{
+				checkCode: "incompatible-values",
+				checkReason: "day-only-on-device",
+				comparison: "ordering",
+				systemDate: "last_modified",
+			},
+			'The display condition for "Clients" compares when a case was last changed with a moment. On a device CommCare keeps only the day a case was last changed, so it can\'t tell. You can compare it with a date instead.',
+		],
+		[
+			"XPATH_INCOMPATIBLE_VALUES",
 			{ reason: "boolean" },
 			'A formula on "visit_check" in "Register Client" compares a true-or-false result with another kind of value, and anything that isn\'t blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.',
 		],

@@ -32,16 +32,52 @@ import org.json.JSONObject;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-/** Bare Core controls; the later production lowering must keep these witnesses. */
+/**
+ * Core's own answers over every pair of the shared instant table, in this
+ * run's zone setup. The bare half is the retained control: Core compares a
+ * text operand as NaN, two typed operands by the reader's calendar day, and
+ * two text spellings of one moment by text. The lowered half evaluates the
+ * comparison exactly as Nova emits it and expects the order of the two
+ * moments, computed here from java.time and never from the emitter.
+ */
 public class InstantOrderingRuntimeTest {
     private static final DateTimeFormatter OFFSET_TEXT = new DateTimeFormatterBuilder()
         .append(DateTimeFormatter.ISO_LOCAL_DATE_TIME).appendOffset("+HH:mm", "Z").toFormatter();
+
+    private static final long MICROS_PER_DAY = 86_400_000_000L;
+
+    // The malformed inputs the lowering reads as a number. Nova, HQ and a
+    // device never write them; each value is what the parse reads by
+    // position, in integer microseconds, and says nothing of the text's
+    // validity. Every other malformed input reads as NaN.
+    /** A space in place of the T: the parse reads by position. */
+    private static final long SPACE_SEPARATED_MICROS = 1_767_328_200_000_000L;
+    /** Month 13, day 45 and 99:99:99 carried over by the civil-date
+     * arithmetic: 2027-02-18T04:40:39Z. */
+    private static final long OUT_OF_RANGE_FIELDS_MICROS = 1_802_925_639_000_000L;
+    /** A bare trailing +, - or . reads as no offset and no fraction. */
+    private static final long BARE_TRAILING_MARK_MICROS = 1_767_328_200_000_000L;
+    /** An hour written -4 reads as minus four hours: 2026-01-01T20:30:00Z. */
+    private static final long NEGATIVE_HOUR_MICROS = 1_767_299_400_000_000L;
+    /** A tail after the seconds that holds no offset mark is no offset. */
+    private static final long UNMARKED_TAIL_MICROS = 1_767_328_200_000_000L;
+    /** Nine fraction digits round to the nearest microsecond. */
+    private static final long NINE_DIGIT_FRACTION_MICROS = 1_767_328_200_123_457L;
+    private static final Map<String, Long> MALFORMED_MICROS = Map.of(
+        "2026-01-02 04:30:00Z", SPACE_SEPARATED_MICROS,
+        "2026-13-45T99:99:99Z", OUT_OF_RANGE_FIELDS_MICROS,
+        "2026-01-02T04:30:00+", BARE_TRAILING_MARK_MICROS,
+        "2026-01-02T04:30:00-", BARE_TRAILING_MARK_MICROS,
+        "2026-01-02T04:30:00.", BARE_TRAILING_MARK_MICROS,
+        "2026-01-02T-4:30:00Z", NEGATIVE_HOUR_MICROS,
+        "2026-01-02T04:30:00e5Z", UNMARKED_TAIL_MICROS,
+        "2026-01-02T04:30:00.123456789Z", NINE_DIGIT_FRACTION_MICROS);
 
     private static JSONObject corpus() throws Exception {
         try (InputStream input = InstantOrderingRuntimeTest.class.getResourceAsStream("/expression/orderings.json")) {
             assertNotNull("The expression producer did not supply orderings.json", input);
             JSONObject result = new JSONObject(new String(input.readAllBytes(), StandardCharsets.UTF_8));
-            assertEquals("Unknown expression corpus version", 1, result.getInt("schemaVersion"));
+            assertEquals("Unknown expression corpus version", 2, result.getInt("schemaVersion"));
             return result;
         }
     }
@@ -138,6 +174,35 @@ public class InstantOrderingRuntimeTest {
 
         String expression() { return row.getString("held").equals("now") ? "now()" : "/data/" + row.getString("node"); }
 
+        /** How the device holds this operand, the producer's key for its
+         * lowered text: every text spelling is one class, and a date the
+         * comparison coerces to a date and time is its own. */
+        String loweredClass() {
+            String held = row.getString("held");
+            switch (held) {
+                case "datetime": case "now": return held;
+                case "text": case "core-text": case "malformed": return "text";
+                case "date": case "date-text": return row.optBoolean("datetimeCoerce", false) ? "coerced-" + held : held;
+                default: throw new AssertionError("Unknown operand storage: " + held);
+            }
+        }
+
+        boolean isDate() { return loweredClass().equals("date") || loweredClass().equals("date-text"); }
+
+        /** The moment this operand names, in integer microseconds, as a
+         * double: a coerced date is its day's UTC midnight in every zone, a
+         * malformed text is its retained decode or NaN. */
+        double loweredMicros() {
+            String held = row.getString("held");
+            if (held.equals("malformed")) {
+                Long decoded = MALFORMED_MICROS.get(text);
+                return decoded == null ? Double.NaN : decoded.doubleValue();
+            }
+            if (loweredClass().startsWith("coerced-")) return calendar.toEpochDay() * MICROS_PER_DAY;
+            assertNotNull("A lowered operand must name a moment: " + row, instant);
+            return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1_000;
+        }
+
         // XPathEqExpr's non-Boolean/non-Double branch calls toString on each
         // unpacked Date. FunctionUtils.toString prints its reader-local date,
         // so typed equality is calendar-day equality, not Date.equals.
@@ -171,6 +236,25 @@ public class InstantOrderingRuntimeTest {
             case "!=": return !(Math.abs(left - right) < 1.0e-12);
             default: throw new AssertionError("Unknown comparison: " + operator);
         }
+    }
+
+    /** Core's own answer to the stored comparison: XPathEqExpr compares two
+     * unpacked values by text unless one is a number or a Boolean, and
+     * XPathCmpExpr compares FunctionUtils.toNumeric of each. */
+    private static boolean bareExpected(Operand left, Operand right, String operator) {
+        if (operator.equals("=") || operator.equals("!="))
+            return operator.equals("=") == left.bareString().equals(right.bareString());
+        return numericComparison(left.bareNumber(), right.bareNumber(), operator);
+    }
+
+    private static Operand[] operands(JSONObject pair, Setup setup) {
+        return new Operand[]{new Operand(pair.getJSONObject("left"), setup), new Operand(pair.getJSONObject("right"), setup)};
+    }
+
+    private static FormInstance instance(Operand left, Operand right) {
+        TreeElement root = new TreeElement("data", 0);
+        root.addChild(left.node); root.addChild(right.node);
+        return new FormInstance(root);
     }
 
     private static EvaluationContext context(FormInstance instance, Instant clock) {
@@ -207,11 +291,9 @@ public class InstantOrderingRuntimeTest {
                 String id = pair.getString("id"), operator = pair.getString("operator");
                 assertTrue("Duplicate expression row: " + id, ids.add(id));
                 groups.merge(pair.getString("group"), 1, Integer::sum);
-                Operand left = new Operand(pair.getJSONObject("left"), setup);
-                Operand right = new Operand(pair.getJSONObject("right"), setup);
-                TreeElement root = new TreeElement("data", 0);
-                root.addChild(left.node); root.addChild(right.node);
-                FormInstance instance = new FormInstance(root);
+                Operand[] sides = operands(pair, setup);
+                Operand left = sides[0], right = sides[1];
+                FormInstance instance = instance(left, right);
                 EvaluationContext context = context(instance, setup.clock);
                 boolean wall = pair.getString("control").equals("wall-clock");
                 assertTrue("Unknown comparison control", wall || pair.getString("control").equals("bare"));
@@ -220,11 +302,9 @@ public class InstantOrderingRuntimeTest {
                 String xpath = a + " " + operator + " " + b;
                 XPathExpression parsed = expressions.get(xpath);
                 if (parsed == null) { parsed = XPathParseTool.parseXPath(xpath); expressions.put(xpath, parsed); }
-                boolean expected;
-                if (wall) expected = numericComparison(left.wallNumber(setup), right.wallNumber(setup), operator);
-                else if (operator.equals("=") || operator.equals("!="))
-                    expected = operator.equals("=") == left.bareString().equals(right.bareString());
-                else expected = numericComparison(left.bareNumber(), right.bareNumber(), operator);
+                boolean expected = wall
+                    ? numericComparison(left.wallNumber(setup), right.wallNumber(setup), operator)
+                    : bareExpected(left, right, operator);
                 try {
                     assertEquals(setup.label + ": " + id + ": " + xpath, expected,
                         FunctionUtils.unpack(parsed.eval(instance, context)));
@@ -244,6 +324,53 @@ public class InstantOrderingRuntimeTest {
             for (String group : new String[]{"typed", "typed-text", "typed-text-hour", "writers", "writers-hour",
                 "writers-text", "dst-typed", "dst-text", "dst-wall-clock", "dates-same", "dates-next", "date-coerced", "now-text", "now-typed"})
                 assertTrue("Missing expression group: " + group, groups.containsKey(group));
+        } finally { DateUtils.resetTimezoneProvider(); }
+    }
+    @Test public void loweredComparisonsOrderEveryPairAsItsTwoMoments() throws Exception {
+        JSONObject input = corpus();
+        try {
+            Setup setup = new Setup(Instant.parse(input.getString("fixedClock")));
+            JSONObject lowered = input.getJSONObject("lowered");
+            JSONArray pairs = input.getJSONArray("pairs");
+            Map<String, XPathExpression> expressions = new HashMap<>();
+            Set<String> malformedSeen = new HashSet<>();
+            int lowerings = 0, bare = 0;
+            for (int index = 0; index < pairs.length(); index++) {
+                JSONObject pair = pairs.getJSONObject(index);
+                String id = pair.getString("id"), operator = pair.getString("operator"), key = pair.getString("key");
+                Operand[] sides = operands(pair, setup);
+                Operand left = sides[0], right = sides[1];
+                assertEquals("The producer keyed this pair by another class: " + id,
+                    left.loweredClass() + "|" + operator + "|" + right.loweredClass(), key);
+                assertTrue("The producer wrote no comparison for " + key, lowered.has(key));
+                String xpath = lowered.getString(key);
+                String stored = left.expression() + " " + operator + " " + right.expression();
+                boolean dates = left.isDate() && right.isDate();
+                if (dates) assertEquals("A date against a date stays the stored comparison: " + key, stored, xpath);
+                else assertNotEquals("A comparison of moments must be lowered: " + key, stored, xpath);
+                if (dates) bare++; else lowerings++;
+                for (Operand side : sides)
+                    if (side.row.getString("held").equals("malformed") && MALFORMED_MICROS.containsKey(side.text))
+                        malformedSeen.add(side.text);
+                XPathExpression parsed = expressions.get(key);
+                if (parsed == null) { parsed = XPathParseTool.parseXPath(xpath); expressions.put(key, parsed); }
+                boolean expected = dates
+                    ? bareExpected(left, right, operator)
+                    : numericComparison(left.loweredMicros(), right.loweredMicros(), operator);
+                FormInstance instance = instance(left, right);
+                Object actual;
+                try {
+                    actual = FunctionUtils.unpack(parsed.eval(instance, context(instance, setup.clock)));
+                } catch (Exception failure) {
+                    throw new AssertionError(setup.label + ": " + id + ": the lowering must never throw", failure);
+                }
+                assertEquals(setup.label + ": " + id + " (" + key + ")", expected, actual);
+            }
+            assertEquals("Every lowered comparison the producer wrote is read", lowered.length(), expressions.size());
+            assertEquals("Every retained malformed decode names an input the table holds",
+                MALFORMED_MICROS.keySet(), malformedSeen);
+            assertTrue("The table holds dates compared as dates", bare > 0);
+            assertTrue("The table holds lowered comparisons", lowerings > 0);
         } finally { DateUtils.resetTimezoneProvider(); }
     }
 }

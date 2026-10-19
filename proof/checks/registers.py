@@ -117,7 +117,8 @@ HELD_CHECKS = frozenset(
 # Each defect the known-defect register may hold, mapped to the later step that owns its fix: step 2 fixed
 # every other numbered defect and finding it registered, so an entry of any of them is a regression or a fix left
 # listed (``test_registers.test_every_live_defect_is_a_later_steps``). Registering another defect adds it here
-# with its step. Findings 56 and 75 are the harness findings (numbered from 31) left open.
+# with its step. Finding 75 is the harness finding (numbered from 31) left open: its device half is fixed, and
+# its search half is held by entries that stay live until its CSQL fix.
 OPEN_DEFECTS = {
     20: 4,
     21: 5,
@@ -128,7 +129,6 @@ OPEN_DEFECTS = {
     27: 5,
     28: 5,
     30: 5,
-    56: 3,
     75: 3,
 }
 

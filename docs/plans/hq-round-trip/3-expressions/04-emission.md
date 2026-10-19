@@ -551,6 +551,49 @@ seven malformed shapes (`2026-01-02 04:30:00Z`, `2026-13-45T99:99:99Z`, a bare t
 or `.`, `T-4:30:00Z`, `04:30:00e5Z`). None of the seven is a spelling Nova, HQ or a device writes,
 so the lowering's answer for them is defined (a number, no throw) and not a claim of validity.
 
+**Implementation correction, 2026-10-19: the parse reads the spellings Nova's lookup cells
+admit.** A lookup datetime cell (`lib/lookup/coercion.ts::isLookupDatetime`, `TIME_PATTERN`) admits
+`±HHMM` with no colon, a lowercase `z` or `t`, a space separator and any number of fraction digits,
+and Nova writes those cells into its fixtures as stored. Under the text above, `…+0530` read
+`substr('0530', 3, 5)`, `''`, so NaN, and `….123z` read `number('0.123z')`, NaN, so every comparison
+with such a cell was false. `instant.ts::instantMicros` widens the parse in three places and keeps
+everything else, shared nodes included: the tail translates `'Zz+-'` to `'||||'`, so a lowercase `z`
+marks an offset; the offset's minutes are its last two characters when it is longer than two,
+`number(substr(O, string-length(O) - 2))` for the guarded offset text `O`, so `±HH:MM` and `±HHMM`
+both read; and the fraction reads every digit before the next mark, rounded to the microsecond by
+`round`, whose one-argument form Core computes as `Math.floor(x + 0.5)`
+(`org/javarosa/xpath/expr/XPathRoundFunc.java`; Preview's `lib/preview/xpath/functions.ts` now does
+the same, where it had computed `Math.round(n * 10^d) / 10^d`, which differs where `x + 0.5` itself
+rounds). A space or `t` between the date and the clock already read, by position. The canonical
+print for an operand printed `T` is now:
+
+```
+((floor((number(substr(T, 0, 4)) - (number(substr(T, 5, 7)) <= 2)) div 400) * 146097 + ((number(substr(T, 0, 4)) - (number(substr(T, 5, 7)) <= 2) - floor((number(substr(T, 0, 4)) - (number(substr(T, 5, 7)) <= 2)) div 400) * 400) * 365 + floor((number(substr(T, 0, 4)) - (number(substr(T, 5, 7)) <= 2) - floor((number(substr(T, 0, 4)) - (number(substr(T, 5, 7)) <= 2)) div 400) * 400) div 4) - floor((number(substr(T, 0, 4)) - (number(substr(T, 5, 7)) <= 2) - floor((number(substr(T, 0, 4)) - (number(substr(T, 5, 7)) <= 2)) div 400) * 400) div 100) + (floor((153 * ((number(substr(T, 5, 7)) + 9) mod 12) + 2) div 5) + number(substr(T, 8, 10)) - 1)) - 719468) * 86400 + number(substr(T, 11, 13)) * 3600 + number(substr(T, 14, 16)) * 60 + number(substr(T, 17, 19)) - if(if(contains(translate(substr(T, 19), 'Zz+-', '||||'), '|'), substring-after(translate(substr(T, 19), 'Zz+-', '||||'), '|'), '') = '', 0, if(contains(substr(T, 19), '-'), -1, 1) * (number(substr(if(contains(translate(substr(T, 19), 'Zz+-', '||||'), '|'), substring-after(translate(substr(T, 19), 'Zz+-', '||||'), '|'), ''), 0, 2)) * 3600 + if(string-length(if(contains(translate(substr(T, 19), 'Zz+-', '||||'), '|'), substring-after(translate(substr(T, 19), 'Zz+-', '||||'), '|'), '')) > 2, number(substr(if(contains(translate(substr(T, 19), 'Zz+-', '||||'), '|'), substring-after(translate(substr(T, 19), 'Zz+-', '||||'), '|'), ''), string-length(if(contains(translate(substr(T, 19), 'Zz+-', '||||'), '|'), substring-after(translate(substr(T, 19), 'Zz+-', '||||'), '|'), '')) - 2)) * 60, 0)))) * 1000000 + if(starts-with(substr(T, 19), '.'), round(number(concat('0', substring-before(concat(translate(substr(T, 19), 'Zz+-', '||||'), '|'), '|'))) * 1000000), 0)
+```
+
+(1,728 bytes for a one-character `T`; taken from the producer's `orderings.json`, so it is the
+emitter's own print.) The widening changes no input's class among the run's 28 other spellings:
+the same eight read as a number, now held as named decodes in
+`proof/native/core/InstantOrderingRuntimeTest.java` (Preview's decodes in UTC, recomputed by hand
+against `FunctionUtils.java::toNumeric` and `XPathSubstrFunc.java::substring`):
+`2026-01-02 04:30:00Z` 1767328200000000 (the space reads by position, so this is the right instant),
+`2026-13-45T99:99:99Z` 1802925639000000 (2027-02-18T04:40:39Z), a bare trailing `+`, `-` and `.` each
+1767328200000000, `2026-01-02T-4:30:00Z` 1767299400000000, `…04:30:00e5Z` 1767328200000000, and a
+nine-digit fraction `….123456789Z` 1767328200123457. Two limits are stated in
+`lib/commcare/xpath/CLAUDE.md` rather than fixed: a typed instant whose zone's offset is under an hour
+and not zero prints `%Z` as `Z:MM` (`DateUtils.getOffsetInStandardFormat`), which the parse reads as
+NaN (historic offsets only: Amsterdam before 1937, Dublin before 1916, Monrovia before 1972); and a
+local-mean-time offset with seconds loses them, a sub-minute error before 1900.
+
+**Implementation correction, 2026-10-19: the fold.** `instant.ts::foldInstant` delegates to
+`lib/domain/expression/instantOperand.ts::literalInstantMicros`, one grammar shared with the checker,
+which refuses a literal it cannot read. It reads a date (its UTC midnight) or a date and time with a
+`T`, `t` or space, minutes or seconds, any fraction, and `Z`, `z`, `±HH`, `±HHMM`, `±HH:MM` or none
+(UTC), and range-checks every field. It computes with the device parse's own double operations in
+the device's order, the fraction `floor(Number('0.' + digits) * 1e6 + 0.5)` included, so a fold
+equals the parse's answer for the same text even past 2^53 microseconds (the year 2255), and needs
+no safe-integer limit.
+
 ### 3.2 The instant text of each operand
 
 The lowering is chosen per operand from its `NodeType` (part 01 §3.1), never by wrapping the
@@ -584,6 +627,36 @@ question, an `xsd:dateTime` Hidden Value copied) is held `date` with its clock l
 (`SetValueAction.java::processAction`); neither has an instant text, so the checker refuses such an
 operand (decision 13) and `instant.ts` takes no row for it. A Hidden Value copying date-and-time
 text is held `string`, never lost, and keeps the first row.
+
+**Implementation correction, 2026-10-19: operands are classified by their leaves, in the
+domain.** `typeOf` cannot choose the row: the form rule set's `branchResult` types
+`if(c, now(), #form/dt)` as nothing (a scalar against a node), and a casedb `date_opened` and a
+date-and-time question are the same `NodeType` (`datetime`, held `date`). One pure classifier,
+`lib/domain/expression/instantOperand.ts::instantOperand(expr, ctx)`, read by the checker and by
+`fromExpression.ts`, recurses into `if`, `coalesce` and `switch` branches (and pushes a
+`datetime-coerce` of a composite down into its branches) and classifies each leaf:
+`literal-instant`, `text`, `typed`, `coerced-date-typed`, `coerced-date-text`, `coerced-text`,
+`epoch-days`, `day-only` (a `prop`, `form-case` or `project` read of `date_opened` or `last_modified`
+held `date`), `clock-lost`, `not-instant` or `unknown`. `instant.ts` gives each its row:
+
+- **`datetime-coerce` of text** (the row the table lacked: `function-nested-lookup`'s
+  `datetime-coerce(<lookup time_text>)`): `if(string-length(x) = 10, concat(x, 'T00:00:00Z'), x)`,
+  so date-only text reads as its UTC midnight, as the coerced-date-text row and HQ's `datetime()`
+  do, and a blank stays blank.
+- **A branch that names no moment** (`if(c, now(), '')`): printed as itself, so a blank reads NaN.
+- **Inside `coalesce`**, the coerced-date and day-number rows take a blank guard,
+  `if(x = '', '', …)`, because `concat(…, 'T00:00:00Z')` is never blank and the `coalesce` would
+  never fall through (`XpathCoalesceFunc` takes the first non-blank value).
+- **A literal or a day number inside a branch** prints as text the one parse reads: a literal as
+  its canonical `YYYY-MM-DDTHH:MM:SS.mmmZ` (six fraction digits when it needs them,
+  `instantCanonicalText`), a day number as `concat(format-date(date(x), '%Y-%m-%d'), 'T00:00:00Z')`.
+  A direct literal still folds, and a direct day number is `x * 86400000000`.
+- **Unknown against a moment:** the unknown side takes its held row (text as itself, a typed date
+  through `format-date`) in an ordering and, as the paragraph above says of any comparison, in an
+  equality, each `in` member and each `switch` case; one holding neither has no instant text and is
+  refused. Two unknown sides, and an unknown against a side that names no moment, stay bare
+  (`comparisonPlan`, below). **Implementation correction, 2026-10-19:** the equality first kept an
+  unknown side bare, comparing an untyped Hidden Value's text with Core's day string; it now lowers.
 
 ### 3.3 Which comparisons
 
@@ -630,6 +703,33 @@ nothing); `!=` between them was false and is true. An instant comparison is abou
 blank has none, as an ordering already treats it; `is-blank` or `= ''` is the test for a blank, and
 stays bare. This is a change of meaning on blanks only (Departures). Production holds no equality
 between two dates and times, so it changes no stored app's answer today.
+
+**Implementation correction, 2026-10-19: one plan per comparison.**
+`instantOperand.ts::comparisonPlan(kind, left, right)` returns `lowered` (an ordering with a moment
+on either side; `=`, `!=`, each `in` member and each `switch` case with a moment on one side and a
+moment or a value of unknown type on the other), `day` (a
+casedb system date ordered against a day-aligned operand, or two system dates under any operator,
+`=` included, printing a `datetime-coerce` side as `date(x)`, which keeps
+`targeted-search-hq-compile`'s `date_opened >= date('2026-01-01')` byte-stable) or `bare`.
+`fromExpression.ts::compareSides` emits by it for `eq` to `gte`, `in`, `between` and `switch`; each
+side is built once per spelling and shared, so `in`, `between` and `switch` print the left operand's
+lowering once. Day-aligned is structural: every moment-naming leaf is a system date, a coerced
+date, a day number, or a `datetime-coerce` of a date literal. `toWire` lowers in every target with
+no switch, since every `WireTarget` (`xform`, `suite`, `hq-json`, `csql-runtime`, `preview`) prints
+text Core evaluates: `hq-json` is the filter HQ interpolates into its suite, and `csql-runtime` a
+runtime segment. CSQL comparisons print through `lib/commcare/predicate/csqlEmitter.ts` and
+`lib/commcare/expression/csqlEmitter.ts`, which never call `toWire` on a comparison, so no lowering
+reaches a CSQL text position (`instant.test.ts` holds it over `emitCsql`). The emitter throws an
+invariant on every leaf it cannot print in a lowered comparison (a system date, a clock-lost value,
+a date, a literal no spelling reads, an unknown leaf holding neither text nor a typed date), and the
+checker refuses each first (part 03 §3.2).
+
+**Implementation correction, 2026-10-19: a form literal folds.** Part 04 §6's "form logic already
+refuses a literal ordering" does not hold: `checkFormComparison` admits `#form/dt <
+'2026-01-02T10:00:00Z'`, typing the literal by its shape (`formComparisonOperandTypes`,
+`ruleSets.ts::literalShape`). `instantOperand.ts::comparisonOperands` applies the same typing, so
+such a literal is folded as a record literal is; a date-shaped literal against a date and time is a
+date and is refused as `date-datetime`.
 
 ### 3.4 `date_opened` and `last_modified` on a device
 
@@ -780,6 +880,12 @@ depend on whether the question writes.
   save that keeps the shadow round-trips to the ordering. The function that recognises it is step
   6's: in step 3 nothing reads lowered text back.
 
+**Implementation correction, 2026-10-19:** the HQ JSON literals of the parse are `'Zz+-'` and
+`'||||'` (§3.1's correction), beside `'|'`, `'0'`, `'-'`, `'.'`, the two `format-date` patterns,
+`'T00:00:00Z'` and `''`; each is quoted, so `dot_interpolate` keeps them. The import template takes
+the same constants, and `T` also takes the coerced-text, blank-guarded and branching shapes of
+§3.2's correction; `docs/plans/hq-round-trip/6-import.md` states them.
+
 ### 3.8 `datetime-coerce` on a device
 
 Today `onDeviceEmitter.ts` writes `date(x)` for both coercions, and Core's `toDate` of a `Date`
@@ -808,6 +914,21 @@ datetimeCoerce(value("time_text")))`) becomes the lowered equality of two texts.
 Production holds no `datetime-coerce` in any record slot (the second production shape scan's
 record value census holds `date-coerce` and no `datetime-coerce`), and form logic has no spelling
 of it, so decision 9 and the coerced-date departure change no stored app's bytes.
+
+**Implementation correction, 2026-10-19:** as a value, a `datetime-coerce` whose operand names no
+moment, a casedb system date or a clock-lost value, keeps `date(x)`, Core's day; an unknown operand
+holding text prints as itself, one holding a typed date in `typedInstantValue`'s shape, and any other
+`date(x)`. The typed spelling now lives in `instant.ts::typedInstantValue`
+(`if(x = '', '', format-date(coalesce(x, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))`), and
+`lib/commcare/xform/datetimeCaseValue.ts::datetimeCaseValueExpression` calls it, so the wire layer
+imports nothing from `xform/` and there is one spelling; its emitted bytes are unchanged. In the
+corpus, only four documents' bytes move: `targeted-datetime-ordering` (its form calculates and
+their Vellum shadows), `targeted-datetime-operands` (`seen < now()`, and the case list filters
+`seen < '2026-03-01T11:00:00'`, folded, and `seen < due`), `targeted-datetime-equality` (`=` and
+`!=`, lowered and folded) and `function-nested-lookup` (`last_seen = date(time_text)` is now the
+lowered equality of two texts, the lookup path repeated about 30 times);
+`targeted-search-hq-compile` is byte-stable (emission over the corpus, 388 documents, 41 of 14,083
+files changed, none in any other document).
 
 ### 3.9 Size, and the cost of the gate
 
@@ -861,6 +982,19 @@ The emitter runs inside the deep validator's compile on every gated batch
 its bytes, and only date-and-time comparisons pay it (2 in the corpus's 1,314 fields, part 03's
 shape scan; in production a few orderings, each `now()` against a date-and-time question read
 relatively, and no equality between two dates and times).
+
+**Implementation correction, 2026-10-19: the gate and the shipped sizes.** `builder.ts` holds no
+`shorthandMemo` docblock (the citation above is stale). What runs on every gated batch is
+`lib/commcare/validator/rules/caseOperations.ts::validateOnDeviceExpression`, which builds each case
+operation expression's wire tree without printing it; `validateBlueprintDeep` compiles no XForm,
+and XForm and suite printing run at export, at the boundary and in Preview. Printing is memoised per
+`serializeWire` call by node identity (`serialize.ts::serializeWire`, `print`), so `instant.ts`
+builds `T` and each repeated sub-term once as a shared node and the print stays linear in its
+bytes. The shipped text, from the producer's prints over `/data/left` and `/data/right` (bytes,
+unescaped): date against date, bare, 24; text against text 4,067; text against `now()` 5,571;
+typed against text 5,763; a coerced date held as text against typed 6,467; typed against typed
+7,459. Each is 9 to 12 % above the planning rows above (whose paths are as long), the widened
+offset and fraction terms.
 
 ---
 
@@ -1181,6 +1315,55 @@ The operands run's dispatches with every reader (39064331941 and 39078199859), w
 readers' pre-fix values on `targeted-datetime-operands` and `targeted-datetime-equality`, are part
 08 §6.4's to report. What no run has read with every reader is the shipped `instantMicros` text,
 which this pull request's dispatch reads (part 08 §6.4, R2's row).
+
+**Implementation correction, 2026-10-19: the tests and the dispatch, as built.**
+
+- `instant.test.ts` (19 tests, over the doc builder `__tests__/instantFixture.ts` it shares with
+  Preview's test) reads trees structurally and, in one test, holds the exact canonical print of §3.1's
+  corrected text, since that text is the contract the Java decodes are stated against. It also holds
+  the 13 spellings folded against the table's instants (`Date.parse`), the widened, invalid and
+  year-9999 spellings, each operand row, no `date()` over `now()` or a typed answer, date against
+  date bare, `x = ''` bare, `in`, `between` and `switch` lowered over one shared operand (by node
+  identity), mixed branches, the `coalesce` blank guard, the two byte-stable day comparisons, day
+  numbers, the value prints, and no `instantMicros` shape in `emitCsql` output.
+- `fromExpression.test.ts` holds the invariant throws: a system date, a clock-lost value, a datetime
+  literal that names no moment, and a date in a lowered comparison (a date branch, a date-shaped form
+  literal), beside comparisons that name no moment staying unchanged.
+- `lib/preview/xpath/__tests__/instantLowering.test.ts` evaluates the `preview` print in six zones
+  (`UTC`, `America/New_York`, `Asia/Kolkata`, `Pacific/Kiritimati`, `Australia/Lord_Howe`,
+  `America/St_Johns`, switching `process.env.TZ`): sampled table pairs, DST fall-back and
+  spring-forward, typed and text, blanks, the `coalesce` fall-through, the widened spellings, and
+  `round`'s parity; dropping `%Z` from the typed row passes in UTC and fails in New York, so the zone
+  loop is load-bearing. Malformed inputs are held there only to a boolean answer with no throw; their
+  decodes are the Java class's.
+- The producer writes `orderings.json` at `schemaVersion: 2`: a deduplicated `lowered` map keyed
+  `<left class>|<op>|<right class>` (60 texts over the classes `datetime`, `now`, `text`, `date`,
+  `date-text`, `coerced-date`, `coerced-date-text`), each pair carrying its `key`; 25,362 pairs. The
+  lowered text depends only on the classes and the operator, since the values live in the instance;
+  one text per pair would have been about 25,400 texts and over 100 MB (part 08 §2.2).
+- The reader dispatch also names the eight `fuzz-expression-20260930-*` documents: `proof/corpus/fuzzSample.ts`
+  draws the expression generator live, so removing its staging (part 08 §4.3) changes their bytes,
+  and otherwise the first night would be the first reader to see them:
+  `gh workflow run proof-audit.yml --ref <branch> -f nightly=false -f
+  mechanics=targeted-datetime-ordering,targeted-datetime-operands,targeted-datetime-equality,function-nested-lookup,targeted-search-hq-compile,fuzz-expression-20260930-0,fuzz-expression-20260930-1,fuzz-expression-20260930-2,fuzz-expression-20260930-3,fuzz-expression-20260930-4,fuzz-expression-20260930-5,fuzz-expression-20260930-6,fuzz-expression-20260930-7`.
+- `instantAgreement.test.ts` holds the checker and `toWire` to one verdict (`instantFixture` binds
+  form-case reads through `xform/formCaseRead.ts::formCasePropertyRead`, as the XForm emitter does).
+  Over every leaf class (each held kind of form field, `now()`, `today()`, form-case and casedb
+  reads of a date and time, a date, text and both system dates, each `datetime-coerce` row, every
+  admitted literal spelling, a date, unreadable text and the blank literal), `if`, `coalesce` and
+  `switch` composites of them, the six operators, `in` members, `between` bounds and `switch` cases,
+  in form logic (`xform`, `preview`) and a case list filter (`suite`, `hq-json`, `preview`): an
+  admitted comparison prints in every target; and where the same slot with no device target admits
+  it, the checker refuses it exactly when a print throws, apart from form logic's refusal of a
+  branch of another known kind (the other-kind row above), which a record slot already refuses by
+  its type rules. About 48,000 comparisons, in under two seconds. The producer refuses to write a
+  lowered text the checker refuses in its slot, so the lane holds only what an admitted document
+  emits.
+- An unknown operand against a moment (**implementation correction, 2026-10-19**): `instant.test.ts`
+  and `fromExpression.test.ts` hold `=`, `!=` and `<` of an untyped Hidden Value against `now()`
+  lowered through its text, an `in` member lowered, and two unknown operands and the blank test
+  bare; `instantLowering.test.ts` holds such a value holding `now()`'s moment in three other
+  spellings equal to `now()` under every operator, in all six zones.
 
 ---
 

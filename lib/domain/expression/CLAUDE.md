@@ -169,7 +169,35 @@ Hidden Value leaf reads inference's data type, held class and lost clock
 (`inference.ts`); an untyped one is `_any` with its held class, so it holds no
 opinion yet stays comparable. A date and time whose clock may be gone carries
 `clockLost`, and an assignment of it to a date-and-time destination is
-`expected-value` reason `clock-lost`. `ruleSets.ts` owns their scalar tables; editor
+`expected-value` reason `clock-lost`.
+
+`instantOperand.ts` is the one classification of a comparison over dates and
+times, read by the checker and by the on-device emitter
+(`lib/commcare/xpath/wire/fromExpression.ts`), so neither lowers or refuses
+what the other does not. It classifies each operand by its leaves, recursing
+into `if`, `coalesce` and `switch` branches (Core passes the chosen branch's
+value through unchanged, so each branch keeps its own held representation),
+and `comparisonPlan` says how a device runs the comparison: `lowered` (an
+ordering with a moment on either side, an equality, `in` member or `switch`
+case with a moment on one side and a moment or a value of unknown type on the
+other), `day` (a `casedb` `date_opened` or
+`last_modified` ordered against a day-aligned operand, or two system dates,
+under any operator) or `bare`. A direct form string literal takes the type its
+comparison gives it (`comparisonOperands`, `formComparisonOperandTypes`), so a
+literal shaped as a date and time ordered against one is folded like a record
+literal. In a slot whose targets include `XF` or `SU`, a `lowered` comparison
+with a leaf that has no instant text is `incompatible-values`, one finding per
+comparison and none where it already holds another: a `casedb` system date
+(`day-only-on-device`, with `instant.comparison` and `instant.property`), a
+clock-lost value (`clock-lost`, with `instant.field`), a date (`date-datetime`),
+a literal no spelling reads (`unreadable-datetime`, by `literalInstantMicros`,
+the fold's own grammar), and a branch of another known kind or of unknown
+type holding neither text nor a typed date (`datetime-ordering`, or
+`datetime-equality` under `=` / `!=`). An unknown operand against a moment takes
+the row of what it holds, text or a typed date, in an ordering and an
+equality alike, so an untyped Hidden Value holding a moment's text equals that
+moment in any spelling; two unknown operands, or one against a value that
+names no moment (`x = ''`), stay bare. A slot no device evaluates never lowers, so these never fire there. `ruleSets.ts` owns their scalar tables; editor
 constraints read those tables rather than introducing another checker. Form
 literals must have an exact supported spelling, and static choice defaults must
 name a current choice. Numeric defaults use `numericAnswerText`'s native answer

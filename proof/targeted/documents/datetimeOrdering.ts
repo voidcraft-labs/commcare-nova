@@ -1,13 +1,18 @@
 /**
- * Finding 56: an ordering comparison on a date and time never orders by
+ * Finding 56's witness: an ordering comparison on a date and time orders by
  * instant on a device.
  *
  * Core compares both sides of an ordering as numbers
  * (`commcare-core javarosa xpath/expr/FunctionUtils.java::toNumeric`): a
  * typed `Date` (a datetime answer) becomes its day count, so two answers an
- * hour apart on one day are not ordered, and a date and time held as text (a
- * hidden value seeded from a case property) is NaN, so every ordering over it
- * is false.
+ * hour apart on one day are not ordered by it, and a date and time held as
+ * text (a hidden value seeded from a case property) is NaN, so every bare
+ * ordering over it is false. Nova lowers each side by how it is held
+ * (`lib/commcare/xpath/wire/instant.ts`): the typed answer through its own
+ * text with the device's offset, the held text as itself, each parsed to
+ * integer microseconds, so both forms order the two moments. The control
+ * `targeted-datetime-ordering` keeps the bare bytes, where the fixed entries
+ * of finding 56 still show.
  *
  * "Visit instants" orders two datetime answers, the typed row. "Check" orders
  * two hidden values seeded from the case's `seen` and `due`, the text row.

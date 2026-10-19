@@ -322,6 +322,31 @@ ordering a date and time before or after something that isn't one, comparing
 a true-or-false result with another kind of value, and reading an answer from
 every entry of a repeat where the formula needs one value.
 
+Comparing two dates and times compares the moments they name, on every device
+and in Preview, so a visit at 9:00 comes before one at 17:00 on the same day.
+A hidden value whose kind Nova can't tell yet, compared with a date and time,
+is read as the moment its text names.
+Comparing a date with a date and time is refused, because CommCare compares a
+date by its day. So is ordering a date and time against a number or text. You
+can wrap the date and time in `date()` to compare days: for a date-and-time
+question, `date()` gives the day on the worker's device, and for a date and
+time saved as text, it keeps the day the text was written with. Checking
+whether a date and time is blank, with `= ''`, still asks only whether it is
+blank, and two blank dates and times aren't equal to each other, since neither
+names a moment.
+
+On a device, a case's opened date and last-changed date hold only the day, so
+Nova refuses comparing them with a moment such as `now()`. You can compare
+their day instead, for example `date(#household/date_opened) = today()`. In the
+same way, a hidden value that copies the current time or a date-and-time
+answer without saving it to a date-and-time case property keeps only the day
+on a device, so Nova refuses comparing it with a moment too. You can compare
+the question or value that first recorded the time instead.
+
+If you open a form in CommCare HQ's form builder, each comparison of two dates
+and times shows as a longer formula that compares the moments. It keeps its
+meaning if you leave it as it is.
+
 `here()`, the worker's current location, belongs in a case list's calculated
 column. On Android it shows the worker's location in the list and in the
 case's details. On Web Apps it shows it in the case's details, once the browser
