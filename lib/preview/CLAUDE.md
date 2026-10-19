@@ -797,7 +797,9 @@ evaluates the itemset, over the fixture instance built under each table's
 XForm id (`lookupEvaluation.ts` reads each selected row node back as its row).
 A `table-lookup` prints the wire's `instance('<tag>')/<tag>_list/<tag>[…]`
 read: a no-match is Core's empty node-set, and missing and stored-empty cells
-both read blank, the fixture boundary's semantics.
+both read blank, the fixture boundary's semantics. Form logic reads a table
+under its bare tag. A form-link slot also reads it under `item-list:<tag>`,
+the id the suite declares (`includeFixtureAliases`).
 
 Data is ONE Project fixture snapshot (definitions + complete ordered rows for
 the doc's referenced tables): `PreviewLookupDataProvider` fetches it
@@ -821,7 +823,19 @@ selected value the rebuilt choices no longer offer is unselected (token-wise
 for multi-select), cascading through the ordinary topo pass.
 `FieldState.choices === undefined` is the typed loading state, and each
 choice carries its source row id as display identity (lookup rows guarantee
-neither unique nor non-blank values).
+neither unique nor non-blank values). The predicates take form-logic and
+form-link carriers too: `lookupEvaluation.ts::formLogicLookupsCovered` asks
+`expressionLookupsCovered` of every expression slot of the form, its
+questions, Connect block and links (`expressionSlotValues`), and
+`formEngine.ts::lookupDataCoversForm` adds it to the choice sources. Printing
+such a read needs the table's naming, so `EngineController` holds back an
+entry whose logic reads a table the snapshot does not cover, and
+`setLookupData` starts that entry once a covering snapshot arrives. A
+same-entry rebuild that has to wait (an edit added an uncovered read
+mid-entry) keeps its entry key and the checkpoint it began with, and the
+covering snapshot resumes that entry with its answers; opening the form again
+while it waits starts a fresh entry instead. `engineControllerLookupWait.test.ts`
+holds both paths.
 
 Navigation display conditions (`displayConditionEvaluation.ts`) evaluate at
 render through the same printing path: module conditions gate the home
@@ -984,6 +998,11 @@ primary destinations start without a case preload and apply each nonblank
 shared answer to every selected case; blank answers preserve every existing
 value. The authored cardinality controls that behavior even when exactly one
 case is selected, so the form engine never invents a representative case value.
+Its logic reads the selection through
+`xpathInstances.ts::selectedCasesXPathInstance(datumId, caseIds)`, Core's
+`<results><value>case id</value>…</results>` in the worker's order, under the
+datum id the entry's projection gives it; `entrySessionData` holds it as
+`selectedCases` and the controller hands it to every rebuild of the entry.
 
 The submission Server Action is also an open-tab deployment boundary. A
 pre-deploy FormScreen may still send its one followup/close target as `caseId`:
@@ -1153,6 +1172,49 @@ Raw identity reads need no candidate.
 
 Running Results reads at most 50 cases per page. The action clamps every caller to a bounded window, appends a stable case-id sort tie-breaker, and returns the full matching total plus the effective offset (which may move backward after concurrent deletion). The client resets to page one whenever module, case type, authored configuration, submitted Search, assigned-case exclusion, or destructive replacement changes; an ordinary data update may retain the page, and the server's effective offset keeps a shrunken population from producing a false no-data state. Quick Filter is explicitly page-local whenever more matching cases exist. A canonical Details URL loads its case directly by identity when the row is off-page or excluded, but still sends the live display configuration and case-type catalog so that one row receives the same calculated-column projection as Results; the identity read never inherits Results filtering, sorting, or pagination. Empty worker searches carry an authored-only match count, so Preview says Search caused zero matches only when Cases available would otherwise reveal a row. Deterministic input/config failures use `invalid-search`, not a retryable transport error.
 
+## Places and the form's own wording
+
+A form or link that reads places reads `xpathInstances.ts::locationsXPathInstance(rows, organization)`,
+HQ's flat `locations` fixture (`locations/fixtures.py::FlatLocationSerializer`):
+places ordered by site code, each `<location>` with `@type` (its level code),
+`@id`, and an `@<code>_id` for every level, filled from the place's own id and
+then its parents' as HQ walks them, so an ancestor at the place's own level
+wins, the rest empty; the children `name`, `site_code`, `external_id`,
+`latitude`, `longitude` (ten decimal places), `location_type` (the level's
+name, as HQ writes it), `supply_point_id` and `location_data` with one child
+per place property, empty where unset. The rows are the worker's fixture
+(`lib/organization/footprint.ts::locationFixtureRows`), returned as plain JSON
+by `loadCaseDatabaseSnapshotAction` beside the device's cases, so they follow
+its restore-scope key; a read of places loads that snapshot
+(`expressionCaseReads.ts`), a submission's patch keeps them
+(`caseDatabasePatch.ts`), and a worker assigned nowhere, or an app with no
+levels, reads an empty list. `engine/workerLocationFixture.ts::workerLocationFixture`
+loads them for that action and for the form check (`evaluate_form`), so a form
+reads the same places wherever it runs. Only form logic and form links read
+places: every module and case-list slot, and a form's display condition, is a
+record rule, which refuses a `locations` read (`typeChecker.ts::admission`),
+so menus and case lists need no place instance.
+
+`jr:itext` and `jr:choice-name` read the form's own wording.
+`engine/formText.ts::previewFormText(doc, formUuid, language)` builds the
+itext table from `lib/commcare/xform/itextIds.ts` and the filled prose,
+leaving out the entries the XForm leaves out, and maps each select's path to
+its written choices, or to `null` where they come from a table or cases; a
+language the app doesn't hold reads the default. `xpath/functions.ts::invokeFormTextFunction`
+follows Core's `FormDef.initEvalContext`: `jr:itext` of an id with no entry
+returns `[itext:<id>]`; `jr:choice-name` compares by exact equality and
+returns `''` when nothing matches or the path is no select, and fails for a
+select whose choices come from a table or cases, as Core does; outside a form
+neither function exists. The form engine builds the table once per document
+and sends it to the worker only for a form that reads its wording (`formReadsFormText`);
+`formText` crosses as one more field of `XPathWorkerInstances` under worker
+protocol 8, since the page and the worker ship in one build.
+
+`secondaryXPathInstances` serves every one of these beside `casedb`,
+`commcaresession` and the lookup tables: the selected cases, the search
+results, the places and the table aliases, for the form engine and link
+evaluation alike.
+
 ## End-of-form links
 
 `previous` is the preceding task from the source entry, never browser Back or
@@ -1211,6 +1273,40 @@ run state, and a run state the screen dropped on its own retires the context.
 The context keeps the screen's answers (a date range as its two bounds);
 `runtimeBindings.ts::searchInputInstanceValues` folds them to the instance's
 one field per prompt where `FormScreen` hands them to the engine.
+
+A menu form of a search-first module that reads what the search found
+(`xpathInstances.ts::formReadsSearchResults`, a walk of the form's and its
+questions' expression slots, links included) reads `results:inline`.
+`engine/searchResultsSnapshot.ts::readSearchResultsSnapshot`, through
+`caseDataBinding.ts::loadSearchResultsSnapshotAction`, runs the completed
+attempt's Results read (`prepareRunningCaseRead`, which `loadCasesAction`
+shares) without a page window, up to `SEARCH_RESULTS_CAP` (500) rows while
+counting every match, reads each row's direct indices, and returns
+`{ rows, totalMatches }` as plain JSON. `xpathInstances.ts::searchResultsXPathInstance(rows, catalog)`
+writes HQ's `CaseDBXMLGenerator` shape: every row `status="open"`,
+`last_modified` in `json_format_datetime`, `date_opened` as the UTC day,
+`external_id` only when set, a date-and-time property in HQ's spelling, and
+`index` only when the case has indices, sorted by identifier, with
+`@relationship` only for an extension; no related rows and no score.
+`hooks/useSearchResultsSnapshot.ts` loads it for `FormScreen`, keyed by the
+attempt, its answers, the case a no-matches registration added, the worker and
+the parent selection. It is never keyed by claims, because a search reads the
+Project's open cases rather than the restore and the claim posts as the form
+opens, nor by the document's identity: the entry keeps the snapshot it opened
+with through every rebuild and **Clear form**, as a device's session keeps its
+query step, and a new attempt reads again. The engine waits for it
+(`FormEngineRuntimeOptions.searchResults`, carried by `entrySessionData`), and
+the after-submit links read the same snapshot. With no completed attempt the
+form shows the no-matches form's refusal panel with **Go to Search** and the
+engine never activates; while the snapshot loads one line says so, and a
+failed read offers to try again. When the search found more than 500 cases,
+one line says the form reads 500 of them, as a device does. `evaluateFormSnapshot`
+refuses a form that reads search results when its caller supplies no
+snapshot, with the panel's sentence. The server-side runs of a session, an
+App Test's steps and the form check (`evaluate_form`), compose the same read
+through `engine/serverSearchRead.ts::serverRecordsRead` (the search screen in
+the bounded worker, then the Results read without a page window) and
+`serverSearchResults`, which hands it to `readSearchResultsSnapshot`.
 
 The no-matches registration form (`Form.entry`, the wire's `case_list_form`)
 is admitted or refused by `lib/preview/noMatchesForm.ts::noMatchesFormAdmission`,

@@ -228,6 +228,15 @@ const english = {
 	hereColumnsUnsupported:
 		"This browser can't share your location, so columns that use it stay blank.",
 	shareYourLocation: "Share your location",
+	searchResultsRefusalTitle: "This form opens after a search",
+	searchResultsRefusalBody:
+		"This form reads what the search found. You can run the search, then choose the case again.",
+	goToSearch: "Go to Search",
+	searchResultsLoading: "Nova is loading what the search found for this form.",
+	searchResultsLoadFailed:
+		"What the search found didn't load. You can try again.",
+	searchResultsCap:
+		"This search found {count} cases. CommCare's search sends a device the first 500, so this form reads 500 of them here too.",
 } as const;
 
 export type RuntimeMessage = keyof typeof english;
@@ -465,6 +474,16 @@ const spanish: Record<RuntimeMessage, string> = {
 	hereColumnsUnsupported:
 		"Este navegador no puede compartir tu ubicación, así que las columnas que la usan quedan en blanco.",
 	shareYourLocation: "Compartir tu ubicación",
+	searchResultsRefusalTitle: "Este formulario se abre después de una búsqueda",
+	searchResultsRefusalBody:
+		"Este formulario lee lo que encontró la búsqueda. Puedes hacer la búsqueda y luego elegir el registro de nuevo.",
+	goToSearch: "Ir a la búsqueda",
+	searchResultsLoading:
+		"Nova está cargando lo que encontró la búsqueda para este formulario.",
+	searchResultsLoadFailed:
+		"Lo que encontró la búsqueda no se cargó. Puedes intentarlo de nuevo.",
+	searchResultsCap:
+		"Esta búsqueda encontró {count} registros. La búsqueda de CommCare envía al dispositivo los primeros 500, así que este formulario también lee 500 de ellos aquí.",
 };
 
 export function runtimeLanguage(language: LanguageTag | null | undefined) {

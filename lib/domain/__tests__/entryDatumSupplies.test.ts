@@ -6,6 +6,10 @@ import {
 	formLinkTargetSupplies,
 	rootSelectionAlignment,
 } from "../entryDatumSupplies";
+import {
+	instanceReadsDoc,
+	reads,
+} from "../expression/__tests__/instanceReadsFixture";
 import { formStructure } from "../expression/formStructure";
 
 const ROOT = testUuid("datum-root");
@@ -207,5 +211,24 @@ describe("entry datums at their evaluation points", () => {
 			{ ref: { kind: "selected-case", module: ROOT }, scalar: true },
 			{ ref: { kind: "new-child-case", caseType: "visit" }, scalar: true },
 		]);
+	});
+
+	it("supplies what a search found to its module's menu forms, never to the no-matches form or another module", () => {
+		const doc = instanceReadsDoc();
+		const at = (module: typeof reads.find, form: typeof reads.find) =>
+			entryDatumSupplies(doc, { kind: "form", module, form }).searchResults;
+		expect(at(reads.find, reads.checkIn)).toEqual({ module: reads.find });
+		expect(at(reads.find, reads.note)).toEqual({ module: reads.find });
+		expect(at(reads.find, reads.register)).toBeUndefined();
+		expect(at(reads.households, reads.visit)).toBeUndefined();
+		const ordinary = structuredClone(doc);
+		ordinary.modules[reads.find].caseSearchConfig = {};
+		expect(
+			entryDatumSupplies(ordinary, {
+				kind: "form",
+				module: reads.find,
+				form: reads.checkIn,
+			}).searchResults,
+		).toBeUndefined();
 	});
 });

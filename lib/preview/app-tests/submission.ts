@@ -9,6 +9,7 @@ import {
 	submissionWorkerValues,
 } from "../engine/caseDatabasePatch";
 import { evaluateForm, evaluatePostSubmission } from "../engine/evaluateForm";
+import type { FormEvaluationContext } from "../engine/formEvaluationTypes";
 import { noMatchesPostSubmit } from "../noMatchesForm";
 import type { AppTestContext } from "./context";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
@@ -23,6 +24,10 @@ export async function submitAppTest(
 		role: string;
 	},
 	state: AppTestSessionState,
+	/** The entry's world as the session's form evaluations read it
+	 * (`run.ts::appTestFormContext`): its cases with the worker's places, and
+	 * what the module's search returned. The after-submit links read it too. */
+	formContext: FormEvaluationContext,
 ) {
 	const screen = state.screen;
 	if (screen.kind !== "form" || !screen.entry)
@@ -38,14 +43,7 @@ export async function submitAppTest(
 			answers: [],
 			searchAnswers: screen.searchAnswers,
 		},
-		{
-			identity: context.identity,
-			cases: screen.entryCases,
-			lookup: context.lookup,
-			entry: screen.entry,
-			captureEntry: true,
-			session: { appId: scope.appId, menuSelections: state.selections },
-		},
+		formContext,
 	);
 	if (!evaluated.valid || !evaluated.submission)
 		return {
@@ -139,9 +137,16 @@ export async function submitAppTest(
 			},
 			{
 				identity,
-				cases,
+				// The places travel with the device's cases; the session state
+				// keeps the cases alone, as it does before the submission.
+				cases: formContext.cases.locations
+					? { ...cases, locations: formContext.cases.locations }
+					: cases,
 				lookup: context.lookup,
 				session: { appId: scope.appId, menuSelections: state.selections },
+				...(formContext.searchResults === undefined
+					? {}
+					: { searchResults: formContext.searchResults }),
 			},
 		);
 		let nextState: AppTestSessionState = {

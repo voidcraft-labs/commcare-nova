@@ -808,7 +808,10 @@ export function entryDatumIds(
 			id: datum.id,
 			...(chainId === undefined ? {} : { chainId }),
 			refs,
-			scalar: datum.maxSelectValue === undefined,
+			// A multi-select datum's value names a stored instance, and the
+			// inline query's step holds the search's instances, not a value
+			// `session/data/<id>` reads (`CommCareSession.java::setQueryDatum`).
+			scalar: datum.maxSelectValue === undefined && datum.query === undefined,
 			...(datum.query?.storageInstance === "results:inline" &&
 			queryModule !== undefined
 				? { searchResults: { module: queryModule } }

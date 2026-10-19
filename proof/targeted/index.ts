@@ -43,6 +43,8 @@ import { hiddenCalculatedColumn, hiddenColumn } from "./documents/hiddenColumn";
 import { hiddenFromMenu } from "./documents/hiddenFromMenu";
 import { hqSideLookup } from "./documents/hqSideLookup";
 import { hqSideState } from "./documents/hqSideState";
+import { inlineSearchReads } from "./documents/inlineSearchReads";
+import { instanceReads } from "./documents/instanceReads";
 import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
@@ -71,6 +73,7 @@ import {
 	parentFormSelectionFrame,
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
+import { textReads } from "./documents/textReads";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
 
 /** Every targeted document's maker, in the corpus's order. */
@@ -129,6 +132,9 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	formLinkSessionReads,
 	nestedMenuSessionReads,
 	tileSessionReads,
+	instanceReads,
+	inlineSearchReads,
+	textReads,
 ];
 
 /** Every targeted document, in a fixed order. */

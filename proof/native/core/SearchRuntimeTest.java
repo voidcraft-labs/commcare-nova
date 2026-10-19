@@ -1,7 +1,12 @@
 package nova.compatibility;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.*;
 import org.commcare.suite.model.*;
 import org.commcare.session.SessionFrame;
@@ -13,10 +18,13 @@ import org.commcare.test.utilities.TestInstanceInitializer;
 import org.commcare.util.mocks.MockDataUtils;
 import org.commcare.util.mocks.MockUserDataSandbox;
 import org.commcare.xml.SuiteParser;
+import org.javarosa.core.model.FormDef;
 import org.javarosa.core.model.condition.EvaluationContext;
 import org.javarosa.core.model.data.StringData;
 import org.javarosa.core.model.instance.*;
 import org.javarosa.core.model.instance.utils.InstanceUtils;
+import org.javarosa.test_utils.ExprEvalUtils;
+import org.javarosa.xform.util.XFormUtils;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
@@ -226,6 +234,84 @@ public class SearchRuntimeTest {
             assertEquals(1, datums.size());
             assertEquals("new-patient", datums.get(0).getValue());
             assertEquals(scenario + " hq=" + hq, Collections.singletonList("new-patient"), new ArrayList<>(queries.get(0).getExtras().get("case_id")));
+        }
+    }
+
+    /** A member of the targeted document's local archive, or HQ's regeneration of it. */
+    private static byte[] targeted(Path document, boolean hq, String member, String hqFile) throws IOException {
+        if (hq) return Files.readAllBytes(document.resolve(hqFile));
+        try (ZipFile archive = new ZipFile(document.resolve("local.ccz").toFile())) {
+            ZipEntry entry = archive.getEntry(member);
+            assertNotNull(document + " must contain " + member, entry);
+            try (InputStream input = archive.getInputStream(entry)) {
+                return input.readAllBytes();
+            }
+        }
+    }
+
+    /** What an inline search returned, as Core's session holds it under {@code results:inline}: the patients
+     * found, each with its district, and one case HQ adds to show a related detail. */
+    private static final class SearchResults extends TestInstanceInitializer {
+        final List<String> found;
+        SearchResults(List<String> found) {
+            super(MockDataUtils.getStaticStorage());
+            this.found = found;
+        }
+        @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
+            String id = instance.getInstanceId();
+            if (id.startsWith("search-input:")) return new ConcreteInstanceRoot(null);
+            TreeElement root;
+            if (id.equals("commcaresession")) {
+                root = node("session", null);
+                TreeElement data = node("data", null);
+                data.addChild(node("case_id", "patient-lake"));
+                root.addChild(data);
+            } else if (id.equals("results:inline")) {
+                root = node("results", null);
+                int index = 0;
+                for (String caseId : found) {
+                    TreeElement result = new TreeElement("case", index++);
+                    result.setAttribute(null, "case_id", caseId);
+                    result.setAttribute(null, "case_type", "patient");
+                    result.setAttribute(null, "status", "open");
+                    result.addChild(node("district", caseId.substring("patient-".length())));
+                    root.addChild(result);
+                }
+                TreeElement related = new TreeElement("case", index);
+                related.setAttribute(null, "case_id", "household-1");
+                related.setAttribute(null, "case_type", "household");
+                related.setAttribute(null, "status", "open");
+                related.addChild(node("commcare_is_related_case", "true"));
+                root.addChild(related);
+            } else return super.generateRoot(instance);
+            InstanceUtils.setUpInstanceRoot(root, id, instance.getBase());
+            return new ConcreteInstanceRoot(root);
+        }
+    }
+
+    /**
+     * A form a search opens reads what that search found ({@code targeted-inline-search-reads}): "Check in"
+     * counts the patients behind the related-case exclusion and reads the chosen patient's district from its own
+     * result, and its after-submit link fires only when the search found more than one, on the local archive
+     * and on HQ's regenerated form and hand-assembled suite.
+     */
+    @Test public void formReadsTheResultsItsSearchReturned() throws Exception {
+        Path document = SessionReadAssertions.targeted("search", "targeted-inline-search-reads");
+        for (boolean hq : new boolean[]{false, true}) for (List<String> found : Arrays.asList(
+                Arrays.asList("patient-north", "patient-lake"), Collections.singletonList("patient-lake"))) {
+            SearchResults results = new SearchResults(found);
+            FormDef form = XFormUtils.getFormFromInputStream(
+                    new ByteArrayInputStream(targeted(document, hq, "modules-0/forms-0.xml", "hq.0.xml")));
+            form.initialize(true, results);
+            String where = found + " hq=" + hq;
+            assertEquals(where, String.valueOf(found.size()), ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(/data/found)"));
+            assertEquals(where, "lake", ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(/data/district)"));
+            Entry entry = new ReadOnlyParser(new ByteArrayInputStream(targeted(document, hq, "suite.xml", "hq.suite.xml")))
+                    .parse().getEntry("m0-f0");
+            Hashtable<String, DataInstance> instances = entry.getInstances(null);
+            for (String id : new ArrayList<>(instances.keySet())) instances.put(id, instances.get(id).initialize(results, id));
+            StackOperation link = entry.getPostEntrySessionOperations().firstElement();
+            assertEquals(where, found.size() > 1, link.isOperationTriggered(new EvaluationContext(null, instances)));
         }
     }
 }

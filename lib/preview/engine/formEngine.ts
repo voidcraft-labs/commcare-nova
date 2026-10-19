@@ -37,6 +37,7 @@ import {
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
 import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
+import { itextIdFor } from "@/lib/commcare/xform/itextIds";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import type { WireTermBindings } from "@/lib/commcare/xpath/wire/fromExpression";
 import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
@@ -109,6 +110,7 @@ import {
 	type EvalContext,
 	isXPathDate,
 	type XPathDate,
+	type XPathFormText,
 	type XPathValue,
 } from "../xpath/types";
 import {
@@ -141,6 +143,7 @@ import {
 	formExpressionRuntime,
 	formSessionBindings,
 } from "./formExpressionRuntime";
+import { formReadsFormText, previewFormText } from "./formText";
 import {
 	previewSessionValues,
 	previewUserPropertySlugMap,
@@ -158,6 +161,7 @@ import {
 	resolveLabelAsync,
 } from "./labelRefs";
 import {
+	formLogicLookupsCovered,
 	lookupChoicesFromNodeset,
 	lookupOptionsSourceCovered,
 	type PreviewLookupData,
@@ -181,6 +185,7 @@ import { previewWorkerPropertyBinding } from "./workerExpressionBindings";
 import {
 	type CaseDatabaseSnapshot,
 	INLINE_SEARCH_INPUT_INSTANCE_ID,
+	type SearchResultsSnapshot,
 	secondaryXPathInstances,
 	xpathNodeAtPath,
 } from "./xpathInstances";
@@ -434,6 +439,14 @@ export interface FormEngineRuntimeOptions {
 	 *  (`entrySessionData.ts`). Absent, no datum is valued and each reads
 	 *  blank. */
 	readonly sessionData?: Readonly<Record<string, string>>;
+	/** The entry's several-case selections, datum id → case ids in
+	 *  selection order, which a batch form reads as the selected-entities
+	 *  instance under the datum's id. */
+	readonly selectedCases?: Readonly<Record<string, readonly string[]>>;
+	/** What the entry's search returned: in a search-first module's form,
+	 *  the `results:inline` instance. Absent, the form has no search
+	 *  results to read. */
+	readonly searchResults?: SearchResultsSnapshot;
 }
 
 interface RepeatInitializationSnapshot {
@@ -456,6 +469,8 @@ export interface FormEngineEntryCheckpoint {
 export interface FormEngineWorkerWorld {
 	readonly key: string;
 	initialized: boolean;
+	/** The form text the worker world holds, sent again when it changes. */
+	formText?: XPathFormText;
 	values: Map<string, string | number | boolean>;
 	relevance: Map<string, boolean>;
 	repeatCounts: Map<string, number>;
@@ -676,6 +691,14 @@ export class FormEngine {
 	private readonly searchAnswers: ReadonlyMap<string, string>;
 	/** `session/data/<id>` reads: the entry's session map. */
 	private readonly sessionData: Readonly<Record<string, string>>;
+	/** The form's text table for `jr:itext` / `jr:choice-name`, for the
+	 * document it was built from. */
+	private formTextCache:
+		| {
+				readonly doc: BlueprintDoc;
+				readonly text: XPathFormText | undefined;
+		  }
+		| undefined;
 	private readonly hasCaseSnapshot: boolean;
 	private readonly choiceCaseNodes = new Map<string, XPathNode>();
 	/** The zone a setvalue's cast reads calendars in: this realm's, the one
@@ -720,6 +743,13 @@ export class FormEngine {
 			caseTypes: input.caseTypes,
 			sessionData: this.sessionData,
 			searchAnswers: this.searchAnswers,
+			...(runtimeOptions.selectedCases === undefined
+				? {}
+				: { selectedCases: runtimeOptions.selectedCases }),
+			...(runtimeOptions.searchResults === undefined
+				? {}
+				: { searchResults: runtimeOptions.searchResults }),
+			organization: input.doc,
 		});
 		for (const node of this.secondaryInstances
 			.get("casedb")
@@ -832,15 +862,21 @@ export class FormEngine {
 							? []
 							: [{ path: relevancePath, relevant }],
 					);
+		const formText = this.formText();
+		const sendFormText =
+			formText !== undefined &&
+			(world === undefined || initializeWorld || world.formText !== formText);
 		if (world !== undefined) {
 			world.initialized = true;
 			world.values = currentValues;
 			world.relevance = currentRelevance;
 			world.repeatCounts = currentRepeatCounts;
+			world.formText = formText;
 		}
 		return {
 			...(world === undefined ? {} : { worldKey: world.key, initializeWorld }),
 			...(context.locale === undefined ? {} : { locale: context.locale }),
+			...(sendFormText ? { formText } : {}),
 			...(context.mainInstance === undefined ||
 			(world !== undefined && !initializeWorld)
 				? {}
@@ -2039,8 +2075,26 @@ export class FormEngine {
 				workerProperty: this.workerProperty,
 				datumId: session.datumId,
 				formCaseProperty: this.formCaseProperty(session.formCaseProperty),
+				itextId: (unit) => itextIdFor(this.printDoc, unit),
 			},
 		);
+	}
+
+	/** The form's own text in the language the entry shows, which
+	 * `jr:itext` and `jr:choice-name` read (`formText.ts`); none for a form
+	 * that reads neither. */
+	private formText(): XPathFormText | undefined {
+		const cached = this.formTextCache;
+		if (cached?.doc === this.printDoc) return cached.text;
+		const text = formReadsFormText(this.printDoc, this.inputFormUuid)
+			? previewFormText(
+					this.printDoc,
+					this.inputFormUuid,
+					this.presentationLanguage,
+				)
+			: undefined;
+		this.formTextCache = { doc: this.printDoc, text };
+		return text;
 	}
 
 	/**
@@ -4329,11 +4383,13 @@ export class FormEngine {
 				? initializationContextNode(carrierParent, carrier)
 				: xpathNodeAtPath(mainInstance, path);
 
+		const formText = this.formText();
 		return {
 			invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 			...(this.presentationLanguage === undefined
 				? {}
 				: { locale: this.presentationLanguage }),
+			...(formText === undefined ? {} : { formText }),
 			getValue: read,
 			mainInstance,
 			...(contextNode === undefined
@@ -5006,6 +5062,9 @@ export class FormEngine {
 	 *  data refreshes (covered) preserve per-form-session stability
 	 *  while an identity gap rebuilds the moment fresh data lands. */
 	lookupDataCoversForm(): boolean {
+		const data = this.lookupData ?? undefined;
+		if (!formLogicLookupsCovered(this.printDoc, this.inputFormUuid, data))
+			return false;
 		let covered = true;
 		const walk = (nodes: FieldTreeNode[]): void => {
 			for (const node of nodes) {
@@ -5013,10 +5072,7 @@ export class FormEngine {
 				if (
 					(f.kind === "single_select" || f.kind === "multi_select") &&
 					((f.optionsSource.kind === "lookup" &&
-						!lookupOptionsSourceCovered(
-							f.optionsSource,
-							this.lookupData ?? undefined,
-						)) ||
+						!lookupOptionsSourceCovered(f.optionsSource, data)) ||
 						(f.optionsSource.kind === "cases" &&
 							!this.caseChoiceDataCovered(f.optionsSource)))
 				) {

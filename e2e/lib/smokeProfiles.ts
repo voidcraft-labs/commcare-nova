@@ -22,6 +22,7 @@ export const SMOKE_PROFILES = [
 	"form-refused",
 	"here-column",
 	"search-claim",
+	"search-results",
 	"localization",
 	"sections",
 	"threads",

@@ -86,6 +86,55 @@ export interface XPathReferenceContext {
 	 * `buildExpressionLintContext` derives this from the actual slot profile.
 	 */
 	scope?: "form" | "session";
+	/**
+	 * The secondary instances this slot reads, for completion inside
+	 * `instance('…')` and the paths under it. Each list holds only what the
+	 * parser binds and the checker admits at this slot, so a completion is
+	 * never offered and then refused. Absent before the slot is known.
+	 */
+	instanceReads?: XPathInstanceReads;
+}
+
+/** What a slot can read through `instance('…')`, each by the name it prints. */
+export interface XPathInstanceReads {
+	/** The Project's data tables, each by its tag. */
+	readonly tables: ReadonlyArray<{
+		readonly tag: string;
+		readonly name: string;
+		readonly columns: ReadonlyArray<{
+			readonly wireName: string;
+			readonly label: string;
+		}>;
+	}>;
+	/** The organization's places, present only when the app has levels. */
+	readonly places?: {
+		readonly levels: ReadonlyArray<{
+			readonly code: string;
+			readonly name: string;
+		}>;
+		readonly properties: ReadonlyArray<{
+			readonly slug: string;
+			readonly label: string;
+		}>;
+	};
+	/** The instance id a several-case form reads its chosen cases under. */
+	readonly selectedCases?: string;
+	/** What the search that opened this form found: the searched case type's
+	 *  properties, standard ones included. */
+	readonly searchResults?: {
+		readonly properties: ReadonlyArray<{
+			readonly name: string;
+			readonly label?: string;
+		}>;
+	};
+	/** A no-matches form's search fields, by name. */
+	readonly searchInputs?: readonly string[];
+	/** The session values the form's entry supplies, each labelled by what
+	 *  it holds. */
+	readonly sessionData: ReadonlyArray<{
+		readonly id: string;
+		readonly label: string;
+	}>;
 }
 
 /**

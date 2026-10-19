@@ -1,0 +1,41 @@
+// lib/preview/engine/workerLocationFixture.ts
+//
+// The worker's `locations` fixture, which a restore delivers beside their
+// cases: the places of their footprint (`lib/organization/footprint.ts`).
+// Preview's casedb read and the form check (`evaluate_form`) both load it
+// here, so a form reads the same places wherever it runs.
+
+import "server-only";
+import {
+	assignedLocationUuids,
+	type OrganizationCollections,
+	orderedOrganizationLevels,
+	ownRecordValue,
+	personasOf,
+	type UserCollections,
+} from "@/lib/domain";
+import { locationFixtureRows } from "@/lib/organization/footprint";
+import { readOrganizationPlaces } from "@/lib/organization/service";
+import type { PreviewLocationRow } from "./xpathInstances";
+
+/**
+ * The places a worker's device holds. Previewing as yourself, or as a persona
+ * assigned nowhere, is a worker HQ sends an empty fixture; so is any worker of
+ * an app with no organization, whose forms the checker keeps from reading
+ * places at all. The caller has already proven its access to the app.
+ */
+export async function workerLocationFixture(
+	appId: string,
+	doc: (OrganizationCollections & UserCollections) | undefined,
+	personaUuid: string | undefined,
+): Promise<readonly PreviewLocationRow[]> {
+	if (doc === undefined || personaUuid === undefined) return [];
+	if (orderedOrganizationLevels(doc).length === 0) return [];
+	const persona = ownRecordValue(personasOf(doc), personaUuid);
+	if (
+		persona === undefined ||
+		assignedLocationUuids(persona.locations).length === 0
+	)
+		return [];
+	return locationFixtureRows(doc, persona, await readOrganizationPlaces(appId));
+}

@@ -358,6 +358,10 @@ export async function readCases(
 		excludedOwnerIds?: readonly string[];
 		authoredExcludedOwnerIds?: readonly string[];
 		page?: { offset: number; limit: number };
+		/** For an unpaged read, the most rows to return, in the read's order.
+		 * A read that reaches the cap also counts every match, as
+		 * `totalCount`. */
+		cap?: number;
 		/**
 		 * Read as this worker's device would. Passed by the RUNNING preview and
 		 * by nothing else — the case workspace and the sample-data surfaces read
@@ -432,15 +436,22 @@ export async function readCases(
 					page.offset,
 					Math.floor((totalCount - 1) / page.limit) * page.limit,
 				);
+	const cap =
+		page === undefined && args.cap !== undefined
+			? Math.max(1, Math.floor(args.cap))
+			: undefined;
 	const queryAtOffset = (offset: number) =>
 		store.query({
 			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.order, args.caseType),
 			calculated: runtimeCalculatedColumns(args.caseListConfig),
-			limit: page?.limit,
+			limit: page?.limit ?? cap,
 			offset: page === undefined ? undefined : offset,
 		});
 	let rows = await queryAtOffset(pageOffset);
+	if (cap !== undefined) {
+		totalCount = rows.length < cap ? rows.length : await store.count(countArgs);
+	}
 
 	// COUNT and SELECT are intentionally separate, so a delete can remove the
 	// last row from the counted page between them. Recount and reclamp exactly
@@ -475,6 +486,7 @@ export async function readCases(
 			pageOffset,
 			pageSize: page.limit,
 		}),
+		...(cap !== undefined && { totalCount: totalCount ?? rows.length }),
 		...(outside !== undefined && { outsideRestoreCount: outside }),
 	};
 }

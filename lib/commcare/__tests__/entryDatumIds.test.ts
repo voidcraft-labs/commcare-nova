@@ -6,7 +6,16 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, blueprintDocSchema, type Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	entryDatumSupplies,
+	type Uuid,
+} from "@/lib/domain";
+import {
+	instanceReadsDoc,
+	reads,
+} from "@/lib/domain/expression/__tests__/instanceReadsFixture";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import {
@@ -326,6 +335,41 @@ describe("entry datum identities on the emitted session", () => {
 				scalar: true,
 			},
 		]);
+	});
+
+	it("marks the inline search's query datum as the supply of what the search found, in its module's menu forms only", () => {
+		const doc = instanceReadsDoc();
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const context = formLinkProjectionContext(doc);
+		const searched = (module: Uuid, form: Uuid) =>
+			entryDatumIds(doc, context, module, form).flatMap((row) =>
+				row.searchResults === undefined
+					? []
+					: [
+							{
+								id: row.id,
+								refs: row.refs,
+								scalar: row.scalar,
+								...row.searchResults,
+							},
+						],
+			);
+		expect(searched(reads.find, reads.checkIn)).toEqual([
+			{ id: "results:inline", refs: [], scalar: false, module: reads.find },
+		]);
+		expect(searched(reads.find, reads.register)).toEqual([]);
+		expect(searched(reads.households, reads.visit)).toEqual([]);
+		// The domain half names the same module at each form's point.
+		for (const module of doc.moduleOrder)
+			for (const form of doc.formOrder[module] ?? [])
+				expect(
+					entryDatumSupplies(doc, { kind: "form", module, form }).searchResults,
+					`${module}/${form}`,
+				).toEqual(
+					searched(module, form)[0] === undefined
+						? undefined
+						: { module: searched(module, form)[0]?.module },
+				);
 	});
 
 	it("agrees with domain supplies for every form in both compiler generators", () => {

@@ -108,6 +108,22 @@ function addFieldForm(
 	return true;
 }
 
+/** Every form in a module can read its Search: a Search-first module's
+ * forms read what the search found, and its no-matches form reads the
+ * prompts. A Search edit can withdraw that supply, so each of those forms'
+ * own rules must run, and so must every link source, whose target's frame
+ * the Search shapes. */
+function addModuleSearchReaders(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	scope: MutableScope,
+): void {
+	scope.moduleUuids.add(moduleUuid);
+	for (const formUuid of doc.formOrder[moduleUuid] ?? [])
+		scope.formUuids.add(formUuid);
+	addFormLinkSources(doc, scope);
+}
+
 /** Return the exact validator footprint for a conservatively safe batch.
  * `doc` is the valid snapshot the batch applies to and `nextDoc` the
  * candidate it produces. */
@@ -217,14 +233,14 @@ function mutationFootprint(
 					return undefined;
 				}
 				scope.moduleUuids.add(mutation.uuid);
-				/* Any other search-config change can take away the search the
-				 * module's no-matches form depends on; its own rule must run. */
-				if (mutation.caseSearchConfigPatch !== undefined) {
-					const noMatchesForm = noMatchesFormOf(doc, mutation.uuid);
-					if (noMatchesForm !== undefined) {
-						scope.formUuids.add(noMatchesForm.uuid);
-					}
-				}
+				/* Any other Search change, a patch or a semantic operation, can
+				 * take away the search results or the Search answers a form in
+				 * the module reads; those forms' own rules must run. */
+				if (
+					mutation.caseSearchConfigPatch !== undefined ||
+					mutation.caseSearchConfigOperation !== undefined
+				)
+					addModuleSearchReaders(doc, mutation.uuid, scope);
 				break;
 			}
 

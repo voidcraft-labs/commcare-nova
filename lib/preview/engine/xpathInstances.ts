@@ -1,8 +1,20 @@
 import type { CaseIndexRow } from "@/lib/case-store";
 import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
+import { INLINE_SEARCH_RESULTS_INSTANCE } from "@/lib/commcare/session";
 import { COMMCARE_SESSION_CONTEXT_FIELDS } from "@/lib/commcare/sessionContext";
-import type { CasePropertyDataType, CaseType } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type CasePropertyDataType,
+	type CaseType,
+	expressionSlotValues,
+	type OrganizationCollections,
+	orderedLocationProperties,
+	orderedOrganizationLevels,
+	type Uuid,
+} from "@/lib/domain";
 import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
+import type { Expression } from "@/lib/domain/expression/types";
+import { walkExpressionNodes } from "@/lib/domain/expression/walk";
 import type {
 	XPathInstance,
 	XPathNode,
@@ -27,7 +39,63 @@ export interface CaseDatabaseSnapshot {
 	readonly propertyTypes?: Readonly<
 		Record<string, Readonly<Record<string, CasePropertyDataType>>>
 	>;
+	/** The worker's `locations` fixture: every place their device can name
+	 * (`lib/organization/footprint.ts::personaFootprint`). It travels with the
+	 * device's cases because a restore delivers both. Absent where nothing
+	 * read the organization; empty for a worker assigned nowhere. */
+	readonly locations?: readonly PreviewLocationRow[];
 }
+
+/** One place in the worker's flat location fixture, as plain JSON. */
+export interface PreviewLocationRow {
+	readonly id: string;
+	readonly levelUuid: string;
+	readonly siteCode: string;
+	readonly name: string;
+	readonly externalId: string | null;
+	/** Exact decimal text; a coordinate is never a float here. */
+	readonly latitude: string | null;
+	readonly longitude: string | null;
+	/** Place information keyed by location-property UUID. */
+	readonly values: Readonly<Record<string, string>>;
+	/** Level UUID → the id of this place's ancestor at that level, read
+	 * from the whole place tree, as HQ walks a place's parents. */
+	readonly lineage: Readonly<Record<string, string>>;
+}
+
+/** One case a completed search found, as plain JSON. */
+export interface SearchResultRow {
+	readonly case_id: string;
+	readonly case_type: string;
+	readonly owner_id: string | null;
+	readonly case_name: string | null;
+	/** ISO instants. */
+	readonly opened_on: string | null;
+	readonly modified_on: string | null;
+	readonly external_id: string | null;
+	readonly properties: Readonly<Record<string, JsonValue>>;
+	readonly indices: readonly {
+		readonly identifier: string;
+		readonly ancestor_id: string;
+		readonly target_case_type: string;
+		readonly relationship: string;
+	}[];
+}
+
+/** What a completed search returned to the forms of its module: the first
+ * `SEARCH_RESULTS_CAP` open matches in Results' order, and how many
+ * matched in all. */
+export interface SearchResultsSnapshot {
+	readonly rows: readonly SearchResultRow[];
+	readonly totalMatches: number;
+}
+
+export type LoadSearchResultsSnapshotResult =
+	| { readonly kind: "data"; readonly snapshot: SearchResultsSnapshot }
+	| { readonly kind: "invalid-search"; readonly message: string }
+	| { readonly kind: "persona-unavailable"; readonly message: string }
+	| { readonly kind: "unauthenticated" }
+	| { readonly kind: "error"; readonly message: string };
 
 export type LoadCaseDatabaseSnapshotResult =
 	| { readonly kind: "data"; readonly snapshot: CaseDatabaseSnapshot }
@@ -517,16 +585,325 @@ export function lookupXPathInstances(
 	);
 }
 
+/**
+ * The selected-entities instance a several-case datum fills
+ * (`org/commcare/data/xml/VirtualInstances.java::buildSelectedValuesInstance`):
+ * `<results><value>id</value>…</results>` in selection order, under the
+ * datum's own id, which the form declares as the instance id.
+ */
+export function selectedCasesXPathInstance(
+	datumId: string,
+	caseIds: readonly string[],
+): XPathInstance {
+	return new StaticXPathInstance(datumId, {
+		name: "results",
+		childTemplates: ["value"],
+		children: caseIds.map((caseId) => ({ name: "value", value: caseId })),
+	});
+}
+
+const LOCATION_FIXTURE_FIELDS = [
+	"name",
+	"site_code",
+	"external_id",
+	"latitude",
+	"longitude",
+	"location_type",
+	"supply_point_id",
+] as const;
+
+/** `numeric(20,10)` text, as HQ's `DecimalField(decimal_places=10)` reads
+ * back and `str()` prints it. */
+function hqCoordinateText(value: string | null): string {
+	if (value === null) return "";
+	const negative = value.startsWith("-");
+	const unsigned = negative ? value.slice(1) : value;
+	const [whole = "0", fraction = ""] = unsigned.split(".");
+	return `${negative ? "-" : ""}${whole}.${fraction.padEnd(10, "0").slice(0, 10)}`;
+}
+
+/** Code-point order, the order a `site_code` sort gives ASCII codes. */
+function bySiteCode(a: PreviewLocationRow, b: PreviewLocationRow): number {
+	return a.siteCode < b.siteCode ? -1 : a.siteCode > b.siteCode ? 1 : 0;
+}
+
+/**
+ * HQ's flat location fixture for one worker
+ * (`corehq/apps/locations/fixtures.py::FlatLocationSerializer._get_fixture_node`):
+ * `<locations>` with one `<location type id <code>_id…>` per place, ordered
+ * by site code, an `@<code>_id` for every level of the organization (the
+ * place's own and its ancestors' filled, the rest empty), then `name`,
+ * `site_code`, `external_id`, `latitude`, `longitude`, `location_type` (the
+ * level's NAME, as `str(LocationType)` prints it), `supply_point_id` and
+ * `location_data` with one child per place-information field, empty where
+ * the place holds none (`::_fill_in_location_element`, `::_get_metadata_node`).
+ * A worker assigned nowhere gets an empty `<locations>`.
+ */
+export function locationsXPathInstance(
+	rows: readonly PreviewLocationRow[],
+	organization: OrganizationCollections,
+): XPathInstance {
+	const levels = orderedOrganizationLevels(organization);
+	const levelByUuid = new Map<string, (typeof levels)[number]>(
+		levels.map((level) => [level.uuid, level]),
+	);
+	const properties = orderedLocationProperties(organization);
+	const levelAttributes = levels.map((level) => `${level.code}_id`);
+	const locationTemplate = {
+		name: "location",
+		attributeTemplates: ["type", "id", ...levelAttributes],
+		childTemplates: [...LOCATION_FIXTURE_FIELDS, "location_data"],
+	};
+	return new StaticXPathInstance("locations", {
+		name: "locations",
+		childTemplates: ["location"],
+		templateChildren: [locationTemplate],
+		children: [...rows].sort(bySiteCode).flatMap((row): ElementSpec[] => {
+			const level = levelByUuid.get(row.levelUuid);
+			if (level === undefined) return [];
+			const text: Record<(typeof LOCATION_FIXTURE_FIELDS)[number], string> = {
+				name: row.name,
+				site_code: row.siteCode,
+				external_id: row.externalId ?? "",
+				latitude: hqCoordinateText(row.latitude),
+				longitude: hqCoordinateText(row.longitude),
+				location_type: level.name,
+				supply_point_id: "",
+			};
+			return [
+				{
+					...locationTemplate,
+					attributes: {
+						type: level.code,
+						id: row.id,
+						...Object.fromEntries(
+							levels.map((candidate) => [
+								`${candidate.code}_id`,
+								/* HQ writes the place's own id, then walks up its parents,
+								 * so an ancestor at the same level wins. */
+								row.lineage[candidate.uuid] ??
+									(candidate.uuid === level.uuid ? row.id : ""),
+							]),
+						),
+					},
+					children: [
+						...LOCATION_FIXTURE_FIELDS.map((name) => ({
+							name,
+							value: text[name],
+						})),
+						{
+							name: "location_data",
+							childTemplates: properties.map((property) => property.slug),
+							children: properties.map((property) => ({
+								name: property.slug,
+								value: row.values[property.uuid] ?? "",
+							})),
+						},
+					],
+				},
+			];
+		}),
+	});
+}
+
+/** `json_format_datetime`: UTC, six fraction digits, `Z`. */
+function hqDatetimeText(value: string | null): string {
+	if (value === null) return "";
+	const instant = new Date(value);
+	if (Number.isNaN(instant.getTime())) return "";
+	return `${instant.toISOString().slice(0, 23)}000Z`;
+}
+
+/** `json_format_date` of the UTC instant: its UTC calendar day. */
+function hqDateText(value: string | null): string {
+	if (value === null) return "";
+	const instant = new Date(value);
+	if (Number.isNaN(instant.getTime())) return "";
+	return instant.toISOString().slice(0, 10);
+}
+
+/** A stored custom property as the text HQ's case holds: a `datetime` as
+ * `json_format_datetime` of its instant, everything else as the restore
+ * prints it. */
+function searchResultPropertyText(
+	value: JsonValue,
+	dataType: CasePropertyDataType | undefined,
+): XPathValue {
+	if (dataType === "datetime" && typeof value === "string") {
+		const text = hqDatetimeText(value);
+		if (text !== "") return text;
+	}
+	return jsonXPathValue(value, dataType);
+}
+
+/**
+ * The inline search's results instance as HQ builds it
+ * (`casexml/apps/case/xml/generator.py::CaseDBXMLGenerator`): `<results>`
+ * with one `<case case_id case_type owner_id status>` per case, then
+ * `case_name`, `last_modified` (`json_format_datetime`, only when the case
+ * has one), `external_id` only when set, `date_opened` (the UTC day of
+ * `opened_on`, as text, not a device date), each stored property, and
+ * `index` (present only when the case has indices, its children sorted by
+ * identifier, `@relationship` written only for an extension). Every row is
+ * open: HQ's search finds open cases only. Related cases, their
+ * `commcare_is_related_case` mark and `commcare_search_score` are not
+ * built, because the read always excludes the first and no catalog
+ * property names the others.
+ */
+export function searchResultsXPathInstance(
+	rows: readonly SearchResultRow[],
+	catalog: readonly CaseType[],
+): XPathInstance {
+	const propertyTypes = new Map(
+		catalog.map((caseType) => [
+			caseType.name,
+			new Map(
+				caseType.properties.map((property) => [
+					property.name,
+					property.data_type ?? "text",
+				]),
+			),
+		]),
+	);
+	const template: ElementSpec = {
+		name: "case",
+		childTemplates: ["*"],
+		attributeTemplates: ["case_id", "case_type", "owner_id", "status"],
+		children: [
+			{ name: "case_name" },
+			{ name: "last_modified" },
+			{ name: "date_opened" },
+			{ name: "index", childTemplates: ["*"] },
+		],
+	};
+	return new StaticXPathInstance(INLINE_SEARCH_RESULTS_INSTANCE, {
+		name: "results",
+		attributes: { id: "case" },
+		childTemplates: ["case"],
+		templateChildren: [template],
+		children: rows.map((row): ElementSpec => {
+			const types = propertyTypes.get(row.case_type);
+			const indices = [...row.indices].sort((a, b) =>
+				a.identifier < b.identifier ? -1 : a.identifier > b.identifier ? 1 : 0,
+			);
+			return {
+				name: "case",
+				childTemplates: ["*"],
+				attributes: {
+					case_id: row.case_id,
+					case_type: row.case_type,
+					owner_id: row.owner_id ?? "",
+					status: "open",
+				},
+				attributeTemplates: template.attributeTemplates,
+				children: [
+					{ name: "case_name", value: row.case_name ?? "" },
+					...(row.modified_on === null
+						? []
+						: [
+								{
+									name: "last_modified",
+									value: hqDatetimeText(row.modified_on),
+								},
+							]),
+					...(row.external_id === null || row.external_id === ""
+						? []
+						: [{ name: "external_id", value: row.external_id }]),
+					...(row.opened_on === null
+						? []
+						: [{ name: "date_opened", value: hqDateText(row.opened_on) }]),
+					...Object.entries(row.properties).map(
+						([name, value]): ElementSpec => ({
+							name,
+							value: searchResultPropertyText(value, types?.get(name)),
+						}),
+					),
+					...(indices.length === 0
+						? []
+						: [
+								{
+									name: "index",
+									childTemplates: ["*"],
+									templateChildren: [
+										{
+											name: "*",
+											attributeTemplates: ["case_type", "relationship"],
+										},
+									],
+									children: indices.map((index) => ({
+										name: index.identifier,
+										value: index.ancestor_id,
+										attributes: {
+											case_type: index.target_case_type,
+											...(index.relationship === "extension"
+												? { relationship: "extension" }
+												: {}),
+										},
+									})),
+								},
+							]),
+				],
+			};
+		}),
+	});
+}
+
+function readsSearchResults(expression: Expression): boolean {
+	let found = false;
+	walkExpressionNodes(expression, (node) => {
+		if (node.kind === "cases" && node.source === "search-results") found = true;
+	});
+	return found;
+}
+
+/** Whether a form's questions, its own slots or its after-submit links read
+ * what its search found, so its entry needs the search's snapshot. */
+export function formReadsSearchResults(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): boolean {
+	const owners: { readonly entity: "form" | "field"; readonly uuid: Uuid }[] = [
+		{ entity: "form", uuid: formUuid },
+	];
+	const visit = (parent: Uuid) => {
+		for (const uuid of doc.fieldOrder[parent] ?? []) {
+			owners.push({ entity: "field", uuid });
+			visit(uuid);
+		}
+	};
+	visit(formUuid);
+	return owners.some((owner) =>
+		expressionSlotValues(doc, owner).some(({ expression }) =>
+			readsSearchResults(expression),
+		),
+	);
+}
+
 /** One resolver map for a form engine's immutable evaluation world. */
 export function secondaryXPathInstances(args: {
-	readonly identity: ResolvedPreviewIdentity | null;
+	readonly identity:
+		| ResolvedPreviewIdentity
+		| PreviewSearchSessionValues
+		| null;
 	readonly lookupData: PreviewLookupData | null;
 	readonly caseDatabase: CaseDatabaseSnapshot | null;
 	readonly caseTypes?: readonly CaseType[];
 	readonly sessionData?: Readonly<Record<string, string>>;
 	/** Present only for an admitted no-matches registration form. */
 	readonly searchAnswers?: ReadonlyMap<string, string>;
+	/** The entry's several-case selections: datum id → case ids in
+	 * selection order. */
+	readonly selectedCases?: Readonly<Record<string, readonly string[]>>;
+	/** What the entry's search returned, in a search-first module's form. */
+	readonly searchResults?: SearchResultsSnapshot;
+	/** The organization the `locations` fixture's levels and fields come
+	 * from; with the device snapshot's places it builds `locations`. */
+	readonly organization?: OrganizationCollections;
+	/** Also serve each table under its suite fixture id (`item-list:<tag>`),
+	 * as a form link's source entry declares it. */
+	readonly includeFixtureAliases?: boolean;
 }): ReadonlyMap<string, XPathInstance> {
+	const locations = args.caseDatabase?.locations;
 	return new Map<string, XPathInstance>([
 		[
 			"commcaresession",
@@ -536,13 +913,38 @@ export function secondaryXPathInstances(args: {
 			"casedb",
 			caseDatabaseXPathInstance(args.caseDatabase, args.caseTypes ?? []),
 		],
-		...lookupXPathInstances(args.lookupData),
+		...lookupXPathInstances(args.lookupData, {
+			includeFixtureAliases: args.includeFixtureAliases,
+		}),
 		...(args.searchAnswers === undefined
 			? []
 			: [
 					[
 						INLINE_SEARCH_INPUT_INSTANCE_ID,
 						searchInputXPathInstance(args.searchAnswers),
+					] as const,
+				]),
+		...Object.entries(args.selectedCases ?? {}).map(
+			([datumId, caseIds]) =>
+				[datumId, selectedCasesXPathInstance(datumId, caseIds)] as const,
+		),
+		...(args.searchResults === undefined
+			? []
+			: [
+					[
+						INLINE_SEARCH_RESULTS_INSTANCE,
+						searchResultsXPathInstance(
+							args.searchResults.rows,
+							args.caseTypes ?? [],
+						),
+					] as const,
+				]),
+		...(locations === undefined || args.organization === undefined
+			? []
+			: [
+					[
+						"locations",
+						locationsXPathInstance(locations, args.organization),
 					] as const,
 				]),
 	]);

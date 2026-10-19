@@ -12,6 +12,14 @@ forms and plain alike, and regenerates the owner forms;
 restore bytes. The plausible failures: a lineage attribute HQ fills
 differently, a data field HQ leaves out, and an owner form HQ cannot
 regenerate.
+
+A form link may read places too (``targeted-instance-reads``), which puts the
+``locations`` instance on the form's suite entry, where HQ chooses its source
+(``location_fixture_instances``): the flat fixture a Nova app's restore
+holds, as in the form HQ regenerates, never the hierarchical
+``commtrack:locations``. The plausible failure: HQ declaring the hierarchical
+fixture, which the restore of a Nova app does not hold, so the link's
+condition could not be evaluated.
 """
 
 from proof.native.hq_support import hq_commit, hq_source_hashes, write_evidence
@@ -48,6 +56,11 @@ def test_hq_serializes_the_flat_fixture_and_regenerates_the_owner_forms(native):
     for form in result["forms"]:
         assert form["locationFixtureRestore"] == "project_default", form["form"]
         records.append({key: value for key, value in form.items() if key != "locationFixtureRestore"})
+    targeted = result["targeted"]
+    assert targeted["entryInstances"]["locations"] == "jr://fixture/locations"
+    assert targeted["entryInstances"]["item-list:regions"] == "jr://fixture/item-list:regions"
+    assert targeted["formInstances"]["locations"] == "jr://fixture/locations"
+    records.append(targeted)
     write_evidence(
         native.family("location"),
         "location-emission",

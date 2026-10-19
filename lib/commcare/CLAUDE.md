@@ -263,7 +263,22 @@ the publish pushes, and the attachment target the emitter is handed (a capture
 saved as a link is a case write only where there is a link to write), the plan
 features the content needs (`user_case`, `lookup_tables`, `child_cases`,
 `form_link_workflow`, `save_to_case`, `locations`, `data_forwarding`), each
-with the sentences that say why this app needs it. Each rule asks the
+with the sentences that say why this app needs it. The `locations` feature
+and the flat location list's confirmation name each form whose source or
+links read places (`locations/readsLocationsFixture.ts::formsReadingLocationsFixture`):
+it prints every expression the form carries (question logic, Connect, case
+operations and the display condition as XForm, link conditions and datum
+values as suite) under the identity lookup naming, counts a form whose printed
+trees declare `locations`, and says `owner` when a case owner is its only place
+read. Forms are the whole count: every menu, case list, Search and display
+condition slot is a record rule, where the checker refuses a place read
+(`arm-unavailable`, reason `places-unavailable`), so no suite menu, detail or
+remote request declares `locations`. An owner read says the form "sets a case's owner from a place in your
+organization", any other "reads places in your organization". A level code
+alone prints a literal and reads no place. HQ's build asks for `lookup_tables`
+on a form whose source holds the literal `src="jr://fixture/item-list:`
+(`models/forms.py::FormBase.has_fixtures`), which the XForm serializer's
+double-quoted attributes write for a form-logic table read. Each rule asks the
 emitter's own decision over the form link context `expandDoc` builds, so the
 answer and the wire cannot disagree. HQ's slugs stay inside `lib/commcare`; `lib/publish/planFeatures.ts`
 holds what a person reads. No API key reads a plan, so these are confirmed by
@@ -1093,7 +1108,10 @@ the existing parent prefixes where required) and is also the selected-entities
 instance id that XForms read from
 `jr://instance/selected-entities/<datum-id>` as
 `<results><value>case-id</value>...</results>`. Never print one case by taking
-`value[1]`; a consumer is collection-aware or admission rejects it.
+`value[1]`; a consumer is collection-aware or admission rejects it. A form
+expression reads the selection as `instance('<datum id>')/results/value` (the
+`selected-cases` leaf, declared from its printed tree), and the checker
+refuses it where one value is needed (`XPATH_MANY_VALUES`).
 
 Nested selection uses the same authored-shape proof as Preview. A same-type
 structural child reuses the root datum only when type, scalar/set cardinality,
@@ -1306,7 +1324,7 @@ then value column refs, filter predicate on the nodeset) with zero inline
 `<item>`s and no option itext; its filter's form answers print absolute paths
 at root and `current()`-relative paths for repeat-borne fields
 (`bindLookupFilterFieldPaths` — `ItemSetUtils.populateDynamicChoices` binds
-`current()` to the question node contextualized to its iteration). A carrier's lookup root declares itself wherever its tree is printed, from the serializer's instance set under the lookup naming: in an XForm the bare tag with source `jr://fixture/item-list:<tag>`, and in entries, menus and remote requests `item-list:<tag>`. The suite oracle
+`current()` to the question node contextualized to its iteration). A carrier's lookup root declares itself wherever its tree is printed, from the serializer's instance set under the lookup naming: in an XForm the bare tag with source `jr://fixture/item-list:<tag>`, and in entries, menus and remote requests `item-list:<tag>`. Form logic reads a table too, by table and column UUID: `instance('<tag>')/<tag>_list/<tag>[…]` in a form and `instance('item-list:<tag>')/…` in a form link, printed under the current tag and wire names, so a rename keeps the read. Its reads join the reference edges (`lib/doc/lookupReferences.ts`), so the publish push, the `.ccz` fixtures and the plan feature follow. The suite oracle
 cross-checks embedded fixtures (`SUITE_FIXTURE_INVALID`: id required/unique,
 single body element, no `user_id`, every declared `jr://fixture/` src
 delivered) and the XForm oracle checks itemset shape
@@ -1392,6 +1410,24 @@ The shape is a different suite, not a flag on the remote-request one, and
   `caseSource: "results:inline"`
   (`suite/case-list/columns.ts::instanceRootFor`) so a calculated column's
   `current()/../case[...]` sibling walk resolves inside the results roster.
+- **Forms read the results.** A form whose entry carries the inline query
+  reads what the search found as
+  `instance('results:inline')/results/case[not(commcare_is_related_case = true())][…]`,
+  a row of the module's searched case type (`cases { source: "search-results" }`;
+  the parser and the checker both type it from the supplying module), in
+  question and Connect slots and in a link's condition and datums; the form
+  declares `results:inline` and the source entry already does. Elsewhere that
+  read is `SEARCH_RESULTS_NOT_SUPPLIED` (reasons `not-search-first`,
+  `no-matches-form`, `link-source`). A read whose answer depends on HQ's order
+  (a numeric or `last()` predicate, `position()` inside the query, `join`,
+  `distinct-values` or `index-of` over the results, `concat` of the results
+  alone) is `SEARCH_RESULTS_READ_INVALID` reason `order`, because HQ orders
+  results by relevance, and a `@case_type` the search cannot return is the
+  same code, reason `other-type`. In a results row `date_opened` is the UTC
+  day and `last_modified` HQ's instant. `session.ts::SEARCH_RESULTS_CAP` (500,
+  `case_search/const.py::CASE_SEARCH_MAX_RESULTS`) is the most a device
+  receives, and Preview reads the same number. Text naming
+  `instance('results')`, the remote search's instance, is a parse refusal.
 - **Links into a search-first module** carry HQ's `WorkflowQueryMeta` child:
   `<query id="results:inline" value="https://__COMMCARE_HOST__/a/__DOMAIN__/phone/case_fixture/__APP_ID__/"><data key="case_type" ref="'t'"/><data key="case_id" ref="instance('commcaresession')/session/data/<source>"/></query>`
   (`formLinkProjection.ts::queryChild`, `CASE_FIXTURE_URL_TEMPLATE`;

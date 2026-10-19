@@ -82,6 +82,10 @@ A link's condition runs after the form has closed. That decides what it can use:
   wrote to it. A link on a visit form can read the status the visit just set,
   and a link on a registration form can read the case it just created.
 - **The person using the app**: their worker information.
+- **Project data and places**: a row of a data table, or a place in your
+  organization.
+- **What a search found**, when the form opened after a search in a
+  search-first module, such as how many cases it returned.
 
 It cannot read the form's answers, because by the time the link runs the form
 is gone. If a link should depend on something someone typed, save that answer

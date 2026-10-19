@@ -109,7 +109,10 @@ verdict and before the entity write.
   whose level had been deleted underneath it would resurrect a row pointing at
   nothing. It is not a foreign key because the commit rewrites
   `blueprint_entities` from its own diff and a `RESTRICT` edge would fire on
-  ordinary unrelated edits. Removing a location property instead **sheds** the
+  ordinary unrelated edits. A level or location property that form logic
+  reads (`@<code>_id`, `@type = '<code>'`, `location_data/<slug>`) cannot be
+  removed while the read stands: the commit gate refuses it as a dangling
+  identity, before this check runs. Removing a location property instead **sheds** the
   values that named it, because a property uuid is never reissued and an
   orphaned value is unreachable forever — the same choice `lib/lookup`'s column
   removal makes, at the one moment the orphaned key set is exactly known.
@@ -266,6 +269,13 @@ drifts is the one nobody reads.
   `assignmentFootprintIncludes`, tested alongside it against exact expected destinations for every address-book
   mode, including ancestor retention, sibling branches, depth limits and
   multiple assignments. The expected sets are independent of either helper.
+  It is also the contents of the worker's `locations` fixture:
+  `footprint.ts::locationFixtureRows` adds to each footprint place the id of
+  its ancestor at every level, walking the whole tree (`service.ts::readOrganizationPlaces`,
+  archived parents included) as HQ's `FlatLocationSerializer` does, and
+  Preview builds from those rows the `locations` instance a form that reads
+  places evaluates (`lib/preview/engine/xpathInstances.ts::locationsXPathInstance`).
+  The rows travel as plain JSON with the device's case snapshot.
 
 `memberOwnerIds` is the honest answer for previewing as the signed-in member:
 a worker assigned nowhere has no case-sharing group, so the set is exactly

@@ -233,8 +233,26 @@ because the exported rule would name the place by Nova's own id, which the
 project space does not know; Nova refuses the export and says so, and pointing
 the rule at a place beneath the current owner is the way through.
 
-A rule that sends a case to **a place beneath the current case owner** reads
-your organization's location list wherever the worker opens the form. Phones
+A rule that sends a case to **a place beneath the current case owner**, and a
+formula that reads places, read your organization's location list wherever the
+worker opens the form. Phones
 and Web Apps both take that list by the project space's own setting on
 CommCare HQ, which sends it unless someone turned it off. Nova can't read that
 setting, so publishing asks you to confirm it.
+
+## Read places in a formula
+
+A form's formulas can read your places, for example the name of the place a
+worker is assigned to, with
+`instance('locations')/locations/location[@id = #user/commcare_location_id]/name`,
+or a piece of place information under `location_data`. `@type` holds a level's
+code, so `[@type = 'district']` keeps the districts, and `@<code>_id` holds the
+place's ancestor at that level. An after-submit link's condition can read
+places too. Menus, case lists, Search and display conditions can't read
+places; you can read them in the form's questions instead.
+
+A worker's device holds the places in their address book, so a formula finds
+only those, and Preview reads the same places for the persona you preview as.
+A formula can read places once the app has organization levels. A level or a
+piece of place information that a formula reads can't be removed until that
+formula changes.

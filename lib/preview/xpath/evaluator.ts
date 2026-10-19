@@ -5,7 +5,7 @@ import {
 } from "@/lib/commcare/xpath/functionCapabilities";
 import { parser } from "@/lib/commcare/xpath/parser";
 import { toBoolean, toNumber } from "./coerce";
-import { invokeFunction } from "./functions";
+import { invokeFormTextFunction, invokeFunction } from "./functions";
 import {
 	applyXPathBinaryOperation,
 	isXPathBinaryOperation,
@@ -464,6 +464,8 @@ function evalInvoke(
 	 * projecting arguments onto the scalar-only generated-function boundary;
 	 * otherwise an unrelated generated dispatcher would eagerly unpack a
 	 * multi-node argument before count() can observe it. */
+	const formTextInvocation = invokeFormTextFunction(fnName, args, ctx.formText);
+	if (formTextInvocation.kind === "handled") return formTextInvocation.value;
 	const invocation = invokeFunction(fnName, args, { locale: ctx.locale });
 	if (invocation.kind === "handled") return invocation.value;
 	const generatedInvocation = ctx.invokeGeneratedFunction?.(

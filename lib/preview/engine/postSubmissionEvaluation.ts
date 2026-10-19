@@ -98,6 +98,9 @@ export async function evaluatePostSubmissionSnapshot(
 				? args.mutation.caseIds.map((caseId) => ({ caseId }))
 				: [],
 		menuSelections: args.selections,
+		...(context.searchResults === undefined
+			? {}
+			: { searchResults: context.searchResults }),
 		caseDatabase: context.cases,
 		identity: context.identity,
 	});
@@ -113,6 +116,9 @@ export async function evaluatePostSubmissionSnapshot(
 		),
 		caseDatabase: context.cases,
 		lookupData: previewLookupData(context.lookup),
+		...(entry.searchResults === undefined
+			? {}
+			: { searchResults: entry.searchResults }),
 	};
 	const runtime = new XPathRuntime({
 		workerFactory: createInProcessXPathWorkerFactory(),

@@ -1214,16 +1214,15 @@ export class PostgresCaseStore implements CaseStore {
 		const caseIds = [...new Set(args.caseIds)];
 		if (caseIds.length === 0)
 			return { rows: [], indices: [], propertyTypes: {} };
-		return this.db
-			.transaction()
-			.setIsolationLevel("repeatable read")
-			.execute((trx) =>
+		return this.dataTransaction(
+			(trx) =>
 				this.readCaseDatabasePatchInTransaction(trx, {
 					appId: args.appId,
 					projectId,
 					caseIds,
 				}),
-			);
+			true,
+		);
 	}
 
 	private async readCaseDatabasePatchInTransaction(

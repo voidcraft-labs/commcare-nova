@@ -59,10 +59,24 @@ to menu/detail runtime contexts. A function's signature lives in
 
 After-submit links run from the suite entry after the form closes. Their real
 slot context excludes main-form answers and requires a nonempty datum value.
-Session reads bind to the exact target selection member. A Project table tag
-resolves through the authorized catalog into stable table and column identities;
-printing and emission derive its current name. A loading catalog cannot establish
-that a table is missing.
+Session reads bind to the exact target selection member. A link's condition
+and datum values read the session, `casedb`, lookup tables
+(`instance('item-list:<tag>')/…`, stored by table and column UUID, so a rename
+keeps the read), the flat location list, and, where the source entry carries a
+search-first module's query, `results:inline`. A Project table tag resolves
+through the authorized catalog into stable table and column identities;
+printing and emission derive its current name, the bare tag in a form and
+`item-list:<tag>` in a suite, and both spellings parse to the same read. A
+loading catalog cannot establish that a table is missing.
+
+`formPathBinding.ts` types a `results:inline` row with no `@case_type` as the
+supplying module's case type (`supplies.searchResults.module`), as the checker
+does, and refuses text without the related-case exclusion or naming
+`instance('results')` (the remote search's instance, gone by the time a form
+opens), each with its sentence. Wording reads, `jr:itext` of a question's text
+or a written choice and `jr:choice-name` of a select's choice, bind to the
+form's translation units and print the id `lib/commcare/xform/itextIds.ts`
+gives the itext block.
 
 Native or lowered functions need proof against the pinned owning runtime before
 admission. `normalize-space` and `is-blank` lower through the wire tree.

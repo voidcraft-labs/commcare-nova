@@ -1,4 +1,9 @@
-"""Native session reads use the targeted corpus's exports, outside balanced fixture edits."""
+"""Native witnesses that read the targeted corpus's exports, outside balanced fixture edits.
+
+The session reads of the form-link, nested-menu and tile families, and the
+instance reads of the lookup, location and search families, each read one
+targeted document's exact local archive and HQ's regeneration of its forms.
+"""
 
 import shutil
 
@@ -20,14 +25,18 @@ DOCUMENTS = (
     "targeted-form-link-session-reads",
     "targeted-nested-menu-session-reads",
     "targeted-tile-session-reads",
+    "targeted-instance-reads",
+    "targeted-inline-search-reads",
 )
 
 
-def session_reads(session, family, document_id, domain, *, endpoints=False):
+def session_reads(session, family, document_id, domain, *, endpoints=False, module=1, forms=(0, 1)):
     """Copy the target's exact local archive and regenerate its captured content through HQ.
 
     Core opens the copied CCZ itself. Neither the family's producer nor this
     adapter builds a separate local form or suite for the targeted scenario.
+    HQ regenerates the forms ``forms`` of the module at ``module``, each as
+    ``hq.<form>.xml``.
     """
     if document_id not in DOCUMENTS:
         raise ValueError(f"The native session witness {document_id} is not named in this adapter's DOCUMENTS.")
@@ -58,8 +67,8 @@ def session_reads(session, family, document_id, domain, *, endpoints=False):
         app.custom_base_url = NOVA_SERVER_ORIGIN
         suite = hand_assembled_suite(app, endpoints=endpoints)
         (output / "hq.suite.xml").write_bytes(suite)
-        for index in (0, 1):
-            form = app.get_module(1).get_form(index)
+        for index in forms:
+            form = app.get_module(module).get_form(index)
             (output / f"hq.{index}.xml").write_bytes(regenerate_form(form, domain))
     write_evidence(
         output,

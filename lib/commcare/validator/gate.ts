@@ -308,6 +308,18 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CONNECT_DELIVER_FORM_HOLDS_TASK: "soundness",
 	// Core can't load a form that reads a session datum its entry lacks.
 	SESSION_DATUM_NOT_SUPPLIED: "soundness",
+	// Core reads `results:inline` from the inline query's frame step
+	// (`CommCareSession.java::setQueryDatum`); an entry with no such step has
+	// no source for it, and the form cannot open.
+	SEARCH_RESULTS_NOT_SUPPLIED: "soundness",
+	// HQ's search returns open cases of the searched type in relevance order
+	// (`CaseSearchQueryBuilder._get_initial_search_es`, `::_apply_sort`): a
+	// read of another type matches nothing, and a read by position changes
+	// from one search to the next and from Preview.
+	SEARCH_RESULTS_READ_INVALID: "soundness",
+	// An app with no organization pushes no places, so a read of places
+	// could only name places made in HQ, which Preview cannot show.
+	LOCATIONS_READ_NEEDS_ORGANIZATION: "soundness",
 	// HQ's form builder can't open, or closes the case on, a form whose
 	// Save to Case block writes one of these property names.
 	CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP: "soundness",

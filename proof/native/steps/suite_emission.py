@@ -24,8 +24,10 @@ registration.
   (``<scenario>.hq.<lang>.strings.txt``).
 
 Form-link and nested-menu also load their session-read targeted documents
-through ``session_reads``. Those archives and captured app contents come
-from the targeted corpus and do not join either family's fixture records.
+through ``session_reads``, and search loads ``targeted-inline-search-reads``,
+whose "Check in" form reads what its search found. Those archives and
+captured app contents come from the targeted corpus and do not join either
+family's fixture records.
 """
 
 from proof.native.hq_support import (
@@ -119,6 +121,8 @@ def searches(family):
                 )
         if family == "form-link":
             session_reads(session, family, "targeted-form-link-session-reads", SEARCH_DOMAIN)
+        if family == "search":
+            session_reads(session, family, "targeted-inline-search-reads", SEARCH_DOMAIN, module=0, forms=(0,))
         return {"sources": [source.stem for source in sources], "records": records}
 
     return run

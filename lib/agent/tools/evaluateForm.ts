@@ -81,6 +81,7 @@ export const evaluateFormTool = {
 				ctx,
 				input.personaUuid,
 				input.scenario,
+				input,
 			);
 			const result = await evaluateForm(ctx.snapshot.doc, input, context);
 			const { submission, ...observation } = result;
@@ -112,6 +113,15 @@ export const evaluateFormTool = {
 					workspaceRevision: ctx.snapshot.revision,
 					workerId: context.identity.ownerId,
 					lookupRevision: context.lookup.projectRevision,
+					// What the search before the form found, when the form reads it.
+					...(context.searchResults === undefined
+						? {}
+						: {
+								searchResults: {
+									matched: context.searchResults.totalMatches,
+									held: context.searchResults.rows.length,
+								},
+							}),
 					...observation,
 					...(proposedValues ? { proposedValues } : {}),
 				},

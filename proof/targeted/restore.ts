@@ -11,7 +11,17 @@
  * property in the create and update); a lookup table is the item list HQ's
  * restore serves for it (`fixtures/fixturegenerators.py::ItemListsProvider._get_fixture_element`
  * and `to_xml`: `<fixture id="item-list:<tag>" user_id>`, a `<tag>_list`, one
- * `<tag>` per row with one element per field).
+ * `<tag>` per row with one element per field); the places a worker's
+ * restore holds are HQ's flat location fixture
+ * (`locations/fixtures.py::FlatLocationSerializer.get_xml_nodes`): the index
+ * schema `fixtures/utils.py::get_index_schema_node` writes (`<schema
+ * id="locations">`, each level's `@<code>_id`, `@id`, `@type` and `name`,
+ * sorted), then `<fixture id="locations" user_id indexed="true">` with one
+ * `<location>` per place in site-code order carrying its level code as
+ * `type`, its id and each level's ancestor id as `<code>_id`, then its name,
+ * site code, external id, coordinates, level name as `location_type`
+ * (`LocationType.__str__`), supply point and every location data field
+ * (`_fill_in_location_element`, `_get_metadata_node`), blank where unset.
  */
 
 import type { ChildNode } from "domhandler";
@@ -90,11 +100,91 @@ function fixture(table: RestoreTable): ChildNode {
 	);
 }
 
-/** A restore holding these cases and lookup tables for Core's template user. */
+export interface RestorePlace {
+	readonly id: string;
+	/** The place's level code (`@type`) and the level's name (`location_type`). */
+	readonly level: string;
+	readonly levelName: string;
+	/** Every level code of the organization, each with this place's ancestor
+	 *  at that level (its own id at its own level, blank where it has none). */
+	readonly lineage: Readonly<Record<string, string>>;
+	readonly name: string;
+	readonly siteCode: string;
+	/** Every location data field, in definition order, blank where unset. */
+	readonly data?: Readonly<Record<string, string>>;
+}
+
+/** HQ's index schema and flat fixture for these places. */
+function places(entries: readonly RestorePlace[]): ChildNode[] {
+	const ordered = [...entries].sort((a, b) =>
+		a.siteCode < b.siteCode ? -1 : a.siteCode > b.siteCode ? 1 : 0,
+	);
+	const levels = [
+		...new Set(entries.flatMap((place) => Object.keys(place.lineage))),
+	];
+	const indices = [
+		...levels.map((code) => `@${code}_id`),
+		"@id",
+		"@type",
+		"name",
+	].sort();
+	const schema = el("schema", { id: "locations" }, [
+		el(
+			"indices",
+			{},
+			indices.map((index) => el("index", {}, [text(index)])),
+		),
+	]);
+	const fixture = el(
+		"fixture",
+		{ id: "locations", user_id: RESTORE_USER_ID, indexed: "true" },
+		[
+			el(
+				"locations",
+				{},
+				ordered.map((place) =>
+					el(
+						"location",
+						{
+							type: place.level,
+							id: place.id,
+							...Object.fromEntries(
+								Object.entries(place.lineage).map(([code, id]) => [
+									`${code}_id`,
+									id,
+								]),
+							),
+						},
+						[
+							el("name", {}, [text(place.name)]),
+							el("site_code", {}, [text(place.siteCode)]),
+							el("external_id", {}, []),
+							el("latitude", {}, []),
+							el("longitude", {}, []),
+							el("location_type", {}, [text(place.levelName)]),
+							el("supply_point_id", {}, []),
+							el(
+								"location_data",
+								{},
+								Object.entries(place.data ?? {}).map(([slug, value]) =>
+									el(slug, {}, value === "" ? [] : [text(value)]),
+								),
+							),
+						],
+					),
+				),
+			),
+		],
+	);
+	return [schema, fixture];
+}
+
+/** A restore holding these cases, lookup tables and places for Core's template user. */
 export function restoreXml(
 	content: {
 		readonly cases?: readonly RestoreCase[];
 		readonly tables?: readonly RestoreTable[];
+		readonly places?: readonly RestorePlace[];
 	} = {},
 ): string {
 	const root = el("OpenRosaResponse", {}, [
@@ -113,6 +203,7 @@ export function restoreXml(
 			el("date", {}, [text("2012-04-30")]),
 		]),
 		...(content.tables ?? []).map(fixture),
+		...(content.places === undefined ? [] : places(content.places)),
 		...(content.cases ?? []).map(caseBlock),
 	]);
 	return `${serializeXml(root)}\n`;

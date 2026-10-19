@@ -51,6 +51,7 @@ import {
 	type CaseDatabaseSnapshot,
 	caseDatabaseXPathInstance,
 	commcareSessionXPathInstance,
+	type SearchResultsSnapshot,
 } from "./xpathInstances";
 
 /** What the running app knows when a form's entry begins. */
@@ -62,6 +63,9 @@ export interface EntrySessionInput {
 	readonly boundCases: readonly PreviewCaseChoice[];
 	/** The menu's case selections, keyed by the module that chose them. */
 	readonly menuSelections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+	/** What the search of the form's search-first module returned, which
+	 *  the session holds on its query step for the whole entry. */
+	readonly searchResults?: SearchResultsSnapshot;
 }
 
 export interface EntrySessionData {
@@ -73,6 +77,13 @@ export interface EntrySessionData {
 	/** The id the entry minted for the case a registration creates, when the
 	 *  entry names one. The submission creates the case with it. */
 	readonly newCaseId?: string;
+	/** Each several-case datum's cases in selection order, keyed by the
+	 *  datum id the selected-entities instance is declared under. */
+	readonly selectedCases: Readonly<
+		Record<string, readonly string[]>
+	> /** What the entry's search returned, which its form and its links read
+	 *  as `results:inline`. */;
+	readonly searchResults?: SearchResultsSnapshot;
 }
 
 /**
@@ -96,7 +107,7 @@ export function entrySessionData(
 	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const moduleUuid = owningModuleOf(ctx, formUuid);
 	if (moduleUuid === undefined || doc.forms[formUuid] === undefined)
-		return { data: {}, values: new Map() };
+		return { data: {}, values: new Map(), selectedCases: {} };
 	const datums = entrySessionDatums(doc, ctx, moduleUuid, formUuid);
 	const ids = entryDatumIds(doc, ctx, moduleUuid, formUuid);
 	if (ids.length !== datums.length)
@@ -113,6 +124,7 @@ export function entrySessionData(
 	);
 	const data: Record<string, string> = {};
 	const values = new Map<string, SessionDatumValue>();
+	const selectedCases: Record<string, readonly string[]> = {};
 	let newCaseId: string | undefined;
 	const hold = (id: string, value: SessionDatumValue) => {
 		data[id] = value.value;
@@ -140,8 +152,16 @@ export function entrySessionData(
 				ref.kind === "selected-case",
 		);
 		if (selection.length > 0) {
-			// A several-case selection is the batch form's `selected-cases`.
-			if (!row.scalar) continue;
+			// A several-case selection is the batch form's `selected-cases`,
+			// the selected-entities instance under the datum's id.
+			if (!row.scalar) {
+				const chosen = selection
+					.map((ref) => chosenCases(ref.module))
+					.find((candidates) => candidates.length > 0);
+				if (chosen !== undefined)
+					selectedCases[datum.id] = chosen.map((choice) => choice.caseId);
+				continue;
+			}
 			const chosen = selection
 				.map((ref) => chosenCases(ref.module)[0])
 				.find((candidate) => candidate !== undefined);
@@ -191,7 +211,15 @@ export function entrySessionData(
 		if (ref?.kind === "new-case") newCaseId = value;
 		hold(datum.id, { value });
 	}
-	return { data, values, ...(newCaseId === undefined ? {} : { newCaseId }) };
+	return {
+		data,
+		values,
+		selectedCases,
+		...(newCaseId === undefined ? {} : { newCaseId }),
+		...(args.searchResults === undefined
+			? {}
+			: { searchResults: args.searchResults }),
+	};
 }
 
 /**

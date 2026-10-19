@@ -8,6 +8,24 @@ import {
 	ids,
 	requireContext,
 } from "@/lib/domain/expression/__tests__/formFixture";
+import {
+	instanceReadsDoc,
+	reads,
+	searchResults,
+	setCalculate,
+	setLinkCondition,
+} from "@/lib/domain/expression/__tests__/instanceReadsFixture";
+import {
+	count,
+	dateCoerce,
+	eq,
+	gt,
+	gte,
+	literal,
+	prop,
+	term,
+	today,
+} from "@/lib/domain/expression/builders";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import type {
 	Expression,
@@ -697,16 +715,6 @@ describe("functions a form can't run", () => {
 			},
 			right: value("Yes"),
 		};
-		const written = atCarrier("field", label);
-		expect(written).toEqual([
-			expect.objectContaining({
-				code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
-				details: expect.objectContaining({
-					reason: "choice-name",
-					choiceFieldId: "choice",
-				}),
-			}),
-		]);
 		const fromCases = atCarrier("field", label, (doc) => {
 			const choice = doc.fields[ids.choice];
 			if (choice.kind !== "single_select")
@@ -726,5 +734,271 @@ describe("functions a form can't run", () => {
 				}),
 			}),
 		);
+	});
+});
+
+describe("what a search found, in the forms of its module", () => {
+	const findings = (doc: ReturnType<typeof instanceReadsDoc>) =>
+		runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	const searchCodes = (doc: ReturnType<typeof instanceReadsDoc>) =>
+		findings(doc).filter((finding) =>
+			finding.code.startsWith("SEARCH_RESULTS_"),
+		);
+	const results = (...where: Expression[]) => searchResults(...where);
+	const found = (expression: Expression) => {
+		const doc = instanceReadsDoc();
+		setCalculate(doc, reads.found, expression);
+		return doc;
+	};
+	const district = term(prop("patient", "district"));
+
+	it("admits a count in the module's follow-up form and in its link's condition", () => {
+		expect(findings(found(count(results())))).toEqual([]);
+		const linked = instanceReadsDoc();
+		setLinkCondition(linked, gt(count(results()), literal(1)));
+		expect(findings(linked)).toEqual([]);
+	});
+
+	it("refuses it once the module no longer opens on its search", () => {
+		const doc = found(count(results()));
+		doc.modules[reads.find].caseSearchConfig = {};
+		doc.formOrder[reads.find] = [reads.checkIn, reads.note];
+		delete doc.forms[reads.register];
+		const refused = searchCodes(doc);
+		expect(refused).toMatchObject([
+			{
+				code: "SEARCH_RESULTS_NOT_SUPPLIED",
+				location: { fieldId: "found", field: "calculate" },
+				details: {
+					slot: "calculate",
+					carrier: "field",
+					reason: "not-search-first",
+				},
+			},
+		]);
+		expect(userFacingError(refused[0])).toBe(
+			'"found" reads what "Find patient"\'s search found, but "Find patient" no longer opens on its search, so "Check in" has no search results. You can turn Search first back on, or read the case the worker chose instead.',
+		);
+	});
+
+	it("refuses it in the no-matches form, which opens only when the search finds nothing", () => {
+		const doc = instanceReadsDoc();
+		setCalculate(doc, reads.registerProbe, count(results()));
+		expect(searchCodes(doc)).toMatchObject([
+			{
+				code: "SEARCH_RESULTS_NOT_SUPPLIED",
+				details: { reason: "no-matches-form" },
+			},
+		]);
+	});
+
+	it("refuses it in a link whose source form doesn't open after a search", () => {
+		const doc = instanceReadsDoc();
+		doc.forms[reads.visit].formLinks = [
+			{
+				uuid: testUuid("instance-reads-visit-link"),
+				target: { type: "module", moduleUuid: reads.households },
+				condition: gt(count(results()), literal(0)),
+			},
+		];
+		doc.forms[reads.visit].postSubmit = "app_home";
+		const refused = searchCodes(doc);
+		expect(refused).toMatchObject([
+			{
+				code: "SEARCH_RESULTS_NOT_SUPPLIED",
+				location: { formName: "Visit", field: "form_link_condition" },
+				details: { carrier: "form-link", reason: "link-source" },
+			},
+		]);
+		expect(userFacingError(refused[0])).toBe(
+			'A link from "Visit" reads what a search found, but "Visit" doesn\'t open after a search. You can read a case property instead.',
+		);
+	});
+
+	it.each<[string, Expression]>([
+		[
+			"a positional step",
+			{
+				kind: "project",
+				of: results(term(literal(1))),
+				value: prop("patient", "district"),
+			},
+		],
+		[
+			"position() inside the query",
+			count(
+				results(eq({ kind: "call", fn: "position", args: [] }, literal(2))),
+			),
+		],
+		[
+			"join over its node-set",
+			{
+				kind: "call",
+				fn: "join",
+				args: [
+					term(literal(" ")),
+					{
+						kind: "project",
+						of: results(),
+						value: prop("patient", "district"),
+					},
+				],
+			},
+		],
+	])(
+		"refuses a read that depends on the search's order: %s",
+		(_label, expression) => {
+			const refused = searchCodes(found(expression));
+			expect(refused).toMatchObject([
+				{ code: "SEARCH_RESULTS_READ_INVALID", details: { reason: "order" } },
+			]);
+			expect(userFacingError(refused[0])).toBe(
+				'A formula on "found" in "Check in" reads what the search found by its order. CommCare\'s search returns its cases in no fixed order, so the first or last result can change from one search to the next. You can count the results, or read a value of the case the worker chose.',
+			);
+		},
+	);
+
+	it("admits order-free reads: a count of a filter, and one case by its id", () => {
+		expect(
+			findings(found(count(results(eq(district, literal("north")))))),
+		).toEqual([]);
+		expect(
+			findings(
+				found({
+					kind: "project",
+					of: results(eq(term(prop("patient", "case_id")), literal("abc"))),
+					value: prop("patient", "district"),
+				}),
+			),
+		).toEqual([]);
+	});
+
+	it("refuses a case type the search cannot return, beside the searched type", () => {
+		const typed = (caseType: string) =>
+			found(
+				count(
+					results(
+						eq(
+							{ kind: "term", term: { kind: "case-row-type" } },
+							{ kind: "term", term: { kind: "case-type", caseType } },
+						),
+					),
+				),
+			);
+		const refused = searchCodes(typed("household"));
+		expect(refused).toMatchObject([
+			{
+				code: "SEARCH_RESULTS_READ_INVALID",
+				details: {
+					reason: "other-type",
+					caseType: "patient",
+					otherCaseType: "household",
+				},
+			},
+		]);
+		expect(userFacingError(refused[0])).toBe(
+			'A formula on "found" in "Check in" looks for household cases in what the search found, but this search only finds patient cases, so no result is one. You can remove that case type from the formula.',
+		);
+		expect(findings(typed("patient"))).toEqual([]);
+	});
+
+	it("holds a result's opened day as a day, and its last change as a moment", () => {
+		const opened = term(prop("patient", "date_opened"));
+		const changed = term(prop("patient", "last_modified"));
+		expect(
+			findings(found(count(results(gte(opened, now))))).map((finding) => [
+				finding.code,
+				finding.details?.reason,
+				finding.details?.systemDate,
+			]),
+		).toEqual([
+			["XPATH_INCOMPATIBLE_VALUES", "day-only-on-device", "date_opened"],
+		]);
+		expect(
+			findings(found(count(results(eq(opened, now))))).map(
+				(finding) => finding.details?.reason,
+			),
+		).toEqual(["day-only-on-device"]);
+		expect(
+			findings(found(count(results(gte(dateCoerce(opened), today()))))),
+		).toEqual([]);
+		expect(findings(found(count(results(gt(changed, now)))))).toEqual([]);
+	});
+});
+
+describe("a choice's label and a question's wording", () => {
+	it("admits a written choice's label", () => {
+		const label: Expression = eq(
+			{ kind: "choice-name", field: ids.choice, value: field(ids.choice) },
+			value("Yes"),
+		);
+		expect(atCarrier("field", label)).toEqual([]);
+	});
+
+	it("refuses wording that shows an answer, beside the same wording as plain text", () => {
+		const wording = (shows: boolean) => {
+			const doc = instanceReadsDoc();
+			const name = doc.fields[reads.name];
+			if (name.kind !== "text")
+				throw new Error("The name question is missing.");
+			name.label = shows
+				? {
+						parts: [
+							{ kind: "text", text: "Name of " },
+							{ kind: "field-ref", uuid: reads.choice },
+						],
+					}
+				: proseText("Name");
+			setCalculate(doc, reads.greeting, {
+				kind: "itext",
+				unit: { field: reads.name, role: "field-label" },
+			});
+			return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		};
+		const refused = wording(true);
+		expect(refused).toMatchObject([
+			{
+				code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+				details: {
+					reason: "itext-reference",
+					wordingKind: "question",
+					wordingFieldId: "name",
+				},
+			},
+		]);
+		expect(userFacingError(refused[0])).toBe(
+			'A formula on "greeting" in "Check in" reads the wording of "name", which shows an answer. CommCare would show a placeholder there instead of the answer. You can read the answer itself instead.',
+		);
+		expect(wording(false)).toEqual([]);
+	});
+
+	it("refuses a choice's label where a label of the question's choices shows an answer", () => {
+		const doc = instanceReadsDoc();
+		const choice = doc.fields[reads.choice];
+		if (
+			choice.kind !== "single_select" ||
+			choice.optionsSource.kind !== "inline"
+		)
+			throw new Error("The choice question is missing.");
+		choice.optionsSource.options[1] = {
+			...choice.optionsSource.options[1],
+			label: {
+				parts: [
+					{ kind: "text", text: "Not " },
+					{ kind: "field-ref", uuid: reads.name },
+				],
+			},
+		};
+		setCalculate(doc, reads.greeting, {
+			kind: "choice-name",
+			field: reads.choice,
+			value: term(literal("yes")),
+		});
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toMatchObject([
+			{
+				code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+				details: { reason: "itext-reference", wordingKind: "choice" },
+			},
+		]);
 	});
 });

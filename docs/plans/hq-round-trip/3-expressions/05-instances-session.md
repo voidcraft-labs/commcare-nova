@@ -74,9 +74,18 @@ citation says where a behavior lives. Where an execution decides a fact, the tex
    extractors in `lib/doc/lookupReferences.ts::PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS`, so the
    rows-free validation, the publish push, the `.ccz` fixtures, the plan feature, the table and
    column governance and the Project move rule all follow with no code of their own.
+   **Implementation correction, 2026-10-19:** no extractor is added. The registry already makes one
+   extractor per expression slot of the field, form and module reference-slot registries, keyed by
+   slot name, so form logic, Connect, `form_link_condition` and `form_link_datum_xpath` were
+   extracted before pull request 9; four more would count each occurrence twice, and a second
+   `form_link_condition` throws "Duplicate lookup reference registry slot". Pull request 9 holds the
+   edges with tests instead (§2.3's correction).
 10. **Manifest:** seven entries flip from HELD-NEW to HELD in step 3, six in pull request 9 (the
     results read among them) and the navigation-slot datum read in pull request 10; every other
     entry this part touches stays HELD-NEW, named with the step that owns it (§3).
+    **Implementation correction, 2026-10-19:** pull request 9 flips eight: the six of §3 and
+    `jr-itext-id` and `jr-choice-name-value-path-on-a-static-choice-select`, which follow
+    `targeted-text-reads` (part 10's file list already named them), so step 3 flips nine.
 11. **A form of an inline-search module reads the cases its search found** (§2.8):
     `cases { source: "search-results" }` prints `instance('results:inline')/results/case[not(commcare_is_related_case = true())][…]`,
     always excluding the related cases HQ appends, so its row type is the searched case type. It is
@@ -718,6 +727,22 @@ query or a `commcaresession` read (`session/data`, `session/context`, `session/u
 other instance id appears, so no stored text reads a lookup table, a location, groups, selected
 cases, search results or search inputs.
 
+**Implementation correction, 2026-10-19 (pull request 9):** the four extractors are not written
+(decision 9's correction). `lib/doc/__tests__/formLogicLookupReferences.test.ts` holds that a
+question-logic, a Connect and a link read each give their exact occurrence and stored target (which
+drives the deletion refusal), that `LOOKUP_TABLE_NOT_AVAILABLE` names each read once the table is
+gone (one finding per carrier slot, in document order: `validateLookupReferences` reports a gone table
+once for the expression that names it at several paths, a lookup's result and match columns, and
+orders occurrences by menu, form and question, where extraction's identity order meant nothing to a
+reader), and, through `prepareExportBoundaryWithReads`, that the `.ccz` embeds the fixture and both HQ
+modes carry the workbook. `lib/commcare/validator/rules/form.ts`'s link datum rule now builds its
+projection under `identityLookupWireNaming()`: without a naming, validating any link whose condition
+or datum reads a table threw "A lookup-row query needs the Project lookup naming catalog", which broke
+the gate and export. HQ's `FormBase.has_fixtures` is the literal substring
+`'src="jr://fixture/item-list:'`, so `lib/commcare/__tests__/instanceReadEmission.test.ts` holds the
+XForm's double-quoted `src="jr://fixture/item-list:regions"`; otherwise HQ's build would skip the
+`lookup_tables` check for a form whose logic reads a table.
+
 ### 2.4 Flat locations
 
 **Arms.** `locations { where }`, `project { value: location-field }`, and `location-level` (part 01
@@ -793,6 +818,43 @@ setting is the space's, which no API key reads. That is defect 14 / finding 69's
   `locationsXPathInstance` over the same organization and persona (element and attribute names,
   order, values up to the id mapping), so Preview's shape is held to HQ's.
 
+**Implementation correction, 2026-10-19 (pull request 9):**
+
+- `formsReadingLocationsFixture(doc)` returns `{ formUuid, why: "owner" | "reads" }[]`. It still
+  decides by the serializer, not a domain walk: it lowers every expression the form carries
+  (question logic, Connect, case operations and the display condition through
+  `formExpressionEmission`, as XForm; link conditions and datum values through
+  `projectFormLinkSessionExpression`, as suite) and counts a form whose printed trees declare
+  `locations`. It prints under `identityLookupWireNaming()`, because `toWire` of a table read throws
+  without a naming and the location decision reads no table id. `why` is `owner` only when a case
+  owner is the form's only place read. A level code alone (`location-level`) prints a literal and
+  declares nothing.
+- `planPrivileges.ts::flatLocationFixtureReasons` says "`<form>` reads places in your
+  organization." for a read in form logic or a link alike, and keeps "`<form>` sets a case's owner
+  from a place in your organization." for an owner-only form; the `locations` privilege's form
+  reasons are the same sentences. `lib/publish/planFeatures.ts` is unchanged. No other slot can read places,
+  so forms are the whole count: every menu, case list, Search and display condition slot (and a case
+  operation's or a choice list's record rule) is a record rule, and the checker refuses a `locations`
+  read there, or a `count` or `project` of one, as `arm-unavailable` with reason `places-unavailable`
+  ("This setting can't read places. You can read them in a form's questions or its links
+  instead."), since no menu, detail or remote request declares the fixture. Preview therefore
+  supplies places to forms only.
+- `LOCATIONS_READ_NEEDS_ORGANIZATION` is a validator rule, `lib/commcare/validator/rules/locationsRead.ts`,
+  run inside the per-form logic walk so the editor and the gate see it alike, and refuses a
+  `locations` read only; owner hops keep their existing checks. Its sentence as written: "`<carrier>`
+  reads places, but this app has no organization yet. You can add your organization's levels in App
+  setup first."
+- Preview: `personaFootprint` had no production caller; it now feeds
+  `footprint.ts::locationFixtureRows`, which `loadCaseDatabaseSnapshotAction` returns as `locations`
+  in plain JSON (part 07 §3's correction).
+- The lane: `proof/native/test_location_emission.py` asserts HQ declares `jr://fixture/locations`,
+  not the hierarchical fixture, on the link's entry and in the form; the comparison with
+  `locationsXPathInstance` above is not written (part 08 §2.6's correction).
+- `lib/commcare/validator/suiteOracle.ts`'s rule that every declared `jr://fixture/…` source names
+  an embedded fixture skips exactly `jr://fixture/locations`, which HQ's restore delivers as the
+  user fixture `locations` (`corehq/apps/locations/fixtures.py::flat_location_fixture_generator`)
+  and the archive never embeds, so an app whose link reads places compiles to a `.ccz`.
+
 ### 2.5 The batch form's selected cases
 
 `selected-cases { module }` prints `instance('<datum id>')/results/value` (part 01 §2.3), the
@@ -822,6 +884,15 @@ read and any form-logic read (part 04 §2.4: the unconditional `requireSelectedC
 factory gives the same src. Several-case selection is a Web Apps feature (inventory, "Secondary
 instances", `selected_cases` RUNS / UNAVAILABLE), which step 4's platform declaration governs with
 the module itself, not this read.
+
+**Implementation correction, 2026-10-19 (pull request 9):** `typeChecker.ts::selectedCasesAdmission`
+admits the read in a question (`slot.entity === "field"`) of a form whose supplies hold the module's
+`selected-case` with `scalar: false`. A link or Connect slot is `datum-not-supplied` with reason
+`selected-cases-carrier`, another form's question the same code with reason `selected-cases`, both
+`SESSION_DATUM_NOT_SUPPLIED`; a removed module is a dangling identity. Read as one value it is
+`XPATH_MANY_VALUES`. Preview builds the instance from `entrySessionData`'s `selectedCases`. Android
+has no several-case selection at all (no multi-select entity screen in commcare-android at the pin),
+so the public docs describe the read without naming a platform.
 
 ### 2.6 Deferred reads
 
@@ -1155,6 +1226,44 @@ and finds no patient in (part 08 §4.5: "`#search/<name>` in the no-matches form
 (part 08 §4.5). Proofs 1 to 5 with every walk held to its end; the manifest usage record shows
 `results-read-in-form-expressions-of-an-inline-search-module`, now HELD.
 
+**Implementation correction, 2026-10-19 (pull request 9):**
+
+- **Row type.** Both halves type a `results:inline` row with no `@case_type` as the searched
+  module's case type, `ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module)`:
+  `typeChecker.ts::expressionRowScope` and `lib/commcare/xpath/formPathBinding.ts`'s provisional row.
+  Before, both typed by `@case_type` / `@case_id` alone, so rule 3 could bind a custom property to
+  another type that declares it and the checker's row type would disagree.
+- **Parse copy** as written: the remote-search refusal ends "You can read the case the worker chose
+  with #<own module type>/ instead." and drops "with #…/" when the module has no case type; the
+  plan's backticks are left out, as in the other parse messages.
+- **Order.** Also refused: `index-of` over results and `concat` of the results alone, which keep
+  the node-set's order as `join` does (Core's `XPathConcatFunc`).
+- **`link-source`'s sentence** ends "You can read a case property instead.", because a link cannot
+  read a question.
+- **The gate.** The edges are as planned (`referenceIndex.ts::expressionEdges` keys the read on the
+  carrier's module, which for a link is the source form's module). A registration form added alone
+  is refused by `SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE` before any search-results rule, so what
+  reaches `SEARCH_RESULTS_NOT_SUPPLIED` is turning Search first off, moving the form out, or a batch
+  that adds a registration form while turning Search first off; the docs say so. The
+  scoped gate's module scope adds every form of a module whose Search settings change, and every
+  link source (part 03 §3.8's correction).
+- **The cap.** `lib/commcare/session.ts::SEARCH_RESULTS_CAP = 500`, beside `INLINE_SEARCH_RESULTS_SRC`,
+  citing `CASE_SEARCH_MAX_RESULTS`, the `.size()` of `_get_initial_search_es` and the 1,500 toggle.
+- **Preview** loads the snapshot in `FormScreen` through `hooks/useSearchResultsSnapshot.ts`, keyed by
+  the attempt and its answers, the worker and the parent selection, not in `EngineController` by
+  entry key, and finds the forms that read it by a walk of their expression slots, not the
+  reference index; **Clear form keeps the entry's snapshot** (part 07 §3.2's correction).
+  `evaluateFormSnapshot` refuses a form that reads results with no snapshot supplied; App Tests read
+  the session's latest search; the MCP `evaluate_form` and App Tests' after-submit evaluation supply
+  none yet (open).
+- **Native proof and lane.** `formReadsTheResultsItsSearchReturned` reads the targeted document
+  `targeted-inline-search-reads` rather than the `inline` producer scenario (part 08 §2.6's
+  correction). The document as built: "Find patient" opens on Search, its "Check in" form counts the
+  results and reads the chosen patient's district from its own result, its link condition reads the
+  count, and "Register patient" (the no-matches form) starts its name from `#search/patient_name`.
+  Core's evaluate opens no form with a search behind it, so the fixed value is a plain "Visit" form's
+  answer, and the reads of the results run on every walk.
+
 ---
 
 ## 3. Inventory rows and manifest entries
@@ -1183,6 +1292,13 @@ record of what Nova holds and its `slotChanges`, and changes no gate.
 | `case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it` (`caseSearchConfig.resultsInstanceName`, in `lib/commcare/surface/entries/case-search.json`) | HELD-NEW | a setting Nova does not hold yet, step 7, group 5; §2.8 prints `results:inline` until then |
 | `results-read-in-form-expressions-reached-through-a-search-that` | REFUSED (unchanged) | the remote search's rewind drops the query step; the parser refuses `instance('results')` (§2.8) |
 | `commtrack-locations-hierarchical` (class `hierarchical-locations`) | REFUSED (unchanged) | a form link's `locations` read now reaches a suite declaration (§2.4), so the class gains its reader `hierarchical_locations` in pull request 9, instances and session (part 08 §5.2) |
+
+**Implementation correction, 2026-10-19:** pull request 9 also flips `jr-itext-id` and
+`jr-choice-name-value-path-on-a-static-choice-select` to HELD (decision 10's correction), so its
+flips are eight, each with its `narrow:` slot change written into the disposition cell and held by
+`manifest.test.ts`; `xpath-location-paths` has no inventory row (it is export use).
+`commtrack-locations-hierarchical`'s class gains `hierarchical_locations`, and its `KNOWN_GAPS` entry
+in `test_manifest_value_classes.py` is removed.
 
 The six flips of pull request 9 and the navigation-slot flip of pull request 10 are part 08 §5.1's
 part-05 row, each edited in `lib/commcare/surface/entries/expressions-and-data.json` and the
@@ -1224,6 +1340,26 @@ in pull request 9 but the session values paragraph, which part 10 splits: its re
 Preview's supply land in pull request 7 with the session map, and its sentence on the editor's list
 lands in 9 with the completion source. The sibling `../nova-plugin` repository's prose is swept
 for any claim that raw XPath cannot read a table (part 10, the nova-plugin check).
+
+**Implementation correction, 2026-10-19: the completion sources and guide, as built (pull request
+9).** `lib/codemirror/xpath-lint.ts`'s reference context gains `instanceReads`, built in
+`buildLintContext.ts` from the slot's checker context and `entryDatumIds` with the checker's own
+admission: tables; places only when the app has levels; the several-case datum id only in a question
+of a several-case form; `results:inline` only where the entry carries the inline query and the form is
+not the no-matches form; `search-input:results:inline` in the no-matches form; and the session values
+labelled by meaning ("The case chosen in Patients", "This form's new patient case").
+`xpath-autocomplete.ts`'s `instanceSource` completes the id inside `instance('…')`, each step below
+each instance (for `results:inline` the exclusion row is the only row offered), row predicates and
+level codes after `@type = '`, detected on Lezer nodes alone; the function source stands aside inside
+a quoted value. `groups` and `results` are never offered. The editor's `search-input` paths follow the
+parser, which reads exactly Core's `/input/field[@name = '…']` with the name quoted
+(`VirtualInstances.java::buildSearchInputInstance`), the shape `#search/<name>` prints; the
+`…/results/inputs/<name>` spelling an earlier draft of the parser accepted is refused with the
+unknown-search-input sentence (implementation correction, 2026-10-19). The guide (`reference.ts`) gains item 3 and item 6
+of part 02 §3.1 as written, and `MODEL_CONTEXT_VERSION` is not bumped in this pull request: the stack
+deploys once, and pull request 12 sets the final value. `../nova-plugin`'s
+`skills/upload_to_hq/SKILL.md` says a table is left behind when "the last question reading it is
+gone"; form logic, Connect and links read tables too, so "the last read of it" is the accurate claim.
 
 ---
 
@@ -1352,6 +1488,36 @@ instances and session.
   chosen case in a record slot to part 08's `targeted-csql-composition`, whose search narrows by
   the case chosen in an earlier menu (part 08 §4.5).
 
+**Implementation correction, 2026-10-19: the tests of pull request 9, as built.**
+
+- The three Core scenarios are targeted documents from the start, not producer appends (PR 5's
+  appends moved other documents' batches): `LookupRuntimeTest.formLogicAndItsLinkReadTheTableByItsTag`
+  and `LocationOwnerRuntimeTest.formLogicAndItsLinkReadPlacesFromRealIndexedFixture` read
+  `targeted-instance-reads`, and `SearchRuntimeTest.formReadsTheResultsItsSearchReturned` reads
+  `targeted-inline-search-reads`, each on the local archive and on HQ's regenerated form and suite
+  (part 08 §2.6's correction). No producer changes.
+- Pure and gate tests: `lib/commcare/validator/__tests__/instanceReadAdmission.test.ts` (replacing
+  `deferredInstanceAdmission.test.ts`, over `lib/domain/expression/__tests__/instanceReadsFixture.ts`),
+  `lib/doc/__tests__/instanceReadReferences.test.ts` (each read's reference edge, and the gate
+  refusing turning Search first off, moving the form and a registration batch, each with
+  `not-search-first` or `link-source`, beside a rename that commits),
+  `lib/doc/__tests__/formLogicLookupReferences.test.ts` (§2.3's correction),
+  `lib/commcare/__tests__/instanceReadEmission.test.ts` over `instanceReadFixture.ts` (each arm's
+  XForm declaration, the double-quoted fixture source, the link text HQ receives and the suite
+  entry's `item-list:regions`, `results:inline` and `locations`),
+  `lib/commcare/xpath/__tests__/instanceReads.roundtrip.test.ts` (each arm, `item-list:<tag>`
+  printing back as the bare tag in a form, the row typing beside its `case-query-untyped` contrast,
+  both parse sentences), and `lib/codemirror/__tests__/instanceCompletion.test.ts` (each offer
+  completed to a read the editor's parser and checker admit). `typeChecker.test.ts`,
+  `formLogicFindings.test.ts`, `gate.test.ts`, `sessionData.test.ts`, `entryDatumIds.test.ts`,
+  `entryDatumSupplies.test.ts`, `fromExpression.test.ts`, `instantAgreement.test.ts` and
+  `planPrivileges.test.ts` are extended.
+- Preview: `searchResultsXPathInstance.test.ts`, `formText.test.ts`,
+  `formEngineInstanceReads.test.ts` (every read in question logic and in links, through the
+  synchronous engine and the worker), `lib/preview/xpath/__tests__/formTextFunctions.test.ts`, and
+  `searchResultsSnapshot.postgres.test.ts`, which CI runs. The refusal panel and the cap line have
+  no automated test yet; they need a Playwright smoke.
+
 ## 6. Production and the cutover
 
 ### 6.1 What production holds (executed during planning)
@@ -1446,6 +1612,10 @@ holds it in full). This part lands in four of them:
   `targeted-text-reads` (the `jr:itext` and `jr:choice-name` reads) and the new
   Core scenarios of `LookupRuntimeTest`, `LocationOwnerRuntimeTest` and `SearchRuntimeTest`. The
   chips ride pull request 11, the builder.
+  **Implementation correction, 2026-10-19:** no lookup extractor is added (decision 9), the flips
+  are eight (decision 10), `MODEL_CONTEXT_VERSION` is not bumped (pull request 12 sets the final
+  value, since the stack deploys once), the worker protocol stays 8, and the Core scenarios read
+  targeted documents (§5's correction).
 - **Pull request 10, CSQL:** the chosen case's supply (decision 15): the `case-list`, `search` and
   `form-menu` points of the domain half, `SESSION_DATUM_NOT_SUPPLIED` at those points with the
   record sentences and the reasons `not-before` and `differs` (§1.6), the reference-index refusals of §1.7, Preview's

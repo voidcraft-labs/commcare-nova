@@ -4,7 +4,10 @@ import type { SetvalueRefusalDetails } from "./answerCast";
 import type { FormAnswerValue } from "./formAnswerValue";
 import type { ResolvedPreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
-import type { CaseDatabaseSnapshot } from "./xpathInstances";
+import type {
+	CaseDatabaseSnapshot,
+	SearchResultsSnapshot,
+} from "./xpathInstances";
 export interface FormEvaluationFault {
 	readonly path: string;
 	readonly expression: string;
@@ -67,6 +70,10 @@ export interface FormEvaluationContext {
 		PreviewLookupData,
 		"projectRevision" | "definitions" | "rowsByTable"
 	>;
+	/** What the search of the form's search-first module returned
+	 * (`searchResultsSnapshot.ts`), read as `results:inline` by the form and
+	 * its after-submit links. Absent, the form has no search results. */
+	searchResults?: SearchResultsSnapshot;
 	/** The running session the entry starts from: the app its `uuid()`
 	 * datums are minted in and the menu's case choices
 	 * (`entrySessionData.ts`). Without it the entry holds its selected

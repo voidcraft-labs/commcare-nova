@@ -239,6 +239,13 @@ there leaves every selected case's attachment destination unchanged. Explicit
 case changes run for every selected case too, and any failure leaves every case
 unchanged.
 
+A formula in that form can read the whole selection: for example,
+`count(instance('selected_cases')/results/value)` shows how many cases the
+worker chose. Reading the selection where one value is needed is refused,
+because the form runs over every case in it. Only the form's questions read the
+selection, so an after-submit link can't, and a CommCare Connect setting can
+read a hidden value that holds the count.
+
 When a child uses a related case type, Results combines the direct children of
 every selected parent before the worker makes the child's own selection.
 
@@ -351,6 +358,17 @@ module by default, which reopens Search.
 A search-first module does not share its search results with a submenu or
 with a module that selects a parent case from it. Give such a module its
 own ordinary case list instead.
+
+A form in a search-first module can read what the search found, for example
+how many cases it returned, with
+`count(instance('results:inline')/results/case[not(commcare_is_related_case = true())])`.
+CommCare's search returns up to 500 cases, and Preview reads the same 500.
+Cases CommCare adds only to show related details aren't part of what the
+search found. The search returns its cases in no fixed order, so a formula
+that picks the first or last result, or joins them in order, is refused; you
+can count them or check for a particular case instead. While a form reads what
+the search found, turning **Search first** off or moving that form to another
+module is refused, and Nova names the form that reads them.
 
 ### Register when nothing matches
 

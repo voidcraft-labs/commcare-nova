@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
+	clinicNames,
+	INSTANCE_READS,
+	instanceReadFixture,
+} from "@/lib/commcare/__tests__/instanceReadFixture";
+import {
 	type CaseType,
 	type SearchInputDef,
 	simpleSearchInputDef,
@@ -35,6 +40,8 @@ import {
 	subcasePath,
 	switchCase,
 	switchExpr,
+	tableColumn,
+	tableLookup,
 	term,
 	today,
 } from "@/lib/domain/expression/builders";
@@ -519,5 +526,108 @@ describe("a comparison no device can answer between moments never reaches the wi
 			if (wire.k !== "cmp") throw new Error("Expected a comparison.");
 			expect(wire.left).toEqual(instantMicros(fx.lowerForm(fx.field("u"))));
 		}
+	});
+});
+
+// Each instance arm chooses its declaration where it builds its root; the
+// serializer returns exactly the declarations its printed tree reaches.
+describe("instance arms declare what they read, per target", () => {
+	const { doc, table, naming } = instanceReadFixture();
+	const [value, label] = table.columns;
+	const visit = Object.values(doc.fields).find(
+		(field) => field.id === "region_label",
+	);
+	if (visit === undefined) throw new Error("The fixture has no Visit field.");
+	const types = slotContext(
+		doc,
+		{ entity: "field", uuid: visit.uuid, slot: "calculate" },
+		new Map([
+			[
+				table.id,
+				new Map(table.columns.map((column) => [column.id, column.dataType])),
+			],
+		]),
+	);
+	if (types === undefined) throw new Error("The Visit field has no context.");
+	const printed = (
+		expression: Expression,
+		target: "xform" | "suite",
+		bindings: WireBuildContext["bindings"] = {},
+	) => {
+		const serialized = serializeWire(
+			toWire(expression, {
+				target,
+				types,
+				bindings: { ...bindings, lookup: { naming, instanceScope: target } },
+			}),
+			{ target, constraint: false },
+		);
+		return {
+			text: serialized.text,
+			instances: [...serialized.instances].map(({ id, src }) => [id, src]),
+		};
+	};
+
+	it("names a data table by its tag in a form and by its fixture id in a suite", () => {
+		const read = tableLookup(
+			table.id,
+			label.id,
+			eq(tableColumn(table.id, value.id), literal("north")),
+		);
+		expect(printed(read, "xform")).toEqual({
+			text: "instance('regions')/regions_list/regions[value = 'north'][1]/label",
+			instances: [["regions", "jr://fixture/item-list:regions"]],
+		});
+		expect(printed(read, "suite")).toEqual({
+			text: "instance('item-list:regions')/regions_list/regions[value = 'north'][1]/label",
+			instances: [["item-list:regions", "jr://fixture/item-list:regions"]],
+		});
+	});
+
+	it("declares places for a row read and nothing for a level's code", () => {
+		expect(printed(clinicNames(), "suite")).toEqual({
+			text: "instance('locations')/locations/location[@type = 'clinic']/name",
+			instances: [["locations", "jr://fixture/locations"]],
+		});
+		const clinic = doc.organizationLevelOrder?.[2];
+		if (clinic === undefined)
+			throw new Error("The fixture has no clinic level.");
+		expect(
+			printed(term({ kind: "location-level", levelUuid: clinic }), "xform"),
+		).toEqual({ text: "'clinic'", instances: [] });
+	});
+
+	it("reads the chosen cases under the datum id the entry gives them", () => {
+		expect(
+			printed(
+				count({
+					kind: "selected-cases",
+					module: INSTANCE_READS.batchModule,
+				}),
+				"xform",
+				{ datumId: () => "selected_cases" },
+			),
+		).toEqual({
+			text: "count(instance('selected_cases')/results/value)",
+			instances: [
+				["selected_cases", "jr://instance/selected-entities/selected_cases"],
+			],
+		});
+	});
+
+	it("prints the related-case exclusion before every condition on what the search found", () => {
+		expect(
+			printed(
+				count({
+					kind: "cases",
+					source: "search-results",
+					where: [eq(prop("patient", "district"), literal("north"))],
+				}),
+				"suite",
+			),
+		).toEqual({
+			text: "count(instance('results:inline')/results/case[not(commcare_is_related_case = true())][district = 'north'])",
+			instances: [["results:inline", "jr://instance/remote/results:inline"]],
+		});
 	});
 });

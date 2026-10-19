@@ -19,10 +19,13 @@ import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
-import type {
-	LookupColumnId,
-	LookupOptionsSource,
-	LookupTableId,
+import {
+	type BlueprintDoc,
+	expressionSlotValues,
+	type LookupColumnId,
+	type LookupOptionsSource,
+	type LookupTableId,
+	type Uuid,
 } from "@/lib/domain";
 import { typeCheckerBypassMessage } from "@/lib/domain/expression";
 import {
@@ -188,6 +191,35 @@ export function expressionLookupsCovered(
 	const collector = identityCollector(data);
 	mapExpressionAst(expression, coverageHooks(collector));
 	return collector.covered;
+}
+
+/**
+ * Whether a snapshot covers every table a form's logic, Connect block and
+ * links read. Printing such a read needs the table's naming, so an entry
+ * whose logic reads a table waits for the covering snapshot before its engine
+ * is built. A choice list's source is left out: its choices have their own
+ * loading state.
+ */
+export function formLogicLookupsCovered(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	data: PreviewLookupData | undefined,
+): boolean {
+	const covered = (owner: {
+		readonly entity: "form" | "field";
+		readonly uuid: Uuid;
+	}) =>
+		expressionSlotValues(doc, owner).every(
+			({ ref, expression }) =>
+				ref.slot === "lookup_options_source" ||
+				expressionLookupsCovered(expression, data),
+		);
+	if (!covered({ entity: "form", uuid: formUuid })) return false;
+	const visit = (parent: Uuid): boolean =>
+		(doc.fieldOrder[parent] ?? []).every(
+			(uuid) => covered({ entity: "field", uuid }) && visit(uuid),
+		);
+	return visit(formUuid);
 }
 
 /**

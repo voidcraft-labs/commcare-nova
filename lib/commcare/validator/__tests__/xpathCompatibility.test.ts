@@ -7,7 +7,6 @@ import {
 	requireContext,
 } from "@/lib/domain/expression/__tests__/formFixture";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
-import type { Expression } from "@/lib/domain/expression/types";
 import { checkFormLogicSlot, formLogicFindings } from "../formLogicFindings";
 
 describe("stored expression profile admission", () => {
@@ -30,27 +29,27 @@ describe("stored expression profile admission", () => {
 			);
 		},
 	);
-	it.each(["here", "choice-name"] as const)(
-		"presents the held %s arm through the shared checker",
-		(kind) => {
-			const expression = (
-				kind === "here"
-					? { kind }
-					: {
-							kind,
-							value: { kind: "term", term: { kind: "literal", value: "yes" } },
-							field: ids.choice,
-						}
-			) as Expression;
-			expect(formLogicFindings(expression, ctx)).toContainEqual(
-				expect.objectContaining({
-					code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
-					checkCode: "arm-unavailable",
-					reason: kind,
-				}),
-			);
-		},
-	);
+	it("presents the held here arm through the shared checker", () => {
+		expect(formLogicFindings({ kind: "here" }, ctx)).toContainEqual(
+			expect.objectContaining({
+				code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+				checkCode: "arm-unavailable",
+				reason: "here",
+			}),
+		);
+	});
+	it("admits the label of a written choice through the same checker", () => {
+		expect(
+			formLogicFindings(
+				{
+					kind: "choice-name",
+					value: { kind: "term", term: { kind: "literal", value: "yes" } },
+					field: ids.choice,
+				},
+				ctx,
+			),
+		).toEqual([]);
+	});
 	it("checks function arity without storing source syntax", () => {
 		expect(
 			checkExpression({ kind: "call", fn: "round", args: [] }, ctx).errors,

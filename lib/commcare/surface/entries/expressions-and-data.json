@@ -68,8 +68,14 @@
 		"section": "Secondary instances",
 		"item": "session `data/<datum>`",
 		"surfaceKeys": ["session-path:session/data/*"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the `session-datum` term over `DatumRef` identity (the case chosen in a menu, the case the form registers, a new child case, the worker's record, a tile group's parents), printed as the id the entry derives; narrow: to the datums the form's entry supplies where the slot runs (`SESSION_DATUM_NOT_SUPPLIED`); a placeholder, and a several-case datum read as one value, are refused when the text is read",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "to the datums the form's entry supplies where the slot runs (`SESSION_DATUM_NOT_SUPPLIED`); a placeholder, and a several-case datum read as one value, are refused when the text is read"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -429,8 +435,9 @@
 		"item": "`item-list:<tag>` read in any other expression",
 		"surfaceKeys": ["instance-scheme:item-list", "instance-source:fixture"],
 		"valueClass": "other-expression",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed lookup-table reference bound to the Project table, its fields and properties",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `table-lookup`, `table-rows` and `table-column` bound to the Project table and its columns, in form logic, Connect and form links; a form prints the bare tag and a suite `item-list:<tag>`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -488,8 +495,14 @@
 			"xform:model/instance@src"
 		],
 		"valueClass": "flat-locations",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed location reference (today only typed owner terms); with `project_default`, which Nova writes once defect 14 is fixed, and today writes `both_fixtures`, the restore both runtimes receive follows the project space's stored setting (`locations/fixtures.py::should_sync_flat_fixture`), which publish confirms",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `locations`, `location-field` and `location-level` bound to the organization's levels and place properties, in form logic, Connect and form links; with `project_default`, which Nova writes once defect 14 is fixed, and today writes `both_fixtures`, the restore both runtimes receive follows the project space's stored setting (`locations/fixtures.py::should_sync_flat_fixture`), which publish confirms; narrow: to an app with organization levels (`LOCATIONS_READ_NEEDS_ORGANIZATION`)",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "to an app with organization levels (`LOCATIONS_READ_NEEDS_ORGANIZATION`)"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -631,8 +644,14 @@
 			"instance-source:jr://instance/remote"
 		],
 		"valueClass": "inline-search-form",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed search-result reference",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `cases { source: \"search-results\" }`, read from `instance('results:inline')` in the forms an inline search opens and their links; narrow: to `results:inline` behind the related-case exclusion, in a form whose entry carries the inline query (`SEARCH_RESULTS_NOT_SUPPLIED`), over the searched case type, with no read of the order the search returns (`SEARCH_RESULTS_READ_INVALID`)",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "to `results:inline` behind the related-case exclusion, in a form whose entry carries the inline query (`SEARCH_RESULTS_NOT_SUPPLIED`), over the searched case type, with no read of the order the search returns (`SEARCH_RESULTS_READ_INVALID`)"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (UNAVAILABLE for results not on the device)",
@@ -3078,8 +3097,14 @@
 		"item": "`instance('id')`, `current()` path roots",
 		"surfaceKeys": ["xpath-expr:XPathPathExpr"],
 		"valueClass": "instance-or-current-root",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed path roots (path initializers, `XPathPathExpr.getReference`; the `casedb` and `commcaresession` roots are held today, Secondary instances)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: typed path roots (path initializers, `XPathPathExpr.getReference`): `casedb`, `commcaresession`, a table's tag, `locations`, a several-case form's selected cases, `results:inline` and `current()`; narrow: to the instance ids Nova types; `groups` and search inputs wait for later steps, and any other id is refused when the text is read",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "to the instance ids Nova types; `groups` and search inputs wait for later steps, and any other id is refused when the text is read"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3102,8 +3127,14 @@
 		"section": "XPath functions and structure",
 		"item": "`jr:itext('id')`",
 		"surfaceKeys": ["jr-handler:jr:itext"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: itext lookup bound to a translation unit (not in Nova's registry today)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the `itext` arm bound to a translation unit of the same form; narrow: to a unit whose text shows no answer, read while the form is open",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "to a unit whose text shows no answer, read while the form is open"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3127,8 +3158,14 @@
 		"item": "`jr:choice-name(value, 'path')` on a static-choice select",
 		"surfaceKeys": ["jr-handler:jr:choice-name"],
 		"valueClass": "static-choice-select",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: choice-label lookup bound to the field",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the `choice-name` arm bound to a static-choice select of the same form; narrow: to choices whose labels show no answer, read while the form is open; a select whose choices come from a table or cases stays refused (next row)",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "to choices whose labels show no answer, read while the form is open; a select whose choices come from a table or cases stays refused (next row)"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3482,8 +3519,14 @@
 			"xpath-token:WILDCARD"
 		],
 		"origin": "export-use",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the complete path-step surface; admitted form paths already bind to finite node identities, and case queries and session reads use canonical expression nodes (`lib/domain/expression/types.ts`). Arbitrary wildcard paths remain outside authored expressions",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the complete path-step surface; every admitted path binds to an identity (a question, a case property or relation, a table column, a place field, a session value), and case queries and session reads use canonical expression nodes (`lib/domain/expression/types.ts`); narrow: no `*` step, which binds to no identity",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "no `*` step, which binds to no identity"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

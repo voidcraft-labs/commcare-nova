@@ -468,6 +468,47 @@ its grouped read lives in a flat grouped entry, while its selected-parent
 entry gains a parent menu in D′. The edit renames both selected datums without
 changing the grouped entry, so all five reads stay present on both documents.
 
+**Implementation correction, 2026-10-19 (pull request 9):** the three new scenarios take the
+targeted path from the start, with no producer append and no base-and-head batch diff, because pull
+request 5's appends showed the floor moves. The documents are `targeted-instance-reads`
+(`proof/targeted/documents/instanceReads.ts`: "Region visit" reads the regions table by its tag, its
+first matching row and a row count, and the flat fixture, a clinic's name and its `ward` property,
+and its two links read a place's name and `item-list:regions`; its levels, places and `ward` copy
+the location family's "skipped" fixture so HQ's own serializer writes the bytes) and
+`targeted-inline-search-reads` (`inlineSearchReads.ts`); `targeted-text-reads` (`textReads.ts`,
+"Paint order" in English and French reading a label and a choice through `jr:itext` and the chosen
+choice through `jr:choice-name`) has no Core scenario. `proof/targeted/restore.ts` gains HQ's flat
+`locations` fixture writer for the first, written as `FlatLocationSerializer.get_xml_nodes` writes
+it: the sorted index schema, then the fixture marked `indexed="true"`, which Core's transaction
+parsers store whole beside the index (`IndexedFixtureXmlParser.parse`). Its shape agrees with
+Preview's `locationsXPathInstance` field for field. `proof/native/steps/session_reads.py::DOCUMENTS` names the
+two new documents, which also widens `PACKAGE_DATA`, so `queue.py` is untouched; the adapter takes
+`module=` and `forms=` for which forms HQ regenerates. `lookup_workbook.py`,
+`location_emission.py` (which also returns the source HQ chose for `locations` on the link's entry)
+and `suite_emission.py` load the documents, and the Java tests are
+`LookupRuntimeTest.formLogicAndItsLinkReadTheTableByItsTag`,
+`LocationOwnerRuntimeTest.formLogicAndItsLinkReadPlacesFromRealIndexedFixture` and
+`SearchRuntimeTest.formReadsTheResultsItsSearchReturned`, each over the local archive and HQ's
+regenerated form and suite. `test_location_emission.py` asserts HQ declares `jr://fixture/locations`,
+not the hierarchical fixture, on the entry and in the form; the field-by-field comparison with
+Preview's `locationsXPathInstance` that part 05 §2.4 plans is a reading of both against HQ's source,
+not a test.
+
+Core's `Evaluate` cannot seed a several-case selection or a remote results instance (with no root
+`XPathPathExpr.eval` throws "has not been loaded"), so the selected-cases and search-results reads
+hold no hand-fixed value: the walks read them (`SessionOp` handles both), and
+`targeted-inline-search-reads` fixes its value on a plain "Visit" form. Supporting both in
+`proof/core/Evaluate.java` would let intent hold those values; it is not done. `ProjectSettings`
+has no flat-fixture field, so no document records the flat list as confirmed there.
+`proof/checks/configurations.py::_needs_locations` reads XForm declarations and, through HQ's own
+`get_instance_names` and `get_instance_factory` (the readers that put `locations` on a link's suite
+entry), each link's condition and datums, so a link that alone reads places sets the LOCATIONS
+privilege, as `readsLocationsFixture.ts` counts it on Nova's side
+(`proof/corpus/hq/test_privileges.py::locations_read_in_a_link_condition`). It reads HQ's model,
+not a suite: the suite's location source comes from a database read the derivation never makes.
+Nova's side also counts every other form slot (a display condition among them), which the
+derivation does not read; `proof/checks/test_corpus.py` holds the two lists alike over the corpus. The Java and Python additions are not run on a laptop; the lane runs them.
+
 ### 2.7 Cost
 
 The measured `no-readers` profile now records `proof/native` at 19.2 box-seconds and

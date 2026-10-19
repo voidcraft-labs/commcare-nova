@@ -173,7 +173,25 @@ describe("PredicateCardEditor — reasons and the checker's newer codes", () => 
 			"format-date-pattern-not-fixed",
 			"This date format can't change from row to row here. You can choose a fixed format",
 		],
+		[
+			"search-results-not-supplied",
+			"This form doesn't open after a search, so it has no results to read",
+		],
+		[
+			"search-results-order",
+			"Search results come in no fixed order. You can count them instead",
+		],
+		["search-results-other-type", "This search can't find that kind of case"],
 	] as const)("presents %s", (code, copy) => {
 		expect(present(code)).toBe(copy);
+	});
+
+	it("gives wording that shows an answer its own line, beside the general one", () => {
+		expect(present("arm-unavailable", "itext-reference")).toBe(
+			"This wording shows an answer, so it can't be read here. You can read the answer itself",
+		);
+		expect(present("arm-unavailable", "here")).toBe(
+			"Choose a calculation available in this setting",
+		);
 	});
 });

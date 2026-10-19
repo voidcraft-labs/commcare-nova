@@ -28,6 +28,7 @@ import {
 	formLinkTargetDatumIds,
 	projectFormLinks,
 } from "@/lib/commcare/formLinkProjection";
+import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { descendantFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	appConnectIds,
@@ -482,10 +483,16 @@ const projectionContexts = new WeakMap<
 	BlueprintDoc,
 	FormLinkProjectionContext
 >();
+/** The projection the link-datum rules read. A link's condition and datum
+ * values may read a data table, which prints under a Project's naming the
+ * validator does not hold; the rules compare datum ids only, so every table
+ * prints under its own id (`identityLookupWireNaming`). */
 function projectionContextFor(doc: BlueprintDoc): FormLinkProjectionContext {
 	const held = projectionContexts.get(doc);
 	if (held !== undefined) return held;
-	const built = formLinkProjectionContext(doc);
+	const built = formLinkProjectionContext(doc, {
+		lookupNaming: identityLookupWireNaming(),
+	});
 	projectionContexts.set(doc, built);
 	return built;
 }

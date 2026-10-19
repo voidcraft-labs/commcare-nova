@@ -7,7 +7,9 @@ import {
 	type FunctionSpec,
 	functionArityIssue,
 } from "../expressionFunctions";
+import type { TranslationUnitId } from "../localization";
 import { STANDARD_CASE_LIST_PROPERTY_DATA_TYPES } from "../standardCaseProperties";
+import { itextUnitTranslationId } from "../translationUnits";
 import type { Uuid } from "../uuid";
 import { term as termExpression } from "./builders";
 import { type ExpressionChild, expressionChildren } from "./children";
@@ -109,6 +111,10 @@ export interface NodeType {
 	 * a position that passes one through (`if` and `switch` branches, the last
 	 * `coalesce` argument, a function's pass-through argument). */
 	readonly several?: StructuralSource;
+	/** A search result's `date_opened`: HQ writes the case's opened day in
+	 * UTC as text (`casexml/apps/case/xml/generator.py::V2CaseXMLGenerator.add_custom_properties`,
+	 * `date_to_xml_string`), so its node holds text that names a day. */
+	readonly dayText?: "date_opened";
 }
 export type CheckErrorCode =
 	| "unknown-property"
@@ -150,6 +156,9 @@ export type CheckErrorCode =
 	| "case-data-unavailable"
 	| "form-answer-unavailable"
 	| "search-answer-unavailable"
+	| "search-results-not-supplied"
+	| "search-results-order"
+	| "search-results-other-type"
 	| "row-scope"
 	| "datum-not-supplied"
 	| "record-position"
@@ -609,6 +618,7 @@ function settle(
 		...(result.caseIdOf === undefined ? {} : { caseIdOf: result.caseIdOf }),
 		...(clockLost ? { clockLost: true as const } : {}),
 		...(several === undefined ? {} : { several }),
+		...(result.dayText === undefined ? {} : { dayText: result.dayText }),
 	};
 }
 
@@ -730,38 +740,24 @@ function admission(
 				: "here() reads the worker's location, which CommCare offers only in a case list's calculated column. You can show it in a calculated column instead.",
 			"here",
 		);
-	if (expression.kind === "choice-name") {
-		// FormDef.initEvalContext's handler reads QuestionDef.getChoices, which
-		// is null for a question whose choices come from an itemset.
-		const choices = ctx.form?.fields.get(expression.field)?.choices;
-		return choices !== undefined && choices.kind !== "inline"
-			? refusal(
-					"arm-unavailable",
-					"This question's choices come from a lookup table or a case list, so CommCare can't read a choice's label. You can read the answer itself instead.",
-					"choice-name-dynamic",
-				)
-			: refusal(
-					"arm-unavailable",
-					"A choice's label can't be read in this setting. You can read the answer itself instead.",
-					"choice-name",
-				);
+	if (expression.kind === "itext" || expression.kind === "choice-name") {
+		const refused = formTextAdmission(expression, ctx);
+		if (refused !== undefined) return refused;
 	}
 	if (
-		[
-			"value-list",
-			"itext",
-			"selected-cases",
-			"table-rows",
-			"locations",
-		].includes(expression.kind) ||
-		(expression.kind === "cases" && expression.source === "search-results") ||
-		(ctx.ruleSet === "form" && expression.kind === "table-lookup")
+		expression.kind === "value-list" ||
+		(ctx.ruleSet === "record" &&
+			["itext", "choice-name", "selected-cases"].includes(expression.kind))
 	)
 		return refusal(
 			"arm-unavailable",
 			"This expression is not available in this setting.",
 			expression.kind,
 		);
+	if (expression.kind === "selected-cases") {
+		const refused = selectedCasesAdmission(expression, ctx);
+		if (refused !== undefined) return refused;
+	}
 	// The form grammar has no spelling for record-only constructs.
 	// Shared storage does not widen either authoring grammar.
 	if (
@@ -789,10 +785,21 @@ function admission(
 			expression.kind,
 		);
 	if (ctx.ruleSet === "record") {
+		// Places reach the device as the `locations` fixture, which an XForm
+		// or a form link's source entry declares; no menu, case list or
+		// search setting declares it, so none of them can read places.
 		if (
-			["call", "cases", "table-rows", "locations", "project"].includes(
-				expression.kind,
-			) ||
+			expression.kind === "locations" ||
+			(expression.kind === "count" && expression.via.kind === "locations") ||
+			(expression.kind === "project" && expression.of.kind === "locations")
+		)
+			return refusal(
+				"arm-unavailable",
+				"This setting can't read places. You can read them in a form's questions or its links instead.",
+				"places-unavailable",
+			);
+		if (
+			["call", "cases", "table-rows", "project"].includes(expression.kind) ||
 			(expression.kind === "count" && !isRelationPath(expression.via))
 		)
 			return refusal(
@@ -840,6 +847,12 @@ function admission(
 			"logical-not-spellable",
 		);
 	if (
+		expression.kind === "cases" &&
+		expression.source === "search-results" &&
+		ctx.supplies.searchResults === undefined
+	)
+		return searchResultsNotSupplied(ctx);
+	if (
 		!profile.caseData &&
 		(["exists", "missing", "cases"].includes(expression.kind) ||
 			(expression.kind === "count" && isRelationPath(expression.via)))
@@ -875,15 +888,6 @@ function termAdmission(
 			"arm-unavailable",
 			"A form row property reads the current row. Follow another record through a record query.",
 			"prop-relation",
-		);
-	if (
-		ctx.ruleSet === "form" &&
-		["table-column", "location-field", "location-level"].includes(term.kind)
-	)
-		return refusal(
-			"arm-unavailable",
-			"This expression is not available in form logic.",
-			term.kind,
 		);
 	if (term.kind === "choice" && !profile.formAnswers)
 		return refusal(
@@ -1060,8 +1064,251 @@ function termAdmission(
 	return undefined;
 }
 
+/**
+ * A read of the form's own wording: `jr:itext` of a question's text or a
+ * written choice, and `jr:choice-name` of a select's choice. Both run in the
+ * form's evaluation context (`FormDef.java::initEvalContext`), so a slot that
+ * runs with no open form cannot read them, and both read the text the form's
+ * translation block holds, so text that shows an answer reads as its `${n}`
+ * placeholder (`XFormParser.java::recurseForOutput`) and is refused.
+ */
+function formTextAdmission(
+	expression: Extract<Expression, { kind: "itext" | "choice-name" }>,
+	ctx: ExpressionContext,
+): CheckError | undefined {
+	if (ctx.ruleSet === "record") return undefined;
+	if (!ctx.profile.formAnswers)
+		return refusal(
+			"form-answer-unavailable",
+			expression.kind === "itext"
+				? "A question's wording is available only while its form is open."
+				: "A choice's label is available only while its form is open.",
+			expression.kind,
+		);
+	const fieldUuid =
+		expression.kind === "itext" ? expression.unit.field : expression.field;
+	const field = ctx.form?.fields.get(fieldUuid);
+	const showsAnswer = (unitId: TranslationUnitId) =>
+		ctx.form?.unitShowsAnswer(unitId) === true;
+	if (expression.kind === "itext") {
+		const unit = expression.unit;
+		const present =
+			field !== undefined &&
+			(unit.role === "select-option-label"
+				? field.choices?.kind === "inline" &&
+					field.choices.options.some((option) => option.uuid === unit.option)
+				: field.proseSlots?.includes(
+						unit.role === "field-label"
+							? "label"
+							: unit.role === "field-hint"
+								? "hint"
+								: unit.role === "field-help"
+									? "help"
+									: "validate_msg",
+					) === true);
+		if (!present)
+			return refusal(
+				"unknown-form-field",
+				"This reads wording the form no longer has.",
+				"itext-unit",
+			);
+		return showsAnswer(itextUnitTranslationId(unit))
+			? refusal(
+					"arm-unavailable",
+					"This wording shows an answer, and CommCare reads such wording with a placeholder in place of the answer. You can read the answer itself instead.",
+					"itext-reference",
+				)
+			: undefined;
+	}
+	// FormDef.initEvalContext's handler reads QuestionDef.getChoices, which
+	// is null for a question whose choices come from an itemset.
+	const choices = field?.choices;
+	if (field === undefined || choices === undefined)
+		return refusal(
+			"unknown-form-field",
+			"This reads the label of a choice of a question that no longer has choices.",
+			"choice-name-field",
+		);
+	if (choices.kind !== "inline")
+		return refusal(
+			"arm-unavailable",
+			"This question's choices come from a lookup table or a case list, so CommCare can't read a choice's label. You can read the answer itself instead.",
+			"choice-name-dynamic",
+		);
+	// The value is computed, so any of the question's choices can be the
+	// one whose label is read.
+	return choices.options.some((option) =>
+		showsAnswer(
+			itextUnitTranslationId({
+				field: fieldUuid,
+				option: option.uuid,
+				role: "select-option-label",
+			}),
+		),
+	)
+		? refusal(
+				"arm-unavailable",
+				"A choice of this question shows an answer in its label, and CommCare reads such a label with a placeholder in place of the answer. You can read the answer itself instead.",
+				"itext-reference",
+			)
+		: undefined;
+}
+
+/**
+ * A several-case form's chosen cases (`instance('<datum id>')/results/value`,
+ * `VirtualInstances.java::buildSelectedValuesInstance`). Its question logic
+ * reads them while the form runs; a form link or a CommCare Connect setting
+ * may not, as a read of one selected case may not.
+ */
+function selectedCasesAdmission(
+	expression: Extract<Expression, { kind: "selected-cases" }>,
+	ctx: ExpressionContext,
+): CheckError | undefined {
+	if (!ctx.facts.moduleUuids.has(expression.module))
+		return refusal(
+			"unknown-form-field",
+			"The menu whose chosen cases this reads no longer exists.",
+			"datum-module",
+		);
+	if (ctx.slot.entity !== "field")
+		return refusal(
+			"datum-not-supplied",
+			"The cases chosen together are read only by the questions of the form that works on them.",
+			"selected-cases-carrier",
+		);
+	return ctx.supplies.refs.some(
+		(supply) =>
+			!supply.scalar &&
+			supply.ref.kind === "selected-case" &&
+			supply.ref.module === expression.module,
+	)
+		? undefined
+		: refusal(
+				"datum-not-supplied",
+				"This form no longer works on the cases chosen in that menu.",
+				"selected-cases",
+			);
+}
+
+/** Why a read of a search's results has none: the no-matches form opens
+ * only when the search found nothing, a link's source form opens after no
+ * search, and any other form's module no longer opens on its search. */
+function searchResultsNotSupplied(ctx: ExpressionContext): CheckError {
+	const reason = ctx.form?.noMatchesForm
+		? "no-matches-form"
+		: ctx.slot.entity === "form" && ctx.slot.slot.startsWith("form_link_")
+			? "link-source"
+			: "not-search-first";
+	return refusal(
+		"search-results-not-supplied",
+		reason === "no-matches-form"
+			? "This form opens only when the search finds nothing, so it has no search results to read."
+			: "This form doesn't open after a search, so it has no search results to read.",
+		reason,
+	);
+}
+
+/**
+ * The rules a read of a search's results meets, beyond its row type: HQ
+ * returns only open cases of the searched type
+ * (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`),
+ * so a `@case_type` naming another type matches nothing, and it orders them
+ * by relevance score (`::_apply_sort`), which Preview cannot reproduce, so a
+ * positional predicate or `position()` inside the query reads a different
+ * case from one search to the next.
+ */
+function searchResultsRowFindings(
+	expression: Extract<Expression, { kind: "cases" }>,
+	ctx: ExpressionContext,
+	whereTypes: readonly (NodeType | undefined)[],
+	errors: CheckError[],
+): void {
+	const searched =
+		ctx.supplies.searchResults === undefined
+			? undefined
+			: ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module);
+	for (const [index, where] of expression.where.entries()) {
+		const path: CheckPath = ["cases", "where", index];
+		const data = scalarDataType(whereTypes[index]?.data);
+		let positional = data !== undefined && data !== ANY_TYPE && isNumeric(data);
+		positional ||= readsRowPosition(where);
+		if (positional)
+			errors.push({
+				...searchResultsOrder(),
+				path,
+			});
+		if (searched === undefined) continue;
+		const conjuncts: Expression[] = [];
+		const add = (node: Expression): void => {
+			if (node.kind === "and") for (const clause of node.clauses) add(clause);
+			else conjuncts.push(node);
+		};
+		add(where);
+		for (const conjunct of conjuncts) {
+			if (conjunct.kind !== "eq") continue;
+			for (const [left, right] of [
+				[conjunct.left, conjunct.right],
+				[conjunct.right, conjunct.left],
+			])
+				if (
+					left.kind === "term" &&
+					left.term.kind === "case-row-type" &&
+					right.kind === "term" &&
+					right.term.kind === "case-type" &&
+					right.term.caseType !== searched
+				)
+					errors.push({
+						path,
+						code: "search-results-other-type",
+						reason: "other-type",
+						message: `This search only finds ${searched} cases, so no result is a ${right.term.caseType} case.`,
+					});
+		}
+	}
+}
+/** `position()` in a query's predicate, outside any query nested in it,
+ * whose predicates have rows of their own. */
+function readsRowPosition(node: Expression | Term): boolean {
+	if (node.kind === "call" && node.fn === "position") return true;
+	return expressionChildren(node).some(
+		(child) =>
+			child.kind !== "relation" &&
+			!(
+				child.kind === "expression" &&
+				["cases", "table-rows", "locations", "table-lookup"].includes(
+					child.value.kind,
+				)
+			) &&
+			readsRowPosition(child.value),
+	);
+}
+function searchResultsOrder(): CheckError {
+	return {
+		path: [],
+		code: "search-results-order",
+		reason: "order",
+		message:
+			"CommCare's search returns its cases in no fixed order, so the first or last result can change from one search to the next. You can count the results, or read a value of the case the worker chose.",
+	};
+}
+/** A read of a search's results itself, or a value projected from it. */
+function readsSearchResults(expression: Expression): boolean {
+	const rows = expression.kind === "project" ? expression.of : expression;
+	return rows.kind === "cases" && rows.source === "search-results";
+}
+/** Functions whose answer follows the order of the node-set they read:
+ * `join`, `distinct-values` and `index-of` keep it. */
+const ORDERED_NODESET_FUNCTIONS: ReadonlySet<string> = new Set([
+	"join",
+	"distinct-values",
+	"index-of",
+]);
+
 /** A query's row type comes from its type predicate or an identity-bearing id
- * comparison. Property qualifiers never invent a query's result type. */
+ * comparison. Property qualifiers never invent a query's result type. A
+ * search's rows are the searched module's case type whatever a predicate
+ * names, since HQ's search returns cases of that type only
+ * (`CaseSearchQueryBuilder._get_initial_search_es`). */
 export function expressionRowScope(
 	expression: Expression,
 	ctx: ExpressionContext,
@@ -1114,22 +1361,29 @@ export function expressionRowScope(
 		else conjuncts.push(node);
 	};
 	for (const predicate of expression.where) add(predicate);
-	let caseType: string | undefined;
-	for (const predicate of conjuncts) {
-		if (predicate.kind !== "eq") continue;
-		for (const [left, right] of [
-			[predicate.left, predicate.right],
-			[predicate.right, predicate.left],
-		]) {
-			if (
-				left.kind === "term" &&
-				left.term.kind === "case-row-type" &&
-				right.kind === "term" &&
-				right.term.kind === "case-type"
-			)
-				caseType = right.term.caseType;
+	const searched =
+		expression.source === "search-results" &&
+		"supplies" in ctx &&
+		ctx.supplies.searchResults !== undefined
+			? ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module)
+			: undefined;
+	let caseType: string | undefined = searched;
+	if (caseType === undefined)
+		for (const predicate of conjuncts) {
+			if (predicate.kind !== "eq") continue;
+			for (const [left, right] of [
+				[predicate.left, predicate.right],
+				[predicate.right, predicate.left],
+			]) {
+				if (
+					left.kind === "term" &&
+					left.term.kind === "case-row-type" &&
+					right.kind === "term" &&
+					right.term.kind === "case-type"
+				)
+					caseType = right.term.caseType;
+			}
 		}
-	}
 	if (caseType === undefined)
 		for (const predicate of conjuncts) {
 			if (predicate.kind !== "eq") continue;
@@ -1459,8 +1713,12 @@ function inferNode(
 			);
 		}
 		case "concat":
-			for (const [index, part] of expression.parts.entries())
+			for (const [index, part] of expression.parts.entries()) {
 				read(part, ["parts", index]);
+				// XPathConcatFunc joins a lone node-set argument in its order.
+				if (expression.parts.length === 1 && readsSearchResults(part))
+					errors.push({ ...searchResultsOrder(), path: ["parts", index] });
+			}
 			return scalar("text");
 		case "format-date": {
 			const inner = readScalar(expression.date, ["date"]);
@@ -1676,14 +1934,21 @@ function inferNode(
 		case "locations": {
 			const row = expressionRowScope(expression, ctx);
 			const scoped = row === undefined ? ctx : rebind(ctx, row as RowScope);
-			for (const [index, where] of expression.where.entries())
+			const whereTypes = expression.where.map((where, index) =>
 				inferAt(
 					where,
 					scoped,
 					errors,
 					[expression.kind, "where", index],
 					ctx.ruleSet === "record" ? "condition" : undefined,
-				);
+				),
+			);
+			if (
+				expression.kind === "cases" &&
+				expression.source === "search-results" &&
+				"profile" in ctx
+			)
+				searchResultsRowFindings(expression, ctx, whereTypes, errors);
 			return nodes(
 				expression.kind === "cases"
 					? "case"
@@ -1705,25 +1970,33 @@ function inferNode(
 			);
 			if (value === undefined) return undefined;
 			const data = scalarDataType(value.data);
-			return data === undefined
-				? value
-				: nodes(
-						data,
-						typeof value.held === "object"
-							? value.held.nodes
-							: value.held === "sequence"
-								? "string"
-								: value.held,
-						"many",
-						value.caseIdOf,
-					);
+			if (data === undefined) return value;
+			const projected = nodes(
+				data,
+				typeof value.held === "object"
+					? value.held.nodes
+					: value.held === "sequence"
+						? "string"
+						: value.held,
+				"many",
+				value.caseIdOf,
+			);
+			return value.dayText === undefined
+				? projected
+				: { ...projected, dayText: value.dayText };
 		}
 		case "call": {
 			const spec = FUNCTION_REGISTRY.get(expression.fn);
+			const ordered = ORDERED_NODESET_FUNCTIONS.has(expression.fn);
 			const argumentNodes = expression.args.map((argument, index) => {
 				const type = read(argument, ["call", "args", index]);
 				if (spec?.paramTypes?.[index] === "number")
 					numericLiteral(argument, ["call", "args", index], errors);
+				if (ordered && readsSearchResults(argument))
+					errors.push({
+						...searchResultsOrder(),
+						path: ["call", "args", index],
+					});
 				return type;
 			});
 			if (spec?.returnsBranch === true) {
@@ -1771,7 +2044,9 @@ function inferNode(
 				{ reason: "selected-cases", module: expression.module },
 			);
 		case "itext":
+			return scalar("text");
 		case "choice-name":
+			read(expression.value, ["value"]);
 			return scalar("text");
 		case "here":
 			// Formplayer's handler returns GeoPointData.getDisplayText().
@@ -2121,12 +2396,10 @@ function inferTerm(
 								"unknown-property",
 								`Property '${term.property}' needs a known record type.`,
 							)
-						: nodes(
-								type,
-								term.property === "date_opened" ||
-									term.property === "last_modified"
-									? "date"
-									: "string",
+						: systemDateNode(
+								nodes(type, "string"),
+								term.property,
+								row !== undefined && "root" in row ? row.root : undefined,
 							);
 				}
 				return fail(destination.code, destination.message);
@@ -2392,16 +2665,43 @@ function inferTerm(
 		}
 		case "location-level":
 			return ctx.facts.organizationLevels[term.levelUuid] === undefined
-				? fail("location-value", "This place level no longer exists.")
+				? fail(
+						"unknown-form-field",
+						"This place level no longer exists.",
+						"location-level",
+					)
 				: scalar("text");
-		case "location-field":
-			return activeRowScope(ctx)?.kind === "location"
-				? nodes("text", "string")
-				: fail(
-						"row-scope",
-						"Place information needs a place row in scope.",
-						"location",
-					);
+		case "location-field": {
+			if (activeRowScope(ctx)?.kind !== "location")
+				return fail(
+					"row-scope",
+					"Place information needs a place row in scope.",
+					"location",
+				);
+			const field = term.field;
+			if (
+				typeof field === "object" &&
+				"level" in field &&
+				ctx.facts.organizationLevels[field.level] === undefined
+			)
+				return fail(
+					"unknown-form-field",
+					"This place level no longer exists.",
+					"location-level",
+				);
+			if (
+				typeof field === "object" &&
+				"property" in field &&
+				"profile" in ctx &&
+				!ctx.facts.locationProperties.has(field.property)
+			)
+				return fail(
+					"unknown-form-field",
+					"This piece of place information no longer exists.",
+					"location-property",
+				);
+			return nodes("text", "string");
+		}
 		case "fixed-location":
 			return "profile" in ctx && ctx.profile.ownerValues
 				? scalar("text")
@@ -2554,15 +2854,37 @@ function propertyType(
 			"unknown-property",
 			`Unknown property '${property}' on case type '${caseType}'.`,
 		);
-	return nodes(
-		declared.data_type ?? "text",
-		root === "casedb" &&
-			(property === "date_opened" || property === "last_modified")
-			? "date"
-			: "string",
-		"one",
-		property === "case_id" ? caseType : undefined,
+	return systemDateNode(
+		nodes(
+			declared.data_type ?? "text",
+			"string",
+			"one",
+			property === "case_id" ? caseType : undefined,
+		),
+		property,
+		root ?? "",
 	);
+}
+/**
+ * How a row holds a system date. Core holds `date_opened` and
+ * `last_modified` of a `casedb` row as the device's day
+ * (`CaseChildElement.java`, `DateData`); a search result holds HQ's text,
+ * `last_modified` its instant and `date_opened` its UTC day
+ * (`V2CaseXMLGenerator.add_custom_properties`). A record row with no
+ * instance root is the case store's, read as `casedb` holds it.
+ */
+function systemDateNode(
+	node: NodeType,
+	property: string,
+	root: string | undefined,
+): NodeType {
+	if (property !== "date_opened" && property !== "last_modified") return node;
+	if (root === undefined || root === "casedb")
+		return { ...node, held: { nodes: "date" } };
+	return (root === "results" || root === "results:inline") &&
+		property === "date_opened"
+		? { ...node, dayText: "date_opened" }
+		: node;
 }
 function checkChoiceDefault(
 	expression: Expression,

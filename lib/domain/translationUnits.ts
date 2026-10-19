@@ -6,6 +6,7 @@
 // none independently walks display slots.
 
 import type { BlueprintDoc, CaseProperty } from "./blueprint";
+import type { ItextUnit } from "./expression/types";
 import type { Field } from "./fields";
 import { isContainer } from "./fields";
 import {
@@ -835,6 +836,91 @@ export function snapshotTranslationUnits(
 	const units = translationUnitsById(doc);
 	snapshotTranslationUnitsByDoc.set(doc, units);
 	return units;
+}
+
+/** The translation unit an expression's `jr:itext` read names: a question's
+ * label, hint, help or validation message, or one of its written choices. */
+export function itextUnitTranslationId(unit: ItextUnit): TranslationUnitId {
+	if (unit.role === "select-option-label")
+		return makeTranslationUnitId("field", unit.field, "option", unit.option);
+	return makeTranslationUnitId(
+		"field",
+		unit.field,
+		unit.role === "field-label"
+			? "label"
+			: unit.role === "field-hint"
+				? "hint"
+				: unit.role === "field-help"
+					? "help"
+					: "validate_msg",
+	);
+}
+
+function holdsReference(value: LocalizedValue): boolean {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		value.parts.some((part) => part.kind !== "text")
+	);
+}
+
+/**
+ * Whether a unit's text shows an answer (or any other reference) in some
+ * language of the app. CommCare stores such text with a `${n}` placeholder
+ * for each reference (`XFormParser.java::recurseForOutput`), so `jr:itext` of
+ * it, and `jr:choice-name` of a choice it labels, return the placeholder and
+ * never the answer.
+ */
+export function translationUnitShowsAnswer(
+	doc: BlueprintDoc,
+	unitValue: TranslationUnit,
+): boolean {
+	if (unitValue.valueKind !== "prose") return false;
+	return effectiveAppLocalization(doc.localization).languageOrder.some(
+		(language) =>
+			holdsReference(storedTranslationValue(doc, language, unitValue)),
+	);
+}
+
+const formUnitsByDoc = new WeakMap<
+	BlueprintDoc,
+	ReadonlyMap<
+		Uuid,
+		ReadonlyMap<TranslationUnitId, { readonly showsAnswer: boolean }>
+	>
+>();
+
+/**
+ * The translation units each form's questions and choices own, with whether
+ * each shows an answer in some language (`translationUnitShowsAnswer`), for
+ * one document snapshot. A form whose questions own no unit is absent.
+ */
+export function formTranslationUnits(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): ReadonlyMap<TranslationUnitId, { readonly showsAnswer: boolean }> {
+	let byForm = formUnitsByDoc.get(doc);
+	if (byForm === undefined) {
+		const built = new Map<
+			Uuid,
+			Map<TranslationUnitId, { readonly showsAnswer: boolean }>
+		>();
+		for (const unitValue of snapshotTranslationUnits(doc).values()) {
+			const owner = unitValue.owner;
+			if (owner.kind !== "field" && owner.kind !== "select-option") continue;
+			let units = built.get(owner.formUuid);
+			if (units === undefined) {
+				units = new Map();
+				built.set(owner.formUuid, units);
+			}
+			units.set(unitValue.id, {
+				showsAnswer: translationUnitShowsAnswer(doc, unitValue),
+			});
+		}
+		byForm = built;
+		formUnitsByDoc.set(doc, byForm);
+	}
+	return byForm.get(formUuid) ?? new Map();
 }
 
 function sameValueKind(unit: TranslationUnit, value: LocalizedValue): boolean {

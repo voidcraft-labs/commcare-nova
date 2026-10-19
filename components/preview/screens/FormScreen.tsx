@@ -51,6 +51,7 @@ import {
 	materializableCaseTypes as materializableCaseTypesFromDoc,
 	menuFormUuidsOf,
 	moduleIsCaseFirst,
+	moduleOpensOnSearch,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
@@ -101,7 +102,10 @@ import {
 } from "@/lib/preview/engine/previousTask";
 import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
-import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
+import {
+	type CaseDatabaseSnapshot,
+	formReadsSearchResults,
+} from "@/lib/preview/engine/xpathInstances";
 import {
 	invalidateCaseData,
 	useCaseDataReplacementRevision,
@@ -115,6 +119,7 @@ import {
 } from "@/lib/preview/hooks/usePresentationDocument";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
+import { useSearchResultsSnapshot } from "@/lib/preview/hooks/useSearchResultsSnapshot";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { previewMenuCaseContext } from "@/lib/preview/menuProjection";
 import {
@@ -484,6 +489,49 @@ export function FormScreen({ screen }: FormScreenProps) {
 		[mode, noMatchesAdmission, hostSearchInputs],
 	);
 	const language = useBuilderLanguage();
+	/* A form of a search-first module that reads what the search found
+	 * opens with that search's results, as a device's session holds them on
+	 * its query step. With no completed search the form has none to read, so
+	 * it shows the way back to Search instead (`searchResultsRefused`). */
+	const readsSearchResults = useMemo(
+		() =>
+			mode === "preview" &&
+			mod !== undefined &&
+			formUuid !== undefined &&
+			moduleOpensOnSearch(mod) &&
+			formReadsSearchResults(menuSource.doc, formUuid),
+		[mode, mod, formUuid, menuSource.doc],
+	);
+	const searchResultsRefused =
+		readsSearchResults && searchState?.kind !== "completed";
+	const searchParentCase = useMemo(
+		() =>
+			menuCaseContext.parentCase === undefined
+				? undefined
+				: {
+						caseType: menuCaseContext.parentCase.caseType,
+						caseIds: menuCaseContext.parentCase.cases.map(
+							(selected) => selected.caseId,
+						),
+					},
+		[menuCaseContext.parentCase],
+	);
+	const searchResults = useSearchResultsSnapshot({
+		enabled: readsSearchResults,
+		appId,
+		doc: menuSource.doc,
+		moduleUuid,
+		searchState,
+		...(searchParentCase === undefined ? {} : { parentCase: searchParentCase }),
+		caseTypes,
+		language: language.language,
+	});
+	const searchResultsSnapshot =
+		searchResults.state.kind === "data"
+			? searchResults.state.snapshot
+			: undefined;
+	const searchResultsReady =
+		!readsSearchResults || searchResultsSnapshot !== undefined;
 	const formNameUnitId = makeTranslationUnitId(
 		"form",
 		formUuid ?? "missing",
@@ -695,15 +743,18 @@ export function FormScreen({ screen }: FormScreenProps) {
 						appId,
 						boundCases: effectiveCases ?? [],
 						menuSelections: menuCaseSelections,
+						...(searchResultsSnapshot === undefined
+							? {}
+							: { searchResults: searchResultsSnapshot }),
 					},
-		[appId, mode, effectiveCases, menuCaseSelections],
+		[appId, mode, effectiveCases, menuCaseSelections, searchResultsSnapshot],
 	);
 	const controller = useFormEngine(
 		formUuid,
 		caseData,
 		carriedCaseDatabase,
 		searchAnswers,
-		caseBindingReady,
+		caseBindingReady && searchResultsReady && !searchResultsRefused,
 		entrySession,
 	);
 	const engineEntry = useEngineEntry();
@@ -1310,6 +1361,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 				),
 				caseDatabase: refreshedCaseDatabase,
 				lookupData: controller.previewLookupDataSnapshot,
+				...(submitted.entrySession?.searchResults === undefined
+					? {}
+					: { searchResults: submitted.entrySession.searchResults }),
 			};
 			const { choice, projectedSelections } =
 				await controller.evaluateFormLinkXPaths(
@@ -2217,6 +2271,37 @@ export function FormScreen({ screen }: FormScreenProps) {
 		);
 	}
 
+	/* A device reaches this form only through its search, so with no
+	 * completed search the engine does not activate and the form offers the
+	 * way back to Search, as the no-matches form's refusal does. */
+	if (mode === "preview" && searchResultsRefused) {
+		return (
+			<div className="flex h-full items-center justify-center px-6 py-10">
+				<div
+					role="status"
+					data-search-results-refusal="no-completed-search"
+					className="flex max-w-md flex-col items-start gap-4 rounded-2xl border border-pv-input-border bg-pv-surface p-6 shadow-sm"
+				>
+					<div className="space-y-2">
+						<h2 className="text-lg font-semibold text-nova-text">
+							{runtimeMessage(language.language, "searchResultsRefusalTitle")}
+						</h2>
+						<p className="text-sm leading-relaxed text-nova-text-secondary">
+							{runtimeMessage(language.language, "searchResultsRefusalBody")}
+						</p>
+					</div>
+					<button
+						type="button"
+						onClick={() => navigate.openCaseList(moduleUuid)}
+						className={FORM_PRIMARY_ACTION_CLS}
+					>
+						{runtimeMessage(language.language, "goToSearch")}
+					</button>
+				</div>
+			</div>
+		);
+	}
+
 	if (mode === "preview" && runtimeFault !== undefined) {
 		return (
 			<div className="flex h-full items-center justify-center px-6 py-10">
@@ -2478,6 +2563,43 @@ export function FormScreen({ screen }: FormScreenProps) {
 				>
 					Nova couldn't prepare this form. This is an internal error. You can
 					keep editing or open another form.
+				</div>
+			) : null}
+			{readsSearchResults && searchResults.state.kind === "loading" ? (
+				<div
+					role="status"
+					className="mx-6 mt-4 rounded-lg border border-pv-input-border bg-pv-surface px-3 py-2 text-sm leading-relaxed text-nova-text-secondary"
+				>
+					{runtimeMessage(language.language, "searchResultsLoading")}
+				</div>
+			) : null}
+			{readsSearchResults && searchResults.state.kind === "error" ? (
+				<div
+					role="alert"
+					className="mx-6 mt-4 flex items-center justify-between gap-3 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-sm leading-relaxed text-nova-text-secondary"
+				>
+					<span>
+						{runtimeMessage(language.language, "searchResultsLoadFailed")}
+					</span>
+					<button
+						type="button"
+						onClick={searchResults.retry}
+						className="shrink-0 font-medium text-nova-text underline-offset-2 hover:underline"
+					>
+						{runtimeMessage(language.language, "tryAgain")}
+					</button>
+				</div>
+			) : null}
+			{searchResultsSnapshot !== undefined &&
+			searchResultsSnapshot.totalMatches > searchResultsSnapshot.rows.length ? (
+				<div
+					role="status"
+					data-search-results-cap={searchResultsSnapshot.totalMatches}
+					className="mx-6 mt-4 rounded-lg border border-pv-input-border bg-pv-surface px-3 py-2 text-sm leading-relaxed text-nova-text-secondary"
+				>
+					{runtimeMessage(language.language, "searchResultsCap", {
+						count: searchResultsSnapshot.totalMatches,
+					})}
 				</div>
 			) : null}
 			{caseDatabaseWait !== undefined ? (

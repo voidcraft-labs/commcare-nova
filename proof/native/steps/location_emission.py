@@ -10,11 +10,22 @@ an ``OpenRosaResponse`` as ``location-<scenario>.restore.xml``, which
 ``skipped`` scenario's clinic hangs directly under its region, so each
 scenario has a project space of its own. HQ then regenerates the three owner
 forms (``location-<scenario>.hq.xml``).
+
+It also loads ``targeted-instance-reads`` through ``session_reads``: a form
+whose logic reads places and whose link condition reads a place's name, so
+HQ's suite declares ``locations`` on the form's entry, where
+``suite_xml/post_process/instances.py::location_fixture_instances`` chooses
+its source. The step returns the source HQ chose there and in the
+regenerated form.
 """
 
-from xml.etree.ElementTree import Element, tostring
+from xml.etree.ElementTree import Element, fromstring, tostring
 
 from proof.native.hq_support import import_source, native_check, regenerate_form, sha256
+from proof.native.steps.session_reads import session_reads
+
+TARGETED = "targeted-instance-reads"
+XFORMS = "{http://www.w3.org/2002/xforms}"
 
 DOMAIN = "nova-location-evidence"
 LOCATION_TYPES = [("region", None), ("district", "region"), ("clinic", "district")]
@@ -121,4 +132,25 @@ def locations(session):
                     "nativeSha256": sha256(native),
                 }
             )
-    return {"sources": sorted(path.stem for path in exports.glob("*.json")), "fixtures": fixtures, "forms": forms}
+    session_reads(session, "location", TARGETED, DOMAIN, module=0, forms=(0,))
+    targeted = exports / "targeted" / TARGETED
+    entry = next(
+        entry
+        for entry in fromstring((targeted / "hq.suite.xml").read_bytes()).iter("entry")
+        if entry.find("command").get("id") == "m0-f0"
+    )
+    model = fromstring((targeted / "hq.0.xml").read_bytes()).find(f".//{XFORMS}model")
+    return {
+        "sources": sorted(path.stem for path in exports.glob("*.json")),
+        "fixtures": fixtures,
+        "forms": forms,
+        "targeted": {
+            "document": TARGETED,
+            "entryInstances": {instance.get("id"): instance.get("src") for instance in entry.findall("instance")},
+            "formInstances": {
+                instance.get("id"): instance.get("src")
+                for instance in model.findall(f"{XFORMS}instance")
+                if instance.get("src") is not None
+            },
+        },
+    }

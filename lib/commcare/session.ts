@@ -375,6 +375,15 @@ export function inlineSearchNodeset(
 
 export const INLINE_SEARCH_RESULTS_INSTANCE = "results:inline";
 export const INLINE_SEARCH_RESULTS_SRC = "jr://instance/remote/results:inline";
+/**
+ * The most primary cases HQ's case search sends a device
+ * (`case_search/const.py::CASE_SEARCH_MAX_RESULTS`, applied as `.size()` in
+ * `CaseSearchQueryBuilder._get_initial_search_es`). The related cases HQ
+ * appends afterwards fall outside it, and the frozen
+ * `INCREASED_MAX_SEARCH_RESULTS` toggle raises it to 1,500 in a project space
+ * that has it. Preview reads at most this many cases of a completed search.
+ */
+export const SEARCH_RESULTS_CAP = 500;
 export const EXCLUDE_RELATED_CASES_FILTER = w.not(
 	w.eq(w.context([w.step("commcare_is_related_case")]), w.call("true")),
 );

@@ -64,6 +64,7 @@ import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
+import type { XPathInstance } from "../xpath/runtimeValues";
 import type { EvalContext, XPathValue } from "../xpath/types";
 import { snapshotXPathWorkerInstance } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
@@ -73,9 +74,8 @@ import type { PreviewLookupData } from "./lookupEvaluation";
 import { previewWorkerPropertyBinding } from "./workerExpressionBindings";
 import {
 	type CaseDatabaseSnapshot,
-	caseDatabaseXPathInstance,
-	commcareSessionXPathInstance,
-	lookupXPathInstances,
+	type SearchResultsSnapshot,
+	secondaryXPathInstances,
 } from "./xpathInstances";
 
 /** Case rows after the submission, case-type name → property map. */
@@ -125,6 +125,9 @@ export interface FormLinkEvaluationInput {
 	 * device just closed or reassigned and still retains until sync. */
 	readonly caseDatabase?: CaseDatabaseSnapshot;
 	readonly lookupData?: PreviewLookupData | null;
+	/** What the source entry's search returned, in a search-first module:
+	 *  the session keeps it on its query step after the form closes. */
+	readonly searchResults?: SearchResultsSnapshot;
 }
 
 export type FormLinkAsyncEvaluator = (
@@ -228,27 +231,7 @@ export interface TargetCaseSelection {
 export function formLinkEvalContext(
 	input: FormLinkEvaluationInput,
 ): EvalContext {
-	const secondaryInstances = new Map([
-		[
-			"commcaresession",
-			commcareSessionXPathInstance(
-				input.session,
-				Object.fromEntries(
-					[...input.sessionDatums].map(([name, datum]) => [name, datum.value]),
-				),
-			),
-		],
-		[
-			"casedb",
-			caseDatabaseXPathInstance(
-				input.caseDatabase ?? null,
-				materializableCaseTypes(input.doc),
-			),
-		],
-		...lookupXPathInstances(input.lookupData ?? null, {
-			includeFixtureAliases: true,
-		}),
-	] as const);
+	const secondaryInstances = formLinkSecondaryInstances(input);
 	const closedFormRead = (what: string): never => {
 		throw new Error(
 			`A form link cannot read ${what}: the form has already closed when its links are checked. A link can read session values, worker properties and case properties, not the form's answers.`,
@@ -282,24 +265,36 @@ export function formLinkWorkerInstances(
 	};
 }
 
+/** The instances the source entry's session holds after its form closes
+ * (`org/commcare/session/CommCareSession.java::getEvaluationContext`): the
+ * session with its datums, the device's cases and places, every table under
+ * its suite id as the source entry declares it, and the search results its
+ * query step keeps. */
+function formLinkSecondaryInstances(
+	input: FormLinkEvaluationInput,
+): ReadonlyMap<string, XPathInstance> {
+	return secondaryXPathInstances({
+		identity: input.session,
+		lookupData: input.lookupData ?? null,
+		caseDatabase: input.caseDatabase ?? null,
+		caseTypes: materializableCaseTypes(input.doc),
+		sessionData: Object.fromEntries(
+			[...input.sessionDatums].map(([name, datum]) => [name, datum.value]),
+		),
+		...(input.searchResults === undefined
+			? {}
+			: { searchResults: input.searchResults }),
+		organization: input.doc,
+		includeFixtureAliases: true,
+	});
+}
+
 function snapshotFormLinkSecondaryInstances(
 	input: FormLinkEvaluationInput,
 ): NonNullable<XPathWorkerInstances["secondary"]> {
-	return [
-		commcareSessionXPathInstance(
-			input.session,
-			Object.fromEntries(
-				[...input.sessionDatums].map(([name, datum]) => [name, datum.value]),
-			),
-		),
-		caseDatabaseXPathInstance(
-			input.caseDatabase ?? null,
-			materializableCaseTypes(input.doc),
-		),
-		...lookupXPathInstances(input.lookupData ?? null, {
-			includeFixtureAliases: true,
-		}).values(),
-	].map(snapshotXPathWorkerInstance);
+	return [...formLinkSecondaryInstances(input).values()].map(
+		snapshotXPathWorkerInstance,
+	);
 }
 
 export function createFormLinkWorkerWorld(

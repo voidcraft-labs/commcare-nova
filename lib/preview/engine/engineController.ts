@@ -81,12 +81,16 @@ import {
 	FormEngine,
 	type FormEngineAsyncEvaluator,
 	type FormEngineInput,
+	type FormEngineRuntimeOptions,
 	type InvalidFieldTarget,
 	type SectionPage,
 } from "./formEngine";
 import type { FormLinkAsyncEvaluator } from "./formLinkEvaluation";
 import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
-import type { PreviewLookupData } from "./lookupEvaluation";
+import {
+	formLogicLookupsCovered,
+	type PreviewLookupData,
+} from "./lookupEvaluation";
 import {
 	type SearchScreenXPath,
 	searchScreenWorkerInstances,
@@ -121,6 +125,17 @@ export type EngineValidationCompletion =
 	  }
 	| { readonly kind: "unavailable" }
 	| { readonly kind: "retired" };
+
+/** What a waiting same-entry rebuild resumes with (`awaitsLookupCoverage`). */
+interface LookupWaitResume {
+	readonly entryKey: string;
+	readonly caseData: CaseDataByType | undefined;
+	readonly restore: {
+		readonly checkpoint: ReturnType<FormEngine["entryCheckpoint"]>;
+		readonly preserveAllValues: boolean;
+	};
+	readonly caseDatabaseOverride: CaseDatabaseSnapshot | undefined;
+}
 
 interface EngineValidationScope {
 	readonly engine: FormEngine;
@@ -683,6 +698,17 @@ export class EngineController {
 	private caseDatabaseGate: CaseDatabaseControllerState = { required: false };
 	private caseDatabaseState: CaseDatabaseControllerState = { required: false };
 	private caseDatabaseSnapshot: CaseDatabaseSnapshot | null = null;
+	/** The requested form whose logic reads a table the session's lookup
+	 * snapshot does not cover yet. Printing that logic needs the table's
+	 * naming, so its entry starts when a covering snapshot arrives. A
+	 * same-entry rebuild that waits (an edit added the read mid-entry) keeps
+	 * what it needs to resume that entry: its key and its answers. */
+	private lookupWait:
+		| {
+				readonly formUuid: Uuid;
+				readonly resume?: LookupWaitResume;
+		  }
+		| undefined;
 	private readonly caseDatabaseListeners = new Set<() => void>();
 	private mountedCaseDatabaseSnapshot: CaseDatabaseSnapshot | null | undefined;
 	/** Selected worker-content language for presentation-bearing engine input.
@@ -800,6 +826,52 @@ export class EngineController {
 						identity: this.previewIdentity,
 					});
 		return this.activeEntrySession;
+	}
+
+	/** What the mounted entry's session supplies the engine: its datums, its
+	 * several-case selections and what its search returned, each kept
+	 * through every rebuild of the same entry. */
+	private entryRuntimeOptions(
+		session: EntrySessionData | undefined,
+	): Pick<
+		FormEngineRuntimeOptions,
+		"sessionData" | "selectedCases" | "searchResults"
+	> {
+		if (session === undefined) return {};
+		return {
+			sessionData: session.data,
+			selectedCases: session.selectedCases,
+			...(session.searchResults === undefined
+				? {}
+				: { searchResults: session.searchResults }),
+		};
+	}
+
+	/** Hold the entry back while the session's lookup snapshot does not cover
+	 * a table the form's logic reads (`setLookupData` starts or resumes it).
+	 * A rebuild's `resume` is kept, and a later rebuild of the same waiting
+	 * entry, which has no engine left to checkpoint, keeps the first one's. */
+	private awaitsLookupCoverage(
+		state: BlueprintDocState,
+		formUuid: Uuid,
+		resume?: LookupWaitResume,
+	): boolean {
+		if (
+			formLogicLookupsCovered(state, formUuid, this.lookupData ?? undefined)
+		) {
+			if (this.lookupWait?.formUuid === formUuid) this.lookupWait = undefined;
+			return false;
+		}
+		const kept =
+			resume ??
+			(this.lookupWait?.formUuid === formUuid
+				? this.lookupWait.resume
+				: undefined);
+		this.lookupWait =
+			kept === undefined ? { formUuid } : { formUuid, resume: kept };
+		this.clearActiveForm();
+		this.publishEntryState();
+		return true;
 	}
 
 	/** The admitted search answers of the requested no-matches launch, kept
@@ -1315,6 +1387,59 @@ export class EngineController {
 	setLookupData(data: PreviewLookupData | null): void {
 		this.lookupData = data;
 		if (data === null) return;
+		const waiting = this.requestedActivation;
+		const wait = this.lookupWait;
+		if (
+			this.engine === undefined &&
+			waiting !== undefined &&
+			wait !== undefined &&
+			waiting.formUuid === wait.formUuid &&
+			this.docStore !== undefined &&
+			formLogicLookupsCovered(this.docStore.getState(), waiting.formUuid, data)
+		) {
+			this.lookupWait = undefined;
+			const resume = wait.resume;
+			if (resume !== undefined) {
+				/* The same entry, rebuilt: its key, so its minted ids and staged
+				 * captures stay, and the answers it held when the rebuild began. */
+				if (this.xpathRuntime) {
+					this.mountFormAsync(
+						wait.formUuid,
+						resume.caseData,
+						resume.entryKey,
+						resume.restore,
+						resume.caseDatabaseOverride,
+					).catch(() => undefined);
+				} else
+					this.contain("rebuild", wait.formUuid, undefined, () =>
+						this.mountForm(
+							wait.formUuid,
+							resume.caseData,
+							resume.entryKey,
+							resume.caseDatabaseOverride,
+							resume.restore,
+						),
+					);
+				return;
+			}
+			if (this.xpathRuntime) {
+				this.activateFormAsync(
+					waiting.formUuid,
+					waiting.caseData,
+					waiting.caseDatabase,
+					waiting.searchAnswers,
+					waiting.session,
+				).catch(() => undefined);
+			} else
+				this.activateForm(
+					waiting.formUuid,
+					waiting.caseData,
+					waiting.caseDatabase,
+					waiting.searchAnswers,
+					waiting.session,
+				);
+			return;
+		}
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined || this.engine === undefined) return;
 		/* Rebuild only when the active engine's CAPTURED snapshot fails to
@@ -1473,6 +1598,8 @@ export class EngineController {
 			searchAnswers,
 			session: session ?? this.sessionFor(formUuid),
 		};
+		// A new entry: nothing of a waiting rebuild's entry carries into it.
+		this.lookupWait = undefined;
 		this.runtimeFault = undefined;
 		this.clearRefusal();
 		if (
@@ -1520,6 +1647,8 @@ export class EngineController {
 			searchAnswers,
 			session: session ?? this.sessionFor(formUuid),
 		};
+		// A new entry: nothing of a waiting rebuild's entry carries into it.
+		this.lookupWait = undefined;
 		this.runtimeFault = undefined;
 		this.clearRefusal();
 		if (
@@ -1679,6 +1808,18 @@ export class EngineController {
 			this.publishEntryState();
 			return false;
 		}
+		if (
+			this.awaitsLookupCoverage(
+				state,
+				formUuid,
+				restore === undefined
+					? undefined
+					: { entryKey, caseData, restore, caseDatabaseOverride },
+			)
+		) {
+			stopWatchingActivation();
+			return false;
+		}
 		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
 		this.currentEntryKey = entryKey;
@@ -1701,7 +1842,7 @@ export class EngineController {
 				stagedAsync: true,
 				restoredEntry: restore,
 				...(searchAnswers === undefined ? {} : { searchAnswers }),
-				...(session === undefined ? {} : { sessionData: session.data }),
+				...this.entryRuntimeOptions(session),
 			},
 		);
 		this.engine = engine;
@@ -1922,6 +2063,21 @@ export class EngineController {
 			this.publishEntryState();
 			return;
 		}
+		if (
+			this.awaitsLookupCoverage(
+				s,
+				formUuid,
+				restoredEntry === undefined
+					? undefined
+					: {
+							entryKey,
+							caseData,
+							restore: restoredEntry,
+							caseDatabaseOverride,
+						},
+			)
+		)
+			return;
 
 		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
@@ -1947,7 +2103,7 @@ export class EngineController {
 			{
 				restoredEntry,
 				...(searchAnswers === undefined ? {} : { searchAnswers }),
-				...(session === undefined ? {} : { sessionData: session.data }),
+				...this.entryRuntimeOptions(session),
 			},
 		);
 		this.mountedCaseDatabaseSnapshot = caseDatabase;
@@ -2015,6 +2171,7 @@ export class EngineController {
 	/** Clean up all subscriptions and reset state. */
 	deactivate(): void {
 		this.requestedActivation = undefined;
+		this.lookupWait = undefined;
 		this.clearActiveForm();
 		this.runtimeFault = undefined;
 		this.clearRefusal();

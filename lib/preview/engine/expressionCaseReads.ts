@@ -5,6 +5,9 @@ import { walkExpression } from "@/lib/domain/expression/walk";
 /**
  * Structural dependencies only. Literal strings never request case data.
  *
+ * A read of the worker's places counts as well: the `locations` fixture
+ * travels with the device snapshot.
+ *
  * The session datums that are functions over casedb count too: the worker's
  * record (`usercase_id`) and a grouped tile's companion
  * (`<datum>_parent_ids`) are evaluated over the device's cases when the entry
@@ -22,6 +25,9 @@ export function expressionReadsCaseDatabase(
 		visitExpression: (node) => {
 			if (node.kind === "cases" && node.source === "casedb") reads = true;
 			if (node.kind === "project") reads = true;
+			// The worker's places ride the device snapshot, as a restore
+			// delivers its `locations` fixture beside the cases.
+			if (node.kind === "locations") reads = true;
 		},
 		visitTerm: (term) => {
 			if (

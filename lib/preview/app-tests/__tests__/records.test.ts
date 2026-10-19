@@ -5,7 +5,10 @@ import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { simpleSearchInputDef } from "@/lib/domain";
-import { recordsReadSearch, searchedReading } from "../records";
+import {
+	recordsReadSearch,
+	searchedReading,
+} from "../../engine/serverSearchRead";
 
 const WITH_SEARCH = {
 	caseListConfig: resolveCaseListConfig({

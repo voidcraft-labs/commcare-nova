@@ -5,6 +5,7 @@ import {
 	caseSelectionCardinality,
 	moduleOpensOnSearch,
 	orderedColumns,
+	orderedOrganizationLevels,
 } from "@/lib/domain";
 import { languageDirection } from "@/lib/domain/languageRegistry";
 import {
@@ -16,6 +17,7 @@ import {
 	projectLocalizedForm,
 	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
+import { locationFixtureRows } from "@/lib/organization/footprint";
 import type {
 	PreviewCaseChoice,
 	PreviewMenuCaseSelection,
@@ -25,6 +27,16 @@ import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
 import { availablePages } from "../engine/sectionPaging";
+import {
+	recordsReadSearch,
+	searchedReading,
+	serverSearchResults,
+} from "../engine/serverSearchRead";
+import {
+	type CaseDatabaseSnapshot,
+	formReadsSearchResults,
+	type SearchResultsSnapshot,
+} from "../engine/xpathInstances";
 import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
 import {
 	claimableCaseIds,
@@ -44,7 +56,7 @@ import {
 	enterAppTestMenu,
 	selectAppTestRecords,
 } from "./navigation";
-import { appTestRecords, recordsReadSearch, searchedReading } from "./records";
+import { appTestRecords, prepareAppTestRecords } from "./records";
 import { submitAppTest } from "./submission";
 import type {
 	AppTestAction,
@@ -58,6 +70,95 @@ type Scope = AppTestScope & {
 	blueprintDigest: string;
 };
 type Observation = Record<string, unknown>;
+type FormScreen = Extract<AppTestScreen, { kind: "form" }>;
+
+/** The entry's device world: its cases and the worker's `locations`
+ * fixture, which the session's restore delivers beside them. */
+function appTestEntryCases(
+	context: AppTestContext,
+	state: AppTestSessionState,
+	cases: CaseDatabaseSnapshot,
+): CaseDatabaseSnapshot {
+	const persona =
+		state.personaUuid === null
+			? undefined
+			: context.doc.personas?.[state.personaUuid];
+	return {
+		...cases,
+		locations:
+			persona === undefined ||
+			orderedOrganizationLevels(context.doc).length === 0
+				? []
+				: locationFixtureRows(context.doc, persona, context.locations),
+	};
+}
+
+/**
+ * What the search of a search-first module returned to a form of it that
+ * reads it: the latest search this session ran on that module's records,
+ * read again unpaged and capped as Preview's form reads it
+ * (`searchResultsSnapshot.ts`). A form reached without that search has none
+ * to read, which the device never allows.
+ */
+async function appTestSearchResults(
+	context: AppTestContext,
+	scope: AppTestScope,
+	state: AppTestSessionState,
+	screen: FormScreen,
+): Promise<SearchResultsSnapshot | undefined> {
+	const mod = context.doc.modules[screen.moduleUuid];
+	if (
+		mod?.caseType === undefined ||
+		!moduleOpensOnSearch(mod) ||
+		!formReadsSearchResults(context.doc, screen.formUuid)
+	)
+		return undefined;
+	const refused = () =>
+		new AppTestActionError(
+			`${runtimeMessage(context.language, "searchResultsRefusalTitle")}. ${runtimeMessage(context.language, "searchResultsRefusalBody")}`,
+		);
+	const searchedScreen = [...state.history]
+		.reverse()
+		.find(
+			(prior): prior is Extract<AppTestScreen, { kind: "records" }> =>
+				prior.kind === "records" &&
+				prior.moduleUuid === screen.moduleUuid &&
+				(prior.searchAnswers !== undefined ||
+					prior.registeredCaseId !== undefined),
+		);
+	if (searchedScreen === undefined) throw refused();
+	const { read } = await prepareAppTestRecords(context, scope, {
+		...state,
+		screen: searchedScreen,
+	});
+	const found = await serverSearchResults(context.store, read);
+	if (found === undefined) throw refused();
+	return found;
+}
+
+/** The world a form evaluation of this session reads. */
+async function appTestFormContext(
+	context: AppTestContext,
+	scope: AppTestScope,
+	state: AppTestSessionState,
+	screen: FormScreen,
+) {
+	const searchResults = await appTestSearchResults(
+		context,
+		scope,
+		state,
+		screen,
+	);
+	return {
+		identity: context.identity,
+		cases: appTestEntryCases(context, state, screen.entryCases),
+		lookup: context.lookup,
+		entry: screen.entry,
+		captureEntry: true,
+		session: { appId: scope.appId, menuSelections: state.selections },
+		...(searchResults === undefined ? {} : { searchResults }),
+	};
+}
 
 async function observeScreen(
 	context: AppTestContext,
@@ -237,14 +338,7 @@ async function observeScreen(
 					answers: [],
 					searchAnswers: screen.searchAnswers,
 				},
-				{
-					identity: context.identity,
-					cases: screen.entryCases,
-					lookup: context.lookup,
-					entry: screen.entry,
-					captureEntry: true,
-					session: { appId: scope.appId, menuSelections: state.selections },
-				},
+				await appTestFormContext(context, scope, state, screen),
 			);
 			const pages = availablePages(evaluated.sections);
 			const currentPage = pages.findIndex(
@@ -761,14 +855,7 @@ export async function advanceAppTest(
 					answers: [],
 					searchAnswers: screen.searchAnswers,
 				},
-				{
-					identity: context.identity,
-					cases: screen.entryCases,
-					lookup: context.lookup,
-					entry: screen.entry,
-					captureEntry: true,
-					session: { appId: scope.appId, menuSelections: state.selections },
-				},
+				await appTestFormContext(context, scope, state, screen),
 			);
 			const pages = availablePages(evaluated.sections);
 			const current = pages.findIndex(
@@ -805,14 +892,7 @@ export async function advanceAppTest(
 						action.kind === "section" ? action.sectionUuid : undefined,
 					searchAnswers: screen.searchAnswers,
 				},
-				{
-					identity: context.identity,
-					cases: screen.entryCases,
-					lookup: context.lookup,
-					entry: screen.entry,
-					captureEntry: true,
-					session: { appId: scope.appId, menuSelections: state.selections },
-				},
+				await appTestFormContext(context, scope, state, screen),
 			);
 			next = { ...state, screen: { ...screen, entry: evaluated.entry } };
 			if (action.kind === "section")
@@ -824,7 +904,16 @@ export async function advanceAppTest(
 			break;
 		}
 		case "submit": {
-			const saved = await submitAppTest(context, scope, state);
+			if (screen.kind !== "form")
+				throw new AppTestActionError(
+					"Open and answer a form before submitting it.",
+				);
+			const saved = await submitAppTest(
+				context,
+				scope,
+				state,
+				await appTestFormContext(context, scope, state, screen),
+			);
 			context = { ...context, identity: saved.identity };
 			next = saved.state;
 			extra = {

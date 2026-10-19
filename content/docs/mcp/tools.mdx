@@ -144,7 +144,18 @@ follow renames and moves too. A query of records, such as
 `instance('casedb')/casedb/case[@case_type = 'patient'][age >= 18]`, names its
 record type with `@case_type`. Without one, a custom property it reads binds to
 the one record type that declares it, and the edit is refused when none or
-several do.
+several do. A form expression can read a data table by its export tag, as
+`instance('<tag>')/<tag>_list/<tag>[<column> = <value>]/<column>`;
+`get_lookup_tables` lists each table's tag and its columns' export names, and
+renaming the tag or a column keeps the read. In a form link's condition and
+datums, these reads print `instance('item-list:<tag>')`. A form in a
+search-first module reads what the search found through
+`instance('results:inline')/results/case`, always behind the related-case
+exclusion, for example
+`count(instance('results:inline')/results/case[not(commcare_is_related_case = true())])`;
+a read that depends on the results' order is refused. A form that works on
+several cases reads them as `instance('selected_cases')/results/value`, for
+example under `count(...)`, never as one value.
 
 Literal opening braces and backslashes are escaped with a backslash. Read
 tools return the same wording and expression format accepted by edits, in
@@ -192,7 +203,12 @@ particular situation. Each record has an `id`, `caseType`, optional `properties`
 and optional `parentId` referring to another test record. Use those IDs in
 `caseIds`. Test records replace stored records for that evaluation and are never
 saved; lookup data remains real. The result is labeled `scenario`. Repeat rows, a selected
-worker, language and Search answers can be supplied when relevant. Evaluation is
+worker, language and Search answers can be supplied when relevant. A form reads
+the selected worker's places, and a form that reads what its module's search found
+gets that search, run over the app's records with the supplied Search answers or,
+without them, its defaults; the result reports how many records it matched. Test
+records give a search nothing to run over, so such a form is evaluated without a
+`scenario`, or through an app test that runs the search first. Evaluation is
 limited to 30 seconds and 128 MiB. Conditional closing and additional case
 operations remain unevaluated. Media capture and the submission transaction
 need the running app; evaluation does not prove deployment or successful storage.
@@ -609,6 +625,12 @@ reassigned.
 | `move_location` | Move one place within the valid level topology while preserving its UUID. |
 | `set_location_archived` | Preflight and confirm subtree archive, or unarchive with the current revision. |
 
+A form expression reads places through
+`instance('locations')/locations/location[...]`: `@type` holds a level's code,
+`@<code>_id` the place's ancestor at that level, and `location_data/<key>` a
+piece of place information. It finds the places in the worker's address book,
+and only in an app with organization levels.
+
 ## Working with automations
 
 Automations are canonical app objects, not commands that execute in Preview.
@@ -923,9 +945,10 @@ in order after the form closes and the first true condition is followed. An
 unconditional link is the otherwise and can only be last; with conditional links
 and no otherwise link, `post_submit` is where people go when nothing matches,
 and Commcare Nova stores it explicitly if it was not set. A link's condition and
-datums run after the form has closed, so they read the module's case, worker,
-and session values, never the form's answers; save an answer to a case
-property first. A link that names `datums` must name every selection datum the
+datums run after the form has closed, so they read the module's case, worker
+and session values, data tables and places, and in a search-first module what
+the search found, never the form's answers; you can save an answer to a case
+property first and read it there. A link that names `datums` must name every selection datum the
 target needs. Each link has an immutable identity: `get_form` returns it as the
 link's `uuid`, and the link tools take that value as `linkUuid`. A link may not
 target a module that is off the menu. When a target form's display condition is

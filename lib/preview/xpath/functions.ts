@@ -25,7 +25,7 @@ import {
 	type XPathRuntimeValue,
 } from "./runtimeValues";
 import { scalarJavaRosaFunctions } from "./scalarJavaRosaFunctions";
-import type { XPathFunctionInvocation } from "./types";
+import type { XPathFormText, XPathFunctionInvocation } from "./types";
 import { isXPathDate, XPathDate } from "./types";
 
 export interface XPathFunctionContext {
@@ -76,6 +76,61 @@ export function invokeFunction(
 	if (typeof fn !== "function") return { kind: "unsupported" };
 
 	return { kind: "handled", value: fn(args, context) };
+}
+
+function ownText<T>(
+	record: Readonly<Record<string, T>>,
+	key: string,
+): T | undefined {
+	return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
+/**
+ * `jr:itext(id)` and `jr:choice-name(value, path)`, the two handlers Core
+ * installs on a form's evaluation context
+ * (`org/javarosa/core/model/FormDef.java::initEvalContext`). Each argument
+ * is converted to text first, as the handlers' `String` prototypes ask.
+ *
+ * - `jr:itext` returns the localizer's text for the id, `[itext:<id>]` when
+ *   the form has no entry for it.
+ * - `jr:choice-name` finds the question at the absolute path: `''` unless it
+ *   is a select; otherwise the text of the first written choice whose value
+ *   equals the value exactly (so a multi-select's whole `"a b"` matches
+ *   nothing), `''` when none does. A select whose choices come from a table
+ *   or cases holds no written choices on Core, whose handler then fails.
+ *
+ * Outside a form (`formText` absent) neither function exists, as on Core.
+ */
+export function invokeFormTextFunction(
+	name: string,
+	args: readonly XPathRuntimeValue[],
+	formText: XPathFormText | undefined,
+): XPathFunctionInvocation {
+	if (formText === undefined) return { kind: "unsupported" };
+	if (name === "jr:itext") {
+		if (args.length !== 1)
+			throw new Error("jr:itext() takes one argument, the text id.");
+		const id = xpathToString(unpackXPathRuntimeValue(args[0] ?? ""));
+		return {
+			kind: "handled",
+			value: ownText(formText.itext, id) ?? `[itext:${id}]`,
+		};
+	}
+	if (name === "jr:choice-name") {
+		if (args.length !== 2)
+			throw new Error(
+				"jr:choice-name() takes two arguments, a value and a question's path.",
+			);
+		const value = xpathToString(unpackXPathRuntimeValue(args[0] ?? ""));
+		const path = xpathToString(unpackXPathRuntimeValue(args[1] ?? ""));
+		const choices = ownText(formText.selects, path);
+		if (choices === undefined) return { kind: "handled", value: "" };
+		if (choices === null)
+			throw new Error("error in evaluation of xpath function [choice-name]");
+		const match = choices.find(([choiceValue]) => choiceValue === value);
+		return { kind: "handled", value: match?.[1] ?? "" };
+	}
+	return { kind: "unsupported" };
 }
 
 // ── Boolean / Logic ──────────────────────────────────────────────────

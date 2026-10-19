@@ -342,7 +342,8 @@ an `if()` compared with a date and time.
 On a device, a case's opened date and last-changed date hold only the day, so
 Nova refuses comparing them with a moment such as `now()`. You can wrap both
 sides in `date()` to compare days instead, for example
-`date(#household/date_opened) = date(now())`. In the
+`date(#household/date_opened) = date(now())`. In what a search found, the
+opened date is its day in UTC. In the
 same way, a hidden value that copies the current time or a date-and-time
 answer without saving it to a date-and-time case property keeps only the day
 on a device, so Nova refuses comparing it with a moment too. You can compare
@@ -358,15 +359,21 @@ case's details. On Web Apps it shows it in the case's details, once the browser
 shares its location, while the list's rows and sorts don't know where the
 worker is.
 
-Choices and record filters that use a Project data table keep their table and
-column references when those names change. Formulas can read the records and
-session values available in their current setting.
+A formula in a form can read a Project data table by its export tag. For
+example, `instance('facilities')/facilities_list/facilities[code = #form/facility]/name`
+reads the name of the facility a worker chose. Nova keeps the table and its
+columns themselves rather than their names, so renaming the table's export tag
+or a column's export name keeps the formula reading them, and a table or column
+a formula reads can't be removed until that formula changes. Choices and record
+filters that use a data table work the same way. Formulas can read the records
+and session values available in their current setting.
 
 A formula can read values the app's menus supply to a form, such as the ID of
 the case chosen in a menu or the ID this form's new case will get, through
 `instance('commcaresession')/session/data/`. Preview supplies them as a device
 does, so a registration form that reads its new case's ID reads the ID the case
-is saved with.
+is saved with. The formula editor lists the values this form receives, each
+labelled by what it means.
 
 A hidden value has one expression and a choice of when it runs, or no
 expression at all. **Keep in

@@ -56,7 +56,18 @@ Test-only persona assignments do not provision workers or establish deployment
 readiness. The narrow store cannot alter schemas or dispatch media effects.
 
 Navigation shares production menu, selection and routing projections.
-Form evaluation receives a captured record snapshot before initialization.
+Form evaluation receives a captured record snapshot before initialization,
+with the worker's `locations` fixture beside it. A form of a search-first
+module that reads what the search found also receives the search's results
+snapshot, read from the isolated store as the browser reads it: the session's
+latest search of that module, read again without a page window and capped at
+500, each row with its direct indices as `index` children (the namespace
+store's `readCaseDatabasePatch`, inside the step's transaction). The paged
+Results read and this one are one composition (`records.ts::prepareAppTestRecords`
+over `engine/serverSearchRead.ts`). A form reached without that search is
+refused with the browser's refusal sentence. Submitting hands the after-submit
+links the same world the form read, its places and search results included
+(`submission.ts::submitAppTest` takes the form's evaluation context).
 Each form session mints its own entry key and builds its session map from the
 session's menu selections, so its proposed submission names the case ids its
 logic read. It

@@ -10,7 +10,7 @@ import {
 	xpathPredicateContext,
 	xpathPredicateMatches,
 } from "./evaluator";
-import { invokeFunction } from "./functions";
+import { invokeFormTextFunction, invokeFunction } from "./functions";
 import { prepareOpenJdk17Pattern } from "./javaPatternNamedCharacters";
 import { javaRosaRegex, javaRosaReplace } from "./javaPatternRuntime";
 import { javaRosaDecryptString, javaRosaEncryptString } from "./javaRosaCrypto";
@@ -316,6 +316,12 @@ async function evaluateAsyncInvoke(
 		return context.position ?? context.contextNode?.multiplicity ?? 0;
 	}
 
+	const formTextInvocation = invokeFormTextFunction(
+		name,
+		values,
+		context.formText,
+	);
+	if (formTextInvocation.kind === "handled") return formTextInvocation.value;
 	const invocation = invokeFunction(name, values, { locale: context.locale });
 	if (invocation.kind === "handled") return invocation.value;
 	const generated = context.invokeGeneratedFunction?.(

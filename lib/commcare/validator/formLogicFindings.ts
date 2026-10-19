@@ -35,6 +35,7 @@ import {
 	validationError,
 } from "./errors";
 import { checkErrorDetails, semanticCheckErrors } from "./lookupTypeContext";
+import { locationsReadNeedsOrganization } from "./rules/locationsRead";
 
 export const SESSION_FORM_READ_MESSAGE =
 	"This runs after the form has closed, so it can't read the form's answers. Save the answer to a case property and read that instead.";
@@ -57,6 +58,9 @@ export interface FormLogicFinding {
 		| "SELECT_DEFAULT_NOT_AN_OPTION"
 		| "XPATH_FUNCTION_CONTEXT_UNAVAILABLE"
 		| "XPATH_CARRIER_CONTEXT_UNAVAILABLE"
+		| "SEARCH_RESULTS_NOT_SUPPLIED"
+		| "SEARCH_RESULTS_READ_INVALID"
+		| "LOCATIONS_READ_NEEDS_ORGANIZATION"
 	>;
 	readonly message: string;
 	readonly slot?: SlotContextRef;
@@ -140,6 +144,16 @@ function slotOwner(ctx: ExpressionContext | undefined): {
 	};
 }
 
+/** Which carrier a slot is: a question, a form link, or a CommCare Connect
+ * setting. */
+function carrierOf(ctx: ExpressionContext | undefined): string {
+	return ctx?.slot.slot.startsWith("form_link_")
+		? "form-link"
+		: ctx?.slot.entity === "field"
+			? "field"
+			: "connect";
+}
+
 /** The two sides of the comparison at `path`, typed as the form checker
  * types them (`typeChecker.ts::formComparisonOperandTypes`). */
 function comparisonSides(
@@ -219,11 +233,24 @@ export function formLogicFinding(
 			break;
 		case "unknown-form-field":
 		case "unknown-user-property":
-		case "row-scope":
+		case "row-scope": {
 			code = "INVALID_REF";
+			const named =
+				error.reason === "choice-name-field" && expression !== undefined
+					? firstUnder(expression, error.path, "choice-name")
+					: undefined;
 			if (term?.kind === "choice")
 				details = { identity: "choice", choiceFieldUuid: term.field };
+			else if (named !== undefined)
+				details = { identity: "choice", choiceFieldUuid: named.field };
+			else if (error.reason === "itext-unit") details = { identity: "wording" };
+			else if (
+				error.reason === "location-level" ||
+				error.reason === "location-property"
+			)
+				details = { identity: "place" };
 			break;
+		}
 		case "form-answer-unavailable":
 			code = "INVALID_REF";
 			if (ctx?.profile.scope === "session") message = SESSION_FORM_READ_MESSAGE;
@@ -252,6 +279,10 @@ export function formLogicFinding(
 			break;
 		case "datum-not-supplied": {
 			const targetUnused = error.reason === "target-not-requested";
+			const selected =
+				expression === undefined
+					? undefined
+					: firstUnder(expression, error.path, "selected-cases");
 			const datum =
 				targetUnused &&
 				ctx?.slot.entity === "form" &&
@@ -259,22 +290,20 @@ export function formLogicFinding(
 					? ctx.slot.member.datum
 					: term?.kind === "session-datum"
 						? term.datum
-						: undefined;
+						: selected !== undefined
+							? { kind: "selected-case" as const, module: selected.module }
+							: undefined;
 			code = targetUnused
 				? "FORM_LINK_DATUM_UNUSED"
 				: "SESSION_DATUM_NOT_SUPPLIED";
 			details = {
 				slot: ctx?.slot.slot ?? "",
-				carrier: ctx?.slot.slot.startsWith("form_link_")
-					? "form-link"
-					: ctx?.slot.entity === "field"
-						? "field"
-						: "connect",
+				carrier: carrierOf(ctx),
 				reason: error.reason ?? "not-supplied",
 				...(datum !== undefined
 					? {
 							ref: JSON.stringify(datum),
-							datumKind: datum.kind,
+							datumKind: selected !== undefined ? "selected-cases" : datum.kind,
 							...("module" in datum ? { datumModule: datum.module } : {}),
 							...("caseType" in datum ? { datumCaseType: datum.caseType } : {}),
 						}
@@ -287,6 +316,57 @@ export function formLogicFinding(
 							}
 						: {}),
 			};
+			break;
+		}
+		case "search-results-not-supplied": {
+			code = "SEARCH_RESULTS_NOT_SUPPLIED";
+			const owner = slotOwner(ctx);
+			const reason = error.reason ?? "not-search-first";
+			details = {
+				slot: ctx?.slot.slot ?? "",
+				carrier: carrierOf(ctx),
+				reason,
+			};
+			message =
+				reason === "no-matches-form"
+					? `${owner.slotSubject} reads what the search found, but this form opens only when the search finds nothing, so there are no results to read. You can read the worker's search answers with #search/ instead.`
+					: reason === "link-source"
+						? `${owner.slotSubject} reads what a search found, but the form this link leaves doesn't open after a search, so there are no results to read. You can read a case property instead.`
+						: `${owner.slotSubject} reads what this menu's search found, but the menu no longer opens on its search, so the form has no search results to read. You can turn Search first back on, or read the case the worker chose instead.`;
+			break;
+		}
+		case "search-results-order":
+		case "search-results-other-type": {
+			code = "SEARCH_RESULTS_READ_INVALID";
+			const owner = slotOwner(ctx);
+			if (error.code === "search-results-order") {
+				details = { reason: "order" };
+				message = `${owner.slotSubject} reads what the search found by its order. ${error.message}`;
+			} else {
+				const searched =
+					ctx?.supplies.searchResults === undefined
+						? undefined
+						: ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module);
+				let other: string | undefined;
+				if (expression !== undefined)
+					walkExpression(expression, {
+						visitTerm: (node, at) => {
+							if (
+								other === undefined &&
+								node.kind === "case-type" &&
+								node.caseType !== searched &&
+								error.path.every((part, index) => at[index] === part)
+							)
+								other = node.caseType;
+						},
+					});
+				details = {
+					reason: "other-type",
+					...(searched === undefined ? {} : { caseType: searched }),
+					...(other === undefined ? {} : { otherCaseType: other }),
+				};
+				message = `${owner.slotSubject} looks for ${other ?? "another type of"} cases in what the search found. ${error.message} You can remove that case type from the query.`;
+			}
 			break;
 		}
 		case "default-not-a-choice":
@@ -341,7 +421,37 @@ export function formLogicFinding(
 				message =
 					error.reason === "choice-name-dynamic"
 						? `${owner.slotSubject} reads the label of a choice of ${of}, whose choices come from a Project data table or from cases, so CommCare has no label to read there. You can read the label from where the choices come from instead.`
-						: `${owner.slotSubject} reads the label of a choice of ${of}, which isn't available in a form's logic. You can read the answer itself instead.`;
+						: `${owner.slotSubject} reads the label of a choice of ${of}, which only a form's own logic can read. You can read the answer itself instead.`;
+			} else if (error.reason === "itext-reference") {
+				code = "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
+				const read =
+					expression === undefined
+						? undefined
+						: expressionAt(expression, error.path);
+				const wordingField =
+					read?.kind === "itext"
+						? read.unit.field
+						: read?.kind === "choice-name"
+							? read.field
+							: undefined;
+				const wordingFieldId =
+					wordingField === undefined
+						? undefined
+						: ctx?.form?.fields.get(wordingField)?.id;
+				const choice =
+					read?.kind === "choice-name" ||
+					(read?.kind === "itext" && read.unit.role === "select-option-label");
+				details = {
+					reason: "itext-reference",
+					wordingKind: choice ? "choice" : "question",
+					...(wordingFieldId === undefined ? {} : { wordingFieldId }),
+				};
+				const named =
+					wordingFieldId === undefined ? "a question" : `"${wordingFieldId}"`;
+				message =
+					read?.kind === "choice-name"
+						? `${owner.slotSubject} reads the label of a choice of ${named}, and a label of its choices includes an answer. CommCare would show a placeholder there instead of the answer. You can read the answer itself instead.`
+						: `${owner.slotSubject} reads the wording of ${named}, which includes an answer. CommCare would show a placeholder there instead of the answer. You can read the answer itself instead.`;
 			}
 			break;
 		}
@@ -459,9 +569,12 @@ export function formLogicFindings(
 	expression: Expression,
 	ctx: ExpressionContext,
 ): readonly FormLogicFinding[] {
-	return semanticCheckErrors(checkExpression(expression, ctx)).map((error) =>
-		formLogicFinding(error, ctx, expression),
-	);
+	return [
+		...semanticCheckErrors(checkExpression(expression, ctx)).map((error) =>
+			formLogicFinding(error, ctx, expression),
+		),
+		...locationsReadNeedsOrganization(expression, ctx),
+	];
 }
 export function presentFormLogicFinding(
 	doc: BlueprintDoc,
@@ -493,7 +606,13 @@ export function presentFormLogicFinding(
 			? "worker property"
 			: error.reason === "datum-module"
 				? "menu"
-				: "question";
+				: error.reason === "itext-unit"
+					? "question's wording"
+					: error.reason === "location-level"
+						? "place level"
+						: error.reason === "location-property"
+							? "piece of place information"
+							: "question";
 	const choiceFieldName =
 		error.details?.choiceFieldUuid === undefined
 			? undefined

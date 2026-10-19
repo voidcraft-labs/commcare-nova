@@ -1,4 +1,5 @@
 import type { XPathInitializationContext } from "./initializationContext";
+import type { XPathFormText } from "./types";
 
 /**
  * Structured-clone-safe protocol for browser XPath evaluation.
@@ -85,6 +86,9 @@ export interface XPathWorkerInstances {
 	readonly worldKey?: string;
 	readonly initializeWorld?: boolean;
 	readonly locale?: string;
+	/** The form's own text for `jr:itext` and `jr:choice-name`; part of the
+	 * world, so it travels with the world's first request. */
+	readonly formText?: XPathFormText;
 	readonly main?: XPathWorkerInstanceSnapshot;
 	readonly secondary?: readonly XPathWorkerInstanceSnapshot[];
 	readonly pathValues?: readonly XPathWorkerPathValue[];

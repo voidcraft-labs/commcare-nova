@@ -9,11 +9,12 @@ import {
 	caseSelectionMaximum,
 	isCaptureFieldKind,
 	isContainer,
+	moduleOpensOnSearch,
 	moduleUuidOfForm,
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
-import { refusalCopy } from "../runtimeMessages";
+import { refusalCopy, runtimeMessage } from "../runtimeMessages";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -39,6 +40,7 @@ import { projectFormPresentation } from "./formPresentation";
 import { previewLookupData } from "./lookupEvaluation";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import { availablePages, pagesToValidate } from "./sectionPaging";
+import { formReadsSearchResults } from "./xpathInstances";
 
 /** Let FormEngine apply its narrowly scoped wording policy before an uncaught
  * XPath failure becomes the public authoring-input fault. */
@@ -128,6 +130,16 @@ export async function evaluateFormSnapshot(
 				"A selected record is unavailable to this worker or has a different type.",
 			);
 	}
+	/* A device reaches a form that reads what its search found only through
+	 * that search, so without the search's snapshot the form cannot open. */
+	if (
+		context.searchResults === undefined &&
+		moduleOpensOnSearch(module) &&
+		formReadsSearchResults(doc, input.formUuid)
+	)
+		throw new FormEvaluationInputError(
+			`${runtimeMessage(input.language, "searchResultsRefusalTitle")}. ${runtimeMessage(input.language, "searchResultsRefusalBody")}`,
+		);
 	const reachable = reachableCaseTypes(module.caseType, doc.caseTypes ?? []);
 	const caseData =
 		ids.length === 1 && caseSelectionCardinality(module) === "single"
@@ -146,6 +158,9 @@ export async function evaluateFormSnapshot(
 			return caseName === undefined ? { caseId } : { caseId, caseName };
 		}),
 		menuSelections: context.session?.menuSelections ?? {},
+		...(context.searchResults === undefined
+			? {}
+			: { searchResults: context.searchResults }),
 		caseDatabase: context.cases,
 		identity: context.identity,
 	});
@@ -159,6 +174,10 @@ export async function evaluateFormSnapshot(
 		{
 			stagedAsync: true,
 			sessionData: session.data,
+			selectedCases: session.selectedCases,
+			...(session.searchResults === undefined
+				? {}
+				: { searchResults: session.searchResults }),
 			...(context.entry && context.entry.language !== engineInput.language
 				? {
 						restoredEntry: {
