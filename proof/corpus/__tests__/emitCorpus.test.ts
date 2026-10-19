@@ -620,10 +620,10 @@ describe("the corpus emitter", () => {
 	});
 
 	it("writes the same bytes on every run for a seed, sends the first publish's ids on the republish, and writes a document's two local exports as one archive", {
-		// Two more emissions of the corpus, each capturing every publish and
-		// writing every archive: about a second on a laptop, and CI runners
-		// are slower.
-		timeout: 30_000,
+		// Two more emissions of the whole corpus, each capturing every publish
+		// and writing every archive: 18 to 28 seconds on a CI runner sharing
+		// its cores with the rest of a shard.
+		timeout: 60_000,
 	}, async () => {
 		const runs: Map<string, Buffer>[] = [];
 		// The runs happen at different times: whatever reads the clock must not reach the files.

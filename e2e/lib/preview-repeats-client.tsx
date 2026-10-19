@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { useStore } from "zustand";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	BuilderLocalizationProvider,
@@ -371,10 +372,46 @@ function RunningForm() {
 		return () => controller.deactivate();
 	}, [controller]);
 	return ready ? (
-		<FormLayoutProvider>
-			<InteractiveFormRenderer parentEntityId={formUuid} />
-		</FormLayoutProvider>
+		<EntryBusy controller={controller}>
+			<FormLayoutProvider>
+				<InteractiveFormRenderer parentEntityId={formUuid} />
+			</FormLayoutProvider>
+		</EntryBusy>
 	) : null;
+}
+/**
+ * The form body's busy state, as `FormScreen` gives it. While the controller
+ * rebuilds an entry (a language switch does) the settled presentation stays on
+ * screen but takes no answers, so FormScreen marks the body busy and inert;
+ * this peer renders the form without FormScreen and owes the same marks. Busy
+ * also covers a revision still settling, behind which a requested rebuild
+ * waits to start, so an idle body is one whose next answer lands.
+ */
+function EntryBusy({
+	controller,
+	children,
+}: {
+	controller: EngineController;
+	children: ReactNode;
+}) {
+	const frozen = useStore(
+		controller.entryStore,
+		(entry) =>
+			entry.formUuid !== formUuid ||
+			!entry.ready ||
+			entry.rebuilding ||
+			entry.topologySettling,
+	);
+	const settling = useStore(controller.entryStore, (entry) => entry.settling);
+	return (
+		<div
+			data-preview-form-body
+			aria-busy={frozen || settling}
+			inert={frozen ? true : undefined}
+		>
+			{children}
+		</div>
+	);
 }
 const target = document.getElementById("root");
 if (!target) throw new Error("Missing root");

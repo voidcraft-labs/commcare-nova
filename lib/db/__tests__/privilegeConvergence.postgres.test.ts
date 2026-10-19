@@ -407,7 +407,9 @@ describe("database privilege convergence", () => {
 				fixture.bootstrapRole,
 			]);
 		}
-	});
+		// Every case-store and auth migration under the legacy role, then two
+		// convergences and a bootstrap: up to 5 seconds on a CI runner.
+	}, 15_000);
 
 	test("converges from the database-owning migration identity to the complete role boundary", async () => {
 		const config = await createRoles(h.db);
