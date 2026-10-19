@@ -372,7 +372,11 @@ const offDevice = (ctx: ExpressionContext): ExpressionContext => ({
 	profile: { ...ctx.profile, targets: new Set() },
 });
 
-describe("the checker admits a comparison of moments exactly when a device can print it", () => {
+// Tens of thousands of comparisons per slot, each checked and printed in
+// every device target: seconds of work, so each slot carries its own budget.
+describe("the checker admits a comparison of moments exactly when a device can print it", {
+	timeout: 30_000,
+}, () => {
 	for (const slot of SLOTS)
 		it(`agrees in ${slot.name}`, () => {
 			const disagreements: string[] = [];
