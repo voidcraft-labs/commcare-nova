@@ -75,40 +75,22 @@ export function formatConcreteCommCareDate(
 	return { kind: "formatted", text };
 }
 
+/** `DateUtils.format(Date, String)` reads `getFields(d)`: the local fields of
+ * the instant Core's `Date` holds, and `%Z` from that instant's offset. A
+ * date-only value is its local midnight, which a zone that skips midnight
+ * shows as the first hour after the gap, as Core does. */
 function dateFields(value: XPathDate): DateFields {
-	const instant = value.toJSDate();
-	if (value.time !== null) {
-		return {
-			year: instant.getFullYear(),
-			month: instant.getMonth() + 1,
-			day: instant.getDate(),
-			hour: instant.getHours(),
-			minute: instant.getMinutes(),
-			second: instant.getSeconds(),
-			milliseconds: instant.getMilliseconds(),
-			dayOfWeek: instant.getDay(),
-			timezoneOffsetMinutes: -instant.getTimezoneOffset(),
-		};
-	}
-
-	// Date-only values are calendar dates, not UTC instants. `XPathDate` stores
-	// their day count at UTC midnight; extract those calendar components and
-	// create a local midnight only for weekday/offset lookup. This prevents a
-	// negative-offset browser from moving `2026-07-14` back to July 13.
-	const year = instant.getUTCFullYear();
-	const monthIndex = instant.getUTCMonth();
-	const day = instant.getUTCDate();
-	const localMidnight = new Date(year, monthIndex, day);
+	const instant = new Date(value.instant());
 	return {
-		year,
-		month: monthIndex + 1,
-		day,
-		hour: 0,
-		minute: 0,
-		second: 0,
-		milliseconds: 0,
-		dayOfWeek: localMidnight.getDay(),
-		timezoneOffsetMinutes: -localMidnight.getTimezoneOffset(),
+		year: instant.getFullYear(),
+		month: instant.getMonth() + 1,
+		day: instant.getDate(),
+		hour: instant.getHours(),
+		minute: instant.getMinutes(),
+		second: instant.getSeconds(),
+		milliseconds: instant.getMilliseconds(),
+		dayOfWeek: instant.getDay(),
+		timezoneOffsetMinutes: -instant.getTimezoneOffset(),
 	};
 }
 

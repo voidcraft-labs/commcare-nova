@@ -96,6 +96,7 @@ function makeCtx(
 	overrides: Partial<PredicateCompileContext> = {},
 ): PredicateCompileContext {
 	return {
+		reading: "search",
 		db,
 		appId: APP_ID,
 		projectId: PROJECT_ID,

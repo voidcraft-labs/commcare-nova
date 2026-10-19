@@ -9,8 +9,10 @@ import {
 	vi,
 } from "vitest";
 import { GEOPOINT_CENTER_PATTERN } from "@/lib/commcare/predicate/geopoint";
+import { parser } from "@/lib/commcare/xpath/parser";
+import { evaluateAsync } from "../asyncEvaluator";
 import { xpathToString } from "../coerce";
-import { evaluate } from "../evaluator";
+import { evaluate, XPATH_PARSE_CACHE_ENTRIES } from "../evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../generatedJavaRosaFunctions";
 import type { EvalContext } from "../types";
 import { isXPathDate } from "../types";
@@ -665,7 +667,7 @@ describe("XPath evaluator", () => {
 				vi.setSystemTime(new Date("2026-08-15T01:34:56Z"));
 				expect(evaluate("string(today())", makeCtx())).toBe("2026-08-14");
 				const rounded = evaluate("date(now())", makeCtx());
-				expect(isXPathDate(rounded) && rounded.time).toBeNull();
+				expect(isXPathDate(rounded) && rounded.timeMilliseconds).toBeNull();
 				expect(evaluate("string(now())", makeCtx())).toBe("2026-08-14");
 				expect(Number.isInteger(evaluate("double(now())", makeCtx()))).toBe(
 					false,
@@ -709,6 +711,63 @@ describe("XPath evaluator", () => {
 			expect(() => evaluate("[[invalid", makeCtx())).toThrow(
 				"did not pass admission",
 			);
+		});
+	});
+
+	describe("parse cache", () => {
+		// The cache is the realm's own, shared by every test in this file, so
+		// each case uses sources no other case evaluates.
+		it("parses one source once for both evaluators and keys on its exact text", async () => {
+			const parse = vi.spyOn(parser, "parse");
+			try {
+				const ctx = makeCtx({ "/data/a": "", "/data/b": "x" });
+				expect(evaluate("/data/a = 'cache-key' or /data/b", ctx)).toBe(true);
+				expect(
+					await evaluateAsync("/data/a = 'cache-key' or /data/b", ctx),
+				).toBe(true);
+				expect(evaluate("/data/a = 'cache-key'", ctx)).toBe(false);
+				expect(evaluate("  /data/a = 'cache-key'  ", ctx)).toBe(false);
+				expect(parse).toHaveBeenCalledTimes(2);
+			} finally {
+				parse.mockRestore();
+			}
+		});
+
+		it("refuses an unadmitted source every time without keeping it", () => {
+			const parse = vi.spyOn(parser, "parse");
+			try {
+				for (let attempt = 0; attempt < 2; attempt += 1) {
+					expect(() => evaluate("1 + 'cache-refusal' +", makeCtx())).toThrow(
+						"did not pass admission",
+					);
+				}
+				expect(parse).toHaveBeenCalledTimes(2);
+			} finally {
+				parse.mockRestore();
+			}
+		});
+
+		it("evicts the least recently used source past its capacity", () => {
+			const ctx = makeCtx();
+			const kept = "string('cache-kept')";
+			const evicted = "string('cache-evicted')";
+			// The older of the two is read again, so insertion order alone would
+			// evict the wrong one when one more source than the capacity arrives.
+			evaluate(kept, ctx);
+			evaluate(evicted, ctx);
+			evaluate(kept, ctx);
+			for (let index = 0; index < XPATH_PARSE_CACHE_ENTRIES - 1; index += 1) {
+				evaluate(`string('cache-fill-${index}')`, ctx);
+			}
+			const parse = vi.spyOn(parser, "parse");
+			try {
+				expect(evaluate(kept, ctx)).toBe("cache-kept");
+				expect(parse).not.toHaveBeenCalled();
+				expect(evaluate(evicted, ctx)).toBe("cache-evicted");
+				expect(parse).toHaveBeenCalledTimes(1);
+			} finally {
+				parse.mockRestore();
+			}
 		});
 	});
 });

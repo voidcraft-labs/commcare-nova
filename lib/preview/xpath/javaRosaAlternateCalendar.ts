@@ -221,19 +221,15 @@ export function javaRosaFormatDateForCalendar(
 	throw new Error(`Unsupported calendar type: ${calendar}`);
 }
 
+/** The value's local calendar date, the day Core's converters read from the
+ * held `Date` in the device zone. */
 function gregorianFields(value: XPathDate): CalendarDate {
-	const date = value.toJSDate();
-	return value.time === null
-		? {
-				year: date.getUTCFullYear(),
-				month: date.getUTCMonth() + 1,
-				day: date.getUTCDate(),
-			}
-		: {
-				year: date.getFullYear(),
-				month: date.getMonth() + 1,
-				day: date.getDate(),
-			};
+	const date = new Date(value.calendarDays * 86_400_000);
+	return {
+		year: date.getUTCFullYear(),
+		month: date.getUTCMonth() + 1,
+		day: date.getUTCDate(),
+	};
 }
 
 function toEthiopian(date: CalendarDate): CalendarDate {

@@ -9,7 +9,11 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { simpleSearchInputDef } from "@/lib/domain";
 import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
-import { evaluateForm, FormEvaluationInputError } from "../evaluateForm";
+import {
+	evaluateForm,
+	FormEvaluationInputError,
+	FormRefusedError,
+} from "../evaluateForm";
 import { previewAsMe } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import { createEvaluationApp } from "./evaluationFixture";
@@ -876,4 +880,73 @@ it("uses location-picker coordinates and separates malformed test answers from a
 		valid: false,
 	});
 	expect(cleared).not.toHaveProperty("submission");
+});
+
+it("reports a starting value CommCare refuses as a form refusal across the worker", async () => {
+	const doc = await createEvaluationApp(
+		[{ name: "Visits", forms: [{ name: "Count", type: "survey" }] }],
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Visits",
+					formUuid: "Count",
+					fields: [
+						{
+							kind: "text",
+							id: "seed",
+							label: "Seed",
+							default_value: "'many'",
+						},
+						{
+							kind: "int",
+							id: "visits",
+							label: "Visits",
+							default_value: "#form/seed",
+						},
+					],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Visits",
+					formUuid: "Count",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+		],
+	);
+	const formUuid = Object.values(doc.forms).find(
+		(form) => form.name === "Count",
+	)?.uuid;
+	const visits = Object.values(doc.fields).find(
+		(field) => field.id === "visits",
+	);
+	const identity = previewAsMe({ id: "member" }, doc);
+	if (!formUuid || !visits || !identity)
+		throw new Error("Evaluation fixture is incomplete.");
+	const refusal = evaluateForm(
+		doc,
+		{ formUuid, answers: [] },
+		{
+			identity,
+			cases: { rows: [], indices: [] },
+			lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+		},
+	);
+	await expect(refusal).rejects.toBeInstanceOf(FormRefusedError);
+	await expect(refusal).rejects.toBeInstanceOf(FormEvaluationInputError);
+	await expect(refusal).rejects.toMatchObject({
+		message:
+			"This form can't open yet. The starting value of “Visits” works out to “many”, which isn't a whole number, so CommCare won't open the form. You can change the question's starting value so it gives a whole number.",
+		refusal: {
+			kind: "form-refused",
+			cause: "starting-value",
+			fieldUuid: visits.uuid,
+			path: "/data/visits",
+			value: "many",
+			answerType: "int",
+		},
+	});
 });

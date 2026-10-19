@@ -1086,6 +1086,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				.selectAll()
 				.where(
 					compilePredicate(bound, {
+						reading: "search",
 						db: SQL_DB,
 						appId: "app-runtime-binding",
 						projectId: "project-runtime-binding",

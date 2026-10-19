@@ -134,9 +134,9 @@ describe("Preview structural XPath instances", () => {
 		const opened = patientNode?.children("date_opened")[0]?.value();
 		const modified = patientNode?.children("last_modified")[0]?.value();
 		expect(opened).toBeInstanceOf(XPathDate);
-		expect((opened as XPathDate).time).toBeNull();
+		expect((opened as XPathDate).timeMilliseconds).toBeNull();
 		expect(modified).toBeInstanceOf(XPathDate);
-		expect((modified as XPathDate).time).toBeNull();
+		expect((modified as XPathDate).timeMilliseconds).toBeNull();
 
 		expect(
 			evaluate(

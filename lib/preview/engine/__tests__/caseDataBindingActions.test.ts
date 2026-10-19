@@ -2794,6 +2794,8 @@ describe("loadCaseCountAction", () => {
 			caseType: "patient",
 			parentCases: undefined,
 			includeHeld: false,
+			// No predicate reads a system date; the count is the stored truth.
+			reading: { filter: "search", columns: "results" },
 		});
 	});
 
@@ -2825,6 +2827,7 @@ describe("loadCaseCountAction", () => {
 				caseIds: [ALICE_CASE_ID, "patient-b"],
 			},
 			includeHeld: false,
+			reading: { filter: "search", columns: "results" },
 		});
 	});
 

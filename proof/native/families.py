@@ -57,7 +57,11 @@ DEVICE_ZONES = ZONES[:4]
 
 # Each listed class runs in these zones' own JVMs, never the suite's JVM.
 # CORE_CLASSES still names its family, so its upstream failures are reported.
-ZONED_CLASSES = {"InstantOrderingRuntimeTest": ZONES}
+# Date parity is the device's own behaviour, so it runs in the device zones only.
+ZONED_CLASSES = {
+    "CoreDateParityRuntimeTest": DEVICE_ZONES,
+    "InstantOrderingRuntimeTest": ZONES,
+}
 
 
 def _script(name, producer):
@@ -119,6 +123,7 @@ CORE_CLASSES = {
     "CaseOperationRuntimeTest": "case",
     "ConnectRuntimeTest": "connect",
     "ContainerRuntimeTest": "container",
+    "CoreDateParityRuntimeTest": "expression",
     "CsqlFunctionRuntimeTest": "function",
     "CsqlQuoteRuntimeTest": "quote",
     "EndpointRuntimeTest": "endpoint",

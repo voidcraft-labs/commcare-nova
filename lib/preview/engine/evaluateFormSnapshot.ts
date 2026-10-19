@@ -13,11 +13,13 @@ import {
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { refusalCopy } from "../runtimeMessages";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathRuntimeError } from "../xpath/workerProtocol";
+import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import { caseDatabaseToFormPreloads } from "./caseDataBindingClient";
 import { buildEngineInput } from "./engineInput";
 import { evaluationAnswerValue } from "./formAnswerValue";
@@ -27,7 +29,11 @@ import type {
 	FormEvaluationFault,
 	FormEvaluationInput,
 } from "./formEvaluationTypes";
-import { FormEvaluationInputError } from "./formEvaluationTypes";
+import {
+	FormEvaluationInputError,
+	type FormRefusalDetails,
+	FormRefusedError,
+} from "./formEvaluationTypes";
 import { projectFormPresentation } from "./formPresentation";
 import { previewLookupData } from "./lookupEvaluation";
 import { searchInputInstanceValues } from "./runtimeBindings";
@@ -42,6 +48,45 @@ class FormEvaluationXPathError extends PreviewXPathRuntimeError {
 	) {
 		super(failure);
 	}
+}
+
+/** A refused setvalue as an evaluation reports it, its sentence naming the
+ * question, repeat, record and property the way Preview's own copy does. */
+function formRefusal(
+	doc: BlueprintDoc,
+	details: SetvalueRefusalDetails,
+	cases: FormEvaluationContext["cases"],
+): FormRefusalDetails {
+	const label = (uuid: string | undefined) => {
+		const field = uuid === undefined ? undefined : doc.fields[uuid];
+		return field !== undefined && "label" in field && field.label
+			? projectProseTemplate(field.label, doc).text
+			: undefined;
+	};
+	const caseName = cases.rows.find(
+		(row) => row.case_id === details.caseId,
+	)?.case_name;
+	const property = (doc.caseTypes ?? [])
+		.find((type) => type.name === details.caseType)
+		?.properties.find((candidate) => candidate.name === details.property);
+	const copy = refusalCopy("eng", details, {
+		...(caseName ? { caseName } : {}),
+		...(property
+			? {
+					property: property.label
+						? projectProseTemplate(property.label, doc).text || property.name
+						: property.name,
+				}
+			: {}),
+		...(label(details.fieldUuid) ? { question: label(details.fieldUuid) } : {}),
+		...(label(details.repeatUuid) ? { repeat: label(details.repeatUuid) } : {}),
+	});
+	return {
+		...details,
+		kind: "form-refused",
+		sentence:
+			copy.title === undefined ? copy.body : `${copy.title}. ${copy.body}`,
+	};
 }
 
 /** Observe a form against one captured runtime context. No stores are reachable
@@ -199,6 +244,17 @@ export async function evaluateFormSnapshot(
 				),
 				evaluate,
 			);
+		for (const repeat of input.repeats ?? []) {
+			// A requested row CommCare refuses to insert stops this evaluation,
+			// as the refused insert stops the running app's action.
+			const path = normalizePath(repeat.path);
+			const state = engine.getState(path);
+			if (
+				state.insertRefusal !== undefined &&
+				engine.getRepeatCount(path) < repeat.count
+			)
+				throw new SetvalueRefusal(state.insertRefusal);
+		}
 		for (const answer of input.answers) {
 			const path = normalizePath(answer.path);
 			const section = sectionForPath(path);
@@ -329,6 +385,15 @@ export async function evaluateFormSnapshot(
 					help,
 					...(options === undefined ? {} : { choices: options }),
 					...(repeatCount === undefined ? {} : { repeatCount }),
+					...(state.insertRefusal === undefined
+						? {}
+						: {
+								insertRefused: formRefusal(
+									doc,
+									state.insertRefusal,
+									context.cases,
+								).sentence,
+							}),
 					...(kind === "geopoint"
 						? {
 								interaction: "location-picker" as const,
@@ -369,6 +434,10 @@ export async function evaluateFormSnapshot(
 				: {}),
 		};
 	} catch (error) {
+		if (error instanceof SetvalueRefusal)
+			throw new FormRefusedError(
+				formRefusal(doc, error.details, context.cases),
+			);
 		if (error instanceof FormEvaluationXPathError)
 			throw new FormEvaluationInputError(
 				"An expression could not be evaluated.",

@@ -39,6 +39,7 @@ import type { AppCapability } from "@/lib/auth/projectRoles";
 import type {
 	ApplySubmissionArgs,
 	CaseOperationProgram,
+	CaseQueryReading,
 	CaseRow,
 	CaseStore,
 	SortKey as CaseStoreSortKey,
@@ -55,6 +56,7 @@ import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
+import { fieldBindType } from "@/lib/commcare/xform/bindType";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import {
@@ -100,6 +102,7 @@ import {
 	captureContentType,
 	committedCapturePath,
 } from "@/lib/domain/captureFormats";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { Expression, Term } from "@/lib/domain/expression";
 import { walkExpressionTerms } from "@/lib/domain/expression";
 import {
@@ -139,6 +142,7 @@ import {
 import type { LookupScope } from "@/lib/lookup/types";
 import { compareEqual } from "../xpath/coerce";
 import { javaTrim } from "../xpath/javaString";
+import { coreAnswerType } from "./answerCast";
 import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
 	CaseQueryConstraintSource,
@@ -152,7 +156,7 @@ import type {
 	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
 import type { CaseListOrderLocale } from "./caseListOrder";
-import { formAnswerXPathValue } from "./dataInstance";
+import { answerXPathValue } from "./dataInstance";
 import type { ResolvedPreviewIdentity } from "./identity";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
 import {
@@ -209,6 +213,7 @@ function caseReadCore(
 	args: {
 		readonly appId: string;
 		readonly caseType: string;
+		readonly reading: CaseQueryReading;
 		readonly caseIds?: readonly string[];
 		readonly parentCase?: ParentCaseSelection;
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
@@ -222,6 +227,7 @@ function caseReadCore(
 	return {
 		appId: args.appId,
 		caseType: args.caseType,
+		reading: args.reading,
 		caseIds: args.caseIds,
 		parentCases: args.parentCase,
 		caseTypeSchemas: args.caseTypeSchemas,
@@ -325,6 +331,9 @@ export async function readCases(
 	args: {
 		appId: string;
 		caseType: string;
+		/** What the read stands for: `caseQueryReadingFor` of its module
+		 *  (`lib/domain/expression/temporalType.ts`). */
+		reading: CaseQueryReading;
 		caseIds?: readonly string[];
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
@@ -591,6 +600,7 @@ async function countAuthoredCasePopulation(
 	args: {
 		readonly appId: string;
 		readonly caseType: string;
+		readonly reading: CaseQueryReading;
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		readonly caseListConfig?: CaseListConfig;
 		readonly parentCase?: ParentCaseSelection;
@@ -831,6 +841,9 @@ export async function readFilterPreview(
 	args: {
 		appId: string;
 		caseType: string;
+		/** What the previewed list stands for: `caseQueryReadingFor` of its
+		 *  module. */
+		reading: CaseQueryReading;
 		caseTypeSchemas: ReadonlyMap<string, CaseType>;
 		caseListConfig: CaseListConfig;
 		bindings?: TermBindings;
@@ -891,7 +904,8 @@ export interface CaseStoreOrder {
  * (`lib/domain/caseListOrder.ts`), built from the compiler's own arms:
  *
  *   - `property`: the raw value.
- *   - `calculated`: the column's expression, read with portable case dates.
+ *   - `calculated`: the column's expression, read under the columns'
+ *     reading, as every key is (`QueryArgs.reading`).
  *   - `option-label`: a single select's label in the worker's language
  *     (`switch`, the raw value where no option matches, first match winning
  *     as the device's nested `if` does); a multi select's known labels in
@@ -958,11 +972,9 @@ function sortKeysForRule(
 	const expressionKey = (
 		expression: Expression,
 		keyComparator: CaseListComparator = comparator,
-		portableCaseDates = false,
 	): CaseStoreSortKey => ({
 		kind: "expression",
 		expression,
-		...(portableCaseDates && { portableCaseDates: true as const }),
 		comparator: keyComparator,
 		direction,
 		blanks,
@@ -1016,7 +1028,7 @@ function sortKeysForRule(
 	if (column === undefined) return [];
 	if (key.kind === "calculated") {
 		if (column.kind !== "calculated") return [];
-		return [expressionKey(column.expression, comparator, true)];
+		return [expressionKey(column.expression, comparator)];
 	}
 	if (column.kind === "calculated") return [];
 	const raw = prop(caseType, column.field);
@@ -1103,6 +1115,9 @@ export async function readCaseData(
 		appId: string;
 		caseType: string;
 		caseId: string;
+		/** What the case's row stands for: `caseQueryReadingFor` of the
+		 *  module it was chosen in (a Search's result is a results row). */
+		reading: CaseQueryReading;
 		ancestorDepth: number;
 		/** Restrict this identity read to the selected nested-menu parents'
 		 * direct non-extension case-index population. */
@@ -2165,7 +2180,18 @@ function committedCloseConditionResult(
 	if (condition.operator === "selected") {
 		return ` ${raw} `.includes(` ${javaTrim(condition.answer)} `);
 	}
-	return compareEqual(formAnswerXPathValue(field.kind, raw), condition.answer);
+	// Read the answer as Core holds it: a Hidden Value bound as a date and time
+	// holds its instant.
+	return compareEqual(
+		answerXPathValue(
+			coreAnswerType(
+				fieldBindType(field, effectiveCaseTypes(blueprint)),
+				field.kind,
+			),
+			raw,
+		),
+		condition.answer,
+	);
 }
 
 /** The module owning `formUuid`, walked off the committed doc. */

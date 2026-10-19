@@ -40,6 +40,7 @@ const db = new Kysely<Database>({
 });
 afterAll(() => db.destroy());
 const ctx: ExpressionCompileContext = {
+	reading: "search",
 	db,
 	appId: "app",
 	projectId: "project",
@@ -55,7 +56,7 @@ const ctx: ExpressionCompileContext = {
 describe("compileExpression preconditions", () => {
 	it("requires a resolved acting user", () => {
 		expect(() => compileExpression(actingUser(), ctx)).toThrow(
-			/missing binding for the acting user id/i,
+			/the binding for the acting user id is missing/i,
 		);
 	});
 	it("requires the referenced operation's created id", () => {

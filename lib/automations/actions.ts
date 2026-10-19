@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth-utils";
 import {
 	AutomationHostAmbiguityError,
 	buildCaseTypeMap,
+	SEARCH_READING,
 	withProjectContext,
 } from "@/lib/case-store";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
@@ -141,6 +142,8 @@ export async function previewAutomationAction(
 			const currentMatchCount = await store.count({
 				appId: parsed.data.appId,
 				caseType: automation.caseType,
+				// HQ's rule sweep runs on the server over stored cases.
+				reading: SEARCH_READING,
 				caseTypeSchemas: buildCaseTypeMap(snapshot.blueprint),
 				...projection.countArgs,
 			});

@@ -23,6 +23,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
+import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import {
 	type CalculatedTemporalType,
 	type ColumnDisplayContext,
@@ -66,6 +67,17 @@ export function useColumnDisplayContext(
 	const projectProse = useProseProjection();
 	const lookupTypes = useExpressionLookupTypes();
 	const { doc, moduleUuid } = owner;
+	// The running list's rows are casedb rows for a browse list and results
+	// rows for an effective Search; the live config decides which.
+	const caseSearchConfig = doc.modules[moduleUuid]?.caseSearchConfig;
+	const columnsReading = useMemo(
+		() =>
+			config === undefined
+				? "casedb"
+				: caseQueryReadingFor({ caseListConfig: config, caseSearchConfig })
+						.columns,
+		[config, caseSearchConfig],
+	);
 	const calculatedTemporalTypes = useMemo(() => {
 		const types = new Map<Column["uuid"], CalculatedTemporalType>();
 		if (config === undefined) return types;
@@ -83,19 +95,31 @@ export function useColumnDisplayContext(
 			);
 			if (context === undefined)
 				throw new Error("The calculated column has no owning expression slot.");
-			const temporalType = resolveCalculatedTemporalType(column, context);
+			const temporalType = resolveCalculatedTemporalType(
+				column,
+				context,
+				columnsReading,
+			);
 			if (temporalType !== undefined) types.set(column.uuid, temporalType);
 		}
 		return types;
-	}, [config, doc, moduleUuid, lookupTypes]);
+	}, [config, doc, moduleUuid, lookupTypes, columnsReading]);
 	return useMemo(
 		() => ({
 			language,
 			calculatedTemporalTypes,
 			caseProperties,
 			today,
+			reading: columnsReading,
 			projectProse,
 		}),
-		[language, calculatedTemporalTypes, caseProperties, today, projectProse],
+		[
+			language,
+			calculatedTemporalTypes,
+			caseProperties,
+			today,
+			columnsReading,
+			projectProse,
+		],
 	);
 }

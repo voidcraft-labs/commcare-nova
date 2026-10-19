@@ -242,6 +242,28 @@ function formatZoneOffset(offsetMinutes: number): string {
 }
 
 /**
+ * The canonical stored text of an INSTANT in `zone`: its wall clock there,
+ * `YYYY-MM-DDTHH:MM:SS.mmm`, and the offset in force at that instant. This
+ * is the text Core's `DateTimeData` holds for the instant
+ * (`DateTimeData::uncast`), Nova-spelled `±HH:MM`.
+ *
+ * Total and exact: no wall clock is resolved, so an instant in a repeated
+ * hour keeps its own occurrence's offset, and reading the text back by that
+ * offset returns the same instant.
+ */
+export function instantDatetimeValue(instantMs: number, zone: string): string {
+	const offsetMinutes = zoneOffsetMinutesAt(zone, instantMs);
+	const wall = new Date(instantMs + offsetMinutes * 60_000);
+	return `${pad(wall.getUTCFullYear(), 4)}-${pad(wall.getUTCMonth() + 1, 2)}-${pad(
+		wall.getUTCDate(),
+		2,
+	)}T${pad(wall.getUTCHours(), 2)}:${pad(wall.getUTCMinutes(), 2)}:${pad(
+		wall.getUTCSeconds(),
+		2,
+	)}.${pad(wall.getUTCMilliseconds(), 3)}${formatZoneOffset(offsetMinutes)}`;
+}
+
+/**
  * The zone designator a wall clock takes in `zone` — the offset in force at
  * the instant that wall clock denotes, not the offset in force today, so a
  * summer date entered in winter still gets its own side of DST.

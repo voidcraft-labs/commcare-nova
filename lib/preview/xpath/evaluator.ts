@@ -1,4 +1,4 @@
-import type { SyntaxNode } from "@lezer/common";
+import type { SyntaxNode, Tree } from "@lezer/common";
 import {
 	JAVAROSA_PATH_INITIALIZERS,
 	pathInitializerStringArgument,
@@ -96,10 +96,34 @@ export function evaluateRuntime(
 ): XPathRuntimeValue {
 	const trimmed = expr.trim();
 	if (!trimmed) return "";
+	return evalNode(parseAdmittedXPath(trimmed).topNode, trimmed, context);
+}
 
-	const tree = parser.parse(trimmed);
+/** Entries the parse cache holds per JavaScript realm (the main thread and
+ * each XPath worker keep their own). */
+export const XPATH_PARSE_CACHE_ENTRIES = 2048;
 
-	// Check for parse errors
+/** Admitted trees by their exact source, least recently used first. A Map
+ * keeps insertion order, so a hit is re-inserted at the end and the first key
+ * is the eviction candidate. */
+const admittedTrees = new Map<string, Tree>();
+
+/**
+ * The Lezer tree of one source text that passed admission, parsed once and
+ * reused while it stays among the most recently evaluated sources. The key is
+ * the exact text the tree's offsets index, because evaluation slices that
+ * source. A tree holding a parse error is refused every time and never kept:
+ * the commit gate makes it unreachable, so its refusal is the product
+ * invariant's report and not something to remember.
+ */
+export function parseAdmittedXPath(source: string): Tree {
+	const cached = admittedTrees.get(source);
+	if (cached !== undefined) {
+		admittedTrees.delete(source);
+		admittedTrees.set(source, cached);
+		return cached;
+	}
+	const tree = parser.parse(source);
 	let hasError = false;
 	tree.iterate({
 		enter(n) {
@@ -109,8 +133,12 @@ export function evaluateRuntime(
 	if (hasError) {
 		throw new Error("Preview received XPath that did not pass admission.");
 	}
-
-	return evalNode(tree.topNode, trimmed, context);
+	admittedTrees.set(source, tree);
+	if (admittedTrees.size > XPATH_PARSE_CACHE_ENTRIES) {
+		const oldest = admittedTrees.keys().next();
+		if (!oldest.done) admittedTrees.delete(oldest.value);
+	}
+	return tree;
 }
 
 /** Recursively evaluate a Lezer CST node. */

@@ -95,7 +95,6 @@ import {
 	caseScalarTextGuards,
 	expressionSlotValue,
 	type Field,
-	type FieldKind,
 	fieldKindCarriesValidation,
 	isCaptureField,
 	isCaptureFieldKind,
@@ -129,6 +128,7 @@ import {
 } from "../xpath/wire/instances";
 import { caseById, casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
+import { fieldBindType } from "./bindType";
 import { protectConstraintMessage } from "./constraintMessage";
 import {
 	datetimeCaseValueCalculate,
@@ -1110,10 +1110,7 @@ function buildFieldParts(
 		"vellum:nodeset": nodePath.toWire("hashtag"),
 		nodeset: nodePath.toWire(),
 	};
-	const bindType =
-		fieldValueType(field, effectiveCaseTypes(doc)) === "datetime"
-			? "xsd:dateTime"
-			: getBindType(field.kind);
+	const bindType = fieldBindType(field, effectiveCaseTypes(doc));
 	if (bindType) bindAttributes.type = bindType;
 	if (required) {
 		// The editor's attribute for a required CONDITION is
@@ -1810,7 +1807,7 @@ function buildLeafControl(
 	// Remaining input kinds: text, int, decimal, date, time, datetime,
 	// geopoint, barcode. They all render as `<input>`; their per-kind bind
 	// `type` (XSD for the scalar kinds, a bare ODK type for geopoint/barcode)
-	// is added by the caller from `BIND_TYPE_BY_KIND`.
+	// is added by the caller from `bindType.ts::fieldBindType`.
 	return xel("input", { xpath: { ref: ref } }, context, head);
 }
 
@@ -2216,71 +2213,4 @@ function buildRepeatBody(
 	);
 	const groupChildren: Element[] = labelEl ? [labelEl, repeatEl] : [repeatEl];
 	return el("group", {}, groupChildren);
-}
-
-/**
- * XForm `<bind>` `type` attribute per domain `FieldKind`.
- *
- * This value is load-bearing for how an uploaded app reads back in
- * CommCare HQ: HQ infers each question's editor type from the
- * `(control-tag, bind-type, media-type, appearance)` tuple
- * (`commcare-hq/corehq/apps/app_manager/xform.py::_infer_vellum_type`
- * against the `VELLUM_TYPES` table). So the bind type is not just
- * "how the runtime parses the value" — it decides whether HQ shows a
- * GPS-capture widget or a plain text box. A geopoint emitted with the
- * wrong type uploads as a Text question.
- *
- * Most kinds carry an `xsd:*` type, but three groups carry the bare
- * ODK type HQ's table keys on — these are NOT XSD types
- * (`commcare-hq/corehq/apps/app_manager/xform_builder.py::ODK_TYPES`
- * lists them outside `XSD_TYPES`):
- *   - `geopoint` → `geopoint` (HQ `Geopoint`: `input` + `geopoint`).
- *   - `barcode`  → `barcode`  (HQ `Barcode`:  `input` + `barcode`).
- *   - the capture kinds (`image`/`audio`/`video`/`signature`/`file`) →
- *     `binary`, which is what HQ's `<upload>` types
- *     (`Image`/`Audio`/`Video`/`Document`) key on; an `xsd:string`
- *     upload matches no row and HQ fails to classify it.
- *
- * Decide the bind type here, independently of
- * `fieldRegistry[kind].dataType` — a separate descriptor serving a
- * different purpose. Their values coincide for most kinds but not all
- * (e.g. `barcode`'s registry dataType is `xsd:string` while its bind
- * type is `barcode`), so don't derive one from the other.
- *
- * Structural kinds (`group`, `repeat`, `label`) get no `type` — HQ
- * treats them as grouping nodes. Selects rely on their `<select1>` /
- * `<select>` tag for classification, so their `xsd:string` type is
- * inert (HQ's table has no typed select row to mis-match against).
- *
- * Declaring this as a `Record<FieldKind, ...>` keyed off the domain
- * tuple makes TypeScript a gate on adding a new kind: a missing entry
- * here fails `tsc`, so the compile pipeline cannot silently emit an
- * XForm without a decided bind type for a new kind.
- */
-const BIND_TYPE_BY_KIND: Record<FieldKind, string | null> = {
-	text: "xsd:string",
-	int: "xsd:int",
-	decimal: "xsd:double",
-	date: "xsd:date",
-	time: "xsd:time",
-	datetime: "xsd:dateTime",
-	geopoint: "geopoint",
-	barcode: "barcode",
-	image: "binary",
-	audio: "binary",
-	video: "binary",
-	file: "binary",
-	signature: "binary",
-	hidden: "xsd:string",
-	secret: "xsd:string",
-	single_select: "xsd:string",
-	multi_select: "xsd:string",
-	label: null,
-	group: null,
-	repeat: null,
-	section: null,
-};
-
-function getBindType(kind: FieldKind): string | null {
-	return BIND_TYPE_BY_KIND[kind];
 }

@@ -8,7 +8,7 @@ import type { XPathInitializationContext } from "./initializationContext";
  * not add request payloads to diagnostics.
  */
 
-export const XPATH_WORKER_PROTOCOL_VERSION = 7 as const;
+export const XPATH_WORKER_PROTOCOL_VERSION = 8 as const;
 
 /** Build identity shared by the host chunk and the independently bundled
  * public Worker. Production receives Cloud Build's immutable UUID; local and
@@ -24,9 +24,11 @@ export type XPathWorkerProfile =
 	| "navigation"
 	| "search";
 
+/** An XPath Date as its two parts: the local calendar day it was built on and
+ * the instant it holds, when it has a clock. */
 export interface SerializedXPathDate {
 	readonly kind: "date";
-	readonly days: number;
+	readonly calendarDays: number;
 	readonly timeMilliseconds: number | null;
 }
 

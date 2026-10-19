@@ -31,6 +31,7 @@ import {
 	usercaseRecord,
 } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/expression/builders";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 
 /** New records are stable per app and worker. Existing rows are always found
  * by hq_user_id, so their historical case identity is preserved. Project is
@@ -57,6 +58,8 @@ export async function findUsercaseRow(
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: USERCASE_CASE_TYPE,
+		// A fixed lookup of the stored row, not a device's view.
+		reading: SEARCH_READING,
 		caseTypeSchemas: new Map([
 			[USERCASE_CASE_TYPE, usercaseCaseType(args.doc)],
 		]),

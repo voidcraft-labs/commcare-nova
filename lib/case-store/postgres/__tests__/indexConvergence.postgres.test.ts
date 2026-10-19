@@ -5,6 +5,7 @@ import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import type { AppDatabase } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { CaseType } from "@/lib/domain";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { findCaseTypeSchemaRetirementFindings } from "../../../../scripts/lib/caseTypeSchemaRetirement";
 import { loadPersistedBlueprintReadOnly } from "../../../../scripts/lib/loadPersistedBlueprint";
@@ -601,8 +602,13 @@ describe("durable case-schema index convergence", () => {
 				.executeTakeFirstOrThrow(),
 		).toEqual({ is_active: true, synced_seq: "3" });
 		expect(
-			(await caseStore.query({ appId: APP_ID, caseType: "patient" }))[0]
-				?.properties,
+			(
+				await caseStore.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "patient",
+				})
+			)[0]?.properties,
 		).toEqual({ value: 12 });
 		expect(
 			(

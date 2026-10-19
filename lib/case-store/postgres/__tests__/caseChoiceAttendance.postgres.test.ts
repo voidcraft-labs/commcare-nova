@@ -9,6 +9,7 @@ import {
 	choiceUuid,
 	memberId,
 } from "@/lib/__tests__/caseChoiceFixture";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
 import { validateCaptureSubmissionProjection } from "@/lib/preview/engine/captureSubmissionValidation";
 import {
@@ -138,7 +139,11 @@ it("offers only restored cases, includes relationship closure, and updates only 
 			},
 		}),
 	);
-	const persisted = await store.query({ appId, caseType: "member" });
+	const persisted = await store.query({
+		reading: SEARCH_READING,
+		appId,
+		caseType: "member",
+	});
 	expect(persisted).toHaveLength(32);
 	for (const row of persisted)
 		expect(row.properties).toEqual(

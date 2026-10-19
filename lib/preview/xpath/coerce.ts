@@ -1,4 +1,5 @@
 import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
+import { coreDateAdd, coreFractionalDays } from "./coreDays";
 import { javaTrim } from "./javaString";
 import {
 	isXPathNodeSet,
@@ -10,9 +11,9 @@ import { isXPathDate, XPathDate } from "./types";
 /**
  * XPath 1.0 type coercion: value → number.
  *
- * CommCare extension: XPathDate coerces to integer days since epoch,
- * matching `DateUtils.daysSinceEpoch()` in commcare-core. This is what
- * makes `today() + 1` return tomorrow's day-number.
+ * CommCare extension: XPathDate coerces to Core's day number,
+ * `DateUtils.daysSinceEpoch()` in commcare-core (`XPathDate.coreDays`). This
+ * is what makes `today() + 1` return tomorrow's day-number.
  *
  * String coercion mirrors JavaRosa's `FunctionUtils.toNumeric`
  * (`commcare-core .../xpath/expr/FunctionUtils.java`): a character gate
@@ -33,14 +34,14 @@ export function toNumber(input: XPathRuntimeValue): number {
 	const v = unpackXPathRuntimeValue(input);
 	if (typeof v === "number") return v;
 	if (typeof v === "boolean") return v ? 1 : 0;
-	if (isXPathDate(v)) return v.days;
+	if (isXPathDate(v)) return v.coreDays;
 	const trimmed = javaTrim(v as string);
 	if (trimmed === "") return NaN;
 	if (/[^0-9.-]/.test(trimmed)) return NaN;
 	const parsed = Number(trimmed);
 	if (!Number.isNaN(parsed)) return parsed;
 	const date = XPathDate.parse(trimmed);
-	return date !== null ? date.days : NaN;
+	return date !== null ? date.coreDays : NaN;
 }
 
 /**
@@ -69,19 +70,15 @@ export function xpathToString(input: XPathRuntimeValue): string {
 	return openJdk17DoubleToString(v);
 }
 
-/** CommCare's `FunctionUtils.toDouble` preserves fractional days only when its
- * DIRECT argument is a Date. A path remains an XPathNodeset at this boundary;
- * Core sends that wrapper through `toNumeric()`, which unpacks the singleton
- * and applies whole-day Date coercion. */
+/** CommCare's `FunctionUtils.toDouble` keeps fractional days only when its
+ * DIRECT argument is a Date, through `DateUtils.fractionalDaysSinceEpoch`,
+ * which follows the wall clock. A path remains an XPathNodeset at this
+ * boundary; Core sends that wrapper through `toNumeric()`, which unpacks the
+ * singleton and applies the whole-day Date coercion. */
 
 export function toDouble(input: XPathRuntimeValue): number {
 	if (isXPathNodeSet(input) || !isXPathDate(input)) return toNumber(input);
-	const instant = input.toJSDate();
-	if (input.time === null) return input.days;
-	const epoch = new Date(1970, 0, 1);
-	const timezoneDriftMs =
-		(instant.getTimezoneOffset() - epoch.getTimezoneOffset()) * 60_000;
-	return (instant.getTime() - epoch.getTime() - timezoneDriftMs) / 86_400_000;
+	return coreFractionalDays(input.instant());
 }
 
 /**
@@ -99,11 +96,12 @@ export function toBoolean(input: XPathRuntimeValue): boolean {
 }
 
 /**
- * Coerce any XPath value to an XPathDate.
+ * Read a stored value as a date without rounding it, for the callers that
+ * format stored text (`lib/preview/columnDisplay.ts`).
  *
  * - XPathDate → returned as-is
- * - number   → interpreted as days since epoch (matches CommCare `date(n)`)
- * - string   → parsed as ISO-8601 date
+ * - number   → Core's day number (`FunctionUtils.toDate`'s `dateAdd`)
+ * - string   → parsed as JavaRosa date/datetime text
  *
  * Returns null if the value can't be interpreted as a date.
  */
@@ -112,14 +110,81 @@ export function toDate(input: XPathRuntimeValue): XPathDate | null {
 	const v = unpackXPathRuntimeValue(input);
 	if (isXPathDate(v)) return v;
 	if (typeof v === "number") {
-		if (!Number.isFinite(v) || v > 2_147_483_647 || v < -2_147_483_648) {
+		const days = javaToInt(v);
+		if (
+			!Number.isFinite(days) ||
+			days > 2_147_483_647 ||
+			days < -2_147_483_648
+		) {
 			return null;
 		}
-		return XPathDate.fromDays(v);
+		return XPathDate.fromCalendarDays(coreDateAdd(days));
 	}
 	if (typeof v === "string") return XPathDate.parse(v);
 	/* boolean — no date interpretation */
 	return null;
+}
+
+/** Thrown where Core's `FunctionUtils.toDate` throws
+ * `XPathTypeMismatchException`. */
+export class XPathDateConversionError extends Error {}
+
+/**
+ * `FunctionUtils.toDate`: unpack, then
+ *
+ * - number → `toInt`; NaN is returned unchanged; out of int range throws;
+ *   otherwise `dateAdd(getDate(1970, 1, 1), n)`
+ * - string → `""` is returned unchanged; otherwise `parseDateTime`, which
+ *   keeps the clock it reads, or throws
+ * - XPathDate → `roundDate`, its local date
+ * - boolean → throws
+ */
+export function toDateRounding(
+	input: XPathRuntimeValue,
+): XPathDate | "" | number {
+	const v = unpackXPathRuntimeValue(input);
+	if (typeof v === "number") {
+		const days = javaToInt(v);
+		if (Number.isNaN(days)) return days;
+		if (
+			!Number.isFinite(days) ||
+			days > 2_147_483_647 ||
+			days < -2_147_483_648
+		) {
+			throw new XPathDateConversionError(
+				"converting out-of-range value to date",
+			);
+		}
+		return XPathDate.fromCalendarDays(coreDateAdd(days));
+	}
+	if (typeof v === "string") {
+		if (v.length === 0) return "";
+		const parsed = XPathDate.parse(v);
+		if (parsed === null) {
+			throw new XPathDateConversionError("converting string to date");
+		}
+		return parsed;
+	}
+	if (isXPathDate(v)) return v.rounded();
+	throw new XPathDateConversionError("converting unexpected type to date");
+}
+
+/**
+ * `FunctionUtils.expandDateSafe`: a DIRECT Date is returned with its clock;
+ * anything else (a node-set included) goes through `toDateRounding`, and a
+ * result that is not a Date (`""`, NaN) gives null.
+ */
+export function expandDateSafe(input: XPathRuntimeValue): XPathDate | null {
+	if (!isXPathNodeSet(input) && isXPathDate(input)) return input;
+	const date = toDateRounding(input);
+	return isXPathDate(date) ? date : null;
+}
+
+/** `FunctionUtils.toInt` over a number: truncation, with infinities and NaN
+ * returned unchanged. (A value beyond `long`, which `toInt` also returns
+ * unchanged, is outside `int` either way.) */
+function javaToInt(value: number): number {
+	return Number.isFinite(value) ? Math.trunc(value) : value;
 }
 
 /**

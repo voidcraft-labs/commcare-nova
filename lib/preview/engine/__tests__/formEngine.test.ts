@@ -30,10 +30,12 @@ import {
 } from "@/lib/domain";
 import { formWireName } from "@/lib/domain/formWireName";
 import { proseText } from "@/lib/domain/prose";
+import { instantDatetimeValue } from "@/lib/domain/temporalValues";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
 import { evaluateXPathWorkerRequest } from "../../xpath/workerRuntime";
+import { SetvalueRefusal, type SetvalueRefusalDetails } from "../answerCast";
 import { buildEngineInput } from "../engineInput";
 import {
 	type CaseDataByType,
@@ -315,10 +317,14 @@ describe("FormEngine", () => {
 				);
 				await engine.initializeAsync(evaluateAsync);
 			}
+			// A Date into a datetime bind is held as its instant, written as the
+			// canonical text of that instant in the viewer's zone.
+			const heldAt = instantDatetimeValue(
+				Date.parse("2026-05-06T12:00:00.000Z"),
+				Intl.DateTimeFormat().resolvedOptions().timeZone,
+			);
 			for (const name of names)
-				expect(engine.getState(`/data/${name}`).value).toBe(
-					"2026-05-06T12:00:00.000Z",
-				);
+				expect(engine.getState(`/data/${name}`).value).toBe(heldAt);
 			expect(engine.getState("/data/plain_hidden").value).toBe("2026-05-06");
 			expect(engine.getState("/data/day").value).toBe("2026-05-06");
 			const mutation = engine.computeSubmissionMutation({
@@ -327,12 +333,79 @@ describe("FormEngine", () => {
 			if (mutation.kind !== "registration")
 				throw new Error("Expected registration");
 			expect(mutation.primary.properties).toEqual(
-				Object.fromEntries(
-					names.map((name) => [name, "2026-05-06T12:00:00.000Z"]),
-				),
+				Object.fromEntries(names.map((name) => [name, heldAt])),
 			);
 		},
 	);
+
+	it("reads datetime answers and calculations as Core holds them", () => {
+		const originalTimeZone = process.env.TZ;
+		try {
+			process.env.TZ = "America/New_York";
+			vi.setSystemTime(new Date("2026-11-01T06:15:00.000Z"));
+			const input = dTree(
+				[
+					{
+						id: "case_name",
+						kind: "hidden",
+						calculate: "'Timestamp record'",
+						caseWrite: { caseType: "patient", property: "case_name" },
+					},
+					{ id: "seen", kind: "datetime" },
+					{
+						id: "seen_clock",
+						kind: "hidden",
+						calculate: "format-date(coalesce(/data/seen, ''), '%H:%M%Z')",
+					},
+					{
+						id: "stamped_at",
+						kind: "hidden",
+						calculate: "now()",
+						caseWrite: { caseType: "patient", property: "stamped_at" },
+					},
+					{
+						id: "stamped_hour",
+						kind: "hidden",
+						calculate: "format-date(/data/stamped_at, '%H')",
+					},
+					{
+						id: "stamped_clock",
+						kind: "hidden",
+						calculate: "format-date(coalesce(/data/stamped_at, ''), '%H:%M%Z')",
+					},
+				],
+				"registration",
+				[
+					{
+						name: "patient",
+						properties: [
+							{
+								name: "stamped_at",
+								label: proseText("Stamped at"),
+								data_type: "datetime" as const,
+							},
+						],
+					},
+				],
+				"patient",
+			);
+			const engine = new FormEngine(input, "patient");
+			// 01:15 EST is the later 01:15 of the repeated hour; its text names
+			// its own offset, and the read keeps that occurrence.
+			engine.setValue("/data/seen", "2026-11-01T01:15:00.000-05:00");
+			expect(engine.getState("/data/seen_clock").value).toBe("01:15-05");
+			// A calculated Date into a datetime bind is `DateTimeData` of the
+			// instant: a node read rounds it (`toDate`), a direct one keeps it.
+			expect(engine.getState("/data/stamped_at").value).toBe(
+				"2026-11-01T01:15:00.000-05:00",
+			);
+			expect(engine.getState("/data/stamped_hour").value).toBe("00");
+			expect(engine.getState("/data/stamped_clock").value).toBe("01:15-05");
+		} finally {
+			if (originalTimeZone === undefined) delete process.env.TZ;
+			else process.env.TZ = originalTimeZone;
+		}
+	});
 
 	it.each(["help", "choice", "validation"] as const)(
 		"updates a reference used only in %s wording through the worker",
@@ -1025,17 +1098,21 @@ describe("FormEngine", () => {
 			expect(engine.validateAll()).toBe(true);
 		});
 
-		it("accepts the bare date a today() default puts in a datetime", () => {
-			// `today()` yields a date with no clock. The storage boundary has
-			// always read that as the date's midnight; the gate must not turn
-			// it into a submission blocker the person cannot clear.
+		it("holds a today() default in a datetime as the day's local midnight", () => {
+			// `today()` yields a date with no clock; a datetime bind holds it as
+			// `DateTimeData` of the local midnight (`Recalculate.wrapData`), and
+			// the gate must not turn it into a submission blocker.
 			const input = dTree([
 				{ id: "seen", kind: "datetime", default_value: "today()" },
 			]);
 			const engine = new FormEngine(input);
+			const now = new Date();
 
-			expect(engine.getState("/data/seen").value).toMatch(
-				/^\d{4}-\d{2}-\d{2}$/,
+			expect(engine.getState("/data/seen").value).toBe(
+				instantDatetimeValue(
+					new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(),
+					Intl.DateTimeFormat().resolvedOptions().timeZone,
+				),
 			);
 			expect(engine.validateAll()).toBe(true);
 		});
@@ -1358,7 +1435,7 @@ describe("FormEngine", () => {
 			},
 		);
 
-		it("preloads a temporal value exactly as the case store holds it", () => {
+		it("preloads a time as the case store holds it and a date and time at its instant", () => {
 			// The instance mirrors storage rather than the device's own
 			// instance spelling, so that a field's preloaded value and the
 			// same property read through `#patient/<prop>` cannot disagree.
@@ -1394,8 +1471,13 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(input, "patient", caseData);
 
 			expect(engine.getState("/data/wake_time").value).toBe("07:30:00.000Z");
+			// A date and time is held as Core's cast holds it: the instant,
+			// written in the viewer's zone.
 			expect(engine.getState("/data/last_seen").value).toBe(
-				"2026-05-06T12:34:56.000-04:00",
+				instantDatetimeValue(
+					Date.parse("2026-05-06T12:34:56.000-04:00"),
+					Intl.DateTimeFormat().resolvedOptions().timeZone,
+				),
 			);
 		});
 
@@ -6350,5 +6432,214 @@ describe("the case name and external id guard", () => {
 			kind: "registration",
 			primary: { caseName: "Alice" },
 		});
+	});
+});
+
+describe("FormEngine setvalue casts", () => {
+	const ageType: CaseType = {
+		name: "patient",
+		properties: [
+			{ name: "case_name", label: proseText("Name"), data_type: "text" },
+			{ name: "age", label: proseText("Age"), data_type: "int" },
+		],
+	};
+	const ageForm = () =>
+		dTree(
+			[
+				{
+					id: "age",
+					kind: "int",
+					label: proseText("Age"),
+					caseWrite: { caseType: "patient", property: "age" },
+				},
+			],
+			"followup",
+			[ageType],
+			"patient",
+		);
+	const fieldOf = (input: FormEngineInput, id: string): Field => {
+		const field = Object.values(input.fields).find(
+			(candidate) => candidate.id === id,
+		);
+		if (field === undefined) throw new Error(`Fixture has no ${id}.`);
+		return field;
+	};
+	const refusalOf = (run: () => unknown): SetvalueRefusalDetails => {
+		try {
+			run();
+		} catch (error) {
+			if (error instanceof SetvalueRefusal) return error.details;
+			throw error;
+		}
+		throw new Error("CommCare would refuse this setvalue.");
+	};
+
+	it("refuses to open a form whose selected record's saved value fails its cast", () => {
+		const input = ageForm();
+		const details = refusalOf(
+			() =>
+				new FormEngine(
+					input,
+					"patient",
+					caseDataFor("patient", [
+						["case_id", "case-1"],
+						["age", "12.5"],
+					]),
+				),
+		);
+		expect(details).toEqual({
+			cause: "preload",
+			fieldUuid: fieldOf(input, "age").uuid,
+			path: "/data/age",
+			value: "12.5",
+			answerType: "int",
+			caseType: "patient",
+			property: "age",
+			caseId: "case-1",
+		});
+	});
+
+	it("refuses the same preload through the worker", async () => {
+		const engine = new FormEngine(
+			ageForm(),
+			"patient",
+			caseDataFor("patient", [["age", "twelve"]]),
+			undefined,
+			undefined,
+			undefined,
+			{ stagedAsync: true },
+		);
+		const { evaluateAsync, runtime } = fixedWorldEvaluator(engine, "preload");
+		try {
+			await expect(engine.initializeAsync(evaluateAsync)).rejects.toThrow(
+				SetvalueRefusal,
+			);
+		} finally {
+			runtime.dispose();
+		}
+	});
+
+	it("never casts a blank preload", () => {
+		const engine = new FormEngine(
+			ageForm(),
+			"patient",
+			caseDataFor("patient", [["age", ""]]),
+		);
+		expect(engine.getState("/data/age").value).toBe("");
+	});
+
+	it("refuses to open a form whose starting value fails its cast", () => {
+		const input = dTree(
+			[{ id: "count", kind: "int", default_value: "concat('a', 'b')" }],
+			"survey",
+		);
+		expect(refusalOf(() => new FormEngine(input))).toEqual({
+			cause: "starting-value",
+			fieldUuid: fieldOf(input, "count").uuid,
+			path: "/data/count",
+			value: "ab",
+			answerType: "int",
+		});
+	});
+
+	it("holds starting values as Core's wrapData shapes them", () => {
+		const engine = new FormEngine(
+			dTree(
+				[
+					{ id: "ratio", kind: "decimal", default_value: "number('x')" },
+					{ id: "flag", kind: "hidden", default_value: "true()" },
+					{ id: "whole", kind: "int", default_value: "7 div 2" },
+				],
+				"survey",
+			),
+		);
+		expect(engine.getState("/data/ratio").value).toBe("");
+		expect(engine.getState("/data/flag").value).toBe("1");
+		expect(engine.getState("/data/whole").value).toBe("3");
+	});
+
+	it("leaves out a counted row CommCare refuses to insert, and the form still opens", () => {
+		const input = dTree(
+			[
+				{
+					id: "members",
+					kind: "repeat",
+					label: proseText("Member"),
+					repeat_mode: "count_bound",
+					repeat_count: "2",
+					children: [
+						{ id: "age", kind: "int", default_value: "concat('a', 'b')" },
+					],
+				},
+			],
+			"survey",
+		);
+		const engine = new FormEngine(input);
+		expect(engine.getRepeatCount("/data/members")).toBe(0);
+		expect(engine.getState("/data/members").insertRefusal).toMatchObject({
+			cause: "repeat-insert",
+			repeatUuid: fieldOf(input, "members").uuid,
+			path: "/data/members[0]/age",
+			value: "ab",
+		});
+	});
+
+	it("does not apply a refused insert and applies the next one that casts", () => {
+		const input = dTree(
+			[
+				{ id: "seed", kind: "text" },
+				{
+					id: "visits",
+					kind: "repeat",
+					repeat_mode: "user_controlled",
+					children: [{ id: "n", kind: "int", default_value: "#form/seed" }],
+				},
+			],
+			"survey",
+		);
+		const engine = new FormEngine(input);
+		engine.setValue("/data/seed", "many");
+		const before = engine.entryCheckpoint();
+
+		expect(engine.addRepeat("/data/visits")).toBeUndefined();
+
+		const after = engine.entryCheckpoint();
+		expect(after.instance).toEqual(before.instance);
+		expect(after.repeatKeys).toEqual(before.repeatKeys);
+		expect(after.pendingSectionRepeats).toEqual(before.pendingSectionRepeats);
+		const { insertRefusal, ...repeatState } = after.state["/data/visits"] ?? {};
+		expect({ ...after.state, "/data/visits": repeatState }).toEqual(
+			before.state,
+		);
+		expect(insertRefusal).toMatchObject({
+			cause: "repeat-insert",
+			path: "/data/visits[1]/n",
+			value: "many",
+		});
+
+		engine.setValue("/data/seed", "4");
+		expect(engine.addRepeat("/data/visits")).toBe(1);
+		expect(engine.getState("/data/visits[1]/n").value).toBe("4");
+		expect(engine.getState("/data/visits").insertRefusal).toBeUndefined();
+	});
+
+	it("refuses an edited starting value and takes the next one that casts", () => {
+		const withDefault = (default_value: string) =>
+			dTree([{ id: "count", kind: "int", default_value }], "survey");
+		const engine = new FormEngine(withDefault("5"));
+		expect(engine.getState("/data/count").value).toBe("5");
+
+		const refused = withDefault("concat('x', '')");
+		engine.rebuildDag(refused);
+		expect(
+			refusalOf(() =>
+				engine.reevaluateDefault("/data/count", fieldOf(refused, "count")),
+			),
+		).toMatchObject({ cause: "starting-value", value: "x" });
+
+		const fixed = withDefault("7");
+		engine.rebuildDag(fixed);
+		engine.reevaluateDefault("/data/count", fieldOf(fixed, "count"));
+		expect(engine.getState("/data/count").value).toBe("7");
 	});
 });

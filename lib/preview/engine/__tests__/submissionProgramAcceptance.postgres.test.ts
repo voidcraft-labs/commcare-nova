@@ -29,6 +29,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/expression";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
@@ -177,7 +178,11 @@ async function submit(
 }
 
 async function loadCase(store: CaseStore, caseId: string) {
-	const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+	const rows = await store.query({
+		reading: SEARCH_READING,
+		appId: APP_ID,
+		caseType: "patient",
+	});
 	return rows.find((row) => row.case_id === caseId);
 }
 
@@ -199,7 +204,11 @@ describe("engine → builder → executor acceptance", () => {
 				participates ? 2 : 1,
 			);
 			expect(
-				await store.query({ appId: APP_ID, caseType: "patient" }),
+				await store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "patient",
+				}),
 			).toHaveLength(participates ? 2 : 1);
 		},
 	);
@@ -306,7 +315,11 @@ describe("engine → builder → executor acceptance", () => {
 
 		const result = await store.applySubmission(envelope);
 		expect(result.primaryCaseIds).toHaveLength(1);
-		const patients = await store.query({ appId: APP_ID, caseType: "patient" });
+		const patients = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(patients.map((row) => [row.case_name, row.properties])).toEqual([
 			["Ada", { age: 37 }],
 		]);
@@ -315,7 +328,11 @@ describe("engine → builder → executor acceptance", () => {
 			[1, "medication_order", "Hydrangea"],
 			[2, "medication_order", "Aspirin"],
 		] as const) {
-			const rows = await store.query({ appId: APP_ID, caseType });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType,
+			});
 			const child = rows.find(
 				(row) => row.case_id === result.createdChildren[index]?.caseId,
 			);
@@ -383,7 +400,11 @@ describe("engine → builder → executor acceptance", () => {
 
 		const result = await store.applySubmission(envelope);
 		expect(result.primaryCaseIds).toEqual([SECOND_SESSION_CASE, SESSION_CASE]);
-		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(
 			rows
 				.filter((row) =>
@@ -429,7 +450,11 @@ describe("engine → builder → executor acceptance", () => {
 		expect(envelope.ordinary.kind).toBe("followup");
 
 		await store.applySubmission(envelope);
-		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(
 			rows
 				.filter((row) =>
@@ -507,7 +532,11 @@ describe("engine → builder → executor acceptance", () => {
 		expect(executed).toHaveLength(2);
 		expect(executed.map((op) => op.iteration)).toEqual([0, 1]);
 
-		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		const created = rows.filter((row) => row.case_id !== SESSION_CASE);
 		expect(created.map((row) => row.case_name).sort()).toEqual([
 			"first visit",

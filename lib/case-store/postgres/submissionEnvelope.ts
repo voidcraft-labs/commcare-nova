@@ -431,6 +431,9 @@ async function evaluateBatch(
 			const alias = `e${offset}`;
 			const session = sessionFor(request.instance);
 			const ctx: PredicateCompileContext = {
+				// An operation's values and conditions are the form's, which a
+				// device evaluates over its casedb.
+				reading: "casedb",
 				db: trx,
 				appId,
 				projectId: host.projectId,

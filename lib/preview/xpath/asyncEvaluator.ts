@@ -1,5 +1,4 @@
 import type { SyntaxNode } from "@lezer/common";
-import { parser } from "@/lib/commcare/xpath/parser";
 import { toBoolean, toNumber, xpathToString } from "./coerce";
 import {
 	applyStructuralStep,
@@ -7,6 +6,7 @@ import {
 	directExpressionChildren,
 	evaluateSyntaxNode,
 	getBinaryOperands,
+	parseAdmittedXPath,
 	xpathPredicateContext,
 	xpathPredicateMatches,
 } from "./evaluator";
@@ -61,17 +61,12 @@ export async function evaluateRuntimeAsync(
 ): Promise<XPathRuntimeValue> {
 	const source = expression.trim();
 	if (source === "") return "";
-	const tree = parser.parse(source);
-	let hasParseError = false;
-	tree.iterate({
-		enter(node) {
-			if (node.type.isError) hasParseError = true;
-		},
-	});
-	if (hasParseError) {
-		throw new Error("Preview received XPath that did not pass admission.");
-	}
-	return evaluateAsyncNode(tree.topNode, source, context, tools);
+	return evaluateAsyncNode(
+		parseAdmittedXPath(source).topNode,
+		source,
+		context,
+		tools,
+	);
 }
 
 export async function evaluateAsync(

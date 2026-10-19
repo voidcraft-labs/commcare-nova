@@ -45,6 +45,7 @@ import {
 } from "@/lib/domain/commCareDatePattern";
 import { fixedDatePattern } from "@/lib/domain/expression/datePattern";
 import {
+	compilerBugMessage,
 	missingPredicateThunkMessage,
 	typeCheckerBypassMessage,
 	unhandledKindMessage,
@@ -76,6 +77,7 @@ import {
 	recordQueryContextFor,
 	type TermCompileContext,
 } from "./compileTerm";
+import { compileCoreDayNumber, compileEpochDayInstant } from "./coreDayNumber";
 import type { Database } from "./database";
 import { NAIVE_TEMPORAL_TEXT_PATTERN } from "./dataTypeTokens";
 import { resolveViewerTimeZone } from "./viewerTimeZone";
@@ -146,7 +148,13 @@ export function compileExpression(
 					slot: "A condition needs its SQL compiler.",
 				}),
 			);
-		return ctx.compilePredicate(expr, ctx) as AliasableExpression<unknown>;
+		// A condition read as a value is two-valued: a row that lacks what the
+		// condition reads gives `false`, as the device's `'' = 'x'` does, never
+		// a blank.
+		return eb.fn.coalesce(
+			ctx.compilePredicate(expr, ctx) as Expression<boolean>,
+			eb.lit(false),
+		) as AliasableExpression<unknown>;
 	}
 	switch (expr.kind) {
 		case "term":
@@ -168,8 +176,16 @@ export function compileExpression(
 		case "date-add":
 			return compileDateAdd(expr.date, expr.interval, expr.quantity, ctx);
 		case "date-coerce":
+			if (isNumericOperand(expr.value, ctx))
+				return compileCoreDayNumber(
+					compileExpression(expr.value, ctx),
+					ctx.reading,
+					ctx.bindings.viewerTimeZone,
+				);
 			return compileCast(expr.value, "date", ctx);
 		case "datetime-coerce":
+			if (isNumericOperand(expr.value, ctx))
+				return compileEpochDayInstant(compileExpression(expr.value, ctx));
 			return compileDatetimeCoerce(expr.value, ctx);
 		case "double":
 			return compileCast(expr.value, "numeric", ctx);
@@ -180,7 +196,9 @@ export function compileExpression(
 				compileCast(expr.value, "numeric", ctx),
 			);
 		case "here":
-			return compileBoundValue(ctx.bindings.here ?? "", "the current location");
+			// One text parameter, never interpolated; no fix yet reads `''`, as
+			// both runtimes give before the first position arrives.
+			return eb.cast(eb.val(ctx.bindings.viewerLocation ?? ""), "text");
 		case "arith":
 			return compileArith(expr.op, expr.left, expr.right, ctx);
 		case "concat":
@@ -194,7 +212,12 @@ export function compileExpression(
 		case "count":
 			if (!isRelationPath(expr.via))
 				throw new Error(
-					"compileExpression: a form node-set count cannot be evaluated in a server record query.",
+					compilerBugMessage({
+						where: "compileExpression",
+						invariant: "a `count` over a form node-set reached a server query",
+						detail:
+							"The profiles with a Postgres target admit `count` only through a relation path.",
+					}),
 				);
 			return compileCount(expr.via, expr.where, ctx);
 		case "format-date":
@@ -211,7 +234,12 @@ export function compileExpression(
 		case "selected-cases":
 		case "project":
 			throw new Error(
-				`compileExpression: '${expr.kind}' is unavailable in a server record query.`,
+				compilerBugMessage({
+					where: "compileExpression",
+					invariant: `a \`${expr.kind}\` read reached a server record query`,
+					detail:
+						"The profiles with a Postgres target keep this read out; in a CSQL slot it appears only inside a runtime segment, which the fold evaluates in the browser first.",
+				}),
 			);
 		default: {
 			const _exhaustive: never = expr;
@@ -484,10 +512,8 @@ function resolveDateAddBaseType(
 	date: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): TemporalType {
-	if (ctx.portableCaseDates) {
-		const portable = portableTemporalType(date, ctx);
-		if (portable !== undefined) return portable;
-	}
+	const reading = readingTemporalType(date, ctx);
+	if (reading !== undefined) return reading;
 
 	const resolved = scalarDataType(
 		typeOf(date, recordQueryContextFor(ctx))?.data,
@@ -598,10 +624,13 @@ function compileConcat(
 	return eb.fn<string>("concat", partExprs);
 }
 
-/** In a portable column, mixed date/datetime operands need an explicit
- * viewer-midnight promotion. PostgreSQL's implicit date -> timestamptz cast
- * otherwise uses the connection timezone and moves the worker's calendar day.
- * Homogeneous calendar branches remain dates; raw server expressions are unchanged. */
+/** Under the `casedb` reading, mixed date/datetime operands need an explicit
+ * viewer-midnight promotion: the date Core holds for a casedb system date is
+ * local midnight, so that is the instant it compares as. PostgreSQL's implicit
+ * date -> timestamptz cast would otherwise use the connection timezone and
+ * move the worker's calendar day. The checker refuses an uncoerced date against
+ * a datetime everywhere else, so no other reading promotes; homogeneous
+ * calendar branches remain dates. */
 export function compileTemporalValues(
 	values: readonly DomainExpression[],
 	ctx: ExpressionCompileContext,
@@ -616,9 +645,10 @@ function temporalBranchPromotions(
 	values: readonly DomainExpression[],
 	ctx: ExpressionCompileContext,
 ): boolean[] {
-	const types = ctx.portableCaseDates
-		? values.map((value) => portableTemporalType(value, ctx))
-		: [];
+	const types =
+		ctx.reading === "casedb"
+			? values.map((value) => readingTemporalType(value, ctx))
+			: [];
 	const mixed = types.includes("date") && types.includes("datetime");
 	return values.map((_, index) => mixed && types[index] === "date");
 }
@@ -637,11 +667,25 @@ function compileTemporalBranch(
 		: compiled;
 }
 
-function portableTemporalType(
+function readingTemporalType(
 	value: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): TemporalType | undefined {
-	return resolveCaseListTemporalType(value, recordQueryContextFor(ctx));
+	return resolveCaseListTemporalType(
+		value,
+		recordQueryContextFor(ctx),
+		ctx.reading,
+	);
+}
+
+/** Whether a coercion's operand is a number, which the coercion reads as epoch
+ * days rather than as text. */
+function isNumericOperand(
+	value: DomainExpression,
+	ctx: ExpressionCompileContext,
+): boolean {
+	const type = scalarDataType(typeOf(value, recordQueryContextFor(ctx))?.data);
+	return type === "int" || type === "decimal";
 }
 
 /** A blank numeric question is a legitimate branch result, not numeric text.
@@ -912,7 +956,10 @@ function compileCount(
 	);
 	if (compiledPath.kind === "self") {
 		throw new Error(
-			"compileExpression.compileCount: canonical non-self relation unexpectedly compiled as self",
+			compilerBugMessage({
+				where: "compileExpression.compileCount",
+				invariant: "a canonical non-self relation compiled as `self`",
+			}),
 		);
 	}
 	// Type-erased via `DynamicCountQuery` — runtime leaf alias.
@@ -993,7 +1040,13 @@ function compileFormatDate(
 	const wirePattern = fixedDatePattern(pattern);
 	if (wirePattern === undefined)
 		throw new Error(
-			"compileExpression: format-date needs a fixed pattern in a server record query.",
+			compilerBugMessage({
+				where: "compileExpression.compileFormatDate",
+				invariant:
+					"a `format-date` with a computed pattern reached a server query",
+				detail:
+					"The checker's `format-date-pattern-not-fixed` keeps a computed pattern out of every profile with a Postgres target.",
+			}),
 		);
 	const parsed = parseCommCareDatePattern(wirePattern);
 	if (parsed.kind === "unsupported-pattern") {

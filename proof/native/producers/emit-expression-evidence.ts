@@ -16,6 +16,10 @@ import { InstanceSink } from "../../../lib/commcare/xpath/wire/instances";
 import { serializeWire } from "../../../lib/commcare/xpath/wire/serialize";
 import type { Expression } from "../../../lib/domain/expression";
 import { concat, literal, term } from "../../../lib/domain/expression/builders";
+import {
+	CORE_DATE_PARITY,
+	CORE_DATE_PARITY_ZONES,
+} from "../../../lib/preview/xpath/__tests__/fixtures/coreDateParity";
 
 const output = process.argv[2];
 if (!output)
@@ -35,6 +39,13 @@ writeFileSync(
 		fixedClock: instantFixedClock,
 		pairs,
 	})}\n`,
+);
+
+// CoreDateParityRuntimeTest holds Core to the table Preview's evaluator is
+// held to in Vitest, one column per device zone.
+writeFileSync(
+	resolve(output, "core-date-parity.json"),
+	`${JSON.stringify({ ...CORE_DATE_PARITY, zones: CORE_DATE_PARITY_ZONES })}\n`,
 );
 
 // HQ replaces shortcuts without parsing literals and scans for instance calls
@@ -140,4 +151,6 @@ writeFileSync(
 	resolve(output, "interpolation.json"),
 	`${JSON.stringify({ schemaVersion: 1, interpolation, xforms, enumKeys })}\n`,
 );
-console.log(`Produced ${pairs.length} private expression controls.`);
+console.log(
+	`Produced ${pairs.length} private expression controls and ${CORE_DATE_PARITY.rows.length} date parity rows.`,
+);

@@ -121,6 +121,7 @@ import type {
 	ApplySchemaChangeArgs,
 	CalculatedColumn,
 	CalculatedValue,
+	CaseFilterReading,
 	CaseInsert,
 	CaseRow,
 	CaseRowWithCalculated,
@@ -536,12 +537,7 @@ function compileSortKey(
 						},
 						exprCtx,
 					)
-				: compileDeviceTextExpression(key.expression, {
-						...exprCtx,
-						...(key.portableCaseDates
-							? { portableCaseDates: true as const }
-							: {}),
-					});
+				: compileDeviceTextExpression(key.expression, exprCtx);
 	const blanks = {
 		expression: sql<unknown>`((${value}) is null or (${value})::text = '')`,
 		direction: key.blanks === "first" ? ("desc" as const) : ("asc" as const),
@@ -901,8 +897,15 @@ export class PostgresCaseStore implements CaseStore {
 			knownInputs: args.knownInputs,
 			bindings: args.bindings ?? {},
 			restore,
+			reading: args.reading.filter,
 		});
-		const exprCtx = expressionContextFor(ctx);
+		// Calculated columns and sort keys read the row as the columns'
+		// reading holds it; under an effective Search that is the results
+		// instance, not the query that chose the rows.
+		const exprCtx = expressionContextFor({
+			...ctx,
+			reading: args.reading.columns,
+		});
 
 		// Calculated-column aliases are EMITTED with a fixed prefix so
 		// they cannot collide with any `cases` column the
@@ -1032,10 +1035,7 @@ export class PostgresCaseStore implements CaseStore {
 
 		// Project each calculated column under its prefixed alias.
 		for (const column of calculated) {
-			const expr = compileExpression(column.expression, {
-				...exprCtx,
-				portableCaseDates: true,
-			});
+			const expr = compileExpression(column.expression, exprCtx);
 			qb = qb.select(expr.as(aliasFor(column.uuid)));
 		}
 
@@ -1534,6 +1534,7 @@ export class PostgresCaseStore implements CaseStore {
 			knownInputs: args.knownInputs,
 			bindings: args.bindings ?? {},
 			restore,
+			reading: args.reading.filter,
 		});
 
 		// pg-driver returns BIGINT counts as
@@ -4964,8 +4965,11 @@ export class PostgresCaseStore implements CaseStore {
 		bindings: PredicateCompileContext["bindings"];
 		/** Bound only by a read standing at a device — see `RestoreScope`. */
 		restore?: RestoreScopeQuery;
+		/** The predicate's reading — see `CaseFilterReading`. */
+		reading: CaseFilterReading["filter"];
 	}): PredicateCompileContext {
 		return {
+			reading: args.reading,
 			db: args.db,
 			appId: args.appId,
 			projectId: this.requireProjectId(),

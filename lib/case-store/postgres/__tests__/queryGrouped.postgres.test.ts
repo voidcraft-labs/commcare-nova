@@ -28,6 +28,7 @@ import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { eq, literal, prop, term } from "@/lib/domain/expression/builders";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
@@ -164,6 +165,7 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		const { north, south } = await seed(store);
 
 		const page = await store.queryGrouped({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: schemas(),
@@ -198,6 +200,7 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		// Grouping by an identifier nothing carries is the empty-key
 		// hazard in its purest form: one group, holding everything.
 		const page = await store.queryGrouped({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: schemas(),
@@ -224,6 +227,7 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		const { north, south } = await seed(store);
 
 		const first = await store.queryGrouped({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: schemas(),
@@ -241,6 +245,7 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		expect(first.totalRows).toBe(5);
 
 		const second = await store.queryGrouped({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: schemas(),
@@ -258,6 +263,7 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		await seed(store);
 
 		const page = await store.queryGrouped({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: schemas(),
@@ -279,6 +285,7 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		const { north } = await seed(store);
 
 		const page = await store.queryGrouped({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: schemas(),
@@ -302,6 +309,7 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		await seed(store);
 
 		const grouped = await store.queryGrouped({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: schemas(),
@@ -309,7 +317,11 @@ describe("PostgresCaseStore.queryGrouped", () => {
 			groupOffset: 0,
 			groupLimit: 10,
 		});
-		const flat = await store.query({ appId: APP_ID, caseType: "visit" });
+		const flat = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
 
 		const expectedGroups = new Map<string, typeof flat>();
 		for (const row of flat) {

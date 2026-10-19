@@ -5,6 +5,7 @@ import {
 	orderedColumns,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
+import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { caseColumnLabel } from "../caseColumnLabel";
 import {
@@ -49,6 +50,8 @@ export async function appTestDetails(
 		appId: scope.appId,
 		caseType: mod.caseType,
 		caseId: screen.caseId,
+		// Details of a Search's result is the results row.
+		reading: caseQueryReadingFor(mod),
 		ancestorDepth: 0,
 		caseListConfig: mod.caseListConfig,
 		caseTypeSchemas: context.caseTypeSchemas,
@@ -94,6 +97,8 @@ export function appTestCellProjector(
 			)
 		: [];
 	const caseTypes = effectiveCaseTypes(context.doc);
+	// A Search's Results and its Details read results rows.
+	const columnsReading = caseQueryReadingFor(mod).columns;
 	const display: ColumnDisplayContext = {
 		caseProperties: projectLocalizedCaseProperties(
 			mod.caseType,
@@ -128,11 +133,16 @@ export function appTestCellProjector(
 					throw new AppTestActionError(
 						"This calculated column is unavailable.",
 					);
-				const type = resolveCalculatedTemporalType(column, types);
+				const type = resolveCalculatedTemporalType(
+					column,
+					types,
+					columnsReading,
+				);
 				return type ? [[column.uuid, type] as const] : [];
 			}),
 		),
 		today: new Date(),
+		reading: columnsReading,
 		projectProse: (template) =>
 			projectProseTemplate(template, context.doc).text,
 	};

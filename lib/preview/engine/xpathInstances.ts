@@ -302,7 +302,7 @@ function caseDateValue(value: Date | string | null): XPathValue {
 	/* Core exposes both casedb values through DateData. DateData.getValue()
 	 * rounds its backing Date before XPath sees it, so these are calendar dates,
 	 * not DateTimeData values carrying the database timestamp. */
-	return XPathDate.fromJSDateOnly(parsed);
+	return XPathDate.localDateOf(parsed.getTime());
 }
 
 const CASE_ATTRIBUTE_TEMPLATES = [

@@ -23,12 +23,15 @@
 import { getSession } from "@/lib/auth-utils";
 import {
 	buildCaseTypeMap,
+	CASEDB_READING,
 	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
+	type CaseQueryReading,
 	type CaseStore,
 	type JsonValue,
 	ParkedValueNotFoundError,
+	SEARCH_READING,
 } from "@/lib/case-store";
 import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store/submission";
@@ -61,6 +64,7 @@ import {
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
@@ -266,6 +270,21 @@ function caseStoreOrder(
 		args.caseListConfig,
 		args.language ?? effectiveAppLocalization(doc.localization).sourceLanguage,
 	);
+}
+
+/**
+ * The reading of a read that names its module: its effective Search decides
+ * (`caseQueryReadingFor`). A read with no module (a raw-row read for a
+ * form's case, the selection check by id) is a device's casedb read.
+ */
+function environmentReading(
+	environment: PreviewSearchEnvironment | undefined,
+): CaseQueryReading {
+	const module =
+		environment === undefined
+			? undefined
+			: environment.doc.modules[environment.moduleUuid];
+	return module === undefined ? CASEDB_READING : caseQueryReadingFor(module);
 }
 
 export async function loadCasesAction(args: {
@@ -476,6 +495,7 @@ export async function loadCasesAction(args: {
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
+			reading: environmentReading(environment),
 			caseIds: args.caseIds,
 			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
@@ -546,6 +566,8 @@ export async function loadCaseCountAction(args: {
 		const count = await store.count({
 			appId: args.appId,
 			caseType: args.caseType,
+			// No predicate: the count reads stored rows, so the stored truth.
+			reading: SEARCH_READING,
 			parentCases: args.parentCase,
 			includeHeld: args.includeHeld === true,
 		});
@@ -792,6 +814,7 @@ export async function loadCaseDataAction(
 			appId,
 			caseType,
 			caseId,
+			reading: environmentReading(environment),
 			ancestorDepth,
 			parentCase,
 			caseListConfig,
@@ -1257,6 +1280,12 @@ export async function loadFilterPreviewAction(args: {
 		return await readFilterPreview(store, {
 			appId: args.appId,
 			caseType: args.caseType,
+			// The list being previewed is the draft configuration, read the way
+			// its module's Search (or its absence) makes the running list read.
+			reading: caseQueryReadingFor({
+				caseListConfig: parsedConfig.data,
+				caseSearchConfig: candidateModule?.caseSearchConfig,
+			}),
 			limit: args.limit,
 			caseListConfig: parsedConfig.data,
 			lookupTableSchemas,

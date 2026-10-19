@@ -1,4 +1,13 @@
-import { normalizeJavaIntegerLexical } from "./javaInteger";
+import {
+	coreDaysSinceEpoch,
+	javaWallInstant,
+	localCalendarDays,
+	localMidnight,
+} from "./coreDays";
+import {
+	javaBmpDecimalDigit,
+	normalizeJavaIntegerLexical,
+} from "./javaInteger";
 import type {
 	XPathInstance,
 	XPathNode,
@@ -6,85 +15,158 @@ import type {
 } from "./runtimeValues";
 
 /**
- * XPath date value — a first-class type in CommCare's XPath variant.
+ * XPath date value, a first-class type in CommCare's XPath variant: Core's
+ * `java.util.Date`, an instant, with the views Core takes of it.
  *
- * Stores the date as integer days since the Unix epoch (1970-01-01),
- * matching CommCare core's `DateUtils.daysSinceEpoch()`. When used in
- * arithmetic, the date coerces to this integer — so `today() + 1`
- * naturally produces tomorrow's day-number. Wrapping the result in
- * `date()` converts it back to an ISO string.
- *
- * The optional `time` field preserves HMS for `double(now())` and date
- * formatting. XPath string coercion still emits Core's local date only.
+ * `calendarDays` is the local calendar date (in this realm's zone, read when
+ * the value is built) as days since 1970-01-01, which `toISOString` prints as
+ * `FunctionUtils.toString(Date)` does. `timeMilliseconds` is the held instant
+ * when the value has a clock (`now()`, a datetime answer, parsed datetime
+ * text); a date-only value stands for its local midnight, as Core's rounded
+ * `Date` does. Numeric coercion reads `coreDays`, Core's own day count
+ * (`coreDays.ts`), which differs from the calendar in five Pacific zones.
  */
 export class XPathDate {
-	/** Days since 1970-01-01 (always an integer). */
-	readonly days: number;
-	/** Original JS Date — retained for double() and date formatting. */
-	readonly time: Date | null;
+	/** The local calendar date as days since 1970-01-01 (always an integer). */
+	readonly calendarDays: number;
+	/** The held instant, when the value carries a clock. */
+	readonly timeMilliseconds: number | null;
 
-	private constructor(days: number, time: Date | null) {
-		this.days = days;
-		this.time = time;
+	private constructor(calendarDays: number, timeMilliseconds: number | null) {
+		this.calendarDays = calendarDays;
+		this.timeMilliseconds = timeMilliseconds;
 	}
 
-	/** Create a date-only value (midnight, no time component). */
-	static fromDays(days: number): XPathDate {
-		return new XPathDate(Math.trunc(days), null);
+	/** A date-only value for a calendar day. */
+	static fromCalendarDays(calendarDays: number): XPathDate {
+		return new XPathDate(Math.trunc(calendarDays), null);
 	}
 
-	/** Create a date-only value from a JS Date, stripping the time component. */
-	static fromJSDateOnly(d: Date): XPathDate {
-		return new XPathDate(daysSinceEpoch(d), null);
+	/** A value holding an instant, read on this realm's local calendar. */
+	static fromInstant(instantMs: number): XPathDate {
+		return new XPathDate(localCalendarDays(instantMs), instantMs);
 	}
 
-	/** Create a date from a JS Date, preserving time-of-day for date functions. */
-	static fromJSDate(d: Date): XPathDate {
-		return new XPathDate(daysSinceEpoch(d), d);
+	/** `DateUtils.roundDate`: the date-only value of an instant's local day. */
+	static localDateOf(instantMs: number): XPathDate {
+		return new XPathDate(localCalendarDays(instantMs), null);
+	}
+
+	/** Rebuild a value from its two parts exactly, as the worker protocol
+	 * carries them, without re-reading the calendar day in this realm. */
+	static fromParts(
+		calendarDays: number,
+		timeMilliseconds: number | null,
+	): XPathDate {
+		if (
+			!Number.isSafeInteger(calendarDays) ||
+			(timeMilliseconds !== null && !Number.isFinite(timeMilliseconds))
+		) {
+			throw new Error(
+				"A Preview date crossed the worker boundary without a whole calendar day and a finite instant.",
+			);
+		}
+		return new XPathDate(calendarDays, timeMilliseconds);
 	}
 
 	/** Parse JavaRosa's explicit date/datetime syntax.
 	 *
 	 * This deliberately does not use the JavaScript Date string parser. Core's
-	 * DateUtils.parseDateTime() splits and validates the calendar fields itself,
-	 * accepts hh:mm plus optional fractional seconds, and applies an explicit
-	 * timezone to the clock while retaining the authored calendar date.
+	 * `DateUtils.parseDateTime()` splits and validates the calendar fields
+	 * itself, accepts hh:mm plus optional fractional seconds, converts an
+	 * explicit offset into the device zone's clock while keeping the authored
+	 * calendar date, and resolves that wall clock as `java.util.Calendar` does
+	 * (`coreDays.ts::javaWallInstant`).
 	 */
 	static parse(s: string): XPathDate | null {
 		const separator = s.indexOf("T");
 		const rawDate = separator === -1 ? s : s.slice(0, separator);
 		const date = parseJavaRosaDateFields(rawDate);
 		if (date === null) return null;
-		if (separator === -1) return XPathDate.fromDays(date.days);
+		if (separator === -1) return XPathDate.fromCalendarDays(date.days);
 
 		const time = parseJavaRosaTimeFields(s.slice(separator + 1), date);
 		if (time === null) return null;
-		return XPathDate.fromJSDate(
-			localDate(date.year, date.monthIndex, date.day, time),
+		return XPathDate.fromInstant(
+			javaWallInstant({
+				year: date.year,
+				monthIndex: date.monthIndex,
+				day: date.day,
+				hour: time.hour,
+				minute: time.minute,
+				second: time.second,
+				millisecond: time.milliseconds,
+			}),
 		);
 	}
 
-	/** Convert this date back to a JS Date (midnight UTC for date-only). */
-	toJSDate(): Date {
-		if (this.time) return this.time;
-		return new Date(this.days * 86_400_000);
+	/**
+	 * Read datetime text that names its own offset at exactly that instant,
+	 * the way a datetime answer is held: Core's `DateTimeData` of the instant
+	 * the person entered, which Nova's canonical storage text records with
+	 * the offset of its own instant. No wall clock is re-resolved, so an
+	 * answer in a repeated hour keeps the occurrence it was entered at. Text
+	 * without an offset, and date-only text, read as Core's cast reads them
+	 * (`parse`).
+	 */
+	static parseExactInstant(s: string): XPathDate | null {
+		const exact = EXACT_INSTANT_TEXT.exec(s);
+		if (exact === null) return XPathDate.parse(s);
+		const [, year, month, day, hour, minute, second, fraction, zone] = exact;
+		const date = parseJavaRosaDateFields(`${year}-${month}-${day}`);
+		if (date === null) return null;
+		const milliseconds = Number((fraction ?? "").padEnd(3, "0").slice(0, 3));
+		const hours = Number(hour);
+		const minutes = Number(minute);
+		const seconds = Number(second ?? "0");
+		if (!validTime(hours, minutes, seconds, milliseconds)) return null;
+		const wall = new Date(0);
+		wall.setUTCFullYear(date.year, date.monthIndex, date.day);
+		wall.setUTCHours(hours, minutes, seconds, milliseconds);
+		const offsetMinutes = zoneOffsetMinutes(zone ?? "Z");
+		if (offsetMinutes === null) return null;
+		return XPathDate.fromInstant(wall.getTime() - offsetMinutes * 60_000);
+	}
+
+	/** `DateUtils.daysSinceEpoch`: Core's day number of this value, which
+	 * `FunctionUtils.toNumeric` gives a Date. */
+	get coreDays(): number {
+		return coreDaysSinceEpoch(this.calendarDays);
+	}
+
+	/** The instant Core's `Date` holds: the clock when there is one, else the
+	 * local midnight of the calendar day. */
+	instant(): number {
+		return this.timeMilliseconds ?? localMidnight(this.calendarDays);
+	}
+
+	/** `DateUtils.roundDate`: the date-only value of the same calendar day. */
+	rounded(): XPathDate {
+		return XPathDate.fromCalendarDays(this.calendarDays);
 	}
 
 	/** XPath string coercion for a Date is always the local YYYY-MM-DD date.
 	 * Core's `FunctionUtils.toString(Date)` deliberately discards time. */
 	toISOString(): string {
-		const d = this.time ?? new Date(this.days * 86_400_000);
-		const y = this.time ? d.getFullYear() : d.getUTCFullYear();
-		const m = String((this.time ? d.getMonth() : d.getUTCMonth()) + 1).padStart(
-			2,
-			"0",
-		);
-		const day = String(this.time ? d.getDate() : d.getUTCDate()).padStart(
-			2,
-			"0",
-		);
-		return `${y}-${m}-${day}`;
+		const d = new Date(this.calendarDays * 86_400_000);
+		const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+		const day = String(d.getUTCDate()).padStart(2, "0");
+		return `${d.getUTCFullYear()}-${m}-${day}`;
 	}
+}
+
+/** `YYYY-MM-DDTHH:MM[:SS[.fff]]` with a `Z` or `±HH[:MM]` designator. */
+const EXACT_INSTANT_TEXT =
+	/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(Z|[+-]\d{2}(?::?\d{2})?)$/;
+
+function zoneOffsetMinutes(designator: string): number | null {
+	if (designator === "Z") return 0;
+	const sign = designator.startsWith("-") ? -1 : 1;
+	const digits = designator.slice(1).replace(":", "");
+	const hours = Number(digits.slice(0, 2));
+	const minutes = digits.length > 2 ? Number(digits.slice(2)) : 0;
+	if (hours > 23 || minutes > 59) return null;
+	return sign * (hours * 60 + minutes);
 }
 
 /** Whether a value is an XPathDate instance. */
@@ -240,9 +322,12 @@ function parseJavaRosaTimeFields(
 	let second = 0;
 	let milliseconds = 0;
 	if (pieces.length === 3) {
-		// Core consumes the leading run of digits/dots and ignores later text.
-		const secondsPrefix = /^[0-9.]*/.exec(pieces[2] ?? "")?.[0] ?? "";
-		if (secondsPrefix === "") return null;
+		// Core takes the leading run of `Character.isDigit` characters and dots,
+		// ignores later text, and reads the run with `Double.parseDouble`, which
+		// accepts ASCII digits only: a run holding another script's digit, an
+		// empty run, or a second dot is refused.
+		const secondsPrefix = javaSecondsPrefix(pieces[2] ?? "");
+		if (secondsPrefix === "" || /[^0-9.]/.test(secondsPrefix)) return null;
 		const fractionalSeconds = Number(secondsPrefix);
 		if (!Number.isFinite(fractionalSeconds)) return null;
 		second = Math.trunc(fractionalSeconds);
@@ -285,16 +370,18 @@ function validTime(
 	);
 }
 
-function localDate(
-	year: number,
-	monthIndex: number,
-	day: number,
-	time: ParsedTimeFields,
-): Date {
-	const result = new Date(0);
-	result.setFullYear(year, monthIndex, day);
-	result.setHours(time.hour, time.minute, time.second, time.milliseconds);
-	return result;
+/** `DateUtils.parseRawTime`'s seconds prefix: digits by
+ * `Character.isDigit` (BMP decimal digits) and dots. */
+function javaSecondsPrefix(value: string): string {
+	let end = 0;
+	while (end < value.length) {
+		const character = value[end] ?? "";
+		if (character !== "." && javaBmpDecimalDigit(character) === undefined) {
+			break;
+		}
+		end += 1;
+	}
+	return value.slice(0, end);
 }
 
 /** Java String.split(regex) discards trailing empty pieces. */
@@ -302,20 +389,4 @@ function javaSplit(value: string, separator: string): string[] {
 	const pieces = value.split(separator);
 	while (pieces.length > 0 && pieces.at(-1) === "") pieces.pop();
 	return pieces;
-}
-
-/**
- * Integer days since Unix epoch for a JS Date, matching CommCare core's
- * `DateUtils.daysSinceEpoch()` — rounds to midnight then divides.
- */
-function daysSinceEpoch(d: Date): number {
-	/* Encode the browser's LOCAL calendar date at UTC midnight. Core rounds a
-	 * Date in the device timezone before computing the epoch-day count, so UTC
-	 * fields would move today() a day forward in negative offsets after 00:00Z.
-	 * Fields copy via `setUTCFullYear`, never `Date.UTC(year, ...)`, whose
-	 * two-digit-year remapping (years 0-99 → 1900-1999) would shift a
-	 * year 0001-0099 date nineteen centuries forward. */
-	const utcMidnight = new Date(0);
-	utcMidnight.setUTCFullYear(d.getFullYear(), d.getMonth(), d.getDate());
-	return Math.round(utcMidnight.getTime() / MS_PER_DAY);
 }

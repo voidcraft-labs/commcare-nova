@@ -4,6 +4,7 @@ import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { withProjectContext } from "@/lib/case-store";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { listApps, softDeleteApp } from "@/lib/db/apps";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import {
 	getLookupManifest,
 	getLookupTable,
@@ -100,6 +101,7 @@ it("separate scenario attempts preserve each other's sessions, memberships, app 
 	const rightQuery = {
 		appId: right.caseWorkspace.appId,
 		caseType: right.caseWorkspace.caseType,
+		reading: SEARCH_READING,
 	};
 	const originalCases = await rightCases.query(rightQuery);
 	expect(originalCases).toHaveLength(right.caseWorkspace.caseCount);

@@ -30,6 +30,7 @@ import {
 	assertAndProjectCaseWriteInventory,
 	type ProjectedCaseWriteInventory,
 } from "@/lib/commcare/caseWriteAdmission";
+import { fieldBindType } from "@/lib/commcare/xform/bindType";
 import {
 	type XFormDataRootRuntimeAttributes,
 	xformDataRootRuntimeAttributes,
@@ -61,6 +62,7 @@ import {
 	deriveCaseWriteInventory,
 	fieldProseTemplate,
 	formOpensWithOneCase,
+	instantDatetimeValue,
 	isCaptureFieldKind,
 	isContainer,
 	isReadableTemporalValue,
@@ -95,7 +97,12 @@ import {
 	unpackXPathRuntimeValue,
 	type XPathInstance,
 } from "../xpath/runtimeValues";
-import { type EvalContext, isXPathDate, type XPathValue } from "../xpath/types";
+import {
+	type EvalContext,
+	isXPathDate,
+	type XPathDate,
+	type XPathValue,
+} from "../xpath/types";
 import {
 	serializeXPathWorkerHashtagValue,
 	serializeXPathWorkerValue,
@@ -103,6 +110,17 @@ import {
 	xpathWorkerHashtagReferences,
 } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import {
+	type CoreAnswerType,
+	castAnswerText,
+	coreAnswerType,
+	isRefusingAnswerType,
+	realmTimeZone,
+	SetvalueRefusal,
+	type SetvalueRefusalCause,
+	type SetvalueRefusalDetails,
+	setvalueText,
+} from "./answerCast";
 import type {
 	SubmissionAnswerEntry,
 	SubmissionAttachmentReference,
@@ -629,6 +647,12 @@ export class FormEngine {
 	private readonly searchAnswers: ReadonlyMap<string, string>;
 	private readonly hasCaseSnapshot: boolean;
 	private readonly choiceCaseNodes = new Map<string, XPathNode>();
+	/** The zone a setvalue's cast reads calendars in: this realm's, the one
+	 * every `XPathDate` the evaluator builds is read in. */
+	private readonly castZone = realmTimeZone();
+	/** The last refused insert of each repeat, by concrete repeat path. It
+	 * stays until an insert of that repeat succeeds or the entry restarts. */
+	private repeatInsertRefusals = new Map<string, SetvalueRefusalDetails>();
 
 	constructor(
 		input: FormEngineInput,
@@ -689,7 +713,11 @@ export class FormEngine {
 		this.presentationLanguage = input.language;
 
 		this.instance = new DataInstance(this.formRootAttributes);
-		this.instance.initFromFields(this.tree);
+		this.instance.initFromFields(
+			this.tree,
+			"/data",
+			this.caseWriteDoc.caseTypes ?? [],
+		);
 		this.dag = new TriggerDag();
 
 		this.dag.build(this.tree, this.expressions);
@@ -847,7 +875,15 @@ export class FormEngine {
 		);
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.expressions);
-		this.store.setState(structuredClone(checkpoint.state), true);
+		const state = structuredClone(checkpoint.state);
+		this.repeatInsertRefusals = new Map(
+			Object.entries(state).flatMap(([path, fieldState]) =>
+				fieldState.insertRefusal === undefined
+					? []
+					: [[path, fieldState.insertRefusal] as const],
+			),
+		);
+		this.store.setState(state, true);
 	}
 
 	/** Local required/type errors have no validation DAG node. Constraint
@@ -992,25 +1028,36 @@ export class FormEngine {
 		await this.settleLiveRepeatsAsync(evaluateAsync);
 	}
 
+	/** Worker-backed `addRepeat`. Returns the new index, or `undefined` when
+	 * CommCare refuses the insert; the entry is then exactly as it was before
+	 * the call, apart from the repeat's `insertRefusal`. */
 	async addRepeatAsync(
 		repeatPath: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
-	): Promise<number> {
-		const index = this.addRepeat(repeatPath);
-		const prefix = `${repeatPath}[${index}]`;
-		const children = this.findTreeNode(repeatPath)?.children ?? [];
-		await this.initializeModelAsync(
-			children,
-			evaluateAsync,
-			prefix,
-			repeatPath,
-		);
-		const updates: EngineStoreState = {};
-		for (const path of Object.keys(this.store.getState())) {
-			if (path.startsWith(`${prefix}/`)) updates[path] = DEFAULT_ENGINE_STATE;
+	): Promise<number | undefined> {
+		const checkpoint = this.entryCheckpoint();
+		let index: number;
+		try {
+			index = this.insertRepeatRow(repeatPath);
+			const prefix = `${repeatPath}[${index}]`;
+			const children = this.findTreeNode(repeatPath)?.children ?? [];
+			await this.initializeModelAsync(
+				children,
+				evaluateAsync,
+				prefix,
+				repeatPath,
+			);
+			const updates: EngineStoreState = {};
+			for (const path of Object.keys(this.store.getState())) {
+				if (path.startsWith(`${prefix}/`)) updates[path] = DEFAULT_ENGINE_STATE;
+			}
+			this.initStatesInto(updates, children, prefix);
+			this.store.setState(updates);
+		} catch (error) {
+			this.refuseInsert(repeatPath, checkpoint, error);
+			return undefined;
 		}
-		this.initStatesInto(updates, children, prefix);
-		this.store.setState(updates);
+		this.clearInsertRefusal(repeatPath);
 		await this.settleAsync(evaluateAsync);
 		return index;
 	}
@@ -1059,8 +1106,43 @@ export class FormEngine {
 			this.enterSection(this.activeSectionUuid);
 	}
 
-	/** Add a new repeat instance. Returns the new index. */
-	addRepeat(repeatPath: string): number {
+	/**
+	 * Add a new repeat instance. Returns the new index, or `undefined` when
+	 * CommCare refuses the insert: a starting value in the new entry fails its
+	 * cast, so the insert is not applied (Formplayer's `newRepeat` updates the
+	 * session only after `createNewRepeat` succeeds). The entry is then exactly
+	 * as it was before the call, apart from the repeat's `insertRefusal`.
+	 */
+	addRepeat(repeatPath: string): number | undefined {
+		const checkpoint = this.entryCheckpoint();
+		let index: number;
+		try {
+			index = this.insertRepeatRow(repeatPath);
+		} catch (error) {
+			this.refuseInsert(repeatPath, checkpoint, error);
+			return undefined;
+		}
+		this.clearInsertRefusal(repeatPath);
+		return index;
+	}
+
+	/** Put the entry back as it was before a refused insert. Any other error
+	 * is not a refusal and propagates. */
+	private refuseInsert(
+		repeatPath: string,
+		checkpoint: FormEngineEntryCheckpoint,
+		error: unknown,
+	): void {
+		if (
+			!(error instanceof SetvalueRefusal) ||
+			error.details.cause !== "repeat-insert"
+		)
+			throw error;
+		this.restoreEntryCheckpoint(checkpoint);
+		this.recordInsertRefusal(repeatPath, error.details);
+	}
+
+	private insertRepeatRow(repeatPath: string): number {
 		const newIndex = this.instance.addRepeatInstance(repeatPath);
 		this.ensureRepeatInstanceKeys(repeatPath, newIndex + 1);
 		const instancePrefix = `${repeatPath}[${newIndex}]`;
@@ -1196,6 +1278,107 @@ export class FormEngine {
 		});
 	}
 
+	/** The data type Core gives a field's node, from the bind the XForm
+	 * emitter writes for it. */
+	private answerTypeOf(field: Field): CoreAnswerType {
+		return coreAnswerType(
+			fieldBindType(field, this.caseWriteDoc.caseTypes ?? []),
+			field.kind,
+		);
+	}
+
+	/**
+	 * The text a setvalue leaves in a node: Core's cast of `text`
+	 * (`answerCast.ts`), blank when the setvalue writes nothing. A refused
+	 * cast throws `SetvalueRefusal`, which the caller turns into what Core
+	 * stops: the form's opening, or one repeat insert.
+	 */
+	private castSetvalue(
+		field: Field,
+		path: string,
+		text: string | undefined,
+		refusal: Pick<
+			SetvalueRefusalDetails,
+			"cause" | "caseType" | "property" | "caseId" | "repeatUuid"
+		>,
+	): string {
+		if (text === undefined || text === "") return "";
+		const type = this.answerTypeOf(field);
+		const cast = castAnswerText(type, text, this.castZone);
+		if (cast.ok) return cast.text;
+		if (!isRefusingAnswerType(type))
+			throw new Error("Only a typed answer's cast refuses a value.");
+		throw new SetvalueRefusal({
+			...refusal,
+			fieldUuid: field.uuid,
+			path,
+			value: text,
+			answerType: type,
+		});
+	}
+
+	/** A starting value's setvalue: the result shaped as
+	 * `Recalculate.wrapData` shapes it, then cast. */
+	private startingValueText(
+		field: Field,
+		path: string,
+		result: XPathValue,
+		cause: Exclude<SetvalueRefusalCause, "preload">,
+		repeatPath?: string,
+	): string {
+		const repeatUuid =
+			repeatPath === undefined
+				? undefined
+				: this.findTreeNode(repeatPath)?.field.uuid;
+		return this.castSetvalue(
+			field,
+			path,
+			setvalueText(unpackXPathRuntimeValue(result), this.answerTypeOf(field)),
+			{ cause, ...(repeatUuid === undefined ? {} : { repeatUuid }) },
+		);
+	}
+
+	/** A preload's setvalue: the selected case's saved value, cast. */
+	private preloadText(
+		field: Field,
+		path: string,
+		property: string,
+		saved: string,
+	): string {
+		const caseId = this.ownCaseData()?.get("case_id");
+		return this.castSetvalue(field, path, saved, {
+			cause: "preload",
+			property,
+			...(this.moduleCaseType === undefined
+				? {}
+				: { caseType: this.moduleCaseType }),
+			...(caseId === undefined || caseId === "" ? {} : { caseId }),
+		});
+	}
+
+	/** Record a refused insert on its repeat's state, for the inline note. */
+	private recordInsertRefusal(
+		repeatPath: string,
+		details: SetvalueRefusalDetails,
+	): void {
+		this.repeatInsertRefusals.set(repeatPath, details);
+		const state = this.store.getState()[repeatPath];
+		if (state !== undefined)
+			this.store.setState({
+				[repeatPath]: { ...state, insertRefusal: details },
+			});
+	}
+
+	/** An insert of the repeat succeeded: its earlier refusal no longer
+	 * describes it. */
+	private clearInsertRefusal(repeatPath: string): void {
+		if (!this.repeatInsertRefusals.delete(repeatPath)) return;
+		const state = this.store.getState()[repeatPath];
+		if (state?.insertRefusal === undefined) return;
+		const { insertRefusal: _cleared, ...rest } = state;
+		this.store.setState({ [repeatPath]: rest });
+	}
+
 	private computedFieldValue(field: Field, result: XPathValue): string {
 		const value = unpackXPathRuntimeValue(result);
 		if (
@@ -1205,20 +1388,46 @@ export class FormEngine {
 		) {
 			return numericAnswerText(value);
 		}
-		// Core wraps a calculated Date using the destination bind. XPath's
+		// Core wraps a calculated Date using the destination bind
+		// (`Recalculate.wrapData`): a datetime bind holds `DateTimeData` of the
+		// instant, written as its canonical text in this realm's zone. XPath's
 		// generic string(Date) deliberately discards its clock instead.
 		if (
-			fieldValueType(field, this.caseWriteDoc.caseTypes ?? []) === "datetime" &&
 			isXPathDate(value) &&
-			value.time !== null
+			fieldValueType(field, this.caseWriteDoc.caseTypes ?? []) === "datetime"
 		) {
-			return value.time.toISOString();
+			return instantDatetimeValue(
+				value.instant(),
+				Intl.DateTimeFormat().resolvedOptions().timeZone,
+			);
 		}
 		return xpathToString(result);
 	}
 
+	/** The runtime value a hidden calculation's node holds beside its text, as
+	 * `Recalculate.wrapData` wraps it: a number or boolean as itself, a Date
+	 * into a datetime bind as its instant (`DateTimeData`), a Date into a time
+	 * bind as text, and a Date into any other bind as its local date
+	 * (`DateData` rounds). */
+	private calculatedScalar(
+		field: Field,
+		result: XPathValue,
+	): number | boolean | XPathDate | undefined {
+		if (field.kind !== "hidden") return undefined;
+		if (typeof result === "boolean") return result;
+		if (typeof result === "number") {
+			return Number.isNaN(result) ? undefined : result;
+		}
+		if (!isXPathDate(result)) return undefined;
+		const valueType = fieldValueType(field, this.caseWriteDoc.caseTypes ?? []);
+		if (valueType === "datetime") return result;
+		if (valueType === "time") return undefined;
+		return result.rounded();
+	}
+
 	/** Store the result once. Hidden calculations have no numeric question bind;
-	 * Core keeps their numeric/boolean runtime type for later node references. */
+	 * Core keeps their number, boolean or Date runtime type for later node
+	 * references. */
 	private storeCalculatedValue(
 		field: Field,
 		path: string,
@@ -1228,15 +1437,7 @@ export class FormEngine {
 			typeof result === "number" && Number.isNaN(result)
 				? ""
 				: this.computedFieldValue(field, result);
-		this.instance.set(
-			path,
-			value,
-			field.kind === "hidden" &&
-				(typeof result === "boolean" ||
-					(typeof result === "number" && !Number.isNaN(result)))
-				? result
-				: undefined,
-		);
+		this.instance.set(path, value, this.calculatedScalar(field, result));
 		return value;
 	}
 
@@ -1250,7 +1451,7 @@ export class FormEngine {
 		const defaultValue = this.expressionSource(field, "default_value");
 		if (!defaultValue) return undefined;
 		const result = evaluate(defaultValue, this.createEvalContext(path));
-		const value = this.computedFieldValue(field, result);
+		const value = this.startingValueText(field, path, result, "starting-value");
 		return value === "" ? undefined : value;
 	}
 
@@ -2468,11 +2669,11 @@ export class FormEngine {
 		);
 		this.instance.setRootAttributes(this.formRootAttributes);
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
-		this.instance.refreshTemplate(this.tree);
 		this.printDoc = printableDocOf(input);
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
 		this.caseWriteDoc = caseWriteDocOf(input);
+		this.instance.refreshTemplate(this.tree, this.caseWriteDoc.caseTypes ?? []);
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.expressions);
@@ -2941,6 +3142,7 @@ export class FormEngine {
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
 		this.caseWriteDoc = caseWriteDocOf(input);
+		this.instance.refreshTemplate(this.tree, this.caseWriteDoc.caseTypes ?? []);
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.formType = input.form.type;
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
@@ -2980,7 +3182,12 @@ export class FormEngine {
 			const path = `${prefix}/${f.id}`;
 			const writer = writesByField.get(f.uuid);
 			if (writer !== undefined && own.has(writer.property)) {
-				const newValue = own.get(writer.property) ?? "";
+				const newValue = this.preloadText(
+					f,
+					path,
+					writer.property,
+					own.get(writer.property) ?? "",
+				);
 				const oldValue = this.instance.get(path) ?? "";
 				if (newValue !== oldValue) {
 					this.instance.set(path, newValue);
@@ -3028,7 +3235,11 @@ export class FormEngine {
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 
 		this.instance = new DataInstance(this.formRootAttributes);
-		this.instance.initFromFields(this.tree);
+		this.instance.initFromFields(
+			this.tree,
+			"/data",
+			this.caseWriteDoc.caseTypes ?? [],
+		);
 
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.expressions);
@@ -3072,7 +3283,11 @@ export class FormEngine {
 	reset(): void {
 		this.repeatInstanceKeys.clear();
 		this.instance = new DataInstance(this.formRootAttributes);
-		this.instance.initFromFields(this.tree);
+		this.instance.initFromFields(
+			this.tree,
+			"/data",
+			this.caseWriteDoc.caseTypes ?? [],
+		);
 
 		this.initializeModel(this.tree);
 
@@ -3854,11 +4069,13 @@ export class FormEngine {
 			const path = `${prefix}/${f.id}`;
 
 			if (isContainer(f)) {
+				const insertRefusal = this.repeatInsertRefusals.get(path);
 				states[path] =
 					f.kind === "repeat"
 						? {
 								...this.initialContainerState(path, f.kind),
 								repeatCount: this.instance.getRepeatCount(path),
+								...(insertRefusal === undefined ? {} : { insertRefusal }),
 							}
 						: this.initialContainerState(path, f.kind);
 				if (node.children) {
@@ -3894,9 +4111,11 @@ export class FormEngine {
 	): Promise<string | undefined> {
 		const source = this.expressionSource(field, "default_value");
 		if (!source) return undefined;
-		const value = this.computedFieldValue(
+		const value = this.startingValueText(
 			field,
+			path,
 			await evaluateAsync(source, path),
+			"starting-value",
 		);
 		return value === "" ? undefined : value;
 	}
@@ -4073,7 +4292,16 @@ export class FormEngine {
 				const value = yield { source, path };
 				if (isAsyncNodesetValues(value))
 					throw new Error("Expected a scalar default.");
-				this.instance.set(path, this.computedFieldValue(field, value));
+				this.instance.set(
+					path,
+					this.startingValueText(
+						field,
+						path,
+						value,
+						insertedPath === undefined ? "starting-value" : "repeat-insert",
+						insertedPath,
+					),
+				);
 				yield* this.initializeExpressions(
 					this.dag.getAffectedInitialization([path], this.repeatCounts),
 					calculated,
@@ -4109,7 +4337,15 @@ export class FormEngine {
 				if (!writer) continue;
 				const previous = this.store.getState()[path];
 				if (healing && (previous?.edited || previous?.touched)) continue;
-				this.instance.set(path, own?.get(writer.property) ?? "");
+				this.instance.set(
+					path,
+					this.preloadText(
+						node.field,
+						path,
+						writer.property,
+						own?.get(writer.property) ?? "",
+					),
+				);
 				yield* this.initializeExpressions(
 					this.dag.getAffectedInitialization([path], this.repeatCounts),
 					calculated,
@@ -4229,8 +4465,10 @@ export class FormEngine {
 						this.pendingSectionRepeats.delete(path);
 						if (count > this.instance.getRepeatCount(path)) {
 							beforeInsertion?.();
-							yield* this.materializeInitializedRepeat(node, path, { count });
-							grew = true;
+							grew =
+								(yield* this.materializeInitializedRepeat(node, path, {
+									count,
+								})) || grew;
 						}
 					}
 				}
@@ -4296,26 +4534,52 @@ export class FormEngine {
 		}
 	}
 
+	/** Materialize rows up to the snapshot's count. Returns whether a row was
+	 * added: a refused insert adds none, so a live count that keeps asking
+	 * for it does not spin. */
 	private *materializeInitializedRepeat(
 		node: FieldTreeNode,
 		path: string,
 		snapshot: RepeatInitializationSnapshot,
-	): Generator<InitializationRead, void, InitializationValue> {
+	): Generator<InitializationRead, boolean, InitializationValue> {
+		const before = this.instance.getRepeatCount(path);
 		for (
 			let index = this.instance.getRepeatCount(path);
 			index < snapshot.count;
 			index++
 		) {
 			this.instance.setRepeatCount(path, index + 1);
-			yield* this.initializeScope(
-				node.children ?? [],
-				`${path}[${index}]`,
-				path,
-				snapshot.ids
-					? { id: snapshot.ids[index] ?? "", index: String(index) }
-					: undefined,
-			);
+			try {
+				yield* this.initializeScope(
+					node.children ?? [],
+					`${path}[${index}]`,
+					path,
+					snapshot.ids
+						? { id: snapshot.ids[index] ?? "", index: String(index) }
+						: undefined,
+				);
+			} catch (error) {
+				if (
+					!(error instanceof SetvalueRefusal) ||
+					error.details.cause !== "repeat-insert"
+				)
+					throw error;
+				// Core's insert fails as a whole (`FormDef.createNewRepeat` fires
+				// the row's setvalues after copying it), so the row and every row
+				// after it stay out. Calculations the partial row reached settle
+				// again in the caller's next full pass.
+				this.instance.setRepeatCount(path, index);
+				const rowPrefix = `${path}[${index}]`;
+				if (this.initializationStates)
+					for (const key of Object.keys(this.initializationStates))
+						if (key === rowPrefix || key.startsWith(`${rowPrefix}/`))
+							delete this.initializationStates[key];
+				this.recordInsertRefusal(path, error.details);
+				return index > before;
+			}
+			this.clearInsertRefusal(path);
 		}
+		return this.instance.getRepeatCount(path) > before;
 	}
 
 	/** Query membership is captured at form start; count targets are live. Row
@@ -4357,7 +4621,10 @@ export class FormEngine {
 				states[path] =
 					state.repeatCount === undefined
 						? { ...previous[path], value: state.value }
-						: { ...previous[path], repeatCount: state.repeatCount };
+						: withInsertRefusal(
+								{ ...previous[path], repeatCount: state.repeatCount },
+								state.insertRefusal,
+							);
 		}
 		this.store.setState(states, true);
 	}
@@ -4491,6 +4758,7 @@ export class FormEngine {
 		if (this.asyncRuntime) return;
 		if (prefix === "/data") {
 			this.pendingSectionRepeats.clear();
+			this.repeatInsertRefusals.clear();
 			this.activeSectionUuid = undefined;
 		}
 		this.runInitialization(
@@ -4539,6 +4807,7 @@ export class FormEngine {
 	): Promise<void> {
 		if (prefix === "/data") {
 			this.pendingSectionRepeats.clear();
+			this.repeatInsertRefusals.clear();
 			this.activeSectionUuid = undefined;
 		}
 		await this.runInitializationAsync(
@@ -5041,4 +5310,15 @@ function coerceValueForProperty(
 			);
 		}
 	}
+}
+
+/** A repeat's state carrying exactly the given insert refusal. */
+function withInsertRefusal(
+	state: FieldState,
+	insertRefusal: SetvalueRefusalDetails | undefined,
+): FieldState {
+	if (insertRefusal !== undefined) return { ...state, insertRefusal };
+	if (state.insertRefusal === undefined) return state;
+	const { insertRefusal: _cleared, ...rest } = state;
+	return rest;
 }

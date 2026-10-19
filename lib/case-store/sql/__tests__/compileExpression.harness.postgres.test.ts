@@ -105,6 +105,7 @@ function makeCtx(
 	overrides: Partial<ExpressionCompileContext> = {},
 ): ExpressionCompileContext {
 	return {
+		reading: "search",
 		db,
 		appId: APP_ID,
 		projectId: OWNER_ID,
@@ -919,6 +920,97 @@ describe("compileExpression — round-trip — coercion arms", () => {
 // Each op resolves to a known numeric value. A regression that
 // swapped `*` for `+` would surface immediately because the
 // expected value differs.
+
+describe("compileExpression — epoch numbers, positions and conditions as values", () => {
+	test("datetime-coerce of a number is that many days of elapsed time after the UTC epoch, in every reading and session zone", async ({
+		db,
+		pgClient,
+	}) => {
+		// Hours, not '1 day': a day interval would follow the session zone's
+		// daylight saving, and HQ adds `timedelta(days=n)` to the UTC epoch.
+		for (const zone of ["America/New_York", "Pacific/Kiritimati"]) {
+			await pgClient.query(`SET LOCAL TIME ZONE '${zone}'`);
+			for (const reading of ["casedb", "results", "search"] as const) {
+				const expr = compileExpression(
+					datetimeCoerce(term(literal(20453.5))),
+					makeCtx(db, {
+						reading,
+						bindings: { viewerTimeZone: "Asia/Kolkata" },
+					}),
+				);
+				const rows = await db
+					.selectFrom(sql`(values (1))`.as("v"))
+					.select(
+						sql<boolean>`${expr} = timestamptz '2025-12-31 12:00:00+00'`.as(
+							"matches",
+						),
+					)
+					.execute();
+				expect(rows, `${zone} ${reading}`).toEqual([{ matches: true }]);
+			}
+		}
+	});
+
+	test("here reads the bound position as one text parameter, and '' before a fix", async ({
+		db,
+	}) => {
+		for (const [viewerLocation, expected] of [
+			["42.3736 -71.1097 0.0 12.0", "42.3736 -71.1097 0.0 12.0"],
+			// Never interpolated: a quote is data, not SQL.
+			["1' or '1'='1", "1' or '1'='1"],
+			[null, ""],
+			[undefined, ""],
+		] as const) {
+			const expr = compileExpression(
+				{ kind: "here" },
+				makeCtx(db, {
+					bindings: viewerLocation === undefined ? {} : { viewerLocation },
+				}),
+			);
+			const row = await db
+				.selectFrom(sql`(values (1))`.as("v"))
+				.select([
+					expr.as("value"),
+					sql<string>`pg_typeof(${expr})::text`.as("type"),
+				])
+				.executeTakeFirstOrThrow();
+			expect(row, String(viewerLocation)).toEqual({
+				value: expected,
+				type: "text",
+			});
+		}
+	});
+
+	test("a condition read as a value is false, never blank, for a row that lacks the property", async ({
+		db,
+	}) => {
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({}),
+				}),
+			)
+			.execute();
+		const alice = eq(prop("patient", "nickname"), literal("Alice"));
+		const row = await db
+			.selectFrom("cases as c")
+			.where("c.case_id", "=", PATIENT_CASE_ID)
+			.select([
+				compileExpression(alice, makeCtx(db)).as("isAlice"),
+				compileExpression(
+					gt(prop("patient", "age"), literal(18)),
+					makeCtx(db),
+				).as("isAdult"),
+			])
+			.executeTakeFirstOrThrow();
+		expect(row).toEqual({ isAlice: false, isAdult: false });
+	});
+});
 
 describe("compileExpression — arithmetic", () => {
 	test("bound numeric answers keep declared types for all operators", async ({

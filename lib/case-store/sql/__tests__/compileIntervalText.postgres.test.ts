@@ -141,6 +141,8 @@ describe("compileIntervalText", () => {
 			)
 			.execute();
 		const ctx: ExpressionCompileContext = {
+			// A browse list's interval column reads the casedb row.
+			reading: "casedb",
 			db,
 			appId: APP_ID,
 			projectId: PROJECT_ID,

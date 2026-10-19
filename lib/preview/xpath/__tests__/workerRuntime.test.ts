@@ -4,18 +4,27 @@ import {
 	previewHashtagNodeSet,
 } from "../../engine/xpathInstances";
 import { createInProcessXPathWorkerFactory } from "../inProcessWorkerClient";
+import { XPathDate } from "../types";
 import { XPathRuntime } from "../workerClient";
 import {
+	deserializeXPathWorkerValue,
 	serializeXPathWorkerHashtagValue,
+	serializeXPathWorkerValue,
 	snapshotXPathWorkerInstance,
 } from "../workerProjection";
-import type {
-	XPathRuntimeRequest,
-	XPathWorkerInstanceSnapshot,
-	XPathWorkerNodeSnapshot,
+import {
+	type SerializedXPathValue,
+	XPATH_WORKER_BUILD_ID,
+	XPATH_WORKER_PROTOCOL_VERSION,
+	type XPathRuntimeRequest,
+	type XPathWorkerInstanceSnapshot,
+	type XPathWorkerNodeSnapshot,
+	type XPathWorkerRequest,
+	type XPathWorkerResponse,
 } from "../workerProtocol";
 import {
 	asyncXPathWorkerFunctions,
+	createXPathWorkerDispatcher,
 	xpathRequiresAsyncWorker,
 } from "../workerRuntime";
 
@@ -34,7 +43,7 @@ afterEach(() => {
 function node(
 	name: string,
 	path: string,
-	value = "",
+	value: SerializedXPathValue = "",
 	children: readonly XPathWorkerNodeSnapshot[] = [],
 ): XPathWorkerNodeSnapshot {
 	return {
@@ -72,6 +81,69 @@ function request(
 }
 
 describe("XPath worker runtime", () => {
+	it("refuses a host speaking the previous protocol", () => {
+		const responses: XPathWorkerResponse[] = [];
+		const dispatcher = createXPathWorkerDispatcher({
+			postMessage: (response) => responses.push(response),
+		});
+		dispatcher.handleMessage({
+			...request(),
+			protocolVersion: 7,
+			buildId: XPATH_WORKER_BUILD_ID,
+			operation: "evaluate",
+			requestId: 1,
+		} as unknown as XPathWorkerRequest);
+		expect(XPATH_WORKER_PROTOCOL_VERSION).toBe(8);
+		expect(responses).toMatchObject([
+			{ ok: false, requestId: 1, error: { code: "protocol-mismatch" } },
+		]);
+		dispatcher.retire();
+	});
+
+	it("carries a date's calendar day and instant exactly, in both directions", async () => {
+		const originalTimeZone = process.env.TZ;
+		try {
+			// Built in Kiritimati, 05:45Z on 11 March is the local 11 March.
+			process.env.TZ = "Pacific/Kiritimati";
+			const instant = Date.parse("2026-03-10T15:45:00.000Z");
+			const sent = serializeXPathWorkerValue(XPathDate.fromInstant(instant));
+			expect(sent).toEqual({
+				kind: "date",
+				calendarDays: 20523,
+				timeMilliseconds: instant,
+			});
+			// The receiver keeps the sent day rather than re-reading it.
+			process.env.TZ = "UTC";
+			const received = deserializeXPathWorkerValue(sent);
+			expect(received).toBeInstanceOf(XPathDate);
+			expect((received as XPathDate).calendarDays).toBe(20523);
+			expect((received as XPathDate).timeMilliseconds).toBe(instant);
+
+			const runtime = ownedRuntime({
+				workerFactory: createInProcessXPathWorkerFactory(),
+			});
+			const main: XPathWorkerInstanceSnapshot = {
+				id: null,
+				root: node("", "/", "", [
+					node("data", "/data", "", [node("dt", "/data/dt", sent)]),
+				]),
+			};
+			const evaluated = await runtime.request(
+				request({
+					source: "date(/data/dt)",
+					instances: { main, contextPath: "/data/dt" },
+				}),
+			);
+			expect(evaluated).toMatchObject({
+				ok: true,
+				value: { kind: "date", calendarDays: 20523, timeMilliseconds: null },
+			});
+		} finally {
+			if (originalTimeZone === undefined) delete process.env.TZ;
+			else process.env.TZ = originalTimeZone;
+		}
+	});
+
 	it("detects async functions from the parsed AST without substring guesses", () => {
 		expect(
 			asyncXPathWorkerFunctions(

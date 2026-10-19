@@ -110,6 +110,7 @@ function makeCtx(
 	overrides: Partial<PredicateCompileContext> = {},
 ): PredicateCompileContext {
 	return {
+		reading: "search",
 		db,
 		appId: APP_ID,
 		projectId: OWNER_ID,
@@ -1506,7 +1507,7 @@ async function matchedIds(
 		.sort();
 }
 
-test("boolean operators and self quantifiers preserve grouping and null semantics", async ({
+test("boolean operators and self quantifiers preserve grouping, and a negation keeps the row that lacks the property", async ({
 	db,
 }) => {
 	await seedProperties(db, [
@@ -1523,12 +1524,13 @@ test("boolean operators and self quantifiers preserve grouping and null semantic
 		[matchNone(), []],
 		[and(alice, eq(prop("patient", "age"), literal(30))), ["b"]],
 		[aliceOrBob, ["a", "b", "c"]],
-		[not(alice), ["c", "d"]],
+		// A device reads the absent nickname as '' and keeps `e`.
+		[not(alice), ["c", "d", "e"]],
 		[and(aliceOrBob, gt(prop("patient", "age"), literal(18))), ["b", "c"]],
 		[exists(selfPath()), ["a", "b", "c", "d", "e"]],
 		[missing(selfPath()), []],
 		[exists(selfPath(), alice), ["a", "b"]],
-		[missing(selfPath(), alice), ["c", "d"]],
+		[missing(selfPath(), alice), ["c", "d", "e"]],
 	] as const)
 		expect(await matchedIds(db, pred), JSON.stringify(pred)).toEqual(expected);
 });
@@ -1544,7 +1546,8 @@ test("all six comparisons distinguish lower, equal and higher values", async ({
 	]);
 	for (const [operator, expected] of [
 		[eq, ["30"]],
-		[neq, ["20", "40"]],
+		// `!=` is the negation of `=`, so the absent age is not 30.
+		[neq, ["20", "40", "absent"]],
 		[gt, ["40"]],
 		[gte, ["30", "40"]],
 		[lt, ["20"]],
@@ -1556,7 +1559,7 @@ test("all six comparisons distinguish lower, equal and higher values", async ({
 	}
 });
 
-test("blank, empty equality, null equality and membership distinguish stored states", async ({
+test("blank and empty equality are one absence check over absent, empty and JSON null, while a null literal matches nothing", async ({
 	db,
 }) => {
 	await seedProperties(db, [
@@ -1569,8 +1572,9 @@ test("blank, empty equality, null equality and membership distinguish stored sta
 	]);
 	const name = prop("patient", "nickname");
 	for (const [predicate, expected] of [
-		[isBlank(name), ["absent", "blank"]],
-		[eq(name, literal("")), ["blank"]],
+		[isBlank(name), ["absent", "blank", "null"]],
+		[eq(name, literal("")), ["absent", "blank", "null"]],
+		[neq(name, literal("")), ["Alice", "Bob", "Carol"]],
 		[eq(name, literal(null)), []],
 		[isIn(name, literal("Alice")), ["Alice"]],
 		[
@@ -1581,6 +1585,107 @@ test("blank, empty equality, null equality and membership distinguish stored sta
 		expect(await matchedIds(db, predicate), JSON.stringify(predicate)).toEqual(
 			expected,
 		);
+});
+
+test("negated atoms, inequality and blank comparisons keep the rows a device and HQ keep", async ({
+	db,
+}) => {
+	// The two-valued table: a device reads an absent property as '' and
+	// `!=` as not `=`; HQ writes `!=` and `not()` as `must_not` and `= ''` as
+	// "not set or empty". `n` holds no blank, as a number property's stored
+	// value never is one.
+	await seedProperties(db, [
+		["absent", {}],
+		["blank", { nickname: "" }],
+		["x", { nickname: "x", age: 3 }],
+		["y", { nickname: "y", age: 7 }],
+	]);
+	const p = prop("patient", "nickname");
+	const n = prop("patient", "age");
+	const x = literal("x");
+	for (const [predicate, expected] of [
+		[not(eq(p, x)), ["absent", "blank", "y"]],
+		[neq(p, x), ["absent", "blank", "y"]],
+		[eq(p, literal("")), ["absent", "blank"]],
+		[neq(p, literal("")), ["x", "y"]],
+		[not(lt(n, literal(5))), ["absent", "blank", "y"]],
+		[not(isIn(p, x, literal("y"))), ["absent", "blank"]],
+		[
+			not(between(n, { lower: literal(1), upper: literal(5) })),
+			["absent", "blank", "y"],
+		],
+		[or(not(eq(p, x)), eq(p, x)), ["absent", "blank", "x", "y"]],
+		// A number compared with '' is the absence check too, never a cast.
+		[eq(n, literal("")), ["absent", "blank"]],
+	] as const)
+		expect(await matchedIds(db, predicate), JSON.stringify(predicate)).toEqual(
+			expected,
+		);
+});
+
+test("a bound blank comparand is decided before the query: the absence check for equality, nothing for an ordering", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["absent", {}],
+		["blank", { nickname: "" }],
+		["x", { nickname: "x", age: 3 }],
+	]);
+	const uuid = testUuid("blank-comparand");
+	const p = prop("patient", "nickname");
+	const n = prop("patient", "age");
+	for (const value of ["", null]) {
+		const ctx = makeCtx(db, {
+			bindings: { searchInputs: new Map([[uuid, value]]) },
+		});
+		for (const [predicate, expected] of [
+			[eq(p, input(uuid)), ["absent", "blank"]],
+			[neq(p, input(uuid)), ["x"]],
+			[eq(n, input(uuid)), ["absent", "blank"]],
+			[gt(n, input(uuid)), []],
+			[not(gt(n, input(uuid))), ["absent", "blank", "x"]],
+		] as const)
+			expect(
+				await matchedIds(db, predicate, ctx),
+				`${String(value)} ${JSON.stringify(predicate)}`,
+			).toEqual(expected);
+	}
+});
+
+test("two text operands read per row are equal when both are blank, as '' = '' is on a device", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["both-absent", {}],
+		["one-blank", { nickname: "" }],
+		["equal", { nickname: "a", alias: "a" }],
+		["different", { nickname: "a", alias: "b" }],
+		["one-side", { nickname: "a" }],
+	]);
+	const ctx = makeCtx(db, {
+		caseTypeSchemas: new Map([
+			[
+				"patient",
+				{
+					...PATIENT_SCHEMA,
+					properties: [
+						...PATIENT_SCHEMA.properties,
+						{ name: "alias", label: proseText("Alias"), data_type: "text" },
+					],
+				},
+			],
+		]),
+	});
+	const sameName = eq(prop("patient", "nickname"), prop("patient", "alias"));
+	expect(await matchedIds(db, sameName, ctx)).toEqual([
+		"both-absent",
+		"equal",
+		"one-blank",
+	]);
+	expect(await matchedIds(db, not(sameName), ctx)).toEqual([
+		"different",
+		"one-side",
+	]);
 });
 
 test("ranges respect each endpoint, omitted bounds and interior values", async ({
@@ -1738,6 +1843,30 @@ test("distance units change which points fit the same numeric radius", async ({
 	expect(
 		await matchedIds(db, within(point, literal("0 0"), 1, "miles")),
 	).toEqual(["between-units", "origin"]);
+});
+
+test("a distance center takes the E-notation a location handler's Double.toString prints, from a literal or here()", async ({
+	db,
+}) => {
+	// 5.0E-4 degrees of latitude is about 56 metres; 0.01 is about 1.1 km.
+	await seedProperties(db, [
+		["near", { loc: "0 0" }],
+		["far", { loc: "0.01 0" }],
+	]);
+	const point = prop("patient", "loc");
+	expect(
+		await matchedIds(db, within(point, literal("5.0E-4 0.0"), 1, "kilometers")),
+	).toEqual(["near"]);
+	const nearHere = within(point, { kind: "here" }, 1, "kilometers");
+	expect(
+		await matchedIds(
+			db,
+			nearHere,
+			makeCtx(db, { bindings: { viewerLocation: "5.0E-4 0.0 0.0 1.0E1" } }),
+		),
+	).toEqual(["near"]);
+	// No fix yet reads '', which is no center: nothing is near it.
+	expect(await matchedIds(db, nearHere)).toEqual([]);
 });
 
 test("blank metadata reads scalar text and timestamp columns", async ({

@@ -7,6 +7,7 @@ import {
 import {
 	evaluateForm,
 	FormEvaluationInputError,
+	FormRefusedError,
 } from "@/lib/preview/engine/evaluateForm";
 import { evaluationScenarioSchema } from "@/lib/preview/engine/evaluationScenario";
 import { formAnswerValueSchema } from "@/lib/preview/engine/formAnswerValue";
@@ -122,6 +123,9 @@ export const evaluateFormTool = {
 					data: {
 						error: error.message,
 						...(error.fault ? { fault: error.fault } : {}),
+						...(error instanceof FormRefusedError
+							? { refusal: error.refusal }
+							: {}),
 					},
 				};
 			throw error;

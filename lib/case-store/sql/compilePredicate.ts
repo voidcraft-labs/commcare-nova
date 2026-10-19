@@ -33,6 +33,23 @@
 // `missing(self, where)` → `not(where)`; `missing(self)` →
 // `lit(false)`. Wrapping self in EXISTS would correlate the
 // anchor against itself for a redundant scan.
+//
+// ## Two-valued predicates
+//
+// A device reads an absent property as `''` (Core's `XPathNodeset.unpack`)
+// and writes `!=` as the negation of `=` (`XPathEqExpr.evalRaw`); HQ writes
+// `!=` and `not()` as `filters.NOT` (`case_search/xpath_functions/
+// comparison.py::_create_query`, `query_functions.py::not_`). Both keep a case
+// that lacks the property under `not(p = 'x')`, `p != 'x'` and `not(n < 5)`.
+// SQL's third value would drop it, so every negation point maps unknown to
+// false before negating: `not`, `missing(self, where)`, and `neq`, which is
+// `not` of the `=` atom at the leaf, after relation normalization (rewriting
+// first would turn `exists(R, p != x)` into `not(exists(R, p = x))` and flip
+// the empty relation). A positive atom stays bare, where `NULL` and `false`
+// both exclude the row, so it keeps its expression index; `and`, `or` and
+// `CASE` are monotone, so mapping unknown to false at the leaves equals
+// mapping the whole. A comparand decided before the query runs (a literal or
+// a bound value) that is blank makes the comparison the absence check.
 
 import type {
 	AliasableExpression,
@@ -52,6 +69,7 @@ import {
 	canonicalizeRelationPath,
 	normalizeRelationEvaluationScopes,
 } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
 import type {
 	ComparisonKind,
 	Expression as DomainExpression,
@@ -68,9 +86,15 @@ import {
 	type ExpressionCompileContext,
 } from "./compileExpression";
 import { compileRelationPath } from "./compileRelationPath";
-import { compileTerm, type TermCompileContext } from "./compileTerm";
+import {
+	boundComparandValue,
+	compileTerm,
+	isBlankComparand,
+	recordQueryContextFor,
+	reservedColumnFor,
+	type TermCompileContext,
+} from "./compileTerm";
 import type { Database } from "./database";
-import { RESERVED_SCALAR_COLUMN_BY_PROPERTY } from "./dataTypeTokens";
 
 /** Module-scoped expression builder. Same shape as the sibling compilers. */
 const eb = expressionBuilder<Database, keyof Database>();
@@ -84,13 +108,14 @@ const eb = expressionBuilder<Database, keyof Database>();
 export type PredicateCompileContext = TermCompileContext;
 
 /**
- * `ComparisonKind` → Postgres operator token. `!=` (not `<>`)
- * matches Postgres's default formatter and the rest of the Nova
- * SQL surface.
+ * Ordering `ComparisonKind` → Postgres operator token. `eq` and `neq` are
+ * not here: equality has its own atom (`compileEquality`) and `neq` is its
+ * two-valued negation.
  */
-const COMPARISON_OPS: Record<ComparisonKind, ComparisonOperator> = {
-	eq: "=",
-	neq: "!=",
+const ORDERING_OPS: Record<
+	Exclude<ComparisonKind, "eq" | "neq">,
+	ComparisonOperator
+> = {
 	gt: ">",
 	gte: ">=",
 	lt: "<",
@@ -101,9 +126,13 @@ const GEOPOINT_NUMBER_PATTERN = String.raw`-?(?:[0-9]{1,32}(?:\.[0-9]{0,32})?|\.
 const GEOPOINT_METADATA_NUMBER_PATTERN = String.raw`[+-]?(?:[0-9]{1,32}(?:\.[0-9]{0,32})?|\.[0-9]{1,32})(?:[eE][+-]?[0-9]{1,3})?`;
 const GEOPOINT_METADATA_PATTERN = `(?:${GEOPOINT_METADATA_NUMBER_PATTERN}|NaN)`;
 const GEOPOINT_PROPERTY_PATTERN = `^${GEOPOINT_NUMBER_PATTERN} ${GEOPOINT_NUMBER_PATTERN}(?: ${GEOPOINT_METADATA_PATTERN} ${GEOPOINT_METADATA_PATTERN})?$`;
-const GEOPOINT_CENTER_PATTERN = `^${GEOPOINT_NUMBER_PATTERN} ${GEOPOINT_NUMBER_PATTERN}(?: ${GEOPOINT_METADATA_PATTERN} ${GEOPOINT_METADATA_PATTERN})?$`;
+/** A center coordinate also takes Java's E-notation: a position `here()`
+ *  reads is a location handler's `Double.toString` text, which spells a
+ *  coordinate below 10^-3 as `5.0E-4`. */
+const GEOPOINT_CENTER_NUMBER_PATTERN = `${GEOPOINT_NUMBER_PATTERN}(?:[eE][+-]?[0-9]{1,3})?`;
+const GEOPOINT_CENTER_PATTERN = `^${GEOPOINT_CENTER_NUMBER_PATTERN} ${GEOPOINT_CENTER_NUMBER_PATTERN}(?: ${GEOPOINT_METADATA_PATTERN} ${GEOPOINT_METADATA_PATTERN})?$`;
 const SQL_ASCII_WHITESPACE = "[ \t\n\u000b\f\r]";
-const GEOPOINT_RAW_CENTER_PATTERN = `^(?:${SQL_ASCII_WHITESPACE}*${GEOPOINT_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_NUMBER_PATTERN}(?:${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN})?${SQL_ASCII_WHITESPACE}*|${SQL_ASCII_WHITESPACE}*${GEOPOINT_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*,${SQL_ASCII_WHITESPACE}*${GEOPOINT_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*)$`;
+const GEOPOINT_RAW_CENTER_PATTERN = `^(?:${SQL_ASCII_WHITESPACE}*${GEOPOINT_CENTER_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_CENTER_NUMBER_PATTERN}(?:${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN})?${SQL_ASCII_WHITESPACE}*|${SQL_ASCII_WHITESPACE}*${GEOPOINT_CENTER_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*,${SQL_ASCII_WHITESPACE}*${GEOPOINT_CENTER_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*)$`;
 
 /** Compile a `DomainExpression` to a Kysely `Expression<SqlBool>`. */
 export function compilePredicate(
@@ -170,7 +199,12 @@ export function compilePredicate(
 			// The type checker admits the leaf only on the device's Search
 			// screen, so no compiled slot can carry it.
 			throw new Error(
-				"compilePredicate: 'matches-pattern' cannot be evaluated by the case store; it is admitted only in a Search field's required condition or check.",
+				compilerBugMessage({
+					where: "compilePredicate",
+					invariant: "a `matches-pattern` condition reached a server query",
+					detail:
+						"The checker admits `matches-pattern` only in a Search field's required condition or check, which the device evaluates; no profile with a Postgres target carries it.",
+				}),
 			);
 		default: {
 			const _exhaustive: never = pred;
@@ -306,48 +340,147 @@ function compileOr(
 }
 
 /**
- * `NOT (clause)`. The builder layer collapses double-negation at
- * construction (`lib/domain/expression/reduction.ts`), but a
- * directly-constructed nested `not` is still correct — Postgres
- * collapses `NOT (NOT (...))` internally.
+ * `NOT coalesce(clause, false)`: a clause that is unknown for a row (it reads
+ * a property the row lacks) is false, so its negation keeps the row, as both
+ * CommCare readers do (file header). The builder layer collapses double
+ * negation at construction (`lib/domain/expression/reduction.ts`); a
+ * directly-constructed nested `not` is still correct.
  */
 function compileNot(
 	pred: Extract<DomainExpression, { kind: "not" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	return eb.not(compilePredicate(pred.clause, ctx) as Expression<SqlBool>);
+	return negateTwoValued(compilePredicate(pred.clause, ctx));
+}
+
+/** The two-valued negation of a predicate: unknown reads as false first. */
+function negateTwoValued(predicate: Expression<SqlBool>): Expression<SqlBool> {
+	return eb.not(
+		eb.fn.coalesce(predicate, eb.lit(false)) as Expression<SqlBool>,
+	);
 }
 
 // ---------------------------------------------------------------
 // Comparison — six operators
 // ---------------------------------------------------------------
 
-/** `<left> <op> <right>`. Operator picked from `COMPARISON_OPS`. */
+/**
+ * The six comparisons. Relation normalization has already run (in
+ * `compilePredicate`), so `neq` becomes the two-valued negation of the `=`
+ * atom here, at the leaf, never as an AST rewrite before it.
+ */
 function compileComparison(
 	pred: Extract<DomainExpression, { kind: ComparisonKind }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	if (pred.kind === "eq") return compileEquality(pred.left, pred.right, ctx);
+	if (pred.kind === "neq")
+		return negateTwoValued(compileEquality(pred.left, pred.right, ctx));
 	return compileOrderedComparison(
 		pred.left,
-		COMPARISON_OPS[pred.kind],
+		ORDERING_OPS[pred.kind],
 		pred.right,
 		ctx,
 	);
 }
 
-/** Preserve the worker's midnight when typed SQL compares a portable calendar
- * read with a datetime. The default server comparison retains its raw values. */
+/**
+ * The `=` atom, as a device answers it:
+ *
+ * - a comparand decided before the query runs that is blank (`''`, or a
+ *   bound value that is blank) makes the comparison the absence check of the
+ *   other operand, whatever its type: both sides unpack to `''` on a device,
+ *   and HQ's `case_property_query` reads `= ''` as "not set or empty"
+ *   (`es/case_search.py::case_property_missing`);
+ * - two operands read per row that both read as device text are also equal
+ *   when both are blank, as `'' = ''` is on a device, where SQL's `NULL = NULL`
+ *   is unknown. Numbers and temporal values are not: a device compares a
+ *   blank number as `NaN`, and the instant lowering reads a blank as no
+ *   instant, neither of which equals itself;
+ * - otherwise the typed comparison, bare, so its expression index applies.
+ */
+function compileEquality(
+	left: DomainExpression,
+	right: DomainExpression,
+	ctx: PredicateCompileContext,
+): Expression<SqlBool> {
+	const leftConstant = constantComparand(left, ctx);
+	const rightConstant = constantComparand(right, ctx);
+	if (rightConstant?.blank) return compileAbsenceCheck(left, ctx);
+	if (leftConstant?.blank) return compileAbsenceCheck(right, ctx);
+	const typed = compileOrderedComparison(left, "=", right, ctx);
+	if (
+		leftConstant !== undefined ||
+		rightConstant !== undefined ||
+		!readsAsDeviceText(left, ctx) ||
+		!readsAsDeviceText(right, ctx)
+	)
+		return typed;
+	return eb.or([
+		typed,
+		eb.and([compileAbsenceCheck(left, ctx), compileAbsenceCheck(right, ctx)]),
+	]);
+}
+
+/**
+ * An ordering, typed. A comparand decided before the query runs that is
+ * blank orders nothing: a device reads `''` as `NaN`, which no number is
+ * above or below, and a blank bound text cast to a typed operand would fail
+ * the query. The casedb reading's viewer-midnight promotion applies when a
+ * system date meets a datetime (`compileTemporalValues`).
+ */
 function compileOrderedComparison(
 	left: DomainExpression,
 	operator: ComparisonOperator,
 	right: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	if (operator !== "=") {
+		for (const operand of [left, right])
+			if (constantComparand(operand, ctx)?.blank)
+				return eb.lit(false) as Expression<SqlBool>;
+	}
 	const [a, b] = compileTemporalValues(
 		[left, right],
 		expressionContextFor(ctx),
 	);
 	return eb(a, operator, b);
+}
+
+/**
+ * A comparand decided before the query runs (a literal, a bound term, or
+ * `here()`'s bound position, `''` before a fix), and whether it is blank.
+ * A literal `null` is decided and never blank: it is the AST's "no value"
+ * placeholder (a dropped `in` member), which matches nothing, not `''`.
+ */
+function constantComparand(
+	expr: DomainExpression,
+	ctx: PredicateCompileContext,
+): { readonly blank: boolean } | undefined {
+	if (expr.kind === "here")
+		return { blank: (ctx.bindings.viewerLocation ?? "") === "" };
+	if (expr.kind !== "term") return undefined;
+	if (expr.term.kind === "literal") return { blank: expr.term.value === "" };
+	const bound = boundComparandValue(expr.term, ctx);
+	return bound === undefined
+		? undefined
+		: { blank: isBlankComparand(bound.value) };
+}
+
+/**
+ * Whether a device reads this operand as a string when it compares it: a
+ * case property it holds as text (any authored type but the temporal ones,
+ * which the instant lowering reads), or a computed value whose type is text.
+ * A computed number or a boolean is compared as one.
+ */
+function readsAsDeviceText(
+	expr: DomainExpression,
+	ctx: PredicateCompileContext,
+): boolean {
+	const type = scalarDataType(typeOf(expr, recordQueryContextFor(ctx))?.data);
+	if (type === "date" || type === "datetime" || type === "time") return false;
+	if (expr.kind === "term" && expr.term.kind === "prop") return true;
+	return type !== "int" && type !== "decimal" && type !== "boolean";
 }
 
 /**
@@ -361,12 +494,7 @@ function compileIn(
 ): Expression<SqlBool> {
 	return eb.or(
 		pred.values.map((value) =>
-			compileOrderedComparison(
-				pred.left,
-				"=",
-				{ kind: "term", term: value },
-				ctx,
-			),
+			compileEquality(pred.left, { kind: "term", term: value }, ctx),
 		),
 	);
 }
@@ -441,7 +569,13 @@ function compileMultiSelectContains(
 	for (const v of pred.values) {
 		if (v.kind !== "literal")
 			throw new Error(
-				"compilePredicate: resolve selection values to literal tokens before compiling a server query.",
+				compilerBugMessage({
+					where: "compilePredicate.compileMultiSelectContains",
+					invariant:
+						"a `multi-select-contains` with a runtime value reached a server query",
+					detail:
+						"Selection values reach a Postgres slot as literal tokens; a CSQL slot's fold splits a runtime value into them first.",
+				}),
 			);
 		if (v.value === null) {
 			continue;
@@ -1016,7 +1150,13 @@ function compileWithinDistance(
 
 	if (typeof pred.distance !== "number" || typeof pred.unit !== "string")
 		throw new Error(
-			"compilePredicate: runtime distance values are unavailable in server queries.",
+			compilerBugMessage({
+				where: "compilePredicate.compileWithinDistance",
+				invariant:
+					"a `within-distance` with a runtime radius or unit reached a server query",
+				detail:
+					"The profiles with a Postgres target admit only a literal radius and unit; a CSQL slot's fold makes both literal first.",
+			}),
 		);
 	const distanceMeters = distanceToMeters(pred.distance, pred.unit);
 	const validShapes = eb.and([
@@ -1208,9 +1348,10 @@ function compileSelfViaQuantifier(
 			? (eb.lit(true) as Expression<SqlBool>)
 			: compilePredicate(where, ctx);
 	}
+	// `missing(self, where)` is a negation: two-valued like `not`.
 	return where === undefined
 		? (eb.lit(false) as Expression<SqlBool>)
-		: eb.not(compilePredicate(where, ctx));
+		: negateTwoValued(compilePredicate(where, ctx));
 }
 
 /**
@@ -1241,8 +1382,8 @@ function compileWhenInputPresent(
 }
 
 /**
- * `is-blank` dispatch. Property-ref left-operands route through
- * `?`-key-existence; non-property operands use SQL null-or-empty.
+ * `is-blank` dispatch, two-valued: a property reads its column or document
+ * text; any other operand is null-or-empty as text.
  */
 function compileAbsenceCheck(
 	left: DomainExpression,
@@ -1271,11 +1412,6 @@ function compilePropertyAbsenceCheck(
 ): Expression<SqlBool> {
 	const isSelfVia = property.via === undefined || property.via.kind === "self";
 	const propertyName = property.property;
-	const reserved = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(propertyName);
-	// A non-blankable reserved scalar (a timestamp column) collapses
-	// `is-blank` to plain `IS NULL` — `''` isn't a value the column
-	// can hold, and comparing a timestamp to `''` is a Postgres type
-	// error, not `false`.
 	if (!isSelfVia) {
 		throw new Error(
 			compilerBugMessage({
@@ -1287,9 +1423,12 @@ function compilePropertyAbsenceCheck(
 		);
 	}
 
-	// Reserved scalars live outside the JSONB document, so `?`
-	// doesn't apply — fall back to standard `IS NULL`.
+	// Reserved scalars live outside the JSONB document. A non-blankable one
+	// (a timestamp column) collapses to `IS NULL`: `''` is not a value the
+	// column can hold, and comparing a timestamp with `''` is a Postgres type
+	// error, not `false`.
 	const sourceAlias = ctx.anchorAlias;
+	const reserved = reservedColumnFor(propertyName, ctx);
 	if (reserved !== undefined) {
 		const columnRef = (eb as DynamicExprBuilder).ref(
 			`${sourceAlias}.${reserved.column}`,
@@ -1297,20 +1436,25 @@ function compilePropertyAbsenceCheck(
 		if (!reserved.blankable) {
 			return eb(columnRef, "is", null);
 		}
-		return eb.or([eb(columnRef, "is", null), eb(columnRef, "=", eb.val(""))]);
+		return blankText(columnRef);
 	}
 
-	// JSONB-document property: absent or an empty text projection.
-	const propertiesRef = `${sourceAlias}.properties` as const;
-	const keyExists = (eb as DynamicExprBuilder)(
-		propertiesRef,
-		"?",
-		propertyName,
-	) as Expression<SqlBool>;
+	// JSONB-document property: absent, JSON `null`, or empty text. `->>` reads
+	// all three as SQL `NULL` or `''`, so one coalesce keeps the check
+	// two-valued.
 	const textRead = (eb as DynamicExprBuilder)
-		.ref(propertiesRef, "->>")
+		.ref(`${sourceAlias}.properties`, "->>")
 		.key(propertyName);
-	return eb.or([eb.not(keyExists), eb(textRead, "=", eb.val(""))]);
+	return blankText(textRead);
+}
+
+/** `coalesce(text, '') = ''`: true or false, never unknown. */
+function blankText(text: AliasableExpression<unknown>): Expression<SqlBool> {
+	return eb(
+		eb.fn.coalesce(text, eb.cast(eb.val(""), "text")),
+		"=",
+		eb.cast(eb.val(""), "text"),
+	) as Expression<SqlBool>;
 }
 
 // Type-erased local views — same rationale as

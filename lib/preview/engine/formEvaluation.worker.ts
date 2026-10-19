@@ -1,6 +1,9 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { evaluateFormSnapshot } from "./evaluateFormSnapshot";
-import { FormEvaluationInputError } from "./formEvaluationTypes";
+import {
+	FormEvaluationInputError,
+	FormRefusedError,
+} from "./formEvaluationTypes";
 import { evaluatePostSubmissionSnapshot } from "./postSubmissionEvaluation";
 import { evaluateSearchSnapshot } from "./searchEvaluation";
 
@@ -24,6 +27,7 @@ try {
 		...(error instanceof FormEvaluationInputError && error.fault
 			? { fault: error.fault }
 			: {}),
+		...(error instanceof FormRefusedError ? { refusal: error.refusal } : {}),
 		message: error instanceof Error ? error.message : "Form evaluation failed.",
 	});
 }

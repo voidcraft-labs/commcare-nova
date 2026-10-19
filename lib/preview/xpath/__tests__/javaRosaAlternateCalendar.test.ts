@@ -38,7 +38,7 @@ describe("JavaRosa alternate-calendar formatting", () => {
 	it("matches empty, unsupported-calendar, and bounds behavior", () => {
 		expect(javaRosaFormatDateForCalendar(null, "ethiopian")).toBe("");
 		expect(() =>
-			javaRosaFormatDateForCalendar(XPathDate.fromDays(0), "neverland"),
+			javaRosaFormatDateForCalendar(XPathDate.fromCalendarDays(0), "neverland"),
 		).toThrow("Unsupported calendar");
 		expect(() =>
 			javaRosaFormatDateForCalendar(XPathDate.parse("2200-01-01"), "nepali"),

@@ -8,6 +8,8 @@ import {
 	type FormEvaluationFault,
 	type FormEvaluationInput,
 	FormEvaluationInputError,
+	type FormRefusalDetails,
+	FormRefusedError,
 } from "./formEvaluationTypes";
 import type {
 	evaluatePostSubmissionSnapshot,
@@ -18,7 +20,10 @@ import type {
 	SearchEvaluationInput,
 } from "./searchEvaluation";
 
-export { FormEvaluationInputError } from "./formEvaluationTypes";
+export {
+	FormEvaluationInputError,
+	FormRefusedError,
+} from "./formEvaluationTypes";
 
 type EvaluationResult = Awaited<ReturnType<typeof evaluateFormSnapshot>>;
 type WorkerResult<T> =
@@ -28,6 +33,7 @@ type WorkerResult<T> =
 			inputError: boolean;
 			message: string;
 			fault?: FormEvaluationFault;
+			refusal?: FormRefusalDetails;
 	  };
 
 /** A read-only form run owns one bounded thread, including FormEngine and its
@@ -115,9 +121,11 @@ async function evaluateInWorker<T>(
 				if (message.ok) accept(message.result);
 				else
 					reject(
-						message.inputError
-							? new FormEvaluationInputError(message.message, message.fault)
-							: new Error(message.message),
+						message.refusal !== undefined
+							? new FormRefusedError(message.refusal)
+							: message.inputError
+								? new FormEvaluationInputError(message.message, message.fault)
+								: new Error(message.message),
 					);
 			});
 		});

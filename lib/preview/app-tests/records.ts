@@ -1,5 +1,6 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import { noMatchesFormOf } from "@/lib/domain";
+import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { readCases } from "../engine/caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "../engine/caseListOrder";
 import { evaluateSearch } from "../engine/evaluateForm";
@@ -72,6 +73,7 @@ export async function appTestRecords(
 			: await readCases(context.store, {
 					appId: scope.appId,
 					caseType: mod.caseType,
+					reading: caseQueryReadingFor(mod),
 					caseIds: next.screen.registeredCaseId
 						? [next.screen.registeredCaseId]
 						: undefined,

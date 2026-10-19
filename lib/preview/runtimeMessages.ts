@@ -1,4 +1,8 @@
 import type { LanguageTag } from "@/lib/domain/localization";
+import type {
+	RefusingAnswerType,
+	SetvalueRefusalDetails,
+} from "./engine/answerCast";
 
 /** Platform copy is separate from an app's authored translations. Keep this
  * small catalog client/worker safe; unsupported languages fall back honestly. */
@@ -139,6 +143,22 @@ const english = {
 	missingTime: "Enter a clock time: this question needs both.",
 	missingDate: "Pick a date: this question needs both.",
 	dateTime: "“{value}” isn't a date and time.",
+	refusalPreloadTitle: "This form can't open for {caseName}",
+	refusalPreloadBody:
+		"{caseName}'s {property} is “{value}”, which isn't {type}, so CommCare won't open this form for it. You can choose another record.",
+	refusalStartingValueTitle: "This form can't open yet",
+	refusalStartingValueBody:
+		"The starting value of “{question}” works out to “{value}”, which isn't {type}, so CommCare won't open the form. You can change the question's starting value so it gives {type}.",
+	refusalRepeatInsert:
+		"A new {repeat} can't be added: the starting value of “{question}” works out to “{value}”, which isn't {type}. You can change the question's starting value so it gives {type}.",
+	chooseAnotherRecord: "Choose another record",
+	backToList: "Back to the list",
+	answerTypeDate: "a date",
+	answerTypeTime: "a time",
+	answerTypeDatetime: "a date and time",
+	answerTypeInt: "a whole number",
+	answerTypeDecimal: "a number",
+	answerTypeGeopoint: "a location",
 	back: "Back",
 	goBack: "Go back",
 	backToResults: "Back to results",
@@ -352,6 +372,22 @@ const spanish: Record<RuntimeMessage, string> = {
 	missingTime: "Introduzca una hora: esta pregunta necesita ambas.",
 	missingDate: "Elija una fecha: esta pregunta necesita ambas.",
 	dateTime: "«{value}» no es una fecha y hora.",
+	refusalPreloadTitle: "Este formulario no se puede abrir para {caseName}",
+	refusalPreloadBody:
+		"El valor de {property} de {caseName} es «{value}», que no es {type}, así que CommCare no abrirá este formulario para ese registro. Puede elegir otro registro.",
+	refusalStartingValueTitle: "Este formulario aún no se puede abrir",
+	refusalStartingValueBody:
+		"El valor inicial de «{question}» da «{value}», que no es {type}, así que CommCare no abrirá el formulario. Puede cambiar el valor inicial de la pregunta para que dé {type}.",
+	refusalRepeatInsert:
+		"No se puede añadir otra entrada de «{repeat}»: el valor inicial de «{question}» da «{value}», que no es {type}. Puede cambiar el valor inicial de la pregunta para que dé {type}.",
+	chooseAnotherRecord: "Elegir otro registro",
+	backToList: "Volver a la lista",
+	answerTypeDate: "una fecha",
+	answerTypeTime: "una hora",
+	answerTypeDatetime: "una fecha y hora",
+	answerTypeInt: "un número entero",
+	answerTypeDecimal: "un número",
+	answerTypeGeopoint: "una ubicación",
 	back: "Atrás",
 	goBack: "Volver",
 	backToResults: "Volver a los resultados",
@@ -437,4 +473,66 @@ export function runtimeMessage(
 	for (const [name, value] of Object.entries(values))
 		text = text.replaceAll(`{${name}}`, String(value));
 	return text;
+}
+
+/** A refused value as refusal copy quotes it: 60 characters at most, a
+ * longer one shortened with "…" inside the quotes. */
+export function refusalValueText(value: string): string {
+	const characters = [...value];
+	return characters.length > 60
+		? `${characters.slice(0, 59).join("")}…`
+		: value;
+}
+
+const ANSWER_TYPE_PHRASE: Readonly<Record<RefusingAnswerType, RuntimeMessage>> =
+	{
+		date: "answerTypeDate",
+		time: "answerTypeTime",
+		datetime: "answerTypeDatetime",
+		int: "answerTypeInt",
+		decimal: "answerTypeDecimal",
+		geopoint: "answerTypeGeopoint",
+	};
+
+/** The names a refusal's copy reads, resolved by the surface showing it. */
+export interface RefusalCopyNames {
+	/** A preload's case: its `case_name`. */
+	readonly caseName?: string;
+	/** A preload's property label. */
+	readonly property?: string;
+	/** The question's label. */
+	readonly question?: string;
+	/** A repeat insert's repeat label. */
+	readonly repeat?: string;
+}
+
+/** The copy for a refused setvalue: a heading for the two causes that stop
+ * the form, and the body every surface shows. */
+export function refusalCopy(
+	language: LanguageTag | null | undefined,
+	details: SetvalueRefusalDetails,
+	names: RefusalCopyNames,
+): { readonly title?: string; readonly body: string } {
+	const values = {
+		value: refusalValueText(details.value),
+		type: runtimeMessage(language, ANSWER_TYPE_PHRASE[details.answerType]),
+		caseName: names.caseName ?? runtimeMessage(language, "case"),
+		property: names.property ?? details.property ?? "",
+		question: names.question ?? details.path,
+		repeat: names.repeat ?? runtimeMessage(language, "entry"),
+	};
+	switch (details.cause) {
+		case "preload":
+			return {
+				title: runtimeMessage(language, "refusalPreloadTitle", values),
+				body: runtimeMessage(language, "refusalPreloadBody", values),
+			};
+		case "starting-value":
+			return {
+				title: runtimeMessage(language, "refusalStartingValueTitle", values),
+				body: runtimeMessage(language, "refusalStartingValueBody", values),
+			};
+		case "repeat-insert":
+			return { body: runtimeMessage(language, "refusalRepeatInsert", values) };
+	}
 }

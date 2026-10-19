@@ -83,6 +83,7 @@ describe("owner SQL over service-admitted organization rows", () => {
 					ownerCaseType: "patient",
 				},
 				{
+					reading: "casedb",
 					db,
 					appId: scope.appId,
 					projectId: scope.projectId,

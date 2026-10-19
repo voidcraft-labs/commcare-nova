@@ -393,6 +393,43 @@ describe("case-list Preview cell formatting", () => {
 		expect(row.opened_on).toEqual(instant);
 	});
 
+	it("renders a Search result's built-in case dates as HQ's results row writes them", () => {
+		// 06:57 UTC on 30 September is still 29 September in the viewer's
+		// zone, which is the day a browse list shows; a results row carries
+		// HQ's UTC day and HQ's instant text instead.
+		const instant = new Date("2026-09-30T06:57:00.123Z");
+		const row = { ...makeRow({}), opened_on: instant, modified_on: instant };
+		const results: ColumnDisplayContext = {
+			...EMPTY_CONTEXT,
+			reading: "results",
+		};
+		const opened = plainColumn(COLUMN_UUID, "date_opened", "Opened");
+		expect(projectColumnDisplay(opened, row, results)).toEqual({
+			kind: "value",
+			text: "2026-09-30",
+		});
+		expect(rowMatchesFilterText([opened], row, "2026-09-30", results)).toBe(
+			true,
+		);
+		expect(
+			projectColumnDisplay(
+				dateColumn(COLUMN_UUID, "date_opened", "Opened", "%Y-%m-%d %H:%M"),
+				row,
+				results,
+			),
+		).toEqual({ kind: "value", text: "2026-09-30 00:00" });
+		const modified = plainColumn(COLUMN_UUID, "last_modified", "Modified");
+		expect(projectColumnDisplay(modified, row, results)).toEqual({
+			kind: "value",
+			text: "2026-09-30T06:57:00.123000Z",
+		});
+		// The same row in a browse list shows the worker's day for both.
+		expect(projectColumnDisplay(opened, row, EMPTY_CONTEXT)).toEqual({
+			kind: "value",
+			text: "2026-09-29",
+		});
+	});
+
 	it("infers calendar display for calculated metadata on this record and a parent, keeping custom datetimes distinct", () => {
 		const properties = ["date_opened", "last_modified", "attempt_at"].map(
 			(name) => ({
@@ -421,6 +458,7 @@ describe("case-list Preview cell formatting", () => {
 					ifExpr(condition, opened, modified),
 				),
 				context,
+				"casedb",
 			),
 		).toBe("date");
 		expect(
@@ -431,6 +469,7 @@ describe("case-list Preview cell formatting", () => {
 					ifExpr(condition, opened, custom),
 				),
 				context,
+				"casedb",
 			),
 		).toBe("datetime");
 
@@ -439,16 +478,20 @@ describe("case-list Preview cell formatting", () => {
 			ancestorPath(relationStep("parent", "household")),
 		]) {
 			for (const property of ["date_opened", "last_modified", "attempt_at"]) {
-				expect(
-					resolveCalculatedTemporalType(
-						calculatedColumn(
-							COLUMN_UUID,
-							"When",
-							term(prop("visit", property, path)),
-						),
-						context,
-					),
-				).toBe(property === "attempt_at" ? "datetime" : "date");
+				const column = calculatedColumn(
+					COLUMN_UUID,
+					"When",
+					term(prop("visit", property, path)),
+				);
+				// A casedb row holds both system dates as the worker's day.
+				expect(resolveCalculatedTemporalType(column, context, "casedb")).toBe(
+					property === "attempt_at" ? "datetime" : "date",
+				);
+				// A results row holds `date_opened` as HQ's UTC day and
+				// `last_modified` as HQ's datetime text.
+				expect(resolveCalculatedTemporalType(column, context, "results")).toBe(
+					property === "date_opened" ? "date" : "datetime",
+				);
 			}
 		}
 	});
@@ -516,12 +559,14 @@ describe("case-list Preview cell formatting", () => {
 			resolveCalculatedTemporalType(
 				calculatedColumn(COLUMN_UUID, "Today", { kind: "today" }),
 				context,
+				"casedb",
 			),
 		).toBe("date");
 		expect(
 			resolveCalculatedTemporalType(
 				calculatedColumn(COLUMN_UUID, "Now", { kind: "now" }),
 				context,
+				"casedb",
 			),
 		).toBe("datetime");
 		expect(
@@ -532,6 +577,7 @@ describe("case-list Preview cell formatting", () => {
 					term(prop("patient", "date_opened")),
 				),
 				context,
+				"casedb",
 			),
 		).toBe("date");
 	});

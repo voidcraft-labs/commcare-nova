@@ -1,5 +1,6 @@
 // The real Preview query binding against PostgreSQL, with authored filter,
 // ordered sorts and calculated values. Pure authoring/wire checks live next door.
+
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { buildCaseTypeMap, type CaseStore } from "@/lib/case-store";
@@ -8,6 +9,7 @@ import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import { effectiveAppLocalization } from "@/lib/domain";
+import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { readCases } from "@/lib/preview/engine/caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "@/lib/preview/engine/caseListOrder";
 import {
@@ -111,6 +113,7 @@ describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)"
 		const result = await readCases(store, {
 			appId: APP_ID,
 			caseType: "patient",
+			reading: caseQueryReadingFor(mod),
 			caseTypeSchemas: buildCaseTypeMap(doc),
 			caseListConfig,
 			order: previewCaseStoreOrder(

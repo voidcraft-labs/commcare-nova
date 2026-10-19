@@ -11,6 +11,7 @@
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
@@ -149,9 +150,13 @@ describe("opaque case ids — CRUD, relations, and parking", () => {
 		});
 		expect(caseId).toBe(AUTHORED_ID);
 		expect(
-			(await store.query({ appId: APP_ID, caseType: "patient" })).map(
-				(row) => row.case_id,
-			),
+			(
+				await store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "patient",
+				})
+			).map((row) => row.case_id),
 		).toEqual([AUTHORED_ID]);
 
 		await store.update({
@@ -373,6 +378,7 @@ describe("opaque case ids — durable default ordering", () => {
 			});
 		}
 		const listed = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: PATIENT_SCHEMAS,

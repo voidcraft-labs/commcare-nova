@@ -69,6 +69,7 @@ import {
 	snapshotXPathWorkerInstance,
 } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import { buildEngineInput, repeatCountNamesOf } from "./engineInput";
 import type { FieldTreeNode } from "./fieldTree";
@@ -160,6 +161,11 @@ export interface EngineEntryState {
 	 * never a draft/document state. The raw exception deliberately stays out of
 	 * this observable UI contract. */
 	readonly fault: EngineRuntimeFault | undefined;
+	/** CommCare refuses to open this entry: a setvalue's cast turned away a
+	 * preloaded value or a starting value (`answerCast.ts`). Author data, not
+	 * a fault, so it is never reported; it clears on the next document
+	 * revision or case-data change, which open the form again. */
+	readonly refusal: EngineFormRefusal | undefined;
 	/** A casedb-dependent form requested before its device snapshot is ready.
 	 * This is resource readiness, not an invalid-document fault. */
 	readonly caseDatabaseWait:
@@ -207,6 +213,11 @@ export type EngineFaultOperation =
 	| "repeat-change"
 	| "reset"
 	| "submission";
+
+export interface EngineFormRefusal {
+	readonly formUuid: Uuid;
+	readonly details: SetvalueRefusalDetails;
+}
 
 export interface EngineRuntimeFault {
 	readonly formUuid: Uuid;
@@ -606,6 +617,9 @@ export class EngineController {
 	 * invalid persisted expression. */
 	private runtimeFault: EngineRuntimeFault | undefined;
 	private faultReporter: EngineFaultReporter | undefined;
+	/** The refused entry, and the document watch that opens it again. */
+	private formRefusal: EngineFormRefusal | undefined;
+	private stopWatchingRefusal: (() => void) | undefined;
 	private requestedActivation:
 		| {
 				readonly formUuid: Uuid;
@@ -727,6 +741,7 @@ export class EngineController {
 			settling: false,
 			topologySettling: false,
 			fault: undefined,
+			refusal: undefined,
 			caseDatabaseWait: undefined,
 		}));
 	}
@@ -775,6 +790,7 @@ export class EngineController {
 			current.settling === this.settling &&
 			current.topologySettling === this.atomicRevisionsPending > 0 &&
 			current.fault === this.runtimeFault &&
+			current.refusal === this.formRefusal &&
 			current.caseDatabaseWait?.formUuid === caseDatabaseWait?.formUuid &&
 			current.caseDatabaseWait?.status === caseDatabaseWait?.status
 		) {
@@ -790,6 +806,7 @@ export class EngineController {
 				settling: this.settling,
 				topologySettling: this.atomicRevisionsPending > 0,
 				fault: this.runtimeFault,
+				refusal: this.formRefusal,
 				caseDatabaseWait,
 			},
 			true,
@@ -808,6 +825,10 @@ export class EngineController {
 		formUuid: Uuid,
 		error: unknown,
 	): void {
+		if (error instanceof SetvalueRefusal) {
+			this.recordRefusal(formUuid, error.details);
+			return;
+		}
 		if (this.runtimeFault !== undefined) return;
 		this.requestedActivation = undefined;
 		this.clearActiveForm();
@@ -826,6 +847,50 @@ export class EngineController {
 			/* Telemetry is best effort. A reporting transport or test seam must
 			 * never re-open the runtime exception this boundary just contained. */
 		}
+	}
+
+	/**
+	 * CommCare refused the entry. The form closes like a fault, with no
+	 * report: the requested activation stays, and the next document revision
+	 * opens it again, so an author's fix is seen at once. A case-data change
+	 * re-activates through the ordinary activation path.
+	 */
+	private recordRefusal(formUuid: Uuid, details: SetvalueRefusalDetails): void {
+		if (this.runtimeFault !== undefined || this.formRefusal !== undefined)
+			return;
+		this.clearActiveForm();
+		this.formRefusal = { formUuid, details };
+		const docStore = this.docStore;
+		const requested = this.requestedActivation;
+		if (docStore !== undefined && requested?.formUuid === formUuid) {
+			const refusedState = docStore.getState();
+			const unsubscribe = docStore.subscribe((current) => {
+				if (current === refusedState) return;
+				this.clearRefusal();
+				if (this.xpathRuntime) {
+					this.activateFormAsync(
+						requested.formUuid,
+						requested.caseData,
+						requested.caseDatabase,
+						requested.searchAnswers,
+					).catch(() => undefined);
+				} else
+					this.activateForm(
+						requested.formUuid,
+						requested.caseData,
+						requested.caseDatabase,
+						requested.searchAnswers,
+					);
+			});
+			this.stopWatchingRefusal = unsubscribe;
+		}
+		this.publishEntryState();
+	}
+
+	private clearRefusal(): void {
+		this.stopWatchingRefusal?.();
+		this.stopWatchingRefusal = undefined;
+		this.formRefusal = undefined;
 	}
 
 	private contain<T>(
@@ -1121,6 +1186,7 @@ export class EngineController {
 		}
 		return (
 			this.runtimeFault === undefined &&
+			this.formRefusal === undefined &&
 			!this.settling &&
 			(entryKey === undefined || entryKey === this.currentEntryKey)
 		);
@@ -1358,6 +1424,7 @@ export class EngineController {
 			searchAnswers,
 		};
 		this.runtimeFault = undefined;
+		this.clearRefusal();
 		if (
 			caseDatabase === undefined &&
 			this.caseDatabaseGate.required &&
@@ -1396,6 +1463,7 @@ export class EngineController {
 			searchAnswers,
 		};
 		this.runtimeFault = undefined;
+		this.clearRefusal();
 		if (
 			caseDatabase === undefined &&
 			this.caseDatabaseGate.required &&
@@ -1698,6 +1766,7 @@ export class EngineController {
 		if (this.deferCaseDatabaseRebuild(formUuid, caseData)) return;
 		if (this.runtimeFault?.formUuid === formUuid) return;
 		this.runtimeFault = undefined;
+		this.clearRefusal();
 		this.contain("rebuild", formUuid, undefined, () => {
 			const entryKey =
 				this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
@@ -1864,6 +1933,7 @@ export class EngineController {
 		this.requestedActivation = undefined;
 		this.clearActiveForm();
 		this.runtimeFault = undefined;
+		this.clearRefusal();
 		this.publishEntryState();
 	}
 
@@ -2606,7 +2676,7 @@ export class EngineController {
 				if (engine !== this.engine || entryKey !== this.currentEntryKey)
 					return 0;
 				this.syncAllPathsSelectively();
-				return index;
+				return index ?? 0;
 			},
 			0,
 			{ atomic: true },

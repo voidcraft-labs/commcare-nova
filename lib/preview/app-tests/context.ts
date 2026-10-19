@@ -120,7 +120,7 @@ async function contextFor(
 		// use it too, independently of the database connection's timezone.
 		clock: {
 			timeZone: viewerTimeZone(),
-			today: XPathDate.fromJSDateOnly(new Date()).toISOString(),
+			today: XPathDate.localDateOf(Date.now()).toISOString(),
 		},
 		locations: snapshot.locations,
 		testPlaceIds: snapshot.testPlaceIds,

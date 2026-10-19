@@ -92,9 +92,8 @@ export function compileIntervalText(
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
-	const { portableCaseDates: _portable, ...plainCtx } = ctx;
 	const raw = compileExpression(term(prop(key.caseType, key.property)), {
-		...plainCtx,
+		...ctx,
 		caseTypeSchemas: withTextRead(
 			ctx.caseTypeSchemas,
 			key.caseType,

@@ -29,13 +29,17 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { withTransientRetry } from "@/lib/db/schemaSyncRetry";
 import type { BlueprintDoc, CaseProperty, CaseType } from "@/lib/domain";
 import {
+	and,
 	eq,
 	gt,
+	input,
 	literal,
 	multiSelectAny,
+	not,
 	prop,
 } from "@/lib/domain/expression/builders";
 import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { runStoreContract } from "../../__tests__/storeContract";
@@ -250,12 +254,24 @@ describe("PostgresCaseStore selected-parent sets", () => {
 			caseIds: ["household-b", "household-a"],
 		} as const;
 		expect(
-			(await store.query({ appId: APP_ID, caseType: "visit", parentCases }))
+			(
+				await store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "visit",
+					parentCases,
+				})
+			)
 				.map((row) => row.case_id)
 				.sort(),
 		).toEqual(["visit-a", "visit-b"]);
 		expect(
-			await store.count({ appId: APP_ID, caseType: "visit", parentCases }),
+			await store.count({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+				parentCases,
+			}),
 		).toBe(2);
 
 		for (const invalidParentCases of [
@@ -267,6 +283,7 @@ describe("PostgresCaseStore selected-parent sets", () => {
 		] as const) {
 			expect(
 				await store.query({
+					reading: SEARCH_READING,
 					appId: APP_ID,
 					caseType: "visit",
 					parentCases: invalidParentCases,
@@ -637,6 +654,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		});
 
 		const byExternalId = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas,
@@ -662,6 +680,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(
 			(
 				await store.query({
+					reading: SEARCH_READING,
 					appId: APP_ID,
 					caseType: "patient",
 				})
@@ -672,6 +691,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			properties: {},
 		});
 		const byStatus = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas,
@@ -688,6 +708,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			}),
 		).toEqual({ inserted: 2 });
 		const withSamples = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -857,7 +878,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		// The fractional value round-trips through the JSONB document
 		// unchanged — the `::numeric` cast lives in the index
 		// expression, not in the stored value.
-		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.properties.weight).toBe(17.01);
 	});
@@ -1545,6 +1570,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 	it("compiled numeric and multi-select predicates can use their expression indexes", async () => {
 		const appId = "app-explain";
+		const AGE_INPUT = testUuid("explain-age-input");
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [
@@ -1588,6 +1614,23 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 				property: "tags",
 				mode: "contains",
 			},
+			// A bound comparand that is not blank stays the typed comparison.
+			{
+				predicate: eq(prop("patient", "age"), input(AGE_INPUT)),
+				property: "age",
+				mode: "int",
+				bindings: { searchInputs: new Map([[AGE_INPUT, 50]]) },
+			},
+			// A two-valued negation beside a positive comparison leaves the
+			// positive one bare, so it still reaches its index.
+			{
+				predicate: and(
+					gt(prop("patient", "age"), literal(50)),
+					not(eq(prop("patient", "weight"), literal(75.5))),
+				),
+				property: "age",
+				mode: "int",
+			},
 		];
 		const client = await dbHandle.pool.connect();
 		try {
@@ -1602,13 +1645,14 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 					.where("c.case_type", "=", "patient")
 					.where(
 						compilePredicate(probe.predicate, {
+							reading: "search",
 							db: dbHandle.db,
 							appId,
 							projectId: OWNER_A,
 							anchorAlias: "c",
 							currentCaseType: "patient",
 							caseTypeSchemas: schemas,
-							bindings: {},
+							bindings: ("bindings" in probe && probe.bindings) || {},
 						}),
 					)
 					.compile();
@@ -1745,8 +1789,16 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			},
 		});
 
-		const bRows = await store.query({ appId: appB, caseType: "patient" });
-		const aRows = await store.query({ appId: appA, caseType: "patient" });
+		const bRows = await store.query({
+			reading: SEARCH_READING,
+			appId: appB,
+			caseType: "patient",
+		});
+		const aRows = await store.query({
+			reading: SEARCH_READING,
+			appId: appA,
+			caseType: "patient",
+		});
 		expect(bRows).toHaveLength(1);
 		expect(aRows).toHaveLength(1);
 		expect(bRows[0]?.properties.weight).toBe(17.01);
@@ -1864,7 +1916,11 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 			}),
 		).resolves.toEqual({ inserted: 2 });
 		const rows = (
-			await store.query({ appId: APP_ID, caseType: "patient" })
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			})
 		).sort((left, right) => left.case_name.localeCompare(right.case_name));
 		expect(
 			rows.map(({ case_name, external_id, properties }) => ({
@@ -1952,6 +2008,7 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 		// commits row 0 before reaching row 1's validation would
 		// leak through here.
 		const survivors = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -1996,7 +2053,11 @@ describe("PostgresCaseStore — creation stamps", () => {
 			},
 		});
 
-		const [row] = await store.query({ appId: APP_ID, caseType: "patient" });
+		const [row] = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(row?.opened_on).toBeInstanceOf(Date);
 		expect(row?.modified_on).toBeInstanceOf(Date);
 	});
@@ -2043,7 +2104,11 @@ describe("PostgresCaseStore — creation stamps", () => {
 		});
 
 		for (const name of ["patient", "medication_order"]) {
-			const [row] = await store.query({ appId: APP_ID, caseType: name });
+			const [row] = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: name,
+			});
 			expect(row?.opened_on).toBeInstanceOf(Date);
 			expect(row?.modified_on).toBeInstanceOf(Date);
 		}
@@ -2069,7 +2134,11 @@ describe("PostgresCaseStore — creation stamps", () => {
 			},
 		});
 
-		const [row] = await store.query({ appId: APP_ID, caseType: "patient" });
+		const [row] = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(row?.opened_on?.toISOString()).toBe(supplied.toISOString());
 		expect(row?.modified_on).toBeInstanceOf(Date);
 	});
@@ -2143,6 +2212,7 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 		});
 
 		const [child] = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2284,6 +2354,7 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 			const childResult = await childPromise;
 			expect(childResult.error).toBeInstanceOf(CaseNotFoundError);
 			const children = await seedingStore.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -2334,6 +2405,7 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 		});
 
 		const beforeRows = await seedingStore.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2383,6 +2455,7 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 		// that committed the deletion separately from the
 		// regeneration would surface here as an empty case-type.
 		const afterRows = await seedingStore.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2824,15 +2897,24 @@ describe("PostgresCaseStore historical row repair", () => {
 			[caseId, APP_ID, OWNER_A],
 		);
 		expect(
-			(await store.query({ appId: APP_ID, caseType: "patient" }))[0]
-				?.properties,
+			(
+				await store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "patient",
+				})
+			)[0]?.properties,
 		).toEqual({ name: "Alice", age: "30" });
 		await store.update({
 			appId: APP_ID,
 			caseId,
 			patch: { properties: { name: "Alicia" } },
 		});
-		const repaired = await store.query({ appId: APP_ID, caseType: "patient" });
+		const repaired = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(repaired[0]?.properties).toEqual({ name: "Alicia" });
 		await expect(
 			store.update({
@@ -2841,8 +2923,12 @@ describe("PostgresCaseStore historical row repair", () => {
 				patch: { properties: { bogus: "x" } },
 			}),
 		).rejects.toBeInstanceOf(CasePropertiesValidationError);
-		expect(await store.query({ appId: APP_ID, caseType: "patient" })).toEqual(
-			repaired,
-		);
+		expect(
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			}),
+		).toEqual(repaired);
 	});
 });

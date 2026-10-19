@@ -11,6 +11,7 @@ import {
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import type { Mutation } from "@/lib/doc/types";
 import { USERCASE_CASE_TYPE } from "@/lib/domain";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { syncUsercaseRow } from "../syncUsercaseRow";
 import { applyBlueprintChangeProposal } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
@@ -196,11 +197,16 @@ it("ensure-only creates a missing worker with its login fallback and exposes it 
 	};
 	expect(
 		(
-			await store.query({ ...query, restoreScope: { ownerIds: [PERSONA] } })
+			await store.query({
+				reading: SEARCH_READING,
+				...query,
+				restoreScope: { ownerIds: [PERSONA] },
+			})
 		).map((item) => item.case_id),
 	).toEqual([saved.case_id]);
 	expect(
 		await store.query({
+			reading: SEARCH_READING,
 			...query,
 			restoreScope: { ownerIds: ["another-worker"] },
 		}),

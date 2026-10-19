@@ -40,8 +40,8 @@ export function serializeXPathWorkerValue(
 	if (!isXPathDate(value)) return value;
 	return {
 		kind: "date",
-		days: value.days,
-		timeMilliseconds: value.time?.getTime() ?? null,
+		calendarDays: value.calendarDays,
+		timeMilliseconds: value.timeMilliseconds,
 	};
 }
 
@@ -49,9 +49,9 @@ export function deserializeXPathWorkerValue(
 	value: SerializedXPathValue,
 ): XPathValue {
 	if (typeof value !== "object") return value;
-	return value.timeMilliseconds === null
-		? XPathDate.fromDays(value.days)
-		: XPathDate.fromJSDate(new Date(value.timeMilliseconds));
+	// The sent calendar day is kept, never re-read in this realm: host and
+	// worker share one zone, and the value names the day it was built on.
+	return XPathDate.fromParts(value.calendarDays, value.timeMilliseconds);
 }
 
 /** Preserve hashtag nodesets across structured clone instead of flattening

@@ -33,6 +33,7 @@ afterAll(async () => {
 	await db.destroy();
 });
 const ctx: TermCompileContext = {
+	reading: "search",
 	db,
 	appId: "app",
 	projectId: "project",

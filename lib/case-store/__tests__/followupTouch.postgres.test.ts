@@ -12,6 +12,7 @@ import { type Kysely, sql } from "kysely";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { PostgresCaseStore } from "../postgres/store";
 import { HeuristicCaseGenerator } from "../sample/heuristic";
@@ -115,6 +116,7 @@ async function modifiedOn(
 	caseId: string,
 ): Promise<Date | null | undefined> {
 	const rows = await store.query({
+		reading: SEARCH_READING,
 		appId: APP_ID,
 		caseType: "patient",
 		caseIds: [caseId],
@@ -127,6 +129,7 @@ describe("a follow-up that writes nothing", () => {
 		const store = makeStore();
 		await seedPatient(store, ALICE, "Alice");
 		const [before] = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseIds: [ALICE],
@@ -142,6 +145,7 @@ describe("a follow-up that writes nothing", () => {
 		});
 
 		const [after] = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseIds: [ALICE],
