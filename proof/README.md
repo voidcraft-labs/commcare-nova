@@ -3466,10 +3466,12 @@ A family is one corpus, and each runs as one chain:
    (`InstantOrderingRuntimeTest[new-york]`), so a failure names the class,
    its zone, each failing method, and anything that failed before Core for
    that family.
-5. **HQ payload checks** read what three Core classes write back
+5. **HQ payload checks** read what four Core classes write back
    (`NavigationRuntimeTest`, `CsqlFunctionRuntimeTest`,
-   `CsqlQuoteRuntimeTest`): the search queries Core's query manager builds,
-   which HQ's case search compiler then compiles.
+   `CsqlQuoteRuntimeTest`, `CsqlCompositionRuntimeTest`): the search queries
+   Core's query manager builds, which HQ's case search compiler then
+   compiles, and, for `CsqlCompositionRuntimeTest`'s, HQ's case search then
+   runs over cases HQ's receiver saved.
 
 `NativeSession` (`proof/native/session.py`) runs each producer, step and
 Gradle build once per session, whichever test needs it first, and produces
@@ -3720,7 +3722,7 @@ request or search screen is claimed.
 
 #### Search, prompts, CSQL functions, quotes and links
 
-Six corpora go through the same HQ suite contributors (advanced search on),
+Seven corpora go through the same HQ suite contributors (advanced search on),
 and every `<entry>` and `<remote-request>` is compared whole: attributes,
 decoded text and child order.
 
@@ -3789,8 +3791,25 @@ decoded text and child order.
   `targeted-form-link-session-reads` form binds
   the created case, child and worker identities to the actual submitted case
   blocks on both paths.
+- `csql`: one admitted document per typed CSQL scenario
+  (`lib/commcare/__tests__/csqlCompositionFixture.ts`), each with its search
+  answers, cases and expected ids; today its one scenario is
+  `datetime-equality` (finding 75). `CsqlCompositionRuntimeTest` builds each
+  search's query from both suites under each sending's answers
+  (`csql/nova-csql-payloads.jsonl`), and `test_csql_payload.py` saves the
+  scenario's cases through HQ's receiver into the unit's Elasticsearch, so
+  every stored date and time is in HQ's own spelling, and sends each query
+  through HQ's case search (`CaseSearchQueryBuilder`). It also sends the
+  closed instant ranges part 06 §3.13 plans, written by hand in every
+  spelling a bound may carry, and holds each to the ids the plan's reading of
+  HQ predicts; the emitted queries are held to what HQ answers on today's
+  emitter (no case for `=` and `in`, every case for `!=`, Elasticsearch's
+  refusal of a minute-precision system date) until the emitter writes the
+  range. Every answer is in `csql/csql-payload.evidence.json` and printed as a
+  table.
 
-None of these sends a search, a claim or an HTTP request.
+None of these sends a claim or an HTTP request; `csql` alone runs a search,
+HQ's case search inside the unit.
 
 #### Location owners (`location`)
 

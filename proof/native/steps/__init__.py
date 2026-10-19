@@ -50,6 +50,7 @@ STEPS = {
     "search": Step("search", suite_emission.searches("search")),
     "prompt": Step("prompt", suite_emission.searches("prompt")),
     "function": Step("function", suite_emission.searches("function")),
+    "csql": Step("csql", suite_emission.searches("csql")),
     "quote": Step("quote", suite_emission.searches("quote")),
     "static-quote": Step("static-quote", suite_emission.searches("static-quote")),
     "form-link": Step("form-link", suite_emission.searches("form-link")),

@@ -7,8 +7,10 @@
  * so the corpus holds exactly the documents the producers emit. Left out:
  * the oracle family's wire corruption corpora
  * (`xformOracleCorpus.ts`, `suiteOracleCorpus.ts`: external wire inputs, not
- * documents), the predicate family (it builds no app), and the lookup
- * family's workbook-only tables. The two nested-menu scenarios HQ refuses
+ * documents), the predicate family (it builds no app), the lookup
+ * family's workbook-only tables, and the csql family (its documents state
+ * what HQ's search finds over saved cases, and the lane's reading of CSQL is
+ * the targeted documents'). The two nested-menu scenarios HQ refuses
  * are documents Nova's publish refuses, so the emitter leaves them out with
  * the boundary's findings (`./emitCorpus.ts`), as it would any other.
  *

@@ -10,8 +10,9 @@ Core classes that read it load from. The chains run in this order, per family:
 with two families that interleave further: ``media``, whose HQ pass waits for
 Core's parse of the exact sources HQ asks Formplayer to validate (the
 certificate ``MediaRuntimeTest.sourceFormsParseWithRealCoreBeforeHqMatching``
-writes), and the payload families (``navigation``, ``function``, ``quote``),
-whose Core classes write the search queries HQ's compiler then reads.
+writes), and the payload families (``navigation``, ``function``, ``quote``,
+``csql``), whose Core classes write the search queries HQ's compiler then
+reads (and, for ``csql``, HQ's case search then runs over saved cases).
 """
 
 from dataclasses import dataclass
@@ -81,6 +82,7 @@ FAMILIES = {
         _script("case-list", "emit-case-list-evidence.ts"),
         _script("connect", "emit-connect-evidence.ts"),
         _script("container", "emit-container-evidence.ts"),
+        _script("csql", "emit-csql-evidence.ts"),
         _script("endpoint", "emit-endpoint-evidence.ts"),
         _script("expression", "emit-expression-evidence.ts"),
         _script("form-link", "emit-form-link-evidence.ts"),
@@ -124,6 +126,7 @@ CORE_CLASSES = {
     "ConnectRuntimeTest": "connect",
     "ContainerRuntimeTest": "container",
     "CoreDateParityRuntimeTest": "expression",
+    "CsqlCompositionRuntimeTest": "csql",
     "CsqlFunctionRuntimeTest": "function",
     "CsqlQuoteRuntimeTest": "quote",
     "EndpointRuntimeTest": "endpoint",
