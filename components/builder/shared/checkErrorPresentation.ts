@@ -99,7 +99,7 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 			case "clock-lost":
 				return "This value has kept only the day of a date and time. You can compare the date and time that first recorded it, or wrap both sides in date() to compare days";
 			case "unreadable-datetime":
-				return `CommCare can't read this date and time. ${UNREADABLE_DATETIME_NEXT.slice(0, -1)}`;
+				return `Nova can't read this date and time. ${UNREADABLE_DATETIME_NEXT.slice(0, -1)}`;
 			case "datetime-equality":
 				return "A date and time never matches something that isn't one. You can compare it with another date and time, or check whether it's blank";
 			default:

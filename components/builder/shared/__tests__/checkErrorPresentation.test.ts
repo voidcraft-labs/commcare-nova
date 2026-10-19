@@ -120,7 +120,7 @@ describe("PredicateCardEditor — reasons and the checker's newer codes", () => 
 		],
 		[
 			"unreadable-datetime",
-			"CommCare can't read this date and time. You can write it like 2026-01-02T10:30:00Z",
+			"Nova can't read this date and time. You can write it like 2026-01-02T10:30:00Z, with a four-digit year and a day and time that exist",
 		],
 		[
 			"datetime-equality",

@@ -28,14 +28,13 @@ import {
 	switchExpr,
 	term,
 } from "@/lib/domain/expression/builders";
-import { literalInstantMicros } from "@/lib/domain/expression/instantOperand";
+import {
+	literalInstantMicros,
+	literalInstantText,
+} from "@/lib/domain/expression/instantOperand";
 import type { Expression } from "@/lib/domain/expression/types";
 import { w } from "../builders";
-import {
-	instantCanonicalText,
-	instantMicros,
-	typedInstantText,
-} from "../instant";
+import { instantMicros, typedInstantText } from "../instant";
 import { serializeWire } from "../serialize";
 import type { WireExpr } from "../tree";
 import { instantFixture } from "./instantFixture";
@@ -118,6 +117,10 @@ describe("folding a literal", () => {
 			["1969-12-31T23:59:59.999999Z", -1],
 			["2024-02-29T00:00:00Z", Date.UTC(2024, 1, 29) * 1000],
 			["9999-12-31T23:59:59Z", Date.UTC(9999, 11, 31, 23, 59, 59) * 1000],
+			// Core reads an offset's hours and minutes as integers and adds them
+			// to the clock (`DateUtils.parseTimeAndStore`).
+			["2026-01-03T04:30:00+24:00", base],
+			["2026-01-02T10:45:00+05:75", base],
 		] as const)
 			expect(literalInstantMicros(text), text).toBe(micros);
 	});
@@ -130,39 +133,52 @@ describe("folding a literal", () => {
 			"2025-02-29",
 			"2026-01-02T24:00:00Z",
 			"2026-01-02T04:30:00+5",
-			"2026-01-02T04:30:00+24:00",
 			"2026-01-02T04:30:00Zjunk",
 			" 2026-01-02T04:30:00Z",
 		])
 			expect(literalInstantMicros(text), text).toBeUndefined();
 	});
 
-	it("names no moment outside the years a device's text spells", () => {
-		// Core reads a four-digit year (`DateUtils.parseDateTime`).
+	it("names the moment of every literal with a four-digit year, whatever its offset", () => {
 		const yearZero = new Date(Date.UTC(2000, 0, 1));
 		yearZero.setUTCFullYear(0);
-		expect(literalInstantMicros("0000-01-01T00:00:00Z")).toBe(
-			yearZero.getTime() * 1000,
-		);
-		expect(literalInstantMicros("0000-01-01")).toBe(yearZero.getTime() * 1000);
+		const zero = yearZero.getTime() * 1000;
+		expect(literalInstantMicros("0000-01-01T00:00:00Z")).toBe(zero);
+		expect(literalInstantMicros("0000-01-01")).toBe(zero);
 		expect(literalInstantMicros("9999-12-31T23:59:59.999Z")).toBe(
 			Date.UTC(9999, 11, 31, 23, 59, 59, 999) * 1000,
 		);
-		for (const text of [
-			"9999-12-31T23:00:00-05:00",
-			"0000-01-01T00:30:00+01:00",
-		])
+		// Their UTC moments fall in the years 10000 and -1.
+		expect(literalInstantMicros("9999-12-31T23:59:59-05:00")).toBe(
+			Date.UTC(10000, 0, 1, 4, 59, 59) * 1000,
+		);
+		expect(literalInstantMicros("0000-01-01T00:00:00+01:00")).toBe(
+			zero - 3_600_000_000,
+		);
+		for (const text of ["10000-01-01T00:00:00Z", "-0001-01-01", "999-01-01"])
 			expect(literalInstantMicros(text), text).toBeUndefined();
 	});
 
-	it("spells a folded moment as text the parse reads back", () => {
-		expect(instantCanonicalText(1767328200000000)).toBe(
-			"2026-01-02T04:30:00.000Z",
-		);
-		expect(instantCanonicalText(1767328200000001)).toBe(
-			"2026-01-02T04:30:00.000001Z",
-		);
-		expect(instantCanonicalText(-1)).toBe("1969-12-31T23:59:59.999999Z");
+	it("prints a literal in its own date, clock and offset", () => {
+		for (const [text, printed] of [
+			["2026-01-02T04:30:00Z", "2026-01-02T04:30:00.000Z"],
+			["2026-01-02", "2026-01-02T00:00:00.000Z"],
+			["2026-01-02T04:30", "2026-01-02T04:30:00.000Z"],
+			["2026-01-02 10:00+0530", "2026-01-02T10:00:00.000+05:30"],
+			["2026-01-01T23:30:00-05", "2026-01-01T23:30:00.000-05:00"],
+			["2026-01-02T04:30:00-00:00", "2026-01-02T04:30:00.000Z"],
+			["2026-01-02t04:30:00.5z", "2026-01-02T04:30:00.500Z"],
+			["2026-01-02T04:30:00.0000005Z", "2026-01-02T04:30:00.0000005Z"],
+			["2026-01-02T10:45:00+05:75", "2026-01-02T10:45:00.000+05:75"],
+			[
+				"9999-12-31T23:59:59.9999996-05:00",
+				"9999-12-31T23:59:59.9999996-05:00",
+			],
+			["0000-01-01T00:00:00+01:00", "0000-01-01T00:00:00.000+01:00"],
+		] as const)
+			expect(literalInstantText(text), text).toBe(printed);
+		for (const text of ["2026-02-30", "nope", "10000-01-01T00:00:00Z"])
+			expect(literalInstantText(text), text).toBeUndefined();
 	});
 });
 
@@ -441,7 +457,7 @@ describe("each operand takes the instant text of how its device holds it", () =>
 			);
 	});
 
-	it("folds a form literal branch its comparison types as a date and time", () => {
+	it("prints a form literal branch its comparison types as a date and time in its own offset", () => {
 		const n1 = eq(fx.field("n"), term(literal(1)));
 		expect(
 			parsedLiteralTexts(
@@ -452,7 +468,19 @@ describe("each operand takes the instant text of how its device holds it", () =>
 					),
 				),
 			),
-		).toEqual(["2026-01-02T04:30:00.000Z"]);
+		).toEqual(["2026-01-02T10:00:00.000+05:30"]);
+		// An end-of-time sentinel keeps its own year, whose UTC moment is in
+		// the year 10000.
+		expect(
+			parsedLiteralTexts(
+				fx.lowerForm(
+					lt(
+						fx.field("dt"),
+						ifExpr(n1, term(literal("9999-12-31T23:59:59-05:00")), now()),
+					),
+				),
+			),
+		).toEqual(["9999-12-31T23:59:59.000-05:00"]);
 		expect(
 			parsedLiteralTexts(
 				fx.lowerForm(

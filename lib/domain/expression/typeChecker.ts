@@ -212,7 +212,7 @@ export function dayOnlyRefusalCopy(
 }
 /** A date-and-time literal no device text spells, wherever it is used. */
 export const UNREADABLE_DATETIME_NEXT =
-	"You can write it like 2026-01-02T10:30:00Z.";
+	"You can write it like 2026-01-02T10:30:00Z, with a four-digit year and a day and time that exist.";
 export interface CheckOutcome {
 	readonly type: NodeType | undefined;
 	readonly errors: readonly CheckError[];
@@ -2736,7 +2736,7 @@ function unreadableDatetimeError(value: string, path: CheckPath): CheckError {
 		path,
 		code: "incompatible-values",
 		reason: "unreadable-datetime",
-		message: `This uses '${value}', which isn't a date and time CommCare can read. ${UNREADABLE_DATETIME_NEXT}`,
+		message: `This uses '${value}', which Nova can't read as a date and time. ${UNREADABLE_DATETIME_NEXT}`,
 	};
 }
 function instantRefusal(

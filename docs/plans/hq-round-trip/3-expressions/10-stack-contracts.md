@@ -637,8 +637,10 @@ session map's):
   `rules/caseOptionsSource.ts` and `rules/lookupOptionsSource.ts`, with tests in
   `caseOperations.test.ts` and `rules/case-list/__tests__/filterTypeCheck.test.ts`.
 - **Implementation correction, 2026-10-19: five review gaps closed** (part 03 §3.2's correction,
-  part 04 §3.2 and §3.8). A literal outside the years 0000 to 9999 names no moment
-  (`literalInstantMicros`); a form literal branch is typed by its comparison and folded, or refused
+  part 04 §3.2 and §3.8). A literal names a moment for every four-digit year, whatever year its UTC
+  moment falls in, and an offset's two-digit hours and minutes however large
+  (`literalInstantMicros`); a branch prints it in its own date, clock and offset
+  (`literalInstantText`); a form literal branch is typed by its comparison and printed so, or refused
   as a direct literal is; a `datetime-coerce` of a literal that names no moment is
   `unreadable-datetime` wherever `toWire` prints it, and one of a value that names none keeps
   `date(x)`; a Search field's runtime values meet the device's rules through

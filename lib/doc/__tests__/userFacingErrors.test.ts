@@ -700,7 +700,7 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		[
 			"XPATH_INCOMPATIBLE_VALUES",
 			{ reason: "unreadable-datetime" },
-			'A formula on "visit_check" in "Register Client" uses a date and time CommCare can\'t read. You can write it like 2026-01-02T10:30:00Z.',
+			'A formula on "visit_check" in "Register Client" uses a value Nova can\'t read as a date and time. You can write it like 2026-01-02T10:30:00Z, with a four-digit year and a day and time that exist.',
 		],
 		[
 			"XPATH_INCOMPATIBLE_VALUES",

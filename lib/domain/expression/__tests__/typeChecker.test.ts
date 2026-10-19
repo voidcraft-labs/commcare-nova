@@ -3780,34 +3780,53 @@ describe("comparisons a device runs between two moments", () => {
 			),
 		).toEqual([]);
 	});
-	it("refuses a date-and-time literal whose moment falls outside the years a device spells, wherever it is", () => {
+	it("admits a date-and-time literal with a four-digit year in any offset, wherever it is", () => {
+		// The UTC moments of these fall in the years 10000 and -1; each is
+		// printed in its own offset, keeping its own year.
+		expect(formErrors("#form/dt < '9999-12-31T23:59:59-05:00'")).toEqual([]);
+		expect(
+			formErrors(
+				"#form/dt > if(#form/n = 1, '0000-01-01T00:00:00+01:00', now())",
+			),
+		).toEqual([]);
 		const late = term(
 			qualifiedLiteral("9999-12-31T23:00:00-05:00", "datetime"),
 		);
-		expect(codes(filterErrors(lt(seen, late)))).toEqual([
-			"incompatible-values:unreadable-datetime",
-		]);
-		expect(codes(filterErrors(lt(seen, coalesce(seen, late))))).toEqual([
-			"incompatible-values:unreadable-datetime",
-		]);
+		expect(filterErrors(lt(seen, late))).toEqual([]);
+		expect(filterErrors(lt(seen, coalesce(seen, late)))).toEqual([]);
+		expect(filterErrors(isBlank(datetimeCoerce(late)))).toEqual([]);
+		// Core adds an offset's hours and minutes to the clock, however large.
+		expect(formErrors("#form/dt < '2026-01-03T04:30:00+24:00'")).toEqual([]);
 		expect(
 			filterErrors(
 				lt(
 					seen,
 					coalesce(
 						seen,
-						term(qualifiedLiteral("9999-12-31T23:59:59.999Z", "datetime")),
+						term(qualifiedLiteral("2026-01-02T10:45:00+05:75", "datetime")),
 					),
 				),
 			),
 		).toEqual([]);
-		expect(
-			codes(
-				formErrors(
-					"#form/dt > if(#form/n = 1, '0000-01-01T00:30:00+01:00', now())",
+	});
+	it("refuses a date-and-time literal without a four-digit year, naming what Nova reads", () => {
+		const errors = filterErrors(
+			lt(
+				seen,
+				coalesce(
+					seen,
+					term(qualifiedLiteral("10000-01-01T00:00:00Z", "datetime")),
 				),
 			),
-		).toEqual(["incompatible-values:unreadable-datetime"]);
+		);
+		expect(errors).toMatchObject([
+			{
+				code: "incompatible-values",
+				reason: "unreadable-datetime",
+				message:
+					"This uses '10000-01-01T00:00:00Z', which Nova can't read as a date and time. You can write it like 2026-01-02T10:30:00Z, with a four-digit year and a day and time that exist.",
+			},
+		]);
 	});
 	it("types a form literal branch as a direct literal of its comparison", () => {
 		// Ordered, a branch shaped as a date and time is one, and is folded.
@@ -3848,7 +3867,7 @@ describe("comparisons a device runs between two moments", () => {
 			literal("2026-02-30"),
 			dateLiteral("2026-02-30"),
 			qualifiedLiteral("2026-01-02T25:00:00Z", "datetime"),
-			qualifiedLiteral("9999-12-31T23:00:00-05:00", "datetime"),
+			qualifiedLiteral("10000-01-01T00:00:00Z", "datetime"),
 		])
 			expect(filterErrors(isBlank(datetimeCoerce(term(value))))).toMatchObject([
 				{

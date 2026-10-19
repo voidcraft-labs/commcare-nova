@@ -102,9 +102,12 @@ type, in every device target, choosing each
 operand's instant text by `lib/domain/expression/instantOperand.ts`'s class of
 it and folding a literal by `literalInstantMicros`, the checker's own
 grammar, computed with the device's own double operations in the device's
-order, so a fold equals the parse even past 2^53; it names no moment outside
-the years 0000 to 9999, which no device text spells. A literal branch of an
-`if`, `coalesce` or `switch` folds to its moment's canonical text. It never
+order, so a fold equals the parse even past 2^53; it reads a four-digit
+year, and an offset's two-digit hours and minutes however large, as Core
+adds them to the clock. A literal branch of an `if`, `coalesce` or `switch`
+prints as `literalInstantText`, the literal's own date, clock and offset, which
+the parse reads back to the fold's microseconds for every four-digit year,
+whatever year its UTC moment falls in. It never
 applies inside CSQL text: CSQL comparisons print through the CSQL emitter, and
 only a runtime segment reaches `toWire`. The tests' `instantParse.ts`
 recognises the parse structurally, so they read the tree rather than its

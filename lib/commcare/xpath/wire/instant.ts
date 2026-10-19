@@ -16,6 +16,7 @@ import {
 	type InstantLeaf,
 	type InstantOperand,
 	literalInstantMicros,
+	literalInstantText,
 	unlowerableLeaves,
 } from "@/lib/domain/expression/instantOperand";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -140,28 +141,21 @@ export function instantMicros(t: WireExpr): WireExpr {
 	return w.add(w.mul(seconds, w.num(1_000_000)), fraction);
 }
 
-/** The text of a moment the parse reads back to the same microseconds:
- * `YYYY-MM-DDTHH:MM:SS` and `.mmm` or `.mmmmmm`, then `Z`. Every moment a
- * literal names lies in the years 0000 to 9999 (`literalInstantMicros`). */
-export function instantCanonicalText(micros: number): string {
-	const seconds = Math.floor(micros / 1_000_000);
-	const fraction = micros - seconds * 1_000_000;
-	const whole = new Date(seconds * 1000).toISOString();
-	if (!/^\d{4}-/.test(whole))
-		throw new Error(
-			`The moment ${micros} µs since 1970 falls outside the years 0000 to 9999, which a device's date-and-time text cannot spell.`,
-		);
-	const digits = String(fraction).padStart(6, "0");
-	return `${whole.slice(0, 19)}.${fraction % 1000 === 0 ? digits.slice(0, 3) : digits}Z`;
-}
+const UNREADABLE = (value: string) =>
+	`The date-and-time value '${value}' names no moment, so no device text spells it. The checker should refuse it (unreadable-datetime) before emission.`;
 
 function folded(leaf: Extract<InstantLeaf, { class: "literal-instant" }>) {
 	const micros = literalInstantMicros(leaf.literal.value);
-	if (micros === undefined)
-		throw new Error(
-			`The date-and-time value '${leaf.literal.value}' names no moment, so no device text spells it. The checker should refuse it (unreadable-datetime) before emission.`,
-		);
+	if (micros === undefined) throw new Error(UNREADABLE(leaf.literal.value));
 	return micros;
+}
+
+/** A literal's text as a device prints it (`literalInstantText`): its own
+ * date, clock and offset, which the parse reads back to its microseconds. */
+function literalText(leaf: Extract<InstantLeaf, { class: "literal-instant" }>) {
+	const text = literalInstantText(leaf.literal.value);
+	if (text === undefined) throw new Error(UNREADABLE(leaf.literal.value));
+	return text;
 }
 
 /** A typed date and time's own text, with the device's offset and
@@ -233,7 +227,7 @@ function refuseUnlowerable(operand: InstantOperand): void {
 			: leaf.class === "clock-lost"
 				? "A date and time whose clock may be lost reached an instant comparison. The checker should refuse it (clock-lost) before emission."
 				: leaf.class === "literal-instant"
-					? `The date-and-time value '${leaf.literal.value}' names no moment, so no device text spells it. The checker should refuse it (unreadable-datetime) before emission.`
+					? UNREADABLE(leaf.literal.value)
 					: leaf.class === "not-instant"
 						? leaf.data === "date"
 							? "A date reached an instant comparison with a date and time. The checker should refuse it (date-datetime) before emission."
@@ -251,7 +245,7 @@ function leafText(
 ): WireExpr {
 	switch (leaf.class) {
 		case "literal-instant":
-			return w.str(instantCanonicalText(folded(leaf)));
+			return w.str(literalText(leaf));
 		case "text":
 			return emit.value(leaf.value);
 		case "typed":
@@ -391,7 +385,7 @@ export function datetimeCoerceValue(
 	}
 	switch (operand.class) {
 		case "literal-instant":
-			return w.str(instantCanonicalText(folded(operand)));
+			return w.str(literalText(operand));
 		case "text":
 			return emit.value(operand.value);
 		case "typed":

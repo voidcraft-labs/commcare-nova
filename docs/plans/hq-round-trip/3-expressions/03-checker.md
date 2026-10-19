@@ -873,11 +873,17 @@ Review found five places where the checker admitted what `toWire` could not prin
 printed wrongly, each now closed at its root and held by `instantAgreement.test.ts`, which also
 asserts that every literal an instant parse can read is printed as canonical text:
 
-- **A. Extreme years.** `literalInstantMicros`, the one grammar, names no moment for a literal
-  whose UTC moment falls outside 0000-01-01T00:00:00Z to the last microsecond of 9999, since a
-  device's text has a four-digit year (`DateUtils.parseDateTime`): `9999-12-31T23:00:00-05:00` is
-  `unreadable-datetime` everywhere it is compared or coerced, and `instantCanonicalText` never meets
-  one.
+- **A. Extreme years.** `literalInstantMicros`, the one grammar, names a moment for every literal
+  with a four-digit year, a day that exists and a clock to 23:59:59, whatever year its UTC moment
+  falls in, and `literalInstantText` prints it in its own date, clock and offset, which the parse
+  reads back exactly. The first build bounded the UTC moment to the years 0000 to 9999 and refused
+  `9999-12-31T23:00:00-05:00` as a date and time CommCare can't read; review found Core reads the
+  year with `Integer.parseInt` and applies an offset to the clock only, keeping the authored date
+  (`DateUtils.java::parseDateAndStore`, `::parseTimeAndStore`), so that bound was Nova's own print
+  (`toISOString`), not Core's. An offset's hours and minutes are any two digits, which Core adds to
+  the clock as integers (`+24:00`, `+05:75`). `unreadable-datetime` remains for a literal without a
+  four-digit year (`datetime '10000-01-01T00:00:00Z'`), a day or a clock that doesn't exist, or text
+  no spelling reads.
 - **B. Literal branches.** A form literal branch of an `if`, `coalesce` or `switch` is typed as a
   direct literal of its comparison (`typeChecker.ts::formLiteralsShaped`, which
   `formComparisonOperandTypes` and `comparisonOperands` share), so `#form/dt < if(c,
@@ -903,7 +909,10 @@ asserts that every literal an instant parse can read is printed as canonical tex
   assembles `typeChecker.ts::dayOnlyRefusalCopy` around its subject, with one next step the checker
   admits, "You can wrap both sides in date() to compare days."; `systemDateWhen` replaces the four
   copies of "opened" / "last changed", and every surface says "the case". `unreadable-datetime`
-  reads "uses a date and time CommCare can't read", true of a comparison and of a coercion.
+  reads "uses a value Nova can't read as a date and time. You can write it like
+  2026-01-02T10:30:00Z, with a four-digit year and a day and time that exist.", true of a
+  comparison and of a coercion, and of a five-digit year Core would read but the positional parse
+  cannot.
 
 `checkFormComparison` takes its finding count before its operands are read, as `checkComparison`
 does; each comparison's inference has its own accumulator, so no sibling's finding reached it

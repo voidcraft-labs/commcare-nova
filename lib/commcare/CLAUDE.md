@@ -928,12 +928,19 @@ date-and-time text as itself; a typed instant as
 (`concat(…, 'T00:00:00Z')`, under a blank guard inside `coalesce` so a blank
 still falls through); coerced text as itself, or its UTC midnight when it is a
 date; a coerced day number as `x * 86400000000` with no parse; and a literal
-folded to its integer at emission (a literal inside a branch prints as
-canonical `…Z` text, since one parse reads whichever branch is chosen; a form
-string literal branch is typed by its comparison as a direct one is). A
-literal names no moment outside the years 0000 to 9999, since a device's text
-has a four-digit year, so the checker refuses it and the canonical text never
-meets one.
+folded to its integer at emission (a literal inside a branch, or a
+`datetime-coerce` of one printed as a value, prints as
+`instantOperand.ts::literalInstantText`: its own date and clock with seconds
+and a fraction, then `Z` or its own offset as `±HH:MM`, since one parse reads
+whichever branch is chosen; a form string literal branch is typed by its
+comparison as a direct one is). Keeping the literal's own date spells every
+literal with its own four-digit year, so `9999-12-31T23:59:59-05:00`, whose
+UTC moment is in the year 10000, prints and reads back exactly, and Core's
+own parse reads the same date (`DateUtils.parseTimeAndStore` applies an
+offset to the clock only). An offset's hours and minutes are any two digits,
+which Core adds to the clock as integers (`+24:00`, `+05:75`); a literal
+without a four-digit year, a day that doesn't exist or a clock past 23:59:59
+names no moment, and the checker refuses it.
 `now()` is not hoisted, because a generated node would read the clock at
 another moment. A value of unknown type compared with a moment takes the row
 of what it holds, text or a typed date, under an equality as under an

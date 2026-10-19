@@ -647,9 +647,9 @@ held `date`), `clock-lost`, `not-instant` or `unknown`. `instant.ts` gives each 
 - **Inside `coalesce`**, the coerced-date and day-number rows take a blank guard,
   `if(x = '', '', …)`, because `concat(…, 'T00:00:00Z')` is never blank and the `coalesce` would
   never fall through (`XpathCoalesceFunc` takes the first non-blank value).
-- **A literal or a day number inside a branch** prints as text the one parse reads: a literal as
-  its canonical `YYYY-MM-DDTHH:MM:SS.mmmZ` (six fraction digits when it needs them,
-  `instantCanonicalText`), a day number as `concat(format-date(date(x), '%Y-%m-%d'), 'T00:00:00Z')`.
+- **A literal or a day number inside a branch** prints as text the one parse reads: a literal in
+  its own date, clock and offset, `YYYY-MM-DDTHH:MM:SS.fffZ` or `…±HH:MM` with the fraction's own
+  digits, at least three (`instantOperand.ts::literalInstantText`; correction below), a day number as `concat(format-date(date(x), '%Y-%m-%d'), 'T00:00:00Z')`.
   A direct literal still folds, and a direct day number is `x * 86400000000`.
 - **Unknown against a moment:** the unknown side takes its held row (text as itself, a typed date
   through `format-date`) in an ordering and, as the paragraph above says of any comparison, in an
@@ -660,10 +660,20 @@ held `date`), `clock-lost`, `not-instant` or `unknown`. `instant.ts` gives each 
 
 **Implementation correction, 2026-10-19: literal branches, extreme years.** A form literal branch is
 typed by its comparison as a direct literal is (part 03 §3.2's correction B), so a branch shaped as
-a date and time folds to its canonical text, never prints as written; a literal of another kind
-(`'nope'`) is a leaf the emitter throws on, which the checker refuses. A literal whose UTC moment
-falls outside the years 0000 to 9999 names no moment (correction A), so `instantCanonicalText`
-never meets one. `instantOperand.ts` memoises an operand per typing context within one `toWire`
+a date and time prints as `literalInstantText`, never as written; a literal of another kind
+(`'nope'`) is a leaf the emitter throws on, which the checker refuses. The first build printed a
+branch literal as its UTC moment (`toISOString`) and so refused a literal whose UTC moment fell
+outside the years 0000 to 9999; review found that bound Nova's own, not Core's: Core reads the year
+with `Integer.parseInt` and applies an offset to the clock only, keeping the authored date
+(`DateUtils.java::parseDateAndStore`, `::parseTimeAndStore` at the pin), so
+`#form/dt < '9999-12-31T23:59:59-05:00'`, an end-of-time sentinel whose UTC moment is in the year
+10000, was refused untruthfully. A branch literal now prints in its own date, clock and offset, so
+every literal with a four-digit year prints, and the parse reads it back to the fold's
+microseconds (Preview's `instantLowering.test.ts` evaluates both ends and a sentinel branch in six
+zones). An offset's hours and minutes are any two digits, as Core adds them to the clock as
+integers (`+24:00`, `+05:75`); Core's `DateFields.check` still bounds the clock to 23:59:59 and
+the day to the month's. Only a literal without a four-digit year, or with a day or clock that
+doesn't exist, names no moment and is `unreadable-datetime`. `instantOperand.ts` memoises an operand per typing context within one `toWire`
 call (`Context.instants`), so a `switch` subject or a side `in` and `between` share is classified
 once, and the checker passes the types it has already inferred for a comparison's sides.
 
@@ -790,7 +800,10 @@ the author resolves before the window (§5.5; part 09 §11).
   `2026-01-02T04:30:00.000000Z` are both `1767328200000000` (Executed during planning, the
   lowering probe; the same integers the native lowering run's `micros` column holds). The checker
   has already refused a literal no instant spelling reads (part 03 §3.2, the literal typing of
-  part 01 §3.2).
+  part 01 §3.2). **Implementation correction, 2026-10-19:** the fold is `literalInstantMicros` and
+  bounds no year: a literal with a four-digit year folds whatever year its UTC moment falls in
+  (`9999-12-31T23:59:59-05:00` is `253402318799000000`, in the year 10000), since a direct operand
+  prints only the number and a branch prints the literal in its own offset (§3.2).
 - `now()` is not hoisted. A form bind evaluates once per trigger, so the per-row cost appears only
   where a row is iterated: a casedb predicate in a form, a suite datum filter, a detail column.
   There the native lowering run measured, per 1,000 cases in each of its ten zone setups, 37 to
@@ -942,7 +955,7 @@ files changed, none in any other document).
 **Implementation correction, 2026-10-19: a value that names no moment.** The first build printed a
 `not-instant` operand as itself (`datetime-coerce('')` as `''`); it keeps `date(x)`, the bytes it had
 before, as the correction above says. A `datetime-coerce` of a literal that names no moment
-(`'2026-02-30'`, `datetime '2026-01-02T25:00:00Z'`, a year past 9999) is refused by the checker in
+(`'2026-02-30'`, `datetime '2026-01-02T25:00:00Z'`, a five-digit year) is refused by the checker in
 every slot whose expressions reach `toWire`, a Search field's runtime values included (part 03
 §3.2's corrections C and D), so `datetimeCoerceValue` never meets one. The corpus holds none of
 these: its emission is byte-identical across the change.

@@ -1218,7 +1218,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			case "clock-lost":
 				return `${formulaSubject(e)} compares ${e.details?.clockSource === undefined ? "a value" : q(e.details.clockSource)}, which has kept only the day of a date and time, with a moment. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.`;
 			case "unreadable-datetime":
-				return `${formulaSubject(e)} uses a date and time CommCare can't read. ${UNREADABLE_DATETIME_NEXT}`;
+				return `${formulaSubject(e)} uses a value Nova can't read as a date and time. ${UNREADABLE_DATETIME_NEXT}`;
 			case "datetime-equality":
 				return `${formulaSubject(e)} compares a date and time with something that isn't one, so the two never match. You can compare it with another date and time, or check whether it's blank.`;
 			default:

@@ -197,7 +197,9 @@ already holds another: a `casedb` system date (`day-only-on-device`, with
 `instant.comparison` and `instant.property`), a clock-lost value (`clock-lost`,
 with `instant.field`), a date (`date-datetime`), a literal no spelling reads
 (`unreadable-datetime`, by `literalInstantMicros`, the fold's own grammar,
-which names no moment outside the years 0000 to 9999), and a literal or a
+which reads a four-digit year, a day that exists, a clock to 23:59:59 and an
+offset's two-digit hours and minutes, and whose `literalInstantText` prints
+any literal it reads in the literal's own date and offset), and a literal or a
 branch of another known kind, or a branch of unknown type holding neither
 text nor a typed date (`datetime-ordering`, or `datetime-equality` under `=` /
 `!=`); a blank literal names no moment and is admitted. A `datetime-coerce` of

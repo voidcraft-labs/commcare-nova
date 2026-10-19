@@ -48,12 +48,6 @@ function daysFromCivil(year: number, month: number, day: number): number {
 	return era * 146097 + dayOfEra - 719468;
 }
 
-/** The moments a device's date-and-time text spells: Core reads a four-digit
- * year (`DateUtils.parseDateTime`), so a literal whose UTC moment falls before
- * 0000-01-01T00:00:00Z or after the last microsecond of 9999 names none. */
-const FIRST_MICROS = daysFromCivil(0, 1, 1) * 86_400_000_000;
-const END_MICROS = daysFromCivil(10000, 1, 1) * 86_400_000_000;
-
 function daysInMonth(year: number, month: number): number {
 	return month === 2
 		? year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
@@ -64,58 +58,117 @@ function daysInMonth(year: number, month: number): number {
 			: 31;
 }
 
+/** A date-and-time literal read by its fields: the authored date and clock,
+ * the fraction's digits, and the written offset in seconds east of UTC with
+ * its hours and minutes as written. */
+interface LiteralInstant {
+	readonly date: string;
+	readonly hour: string;
+	readonly minute: string;
+	readonly second: string;
+	readonly fraction: string | undefined;
+	readonly offset: {
+		readonly seconds: number;
+		readonly hours: string;
+		readonly minutes: string;
+	};
+	readonly days: number;
+}
+
 /**
- * A literal's moment in integer microseconds, or undefined when the literal
- * names none. It reads a date (its UTC midnight) or a date and time with a
- * `T`, `t` or space, minutes, seconds or any fraction (rounded to the
- * microsecond as the device parse rounds it), and `Z`, `z`, `±HH`, `±HHMM`,
- * `±HH:MM` or no offset (UTC), and names none when its UTC moment falls
- * outside the years 0000 to 9999, which no device text spells. This reads a
- * literal's value, never expression text.
+ * A literal's fields, or undefined when it names no moment. It reads a date
+ * (its UTC midnight) or a date and time with a `T`, `t` or space, minutes,
+ * seconds and any fraction, and `Z`, `z`, `±HH`, `±HHMM`, `±HH:MM` or no
+ * offset (UTC). The month and day must exist and the clock run to 23:59:59,
+ * as Core's `DateFields.check` requires; an offset's hours and minutes are
+ * any two digits, which Core reads as integers and adds to the clock
+ * (`DateUtils.parseTimeAndStore`).
  */
-export function literalInstantMicros(text: string): number | undefined {
+function parseLiteralInstant(text: string): LiteralInstant | undefined {
 	const match = LITERAL_INSTANT.exec(text);
 	if (match === null) return undefined;
-	const [, y, mo, d, h, mi, s, fraction, zone] = match;
+	const [, y, mo, d, h = "00", mi = "00", s = "00", fraction, zone] = match;
 	const year = Number(y),
 		month = Number(mo),
-		day = Number(d),
-		hour = Number(h ?? 0),
-		minute = Number(mi ?? 0),
-		second = Number(s ?? 0);
+		day = Number(d);
 	if (
 		month < 1 ||
 		month > 12 ||
 		day < 1 ||
 		day > daysInMonth(year, month) ||
-		hour > 23 ||
-		minute > 59 ||
-		second > 59
+		Number(h) > 23 ||
+		Number(mi) > 59 ||
+		Number(s) > 59
 	)
 		return undefined;
-	let offset = 0;
+	let offset = { seconds: 0, hours: "00", minutes: "00" };
 	if (zone !== undefined && zone !== "Z" && zone !== "z") {
 		const digits = zone.slice(1).replace(":", "");
-		const offsetHours = Number(digits.slice(0, 2));
-		const offsetMinutes = Number(digits.slice(2) || "0");
-		if (offsetHours > 23 || offsetMinutes > 59) return undefined;
-		offset =
-			(zone[0] === "-" ? -1 : 1) * (offsetHours * 3600 + offsetMinutes * 60);
+		const hours = digits.slice(0, 2);
+		const minutes = digits.slice(2) || "00";
+		offset = {
+			seconds:
+				(zone[0] === "-" ? -1 : 1) *
+				(Number(hours) * 3600 + Number(minutes) * 60),
+			hours,
+			minutes,
+		};
 	}
+	return {
+		date: `${y}-${mo}-${d}`,
+		hour: h,
+		minute: mi,
+		second: s,
+		fraction,
+		offset,
+		days: daysFromCivil(year, month, day),
+	};
+}
+
+/**
+ * A literal's moment in integer microseconds, or undefined when the literal
+ * names none (`parseLiteralInstant`). A fraction is rounded to the
+ * microsecond as the device parse rounds it. This reads a literal's value,
+ * never expression text.
+ */
+export function literalInstantMicros(text: string): number | undefined {
+	const literal = parseLiteralInstant(text);
+	if (literal === undefined) return undefined;
 	const seconds =
-		daysFromCivil(year, month, day) * 86400 +
-		hour * 3600 +
-		minute * 60 +
-		second -
-		offset;
+		literal.days * 86400 +
+		Number(literal.hour) * 3600 +
+		Number(literal.minute) * 60 +
+		Number(literal.second) -
+		literal.offset.seconds;
 	const micros =
-		fraction === undefined
+		literal.fraction === undefined
 			? 0
-			: Math.floor(Number(`0.${fraction}`) * 1_000_000 + 0.5);
+			: Math.floor(Number(`0.${literal.fraction}`) * 1_000_000 + 0.5);
 	// The device parse's own double operations, in its order: past 2^53
 	// microseconds (the year 2255) both round alike.
-	const total = seconds * 1_000_000 + micros;
-	return total < FIRST_MICROS || total >= END_MICROS ? undefined : total;
+	return seconds * 1_000_000 + micros;
+}
+
+/**
+ * The text a device prints for a literal, or undefined when it names no
+ * moment: the authored date and clock with seconds, the fraction's own
+ * digits (at least three), and the literal's own offset, `Z` or `±HH:MM`.
+ * Keeping the authored date and offset spells every literal with its own
+ * four-digit year, which the device parse reads by position
+ * (`lib/commcare/xpath/wire/instant.ts::instantMicros`) to the same
+ * microseconds `literalInstantMicros` gives, and which Core's own parse reads
+ * with the authored date (`DateUtils.parseTimeAndStore` applies an offset to
+ * the clock only).
+ */
+export function literalInstantText(text: string): string | undefined {
+	const literal = parseLiteralInstant(text);
+	if (literal === undefined) return undefined;
+	const { offset } = literal;
+	const zone =
+		offset.seconds === 0
+			? "Z"
+			: `${offset.seconds < 0 ? "-" : "+"}${offset.hours}:${offset.minutes}`;
+	return `${literal.date}T${literal.hour}:${literal.minute}:${literal.second}.${(literal.fraction ?? "").padEnd(3, "0")}${zone}`;
 }
 
 export type InstantComparisonKind = "eq" | "neq" | "lt" | "lte" | "gt" | "gte";

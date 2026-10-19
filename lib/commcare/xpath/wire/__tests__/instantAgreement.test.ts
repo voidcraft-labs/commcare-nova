@@ -38,7 +38,7 @@ import { parsedLiteralTexts } from "./instantParse";
 // class (a literal branch among them), operator and slot kind, the checker
 // admits a comparison, or a `datetime-coerce` printed as a value, only when
 // `toWire` prints it in every target a device evaluates, and every literal an
-// instant parse can read is printed as the canonical text of its moment; and
+// instant parse can read is printed in its own date, clock and offset; and
 // where the type rules alone admit it (the same slot with no device target),
 // the checker refuses it exactly when that print throws. A Search field's
 // condition takes each case as the value its server comparison works out on a
@@ -81,11 +81,13 @@ const SPELLINGS = [
 	"2026-02-30T10:00:00",
 	"tomorrow",
 	"",
-	// The years a device's text spells, at each end and just past it.
+	// The four-digit years at each end, in offsets whose UTC moment falls past
+	// them, and an offset past 23 hours, which Core adds to the clock.
 	"9999-12-31T23:59:59.999Z",
 	"0000-01-01T00:00:00Z",
 	"9999-12-31T23:00:00-05:00",
 	"0000-01-01T00:30:00+01:00",
+	"2026-01-03T04:30:00+24:00",
 ] as const;
 
 const formCase = (property: string): Expression =>
@@ -354,9 +356,10 @@ function cases(slot: Slot): readonly Case[] {
 	}));
 }
 
-/** The canonical text of a moment, as `instant.ts::instantCanonicalText`
- * prints it: a literal's value, never expression text. */
-const CANONICAL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(\d{3}|\d{6})Z$/;
+/** A literal's text as `instantOperand.ts::literalInstantText` prints it:
+ * its own date and clock with seconds and a fraction, then `Z` or `±HH:MM`. */
+const CANONICAL =
+	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3,}(?:Z|[+-]\d{2}:\d{2})$/;
 
 const verdict = (errors: readonly CheckError[]) =>
 	errors.map((error) =>

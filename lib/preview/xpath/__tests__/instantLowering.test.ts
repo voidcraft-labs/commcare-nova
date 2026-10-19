@@ -12,6 +12,8 @@ import {
 	type HeldKind,
 	instantFixture,
 } from "@/lib/commcare/xpath/wire/__tests__/instantFixture";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import { instantMicros } from "@/lib/commcare/xpath/wire/instant";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import { type Field, fieldSchema, type Uuid } from "@/lib/domain";
 import {
@@ -20,11 +22,14 @@ import {
 	eq,
 	gt,
 	gte,
+	literal,
 	lt,
 	lte,
 	neq,
 	now,
+	term,
 } from "@/lib/domain/expression/builders";
+import { literalInstantText } from "@/lib/domain/expression/instantOperand";
 import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import { instantDatetimeValue } from "@/lib/domain/temporalValues";
@@ -295,6 +300,8 @@ const text = (value: string, micros: number): Side => ({
 const base = Date.parse(instantFixedClock) * 1000;
 
 describe("Preview orders the lowered comparisons as moments in every zone", () => {
+	// Six zones over the sampled table: seconds of evaluation, so it carries
+	// its own budget rather than the default five.
 	it("evaluates each table pair to the order of its two moments", () => {
 		const pairs = sampledPairs();
 		inEachZone((zone) => {
@@ -320,7 +327,7 @@ describe("Preview orders the lowered comparisons as moments in every zone", () =
 				expect(result, label).toBe(answer);
 			}
 		});
-	});
+	}, 20_000);
 
 	it("treats a blank side as no moment, including a coalesce's blank date", () => {
 		inEachZone((zone) => {
@@ -441,6 +448,61 @@ describe("Preview orders the lowered comparisons as moments in every zone", () =
 						`${zone}: ${value} ${operator} now()`,
 					).toBe(expected(left, nowSide, operator));
 				}
+		});
+	});
+
+	it("reads a literal at either end of the four-digit years, printed in its own offset", () => {
+		const yearZero = new Date(Date.UTC(2000, 0, 1));
+		yearZero.setUTCFullYear(0);
+		// The first two UTC moments fall in the years 10000 and -1; the last two
+		// offsets run past 23 hours and 59 minutes, which Core adds to the clock.
+		const literals: ReadonlyArray<readonly [string, number]> = [
+			["9999-12-31T23:59:59-05:00", Date.UTC(10000, 0, 1, 4, 59, 59) * 1000],
+			["0000-01-01T00:00:00+01:00", (yearZero.getTime() - 3_600_000) * 1000],
+			["2026-01-03T04:30:00+24:00", base],
+			["2026-01-02T10:45:00+05:75", base],
+		];
+		inEachZone((zone) => {
+			for (const [value, micros] of literals) {
+				const text = literalInstantText(value);
+				if (text === undefined) throw new Error(`No text for ${value}.`);
+				const parse = serializeWire(instantMicros(w.str(text)), {
+					target: "preview",
+				}).text;
+				expect(evaluate(parse, contextFor([], zone)), `${zone}: ${value}`).toBe(
+					micros,
+				);
+				// A sentinel in a branch, chosen when the text side is blank.
+				const sentinel: Side = {
+					kind: "text",
+					coerced: false,
+					held: () => "",
+					micros,
+				};
+				const branch = Object.defineProperty(
+					(expression: Expression) =>
+						coalesce(expression, term(literal(value))),
+					"name",
+					{ value: `sentinel ${value}` },
+				);
+				for (const operator of instantOperators) {
+					const xpath = printed(BLANK_TEXT, TYPED, operator, branch);
+					expect(xpath, value).toContain(`'${text}'`);
+					expect(
+						evaluate(
+							xpath,
+							contextFor(
+								[
+									["left", BLANK_TEXT],
+									["right", TYPED],
+								],
+								zone,
+							),
+						),
+						`${zone}: coalesce(blank, '${value}') ${operator}`,
+					).toBe(expected(sentinel, TYPED, operator));
+				}
+			}
 		});
 	});
 
