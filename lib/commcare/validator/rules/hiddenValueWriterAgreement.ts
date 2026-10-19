@@ -44,35 +44,14 @@ import {
 } from "@/lib/domain/expression/inference";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { formOfField } from "@/lib/domain/fieldForm";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import type { Uuid } from "@/lib/domain/uuid";
+import {
+	valueKindPhrase,
+	valueKindsPhrase,
+} from "@/lib/domain/valueKindPhrases";
 import { type ValidationError, validationError } from "../errors";
-
-/** A kind of value, as a sentence names one of it. */
-export function dataTypePhrase(type: CasePropertyDataType | undefined): string {
-	switch (type) {
-		case "int":
-			return "a whole number";
-		case "decimal":
-			return "a number";
-		case "text":
-			return "text";
-		case "single_select":
-			return "a choice";
-		case "multi_select":
-			return "several choices";
-		case "date":
-			return "a date";
-		case "datetime":
-			return "a date and time";
-		case "time":
-			return "a time";
-		case "geopoint":
-			return "a location";
-		default:
-			return "a value";
-	}
-}
 
 /**
  * The property types whose question casts the saved text through its own
@@ -86,16 +65,6 @@ export function dataTypePhrase(type: CasePropertyDataType | undefined): string {
  */
 export const CASTING_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> =
 	new Set(["date", "datetime", "time", "int", "decimal", "geopoint"]);
-
-/** Several kinds as one phrase: `text`, `text or a whole number`. */
-function kindsPhrase(
-	types: Iterable<CasePropertyDataType | undefined>,
-): string {
-	const phrases = [...new Set([...types].map(dataTypePhrase))];
-	return phrases.length <= 1
-		? (phrases[0] ?? "a value")
-		: `${phrases.slice(0, -1).join(", ")} or ${phrases[phrases.length - 1]}`;
-}
 
 const REASON_ORDER: readonly HiddenWriterFinding["reason"][] = [
 	"type",
@@ -135,7 +104,7 @@ function writerError(
 		formUuid === undefined ? undefined : moduleUuidOfForm(doc, formUuid);
 	const subject = `Hidden value "${fieldId}" in "${formName ?? "its form"}"`;
 	const target = `"${writer.property}" on "${writer.caseType}"`;
-	const holds = dataTypePhrase(property.type);
+	const holds = valueKindPhrase(property.type);
 	const origin = originDetails(doc, property);
 	const clockSource =
 		reason === "clock-lost" || clockAlso
@@ -151,7 +120,7 @@ function writerError(
 		),
 	];
 	const disagreement = writer.outputsDisagree ? "own" : "others";
-	const gives = kindsPhrase(valueTypes);
+	const gives = valueKindsPhrase(valueTypes);
 	const stopsForm =
 		property.type !== undefined && CASTING_PROPERTY_TYPES.has(property.type);
 	const consequence = stopsForm
@@ -165,7 +134,7 @@ function writerError(
 			: reason === "hidden-disagreement"
 				? disagreement === "own"
 					? `${subject} saves ${gives} to ${target} from different results, so the property has no one type. A form that fills a question from "${writer.property}" can't know what it holds. You can make every result of the ${change} give the same kind of value, or save it to another property.`
-					: `${subject} saves ${dataTypePhrase(writer.opinion ?? valueTypes[0])} to ${target}, and other hidden values save ${otherHiddenPhrase(doc, writer)} there, so the property has no one type. A form that fills a question from "${writer.property}" can't know what it holds. You can make every hidden value that saves there give the same kind of value, or save this one to another property.`
+					: `${subject} saves ${valueKindPhrase(writer.opinion ?? valueTypes[0])} to ${target}, and other hidden values save ${otherHiddenPhrase(doc, writer)} there, so the property has no one type. A form that fills a question from "${writer.property}" can't know what it holds. You can make every hidden value that saves there give the same kind of value, or save this one to another property.`
 				: `${subject} saves ${gives} to ${target}, which holds ${holds} (${origin.phrase}). ${consequence} You can change the ${change} so it gives ${holds}, or save it to another property.${clockAlso ? ` Another of its results also keeps only the day because ${clockName} doesn't keep the time.` : ""}`;
 	const paths = verdict.findings.map((finding) => finding.path);
 	return validationError(
@@ -223,7 +192,7 @@ function originDetails(
 			};
 		case "field": {
 			const writer = doc.fields[origin.field];
-			const form = formOf(doc, origin.field);
+			const form = formOfField(doc, origin.field);
 			const formName = form === undefined ? undefined : doc.forms[form]?.name;
 			return {
 				phrase: `saved by "${writer?.id ?? "a question"}" in "${formName ?? "another form"}"`,
@@ -270,7 +239,7 @@ function otherHiddenPhrase(doc: BlueprintDoc, writer: HiddenOpinion): string {
 			other.opinion !== writer.opinion
 		)
 			others.add(other.opinion);
-	return others.size === 0 ? "something different" : kindsPhrase(others);
+	return others.size === 0 ? "something different" : valueKindsPhrase(others);
 }
 
 /** The Hidden Value whose date and time first lost its clock, reached from
@@ -319,17 +288,4 @@ function hiddenValueExpression(
 	const field = doc.fields[uuid];
 	if (field?.kind !== "hidden") return undefined;
 	return field.calculate ?? field.default_value;
-}
-
-function formOf(doc: BlueprintDoc, uuid: Uuid): Uuid | undefined {
-	const seen = new Set<Uuid>();
-	let at = uuid;
-	while (!seen.has(at)) {
-		seen.add(at);
-		const parent = doc.fieldParent[at];
-		if (parent === undefined) return undefined;
-		if (doc.forms[parent] !== undefined) return parent;
-		at = parent;
-	}
-	return undefined;
 }

@@ -85,7 +85,7 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 			case "datetime-ordering":
 				return "A date and time can only be ordered against another date and time. You can wrap it in date() to compare days";
 			case "boolean":
-				return "Any answer that isn't blank counts as true. You can compare it with the choice's value instead";
+				return "Anything that isn't blank or zero counts as true. You can compare it with the choice's value instead";
 			default:
 				return "Choose values that use compatible kinds of information";
 		}

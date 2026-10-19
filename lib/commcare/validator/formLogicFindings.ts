@@ -5,24 +5,27 @@ import {
 	slotContext,
 } from "@/lib/domain/expression/context";
 import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
-import { ANY_TYPE, literalShape } from "@/lib/domain/expression/ruleSets";
+import { ANY_TYPE } from "@/lib/domain/expression/ruleSets";
+import { expressionSlotLabel } from "@/lib/domain/expression/slotLabels";
 import {
 	type CheckError,
 	checkExpression,
 	expressionContextAtPath,
+	formComparisonOperandTypes,
 	type ScalarType,
 	scalarDataType,
 	typeOf,
 } from "@/lib/domain/expression/typeChecker";
 import type {
 	Expression,
-	Literal,
 	SlotContextRef,
 	Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { formOfField } from "@/lib/domain/fieldForm";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import type { Uuid } from "@/lib/domain/uuid";
+import { valueKindPhrase } from "@/lib/domain/valueKindPhrases";
 import {
 	type ValidationError,
 	type ValidationErrorCode,
@@ -106,49 +109,6 @@ function firstUnder<K extends Expression["kind"]>(
 	return result;
 }
 
-/** How a slot reads inside a sentence about the thing that owns it. */
-export function formLogicSlotLabel(slot: SlotContextRef["slot"]): string {
-	switch (slot) {
-		case "calculate":
-			return "calculated value";
-		case "default_value":
-			return "default value";
-		case "relevant":
-		case "form_display_condition":
-			return "display condition";
-		case "required":
-			return "required condition";
-		case "validate":
-			return "validation rule";
-		case "repeat_count":
-			return "repeat count";
-		case "ids_query":
-			return "case query";
-		case "lookup_options_source":
-			return "choice filter";
-		case "form_link_condition":
-			return "after-submit link condition";
-		case "form_link_datum_xpath":
-			return "after-submit link";
-		case "assessment_user_score":
-		case "deliver_entity_id":
-		case "deliver_entity_name":
-			return "Connect setting";
-		case "label":
-			return "label";
-		case "hint":
-			return "hint";
-		case "help":
-			return "help text";
-		case "validate_msg":
-			return "validation message";
-		case "option_label":
-			return "choice label";
-		default:
-			return "formula";
-	}
-}
-
 /** The owner of a slot, as a sentence names it from the slot's context. */
 function slotOwner(ctx: ExpressionContext | undefined): {
 	/** `"visit"` or `This after-submit link condition`. */
@@ -158,7 +118,7 @@ function slotOwner(ctx: ExpressionContext | undefined): {
 	/** `"visit"'s display condition` or `This after-submit link condition`. */
 	readonly slotSubject: string;
 } {
-	const label = formLogicSlotLabel(ctx?.slot.slot ?? "relevant");
+	const label = expressionSlotLabel(ctx?.slot.slot ?? "relevant");
 	const field =
 		ctx?.slot.entity === "field"
 			? ctx.form?.fields.get(ctx.slot.uuid)
@@ -176,38 +136,8 @@ function slotOwner(ctx: ExpressionContext | undefined): {
 	};
 }
 
-/** A value's kind, as a person names it. */
-export function valueKindPhrase(type: ScalarType | undefined): string {
-	switch (type) {
-		case "int":
-		case "decimal":
-			return "a number";
-		case "text":
-		case "single_select":
-		case "multi_select":
-			return "text";
-		case "date":
-			return "a date";
-		case "datetime":
-			return "a date and time";
-		case "time":
-			return "a time";
-		case "geopoint":
-			return "a place";
-		case "boolean":
-			return "true or false";
-		default:
-			return "a value that isn't one";
-	}
-}
-
-/**
- * The two sides of the comparison at `path`, typed as the form checker types
- * them (`typeChecker.ts::checkFormComparison`): an untyped string literal
- * takes the type its ISO date, date-and-time or `HH:MM[:SS]` shape spells
- * where the comparison orders it, or where the other side has a type of its
- * own and is no literal.
- */
+/** The two sides of the comparison at `path`, typed as the form checker
+ * types them (`typeChecker.ts::formComparisonOperandTypes`). */
 function comparisonSides(
 	root: Expression | undefined,
 	path: CheckError["path"],
@@ -230,39 +160,12 @@ function comparisonSides(
 			node.kind !== "lte")
 	)
 		return undefined;
-	const ordering = node.kind !== "eq" && node.kind !== "neq";
 	const at = expressionContextAtPath(root, ctx, path);
-	const leftType = scalarDataType(typeOf(node.left, at)?.data);
-	const rightType = scalarDataType(typeOf(node.right, at)?.data);
-	const shaped = (
-		operand: Expression,
-		type: ScalarType | undefined,
-		other: ScalarType | undefined,
-		otherOperand: Expression,
-	): ScalarType | undefined => {
-		const literal = directLiteral(operand);
-		if (
-			literal === undefined ||
-			literal.data_type !== undefined ||
-			typeof literal.value !== "string"
-		)
-			return type;
-		const shape = literalShape(literal.value);
-		if (shape === undefined) return type;
-		const otherKnown = other !== undefined && other !== ANY_TYPE;
-		return ordering || (otherKnown && directLiteral(otherOperand) === undefined)
-			? shape.type
-			: type;
-	};
-	return {
-		left: shaped(node.left, leftType, rightType, node.right),
-		right: shaped(node.right, rightType, leftType, node.left),
-	};
-}
-function directLiteral(expression: Expression): Literal | undefined {
-	return expression.kind === "term" && expression.term.kind === "literal"
-		? expression.term
-		: undefined;
+	return formComparisonOperandTypes(
+		node,
+		scalarDataType(typeOf(node.left, at)?.data),
+		scalarDataType(typeOf(node.right, at)?.data),
+	);
 }
 /** The side of a comparison that isn't `kind`, where one side is. */
 function operandOtherThan(
@@ -406,8 +309,14 @@ export function formLogicFinding(
 			const owner = slotOwner(ctx);
 			if (error.reason === "here") {
 				code = "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
-				details = { reason: "here" };
-				message = `${owner.slotSubject} uses here(), the worker's location, which CommCare knows only in a case list's calculated column. You can add a location question and read its answer instead.`;
+				// A slot that reads the form's answers can read a location
+				// question instead; one that reads no answers (a case list
+				// filter, a search input, a display condition) can't.
+				const formSlot = ctx?.profile.formAnswers === true;
+				details = { reason: "here", hereSurface: formSlot ? "form" : "record" };
+				message = formSlot
+					? `${owner.slotSubject} uses here(), the worker's location, which CommCare knows only in a case list's calculated column. You can add a location question and read its answer instead.`
+					: `${owner.slotSubject} uses here(), the worker's location, which only a case list's calculated column can read. You can show it in a calculated column instead.`;
 			} else if (
 				error.reason === "choice-name" ||
 				error.reason === "choice-name-dynamic"
@@ -448,7 +357,7 @@ export function formLogicFinding(
 					reason: error.reason,
 					...(other === undefined ? {} : { otherType: other }),
 				};
-				message = `${owner.subject} orders a date and time against ${valueKindPhrase(other)}${owner.inSlot}. CommCare can only order two dates and times by their moment. You can compare it with another date and time, or wrap it in date() to compare days.`;
+				message = `${owner.subject} orders a date and time against ${valueKindPhrase(other, "a value that isn't one")}${owner.inSlot}. CommCare can only order two dates and times by their moment. You can compare it with another date and time, or wrap it in date() to compare days.`;
 			} else if (error.reason === "boolean") {
 				const other = operandOtherThan(
 					comparisonSides(expression, error.path, ctx),
@@ -457,7 +366,7 @@ export function formLogicFinding(
 				const kind =
 					other === undefined || other === ANY_TYPE
 						? "another kind of value"
-						: valueKindPhrase(other);
+						: valueKindPhrase(other, "another kind of value");
 				details = {
 					reason: error.reason,
 					...(other === undefined ? {} : { otherType: other }),
@@ -535,7 +444,7 @@ export function presentFormLogicFinding(
 		slot.entity === "form"
 			? slot.uuid
 			: slot.entity === "field"
-				? findForm(doc, slot.uuid)
+				? formOfField(doc, slot.uuid)
 				: undefined;
 	const moduleUuid =
 		slot.entity === "module"
@@ -550,7 +459,7 @@ export function presentFormLogicFinding(
 			: slot.entity === "form"
 				? `Form "${doc.forms[slot.uuid]?.name ?? "this form"}"`
 				: `Menu "${doc.modules[slot.uuid]?.name ?? "this menu"}"`;
-	const slotLabel = formLogicSlotLabel(slot.slot);
+	const slotLabel = expressionSlotLabel(slot.slot);
 	const referenced =
 		error.checkCode === "unknown-user-property"
 			? "worker property"
@@ -624,18 +533,6 @@ export function presentFormLogicFinding(
 		},
 		details,
 	);
-}
-function findForm(doc: BlueprintDoc, uuid: Uuid): Uuid | undefined {
-	const seen = new Set<Uuid>();
-	let at = uuid;
-	while (!seen.has(at)) {
-		seen.add(at);
-		const parent = doc.fieldParent[at];
-		if (parent === undefined) return undefined;
-		if (doc.forms[parent] !== undefined) return parent;
-		at = parent;
-	}
-	return undefined;
 }
 /** The editor and the gate share this exact projection for a parsed draft. */
 export function checkFormLogicSlot(

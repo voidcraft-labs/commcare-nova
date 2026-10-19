@@ -13,7 +13,9 @@ import {
 	f,
 } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { BlueprintDoc } from "@/lib/domain";
+import { ifExpr } from "@/lib/domain/expression/builders";
 import { inferExpressionTypes } from "@/lib/domain/expression/inference";
 import { runValidation } from "../runner";
 
@@ -563,7 +565,11 @@ describe("a date and time whose clock an earlier Hidden Value dropped", () => {
 	});
 
 	it("refuses a case operation saving the same copy, beside one saving now()", () => {
-		const withWrite = (value: "copy" | "now") => {
+		const stampTerm = {
+			kind: "term",
+			term: { kind: "field", uuid: uuid("stamp") },
+		} as const;
+		const withWrite = (value: "copy" | "now" | "copy-or-text") => {
 			const built = doc({
 				properties: seenAt,
 				checkIn: [hidden("stamp", { calculate: "now()" })],
@@ -580,11 +586,23 @@ describe("a date and time whose clock an earlier Hidden Value dropped", () => {
 							property: "seen_at",
 							value:
 								value === "copy"
-									? {
-											kind: "term",
-											term: { kind: "field", uuid: uuid("stamp") },
-										}
-									: { kind: "now" },
+									? stampTerm
+									: value === "copy-or-text"
+										? ifExpr(
+												{
+													kind: "is-blank",
+													left: {
+														kind: "term",
+														term: { kind: "field", uuid: uuid("comment") },
+													},
+												},
+												stampTerm,
+												{
+													kind: "term",
+													term: { kind: "literal", value: "abc" },
+												},
+											)
+										: { kind: "now" },
 						},
 					],
 				},
@@ -599,6 +617,17 @@ describe("a date and time whose clock an earlier Hidden Value dropped", () => {
 			}),
 		]);
 		expect(withWrite("now")).toEqual([]);
+		// Text beside the lost clock is the ordinary refusal, not the midnight one.
+		const mixed = withWrite("copy-or-text");
+		expect(mixed).toEqual([
+			expect.objectContaining({
+				code: "CASE_OPERATION_EXPRESSION_TYPE",
+				details: expect.not.objectContaining({ reason: "clock-lost" }),
+			}),
+		]);
+		expect(userFacingError(mixed[0])).toBe(
+			"A value or condition in this case operation doesn't fit where it's used. Review the highlighted operation.",
+		);
 	});
 
 	it("admits now() saved straight to the date-and-time property", () => {

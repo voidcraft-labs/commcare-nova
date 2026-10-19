@@ -42,6 +42,7 @@ import type {
 import { writerPreloadsFromLoadedCase } from "../casePreload";
 import type { CasePropertyDataType } from "../casePropertyTypes";
 import { caseDataTypeForFieldKind, fieldCaseWrite } from "../caseTypes";
+import { formOfField } from "../fieldForm";
 import type { Field, HiddenField } from "../fields";
 import { fieldValueType } from "../fieldValueType";
 import { orderedCaseOperations } from "../forms";
@@ -155,7 +156,10 @@ export interface ExpressionInference {
 	 * property: visible kinds, case operations, and Hidden Values (preloaded
 	 * starting values excluded). An operation's or a Hidden Value's opinion is
 	 * the property's agreed type where its value is storage-assignable to it,
-	 * else the value's own type, so a writer that agrees adds no type. */
+	 * so a writer that agrees adds no type. An operation's value that does not
+	 * fit adds its own type; a Hidden Value's adds none, since
+	 * `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` reports it. A property no fact types
+	 * takes every writer's own type. */
 	readonly writerOpinions: ReadonlyMap<
 		string,
 		ReadonlyMap<string, ReadonlySet<CasePropertyDataType>>
@@ -216,6 +220,63 @@ export function inferExpressionTypes(doc: PersistableDoc): ExpressionInference {
 		IN_PROGRESS.delete(doc);
 		IN_PROGRESS.delete(view);
 	}
+}
+
+const NAMED_BY_INFERENCE = new WeakMap<PersistableDoc, ReadonlySet<string>>();
+
+/** Every string a Hidden Value's value or a case operation holds anywhere in
+ * its tree: a superset of every field uuid inference reads a position of. */
+function namedByInference(doc: PersistableDoc): ReadonlySet<string> {
+	const cached = NAMED_BY_INFERENCE.get(doc);
+	if (cached !== undefined) return cached;
+	const named = new Set<string>();
+	const visit = (value: unknown): void => {
+		if (typeof value === "string") named.add(value);
+		else if (Array.isArray(value)) for (const item of value) visit(item);
+		else if (typeof value === "object" && value !== null)
+			for (const item of Object.values(value)) visit(item);
+	};
+	for (const field of Object.values(doc.fields))
+		if (field.kind === "hidden") {
+			visit(field.calculate);
+			visit(field.default_value);
+		}
+	for (const form of Object.values(doc.forms)) visit(form.caseOperations);
+	NAMED_BY_INFERENCE.set(doc, named);
+	return named;
+}
+
+/**
+ * Lets `moved`'s inference stand for `candidate`'s, when `candidate` is
+ * `moved` with `subtree` moved to another parent in its own form and the move
+ * provably decides no inferred fact. Inference reads a field's position only
+ * through a Hidden Value (its slot's context), a case writer (the form's case
+ * write inventory, which session supplies read), or a field a Hidden Value or
+ * case operation names (its repeats); every other read is the field's kind,
+ * its case write and its form, which a move within the form keeps. So a
+ * subtree that holds no Hidden Value and no case writer, and no field of
+ * which any Hidden Value or case operation names, leaves every fact as it
+ * was. Returns whether the inference was shared.
+ */
+export function shareInferenceAcrossMove(
+	moved: PersistableDoc,
+	candidate: PersistableDoc,
+	subtree: ReadonlySet<Uuid>,
+): boolean {
+	const named = namedByInference(moved);
+	for (const uuid of subtree) {
+		const field = moved.fields[uuid];
+		if (
+			field === undefined ||
+			field.kind === "hidden" ||
+			fieldCaseWrite(field) !== undefined ||
+			named.has(uuid)
+		)
+			return false;
+	}
+	if (INFERENCE_CACHE.has(candidate)) return false;
+	INFERENCE_CACHE.set(candidate, inferExpressionTypes(moved));
+	return true;
 }
 
 const FINGERPRINT_CACHE = new WeakMap<PersistableDoc, string>();
@@ -426,6 +487,24 @@ class Inference {
 		string,
 		{ readonly caseType: string; readonly property: string }
 	>();
+	/** Every Hidden Value each Hidden Value's value names: an analysis reads
+	 * a Hidden Value's facts only through a reference to its uuid (a slot's
+	 * expectation never carries its own field's type), so these are the only
+	 * Hidden Value facts it reads. */
+	private readonly siteReads: ReadonlyMap<Uuid, readonly Uuid[]>;
+	/** The Hidden Values whose value may read the case catalog: every one
+	 * except those built only from answers, literals and pure operations. */
+	private readonly readsCatalog: ReadonlySet<Uuid>;
+	/** The analyses of the latest pass, each with the facts it read, so a
+	 * pass analyses again only a Hidden Value whose facts moved. */
+	private readonly passAnalyses = new Map<
+		Uuid,
+		{
+			readonly key: string;
+			readonly catalogKey: string;
+			readonly analysis: HiddenAnalysis;
+		}
+	>();
 
 	constructor(private readonly doc: BlueprintDoc) {
 		this.untyped = untypedExpressionFacts(doc);
@@ -445,6 +524,18 @@ class Inference {
 		}
 		this.fieldWriters = fieldWriters;
 		this.hiddenSites = hiddenSites;
+		const hiddenUuids = new Set(hiddenSites.map((site) => site.field.uuid));
+		this.siteReads = new Map(
+			hiddenSites.map((site) => [
+				site.field.uuid,
+				namedUuids(site.expression, hiddenUuids),
+			]),
+		);
+		this.readsCatalog = new Set(
+			hiddenSites.flatMap((site) =>
+				mayReadCatalog(site.expression) ? [site.field.uuid] : [],
+			),
+		);
 		const operationWrites: OperationWrite[] = [];
 		for (const [formUuid, form] of Object.entries(doc.forms)) {
 			const moduleUuid = moduleUuidOfForm(doc, formUuid as Uuid);
@@ -489,14 +580,15 @@ class Inference {
 			operations: this.operationWrites.map(() => undefined),
 		};
 		const history: TypingState[] = [state];
-		const seen = new Map<string, number>([[signature(state), 0]]);
+		let stateKey = signature(state);
+		const seen = new Map<string, number>([[stateKey, 0]]);
 		// Every fact ranges over finitely many types, so the passes reach a
 		// fixed point or revisit a state: each pass that does neither records a
 		// new signature, and there are finitely many.
 		for (;;) {
 			const next = this.pass(state);
 			const key = signature(next);
-			if (key === signature(state)) {
+			if (key === stateKey) {
 				state = next;
 				break;
 			}
@@ -510,21 +602,40 @@ class Inference {
 			seen.set(key, history.length);
 			history.push(next);
 			state = next;
+			stateKey = key;
 		}
 		return this.finish(state);
 	}
 
 	/** One recomputation of H, then P, then O. */
 	private pass(state: TypingState): TypingState {
-		const facts = this.facts(
-			concreteCatalog(this.catalog(state.properties)),
-			state.hidden,
-			new Map(),
-			new Set(),
-		);
+		// An analysis reads the catalog (where its value can read case data)
+		// and the data types of the Hidden Values it names, so one whose facts
+		// are unchanged is the previous pass's.
+		const catalogKey = propertyTypesKey(state.properties);
+		let facts: ExpressionFacts | undefined;
 		const analyses = new Map<Uuid, HiddenAnalysis>();
-		for (const site of this.hiddenSites)
-			analyses.set(site.field.uuid, this.analyse(site, facts));
+		for (const site of this.hiddenSites) {
+			const uuid = site.field.uuid;
+			const key = this.typesKey(uuid, state.hidden);
+			const previous = this.passAnalyses.get(uuid);
+			if (
+				previous?.key === key &&
+				(previous.catalogKey === catalogKey || !this.readsCatalog.has(uuid))
+			) {
+				analyses.set(uuid, previous.analysis);
+				continue;
+			}
+			facts ??= this.facts(
+				this.concreteCatalogOf(state.properties),
+				state.hidden,
+				new Map(),
+				new Set(),
+			);
+			const analysis = this.analyse(site, facts);
+			this.passAnalyses.set(uuid, { key, catalogKey, analysis });
+			analyses.set(uuid, analysis);
+		}
 		const hiddenOpinions = new Map<Uuid, CasePropertyDataType | undefined>();
 		for (const site of this.hiddenSites)
 			if (site.write !== undefined && !site.preloadedDefault)
@@ -543,7 +654,7 @@ class Inference {
 					properties,
 				),
 			);
-		const nextCatalog = concreteCatalog(this.catalog(properties));
+		const nextCatalog = this.concreteCatalogOf(properties);
 		const operations = this.operationWrites.map((write) =>
 			this.operationOpinion(write, nextCatalog, hidden),
 		);
@@ -558,18 +669,47 @@ class Inference {
 		const concrete = concreteCatalog(caseTypes);
 		let held = new Map<Uuid, ScalarHeld>();
 		let clockLost = new Set<Uuid>();
-		let analyses = new Map<Uuid, HiddenAnalysis>();
+		const analyses = new Map<Uuid, HiddenAnalysis>();
+		// The types are settled, so an analysis reads only the held class and
+		// clock of the Hidden Values it names: one whose facts are unchanged is
+		// the previous pass's.
+		const read = new Map<Uuid, string>();
+		const dateTimeBinds = new Map(
+			this.hiddenSites.map((site) => [
+				site.field.uuid,
+				fieldValueType(site.field, caseTypes) === "datetime",
+			]),
+		);
+		// The first pass reads no held class and no lost clock, as every typing
+		// pass did, so an analysis the last typing pass made over these types
+		// is already this pass's.
+		const catalogKey = propertyTypesKey(state.properties);
+		for (const site of this.hiddenSites) {
+			const uuid = site.field.uuid;
+			const previous = this.passAnalyses.get(uuid);
+			if (
+				previous?.key === this.typesKey(uuid, state.hidden) &&
+				(previous.catalogKey === catalogKey || !this.readsCatalog.has(uuid))
+			) {
+				analyses.set(uuid, previous.analysis);
+				read.set(uuid, this.heldKey(uuid, new Map(), new Set()));
+			}
+		}
 		for (let pass = 0; pass <= this.hiddenSites.length + 1; pass += 1) {
-			const facts = this.facts(concrete, state.hidden, held, clockLost);
-			analyses = new Map();
-			for (const site of this.hiddenSites)
-				analyses.set(site.field.uuid, this.analyse(site, facts));
+			let facts: ExpressionFacts | undefined;
+			for (const site of this.hiddenSites) {
+				const uuid = site.field.uuid;
+				const key = this.heldKey(uuid, held, clockLost);
+				if (read.get(uuid) === key && analyses.has(uuid)) continue;
+				facts ??= this.facts(concrete, state.hidden, held, clockLost);
+				analyses.set(uuid, this.analyse(site, facts));
+				read.set(uuid, key);
+			}
 			const nextHeld = new Map<Uuid, ScalarHeld>();
 			const nextLost = new Set(clockLost);
 			for (const site of this.hiddenSites) {
 				const analysis = analyses.get(site.field.uuid);
-				const dateTimeBind =
-					fieldValueType(site.field, caseTypes) === "datetime";
+				const dateTimeBind = dateTimeBinds.get(site.field.uuid) === true;
 				nextHeld.set(site.field.uuid, heldOf(site, analysis, dateTimeBind));
 				if (clockIsLost(site, analysis, dateTimeBind))
 					nextLost.add(site.field.uuid);
@@ -619,8 +759,31 @@ class Inference {
 		};
 	}
 
+	/** The data types of the Hidden Values a Hidden Value names. */
+	private typesKey(
+		uuid: Uuid,
+		hidden: ReadonlyMap<Uuid, CasePropertyDataType | undefined>,
+	): string {
+		return (this.siteReads.get(uuid) ?? [])
+			.map((named) => hidden.get(named) ?? "")
+			.join(",");
+	}
+
+	/** The held class and clock of the Hidden Values a Hidden Value names. */
+	private heldKey(
+		uuid: Uuid,
+		held: ReadonlyMap<Uuid, ScalarHeld>,
+		clockLost: ReadonlySet<Uuid>,
+	): string {
+		return (this.siteReads.get(uuid) ?? [])
+			.map(
+				(named) => `${held.get(named) ?? ""}${clockLost.has(named) ? "!" : ""}`,
+			)
+			.join(",");
+	}
+
 	private hiddenSite(field: HiddenField): HiddenWriterSite {
-		const form = this.homeForm(field.uuid);
+		const form = formOfField(this.doc, field.uuid);
 		const source: HiddenValueSource | undefined =
 			field.calculate !== undefined
 				? "calculate"
@@ -657,19 +820,6 @@ class Inference {
 			preloaded,
 			preloadedDefault: source === "default_value" && preloaded,
 		};
-	}
-
-	private homeForm(uuid: Uuid): Uuid | undefined {
-		const seen = new Set<Uuid>();
-		let current = uuid;
-		while (!seen.has(current)) {
-			seen.add(current);
-			const parent = this.doc.fieldParent[current];
-			if (parent === undefined) return undefined;
-			if (this.doc.forms[parent] !== undefined) return parent;
-			current = parent;
-		}
-		return undefined;
 	}
 
 	private facts(
@@ -941,6 +1091,24 @@ class Inference {
 			?.properties.find((candidate) => candidate.name === property);
 	}
 
+	private catalogMemo:
+		| { readonly key: string; readonly concrete: readonly CaseType[] }
+		| undefined;
+	/** The concrete catalog for one `P`. It reads only each property's data
+	 * type, so passes that leave every type unchanged share one catalog, and
+	 * the facts built over it stay shared too. */
+	private concreteCatalogOf(
+		properties: ReadonlyMap<string, PropertyAgreement>,
+	): readonly CaseType[] {
+		const key = propertyTypesKey(properties);
+		if (this.catalogMemo?.key !== key)
+			this.catalogMemo = {
+				key,
+				concrete: concreteCatalog(this.catalog(properties)),
+			};
+		return this.catalogMemo.concrete;
+	}
+
 	/** The effective catalog for one `P`. */
 	private catalog(
 		properties: ReadonlyMap<string, PropertyAgreement>,
@@ -1025,20 +1193,22 @@ class Inference {
 				continue;
 			}
 			// A Hidden Value supplies a value to the property's storage, as an
-			// operation does: an opinion its agreed type stores is that type.
+			// operation does: an opinion its agreed type stores is that type. One
+			// the agreed type does not store adds nothing here, since
+			// `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` names that Hidden Value alone and
+			// a correct writer beside it stays admitted.
 			const opinion = hiddenOpinions.get(writer.field.uuid)?.opinion;
 			const destination = state.properties.get(
 				propertyKey(writer.caseType, writer.property),
 			)?.type;
-			add(
-				writer.caseType,
-				writer.property,
+			if (destination === undefined)
+				add(writer.caseType, writer.property, opinion);
+			else if (
 				opinion !== undefined &&
-					destination !== undefined &&
-					isValueStorageAssignable(opinion, destination)
-					? destination
-					: opinion,
-			);
+				isValueStorageAssignable(opinion, destination)
+			)
+				add(writer.caseType, writer.property, destination);
+			else add(writer.caseType, writer.property, undefined);
 		}
 		this.operationWrites.forEach((write, index) => {
 			add(write.caseType, write.property, state.operations[index]);
@@ -1122,6 +1292,79 @@ function clockIsLost(
 			return true;
 	}
 	return false;
+}
+
+/** The data type of every property, as one comparable string: the only fact
+ * of `P` the catalog an analysis reads depends on. */
+function propertyTypesKey(
+	properties: ReadonlyMap<string, PropertyAgreement>,
+): string {
+	return JSON.stringify(
+		[...properties].map(([key, agreement]) => [key, agreement.type ?? null]),
+	);
+}
+
+/** Node and term kinds that read answers, literals and pure operations only:
+ * typing them never consults the case catalog. */
+const CATALOG_FREE_KINDS: ReadonlySet<string> = new Set([
+	"term",
+	"field",
+	"literal",
+	"choice",
+	"arith",
+	"concat",
+	"coalesce",
+	"if",
+	"switch",
+	"eq",
+	"neq",
+	"gt",
+	"gte",
+	"lt",
+	"lte",
+	"and",
+	"or",
+	"not",
+	"today",
+	"now",
+	"negate",
+	"double",
+	"date-coerce",
+	"datetime-coerce",
+	"date-add",
+	"format-date",
+	"is-blank",
+	"call",
+]);
+
+/** Whether an expression holds anything outside `CATALOG_FREE_KINDS`, read
+ * anywhere in its tree. */
+function mayReadCatalog(expression: Expression | undefined): boolean {
+	const visit = (value: unknown): boolean => {
+		if (Array.isArray(value)) return value.some(visit);
+		if (typeof value !== "object" || value === null) return false;
+		const kind = (value as { kind?: unknown }).kind;
+		if (typeof kind === "string" && !CATALOG_FREE_KINDS.has(kind)) return true;
+		return Object.values(value).some(visit);
+	};
+	return visit(expression);
+}
+
+/** Every uuid of `candidates` an expression names anywhere in its tree. */
+function namedUuids(
+	expression: Expression | undefined,
+	candidates: ReadonlySet<Uuid>,
+): Uuid[] {
+	const found = new Set<Uuid>();
+	const visit = (value: unknown): void => {
+		if (typeof value === "string") {
+			if (candidates.has(value as Uuid)) found.add(value as Uuid);
+		} else if (Array.isArray(value)) for (const item of value) visit(item);
+		else if (typeof value === "object" && value !== null)
+			for (const item of Object.values(value)) visit(item);
+	};
+	visit(expression);
+	return [...found].sort();
 }
 
 function signature(state: TypingState): string {

@@ -289,7 +289,7 @@ describe("comparisons whose values don't line up, at every carrier", () => {
 				}),
 			]);
 			expect(refused[0].message).toContain(
-				"orders a date and time against a number",
+				"orders a date and time against a whole number",
 			);
 			expect(
 				atCarrier(
@@ -359,7 +359,7 @@ describe("the operand a comparison refusal names, typed as the checker typed it"
 			}),
 		]);
 		expect(refused[0]?.message).toContain(
-			"orders a date and time against a number",
+			"orders a date and time against a whole number",
 		);
 		expect(findingsOf("'2026-01-01T10:00' > now()")).toEqual([]);
 	});
@@ -370,7 +370,11 @@ describe("the operand a comparison refusal names, typed as the checker typed it"
 			otherType: "text",
 			kind: "text",
 		},
-		{ source: "(#form/number > 3) = 1", otherType: "int", kind: "a number" },
+		{
+			source: "(#form/number > 3) = 1",
+			otherType: "int",
+			kind: "a whole number",
+		},
 	])(
 		"names what $source sets against its true-or-false result",
 		({ source, otherType, kind }) => {
@@ -538,6 +542,44 @@ describe("functions a form can't run", () => {
 			}),
 		]);
 		expect(refused[0].message).toContain("uses here(), the worker's location");
+	});
+
+	it("offers a location question where a slot reads answers, and the calculated column where it reads none", () => {
+		const here: Expression = {
+			kind: "eq",
+			left: { kind: "here" },
+			right: value("x"),
+		};
+		const inForm = formLogicFindings(
+			here,
+			requireContext(formFixture(), {
+				entity: "field",
+				uuid: ids.text,
+				slot: "relevant",
+			}),
+		);
+		expect(inForm).toEqual([
+			expect.objectContaining({
+				details: { reason: "here", hereSurface: "form" },
+			}),
+		]);
+		expect(inForm[0].message).toContain("You can add a location question");
+		const inFilter = formLogicFindings(
+			here,
+			requireContext(formFixture(), {
+				entity: "module",
+				uuid: ids.module,
+				slot: "case_list_filter",
+			}),
+		);
+		expect(inFilter).toEqual([
+			expect.objectContaining({
+				details: { reason: "here", hereSurface: "record" },
+			}),
+		]);
+		expect(inFilter[0].message).toContain(
+			"which only a case list's calculated column can read. You can show it in a calculated column instead.",
+		);
 	});
 
 	it("names the question whose choice label a formula asks for", () => {

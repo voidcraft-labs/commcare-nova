@@ -3,6 +3,7 @@
 // writer opinions the agreement rule reads. Each refusal-shaped fact sits
 // beside the neighbour that differs from it in one fact.
 
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -13,12 +14,14 @@ import {
 } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutation } from "@/lib/doc/mutations";
 import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
 import { fieldValueType } from "../../fieldValueType";
 import {
 	hiddenWriterVerdicts,
 	inferExpressionTypes,
 	inferenceFingerprint,
+	shareInferenceAcrossMove,
 } from "../inference";
 
 const REGISTER = testUuid("inference-register");
@@ -149,11 +152,16 @@ describe("Hidden Value data types", () => {
 			followUp: [
 				hidden("copy", { calculate: "#patient/visit_date" }, "last_seen"),
 				hidden("again", { calculate: "#patient/last_seen" }, "seen_again"),
+				// Reads only an answer, so it is typed again once "again" is.
+				hidden("after", { calculate: "#form/again" }),
 			],
 		});
 		expect(propertyType(built, "last_seen")).toBe("date");
 		expect(propertyType(built, "seen_again")).toBe("date");
 		expect(inferExpressionTypes(built).hiddenTypes.get(uuid("again"))).toBe(
+			"date",
+		);
+		expect(inferExpressionTypes(built).hiddenTypes.get(uuid("after"))).toBe(
 			"date",
 		);
 	});
@@ -375,6 +383,10 @@ describe("writer opinions beside a case operation's write", () => {
 		validate(built).filter(
 			(error) => error.code === "CASE_OPERATION_EXPRESSION_TYPE",
 		);
+	const mismatches = (built: BlueprintDoc) =>
+		validate(built)
+			.filter((error) => error.code === "HIDDEN_VALUE_WRITER_TYPE_MISMATCH")
+			.map((error) => error.location.fieldUuid);
 
 	it("counts a Hidden Value's text that a choice property stores as that choice type", () => {
 		const agreeing = withFollowUpWrites(
@@ -399,9 +411,10 @@ describe("writer opinions beside a case operation's write", () => {
 			}),
 			[{ property: "stage", value: literalValue("open") }],
 		);
-		expect(conflicts(disagreeing).map((error) => error.message)).toContain(
-			'Case property "stage" on patient has conflicting writer types: date, single_select.',
-		);
+		// The Hidden Value that does not fit is its own finding; the operation
+		// beside it writes a fitting value and stays admitted.
+		expect(conflicts(disagreeing)).toEqual([]);
+		expect(mismatches(disagreeing)).toEqual([uuid("closing")]);
 	});
 
 	it("counts a Hidden Value's integer that a decimal property stores as decimal", () => {
@@ -427,9 +440,46 @@ describe("writer opinions beside a case operation's write", () => {
 			}),
 			[{ property: "amount", value: literalValue(1.5) }],
 		);
-		expect(conflicts(disagreeing).map((error) => error.message)).toContain(
-			'Case property "amount" on patient has conflicting writer types: decimal, text.',
+		expect(conflicts(disagreeing)).toEqual([]);
+		expect(mismatches(disagreeing)).toEqual([uuid("rounded")]);
+	});
+
+	it("refuses only the Hidden Value whose value a declared type does not store", () => {
+		const ageProperties = [
+			{ name: "age", label: "Age", data_type: "int" as const },
+		];
+		const withHidden = withFollowUpWrites(
+			doc({
+				properties: ageProperties,
+				followUp: [hidden("age_text", { calculate: "'abc'" }, "age")],
+			}),
+			[{ property: "age", value: literalValue(5) }],
 		);
+		expect(
+			inferExpressionTypes(withHidden)
+				.writerOpinions.get("patient")
+				?.get("age"),
+		).toEqual(new Set(["int"]));
+		expect(validate(withHidden).map((error) => error.code)).toEqual([
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+		]);
+		const operationAlone = withFollowUpWrites(
+			doc({ properties: ageProperties }),
+			[{ property: "age", value: literalValue(5) }],
+		);
+		expect(validate(operationAlone)).toEqual([]);
+	});
+
+	it("keeps a Hidden Value's own type where no fact types the property", () => {
+		const raw = doc({
+			followUp: [
+				hidden("first", { calculate: "'abc'" }, "untyped"),
+				hidden("second", { calculate: "today()" }, "untyped"),
+			],
+		});
+		expect(
+			inferExpressionTypes(raw).writerOpinions.get("patient")?.get("untyped"),
+		).toEqual(new Set(["text", "date"]));
 	});
 });
 
@@ -613,5 +663,65 @@ describe("the inference fingerprint", () => {
 		});
 		expect(inferenceFingerprint(retyped)).not.toBe(inferenceFingerprint(base));
 		expect(inferenceFingerprint(relabelled)).toBe(inferenceFingerprint(base));
+	});
+});
+
+describe("sharing inference across a move within a form", () => {
+	const built = () =>
+		doc({
+			register: [
+				f({ uuid: uuid("count"), kind: "int", id: "count", label: "Count" }),
+				hidden("copy", { calculate: "#form/count" }),
+				f({ uuid: uuid("plain"), kind: "text", id: "plain", label: "Plain" }),
+				f({
+					uuid: uuid("saved"),
+					kind: "text",
+					id: "saved",
+					label: "Saved",
+					caseWrite: { caseType: "patient", property: "saved" },
+				}),
+				f({
+					uuid: uuid("entries"),
+					kind: "repeat",
+					id: "entries",
+					children: [f({ kind: "text", id: "inside", label: "Inside" })],
+				}),
+			],
+		});
+	const moved = (before: BlueprintDoc, name: string) =>
+		produce(before, (draft) => {
+			applyMutation(draft, {
+				kind: "moveField",
+				uuid: uuid(name),
+				toParentUuid: uuid("entries"),
+				after: null,
+			});
+		});
+
+	it("shares it for a question nothing inference reads, and the shared facts are the candidate's own", () => {
+		const before = built();
+		const shared = moved(before, "plain");
+		expect(
+			shareInferenceAcrossMove(before, shared, new Set([uuid("plain")])),
+		).toBe(true);
+		expect(inferExpressionTypes(shared)).toBe(inferExpressionTypes(before));
+		expect(inferenceFingerprint(shared)).toBe(
+			inferenceFingerprint(moved(before, "plain")),
+		);
+	});
+
+	it.each([
+		["a question a Hidden Value reads", "count"],
+		["a Hidden Value", "copy"],
+		["a case writer", "saved"],
+	])("derives it again for %s", (_, name) => {
+		const before = built();
+		const candidate = moved(before, name);
+		expect(
+			shareInferenceAcrossMove(before, candidate, new Set([uuid(name)])),
+		).toBe(false);
+		expect(inferExpressionTypes(candidate)).not.toBe(
+			inferExpressionTypes(before),
+		);
 	});
 });

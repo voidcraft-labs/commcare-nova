@@ -729,7 +729,9 @@ function validateExpressionSlot(
 				operation,
 				"CASE_OPERATION_EXPRESSION_TYPE",
 				`An expression in case operation "${operation.id}" is not valid here: ${typeErrors.map((error) => error.message).join("; ")}`,
-				typeErrors.some(
+				// The midnight reason names the whole finding only when every error
+				// is the lost clock; another error keeps the ordinary message.
+				typeErrors.every(
 					(error) =>
 						error.code === "expected-value" && error.reason === "clock-lost",
 				)

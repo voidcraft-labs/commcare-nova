@@ -672,7 +672,7 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		[
 			"XPATH_INCOMPATIBLE_VALUES",
 			{ reason: "boolean" },
-			'A formula on "visit_check" in "Register Client" compares a true-or-false result with another kind of value, and CommCare counts anything that isn\'t blank or zero as true. You can compare the two values themselves, or use the true-or-false result on its own.',
+			'A formula on "visit_check" in "Register Client" compares a true-or-false result with another kind of value, and anything that isn\'t blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.',
 		],
 		[
 			"XPATH_MANY_VALUES",
@@ -686,8 +686,13 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		],
 		[
 			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
-			{ reason: "here" },
+			{ reason: "here", hereSurface: "form" },
 			'A formula on "visit_check" in "Register Client" uses here(), which is where the worker is. A case list knows that and a form doesn\'t. You can add a location question and use its answer instead.',
+		],
+		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{ reason: "here", hereSurface: "record" },
+			'A formula on "visit_check" in "Register Client" uses here(), which is where the worker is. Only a case list\'s calculated column can read that. You can show it in a calculated column instead.',
 		],
 		[
 			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",

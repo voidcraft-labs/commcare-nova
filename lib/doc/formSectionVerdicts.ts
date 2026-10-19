@@ -17,6 +17,7 @@ import {
 	entityTargetKey,
 	type Field,
 	type FieldKind,
+	formOfField,
 	isContainer,
 	type Uuid,
 } from "@/lib/domain";
@@ -29,6 +30,8 @@ import {
 	type LookupTypeIndex,
 	slotContext,
 } from "@/lib/domain/expression/context";
+import { shareInferenceAcrossMove } from "@/lib/domain/expression/inference";
+import { expressionSlotLabel } from "@/lib/domain/expression/slotLabels";
 import {
 	type CheckError,
 	checkExpression,
@@ -68,20 +71,7 @@ export function formIsSectioned(doc: BlueprintDoc, formUuid: Uuid): boolean {
 	);
 }
 
-/** The form a field belongs to, walking `fieldParent` to the root. */
-export function formOfField(
-	doc: BlueprintDoc,
-	fieldUuid: Uuid,
-): Uuid | undefined {
-	let cursor: Uuid | undefined = fieldUuid;
-	const seen = new Set<Uuid>();
-	while (cursor !== undefined && !seen.has(cursor)) {
-		seen.add(cursor);
-		if (doc.forms[cursor] !== undefined) return cursor;
-		cursor = doc.fieldParent[cursor];
-	}
-	return undefined;
-}
+export { formOfField } from "@/lib/domain/fieldForm";
 
 /**
  * The nearest section ABOVE `fieldUuid` (never the field itself): the page
@@ -258,25 +248,6 @@ const expressionPlacements = new WeakMap<
 	Map<Uuid, Map<Uuid, FieldPlacementVerdict>>
 >();
 
-const SLOT_LABELS: Partial<Record<SlotContextRef["slot"], string>> = {
-	relevant: "display condition",
-	validate: "validation rule",
-	validate_msg: "validation message",
-	calculate: "calculated value",
-	default_value: "starting value",
-	required: "required condition",
-	repeat_count: "repeat count",
-	ids_query: "case query",
-	lookup_options_source: "choice list",
-	assessment_user_score: "assessment score",
-	deliver_entity_id: "delivery identifier",
-	deliver_entity_name: "delivery name",
-	label: "label",
-	hint: "hint",
-	help: "help text",
-	option_label: "choice label",
-};
-
 function expressionOwner(
 	doc: BlueprintDoc,
 	uuid: string,
@@ -303,7 +274,7 @@ function moveWords(doc: BlueprintDoc, moved: Uuid, slot: SlotContextRef) {
 	return {
 		question: doc.fields[moved]?.id ?? "this question",
 		reader: reader ?? "this reader",
-		label: SLOT_LABELS[slot.slot] ?? "formula",
+		label: expressionSlotLabel(slot.slot),
 	};
 }
 
@@ -501,6 +472,9 @@ function expressionPlacementVerdict(
 			after: null,
 		});
 	});
+	// A move no inferred fact reads the position of keeps the document's
+	// inference, so the candidate's slots skip deriving it again.
+	shareInferenceAcrossMove(doc, candidate, subtree);
 	// A structural move changes no external definition, so an empty lookup
 	// index answers the same before and after. A finding it raises is
 	// identical on both sides, and a lookup's own `where` goes unread here;

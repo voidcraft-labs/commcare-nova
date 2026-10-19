@@ -659,7 +659,9 @@ function admission(
 	if (expression.kind === "here" && !profile.here)
 		return refusal(
 			"arm-unavailable",
-			"here() reads the worker's location, which CommCare offers only in a case list's calculated column. You can read a location question's answer instead.",
+			profile.formAnswers
+				? "here() reads the worker's location, which CommCare offers only in a case list's calculated column. You can read a location question's answer instead."
+				: "here() reads the worker's location, which CommCare offers only in a case list's calculated column. You can show it in a calculated column instead.",
 			"here",
 		);
 	if (expression.kind === "choice-name") {
@@ -2519,19 +2521,57 @@ function comparisonOperandType(
 	return ordering || (isKnown(other) && !otherIsLiteral) ? shape.type : type;
 }
 
+/**
+ * Both sides of a form comparison as the form rule set types them, from
+ * each side's inferred type: an untyped string literal takes the type its
+ * ISO date, date-and-time or `HH:MM[:SS]` shape spells where the comparison
+ * orders it, or where the other side has a type of its own and is no
+ * literal.
+ */
+export function formComparisonOperandTypes(
+	expression: Extract<
+		Expression,
+		{ kind: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" }
+	>,
+	leftType: ScalarType | undefined,
+	rightType: ScalarType | undefined,
+): {
+	readonly left: ScalarType | undefined;
+	readonly right: ScalarType | undefined;
+} {
+	const ordering = expression.kind !== "eq" && expression.kind !== "neq";
+	return {
+		left: comparisonOperandType(
+			expression.left,
+			leftType,
+			rightType,
+			directLiteral(expression.right) !== undefined,
+			ordering,
+		),
+		right: comparisonOperandType(
+			expression.right,
+			rightType,
+			leftType,
+			directLiteral(expression.left) !== undefined,
+			ordering,
+		),
+	};
+}
+
 const DATE_DATETIME_MESSAGE =
 	"This compares a date with a date and time. CommCare compares a date by its day and a date and time by its moment, so the two don't line up. You can wrap the date and time in date() to compare days.";
 const DATETIME_ORDERING_MESSAGE =
 	"This orders a date and time against a value that isn't one. CommCare can only order two dates and times by their moment. You can compare it with another date and time, or wrap it in date() to compare days.";
 const BOOLEAN_COMPARISON_MESSAGE =
-	"This compares true() or false() with an answer. CommCare reads any answer that isn't blank as true, so \"no\" would count as true too. You can compare the answer with the choice's value instead.";
+	"This compares true() or false() with an answer. CommCare turns the answer into true or false first, and anything that isn't blank or zero counts as true, so \"no\" would count as true too. You can compare the answer with the choice's value instead.";
 
 /**
  * The form rule set's comparison refusals, one finding per comparison, in
  * order: a time ordered (Core orders by `toNumeric`, and a time is text, so
  * NaN), a date against a date and time, a date and time ordered against a
  * value that is none, a yes/no compared with an answer (`XPathEqExpr.evalRaw`
- * turns the other side through `toBoolean`, so any non-blank answer is true),
+ * turns the other side through `FunctionUtils.toBoolean`: text is true when
+ * it isn't empty, a number when it isn't zero or NaN),
  * then a provably non-numeric literal in an ordering.
  */
 function checkFormComparison(
@@ -2545,21 +2585,10 @@ function checkFormComparison(
 	const ordering = expression.kind !== "eq" && expression.kind !== "neq";
 	const leftType = scalarDataType(infer(expression.left, ctx).type?.data);
 	const rightType = scalarDataType(infer(expression.right, ctx).type?.data);
-	const leftIsLiteral = directLiteral(expression.left) !== undefined;
-	const rightIsLiteral = directLiteral(expression.right) !== undefined;
-	const left = comparisonOperandType(
-		expression.left,
+	const { left, right } = formComparisonOperandTypes(
+		expression,
 		leftType,
 		rightType,
-		rightIsLiteral,
-		ordering,
-	);
-	const right = comparisonOperandType(
-		expression.right,
-		rightType,
-		leftType,
-		leftIsLiteral,
-		ordering,
 	);
 	if (left === "datetime")
 		datetimeLiteralPrecision(expression.left, ["left"], errors, false);

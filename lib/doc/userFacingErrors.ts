@@ -66,6 +66,11 @@ import {
 	sourceWritePropertySentence,
 } from "@/lib/domain/questionId";
 import { standardCasePropertyDisplayLabel } from "@/lib/domain/standardCaseProperties";
+import {
+	valueKindPhrase,
+	valueKindPluralPhrase,
+	valueKindsPhrase,
+} from "@/lib/domain/valueKindPhrases";
 
 // ── Interpolation helpers ──────────────────────────────────────────
 //
@@ -309,69 +314,9 @@ const formulaSubject = (e: ValidationError): string =>
 			: `A formula in ${q(formName(e))}`
 		: `A formula on ${q(fieldName(e))} in ${q(formName(e))}`;
 
-/** One value of a case property type, from a `valueType`-style detail. */
-const oneValuePhrase = (type: string | undefined): string => {
-	switch (type) {
-		case "int":
-			return "a whole number";
-		case "decimal":
-			return "a number";
-		case "date":
-			return "a date";
-		case "datetime":
-			return "a date and time";
-		case "time":
-			return "a time";
-		case "geopoint":
-			return "a location";
-		case "text":
-			return "text";
-		case "single_select":
-			return "a choice";
-		case "multi_select":
-			return "several choices";
-		default:
-			return "a value";
-	}
-};
-
-/** What a property of a type holds, in the plural. */
-const heldValuesPhrase = (type: string | undefined): string => {
-	switch (type) {
-		case "int":
-			return "whole numbers";
-		case "decimal":
-			return "numbers";
-		case "date":
-			return "dates";
-		case "datetime":
-			return "dates and times";
-		case "time":
-			return "times";
-		case "geopoint":
-			return "locations";
-		case "text":
-			return "text";
-		case "single_select":
-			return "a choice";
-		case "multi_select":
-			return "several choices";
-		default:
-			return "another kind of value";
-	}
-};
-
 /** Several kinds as one phrase, from a comma-joined list of types. */
-const valuesPhrase = (types: string | undefined, first: string | undefined) => {
-	const phrases = [
-		...new Set(
-			(types === undefined ? [first] : types.split(",")).map(oneValuePhrase),
-		),
-	];
-	return phrases.length <= 1
-		? (phrases[0] ?? "a value")
-		: `${phrases.slice(0, -1).join(", ")} or ${phrases[phrases.length - 1]}`;
-};
+const valuesPhrase = (types: string | undefined, first: string | undefined) =>
+	valueKindsPhrase(types === undefined ? [first] : types.split(","));
 
 // ── The code → builder table ───────────────────────────────────────
 
@@ -416,7 +361,9 @@ const USER_MESSAGE_BY_CODE: Record<
 		const question = q(det(e, "choiceFieldId", "that question"));
 		switch (e.details?.reason) {
 			case "here":
-				return `${formulaSubject(e)} uses here(), which is where the worker is. A case list knows that and a form doesn't. You can add a location question and use its answer instead.`;
+				return e.details?.hereSurface === "record"
+					? `${formulaSubject(e)} uses here(), which is where the worker is. Only a case list's calculated column can read that. You can show it in a calculated column instead.`
+					: `${formulaSubject(e)} uses here(), which is where the worker is. A case list knows that and a form doesn't. You can add a location question and use its answer instead.`;
 			case "choice-name-dynamic":
 				return `${formulaSubject(e)} asks for the label of a choice of ${question}, whose choices come from a Project data table or from cases. You can read the label from where the choices come from instead.`;
 			case "choice-name":
@@ -837,7 +784,7 @@ const USER_MESSAGE_BY_CODE: Record<
 						: e.details?.consequence === "wrong-kind"
 							? " Forms and case lists that read it would get the wrong kind of value."
 							: "";
-				return `${field} saves ${value} to ${property}, which holds ${heldValuesPhrase(wanted)}.${consequence} You can change ${source} to give ${wanted === undefined ? "the same kind" : oneValuePhrase(wanted)}, or save it somewhere else.`;
+				return `${field} saves ${value} to ${property}, which holds ${valueKindPluralPhrase(wanted)}.${consequence} You can change ${source} to give ${wanted === undefined ? "the same kind" : valueKindPhrase(wanted)}, or save it somewhere else.`;
 			}
 		}
 	},
@@ -1188,7 +1135,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			case "datetime-ordering":
 				return `${formulaSubject(e)} orders a date and time against something that isn't one. You can compare it with another date and time, or wrap it in date() to compare days.`;
 			case "boolean":
-				return `${formulaSubject(e)} compares a true-or-false result with another kind of value, and CommCare counts anything that isn't blank or zero as true. You can compare the two values themselves, or use the true-or-false result on its own.`;
+				return `${formulaSubject(e)} compares a true-or-false result with another kind of value, and anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.`;
 			default:
 				return `${formulaSubject(e)} compares two kinds of information that don't line up. You can compare it with a value of the same kind instead.`;
 		}

@@ -11,6 +11,7 @@ import {
 	entryDatumSupplies,
 	formLinkTargetSupplies,
 } from "../entryDatumSupplies";
+import { formOfField } from "../fieldForm";
 import type { SelectOption } from "../fields";
 import { orderedCaseOperations } from "../forms";
 import type { LookupColumnId, LookupTableId } from "../lookupIds";
@@ -369,25 +370,19 @@ function visibleHeld(type: CasePropertyDataType | undefined): ScalarHeld {
 			? "date"
 			: "string";
 }
-function buildFormFacts(
-	doc: BlueprintDoc,
+/** Each field's enclosing repeats, outermost first: structure alone, so
+ * kept per structure while inference's passes rebuild the typed facts. */
+const structureRepeats = new WeakMap<
+	FormStructure,
+	ReadonlyMap<Uuid, readonly Uuid[]>
+>();
+function repeatsOf(
 	structure: FormStructure,
-	facts: ExpressionFacts,
-): FormExpressionFacts {
-	const module = doc.modules[structure.moduleUuid];
-	const fields = new Map<
-		Uuid,
-		FormExpressionFacts["fields"] extends ReadonlyMap<Uuid, infer F> ? F : never
-	>();
+): ReadonlyMap<Uuid, readonly Uuid[]> {
+	const cached = structureRepeats.get(structure);
+	if (cached !== undefined) return cached;
+	const result = new Map<Uuid, readonly Uuid[]>();
 	for (const [uuid, field] of structure.fields) {
-		const type =
-			field.kind === "hidden"
-				? facts.hiddenTypes.get(uuid)
-				: caseDataTypeForFieldKind(field.kind);
-		const held: Held =
-			field.kind === "hidden"
-				? (facts.hiddenHeld.get(uuid) ?? "string")
-				: visibleHeld(type);
 		const repeats: Uuid[] = [];
 		const seen = new Set<Uuid>();
 		let parent = field.parent;
@@ -398,7 +393,69 @@ function buildFormFacts(
 			if (ancestor.kind === "repeat") repeats.unshift(parent);
 			parent = ancestor.parent;
 		}
-		fields.set(uuid, { ...field, type, held, repeats });
+		result.set(uuid, repeats);
+	}
+	structureRepeats.set(structure, result);
+	return result;
+}
+/** The case types a form reads, per catalog: one catalog serves many
+ * passes of inference and every form of a module. */
+const readableByCatalog = new WeakMap<
+	readonly CaseType[],
+	WeakMap<BlueprintDoc, Map<string, ReadonlyMap<string, ReadonlySet<string>>>>
+>();
+function readableCaseTypesOf(
+	doc: BlueprintDoc,
+	caseTypes: readonly CaseType[],
+	moduleCaseType: string | undefined,
+	formType: FormStructure["type"],
+): ReadonlyMap<string, ReadonlySet<string>> {
+	let byDoc = readableByCatalog.get(caseTypes);
+	if (byDoc === undefined) {
+		byDoc = new WeakMap();
+		readableByCatalog.set(caseTypes, byDoc);
+	}
+	let byKey = byDoc.get(doc);
+	if (byKey === undefined) {
+		byKey = new Map();
+		byDoc.set(doc, byKey);
+	}
+	const key = JSON.stringify([moduleCaseType ?? null, formType]);
+	const cached = byKey.get(key);
+	if (cached !== undefined) return cached;
+	const result = caseRefAcceptMap(
+		toReachableIndex(reachableCaseTypes(moduleCaseType, [...caseTypes]), doc),
+		formType,
+	);
+	byKey.set(key, result);
+	return result;
+}
+function buildFormFacts(
+	doc: BlueprintDoc,
+	structure: FormStructure,
+	facts: ExpressionFacts,
+): FormExpressionFacts {
+	const module = doc.modules[structure.moduleUuid];
+	const fields = new Map<
+		Uuid,
+		FormExpressionFacts["fields"] extends ReadonlyMap<Uuid, infer F> ? F : never
+	>();
+	const repeatsByField = repeatsOf(structure);
+	for (const [uuid, field] of structure.fields) {
+		const type =
+			field.kind === "hidden"
+				? facts.hiddenTypes.get(uuid)
+				: caseDataTypeForFieldKind(field.kind);
+		const held: Held =
+			field.kind === "hidden"
+				? (facts.hiddenHeld.get(uuid) ?? "string")
+				: visibleHeld(type);
+		fields.set(uuid, {
+			...field,
+			type,
+			held,
+			repeats: repeatsByField.get(uuid) ?? [],
+		});
 	}
 	const searchInputs = (module?.caseListConfig?.searchInputs ?? []).map(
 		(input) => ({
@@ -412,11 +469,10 @@ function buildFormFacts(
 		fields,
 		searchInputs,
 		noMatchesForm: structure.entry?.kind === "search-no-matches",
-		readableCaseTypes: caseRefAcceptMap(
-			toReachableIndex(
-				reachableCaseTypes(module?.caseType, [...facts.caseTypes]),
-				doc,
-			),
+		readableCaseTypes: readableCaseTypesOf(
+			doc,
+			facts.caseTypes,
+			module?.caseType,
 			structure.type,
 		),
 	};
@@ -510,16 +566,7 @@ function ownerForm(doc: BlueprintDoc, slot: SlotContextRef): Uuid | undefined {
 		return doc.forms[slot.uuid] === undefined ? undefined : slot.uuid;
 	if (slot.entity !== "field" || doc.fields[slot.uuid] === undefined)
 		return undefined;
-	const seen = new Set<Uuid>();
-	let current = slot.uuid;
-	while (!seen.has(current)) {
-		seen.add(current);
-		const parent = doc.fieldParent[current];
-		if (parent === undefined) return undefined;
-		if (doc.forms[parent] !== undefined) return parent;
-		current = parent;
-	}
-	return undefined;
+	return formOfField(doc, slot.uuid);
 }
 
 /**
