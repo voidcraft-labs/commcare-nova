@@ -2910,7 +2910,7 @@ describe("form comparisons", () => {
 		["#form/dt < 5", ["incompatible-values:datetime-ordering"]],
 		["now() > #form/consent", ["incompatible-values:datetime-ordering"]],
 		["#form/consent = true()", ["incompatible-values:boolean"]],
-		["false() != #form/n", ["incompatible-values:boolean"]],
+		["false() != #form/d", ["incompatible-values:boolean"]],
 	])("refuses %s, one finding per comparison", (source, expected) => {
 		expect(codes(formErrors(source))).toEqual(expected);
 	});
@@ -2926,6 +2926,9 @@ describe("form comparisons", () => {
 		"#form/dt = ''",
 		"#form/consent = 'yes'",
 		"(#form/n > 1) = true()",
+		// A number reads as true when it isn't zero, so 1 and 0 mean true and false.
+		"(#form/n > 18) = 1",
+		"false() != #form/n",
 		"true() + 1",
 		"#form/probe < now()",
 	])("admits %s", (source) => {

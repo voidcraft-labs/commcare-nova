@@ -298,9 +298,9 @@ export function shareInferenceAcrossMove(
 const FINGERPRINT_CACHE = new WeakMap<PersistableDoc, string>();
 
 /**
- * Every fact inference decides, as one comparable string: each catalog
- * property's existence and type, each Hidden Value's data type, held class
- * and clock, and every writer opinion. Two documents with the same
+ * Every fact inference decides that can reach another form or module, as one
+ * comparable string: each catalog property's existence and type, each writing
+ * Hidden Value's data type, held class and clock, and every writer opinion. Two documents with the same
  * fingerprint give every slot the same inferred facts, so a commit that
  * leaves it unchanged moved no verdict through inference.
  */
@@ -310,6 +310,9 @@ export function inferenceFingerprint(doc: PersistableDoc): string {
 	const inference = inferExpressionTypes(doc);
 	const sorted = <T>(entries: Iterable<[string, T]>) =>
 		[...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+	const isWriter = (uuid: Uuid) => inference.hiddenOpinions.has(uuid);
+	const writing = <T>(facts: ReadonlyMap<Uuid, T>): [Uuid, T][] =>
+		[...facts].filter(([uuid]) => isWriter(uuid));
 	const fingerprint = JSON.stringify([
 		// Catalog order is authoring metadata, not an inferred fact: declaring a
 		// writer-only property moves it without changing any type.
@@ -324,9 +327,12 @@ export function inferenceFingerprint(doc: PersistableDoc): string {
 				),
 			]),
 		),
-		sorted(inference.hiddenTypes),
-		sorted(inference.hiddenHeld),
-		[...inference.clockLost].sort(),
+		// A Hidden Value that writes no property is read only inside its own
+		// form, which a commit editing it already re-validates; only a writer's
+		// facts reach other forms and modules.
+		sorted(writing(inference.hiddenTypes)),
+		sorted(writing(inference.hiddenHeld)),
+		[...inference.clockLost].filter(isWriter).sort(),
 		sorted(inference.writerOpinions).map(([caseType, byProperty]) => [
 			caseType,
 			sorted(byProperty).map(([property, types]) => [

@@ -1,4 +1,3 @@
-import { descendantFieldUuids } from "@/lib/doc/fieldWalk";
 /**
  * Rule: a fixed value saved into a property that a choice question starts
  * on is one of that question's choices.
@@ -30,6 +29,7 @@ import { descendantFieldUuids } from "@/lib/doc/fieldWalk";
  * App-scoped because writer and reader sit in different forms.
  */
 
+import { descendantFieldUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { writerPreloadsFromLoadedCase } from "@/lib/domain/casePreload";
 import { fieldCaseWrite } from "@/lib/domain/caseTypes";
@@ -164,6 +164,15 @@ export function selectPreloadWriterOptions(
 /** A whole-slot string or number literal's saved text, typed or not. */
 function literalText(expression: Expression | undefined): string | undefined {
 	if (expression?.kind !== "term" || expression.term.kind !== "literal")
+		return undefined;
+	// A literal typed as another kind is the writer-type rules' question.
+	const typed = expression.term.data_type;
+	if (
+		typed !== undefined &&
+		typed !== "text" &&
+		typed !== "single_select" &&
+		typed !== "multi_select"
+	)
 		return undefined;
 	const value = expression.term.value;
 	return typeof value === "number"

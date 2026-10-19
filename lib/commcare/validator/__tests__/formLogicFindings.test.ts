@@ -371,9 +371,9 @@ describe("the operand a comparison refusal names, typed as the checker typed it"
 			kind: "text",
 		},
 		{
-			source: "(#form/number > 3) = 1",
-			otherType: "int",
-			kind: "a whole number",
+			source: "(#form/number > 3) = 'no'",
+			otherType: "text",
+			kind: "text",
 		},
 	])(
 		"names what $source sets against its true-or-false result",
@@ -391,8 +391,10 @@ describe("the operand a comparison refusal names, typed as the checker typed it"
 		},
 	);
 
-	it("admits the true-or-false result on its own", () => {
+	it("admits the true-or-false result on its own, and against a number", () => {
 		expect(findingsOf("selected(#form/choice, 'yes')")).toEqual([]);
+		// A number is true when it isn't zero, so 1 and 0 mean true and false.
+		expect(findingsOf("(#form/number > 3) = 1")).toEqual([]);
 	});
 });
 

@@ -2630,8 +2630,12 @@ function checkFormComparison(
 		);
 		return;
 	}
+	// Core compares as booleans when either side is one
+	// (`XPathEqExpr.java::testEquality`), turning the other through
+	// `FunctionUtils.toBoolean`: a number is true when it isn't zero, which
+	// is what `= 1` and `= 0` mean, while any text but blank is true.
 	const notBoolean = (type: ScalarType | undefined) =>
-		isKnown(type) && type !== "boolean";
+		isKnown(type) && type !== "boolean" && !isNumeric(type);
 	if (
 		!ordering &&
 		((left === "boolean" && notBoolean(right)) ||
