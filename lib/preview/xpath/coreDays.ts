@@ -35,6 +35,7 @@
 
 import {
 	JAVA_ZONE_HISTORY_START_MS,
+	javaRawOffsetMs,
 	javaZoneOffsetMs,
 	standardOffsetInstant,
 } from "@/lib/domain/javaZoneOffset";
@@ -226,6 +227,21 @@ function ianaOffsetMs(instantMs: number): number {
  * IANA offset from 1900 on, the zone's standard offset before it. */
 function offsetMsAt(instantMs: number): number {
 	return javaZoneOffsetMs(instantMs, ianaOffsetMs);
+}
+
+/**
+ * `TimeZone.getOffset(era, year, month, day, dayOfWeek, 0)` of a calendar day:
+ * the offset `DateUtils.formatTimeISO8601` stamps on a date and time.
+ * OpenJDK's `ZoneInfo.getOffset` never resolves the day's wall clock: it
+ * reads the day's midnight as if UTC, subtracts the zone's raw offset, and
+ * answers the offset at that instant. Where a day's wall clocks repeat, that
+ * is the earlier reading when the raw offset is the earlier one (Kiritimati
+ * on 1900-01-01 stamps +14:00, though its midnight there reads -10:29:20 as
+ * `Calendar` resolves it), and near a transition it can be the offset of
+ * neither the day's midnight nor its instants.
+ */
+export function javaOffsetMsOnDay(calendarDays: number): number {
+	return offsetMsAt(calendarDays * DAY - javaRawOffsetMs(ianaOffsetMs));
 }
 
 /** The instant whose IANA zone name is the one Java gives an instant: the

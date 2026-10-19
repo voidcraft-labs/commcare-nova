@@ -26,7 +26,10 @@ import {
 	instantDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
-import { javaZoneNameInstant } from "@/lib/preview/xpath/coreDays";
+import {
+	javaOffsetMsOnDay,
+	javaZoneNameInstant,
+} from "@/lib/preview/xpath/coreDays";
 import { parseJavaDouble } from "@/lib/preview/xpath/javaDouble";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
 import { javaRosaSplitOnSpaces } from "@/lib/preview/xpath/javaString";
@@ -139,18 +142,21 @@ function wallTimeText(value: XPathDate): string {
 /**
  * `DateTimeData.uncast`: `DateUtils.formatDateTime(d, FORMAT_ISO8601)`, the
  * device's wall clock in Java's calendar fields (the year unpadded) stamped
- * with the offset in force at that day's local midnight
- * (`TimeZone.getOffset(era, y, m, d, dow, 0)`), which is not always the
- * offset of the instant itself. The offset prints in whole minutes.
+ * with `TimeZone.getOffset(era, y, m, d, dow, 0)` of its local day
+ * (`javaOffsetMsOnDay`): the offset at that day's midnight read as if UTC
+ * less the zone's raw offset, which is not always the offset of the instant
+ * itself, nor of the day's resolved midnight. The offset prints in whole
+ * minutes, truncated toward zero.
  */
 function coreDateTimeText(value: XPathDate): string {
-	const midnight = XPathDate.fromCalendarDays(value.calendarDays).localFields();
-	const offset = Math.trunc(midnight.offsetMinutes);
-	const magnitude = Math.abs(offset);
+	const offsetMs = javaOffsetMsOnDay(value.calendarDays);
+	// Java tests the offset in milliseconds and prints its minutes, so a
+	// nonzero offset under a minute prints as `+00` or `-00`, never `Z`.
+	const magnitude = Math.floor(Math.abs(offsetMs) / 60_000);
 	const zone =
-		offset === 0
+		offsetMs === 0
 			? "Z"
-			: `${offset > 0 ? "+" : "-"}${pad(Math.floor(magnitude / 60), 2)}${
+			: `${offsetMs > 0 ? "+" : "-"}${pad(Math.floor(magnitude / 60), 2)}${
 					magnitude % 60 === 0 ? "" : `:${pad(magnitude % 60, 2)}`
 				}`;
 	return `${value.toISOString()}T${wallTimeText(value)}${zone}`;

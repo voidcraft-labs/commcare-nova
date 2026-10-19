@@ -38,6 +38,12 @@ export function javaZoneOffsetMs(
 	ianaOffsetMs: IanaOffsetReader,
 ): number {
 	if (instantMs >= JAVA_ZONE_HISTORY_START_MS) return ianaOffsetMs(instantMs);
+	return javaRawOffsetMs(ianaOffsetMs);
+}
+
+/** The zone's raw offset, `ZoneInfo.getRawOffset()`: its current standard
+ * offset, which Java also reads every instant before 1900 at. */
+export function javaRawOffsetMs(ianaOffsetMs: IanaOffsetReader): number {
 	return Math.min(
 		...STANDARD_OFFSET_PROBES.map((probe) => ianaOffsetMs(probe)),
 	);

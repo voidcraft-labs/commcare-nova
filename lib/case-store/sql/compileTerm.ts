@@ -86,6 +86,7 @@ import {
 	type ReservedScalarColumn,
 	STORED_INSTANT_TEXT_PATTERN,
 } from "./dataTypeTokens";
+import { javaLocalTimestamp } from "./javaZone";
 import { resolveViewerTimeZone } from "./viewerTimeZone";
 
 // ---------------------------------------------------------------
@@ -605,7 +606,8 @@ function compilePropertyRef(
  *
  * - `casedb`: both `date_opened` and `last_modified` are the viewer's
  *   calendar date of the stored instant, as Core's casedb holds `DateData`
- *   (`CaseInstanceTreeElement` builds both from the case's `Date` fields).
+ *   (`CaseInstanceTreeElement` builds both from the case's `Date` fields),
+ *   read as `java.util.TimeZone` reads the zone (`javaLocalTimestamp`).
  * - `results`: `date_opened` is the UTC calendar date of `opened_on`, the
  *   text HQ's results instance carries (`json_format_date`); `last_modified`
  *   stays its instant.
@@ -618,11 +620,15 @@ function compileReadingDate(
 	ctx: TermCompileContext,
 ): AliasableExpression<unknown> {
 	if (!isCalendarPropertyUnder(ctx.reading, property)) return value;
-	const zone =
-		ctx.reading === "casedb"
-			? resolveViewerTimeZone(ctx.bindings.viewerTimeZone)
-			: "UTC";
-	return eb.cast(eb.fn<Date>("timezone", [eb.val(zone), value]), "date");
+	if (ctx.reading !== "casedb")
+		return eb.cast(eb.fn<Date>("timezone", [eb.val("UTC"), value]), "date");
+	return eb.cast(
+		javaLocalTimestamp(
+			resolveViewerTimeZone(ctx.bindings.viewerTimeZone),
+			value,
+		),
+		"date",
+	);
 }
 
 /** Whether a reading holds this standard property as a calendar date. */

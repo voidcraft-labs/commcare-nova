@@ -26,6 +26,9 @@
  * - `text`: `StringData` of `value`; an empty `value` is a blank node.
  * - `setvalue-datetime`: text a setvalue writes into a datetime bind, held as
  *   Core's cast holds it (`DateTimeData.cast`, `DateUtils.parseDateTime`).
+ * - `datetime-uncast`: `StringData` of the text Core's `DateTimeData.uncast`
+ *   writes for the instant `value` names, the text a setvalue of a date and
+ *   time hands its cast and a submission carries.
  */
 
 export type CoreDateParityZone = "utc" | "new-york" | "kolkata" | "kiritimati";
@@ -42,7 +45,12 @@ export const CORE_DATE_PARITY_ZONES: Readonly<
 
 export interface CoreDateParityNode {
 	readonly name: string;
-	readonly held: "datetime" | "date" | "text" | "setvalue-datetime";
+	readonly held:
+		| "datetime"
+		| "date"
+		| "text"
+		| "setvalue-datetime"
+		| "datetime-uncast";
 	readonly value: string;
 }
 
@@ -609,6 +617,22 @@ export const CORE_DATE_PARITY: CoreDateParityTable = {
 			id: "cutoff-day-number-text",
 			xpath: "string(date(-25568))",
 			expect: { ...same("1899-12-31"), kiritimati: "1900-01-01" },
+		},
+		// `DateTimeData.uncast` stamps the offset `TimeZone.getOffset` gives the
+		// local day, which reads that day's midnight less the zone's raw offset
+		// as an instant: on Kiritimati's repeated 1900-01-01 that instant is
+		// before the cutoff, so the stamp is +14, though the day's midnight
+		// resolves to -10:29:20.
+		{
+			id: "cutoff-uncast-text",
+			xpath: "string(/data/uncast)",
+			nodes: [{ ...cutoffBefore, name: "uncast", held: "datetime-uncast" }],
+			expect: {
+				utc: "1899-12-31T23:59:59.000Z",
+				"new-york": "1899-12-31T18:59:59.000-05",
+				kolkata: "1900-01-01T05:29:59.000+05:30",
+				kiritimati: "1900-01-01T13:59:59.000+14",
+			},
 		},
 		{
 			id: "cutoff-cast-kolkata-repeated",

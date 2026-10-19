@@ -81,7 +81,7 @@ public class CoreDateParityRuntimeTest {
         };
     }
 
-    /** Each node as the device holds it (the fixture's header names the four storages). */
+    /** Each node as the device holds it (the fixture's header names the five storages). */
     private static TreeElement node(JSONObject spec) {
         TreeElement element = new TreeElement(spec.getString("name"), 0);
         String held = spec.getString("held");
@@ -107,6 +107,12 @@ public class CoreDateParityRuntimeTest {
                 // SetValueAction.processAction casts written text through the bind's template.
                 element.setValue(new DateTimeData().cast(new UncastData(value)));
                 break;
+            case "datetime-uncast": {
+                // The text DateTimeData.uncast writes for the instant, held as text.
+                Instant instant = Instant.parse(value);
+                element.setValue(new StringData(new DateTimeData(Date.from(instant)).uncast().getString()));
+                break;
+            }
             default:
                 throw new AssertionError("Unknown node storage: " + held);
         }
@@ -182,7 +188,7 @@ public class CoreDateParityRuntimeTest {
                 "julian-leap-next-day", "julian-leap-node-text", "julian-leap-node-format", "julian-leap-node-days",
                 "cutoff-before-clock", "cutoff-before-days", "cutoff-before-fraction", "cutoff-after-clock",
                 "cutoff-after-days", "cutoff-after-fraction", "cutoff-days-1899-12-31", "cutoff-days-1900-01-01",
-                "cutoff-day-number-text", "cutoff-cast-kolkata-repeated", "cutoff-cast-kiritimati-repeated"})
+                "cutoff-day-number-text", "cutoff-uncast-text", "cutoff-cast-kolkata-repeated", "cutoff-cast-kiritimati-repeated"})
                 assertTrue("Missing date parity row: " + required, ids.contains(required));
         } finally {
             CalendarUtils.setArrayDataSource(new LocaleArrayDataSource(new DefaultArrayDataSource()));

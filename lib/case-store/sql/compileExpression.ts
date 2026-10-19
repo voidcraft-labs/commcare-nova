@@ -81,6 +81,11 @@ import {
 import { compileCoreDayNumber, compileEpochDayInstant } from "./coreDayNumber";
 import type { Database } from "./database";
 import { NAIVE_TEMPORAL_TEXT_PATTERN } from "./dataTypeTokens";
+import {
+	javaLocalTimestamp,
+	javaOffsetMinutes,
+	javaWallInstant,
+} from "./javaZone";
 import { resolveViewerTimeZone } from "./viewerTimeZone";
 
 // ---------------------------------------------------------------
@@ -426,9 +431,12 @@ function branchAlias(ctx: ExpressionCompileContext, name: string): string {
  * — see `NAIVE_TEMPORAL_TEXT_PATTERN`) carries no timezone of its own, and a
  * bare `::timestamptz` cast reads it in the connection's current `TimeZone`
  * — which the preview pools do not pin. Naive shapes therefore lift through
- * `timezone(<zone>, <text>::timestamp)`; offset-bearing values keep the
- * ordinary `timestamptz` cast so an authored `Z` or numeric offset remains
- * authoritative.
+ * `<text>::timestamp` read as a wall clock in `zone` the way
+ * `java.util.Calendar` reads it (`javaWallInstant`: the standard offset
+ * before 1900, a repeated clock at its later reading, a skipped one forward
+ * by the gap), which for UTC is `timezone('UTC', …)`; offset-bearing values
+ * keep the ordinary `timestamptz` cast so an authored `Z` or numeric offset
+ * remains authoritative.
  *
  * `btrim` accepts a value pasted with harmless surrounding whitespace. The
  * `timestamp` cast in the pinned arm still lets Postgres reject impossible
@@ -442,10 +450,7 @@ export function compilePinnedInstant(
 ): AliasableExpression<unknown> {
 	const trimmedText = eb.fn<string>("btrim", [eb.cast(inner, "text")]);
 	const isNaive = eb(trimmedText, "~", eb.val(NAIVE_TEMPORAL_TEXT_PATTERN));
-	const pinned = eb.fn<Date>("timezone", [
-		eb.val(zone),
-		eb.cast(trimmedText, "timestamp"),
-	]);
+	const pinned = javaWallInstant(zone, eb.cast(trimmedText, "timestamp"));
 	return eb
 		.case()
 		.when(isNaive)
@@ -1052,7 +1057,9 @@ function compileCount(
  * zone: a naive stored value reads as viewer wall time (what the device does
  * with its local parse), an offset-bearing value keeps its own instant. The
  * instant then converts to a viewer wall-clock `timestamp` that
- * `to_char` / `date_part` render zone-independently.
+ * `to_char` / `date_part` render zone-independently, read as
+ * `java.util.TimeZone` reads it (`javaLocalTimestamp`: the zone's standard
+ * offset before 1900, where Postgres would read local mean time).
  *
  * A null guard preserves the former `to_char(NULL, ...) → NULL` behavior;
  * Postgres `concat` would otherwise skip a null token and leave any
@@ -1066,7 +1073,7 @@ function compileFormatDate(
 	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
 	const dateExpr = compileExpression(date, ctx);
 	const instant = compilePinnedInstant(dateExpr, zone);
-	const wallClock = eb.fn<Date>("timezone", [eb.val(zone), instant]);
+	const wallClock = javaLocalTimestamp(zone, instant);
 	const wirePattern = fixedDatePattern(pattern);
 	if (wirePattern === undefined)
 		throw new Error(
@@ -1185,30 +1192,16 @@ function compileCommCareDateToken(
  * with `:MM` appended whenever the minute remainder is nonzero.
  * `to_char(..., 'OF')` can't produce this — it reads the SESSION zone's
  * offset, and the viewer-zone `timestamp` the other tokens render from has
- * no offset left to read — so the offset is computed as minutes between
- * the zone's wall clock and UTC's at the instant. Postgres integer
- * division truncates toward zero, matching Java's, so the hour count
- * agrees for negative sub-hour offsets.
+ * no offset left to read — so the offset is Java's at the instant
+ * (`javaOffsetMinutes`: whole minutes truncated toward zero, the standard
+ * offset before 1900). Postgres integer division truncates toward zero,
+ * matching Java's, so the hour count agrees for negative sub-hour offsets.
  */
 function compileTimezoneOffsetToken(
 	instant: AliasableExpression<unknown>,
 	zone: string,
 ): AliasableExpression<unknown> {
-	const minutes = eb.cast(
-		eb(
-			eb.fn<number>("date_part", [
-				eb.val("epoch"),
-				eb(
-					eb.fn<Date>("timezone", [eb.val(zone), instant]),
-					"-",
-					eb.fn<Date>("timezone", [eb.val("UTC"), instant]),
-				),
-			]),
-			"/",
-			eb.val(60),
-		),
-		"integer",
-	);
+	const minutes = javaOffsetMinutes(zone, instant);
 	const twoDigit = (value: AliasableExpression<unknown>) =>
 		eb.fn<string>("lpad", [
 			eb.cast(value, "text"),

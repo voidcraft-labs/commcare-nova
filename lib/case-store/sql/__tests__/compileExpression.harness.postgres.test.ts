@@ -49,6 +49,11 @@ import type {
 	Expression as DomainExpression,
 } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
+import {
+	CORE_DATE_PARITY,
+	CORE_DATE_PARITY_ZONES,
+	type CoreDateParityZone,
+} from "@/lib/preview/xpath/__tests__/fixtures/coreDateParity";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { EvalContext } from "@/lib/preview/xpath/types";
 import {
@@ -1558,7 +1563,163 @@ describe("compileExpression — round-trip — format-date arm", () => {
 			.execute();
 		expect(rows[0].v).toBe("17:30 +05:30");
 	});
+
+	// Java's zone history begins at 1900-01-01T00:00Z, and a device reads every
+	// earlier instant at the zone's standard offset where Postgres's tzdb reads
+	// local mean time. The expected text is Core's, from the date parity rows
+	// `CoreDateParityRuntimeTest` holds Core to in each zone.
+	test("format-date reads a case's date and time either side of 1900 as a device does", async ({
+		db,
+		pgClient,
+	}) => {
+		const cases = [
+			{
+				id: "cutoff-before-clock",
+				caseId: "30000000-0000-0000-0000-0000000000a1",
+				value: "1899-12-31T23:59:59Z",
+			},
+			{
+				id: "cutoff-after-clock",
+				caseId: "30000000-0000-0000-0000-0000000000a2",
+				value: "1900-01-01T00:00:01Z",
+			},
+		];
+		await db
+			.insertInto("cases")
+			.values(
+				cases.map(({ caseId, value }) =>
+					makeCaseRow({
+						case_id: caseId,
+						case_type: "patient",
+						app_id: APP_ID,
+						project_id: OWNER_ID,
+						properties: JSON.stringify({ registered_at: value }),
+					}),
+				),
+			)
+			.execute();
+		for (const { id, caseId } of cases) {
+			const expected = coreParityColumns(id);
+			for (const [label, zone] of parityZones()) {
+				await pgClient.query(
+					`SET LOCAL TIME ZONE '${zone === "UTC" ? "Asia/Tokyo" : "UTC"}'`,
+				);
+				const expr = compileExpression(
+					formatDate(
+						term(prop("patient", "registered_at")),
+						"%Y-%m-%d %H:%M:%S%Z",
+					),
+					makeCtx(db, {
+						reading: "casedb",
+						bindings: { viewerTimeZone: zone },
+					}),
+				);
+				const row = await db
+					.selectFrom("cases as c")
+					.where("c.case_id", "=", caseId)
+					.select(sql<string>`${expr}`.as("v"))
+					.executeTakeFirstOrThrow();
+				expect(row.v, `${id} ${label}`).toBe(expected[label]);
+			}
+		}
+		// The Kolkata reading the review names, spelled out.
+		expect(coreParityColumns("cutoff-before-clock").kolkata).toBe(
+			"1900-01-01 05:29:59+05:30",
+		);
+	});
+
+	test("format-date reads a zone-less wall clock at 1900 as java.util.Calendar does", async ({
+		db,
+		pgClient,
+	}) => {
+		// The reverse direction: a wall clock with no offset becomes an instant
+		// in the viewer's zone. Before the cutoff the zone's standard offset
+		// holds; where the cutoff repeats a wall clock (Kolkata's 8m50s,
+		// Kiritimati's whole day) the later reading wins.
+		await pgClient.query("SET LOCAL TIME ZONE 'Asia/Tokyo'");
+		for (const id of [
+			"cutoff-cast-kolkata-repeated",
+			"cutoff-cast-kiritimati-repeated",
+		]) {
+			const row = CORE_DATE_PARITY.rows.find(
+				(candidate) => candidate.id === id,
+			);
+			const wall = row?.nodes?.[0]?.value;
+			if (wall === undefined)
+				throw new Error(`The Core date parity row '${id}' has no wall clock.`);
+			const expected = coreParityColumns(id);
+			for (const [label, zone] of parityZones()) {
+				const expr = compileExpression(
+					formatDate(term(literal(wall)), "%Y-%m-%dT%H:%M%Z"),
+					makeCtx(db, {
+						reading: "casedb",
+						bindings: { viewerTimeZone: zone },
+					}),
+				);
+				const rows = await db
+					.selectFrom(sql`(values (1))`.as("v"))
+					.select(sql<string>`${expr}`.as("v"))
+					.execute();
+				expect(rows[0].v, `${id} ${label}`).toBe(expected[label]);
+			}
+		}
+	});
 });
+
+test("a casedb date_opened before 1900 is the device's day at the zone's standard offset", async ({
+	db,
+	pgClient,
+}) => {
+	// 10:00Z on 31 December 1899 is 00:00 on 1 January 1900 at Kiritimati's
+	// standard +14:00, where Java reads it; the tzdb's local mean time
+	// (-10:29:20) would put it on 30 December.
+	await pgClient.query("SET LOCAL TIME ZONE 'UTC'");
+	await db
+		.insertInto("cases")
+		.values(
+			makeCaseRow({
+				case_id: PATIENT_CASE_ID,
+				case_type: "patient",
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+				opened_on: new Date("1899-12-31T10:00:00Z"),
+			}),
+		)
+		.execute();
+	const expr = compileExpression(
+		term(prop("patient", "date_opened")),
+		makeCtx(db, {
+			reading: "casedb",
+			bindings: { viewerTimeZone: "Pacific/Kiritimati" },
+		}),
+	);
+	const row = await db
+		.selectFrom("cases as c")
+		.where("c.case_id", "=", PATIENT_CASE_ID)
+		.select(sql<string>`${expr}::text`.as("v"))
+		.executeTakeFirstOrThrow();
+	expect(row.v).toBe("1900-01-01");
+});
+
+/** The four device zones of the Core date parity table. */
+function parityZones(): [CoreDateParityZone, string][] {
+	return Object.entries(CORE_DATE_PARITY_ZONES) as [
+		CoreDateParityZone,
+		string,
+	][];
+}
+
+/** A Core date parity row's expected text in each zone. */
+function coreParityColumns(
+	id: string,
+): Readonly<Record<CoreDateParityZone, string>> {
+	const row = CORE_DATE_PARITY.rows.find((candidate) => candidate.id === id);
+	if (row === undefined || !("expect" in row))
+		throw new Error(
+			`The Core date parity fixture has no row '${id}' with a value.`,
+		);
+	return row.expect;
+}
 
 const EMPTY_PREVIEW_CONTEXT: EvalContext = {
 	getValue: () => undefined,

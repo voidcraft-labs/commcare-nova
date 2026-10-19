@@ -10,6 +10,7 @@ import type { AliasableExpression } from "kysely";
 import { expressionBuilder } from "kysely";
 import type { CaseReading } from "@/lib/domain/expression/temporalType";
 import type { Database } from "./database";
+import { javaLocalTimestamp } from "./javaZone";
 import { resolveViewerTimeZone } from "./viewerTimeZone";
 
 const eb = expressionBuilder<Database, keyof Database>();
@@ -24,7 +25,8 @@ const eb = expressionBuilder<Database, keyof Database>();
  *   midnight of 1970-01-01, plus `n` fixed days and half a day, rounded to its
  *   local date. Here: `timezone(z, E + trunc(n) * '24 hours' + '12 hours')::date`
  *   with `E = timezone(z, timestamp '1970-01-01 00:00:00')`, `z` the validated
- *   viewer zone, read as Java reads a zone before 1900 (`javaLocalTimestamp`). The `integer` cast refuses an out-of-range day as Core does.
+ *   viewer zone, read as Java reads a zone before 1900 (`javaLocalTimestamp`).
+ *   The `integer` cast refuses an out-of-range day as Core does.
  * - `search`: HQ's `value_functions.py::value_to_date` adds calendar days to
  *   `datetime.date(1970, 1, 1)`, which no zone moves:
  *   `date '1970-01-01' + trunc(n)::integer`.
@@ -51,47 +53,6 @@ export function compileCoreDayNumber(
 		javaLocalTimestamp(zone, eb(localEpoch, "+", elapsed)),
 		"date",
 	);
-}
-
-const JAVA_ZONE_HISTORY_START = "1900-01-01 00:00:00+00";
-
-/**
- * An instant's wall clock in `zone` as `java.util.TimeZone` reads it: the
- * zone's history from 1900-01-01T00:00Z on, and before it the zone's standard
- * offset (`lib/domain/javaZoneOffset.ts`, the smaller of its 2025 January and
- * July offsets), where Postgres's own `timezone()` would read local mean time.
- */
-function javaLocalTimestamp(
-	zone: string,
-	instant: AliasableExpression<unknown>,
-): AliasableExpression<unknown> {
-	return eb
-		.case()
-		.when(instant, "<", eb.cast(eb.val(JAVA_ZONE_HISTORY_START), "timestamptz"))
-		.then(
-			eb(
-				eb.fn("timezone", [eb.val("UTC"), instant]),
-				"+",
-				standardOffset(zone),
-			),
-		)
-		.else(eb.fn("timezone", [eb.val(zone), instant]))
-		.end();
-}
-
-/** `zone`'s standard offset as an interval: the smaller of its offsets on
- *  2025-01-01 and 2025-07-01. */
-function standardOffset(zone: string): AliasableExpression<unknown> {
-	const offsetAt = (probe: string) =>
-		eb(
-			eb.fn("timezone", [
-				eb.val(zone),
-				eb.cast(eb.val(`${probe} 00:00:00+00`), "timestamptz"),
-			]),
-			"-",
-			eb.cast(eb.val(`${probe} 00:00:00`), "timestamp"),
-		);
-	return eb.fn("least", [offsetAt("2025-01-01"), offsetAt("2025-07-01")]);
 }
 
 /**

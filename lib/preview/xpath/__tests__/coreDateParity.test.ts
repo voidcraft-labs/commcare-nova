@@ -3,7 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { type Field, fieldSchema, type Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { instantDatetimeValue } from "@/lib/domain/temporalValues";
-import { castAnswerText } from "../../engine/answerCast";
+import { castAnswerText, setvalueText } from "../../engine/answerCast";
 import { DataInstance } from "../../engine/dataInstance";
 import { buildFieldTree } from "../../engine/fieldTree";
 import { evaluateAsync } from "../asyncEvaluator";
@@ -12,6 +12,7 @@ import { evaluate } from "../evaluator";
 import {
 	CoreUnroundableDateError,
 	type EvalContext,
+	XPathDate,
 	type XPathValue,
 } from "../types";
 import {
@@ -31,6 +32,7 @@ const FIELD_KIND: Record<CoreDateParityNode["held"], Field["kind"]> = {
 	date: "date",
 	text: "text",
 	"setvalue-datetime": "datetime",
+	"datetime-uncast": "text",
 };
 
 /** The answer text Preview's instance holds for each kind of node, written
@@ -48,6 +50,15 @@ function heldText(node: CoreDateParityNode, zone: string): string {
 			const cast = castAnswerText("datetime", node.value, zone);
 			if (!cast.ok) throw new Error(`Core refuses ${node.value}.`);
 			return cast.text;
+		}
+		case "datetime-uncast": {
+			// The engine's own uncast of a date and time (DateTimeData.uncast).
+			const text = setvalueText(
+				XPathDate.fromInstant(Date.parse(node.value)),
+				"datetime",
+			);
+			if (text === undefined) throw new Error(`No text for ${node.value}.`);
+			return text;
 		}
 	}
 }
