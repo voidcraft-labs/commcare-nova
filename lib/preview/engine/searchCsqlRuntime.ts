@@ -28,6 +28,7 @@ import {
 	csqlRuntimeRow,
 	foldCsqlRuntime,
 } from "@/lib/commcare/csql/fold";
+import { isSilentRuntimeCsqlRejection } from "@/lib/commcare/csql/segment";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import { caseListStepDatumId } from "@/lib/commcare/formLinkProjection";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
@@ -43,6 +44,8 @@ import {
 	type BlueprintDoc,
 	type CaseListConfig,
 	materializableCaseTypes,
+	type SearchRuntimeValidationKind,
+	searchRuntimeValidationKinds,
 	type Uuid,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -70,10 +73,15 @@ import {
  * the row its index among the composed clauses and the segment key the
  * emitter's (`csqlPositionKey` of the checker path). A row's obligations
  * are its own choice of `match-none()`, keyed by the row alone (`<row>`).
+ * `refusal` is the kind of the first obligation that holds with no prompt to
+ * blame and a message for the worker (06-csql.md §5): the Results read shows
+ * its message (`searchRuntimeGlobalValidationMessage`), as it does for one
+ * the server judges itself, rather than an empty list.
  */
 export interface SearchCsqlRuntimeWire {
 	readonly segments: Readonly<Record<string, string>>;
 	readonly choices: Readonly<Record<string, boolean>>;
+	readonly refusal?: SearchRuntimeValidationKind;
 }
 
 /** What the device holds while it builds the search request. */
@@ -150,6 +158,7 @@ export function evaluateSearchCsqlRuntime(
 	};
 	const segments: Record<string, string> = {};
 	const choices: Record<string, boolean> = {};
+	let refusal: SearchRuntimeValidationKind | undefined;
 	for (const [row, clause] of clauses.entries()) {
 		let tree: ReturnType<typeof emitCsqlTree>;
 		try {
@@ -174,17 +183,27 @@ export function evaluateSearchCsqlRuntime(
 			if (value !== undefined)
 				choices[rowKey(row, choice.key)] = toBoolean(value);
 		}
-		const rejected = rejections.some((rejection) =>
-			rejection.kind === "list-item"
-				? listItems.some(breaksList)
-				: (() => {
-						const value = run(rejection.condition);
-						return value !== undefined && toBoolean(value);
-					})(),
-		);
+		let rejected = false;
+		for (const rejection of rejections) {
+			const holds =
+				rejection.kind === "list-item"
+					? listItems.some(breaksList)
+					: (() => {
+							const value = run(rejection.condition);
+							return value !== undefined && toBoolean(value);
+						})();
+			if (!holds) continue;
+			rejected = true;
+			if (
+				refusal === undefined &&
+				!isSilentRuntimeCsqlRejection(rejection.kind) &&
+				(rejection.inputNames?.length ?? 0) === 0
+			)
+				refusal = rejection.kind;
+		}
 		if (rejected) choices[rowKey(row)] = true;
 	}
-	return { segments, choices };
+	return { segments, choices, ...(refusal === undefined ? {} : { refusal }) };
 }
 
 /**
@@ -337,16 +356,24 @@ export function parseSearchCsqlRuntimeWire(
 	if (value === undefined) return undefined;
 	if (typeof value !== "object" || value === null)
 		throw new SearchCsqlRuntimeError();
-	const { segments, choices } = value as Record<string, unknown>;
+	const { segments, choices, refusal } = value as Record<string, unknown>;
 	if (
 		!plainRecord(segments, (entry) => typeof entry === "string") ||
-		!plainRecord(choices, (entry) => typeof entry === "boolean")
+		!plainRecord(choices, (entry) => typeof entry === "boolean") ||
+		!(refusal === undefined || isSearchRuntimeValidationKind(refusal))
 	)
 		throw new SearchCsqlRuntimeError();
 	return {
 		segments: segments as Record<string, string>,
 		choices: choices as Record<string, boolean>,
+		...(refusal === undefined ? {} : { refusal }),
 	};
+}
+
+function isSearchRuntimeValidationKind(
+	value: unknown,
+): value is SearchRuntimeValidationKind {
+	return (searchRuntimeValidationKinds as readonly unknown[]).includes(value);
 }
 
 function plainRecord(
@@ -401,7 +428,7 @@ export class ChosenCaseIdsError extends Error {
 export class SearchCsqlRuntimeError extends Error {
 	constructor() {
 		super(
-			"The values this search worked out on the device didn't arrive as text and true-or-false answers keyed by search clause. Look at what the Search screen sent with the Results read.",
+			"The values this search worked out on the device didn't arrive as text and true-or-false answers keyed by search clause, with at most one known kind of check that failed. Look at what the Search screen sent with the Results read.",
 		);
 		this.name = "SearchCsqlRuntimeError";
 	}

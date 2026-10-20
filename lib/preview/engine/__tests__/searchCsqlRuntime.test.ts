@@ -34,6 +34,9 @@ import type { PreviewSearchSessionValues } from "../identity";
 import {
 	evaluateSearchCsqlRuntime,
 	foldSearchCsql,
+	parseSearchCsqlRuntimeWire,
+	SearchCsqlRuntimeError,
+	type SearchCsqlRuntimeWire,
 	searchCsqlRejected,
 } from "../searchCsqlRuntime";
 import type { CaseDatabaseSnapshot } from "../xpathInstances";
@@ -94,7 +97,11 @@ function searched(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	answers: Record<string, string> = {},
-): { readonly query: Expression | undefined; readonly rejected: boolean } {
+): {
+	readonly query: Expression | undefined;
+	readonly rejected: boolean;
+	readonly refusal: SearchCsqlRuntimeWire["refusal"];
+} {
 	const caseListConfig = doc.modules[moduleUuid]?.caseListConfig;
 	if (caseListConfig === undefined) throw new Error("No case list.");
 	const step = caseListStepSession(doc, moduleUuid, {
@@ -111,12 +118,15 @@ function searched(
 		sessionData: step.data,
 		caseDatabase: device,
 	});
-	if (wire === undefined) return { query: undefined, rejected: false };
+	if (wire === undefined)
+		return { query: undefined, rejected: false, refusal: undefined };
 	// The wire is plain JSON: what crosses is what the server reads.
-	const crossed = JSON.parse(JSON.stringify(wire));
+	const crossed = parseSearchCsqlRuntimeWire(JSON.parse(JSON.stringify(wire)));
+	if (crossed === undefined) throw new Error("The wire did not cross.");
 	return {
 		query: foldSearchCsql(doc, moduleUuid, caseListConfig, crossed)?.query,
 		rejected: searchCsqlRejected(crossed),
+		refusal: crossed.refusal,
 	};
 }
 
@@ -235,7 +245,54 @@ describe("a search's runtime values in Preview", () => {
 			),
 			["radius"],
 		);
-		expect(searched(doc, moduleUuid, { radius: "far" }).rejected).toBe(true);
+		// The answer's own prompt carries the message, so the search holds
+		// no refusal of its own.
+		expect(searched(doc, moduleUuid, { radius: "far" })).toMatchObject({
+			rejected: true,
+			refusal: undefined,
+		});
+	});
+
+	it("names the obligation no prompt carries when the device's cases break it", () => {
+		// The radius is the chosen household's village, which only the
+		// device's cases hold: "North" is no distance.
+		const { doc, moduleUuid } = withRule(
+			within(
+				{ kind: "prop", caseType: "member", property: "home_village" },
+				term(literal("0 0")),
+				chosenCaseProperty(households, "household", "village"),
+				"miles",
+			),
+			[],
+		);
+		expect(searched(doc, moduleUuid)).toMatchObject({
+			rejected: true,
+			refusal: "positive-number",
+		});
+	});
+
+	it("keeps a blank comparand silent: the search finds nothing", () => {
+		const { doc, moduleUuid } = withRule(
+			gte(
+				prop("member", "case_name"),
+				chosenCaseProperty(households, "household", "missing_note"),
+			),
+			[],
+		);
+		expect(searched(doc, moduleUuid)).toMatchObject({
+			rejected: true,
+			refusal: undefined,
+		});
+	});
+
+	it("refuses a refusal the wire never names", () => {
+		expect(() =>
+			parseSearchCsqlRuntimeWire({
+				segments: {},
+				choices: { "0": true },
+				refusal: "blank-comparand",
+			}),
+		).toThrow(SearchCsqlRuntimeError);
 	});
 
 	it("folds today() to the viewer's own day", () => {

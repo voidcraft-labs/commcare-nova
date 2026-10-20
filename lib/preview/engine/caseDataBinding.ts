@@ -60,6 +60,7 @@ import {
 	ownRecordValue,
 	personasOf,
 	recordFromEntries,
+	searchRuntimeGlobalValidationMessage,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
@@ -459,6 +460,7 @@ async function prepareRunningCaseRead(
 						userPropertySlugsByUuid(environment.doc),
 					),
 				};
+	const csqlRuntime = parseSearchCsqlRuntimeWire(args.csqlRuntime);
 	if (args.caseListConfig !== undefined) {
 		const globalRuntimeError = searchInputRuntimeGlobalError(
 			args.caseListConfig,
@@ -467,10 +469,19 @@ async function prepareRunningCaseRead(
 			searchSession,
 			requireEnvironment(),
 		);
-		if (globalRuntimeError !== undefined) {
+		/* An obligation with no prompt that reads what only the browser holds
+		 * (the device's cases, places, a lookup or a session datum) is judged
+		 * there, and reaches this read as the search's `refusal`; its message
+		 * is the same one the server's own pass gives. */
+		const refusal =
+			globalRuntimeError ??
+			(csqlRuntime?.refusal === undefined
+				? undefined
+				: searchRuntimeGlobalValidationMessage(csqlRuntime.refusal).message);
+		if (refusal !== undefined) {
 			return {
 				kind: "invalid-search",
-				message: globalRuntimeError,
+				message: refusal,
 				repair: "settings",
 			};
 		}
@@ -496,7 +507,6 @@ async function prepareRunningCaseRead(
 			};
 		}
 	}
-	const csqlRuntime = parseSearchCsqlRuntimeWire(args.csqlRuntime);
 	const chosenCaseIds = parseChosenCaseIds(args.chosenCaseIds);
 	/* A blank value compared where CommCare's search cannot compare one, or
 	 * a row whose obligations the device found holding: the exported search

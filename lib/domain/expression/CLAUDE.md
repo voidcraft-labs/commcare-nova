@@ -212,7 +212,13 @@ text or a typed date, in an ordering and an equality alike, so an untyped
 Hidden Value holding a moment's text equals that moment in any spelling; two
 unknown operands, or one against a value that names no moment (`x = ''`), stay
 bare. A comparison a server search makes itself never lowers, so these never
-fire there. `ruleSets.ts` owns their scalar tables; editor
+fire there. CSQL text is a `CsqlNode` tree printed by
+`lib/commcare/csql/print.ts`; a value the grammar cannot hold is a runtime
+segment of device XPath, which is how `today()` reaches HQ's search as the
+worker's day. Which subtree is which is one position function,
+`csqlPositions.ts` (query, anchor, server value, raw argument, runtime), which
+this checker reads for its position-dependent findings and the emitter and
+the fold read through `lib/commcare/csql/positions.ts`. `ruleSets.ts` owns their scalar tables; editor
 constraints read those tables rather than introducing another checker. Form
 literals must have an exact supported spelling, and static choice defaults must
 name a current choice. Numeric defaults use `numericAnswerText`'s native answer

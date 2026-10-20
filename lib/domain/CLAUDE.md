@@ -396,6 +396,15 @@ The same shared authored-shape proof governs direct links and structural menu
 inheritance; runtime selected count never weakens it. The document never stores
 a selected case id or selected set; those are running-session facts.
 
+A record slot evaluated after a menu's case is chosen (a form's display
+condition, a case list's filter, an advanced Search input's predicate) may read
+that case: `session-datum { selected-case }` for its id and a `project` over
+`casedb` keyed on it for a property, spelled `chosen-case('<menu name>')` and
+`chosen-case-property('<menu name>', '<property>')` in the record dialect, where
+the entry passes through that menu as one case (`entryDatumSupplies.ts`;
+`expression/chosenCase.ts` builds and recognizes the read, and
+`expression/typeChecker.ts::chosenCaseAdmission` refuses it everywhere else).
+
 ## Organization shape
 
 `organization.ts` owns two flat Blueprint collections: levels and the catalog

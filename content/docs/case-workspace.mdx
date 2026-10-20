@@ -34,6 +34,12 @@ people find existing records; it does not link new registrations to a parent.
 A form on the selected parent can create a child by saving answers to the
 child record type, including captured evidence.
 
+A rule that runs after a case is chosen in an earlier menu can read that case.
+In **Cases available**, a search field's rule or a form's display condition,
+choose **The case chosen in** that menu, then the case itself or one of its
+properties, for example to search only the households of the village chosen
+first. Nova keeps the menu itself, so renaming it keeps the rule.
+
 ## Arrange information in the canvas
 
 Choose **Add search field**, then select the case information people should be
@@ -61,7 +67,9 @@ way** when the same property needs a second label or format.
 Calculated values and filters using `today()` follow your local day in Preview,
 just as form questions do. On a device they use the device’s local day. This
 keeps a case due today from appearing overdue because the server is already
-on tomorrow’s date.
+on tomorrow’s date. Search rules, and Results filters that CommCare HQ's server
+runs during a search, use the same day, the worker's own, so a search and the
+list it opens agree on what today is.
 
 A calculated value can use `here()`, the worker's current location, for
 example to show where the worker is, or to mark the cases within a set
@@ -443,7 +451,18 @@ Calculated conditions preserve the grouping of nested arithmetic. Blank checks
 also work on calculated values, so a condition can match when a calculation
 has no result. A search rule can also read a Project data table and convert its
 text to a date or number for another calculation, such as adding a table’s
-number of days to a starting date. These rules travel with the exported app.
+number of days to a starting date. A number converts to a date too, counting
+days from 1 January 1970. These rules travel with the exported app.
+
+Cases available and search rules can also choose between conditions: **Depends
+on a condition**, under **Add condition**, uses one condition or another,
+decided by something like a search answer. A condition can compare **Case
+type**, the record type of each case, with record types of your app. A distance
+condition offers nine units, from millimeters to nautical miles, and its
+distance and unit can each come from a value, such as a search answer, through
+**Use a value**. A condition on a multiple-choice property can
+match choices that come from a value as well as fixed ones, through **Add a
+value from**.
 
 Dividing two whole-number values gives a whole-number result, dropping the
 fraction toward zero: `10 ÷ 3` gives `3`, and `-10 ÷ 3` gives `-3`. A decimal
@@ -500,6 +519,12 @@ time of day can't: CommCare compares these as numbers and a time is not one, so
 the comparison would never be true. The conditions in **Cases available** and
 in a search field's match rule offer before, after and between for a number or
 a date, and not for a time of day.
+
+Two dates and times compare by the moment each names, in Results, in Search and
+in Preview alike, however each was written, so an equal comparison finds the
+same moment written another way. A search field's own matching rule can also
+use **Date closed**, when a case was closed. Only CommCare HQ's search knows it,
+so Results, Details and form conditions use **Case status** instead.
 
 Under **Cases available**, open **More availability settings** to decide what
 happens to **Cases assigned to the person using the app**. Choose **Show in

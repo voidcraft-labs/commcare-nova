@@ -2330,6 +2330,43 @@ describe("loadCasesAction", () => {
 		},
 	);
 
+	it("shows the message of an obligation the browser found broken, before querying", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const store = actionStore({ query: appCaseQuery() });
+		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+
+		const { loadCasesAction } = await import("../caseDataBinding");
+		const result = await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			...caseListCandidate(
+				makeCaseListConfig({
+					columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Name")],
+				}),
+			),
+			search: true,
+			// What the browser reports when an obligation with no prompt holds
+			// over the device's cases, which the server does not hold.
+			csqlRuntime: {
+				segments: {},
+				choices: { "0": true },
+				refusal: "positive-number",
+			},
+		});
+
+		expect(result).toEqual({
+			kind: "invalid-search",
+			message:
+				"This search's current distance needs to be a number greater than zero",
+			repair: "settings",
+		});
+		expect(appCaseQueryArg(vi.mocked(store.query))).toBeUndefined();
+	});
+
 	it("returns an honest typed refusal when a selected persona disappeared", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");

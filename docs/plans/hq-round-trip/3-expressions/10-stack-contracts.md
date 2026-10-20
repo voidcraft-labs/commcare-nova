@@ -763,6 +763,64 @@ form of the module, part 03 §3.8's correction) and `lib/commcare/validator/suit
 
 ### Pull request 10: CSQL
 
+**As built, 2026-10-19.** The tree differs from the lists below in these files; the reasons are
+the implementation corrections listed after them.
+
+- New and not named below: `lib/commcare/csql/tree.ts` (the `CsqlNode` constructors `printCsql`
+  reads), `csql/choices.ts` (`expression/csqlChoices.ts` moved whole, `materializeCsqlChoices`),
+  `csql/runtimeWalk.ts` and `csql/matchModes.ts` (`predicate/csqlRuntimeWalk.ts` and
+  `predicate/matchModes.ts` under those names), `csql/runtimeCsqlNumericSafety.ts`;
+  `lib/domain/expression/csqlPositions.ts` (the position function's core, which `csql/positions.ts`
+  re-exports, decision D1), `lib/domain/expression/chosenCase.ts` (builds and recognizes the
+  chosen-case reads), `lib/commcare/suite/case-search/moduleXPathQuery.ts` (a module's composed
+  search under its own slot contexts and datum resolver), `lib/commcare/validator/recordFindings.ts`
+  (`sharedRecordFinding`, part 03 §1.5), `lib/preview/engine/searchCsqlRuntime.ts` and
+  `lib/preview/hooks/useSearchCsqlRuntime.ts` (the browser half of the fold),
+  `components/builder/shared/caseTypeValueModel.ts`; tests `csql/__tests__/emitter.test.ts`,
+  `print.test.ts` and `runtimeWalk.test.ts` (moved), `lib/domain/expression/__tests__/typeCheckerCsql.test.ts`,
+  `lib/commcare/validator/__tests__/caseListStepAgreement.test.ts`,
+  `components/builder/shared/__tests__/csqlCardsValidByConstruction.test.ts`,
+  `lib/preview/engine/__tests__/searchCsqlRuntime.test.ts`, the fixture
+  `lib/domain/__tests__/chosenCaseFixture.ts`; the smoke is `e2e/tests/app/preview-search-choice.spec.ts`,
+  not under `e2e/tests/browser/`.
+- Named below and not touched: `lib/models.ts` (`MODEL_CONTEXT_VERSION` waits for pull request 12,
+  decision D11, so this pull request's row's `".10"` does not happen here),
+  `xpath/wire/serialize.ts` as `formatNumeric`'s home (it stays in
+  `lib/domain/expression/numberLiteral.ts`, decision D9), `lib/domain/expression/profiles.ts` (the
+  chosen-case admission is `typeChecker.ts::chosenCaseAdmission`), `distance.ts`, `temporalType.ts`,
+  `lib/case-store/sql/dataTypeTokens.ts`, `lib/preview/engine/runtimeBindings.ts`,
+  `simpleArmDerivation.ts`, `shared/primitives/LiteralValueInput.tsx`, `lib/doc/referenceIndex.ts`
+  (its test only), and `lib/commcare/surface/entries/gates.json` (no sensitivity failure asked for it).
+- The Preview fold reports a holding obligation with no prompt as the wire's `refusal`, which the
+  Results read answers with its global message (part 06 §4's correction).
+- The register move keeps "25 stops" here; the rebase onto pull request 9 makes it 26.
+
+Implementation corrections this pull request wrote, 2026-10-19:
+
+- Part 02 §2.4: `chosen-case(…)` in a condition position is refused by the compiler's positional
+  `predicate()`, and the menu refusals carry no code field.
+- Part 03 §1.5: `closed-on-not-on-device` and a record slot's `datum-not-supplied` are re-coded once by
+  `recordFindings.ts::sharedRecordFinding`.
+- Part 05 §1.3: the `case-list` and `search` points are one set, `caseListStepSupplies`.
+- Part 05 §1.6: the `several-cases` reason, and the finding's route to `SESSION_DATUM_NOT_SUPPLIED`.
+- Part 05 §1.7: the Builder's selection footprint covers every module choosing through the edited one.
+- Part 06 §2.3: where the halves live (positions in the domain, `formatNumeric`, `choices.ts`).
+- Part 06 §3.1: where `closed_on` resolves.
+- Part 06 §3.2: a text literal opposite `case-row-type` names a catalog case type.
+- Part 06 §3.5 (two): epoch coercions' operands and reasons, and a runtime `decimal` operand.
+- Part 06 §3.6: `value-list` only in an advanced Search input's rule.
+- Part 06 §3.7: both runtime-`selected*` rules in every record slot.
+- Part 06 §3.8: the distance findings' copy.
+- Part 06 §3.9 (two): held reads only in a runtime position, and the chosen case's datum resolver.
+- Part 06 §3.10: `if` and `switch` in a condition position wherever CS is a target.
+- Part 06 §3.12: which comparand takes the flag-free ancestor spelling.
+- Part 06 §3.13: `readsInstantByRange` and the range's value node.
+- Part 06 §4: the fold's signature, wire, rows and server pass.
+- Part 06 §5: the obligations as written.
+- Part 06 §7 (two): the record dialect without a `MODEL_CONTEXT_VERSION` bump, and a runtime radius
+  or unit compiled in Postgres.
+- Part 07 §5.1: the browse list's `chosenCaseIds` and the Results read's check of them.
+
 **Nova source** (part 06 §2.3, §3, §7)
 
 - `lib/commcare/csql/positions.ts`, `print.ts`, `fold.ts` (new); `representability.ts`, `emitter.ts`, `segment.ts`, `runtimeCsql*Safety.ts` (moved from `lib/commcare/predicate/` and `lib/commcare/expression/`)

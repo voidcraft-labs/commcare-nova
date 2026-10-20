@@ -1478,7 +1478,10 @@ search reads (§3.9); this part fixes what is folded and by whose print.
   the advanced inputs' (`lib/preview/engine/searchCsqlRuntime.ts`, composed without the simple-arm
   derivation): a simple input's answer reaches Postgres as the literal it binds
   (`runtimeBindings.ts::composeRuntimeFilter`), so nothing of it is left to fold. A rejected row
-  makes the Results read `empty`.
+  makes the Results read `empty`, except that the first obligation that holds with no prompt and a
+  worker message (every kind but `blank-comparand` and `list-item`) travels as the wire's
+  `refusal`, and the read is then `invalid-search` with that kind's global message, as the server's
+  own pass answers one it judges itself.
 - Preview's synchronous evaluator has no `regex`, so the `list-item` obligation is decided over the
   same item values in TypeScript (a `"`, `\`, an ASCII control character or `'`); any other read it
   cannot run gives no value and leaves its node to Postgres, which compiles the kept arms through

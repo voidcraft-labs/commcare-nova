@@ -3635,7 +3635,7 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova groups such arguments: `csqlSegment.ts::groupCsqlArgument`)",
+			"cell": "— (Nova groups such arguments: `csql/emitter.ts::groupedValueFunction`)",
 			"markers": []
 		},
 		"gates": []
