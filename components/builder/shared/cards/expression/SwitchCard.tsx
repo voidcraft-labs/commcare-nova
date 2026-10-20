@@ -37,6 +37,7 @@ import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	ANY_CONSTRAINT,
 	branchConstraint,
+	type Choice,
 	compatibleTypesFor,
 	type Expression,
 	type Literal,
@@ -48,6 +49,11 @@ import {
 	switchExpr,
 	term,
 } from "@/lib/domain/expression";
+import {
+	asChoiceOf,
+	retargetSelectionValues,
+	staticSelectSubject,
+} from "../../choiceValueModel";
 import {
 	useEditorErrorsAt,
 	usePredicateEditContext,
@@ -62,6 +68,7 @@ import {
 	type EditorPath,
 } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
+import { ChoiceValuePicker } from "../../primitives/ChoiceValuePicker";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 import { LiteralValueInput } from "../../primitives/LiteralValueInput";
 import {
@@ -94,10 +101,11 @@ export function switchDefault(
 /** Whether a `when` literal's type sits in `on`'s compatible set:
  *  the null literal (`_any`) is universally compatible. */
 function whenLiteralAccepted(
-	when: Literal,
+	when: Literal | Choice,
 	accepts: ReadonlySet<ScalarType>,
 ): boolean {
-	return accepts.has(literalType(when));
+	// A choice follows its question, which `setOn` retargets first.
+	return when.kind === "choice" || accepts.has(literalType(when));
 }
 
 interface SwitchCardProps {
@@ -110,11 +118,18 @@ interface SwitchCardProps {
 	readonly constraint?: SlotConstraint;
 }
 
-function literalSwitchCase(when: Literal, then: Expression): LiteralSwitchCase {
+function literalSwitchCase(
+	when: Literal | Choice,
+	then: Expression,
+): LiteralSwitchCase {
 	return { when, then };
 }
 
-type LiteralSwitchCase = Omit<SwitchCase, "when"> & { when: Literal };
+/** A case matched by a written value, or by a choice of the compared
+ * question ("A choice of this question"). */
+type LiteralSwitchCase = Omit<SwitchCase, "when"> & {
+	when: Literal | Choice;
+};
 type LiteralSwitch = Omit<ExpressionOfKind<"switch">, "cases"> & {
 	cases: [LiteralSwitchCase, ...LiteralSwitchCase[]];
 };
@@ -122,7 +137,9 @@ type LiteralSwitch = Omit<ExpressionOfKind<"switch">, "cases"> & {
 function hasLiteralCases(
 	value: ExpressionOfKind<"switch">,
 ): value is LiteralSwitch {
-	return value.cases.every((item) => item.when.kind === "literal");
+	return value.cases.every(
+		(item) => item.when.kind === "literal" || item.when.kind === "choice",
+	);
 }
 
 export function SwitchCard(props: SwitchCardProps) {
@@ -157,6 +174,9 @@ function EditableSwitchCard({
 	// change of `on` reseeds any now-incompatible `when` in the same
 	// onChange so the committed switch is never transiently type-wrong.
 	const onType = useResolvedType(value.on);
+	// A form answer from a select with written choices is matched against its
+	// choices ("A choice of this question").
+	const choiceSubject = staticSelectSubject(value.on, ctx.expressionContext);
 	const whenAccepts = useMemo(() => compatibleTypesFor(onType), [onType]);
 	const branchTypes = useMemo(
 		() => value.cases.map((item) => resolveExpressionType(item.then, ctx)),
@@ -181,14 +201,23 @@ function EditableSwitchCard({
 
 	const setOn = (next: Expression) => {
 		const nextAccepts = compatibleTypesFor(resolveExpressionType(next, ctx));
-		const reseeded = value.cases.map((item) =>
-			whenLiteralAccepted(item.when, nextAccepts)
-				? item
-				: literalSwitchCase(
-						reseedLiteralForConstraint(item.when, nextAccepts),
-						item.then,
-					),
+		// Choices follow the new value first: a written value naming one of its
+		// choices becomes that choice, and a choice it no longer has becomes its
+		// value. Only then is a written value reseeded to the type.
+		const whens = retargetSelectionValues(
+			value.cases.map((item) => item.when),
+			staticSelectSubject(next, ctx.expressionContext),
+			ctx.expressionContext,
 		);
+		const reseeded = value.cases.map((item, index) => {
+			const when = whens[index] ?? item.when;
+			return when.kind === "choice" || whenLiteralAccepted(when, nextAccepts)
+				? literalSwitchCase(when, item.then)
+				: literalSwitchCase(
+						reseedLiteralForConstraint(when, nextAccepts),
+						item.then,
+					);
+		});
 		const [first, ...rest] = reseeded;
 		rowIdentity.stage(reseeded, { kind: "replace" });
 		onChange(switchExpr(next, [first, ...rest], value.fallback));
@@ -220,7 +249,15 @@ function EditableSwitchCard({
 	};
 
 	const appendCase = () => {
-		const whenSeed = reseedLiteralForConstraint(literal(""), whenAccepts);
+		const whenSeed =
+			(choiceSubject === undefined
+				? undefined
+				: asChoiceOf(
+						literal(""),
+						choiceSubject,
+						ctx.expressionContext,
+						value.cases.map((item) => item.when),
+					)) ?? reseedLiteralForConstraint(literal(""), whenAccepts);
 		const resultConstraint = branchConstraint(
 			constraint,
 			fallbackType,
@@ -428,7 +465,7 @@ function CaseRow({
 		appendKindIndexSlot(path, "switch", "cases", caseIndex, "when"),
 	);
 
-	const setWhen = (next: Literal) => {
+	const setWhen = (next: Literal | Choice) => {
 		onUpdate(literalSwitchCase(next, switchCaseValue.then));
 	};
 
@@ -497,15 +534,24 @@ function CaseRow({
 					 *  discriminator. No property anchors it (the value is
 					 *  compared to `on`, not stored on a case), so the widget
 					 *  data type comes from `whenAccepts`. */}
-					<LiteralValueInput
-						value={switchCaseValue.when}
-						onChange={setWhen}
-						caseTypeName={ctx.currentCaseType}
-						propertyName={undefined}
-						accepts={whenAccepts}
-						invalid={whenErrors.length > 0}
-						ariaLabel="Value to match"
-					/>
+					{switchCaseValue.when.kind === "choice" ? (
+						<ChoiceValuePicker
+							field={switchCaseValue.when.field}
+							value={switchCaseValue.when}
+							onChange={setWhen}
+							invalid={whenErrors.length > 0}
+						/>
+					) : (
+						<LiteralValueInput
+							value={switchCaseValue.when}
+							onChange={setWhen}
+							caseTypeName={ctx.currentCaseType}
+							propertyName={undefined}
+							accepts={whenAccepts}
+							invalid={whenErrors.length > 0}
+							ariaLabel="Value to match"
+						/>
+					)}
 					<InlineError errors={whenErrors} />
 				</div>
 				<div>

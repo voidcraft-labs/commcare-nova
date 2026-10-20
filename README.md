@@ -130,6 +130,6 @@ The script defaults to a sibling clone at `<commcare-nova>/../nova-plugin`. Over
 ## Developer tools
 
 - `/build/replay/[id]` — admin-only replay of saved event logs through the builder UI with no API calls. Useful for iterating on UI without re-running generation.
-- `/xpath-test` — CodeMirror-backed XPath playground for testing syntax highlighting and formatting.
+- `/xpath-test` — CodeMirror-backed XPath playground for testing syntax highlighting.
 - `/signal-test` — Signal Grid tuning page for the neural-activity panel.
 - `/error-test` — simulates error scenarios end-to-end (invalid API key, stream errors, rate limiting, etc.) so error-state UI can be verified without a real failure.

@@ -52,6 +52,7 @@ import {
 } from "./cards/ChildPredicateEditor";
 import { firstComparisonDefault } from "./cards/comparisonSeed";
 import { SearchInputMenu } from "./cards/WhenInputPresentCard";
+import { editorAxesOf } from "./editorAxes";
 import {
 	buildValidityIndex,
 	PredicateEditProvider,
@@ -60,8 +61,6 @@ import {
 	WithCurrentCaseType,
 } from "./editorContext";
 import {
-	type CaseDataScope,
-	type EvaluationTarget,
 	isPredicateCardValue,
 	type PredicateEditContext,
 	predicateCardSchemas,
@@ -70,10 +69,7 @@ import {
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import { logicalClauses, planLogicalGroupEdit } from "./logicalGroupModel";
-import type {
-	EditorLookupTableDecl,
-	EditorLookupTableScope,
-} from "./lookupTablePresentation";
+import type { EditorLookupTableDecl } from "./lookupTablePresentation";
 import {
 	appendKindIndex,
 	appendKindSlot,
@@ -398,18 +394,10 @@ export interface PredicateWorkbenchProps {
 	readonly formFields?: readonly EditorFormFieldDecl[];
 	readonly formCaseTypes?: ReadonlySet<string>;
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
-	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
-	 *  vocabulary is available. */
+	 *  vocabulary is available. Every other menu axis is read from
+	 *  `expressionContext` (`editorAxes.ts`). */
 	readonly operationScope?: OperationValueScope;
-	/** Runtime that evaluates this rule. Search-backed rules consult the
-	 *  boundary verdict before offering a guaranteed-invalid value source. */
-	readonly evaluationTarget?: EvaluationTarget;
-	/** When the rule evaluates relative to a case row. `"global"` slots
-	 *  (the search-button display condition) resolve once, before any
-	 *  case is selected: verbs, seeds, and value sources drop every
-	 *  case-property / relationship read there. */
-	readonly caseDataScope?: CaseDataScope;
 	/** What this whole rule is called on the surface that owns it. Shown
 	 *  as the root breadcrumb and the "back to" destination, so the
 	 *  workbench never names another surface's setting. */
@@ -418,9 +406,6 @@ export interface PredicateWorkbenchProps {
 	 *  reading of `caseDataScope`: the Search action's condition and a
 	 *  module's display condition are both `global` and disagree. */
 	readonly allowsNeverMatch?: boolean;
-	/** See `PredicateEditContext.patternMatching`. Set only by the two
-	 *  Search-screen slots the device evaluates with its Pattern engine. */
-	readonly patternMatching?: true;
 	/** A semantic navigation request from another surface. The token makes a
 	 * repeat request for the same AST path observable after the author returns
 	 * to a dependency review. */
@@ -444,13 +429,9 @@ export function PredicateWorkbench({
 	formFields,
 	formCaseTypes,
 	lookupTables,
-	tableScope,
 	operationScope,
-	evaluationTarget = "on-device",
-	caseDataScope = "per-case",
 	rootLabel = DEFAULT_RULE_ROOT_LABEL,
 	allowsNeverMatch = true,
-	patternMatching,
 	focusRequest,
 }: PredicateWorkbenchProps) {
 	const lookupCatalog = useBuilderLookupCatalog();
@@ -518,13 +499,10 @@ export function PredicateWorkbench({
 						formFields,
 						formCaseTypes,
 						lookupTables: effectiveLookupTables,
-						tableScope,
+						...editorAxesOf(expressionContext, effectiveLookupTables),
 						operationScope,
-						caseDataScope,
 						allowsNeverMatch,
 						userProperties,
-						evaluationTarget,
-						...(patternMatching && { patternMatching }),
 					},
 		[
 			focusedContext,
@@ -534,13 +512,10 @@ export function PredicateWorkbench({
 			formFields,
 			formCaseTypes,
 			effectiveLookupTables,
-			tableScope,
+			expressionContext,
 			operationScope,
-			caseDataScope,
 			allowsNeverMatch,
 			userProperties,
-			evaluationTarget,
-			patternMatching,
 		],
 	);
 	const admitRuntimeExpression = useCallback(
@@ -694,12 +669,8 @@ export function PredicateWorkbench({
 			formFields={formFields}
 			formCaseTypes={formCaseTypes}
 			lookupTables={effectiveLookupTables}
-			tableScope={tableScope}
 			operationScope={operationScope}
-			caseDataScope={caseDataScope}
 			allowsNeverMatch={allowsNeverMatch}
-			evaluationTarget={evaluationTarget}
-			patternMatching={patternMatching}
 			validityIndex={validityIndex}
 			admitExpressionChange={admitRuntimeExpression}
 		>

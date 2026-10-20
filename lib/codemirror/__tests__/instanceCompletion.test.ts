@@ -1,6 +1,6 @@
 /**
  * Completion of secondary-instance reads, driven through CodeMirror's
- * `CompletionContext` over the real lint context of each slot.
+ * `CompletionContext` over the real editor context of each slot.
  *
  * Contract: inside `instance('…')` the editor offers exactly the ids the
  * slot reads (a data table only by its tag, places only when the app has
@@ -29,10 +29,13 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Uuid } from "@/lib/domain";
 import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
 import { parseLookupRevision } from "@/lib/lookup/schema";
-import { buildExpressionLintContext } from "../buildLintContext";
+import {
+	buildExpressionEditorContext,
+	type ExpressionEditorContext,
+} from "../expressionEditorContext";
 import { instanceSource } from "../xpath-autocomplete";
 import { xpath } from "../xpath-language";
-import { type XPathLintContext, xpathDiagnostics } from "../xpath-lint";
+import { xpathDiagnostics } from "../xpath-lint";
 
 const { doc, table } = instanceReadFixture();
 const VISIT_PROPERTY = testUuid("instance-completion-catchment");
@@ -70,9 +73,9 @@ const RESULTS_LINK: ExpressionSlotRef = {
 	member: { linkUuid: INSTANCE_READS.resultsLink },
 };
 
-function context(slot: ExpressionSlotRef): XPathLintContext {
-	const built = buildExpressionLintContext(doc, slot, lookupContext);
-	if (built === undefined) throw new Error("The slot has no lint context");
+function context(slot: ExpressionSlotRef): ExpressionEditorContext {
+	const built = buildExpressionEditorContext(doc, slot, lookupContext);
+	if (built === undefined) throw new Error("The slot has no editor context");
 	return built;
 }
 
@@ -82,7 +85,7 @@ function complete(slot: ExpressionSlotRef, written: string) {
 	const text = cursor < 0 ? written : written.replace("|", "");
 	const pos = cursor < 0 ? text.length : cursor;
 	const state = EditorState.create({ doc: text, extensions: [xpath()] });
-	const result = instanceSource(() => context(slot))(
+	const result = instanceSource(() => context(slot).reads)(
 		new CompletionContext(state, pos, false),
 	);
 	return {
@@ -168,7 +171,7 @@ describe("instance ids", () => {
 			uuid: NAME_FIELD,
 			slot: "default_value",
 		};
-		const lint = buildExpressionLintContext(
+		const lint = buildExpressionEditorContext(
 			noMatches,
 			slot,
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -176,7 +179,7 @@ describe("instance ids", () => {
 		const at = (written: string) => {
 			const state = EditorState.create({ doc: written, extensions: [xpath()] });
 			return (
-				instanceSource(() => lint)(
+				instanceSource(() => lint?.reads)(
 					new CompletionContext(state, written.length, false),
 				)?.options.map((option) => option.label) ?? []
 			);

@@ -22,6 +22,7 @@ import { useId, useMemo, useState } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
+import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import { Label } from "@/components/shadcn/label";
@@ -438,11 +439,7 @@ export function SearchChoiceSourceEditor({
 													knownInputs: [],
 													userProperties,
 													lookupTables: tables,
-													tableScope: {
-														tableId: table.id,
-														columns: table.columns,
-													},
-													caseDataScope: "table-row",
+													...editorAxesOf(expressionContext, tables),
 												}),
 											)
 										}
@@ -471,9 +468,6 @@ export function SearchChoiceSourceEditor({
 										knownInputs={[]}
 										userProperties={userProperties}
 										lookupTables={tables}
-										tableScope={{ tableId: table.id, columns: table.columns }}
-										caseDataScope="table-row"
-										evaluationTarget="on-device"
 									/>
 								</fieldset>
 							</>

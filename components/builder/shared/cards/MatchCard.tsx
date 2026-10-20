@@ -1,9 +1,11 @@
 // components/builder/shared/cards/MatchCard.tsx
 //
-// Renders the `match` predicate. Property dropdown (text-shaped or:
-// for `fuzzy-date`, date / datetime), value input (typed by
-// the property), and mode dropdown (fuzzy / phonetic / fuzzy-date
-// / starts-with).
+// Renders the `match` predicate. The subject is a property dropdown
+// (text-shaped or: for `fuzzy-date`, date / datetime) where CommCare's
+// server search evaluates the slot, since its match functions take one case
+// property; where only a device evaluates it, the subject is any value of a
+// type the mode reads (`matchSubjectModel.ts`). Then the value input and the
+// mode dropdown (fuzzy / phonetic / fuzzy-date / starts-with).
 
 "use client";
 
@@ -21,8 +23,14 @@ import {
 	sessionContext,
 	term,
 } from "@/lib/domain/expression";
-import { useEditorErrorsAt } from "../editorContext";
+import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
+import {
+	matchSubjectCalculable,
+	matchSubjectConstraint,
+	matchSubjectExpression,
+	replaceMatchSubject,
+} from "../matchSubjectModel";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
@@ -93,15 +101,64 @@ interface MatchCardProps {
 }
 
 export function MatchCard(props: MatchCardProps) {
-	if (props.value.property.kind !== "prop")
-		return (
-			<p role="status">This saved expression cannot be edited here yet.</p>
-		);
+	const ctx = usePredicateEditContext();
+	// A calculated subject is offered only where no server search evaluates
+	// the slot; a saved one always renders in the expression editor, so it
+	// stays repairable.
+	if (
+		props.value.property.kind !== "prop" ||
+		matchSubjectCalculable(ctx.expressionContext)
+	)
+		return <CalculatedSubjectMatchCard {...props} />;
 	return (
 		<EditableMatchCard
 			{...props}
 			value={{ ...props.value, property: props.value.property }}
 		/>
+	);
+}
+
+/** The subject is any value of a type the mode reads (a device evaluates
+ *  the rule), edited in place like a comparison's subject. */
+function CalculatedSubjectMatchCard({ value, onChange, path }: MatchCardProps) {
+	const ctx = usePredicateEditContext();
+	const subjectConstraint = useMemo(
+		() => matchSubjectConstraint(value.mode),
+		[value.mode],
+	);
+	const valueConstraint = useMemo(
+		() => matchValueConstraint(value.mode),
+		[value.mode],
+	);
+	// Every subject choice is judged as the rule this card would rebuild.
+	const admitSubject = (next: Expression) =>
+		ctx.admitExpressionChange?.(path, replaceMatchSubject(value, next)) ?? {
+			admitted: true as const,
+		};
+	return (
+		<div className="space-y-3">
+			<div className="grid grid-cols-1 items-start gap-2 @sm:grid-cols-[minmax(0,1fr)_auto]">
+				<ExpressionPicker
+					value={matchSubjectExpression(value.property)}
+					onChange={(next) => onChange(replaceMatchSubject(value, next))}
+					admitReplacement={admitSubject}
+					path={appendSlot(path, "property")}
+					constraint={subjectConstraint}
+					presentation="subject"
+					variant="nested"
+				/>
+				<PredicateVerbMenu value={value} onChange={onChange} />
+			</div>
+			<div className="min-w-0">
+				<ExpressionPicker
+					value={value.value}
+					onChange={(next) => onChange(match(value.property, next, value.mode))}
+					path={appendSlot(path, "value")}
+					constraint={valueConstraint}
+					variant="nested"
+				/>
+			</div>
+		</div>
 	);
 }
 

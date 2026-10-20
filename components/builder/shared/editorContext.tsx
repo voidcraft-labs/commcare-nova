@@ -38,6 +38,7 @@ import {
 	typeOf,
 } from "@/lib/domain/expression";
 import { presentCheckErrorForEditor } from "./checkErrorPresentation";
+import { type EditorAxes, editorAxesOf } from "./editorAxes";
 import type {
 	CaseDataScope,
 	EvaluationTarget,
@@ -113,7 +114,6 @@ interface EditorVocabularyValue {
 	readonly formFields: readonly EditorFormFieldDecl[];
 	readonly formCaseTypes?: ReadonlySet<string>;
 	readonly lookupTables: readonly EditorLookupTableDecl[];
-	readonly tableScope: EditorLookupTableScope | undefined;
 	/**
 	 * The submission-local vocabulary, present only inside a case
 	 * operation: the acting user, no owner, and the case an earlier create
@@ -121,27 +121,17 @@ interface EditorVocabularyValue {
 	 * three.
 	 */
 	readonly operationScope: OperationValueScope | undefined;
-	/** Owner sentinels are available only in a case-owner value slot. */
-	readonly ownerValues: boolean;
-	/**
-	 * Whether this slot evaluates against a case row (`"per-case"`) or
-	 * once before any case is selected (`"global"`). Kind menus and
-	 * seeds read it through the schemas' `PredicateEditContext`; value
-	 * sources are gated by the provider-derived admission oracle.
-	 */
-	readonly caseDataScope: CaseDataScope;
 	/** See `PredicateEditContext.allowsNeverMatch`. Carried on the React
 	 *  context because nested cards rebuild their edit context from it. */
 	readonly allowsNeverMatch: boolean;
-	/** See `PredicateEditContext.evaluationTarget`. Carried on the React
-	 *  context for the same reason: the verb menu builds its edit context
-	 *  from here, so a surface's runtime has to survive the trip or every
-	 *  card would fall back to the strict default and a case-search slot
-	 *  would lose capabilities it legitimately has. */
+	/** The menu axes, read from the slot's context by `editorAxesOf`
+	 *  (`editorAxes.ts`) and carried here because nested cards rebuild their
+	 *  edit context from the React context. A nested data-table rule
+	 *  (`WithLookupTableScope`) narrows them to that table's row. */
+	readonly tableScope: EditorLookupTableScope | undefined;
+	readonly ownerValues: boolean;
+	readonly caseDataScope: CaseDataScope;
 	readonly evaluationTarget: EvaluationTarget;
-	/** See `PredicateEditContext.patternMatching`. Carried for the same
-	 *  reason as `evaluationTarget`: the verb menu and the nested cards
-	 *  rebuild their edit context from here. */
 	readonly patternMatching: true | undefined;
 	/**
 	 * Errors keyed by serialized path. Cards look up their own path
@@ -172,6 +162,13 @@ type PredicateEditContextValue = EditorVocabularyValue & {
 
 const PredicateEditContext = createContext<EditorVocabularyValue | null>(null);
 
+const EMPTY_LOOKUP_TABLES: readonly EditorLookupTableDecl[] = [];
+const CATALOG_ONLY_AXES: EditorAxes = {
+	caseDataScope: "per-case",
+	evaluationTarget: "on-device",
+	ownerValues: false,
+};
+
 interface EditorVocabularyProviderProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
@@ -180,14 +177,8 @@ interface EditorVocabularyProviderProps {
 	readonly formFields?: readonly EditorFormFieldDecl[];
 	readonly formCaseTypes?: ReadonlySet<string>;
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
-	readonly tableScope?: EditorLookupTableScope;
 	readonly operationScope?: OperationValueScope;
-	readonly ownerValues?: boolean;
-	/** Absent means the ordinary per-case scope. */
-	readonly caseDataScope?: CaseDataScope;
 	readonly allowsNeverMatch?: boolean;
-	readonly evaluationTarget?: EvaluationTarget;
-	readonly patternMatching?: true;
 	readonly validityIndex: ValidityIndex;
 	readonly admitExpressionChange?: AdmitExpressionChange | undefined;
 	readonly children: ReactNode;
@@ -216,14 +207,9 @@ export function EditorVocabularyProvider({
 	userProperties = EMPTY_USER_PROPERTIES,
 	formFields = EMPTY_FORM_FIELDS,
 	formCaseTypes,
-	lookupTables = [],
-	tableScope,
+	lookupTables = EMPTY_LOOKUP_TABLES,
 	operationScope,
-	ownerValues = false,
-	caseDataScope = "per-case",
 	allowsNeverMatch = true,
-	evaluationTarget = "on-device",
-	patternMatching,
 	validityIndex,
 	admitExpressionChange,
 	children,
@@ -245,6 +231,17 @@ export function EditorVocabularyProvider({
 					),
 		[expression, expressionContext, expressionPath],
 	);
+	// The menus' axes are read from the slot, never passed by a surface: a
+	// catalog-only control (no slot) reads the ordinary per-case defaults.
+	const axes = useMemo(
+		() =>
+			expressionContext === undefined
+				? CATALOG_ONLY_AXES
+				: editorAxesOf(expressionContext, lookupTables),
+		[expressionContext, lookupTables],
+	);
+	const { caseDataScope, evaluationTarget, ownerValues, tableScope } = axes;
+	const patternMatching = axes.patternMatching;
 	const value = useMemo<EditorVocabularyValue>(
 		() => ({
 			expression,

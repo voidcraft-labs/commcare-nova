@@ -65,7 +65,6 @@ const EDIT_CTX: PredicateEditContext = expressionEditorFixture("case-filter", {
 	caseTypes: CASE_TYPES,
 	currentCaseType: "patient",
 	knownInputs: [{ uuid: testUuid("query"), name: "query", data_type: "text" }],
-	caseDataScope: "per-case",
 }).context;
 
 describe("predicate transition planning", () => {
@@ -211,7 +210,9 @@ describe("predicate transition planning", () => {
 	it("keeps a nearby center but warns that its distance settings cannot map", () => {
 		const fieldUuid = testUuid("location-answer");
 		const context = expressionEditorFixture("operation-condition", {
-			...EDIT_CTX,
+			caseTypes: EDIT_CTX.caseTypes,
+			currentCaseType: EDIT_CTX.currentCaseType,
+			knownInputs: EDIT_CTX.knownInputs,
 			formFields: [
 				{
 					uuid: fieldUuid,

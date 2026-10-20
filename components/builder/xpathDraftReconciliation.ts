@@ -1,255 +1,220 @@
-import { cleanXPathHashtagSpans } from "@/lib/codemirror/xpath-hashtag-spans";
-import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
+import type { ExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
+import { deepEqual } from "@/lib/doc/deepEqual";
+import {
+	parseFormExpressionForSlot,
+	projectFormExpression,
+} from "@/lib/doc/expressionText";
+import { expressionChildren } from "@/lib/domain/expression/children";
+import { type ExpressionSpans, spanKey } from "@/lib/domain/expression/spans";
+import {
+	type CheckPath,
+	type Expression,
+	isExpression,
+	type Term,
+} from "@/lib/domain/expression/types";
 
 /**
- * Three-way reconciliation for an open XPath editor.
+ * Three-way reconciliation for an open expression editor.
  *
- * `base` is the projection the local draft started from, while `incoming` is
- * the newest projection of the identity-backed AST. The only dirty-draft
- * change this reconciler applies automatically is one byte-exact rename of one
- * complete `#user/<slug>` token whose catalog entries prove the same stable
- * UUID on both sides. The peer may change no other byte, and the local draft
- * must still contain that exact qualified token exactly once.
+ * `base` is the shown text the local draft started from, under the
+ * document `baseScope` holds; `incoming` is the newest shown text, under
+ * `incomingScope`. A clean draft follows the incoming text. A dirty draft
+ * is respelled, never rewritten, under one rule:
  *
- * Everything else fails closed. In particular, no edit-distance alignment may
- * map a bare slug onto another hashtag namespace, erase a peer's wider edit, or
- * leave a renamed custom-worker spelling behind to parse later as a raw
- * `user-ref`.
+ * 1. the stored tree is unchanged (both scopes hold one `Expression` for the
+ *    slot); otherwise the draft keeps its text and the edit conflicts;
+ * 2. the draft parses under the old document's scope; otherwise conflict;
+ * 3. each place of the draft's parse whose identity prints differently in
+ *    the new document is replaced at its span by the new spelling, and the
+ *    rest of the draft keeps the person's own spacing and spelling; a read
+ *    whose identity the new document lacks is a conflict.
+ *
+ * That covers a question renamed or moved (in every spelling, relative
+ * included), a worker-information slug, a Search answer, a data table or
+ * column, a choice's value, and a session value whose id follows the menu's
+ * shape. The respelled draft must parse under the new scope to the same
+ * tree, or the edit conflicts. When the shown text did not change, an
+ * identity the draft alone reads is respelled the same way, and a draft
+ * that does not parse or reads something now gone is left to the linter.
  */
 
-export interface XPathUserPropertyProjection {
-	readonly uuid: string;
-	readonly slug: string;
-}
+type ParseScope = ExpressionEditorContext["scope"];
+type Span = { readonly from: number; readonly to: number };
 
-interface IdentityRename {
-	readonly oldToken: string;
-	readonly newToken: string;
-}
-
-const NO_CLAIMED_SLUGS: ReadonlySet<string> = new Set();
-
-function uniqueIdentityForSlug(
-	properties: readonly XPathUserPropertyProjection[],
-	slug: string,
-): string | undefined {
-	if (!userPropertySlugVerdict(slug, NO_CLAIMED_SLUGS).ok) {
-		return undefined;
-	}
-	const folded = slug.toLowerCase();
-	const matches = properties.filter(
-		(property) => property.slug.toLowerCase() === folded,
-	);
-	if (matches.length !== 1 || matches[0].slug !== slug) return undefined;
-	return matches[0].uuid;
-}
-
-function uniquePropertiesByUuid(
-	properties: readonly XPathUserPropertyProjection[],
-): ReadonlyMap<string, XPathUserPropertyProjection> | null {
-	const byUuid = new Map<string, XPathUserPropertyProjection>();
-	for (const property of properties) {
-		if (byUuid.has(property.uuid)) return null;
-		byUuid.set(property.uuid, property);
-	}
-	return byUuid;
-}
-
-function sameCatalogProjection(
-	before: readonly XPathUserPropertyProjection[],
-	after: readonly XPathUserPropertyProjection[],
-): boolean {
-	const beforeByUuid = uniquePropertiesByUuid(before);
-	const afterByUuid = uniquePropertiesByUuid(after);
-	if (!beforeByUuid || !afterByUuid || beforeByUuid.size !== afterByUuid.size) {
-		return false;
-	}
-	for (const [uuid, property] of beforeByUuid) {
-		if (afterByUuid.get(uuid)?.slug !== property.slug) return false;
-	}
-	return true;
-}
-
-function singleCatalogRename(
-	before: readonly XPathUserPropertyProjection[],
-	after: readonly XPathUserPropertyProjection[],
-): IdentityRename | null {
-	const beforeByUuid = uniquePropertiesByUuid(before);
-	const afterByUuid = uniquePropertiesByUuid(after);
-	if (!beforeByUuid || !afterByUuid || beforeByUuid.size !== afterByUuid.size) {
-		return null;
-	}
-
-	let rename: IdentityRename | null = null;
-	for (const [uuid, oldProperty] of beforeByUuid) {
-		const newProperty = afterByUuid.get(uuid);
-		if (!newProperty) return null;
-		if (oldProperty.slug === newProperty.slug) continue;
-		if (rename !== null) return null;
-		if (
-			uniqueIdentityForSlug(before, oldProperty.slug) !== uuid ||
-			uniqueIdentityForSlug(after, newProperty.slug) !== uuid
-		) {
-			return null;
-		}
-		rename = {
-			oldToken: `#user/${oldProperty.slug}`,
-			newToken: `#user/${newProperty.slug}`,
-		};
-	}
-	return rename;
-}
-
-function userSlug(token: string): string | undefined {
-	const prefix = "#user/";
-	return token.startsWith(prefix) ? token.slice(prefix.length) : undefined;
-}
-
-function catalogChangeTouchesSpans(
-	spans: readonly {
-		readonly text: string;
-		readonly start: number;
-		readonly end: number;
-	}[],
-	before: readonly XPathUserPropertyProjection[],
-	after: readonly XPathUserPropertyProjection[],
-	skip?: { readonly start: number; readonly end: number },
-): boolean {
-	for (const span of spans) {
-		if (span.start === skip?.start && span.end === skip.end) continue;
-		const slug = userSlug(span.text);
-		if (slug === undefined) continue;
-		if (
-			uniqueIdentityForSlug(before, slug) !== uniqueIdentityForSlug(after, slug)
-		) {
-			return true;
-		}
-	}
-	return false;
-}
-
-/**
- * Prove that `incoming` is `base` with exactly one complete UUID-backed
- * custom-worker token renamed and no other byte changed.
- */
-function exactPeerIdentityRename({
-	base,
-	incoming,
-	baseUserProperties,
-	incomingUserProperties,
-}: {
+export interface XPathDraftReconciliation {
 	readonly base: string;
-	readonly incoming: string;
-	readonly baseUserProperties: readonly XPathUserPropertyProjection[];
-	readonly incomingUserProperties: readonly XPathUserPropertyProjection[];
-}): IdentityRename | null {
-	const rename = singleCatalogRename(
-		baseUserProperties,
-		incomingUserProperties,
-	);
-	if (!rename) return null;
+	readonly draft: string;
+	readonly conflict: boolean;
+}
 
-	const baseHashtags = cleanXPathHashtagSpans(base);
-	if (baseHashtags === null) return null;
-	const oldSpans = baseHashtags.filter((span) => span.text === rename.oldToken);
-	if (oldSpans.length !== 1) return null;
-	const [renamedSpan] = oldSpans;
-	if (
-		base.slice(0, renamedSpan.start) +
-			rename.newToken +
-			base.slice(renamedSpan.end) !==
-		incoming
-	) {
-		return null;
+function parse(scope: ParseScope, text: string) {
+	return parseFormExpressionForSlot(scope.doc, scope.slot, text, scope.lookup, {
+		...(scope.form === undefined ? {} : { form: scope.form }),
+	});
+}
+
+function print(scope: ParseScope, expression: Expression) {
+	return projectFormExpression(
+		scope.doc,
+		scope.slot,
+		expression,
+		scope.lookup,
+		{
+			...(scope.form === undefined ? {} : { form: scope.form }),
+		},
+	);
+}
+
+/** The text a node holds between its children's spans. */
+function ownSegments(
+	span: Span,
+	children: readonly Span[],
+): readonly Span[] | undefined {
+	const sorted = [...children].sort((a, b) => a.from - b.from);
+	const segments: Span[] = [];
+	let at = span.from;
+	for (const child of sorted) {
+		if (child.from < at || child.to > span.to) return undefined;
+		segments.push({ from: at, to: child.from });
+		at = child.to;
 	}
-	if (
-		catalogChangeTouchesSpans(
-			baseHashtags,
-			baseUserProperties,
-			incomingUserProperties,
-			renamedSpan,
-		)
-	) {
-		return null;
+	segments.push({ from: at, to: span.to });
+	return segments;
+}
+
+/** The draft's replacements: each segment whose text differs between the
+ * two prints, respelled with the new print's text. */
+function respellings(
+	expression: Expression,
+	draft: { readonly text: string; readonly spans: ExpressionSpans },
+	before: { readonly text: string; readonly spans: ExpressionSpans },
+	after: { readonly text: string; readonly spans: ExpressionSpans },
+): readonly (Span & { readonly insert: string })[] | undefined {
+	const edits: (Span & { readonly insert: string })[] = [];
+	let failed = false;
+	const visit = (node: Expression | Term, path: CheckPath): void => {
+		if (failed) return;
+		const children = expressionChildren(node, path).filter(
+			(child) => child.kind !== "relation",
+		);
+		// A term wrapper shares its term's span: it holds no text of its own.
+		if (isExpression(node) && node.kind === "term") {
+			for (const child of children) visit(child.value, child.path);
+			return;
+		}
+		const key = spanKey(path);
+		const spansOf = (spans: ExpressionSpans) => {
+			const span = spans.get(key);
+			if (span === undefined) return undefined;
+			const own = children.map((child) => spans.get(spanKey(child.path)));
+			return own.every((child): child is Span => child !== undefined)
+				? ownSegments(span, own)
+				: undefined;
+		};
+		const old = spansOf(before.spans);
+		const next = spansOf(after.spans);
+		if (old === undefined || next === undefined || old.length !== next.length) {
+			failed = true;
+			return;
+		}
+		const changed = old.flatMap((segment, index) => {
+			const newer = next[index];
+			const oldText = before.text.slice(segment.from, segment.to);
+			const newText = after.text.slice(newer.from, newer.to);
+			return oldText === newText ? [] : [{ index, newText }];
+		});
+		if (changed.length > 0) {
+			const typed = spansOf(draft.spans);
+			if (typed === undefined || typed.length !== old.length) {
+				failed = true;
+				return;
+			}
+			for (const { index, newText } of changed)
+				edits.push({ ...typed[index], insert: newText });
+		}
+		for (const child of children) visit(child.value, child.path);
+	};
+	visit(expression, []);
+	if (failed) return undefined;
+	const sorted = [...edits].sort((a, b) => a.from - b.from);
+	for (let index = 1; index < sorted.length; index++)
+		if (sorted[index].from < sorted[index - 1].to) return undefined;
+	return sorted;
+}
+
+/** The draft respelled for the incoming document, or why it cannot be. */
+function respellDraft(
+	draft: string,
+	baseScope: ParseScope,
+	incomingScope: ParseScope,
+): { readonly draft: string } | "unparsed" | "lost" | "changed" {
+	const parsed = parse(baseScope, draft);
+	if (!parsed.ok) return "unparsed";
+	const expression = parsed.expression;
+	if (expression === undefined) return { draft };
+	const before = print(baseScope, expression);
+	const after = print(incomingScope, expression);
+	if (before.text === after.text) return { draft };
+	if (before.unresolved.length > 0 || after.unresolved.length > 0)
+		return "lost";
+	const edits = respellings(
+		expression,
+		{ text: draft, spans: parsed.spans },
+		before,
+		after,
+	);
+	if (edits === undefined) return "changed";
+	let respelled = "";
+	let at = 0;
+	for (const edit of edits) {
+		respelled += draft.slice(at, edit.from) + edit.insert;
+		at = edit.to;
 	}
-	return rename;
+	respelled += draft.slice(at);
+	const reparsed = parse(incomingScope, respelled);
+	return reparsed.ok && deepEqual(reparsed.expression, expression)
+		? { draft: respelled }
+		: "changed";
 }
 
 export function reconcileXPathDraft({
 	base,
 	draft,
 	incoming,
-	baseUserProperties,
-	incomingUserProperties,
+	baseScope,
+	incomingScope,
 	conflict = false,
 }: {
 	readonly base: string;
 	readonly draft: string;
 	readonly incoming: string;
-	readonly baseUserProperties: readonly XPathUserPropertyProjection[];
-	readonly incomingUserProperties: readonly XPathUserPropertyProjection[];
+	/** The scope `base` was printed under, or undefined with no context. */
+	readonly baseScope: ParseScope | undefined;
+	/** The scope `incoming` was printed under. */
+	readonly incomingScope: ParseScope | undefined;
 	/** A same-slot collision was already observed in this mounted edit. */
 	readonly conflict?: boolean;
-}): { base: string; draft: string; conflict: boolean } {
+}): XPathDraftReconciliation {
 	// A later peer projection cannot prove that the local same-slot edit is
-	// suddenly safe. Advance the shared base for diagnostics, but preserve both
-	// the draft and the refusal until the editor's explicit cancel/reload path
-	// unmounts this controller.
+	// suddenly safe. Advance the shared base, but preserve both the draft and
+	// the refusal until the editor's explicit cancel/reload path unmounts it.
 	if (conflict) return { base: incoming, draft, conflict: true };
-	if (incoming === base) {
-		if (
-			sameCatalogProjection(baseUserProperties, incomingUserProperties) ||
-			draft === base
-		) {
-			return { base, draft, conflict: false };
-		}
-		const draftHashtags = cleanXPathHashtagSpans(draft);
-		return {
-			base,
-			draft,
-			conflict:
-				draftHashtags === null ||
-				catalogChangeTouchesSpans(
-					draftHashtags,
-					baseUserProperties,
-					incomingUserProperties,
-				),
-		};
-	}
-	if (draft === base || draft === incoming) {
+	if (draft === base || draft === incoming)
 		return { base: incoming, draft: incoming, conflict: false };
-	}
-
-	const rename = exactPeerIdentityRename({
-		base,
-		incoming,
-		baseUserProperties,
-		incomingUserProperties,
-	});
-	if (!rename) return { base: incoming, draft, conflict: true };
-
-	const draftHashtags = cleanXPathHashtagSpans(draft);
-	if (draftHashtags === null) {
-		return { base: incoming, draft, conflict: true };
-	}
-	const mapped = draftHashtags.filter((span) => span.text === rename.oldToken);
-	if (mapped.length !== 1) {
-		return { base: incoming, draft, conflict: true };
-	}
-	const [span] = mapped;
+	const shownChanged = incoming !== base;
+	const fail = (): XPathDraftReconciliation =>
+		shownChanged
+			? { base: incoming, draft, conflict: true }
+			: { base, draft, conflict: false };
+	if (baseScope === undefined || incomingScope === undefined) return fail();
 	if (
-		catalogChangeTouchesSpans(
-			draftHashtags,
-			baseUserProperties,
-			incomingUserProperties,
-			span,
-		)
-	) {
+		baseScope.doc === incomingScope.doc &&
+		baseScope.lookup === incomingScope.lookup
+	)
+		return { base: incoming, draft, conflict: false };
+	if (!deepEqual(baseScope.current, incomingScope.current))
 		return { base: incoming, draft, conflict: true };
-	}
-	return {
-		base: incoming,
-		draft: draft.slice(0, span.start) + rename.newToken + draft.slice(span.end),
-		conflict: false,
-	};
+	const respelled = respellDraft(draft, baseScope, incomingScope);
+	if (typeof respelled === "string") return fail();
+	return { base: incoming, draft: respelled.draft, conflict: false };
 }

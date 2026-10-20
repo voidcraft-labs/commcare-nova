@@ -57,7 +57,7 @@ function ctx(
 	caseTypes: readonly CaseType[] = [MOTHER, CHILD],
 	currentCaseType = "mother",
 ): PredicateEditContext {
-	return expressionEditorFixture(
+	const fixture = expressionEditorFixture(
 		caseDataScope === "selected-case"
 			? "selected-case-condition"
 			: caseDataScope === "global"
@@ -67,9 +67,11 @@ function ctx(
 			caseTypes,
 			currentCaseType,
 			knownInputs: [],
-			caseDataScope,
 		},
 	).context;
+	// The carrier's slot decides its scope; no surface passes it.
+	expect(fixture.caseDataScope).toBe(caseDataScope);
+	return fixture;
 }
 
 /** A navigation display condition: no rule that can never match. */

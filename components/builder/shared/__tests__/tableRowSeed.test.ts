@@ -53,7 +53,6 @@ const TABLE_ROW_CONTEXT: PredicateEditContext = expressionEditorFixture(
 		caseTypes: [],
 		currentCaseType: "",
 		knownInputs: [],
-		caseDataScope: "table-row",
 		lookupTables: [
 			{
 				id: TABLE,

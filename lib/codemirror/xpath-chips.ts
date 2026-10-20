@@ -1,17 +1,19 @@
 /**
- * CodeMirror 6 extension for rendering hashtag references as inline chips.
+ * Identity chips for form expressions.
  *
- * Packages five facets into a single Extension array:
- *   1. ViewPlugin + MatchDecorator — scan viewport for #type/path patterns,
- *      replace with chip widgets via Decoration.replace
- *   2. atomicRanges — make chip decoration ranges atomic for cursor navigation
- *   3. transactionFilter — intercept backspace on atomic ranges to delete only
- *      the last character (backspace-to-revert behavior)
- *   4. domEventHandlers — drop (insert #type/path at drop position) and
- *      dragstart (serialize chip to DataTransfer)
+ * The editor text is parsed with the slot's own scope, and each identity
+ * leaf whose spelling is a machine name of something the person knows by
+ * another name is drawn as a chip over its parse span: a question (in every
+ * spelling, relative included) as its label, worker information, a Search
+ * answer, a data table's instance path as the table's name and its columns,
+ * a session value as what it holds, a search's results as "What the search
+ * found", and a choice as its option's label. Case properties and case
+ * types stay text: their names are what a person reads. Text that does not
+ * parse has no chips.
  *
- * The document always stores the canonical "#type/path" text — chips are
- * purely visual decorations. This preserves XPath evaluation fidelity.
+ * The document always holds the text; chips are decorations. A chip range
+ * is atomic for the cursor, and backspace over one deletes only its last
+ * character, which unparses it and shows the text again.
  */
 
 import { startCompletion } from "@codemirror/autocomplete";
@@ -20,146 +22,413 @@ import {
 	EditorState,
 	type Extension,
 	StateEffect,
+	StateField,
 } from "@codemirror/state";
 import {
 	Decoration,
 	type DecorationSet,
 	EditorView,
-	MatchDecorator,
 	ViewPlugin,
 	type ViewUpdate,
 	WidgetType,
 } from "@codemirror/view";
-import { createChipElement } from "@/lib/references/chipDom";
-import { HASHTAG_REF_PATTERN, REF_TYPE_CONFIG } from "@/lib/references/config";
-import type { ReferenceProvider } from "@/lib/references/provider";
-import type { Reference, ReferenceTypeConfig } from "@/lib/references/types";
+import type { IconifyIcon } from "@iconify/react/offline";
+import tablerDatabase from "@iconify-icons/tabler/database";
+import tablerListCheck from "@iconify-icons/tabler/list-check";
+import tablerSearch from "@iconify-icons/tabler/search";
+import tablerTable from "@iconify-icons/tabler/table";
+import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
+import {
+	type FormSyntax,
+	readFormSyntax,
+} from "@/lib/commcare/xpath/formSyntax";
+import {
+	BUILT_IN_USER_PROPERTIES,
+	fieldRegistry,
+	type ProseTemplate,
+	projectProseTemplate,
+	type Uuid,
+} from "@/lib/domain";
+import { expressionChildren } from "@/lib/domain/expression/children";
+import { spanKey } from "@/lib/domain/expression/spans";
+import {
+	type CheckPath,
+	type Expression,
+	isExpression,
+	type Term,
+} from "@/lib/domain/expression/types";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { userPropertiesOf } from "@/lib/domain/users";
+import { createLabeledChipElement } from "@/lib/references/chipDom";
+import { REF_TYPE_CONFIG } from "@/lib/references/config";
+import type { ReferenceType } from "@/lib/references/types";
+import {
+	datumLabel,
+	type ExpressionEditorContext,
+	fieldLabel,
+} from "./expressionEditorContext";
+
+/** One chip: the span it covers and what it reads as. */
+export interface ExpressionChip {
+	readonly from: number;
+	readonly to: number;
+	readonly label: string;
+	readonly type: ReferenceType;
+	readonly icon?: IconifyIcon;
+}
+
+type Span = { readonly from: number; readonly to: number };
+
+/** The syntax nodes of a parse, by their exact bounds, outermost first. */
+function syntaxByBounds(root: FormSyntax): ReadonlyMap<string, FormSyntax> {
+	const byBounds = new Map<string, FormSyntax>();
+	const visit = (node: FormSyntax): void => {
+		const key = `${node.from}:${node.to}`;
+		if (!byBounds.has(key)) byBounds.set(key, node);
+		switch (node.kind) {
+			case "group":
+			case "negative":
+			case "axis":
+				visit(node.value);
+				break;
+			case "child":
+				if (node.left !== undefined) visit(node.left);
+				visit(node.step);
+				break;
+			case "filter":
+				visit(node.base);
+				visit(node.where);
+				break;
+			case "binary":
+				visit(node.left);
+				visit(node.right);
+				break;
+			case "call":
+				node.args.forEach(visit);
+				break;
+			default:
+				break;
+		}
+	};
+	visit(root);
+	return byBounds;
+}
+
+/** The innermost row of a filtered path: its root path, or with `keep`
+ * the last filter whose base is that root (a search's related-case
+ * exclusion belongs to its root). */
+function rowRoot(node: FormSyntax, keepFirstFilter = false): FormSyntax {
+	let current = node;
+	while (current.kind === "filter") {
+		if (keepFirstFilter && current.base.kind !== "filter") return current;
+		current = current.base;
+	}
+	return current;
+}
+
+/**
+ * The chips of `text` under the editor's scope. Pure, so the editor and a
+ * test read one function.
+ */
+export function expressionChips(
+	text: string,
+	context: ExpressionEditorContext | undefined,
+): readonly ExpressionChip[] {
+	if (context === undefined || text.trim() === "") return [];
+	const parsed = parseFormExpression(text, context.scope);
+	if (!parsed.ok || parsed.expression === undefined) return [];
+	const syntax = readFormSyntax(text);
+	if (!syntax.ok || syntax.node === undefined) return [];
+	const bounds = syntaxByBounds(syntax.node);
+	const { doc, lookup } = context.scope;
+	const chips: ExpressionChip[] = [];
+	const add = (
+		span: Span | undefined,
+		label: string | undefined,
+		type: ReferenceType,
+		icon?: IconifyIcon,
+	) => {
+		if (span === undefined || label === undefined || label === "") return;
+		if (span.from >= span.to || span.to > text.length) return;
+		chips.push({ from: span.from, to: span.to, label, type, icon });
+	};
+	const syntaxAt = (span: Span | undefined) =>
+		span === undefined ? undefined : bounds.get(`${span.from}:${span.to}`);
+	const table = (id: LookupTableId) =>
+		lookup === "unavailable" ? undefined : lookup.get(id);
+	const ownCaseType = Object.values(doc.modules).find((module) =>
+		doc.formOrder[module.uuid]?.includes(context.reference.formUuid as Uuid),
+	)?.caseType;
+
+	const termChip = (term: Term, span: Span) => {
+		switch (term.kind) {
+			case "field": {
+				const uuid =
+					term.role === undefined && term.filters === undefined
+						? term.uuid
+						: undefined;
+				if (uuid === undefined) return;
+				const declared =
+					context.scope.form?.fields.get(uuid) ?? doc.fields[uuid];
+				if (declared === undefined) return;
+				add(
+					span,
+					fieldLabel(doc, uuid, declared.id),
+					"form",
+					fieldRegistry[declared.kind]?.icon,
+				);
+				return;
+			}
+			case "session-user-property":
+				add(span, userPropertiesOf(doc)[term.userPropertyUuid]?.label, "user");
+				return;
+			case "session-user":
+				add(
+					span,
+					BUILT_IN_USER_PROPERTIES.find((each) => each.slug === term.field)
+						?.label,
+					"user",
+				);
+				return;
+			case "input":
+				add(
+					span,
+					searchInputLabel(doc, term.searchInputUuid),
+					"form",
+					tablerSearch,
+				);
+				return;
+			case "session-datum":
+				add(
+					span,
+					datumLabel(doc, term.datum, ownCaseType),
+					"case",
+					tablerDatabase,
+				);
+				return;
+			case "table-column":
+				add(
+					span,
+					table(term.tableId)?.columns.find(
+						(column) => column.id === term.columnId,
+					)?.label,
+					"case",
+					tablerTable,
+				);
+				return;
+			case "choice":
+				add(
+					span,
+					choiceLabel(doc, term.field, term.options),
+					"form",
+					tablerListCheck,
+				);
+				return;
+			default:
+				return;
+		}
+	};
+
+	const expressionChip = (node: Expression, span: Span) => {
+		const at = syntaxAt(span);
+		if (at === undefined) return;
+		if (node.kind === "table-rows")
+			add(rowRoot(at), table(node.tableId)?.name, "case", tablerTable);
+		else if (node.kind === "table-lookup") {
+			const found = table(node.tableId);
+			if (at.kind !== "child" || at.left === undefined) return;
+			add(rowRoot(at.left), found?.name, "case", tablerTable);
+			add(
+				at.step,
+				found?.columns.find((column) => column.id === node.resultColumnId)
+					?.label,
+				"case",
+				tablerTable,
+			);
+		} else if (node.kind === "cases" && node.source === "search-results")
+			add(rowRoot(at, true), "What the search found", "case", tablerSearch);
+	};
+
+	const visit = (
+		node: Expression | Term,
+		path: CheckPath,
+		parent: Span | undefined,
+	): void => {
+		const span = parsed.spans.get(spanKey(path));
+		// A node the parser placed at its parent's bounds has no span of its
+		// own, so it gets no chip. A term shares its wrapper's span, so it is
+		// compared with the wrapper's parent.
+		const own =
+			span !== undefined &&
+			(parent === undefined ||
+				span.from !== parent.from ||
+				span.to !== parent.to);
+		if (own && syntaxAt(span) !== undefined) {
+			if (isExpression(node)) expressionChip(node, span);
+			else termChip(node, span);
+		}
+		const wrapper = isExpression(node) && node.kind === "term";
+		for (const child of expressionChildren(node, path))
+			if (child.kind !== "relation")
+				visit(child.value, child.path, wrapper ? parent : span);
+	};
+	visit(parsed.expression, [], undefined);
+
+	// Overlapping spans (a malformed parse) keep the first, in text order.
+	const sorted = [...chips].sort((a, b) => a.from - b.from || b.to - a.to);
+	const kept: ExpressionChip[] = [];
+	for (const chip of sorted) {
+		const last = kept[kept.length - 1];
+		if (last === undefined || chip.from >= last.to) kept.push(chip);
+	}
+	return kept;
+}
+
+function searchInputLabel(
+	doc: ExpressionEditorContext["scope"]["doc"],
+	uuid: Uuid,
+): string | undefined {
+	for (const module of Object.values(doc.modules)) {
+		const input = module.caseListConfig?.searchInputs.find(
+			(each) => each.uuid === uuid,
+		);
+		if (input !== undefined) return input.label || input.name;
+	}
+	return undefined;
+}
+
+function choiceLabel(
+	doc: ExpressionEditorContext["scope"]["doc"],
+	field: Uuid,
+	options: readonly Uuid[],
+): string | undefined {
+	const declared = doc.fields[field];
+	const source =
+		declared !== undefined && "optionsSource" in declared
+			? declared.optionsSource
+			: undefined;
+	if (source?.kind !== "inline") return undefined;
+	const labels = options.map((uuid) => {
+		const option = source.options.find((each) => each.uuid === uuid);
+		if (option === undefined) return undefined;
+		const label = projectProseTemplate(option.label as ProseTemplate, doc).text;
+		return label.trim() === "" ? option.value : label;
+	});
+	return labels.every((label): label is string => label !== undefined)
+		? labels.join(", ")
+		: undefined;
+}
 
 // ── Widget ──────────────────────────────────────────────────────────────
 
 class ChipWidget extends WidgetType {
 	constructor(
-		private ref: Reference,
-		private config: ReferenceTypeConfig,
+		private readonly chip: ExpressionChip,
+		private readonly raw: string,
 	) {
 		super();
 	}
 
 	eq(other: ChipWidget): boolean {
-		return this.ref.raw === other.ref.raw && this.ref.label === other.ref.label;
+		return (
+			this.raw === other.raw &&
+			this.chip.label === other.chip.label &&
+			this.chip.type === other.chip.type &&
+			this.chip.icon === other.chip.icon
+		);
 	}
 
 	toDOM(): HTMLElement {
-		return createChipElement(this.ref, this.config);
+		return createLabeledChipElement(
+			{
+				type: this.chip.type,
+				raw: this.raw,
+				label: this.chip.label,
+				icon: this.chip.icon,
+			},
+			REF_TYPE_CONFIG[this.chip.type],
+		);
 	}
 
 	ignoreEvent(event: Event): boolean {
-		/* Let drag events bubble so the dragstart handler can serialize the chip. */
+		/* Let drag events bubble so a drag handler can serialize the chip. */
 		return event.type === "dragstart";
 	}
 }
 
-// ── MatchDecorator + ViewPlugin ─────────────────────────────────────────
+/** Recomputes the chips without a text change, after the context's
+ * document moved under the editor (a peer renamed what a chip names). */
+export const refreshExpressionChips = StateEffect.define<null>();
 
-/**
- * Build a ViewPlugin that scans the viewport for hashtag references and
- * decorates them with chip widgets. The provider resolves labels from the live
- * blueprint, scoped to the editor's form via `getFormUuid` (form/case refs need
- * a form scope to resolve).
- */
-function buildChipPlugin(
-	provider: ReferenceProvider,
-	getFormUuid: () => string | undefined,
-) {
-	/** MatchDecorator requires a global regex for viewport scanning. */
-	const globalPattern = new RegExp(HASHTAG_REF_PATTERN, "g");
-	const matcher = new MatchDecorator({
-		regexp: globalPattern,
-		decoration: (match, _view, _pos) => {
-			const raw = match[0];
-			const ref = provider.resolve(raw, getFormUuid(), "xpath");
-			/* Only decorate references that actually exist in the blueprint.
-         Unknown refs (e.g. after backspace-to-revert removes the last char)
-         stay as raw text so the user can see and edit them. */
-			if (!ref) return null;
-			const config = REF_TYPE_CONFIG[ref.type];
-			return Decoration.replace({ widget: new ChipWidget(ref, config) });
-		},
-	});
-
-	return ViewPlugin.fromClass(
-		class {
-			decorations: DecorationSet;
-			constructor(view: EditorView) {
-				this.decorations = matcher.createDeco(view);
-			}
-			update(update: ViewUpdate) {
-				this.decorations = matcher.updateDeco(update, this.decorations);
-			}
-		},
-		{ decorations: (v) => v.decorations },
-	);
-}
-
-// ── Atomic ranges ───────────────────────────────────────────────────────
-
-/**
- * Makes chip decoration ranges atomic so arrow keys skip over them as a
- * single unit. Reads from the chip ViewPlugin's decoration set.
- */
-function buildAtomicRanges(plugin: ReturnType<typeof buildChipPlugin>) {
-	return EditorView.atomicRanges.of((view) => {
-		return view.plugin(plugin)?.decorations ?? Decoration.none;
-	});
-}
-
-// ── Backspace-to-revert filter ──────────────────────────────────────────
-
-/** Signals that a chip was reverted to raw text, triggering autocomplete. */
+/** Signals that a chip was reverted to text, triggering autocomplete. */
 const chipRevertEffect = StateEffect.define<null>();
 
-/**
- * Transaction filter that intercepts atomic-delete on backspace. Instead of
- * deleting the entire chip range (which atomicRanges normally produces), it
- * deletes only the last character of the matched text. This causes the
- * provider to stop resolving the reference, exposing the raw text.
- * Attaches a chipRevertEffect so the autocomplete listener can re-open.
- */
-const backspaceRevert = EditorState.transactionFilter.of((tr) => {
-	if (!tr.isUserEvent("delete.backward")) return tr;
-
-	/* Track whether we need to modify the transaction. */
-	let modified = false;
-	const newChanges: ChangeSpec[] = [];
-	let newAnchor = -1;
-
-	tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
-		const deletedText = tr.startState.doc.sliceString(fromA, toA);
-		const isChipRange = HASHTAG_REF_PATTERN.test(deletedText);
-
-		if (isChipRange && inserted.length === 0 && deletedText.length > 1) {
-			/* Delete only the last character instead of the whole chip. */
-			newChanges.push({ from: toA - 1, to: toA });
-			newAnchor = toA - 1;
-			modified = true;
-		} else {
-			/* Pass through unmodified. */
-			newChanges.push({ from: fromA, to: toA, insert: inserted });
-			newAnchor = fromA;
-		}
-	});
-
-	if (!modified) return tr;
-
-	return {
-		changes: newChanges,
-		selection: newAnchor >= 0 ? { anchor: newAnchor } : undefined,
-		effects: chipRevertEffect.of(null),
-		userEvent: "delete.backward",
+function chipField(
+	getContext: () => ExpressionEditorContext | undefined,
+): StateField<DecorationSet> {
+	const build = (state: EditorState): DecorationSet => {
+		const text = state.doc.toString();
+		return Decoration.set(
+			expressionChips(text, getContext()).map((chip) =>
+				Decoration.replace({
+					widget: new ChipWidget(chip, text.slice(chip.from, chip.to)),
+				}).range(chip.from, chip.to),
+			),
+		);
 	};
-});
+	return StateField.define<DecorationSet>({
+		create: build,
+		update(value, tr) {
+			return tr.docChanged ||
+				tr.effects.some((effect) => effect.is(refreshExpressionChips))
+				? build(tr.state)
+				: value;
+		},
+		provide: (field) => [
+			EditorView.decorations.from(field),
+			EditorView.atomicRanges.of((view) => view.state.field(field)),
+		],
+	});
+}
 
-/** Re-opens autocomplete after a chip is reverted to raw text. */
+/**
+ * Backspace over a chip deletes only its last character instead of the
+ * whole atomic range, so the text stops parsing as that identity and shows
+ * again, and completion reopens on it.
+ */
+function backspaceRevert(field: StateField<DecorationSet>) {
+	return EditorState.transactionFilter.of((tr) => {
+		if (!tr.isUserEvent("delete.backward")) return tr;
+		const chips = tr.startState.field(field, false);
+		if (chips === undefined) return tr;
+		let modified = false;
+		const changes: ChangeSpec[] = [];
+		let anchor = -1;
+		tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+			let whole = false;
+			chips.between(fromA, toA, (from, to) => {
+				if (from === fromA && to === toA) whole = true;
+			});
+			if (whole && inserted.length === 0 && toA - fromA > 1) {
+				changes.push({ from: toA - 1, to: toA });
+				anchor = toA - 1;
+				modified = true;
+			} else {
+				changes.push({ from: fromA, to: toA, insert: inserted });
+				anchor = fromA;
+			}
+		});
+		if (!modified) return tr;
+		return {
+			changes,
+			selection: anchor >= 0 ? { anchor } : undefined,
+			effects: chipRevertEffect.of(null),
+			userEvent: "delete.backward",
+		};
+	});
+}
+
+/** Re-opens autocomplete after a chip is reverted to text. */
 const revertAutocomplete = ViewPlugin.fromClass(
 	class {
 		update(update: ViewUpdate) {
@@ -173,22 +442,10 @@ const revertAutocomplete = ViewPlugin.fromClass(
 	},
 );
 
-// ── Public factory ──────────────────────────────────────────────────────
-
-/**
- * Create a CodeMirror extension that renders hashtag references as inline
- * chips with atomic cursor behavior, backspace-to-revert, and drag/drop.
- * `getFormUuid` scopes ref resolution to the editor's form.
- */
+/** The chip extension over the slot's editor context. */
 export function xpathChips(
-	provider: ReferenceProvider,
-	getFormUuid: () => string | undefined,
+	getContext: () => ExpressionEditorContext | undefined,
 ): Extension {
-	const plugin = buildChipPlugin(provider, getFormUuid);
-	return [
-		plugin,
-		buildAtomicRanges(plugin),
-		backspaceRevert,
-		revertAutocomplete,
-	];
+	const field = chipField(getContext);
+	return [field, backspaceRevert(field), revertAutocomplete];
 }

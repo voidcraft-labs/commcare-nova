@@ -79,8 +79,8 @@ export function DeliverConfig({
 		uuid: formUuid,
 		slot: "deliver_entity_name" as const,
 	};
-	const getIdLintContext = useFormLintContext(idSlot);
-	const getNameLintContext = useFormLintContext(nameSlot);
+	const getIdEditorContext = useFormLintContext(idSlot);
+	const getNameEditorContext = useFormLintContext(nameSlot);
 	// AST-stored slots ⇄ text: display prints against the live doc,
 	// commit parses against the doc of the moment.
 	const entityIdText = useFormExpressionText(du?.entity_id, idSlot);
@@ -308,7 +308,7 @@ export function DeliverConfig({
 												clearDeliverField("entity_id");
 												return undefined;
 											}}
-											getLintContext={getIdLintContext}
+											getEditorContext={getIdEditorContext}
 										/>
 										<LabeledXPathField
 											label="Entity name"
@@ -319,7 +319,7 @@ export function DeliverConfig({
 												clearDeliverField("entity_name");
 												return undefined;
 											}}
-											getLintContext={getNameLintContext}
+											getEditorContext={getNameEditorContext}
 										/>
 									</>
 								) : stagedDeliver ? (

@@ -10,6 +10,7 @@ import {
 	resolveExpressionType,
 } from "./cards/reseed";
 import { defaultCaseTypeValue } from "./caseTypeValueModel";
+import { asChoiceOf, asLiteral, staticSelectSubject } from "./choiceValueModel";
 import type { PredicateEditContext } from "./editorSchemas";
 /** The case types the compared row can be: the editor's current row type,
  * which a relation's condition has already rebound to its destination. */
@@ -23,6 +24,26 @@ export function possibleRowCaseTypes(
  * value is a case type picked from the catalog. */
 export function comparesCaseType(left: Expression): boolean {
 	return left.kind === "term" && left.term.kind === "case-row-type";
+}
+
+/** The comparison's value retargeted at a new subject, when either side is a
+ * choice: undefined leaves the ordinary reseed to decide. */
+function selectionValueFor(
+	left: Expression,
+	right: Expression,
+	ctx: PredicateEditContext,
+): Expression | undefined {
+	if (right.kind !== "term") return undefined;
+	const item = right.term;
+	if (item.kind !== "literal" && item.kind !== "choice") return undefined;
+	const subject = staticSelectSubject(left, ctx.expressionContext);
+	if (subject !== undefined) {
+		const choice = asChoiceOf(item, subject, ctx.expressionContext);
+		return choice === undefined ? undefined : term(choice);
+	}
+	return item.kind === "choice"
+		? term(asLiteral(item, ctx.expressionContext))
+		: undefined;
 }
 
 function caseTypeValue(name: string): Expression {
@@ -49,6 +70,11 @@ export function replaceComparisonSubject(
 			name === undefined ? value.right : caseTypeValue(name),
 		);
 	}
+	// Opposite a question with written choices the value is one of them, and
+	// a choice of a question no longer compared becomes its current value,
+	// so the comparison keeps what it compares with.
+	const selection = selectionValueFor(left, value.right, ctx);
+	if (selection !== undefined) return builder(left, selection);
 	const accepts = comparisonObjectConstraint(
 		value.kind,
 		resolveExpressionType(left, ctx),

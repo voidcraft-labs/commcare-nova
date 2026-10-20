@@ -54,6 +54,7 @@ import {
 } from "@/lib/domain/expression/chosenCase";
 import { proseText } from "@/lib/domain/prose";
 import { wrapInConditionChoice } from "../cards/ConditionChoiceCard";
+import { ValueListCard } from "../cards/expression/GeneralValueCards";
 import {
 	reseedLiteralForConstraint,
 	reseedValueForConstraint,
@@ -65,6 +66,12 @@ import {
 	predicateCardSchemas,
 	predicateUnavailableReason,
 } from "../editorSchemas";
+import {
+	expressionCardSchemaList,
+	expressionCardSchemas,
+	isAuthorableExpressionKind,
+} from "../expressionEditorSchemas";
+import { defaultExpressionForSlot } from "../primitives/ExpressionPicker";
 import {
 	caseRowTypeAdmission,
 	chosenCaseSources,
@@ -263,15 +270,10 @@ const CHOICE_CARRIERS = [
 describe("valid by construction — Depends on a condition", () => {
 	it("is applicable exactly where the gate admits the choice it adds or wraps", () => {
 		for (const carrier of CHOICE_CARRIERS) {
-			const editCtx = expressionEditorFixture(carrier, {
-				...CHOICE_VOCABULARY,
-				caseDataScope:
-					carrier === "global-condition"
-						? ("global" as const)
-						: carrier === "selected-case-condition"
-							? ("selected-case" as const)
-							: ("per-case" as const),
-			}).context;
+			const editCtx = expressionEditorFixture(
+				carrier,
+				CHOICE_VOCABULARY,
+			).context;
 			const schema = predicateCardSchemas.if;
 			const applicable = schema.applicable(editCtx);
 			const seed = schema.defaultValue(editCtx);
@@ -420,5 +422,66 @@ describe("valid by construction — Date closed", () => {
 			);
 			expect(expressionEditVerdict(read, context).ok, carrier).toBe(offered);
 		}
+	});
+});
+
+describe("valid by construction — Negative of, Where you are now, a held list", () => {
+	const VALUE_CARRIERS = [
+		"calculated-column",
+		"case-filter",
+		"search-predicate",
+		"global-value",
+		"operation-write",
+		"operation-condition",
+	] as const;
+
+	it("offers each kind exactly where the slot admits its seed", () => {
+		for (const carrier of VALUE_CARRIERS) {
+			const ctx = expressionEditorFixture(carrier, CHOICE_VOCABULARY).context;
+			const context = ctx.expressionContext;
+			// A held `value-list` renders and is offered by no menu.
+			expect(isAuthorableExpressionKind("value-list", ctx), carrier).toBe(
+				false,
+			);
+			// "Where you are now" has a handler only in a calculated column.
+			expect(isAuthorableExpressionKind("here", ctx), carrier).toBe(
+				context.profile.here,
+			);
+			// "Negative of" stands beside Math wherever a number may go.
+			expect(isAuthorableExpressionKind("negate", ctx), carrier).toBe(
+				isAuthorableExpressionKind("arith", ctx),
+			);
+			for (const kind of ["here", "negate"] as const) {
+				if (!isAuthorableExpressionKind(kind, ctx)) continue;
+				const schema = expressionCardSchemaList.find(
+					(entry) => entry.kind === kind,
+				);
+				if (schema === undefined) throw new Error(`${kind} has no card`);
+				const seed = defaultExpressionForSlot(
+					schema,
+					ctx,
+					ANY_CONSTRAINT,
+					"value",
+				);
+				expect(seed.kind).toBe(kind);
+				// A value slot takes the seed itself; a condition compares it.
+				const candidate =
+					context.profile.expectation.kind === "condition"
+						? eq(seed, kind === "negate" ? term(literal(1)) : seed)
+						: seed;
+				const verdict = expressionEditVerdict(candidate, context);
+				// The menu offers it and the verdict decides whether it is
+				// enabled; where the slot runs on CommCare's server search, a
+				// location is refused there with its reason.
+				if (kind === "here")
+					expect(verdict.ok, `${carrier}: ${kind}`).toBe(true);
+			}
+		}
+	});
+
+	it("gives every stored kind a card, the held list's display-only", () => {
+		expect(expressionCardSchemas["value-list"].component).toBe(ValueListCard);
+		expect(expressionCardSchemas.negate.label).toBe("Negative of");
+		expect(expressionCardSchemas.here.label).toBe("Where you are now");
 	});
 });

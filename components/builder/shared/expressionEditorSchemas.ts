@@ -29,6 +29,7 @@ import tablerGitMerge from "@iconify-icons/tabler/git-merge";
 import tablerHash from "@iconify-icons/tabler/hash";
 import tablerLink from "@iconify-icons/tabler/link";
 import tablerListSearch from "@iconify-icons/tabler/list-search";
+import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerSwitch from "@iconify-icons/tabler/switch";
 import tablerUser from "@iconify-icons/tabler/user";
 import tablerUserOff from "@iconify-icons/tabler/user-off";
@@ -118,7 +119,7 @@ export interface ExpressionEditContext {
 	readonly operationScope?: OperationValueScope;
 	/** Present only for the owner facet of a case operation. */
 	readonly ownerValues?: boolean;
-	/** Runtime that evaluates this value. Absent stays strict on-device. */
+	/** The runtimes the slot names, read from its profile (`editorAxes.ts`). */
 	readonly evaluationTarget?: EvaluationTarget;
 }
 
@@ -182,9 +183,9 @@ export const expressionCardSchemas: {
 } = {
 	negate: {
 		kind: "negate",
-		label: "Negative value",
+		label: "Negative of",
 		icon: tablerCalculator,
-		description: "Reverse the sign of a number",
+		description: "The same number with its sign reversed",
 		component: NegateCard,
 		defaultValue: () => ({
 			kind: "negate",
@@ -193,9 +194,9 @@ export const expressionCardSchemas: {
 	},
 	here: {
 		kind: "here",
-		label: "Worker's location",
-		icon: tablerVariable,
-		description: "Use the worker's current location",
+		label: "Where you are now",
+		icon: tablerMapPin,
+		description: "The worker's location when the case list shows",
 		component: HereCard,
 		defaultValue: () => ({ kind: "here" }),
 	},
@@ -382,18 +383,23 @@ export const expressionCardSchemaList: readonly ExpressionCardSchema<CardValueKi
 		expressionCardSchemas,
 	) as readonly ExpressionCardSchema<CardValueKind>[];
 
-/** Contextual vocabulary boundary for the three submission-local leaves and
- * table lookup. Every other registered kind is authorable everywhere its type
- * and execution target admit it. */
+/** Contextual vocabulary boundary for the three submission-local leaves,
+ * table lookup, "Where you are now" and the display-only value list. Every
+ * other registered kind ("Negative of" among them) is authorable everywhere
+ * its type and execution target admit it. */
 export function isAuthorableExpressionKind(
 	kind: CardValueKind,
 	ctx?: Pick<
 		ExpressionEditContext,
 		"operationScope" | "ownerValues" | "lookupTables" | "tableScope"
-	>,
+	> &
+		Partial<Pick<ExpressionEditContext, "expressionContext">>,
 ): boolean {
-	if (kind === "negate" || kind === "here" || kind === "value-list")
-		return false;
+	// A list held from an imported search renders, and no menu offers one.
+	if (kind === "value-list") return false;
+	// The worker's location has a handler only in a case list's calculated
+	// column, which the slot's profile says (`SlotProfile.here`).
+	if (kind === "here") return ctx?.expressionContext?.profile.here === true;
 	if (kind === "id-of") {
 		return (ctx?.operationScope?.creates.length ?? 0) > 0;
 	}

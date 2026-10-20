@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { buildLintContext } from "@/lib/codemirror/buildLintContext";
+import { buildFormReferenceContext } from "@/lib/codemirror/formReferenceContext";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -47,8 +47,8 @@ describe("Builder reference-context invalidation", () => {
 				},
 			},
 		};
-		expect(buildLintContext(referenceDoc(next), form.uuid)).toEqual(
-			buildLintContext(referenceDoc(doc), form.uuid),
+		expect(buildFormReferenceContext(referenceDoc(next), form.uuid)).toEqual(
+			buildFormReferenceContext(referenceDoc(doc), form.uuid),
 		);
 		expect(referenceContextChanged(next, doc)).toBe(false);
 	});
@@ -59,9 +59,9 @@ describe("Builder reference-context invalidation", () => {
 			...doc,
 			fields: { ...doc.fields, [field.uuid]: { ...field, id: "full_name" } },
 		};
-		expect(buildLintContext(referenceDoc(next), form.uuid)).not.toEqual(
-			buildLintContext(referenceDoc(doc), form.uuid),
-		);
+		expect(
+			buildFormReferenceContext(referenceDoc(next), form.uuid),
+		).not.toEqual(buildFormReferenceContext(referenceDoc(doc), form.uuid));
 		expect(referenceContextChanged(next, doc)).toBe(true);
 	});
 

@@ -1,40 +1,20 @@
 // components/builder/case-operations/editorScope.ts
 //
-// The two scope decisions every expression / predicate slot inside a
-// case operation mounts with. Both exist because the commit gate is
-// narrower than the editor's default, and an editor that offers what the
-// gate refuses is the whole valid-by-construction contract broken.
+// The constraints and the runtime-target scope a case operation's slots
+// mount with. Each exists because the commit gate is narrower than the
+// editor's default, and an editor that offers what the gate refuses is the
+// whole valid-by-construction contract broken. Whether a slot may read the
+// form's case is not decided here: it is read from the slot itself
+// (`shared/editorAxes.ts`), from whether this exact form opens with a case.
 //
 // They live here, not inline in the canvas, because the canvas and the
 // link rows must agree and the invariant test drives them directly.
 
-import type { CaseDataScope } from "@/components/builder/shared/editorSchemas";
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
 import {
 	type SlotConstraint,
 	storageAssignmentConstraint,
 } from "@/lib/domain/expression";
-
-/**
- * What an operation slot may read against a case row.
- *
- * `rules/caseOperations.ts::validateCaseSnapshotUse` refuses a case
- * property, a relationship count, and a presence test in ANY operation
- * slot unless this exact form opens with a selected case. Follow-up and close
- * forms do, even when a registration sibling makes the module forms-first.
- * That refusal is spelled with exactly the walks `expressionReadsCaseData`
- * performs, which is the `"global"` scope's own admission oracle for a form
- * without a session case: fixed values, session / worker information, and
- * this submission's own form answers.
- *
- * `"selected-case"` is deliberately NOT the middle answer here. It admits
- * the chosen case's own properties, and the gate admits none.
- */
-export function operationCaseDataScope(
-	sessionCaseAvailable: boolean,
-): CaseDataScope {
-	return sessionCaseAvailable ? "per-case" : "global";
-}
 
 /**
  * The constraint the three TEXT FACET slots mount with: an operation's

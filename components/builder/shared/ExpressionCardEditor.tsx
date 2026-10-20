@@ -55,14 +55,10 @@ import {
 	type SlotConstraint,
 } from "@/lib/domain/expression";
 import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
-import type { CaseDataScope, EvaluationTarget } from "./editorSchemas";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import { expressionEditorErrors } from "./expressionEditorValidity";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
-import type {
-	EditorLookupTableDecl,
-	EditorLookupTableScope,
-} from "./lookupTablePresentation";
+import type { EditorLookupTableDecl } from "./lookupTablePresentation";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
 import { replaceExpressionNodeAtPath } from "./ruleNavigation";
@@ -92,20 +88,11 @@ interface ExpressionCardEditorProps {
 	 *  owning surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
-	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
 	 *  vocabulary (the acting user, no owner, an earlier create's case) is
-	 *  available. */
+	 *  available. The menus' other axes come from `expressionContext`
+	 *  (`editorAxes.ts`). */
 	readonly operationScope?: OperationValueScope;
-	/** Enables acting-user/unowned only for a case-owner value slot. */
-	readonly ownerValues?: boolean;
-	/** When the slot evaluates relative to a case row. `"global"` slots
-	 *  (a search input's starting value) resolve once, before any case
-	 *  is selected: the provider-derived admission oracle drops every
-	 *  case-property / relationship source there. */
-	readonly caseDataScope?: CaseDataScope;
-	/** Runtime that evaluates this value. Defaults to the strict on-device path. */
-	readonly evaluationTarget?: EvaluationTarget;
 	/**
 	 * The root slot's type constraint. Flows to the root
 	 * `ExpressionPicker` so the kind menu + value sources offer ONLY
@@ -147,11 +134,7 @@ export function ExpressionCardEditor({
 	userProperties,
 	formFields,
 	lookupTables,
-	tableScope,
 	operationScope,
-	ownerValues = false,
-	caseDataScope = "per-case",
-	evaluationTarget = "on-device",
 	constraint = ANY_CONSTRAINT,
 	candidateEditVerdict,
 	onValidityChange,
@@ -209,11 +192,7 @@ export function ExpressionCardEditor({
 			userProperties={userProperties}
 			formFields={formFields}
 			lookupTables={effectiveLookupTables}
-			tableScope={tableScope}
 			operationScope={operationScope}
-			ownerValues={ownerValues}
-			caseDataScope={caseDataScope}
-			evaluationTarget={evaluationTarget}
 			validityIndex={validityIndex}
 			admitExpressionChange={admitRuntimeExpression}
 		>

@@ -8,7 +8,6 @@ describe("displayConditionCopy", () => {
 			moduleName: "Mothers",
 			moduleIsBareCaseList: false,
 		});
-		expect(copy.caseDataScope).toBe("global");
 		expect(copy.title).toBe("When “Mothers” appears");
 		expect(copy.locus.join(" ")).toContain("home screen");
 		expect(copy.scopeNote).toContain("No case has been chosen");
@@ -52,7 +51,6 @@ describe("displayConditionCopy", () => {
 			caseType: "mother",
 			formCount: 3,
 		});
-		expect(copy.caseDataScope).toBe("selected-case");
 		expect(copy.locus.join(" ")).toContain("mother");
 		expect(copy.scopeNote).toBe(
 			"The chosen mother's own information is available here. Information from connected cases, and counts of them, is not. CommCare cannot reach them from this screen.",
@@ -89,7 +87,6 @@ describe("displayConditionCopy", () => {
 			caseType: "mother",
 			formCount: 2,
 		});
-		expect(copy.caseDataScope).toBe("global");
 		expect(copy.locus.join(" ")).toContain("starts a new case");
 		expect(copy.scopeNote).toContain("No case has been chosen");
 	});

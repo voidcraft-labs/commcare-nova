@@ -2,7 +2,7 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { buildExpressionLintContext } from "@/lib/codemirror/buildLintContext";
+import { buildExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
 import {
 	parseFormExpressionForSlot,
 	projectFormExpression,
@@ -20,11 +20,12 @@ import {
 	expressionCandidateDoc,
 } from "./useExpressionSlotContext";
 
-export function useFormExpressionProjection(
+function useProjection(
 	expression: Expression | undefined,
 	slot: ExpressionSlotRef | undefined,
-	candidate?: ExpressionSlotCandidate,
-	form?: FormStructure,
+	candidate: ExpressionSlotCandidate | undefined,
+	form: FormStructure | undefined,
+	layout: boolean,
 ) {
 	const doc = useBlueprintDoc((current) => current);
 	const { lookupContext } = useLookupCommitState();
@@ -41,19 +42,34 @@ export function useFormExpressionProjection(
 			slot,
 			expression,
 			lookupExpressionDefinitions(lookupContext),
-			{ form },
+			{ form, layout },
 		);
 		return { ...projection, ok: projection.unresolved.length === 0 };
-	}, [doc, slot, expression, candidate, lookupContext, form]);
+	}, [doc, slot, expression, candidate, lookupContext, form, layout]);
 }
 
+/** The stored expression as an editor shows it: the canonical print, on
+ * one line when it fits the printer's width, else laid out over lines. An
+ * editor closes onto this after a save, so what a person sees is always
+ * what was stored. */
+export function useExpressionProjection(
+	expression: Expression | undefined,
+	slot: ExpressionSlotRef | undefined,
+	candidate?: ExpressionSlotCandidate,
+	form?: FormStructure,
+) {
+	return useProjection(expression, slot, candidate, form, true);
+}
+
+/** The stored expression's canonical print on one line, for surfaces that
+ * show it inline rather than in an editor. */
 export function useFormExpressionText(
 	expression: Expression | undefined,
 	slot: ExpressionSlotRef | undefined,
 	candidate?: ExpressionSlotCandidate,
 	form?: FormStructure,
 ): string {
-	return useFormExpressionProjection(expression, slot, candidate, form).text;
+	return useProjection(expression, slot, candidate, form, false).text;
 }
 
 /** Missing context or invalid source refuses the save; text never becomes stored fallback. */
@@ -91,7 +107,8 @@ export function useParseFormExpression(
 	);
 }
 
-export function useFormExpressionLintContext(
+/** The slot's editor context, built from the current document on each call. */
+export function useExpressionEditorContext(
 	slot: ExpressionSlotRef | undefined,
 	candidate?: ExpressionSlotCandidate,
 	form?: FormStructure,
@@ -105,6 +122,17 @@ export function useFormExpressionLintContext(
 				: expressionCandidateDoc(api.getState(), slot, candidate);
 		return doc === undefined || slot === undefined
 			? undefined
-			: buildExpressionLintContext(doc, slot, lookupContext, { form });
+			: buildExpressionEditorContext(doc, slot, lookupContext, { form });
 	}, [api, slot, candidate, lookupContext, form]);
+}
+
+/** A value that changes whenever what an open expression editor's
+ * identities resolve against changes: the document or the Project's lookup
+ * definitions. An editor reconciles its draft when it changes, because a
+ * peer's rename can change a draft's spelling without changing the stored
+ * expression's own text. */
+export function useExpressionScopeRevision(): object {
+	const doc = useBlueprintDoc((current) => current);
+	const { lookupContext } = useLookupCommitState();
+	return useMemo(() => ({ doc, lookupContext }), [doc, lookupContext]);
 }

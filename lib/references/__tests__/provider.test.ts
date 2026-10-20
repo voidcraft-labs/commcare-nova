@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { XPathReferenceContext } from "@/lib/codemirror/xpath-lint";
+import type { FormReferenceContext } from "@/lib/codemirror/formReferenceContext";
 import {
 	type CaseType,
 	reachableCaseTypes,
@@ -14,7 +14,7 @@ import { ReferenceProvider } from "../provider";
 function formCtx(
 	formUuid: string,
 	entries: Array<[path: string, label: string]>,
-): XPathReferenceContext {
+): FormReferenceContext {
 	return {
 		formUuid,
 		validPaths: new Set(entries.map(([p]) => `/data/${p}`)),
@@ -30,13 +30,13 @@ function formCtx(
 }
 
 /** A reference context for a form on `caseType`, with its reachable case-type index
- *  derived from the shared `caseTypes` list the same way `buildLintContext` does. */
+ *  derived from the shared `caseTypes` list the same way `buildFormReferenceContext` does. */
 function caseCtx(
 	formUuid: string,
 	caseType: string,
 	caseTypes: CaseType[],
-	formType: XPathReferenceContext["formType"] = "followup",
-): XPathReferenceContext {
+	formType: FormReferenceContext["formType"] = "followup",
+): FormReferenceContext {
 	return {
 		formUuid,
 		validPaths: new Set(),
@@ -54,7 +54,7 @@ describe("ReferenceProvider — form-entry cache is keyed per form", () => {
 	 * many forms in one render, so each form's index lives under its own key and
 	 * a form switch never thrashes another form's cache. */
 	it("resolves each form's own field against its own scope", () => {
-		const contexts: Record<string, XPathReferenceContext> = {
+		const contexts: Record<string, FormReferenceContext> = {
 			formA: formCtx("formA", [["visit_grp/edd_final", "EDD"]]),
 			formB: formCtx("formB", [["preg_grp/ga_weeks", "Gestational age"]]),
 		};

@@ -26,7 +26,7 @@ import type { Expression, ExpressionContext } from "@/lib/domain/expression";
 import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
 import { ClearConditionButton } from "./ClearConditionButton";
 import { firstComparisonDefault } from "./cards/comparisonSeed";
-import type { CaseDataScope } from "./editorSchemas";
+import { editorAxesOf } from "./editorAxes";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 export interface ConditionSlotSettingProps {
@@ -56,8 +56,6 @@ export interface ConditionSlotSettingProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
-	/** The slot's evaluation scope: decides what the seed may read. */
-	readonly caseDataScope: CaseDataScope;
 	/** A viewer reads the rule; Add and Clear are not offered. Editing
 	 *  stays available so the condition can still be opened and read. */
 	readonly canEdit?: boolean;
@@ -79,7 +77,6 @@ export function ConditionSlotSetting({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
-	caseDataScope,
 	canEdit = true,
 }: ConditionSlotSettingProps) {
 	/* The Clear control unmounts with the condition it removed, so the intent
@@ -97,7 +94,8 @@ export function ConditionSlotSetting({
 				caseTypes,
 				currentCaseType,
 				knownInputs,
-				caseDataScope,
+				// The seed reads what the slot may read (`editorAxes.ts`).
+				...editorAxesOf(expressionContext),
 			}),
 		);
 		onEdit(true);

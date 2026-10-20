@@ -22,8 +22,6 @@
 // `lib/domain/forms.ts::isCaseFirstModule` is the same distinction the
 // runtime makes; this module only puts it into words.
 
-import type { CaseDataScope } from "@/components/builder/shared/editorSchemas";
-
 export type DisplayConditionCarrier =
 	| {
 			readonly kind: "module";
@@ -65,8 +63,6 @@ export interface DisplayConditionCopy {
 	 *  "Back to …", so a Title Case phrase or a quoted name reads wrong
 	 *  there. */
 	readonly ruleRootLabel: string;
-	/** The editor scope this slot runs in. */
-	readonly caseDataScope: CaseDataScope;
 	/** What "no condition" means, for the settings-panel summary. */
 	readonly alwaysSummary: string;
 	/** The "Show on the menu" switch's label. */
@@ -146,7 +142,6 @@ export function displayConditionCopy(
 			scopeNote: NO_CASE_SCOPE_NOTE,
 			sectionTitle: `Show ${name} when`,
 			ruleRootLabel: "this module's condition",
-			caseDataScope: "global",
 			alwaysSummary: `${name} always appears`,
 			menuSwitchLabel: MENU_SWITCH_LABEL,
 			onTheMenuNote:
@@ -201,7 +196,6 @@ export function displayConditionCopy(
 				`${moduleName} holds a form that starts a new case, so people choose a form first and pick a case afterwards. This condition decides whether ${name} is on that list.`,
 			],
 			scopeNote: NO_CASE_SCOPE_NOTE,
-			caseDataScope: "global",
 		};
 	}
 
@@ -222,6 +216,5 @@ export function displayConditionCopy(
 		lede: `People reach ${name} by picking a ${caseWord} first, so CommCare checks this once that ${caseWord} is chosen.`,
 		locus,
 		scopeNote: `The chosen ${caseWord}'s own information is available here. Information from connected cases, and counts of them, is not. CommCare cannot reach them from this screen.`,
-		caseDataScope: "selected-case",
 	};
 }

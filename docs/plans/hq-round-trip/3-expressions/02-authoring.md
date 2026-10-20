@@ -1065,6 +1065,28 @@ prose chips read the same four reference spellings from step 3 as today (§1.2,
 `lib/codemirror/CLAUDE.md`'s "No offer-then-reject" and "Session scope" rules hold unchanged,
 because autocomplete, lint and the gate read one scope and one profile.
 
+**Implementation correction, 2026-10-19 (pull request 11):** pull request 5 landed the split under
+other names: `lib/codemirror/buildLintContext.ts` held the per-form `buildLintContext` and the slot's
+`buildExpressionLintContext`, the session scope already came from the slot's profile, and neither
+`formReferenceContext.ts` nor `buildSessionLintContext.ts` existed. Pull request 11 therefore creates
+`formReferenceContext.ts::buildFormReferenceContext` (with `FormReferenceContext`, moved from
+`buildLintContext`) and `expressionEditorContext.ts::buildExpressionEditorContext`, deletes
+`buildLintContext.ts`, and itself re-types `BuilderReferenceProvider.tsx`, the comment in
+`referenceContextChanged.ts`, `lib/references/provider.ts`, `ReferenceContext.tsx` and their tests;
+their reads are unchanged. The context carries `reads` (the completion vocabulary) beside the four
+fields named above. The hooks are `useExpressionEditorContext(slot, candidate?, form?)` and
+`useExpressionProjection(expression, slot, candidate?, form?)`: the projection keeps its expression
+argument because Connect drafts and pending members show a candidate the document does not hold yet;
+`useFormExpressionText` stays the one-line print for inline surfaces. `XPathField`'s
+`getLintContext` prop is `getEditorContext`, and the read-only preloaded row passes one so its
+stored expression shows chips. The layout keeps an `instance('…')` root and a table lookup's `[1]`
+on one line, where `prettyPrintXPath` broke `instance('casedb')` as an argument list: the printer
+writes a root as one path. An unchanged draft is skipped by its text, so a save of a respaced draft
+stores the same parse. `buildSessionLintContext.test.ts`'s successor,
+`buildExpressionLintContext.test.ts`, is folded into `xpath-lint.test.ts`; `caseTypePropsForValidation`
+had survived pull request 5 and leaves here with its test. The printer's layout is held by
+`lib/doc/__tests__/expressionLayout.test.ts`, which also reads each laid-out print back to its tree.
+
 ### 4.2 Autocomplete
 
 `lib/codemirror/xpath-autocomplete.ts` keeps its Lezer-node detection and gains sources, each built
@@ -1098,6 +1120,17 @@ source menu (§4.5), where the chosen case appears as "The case chosen in {menu}
 `chosen-case-property` from `QUERY_FUNCTIONS` (§2.3). In form XPath the same case is already a
 session datum read, offered above with the same label.
 
+**Implementation correction, 2026-10-19 (pull request 11):** a record's `index/` relations are
+`parent` where the catalog names a parent type and every identifier a case operation links that
+type by. The records rows also walk `instance('casedb')/` to `casedb/` and `case`; the session's
+branches offer `context/` and `user/` (then `data/`) beside the entry's `data/`. A row predicate
+completes inside an `and` or `or` clause too, and relative steps stand aside inside any predicate,
+where the context node moves. A choice is offered by parsing the opposite operand with the slot's
+own scope, so every spelling of the select's answer qualifies. The sources pull request 9 added were
+re-pointed to compare `NodeType`s; the editor's tree comes from the language's configured parser and
+the grammar has several `Child` and `Descendant` types, so `xpath-language.ts::xpathNodeTypes`
+resolves a name to a set.
+
 ### 4.3 Chips
 
 `lib/codemirror/xpath-chips.ts` stops using `MatchDecorator` over `HASHTAG_REF_PATTERN`. It parses the
@@ -1112,6 +1145,13 @@ text: their names are what a person reads. A draft that does not parse has no ch
 with a Lezer error has none today (`xpath-hashtag-spans.ts::cleanXPathHashtagSpans` returns `null`).
 The regex and its divergence test (`lib/commcare/xpath/__tests__/hashtagMatchers.divergence.test.ts`)
 stay for prose, their other user (`lib/references/renderLabel.ts`).
+
+**Implementation correction, 2026-10-19 (pull request 11):** a question read with a filter, a
+several-case form's chosen cases and place reads have no chip; a search's results chip covers its
+root with the related-case exclusion. Chips live in a `StateField` and are recomputed when the
+document under an open editor changes without its text changing (`refreshExpressionChips`). A
+read-only display draws chips only where its mount passes the slot's context.
+`lib/codemirror/__tests__/xpath-chips.test.ts` holds `expressionChips`.
 
 ### 4.4 Draft reconciliation
 
@@ -1129,6 +1169,13 @@ This covers field renames and moves (every spelling, relative included), worker-
 Search-answer, data-table and column renames, an option's value edit, and a datum id that changes with
 the menu's shape. `components/builder/__tests__/xpathDraftReconciliation.test.ts` holds it as a pure
 function over pairs of documents.
+
+**Implementation correction, 2026-10-19 (pull request 11):** the editor reconciles on every change
+to the document or the lookup definitions (`useExpressionScopeRevision`), not only when the shown
+text changes, because a peer can rename what only the draft reads. While the shown text is
+unchanged, such a read is respelled the same way, and a draft that does not parse, or reads
+something now gone, is left to the linter rather than marked a conflict. The respelled draft must
+parse under the new scope to the same tree, or the edit conflicts.
 
 ### 4.5 The card editor
 
@@ -1182,6 +1229,38 @@ at `ExpressionContext`; one parity test, `shared/__tests__/editorProfileParity.t
 every record slot id that `editorAxesForSlot` and the deep validator's context for that slot (on a
 fixture document) build the same `ExpressionContext`.
 
+**Implementation correction, 2026-10-19 (pull request 11):** the editor's context was already
+the slot's own before this pull request: since pull request 5 every mount resolves it with
+`lib/doc/hooks/useExpressionSlotContext.ts`, which calls `slotContext`, the same call the deep
+validator makes, so there was no `buildEditorTypeContext` to rename and no
+`buildEditorExpressionContext` is added. What surfaces still wrote by hand were the menus' axes
+(`caseDataScope`, `evaluationTarget`, `ownerValues`, `patternMatching`, `tableScope`).
+`components/builder/shared/editorAxes.ts` reads them from that context: `editorAxesOf(context,
+lookupTables)`, and `editorAxesForSlot(doc, slot, lookupTypes, lookupTables)` for a document slot.
+`PredicateEditProvider` derives them from its root context, every seed a surface builds spreads
+them, and the axis props left `ExpressionCardEditor`, `PredicateWorkbench`,
+`ConditionSlotSetting`, the provider, the display-condition and Search-canvas copy tables, and
+the mounts (with `CaseAvailabilityComposer`'s `caseSearchEnabled`, which only chose a runtime).
+`case-operations/editorScope.ts::operationCaseDataScope` is deleted: `editorAxes.ts` reads
+whether the slot's form opens with a case, as `rules/caseOperations.ts` does. The parity test
+asserts, for every record slot of one fixture document, that the editor's context equals the
+validator's and that a case read, a data-table column, an owner value and a pattern match are
+each offered exactly where the slot's verdict admits them; the runtime axis is asserted against
+the profile's targets (a fuzzy match runs on a device too, so no probe separates the runtimes;
+`runtimeMatchModes.test.ts` holds what each admits). The test fixture helper
+(`__tests__/helpers/expressionEditorFixture.ts`) refuses hand-written axes, so the tests read them
+from their carrier as mounts do. Session information needed no change: pull request 5 landed
+Core's seven fields read-only and today's four offered (`sessionContextPresentation.ts`). The
+value of an "Is any of" list and of a "Choose by matching" row is a `literal | choice` leaf, not
+a term, so "A choice of this question" is a row control there (`primitives/ChoiceValuePicker.tsx`)
+and a value-source mode only in a comparison; changing the compared question carries the value
+(`choiceValueModel.ts`: a written value naming one of the new question's choices becomes it, a
+choice of a question no longer compared becomes its current value). A verb switch to a text
+match carries a calculated subject where the card shows one (`PredicateVerbMenu.tsx::buildMatch`).
+A **Calculated** pattern starts as one written piece of combined text (`concat`), because the
+schema refuses a bare text literal as a computed pattern, and a bare written value picked inside
+it is stored as the written pattern.
+
 ### 4.6 Options
 
 `components/builder/editor/fields/OptionsEditor.tsx` and `optionsDraftModel.ts`:
@@ -1211,6 +1290,18 @@ fixture document) build the same `ExpressionContext`.
 A picker of choices in place of the expression editor, for a static select's starting value, is not
 planned in step 3: autocomplete offers the option values with their labels (§4.2), and a picker is a
 new control.
+
+**Implementation correction, 2026-10-19 (pull request 11):** the remove control's reason is
+derived in `lib/doc/optionRemoval.ts` and read through `lib/doc/hooks/useOptionRemovalBlockers.ts`,
+because a component may subscribe to the document only through a named hook. It names a starting
+value before any other reader, and only the first reader. A reader that is not a question takes
+copy the sentences above do not cover: a case change, "A case change in {form} compares with this
+choice."; another form slot, "{form}'s {slot label} compares with this choice."; a module slot,
+"A rule in {menu} compares with this choice.", each ending "You can change that first." The value
+edit and the source replacement needed no change: `updateOption` reprints every `choice`, and the
+builder's `updateField` and `convertField` already run through the cascade
+(`lib/doc/hooks/useBlueprintMutations.ts`), whose `choice-name` refusal `OptionsSourceEditor`
+shows.
 
 ### 4.7 Tests
 

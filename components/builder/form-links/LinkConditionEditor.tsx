@@ -10,8 +10,8 @@
 
 import { XPathField } from "@/components/builder/XPathField";
 import {
-	useFormExpressionLintContext,
-	useFormExpressionProjection,
+	useExpressionEditorContext,
+	useExpressionProjection,
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
@@ -40,8 +40,8 @@ export function LinkConditionEditor({
 		member: { linkUuid: link.uuid },
 	};
 	const parse = useParseFormExpression(slot);
-	const projection = useFormExpressionProjection(link.condition, slot);
-	const getLintContext = useFormExpressionLintContext(slot);
+	const projection = useExpressionProjection(link.condition, slot);
+	const getEditorContext = useExpressionEditorContext(slot);
 
 	const save = (text: string): CommitOutcome | undefined => {
 		if (text.trim().length === 0) {
@@ -56,7 +56,7 @@ export function LinkConditionEditor({
 			<XPathField
 				value={projection.text}
 				onSave={canEdit ? save : undefined}
-				getLintContext={getLintContext}
+				getEditorContext={getEditorContext}
 				autoEdit={autoEdit === true && canEdit}
 			/>
 			{!projection.ok && (

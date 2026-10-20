@@ -73,7 +73,6 @@ export interface CaseListCanvasProps {
 	readonly onFilterChange: (next: Expression | undefined) => CommitOutcome;
 	readonly onClearFilter: (next: Expression | undefined) => CommitOutcome;
 	readonly searchConfig: CaseSearchConfig | undefined;
-	readonly caseSearchEnabled: boolean;
 	readonly onExcludedOwnerIdsChange: (next: Expression | undefined) => void;
 	readonly appId: string;
 	readonly dependencyReview?: CaseAvailabilityComposerProps["dependencyReview"];
@@ -116,7 +115,6 @@ export function CaseListCanvas({
 	onFilterChange,
 	onClearFilter,
 	searchConfig,
-	caseSearchEnabled,
 	onExcludedOwnerIdsChange,
 	appId,
 	dependencyReview,
@@ -280,7 +278,6 @@ export function CaseListCanvas({
 							onFilterChange={onFilterChange}
 							onClearFilter={onClearFilter}
 							searchConfig={searchConfig}
-							caseSearchEnabled={caseSearchEnabled}
 							onExcludedOwnerIdsChange={onExcludedOwnerIdsChange}
 							caseTypes={caseTypes ?? []}
 							userProperties={userProperties}

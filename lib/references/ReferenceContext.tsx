@@ -18,7 +18,7 @@ import {
 	useRef,
 	useSyncExternalStore,
 } from "react";
-import type { XPathReferenceContext } from "@/lib/codemirror/xpath-lint";
+import type { FormReferenceContext } from "@/lib/codemirror/formReferenceContext";
 import type { ProseTemplate } from "@/lib/domain";
 import { ReferenceProvider } from "./provider";
 
@@ -34,7 +34,7 @@ interface ReferenceProviderWrapperProps {
 	 *  reachable case types). The provider calls this with whatever form a ref
 	 *  is being resolved against — the active form for in-editor surfaces, each
 	 *  field's owning form for the sidebar. */
-	getContextForForm: (formUuid: string) => XPathReferenceContext | undefined;
+	getContextForForm: (formUuid: string) => FormReferenceContext | undefined;
 	/** The form currently being edited, exposed via `useCurrentFormUuid`. */
 	currentFormUuid: string | undefined;
 	/** Subscribe to external mutations that invalidate cached data.

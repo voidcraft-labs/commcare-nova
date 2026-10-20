@@ -26,11 +26,14 @@ const FIELD = testUuid("11111111-1111-4111-8111-111111111111");
 const CREATE = testUuid("22222222-2222-4222-8222-222222222222");
 const WORKER = testUuid("33333333-3333-4333-8333-333333333333");
 
-const BARE = expressionEditorFixture("case-filter", {
+/** The catalogs every fixture below starts from; each carrier's slot supplies
+ * its own axes. */
+const BARE_CATALOGS = {
 	caseTypes: [],
 	currentCaseType: "patient",
 	knownInputs: [],
-}).context;
+};
+const BARE = expressionEditorFixture("case-filter", BARE_CATALOGS).context;
 
 const DATE_ANSWER = {
 	uuid: FIELD,
@@ -101,7 +104,7 @@ describe("with an operation scope", () => {
 
 	it("admits answers and earlier creates from the real owner slot", () => {
 		const ctx = expressionEditorFixture("operation-owner", {
-			...BARE,
+			...BARE_CATALOGS,
 			formFields: [
 				{
 					uuid: FIELD,
@@ -111,7 +114,6 @@ describe("with an operation scope", () => {
 				},
 			],
 			operationScope: { creates: [{ uuid: CREATE, label: "create_referral" }] },
-			ownerValues: true,
 		}).context.expressionContext;
 		expect(
 			checkExpression(term(formField(FIELD)), ctx).errors.length === 0,
@@ -129,11 +131,10 @@ describe("with an operation scope", () => {
 
 describe("the cascade reseed resolves against the vocabulary on screen", () => {
 	const FULL = expressionEditorFixture("operation-owner", {
-		...BARE,
+		...BARE_CATALOGS,
 		userProperties: [WORKER_PROPERTY],
 		formFields: [DATE_ANSWER],
 		operationScope: { creates: [{ uuid: CREATE, label: "create_referral" }] },
-		ownerValues: true,
 	}).context;
 
 	it("resolves every axis the pickers offer", () => {

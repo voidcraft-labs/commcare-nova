@@ -58,7 +58,6 @@ describe("actual structural condition seeds", () => {
 					caseTypes: CASE_TYPES,
 					currentCaseType: "patient",
 					knownInputs: KNOWN_INPUTS,
-					caseDataScope: "per-case",
 				}).context,
 			),
 		).toEqual(whenInput(input(testUuid("query")), PATIENT_FIRST));
@@ -69,7 +68,6 @@ describe("actual structural condition seeds", () => {
 			caseTypes: CASE_TYPES,
 			currentCaseType: "patient",
 			knownInputs: [],
-			caseDataScope: "per-case",
 		}).context;
 		const via = ancestorPath(relationStep("parent", "household"));
 		const seed = relatedConditionSeed(ctx, "household", via);
@@ -87,7 +85,6 @@ describe("actual structural condition seeds", () => {
 		expect(
 			relatedConditionSeed(
 				expressionEditorFixture("case-filter", {
-					caseDataScope: "per-case",
 					caseTypes: RELATION_ONLY_CASE_TYPES,
 					currentCaseType: "patient",
 					knownInputs: [],
@@ -99,7 +96,6 @@ describe("actual structural condition seeds", () => {
 	});
 	it("refuses an unresolved destination or an empty isolated catalog", () => {
 		const ctx = expressionEditorFixture("case-filter", {
-			caseDataScope: "per-case" as const,
 			caseTypes: EMPTY_CASE_TYPES,
 			currentCaseType: "orphan",
 			knownInputs: [],

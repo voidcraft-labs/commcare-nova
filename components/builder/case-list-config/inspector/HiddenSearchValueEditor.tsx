@@ -153,7 +153,6 @@ export function HiddenSearchValueEditor({
 								currentCaseType={currentCaseType}
 								knownInputs={NO_SEARCH_INPUTS}
 								userProperties={userProperties}
-								caseDataScope="global"
 								constraint={{ accepts: "any" }}
 							/>
 						)}

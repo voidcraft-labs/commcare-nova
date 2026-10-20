@@ -1,3 +1,4 @@
+import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import type { PredicateEditContext } from "@/components/builder/shared/editorSchemas";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
@@ -16,11 +17,22 @@ import {
 } from "@/lib/domain/expression";
 import { testUuid } from "./uuid";
 
+/** The catalogs a surface supplies. The menu axes are never supplied: they are
+ * read from the carrier's slot (`shared/editorAxes.ts`), as every mount reads
+ * them. `tableScope` here only names the table a table-filter carrier reads. */
 type FixtureVocabulary = Omit<
 	PredicateEditContext,
-	"expressionContext" | "caseDataScope"
-> &
-	Partial<Pick<PredicateEditContext, "caseDataScope">>;
+	| "expressionContext"
+	| "caseDataScope"
+	| "evaluationTarget"
+	| "ownerValues"
+	| "patternMatching"
+> & {
+	readonly caseDataScope?: never;
+	readonly evaluationTarget?: never;
+	readonly ownerValues?: never;
+	readonly patternMatching?: never;
+};
 export type EditorFixtureCarrier =
 	| "case-filter"
 	| "search-case-filter"
@@ -248,13 +260,26 @@ export function expressionEditorFixture<T extends FixtureVocabulary>(
 	const expressionContext = slotContext(doc, slot, lookupTables);
 	if (expressionContext === undefined)
 		throw new Error(`The ${carrier} fixture has no owning expression slot.`);
+	const tableDecls = [
+		...(vocabulary.lookupTables ?? []),
+		...(vocabulary.tableScope === undefined
+			? []
+			: [
+					{
+						id: vocabulary.tableScope.tableId,
+						name: "Fixture table",
+						columns: vocabulary.tableScope.columns,
+					},
+				]),
+	];
+	const { tableScope: _named, ...catalogs } = vocabulary;
 	return {
 		doc,
 		slot,
 		lookupTables,
 		context: {
-			caseDataScope: "per-case" as const,
-			...vocabulary,
+			...catalogs,
+			...editorAxesOf(expressionContext, tableDecls),
 			expressionContext,
 		},
 	};

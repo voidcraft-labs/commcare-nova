@@ -41,6 +41,11 @@ import {
 	type SearchOnlyCaseProperty,
 } from "@/lib/domain/standardCaseProperties";
 import { reseedLiteralForConstraint } from "./cards/reseed";
+import {
+	CHOICE_SOURCE_LABEL,
+	choiceOf,
+	type StaticSelectSubject,
+} from "./choiceValueModel";
 import type {
 	AdmitExpressionChange,
 	ExpressionChangeAdmission,
@@ -57,7 +62,8 @@ export type TermMode =
 	| "session-context"
 	| "session-user"
 	| "session-user-property"
-	| "chosen-case";
+	| "chosen-case"
+	| "choice";
 
 /** Read the mode discriminator from the Term's `kind`. Maps `prop`
  *  to "property" because the user-facing label is "Case property"
@@ -82,6 +88,8 @@ export function termMode(term: Term): TermMode {
 			return "session-user-property";
 		case "table-column":
 			return "table-column";
+		case "choice":
+			return "choice";
 		// The record's own type is offered beside its properties.
 		case "case-row-type":
 			return "property";
@@ -158,6 +166,8 @@ export function termModeLabel(
 			return "Worker information";
 		case "chosen-case":
 			return "The case chosen in a menu";
+		case "choice":
+			return CHOICE_SOURCE_LABEL;
 	}
 }
 
@@ -234,6 +244,12 @@ export function describeTermModeReplacement(
 				title,
 				description: "This replaces the chosen case. You can undo this change.",
 			};
+		case "choice":
+			return {
+				title,
+				description:
+					"This replaces the selected choice. You can undo this change.",
+			};
 		default:
 			return {
 				title,
@@ -272,7 +288,14 @@ export type ModeAdmission = Record<
 export interface TermAdmissionContext extends ExpressionEditContext {
 	readonly admitExpressionChange?: AdmitExpressionChange;
 	readonly userProperties: readonly UserProperty[];
+	/** The select question this value is compared with, when its choices are
+	 * written in the form: offers "A choice of this question". */
+	readonly choiceSubject?: StaticSelectSubject;
 }
+
+/** Why "A choice of this question" is not offered. */
+export const CHOICE_SOURCE_UNAVAILABLE_REASON =
+	"Available when you compare with a question whose choices are written in the form";
 
 /**
  * Resolve which Term sources can produce a value the slot accepts:
@@ -371,6 +394,10 @@ export function computeModeAdmission(
 					},
 		// Each menu's own choices are already judged against the whole rule.
 		"chosen-case": chosenCaseModeAdmission(ctx, constraint, path),
+		choice:
+			ctx.choiceSubject !== undefined && ctx.choiceSubject.options.length > 0
+				? { admitted: true }
+				: { admitted: false, reason: CHOICE_SOURCE_UNAVAILABLE_REASON },
 	};
 	if (ctx.admitExpressionChange === undefined) return typeAdmission;
 
@@ -499,6 +526,15 @@ export function buildTermDefault(
 				);
 			}
 			return sessionUserProperty(property.uuid);
+		}
+		case "choice": {
+			const subject = ctx.choiceSubject;
+			const first = subject?.options[0];
+			if (subject === undefined || first === undefined)
+				throw new Error(
+					"A choice is offered only opposite a question with written choices.",
+				);
+			return choiceOf(subject.field, first.uuid);
 		}
 		case "chosen-case": {
 			// The term half of a chosen case is its id; a property read is a

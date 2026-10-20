@@ -20,6 +20,7 @@ import {
 	type eq,
 } from "@/lib/domain/expression";
 import { CaseTypeValuePicker } from "../CaseTypeValuePicker";
+import { staticSelectSubject } from "../choiceValueModel";
 import {
 	comparesCaseType,
 	possibleRowCaseTypes,
@@ -77,6 +78,9 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 		const builder = KIND_BUILDERS[value.kind];
 		onChange(builder(value.left, right));
 	};
+	// A form answer from a select with written choices is compared with one
+	// of its choices ("A choice of this question").
+	const choiceSubject = staticSelectSubject(value.left, ctx.expressionContext);
 	const leftPath = appendSlot(path, "left");
 	const rightPath = appendSlot(path, "right");
 	const rightErrors = useEditorErrorsAt(rightPath);
@@ -158,6 +162,7 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 						path={rightPath}
 						constraint={objectConstraint}
 						variant="nested"
+						choiceSubject={choiceSubject}
 					/>
 				)}
 			</div>

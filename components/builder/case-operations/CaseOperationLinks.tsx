@@ -63,11 +63,7 @@ type LinkTargetContext = Omit<TargetChoiceContext, "newOnly" | "allowsNone">;
  * unavailable because this is not an owner-value slot. */
 type LinkEditorScope = Pick<
 	ComponentProps<typeof ExpressionCardEditor>,
-	| "caseTypes"
-	| "currentCaseType"
-	| "userProperties"
-	| "formFields"
-	| "caseDataScope"
+	"caseTypes" | "currentCaseType" | "userProperties" | "formFields"
 >;
 
 const RELATIONSHIP_LABEL = {

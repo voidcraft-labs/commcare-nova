@@ -2469,7 +2469,6 @@ export function CaseListWorkspaceCanvas() {
 							onFilterChange={updateFilter}
 							onClearFilter={clearFilter}
 							searchConfig={searchConfig}
-							caseSearchEnabled={effectiveSearchConfig !== undefined}
 							onExcludedOwnerIdsChange={updateExcludedOwnerIds}
 							appId={appId}
 							dependencyReview={resultsDependencyReview}

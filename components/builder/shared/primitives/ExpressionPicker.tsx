@@ -96,6 +96,7 @@ import {
 	termHasMeaningfulContent,
 } from "../cards/expression/TermCard";
 import { reseedValueForConstraint } from "../cards/reseed";
+import type { StaticSelectSubject } from "../choiceValueModel";
 import {
 	type ExpressionChangeAdmission,
 	editorExpressionContext,
@@ -169,6 +170,10 @@ interface ExpressionPickerProps {
 	/** The owner's verdict for replacing this whole value, judged as the
 	 * owner would rebuild its expression. Passed to the value's source menu. */
 	readonly admitReplacement?: (next: Expression) => ExpressionChangeAdmission;
+	/** The select question this value is compared with, when its choices are
+	 * written in the form: the value's source menu then offers "A choice of
+	 * this question". */
+	readonly choiceSubject?: StaticSelectSubject;
 }
 
 function termSourceLabel(value: ExpressionOfKind<"term">) {
@@ -190,6 +195,8 @@ function termSourceLabel(value: ExpressionOfKind<"term">) {
 			return "chosen case";
 		case "case-row-type":
 			return "case type";
+		case "choice":
+			return "choice";
 		default:
 			return "saved information";
 	}
@@ -245,6 +252,7 @@ function ExpressionPickerBody({
 	reorderLabel,
 	admitReplacement,
 	chosenProperty,
+	choiceSubject,
 }: ExpressionPickerProps & {
 	readonly value: ExpressionOfKind<CardValueKind>;
 	readonly chosenProperty?: string;
@@ -421,6 +429,7 @@ function ExpressionPickerBody({
 					computedItems={computedItems}
 					chosenProperty={chosenProperty}
 					admitReplacement={admitReplacement}
+					choiceSubject={choiceSubject}
 				/>
 				<InlineError errors={[...operatorErrors]} />
 				<AlertDialog

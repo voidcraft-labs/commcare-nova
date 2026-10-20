@@ -37,7 +37,7 @@ import {
 	ConditionSlotEditor,
 	ExpressionSlotEditor,
 } from "@/components/builder/shared/ExpressionSlotEditors";
-import type { CaseDataScope } from "@/components/builder/shared/editorSchemas";
+import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -105,7 +105,6 @@ import {
 import {
 	caseOperationRuntimeTargetConstraint,
 	caseOperationTextConstraint,
-	operationCaseDataScope,
 	RUNTIME_TARGET_OPERATION_SCOPE,
 } from "./editorScope";
 import { operationFormFieldDecls } from "./formFieldScope";
@@ -157,10 +156,6 @@ export function CaseOperationDetailCanvas({
 	const conditionCleared = useClearedSlotFocus(operation?.condition);
 	/* Same shape for a removed row: the button pressed goes away with it. */
 	const writeFocus = useRemovedRowFocus((operation?.writes ?? []).length);
-	/* Whether a slot here may read the case at all. A case-loading form has
-	 * one even in a forms-first mixed module; see `editorScope.ts` for why a
-	 * form without one maps onto `"global"`. */
-	const caseDataScope = operationCaseDataScope(sessionCaseAvailable);
 	/* The scope an operation EXPRESSION resolves against is the module's case
 	 * type: what `rules/caseOperations.ts::expressionContext` hands the
 	 * checker, not the operation's destination type. The destination decides
@@ -234,7 +229,6 @@ export function CaseOperationDetailCanvas({
 		userProperties,
 		formFields,
 		operationScope,
-		caseDataScope,
 	} as const;
 
 	return (
@@ -362,7 +356,9 @@ export function CaseOperationDetailCanvas({
 										userProperties,
 										formFields,
 										operationScope,
-										caseDataScope,
+										// What the slot may read: a case-loading form's case,
+										// else no case (`shared/editorAxes.ts`).
+										...editorAxesOf(conditionContext),
 									}),
 								})
 							}
@@ -380,7 +376,6 @@ export function CaseOperationDetailCanvas({
 							userProperties={userProperties}
 							formFields={formFields}
 							operationScope={operationScope}
-							caseDataScope={caseDataScope}
 						/>
 					)}
 				</Section>
@@ -605,7 +600,6 @@ export function CaseOperationDetailCanvas({
 								currentCaseType: expressionCaseType,
 								userProperties,
 								formFields,
-								caseDataScope,
 							}}
 							targetContext={{
 								priorCreates: operationScope.creates,
@@ -696,7 +690,12 @@ export function CaseOwnerSection({
 			),
 		[levelRecord, levels],
 	);
-	const reverseAvailable = editorScope.caseDataScope !== "global";
+	// Following the current owner needs the form's case, which only a
+	// case-loading form opens with.
+	const ownerContext = useExpressionSlotContext(slot);
+	const reverseAvailable =
+		ownerContext !== undefined &&
+		editorAxesOf(ownerContext).caseDataScope !== "global";
 	const reverseLevelIssues = useMemo(
 		() =>
 			new Map(
@@ -969,7 +968,6 @@ export function CaseOwnerSection({
 							onChange={onChange}
 							constraint={caseOperationTextConstraint()}
 							{...editorScope}
-							ownerValues
 						/>
 					)}
 				</div>
@@ -1063,7 +1061,6 @@ interface EditorScope {
 	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly formFields: ReturnType<typeof operationFormFieldDecls>;
 	readonly operationScope: OperationValueScope;
-	readonly caseDataScope: CaseDataScope;
 }
 
 /** A slot that is either absent or a full expression, with one gesture
@@ -1082,7 +1079,6 @@ function OptionalExpressionSection({
 	onChange,
 	constraint,
 	editorScope,
-	ownerValues = false,
 }: {
 	readonly slot: ExpressionSlotRef;
 	readonly title: string;
@@ -1097,7 +1093,6 @@ function OptionalExpressionSection({
 	readonly onChange: (next: Expression | undefined) => void;
 	readonly constraint: ReturnType<typeof storageAssignmentConstraint>;
 	readonly editorScope: EditorScope;
-	readonly ownerValues?: boolean;
 }) {
 	const { addRef, onCleared } = useClearedSlotFocus(value);
 	return (
@@ -1133,7 +1128,6 @@ function OptionalExpressionSection({
 					onChange={onChange}
 					constraint={constraint}
 					{...editorScope}
-					ownerValues={ownerValues}
 				/>
 			)}
 		</Section>
@@ -1219,6 +1213,7 @@ function WriteRow({
 								condition: firstComparisonDefault({
 									expressionContext,
 									...editorScope,
+									...editorAxesOf(expressionContext),
 									knownInputs: [],
 								}),
 							})
@@ -1255,7 +1250,6 @@ function WriteRow({
 							userProperties={editorScope.userProperties}
 							formFields={editorScope.formFields}
 							operationScope={editorScope.operationScope}
-							caseDataScope={editorScope.caseDataScope}
 						/>
 					</div>
 				)}

@@ -14,7 +14,7 @@ import {
 	DialogTitle,
 } from "@/components/shadcn/dialog";
 import { Switch } from "@/components/shadcn/switch";
-import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import type { ExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
 import {
 	DEFAULT_ASSESSMENT_USER_SCORE,
 	DEFAULT_DELIVER_ENTITY_ID,
@@ -26,7 +26,7 @@ import {
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useConnectExpressionStructure } from "@/lib/doc/hooks/useConnectExpressionStructure";
-import { useFormExpressionLintContext } from "@/lib/doc/hooks/useXPathSlots";
+import { useExpressionEditorContext } from "@/lib/doc/hooks/useXPathSlots";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import { lookupExpressionDefinitions } from "@/lib/doc/lookupExpressionContext";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
@@ -290,13 +290,13 @@ function ConnectXPathField({
 	value,
 	defaultText,
 	onChange,
-	getLintContext,
+	getEditorContext,
 }: {
 	label: string;
 	value: string;
 	defaultText: string;
 	onChange: (value: string) => void;
-	getLintContext: () => XPathLintContext | undefined;
+	getEditorContext: () => ExpressionEditorContext | undefined;
 }) {
 	return (
 		<LabeledXPathField
@@ -306,7 +306,7 @@ function ConnectXPathField({
 				onChange(v.trim() ? v : defaultText);
 				return undefined;
 			}}
-			getLintContext={getLintContext}
+			getEditorContext={getEditorContext}
 		/>
 	);
 }
@@ -348,17 +348,17 @@ export function FormSubConfigs({
 		blocks,
 		sources,
 	);
-	const scoreLint = useFormExpressionLintContext(
+	const scoreLint = useExpressionEditorContext(
 		{ entity: "form", uuid: asUuid(formUuid), slot: "assessment_user_score" },
 		undefined,
 		prepared,
 	);
-	const entityIdLint = useFormExpressionLintContext(
+	const entityIdLint = useExpressionEditorContext(
 		{ entity: "form", uuid: asUuid(formUuid), slot: "deliver_entity_id" },
 		undefined,
 		prepared,
 	);
-	const entityNameLint = useFormExpressionLintContext(
+	const entityNameLint = useExpressionEditorContext(
 		{ entity: "form", uuid: asUuid(formUuid), slot: "deliver_entity_name" },
 		undefined,
 		prepared,
@@ -499,7 +499,7 @@ export function FormSubConfigs({
 						value={draft.userScoreText}
 						defaultText={DEFAULT_ASSESSMENT_USER_SCORE}
 						onChange={(v) => onPatch({ userScoreText: v })}
-						getLintContext={scoreLint}
+						getEditorContext={scoreLint}
 					/>
 					<AdvancedDisclosure>
 						<DraftField
@@ -532,14 +532,14 @@ export function FormSubConfigs({
 						value={draft.entityIdText}
 						defaultText={DEFAULT_DELIVER_ENTITY_ID}
 						onChange={(v) => onPatch({ entityIdText: v })}
-						getLintContext={entityIdLint}
+						getEditorContext={entityIdLint}
 					/>
 					<ConnectXPathField
 						label="Entity name"
 						value={draft.entityNameText}
 						defaultText={DEFAULT_DELIVER_ENTITY_NAME}
 						onChange={(v) => onPatch({ entityNameText: v })}
-						getLintContext={entityNameLint}
+						getEditorContext={entityNameLint}
 					/>
 					<AdvancedDisclosure>
 						<DraftField

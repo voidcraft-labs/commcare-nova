@@ -4,7 +4,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useFormRecordName } from "@/lib/doc/hooks/useFormRecordName";
 import {
-	useFormExpressionLintContext,
+	useExpressionEditorContext,
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import { LabeledXPathField } from "./LabeledXPathField";
@@ -19,7 +19,7 @@ export function RecordNameSection({ formUuid }: FormSettingsSectionProps) {
 		name?.prepared.form,
 	);
 	const { inline } = useBlueprintMutations();
-	const getLintContext = useFormExpressionLintContext(
+	const getEditorContext = useExpressionEditorContext(
 		name?.prepared.slot,
 		undefined,
 		name?.prepared.form,
@@ -37,7 +37,7 @@ export function RecordNameSection({ formUuid }: FormSettingsSectionProps) {
 				label="Record name"
 				required
 				value={name.text}
-				getLintContext={getLintContext}
+				getEditorContext={getEditorContext}
 				onSave={(text) =>
 					inline.setFormRecordName(formUuid, parse(text), name.prepared)
 				}

@@ -15,6 +15,7 @@ import { useCallback, useId, useMemo, useState } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/catalogContext";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
+import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
@@ -468,8 +469,7 @@ export function OptionsSourceEditor<
 													userProperties,
 													formFields,
 													lookupTables: tables,
-													tableScope,
-													caseDataScope: "table-row",
+													...editorAxesOf(expressionContext, tables),
 												}),
 											);
 										}}
@@ -500,9 +500,6 @@ export function OptionsSourceEditor<
 										userProperties={userProperties}
 										formFields={formFields}
 										lookupTables={tables}
-										tableScope={tableScope}
-										caseDataScope="table-row"
-										evaluationTarget="on-device"
 									/>
 								</fieldset>
 							</>

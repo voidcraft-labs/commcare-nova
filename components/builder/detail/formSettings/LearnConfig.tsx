@@ -88,7 +88,7 @@ export function LearnConfig({
 		uuid: formUuid,
 		slot: "assessment_user_score" as const,
 	};
-	const getLintContext = useFormLintContext(slot);
+	const getEditorContext = useFormLintContext(slot);
 	// AST-stored slot ⇄ text: display prints against the live doc,
 	// commit parses against the doc of the moment.
 	const userScoreText = useFormExpressionText(assessment?.user_score, slot);
@@ -418,7 +418,7 @@ export function LearnConfig({
 										dispatchSave({ ...connect, assessment: rest });
 										return undefined;
 									}}
-									getLintContext={getLintContext}
+									getEditorContext={getEditorContext}
 								/>
 							</div>
 						</motion.div>
