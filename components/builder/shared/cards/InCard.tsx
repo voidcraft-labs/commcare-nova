@@ -36,8 +36,8 @@ import {
 	defaultCaseTypeValue,
 } from "../caseTypeValueModel";
 import {
-	asChoiceOf,
 	asLiteral,
+	firstUntakenChoice,
 	retargetSelectionValues,
 	staticSelectSubject,
 } from "../choiceValueModel";
@@ -239,12 +239,7 @@ function EditableInCard({
 		const seed =
 			(choiceSubject === undefined
 				? undefined
-				: asChoiceOf(
-						literal(""),
-						choiceSubject,
-						ctx.expressionContext,
-						value.values,
-					)) ??
+				: firstUntakenChoice(choiceSubject, value.values)) ??
 			(comparesType ? caseTypeSeed(value.values) : undefined) ??
 			reseedLiteralForConstraint(literal(""), compatibleTypesFor(subjectType));
 		const [first, ...rest] = value.values;

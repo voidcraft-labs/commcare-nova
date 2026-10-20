@@ -54,6 +54,10 @@ function formOpensWithCase(context: ExpressionContext): boolean {
 }
 
 function caseDataScopeOf(context: ExpressionContext): CaseDataScope {
+	// A data-table row the expression reads inside: a lookup rule's own row,
+	// or a table-rows query's condition nested in any slot. The checker reads
+	// that row's columns there, whatever the slot's own scope.
+	if (activeRowScope(context)?.kind === "table") return "table-row";
 	switch (context.profile.scope) {
 		case "case":
 			return "per-case";
@@ -87,9 +91,11 @@ function tableIdOf(context: ExpressionContext): LookupTableId | undefined {
 	return row?.kind === "table" ? row.tableId : undefined;
 }
 
-/** The axes of the slot `context` belongs to. `lookupTables` is the
- * rows-free Project catalog the editor already holds, which names a data-table
- * row's columns; a surface whose slot reads no table row may leave it out. */
+/** The axes of the slot `context` belongs to, at the place in the
+ * expression `context` was derived for: a nested query's condition reads the
+ * rows that query binds. `lookupTables` is the rows-free Project catalog the
+ * editor already holds, which names a data-table row's columns; a surface
+ * whose slot reads no table row may leave it out. */
 export function editorAxesOf(
 	context: ExpressionContext,
 	lookupTables: readonly EditorLookupTableDecl[] = [],

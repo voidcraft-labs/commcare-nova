@@ -11,6 +11,7 @@ import { useFormExpressionText } from "@/lib/doc/hooks/useXPathSlots";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { blueprintDocSchema } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { BuilderSessionProvider } from "@/lib/session/provider";
 
 const ATTENDING = testUuid("rename-attending");
@@ -112,6 +113,16 @@ function Editors() {
 				onClick={() => mutations.inline.renameField(ATTENDING, "c")}
 			>
 				Rename the question
+			</button>
+			<button
+				type="button"
+				onClick={() =>
+					mutations.inline.updateField(ATTENDING, "single_select", {
+						label: proseText("Present"),
+					})
+				}
+			>
+				Relabel the question
 			</button>
 			<button
 				type="button"

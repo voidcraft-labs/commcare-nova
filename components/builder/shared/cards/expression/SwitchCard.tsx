@@ -50,7 +50,7 @@ import {
 	term,
 } from "@/lib/domain/expression";
 import {
-	asChoiceOf,
+	firstUntakenChoice,
 	retargetSelectionValues,
 	staticSelectSubject,
 } from "../../choiceValueModel";
@@ -252,10 +252,8 @@ function EditableSwitchCard({
 		const whenSeed =
 			(choiceSubject === undefined
 				? undefined
-				: asChoiceOf(
-						literal(""),
+				: firstUntakenChoice(
 						choiceSubject,
-						ctx.expressionContext,
 						value.cases.map((item) => item.when),
 					)) ?? reseedLiteralForConstraint(literal(""), whenAccepts);
 		const resultConstraint = branchConstraint(

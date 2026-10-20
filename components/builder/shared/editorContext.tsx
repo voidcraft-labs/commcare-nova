@@ -126,8 +126,9 @@ interface EditorVocabularyValue {
 	readonly allowsNeverMatch: boolean;
 	/** The menu axes, read from the slot's context by `editorAxesOf`
 	 *  (`editorAxes.ts`) and carried here because nested cards rebuild their
-	 *  edit context from the React context. A nested data-table rule
-	 *  (`WithLookupTableScope`) narrows them to that table's row. */
+	 *  edit context from the React context. Each nested node reads them from
+	 *  its own context (`WithExpressionContext`), so a data-table query's
+	 *  condition reads that table's row. */
 	readonly tableScope: EditorLookupTableScope | undefined;
 	readonly ownerValues: boolean;
 	readonly caseDataScope: CaseDataScope;
@@ -231,14 +232,15 @@ export function EditorVocabularyProvider({
 					),
 		[expression, expressionContext, expressionPath],
 	);
-	// The menus' axes are read from the slot, never passed by a surface: a
+	// The menus' axes are read from the slot at the edited path, never passed
+	// by a surface: the same context the edit's verdict is judged with. A
 	// catalog-only control (no slot) reads the ordinary per-case defaults.
 	const axes = useMemo(
 		() =>
-			expressionContext === undefined
+			currentContext === undefined
 				? CATALOG_ONLY_AXES
-				: editorAxesOf(expressionContext, lookupTables),
-		[expressionContext, lookupTables],
+				: editorAxesOf(currentContext, lookupTables),
+		[currentContext, lookupTables],
 	);
 	const { caseDataScope, evaluationTarget, ownerValues, tableScope } = axes;
 	const patternMatching = axes.patternMatching;
@@ -358,7 +360,8 @@ export function useExpressionFocusTarget(path: EditorPath): {
 	);
 }
 
-/** Every nested node reads the same context derivation as the checker. */
+/** Every nested node reads the same context derivation as the checker, and
+ * its menus read their axes from that context. */
 export function WithExpressionContext({
 	path,
 	children,
@@ -367,18 +370,29 @@ export function WithExpressionContext({
 	readonly children: ReactNode;
 }) {
 	const outer = usePredicateEditContext();
-	const expressionContext = expressionContextAtPath(
-		outer.expression,
-		outer.rootExpressionContext,
-		path,
-	);
-	const value = useMemo(
+	const expressionContext = useMemo(
 		() =>
-			expressionContext === undefined
-				? undefined
-				: { ...outer, expressionContext, expressionPath: path },
-		[outer, expressionContext, path],
+			expressionContextAtPath(
+				outer.expression,
+				outer.rootExpressionContext,
+				path,
+			),
+		[outer.expression, outer.rootExpressionContext, path],
 	);
+	const value = useMemo(() => {
+		if (expressionContext === undefined) return undefined;
+		const axes = editorAxesOf(expressionContext, outer.lookupTables);
+		return {
+			...outer,
+			expressionContext,
+			expressionPath: path,
+			caseDataScope: axes.caseDataScope,
+			evaluationTarget: axes.evaluationTarget,
+			ownerValues: axes.ownerValues,
+			tableScope: axes.tableScope,
+			patternMatching: axes.patternMatching,
+		};
+	}, [outer, expressionContext, path]);
 	return value === undefined ? null : (
 		<PredicateEditContext value={value}>{children}</PredicateEditContext>
 	);

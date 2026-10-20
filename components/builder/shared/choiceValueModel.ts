@@ -80,21 +80,30 @@ function valueText(
 }
 
 /**
- * The same value as a choice of `subject`: a choice of that question stays,
- * and a literal naming one of its choices becomes that choice, so the
- * comparison keeps its meaning. Anything else starts at `fallback`, the first
- * choice not already taken.
+ * The same value as a choice of `subject`, when it names one: a choice of
+ * that question stays, and a value whose text is exactly one of its choices'
+ * values becomes that choice, so the comparison keeps its meaning. Undefined
+ * for any other value, which the caller keeps as written: a person's value
+ * is never swapped for a choice it does not name.
  */
 export function asChoiceOf(
 	item: Literal | Choice,
 	subject: StaticSelectSubject,
 	context: ExpressionContext,
-	taken: readonly (Literal | Choice)[] = [],
 ): Choice | undefined {
 	if (item.kind === "choice" && item.field === subject.field) return item;
 	const text = valueText(item, context);
+	if (text === undefined) return undefined;
 	const named = subject.options.find((option) => option.value === text);
-	if (named !== undefined) return choiceOf(subject.field, named.uuid);
+	return named === undefined ? undefined : choiceOf(subject.field, named.uuid);
+}
+
+/** A new value for a list of choices of `subject` (a membership's next value,
+ * a switch's next case): the first choice not already taken, else the first. */
+export function firstUntakenChoice(
+	subject: StaticSelectSubject,
+	taken: readonly (Literal | Choice)[],
+): Choice | undefined {
 	const used = new Set(
 		taken.flatMap((other) =>
 			other.kind === "choice" && other.field === subject.field
@@ -108,6 +117,23 @@ export function asChoiceOf(
 	return first === undefined ? undefined : choiceOf(subject.field, first.uuid);
 }
 
+/** A selection value retargeted at `subject`: a choice when it names one of
+ * the subject's choices. Otherwise a written value stays exactly as written,
+ * and a choice of another question becomes its current value, so the
+ * comparison still compares with what it did. */
+export function retargetSelectionValue(
+	item: Literal | Choice,
+	subject: StaticSelectSubject | undefined,
+	context: ExpressionContext,
+): Literal | Choice {
+	const named =
+		subject === undefined ? undefined : asChoiceOf(item, subject, context);
+	if (named !== undefined) return named;
+	return item.kind === "choice" && item.field !== subject?.field
+		? asLiteral(item, context)
+		: item;
+}
+
 /** The same value as plain text, for a subject that has no written choices:
  * a choice becomes its current value, so the comparison still compares with
  * it. A literal stays as it is. */
@@ -119,22 +145,12 @@ export function asLiteral(
 	return literal(valueText(item, context) ?? "");
 }
 
-/** Retarget every selection value at a new subject: choices of a select
- * with written choices, plain text otherwise. */
+/** Retarget every selection value at a new subject: each one as
+ * `retargetSelectionValue` reads it. */
 export function retargetSelectionValues<T extends Literal | Choice>(
 	values: readonly T[],
 	subject: StaticSelectSubject | undefined,
 	context: ExpressionContext,
 ): (Literal | Choice)[] {
-	const out: (Literal | Choice)[] = [];
-	for (const item of values) {
-		const next =
-			subject === undefined
-				? item.kind === "choice"
-					? asLiteral(item, context)
-					: item
-				: (asChoiceOf(item, subject, context, out) ?? item);
-		out.push(next);
-	}
-	return out;
+	return values.map((item) => retargetSelectionValue(item, subject, context));
 }

@@ -19,7 +19,7 @@ import {
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import {
-	useFormExpressionText,
+	useExpressionProjection,
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
@@ -89,9 +89,12 @@ export function LearnConfig({
 		slot: "assessment_user_score" as const,
 	};
 	const getEditorContext = useFormLintContext(slot);
-	// AST-stored slot ⇄ text: display prints against the live doc,
-	// commit parses against the doc of the moment.
-	const userScoreText = useFormExpressionText(assessment?.user_score, slot);
+	// AST-stored slot ⇄ text: the editor shows the laid-out canonical print
+	// against the live doc, and commit parses against the doc of the moment.
+	const userScoreText = useExpressionProjection(
+		assessment?.user_score,
+		slot,
+	).text;
 	const parseForForm = useParseFormExpression(slot);
 	/** The in-flight staged learn block: exists only until the user
 	 *  commits it (or toggles the staging off, which discards it). */

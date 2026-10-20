@@ -39,6 +39,7 @@ import {
 	type ExpressionContext,
 	type ExpressionSlotRef,
 	eq,
+	expressionContextAtPath,
 	type LookupTypeIndex,
 	literal,
 	matchAll,
@@ -47,6 +48,7 @@ import {
 	sessionContext,
 	slotContext,
 	tableColumn,
+	tableLookup,
 	term,
 } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
@@ -55,7 +57,7 @@ import {
 	FORM_REFERENCE_SLOTS,
 	MODULE_REFERENCE_SLOTS,
 } from "@/lib/domain/referenceSlots";
-import { editorAxesForSlot } from "../editorAxes";
+import { editorAxesForSlot, editorAxesOf } from "../editorAxes";
 import { caseDataInScope } from "../editorSchemas";
 import type { EditorLookupTableDecl } from "../lookupTablePresentation";
 
@@ -407,6 +409,33 @@ describe("the editor's axes are the slot's profile", () => {
 			}
 		},
 	);
+
+	// A data-table lookup nested in a per-case slot: its condition reads the
+	// table's row, so the menus at that path offer the table's columns, which
+	// the gate admits there. (A table-rows query is form logic, never a
+	// record rule.)
+	const columnSlot: ExpressionSlotRef = {
+		entity: "module",
+		uuid: CASE_FIRST,
+		slot: "case_list_column_expression",
+		member: { columnUuid: COLUMN_UUID },
+	};
+	const columnRead = eq(term(tableColumn(TABLE, COLUMN)), term(literal("x")));
+	it("reads a table lookup's condition's axes at its own path", () => {
+		const wrap = (where: Expression): Expression =>
+			tableLookup(TABLE, COLUMN, where);
+		const built = editorAxesForSlot(doc, columnSlot, LOOKUP_TYPES, TABLES);
+		if (built === undefined) throw new Error("the fixture owns this slot");
+		expect(built.axes.caseDataScope).toBe("per-case");
+		const nested = expressionContextAtPath(wrap(columnRead), built.context, [
+			"table-lookup",
+			"where",
+		]);
+		const axes = editorAxesOf(nested, TABLES);
+		expect(axes.caseDataScope).toBe("table-row");
+		expect(axes.tableScope?.tableId).toBe(TABLE);
+		expect(admits(built.context, wrap(columnRead)), "a column read").toBe(true);
+	});
 
 	it("reads the chosen case only where the form's menu picks it first", () => {
 		const scope = (ref: ExpressionSlotRef) =>

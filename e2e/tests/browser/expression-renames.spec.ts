@@ -1,7 +1,7 @@
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 
-test("A saved expression follows a question rename and a case property rename", async ({
+test("A saved expression follows a question rename, a relabel and a case property rename", async ({
 	page,
 }) => {
 	const peer = await componentPeer("e2e/lib/expression-rename-client.tsx");
@@ -30,6 +30,14 @@ test("A saved expression follows a question rename and a case property rename", 
 		await expect(savedCondition).toHaveText("../c = 'yes'");
 		await expect(condition.locator('[data-ref-raw="../c"]')).toHaveText(
 			"Attending",
+		);
+
+		// Relabeling leaves the stored text alone; the idle chip still
+		// names the question by its new label.
+		await page.getByRole("button", { name: "Relabel the question" }).click();
+		await expect(savedCondition).toHaveText("../c = 'yes'");
+		await expect(condition.locator('[data-ref-raw="../c"]')).toHaveText(
+			"Present",
 		);
 
 		// A records query names its property, and follows that property's rename.

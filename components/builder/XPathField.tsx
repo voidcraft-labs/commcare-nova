@@ -15,7 +15,10 @@ import {
 	REJECTION_SURFACE_CLS,
 	RejectionBody,
 } from "@/components/builder/RejectionNotice";
-import { reconcileXPathDraft } from "@/components/builder/xpathDraftReconciliation";
+import {
+	reconcileXPathDraft,
+	type XPathDraftReading,
+} from "@/components/builder/xpathDraftReconciliation";
 import type { ExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
 import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
 import {
@@ -182,6 +185,21 @@ export function XPathField({
 		];
 	}, [hasEditorContext]);
 
+	/* A rename can change what a chip names without changing the printed
+	 * text (a question's label, a table's name), so the idle display
+	 * recomputes its chips whenever what their labels resolve against
+	 * moves. The chip widgets compare by label, so an unrelated edit
+	 * leaves the display's DOM untouched. */
+	const scopeRevision = useExpressionScopeRevision();
+	const readOnlyEditorRef = useRef<ReactCodeMirrorRef>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the scope revision is what a rename changes; the chips read it through the context getter.
+	useEffect(() => {
+		if (!hasEditorContext) return;
+		readOnlyEditorRef.current?.view?.dispatch({
+			effects: refreshExpressionChips.of(null),
+		});
+	}, [scopeRevision, hasEditorContext]);
+
 	/* Standalone read-only display layers its own box on top; the
 	 * editable-idle state instead gets its well from the wrapping button. */
 	const standaloneReadOnlyExtensions = useMemo(
@@ -196,6 +214,7 @@ export function XPathField({
 		if (!onSave) {
 			return (
 				<CodeMirror
+					ref={readOnlyEditorRef}
 					value={value}
 					theme={novaXPathTheme}
 					extensions={standaloneReadOnlyExtensions}
@@ -219,6 +238,7 @@ export function XPathField({
 				className="w-full text-left cursor-pointer rounded-lg border border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 transition-colors min-h-11 flex flex-col justify-center"
 			>
 				<CodeMirror
+					ref={readOnlyEditorRef}
 					value={value}
 					theme={novaXPathTheme}
 					extensions={readOnlyExtensions}
@@ -319,6 +339,9 @@ function InlineXPathEditor({
 		undefined,
 	);
 	const draftRef = useRef(projectedValue);
+	/* What the draft read at the last reconciliation, so the next one does
+	 * not parse it again. */
+	const draftReadingRef = useRef<XPathDraftReading | undefined>(undefined);
 	const projectionConflictRef = useRef(false);
 	const [draft, setDraft] = useState(projectedValue);
 	/** Guards against double-fire: once save or cancel runs, block the other. */
@@ -355,7 +378,9 @@ function InlineXPathEditor({
 			baseScope: baseScopeRef.current,
 			incomingScope,
 			conflict: projectionConflictRef.current,
+			reading: draftReadingRef.current,
 		});
+		draftReadingRef.current = reconciled.reading;
 		baseProjectionRef.current = reconciled.base;
 		baseScopeRef.current = incomingScope;
 		draftRef.current = reconciled.draft;

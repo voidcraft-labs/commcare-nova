@@ -36,15 +36,37 @@ import {
  * tree, or the edit conflicts. When the shown text did not change, an
  * identity the draft alone reads is respelled the same way, and a draft
  * that does not parse or reads something now gone is left to the linter.
+ * A change elsewhere in the document therefore never conflicts, and a draft
+ * that parsed is not parsed again for it: each reconciliation hands the next
+ * its reading of the draft (`XPathDraftReading`).
  */
 
 type ParseScope = ExpressionEditorContext["scope"];
 type Span = { readonly from: number; readonly to: number };
 
+/**
+ * What a draft that parsed reads, under the scope of the latest
+ * reconciliation: its tree, where each node sits in the draft's text, and
+ * the tree's print under that scope. The next reconciliation starts from it
+ * instead of parsing the draft again, so a change elsewhere in the document
+ * costs one print of the tree under the new scope. It holds only while the
+ * draft and the scope are the ones it was taken under.
+ */
+export interface XPathDraftReading {
+	readonly draft: string;
+	readonly scope: ParseScope;
+	readonly expression: Expression | undefined;
+	readonly spans: ExpressionSpans;
+	readonly printed?: ReturnType<typeof print>;
+}
+
 export interface XPathDraftReconciliation {
 	readonly base: string;
 	readonly draft: string;
 	readonly conflict: boolean;
+	/** The resulting draft's reading under the incoming scope, when it
+	 *  parsed. */
+	readonly reading?: XPathDraftReading;
 }
 
 function parse(scope: ParseScope, text: string) {
@@ -142,24 +164,54 @@ function respellings(
 	return sorted;
 }
 
+/** The draft's reading under `scope`: the one carried from the previous
+ * reconciliation when it was taken of this draft under this scope, else a
+ * fresh parse. */
+function readDraft(
+	draft: string,
+	scope: ParseScope,
+	carried: XPathDraftReading | undefined,
+): XPathDraftReading | undefined {
+	if (
+		carried !== undefined &&
+		carried.draft === draft &&
+		carried.scope === scope
+	)
+		return carried;
+	const parsed = parse(scope, draft);
+	return parsed.ok
+		? { draft, scope, expression: parsed.expression, spans: parsed.spans }
+		: undefined;
+}
+
 /** The draft respelled for the incoming document, or why it cannot be. */
 function respellDraft(
 	draft: string,
 	baseScope: ParseScope,
 	incomingScope: ParseScope,
-): { readonly draft: string } | "unparsed" | "lost" | "changed" {
-	const parsed = parse(baseScope, draft);
-	if (!parsed.ok) return "unparsed";
-	const expression = parsed.expression;
-	if (expression === undefined) return { draft };
-	const before = print(baseScope, expression);
+	carried: XPathDraftReading | undefined,
+):
+	| { readonly draft: string; readonly reading: XPathDraftReading }
+	| "unparsed"
+	| "lost"
+	| "changed" {
+	const reading = readDraft(draft, baseScope, carried);
+	if (reading === undefined) return "unparsed";
+	const expression = reading.expression;
+	if (expression === undefined)
+		return { draft, reading: { ...reading, scope: incomingScope } };
+	const before = reading.printed ?? print(baseScope, expression);
 	const after = print(incomingScope, expression);
-	if (before.text === after.text) return { draft };
+	if (before.text === after.text)
+		return {
+			draft,
+			reading: { ...reading, scope: incomingScope, printed: after },
+		};
 	if (before.unresolved.length > 0 || after.unresolved.length > 0)
 		return "lost";
 	const edits = respellings(
 		expression,
-		{ text: draft, spans: parsed.spans },
+		{ text: draft, spans: reading.spans },
 		before,
 		after,
 	);
@@ -173,7 +225,16 @@ function respellDraft(
 	respelled += draft.slice(at);
 	const reparsed = parse(incomingScope, respelled);
 	return reparsed.ok && deepEqual(reparsed.expression, expression)
-		? { draft: respelled }
+		? {
+				draft: respelled,
+				reading: {
+					draft: respelled,
+					scope: incomingScope,
+					expression,
+					spans: reparsed.spans,
+					printed: after,
+				},
+			}
 		: "changed";
 }
 
@@ -184,6 +245,7 @@ export function reconcileXPathDraft({
 	baseScope,
 	incomingScope,
 	conflict = false,
+	reading,
 }: {
 	readonly base: string;
 	readonly draft: string;
@@ -194,6 +256,8 @@ export function reconcileXPathDraft({
 	readonly incomingScope: ParseScope | undefined;
 	/** A same-slot collision was already observed in this mounted edit. */
 	readonly conflict?: boolean;
+	/** The previous reconciliation's `reading`. */
+	readonly reading?: XPathDraftReading;
 }): XPathDraftReconciliation {
 	// A later peer projection cannot prove that the local same-slot edit is
 	// suddenly safe. Advance the shared base, but preserve both the draft and
@@ -210,11 +274,26 @@ export function reconcileXPathDraft({
 	if (
 		baseScope.doc === incomingScope.doc &&
 		baseScope.lookup === incomingScope.lookup
-	)
-		return { base: incoming, draft, conflict: false };
+	) {
+		const carried =
+			reading?.draft === draft && reading.scope === baseScope
+				? { ...reading, scope: incomingScope }
+				: undefined;
+		return {
+			base: incoming,
+			draft,
+			conflict: false,
+			...(carried && { reading: carried }),
+		};
+	}
 	if (!deepEqual(baseScope.current, incomingScope.current))
 		return { base: incoming, draft, conflict: true };
-	const respelled = respellDraft(draft, baseScope, incomingScope);
+	const respelled = respellDraft(draft, baseScope, incomingScope, reading);
 	if (typeof respelled === "string") return fail();
-	return { base: incoming, draft: respelled.draft, conflict: false };
+	return {
+		base: incoming,
+		draft: respelled.draft,
+		conflict: false,
+		reading: respelled.reading,
+	};
 }

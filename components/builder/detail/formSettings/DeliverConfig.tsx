@@ -16,7 +16,7 @@ import {
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import {
-	useFormExpressionText,
+	useExpressionProjection,
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
@@ -81,10 +81,14 @@ export function DeliverConfig({
 	};
 	const getIdEditorContext = useFormLintContext(idSlot);
 	const getNameEditorContext = useFormLintContext(nameSlot);
-	// AST-stored slots ⇄ text: display prints against the live doc,
-	// commit parses against the doc of the moment.
-	const entityIdText = useFormExpressionText(du?.entity_id, idSlot);
-	const entityNameText = useFormExpressionText(du?.entity_name, nameSlot);
+	// AST-stored slots ⇄ text: the editors show the laid-out canonical
+	// print against the live doc, and commit parses against the doc of the
+	// moment.
+	const entityIdText = useExpressionProjection(du?.entity_id, idSlot).text;
+	const entityNameText = useExpressionProjection(
+		du?.entity_name,
+		nameSlot,
+	).text;
 	const parseId = useParseFormExpression(idSlot);
 	const parseName = useParseFormExpression(nameSlot);
 	/** In-flight staged blocks: component state only, until committed

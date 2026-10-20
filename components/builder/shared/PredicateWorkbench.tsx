@@ -499,7 +499,9 @@ export function PredicateWorkbench({
 						formFields,
 						formCaseTypes,
 						lookupTables: effectiveLookupTables,
-						...editorAxesOf(expressionContext, effectiveLookupTables),
+						// The focused condition's own axes: a table-rows query's
+						// condition offers that table's columns, as the gate reads.
+						...editorAxesOf(focusedContext, effectiveLookupTables),
 						operationScope,
 						allowsNeverMatch,
 						userProperties,
@@ -512,7 +514,6 @@ export function PredicateWorkbench({
 			formFields,
 			formCaseTypes,
 			effectiveLookupTables,
-			expressionContext,
 			operationScope,
 			allowsNeverMatch,
 			userProperties,

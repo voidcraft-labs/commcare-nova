@@ -310,7 +310,7 @@ export function OptionsEditorWidget({
 						<SimpleTooltip content={removalBlockers[i]}>
 							<Button
 								type="button"
-								variant="ghost"
+								variant="ghost-destructive"
 								size="icon"
 								onClick={() => removeOption(i)}
 								disabled={draft.length <= 2 || removalBlockers[i] !== undefined}
@@ -322,7 +322,6 @@ export function OptionsEditorWidget({
 										? undefined
 										: `${blockerIdBase}-${opt.uuid}`
 								}
-								className="min-h-11 min-w-11 shrink-0 rounded-lg text-nova-text-muted hover:bg-nova-rose/10 hover:text-nova-rose disabled:cursor-not-allowed disabled:opacity-30"
 							>
 								<Icon icon={tablerTrash} width="16" height="16" />
 							</Button>

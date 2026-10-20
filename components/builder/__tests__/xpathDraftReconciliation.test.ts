@@ -11,10 +11,15 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { reconcileXPathDraft } from "@/components/builder/xpathDraftReconciliation";
+import {
+	reconcileXPathDraft,
+	type XPathDraftReading,
+	type XPathDraftReconciliation,
+} from "@/components/builder/xpathDraftReconciliation";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { buildExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
 import { projectFormExpression } from "@/lib/doc/expressionText";
+import { expressionEditorContextFor } from "@/lib/doc/hooks/useXPathSlots";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
@@ -114,15 +119,21 @@ function shown(doc: BlueprintDoc): string {
 	}).text;
 }
 
-/** The editor's reconciliation when `after` replaces `before` under a draft. */
+/** The editor's reconciliation when `after` replaces `before` under a draft:
+ * what the editor shows and whether it refuses. */
 function reconcile(before: BlueprintDoc, after: BlueprintDoc, draft: string) {
-	return reconcileXPathDraft({
+	const {
+		base,
+		draft: next,
+		conflict,
+	} = reconcileXPathDraft({
 		base: shown(before),
 		incoming: shown(after),
 		draft,
 		baseScope: scope(before),
 		incomingScope: scope(after),
 	});
+	return { base, draft: next, conflict };
 }
 
 describe("reconcileXPathDraft", () => {
@@ -255,5 +266,116 @@ describe("reconcileXPathDraft", () => {
 			draft: "../a = 'yes' and ../b = 'x'",
 			conflict: true,
 		});
+	});
+});
+
+describe("an open editor across a run of document changes", () => {
+	// The editor holds one pending candidate for its own field, as a staged
+	// mount does: every document change builds a new candidate document.
+	const candidateScope = (doc: BlueprintDoc) => {
+		const context = expressionEditorContextFor(
+			doc,
+			SLOT,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+			{ entity: "field", value: doc.fields[CALC] },
+		);
+		if (context === undefined) throw new Error("The slot has no context");
+		return context.scope;
+	};
+
+	/** Reconcile each step from the previous one, as the editor's effect
+	 * does, carrying its scope and reading forward. */
+	function run(draft: string, docs: readonly BlueprintDoc[]) {
+		let state = {
+			base: shown(docs[0]),
+			draft,
+			scope: candidateScope(docs[0]),
+			reading: undefined as XPathDraftReading | undefined,
+			conflict: false,
+		};
+		const steps: XPathDraftReconciliation[] = [];
+		for (const doc of docs.slice(1)) {
+			const incomingScope = candidateScope(doc);
+			const next = reconcileXPathDraft({
+				base: state.base,
+				draft: state.draft,
+				incoming: shown(doc),
+				baseScope: state.scope,
+				incomingScope,
+				conflict: state.conflict,
+				reading: state.reading,
+			});
+			steps.push(next);
+			state = { ...next, scope: incomingScope, reading: next.reading };
+		}
+		return steps;
+	}
+
+	it("reads one snapshot's context once, however often it is asked", () => {
+		const doc = fixture();
+		expect(candidateScope(doc)).toBe(candidateScope(doc));
+		// A rerendered mount rebuilds the candidate's wrapper, never its value.
+		expect(
+			expressionEditorContextFor(doc, { ...SLOT }, LOOKUP_CONTEXT_UNAVAILABLE, {
+				entity: "field",
+				value: doc.fields[CALC],
+			}),
+		).toBe(
+			expressionEditorContextFor(doc, SLOT, LOOKUP_CONTEXT_UNAVAILABLE, {
+				entity: "field",
+				value: doc.fields[CALC],
+			}),
+		);
+		expect(candidateScope(apply(doc, renameField(BEE, "d")))).not.toBe(
+			candidateScope(doc),
+		);
+	});
+
+	it("keeps a draft through unrelated changes without parsing it again, then follows a rename", () => {
+		const first = fixture();
+		const relabeled = apply(first, {
+			kind: "updateField",
+			uuid: BEE,
+			targetKind: "text",
+			patch: { label: proseText("Bee again") },
+		} as Mutation);
+		const relabeledAgain = apply(relabeled, {
+			kind: "updateField",
+			uuid: BEE,
+			targetKind: "text",
+			patch: { label: proseText("Bee once more") },
+		} as Mutation);
+		const renamed = apply(relabeledAgain, renameField(ATTENDING, "c"));
+		const draft = "../a = 'yes' and ../b = 'x'";
+		const [one, two, three] = run(draft, [
+			first,
+			relabeled,
+			relabeledAgain,
+			renamed,
+		]);
+		for (const step of [one, two])
+			expect(step).toMatchObject({ draft, conflict: false });
+		// The second change read the draft from the first one's reading: the
+		// same tree, not a new parse of the same text.
+		expect(two.reading?.expression).toBe(one.reading?.expression);
+		expect(three).toMatchObject({
+			base: "../c = 'yes'",
+			draft: "../c = 'yes' and ../b = 'x'",
+			conflict: false,
+		});
+	});
+
+	it("never turns a draft that does not parse into a conflict over an unrelated change", () => {
+		const first = fixture();
+		const unrelated = apply(first, renameField(BEE, "d"));
+		const again = apply(unrelated, {
+			kind: "updateField",
+			uuid: BEE,
+			targetKind: "text",
+			patch: { label: proseText("Dee") },
+		} as Mutation);
+		const draft = "../a = 'yes' and (";
+		for (const step of run(draft, [first, unrelated, again]))
+			expect(step).toEqual({ base: "../a = 'yes'", draft, conflict: false });
 	});
 });

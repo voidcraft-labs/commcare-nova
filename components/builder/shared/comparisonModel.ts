@@ -10,7 +10,10 @@ import {
 	resolveExpressionType,
 } from "./cards/reseed";
 import { defaultCaseTypeValue } from "./caseTypeValueModel";
-import { asChoiceOf, asLiteral, staticSelectSubject } from "./choiceValueModel";
+import {
+	retargetSelectionValue,
+	staticSelectSubject,
+} from "./choiceValueModel";
 import type { PredicateEditContext } from "./editorSchemas";
 /** The case types the compared row can be: the editor's current row type,
  * which a relation's condition has already rebound to its destination. */
@@ -26,8 +29,10 @@ export function comparesCaseType(left: Expression): boolean {
 	return left.kind === "term" && left.term.kind === "case-row-type";
 }
 
-/** The comparison's value retargeted at a new subject, when either side is a
- * choice: undefined leaves the ordinary reseed to decide. */
+/** The comparison's value retargeted at a new subject, when it is a choice
+ * or a written value that names one of the subject's choices: undefined
+ * leaves the ordinary reseed to decide, so a written value that names no
+ * choice stays as written. */
 function selectionValueFor(
 	left: Expression,
 	right: Expression,
@@ -36,14 +41,12 @@ function selectionValueFor(
 	if (right.kind !== "term") return undefined;
 	const item = right.term;
 	if (item.kind !== "literal" && item.kind !== "choice") return undefined;
-	const subject = staticSelectSubject(left, ctx.expressionContext);
-	if (subject !== undefined) {
-		const choice = asChoiceOf(item, subject, ctx.expressionContext);
-		return choice === undefined ? undefined : term(choice);
-	}
-	return item.kind === "choice"
-		? term(asLiteral(item, ctx.expressionContext))
-		: undefined;
+	const next = retargetSelectionValue(
+		item,
+		staticSelectSubject(left, ctx.expressionContext),
+		ctx.expressionContext,
+	);
+	return next === item ? undefined : term(next);
 }
 
 function caseTypeValue(name: string): Expression {

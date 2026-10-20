@@ -27,6 +27,7 @@ import {
 	asLiteral,
 	CHOICE_SOURCE_LABEL,
 	choiceOf,
+	firstUntakenChoice,
 	retargetSelectionValues,
 	staticSelectSubject,
 } from "../choiceValueModel";
@@ -217,11 +218,10 @@ describe("A choice of this question", () => {
 		const subject = staticSelectSubject(VISIT_ANSWER, CONTEXT);
 		if (subject === undefined) throw new Error("The visit type has choices.");
 		const values = retargetSelectionValues(
-			[literal("no"), literal("maybe")],
+			[literal("no"), literal("yes")],
 			subject,
 			CONTEXT,
 		) as [Choice, Choice];
-		// "no" names a choice; "maybe" names none and takes the first one left.
 		expect(values).toEqual([
 			choiceOf(VISIT, optionUuid("no")),
 			choiceOf(VISIT, optionUuid("yes")),
@@ -231,6 +231,52 @@ describe("A choice of this question", () => {
 			literal("no"),
 			literal("yes"),
 		]);
+	});
+
+	it("keeps a written value that names no choice exactly as written", () => {
+		const subject = staticSelectSubject(VISIT_ANSWER, CONTEXT);
+		if (subject === undefined) throw new Error("The visit type has choices.");
+		// Only an exact match becomes a choice: "maybe", "No" and a blank
+		// name none, and a value that is not text (a switch's "any other
+		// value" is a null) is never read as one.
+		const written = [
+			literal("no"),
+			literal("maybe"),
+			literal("No"),
+			literal(""),
+			literal(null),
+			literal(3),
+		];
+		expect(retargetSelectionValues(written, subject, CONTEXT)).toEqual([
+			choiceOf(VISIT, optionUuid("no")),
+			...written.slice(1),
+		]);
+		for (const item of written.slice(1))
+			expect(asChoiceOf(item, subject, CONTEXT)).toBeUndefined();
+
+		// A comparison moved onto the question keeps its written value too.
+		const onNote = eq(NOTE_ANSWER, term(literal("maybe")));
+		expect(replaceComparisonSubject(onNote, VISIT_ANSWER, EDIT)).toEqual(
+			eq(VISIT_ANSWER, term(literal("maybe"))),
+		);
+	});
+
+	it("seeds a new value with the first choice not already taken", () => {
+		const subject = staticSelectSubject(VISIT_ANSWER, CONTEXT);
+		if (subject === undefined) throw new Error("The visit type has choices.");
+		expect(firstUntakenChoice(subject, [])).toEqual(
+			choiceOf(VISIT, optionUuid("yes")),
+		);
+		expect(
+			firstUntakenChoice(subject, [choiceOf(VISIT, optionUuid("yes"))]),
+		).toEqual(choiceOf(VISIT, optionUuid("no")));
+		// Every choice taken: the first again, still a choice of the question.
+		expect(
+			firstUntakenChoice(subject, [
+				choiceOf(VISIT, optionUuid("yes")),
+				choiceOf(VISIT, optionUuid("no")),
+			]),
+		).toEqual(choiceOf(VISIT, optionUuid("yes")));
 	});
 
 	it("reads a choice whose option is gone as no value rather than a guess", () => {
