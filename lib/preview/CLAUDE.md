@@ -90,8 +90,13 @@ a second `createBrowserXPathRuntime` and hands it to the controller as
 under `search:<moduleUuid>` with the `search` profile and the instances the
 device's query screen holds (`xpathInstances.ts::searchScreenXPathInstances`):
 the session, the draft answers as `search-input:results`, and the lookup
-fixtures under their suite ids. The running Search screen passes no
-`session/data`. It is needed because a user-authored
+fixtures under their suite ids. The running Search screen's `session/data` is
+the map of its module's case list step (`entrySessionData.ts::caseListStepSession`:
+the datums supplied before the module's own selection, a parent selection or a
+copied root datum from the menu case map, the worker's record and a grouped
+tile's companion evaluated over the device's cases), which the screen's
+defaults, hidden values, prompt checks and the search's runtime values all
+read. The second runtime is needed because a user-authored
 `matches-pattern` runs ONLY in the worker (the JDK `Pattern` runtime is
 worker-only; the synchronous JavaRosa function table returns `unsupported` for
 a user pattern). `engine/searchInputConstraints.ts` is the split:
@@ -853,7 +858,10 @@ screen's module list; form conditions gate the case-list screen's
 post-selection form menu + single-form auto-continue (over the device
 snapshot, reading the chosen case through the suite's own casedb walk keyed on
 `session/data/<datum>`, with the same suite emitters `compiler.ts` writes the
-attributes with) and the module screen's forms-first list. A condition that
+attributes with; the menu's session also holds the case list step's map, so
+`chosen-case(<parent menu>)` reads the parent menu's datum under the id the
+form's entry prints it, `entryDatumIdResolver`) and the module screen's
+forms-first list. A condition that
 reads case data is `pending` until the snapshot covers it. Raw absent-node semantics hold — absent
 string-unpacks to `""`, numeric ordering yields NaN, no presence guards.
 Visibility is three-valued: a carrier-bearing condition without loaded data
@@ -1466,7 +1474,7 @@ screen.
 
 Two rules govern the args these `caseDataBinding` Server Actions take. The edge Cloud Armor CRS rules that punish breaking them run in **log-only / preview** mode today (`scripts/infra/setup-cloud-armor-lb.sh` — they record would-be blocks, they don't 403), so this is wire hygiene that keeps the previewed-match logs clean enough to eventually enforce, not a hard gate:
 
-- **Args must be plain JSON — never a `Map`/`Set`/`File`/`Blob`/`Date`.** React also refuses records with a null prototype; document arguments use `toRscSerializableDoc` at dispatch to make plain-object copies. React encodes a Server Action call as `multipart/form-data` the moment any argument holds one of those built-in objects (a `Map` serializes as `$Q`, which forces a `FormData`); a plain-JSON payload goes as a `text/plain` body. The multipart envelope's `\r\nContent-Disposition: form-data; name=` part-header is what CRS `921150` reads as header injection. The running-app search bag is a `Map` in the client (`SearchInputValues`) and crosses as a plain object (`searchInputValuesToWire` / `…FromWire`) for exactly this reason. The worker's claims cross as a plain string array (`claimedCaseIds`), and the viewer's position as a plain `{ latitude, longitude }` or `null`.
+- **Args must be plain JSON — never a `Map`/`Set`/`File`/`Blob`/`Date`.** React also refuses records with a null prototype; document arguments use `toRscSerializableDoc` at dispatch to make plain-object copies. React encodes a Server Action call as `multipart/form-data` the moment any argument holds one of those built-in objects (a `Map` serializes as `$Q`, which forces a `FormData`); a plain-JSON payload goes as a `text/plain` body. The multipart envelope's `\r\nContent-Disposition: form-data; name=` part-header is what CRS `921150` reads as header injection. The running-app search bag is a `Map` in the client (`SearchInputValues`) and crosses as a plain object (`searchInputValuesToWire` / `…FromWire`) for exactly this reason. The worker's claims cross as a plain string array (`claimedCaseIds`), and the viewer's position as a plain `{ latitude, longitude }` or `null`. A Search's runtime query values, evaluated in the browser, cross as plain objects (`{ segments, choices }`) for the server to fold: `engine/searchCsqlRuntime.ts::evaluateSearchCsqlRuntime` composes the module's filter and advanced-input rows as the export does (each in its own slot's context, each chosen case under the case list step's datum id), evaluates each runtime segment's value, each runtime choice's condition and each row's obligations over the Search screen's world (answers, the step's `session/data`, the device's cases and places, lookup tables), and keys them `<row>:<segment key>`, a row whose obligations hold as the choice `<row>`; `foldSearchCsql` folds each row with `lib/commcare/csql/fold.ts::foldCsqlRuntime`, a rejected row makes the read `empty`, and a simple input's answer still binds as its literal (`composeRuntimeFilter`). A read Preview's synchronous evaluator cannot run gives no value and leaves its node to the store as authored; the `list-item` obligation, whose condition needs `regex`, is decided over the same values. App Tests' records reads (`serverSearchRead.ts`) evaluate the same values on the server over the session's device. A browse list's filter that reads the case chosen in an earlier menu sends `chosenCaseIds` (module UUID to case id, from the same step map) as plain JSON, bound as `TermBindings.chosenCaseIds`. The server's own pass of a search's checks judges only obligations whose reads it holds (the answers and the session context); one that reads the device's cases, a lookup or a session datum is the browser's to judge, through the row it reports.
 - **Expression-bearing reads carry their actual live document.** `loadCasesAction` and the Details projection of `loadCaseDataAction` take the live `BlueprintDoc` and `moduleUuid` beside their list settings. They validate the document's shape and require the supplied settings to match that exact module before deriving slot context, catalog types and order. Membership, actor and worker identity still resolve from the saved app; the candidate never authorizes data access. This keeps a property rename, retype or expression edit in one evaluation world. The payload is plain JSON, including its document and search answers. Raw form loads omit the expression context. `loadCaseCountAction` takes `(appId, caseType)` plus an optional parent selection, while sample populate/reset take the live `CaseType`. A nested parent-select Results or Details request carries one plain-JSON `ParentCaseSelection` with the selected parent type and ordered case-id set. The case store validates the complete set against the app, Project and type, then constrains both reads through the same union of direct non-extension case-index populations.
 
 ## `commcare_project` comes from the deployment record

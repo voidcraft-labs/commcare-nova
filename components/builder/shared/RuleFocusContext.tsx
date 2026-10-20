@@ -5,6 +5,7 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import { Button } from "@/components/shadcn/button";
 import type { Expression } from "@/lib/domain/expression";
+import { DISTANCE_UNIT_LABELS } from "./distanceDraft";
 import type { EditorPath } from "./path";
 import {
 	type EditorSearchInputDecl,
@@ -239,6 +240,8 @@ export function predicateFocusTitle(value: Expression): string {
 			return "Include every case";
 		case "match-none":
 			return "Exclude every case";
+		case "if":
+			return "Depends on a condition";
 		default:
 			return expressionFocusTitle(value);
 	}
@@ -286,7 +289,12 @@ export function predicateFocusDescription(
 		case "multi-select-contains":
 			return `${value.values.length} ${value.values.length === 1 ? "option" : "options"}`;
 		case "within-distance":
-			return `Within ${value.distance} ${value.unit}`;
+			return typeof value.distance === "number" &&
+				typeof value.unit === "string"
+				? `Within ${value.distance} ${DISTANCE_UNIT_LABELS[value.unit]}`
+				: "Within a distance worked out when the search runs";
+		case "if":
+			return "Uses one condition or another, decided by a value such as a search answer";
 		case "match-all":
 			return "This condition always matches";
 		case "match-none":

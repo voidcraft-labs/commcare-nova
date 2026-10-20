@@ -127,6 +127,13 @@ import {
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
 import {
+	foldSearchCsql,
+	parseChosenCaseIds,
+	parseSearchCsqlRuntimeWire,
+	type SearchCsqlRuntimeWire,
+	searchCsqlRejected,
+} from "./searchCsqlRuntime";
+import {
 	evaluatePreviewSearchExpression,
 	type PreviewSearchEnvironment,
 	parseExcludedOwnerIds,
@@ -381,6 +388,12 @@ type RunningCaseReadArgs = {
 	 *  in this request and the query's bound parameters only, and is never
 	 *  stored or logged. */
 	viewerLocation?: ViewerLocation | null;
+	/** What the device worked out for the search's `_xpath_query` rows
+	 *  (`searchCsqlRuntime.ts::evaluateSearchCsqlRuntime`), plain objects. */
+	csqlRuntime?: SearchCsqlRuntimeWire;
+	/** The case chosen in each menu before the list, by module UUID, which a
+	 *  browse list's filter reads (`entrySessionData.ts::caseListStepSession`). */
+	chosenCaseIds?: Readonly<Record<string, string>>;
 };
 
 /** A running read made ready: the store bound to the worker and the read's
@@ -483,18 +496,22 @@ async function prepareRunningCaseRead(
 			};
 		}
 	}
-	/* A blank value compared where CommCare's search cannot compare one:
-	 * the exported search sends `match-none()` and finds nothing, with no
-	 * message, so Preview answers the same before reaching the case store. */
+	const csqlRuntime = parseSearchCsqlRuntimeWire(args.csqlRuntime);
+	const chosenCaseIds = parseChosenCaseIds(args.chosenCaseIds);
+	/* A blank value compared where CommCare's search cannot compare one, or
+	 * a row whose obligations the device found holding: the exported search
+	 * sends `match-none()` and finds nothing, with no message, so Preview
+	 * answers the same before reaching the case store. */
 	if (
 		args.caseListConfig !== undefined &&
-		searchFindsNothing(
-			args.caseListConfig,
-			args.caseType,
-			inputValues ?? new Map(),
-			searchSession,
-			requireEnvironment(),
-		)
+		((csqlRuntime !== undefined && searchCsqlRejected(csqlRuntime)) ||
+			searchFindsNothing(
+				args.caseListConfig,
+				args.caseType,
+				inputValues ?? new Map(),
+				searchSession,
+				requireEnvironment(),
+			))
 	) {
 		return {
 			kind: "empty",
@@ -509,13 +526,16 @@ async function prepareRunningCaseRead(
 					args.caseListConfig.searchInputs,
 					inputValues,
 				);
-	const bindings = previewCaseStoreBindings(
-		searchSession,
-		args.caseListConfig?.searchInputs,
-		expressionInputValues,
-		args.viewerTimeZone,
-		args.viewerLocation ?? null,
-	);
+	const bindings = {
+		...previewCaseStoreBindings(
+			searchSession,
+			args.caseListConfig?.searchInputs,
+			expressionInputValues,
+			args.viewerTimeZone,
+			args.viewerLocation ?? null,
+		),
+		...(chosenCaseIds === undefined ? {} : { chosenCaseIds }),
+	};
 	/* Lookup carriers: the SQL-bound slots (filter / calc columns /
 	 * advanced predicates) compile natively against a rows-free
 	 * definitions snapshot; the excluded-owner expression evaluates
@@ -577,6 +597,18 @@ async function prepareRunningCaseRead(
 		args.moduleUuid,
 		args.search === true || inputValues !== undefined,
 	);
+	/* A search's rows reach the store folded with what the device worked
+	 * out; a browse list's filter compiles as authored, its chosen case
+	 * bound. */
+	const searchCsql =
+		searched && environment !== undefined && args.caseListConfig !== undefined
+			? foldSearchCsql(
+					environment.doc,
+					environment.moduleUuid,
+					args.caseListConfig,
+					csqlRuntime ?? { segments: {}, choices: {} },
+				)
+			: undefined;
 	return {
 		kind: "read",
 		store,
@@ -589,6 +621,7 @@ async function prepareRunningCaseRead(
 			...(order !== undefined && { order }),
 			parentCase: args.parentCase,
 			inputValues,
+			...(searchCsql !== undefined && { searchCsql }),
 			bindings,
 			lookupTableSchemas,
 			excludedOwnerIds,

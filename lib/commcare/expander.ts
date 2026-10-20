@@ -394,6 +394,9 @@ export function expandDoc(
 				),
 				opts.lookupNaming,
 				ownCaseDatumId,
+				entryDatumIdResolver(
+					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+				),
 			);
 			formShellObj.form_filter =
 				formFilter === undefined

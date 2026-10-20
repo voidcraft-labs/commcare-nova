@@ -40,11 +40,9 @@ import {
 	and,
 	COMPARISON_KINDS,
 	type ComparisonKind,
-	type ConditionArm,
 	type Expression,
 	type ExpressionOfKind,
 	exists,
-	isConditionArm,
 	missing,
 	not,
 	or,
@@ -58,6 +56,8 @@ import {
 	WithExpressionContext,
 } from "../editorContext";
 import {
+	isPredicateCardValue,
+	type PredicateCardKind,
 	type PredicateCardSchema,
 	type PredicateEditContext,
 	predicateCardSchemaList,
@@ -74,6 +74,7 @@ import {
 	useRuleFocusContext,
 } from "../RuleFocusContext";
 import { KIND_BUILDERS as COMPARISON_BUILDERS } from "./ComparisonCard";
+import { wrapInConditionChoice } from "./ConditionChoiceCard";
 import { wrapSiblingDefault } from "./comparisonSeed";
 
 interface ChildPredicateEditorProps {
@@ -151,7 +152,7 @@ export function PredicateFocusBoundary(props: ChildPredicateEditorProps) {
 	const descendantErrors = useEditorErrorsBelow(path);
 
 	if (
-		isConditionArm(value) &&
+		isPredicateCardValue(value) &&
 		focus !== null &&
 		!pathsEqual(path, focus.activePath)
 	) {
@@ -192,7 +193,7 @@ export function PredicateFocusBoundary(props: ChildPredicateEditorProps) {
  * kind-replace menu in the header.
  */
 export function ChildPredicateEditor(props: ChildPredicateEditorProps) {
-	if (!isConditionArm(props.value)) {
+	if (!isPredicateCardValue(props.value)) {
 		return (
 			<p role="status" className="text-[13px] text-nova-text-muted">
 				This saved expression is not available in the condition editor.
@@ -216,7 +217,9 @@ function ChildPredicateEditorBody({
 	variant = "normal",
 	dragHandleRef,
 	constraint = ANY_CONSTRAINT,
-}: ChildPredicateEditorProps & { readonly value: ConditionArm }) {
+}: ChildPredicateEditorProps & {
+	readonly value: ExpressionOfKind<PredicateCardKind>;
+}) {
 	const operatorErrors = useEditorErrorsAt(path);
 	const schema = predicateCardSchemas[value.kind];
 	const Component = schema.component as React.ComponentType<{
@@ -430,6 +433,15 @@ function preservationGroups(value: Expression): readonly PreservationGroup[] {
 		case "match-all":
 		case "match-none":
 			return [];
+		case "if":
+			return [
+				{ values: [value.cond], allLost: "the deciding condition" },
+				{
+					values: [value.then, value.else],
+					allLost: "both conditions it chooses between",
+					partlyLost: "one of the conditions it chooses between",
+				},
+			];
 		default:
 			return [{ values: [value], allLost: "the saved value" }];
 	}
@@ -632,7 +644,7 @@ const COMPARISON_KIND_SET: ReadonlySet<string> = new Set(COMPARISON_KINDS);
  */
 export function preservedOperandSwap(
 	currentValue: Expression,
-	targetKind: ConditionArm["kind"],
+	targetKind: PredicateCardKind,
 ): Expression | null {
 	// and ↔ or: same `{ clauses }`.
 	if (
@@ -683,7 +695,7 @@ export function preservedOperandSwap(
  * `planPredicateTransition` then requires an explicit confirmation. */
 export function buildPredicateKindReplacement(
 	currentValue: Expression,
-	targetKind: ConditionArm["kind"],
+	targetKind: PredicateCardKind,
 	ctx: PredicateEditContext,
 ): Expression {
 	const preserved = preservedOperandSwap(currentValue, targetKind);
@@ -702,6 +714,7 @@ export function buildPredicateKindReplacement(
 			: or(currentValue, sibling);
 	}
 	if (targetKind === "not") return not(currentValue);
+	if (targetKind === "if") return wrapInConditionChoice(currentValue, ctx);
 	if (targetKind === "when-input-present") {
 		const fallback =
 			predicateCardSchemas["when-input-present"].defaultValue(ctx);
@@ -730,7 +743,7 @@ export function PredicateKindReplaceMenu({
 	label = "Change condition",
 }: PredicateKindReplaceMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const [pendingKind, setPendingKind] = useState<ConditionArm["kind"] | null>(
+	const [pendingKind, setPendingKind] = useState<PredicateCardKind | null>(
 		null,
 	);
 	const ctx = usePredicateEditContext();
@@ -745,7 +758,7 @@ export function PredicateKindReplaceMenu({
 					predicateCardSchemas[pendingKind].label,
 				);
 
-	const replaceWith = <K extends ConditionArm["kind"]>(
+	const replaceWith = <K extends PredicateCardKind>(
 		schema: PredicateCardSchema<K>,
 	) => {
 		const plan = planPredicateTransition(

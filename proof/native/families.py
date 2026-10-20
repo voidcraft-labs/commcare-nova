@@ -61,6 +61,10 @@ DEVICE_ZONES = ZONES[:4]
 # Date parity is the device's own behaviour, so it runs in the device zones only.
 ZONED_CLASSES = {
     "CoreDateParityRuntimeTest": DEVICE_ZONES,
+    # The worker's today() and a date and time ordering in a clause chosen at
+    # run time, in a zone whose day differs from UTC's and in one with
+    # daylight saving (the csql fixture's CSQL_DEVICE_ZONES).
+    "CsqlCompositionRuntimeTest": (ZONES[0], ZONES[3], ZONES[1]),
     "InstantOrderingRuntimeTest": ZONES,
 }
 

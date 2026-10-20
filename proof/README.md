@@ -510,6 +510,7 @@ named here, rather than by every document's checks:
 | --- | --- | --- |
 | Defect 4's add-ons | `proof/views/test_add_ons.py` | an add-on a person turned on in HQ (Menu Mode, over `targeted-hq-side-state`) is offered by HQ's module page after their save, and still offered after Nova's next publish |
 | Finding 56 in every device zone | the `expression` native family ("Native proofs") | the lane's documents run every runtime in UTC (`proof/core/client.py::JVM_OPTIONS`, `proof/formplayer/webapps.py::TIMEZONE`, the container's `TZ`), so a comparison that depends on the reader's zone is held in four device zones and three Formplayer setups, each a JVM of its own, with values written in two further zones, and Nova's lowered comparison orders and compares by instant in each of them |
+| Finding 75's HQ half | the `csql` family's `datetime-equality` scenario | no lane check compares what HQ's search finds with Nova's meaning (`csql@A` is a refusal check, and proof 3 compares the readers with each other), so HQ's case search over cases its receiver saved returns the expected ids for `=`, `!=` and `in` on a date and time, as Postgres does |
 | Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py`, and `proof/views/__tests__/lookupUploadAnswer.test.ts` for Nova's side | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table; handed an answer of that status and type, Nova's own client reports that nothing landed and that the plan lacks Lookup Tables (`upgradeRequired`) |
 | Defect 5's 32-character tag | `proof/views/test_lookup_upload.py` | HQ's upload takes a 32-character tag and answers a 33-character one with a 500 (a database error; it checks no length) |
 | Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, its Case List page holds the control for each only under the flag, and Nova's publish asks for the flag before it sends any of them |
@@ -1331,8 +1332,7 @@ controls, and `targeted-datetime-equality` (finding 75: a case list filter
 asking for a date and time equal to a literal and one asking for it not
 equal, over a restore in HQ's stored spelling, and an advanced Search
 input's equality on `date_opened`, which no device evaluates) of finding
-75's device half, its entries held on its control; it still shows the HQ
-half, with its entries and a walk stop. `targeted-case-id-column`
+75's fix, its entries and its search's walk stop held on its control. `targeted-case-id-column`
 (finding 57: a list showing `case_id`, with a hidden order rule over
 `owner_id`) is a witness of the fix, its entries held on its control, and
 `targeted-attribute-columns` keeps every column over `case_id`, `owner_id`
@@ -1397,6 +1397,9 @@ fixture so HQ's own serializer writes them, and `SearchRuntimeTest` reads
 `targeted-inline-search-reads`. Core's evaluate seeds neither a several-case
 selection nor a search's results, so those reads hold no hand-fixed value and
 every walk of their documents reads them.
+`targeted-csql-composition` holds one search per authorable CSQL construct,
+so `csql@A` compiles each under every configuration; what each finds is the
+`csql` native family's.
 Their Core families read these targeted archives on both export paths, so
 the added scenarios do not change another fixed document's balanced edit.
 The native package's cache key includes the five target directories the native
@@ -2539,8 +2542,8 @@ Nova reports of it is observed on Nova's code too.
   for one of its symptoms, or the finding's. Every live entry's defect is a
   key of `proof/checks/registers.py::OPEN_DEFECTS`, which names the later
   step that owns its fix (`test_registers.py::test_every_live_defect_is_a_later_steps`):
-  step 2 fixed every other defect it registered, so an entry of one of those
-  is a fix left listed. Registering another defect adds it there with its step.
+  steps 2 and 3 fixed every other defect they registered, so an entry of one
+  of those is a fix left listed. Registering another defect adds it there with its step.
 - `check`, `artifact`, `path` and `kind` name the class. A difference is in it
   when its check is the entry's, its artifact matches the entry's (`*` matches
   any run of characters), its structural path is exactly the entry's, never
@@ -2782,7 +2785,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 57, `case_id` column | a case list column over `case_id` was blank on HQ's build (`detail_screen.py::CASE_PROPERTY_MAP` has no entry for it, and the case database holds the id only as an attribute), and a hidden sort column over `case_id`, `owner_id` or `status` made HQ's Case List page refuse to save. Fixed in step 2: every column over the three is an expression column over the attribute | manifest; proof 3 across the two paths; proof 4 | fixed; still shown by the control `targeted-case-id-column`; `targeted-attribute-columns` holds every column over the three |
 | 70, reserved question names | HQ's form builder warns about a question named `case`, `registration` or `script` (Vellum `src/mugs/baseSpecs.js`, `RESERVED_NAMES`), and a root question named `case` in a form that saves a case stops HQ's build ("You cannot use the Case Management UI if you already have a case block in your form.", `xform.py::XForm._create_casexml`). Fixed in step 2: Nova refuses the three names in any case for every question and Connect block | the bar; proof 4 | fixed; still shown by the control `targeted-reserved-question-names` |
 | 71, the form's root | HQ's form builder reports "Unknown question: #form" on a calculation or a repeat's count that reads the form's root (`/data`), which Nova admitted. Fixed in step 2: Nova refuses a read of the form's root alone (`INVALID_REF`) | proof 4 | fixed; still shown by the control `targeted-form-root-read` |
-| 75, datetime equality | a case list filter that asks for a date and time equal to a value compares text on a device (`XPathEqExpr.java::testEquality`), so it lists none of the cases holding that instant in HQ's stored spelling, and `!=` lists every case; HQ's search matches the text in `case_properties.value.exact`, so an instant in another spelling finds nothing, and sends a system date's date-and-time value as a raw term, so the minute-precision value the builder writes makes the search answer 500; Preview compares instants. The device half is fixed in step 3: `=`, `!=`, `in` and `switch` between two dates and times lower to instant equality (`lib/commcare/xpath/wire/instant.ts`) | intent (Core), on the local export; proofs 3 and 4 and a walk stop, with every reader (Formplayer's answer to HQ's 500) | `targeted-datetime-equality` (HQ's search); the device half fixed, still shown by its control |
+| 75, datetime equality | a case list filter that asks for a date and time equal to a value compares text on a device (`XPathEqExpr.java::testEquality`), so it lists none of the cases holding that instant in HQ's stored spelling, and `!=` lists every case; HQ's search matches the text in `case_properties.value.exact`, so an instant in another spelling finds nothing, and sends a system date's date-and-time value as a raw term, so the minute-precision value the builder writes makes the search answer 500; Preview compares instants. The device half is fixed in step 3: `=`, `!=`, `in` and `switch` between two dates and times lower to instant equality (`lib/commcare/xpath/wire/instant.ts`). HQ's half is fixed in step 3 too: a search's `=`, `!=` and `in` on a date and time are a closed instant range (`lib/commcare/csql/emitter.ts`), which HQ's range query parses in every spelling, held by the `csql` native family's `datetime-equality` scenario | intent (Core), on the local export; proofs 3 and 4 and a walk stop, with every reader (Formplayer's answer to HQ's 500) | fixed; still shown by the control `targeted-datetime-equality`, which holds the search's walk stop |
 
 The harness's own findings, numbered from 31, are in
 `docs/research/2026-09-26-hq-round-trip/harness-findings.md`, each with what
@@ -3791,21 +3794,27 @@ decoded text and child order.
   `targeted-form-link-session-reads` form binds
   the created case, child and worker identities to the actual submitted case
   blocks on both paths.
-- `csql`: one admitted document per typed CSQL scenario
+- `csql`: one admitted document per typed CSQL construct
   (`lib/commcare/__tests__/csqlCompositionFixture.ts`), each with its search
-  answers, cases and expected ids; today its one scenario is
-  `datetime-equality` (finding 75). `CsqlCompositionRuntimeTest` builds each
-  search's query from both suites under each sending's answers
-  (`csql/nova-csql-payloads.jsonl`), and `test_csql_payload.py` saves the
-  scenario's cases through HQ's receiver into the unit's Elasticsearch, so
-  every stored date and time is in HQ's own spelling, and sends each query
-  through HQ's case search (`CaseSearchQueryBuilder`). It also sends the
-  closed instant ranges part 06 §3.13 plans, written by hand in every
-  spelling a bound may carry, and holds each to the ids the plan's reading of
-  HQ predicts; the emitted queries are held to what HQ answers on today's
-  emitter (no case for `=` and `in`, every case for `!=`, Elasticsearch's
-  refusal of a minute-precision system date) until the emitter writes the
-  range. Every answer is in `csql/csql-payload.evidence.json` and printed as a
+  answers, session values, datums and cases. `CsqlCompositionRuntimeTest`,
+  zoned in `utc`, `kiritimati` and `new-york`, builds each scenario's query
+  from both suites in its session (the worker enters the module's form,
+  chooses the case of each menu its entry passes through, opens the search
+  from the module's case list and answers its prompts, over a casedb holding
+  the scenario's cases), so the worker's `today()` and a clause chosen at run
+  time are read in a zone whose day differs from UTC's and in one with
+  daylight saving (`csql/nova-csql-payloads.<zone>.jsonl`).
+  `test_csql_payload.py` compiles each in HQ's case search compiler, with and
+  without `CASE_SEARCH_RELATED_LOOKUPS` and with the domain's
+  `default_timezone` set, and runs HQ's case search over the fixture's cases,
+  saved through HQ's receiver into the unit's Elasticsearch, so every stored
+  date and time is in HQ's own spelling; each search returns the fixture's
+  expected ids (a search the fixture marks as reading related cases is
+  refused without the flag), and `csqlComposition.postgres.test.ts` holds
+  Preview's Postgres to the same ids. Its `datetime-equality` scenario holds
+  finding 75's HQ half, and also sends the closed instant ranges part 06
+  §3.13 was cleared by, written by hand in every spelling a bound may carry.
+  Every answer is in `csql/csql-payload.evidence.json` and printed as a
   table.
 
 None of these sends a claim or an HTTP request; `csql` alone runs a search,

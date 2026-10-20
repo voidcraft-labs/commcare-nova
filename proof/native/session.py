@@ -252,19 +252,20 @@ class NativeSession:
             )
         return self.out / "media" / "core-validated-sources.properties"
 
-    def core_artifact(self, family: str, filename: str, junit_class: str) -> Path:
-        """A file a Core class writes for an HQ check, after the suite ran."""
+    def core_artifact(self, family: str, filename: str, junit_class: str, zone: str | None = None) -> Path:
+        """A file a Core class writes for an HQ check, after the suite ran (in ``zone``'s JVM, for a zoned class)."""
         run = self.core()
         path = self.out / family / filename
         if not path.is_file():
-            result = run.classes.get(junit_class)
+            result = run.zoned.get((junit_class, zone)) if zone else run.classes.get(junit_class)
             report = (
                 "Gradle reported no results for it"
                 if result is None
                 else "; ".join(f"{t.name} {t.outcome}: {t.message}" for t in result.problems()) or "every test passed"
             )
+            name = f"{junit_class}[{zone}]" if zone else junit_class
             raise CoreArtifactMissing(
-                f"{junit_class} did not write {path}, which this HQ check reads. Core's report for the class: {report}."
+                f"{name} did not write {path}, which this HQ check reads. Core's report for the class: {report}."
             )
         return path
 

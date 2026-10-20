@@ -23,6 +23,8 @@
 // impossibility throw loudly (a bug surface, never a silently-shown item).
 
 import {
+	entryDatumIdResolver,
+	entryDatumIds,
 	formLinkProjectionContext,
 	selectedCaseSessionDatum,
 } from "@/lib/commcare/formLinkProjection";
@@ -36,7 +38,7 @@ import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type { BlueprintDoc, CaseType, Uuid } from "@/lib/domain";
 import { displayConditionForEmission } from "@/lib/domain/expression";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
-import type { Expression } from "@/lib/domain/expression/types";
+import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import { toBoolean } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
@@ -68,10 +70,16 @@ export interface NavigationDeviceCases {
 }
 
 /** The case a case-first form menu was reached with, under the session datum
- * its form selects it as (`navigationSelectedCase`). */
+ * its form selects it as (`navigationSelectedCase`), and the session the
+ * menu holds once it is chosen. */
 export interface NavigationSelectedCase {
 	readonly datumId: string;
 	readonly caseId: string;
+	/** The ids the form's entry prints its datums under. */
+	readonly datumIds?: (ref: DatumRef) => string | undefined;
+	/** `session/data` before the case was chosen: the cases chosen in
+	 * earlier menus (`entrySessionData.ts::caseListStepSession`). */
+	readonly sessionData?: Readonly<Record<string, string>>;
 }
 
 interface VisibilityArgs {
@@ -103,8 +111,10 @@ export function moduleDisplayVisibility(
  * Form conditions gate the case-list screen's post-selection form menu
  * (including the single-form auto-continue) and the module screen's
  * forms-first list. A read of the chosen case walks the device's cases from
- * `session/data/<datum>`, which holds `selectedCase`; the forms-first flow
- * chooses none (the validator already rejects property reads there).
+ * `session/data/<datum>`, which holds `selectedCase`, and a read of a case
+ * chosen in an earlier menu walks them from that menu's datum, which the
+ * menu's session holds beside it; the forms-first flow chooses none (the
+ * validator already rejects property reads there).
  */
 export function formDisplayVisibility(
 	args: VisibilityArgs & {
@@ -119,10 +129,14 @@ export function formDisplayVisibility(
 				args.types,
 				naming,
 				args.selectedCase?.datumId,
+				args.selectedCase?.datumIds,
 			),
 		args.selectedCase === undefined
 			? {}
-			: { [args.selectedCase.datumId]: args.selectedCase.caseId },
+			: {
+					...args.selectedCase.sessionData,
+					[args.selectedCase.datumId]: args.selectedCase.caseId,
+				},
 	);
 }
 
@@ -137,6 +151,9 @@ export function navigationSelectedCase(
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 	caseId: string,
+	/** `session/data` at the module's case list step, which the menu keeps
+	 * once its case is chosen. */
+	sessionData?: Readonly<Record<string, string>>,
 ): NavigationSelectedCase | undefined {
 	let context = projectionContexts.get(doc);
 	if (context === undefined) {
@@ -144,7 +161,14 @@ export function navigationSelectedCase(
 		projectionContexts.set(doc, context);
 	}
 	const datum = selectedCaseSessionDatum(doc, context, moduleUuid, formUuid);
-	return datum === undefined ? undefined : { datumId: datum.id, caseId };
+	if (datum === undefined) return undefined;
+	const ids = entryDatumIds(doc, context, moduleUuid, formUuid);
+	return {
+		datumId: datum.id,
+		caseId,
+		datumIds: entryDatumIdResolver(ids),
+		...(sessionData === undefined ? {} : { sessionData }),
+	};
 }
 
 /** One projection per document: a menu asks once per form it lists. */

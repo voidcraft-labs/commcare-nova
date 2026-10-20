@@ -1,5 +1,5 @@
 /**
- * Four running-app fixtures that only a real browser over real case rows can
+ * Five running-app fixtures that only a real browser over real case rows can
  * exercise, one per smoke:
  *
  * - **form-refused**: a follow-up form whose date question preloads a case
@@ -16,6 +16,11 @@
  *   search found, so it opens only after a completed search; reached from a
  *   reloaded record link, which keeps no search, it offers the way back to
  *   Search instead.
+ * - **search-choice**: a search-first module whose Radius field narrows sites
+ *   to those near a point. The journey authors "Depends on a condition" and a
+ *   distance read from the Radius answer in that field's condition, then
+ *   watches Preview's results change with the Area and Radius answers. Three
+ *   sites sit about 1, 6 and 56 kilometers from the point.
  *
  * Each journey reads its own rows, so every Playwright attempt gets its own
  * app through its native profile.
@@ -24,13 +29,23 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
+	advancedSearchInputDef,
 	type BlueprintDoc,
 	calculatedColumn,
 	fuzzyMode,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { count } from "@/lib/domain/expression";
+import {
+	count,
+	input,
+	literal,
+	matchAll,
+	prop,
+	term,
+	whenInput,
+	within,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 
@@ -318,5 +333,107 @@ export function buildSearchResultsBlueprint(appId: string): BlueprintDoc {
 				],
 			},
 		],
+	});
+}
+
+export const SEARCH_CHOICE_SEED = {
+	appName: "Smoke — Search choice",
+	moduleUuid: testUuid("search-choice-module"),
+	moduleName: "Sites",
+	caseType: "site",
+	columnUuid: testUuid("search-choice-name-column"),
+	radius: {
+		uuid: testUuid("search-choice-radius-input"),
+		name: "radius",
+		label: "Radius in km",
+	},
+	area: {
+		uuid: testUuid("search-choice-area-input"),
+		name: "area",
+		label: "Area",
+	},
+	/** The fixed radius both branches start with, in kilometers. */
+	startRadiusKm: 2,
+	/** About 1.1, 5.6 and 55.6 km east of 0 0 along the equator. */
+	sites: [
+		{ caseName: "Clinic yard", home: "0 0.01" },
+		{ caseName: "Market", home: "0 0.05" },
+		{ caseName: "Hill farm", home: "0 0.5" },
+	],
+} as const;
+
+/** The Radius field applies, once answered, "home is within 2 km of 0 0";
+ * the Area field narrows nothing on its own. The journey makes the Radius
+ * condition depend on whether Area is answered. */
+export function buildSearchChoiceBlueprint(appId: string): BlueprintDoc {
+	const seed = SEARCH_CHOICE_SEED;
+	return buildDoc({
+		appId,
+		appName: seed.appName,
+		caseTypes: [
+			{
+				name: seed.caseType,
+				properties: [
+					{ name: "home", label: proseText("Home"), data_type: "geopoint" },
+					{ name: "note", label: proseText("Note"), data_type: "text" },
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: seed.moduleUuid,
+				name: seed.moduleName,
+				caseType: seed.caseType,
+				caseListConfig: {
+					columns: [plainColumn(seed.columnUuid, "case_name", "Site")],
+					searchInputs: [
+						advancedSearchInputDef(
+							seed.radius.uuid,
+							seed.radius.name,
+							seed.radius.label,
+							"text",
+							whenInput(
+								input(seed.radius.uuid),
+								within(
+									prop(seed.caseType, "home"),
+									term(literal("0 0")),
+									seed.startRadiusKm,
+									"kilometers",
+								),
+							),
+						),
+						advancedSearchInputDef(
+							seed.area.uuid,
+							seed.area.name,
+							seed.area.label,
+							"text",
+							matchAll(),
+						),
+					],
+				},
+				caseSearchConfig: { searchFirst: true },
+				forms: [
+					{
+						name: "Visit site",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
+								caseWrite: { caseType: seed.caseType, property: "note" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+export function searchChoiceRoute(appId: string): string {
+	return buildUrl(`/build/${appId}`, {
+		kind: "search-config",
+		moduleUuid: SEARCH_CHOICE_SEED.moduleUuid,
 	});
 }

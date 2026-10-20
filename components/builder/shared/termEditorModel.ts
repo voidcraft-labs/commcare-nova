@@ -1,12 +1,16 @@
 import {
 	type CaseProperty,
+	type CaseType,
 	effectiveDataType,
 	type UserProperty,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	acceptsType,
+	chosenCaseCarrier,
 	dateLiteral,
 	datetimeLiteral,
+	type Expression,
 	formField,
 	input,
 	type Literal,
@@ -23,8 +27,24 @@ import {
 	timeLiteral,
 	term as wrapTerm,
 } from "@/lib/domain/expression";
+import {
+	chosenCaseId,
+	chosenCaseProperty,
+	readChosenCaseId,
+	readChosenCaseProperty,
+} from "@/lib/domain/expression/chosenCase";
+import { proseText } from "@/lib/domain/prose";
+import {
+	SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES,
+	SEARCH_ONLY_CASE_PROPERTY_DESCRIPTIONS,
+	SEARCH_ONLY_CASE_PROPERTY_LABELS,
+	type SearchOnlyCaseProperty,
+} from "@/lib/domain/standardCaseProperties";
 import { reseedLiteralForConstraint } from "./cards/reseed";
-import type { AdmitExpressionChange } from "./editorContext";
+import type {
+	AdmitExpressionChange,
+	ExpressionChangeAdmission,
+} from "./editorContext";
 import type { ExpressionEditContext } from "./expressionEditorSchemas";
 import type { EditorPath } from "./path";
 export type TermMode =
@@ -36,7 +56,8 @@ export type TermMode =
 	| "table-column"
 	| "session-context"
 	| "session-user"
-	| "session-user-property";
+	| "session-user-property"
+	| "chosen-case";
 
 /** Read the mode discriminator from the Term's `kind`. Maps `prop`
  *  to "property" because the user-facing label is "Case property"
@@ -61,6 +82,14 @@ export function termMode(term: Term): TermMode {
 			return "session-user-property";
 		case "table-column":
 			return "table-column";
+		// The record's own type is offered beside its properties.
+		case "case-row-type":
+			return "property";
+		case "session-datum":
+			if (term.datum.kind === "selected-case") return "chosen-case";
+			throw new Error(
+				"Only the case chosen in an earlier menu is a value source here.",
+			);
 		default:
 			throw new Error(
 				"Location owner terms are edited by the case-owner location control, not the general expression source menu.",
@@ -127,6 +156,8 @@ export function termModeLabel(
 			return "Other user field";
 		case "session-user-property":
 			return "Worker information";
+		case "chosen-case":
+			return "The case chosen in a menu";
 	}
 }
 
@@ -192,6 +223,16 @@ export function describeTermModeReplacement(
 				title,
 				description:
 					"This replaces the selected data-table column. You can undo this change.",
+			};
+		case "case-row-type":
+			return {
+				title,
+				description: "This replaces the case type. You can undo this change.",
+			};
+		case "session-datum":
+			return {
+				title,
+				description: "This replaces the chosen case. You can undo this change.",
 			};
 		default:
 			return {
@@ -328,13 +369,16 @@ export function computeModeAdmission(
 								? "Add worker information in App setup first"
 								: reason,
 					},
+		// Each menu's own choices are already judged against the whole rule.
+		"chosen-case": chosenCaseModeAdmission(ctx, constraint, path),
 	};
 	if (ctx.admitExpressionChange === undefined) return typeAdmission;
 
 	return Object.fromEntries(
 		(Object.keys(typeAdmission) as TermMode[]).map((mode) => {
 			const slotVerdict = typeAdmission[mode];
-			if (!slotVerdict.admitted) return [mode, slotVerdict];
+			if (!slotVerdict.admitted || mode === "chosen-case")
+				return [mode, slotVerdict];
 			const ruleVerdict = ctx.admitExpressionChange?.(
 				path,
 				wrapTerm(buildTermAdmissionProbe(mode, ctx, constraint)),
@@ -456,7 +500,243 @@ export function buildTermDefault(
 			}
 			return sessionUserProperty(property.uuid);
 		}
+		case "chosen-case": {
+			// The term half of a chosen case is its id; a property read is a
+			// query, chosen through `chosenCaseValueChoices` with its menu.
+			const source = chosenCaseSources(ctx.expressionContext)[0];
+			if (source === undefined)
+				throw new Error(
+					"No earlier menu has chosen one case before this runs.",
+				);
+			return chosenCaseId(source.module).term;
+		}
 	}
+}
+
+// ── Values only CommCare's server search reads ──────────────────────────
+
+/** "Date closed" and any other case value only CommCare's server search
+ * knows (`SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES`), offered beside a case's
+ * properties only where no device evaluates the slot: its profile targets
+ * exclude the suite and the form, and no device works the value out first. */
+export function searchOnlyPropertyChoices(
+	context: TermAdmissionContext["expressionContext"],
+): readonly { readonly property: CaseProperty; readonly note: string }[] {
+	if (
+		context.profile.targets.has("SU") ||
+		context.profile.targets.has("XF") ||
+		context.runsOnDevice === true
+	)
+		return [];
+	return (
+		Object.keys(
+			SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES,
+		) as SearchOnlyCaseProperty[]
+	).map((name) => ({
+		property: {
+			name,
+			label: proseText(SEARCH_ONLY_CASE_PROPERTY_LABELS[name]),
+			data_type: SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES[name],
+		},
+		note: SEARCH_ONLY_CASE_PROPERTY_DESCRIPTIONS[name],
+	}));
+}
+
+// ── The case chosen in an earlier menu ──────────────────────────────────
+//
+// A case list's filter, a search's conditions and a form's display
+// condition run after the entry has chosen cases in earlier menus. Each menu
+// whose case the entry has chosen one at a time before the slot runs is one
+// value source, "The case chosen in <menu>": the case itself (its id) or one
+// of its properties. The offer set is the slot's supply set at its evaluation
+// point (`ExpressionContext.supplies`, from
+// `lib/domain/entryDatumSupplies.ts`), and every choice is judged by the
+// whole-rule verdict, so a menu the entry does not pass through, a menu with
+// no case type, a several-case menu and a menu another entry holds elsewhere
+// are never offered.
+
+export interface ChosenCaseSource {
+	/** The menu's module. */
+	readonly module: Uuid;
+	/** The menu's case type, whose properties the source offers. */
+	readonly caseType: string;
+}
+
+/** The menus whose case is chosen, one at a time, before this slot runs, in
+ * the entry's session order. */
+export function chosenCaseSources(
+	context: TermAdmissionContext["expressionContext"],
+): readonly ChosenCaseSource[] {
+	if (context.ruleSet !== "record" || chosenCaseCarrier(context) === undefined)
+		return [];
+	const sources: ChosenCaseSource[] = [];
+	for (const { ref, scalar } of context.supplies.refs) {
+		if (!scalar || ref.kind !== "selected-case") continue;
+		if (sources.some((source) => source.module === ref.module)) continue;
+		const caseType = context.facts.moduleCaseTypes.get(ref.module);
+		if (caseType !== undefined) sources.push({ module: ref.module, caseType });
+	}
+	return sources;
+}
+
+export const CHOSEN_CASE_ITSELF_LABEL = "The case itself";
+
+/** The source's label in the value-source menu. */
+export function chosenCaseSourceLabel(menuName: string): string {
+	return `The case chosen in ${menuName}`;
+}
+
+/** A stored chosen-case read in words: "Village of the case chosen in
+ * Households", or "The case chosen in Households" for the case itself. */
+export function describeChosenCaseRead(
+	menuName: string,
+	propertyLabel?: string,
+): string {
+	return propertyLabel === undefined
+		? chosenCaseSourceLabel(menuName)
+		: `${propertyLabel} of the case chosen in ${menuName}`;
+}
+
+/** The chosen-case read an expression is, if it is one: the case itself (a
+ * `selected-case` datum) or one property of it (the one keyed casedb read). */
+export function chosenCaseReadOf(value: Expression):
+	| {
+			readonly module: Uuid;
+			readonly property?: string;
+			readonly caseType?: string;
+	  }
+	| undefined {
+	if (value.kind === "term") {
+		const datum = readChosenCaseId(value.term);
+		return datum === undefined ? undefined : { module: datum.datum.module };
+	}
+	const read = readChosenCaseProperty(value);
+	return read === undefined
+		? undefined
+		: { module: read.module, property: read.property, caseType: read.caseType };
+}
+
+export interface ChosenCaseValueChoice {
+	readonly key: string;
+	readonly label: string;
+	/** Absent for the case itself. */
+	readonly property?: string;
+	readonly value: Expression;
+	readonly admission: ExpressionChangeAdmission;
+}
+
+/** The value picker of one chosen-case source: the case itself, then that
+ * menu's case-type properties, each admitted by the slot's type and by the
+ * whole rule. */
+export function chosenCaseValueChoices(
+	source: ChosenCaseSource,
+	ctx: Pick<TermAdmissionContext, "caseTypes" | "admitExpressionChange">,
+	constraint: SlotConstraint,
+	path: EditorPath,
+	propertyLabel: (property: CaseProperty) => string,
+): readonly ChosenCaseValueChoice[] {
+	const reason = reasonFor(constraint);
+	const judge = (
+		typeAdmitted: boolean,
+		value: Expression,
+	): ExpressionChangeAdmission =>
+		!typeAdmitted
+			? { admitted: false, reason }
+			: (ctx.admitExpressionChange?.(path, value) ?? { admitted: true });
+	const caseType: CaseType | undefined = ctx.caseTypes.find(
+		(candidate) => candidate.name === source.caseType,
+	);
+	const itself = chosenCaseId(source.module);
+	return [
+		{
+			key: "case",
+			label: CHOSEN_CASE_ITSELF_LABEL,
+			value: itself,
+			admission: judge(constraintAdmitsType(constraint, "text"), itself),
+		},
+		...(caseType?.properties ?? [])
+			.filter((property) => property.name !== "case_id")
+			.map((property) => {
+				const value = chosenCaseProperty(
+					source.module,
+					source.caseType,
+					property.name,
+				);
+				return {
+					key: `property:${property.name}`,
+					label: propertyLabel(property),
+					property: property.name,
+					value,
+					admission: judge(
+						constraint.accepts === "any" ||
+							acceptsType(constraint, effectiveDataType(property)),
+						value,
+					),
+				};
+			}),
+	];
+}
+
+/** Whether a chosen-case source has any choice the slot admits, and the
+ * reason when it has none. */
+export function chosenCaseChoicesAdmission(
+	choices: readonly ChosenCaseValueChoice[],
+): ExpressionChangeAdmission {
+	if (choices.some((choice) => choice.admission.admitted))
+		return { admitted: true };
+	const refused = choices.find(
+		(
+			choice,
+		): choice is ChosenCaseValueChoice & {
+			admission: { admitted: false; reason: string };
+		} => !choice.admission.admitted,
+	);
+	return {
+		admitted: false,
+		reason: refused?.admission.reason ?? "This case has nothing that fits here",
+	};
+}
+
+function chosenCaseModeAdmission(
+	ctx: TermAdmissionContext,
+	constraint: SlotConstraint,
+	path: EditorPath,
+): { admitted: boolean; reason?: string } {
+	const sources = chosenCaseSources(ctx.expressionContext);
+	if (sources.length === 0)
+		return {
+			admitted: false,
+			reason: "No earlier menu has chosen a case before this runs",
+		};
+	const verdicts = sources.map((source) =>
+		chosenCaseChoicesAdmission(
+			chosenCaseValueChoices(source, ctx, constraint, path, (p) => p.name),
+		),
+	);
+	return (
+		verdicts.find((verdict) => verdict.admitted) ??
+		verdicts[0] ?? { admitted: false }
+	);
+}
+
+/** Whether "Case type" (the record's own type) can stand here. It reads the
+ * row, so only a slot with a case row in scope admits it, and only where the
+ * whole rule does. `admitReplacement`, when the owner supplies it, judges the
+ * rule as the owner would rebuild it (a comparison reseeds its value to a
+ * case type), so the verdict is the one the commit meets. */
+export function caseRowTypeAdmission(
+	ctx: Pick<TermAdmissionContext, "admitExpressionChange">,
+	constraint: SlotConstraint,
+	path: EditorPath,
+	admitReplacement?: (next: Expression) => ExpressionChangeAdmission,
+): ExpressionChangeAdmission {
+	if (!constraintAdmitsType(constraint, "text"))
+		return { admitted: false, reason: reasonFor(constraint) };
+	const candidate = wrapTerm({ kind: "case-row-type" });
+	return (
+		admitReplacement?.(candidate) ??
+		ctx.admitExpressionChange?.(path, candidate) ?? { admitted: true }
+	);
 }
 
 export type LiteralShape =

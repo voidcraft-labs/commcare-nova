@@ -16,6 +16,7 @@ import {
 	type NavigationDeviceCases,
 	navigationSelectedCase,
 } from "../engine/displayConditionEvaluation";
+import { caseListStepSession } from "../engine/entrySessionData";
 import { previewSessionValues } from "../engine/identity";
 import { previousTaskFormSelectors } from "../engine/previousTask";
 import {
@@ -100,7 +101,17 @@ export function appTestForms(
 		const selectedCase =
 			chosenCaseId === undefined
 				? undefined
-				: navigationSelectedCase(doc, moduleUuid, uuid, chosenCaseId);
+				: navigationSelectedCase(
+						doc,
+						moduleUuid,
+						uuid,
+						chosenCaseId,
+						caseListStepSession(doc, moduleUuid, {
+							menuSelections: state.selections,
+							caseDatabase: appTestDeviceCases(context, state).snapshot,
+							identity,
+						}).data,
+					);
 		return [
 			{
 				form,

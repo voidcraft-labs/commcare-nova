@@ -2,19 +2,23 @@
 
 import { isSilentRuntimeCsqlRejection } from "@/lib/commcare/csql/segment";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
+import { caseListStepDatumId } from "@/lib/commcare/formLinkProjection";
 import {
 	buildRuntimeCsqlPromptValidations,
 	type ComposedXPathQuery,
 	composeXPathQueryEmission,
 } from "@/lib/commcare/suite/case-search/xpathQuery";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type CaseListConfig,
+	materializableCaseTypes,
 	searchRuntimeGlobalValidationMessage,
 } from "@/lib/domain";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
+import type { XPathInstance } from "@/lib/preview/xpath/runtimeValues";
 import { dateRangeInputErrors } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -29,7 +33,10 @@ import {
 } from "./searchInputConstraints";
 
 import {
+	caseDatabaseXPathInstance,
 	commcareSessionXPathInstance,
+	locationsXPathInstance,
+	lookupXPathInstances,
 	searchInputXPathInstance,
 } from "./xpathInstances";
 
@@ -80,20 +87,8 @@ export function searchInputRuntimeQuoteErrors(
 	environment: PreviewSearchEnvironment,
 	options?: RuntimeValidationOptions,
 ): ReadonlyMap<string, string> {
-	let emission: ComposedXPathQuery | undefined;
-	try {
-		emission = composeXPathQueryEmission(
-			caseListConfig,
-			caseType,
-			moduleExpressionContexts(
-				environment.doc,
-				environment.moduleUuid,
-				environment.lookup?.naming,
-			)({ slot: "case_list_filter" }),
-		);
-	} catch {
-		return new Map();
-	}
+	const emission = composedSearch(caseListConfig, caseType, environment);
+	if (emission === null) return new Map();
 
 	const validations = buildRuntimeCsqlPromptValidations(emission);
 	if (
@@ -111,6 +106,7 @@ export function searchInputRuntimeQuoteErrors(
 			caseListConfig,
 			values,
 			session,
+			environment,
 		);
 		if (!rejected) continue;
 		for (const name of rejection.inputNames ?? []) {
@@ -135,28 +131,23 @@ export function searchInputRuntimeGlobalError(
 	environment: PreviewSearchEnvironment,
 	options?: RuntimeValidationOptions,
 ): string | undefined {
-	let emission: ComposedXPathQuery | undefined;
-	try {
-		emission = composeXPathQueryEmission(
-			caseListConfig,
-			caseType,
-			moduleExpressionContexts(
-				environment.doc,
-				environment.moduleUuid,
-				environment.lookup?.naming,
-			)({ slot: "case_list_filter" }),
-		);
-	} catch {
-		return undefined;
-	}
+	const emission = composedSearch(caseListConfig, caseType, environment);
+	if (emission === null) return undefined;
 	for (const rejection of emission?.runtimeRejections ?? []) {
 		const kind = rejection.kind;
 		if (isSilentRuntimeCsqlRejection(kind)) continue;
 		if (skipSessionBackedRejection(rejection, options)) continue;
 		if ((rejection.inputNames?.length ?? 0) > 0) continue;
-		if (!runtimeRejectionApplies(rejection, caseListConfig, values, session)) {
+		if (
+			!runtimeRejectionApplies(
+				rejection,
+				caseListConfig,
+				values,
+				session,
+				environment,
+			)
+		)
 			continue;
-		}
 		return searchRuntimeGlobalValidationMessage(kind).message;
 	}
 	return undefined;
@@ -164,10 +155,11 @@ export function searchInputRuntimeGlobalError(
 
 /**
  * Whether the exported search finds nothing for this state with no message:
- * a blank value compared where CommCare's search cannot compare one, which
- * the exported `_xpath_query` wrapper answers with `match-none()`
- * (`lib/commcare/csql/runtimeCsqlDateSafety.ts`). Preview answers the
- * search with no rows, before it reaches the case store.
+ * a blank value compared where CommCare's search cannot compare one
+ * (`lib/commcare/csql/runtimeCsqlDateSafety.ts`), or a list item that would
+ * break its list, which the exported `_xpath_query` wrapper answers with
+ * `match-none()`. Preview answers the search with no rows, before it reaches
+ * the case store.
  */
 export function searchFindsNothing(
 	caseListConfig: CaseListConfig,
@@ -177,25 +169,19 @@ export function searchFindsNothing(
 	environment: PreviewSearchEnvironment,
 	options?: RuntimeValidationOptions,
 ): boolean {
-	let emission: ComposedXPathQuery | undefined;
-	try {
-		emission = composeXPathQueryEmission(
-			caseListConfig,
-			caseType,
-			moduleExpressionContexts(
-				environment.doc,
-				environment.moduleUuid,
-				environment.lookup?.naming,
-			)({ slot: "case_list_filter" }),
-		);
-	} catch {
-		return false;
-	}
+	const emission = composedSearch(caseListConfig, caseType, environment);
+	if (emission === null) return false;
 	return (emission?.runtimeRejections ?? []).some(
 		(rejection) =>
-			rejection.kind === "blank-comparand" &&
+			isSilentRuntimeCsqlRejection(rejection.kind) &&
 			!skipSessionBackedRejection(rejection, options) &&
-			runtimeRejectionApplies(rejection, caseListConfig, values, session),
+			runtimeRejectionApplies(
+				rejection,
+				caseListConfig,
+				values,
+				session,
+				environment,
+			),
 	);
 }
 
@@ -203,12 +189,68 @@ type RuntimeRejection = NonNullable<
 	ComposedXPathQuery["runtimeRejections"]
 >[number];
 
+/**
+ * The module's composed search as the export writes it: each source in its
+ * own slot's context, and each case chosen before the module's case list
+ * step printed under the id the step holds. `null` when a temporarily
+ * invalid or legacy config cannot be composed: the document validator stays
+ * the authoring gate, so the running preview adds no error of its own.
+ */
+function composedSearch(
+	caseListConfig: CaseListConfig,
+	caseType: string | undefined,
+	environment: PreviewSearchEnvironment,
+): ComposedXPathQuery | undefined | null {
+	try {
+		return composeXPathQueryEmission(
+			caseListConfig,
+			caseType,
+			moduleExpressionContexts(
+				environment.doc,
+				environment.moduleUuid,
+				environment.lookup?.naming,
+			),
+			environment.lookup?.naming,
+			undefined,
+			caseListStepDatumId(environment.doc, environment.moduleUuid),
+		);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Whether an obligation holds over the Search screen's world: the answers,
+ * the session with the datums supplied before the list, and, where the
+ * environment holds them, the device's cases, places and lookup tables.
+ *
+ * An obligation that reads part of that world the environment does not hold
+ * (the server holds no device snapshot) is not judged here: the browser,
+ * which holds it, judges it with the search's runtime values
+ * (`searchCsqlRuntime.ts`), and a row it finds rejected finds nothing.
+ */
 function runtimeRejectionApplies(
 	rejection: RuntimeRejection,
 	caseListConfig: CaseListConfig,
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
+	environment: PreviewSearchEnvironment,
 ): boolean {
+	const printed = serializeWire(rejection.condition, { target: "suite" });
+	const held = (id: string) =>
+		id === "search-input:results" ||
+		id === "commcaresession" ||
+		((id === "casedb" || id === "locations") &&
+			environment.caseDatabase !== undefined) ||
+		(environment.lookup !== undefined &&
+			lookupInstanceIds(environment).has(id));
+	if (![...printed.instances].every((instance) => held(instance.id)))
+		return false;
+	if (
+		environment.sessionData === undefined &&
+		readsSessionData(rejection.condition)
+	)
+		return false;
 	const expressionValues = withSearchInputExpressionValues(
 		caseListConfig.searchInputs,
 		values,
@@ -229,25 +271,83 @@ function runtimeRejectionApplies(
 			];
 		}),
 	);
-	const inputInstance = searchInputXPathInstance(
-		answers,
-		"search-input:results",
-	);
-	const sessionInstance = commcareSessionXPathInstance(session);
+	const instances = new Map<string, XPathInstance>([
+		[
+			"search-input:results",
+			searchInputXPathInstance(answers, "search-input:results"),
+		],
+		[
+			"commcaresession",
+			commcareSessionXPathInstance(session, environment.sessionData),
+		],
+		...(environment.lookup === undefined
+			? []
+			: lookupXPathInstances(environment.lookup, {
+					includeFixtureAliases: true,
+				})),
+	]);
+	if (environment.caseDatabase !== undefined) {
+		instances.set(
+			"casedb",
+			caseDatabaseXPathInstance(
+				environment.caseDatabase,
+				materializableCaseTypes(environment.doc),
+			),
+		);
+		const locations = environment.caseDatabase?.locations;
+		if (locations !== undefined)
+			instances.set(
+				"locations",
+				locationsXPathInstance(locations, environment.doc),
+			);
+	}
 	return toBoolean(
-		evaluate(serializeWire(rejection.condition, { target: "suite" }).text, {
+		evaluate(printed.text, {
 			contextPath: "",
 			position: 1,
 			getValue: () => undefined,
-			resolveXPathInstance: (id) =>
-				id === "search-input:results"
-					? inputInstance
-					: id === "commcaresession"
-						? sessionInstance
-						: undefined,
+			resolveXPathInstance: (id) => instances.get(id),
 			invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 		}),
 	);
+}
+
+function lookupInstanceIds(
+	environment: PreviewSearchEnvironment,
+): ReadonlySet<string> {
+	return new Set(
+		lookupXPathInstances(environment.lookup ?? null, {
+			includeFixtureAliases: true,
+		}).keys(),
+	);
+}
+
+/** Whether a condition reads a session datum, `session/data/<id>`. */
+function readsSessionData(wire: WireExpr): boolean {
+	switch (wire.k) {
+		case "path":
+			return (
+				(wire.root.k === "instance" &&
+					wire.root.decl.id === "commcaresession" &&
+					wire.steps[0]?.name === "session" &&
+					wire.steps[1]?.name === "data") ||
+				wire.steps.some((step) => step.predicates.some(readsSessionData))
+			);
+		case "cmp":
+		case "arith":
+			return readsSessionData(wire.left) || readsSessionData(wire.right);
+		case "and":
+		case "or":
+			return wire.items.some(readsSessionData);
+		case "neg":
+			return readsSessionData(wire.value);
+		case "call":
+			return wire.args.some(readsSessionData);
+		case "expansion":
+			return readsSessionData(wire.expr);
+		default:
+			return false;
+	}
 }
 
 const UNSIGNED_CSQL_NUMBER = /^(?:\d+(?:\.\d*)?|\.\d+)$/;

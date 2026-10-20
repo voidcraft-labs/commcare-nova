@@ -995,6 +995,17 @@ case-list filter, calculated columns, sort keys, Search predicates, operations, 
 | `cases`, `project`, `table-rows`, `locations`, `selected-cases` (but the chosen case's `project` above) | refused with an invariant: in step 3 they reach a Postgres slot only inside a CSQL runtime segment, which the fold evaluates in the browser first (part 06 §4) |
 | `call`, `itext`, `choice-name`, `repeat-row`, `case-index`, `field` with `filters`, `count` over a node-set, `format-date` with a computed pattern, `number()` of a date or a date and time, `matches-pattern` | refused with an invariant naming the profile rule that keeps them out (part 01 §4); the computed pattern and the record `number()` of a temporal value are the checker's `format-date-pattern-not-fixed` and `number-of-date` in every profile with a Postgres target, because Postgres cannot compile a computed pattern and a record `number()` of a temporal value has no meaning the record dialect teaches (part 03 §3.10; they stay admitted in form logic, part 02 §1.4 and §2.2) |
 
+**Implementation correction, 2026-10-19** (pull request 10): the browse list's `chosenCaseIds` come
+from `lib/preview/engine/entrySessionData.ts::caseListStepSession`, which builds the session at a
+module's case list step (the datums before the module's own selection) from Preview's menu case map
+and the device's cases; the Search screen reads its `data` as `session/data`. The Results read
+checks the bag's shape (at most 64 menus, ids of 1 to 255 characters). A form's display condition
+reads the same map with the form's own datum, through a `datumId` resolver on
+`suite/displayConditions.ts::emitFormDisplayConditionForSuite` and `::emitFormDisplayConditionForHq`:
+the form entry's ids after root alignment (`entryDatumIdResolver`), which Preview, the local suite's
+command `relevant` (`compiler.ts`) and HQ JSON's `form_filter` (`expander.ts`, which HQ copies into
+the command as written, so never `chainId`) all pass.
+
 Every invariant's message is `lib/domain/expression/errors.ts::compilerBugMessage`'s (the formatter
 `lib/domain/predicate/errors.ts` holds today, moved by pull request 5: "Internal bug: `<where>`:
 <invariant>."), naming the profile rule that keeps the arm out. Today's `matches-pattern` arm

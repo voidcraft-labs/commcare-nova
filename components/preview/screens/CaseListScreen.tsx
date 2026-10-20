@@ -172,6 +172,10 @@ import {
 	useOwnedRestoreScopeKey,
 	useRestoreScopeKey,
 } from "@/lib/preview/hooks/useRestoreScopeKey";
+import {
+	useCaseListStepSession,
+	useSearchCsqlRuntime,
+} from "@/lib/preview/hooks/useSearchCsqlRuntime";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useViewerPositionWatch } from "@/lib/preview/hooks/useViewerPosition";
@@ -394,13 +398,25 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	);
 	const lookupStatus = usePreviewLookupStatus();
 	const navigationDeviceCases = useNavigationDeviceCases(menuSource.caseTypes);
+	/* The session at this list's step: the datums chosen before it, which
+	 * its Search screen reads, and the cases chosen in earlier menus, which
+	 * a browse filter reads. */
+	const stepSession = useCaseListStepSession(menuSource.doc, moduleUuid);
 	const searchEnvironment = useMemo<PreviewSearchEnvironment>(
 		() => ({
 			doc: menuSource.doc,
 			moduleUuid,
 			...(lookupStatus.kind === "data" && { lookup: lookupStatus.data }),
+			sessionData: stepSession.data,
+			caseDatabase: navigationDeviceCases.snapshot,
 		}),
-		[menuSource.doc, moduleUuid, lookupStatus],
+		[
+			menuSource.doc,
+			moduleUuid,
+			lookupStatus,
+			stepSession.data,
+			navigationDeviceCases.snapshot,
+		],
 	);
 
 	/* Case-first form conditions evaluate at THIS screen, with the
@@ -433,6 +449,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						moduleUuid,
 						form.uuid,
 						row.case_id,
+						stepSession.data,
 					),
 					deviceCases: deviceCasesHoldingClaims(
 						navigationDeviceCases,
@@ -449,6 +466,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			navigationDeviceCases,
 			lookupStatus,
 			searchEnvironment.lookup,
+			stepSession.data,
 		],
 	);
 	/* A several-case form menu uses the same three-valued display-condition
@@ -981,6 +999,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		claimsAtResult
 			? claimableCaseIds([previewCaseChoiceOf(row)])
 			: NO_CLAIMED_CASES;
+	/* What the device works out for the submitted search's `_xpath_query`
+	 * before HQ reads it; the server folds the rows with it. */
+	const csqlRuntime = useSearchCsqlRuntime({
+		doc: menuSource.doc,
+		moduleUuid,
+		answers:
+			registeredCaseIds === undefined ? activeSearchInputValues : undefined,
+		sessionData: stepSession.data,
+	});
 	const {
 		state,
 		fetching,
@@ -1012,6 +1039,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		 * list inside `useCases` and keep the settled rows on screen. */
 		requestScopeKey: `${stateScopeKey}\u0000${ownedRestoreScopeKey}`,
 		search: readsSearchResults,
+		...(csqlRuntime !== undefined && { csqlRuntime }),
+		chosenCaseIds: stepSession.chosenCaseIds,
 	});
 	/* Results that show a column reading `here()` watch the viewer's
 	 * position while they are on screen (`useViewerPositionWatch`). */

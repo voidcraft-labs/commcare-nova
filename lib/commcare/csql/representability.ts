@@ -463,9 +463,14 @@ function checkValue(node: Expression, path: Path, walk: Walk): void {
 				operand.kind === "term" && operand.term.kind === "literal"
 					? operand.term.value
 					: undefined;
+			// A decimal value the device works out first is admitted: its
+			// runtime print carries the `whole-number` obligation, which
+			// sends `match-none()` for a fraction (`emitter.ts`).
 			if (
 				(typeof literal === "number" && !Number.isInteger(literal)) ||
-				(literal === undefined && data === "decimal")
+				(literal === undefined &&
+					data === "decimal" &&
+					positionOf(walk, [...path, "value"]) !== "runtime")
 			)
 				issues.push({
 					reason: "epoch-days-not-whole",

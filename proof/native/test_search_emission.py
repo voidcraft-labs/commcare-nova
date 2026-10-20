@@ -40,7 +40,19 @@ CORPORA = {
     "quote": {"runtime-quotes"},
     "static-quote": {"static-quotes"},
     "form-link": {"else", "module", "home", "previous", "unconditional", "overlap", "manual"},
-    "csql": {"datetime-equality"},
+    "csql": {
+        "datetime-equality",
+        "closed-on",
+        "case-types",
+        "epoch-days",
+        "value-list",
+        "runtime-selected",
+        "distance-units",
+        "runtime-choice",
+        "chosen-case",
+        "worker-day",
+        "worker-values",
+    },
 }
 
 

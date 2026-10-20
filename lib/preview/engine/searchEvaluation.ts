@@ -61,7 +61,12 @@ export async function evaluateSearchSnapshot(
 	const search = effectiveCaseSearchConfig(mod);
 	const session = previewSessionValues(context.identity);
 	const lookup = previewLookupData(context.lookup);
-	const environment = { doc, moduleUuid: input.moduleUuid, lookup };
+	const environment = {
+		doc,
+		moduleUuid: input.moduleUuid,
+		lookup,
+		caseDatabase: context.cases,
+	};
 	const expressions = moduleExpressionContexts(
 		doc,
 		input.moduleUuid,

@@ -15,9 +15,13 @@ import {
 	walkExpressionTerms,
 } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
+import { ConditionChoiceCard } from "../cards/ConditionChoiceCard";
 import {
+	CONDITION_CHOICE_UNAVAILABLE_REASON,
+	isPredicateCardValue,
 	type PredicateEditContext,
 	predicateCardSchemas,
+	predicateUnavailableReason,
 } from "../editorSchemas";
 
 // ── Fixture ───────────────────────────────────────────────────────────
@@ -374,5 +378,32 @@ describe("predicateCardSchemas — global scope (no case selected)", () => {
 		).context;
 		expect(predicateCardSchemas.eq.applicable(emptyGlobal)).toBe(true);
 		expect(predicateCardSchemas.and.applicable(emptyGlobal)).toBe(true);
+	});
+});
+
+describe("predicateCardSchemas — Depends on a condition", () => {
+	it("registers the runtime choice as a condition verb with its card", () => {
+		const schema = predicateCardSchemas.if;
+		expect(schema.label).toBe("Depends on a condition");
+		expect(schema.component).toBe(ConditionChoiceCard);
+		const seed = schema.defaultValue(ctx);
+		// A condition position renders a stored `if` through this entry.
+		expect(isPredicateCardValue(seed)).toBe(true);
+		expect(seed).toMatchObject({ kind: "if" });
+		expect(checkExpression(seed, ctx.expressionContext).errors).toEqual([]);
+	});
+
+	it("is offered in a case list's filter and withheld, with a reason, in a menu's display condition", () => {
+		expect(predicateCardSchemas.if.applicable(ctx)).toBe(true);
+		const display = expressionEditorFixture("global-condition", {
+			caseTypes: [PATIENT],
+			currentCaseType: "patient",
+			knownInputs: [],
+			caseDataScope: "global",
+		}).context;
+		expect(predicateCardSchemas.if.applicable(display)).toBe(false);
+		expect(predicateUnavailableReason("if", display)).toBe(
+			CONDITION_CHOICE_UNAVAILABLE_REASON,
+		);
 	});
 });

@@ -569,6 +569,15 @@ wherever a device evaluates it, including a search value the device works out fi
 "This turns a number with a fraction into a date and time, but on a device CommCare counts only
 whole days, so the time of day would be lost. You can use a whole number of days."
 
+**Implementation correction, 2026-10-19** (the representability rule, pull request 10): the
+checker paragraph's "a `decimal` value" means a value HQ itself evaluates. A `decimal` operand of
+`date-coerce` the device works out first (a `runtime` position, such as arithmetic over an answer)
+is admitted, its print carrying the `whole-number` obligation, so a fraction sends `match-none()`;
+a non-whole literal, and a `decimal` value in a `server-value` position (HQ's own `double()` over a
+literal or an answer), stay `epoch-days-not-whole`. HQ evaluates `double()` itself, so
+`date(double(<answer>))` is a server value; the `csql` family's runtime form is
+`date(18990 + double(<answer>))`.
+
 ### 3.6 List values (`unwrap-list`)
 
 **HQ.** `unwrap-list(x)` is a value function whose argument is a raw string literal holding JSON
@@ -1451,6 +1460,33 @@ Values arrive as bound parameters, never interpolated (`lib/case-store/CLAUDE.md
 `if` (§3.10); every atom compiles two-valued by part 07 §5.5, and datetime equality by instant by
 part 07 §5.3 (§3.13). Part 07 owns the transport, the evaluator's instances and which cases the
 search reads (§3.9); this part fixes what is folded and by whose print.
+
+**Implementation correction, 2026-10-19** (the fold, pull request 10):
+
+- `fold.ts::foldCsqlRuntime(expression, values, { types })` takes the row's slot context beside the
+  values, since it prepares the clause as the emitter does (`prepareCsqlClause`) and types each
+  literal by its node (`typeOf`: a number for a numeric node whose text is one, a typed date, date
+  and time or time where the text has that shape, text otherwise). `CsqlRuntimeValues` is
+  `{ segments, choices, rejected? }` for one row; a key it lacks leaves its node unfolded.
+  `csqlRuntimeReads(tree)` lists what the device evaluates in a row (a segment inside a choice's
+  branch included; a `when-input-present` is the choice `count(<input>)`), and `csqlRuntimeRow`
+  adds the row's obligations. A runtime `selected*` value with no token is `match-none`; a node-set
+  list item splits on `","`, as the device splices it.
+- The wire is one `{ segments, choices }` for the whole search, keyed `<row>:<segment key>`, the row
+  its index among `composeXPathQueryClauses`' clauses; a row whose obligations hold is the choice
+  `<row>`, its own choice of `match-none()`. The rows Preview folds are the case list filter's and
+  the advanced inputs' (`lib/preview/engine/searchCsqlRuntime.ts`, composed without the simple-arm
+  derivation): a simple input's answer reaches Postgres as the literal it binds
+  (`runtimeBindings.ts::composeRuntimeFilter`), so nothing of it is left to fold. A rejected row
+  makes the Results read `empty`.
+- Preview's synchronous evaluator has no `regex`, so the `list-item` obligation is decided over the
+  same item values in TypeScript (a `"`, `\`, an ASCII control character or `'`); any other read it
+  cannot run gives no value and leaves its node to Postgres, which compiles the kept arms through
+  the ordinary bindings.
+- The server's pass of a search's obligations judges only those whose reads it holds (answers and
+  the session context); one reading the device's cases, places, a lookup or a session datum is the
+  browser's, through the row it reports. App Tests evaluate the same values on the server over the
+  session's device (`serverSearchRead.ts`).
 
 ---
 

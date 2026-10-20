@@ -29,18 +29,22 @@ import {
 } from "@/lib/domain";
 import {
 	ancestorPath,
+	and,
+	arith,
 	dateCoerce,
 	datetimeCoerce,
 	datetimeLiteral,
 	double,
 	type Expression,
 	eq,
+	exists,
 	gte,
 	ifExpr,
 	input,
 	isIn,
 	literal,
 	lt,
+	lte,
 	matchAll,
 	matchNone,
 	multiSelectAll,
@@ -49,7 +53,11 @@ import {
 	not,
 	prop,
 	relationStep,
+	sessionContext,
+	sessionUser,
+	subcasePath,
 	term,
+	today,
 	whenInput,
 	within,
 } from "@/lib/domain/expression";
@@ -58,6 +66,7 @@ import {
 	chosenCaseProperty,
 } from "@/lib/domain/expression/chosenCase";
 import type { DistanceUnit } from "@/lib/domain/expression/distance";
+import type { SessionContextField } from "@/lib/domain/expression/types";
 import { runValidation } from "../validator/runner";
 
 /** One case as HQ's receiver is asked to save it (`CaseBlock` fields). */
@@ -79,18 +88,40 @@ export interface CsqlCase {
 	}[];
 }
 
+/**
+ * The device zones the family's Core class runs in, by the native runner's
+ * label (`proof/native/families.py::ZONED_CLASSES`), and the zone each names.
+ */
+export const CSQL_DEVICE_ZONES = {
+	utc: "UTC",
+	kiritimati: "Pacific/Kiritimati",
+	"new-york": "America/New_York",
+} as const;
+export type CsqlDeviceZone = keyof typeof CSQL_DEVICE_ZONES;
+
 /** One sending of a search: what Core is answered with, and what it means. */
 export interface CsqlSending {
 	readonly id: string;
 	/** Each search input's answer by its wire name; `null` leaves it unanswered. */
 	readonly answers?: Readonly<Record<string, string | null>>;
 	/**
-	 * The session the search is sent from, beyond the worker: the case chosen
-	 * in each menu the entry passed through, by that menu's module UUID.
+	 * The session the search is sent from: the case chosen in each menu the
+	 * entry passed through, by that menu's module UUID; the worker's user
+	 * data fields by name; the session context values by field; and the
+	 * instant the device's clock reads, for `today()` and `now()`.
 	 */
 	readonly session?: {
 		readonly chosenCaseIds?: Readonly<Record<string, string>>;
+		readonly user?: Readonly<Record<string, string>>;
+		readonly context?: Readonly<Partial<Record<SessionContextField, string>>>;
+		readonly clock?: string;
 	};
+	/**
+	 * The device zone the search is sent in, when what it means depends on
+	 * the zone (the worker's `today()`); absent, it means the same in every
+	 * zone, and Core sends it in each.
+	 */
+	readonly zone?: CsqlDeviceZone;
 	/**
 	 * The composed query this sending means once Core has evaluated its
 	 * runtime segments, runtime choices and obligations
@@ -100,6 +131,12 @@ export interface CsqlSending {
 	 * runtime value; absent, the composed query is already server-side.
 	 */
 	readonly folded?: Expression;
+	/**
+	 * The search inputs whose prompt validation holds this sending's answer
+	 * on the device, by wire name: the worker cannot send the search until
+	 * the answer changes, and its query still means `expected`.
+	 */
+	readonly refusedBy?: readonly string[];
 	/** The case ids the search means, in any order. */
 	readonly expected: readonly string[];
 }
@@ -107,6 +144,12 @@ export interface CsqlSending {
 export interface CsqlSearch {
 	/** A stable name for the search, also its module's name. */
 	readonly id: string;
+	/**
+	 * The search reads related cases in a way HQ answers only with
+	 * `CASE_SEARCH_RELATED_LOOKUPS` on (`filter_dsl.py::_require_related_lookups_flag`):
+	 * without the flag, HQ refuses it.
+	 */
+	readonly relatedLookups?: true;
 	readonly sendings: readonly CsqlSending[];
 }
 
@@ -120,10 +163,13 @@ export interface CsqlScenario {
 
 /** The serializable half a producer writes beside the scenario's exports. */
 export function scenarioRecord(scenario: CsqlScenario) {
+	const doc = scenario.doc();
 	return {
 		id: scenario.id,
 		caseTypes: scenario.caseTypes,
 		cases: scenario.cases,
+		// Module `i`'s UUID, so Core can name the menu a chosen case is chosen in.
+		modules: doc.moduleOrder,
 		searches: scenario.searches.map((search, module) => ({
 			...search,
 			command: `search_command.m${module}`,
@@ -361,15 +407,10 @@ export const datetimeEquality: CsqlScenario = {
 	doc: datetimeEqualityDoc,
 };
 
-/** Every scenario, in the order the family writes and checks them. */
-export const csqlScenarios: readonly CsqlScenario[] = [datetimeEquality];
-
 // --- The other constructs (§3.1–§3.12) -------------------------------------
 //
-// Each block below is one scenario in the same shape. Preview's Postgres check
-// answers every one (`lib/case-store/sql/__tests__/csqlComposition.postgres.test.ts`);
-// each joins `csqlScenarios`, and so HQ's check and Core's class, once the
-// native side builds its sessions (the chosen case's datums among them).
+// Each block below is one scenario in the same shape, answered by HQ's check,
+// Core's class and Preview's Postgres check alike.
 
 /** One module of a scenario document: a search over `caseType`. */
 interface ScenarioModule {
@@ -539,15 +580,34 @@ const caseTypeCases: readonly CsqlCase[] = [
 		properties: {},
 		modified: MODIFIED,
 	},
+	{
+		id: "csql-type-visit",
+		type: "visit",
+		name: "A's visit",
+		properties: {},
+		modified: MODIFIED,
+		indices: [
+			{
+				identifier: "parent",
+				caseType: HOME,
+				caseId: "csql-type-a",
+				relationship: "child",
+			},
+		],
+	},
 ];
 const recordType = term({ kind: "case-row-type" });
+const caseType = (name: string) => term({ kind: "case-type", caseType: name });
 const caseTypeSearches = [
-	["is-household", eq(recordType, term({ kind: "case-type", caseType: HOME }))],
-	[
-		"not-household",
-		neq(recordType, term({ kind: "case-type", caseType: HOME })),
-	],
+	["is-household", eq(recordType, caseType(HOME))],
+	["not-household", neq(recordType, caseType(HOME))],
+	["not-visit", neq(recordType, caseType("visit"))],
 	["household-or-visit", isIn(recordType, literal(HOME), literal("visit"))],
+	// HQ's `subcase-exists('parent', @case_type = 'visit')`.
+	[
+		"has-visit",
+		exists(subcasePath("parent"), eq(recordType, caseType("visit"))),
+	],
 ] as const;
 export const caseTypes: CsqlScenario = {
 	id: "case-types",
@@ -560,8 +620,17 @@ export const caseTypes: CsqlScenario = {
 		},
 		{ id: "not-household", sendings: [{ id: "literal", expected: [] }] },
 		{
+			id: "not-visit",
+			sendings: [{ id: "literal", expected: ["csql-type-a", "csql-type-b"] }],
+		},
+		{
 			id: "household-or-visit",
 			sendings: [{ id: "literal", expected: ["csql-type-a", "csql-type-b"] }],
+		},
+		{
+			id: "has-visit",
+			relatedLookups: true,
+			sendings: [{ id: "literal", expected: ["csql-type-a"] }],
 		},
 	],
 	doc: () =>
@@ -616,6 +685,31 @@ const epochSearches = [
 	["day-after-epoch", gte(prop(EVENT, "day"), dateCoerce(term(literal(-1))))],
 	["at-noon", gte(prop(EVENT, "at"), datetimeCoerce(term(literal(19000.5))))],
 ] as const;
+const DAY_INPUT = "day_number";
+const dayAnswer = uuid("epoch-days", "day-input");
+/** A day number the device works out from the worker's answer (days after
+ * day 18990), read at run time: `date(number(…))`. */
+const runtimeDaySearch: ScenarioModule = {
+	name: "runtime-day",
+	caseType: EVENT,
+	inputs: [
+		advancedSearchInputDef(
+			dayAnswer,
+			DAY_INPUT,
+			"Day number",
+			"text",
+			whenInput(
+				input(dayAnswer),
+				eq(
+					prop(EVENT, "day"),
+					dateCoerce(
+						arith("+", term(literal(18990)), double(term(input(dayAnswer)))),
+					),
+				),
+			),
+		),
+	],
+};
 export const epochDays: CsqlScenario = {
 	id: "epoch-days",
 	caseTypes: [EVENT],
@@ -635,6 +729,24 @@ export const epochDays: CsqlScenario = {
 			id: "at-noon",
 			sendings: [{ id: "literal", expected: ["csql-epoch-on"] }],
 		},
+		{
+			id: "runtime-day",
+			sendings: [
+				{
+					id: "whole",
+					answers: { [DAY_INPUT]: "10" },
+					folded: eq(prop(EVENT, "day"), dateCoerce(term(literal(19000)))),
+					expected: ["csql-epoch-on"],
+				},
+				// `epoch-days-not-whole`: a day number with a fraction finds nothing.
+				{
+					id: "fraction",
+					answers: { [DAY_INPUT]: "1.5" },
+					folded: matchNone(),
+					expected: [],
+				},
+			],
+		},
 	],
 	doc: () =>
 		scenarioDoc(
@@ -650,11 +762,14 @@ export const epochDays: CsqlScenario = {
 					],
 				},
 			],
-			epochSearches.map(([name, predicate]) => ({
-				name,
-				caseType: EVENT,
-				inputs: fixedRule("epoch-days", name, predicate),
-			})),
+			[
+				...epochSearches.map(([name, predicate]) => ({
+					name,
+					caseType: EVENT,
+					inputs: fixedRule("epoch-days", name, predicate),
+				})),
+				runtimeDaySearch,
+			],
 		),
 };
 
@@ -695,6 +810,14 @@ const COLORS: Expression = {
 	kind: "value-list",
 	items: [term(literal("red")), term(literal("it's"))],
 };
+/** The worker's two colors, read at run time. */
+const WORKER_COLORS: Expression = {
+	kind: "value-list",
+	items: [term(sessionUser("first_color")), term(sessionUser("second_color"))],
+};
+const workerColors = (first: string, second: string) => ({
+	user: { first_color: first, second_color: second },
+});
 export const valueList: CsqlScenario = {
 	id: "value-list",
 	caseTypes: [ITEM],
@@ -712,6 +835,28 @@ export const valueList: CsqlScenario = {
 				{ id: "literal", expected: ["csql-list-blue", "csql-list-none"] },
 			],
 		},
+		{
+			id: "in-worker-colors",
+			sendings: [
+				{
+					id: "red-blue",
+					session: workerColors("red", "blue"),
+					folded: eq(prop(ITEM, "color"), {
+						kind: "value-list",
+						items: [term(literal("red")), term(literal("blue"))],
+					}),
+					expected: ["csql-list-red", "csql-list-blue"],
+				},
+				// An item holding `"` cannot be written into HQ's list: the search
+				// finds nothing.
+				{
+					id: "double-quote",
+					session: workerColors('say "hi"', "blue"),
+					folded: matchNone(),
+					expected: [],
+				},
+			],
+		},
 	],
 	doc: () =>
 		scenarioDoc(
@@ -727,6 +872,7 @@ export const valueList: CsqlScenario = {
 				[
 					["in-list", eq(prop(ITEM, "color"), COLORS)],
 					["not-in-list", neq(prop(ITEM, "color"), COLORS)],
+					["in-worker-colors", eq(prop(ITEM, "color"), WORKER_COLORS)],
 				] as const
 			).map(([name, predicate]) => ({
 				name,
@@ -812,6 +958,19 @@ export const runtimeSelected: CsqlScenario = {
 					answers: { [TAGS_INPUT]: null },
 					folded: matchAll(),
 					expected: allTagged,
+				},
+				{
+					id: "double-quote",
+					answers: { [TAGS_INPUT]: 'a"b' },
+					folded: multiSelectAny(tags, literal('a"b')),
+					expected: [],
+				},
+				// A blank answer names no choice: the search finds nothing.
+				{
+					id: "blank",
+					answers: { [TAGS_INPUT]: "" },
+					folded: matchNone(),
+					expected: [],
 				},
 			],
 		},
@@ -986,6 +1145,7 @@ export const distanceUnits: CsqlScenario = {
 				{
 					id: "parsecs",
 					answers: { [UNIT_INPUT]: "parsecs" },
+					refusedBy: [UNIT_INPUT],
 					folded: matchNone(),
 					expected: [],
 				},
@@ -1055,6 +1215,13 @@ const personCases: readonly CsqlCase[] = [
 const age = prop(PERSON, "age");
 const adult = gte(age, term(literal(18)));
 const child = lt(age, term(literal(18)));
+const LIMIT_INPUT = "limit";
+const SINCE_INPUT = "since";
+const pickAnswer = uuid("runtime-choice", "pick-input");
+const limitAnswer = uuid("runtime-choice", "limit-input");
+const sinceAnswer = uuid("runtime-choice", "since-input");
+/** 2026-01-02 04:30 UTC, the instant "by-time" compares the answer with. */
+const CHOICE_INSTANT = term(datetimeLiteral("2026-01-02T04:30:00Z"));
 export const runtimeChoice: CsqlScenario = {
 	id: "runtime-choice",
 	caseTypes: [PERSON],
@@ -1079,6 +1246,50 @@ export const runtimeChoice: CsqlScenario = {
 				{
 					id: "unanswered",
 					answers: { [MODE_INPUT]: null },
+					folded: child,
+					expected: ["csql-person-young"],
+				},
+			],
+		},
+		{
+			id: "by-pick-or-limit",
+			sendings: [
+				// The unchosen branch's obligation (a blank answer) does not reject
+				// the search; the chosen branch's does.
+				{
+					id: "adults-limit-blank",
+					answers: { [MODE_INPUT]: "adults", [LIMIT_INPUT]: "" },
+					folded: adult,
+					expected: ["csql-person-adult"],
+				},
+				{
+					id: "under-limit-blank",
+					answers: { [MODE_INPUT]: "under", [LIMIT_INPUT]: "" },
+					folded: matchNone(),
+					expected: [],
+				},
+				{
+					id: "under-limit",
+					answers: { [MODE_INPUT]: "under", [LIMIT_INPUT]: "20" },
+					folded: lt(age, term(literal(20))),
+					expected: ["csql-person-young"],
+				},
+			],
+		},
+		// A date and time ordering in the condition, its answer written at
+		// +05:30, which the device orders as an instant in its own zone.
+		{
+			id: "by-time",
+			sendings: [
+				{
+					id: "at-instant",
+					answers: { [SINCE_INPUT]: "2026-01-02T10:00:00.000+05:30" },
+					folded: adult,
+					expected: ["csql-person-adult"],
+				},
+				{
+					id: "a-minute-before",
+					answers: { [SINCE_INPUT]: "2026-01-02T09:59:00.000+05:30" },
 					folded: child,
 					expected: ["csql-person-young"],
 				},
@@ -1121,6 +1332,50 @@ export const runtimeChoice: CsqlScenario = {
 							"text",
 							ifExpr(
 								eq(term(input(modeAnswer)), term(literal("adults"))),
+								adult,
+								child,
+							),
+						),
+					],
+				},
+				{
+					name: "by-pick-or-limit",
+					caseType: PERSON,
+					inputs: [
+						advancedSearchInputDef(
+							pickAnswer,
+							MODE_INPUT,
+							"Mode",
+							"text",
+							ifExpr(
+								eq(term(input(pickAnswer)), term(literal("adults"))),
+								adult,
+								whenInput(
+									input(limitAnswer),
+									lt(age, double(term(input(limitAnswer)))),
+								),
+							),
+						),
+						advancedSearchInputDef(
+							limitAnswer,
+							LIMIT_INPUT,
+							"Age limit",
+							"text",
+							matchAll(),
+						),
+					],
+				},
+				{
+					name: "by-time",
+					caseType: PERSON,
+					inputs: [
+						advancedSearchInputDef(
+							sinceAnswer,
+							SINCE_INPUT,
+							"Since",
+							"text",
+							ifExpr(
+								gte(datetimeCoerce(term(input(sinceAnswer))), CHOICE_INSTANT),
 								adult,
 								child,
 							),
@@ -1235,6 +1490,29 @@ export const chosenCase: CsqlScenario = {
 			],
 		},
 		{
+			id: "Members by household and village",
+			sendings: [
+				{
+					id: "north",
+					session: choosing(NORTH),
+					folded: and(
+						eq(parentId, term(literal(NORTH))),
+						eq(homeVillage, term(literal("North"))),
+					),
+					expected: ["csql-member-north-north"],
+				},
+				{
+					id: "south",
+					session: choosing(SOUTH),
+					folded: and(
+						eq(parentId, term(literal(SOUTH))),
+						eq(homeVillage, term(literal("South"))),
+					),
+					expected: ["csql-member-south-south"],
+				},
+			],
+		},
+		{
 			id: "Members by village",
 			sendings: [
 				{
@@ -1281,6 +1559,16 @@ export const chosenCase: CsqlScenario = {
 					),
 				},
 				{
+					name: "Members by household and village",
+					caseType: MEMBER,
+					parentModule: "Households",
+					inputs: fixedRule(
+						"chosen-case",
+						"Members by household and village",
+						and(eq(parentId, chosenHousehold), eq(homeVillage, chosenVillage)),
+					),
+				},
+				{
 					name: "Members by village",
 					caseType: MEMBER,
 					parentModule: "Households",
@@ -1290,12 +1578,176 @@ export const chosenCase: CsqlScenario = {
 		),
 };
 
-/**
- * Every scenario Preview answers: the native family's, and the ones its
- * native side does not run yet.
- */
-export const csqlPostgresScenarios: readonly CsqlScenario[] = [
-	...csqlScenarios,
+// The worker's day (§3.4): `today()` is the device's date, which Core writes
+// into the query, so HQ never reads its own day or the project's zone. At
+// 2026-01-02 11:00 UTC it is still the 2nd in UTC and New York and already
+// the 3rd on Kiritimati.
+
+const TASK = "task";
+/** The instant the device's clock reads when the worker searches. */
+const TODAY_CLOCK = "2026-01-02T11:00:00Z";
+const taskCases: readonly CsqlCase[] = (
+	[
+		["csql-task-first", "2026-01-01"],
+		["csql-task-second", "2026-01-02"],
+		["csql-task-third", "2026-01-03"],
+	] as const
+).map(([id, due]) => ({
+	id,
+	type: TASK,
+	name: id,
+	properties: { due },
+	modified: MODIFIED,
+}));
+const due = prop(TASK, "due");
+/** One sending per device zone, each meaning that zone's date. */
+const dueSendings = (
+	expected: (date: string) => readonly string[],
+): CsqlSending[] =>
+	(
+		[
+			["utc", "2026-01-02"],
+			["kiritimati", "2026-01-03"],
+			["new-york", "2026-01-02"],
+		] as const
+	).map(([zone, date]) => ({
+		id: zone,
+		zone,
+		session: { clock: TODAY_CLOCK },
+		expected: expected(date),
+	}));
+const byDue = (keep: (due: string) => boolean) =>
+	taskCases
+		.filter((row) => keep(row.properties.due ?? ""))
+		.map((row) => row.id);
+export const workerDay: CsqlScenario = {
+	id: "worker-day",
+	caseTypes: [TASK],
+	cases: taskCases,
+	searches: [
+		{
+			id: "due-today",
+			sendings: dueSendings((date) => byDue((due) => due === date)),
+		},
+		{
+			id: "due-by-today",
+			sendings: dueSendings((date) => byDue((due) => due <= date)),
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"worker-day",
+			"Tasks",
+			[
+				{
+					name: TASK,
+					properties: [textProperty("case_name"), textProperty("due", "date")],
+				},
+			],
+			(
+				[
+					["due-today", eq(due, today())],
+					["due-by-today", lte(due, today())],
+				] as const
+			).map(([name, predicate]) => ({
+				name,
+				caseType: TASK,
+				inputs: fixedRule("worker-day", name, predicate),
+			})),
+		),
+};
+
+// Worker values (§3.9): a search narrowed by the worker's own user data and
+// by the session's user id.
+
+const CLIENT = "client";
+const clientCases: readonly CsqlCase[] = (
+	[
+		["csql-client-mine-north", "worker-1", "North"],
+		["csql-client-mine-south", "worker-1", "South"],
+		["csql-client-other-north", "worker-2", "North"],
+	] as const
+).map(([id, owner, region]) => ({
+	id,
+	type: CLIENT,
+	name: id,
+	properties: { assigned_to: owner, region },
+	modified: MODIFIED,
+}));
+const worker = (region: string) => ({
+	user: { region },
+	context: { userid: "worker-1" },
+});
+export const workerValues: CsqlScenario = {
+	id: "worker-values",
+	caseTypes: [CLIENT],
+	cases: clientCases,
+	searches: [
+		{
+			id: "in-my-region",
+			sendings: [
+				{
+					id: "north",
+					session: worker("North"),
+					folded: eq(prop(CLIENT, "region"), term(literal("North"))),
+					expected: ["csql-client-mine-north", "csql-client-other-north"],
+				},
+				{
+					id: "south",
+					session: worker("South"),
+					folded: eq(prop(CLIENT, "region"), term(literal("South"))),
+					expected: ["csql-client-mine-south"],
+				},
+			],
+		},
+		{
+			id: "assigned-to-me",
+			sendings: [
+				{
+					id: "worker-1",
+					session: worker("North"),
+					folded: eq(prop(CLIENT, "assigned_to"), term(literal("worker-1"))),
+					expected: ["csql-client-mine-north", "csql-client-mine-south"],
+				},
+			],
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"worker-values",
+			"Clients",
+			[
+				{
+					name: CLIENT,
+					properties: [
+						textProperty("case_name"),
+						textProperty("assigned_to"),
+						textProperty("region"),
+					],
+				},
+			],
+			(
+				[
+					[
+						"in-my-region",
+						eq(prop(CLIENT, "region"), term(sessionUser("region"))),
+					],
+					[
+						"assigned-to-me",
+						eq(prop(CLIENT, "assigned_to"), term(sessionContext("userid"))),
+					],
+				] as const
+			).map(([name, predicate]) => ({
+				name,
+				caseType: CLIENT,
+				inputs: fixedRule("worker-values", name, predicate),
+			})),
+		),
+};
+
+/** Every scenario, in the order the family writes and checks them. */
+export const csqlScenarios: readonly CsqlScenario[] = [
+	datetimeEquality,
 	closedOn,
 	caseTypes,
 	epochDays,
@@ -1304,6 +1756,8 @@ export const csqlPostgresScenarios: readonly CsqlScenario[] = [
 	distanceUnits,
 	runtimeChoice,
 	chosenCase,
+	workerDay,
+	workerValues,
 ];
 
 function admitted(doc: BlueprintDoc): BlueprintDoc {

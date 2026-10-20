@@ -16,9 +16,10 @@
 
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerCategory from "@iconify-icons/tabler/category";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerRoute from "@iconify-icons/tabler/route";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -31,12 +32,14 @@ import {
 	XML_ELEMENT_NAME_PATTERN,
 } from "@/lib/domain/expression";
 import { humanizeId } from "@/lib/domain/idSlug";
+import { isSearchOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import {
 	type ExpressionChangeAdmission,
 	useEditorVocabulary,
 } from "../editorContext";
 import { relatedCaseDataInScope } from "../editorSchemas";
 import { resolveRelationDestination } from "../relationDestination";
+import { searchOnlyPropertyChoices } from "../termEditorModel";
 import { PropertyPicker } from "./PropertyPicker";
 import { RelationPathBuilder } from "./RelationPathBuilder";
 
@@ -59,7 +62,17 @@ interface PropertyRefPickerSharedProps {
 	readonly invalid?: boolean;
 	/** Optional whole-rule verdict for an exact property or relationship edit. */
 	readonly admitChange?: (next: PropertyRef) => ExpressionChangeAdmission;
+	/** "Case type", the record's own type, offered before the properties
+	 * where the owner can store it (a term slot, not a property-only one).
+	 * `selected` shows it on the trigger in place of a property. */
+	readonly caseTypeChoice?: {
+		readonly selected: boolean;
+		readonly admission: ExpressionChangeAdmission;
+		readonly onSelect: () => void;
+	};
 }
+
+export const CASE_TYPE_CHOICE_LABEL = "Case type";
 
 /**
  * Property picker that round-trips every PropertyRef shape, including
@@ -72,6 +85,7 @@ export function PropertyRefPicker(props: PropertyRefPickerProps) {
 		ariaLabel = "Case information",
 		invalid = false,
 		admitChange,
+		caseTypeChoice,
 	} = props;
 	return (
 		<PropertyRefEditor
@@ -81,6 +95,7 @@ export function PropertyRefPicker(props: PropertyRefPickerProps) {
 			invalid={invalid}
 			ariaLabel={ariaLabel}
 			admitChange={admitChange}
+			caseTypeChoice={caseTypeChoice}
 		/>
 	);
 }
@@ -101,8 +116,30 @@ function PropertyRefEditor({
 	ariaLabel = "Case information",
 	invalid = false,
 	admitChange,
+	caseTypeChoice,
 }: PropertyRefEditorProps) {
 	const ctx = useEditorVocabulary();
+	const slotContext = ctx.expressionContext ?? ctx.rootExpressionContext;
+	const extraProperties = useMemo(
+		() =>
+			slotContext === undefined ? [] : searchOnlyPropertyChoices(slotContext),
+		[slotContext],
+	);
+	const leadingChoices = useMemo(
+		() =>
+			caseTypeChoice === undefined
+				? []
+				: [
+						{
+							key: "case-type",
+							label: CASE_TYPE_CHOICE_LABEL,
+							description: "What kind of case this is",
+							icon: tablerCategory,
+							...caseTypeChoice,
+						},
+					],
+		[caseTypeChoice],
+	);
 	const originCaseType = value.caseType ?? ctx.currentCaseType;
 	const relation = value.via ?? selfPath();
 	const destination = resolveRelationDestination(
@@ -122,13 +159,25 @@ function PropertyRefEditor({
 		hasRelationWalk || (relationOpen && canReachAnotherCase);
 
 	const setProperty = (name: string) => {
-		onChange({ ...value, property: name });
+		// A search-only value is no standard list property, so its read
+		// names its record type.
+		onChange(
+			isSearchOnlyCaseProperty(name) && value.caseType === undefined
+				? { ...value, caseType: originCaseType, property: name }
+				: { ...value, property: name },
+		);
 	};
 
 	return (
 		<div className="min-w-0 space-y-2">
 			<PropertyPicker
-				value={value.property || undefined}
+				value={
+					caseTypeChoice?.selected === true
+						? undefined
+						: value.property || undefined
+				}
+				leadingChoices={hasRelationWalk ? [] : leadingChoices}
+				extraProperties={extraProperties}
 				onChange={setProperty}
 				caseType={destination ?? ""}
 				filter={filter}

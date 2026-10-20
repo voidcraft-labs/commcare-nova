@@ -20,6 +20,7 @@ import {
 	connectDeliverRename,
 	connectLearnRename,
 } from "./documents/connectApps";
+import { csqlComposition } from "./documents/csqlComposition";
 import { customTile, tileHiddenOrder } from "./documents/customTile";
 import { datetimeEquality } from "./documents/datetimeEquality";
 import { datetimeOperands } from "./documents/datetimeOperands";
@@ -135,6 +136,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	instanceReads,
 	inlineSearchReads,
 	textReads,
+	csqlComposition,
 ];
 
 /** Every targeted document, in a fixed order. */

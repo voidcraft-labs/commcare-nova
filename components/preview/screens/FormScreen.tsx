@@ -122,6 +122,10 @@ import {
 } from "@/lib/preview/hooks/usePresentationDocument";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
+import {
+	useCaseListStepSession,
+	useSearchCsqlRuntime,
+} from "@/lib/preview/hooks/useSearchCsqlRuntime";
 import { useSearchResultsSnapshot } from "@/lib/preview/hooks/useSearchResultsSnapshot";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { previewMenuCaseContext } from "@/lib/preview/menuProjection";
@@ -519,6 +523,22 @@ export function FormScreen({ screen }: FormScreenProps) {
 					},
 		[menuCaseContext.parentCase],
 	);
+	/* The search's device values, which the server folds into its rows, as
+	 * the Results read sent them. */
+	const searchStepSession = useCaseListStepSession(menuSource.doc, moduleUuid);
+	const completedSearchAnswers = useMemo(
+		() =>
+			readsSearchResults && searchState?.kind === "completed"
+				? new Map(Object.entries(searchState.answers))
+				: undefined,
+		[readsSearchResults, searchState],
+	);
+	const searchCsqlRuntime = useSearchCsqlRuntime({
+		doc: menuSource.doc,
+		moduleUuid,
+		answers: completedSearchAnswers,
+		sessionData: searchStepSession.data,
+	});
 	const searchResults = useSearchResultsSnapshot({
 		enabled: readsSearchResults,
 		appId,
@@ -528,6 +548,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 		...(searchParentCase === undefined ? {} : { parentCase: searchParentCase }),
 		caseTypes,
 		language: language.language,
+		...(searchCsqlRuntime === undefined
+			? {}
+			: { csqlRuntime: searchCsqlRuntime }),
 	});
 	const searchResultsSnapshot =
 		searchResults.state.kind === "data"

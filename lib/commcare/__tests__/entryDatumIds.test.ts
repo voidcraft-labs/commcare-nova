@@ -13,9 +13,15 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	chosen,
+	chosenCaseDoc,
+	chosenCaseProperty,
+} from "@/lib/domain/__tests__/chosenCaseFixture";
+import {
 	instanceReadsDoc,
 	reads,
 } from "@/lib/domain/expression/__tests__/instanceReadsFixture";
+import { eq, prop, term } from "@/lib/domain/expression/builders";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import {
@@ -419,5 +425,60 @@ describe("entry datum identities on the emitted session", () => {
 			{ seed: 20261018, numRuns: 40 },
 		);
 		expect(entries).toBeGreaterThan(80);
+	});
+});
+
+describe("a form's display condition reading the case chosen in a parent menu", () => {
+	// The export prints the read under the id the form's entry holds the
+	// parent's selection at, after root alignment, in both carriers: the
+	// command's `relevant` in the local suite and `form_filter` in HQ's JSON,
+	// which HQ copies into the command as written.
+	it("prints the parent's datum id in the suite and in HQ's form filter", () => {
+		const doc = chosenCaseDoc();
+		doc.forms[chosen.memberForm].displayCondition = eq(
+			term(prop("member", "village_name")),
+			chosenCaseProperty(chosen.households, "household", "village_name"),
+		);
+		expect(
+			runValidation(structuredClone(doc), LOOKUP_CONTEXT_UNAVAILABLE),
+		).toEqual([]);
+		const parent = entryDatumIds(
+			doc,
+			formLinkProjectionContext(doc),
+			chosen.members,
+			chosen.memberForm,
+		).find((row) =>
+			row.refs.some(
+				(ref) =>
+					ref.kind === "selected-case" && ref.module === chosen.households,
+			),
+		);
+		if (parent === undefined)
+			throw new Error("The member form's entry holds no household selection.");
+		const read = `instance('commcaresession')/session/data/${parent.id}`;
+
+		const hq = expandDoc(doc);
+		const filters = hq.modules.flatMap((mod) =>
+			mod.forms.flatMap((form) =>
+				form.form_filter === null || form.form_filter === undefined
+					? []
+					: [form.form_filter],
+			),
+		);
+		expect(filters).toHaveLength(1);
+		expect(filters[0]).toContain(read);
+
+		const archive = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
+		const relevant = allElements(
+			readXmlEvidence(archive.readAsText("suite.xml")),
+		).flatMap((node) =>
+			node.name === "command" && node.attributes.relevant !== undefined
+				? [node.attributes.relevant]
+				: [],
+		);
+		expect(relevant).toHaveLength(1);
+		expect(relevant[0]).toContain(read);
 	});
 });

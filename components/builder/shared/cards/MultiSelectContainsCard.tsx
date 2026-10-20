@@ -4,16 +4,18 @@
 // (multi_select-typed only) + selectable token chips drawn from
 // the property's declared `options` + Any / All quantifier toggle.
 //
-// Tokens edit as a list of `Literal`s; the schema's tuple-with-rest
-// requires at least one. Each chip surfaces its index in the
-// `values` array: type-checker errors land per-chip via the
-// `[..., "values", i]` path.
+// Values edit as one list: fixed choices render as chips, and values
+// worked out when the rule runs ("Add a value from", part 06 §3.7) render
+// through `ExpressionPicker`. The schema's tuple-with-rest requires at least
+// one. Each value keeps its index in the `values` array: type-checker
+// errors land per value via the `[..., "values", i]` path.
 
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerVariable from "@iconify-icons/tabler/variable";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef } from "react";
 import { Button } from "@/components/shadcn/button";
@@ -36,18 +38,27 @@ import {
 	type PropertyRef,
 	prop,
 } from "@/lib/domain/expression";
-import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
+import {
+	useEditorErrorsAt,
+	useEditorExpressionContext,
+	usePredicateEditContext,
+} from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { removeAndRestoreFocus } from "../focusAfterRemoval";
 import {
+	addMultiSelectValueOffer,
+	isEditableMultiSelectValues,
+	isRuntimeMultiSelectValue,
+	type MultiSelectValueOffer,
 	multiSelectProperty,
+	multiSelectValueConstraint,
 	replaceMultiSelectProperty,
 	replaceMultiSelectValues,
 } from "../multiSelectModel";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
+import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
-import { isLiteralList } from "../recordCardShape";
 import {
 	type StableListOperation,
 	useStableListIdentity,
@@ -90,7 +101,7 @@ interface MultiSelectContainsCardProps {
 export function MultiSelectContainsCard(props: MultiSelectContainsCardProps) {
 	if (
 		props.value.property.kind !== "prop" ||
-		!isLiteralList(props.value.values)
+		!isEditableMultiSelectValues(props.value.values)
 	)
 		return (
 			<p role="status">This saved expression cannot be edited here yet.</p>
@@ -117,10 +128,11 @@ function EditableMultiSelectContainsCard({
 		"property" | "values"
 	> & {
 		readonly property: PropertyRef;
-		readonly values: [Literal, ...Literal[]];
+		readonly values: [Literal | Expression, ...(Literal | Expression)[]];
 	};
 }) {
 	const ctx = usePredicateEditContext();
+	const expressionContext = useEditorExpressionContext();
 	const projectProse = useProseProjection();
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
 	const rowIdentity = useStableListIdentity(value.values);
@@ -138,9 +150,21 @@ function EditableMultiSelectContainsCard({
 		})) ?? [];
 	const selectedValues = new Set<string>(
 		value.values
-			.map((v) => v.value)
+			.flatMap((v) => (v.kind === "literal" ? [v.value] : []))
 			.filter((v): v is string => typeof v === "string"),
 	);
+	const valueOffer = addMultiSelectValueOffer(
+		value,
+		{
+			context: expressionContext,
+			knownInputs: ctx.knownInputs,
+			userProperties: ctx.userProperties,
+		},
+		ctx.admitExpressionChange === undefined
+			? undefined
+			: (next) => ctx.admitExpressionChange?.(path, next) ?? { admitted: true },
+	);
+	const runtimeConstraint = multiSelectValueConstraint(expressionContext);
 
 	const setProperty = (next: PropertyRef) => {
 		// On property switch, reset values to the new property's first
@@ -155,12 +179,13 @@ function EditableMultiSelectContainsCard({
 			ctx.caseTypes,
 			ctx.currentCaseType,
 		);
+		if (!isEditableMultiSelectValues(nextValue.values)) return;
 		rowIdentity.stage(nextValue.values, { kind: "reset" });
 		onChange(nextValue);
 	};
 
 	const commitValues = (
-		next: readonly Literal[],
+		next: readonly (Literal | Expression)[],
 		operation: StableListOperation,
 	) => {
 		const result = replaceMultiSelectValues(value, next);
@@ -177,6 +202,25 @@ function EditableMultiSelectContainsCard({
 			deleteCount: 0,
 			insertCount: 1,
 		});
+	};
+
+	const addRuntimeValue = () => {
+		if (!valueOffer.admitted) return;
+		commitValues([...value.values, valueOffer.added], {
+			kind: "splice",
+			index: value.values.length,
+			deleteCount: 0,
+			insertCount: 1,
+		});
+	};
+
+	const replaceValueAt = (index: number, next: Expression) => {
+		commitValues(
+			value.values.map((current, valueIndex) =>
+				valueIndex === index ? next : current,
+			),
+			{ kind: "replace" },
+		);
 	};
 
 	const removeValueAt = (index: number) => {
@@ -221,7 +265,25 @@ function EditableMultiSelectContainsCard({
 				onAddOption={addOption}
 				onRemoveValue={removeValueAt}
 				path={path}
+				valueOffer={valueOffer}
+				onAddValue={addRuntimeValue}
 			/>
+
+			{value.values.map((v, i) =>
+				isRuntimeMultiSelectValue(v) ? (
+					<ExpressionPicker
+						key={rowIdentity.keys[i]}
+						value={v}
+						onChange={(next) => replaceValueAt(i, next)}
+						onRemove={
+							value.values.length > 1 ? () => removeValueAt(i) : undefined
+						}
+						path={appendSlotIndex(path, "values", i)}
+						constraint={runtimeConstraint}
+						variant="nested"
+					/>
+				) : null,
+			)}
 		</div>
 	);
 }
@@ -234,19 +296,42 @@ function TokenList({
 	onAddOption,
 	onRemoveValue,
 	path,
+	valueOffer,
+	onAddValue,
 }: {
-	readonly values: readonly Literal[];
+	readonly values: readonly (Literal | Expression)[];
 	readonly rowKeys: readonly string[];
 	readonly options: readonly { value: string; label: string }[];
 	readonly selectedValues: ReadonlySet<string>;
 	readonly onAddOption: (value: string) => void;
 	readonly onRemoveValue: (index: number) => void;
 	readonly path: EditorPath;
+	readonly valueOffer: MultiSelectValueOffer;
+	readonly onAddValue: () => void;
 }) {
+	const addValue = (
+		<SimpleTooltip
+			content={valueOffer.admitted ? undefined : valueOffer.reason}
+		>
+			<Button
+				type="button"
+				variant="ghost"
+				className="nova-add-slot gap-1.5"
+				disabled={!valueOffer.admitted}
+				onClick={onAddValue}
+			>
+				<Icon icon={tablerVariable} width="13" height="13" />
+				<span>Add a value from</span>
+			</Button>
+		</SimpleTooltip>
+	);
 	if (options.length === 0) {
 		return (
-			<div className="rounded-md border border-dashed border-white/[0.06] px-3 py-2 text-[13px] text-nova-text-muted">
-				This information has no choices yet
+			<div className="space-y-1.5">
+				<div className="rounded-md border border-dashed border-white/[0.06] px-3 py-2 text-[13px] text-nova-text-muted">
+					This information has no choices yet
+				</div>
+				{addValue}
 			</div>
 		);
 	}
@@ -257,11 +342,12 @@ function TokenList({
 	const ambiguousLabels = new Set(
 		[...labelCounts].filter(([, count]) => count > 1).map(([label]) => label),
 	);
-	const lastSelectedIndex = values.length - 1;
+	const isOnlyOne = values.length === 1;
 	return (
 		<div className="space-y-1.5">
 			<div className="flex flex-wrap gap-1.5">
 				{values.map((v, i) => {
+					if (v.kind !== "literal") return null;
 					const optLabel =
 						options.find((o) => o.value === v.value)?.label ?? String(v.value);
 					return (
@@ -272,7 +358,7 @@ function TokenList({
 								ambiguousLabels.has(optLabel) ? String(v.value) : undefined
 							}
 							onRemove={() => onRemoveValue(i)}
-							isOnlyOne={lastSelectedIndex === 0}
+							isOnlyOne={isOnlyOne}
 							indexPath={appendSlotIndex(path, "values", i)}
 						/>
 					);
@@ -283,6 +369,7 @@ function TokenList({
 					ambiguousLabels={ambiguousLabels}
 					onPick={onAddOption}
 				/>
+				{addValue}
 			</div>
 		</div>
 	);

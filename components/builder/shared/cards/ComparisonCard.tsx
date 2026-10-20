@@ -19,9 +19,19 @@ import {
 	type Expression,
 	type eq,
 } from "@/lib/domain/expression";
-import { replaceComparisonSubject } from "../comparisonModel";
-import { usePredicateEditContext, useResolvedType } from "../editorContext";
+import { CaseTypeValuePicker } from "../CaseTypeValuePicker";
+import {
+	comparesCaseType,
+	possibleRowCaseTypes,
+	replaceComparisonSubject,
+} from "../comparisonModel";
+import {
+	useEditorErrorsAt,
+	usePredicateEditContext,
+	useResolvedType,
+} from "../editorContext";
 import { appendSlot, type EditorPath } from "../path";
+import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { KIND_BUILDERS } from "./comparisonSeed";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
@@ -67,6 +77,30 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 		const builder = KIND_BUILDERS[value.kind];
 		onChange(builder(value.left, right));
 	};
+	const leftPath = appendSlot(path, "left");
+	const rightPath = appendSlot(path, "right");
+	const rightErrors = useEditorErrorsAt(rightPath);
+	// The subject's own choices are judged as this card would rebuild the
+	// comparison, so "Case type" is judged with a case type as its value.
+	const admitSubject = (left: Expression) =>
+		ctx.admitExpressionChange?.(
+			path,
+			replaceComparisonSubject(value, left, ctx),
+		) ?? { admitted: true as const };
+	const caseTypeRight =
+		comparesCaseType(value.left) &&
+		value.right.kind === "term" &&
+		(value.right.term.kind === "case-type" ||
+			value.right.term.kind === "literal");
+	const storedCaseType =
+		value.right.kind === "term" && value.right.term.kind === "case-type"
+			? value.right.term.caseType
+			: value.right.kind === "term" &&
+					value.right.term.kind === "literal" &&
+					typeof value.right.term.value === "string" &&
+					value.right.term.value !== ""
+				? value.right.term.value
+				: undefined;
 
 	return (
 		<div className="space-y-3">
@@ -74,7 +108,8 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 				<ExpressionPicker
 					value={value.left}
 					onChange={setLeft}
-					path={appendSlot(path, "left")}
+					admitReplacement={admitSubject}
+					path={leftPath}
 					constraint={comparisonSubjectConstraint(value.kind)}
 					presentation="subject"
 					variant="nested"
@@ -93,13 +128,38 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 				 *  offers a type the checker would reject. The picker's own
 				 *  `CardShell` footer surfaces inline errors at the slot
 				 *  path, so no parallel `<InlineError>` is needed here. */}
-				<ExpressionPicker
-					value={value.right}
-					onChange={setRight}
-					path={appendSlot(path, "right")}
-					constraint={objectConstraint}
-					variant="nested"
-				/>
+				{caseTypeRight ? (
+					<CaseTypeValuePicker
+						value={storedCaseType}
+						onChange={(caseType) =>
+							setRight({
+								kind: "term",
+								term: { kind: "case-type", caseType },
+							})
+						}
+						caseTypes={ctx.caseTypes.map((type) => type.name)}
+						possible={possibleRowCaseTypes(ctx)}
+						admit={(caseType) =>
+							ctx.admitExpressionChange?.(rightPath, {
+								kind: "term",
+								term: { kind: "case-type", caseType },
+							}) ?? { admitted: true }
+						}
+						invalid={rightErrors.length > 0}
+					/>
+				) : null}
+				{caseTypeRight && rightErrors.length > 0 ? (
+					<InlineError errors={rightErrors} />
+				) : null}
+				{caseTypeRight ? null : (
+					<ExpressionPicker
+						value={value.right}
+						onChange={setRight}
+						path={rightPath}
+						constraint={objectConstraint}
+						variant="nested"
+					/>
+				)}
 			</div>
 		</div>
 	);

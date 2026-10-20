@@ -7062,5 +7062,45 @@
 		"path": "/caseList/rows/*/caseId",
 		"kind": "changed",
 		"control": "targeted-datetime-equality"
+	},
+	{
+		"id": "d75-system-date-search-formplayer-a-app-aware-remote-search-500-eserror",
+		"defect": 75,
+		"part": "search on a system date",
+		"check": "proof3",
+		"artifact": "formplayer@A",
+		"path": "/hq/app_aware_remote_search/500/corehq.apps.es.exceptions.ESError",
+		"kind": "error",
+		"control": "targeted-datetime-equality"
+	},
+	{
+		"id": "d75-system-date-search-formplayer-local-runs-steps-response-exception",
+		"defect": 75,
+		"part": "search on a system date",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/exception",
+		"kind": "changed",
+		"control": "targeted-datetime-equality"
+	},
+	{
+		"id": "d75-system-date-search-formplayer-app-settings-runs-steps-response-exception",
+		"defect": 75,
+		"part": "search on a system date",
+		"check": "proof4",
+		"artifact": "formplayer@app settings@*",
+		"path": "/runs/*/steps/*/response/exception",
+		"kind": "changed",
+		"control": "targeted-datetime-equality"
+	},
+	{
+		"id": "d75-system-date-search-formplayer-case-list-runs-steps-response-exception",
+		"defect": 75,
+		"part": "search on a system date",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/exception",
+		"kind": "changed",
+		"control": "targeted-datetime-equality"
 	}
 ]

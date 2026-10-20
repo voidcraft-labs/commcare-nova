@@ -40,6 +40,12 @@ export interface RestoreCase {
 	readonly owner?: string;
 	/** Custom properties, in the order the case's update writes them. */
 	readonly properties?: Readonly<Record<string, string>>;
+	/** The case's child indices, each naming the case it points at and that case's type. */
+	readonly indices?: readonly {
+		readonly identifier: string;
+		readonly caseType: string;
+		readonly caseId: string;
+	}[];
 }
 
 export interface RestoreTable {
@@ -63,6 +69,25 @@ function caseBlock(entry: RestoreCase): ChildNode {
 				"update",
 				{},
 				properties.map(([name, value]) => el(name, {}, [text(value)])),
+			),
+		);
+	}
+	// HQ's restore writes the indices after the update, sorted by identifier
+	// (`casexml/apps/phone/xml.py::get_case_element`,
+	// `case/xml/generator.py::V2CaseXMLGenerator.add_indices`).
+	const indices = [...(entry.indices ?? [])].sort((a, b) =>
+		a.identifier < b.identifier ? -1 : a.identifier > b.identifier ? 1 : 0,
+	);
+	if (indices.length > 0) {
+		children.push(
+			el(
+				"index",
+				{},
+				indices.map((index) =>
+					el(index.identifier, { case_type: index.caseType }, [
+						text(index.caseId),
+					]),
+				),
 			),
 		);
 	}

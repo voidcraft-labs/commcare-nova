@@ -3766,8 +3766,9 @@
 		"item": "`#session/data/<datum>` (HQ shorthand in navigation slots)",
 		"surfaceKeys": ["hashtag:#session/"],
 		"valueClass": "data-datum",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed session datums",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: typed session datums",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

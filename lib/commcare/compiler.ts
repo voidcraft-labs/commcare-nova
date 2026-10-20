@@ -53,6 +53,8 @@ import {
 	caseListFormReturnFrame,
 	caseListSessionDatums,
 	caseListStepDatumId,
+	entryDatumIdResolver,
+	entryDatumIds,
 	entryFrameDatums,
 	entrySessionDatums,
 	type FormLinkProjectionContext,
@@ -693,6 +695,9 @@ export function compileCcz(
 				),
 				lookupNaming,
 				ownCaseDatumId,
+				entryDatumIdResolver(
+					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+				),
 			);
 
 			const formName = form.name;

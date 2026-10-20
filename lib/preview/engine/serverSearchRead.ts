@@ -21,10 +21,13 @@ import { previewMenuCaseContext } from "../menuProjection";
 import { projectWorkerModule } from "../workerModule";
 import type { readCases } from "./caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "./caseListOrder";
+import { caseListStepSession } from "./entrySessionData";
 import { evaluateSearch } from "./evaluateForm";
 import type { FormEvaluationContext } from "./formEvaluationTypes";
 import { previewSessionValues } from "./identity";
+import { previewLookupData } from "./lookupEvaluation";
 import { previewCaseStoreBindings } from "./runtimeBindings";
+import { evaluateSearchCsqlRuntime, foldSearchCsql } from "./searchCsqlRuntime";
 import type { SearchEvaluationInput } from "./searchEvaluation";
 import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
 import type {
@@ -141,6 +144,33 @@ export async function serverRecordsRead(
 		registeredCaseId: request.registeredCaseId,
 	});
 	const registeredCaseId = request.registeredCaseId;
+	/* The session at the list's step: what a browse filter's chosen case and
+	 * a search's runtime values read. A search's rows reach the store folded
+	 * with what this session's device works out, as the browser's do. */
+	const step = caseListStepSession(world.doc, request.moduleUuid, {
+		menuSelections: world.selections,
+		caseDatabase: world.deviceCases,
+		identity: world.identity,
+	});
+	const searchConfig = world.doc.modules[request.moduleUuid]?.caseListConfig;
+	const searchCsql =
+		searched && registeredCaseId === undefined && searchConfig !== undefined
+			? foldSearchCsql(
+					world.doc,
+					request.moduleUuid,
+					searchConfig,
+					evaluateSearchCsqlRuntime({
+						doc: world.doc,
+						moduleUuid: request.moduleUuid,
+						caseListConfig: searchConfig,
+						answers: search.inputValues,
+						session: previewSessionValues(world.identity),
+						sessionData: step.data,
+						caseDatabase: world.deviceCases,
+						lookup: previewLookupData(world.lookup),
+					}) ?? { segments: {}, choices: {} },
+				)
+			: undefined;
 	const read: Omit<Parameters<typeof readCases>[1], "page"> | undefined =
 		!resultVisible || Object.keys(search.errors).length > 0
 			? undefined
@@ -166,12 +196,16 @@ export async function serverRecordsRead(
 							}
 						: undefined,
 					inputValues: registeredCaseId ? undefined : search.inputValues,
-					bindings: previewCaseStoreBindings(
-						previewSessionValues(world.identity),
-						mod.caseListConfig?.searchInputs,
-						search.expressionValues,
-						world.timeZone,
-					),
+					...(searchCsql !== undefined && { searchCsql }),
+					bindings: {
+						...previewCaseStoreBindings(
+							previewSessionValues(world.identity),
+							mod.caseListConfig?.searchInputs,
+							search.expressionValues,
+							world.timeZone,
+						),
+						chosenCaseIds: step.chosenCaseIds,
+					},
 					lookupTableSchemas: new Map(
 						world.lookup.definitions.map((table) => [
 							table.id,

@@ -50,7 +50,7 @@ import {
 	DropdownMenuPositioner,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import type { ConditionArm, ExpressionOfKind } from "@/lib/domain/expression";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	and,
 	type Expression,
@@ -73,6 +73,7 @@ import {
 } from "../editorContext";
 import {
 	globalPlaceholderTruth,
+	type PredicateCardKind,
 	type PredicateCardSchema,
 	type PredicateEditContext,
 	predicateCardSchemaList,
@@ -349,7 +350,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	);
 
 	const addClause = useCallback(
-		(schema: PredicateCardSchema<ConditionArm["kind"]>) => {
+		(schema: PredicateCardSchema<PredicateCardKind>) => {
 			const next = schema.defaultValue(editCtx);
 			const clauses = [...value.clauses, next];
 			rowIdentity.stage(clauses, {
@@ -406,7 +407,7 @@ interface ClauseRowProps {
  *  `DragPreviewPill` in the form-list pattern. */
 function ClauseDragPreview({ kind }: { readonly kind: Expression["kind"] }) {
 	const schema = Object.hasOwn(predicateCardSchemas, kind)
-		? predicateCardSchemas[kind as ConditionArm["kind"]]
+		? predicateCardSchemas[kind as PredicateCardKind]
 		: undefined;
 	return (
 		<div className="inline-flex items-center gap-1.5 rounded-lg border border-nova-violet/40 bg-nova-surface/95 px-3 py-1.5 text-sm text-nova-text shadow-lg backdrop-blur-sm">
@@ -586,7 +587,7 @@ function ClauseRow({
 }
 
 interface AddClauseMenuProps {
-	readonly onAdd: (schema: PredicateCardSchema<ConditionArm["kind"]>) => void;
+	readonly onAdd: (schema: PredicateCardSchema<PredicateCardKind>) => void;
 }
 
 function AddClauseMenu({ onAdd }: AddClauseMenuProps) {

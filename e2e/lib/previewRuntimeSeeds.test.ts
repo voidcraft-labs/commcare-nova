@@ -1,16 +1,30 @@
 import { describe, expect, it } from "vitest";
+import { distanceValueSeed } from "@/components/builder/shared/distanceDraft";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, moduleOpensOnSearch } from "@/lib/domain";
+import {
+	type Expression,
+	ifExpr,
+	input,
+	isBlank,
+	literal,
+	prop,
+	term,
+	whenInput,
+	within,
+} from "@/lib/domain/expression";
 import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import { formReadsSearchResults } from "@/lib/preview/engine/xpathInstances";
 import {
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
+	buildSearchChoiceBlueprint,
 	buildSearchClaimBlueprint,
 	buildSearchResultsBlueprint,
 	HERE_COLUMN_SEED,
+	SEARCH_CHOICE_SEED,
 	SEARCH_CLAIM_SEED,
 	SEARCH_RESULTS_SEED,
 } from "./previewRuntimeSeeds";
@@ -23,6 +37,7 @@ describe("Preview runtime smoke seeds", () => {
 		["here-column", buildHereColumnBlueprint],
 		["search-claim", buildSearchClaimBlueprint],
 		["search-results", buildSearchResultsBlueprint],
+		["search-choice", buildSearchChoiceBlueprint],
 	])("%s is a persistable app with no validator findings", (_name, build) => {
 		const doc = build(APP_ID);
 		const persistable = toPersistableDoc(doc);
@@ -55,5 +70,41 @@ describe("Preview runtime smoke seeds", () => {
 		const [formUuid] = doc.formOrder[SEARCH_RESULTS_SEED.moduleUuid] ?? [];
 		if (formUuid === undefined) throw new Error("form missing");
 		expect(formReadsSearchResults(doc, formUuid)).toBe(true);
+	});
+});
+
+describe("the search-choice journey's authored end state", () => {
+	it("is a condition the validator admits", () => {
+		const { radius, area, caseType, moduleUuid, startRadiusKm } =
+			SEARCH_CHOICE_SEED;
+		const doc = buildSearchChoiceBlueprint(APP_ID);
+		const near = (distance: number | Expression) =>
+			within(
+				prop(caseType, "home"),
+				term(literal("0 0")),
+				distance,
+				"kilometers",
+			);
+		const config = doc.modules[moduleUuid]?.caseListConfig;
+		const radiusInput = config?.searchInputs?.[0];
+		if (radiusInput === undefined || radiusInput.kind !== "advanced")
+			throw new Error("Radius input missing");
+		radiusInput.predicate = whenInput(
+			input(radius.uuid),
+			ifExpr(
+				isBlank(term(input(area.uuid))),
+				near(startRadiusKm),
+				near(
+					distanceValueSeed(
+						[
+							{ uuid: radius.uuid, name: radius.name, data_type: "text" },
+							{ uuid: area.uuid, name: area.name, data_type: "text" },
+						],
+						startRadiusKm,
+					),
+				),
+			),
+		);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 });

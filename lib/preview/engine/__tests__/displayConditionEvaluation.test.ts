@@ -448,7 +448,7 @@ describe("formDisplayVisibility", () => {
 	const regionNorth = eq(prop("patient", "region"), literal("north"));
 
 	it("selects the case under the datum the suite writes the form's command with", () => {
-		expect(chosenPatient()).toEqual({ datumId: "case_id", caseId: "p1" });
+		expect(chosenPatient()).toMatchObject({ datumId: "case_id", caseId: "p1" });
 	});
 
 	it.each([

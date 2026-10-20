@@ -19,6 +19,7 @@ import type { BlueprintDoc, CaseType, Uuid } from "@/lib/domain";
 import { loadSearchResultsSnapshotAction } from "@/lib/preview/engine/caseDataBinding";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { ParentCaseSelection } from "@/lib/preview/engine/caseDataBindingTypes";
+import type { SearchCsqlRuntimeWire } from "@/lib/preview/engine/searchCsqlRuntime";
 import type {
 	LoadSearchResultsSnapshotResult,
 	SearchResultsSnapshot,
@@ -70,6 +71,9 @@ export function useSearchResultsSnapshot(args: {
 	readonly parentCase?: ParentCaseSelection;
 	readonly caseTypes: readonly CaseType[];
 	readonly language: string;
+	/** What the device worked out for the search's `_xpath_query` rows
+	 *  (`useSearchCsqlRuntime`), read when a load starts. */
+	readonly csqlRuntime?: SearchCsqlRuntimeWire;
 }): { readonly state: SearchResultsSnapshotState; readonly retry: () => void } {
 	const accessPhase = useAccessPhase();
 	const personaUuid = usePreviewPersonaUuid();
@@ -141,6 +145,10 @@ export function useSearchResultsSnapshot(args: {
 			...(input.parentCase === undefined
 				? {}
 				: { parentCase: input.parentCase }),
+			...(input.csqlRuntime === undefined ||
+			search.registeredCaseId !== undefined
+				? {}
+				: { csqlRuntime: input.csqlRuntime }),
 			caseTypes: input.caseTypes,
 			language: input.language,
 			viewerTimeZone: viewerTimeZone(),

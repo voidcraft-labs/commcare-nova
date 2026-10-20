@@ -63,10 +63,13 @@ export const ANY_CONSTRAINT: SlotConstraint = { accepts: "any" };
 const NUMERIC_TYPES: ReadonlySet<ResolvedType> = new Set(
 	ALL_RESOLVED_TYPES.filter(isNumeric),
 );
-const TEXT_OR_DATE_TYPES: ReadonlySet<ResolvedType> = new Set([
+/** What `date-coerce` / `datetime-coerce` read: text, a date or a date and
+ *  time, or a number of days since 1 January 1970 (part 06 §3.5). */
+const COERCE_OPERAND_TYPES: ReadonlySet<ResolvedType> = new Set([
 	...TEXT_SHAPED_TYPES,
 	"date",
 	"datetime",
+	...NUMERIC_TYPES,
 ]);
 
 const DATE_TYPES: ReadonlySet<ResolvedType> = new Set(
@@ -304,12 +307,14 @@ export function branchConstraint(
 	};
 }
 
-/** A `date-coerce` / `datetime-coerce` operand: a text-shaped value,
- *  or an already-date-shaped one (identity / widening coercion — the
- *  checker's coerce arms accept both, and the offered-set must match
- *  the accept-set). */
+/** A `date-coerce` / `datetime-coerce` operand: a text-shaped value, an
+ *  already-date-shaped one (identity / widening coercion), or a number of
+ *  days since 1 January 1970. The checker's record coerce arms accept all
+ *  three, and the offered set must match the accept set; the position rules
+ *  (a whole number of days in CSQL, no fraction on a device) are the
+ *  whole-rule verdict's. */
 export function coerceOperandConstraint(): SlotConstraint {
-	return { accepts: TEXT_OR_DATE_TYPES };
+	return { accepts: COERCE_OPERAND_TYPES };
 }
 
 /**

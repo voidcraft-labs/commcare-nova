@@ -148,7 +148,12 @@ Postgres target reaches one.
 Preview evaluates a Search's runtime segments, runtime choices and obligations
 in the browser, and `lib/commcare/csql/fold.ts::foldCsqlRuntime` replaces each
 with a literal, its chosen branch or `match-none` before this compiler runs, so
-no runtime leaf reaches a CSQL compile. `value-list` compiles to
+no runtime leaf reaches a CSQL compile. Preview folds the rows of the case list
+filter and the advanced inputs' predicates (`lib/preview/engine/searchCsqlRuntime.ts`);
+a simple input arrives as the literal its answer is. A value Preview's
+synchronous evaluator could not work out arrives unfolded and compiles through
+the ordinary bindings (`TermBindings.searchInputs`, `sessionContext`), which
+leave the CSQL path otherwise. `value-list` compiles to
 `<anchor> = any(<array>)`, its items bound as one array parameter, with `!=` its
 two-valued negation (`compilePredicate.ts::compileValueListEquality`). A
 `within-distance` whose radius or unit is a value (a browse list's filter can

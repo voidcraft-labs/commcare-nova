@@ -1270,6 +1270,18 @@ shown. It has a targeted document with its register entries and its control.
     the device lists the cases Preview lists. Its two entries are in the
     fixed-defect register, held on the control `targeted-datetime-equality`.
 
+    *Fixed (#<PR 10>):* a search's `=`, `!=` and `in` on a date and time
+    are a closed instant range (`(p >= v and p <= v)`,
+    `lib/commcare/csql/emitter.ts`), which HQ's range query reads in every
+    spelling, and a date-and-time literal is held to milliseconds
+    (`datetime-literal-precision`), the resolution HQ's index keeps. The
+    `csql` native family's `datetime-equality` scenario holds it: HQ's case
+    search over cases its receiver saved returns the expected ids, as
+    Postgres does. Its four search entries are in the fixed-defect
+    register and its walk stop is held on the control
+    `targeted-datetime-equality`, which keeps the search from before the
+    fix.
+
 ### Found of the lane itself
 
 64. **No app the lane built was one Web Apps lists.** HQ sets a new app's

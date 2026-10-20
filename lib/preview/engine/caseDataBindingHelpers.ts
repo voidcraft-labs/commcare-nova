@@ -168,6 +168,7 @@ import {
 	type SearchInputValues,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
+import type { SearchCsqlQuery } from "./searchCsqlRuntime";
 import { workerPlaceIds } from "./workerLocationFixture";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
@@ -350,6 +351,10 @@ export async function readCases(
 		order?: CaseStoreOrder;
 		parentCase?: ParentCaseSelection;
 		inputValues?: SearchInputValues;
+		/** A search's `_xpath_query` rows, folded with what the device worked
+		 *  out (`searchCsqlRuntime.ts::foldSearchCsql`). Present, they stand
+		 *  for the case list filter and the advanced inputs' predicates. */
+		searchCsql?: SearchCsqlQuery;
 		bindings?: TermBindings;
 		/** Rows-free lookup definition types for the compiler's
 		 * `table-lookup`/`table-column` arms — required whenever the
@@ -387,6 +392,7 @@ export async function readCases(
 		args.excludedOwnerIds,
 		args.authoredExcludedOwnerIds,
 		args.parentCase,
+		args.searchCsql,
 	);
 	const page = normalizeCaseListPage(args.page);
 	// Grouping is a property of a BOUNDED running-list read. An unpaged
@@ -635,6 +641,7 @@ async function countAuthoredCasePopulation(
 		readonly authoredExcludedOwnerIds?: readonly string[];
 		readonly restoreScope?: RestoreScope;
 		readonly searchPopulation?: SearchPopulation;
+		readonly searchCsql?: SearchCsqlQuery;
 	},
 ): Promise<number> {
 	const authoredQuery = composeQueryPredicate(
@@ -645,6 +652,13 @@ async function countAuthoredCasePopulation(
 		args.authoredExcludedOwnerIds,
 		args.authoredExcludedOwnerIds,
 		args.parentCase,
+		args.searchCsql === undefined
+			? undefined
+			: {
+					query: args.searchCsql.authored ?? { kind: "match-all" },
+					authored: args.searchCsql.authored,
+					readsAnswers: false,
+				},
 	);
 	return store.count({
 		...caseReadCore(args, authoredQuery.predicate),
@@ -691,6 +705,7 @@ function composeQueryPredicate(
 	excludedOwnerIds: readonly string[] | undefined,
 	authoredExcludedOwnerIds: readonly string[] | undefined = excludedOwnerIds,
 	parentCase?: ParentCaseSelection,
+	searchCsql?: SearchCsqlQuery,
 ): ComposedCaseQuery {
 	const clauses: Expression[] = [];
 	let hasAuthoredConstraint = false;
@@ -712,48 +727,71 @@ function composeQueryPredicate(
 					inputValues,
 				)
 			: emptyExpressionInputValues;
-	const authoredFilter =
-		caseListConfig?.filter !== undefined && expressionInputValues !== undefined
-			? bindSearchInputValuesInPredicate(
-					caseListConfig.filter,
-					expressionInputValues,
-					knownInputUuids,
-					caseListConfig.searchInputs,
-				)
-			: caseListConfig?.filter;
-	const baseFilter = effectiveFilterForEmission(authoredFilter);
-	if (baseFilter !== undefined) {
-		clauses.push(baseFilter);
-		const filterWithoutWorkerValues =
+	if (searchCsql !== undefined) {
+		/* A search: its `_xpath_query` rows arrive folded, standing for the
+		 * filter and the advanced inputs' predicates, so no runtime leaf and no
+		 * input binding reaches them here. */
+		const query = effectiveFilterForEmission(searchCsql.query);
+		if (query !== undefined) clauses.push(query);
+		hasAuthoredConstraint ||=
+			effectiveFilterForEmission(searchCsql.authored) !== undefined;
+		hasWorkerConstraint ||=
+			searchCsql.readsAnswers &&
+			[...(expressionInputValues?.values() ?? [])].some(
+				(value) => value !== "",
+			);
+	} else {
+		const authoredFilter =
 			caseListConfig?.filter !== undefined &&
-			emptyExpressionInputValues !== undefined
+			expressionInputValues !== undefined
 				? bindSearchInputValuesInPredicate(
 						caseListConfig.filter,
-						emptyExpressionInputValues,
+						expressionInputValues,
 						knownInputUuids,
 						caseListConfig.searchInputs,
 					)
 				: caseListConfig?.filter;
-		const baseFilterWithoutWorkerValues = effectiveFilterForEmission(
-			filterWithoutWorkerValues,
-		);
-		// Expression ASTs are canonical JSON-shaped values. A changed effective
-		// filter means submitted prompt values added narrowing the worker can
-		// remove; the empty-bound remainder is the always-authored contribution.
-		hasWorkerConstraint =
-			JSON.stringify(baseFilter) !==
-			JSON.stringify(baseFilterWithoutWorkerValues);
-		hasAuthoredConstraint = baseFilterWithoutWorkerValues !== undefined;
+		const baseFilter = effectiveFilterForEmission(authoredFilter);
+		if (baseFilter !== undefined) {
+			clauses.push(baseFilter);
+			const filterWithoutWorkerValues =
+				caseListConfig?.filter !== undefined &&
+				emptyExpressionInputValues !== undefined
+					? bindSearchInputValuesInPredicate(
+							caseListConfig.filter,
+							emptyExpressionInputValues,
+							knownInputUuids,
+							caseListConfig.searchInputs,
+						)
+					: caseListConfig?.filter;
+			const baseFilterWithoutWorkerValues = effectiveFilterForEmission(
+				filterWithoutWorkerValues,
+			);
+			// Expression ASTs are canonical JSON-shaped values. A changed effective
+			// filter means submitted prompt values added narrowing the worker can
+			// remove; the empty-bound remainder is the always-authored contribution.
+			hasWorkerConstraint =
+				JSON.stringify(baseFilter) !==
+				JSON.stringify(baseFilterWithoutWorkerValues);
+			hasAuthoredConstraint = baseFilterWithoutWorkerValues !== undefined;
+		}
 	}
 
-	if (
-		caseListConfig !== undefined &&
-		inputValues !== undefined &&
-		caseListConfig.searchInputs.length > 0
-	) {
+	/* A simple input's answer is the literal it is, so its clause is the same
+	 * whether or not the search's rows were folded; an advanced input's
+	 * predicate is one of those rows when they were. */
+	const answeredInputs =
+		caseListConfig === undefined
+			? []
+			: searchCsql === undefined
+				? caseListConfig.searchInputs
+				: caseListConfig.searchInputs.filter(
+						(input) => input.kind !== "advanced",
+					);
+	if (inputValues !== undefined && answeredInputs.length > 0) {
 		const runtimeFilter = effectiveFilterForEmission(
 			composeRuntimeFilter(
-				caseListConfig.searchInputs,
+				answeredInputs,
 				inputValues,
 				caseType,
 				caseTypeSchemas,

@@ -18,6 +18,7 @@ import {
 	dateLiteral,
 	datetimeCoerce,
 	datetimeLiteral,
+	arith,
 	double,
 	type Expression,
 	eq,
@@ -578,6 +579,11 @@ describe("positions decide what HQ reads (06-csql.md §2, §3)", () => {
 			[{ reason: "epoch-days-not-whole", path: ["right", "value"] }],
 		],
 		[
+			"a decimal day count HQ itself would work out",
+			eq(field("dob"), dateCoerce(double(term(literal("19000"))))),
+			[{ reason: "epoch-days-not-whole", path: ["right", "value"] }],
+		],
+		[
 			"a value only HQ computes, in an argument HQ reads as written",
 			match(
 				field("name"),
@@ -602,6 +608,13 @@ describe("positions decide what HQ reads (06-csql.md §2, §3)", () => {
 
 	it.each([
 		["a whole day count", eq(field("dob"), dateCoerce(term(literal(19000))))],
+		[
+			"a decimal day count the device works out, held to a whole number there",
+			eq(
+				field("dob"),
+				dateCoerce(arith("+", term(literal(18990)), double(term(query)))),
+			),
+		],
 		["a list compared for equality", eq(field("name"), valueList(safe, bad))],
 		["a clause that reads no case row", eq(literal("a"), literal("b"))],
 		["an unanswered input's emptiness", isBlank(query)],
