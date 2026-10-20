@@ -7,7 +7,9 @@
 import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { readPlannedFleet } from "../fleet";
+import { settleHolders } from "../holders";
 import { runMigrate } from "../run";
+import { FOLD_HORIZON_MIGRATION } from "../writer";
 import {
 	databaseImage,
 	fixtureApp,
@@ -15,8 +17,11 @@ import {
 	seedStoredSchemas,
 } from "./postgresSeed";
 
+/* From main's migration prefix: the writer applies the fold horizon itself
+ * and refuses any other ledger. */
 const h = setupAppStateTestDb("hq_expr_holders_", {
 	authSchema: "migrated",
+	caseStoreMigrationsBefore: FOLD_HORIZON_MIGRATION,
 });
 
 const OWNER = "owner-expr-holders";
@@ -171,8 +176,41 @@ describe("holders in the expressions cutover's window", () => {
 			});
 			expect(refused.exitCode).toBe(1);
 		}
-		/* A refused run applies no DDL, and this database is fully migrated
-		 * already, so the image compares data alone. */
+		/* A refused run stops before the ledger step, so it applies no DDL
+		 * and the data image is the whole difference. */
 		expect(await databaseImage(h.db())).toBe(image);
+	}, 60_000);
+
+	it("counts only the sessions the reaper reaped, so the settle line agrees with the census after it", async () => {
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		await h.seedCreditMonth(OWNER, PERIOD, {
+			allowance: 100,
+			consumed: 1,
+			bonus: 0,
+		});
+		const session = await h.seedDesignSession({
+			owner_user_id: OWNER,
+			project_id: PROJECT,
+			run_id: "run-live-session",
+			run_holder_nonce: crypto.randomUUID(),
+			run_actor_user_id: OWNER,
+			run_lease_expires_at: new Date(Date.now() + 600_000),
+			reservation: {
+				period: PERIOD,
+				reserved: 1,
+				settled: false,
+				userId: OWNER,
+				runId: "run-live-session",
+			},
+		});
+		/* Read an hour ahead, the session's lease has lapsed; the reaper
+		 * re-proves its staleness on the locked row at the real time, finds
+		 * it live and leaves it. */
+		const settled = await settleHolders(Date.now() + 3_600_000);
+		expect(settled).toEqual({ appsSettled: 0, sessionsSettled: 0 });
+		expect(await h.readDesignSessionRow(session)).toMatchObject({
+			run_id: "run-live-session",
+		});
+		expect(await h.readConsumed(OWNER, PERIOD)).toBe(1);
 	}, 60_000);
 });

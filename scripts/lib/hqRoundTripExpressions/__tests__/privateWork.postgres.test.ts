@@ -18,6 +18,7 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { restoreApp } from "@/lib/db/apps";
 import { readPlannedFleet } from "../fleet";
 import { runMigrate } from "../run";
+import { FOLD_HORIZON_MIGRATION } from "../writer";
 import {
 	fixtureApp,
 	readFixtureCarriers,
@@ -25,8 +26,11 @@ import {
 	seedStoredSchemas,
 } from "./postgresSeed";
 
+/* From main's migration prefix: the writer applies the fold horizon itself
+ * and refuses any other ledger. */
 const h = setupAppStateTestDb("hq_expr_private_work_", {
 	authSchema: "migrated",
+	caseStoreMigrationsBefore: FOLD_HORIZON_MIGRATION,
 });
 
 const OWNER = "owner-expr-private-work";

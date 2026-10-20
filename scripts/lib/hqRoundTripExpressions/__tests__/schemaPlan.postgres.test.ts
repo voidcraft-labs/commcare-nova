@@ -17,6 +17,7 @@ import { prepareSchemaDriftRepairInAppTransaction } from "../../schemaDriftMigra
 import { readPlannedFleet } from "../fleet";
 import { runMigrate } from "../run";
 import { readSchemaChangeImpacts } from "../schemaPlan";
+import { FOLD_HORIZON_MIGRATION } from "../writer";
 import {
 	fixtureApp,
 	readFixtureManifest,
@@ -25,8 +26,11 @@ import {
 	seedStoredSchemas,
 } from "./postgresSeed";
 
+/* From main's migration prefix: the writer applies the fold horizon itself
+ * and refuses any other ledger. */
 const h = setupAppStateTestDb("hq_expr_schema_plan_", {
 	authSchema: "migrated",
+	caseStoreMigrationsBefore: FOLD_HORIZON_MIGRATION,
 });
 
 const OWNER = "owner-expr-schema-plan";

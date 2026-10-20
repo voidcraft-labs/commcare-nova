@@ -77,7 +77,7 @@ function recordScope(
 	doc: BlueprintDoc,
 	ref: ExpressionSlotRef,
 	path: readonly (string | number)[],
-	lookup: LookupDefinitionIndex,
+	index: RoundTripIndex,
 ): AuthoringScope {
 	const owner =
 		ref.entity === "module"
@@ -86,7 +86,7 @@ function recordScope(
 				? doc.forms[ref.uuid]
 				: doc.fields[ref.uuid];
 	return authoringValueScope(
-		ownerScope(doc, ref, lookup),
+		ownerScope(doc, ref, index.tables),
 		owner,
 		path,
 		ref.entity === "module",
@@ -96,11 +96,8 @@ function recordScope(
 function ownerScope(
 	doc: BlueprintDoc,
 	ref: ExpressionSlotRef,
-	lookup: LookupDefinitionIndex,
+	tables: AuthoringScopeOptions["tables"],
 ): AuthoringScopeOptions {
-	const tables = [
-		...lookup.values(),
-	] as unknown as AuthoringScopeOptions["tables"];
 	if (ref.entity === "module")
 		return {
 			doc,
@@ -130,17 +127,45 @@ function ownerScope(
 }
 
 /**
+ * What every slot of one document reads its lookup tables through, derived
+ * once per document rather than once per slot.
+ */
+interface RoundTripIndex {
+	readonly lookup: LookupDefinitionIndex;
+	readonly types: LookupTypeIndex;
+	readonly tables: AuthoringScopeOptions["tables"];
+}
+
+function roundTripIndexOf(lookup: LookupDefinitionIndex): RoundTripIndex {
+	return {
+		lookup,
+		types: lookupTypes(lookup),
+		tables: [...lookup.values()] as unknown as AuthoringScopeOptions["tables"],
+	};
+}
+
+/**
  * Whether a slot's tree reads back to itself through its own grammar: the
  * form-XPath print and parser for a form-logic slot, the record dialect for
  * a record one, chosen by the slot's profile.
  */
 export function expressionSurvives(
 	doc: BlueprintDoc,
-	{ ref, expression, path }: ExpressionSlotValue,
+	value: ExpressionSlotValue,
 	lookup: LookupDefinitionIndex,
 	print: RoundTripPrint = printFormLogic,
 ): { readonly ok: boolean; readonly text?: string } {
-	const profile = slotContext(doc, ref, lookupTypes(lookup))?.profile;
+	return survives(doc, value, roundTripIndexOf(lookup), print);
+}
+
+function survives(
+	doc: BlueprintDoc,
+	{ ref, expression, path }: ExpressionSlotValue,
+	index: RoundTripIndex,
+	print: RoundTripPrint,
+): { readonly ok: boolean; readonly text?: string } {
+	const { lookup } = index;
+	const profile = slotContext(doc, ref, index.types)?.profile;
 	if (profile === undefined) return { ok: false };
 	if (profile.ruleSet === "form") {
 		const text = print(doc, ref, expression, lookup);
@@ -156,7 +181,7 @@ export function expressionSurvives(
 	}
 	const condition = profile.expectation.kind === "condition";
 	try {
-		const scope = recordScope(doc, ref, path, lookup);
+		const scope = recordScope(doc, ref, path, index);
 		const printer = queryPrinter(scope);
 		const text = condition
 			? printer.predicate(expression)
@@ -215,10 +240,11 @@ export function roundTripFailuresOf(
 			uuid: uuid as Uuid,
 		})),
 	];
+	const index = roundTripIndexOf(lookup);
 	const failures: RoundTripFailure[] = [];
 	for (const owner of owners)
 		for (const value of expressionSlotValues(doc, owner)) {
-			const result = expressionSurvives(doc, value, lookup, print);
+			const result = survives(doc, value, index, print);
 			if (!result.ok)
 				failures.push({
 					owner,

@@ -83,6 +83,16 @@ once here, and other parts use these strings verbatim.
     every model context made before the deploy, and the stack merges together.
 12. **`abandonPreAppDesignSessionInTransaction` and `reapStaleDesignSessionRun`** are exported again
     for the cutover's lifetime and made module-private again by the removal, as #767 left them.
+
+    **Implementation correction, 2026-10-20 (pull request 13):** `reapStaleDesignSessionRun` also
+    returns what it did (`"reaped"`, `"state_changed"`, or `"failed"` for an error it logged), and
+    `holders.ts::settleHolders` counts a session as settled only when it was reaped, as it counts an
+    app. The reaper re-proves the holder and its staleness on the locked row, so a session that came
+    back to life since the census read was counted though left alone, and the settle line disagreed
+    with the census after it. Filtering on the reaper's `mode` guard instead would change nothing: a
+    session holder is always a build (`lib/db/runLiveness.ts::designSessionLeaseState`, and the table's
+    check that a session's run is a build). The callers in `lib/db/designSessions.ts` ignore the result,
+    and the removal's restoration of the file returns the reaper to `void`.
 13. **Every dry-run count that can block is a blocker by rule**: `HIDDEN_VALUE_WRITER_TYPE_MISMATCH`,
     `CYCLE`, a record verdict moved by inference, `SELECT_PRELOAD_WRITE_NOT_AN_OPTION`,
     `case-query-untyped`, `selected-cases` as one value, a prose repeat read used as one value and
@@ -693,6 +703,33 @@ over it), then `lock_timeout` is set back to 15 seconds, since Kysely's migratio
 The fold-horizon functions and their `kysely_migration` row therefore commit with the fleet or roll
 back with it, and every stop and every failure leaves the ledger as `main` has it: the database holds
 a migration `main` lacks only once the fleet is committed, which check 3 of §14 already governs.
+
+**Implementation correction, 2026-10-20 (pull request 13):** the `ledger` step runs Kysely's `Migrator`
+itself rather than through `runCaseStoreMigrationsWithReport`, and holds it to three rules.
+
+- **Kysely's lock under the cutover's timeout.** `PostgresAdapter.acquireMigrationLock` sets
+  `lock_timeout` to an hour before its blocking `pg_advisory_lock`, so a migrate Job or the auth
+  migrator holding the lock would keep the fleet transaction waiting, every row locked, past the
+  runbook's own wait. The step therefore first takes `pg_advisory_xact_lock` on Kysely's key
+  (`LOCK_ID` in `node_modules/kysely/dist/dialect/postgres/postgres-adapter.js`, which Kysely does not
+  export) under the cutover's 15 seconds, and a `55P03` stops it as `CutoverLockTimeoutError`; Kysely's
+  own acquire is then granted at once on the same session. Each migration also runs under the 15
+  seconds, not Kysely's hour.
+- **Only the reviewed ledger.** Under that lock it reads `kysely_migration` and requires the pending
+  set to be exactly the fold-horizon migration, and after the run the applied set to be exactly it;
+  anything else is a `CutoverLedgerError` (`errorClass` `ledger`) naming the migrations, and nothing
+  unreviewed is applied. The plan's digest does not cover the ledger, so this check is what binds it;
+  the runbook's dry-run step reads `pendingMigrations` as well as `foldHorizonApplied`.
+- **A failed migration keeps its error and releases the lock.** Kysely releases its session lock in a
+  `finally`, which in an aborted transaction throws `25P02`, replacing the migration's error, and a
+  session lock survives `ROLLBACK`. Kysely 0.29 offers savepoints only on a `ControlledTransaction`,
+  not the `Transaction` the fleet runs in, so the step issues raw `SAVEPOINT` statements: each
+  migration's `up` runs in its own savepoint and rolls back to it when it throws, so the release runs on
+  a live transaction and the migrator reports the real failure; the whole run sits in an outer
+  savepoint, and on any failure the step rolls back to it, runs `pg_advisory_unlock_all()` (this
+  session holds no other session-level advisory lock), and throws a `CutoverLedgerError` carrying the
+  migration's name, the error's class and its SQLSTATE, never its text. The pooled connection is
+  therefore returned clean, and no connection needs destroying.
 
 ## 10. Postconditions
 

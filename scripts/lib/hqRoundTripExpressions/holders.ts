@@ -153,8 +153,15 @@ export async function settleHolders(
 	for (const { appId, identity } of reapable.apps) {
 		if ((await reapStaleRun(appId, identity)) === "reaped") appsSettled += 1;
 	}
+	/* A session's holder is always a build (`designSessionLeaseState`), and
+	 * the reaper re-proves it and its staleness on the locked row: count what
+	 * it reaped, not what it was asked to, so this agrees with the census. */
+	let sessionsSettled = 0;
 	for (const { designSessionId, identity } of reapable.sessions) {
-		await reapStaleDesignSessionRun(designSessionId, identity);
+		if (
+			(await reapStaleDesignSessionRun(designSessionId, identity)) === "reaped"
+		)
+			sessionsSettled += 1;
 	}
-	return { appsSettled, sessionsSettled: reapable.sessions.length };
+	return { appsSettled, sessionsSettled };
 }

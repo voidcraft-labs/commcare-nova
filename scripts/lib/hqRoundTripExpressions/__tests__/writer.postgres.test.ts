@@ -6,10 +6,17 @@
  * or rolls back leaves a trace.
  */
 
-import { type Kysely, sql } from "kysely";
-import { Client } from "pg";
+import {
+	Kysely,
+	PostgresAdapter,
+	PostgresDialect,
+	type PostgresPool,
+	sql,
+} from "kysely";
+import { Client, Pool } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
+import { caseStoreMigrations } from "@/lib/case-store/migrations";
 import {
 	type AppStateTestDb,
 	setupAppStateTestDb,
@@ -18,8 +25,10 @@ import { loadAppInTransaction } from "@/lib/db/canonicalCommitKernel";
 import type { AppDatabase } from "@/lib/db/pg";
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
 import { readPlannedFleet } from "../fleet";
-import { runMigrate, writerInputOf } from "../run";
+import { errorClassOf, runMigrate, writerInputOf } from "../run";
 import {
+	CutoverLedgerError,
+	CutoverLockTimeoutError,
 	type CutoverStoppedError,
 	runFleetTransaction,
 	WRITER_STEPS,
@@ -129,6 +138,32 @@ function planDigestOf(result: Awaited<ReturnType<typeof runMigrate>>): string {
 		?.planDigest as string;
 }
 
+/** The advisory locks any session holds in this test's database. */
+async function advisoryLockCount(): Promise<number> {
+	const observer = new Client({ connectionString: h.uri() });
+	await observer.connect();
+	try {
+		const row = await observer.query<{ held: string }>(`
+			SELECT count(*)::text AS held FROM pg_locks
+			WHERE locktype = 'advisory'
+				AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+		`);
+		return Number(row.rows[0]?.held ?? "0");
+	} finally {
+		await observer.end();
+	}
+}
+
+/** What the rejected promise threw, for assertions on its fields. */
+async function rejectionOf(run: Promise<unknown>): Promise<unknown> {
+	try {
+		await run;
+	} catch (error) {
+		return error;
+	}
+	throw new Error("The run was expected to stop, and it finished.");
+}
+
 async function appliedMigrations(db: Kysely<AppDatabase>): Promise<string[]> {
 	const rows = await sql<{ name: string }>`
 		SELECT name FROM kysely_migration ORDER BY name
@@ -207,7 +242,9 @@ describe("the fleet transaction from main's migration prefix", () => {
 });
 
 describe("the fleet transaction over the frozen fixtures", () => {
-	useHarness("hq_expr_writer_");
+	/* The production database lacks exactly the fold-horizon migration, and
+	 * the writer refuses any other ledger, so every run starts from main's. */
+	useHarness("hq_expr_writer_", FIRST_STACK_MIGRATION);
 
 	it("establishes one horizon per app and commits only under the dry run's digest", async () => {
 		const fleet = await seedFleet();
@@ -361,55 +398,6 @@ describe("the fleet transaction over the frozen fixtures", () => {
 		expect(again.outcome).toEqual({ outcome: "already-applied" });
 	}, 120_000);
 
-	it("admits the new horizon identity and refuses an invented one", async () => {
-		await h.seedProjectMember(OWNER, PROJECT, "owner");
-		await seedApp("choices", "app-00-admitted");
-		await seedApp("choices", "app-01-invented");
-		/* A horizon written the way the writer writes one: the root and entity
-		 * rows rewritten in the transaction, the empty marker at `+1`, then the
-		 * baseline as the database's own snapshot of them. */
-		const establish = (appId: string, batchId: string, actorId: string) =>
-			h.withTransaction(async (tx) => {
-				await sql`
-					UPDATE apps SET mutation_seq = mutation_seq + 1 WHERE id = ${appId}
-				`.execute(tx);
-				await sql`
-					UPDATE blueprint_entities SET ordinal = ordinal WHERE app_id = ${appId}
-				`.execute(tx);
-				await sql`
-					INSERT INTO app_changes (app_id, seq, batch_id, run_id, actor_id, kind, mutations,
-						from_project_id, to_project_id)
-					SELECT id, mutation_seq, ${batchId}, NULL, ${actorId}, 'fold-baseline',
-						'[]'::jsonb, NULL, NULL
-					FROM apps WHERE id = ${appId}
-				`.execute(tx);
-				await sql`
-					INSERT INTO app_change_fold_baselines (app_id, seq, project_id, snapshot, snapshot_digest)
-					SELECT app.id, app.mutation_seq, app.project_id, current.snapshot,
-						nova_app_change_fold_snapshot_digest(current.snapshot)
-					FROM apps AS app,
-						LATERAL (SELECT nova_current_app_change_fold_snapshot(app.id) AS snapshot) AS current
-					WHERE app.id = ${appId}
-				`.execute(tx);
-			});
-		await establish("app-00-admitted", MARKER_BATCH_ID, MARKER_ACTOR_ID);
-		await expect(
-			establish(
-				"app-01-invented",
-				"fold-baseline:invented-cutover",
-				"system:invented-cutover",
-			),
-		).rejects.toThrow(/exact (fold marker|horizon)/);
-		const markers = await sql<{ app_id: string; batch_id: string }>`
-			SELECT app_id, batch_id FROM app_changes ORDER BY app_id, seq
-		`.execute(h.db());
-		expect(markers.rows).toEqual([
-			{ app_id: "app-00-admitted", batch_id: "genesis:app-00-admitted" },
-			{ app_id: "app-00-admitted", batch_id: MARKER_BATCH_ID },
-			{ app_id: "app-01-invented", batch_id: "genesis:app-01-invented" },
-		]);
-	}, 60_000);
-
 	it("refuses a digest the rebuilt plan does not hold, with nothing written", async () => {
 		await seedFleet();
 		const image = await databaseImage(h.db());
@@ -422,6 +410,119 @@ describe("the fleet transaction over the frozen fixtures", () => {
 			stoppedBy: ["digest"],
 		});
 		expect(refused.exitCode).toBe(1);
+		expect(await databaseImage(h.db())).toBe(image);
+	}, 120_000);
+
+	it("stops within the cutover's lock timeout while another run holds Kysely's migration lock, with nothing written", async () => {
+		await seedFleet();
+		const input = writerInputOf(await readPlannedFleet(h.db()));
+		const image = await databaseImage(h.db());
+		/* Kysely's own adapter takes its own lock on one connection, as a
+		 * migrate Job or the auth migrator would. */
+		const holder = new Kysely<unknown>({
+			dialect: new PostgresDialect({
+				pool: new Pool({
+					connectionString: h.uri(),
+					max: 1,
+				}) as unknown as PostgresPool,
+			}),
+		});
+		const adapter = new PostgresAdapter();
+		const lockOptions = {
+			lockTable: "kysely_migration_lock",
+			lockRowId: "migration_lock",
+		};
+		try {
+			await holder.connection().execute(async (connection) => {
+				await adapter.acquireMigrationLock(connection, lockOptions);
+				try {
+					const started = performance.now();
+					const error = await rejectionOf(
+						runFleetTransaction(h.db(), { mode: "execute", input }),
+					);
+					const elapsed = performance.now() - started;
+					expect(error).toBeInstanceOf(CutoverLockTimeoutError);
+					expect(errorClassOf(error)).toBe("lock-timeout");
+					expect(elapsed).toBeGreaterThanOrEqual(14_000);
+					expect(elapsed).toBeLessThan(60_000);
+				} finally {
+					await adapter.releaseMigrationLock(connection, lockOptions);
+				}
+			});
+		} finally {
+			await holder.destroy();
+		}
+		expect(await appliedMigrations(h.db())).not.toContain(
+			FIRST_STACK_MIGRATION,
+		);
+		expect(await databaseImage(h.db())).toBe(image);
+	}, 120_000);
+
+	it("stops with nothing written and no migration applied when the ledger lacks more than the fold horizon", async () => {
+		await seedFleet();
+		const input = writerInputOf(await readPlannedFleet(h.db()));
+		const [lastOfMain] = Object.keys(caseStoreMigrations)
+			.filter((name) => name < FIRST_STACK_MIGRATION)
+			.sort()
+			.reverse();
+		if (lastOfMain === undefined) throw new Error("main has no migration.");
+		await sql`DELETE FROM kysely_migration WHERE name = ${lastOfMain}`.execute(
+			h.db(),
+		);
+		const ledger = await appliedMigrations(h.db());
+		const image = await databaseImage(h.db());
+		const error = await rejectionOf(
+			runFleetTransaction(h.db(), { mode: "execute", input }),
+		);
+		expect(error).toBeInstanceOf(CutoverLedgerError);
+		expect(errorClassOf(error)).toBe("ledger");
+		expect((error as Error).message).toContain(
+			`found ${lastOfMain}, ${FIRST_STACK_MIGRATION}`,
+		);
+		expect(await appliedMigrations(h.db())).toEqual(ledger);
+		expect(await databaseImage(h.db())).toBe(image);
+	}, 120_000);
+
+	it("names a failed migration and its error class, rolls it back and releases Kysely's lock", async () => {
+		await seedFleet();
+		const input = writerInputOf(await readPlannedFleet(h.db()));
+		/* The fold-horizon migration replaces two functions; the second
+		 * cannot replace one that returns another type (42P13), so it fails
+		 * after the first has run. */
+		await sql`
+			ALTER FUNCTION nova_require_app_change_fold_baseline()
+				RENAME TO nova_require_app_change_fold_baseline_kept
+		`.execute(h.db());
+		await sql`
+			CREATE FUNCTION nova_require_app_change_fold_baseline() RETURNS integer
+				LANGUAGE sql AS 'SELECT 1'
+		`.execute(h.db());
+		const definition = () =>
+			sql<{ body: string }>`
+				SELECT pg_get_functiondef('nova_admit_app_change_fold_baseline_insert()'::regprocedure) AS body
+			`.execute(h.db());
+		const before = (await definition()).rows[0]?.body;
+		const ledger = await appliedMigrations(h.db());
+		const image = await databaseImage(h.db());
+
+		const error = await rejectionOf(
+			runFleetTransaction(h.db(), { mode: "execute", input }),
+		);
+		expect(error).toBeInstanceOf(CutoverLedgerError);
+		expect((error as CutoverLedgerError).failure).toEqual({
+			migrationName: FIRST_STACK_MIGRATION,
+			failureClass: "DatabaseError",
+			sqlState: "42P13",
+		});
+		expect((error as Error).message).toContain(
+			`The ledgered migration ${FIRST_STACK_MIGRATION} failed`,
+		);
+		expect(errorClassOf(error)).toBe("ledger");
+
+		// No session keeps Kysely's lock past the rollback.
+		expect(await advisoryLockCount()).toBe(0);
+		expect((await definition()).rows[0]?.body).toBe(before);
+		expect(await appliedMigrations(h.db())).toEqual(ledger);
 		expect(await databaseImage(h.db())).toBe(image);
 	}, 120_000);
 
@@ -548,4 +649,57 @@ describe("the fleet transaction over the frozen fixtures", () => {
 		},
 		120_000,
 	);
+});
+
+describe("the fold-horizon migration's admission", () => {
+	useHarness("hq_expr_admission_");
+
+	it("admits the new horizon identity and refuses an invented one", async () => {
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		await seedApp("choices", "app-00-admitted");
+		await seedApp("choices", "app-01-invented");
+		/* A horizon written the way the writer writes one: the root and entity
+		 * rows rewritten in the transaction, the empty marker at `+1`, then the
+		 * baseline as the database's own snapshot of them. */
+		const establish = (appId: string, batchId: string, actorId: string) =>
+			h.withTransaction(async (tx) => {
+				await sql`
+					UPDATE apps SET mutation_seq = mutation_seq + 1 WHERE id = ${appId}
+				`.execute(tx);
+				await sql`
+					UPDATE blueprint_entities SET ordinal = ordinal WHERE app_id = ${appId}
+				`.execute(tx);
+				await sql`
+					INSERT INTO app_changes (app_id, seq, batch_id, run_id, actor_id, kind, mutations,
+						from_project_id, to_project_id)
+					SELECT id, mutation_seq, ${batchId}, NULL, ${actorId}, 'fold-baseline',
+						'[]'::jsonb, NULL, NULL
+					FROM apps WHERE id = ${appId}
+				`.execute(tx);
+				await sql`
+					INSERT INTO app_change_fold_baselines (app_id, seq, project_id, snapshot, snapshot_digest)
+					SELECT app.id, app.mutation_seq, app.project_id, current.snapshot,
+						nova_app_change_fold_snapshot_digest(current.snapshot)
+					FROM apps AS app,
+						LATERAL (SELECT nova_current_app_change_fold_snapshot(app.id) AS snapshot) AS current
+					WHERE app.id = ${appId}
+				`.execute(tx);
+			});
+		await establish("app-00-admitted", MARKER_BATCH_ID, MARKER_ACTOR_ID);
+		await expect(
+			establish(
+				"app-01-invented",
+				"fold-baseline:invented-cutover",
+				"system:invented-cutover",
+			),
+		).rejects.toThrow(/exact (fold marker|horizon)/);
+		const markers = await sql<{ app_id: string; batch_id: string }>`
+			SELECT app_id, batch_id FROM app_changes ORDER BY app_id, seq
+		`.execute(h.db());
+		expect(markers.rows).toEqual([
+			{ app_id: "app-00-admitted", batch_id: "genesis:app-00-admitted" },
+			{ app_id: "app-00-admitted", batch_id: MARKER_BATCH_ID },
+			{ app_id: "app-01-invented", batch_id: "genesis:app-01-invented" },
+		]);
+	}, 60_000);
 });

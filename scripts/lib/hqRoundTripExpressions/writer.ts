@@ -29,8 +29,8 @@
  */
 
 import { type Kysely, sql, type Transaction } from "kysely";
+import { type Migration, Migrator } from "kysely/migration";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
-import { runCaseStoreMigrationsWithReport } from "@/lib/case-store/migrate";
 import { caseStoreMigrations } from "@/lib/case-store/migrations";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import {
@@ -103,7 +103,7 @@ export interface MigrationLedgerState {
 
 /** Read the `kysely_migration` ledger with one plain `SELECT`. */
 export async function readMigrationLedger(
-	db: Kysely<AppDatabase>,
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
 ): Promise<MigrationLedgerState> {
 	const exists = await sql<{ present: boolean }>`
 		SELECT to_regclass('public.kysely_migration') IS NOT NULL AS present
@@ -150,12 +150,34 @@ export class CutoverPostconditionError extends Error {
 	readonly name = "CutoverPostconditionError";
 }
 
-/** The ledgered DDL failed inside the transaction, so the fleet rolled back. */
-export class CutoverLedgerError extends Error {
-	readonly name = "CutoverLedgerError";
+/** What a ledger failure may say of itself: names and codes, never a text. */
+export interface LedgerFailure {
+	/** The migration that failed, when one did. */
+	readonly migrationName?: string;
+	/** The class of what it threw, such as `DatabaseError`. */
+	readonly failureClass?: string;
+	/** The SQLSTATE of a database error. */
+	readonly sqlState?: string;
 }
 
-/** Another run held the cutover's lock past the lock timeout. */
+/**
+ * The migration ledger was not the one this cutover was reviewed against, or
+ * the ledgered DDL failed inside the transaction: either way the fleet rolled
+ * back with nothing written.
+ */
+export class CutoverLedgerError extends Error {
+	readonly name = "CutoverLedgerError";
+
+	constructor(
+		message: string,
+		readonly failure: LedgerFailure = {},
+		options?: ErrorOptions,
+	) {
+		super(message, options);
+	}
+}
+
+/** Another run held the cutover's lock, or Kysely's migration lock, past the lock timeout. */
 export class CutoverLockTimeoutError extends Error {
 	readonly name = "CutoverLockTimeoutError";
 }
@@ -674,6 +696,139 @@ async function checkPostconditions(
 	}
 }
 
+// ── Step `ledger`: the ledgered DDL ─────────────────────────────────
+
+/**
+ * Kysely's own migration lock key: `LOCK_ID` in
+ * `node_modules/kysely/dist/dialect/postgres/postgres-adapter.js` (0.29.6).
+ */
+const KYSELY_MIGRATION_LOCK_ID = "3853314791062309107";
+
+/** The one migration this cutover was reviewed to apply. */
+const REVIEWED_LEDGER: readonly string[] = [FOLD_HORIZON_MIGRATION];
+
+function namesText(names: readonly string[]): string {
+	return names.length === 0 ? "none" : names.join(", ");
+}
+
+function sameNames(a: readonly string[], b: readonly string[]): boolean {
+	return a.length === b.length && a.every((name, index) => name === b[index]);
+}
+
+function ledgerFailureOf(
+	migrationName: string | undefined,
+	error: unknown,
+): LedgerFailure {
+	const code = (error as { code?: unknown } | null)?.code;
+	return {
+		...(migrationName === undefined ? {} : { migrationName }),
+		failureClass:
+			error instanceof Error ? error.constructor.name : typeof error,
+		...(typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)
+			? { sqlState: code }
+			: {}),
+	};
+}
+
+/**
+ * Apply the reviewed migration on the fleet transaction, and nothing else.
+ *
+ * Kysely's lock is taken first as a transaction lock under the cutover's own
+ * 15-second timeout: its adapter would otherwise wait up to an hour for it,
+ * holding every row lock. Postgres grants Kysely's own session-level acquire
+ * on this session at once. Under that lock the ledger must lack exactly the
+ * fold-horizon migration, so nothing unreviewed is ever applied.
+ *
+ * Kysely releases its session lock in a `finally` that cannot run in an
+ * aborted transaction, which would hide the migration's own error and keep
+ * the lock past the rollback. So each migration runs in its own savepoint,
+ * rolled back when it throws so the release runs, and the whole run in an
+ * outer one; on any failure the outer one is rolled back and every
+ * session-level advisory lock released. This session holds no other.
+ */
+async function applyLedger(
+	tx: Transaction<AppDatabase>,
+): Promise<readonly string[]> {
+	try {
+		await sql`SELECT pg_advisory_xact_lock(${KYSELY_MIGRATION_LOCK_ID}::bigint)`.execute(
+			tx,
+		);
+	} catch (error) {
+		if ((error as { code?: unknown })?.code === LOCK_NOT_AVAILABLE) {
+			throw new CutoverLockTimeoutError(
+				"Another migration run held the database's migration lock for 15 seconds, so this run stopped with nothing written. Let that run finish, such as a deploy's migrate Job, then run again.",
+				{ cause: error },
+			);
+		}
+		throw error;
+	}
+	const ledger = await readMigrationLedger(tx);
+	if (!sameNames(ledger.pendingMigrations, REVIEWED_LEDGER)) {
+		throw new CutoverLedgerError(
+			`The migration ledger is not the one this cutover was reviewed against: it expected only ${FOLD_HORIZON_MIGRATION} to be pending and found ${namesText(ledger.pendingMigrations)}. The cutover stopped with nothing written and no migration applied. Compare a dry run's ledger line with main's migrations, and find out how the ledger moved before running again.`,
+		);
+	}
+	/* The first migration that threw, kept here because Kysely's result
+	 * carries the error but a failed release would replace it. */
+	const thrown: { name: string; error: unknown }[] = [];
+	const migrations: Record<string, Migration> = Object.fromEntries(
+		Object.entries(caseStoreMigrations).map(([name, migration]) => [
+			name,
+			{
+				up: async (db) => {
+					await sql`SAVEPOINT cutover_ledger_migration`.execute(db);
+					/* Kysely's lock set its own hour-long timeout; the
+					 * migration's DDL waits no longer than the cutover's. */
+					await sql`SET LOCAL lock_timeout = '15s'`.execute(db);
+					try {
+						await migration.up(db);
+					} catch (error) {
+						thrown.push({ name, error });
+						await sql`ROLLBACK TO SAVEPOINT cutover_ledger_migration`.execute(
+							db,
+						);
+						throw error;
+					}
+					await sql`RELEASE SAVEPOINT cutover_ledger_migration`.execute(db);
+				},
+			} satisfies Migration,
+		]),
+	);
+	await sql`SAVEPOINT cutover_ledger`.execute(tx);
+	const { error, results } = await new Migrator({
+		db: tx as unknown as Kysely<unknown>,
+		provider: { getMigrations: async () => migrations },
+	}).migrateToLatest();
+	const errored = results?.find((result) => result.status === "Error");
+	const [failed] = thrown;
+	if (error !== undefined || errored !== undefined) {
+		await sql`ROLLBACK TO SAVEPOINT cutover_ledger`.execute(tx);
+		await sql`SELECT pg_advisory_unlock_all()`.execute(tx);
+		const failure = ledgerFailureOf(
+			failed?.name ?? errored?.migrationName,
+			failed?.error ?? error,
+		);
+		throw new CutoverLedgerError(
+			`${failure.migrationName === undefined ? "The migrator" : `The ledgered migration ${failure.migrationName}`} failed inside the fleet transaction with an error of class ${failure.failureClass ?? "unknown"}${failure.sqlState === undefined ? "" : ` (SQLSTATE ${failure.sqlState})`}, so the whole fleet rolled back with nothing written, the migration included. Its text is not printed, because a database error can quote stored content; reproduce it against a restored copy of the database to read it.`,
+			failure,
+			{ cause: failed?.error ?? error },
+		);
+	}
+	await sql`RELEASE SAVEPOINT cutover_ledger`.execute(tx);
+	const applied = (results ?? [])
+		.filter((result) => result.status === "Success")
+		.map((result) => result.migrationName);
+	if (!sameNames(applied, REVIEWED_LEDGER)) {
+		throw new CutoverLedgerError(
+			`The migrator applied ${namesText(applied)} where this cutover was reviewed to apply only ${FOLD_HORIZON_MIGRATION}, so the whole fleet rolled back with nothing written, the migrations included.`,
+		);
+	}
+	/* Kysely's migration lock sets its own transaction-local lock timeout;
+	 * every later statement keeps the cutover's. */
+	await sql`SET LOCAL lock_timeout = '15s'`.execute(tx);
+	return applied;
+}
+
 // ── The transaction ─────────────────────────────────────────────────
 
 /**
@@ -751,25 +906,7 @@ export async function runFleetTransaction(
 			});
 			// The ledgered DDL, now that nothing before the writes can stop:
 			// it commits with the fleet or rolls back with it.
-			const migrationsApplied = await timed("ledger", async () => {
-				let applied: readonly string[];
-				try {
-					applied = (
-						await runCaseStoreMigrationsWithReport(
-							tx as unknown as Kysely<unknown>,
-						)
-					).appliedMigrationNames;
-				} catch (error) {
-					throw new CutoverLedgerError(
-						"A ledgered migration failed inside the fleet transaction, so the whole fleet rolled back with nothing written, the migration included.",
-						{ cause: error },
-					);
-				}
-				/* Kysely's migration lock sets its own transaction-local lock
-				 * timeout; every later statement keeps the cutover's. */
-				await sql`SET LOCAL lock_timeout = '15s'`.execute(tx);
-				return applied;
-			});
+			const migrationsApplied = await timed("ledger", () => applyLedger(tx));
 			// 4. Before-images, then step 2's event archive, verbatim.
 			const before = await timed("archive-events", async () => {
 				const images = await captureImages(tx);
