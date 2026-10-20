@@ -445,6 +445,28 @@ schema counts, between code points (`steps/shared.ts::noticeText`, the one helpe
 uses too), so a character outside the Basic Multilingual Plane is kept whole or left out, never half
 a surrogate pair, which no `jsonb` value holds.
 
+**Implementation correction, 2026-10-20 (pull request 13):** the structure is not free of
+expressions. The checker reads three kinds of slot while typing another
+(`lib/domain/expression/typeChecker.ts`, each through the form's `expressionAt`): a repeat row's case
+type comes from its repeat's `ids_query`, and binds a read of the row's case such as
+`instance('casedb')/casedb/case[@case_id = current()/../@id]/case_name`; a repeat count node's type
+comes from `repeat_count`; a Connect score's and a delivery entity's type come from the form's
+generated calculation (`assessment_user_score`, `deliver_entity_id`, `deliver_entity_name`). Only the
+first changes a parsed tree: against a placeholder query the row has no case type, so a read of a
+property one type declares, or none, stays untyped while the parse against the target that step 7
+runs gives both `prop` nodes the case type (the advisory scan's `round-trip` blockers), and a read
+of a property several types declare is refused as `case-query-untyped` though the target binds it
+(most of the advisory scan's `case-query-untyped` refusals). Step 4 therefore lifts these slots first, every `ids_query` before the rest and
+each rank in document order, so an outer repeat's query comes before an inner one's
+(`steps/working.ts::inDependencyOrder`), and the structure carries their lifted values
+(`steps/working.ts::readByOtherSlots`): each later parse, step 5's typing of its reads and its
+reparse, which takes the same order, read the row's case type the target gives it. Reparsing every
+lifted slot against the target after steps 4 and 5 was the alternative; it was not taken, since it
+would parse every slot twice, give the order between dependent slots to whichever parse ran last,
+where this order is the target's own, and leave a refused read refused, since it never lifted. A query that step 5 binds by its one declaring type
+types the property it filters on and not its rows, so no row read lifted in step 4 reads otherwise
+against the target; step 7 holds every slot to that.
+
 Two readings above came from planning scanners, not from the production parser: the several-type
 binds and the declarations used a planning shape scanner's effective index, and the respellings part
 04's prototype printer. The dry run's counts are the production code's and replace them.
@@ -608,6 +630,23 @@ whole-corpus fixed-point check is its own file, `__tests__/emissionNormalCorpus.
 pull request 2's `emissionNormal.test.ts`, over the producers', workforce, targeted and fuzz-sample
 documents the proof tests build in process; the expander corpus is built only by
 `expander.test.ts` as a Vitest writer, so it is not among them.
+
+**Implementation correction, 2026-10-20 (pull request 13):** the advisory scan found apps whose
+local XForms differ from the base only by the order of their secondary `<instance>` declarations,
+so "none differs by instance order alone" above holds of the fixtures, not of the fleet. Part 04
+§5.2's separate comparison is `census.ts::instanceOrderExplains`: where an XForm's normalized digest
+differs from the base's, it tries each order of the secondary instances the frozen normalizer keeps,
+every other child in place, and normalizes each through the frozen `normalizeXForm` under the
+fragment's own prefix (the archive path and a newline for a local XForm, none for an HQ attachment).
+An order that digests to the base's makes the file a respelling: the app reads `respelled-only`
+where nothing else moved, and the file is counted as `instanceOrderFiles`, beside
+`respelledFiles` and `namedFiles` in the content-free report. Which declarations the base appended,
+and in what order, is not in the head's emission, so no one order can be rebuilt from it; the
+search is bounded instead, at six kept instances (`INSTANCE_ORDER_MAX`, 720 normalizations of the
+form); a form past the bound keeps its difference, an `unexplained` file. The head's own
+order must normalize to the head's own digest first, so a serialization the normalizer does not see
+through explains nothing, and a file that also differs in anything but that order stays
+`unexplained`. The comparison runs only for a moved XForm no named change explains.
 
 **Implementation correction, 2026-10-20 (pull request 13):** a census proves the emission only over the fleet it read, so two more
 of its facts stop the scan beside `unexplained`: a live app the plan admits that the base half holds

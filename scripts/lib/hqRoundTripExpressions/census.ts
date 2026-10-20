@@ -8,16 +8,22 @@
  * Content-free: only file keys (derived wire ids, never a name), digests and
  * verdicts leave this module. The comparison is a gate on unexplained
  * differences: a file whose normalized digest moved must belong to an entity
- * a named change names, or the app is `unexplained`, a defect of the stack.
+ * a named change names, or be an XForm whose secondary instances alone moved
+ * (part 04 §5.2), or the app is `unexplained`, a defect of the stack.
  */
 
+import { createHash } from "node:crypto";
 import AdmZip from "adm-zip";
+import { type Document, type Element, isTag } from "domhandler";
 import { z } from "zod";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
+import { relinkSiblings } from "@/lib/commcare/xform/domSplice";
+import { parseXml } from "@/lib/commcare/xmlParse";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { formOfField } from "@/lib/domain/fieldForm";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
@@ -27,6 +33,7 @@ import {
 	CENSUS_RUNTIME_TARGET,
 	type EmissionFragment,
 	normalizeEmittedApp,
+	normalizeXForm,
 } from "./emissionNormal";
 
 /**
@@ -94,6 +101,157 @@ export function emitCensusFragments(
 ): EmissionFragment[] {
 	const { hqApp, localFiles } = emitCensusFiles(doc, lookupDefinitions);
 	return normalizeEmittedApp(hqApp, localFiles);
+}
+
+function sha256(text: string): string {
+	return createHash("sha256").update(text).digest("hex");
+}
+
+function localName(name: string): string {
+	return name.slice(name.indexOf(":") + 1);
+}
+
+/** The XForm's one model, the first in document order, which sits in its head. */
+function modelOf(node: Document | Element): Element | undefined {
+	for (const child of node.children) {
+		if (!isTag(child)) continue;
+		if (localName(child.name) === "model") return child;
+		const found = modelOf(child);
+		if (found !== undefined) return found;
+	}
+	return undefined;
+}
+
+/** The secondary `<instance>` elements of a model: every one after the primary. */
+function secondaryInstances(model: Element): Element[] {
+	return model.children
+		.filter(isTag)
+		.filter((child) => localName(child.name) === "instance")
+		.slice(1);
+}
+
+function* permutations<T>(items: readonly T[]): Generator<T[]> {
+	if (items.length <= 1) {
+		yield [...items];
+		return;
+	}
+	for (let i = 0; i < items.length; i++)
+		for (const rest of permutations([
+			...items.slice(0, i),
+			...items.slice(i + 1),
+		]))
+			yield [items[i], ...rest];
+}
+
+/**
+ * The most secondary instances the frozen normalizer keeps whose orders the
+ * comparison tries: 6! orders, each one normalization of the form. A form
+ * that keeps more keeps its difference, an `unexplained` file the operator
+ * reads with `--debug-details`.
+ */
+export const INSTANCE_ORDER_MAX = 6;
+
+/**
+ * Whether some order of an XForm's secondary instances, normalized by the
+ * frozen `normalizeXForm` under the file's `prefix`, digests to `digest`.
+ *
+ * The head declares secondary instances in the instance table's order
+ * (`casedb`, `commcaresession`, then other ids lexically,
+ * `lib/commcare/xform/domSplice.ts::ensureInstance`), while pull request
+ * 2's head appended each generated read's declaration after the last
+ * instance (part 04 §5.2). Which declarations the base appended, and in
+ * what order, is not in the head's emission, so the comparison tries each
+ * order of the instances the normalizer keeps (an unread one is dropped,
+ * wherever it sits), every other child where it is. The head's own order
+ * must normalize to the head's own digest, so a serialization the
+ * normalizer does not see through explains nothing.
+ */
+export function instanceOrderExplains(
+	xml: string,
+	prefix: string,
+	headDigest: string,
+	baseDigest: string,
+): boolean {
+	const normalized = (doc: Document) =>
+		sha256(`${prefix}${normalizeXForm(serializeXml(doc))}`);
+	const doc = parseXml(xml);
+	const model = modelOf(doc);
+	if (model === undefined || normalized(doc) !== headDigest) return false;
+	const kept = new Set<string>();
+	const normalModel = modelOf(parseXml(normalizeXForm(xml)));
+	if (normalModel === undefined) return false;
+	for (const instance of secondaryInstances(normalModel))
+		kept.add(instance.attribs.id ?? "");
+	const moving = secondaryInstances(model).filter((instance) =>
+		kept.has(instance.attribs.id ?? ""),
+	);
+	if (moving.length < 2 || moving.length > INSTANCE_ORDER_MAX) return false;
+	const slots = moving.map((instance) => model.children.indexOf(instance));
+	for (const order of permutations(moving)) {
+		if (order.every((instance, index) => instance === moving[index])) continue;
+		order.forEach((instance, index) => {
+			model.children[slots[index]] = instance;
+		});
+		relinkSiblings(model.children);
+		if (normalized(doc) === baseDigest) return true;
+	}
+	return false;
+}
+
+/** What the census reads of one target's emission. */
+export interface HeadCensus {
+	readonly fragments: readonly EmissionFragment[];
+	/**
+	 * Whether a moved file is an XForm whose difference from the base digest
+	 * is the order of its secondary instances alone.
+	 */
+	readonly instanceOrderOnly: (file: string, baseDigest: string) => boolean;
+}
+
+/**
+ * One target's census fragments, and the order-only comparison over its
+ * XForms: each XForm's raw text by the raw digest its fragment carries,
+ * under the prefix the frozen normalizer digests it with (the local
+ * archive path for a local XForm, none for an HQ attachment).
+ */
+export function emitHeadCensus(
+	doc: BlueprintDoc,
+	lookupDefinitions: readonly LookupTableDefinition[],
+): HeadCensus {
+	const { hqApp, localFiles } = emitCensusFiles(doc, lookupDefinitions);
+	const fragments = normalizeEmittedApp(hqApp, localFiles);
+	const xforms = new Map<string, { prefix: string; xml: string }>();
+	const attachments = (hqApp as { _attachments?: Record<string, unknown> })
+		._attachments;
+	for (const xml of Object.values(attachments ?? {}))
+		if (typeof xml === "string") xforms.set(sha256(xml), { prefix: "", xml });
+	for (const [name, xml] of localFiles)
+		if (name !== "suite.xml") {
+			const prefix = `${JSON.stringify(name)}\n`;
+			xforms.set(sha256(`${prefix}${xml}`), { prefix, xml });
+		}
+	const byFile = new Map(fragments.map((entry) => [entry.file, entry]));
+	return {
+		fragments,
+		instanceOrderOnly(file, baseDigest) {
+			const head = byFile.get(file);
+			if (
+				head === undefined ||
+				!(file.startsWith("hq/xforms/") || file.startsWith("local/xforms/"))
+			)
+				return false;
+			const source = xforms.get(head.rawDigest);
+			return (
+				source !== undefined &&
+				instanceOrderExplains(
+					source.xml,
+					source.prefix,
+					head.digest,
+					baseDigest,
+				)
+			);
+		},
+	};
 }
 
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/);
@@ -274,6 +432,11 @@ export interface AppCensus {
 	/** Files that differ after normalization and a named change explains. */
 	readonly namedFiles: number;
 	/**
+	 * XForms that differ after normalization only by the order of their
+	 * secondary instances (part 04 §5.2), and no named change explains.
+	 */
+	readonly instanceOrderFiles: number;
+	/**
 	 * The file keys no named change explains, by their position in the
 	 * emission: derived wire ids only. A file only one half holds is one.
 	 */
@@ -282,16 +445,19 @@ export interface AppCensus {
 
 /**
  * One app's verdict, file by file: `unchanged` (every raw digest equal),
- * `respelled-only` (every normalized digest equal), `named` (every file that
- * differs after normalization is one a named change explains), else
- * `unexplained`. A file present in one half only differs after
- * normalization, so it too must be explained.
+ * `respelled-only` (every normalized digest equal, or an XForm's equal in
+ * some order of its secondary instances: a respelling of the declarations
+ * the normalizer keeps, counted apart as `instanceOrderFiles`), `named`
+ * (every other file that differs after normalization is one a named change
+ * explains), else `unexplained`. A file present in one half only differs
+ * after normalization, so it too must be explained.
  */
 export function appCensus(
 	appId: string,
 	base: readonly EmissionFragment[],
 	head: readonly EmissionFragment[],
 	explained: ExplainedFiles,
+	instanceOrderOnly: HeadCensus["instanceOrderOnly"] = () => false,
 ): AppCensus {
 	const baseByFile = new Map(base.map((entry) => [entry.file, entry]));
 	const headByFile = new Map(head.map((entry) => [entry.file, entry]));
@@ -300,6 +466,7 @@ export function appCensus(
 	);
 	let respelled = 0;
 	let named = 0;
+	let instanceOrder = 0;
 	const unexplained: string[] = [];
 	for (const key of keys) {
 		const before = baseByFile.get(key);
@@ -313,6 +480,12 @@ export function appCensus(
 			continue;
 		}
 		if (explained.all || explained.files.has(key)) named++;
+		else if (
+			before !== undefined &&
+			after !== undefined &&
+			instanceOrderOnly(key, before.digest)
+		)
+			instanceOrder++;
 		else unexplained.push(key);
 	}
 	const verdict: CensusVerdict =
@@ -320,7 +493,7 @@ export function appCensus(
 			? "unexplained"
 			: named > 0
 				? "named"
-				: respelled > 0
+				: respelled > 0 || instanceOrder > 0
 					? "respelled-only"
 					: "unchanged";
 	return {
@@ -328,6 +501,7 @@ export function appCensus(
 		verdict,
 		respelledFiles: respelled,
 		namedFiles: named,
+		instanceOrderFiles: instanceOrder,
 		unexplainedFiles: unexplained,
 	};
 }
@@ -395,9 +569,9 @@ export function fleetCensus(input: {
 			missingBase.push(app.appId);
 			continue;
 		}
-		let head: EmissionFragment[];
+		let head: HeadCensus;
 		try {
-			head = emitCensusFragments(
+			head = emitHeadCensus(
 				target,
 				input.lookupDefinitions.get(app.projectId) ?? [],
 			);
@@ -408,12 +582,19 @@ export function fleetCensus(input: {
 				verdict: "unexplained",
 				respelledFiles: 0,
 				namedFiles: 0,
+				instanceOrderFiles: 0,
 				unexplainedFiles: [],
 			});
 			continue;
 		}
 		apps.push(
-			appCensus(app.appId, base, head, explainedFiles(target, app.changes)),
+			appCensus(
+				app.appId,
+				base,
+				head.fragments,
+				explainedFiles(target, app.changes),
+				head.instanceOrderOnly,
+			),
 		);
 	}
 	return {

@@ -350,9 +350,10 @@ function blockerLines(report: CutoverReport, fleet: PlannedFleet): void {
 
 /**
  * `census` (the scan, with base digests): the count per verdict, every app
- * not `unchanged` by id with its verdict and, for an `unexplained` one, the
- * file keys no named change explains, and whether the base half read the
- * same fleet sequences.
+ * not `unchanged` by id with its verdict, its counts of respelled, named and
+ * instance-order-only files and, for an `unexplained` one, the file keys no
+ * named change explains, and whether the base half read the same fleet
+ * sequences.
  */
 export function censusLine(report: CutoverReport, census: FleetCensus): void {
 	const shown: readonly CensusVerdict[] = ["respelled-only", "named"];
@@ -369,6 +370,7 @@ export function censusLine(report: CutoverReport, census: FleetCensus): void {
 				verdict: app.verdict,
 				respelledFiles: app.respelledFiles,
 				namedFiles: app.namedFiles,
+				instanceOrderFiles: app.instanceOrderFiles,
 				...(shown.includes(app.verdict)
 					? {}
 					: { unexplainedFiles: app.unexplainedFiles }),

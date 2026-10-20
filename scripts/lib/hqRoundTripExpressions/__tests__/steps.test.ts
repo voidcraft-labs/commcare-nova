@@ -20,6 +20,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { PersistedEntityRowText } from "@/lib/db/persistedJson";
 import {
 	exportReadinessFindings,
 	mutationCommitVerdict,
@@ -28,6 +29,7 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import type { Uuid } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { roundTripFailures, transformApp } from "../transform";
 import {
@@ -483,6 +485,141 @@ describe("step 4, form-logic-lift", () => {
 			(items.data_source as { ids_query?: unknown }).ids_query,
 		).toBeDefined();
 		expect(classCount(id, "form-logic-lift", "relative")).toBe(4);
+	});
+
+	/* A case-iteration repeat over patients, beside the case-query fixture's
+	 * reads, and a Hidden Value inside it reading the row's case through its
+	 * id. The row's case type comes from the repeat's own query, so the read
+	 * binds only when that query is lifted before it; read against a
+	 * placeholder it stays untyped, which no parse against the target keeps,
+	 * so step 7 would refuse the app. */
+	const REPEAT = "01992000-0000-7000-8000-0000000000b1";
+	const ROW_READ = "01992000-0000-7000-8000-0000000000b2";
+	const text = (value: string) => ({ parts: [{ kind: "text", text: value }] });
+	function patientRepeat(idsQuery: string, property = "case_name") {
+		const carriers = fixtureCarriers("case-query-bindings");
+		/* `shared`, which two types declare, so a read of it binds only by
+		 * its row, never by the one declaring type. */
+		const caseTypes = JSON.parse(carriers.root.case_types_text ?? "[]") as {
+			name: string;
+			properties: unknown[];
+		}[];
+		if (property === "shared") {
+			const shared = { name: "shared", label: text("Shared") };
+			for (const caseType of caseTypes) caseType.properties.push(shared);
+			caseTypes.push({ name: "household", properties: [shared] });
+		}
+		const formRow = carriers.rows.find((row) => row.kind === "form");
+		if (formRow === undefined) throw new Error("no form");
+		const row = (
+			uuid: string,
+			parent: string,
+			ordinal: number,
+			data: object,
+		): PersistedEntityRowText => ({
+			uuid: uuid as Uuid,
+			kind: "field",
+			parent_uuid: parent as Uuid,
+			ordinal,
+			data_text: JSON.stringify({ uuid, ...data }),
+		});
+		const r = transformApp(
+			{
+				root: { ...carriers.root, case_types_text: JSON.stringify(caseTypes) },
+				rows: [
+					...carriers.rows,
+					row(REPEAT, formRow.uuid, 5, {
+						id: "patients",
+						label: text("Patients"),
+						kind: "repeat",
+						repeat_mode: "query_bound",
+						data_source: { ids_query: text(idsQuery) },
+					}),
+					row(ROW_READ, REPEAT, 0, {
+						id: "row_name",
+						kind: "hidden",
+						calculate: text(
+							`instance('casedb')/casedb/case[@case_id = current()/../@id]/${property}`,
+						),
+					}),
+				],
+			},
+			{
+				...fixtureContext(manifestFixture("case-query-bindings")),
+				// The store holds the schemas of the catalog as stored.
+				storedCaseSchemas: derivedCaseSchemas({
+					...target("case-query-bindings"),
+					caseTypes: caseTypes as never,
+				}),
+			},
+		);
+		if (r.target === undefined) throw new Error("no target");
+		const lifted = r.target.fields[ROW_READ as never] as unknown as Record<
+			string,
+			unknown
+		>;
+		return {
+			r,
+			rowRead: lifted.calculate,
+			failures: roundTripFailures(hydratePersistedBlueprint(r.target), {
+				lookup: fixtureContext(manifestFixture("case-query-bindings"))
+					.lookupContext,
+			}),
+		};
+	}
+	const TYPED_ROW_READ = {
+		kind: "project",
+		of: {
+			kind: "cases",
+			source: "casedb",
+			where: [
+				{
+					kind: "eq",
+					left: {
+						kind: "term",
+						term: { kind: "prop", caseType: "patient", property: "case_id" },
+					},
+					right: {
+						kind: "term",
+						term: {
+							kind: "repeat-row",
+							repeat: REPEAT,
+							attribute: "id",
+							spelling: "current",
+						},
+					},
+				},
+			],
+		},
+		value: { kind: "prop", caseType: "patient", property: "case_name" },
+	};
+
+	it("types a read of the current row's case by the query its repeat iterates, lifted first", () => {
+		const { r, rowRead, failures } = patientRepeat(
+			"instance('casedb')/casedb/case[@case_type = 'patient']/@case_id",
+		);
+		expect(r.blockers).toEqual([]);
+		expect(rowRead).toEqual(TYPED_ROW_READ);
+		expect(failures).toBe(0);
+	});
+
+	it("binds a read of a property several types declare by the row's case type, with no refusal", () => {
+		/* Read against a placeholder query, the row has no case type and two
+		 * types declare `shared`, so step 4 would refuse the read as
+		 * `case-query-untyped`; the lifted query types the row. */
+		const { r, rowRead, failures } = patientRepeat(
+			"instance('casedb')/casedb/case[@case_type = 'patient']/@case_id",
+			"shared",
+		);
+		expect(r.blockers).toEqual([]);
+		expect(
+			r.places.filter((place) => place.code === "expression-parse-refused"),
+		).toEqual([]);
+		expect(rowRead).toEqual({
+			...TYPED_ROW_READ,
+			value: { kind: "prop", caseType: "patient", property: "shared" },
+		});
+		expect(failures).toBe(0);
 	});
 
 	it("keeps a date-and-time ordering as an ordering of the two answers", () => {

@@ -10,11 +10,15 @@
  * address, and are written into a copy of it only when a document is built.
  *
  * Two documents are built from the working state. The structure (phase 1)
- * holds every structural change and no expression: each optional slot is
- * absent and each required one holds a placeholder, so field paths, options,
- * case types, entry datums and search inputs are final and nothing depends
- * on an expression. The target (phase 2) holds every lifted value. Both
- * parse under the head's `blueprintDocSchema` and hydrate.
+ * holds every structural change and, of the expressions, only the lifted
+ * values of the slots the checker reads from another slot
+ * (`readByOtherSlots`): a repeat's query and count, and a form's generated
+ * Connect calculations. Every other optional slot is absent and every other
+ * required one holds a placeholder, so field paths, options, case types,
+ * entry datums and search inputs are final, and a read of a query-bound
+ * repeat's row is typed by the query the repeat iterates, as it is in the
+ * target. The target (phase 2) holds every lifted value. Both parse under
+ * the head's `blueprintDocSchema` and hydrate.
  */
 
 import { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
@@ -69,6 +73,47 @@ const PLACEHOLDER: Expression = {
 	kind: "term",
 	term: { kind: "literal", value: "" },
 };
+
+/**
+ * The slots whose value the checker reads while typing another slot, through
+ * the form's `expressionAt` (`lib/domain/expression/typeChecker.ts`): a
+ * repeat row's case type from its repeat's `ids_query`, which binds a read
+ * of the row's case; a repeat count node's type from `repeat_count`; and a
+ * Connect score's or delivery entity's type from the form's generated
+ * calculation. By rank, the order a lift takes them in: every query first
+ * (an inner repeat's query can read its outer repeat's row), then the
+ * counts and the generated calculations, then every other slot (99).
+ */
+const DEPENDENCY_RANK: Readonly<Record<string, number>> = {
+	ids_query: 0,
+	repeat_count: 1,
+	assessment_user_score: 1,
+	deliver_entity_id: 1,
+	deliver_entity_name: 1,
+};
+
+/** Whether the checker reads this slot's value while typing another slot. */
+export function readByOtherSlots(slot: SlotState): boolean {
+	return Object.hasOwn(DEPENDENCY_RANK, slot.ref.slot);
+}
+
+/**
+ * Slots in the order a lift parses them: those another slot's typing reads
+ * first, by rank, each rank in document order, which puts an outer repeat
+ * before the repeats inside it; then every other slot in document order.
+ */
+export function inDependencyOrder(
+	slots: readonly SlotState[],
+): readonly SlotState[] {
+	const rank = (slot: SlotState) =>
+		Object.hasOwn(DEPENDENCY_RANK, slot.ref.slot)
+			? DEPENDENCY_RANK[slot.ref.slot]
+			: 99;
+	return slots
+		.map((slot, index) => ({ slot, index }))
+		.sort((a, b) => rank(a.slot) - rank(b.slot) || a.index - b.index)
+		.map((entry) => entry.slot);
+}
 
 /** One stored expression slot and what the steps made of it. */
 export interface SlotState {
@@ -323,11 +368,21 @@ export class WorkingDocument {
 
 	#buildStructure(): Built {
 		return this.#assemble((slot) =>
-			slot?.required === true ? PLACEHOLDER : undefined,
+			slot !== undefined &&
+			slot.lifted !== false &&
+			slot.lifted.value !== undefined &&
+			readByOtherSlots(slot)
+				? slot.lifted.value
+				: slot?.required === true
+					? PLACEHOLDER
+					: undefined,
 		);
 	}
 
-	/** Phase 1: the structural document every parse resolves against. */
+	/**
+	 * Phase 1: the structural document every parse resolves against, with
+	 * the lifted value of each slot another slot's typing reads.
+	 */
 	structure(): Built {
 		if (this.#slots === undefined) this.slots();
 		this.#structure ??= this.#buildStructure();
@@ -390,8 +445,9 @@ export class WorkingDocument {
 
 	/**
 	 * Record a step's value for a slot and the classes it fell in; the built
-	 * documents follow it. Step 7 holds every slot of the target to its
-	 * print, whichever step lifted it.
+	 * documents follow it, the structure too where another slot's typing
+	 * reads this one. Step 7 holds every slot of the target to its print,
+	 * whichever step lifted it.
 	 */
 	lift(
 		slot: SlotState,
@@ -403,6 +459,7 @@ export class WorkingDocument {
 		slot.refused = undefined;
 		slot.classes.set(step, classes);
 		this.#target = undefined;
+		if (readByOtherSlots(slot)) this.#structure = undefined;
 	}
 
 	/** The raw catalog or structure changed (step 5): rebuild both documents. */

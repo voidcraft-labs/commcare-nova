@@ -18,6 +18,12 @@
  *
  * A form-logic slot that already holds an `Expression` is carried as it
  * is, so a second application changes nothing.
+ *
+ * The slots another slot's typing reads are lifted first, a repeat's query
+ * before everything (`working.ts::inDependencyOrder`), and the structure
+ * every later parse resolves against carries their lifted values: a read of
+ * a query-bound repeat's row case is bound to the case type its repeat's
+ * query selects, as a parse against the target binds it.
  */
 
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
@@ -38,7 +44,11 @@ import type {
 	ExpressionsStep,
 	StepContext,
 } from "../types";
-import type { SlotState, WorkingDocument } from "./working";
+import {
+	inDependencyOrder,
+	type SlotState,
+	type WorkingDocument,
+} from "./working";
 
 type LiftClass = ExpressionsChangeClass<"form-logic-lift">;
 
@@ -100,7 +110,8 @@ export type LiftOutcome =
 
 /**
  * Print and parse one form-logic slot against the working document's
- * current structure; on success the slot holds the parsed tree.
+ * current structure, with the lifted values of the slots another slot's
+ * typing reads; on success the slot holds the parsed tree.
  */
 export function liftFormSlot(
 	doc: WorkingDocument,
@@ -190,7 +201,7 @@ export const formLogicLiftStep: ExpressionsStep = {
 	id: "form-logic-lift",
 	apply(doc, ctx) {
 		const places: BlockerPlace[] = [];
-		for (const slot of doc.slots()) {
+		for (const slot of inDependencyOrder(doc.slots())) {
 			if (slot.ruleSet !== "form" || slot.lifted !== false) continue;
 			const outcome = liftFormSlot(doc, slot, ctx);
 			if (outcome.kind === "blocked") {

@@ -14,7 +14,12 @@
  *
  * Then every slot step 4 refused only with `case-query-untyped` is parsed
  * again against the document with the declarations, so a query that now
- * has one declaring type binds.
+ * has one declaring type binds. They are parsed in step 4's order, a
+ * repeat's query first, against the structure that carries every lifted
+ * value another slot's typing reads, step 4's and these. A query the one
+ * declaring type binds types the property it filters on, not its rows, so
+ * a row read step 4 lifted reads the same against the target; step 7 holds
+ * every slot to that.
  */
 
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
@@ -42,6 +47,7 @@ import {
 	slotForm,
 	walkWithContext,
 } from "./shared";
+import { inDependencyOrder } from "./working";
 
 /** What one read asks of its property's type. */
 export type ReadUse = "print" | "arithmetic" | "number" | "date" | "datetime";
@@ -246,7 +252,7 @@ export const declareReadPropertiesStep: ExpressionsStep = {
 
 		let reparsed = 0;
 		if (declared > 0)
-			for (const slot of doc.slots()) {
+			for (const slot of inDependencyOrder(doc.slots())) {
 				const refused = slot.refused;
 				if (
 					refused === undefined ||

@@ -18,7 +18,11 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { Element } from "domhandler";
 import { describe, expect, it } from "vitest";
+import { serializeXml } from "@/lib/commcare/serializeXml";
+import { relinkSiblings } from "@/lib/commcare/xform/domSplice";
+import { parseXml } from "@/lib/commcare/xmlParse";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
 	appCensus,
@@ -26,6 +30,7 @@ import {
 	censusStops,
 	emitCensusFiles,
 	emitCensusFragments,
+	emitHeadCensus,
 	explainedFiles,
 	fleetCensus,
 	parseBaseCensus,
@@ -37,6 +42,18 @@ import {
 	fixtureApp,
 	planFixtureFleet,
 } from "./fixtureFleet";
+
+/** Visit every element under `node` in document order. */
+function walk(
+	node: { children: unknown[] },
+	visit: (element: Element) => void,
+): void {
+	for (const child of node.children)
+		if (child instanceof Element) {
+			visit(child);
+			walk(child, visit);
+		}
+}
 
 function baseOf(fixture: string): readonly EmissionFragment[] {
 	const entry = BASE_FIXTURES.get(fixture);
@@ -315,6 +332,106 @@ describe("the verdicts", () => {
 		expect(
 			appCensus("ordering", rest, orderingHead, NOTHING_NAMED),
 		).toMatchObject({ verdict: "unexplained", unexplainedFiles: [first.file] });
+	});
+});
+
+describe("an XForm that differs by the order of its secondary instances", () => {
+	/* Pull request 2's head appended a generated read's declaration after
+	 * the last instance; the head declares them in the instance table's
+	 * order. The base half here is the head's own emission with one local
+	 * XForm's kept secondary instances reversed, which is what the base
+	 * emitter printed for such a form. */
+	const reads = targetOf("case-query-bindings");
+	const head = emitHeadCensus(reads, []);
+	const { hqApp, localFiles } = emitCensusFiles(reads, []);
+	const [formPath, formXml] =
+		[...localFiles].find(([name]) => name !== "suite.xml") ?? [];
+	if (formPath === undefined || formXml === undefined)
+		throw new Error("no local XForm");
+	const formKey = (fragments: readonly EmissionFragment[]) =>
+		fragments.filter((file) => file.file.startsWith("local/xforms/"));
+
+	/** The XForm with its secondary instances reversed, and `edit` applied to its model. */
+	function reordered(edit?: (model: Element) => void): string {
+		const doc = parseXml(formXml as string);
+		let model: Element | undefined;
+		walk(doc, (element) => {
+			if (model === undefined && element.name === "model") model = element;
+		});
+		if (model === undefined) throw new Error("no model");
+		const instances = model.children.filter(
+			(child): child is Element =>
+				child instanceof Element && child.name === "instance",
+		);
+		const secondary = instances.slice(1);
+		expect(secondary.length).toBeGreaterThan(1);
+		const slots = secondary.map((instance) =>
+			model?.children.indexOf(instance),
+		);
+		[...secondary].reverse().forEach((instance, index) => {
+			(model as Element).children[slots[index] as number] = instance;
+		});
+		relinkSiblings(model.children);
+		edit?.(model);
+		return serializeXml(doc);
+	}
+	function baseWith(xml: string): EmissionFragment[] {
+		const files = new Map(localFiles);
+		files.set(formPath as string, xml);
+		return normalizeEmittedApp(hqApp, files);
+	}
+
+	it("reads an order-only difference as respelled-only, counted apart", () => {
+		const base = baseWith(reordered());
+		const [baseForm] = formKey(base);
+		const [headForm] = formKey(head.fragments);
+		// The frozen normalizer keeps the order, so the digests differ.
+		expect(baseForm?.digest).not.toBe(headForm?.digest);
+		expect(
+			appCensus("reads", base, head.fragments, NOTHING_NAMED),
+		).toMatchObject({ verdict: "unexplained" });
+		expect(
+			appCensus(
+				"reads",
+				base,
+				head.fragments,
+				NOTHING_NAMED,
+				head.instanceOrderOnly,
+			),
+		).toMatchObject({
+			verdict: "respelled-only",
+			instanceOrderFiles: 1,
+			unexplainedFiles: [],
+		});
+	});
+
+	it("still stops on a reordered XForm that also differs in what it says", () => {
+		const base = baseWith(
+			reordered((model) => {
+				const bind = model.children.find(
+					(child): child is Element =>
+						child instanceof Element &&
+						child.name === "bind" &&
+						child.attribs.calculate !== undefined,
+				);
+				if (bind === undefined) throw new Error("no calculate");
+				bind.attribs.calculate = "1 + 1";
+			}),
+		);
+		const [headForm] = formKey(head.fragments);
+		expect(
+			appCensus(
+				"reads",
+				base,
+				head.fragments,
+				NOTHING_NAMED,
+				head.instanceOrderOnly,
+			),
+		).toMatchObject({
+			verdict: "unexplained",
+			instanceOrderFiles: 0,
+			unexplainedFiles: [headForm?.file],
+		});
 	});
 });
 
