@@ -953,11 +953,15 @@ text through `Double.parseDouble`), and `Recalculate.java::wrapData` (lines 93 t
 `number(text)` stays `decimal`. In form logic, branches agree on the scalar type they give, whether
 a node-set read or a scalar gives it, so `coalesce(#case/visits, 0)` is `int`. `cond`, the n-ary
 `if`, types as its values (each second argument and the last) agree, as an `if`'s branches do
-(`returnsBranch: true` in `FUNCTION_REGISTRY`), so `cond(c1, 1, c2, 2, 3)` is `int`. A single-select
-whose every inline option value is an optional `-` and digits is `int` wherever it is read as a
-number, in `number`, `sum`, `min`, `max` and `arith`, since `toNumeric` parses such text to a whole
+(`returnsBranch: true` in `FUNCTION_REGISTRY`), so `cond(c1, 1, c2, 2, 3)` is `int`, and a Hidden
+Value's write reads each `cond` value as one of its results, as it reads each `if` branch: a blank
+value holds no opinion, an ISO date text value fits a date property, and a lost clock in any value
+is refused. A single-select whose every inline option value is an optional `-` and digits within a
+Java `int`'s range (-2147483648 to 2147483647) is `int` wherever it is read as a number, in `number`, `sum`, `min`, `max` and `arith`, since `toNumeric` parses such text to a whole
 `Double` and a blank answer to NaN, which `wrapData` stores as null; a multi-select, or a select with
-any other option value, stays `decimal`.
+any other option value, stays `decimal`. A wider whole number stays `decimal` because `wrapData`
+stores it as `LongData`, which an integer question's `IntegerData.cast` refuses through
+`Integer.parseInt`.
 
 ### 3.4 Compatibility and ordering
 

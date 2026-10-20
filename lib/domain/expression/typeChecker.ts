@@ -1720,13 +1720,26 @@ function integerCodedSelect(
 	);
 }
 
-/** An optional `-` and then one or more digits: an option value, never XPath. */
+/**
+ * An optional `-` and then one or more digits whose value a Java `int` holds:
+ * an option value, never XPath. A wider whole number is stored as `LongData`
+ * (`Recalculate.java::wrapData`), which an integer question's
+ * `IntegerData.cast` reads through `Integer.parseInt` and refuses.
+ */
 function isIntegerText(value: string): boolean {
-	const digits = value.startsWith("-") ? value.slice(1) : value;
+	const negative = value.startsWith("-");
+	const digits = negative ? value.slice(1) : value;
 	if (digits.length === 0) return false;
 	for (const character of digits)
 		if (character < "0" || character > "9") return false;
-	return true;
+	let start = 0;
+	while (start < digits.length - 1 && digits[start] === "0") start += 1;
+	const magnitude = digits.slice(start);
+	const limit = negative ? "2147483648" : "2147483647";
+	return (
+		magnitude.length < limit.length ||
+		(magnitude.length === limit.length && magnitude <= limit)
+	);
 }
 
 function branchResult(
@@ -3192,8 +3205,20 @@ function assignmentRepresentationErrors(
 	}
 }
 
+/** The argument positions a branch-returning call (`cond`) can give as its
+ * value, in order; empty for every other expression. */
+function branchArgumentIndices(expression: Expression): readonly number[] {
+	if (expression.kind !== "call") return [];
+	const spec = FUNCTION_REGISTRY.get(expression.fn);
+	if (spec?.returnsBranch !== true) return [];
+	const branches = spec.passThrough?.(expression.args.length);
+	return expression.args.flatMap((_, index) =>
+		branches?.has(index) === true ? [index] : [],
+	);
+}
+
 /** Every value an expression can end with: each `if`, `switch` and
- * `coalesce` branch, or the expression itself. */
+ * `coalesce` branch, each value a `cond` can give, or the expression itself. */
 export function visitAssignmentOutputs(
 	expression: Expression,
 	path: CheckPath,
@@ -3227,6 +3252,20 @@ export function visitAssignmentOutputs(
 				);
 			}
 			return;
+		case "call": {
+			const branches = branchArgumentIndices(expression);
+			if (branches.length === 0) {
+				visit(expression, path);
+				return;
+			}
+			for (const index of branches)
+				visitAssignmentOutputs(
+					expression.args[index],
+					[...path, "call", "args", index],
+					visit,
+				);
+			return;
+		}
 		default:
 			visit(expression, path);
 	}

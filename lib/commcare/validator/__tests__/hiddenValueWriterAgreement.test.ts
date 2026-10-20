@@ -240,6 +240,25 @@ describe("a Hidden Value's outputs against the property", () => {
 		).toEqual([]);
 	});
 
+	// cond gives one of its values as an if gives a branch, so its blank
+	// value holds no opinion of the property's type either.
+	it.each(["if(#form/flag = 'yes', 5, '')", "cond(#form/flag = 'yes', 5, '')"])(
+		"types the property %s alone saves as a whole number",
+		(calculate) => {
+			const built = doc({
+				register: [hidden("maybe", { calculate }, "score")],
+			});
+			expect(validate(built)).toEqual([]);
+			const inferred = inferExpressionTypes(built);
+			expect(inferred.hiddenTypes.get(uuid("maybe"))).toBe("int");
+			expect(
+				inferred.caseTypes
+					.find((type) => type.name === "patient")
+					?.properties.find((property) => property.name === "score")?.data_type,
+			).toBe("int");
+		},
+	);
+
 	it("names a declared type as the property's type source", () => {
 		const errors = validate(
 			doc({
@@ -698,6 +717,27 @@ describe("a date formatted as ISO text", () => {
 		]);
 	});
 
+	it("admits a cond whose every value is ISO text or blank", () => {
+		expect(
+			validate(
+				doc({
+					register: [
+						f({ uuid: uuid("d"), kind: "date", id: "d", label: "D" }),
+						hidden(
+							"stamp",
+							{
+								calculate:
+									"cond(#form/flag = 'yes', format-date(#form/d, '%Y-%m-%d'), '')",
+							},
+							"visit_date",
+						),
+					],
+					followUp: [visitDateQuestion],
+				}),
+			),
+		).toEqual([]);
+	});
+
 	it("keeps a date-and-time property strict, where a day would save midnight", () => {
 		expect(
 			validate(
@@ -805,6 +845,33 @@ describe("a date and time whose clock an earlier Hidden Value dropped", () => {
 		expect(errors[0].message).toContain(
 			"You can save it from a question or from now() instead.",
 		);
+	});
+
+	it("refuses a cond with the copy among its values, past a first value that keeps the clock", () => {
+		expect(
+			validate(
+				doc({
+					properties: seenAt,
+					register: [
+						hidden("stamp", { calculate: "now()" }),
+						hidden(
+							"copy",
+							{ calculate: "cond(#form/flag = 'yes', now(), #form/stamp)" },
+							"seen_at",
+						),
+					],
+				}),
+			),
+		).toEqual([
+			expect.objectContaining({
+				code: "HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+				location: expect.objectContaining({ fieldUuid: uuid("copy") }),
+				details: expect.objectContaining({
+					reason: "clock-lost",
+					clockSource: "stamp",
+				}),
+			}),
+		]);
 	});
 
 	it("refuses a case operation saving the same copy, beside one saving now()", () => {

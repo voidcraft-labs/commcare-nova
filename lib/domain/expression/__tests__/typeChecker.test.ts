@@ -2800,6 +2800,8 @@ const RULES = Object.fromEntries(
 		"consent",
 		"score",
 		"mixed",
+		"edge",
+		"wide",
 		"tally",
 		"n",
 		"t",
@@ -2879,6 +2881,27 @@ function rulesDoc(
 								options: [
 									{ value: "1", label: "One" },
 									{ value: "a", label: "A" },
+								],
+							}),
+							f({
+								uuid: RULES.edge,
+								id: "edge",
+								kind: "single_select",
+								label: "Edge",
+								options: [
+									{ value: "2147483647", label: "Largest" },
+									{ value: "-2147483648", label: "Smallest" },
+									{ value: "0002147483647", label: "Padded" },
+								],
+							}),
+							f({
+								uuid: RULES.wide,
+								id: "wide",
+								kind: "single_select",
+								label: "Wide",
+								options: [
+									{ value: "1001", label: "Small" },
+									{ value: "5000000000", label: "Too large" },
 								],
 							}),
 							f({
@@ -3327,15 +3350,21 @@ describe("integral functions", () => {
 		"number(#form/score)",
 		"#form/score + 1",
 		"number(#form/score) + number(#form/score)",
+		"number(#form/edge)",
 	])("types %s over an integer-coded select as an integer", (source) => {
 		expect(probeType(source)).toBe("int");
 	});
-	it.each(["number(#form/mixed)", "#form/mixed + 1", "number(#form/tally)"])(
-		"keeps %s a decimal",
-		(source) => {
-			expect(probeType(source)).toBe("decimal");
-		},
-	);
+	// A whole number past a Java int's range is stored as LongData
+	// (Recalculate.wrapData), which an integer question's IntegerData.cast
+	// refuses through Integer.parseInt.
+	it.each([
+		"number(#form/mixed)",
+		"#form/mixed + 1",
+		"number(#form/tally)",
+		"number(#form/wide)",
+	])("keeps %s a decimal", (source) => {
+		expect(probeType(source)).toBe("decimal");
+	});
 });
 
 describe("form branch agreement", () => {
