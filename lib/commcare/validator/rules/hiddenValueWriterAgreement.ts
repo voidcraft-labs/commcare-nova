@@ -4,14 +4,17 @@
  *
  * The property's type is its declared type, else the one type its visible
  * questions and case operations agree on, else the one type its Hidden Value
- * writers agree on (`int` and `decimal` agreeing on `decimal`); the facts come
+ * writers agree on (`int` and `decimal` agreeing on `decimal`, `text` and
+ * `single_select` on `text`); the facts come
  * from `lib/domain/expression/inference.ts::hiddenWriterVerdicts`. Each
  * writer is one finding, whose `details.paths` lists every offending output
  * and whose reason is the most serious of three:
  *
  * - `type`: some value the Hidden Value can end with (a branch of `if`,
  *   `switch` or `coalesce`, or the whole expression) is not
- *   storage-assignable to the property. A follow-up question that fills
+ *   write-assignable to the property (`ruleSets.ts::isWriteAssignable`:
+ *   storage assignability, plus a `format-date` fixed to `%Y-%m-%d` into a
+ *   date, which `DateData.cast` reads back). A follow-up question that fills
  *   itself from a date, time, number or location property casts the saved
  *   text through its own answer class at form open, and text the class
  *   can't read stops the form (`CASTING_PROPERTY_TYPES`); a text or choice

@@ -439,6 +439,79 @@ describe("Hidden Values that alone type a property", () => {
 		).toBe("decimal");
 	});
 
+	it("agrees a choice copy and a text literal on text, which share storage", () => {
+		const stage = f({
+			kind: "single_select",
+			id: "stage",
+			label: "Stage",
+			options: [
+				{ value: "open", label: "Open" },
+				{ value: "closed", label: "Closed" },
+			],
+		});
+		const built = doc({
+			register: [
+				stage,
+				hidden("copy", { calculate: "#form/stage" }, "stage_note"),
+			],
+			followUp: [hidden("words", { calculate: "'closed'" }, "stage_note")],
+		});
+		expect(
+			inferExpressionTypes(built).hiddenOpinions.get(uuid("copy"))?.opinion,
+		).toBe("single_select");
+		expect(validate(built)).toEqual([]);
+		expect(
+			inferExpressionTypes(built)
+				.caseTypes.find((type) => type.name === "patient")
+				?.properties.find((property) => property.name === "stage_note")
+				?.data_type,
+		).toBe("text");
+		expect(
+			inferExpressionTypes(built)
+				.writerOpinions.get("patient")
+				?.get("stage_note"),
+		).toEqual(new Set(["text"]));
+		// One writer's own choice and text results agree the same way.
+		const own = doc({
+			register: [
+				stage,
+				hidden(
+					"either",
+					{ calculate: "if(#form/flag = 'yes', #form/stage, 'other')" },
+					"stage_note",
+				),
+			],
+		});
+		expect(validate(own)).toEqual([]);
+		expect(
+			inferExpressionTypes(own).hiddenOpinions.get(uuid("either"))?.opinion,
+		).toBe("text");
+	});
+
+	it("keeps a several-choice copy apart from text, which storage keeps out of it", () => {
+		const errors = validate(
+			doc({
+				register: [
+					f({
+						kind: "multi_select",
+						id: "tags",
+						label: "Tags",
+						options: [
+							{ value: "vip", label: "VIP" },
+							{ value: "urgent", label: "Urgent" },
+						],
+					}),
+					hidden("copy", { calculate: "#form/tags" }, "stage_note"),
+				],
+				followUp: [hidden("words", { calculate: "'vip'" }, "stage_note")],
+			}),
+		);
+		expect(errors.map(({ code, details }) => [code, details?.reason])).toEqual([
+			["HIDDEN_VALUE_WRITER_TYPE_MISMATCH", "hidden-disagreement"],
+			["HIDDEN_VALUE_WRITER_TYPE_MISMATCH", "hidden-disagreement"],
+		]);
+	});
+
 	it("reports each Hidden writer of a disagreement", () => {
 		const errors = validate(
 			doc({
@@ -548,6 +621,106 @@ describe("Hidden Values that alone type a property", () => {
 				.caseTypes.find((type) => type.name === "patient")
 				?.properties.find((property) => property.name === "total")?.data_type,
 		).toBeUndefined();
+	});
+});
+
+// A date question reads its property's text back through `DateData.cast` →
+// `DateUtils.parseDate`, which takes `YYYY-MM-DD`, so a date formatted with
+// exactly `%Y-%m-%d` fits a date property; the value itself stays text.
+describe("a date formatted as ISO text", () => {
+	it("admits it into a date property, beside another pattern refused", () => {
+		const iso = doc({
+			register: [
+				hidden(
+					"stamp",
+					{ calculate: "format-date(today(), '%Y-%m-%d')" },
+					"visit_date",
+				),
+			],
+			followUp: [visitDateQuestion],
+		});
+		expect(validate(iso)).toEqual([]);
+		expect(inferExpressionTypes(iso).hiddenTypes.get(uuid("stamp"))).toBe(
+			"text",
+		);
+		expect(
+			inferExpressionTypes(iso)
+				.writerOpinions.get("patient")
+				?.get("visit_date"),
+		).toEqual(new Set(["date"]));
+		const slashed = validate(
+			doc({
+				register: [
+					hidden(
+						"stamp",
+						{ calculate: "format-date(today(), '%d/%m/%Y')" },
+						"visit_date",
+					),
+				],
+				followUp: [visitDateQuestion],
+			}),
+		);
+		expect(slashed).toEqual([
+			expect.objectContaining({
+				code: "HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+				details: expect.objectContaining({ reason: "type", valueType: "text" }),
+			}),
+		]);
+	});
+
+	it("keeps a date-and-time property strict, where a day would save midnight", () => {
+		expect(
+			validate(
+				doc({
+					properties: [
+						{ name: "seen_at", label: "Seen at", data_type: "datetime" },
+					],
+					register: [
+						hidden(
+							"stamp",
+							{ calculate: "format-date(now(), '%Y-%m-%d')" },
+							"seen_at",
+						),
+					],
+				}),
+			).map(({ code }) => code),
+		).toEqual(["HIDDEN_VALUE_WRITER_TYPE_MISMATCH"]);
+	});
+
+	it("admits a case operation saving it to a date property, beside another pattern refused", () => {
+		const withWrite = (pattern: string) => {
+			const built = doc({
+				properties: [{ name: "visit_date", label: "Visit date" }],
+				followUp: [visitDateQuestion],
+			});
+			built.forms[CHECK_IN].caseOperations = [
+				{
+					uuid: uuid("operation"),
+					id: "mark_visit",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					writes: [
+						{
+							property: "visit_date",
+							value: { kind: "format-date", date: { kind: "today" }, pattern },
+						},
+					],
+				},
+			];
+			return built;
+		};
+		const iso = withWrite("%Y-%m-%d");
+		expect(validate(iso)).toEqual([]);
+		expect(
+			inferExpressionTypes(iso)
+				.writerOpinions.get("patient")
+				?.get("visit_date"),
+		).toEqual(new Set(["date"]));
+		expect(validate(withWrite("%d/%m/%Y")).map(({ code }) => code)).toEqual([
+			"CASE_OPERATION_EXPRESSION_TYPE",
+			"CASE_OPERATION_EXPRESSION_TYPE",
+		]);
 	});
 });
 

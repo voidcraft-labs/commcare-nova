@@ -22,7 +22,7 @@ import {
 	type TypingContext,
 	withFormContextNode,
 } from "./context";
-import { fixedDatePattern } from "./datePattern";
+import { fixedDatePattern, isIsoDateText } from "./datePattern";
 import { formNodeGraph } from "./formNodes";
 import { numericAnswerText } from "./numberLiteral";
 import { resolveRelationDestination } from "./relationDestination";
@@ -32,7 +32,7 @@ import {
 	describe,
 	isDateOrDatetime,
 	isNumeric,
-	isValueStorageAssignable,
+	isWriteAssignable,
 	literalShape,
 	literalType,
 	MATCH_PROPERTY_TYPES_BY_MODE,
@@ -2451,8 +2451,9 @@ function assignmentErrors(
 			});
 		const type = scalarDataType(node?.data);
 		if (type === undefined || type === ANY_TYPE) return;
+		const isoDateText = isIsoDateText(output);
 		for (const destination of new Set(destinations))
-			if (!isValueStorageAssignable(type, destination))
+			if (!isWriteAssignable(type, destination, isoDateText))
 				errors.push({
 					path,
 					code: "expected-value",

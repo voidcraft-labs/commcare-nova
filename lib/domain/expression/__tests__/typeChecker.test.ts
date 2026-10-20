@@ -2649,6 +2649,39 @@ describe("assignmentVerdict — directional storage compatibility", () => {
 		).toBe(false);
 	});
 
+	// Core reads a date property's text back through `DateData.cast` →
+	// `DateUtils.parseDate`, which takes `YYYY-MM-DD`; the value stays text.
+	it("saves an ISO date text to a date property, and no other date text or destination", () => {
+		const iso = formatDate(today(), "%Y-%m-%d");
+		expect(assignmentVerdict(iso, ctx, ["date"]).ok).toBe(true);
+		expect(
+			assignmentVerdict(formatDate(today(), "iso"), ctx, ["date"]).ok,
+		).toBe(true);
+		expect(
+			assignmentVerdict(
+				ifExpr(matchAll(), iso, formatDate(now(), "%Y-%m-%d")),
+				ctx,
+				["date"],
+			).ok,
+		).toBe(true);
+		expect(
+			assignmentVerdict(formatDate(today(), "%d/%m/%Y"), ctx, ["date"]).ok,
+		).toBe(false);
+		expect(assignmentVerdict(iso, ctx, ["datetime"]).ok).toBe(false);
+		expect(
+			assignmentVerdict(concat(term(literal("2026-10-20"))), ctx, ["date"]).ok,
+		).toBe(false);
+		expect(resultOf(inferRecordQuery(iso, recordQueryContext(ctx))).ok).toBe(
+			true,
+		);
+		expect(scalarDataType(typeOf(iso, recordQueryContext(ctx))?.data)).toBe(
+			"text",
+		);
+		const ordered = conditionVerdict(lt(iso, prop("patient", "dob")), ctx);
+		expect(ordered.ok).toBe(false);
+		if (!ordered.ok) expect(ordered.errors[0].code).toBe("ordered-values");
+	});
+
 	it("checks every reachable branch representation", () => {
 		expect(
 			assignmentVerdict(

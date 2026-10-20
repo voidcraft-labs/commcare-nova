@@ -364,9 +364,12 @@ ordering is why the case preload below beats a `default_value` but never a
 A Hidden Value that saves to a case property is a typed writer
 (`validator/rules/hiddenValueWriterAgreement.ts`, reading
 `lib/domain/expression/inference.ts::hiddenWriterVerdicts`): each value it can
-end with must be storage-assignable to the property's agreed type, a date and
+end with must be write-assignable to the property's agreed type
+(`lib/domain/expression/ruleSets.ts::isWriteAssignable`: storage assignability,
+plus a `format-date` fixed to `%Y-%m-%d` into a date property), a date and
 time whose clock may be gone cannot write a date-and-time property, and Hidden
-Values that alone type a property must agree. Each disagreeing writer is
+Values that alone type a property must agree (`int` with `decimal` on
+`decimal`, `text` with `single_select` on `text`). Each disagreeing writer is
 `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` at the field. A blank `''` fits every
 property, and a starting value the case preload overwrites holds no opinion.
 

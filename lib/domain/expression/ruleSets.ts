@@ -62,6 +62,28 @@ export function isValueStorageAssignable(
 	);
 }
 
+/**
+ * Whether a writer's result can be saved to a destination: storage
+ * assignability, plus an ISO date text (`isoDateText`: a `format-date` with
+ * the fixed pattern `%Y-%m-%d`, `datePattern.ts::isIsoDateText`) into a
+ * `date` property. A follow-up question reads such text back through
+ * `DateData.cast` → `DateUtils.parseDate`, which takes exactly
+ * `YYYY-MM-DD`. Only a writer's verdict reads this: the value's type stays
+ * `text`, so a comparison or ordering never treats it as a date. A
+ * `datetime` property stays strict, since a day text there saves midnight,
+ * as a `date` value would.
+ */
+export function isWriteAssignable(
+	valueType: ResolvedType,
+	destinationType: CasePropertyDataType,
+	isoDateText: boolean,
+): boolean {
+	return (
+		isValueStorageAssignable(valueType, destinationType) ||
+		(isoDateText && valueType === "text" && destinationType === "date")
+	);
+}
+
 export function isNumeric(t: ResolvedType): boolean {
 	return t === "int" || t === "decimal";
 }

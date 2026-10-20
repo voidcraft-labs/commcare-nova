@@ -1395,6 +1395,34 @@ named no other form; `index-of` is not integral: `XPathIndexOfFunc.java::evalBod
 `number`, `sum`, `min` and `max` over `int` or yes/no arguments are `int` too (part 01 §3.3), so a
 Hidden Value `sum(#form/visit/count)` can write an `int` property.
 
+**Implementation correction, 2026-10-20 (pull request 6):** Hidden Value writers that alone type a
+property also agree when they split between `text` and `single_select`, on `text`
+(`inference.ts::mergeHiddenOpinions`, which a writer's own outputs and the property's agreement
+share). A choice's value and a text literal share storage (`isValueStorageAssignable` already
+interchanges the two), so a select-answer copy beside a text literal is one text property, not a
+disagreement; the user decided it. The merged `text` is the property's inferred type wherever the
+single type was, and each writer then projects onto it in `writerOpinions`, so
+`concreteCasePropertyWriterTypes` holds `text` alone and the case operation check sees no conflict.
+`multi_select` stays apart: Nova stores it as a list, which storage keeps text out of (the checker's
+`multi-select value cannot flow through scalar` refusal), so it is not the same storage. Every other
+pair stays strict, and visible writers and preloading readers keep their own rules.
+
+**Implementation correction, 2026-10-20 (pull request 6):** a `format-date` whose pattern is fixed to
+`%Y-%m-%d` (the `iso` preset prints as it) is a valid write into a `date` property. Core formats it as
+`YYYY-MM-DD` (`XPathFormatDateFunc.java:28-34`, `DateUtils.java:419-432`) or `''` for no date, and a
+date question reads the saved text back through `DateData.java:88-89` (`cast` →
+`DateUtils.parseDate`, `DateUtils.java:484-512`, three dash-separated integers that `df.check()`
+accepts), reached from `SetValueAction.java:140`. The allowance is writer compatibility only
+(`ruleSets.ts::isWriteAssignable`, recognised from the tree by `datePattern.ts::isIsoDateText`, never
+from text): `HIDDEN_VALUE_WRITER_TYPE_MISMATCH`'s `type` reason, the checker's assignment rule for a
+case operation write (`CASE_OPERATION_EXPRESSION_TYPE`), and a case operation's writer opinion, which
+takes the date destination when every branch is such a `format-date`. The value's own type stays
+`text` everywhere else, so the record rule set still refuses ordering it against a date, and a
+Hidden-only pair of a date and such text still disagrees. A `datetime` property stays strict:
+`DateTimeData.cast` would take the day (`DateUtils.parseDateTime` parses a string without `T` as a
+date, `DateUtils.java:469-481`), but it would save midnight, which writer agreement already refuses
+for a `date` value. The user decided it.
+
 Validator message: `Hidden value "<field>" in "<form>" saves <text> to "<property>" on "<type>",
 which holds <a date> (<declared | saved by "<writer>" in "<form>">). A form that fills a question from
 "<property>" would stop on a value that isn't <a date>. You can change the calculation so it gives

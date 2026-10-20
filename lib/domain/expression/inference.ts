@@ -6,9 +6,11 @@
  *   its `default_value`, checked in its real slot.
  * - `P`: each `(caseType, property)` type: declared, else the one opinion of
  *   its visible and case-operation writers, else the one agreed opinion of its
- *   Hidden Value writers (`int` and `decimal` agree on `decimal`).
+ *   Hidden Value writers (`int` and `decimal` agree on `decimal`, `text` and
+ *   `single_select` on `text`).
  * - `O`: each case-operation write's opinion: its destination's type when the
- *   value is storage-assignable to it, else the value's type.
+ *   value is write-assignable to it (`ruleSets.ts::isWriteAssignable`), else
+ *   the value's type.
  * - `C`: the Hidden Values whose date and time may hold only its day.
  *
  * **Concrete opinions only.** Each pass types expressions over a catalog that
@@ -61,6 +63,8 @@ import {
 	slotContext,
 	untypedExpressionFacts,
 } from "./context";
+import { isIsoDateText } from "./datePattern";
+import { isWriteAssignable } from "./ruleSets";
 import {
 	ANY_TYPE,
 	type CheckPath,
@@ -88,6 +92,9 @@ export interface HiddenWriterOutput {
 	readonly type: CasePropertyDataType | undefined;
 	/** A blank `''` literal, which fits every destination. */
 	readonly blank: boolean;
+	/** A `format-date` with the fixed pattern `%Y-%m-%d`: text, which a date
+	 * destination also takes (`ruleSets.ts::isWriteAssignable`). */
+	readonly isoDateText: boolean;
 	/** The output is a date and time whose clock may be gone. */
 	readonly clockLost: boolean;
 }
@@ -102,7 +109,8 @@ export interface HiddenOpinion {
 	readonly source: HiddenValueSource | undefined;
 	readonly outputs: readonly HiddenWriterOutput[];
 	/** The agreed type of its typed outputs, `int` and `decimal` agreeing on
-	 * `decimal`; undefined when it has none or they disagree. Always
+	 * `decimal` and `text` and `single_select` on `text`; undefined when it
+	 * has none or they disagree. Always
 	 * undefined for a preloaded starting value. */
 	readonly opinion: CasePropertyDataType | undefined;
 	/** Its typed outputs name more than one type. */
@@ -365,7 +373,7 @@ export function hiddenWriterVerdicts(
 			for (const output of writer.outputs) {
 				if (
 					output.type !== undefined &&
-					!isValueStorageAssignable(output.type, property.type)
+					!isWriteAssignable(output.type, property.type, output.isoDateText)
 				)
 					findings.push({
 						reason: "type",
@@ -432,13 +440,34 @@ function concreteType(
 		: data;
 }
 
+/** The one type Hidden Value opinions agree on: a single type, `int` and
+ * `decimal` on `decimal` (an integer fits decimal storage), and `text` and
+ * `single_select` on `text` (both are stored as the same text, and a text
+ * property takes a choice's value). Every other pair disagrees; a
+ * `multi_select` stays apart, since storage keeps text out of it. */
 function mergeHiddenOpinions(
 	opinions: ReadonlySet<CasePropertyDataType>,
 ): CasePropertyDataType | undefined {
 	if (opinions.size === 1) return [...opinions][0];
 	if (opinions.size === 2 && opinions.has("int") && opinions.has("decimal"))
 		return "decimal";
+	if (
+		opinions.size === 2 &&
+		opinions.has("text") &&
+		opinions.has("single_select")
+	)
+		return "text";
 	return undefined;
+}
+
+/** Every result an assignment can end with is an ISO date text, as the
+ * checker's assignment rule reads each branch (`typeChecker.ts::assignmentErrors`). */
+function writesIsoDateText(expression: Expression): boolean {
+	let every = true;
+	visitAssignmentOutputs(expression, [], (output) => {
+		if (!isIsoDateText(output)) every = false;
+	});
+	return every;
 }
 
 function isBlankLiteral(expression: Expression): boolean {
@@ -766,10 +795,11 @@ class Inference {
 				property: site.write.property,
 				source: site.source,
 				outputs: (analysis?.outputs ?? []).map(
-					({ path, type, blank, clockLost: lost }) => ({
+					({ path, type, blank, isoDateText, clockLost: lost }) => ({
 						path,
 						type,
 						blank,
+						isoDateText,
 						clockLost: lost,
 					}),
 				),
@@ -900,6 +930,7 @@ class Inference {
 				path,
 				node,
 				blank,
+				isoDateText: isIsoDateText(output),
 				type: blank ? undefined : concreteType(node),
 				clockLost: node?.clockLost === true,
 			});
@@ -959,14 +990,15 @@ class Inference {
 			return undefined;
 		// An operation supplies a value to the destination's storage; it does
 		// not redefine the destination's type. A text literal can initialize a
-		// single-choice property, and an integer can enter a decimal one.
+		// single-choice property, an integer can enter a decimal one, and an
+		// ISO date text a date one.
 		const destination = caseTypes
 			.find((caseType) => caseType.name === write.caseType)
 			?.properties.find(
 				(property) => property.name === write.property,
 			)?.data_type;
 		return destination !== undefined &&
-			isValueStorageAssignable(resolved, destination)
+			isWriteAssignable(resolved, destination, writesIsoDateText(write.value))
 			? destination
 			: resolved;
 	}
