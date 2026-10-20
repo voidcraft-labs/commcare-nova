@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { XPathEditor } from "@/components/builder/editor/fields/XPathEditor";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -29,6 +29,7 @@ const initial = buildDoc({
 		{
 			name: "Patients",
 			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 			forms: [
 				{
 					name: "Visit",

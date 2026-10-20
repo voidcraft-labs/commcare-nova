@@ -23,6 +23,7 @@ import {
 	inSubjectConstraint,
 	isRelationPath,
 	mapExpressionAst,
+	mapExpressionChildren,
 	matchValueConstraint,
 	numericConstraint,
 	type SearchInputDecl,
@@ -31,6 +32,7 @@ import {
 	typeOf,
 	withinCenterConstraint,
 } from "@/lib/domain/expression";
+import { expressionChildren } from "@/lib/domain/expression/children";
 import type { EditorPath } from "./path";
 import { resolveRelationDestination } from "./relationDestination";
 
@@ -659,15 +661,29 @@ function replaceNodeAtPath(
 	next: Expression,
 ): Expression {
 	let found = false;
+	const addresses = (candidate: readonly (string | number)[]) =>
+		candidate.length === path.length &&
+		candidate.every((segment, index) => segment === path[index]);
 	const result = mapExpressionAst(root, {
 		mapExpression: (value, currentPath) => {
-			if (
-				currentPath.length !== path.length ||
-				currentPath.some((segment, index) => segment !== path[index])
-			)
-				return value;
+			if (addresses(currentPath)) {
+				found = true;
+				return next;
+			}
+			// The editor shows a slot the document stores as a bare term (a
+			// match's case property subject) as a term expression at the slot's
+			// own path, so that slot is rewritten on its parent.
+			const addressesTermSlot = expressionChildren(value, currentPath).some(
+				(child) => child.kind === "term" && addresses(child.path),
+			);
+			if (!addressesTermSlot) return value;
 			found = true;
-			return next;
+			return mapExpressionChildren(
+				value,
+				(child) =>
+					child.kind === "term" && addresses(child.path) ? next : child.value,
+				currentPath,
+			);
 		},
 	});
 	if (!found)

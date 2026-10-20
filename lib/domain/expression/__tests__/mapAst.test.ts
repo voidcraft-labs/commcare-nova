@@ -6,6 +6,7 @@ import {
 	between,
 	coalesce,
 	concat,
+	type Expression,
 	eq,
 	gt,
 	ifExpr,
@@ -13,6 +14,8 @@ import {
 	isBlank,
 	literal,
 	mapExpressionAst,
+	mapExpressionChildren,
+	match,
 	matchAll,
 	multiSelectAny,
 	not,
@@ -23,6 +26,7 @@ import {
 	tableLookup,
 	term,
 	whenInput,
+	within,
 } from "@/lib/domain/expression";
 
 const TABLE = lookupTableIdSchema.parse("018f0000-0000-7000-8000-000000000001");
@@ -164,5 +168,52 @@ describe("node interception", () => {
 					: undefined,
 		});
 		expect(mapped).toEqual(eq(literal("resolved"), literal("u")));
+	});
+});
+
+describe("bare-term slots", () => {
+	const subject = prop("patient", "name");
+	const source = match(subject, "A", "starts-with");
+	const replaceSubject = (next: Expression) =>
+		mapExpressionChildren(source, (child) =>
+			child.kind === "term" ? next : child.value,
+		);
+
+	it("writes a match subject's case property bare and any other value as an expression", () => {
+		const other = prop("patient", "note");
+		expect(replaceSubject(term(other))).toEqual(
+			match(other, "A", "starts-with"),
+		);
+		const calculated = concat(term(literal("x")), term(subject));
+		expect(replaceSubject(calculated)).toEqual(
+			match(calculated, "A", "starts-with"),
+		);
+	});
+
+	it("keeps the node when the replacement is the stored property wrapped as a term", () => {
+		expect(replaceSubject(term(subject))).toBe(source);
+	});
+
+	it("writes a term arriving wrapped into a term-only slot bare, and refuses any other expression", () => {
+		const distance = within(subject, literal("0 0"), 5, "kilometers");
+		const other = prop("patient", "home");
+		expect(
+			mapExpressionChildren(distance, (child) =>
+				child.kind === "term" &&
+				child.role.kind === "operand" &&
+				child.role.slot === "property"
+					? term(other)
+					: child.value,
+			),
+		).toEqual(within(other, literal("0 0"), 5, "kilometers"));
+		expect(() =>
+			mapExpressionChildren(distance, (child) =>
+				child.kind === "term" &&
+				child.role.kind === "operand" &&
+				child.role.slot === "property"
+					? concat(term(literal("x")))
+					: child.value,
+			),
+		).toThrow("A term mapper must return a term.");
 	});
 });
