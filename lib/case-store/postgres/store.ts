@@ -1246,28 +1246,41 @@ export class PostgresCaseStore implements CaseStore {
 			.orderBy("c.case_id", "asc")
 			.execute();
 		const rows = storedRows.map(({ project_id: _projectId, ...row }) => row);
-		const indices = await trx
-			.selectFrom("case_indices as ci")
-			.innerJoin("cases as source", "source.case_id", "ci.case_id")
-			.innerJoin("cases as ancestor", "ancestor.case_id", "ci.ancestor_id")
-			.select([
-				"ci.case_id",
-				"ci.ancestor_id",
-				"ci.identifier",
-				"ci.relationship",
-				"ci.depth",
-				"ci.target_case_type",
-			])
-			.where("ci.depth", "=", 1)
-			.where("ci.case_id", "in", caseIds)
-			.where("source.app_id", "=", args.appId)
-			.where("source.project_id", "=", args.projectId)
-			.where("ancestor.app_id", "=", args.appId)
-			.where("ancestor.project_id", "=", args.projectId)
-			.orderBy("ci.case_id", "asc")
-			.orderBy("ci.identifier", "asc")
-			.orderBy("ci.ancestor_id", "asc")
-			.execute();
+		// The read above already holds the tenant's own rows, so the indices
+		// are read for those ids alone and only the ancestor is checked, by
+		// its key. Joining both ends to `cases` let Postgres pair every case
+		// with every case before probing `case_indices` when the tenant's
+		// rows had no statistics yet: 500 fresh cases took 18 seconds.
+		const tenantCaseIds = rows.map((row) => row.case_id);
+		const indices =
+			tenantCaseIds.length === 0
+				? []
+				: await trx
+						.selectFrom("case_indices as ci")
+						.select([
+							"ci.case_id",
+							"ci.ancestor_id",
+							"ci.identifier",
+							"ci.relationship",
+							"ci.depth",
+							"ci.target_case_type",
+						])
+						.where("ci.depth", "=", 1)
+						.where("ci.case_id", "in", tenantCaseIds)
+						.where((eb) =>
+							eb.exists(
+								eb
+									.selectFrom("cases as ancestor")
+									.select(sql<number>`1`.as("held"))
+									.whereRef("ancestor.case_id", "=", "ci.ancestor_id")
+									.where("ancestor.app_id", "=", args.appId)
+									.where("ancestor.project_id", "=", args.projectId),
+							),
+						)
+						.orderBy("ci.case_id", "asc")
+						.orderBy("ci.identifier", "asc")
+						.orderBy("ci.ancestor_id", "asc")
+						.execute();
 		const propertyTypes = await this.readCaseDatabasePropertyTypes(
 			trx,
 			args.appId,
