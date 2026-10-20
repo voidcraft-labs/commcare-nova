@@ -273,13 +273,18 @@ These decisions are closed unless the project owner explicitly reopens them.
   original order behind it.
 - Renaming or moving a UUID-owned entity does not rewrite a stored expression
   reference. Printers and emitters resolve its current external spelling from
-  immutable identity. The explicit name-backed case-property operation above is
+  immutable identity. A relative read is derived again on every print, and a
+  move whose relative read could no longer be printed is refused. An option
+  value edit reprints every comparison that names the option, and an option an
+  expression names cannot be removed. The explicit name-backed case-property operation above is
   deliberately different: the `(caseType, property)` pair itself is the
   identity being renamed, so that command structurally rewrites those leaves.
-- The human XPath editor is a text projection over the canonical stored AST.
-  A person continues to type and read `#form/first_name`; the editor resolves it
-  once, stores the target UUID, and later prints the target's current friendly
-  path. It never asks a person to author `#form/<uuid>`.
+- The human XPath editor is a text projection over the stored expression tree.
+  A person continues to type and read `#form/first_name` (or `/data/…`, `../…`,
+  `current()/…`); the editor resolves it once, stores the target UUID with that
+  spelling, and later prints the target's current path in it. The tree keeps no
+  source trivia, so the editor and tool reads show the canonical print. It never
+  asks a person to author `#form/<uuid>`.
   Reference-bearing prose is a structural editor projection: reference parts are
   inline identity-bearing atoms, while ordinary typed or pasted characters stay
   text until the author explicitly converts or inserts a reference. SA and MCP
@@ -631,10 +636,11 @@ No interval leaves an accepted lookup dependency unprotected.
   after another form updates the same local store. This is not the server
   snapshot or compare-and-set against current records at submission.
 - Shared operation writes and scoped form/operation reads return non-gating
-  semantic feedback derived from the canonical AST: target identity and scope,
+  semantic feedback derived from the stored expression tree: target identity and scope,
   condition/value property reads, writes and matching read/write identities.
   Same case type is not same record. Unknown runtime addresses remain possible
-  aliases, and unclassified XPath/answer dependencies are reported explicitly.
+  aliases; a read inside a record query is a read of any record of its type,
+  and the remaining unresolved dependencies are reported explicitly.
 - Repeated creates have iteration-correlated outputs. A singular operation
   reference cannot escape its repeat or ambiguously name multiple created cases.
 - Runtime-resolved targets are tenant-bound and must match the declared case

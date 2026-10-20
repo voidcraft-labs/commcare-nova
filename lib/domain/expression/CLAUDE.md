@@ -240,3 +240,187 @@ in the destination frame's supplies. Wire names remain in the entry projection.
 `formLogicFindings` is a presentation projection of `CheckError`; the builder and
 commit/export validator share it. Parser syntax failures are authoring errors,
 never stored raw-XPath validation codes. There is no printed-source checker.
+
+## Non-obvious arm facts
+
+- `in.values` and `switch` cases hold literals or `choice` leaves.
+  `multi-select-contains` values admit computed values where the slot's profile
+  admits them; where a device evaluates one, it must be a single choice, since a
+  device tests the whole value as one choice.
+- `switch` is the simple-CASE form (`on`, then `cases`), so the discriminator
+  evaluates once per row at the Postgres target.
+- `table-lookup` resolves one result column from the first authored-order row
+  whose table-scoped predicate matches. Its stored table and column references
+  are UUIDs; Preview and CommCare projection resolve current names only at their
+  boundaries.
+- Every leaf enters through the `term` arm, and `Term` has no expression arm.
+  Row leaves read the row of the nearest enclosing row-scoped construct; a row
+  leaf with no row in scope is the checker's `row-scope`.
+- Custom worker information is `session-user-property { userPropertyUuid }`,
+  stored by stable identity and resolved to its current slug only at Preview,
+  SQL, or CommCare emission. `source: "worker-record"` reads the worker's own
+  case (a form's `#user/`); no `source` reads session user data. The separate
+  `session-user { field }` arm stays name-backed for CommCare-provided or
+  external worker fields that have no Nova entity, and authoring never infers
+  one arm from the other's text.
+- A `via` of kind `self` collapses to the inner `where` (no identity join).
+- `any-relation` is direction-agnostic: for the canonical `parent` index its
+  possible destination types are the origin's parent UNION its direct children,
+  and an omitted `ofCaseType` is valid only when that union has one member.
+  Where the destination is exclusively the parent or exclusively a child,
+  normalization materializes that proven direction. Remaining paths expand to
+  `(<ancestor-form> or <subcase-form>)` in CSQL; Postgres compiles their two
+  single-hop variants as a `unionAll`.
+- `parent` is the only relation identifier the `CaseType.parent_type` graph can
+  infer. Every custom saved index name needs an explicit `throughCaseType` /
+  `ofCaseType`; never pretend a custom index follows the `parent_type` graph.
+- `count(self)` is the cardinality of the current row: `1` without a filter, or
+  `1`/`0` according to its `where`.
+
+## Blank semantics: a locked invariant
+
+`is-blank` is the one stored absence operator. It matches an absent or empty
+value, including literals and calculated values. Zero, false and whitespace are
+not blank. Device expressions compare a string projection; CSQL retains its
+property-missing query semantics. No strict-absent arm exists for some targets
+to widen.
+
+## `matches-pattern`: one leaf, one runtime
+
+`matches-pattern { left, pattern }` is JavaRosa's `regex(str, re)` and nothing
+else: `Pattern.compile(re).matcher(str).find()`, so the pattern is Java
+`Pattern` syntax and unanchored. CSQL has no regex function and Postgres's
+regex dialect differs from Java's, so the leaf is admitted only where the
+device alone evaluates it: the slot profile's `patternMatching`, true for a
+Search prompt's `required.when` and `validation.rule` and false everywhere
+else. `lib/commcare/csql/representability.ts` refuses it with
+`pattern-match-not-csql`, the checker with `pattern-match-unavailable`, and
+`walk.ts::expressionUsesPattern` is the reader Preview uses to route a
+pattern-bearing constraint to the XPath worker. It is deliberately not the
+automations' portable regex subset (`lib/domain/automations.ts`): that subset
+exists because HQ runs those rules in Python, and this leaf never reaches
+Python or Postgres.
+
+## Record rules worth knowing
+
+- Record slots keep condition and value positions as a rule: a value where a
+  condition belongs, or a condition where a value belongs, is `record-position`
+  (reasons `condition-expected` and `value-expected`). Form logic takes Core's
+  coercions instead.
+- Strings are excluded from `ORDERED_TYPES`: locale-dependent string ordering is
+  rarely meaningful for a case-list filter, so `gt`/`lt` refuse text.
+- A time of day is excluded too, and `time-ordering` is one rule for both rule
+  sets, ahead of the ordered-types test; a date and a date and time keep their
+  order.
+- Property references inside a relational `where` resolve against the
+  surrounding `via`'s destination scope, not the originating one.
+- Lookup-aware callers supply a rows-free lookup index. A `table-lookup` checks
+  its nested predicate under one table scope; `table-column` is legal only for
+  that exact table. A field's lookup row filter is one explicit table-row scope:
+  columns of that table, literals, worker and session values, and eligible
+  earlier form fields. Case properties, Search inputs, later answers, and
+  answers in a child or sibling repeat are absent from the context and so
+  invalid.
+- The checker is the gate every emitter trusts. Emitter code that reaches a
+  state the checker should have refused throws; it never falls back to a
+  default.
+
+## Exact calendar-day search
+
+A simple `date` search input in exact mode means the whole selected calendar
+day, never string equality. CSQL and Preview/Postgres derive the same half-open
+predicate through `dateSearch.ts::exactDateSearchPredicate`: a date property
+uses `[date(day), date-add(date(day), 1 day))`; a date-and-time property uses
+`[datetime(day), datetime-add(datetime(day), 1 day))`, a UTC day. This applies
+to `date_opened` and `last_modified` as well, so standard and custom date-and-time
+properties behave alike. For a related property both bounds live inside ONE
+`exists(via, where: lower AND upper)`, so one related row satisfies both.
+
+A `date-range` prompt is one indivisible `__range__<start>__<end>` value in
+CommCare, so Preview keeps a partial picker state only as a draft and runs
+nothing until both valid, ordered bounds exist. A date property keeps inclusive
+`[start, end]` comparisons; a date-and-time property uses the UTC half-open
+interval `[datetime(start), datetime-add(datetime(end), 1 day))`.
+`dateSearch.ts::dateRangeSearchPredicate` owns that lowering beside exact-day
+search.
+
+## Relation-read target contracts
+
+`normalizeRelationEvaluationScopes` is the shared semantic boundary before every
+record target. A scalar condition leaf whose non-self properties all share
+relation `R` becomes `exists(R, where: <the leaf rebased to self>)`, so its
+property reads refer to the same related row; separate boolean leaves quantify
+independently. Generic `between(prop(via), lower, upper)` becomes two
+independent bound comparisons; a caller that needs one row to satisfy both
+bounds writes `exists(via, where: between(prop(self), …))`, which the exact-day
+and date-range helpers build. The normalizer fails closed when one scalar leaf
+mixes self and related properties, combines two relation scopes, or combines an
+outer related read with an anchor-sensitive nested quantifier; the module
+validator surfaces the repair before an emitter reaches the exception.
+
+On a device, `exists` and `missing` never compare two node-sets: Core does not
+implement XPath general node-set equality, and nested `current()` still points
+at the listed case. The emitter uses guarded immediate-scope membership
+(`lib/commcare/xpath/wire/rowScope.ts::immediateRelationPresence`:
+`count(index/<relationship>) > 0 and selected(join(' ', <candidate ids>),
+index/<relationship>)`) at every level; the guard is required because Core
+treats `selected('', '')` as true. CSQL then runs
+`normalizeRelationReads.ts::normalizeRelationPropertyReads` only as a grammar
+adapter. Postgres consumes the same normalized tree and rejects any non-self
+property read that survives normalization; it never invents `LIMIT 1`,
+pairwise node-set, or cross-product semantics.
+
+## JSON Schema generator
+
+`jsonSchema.ts::caseTypeToJsonSchema` feeds the case store's write-time AJV
+validator. Properties without a declared `data_type` default to
+`{ type: "string" }`. `int` is bounded to int4's signed 32-bit range so AJV's
+acceptance set matches the Postgres `::integer` cast. Select values validate as
+plain strings, never an option enum: the write path validates the merged row,
+so an enum would turn every option edit into a row poisoner.
+
+## Named tool-schema definitions
+
+The union and its reused members carry registered ids (`z.globalRegistry.add`,
+end of `types.ts`), so a `z.toJSONSchema` caller extracts each once into
+`definitions` under a stable name and `$ref`s it at every use site. The ids
+`Predicate` and `ValueExpression` name `conditionSchema` and `valueSchema`;
+`formLogicSchema` is unregistered. The authoring projection
+(`lib/agent/authoring/schema.ts::authoringJsonSchema`) substitutes each family
+position with its authored string schema and keeps the family's id, so a served
+tool schema names `Predicate` and `ValueExpression` definitions while their
+canonical structure never reaches it.
+Register via `globalRegistry.add` (attaches in place), never `.meta()`.
+
+## Two simplification layers, opposite contracts
+
+Construction-time reduction (`reduction.ts`: `reduceAnd` / `reduceOr` /
+`reduceNot`) is scoped to empty, single-clause and double-negation lists;
+multi-clause lists stay as written, because a multi-clause `and` holding
+`match-all` is a meaningful editing state. Emission-time simplification
+(`simplify.ts::simplifyForEmission`) drops every boolean identity at every
+depth, recursing through every nested condition position (`count.where`,
+`if.cond`, every `where`). Never call it from the construction or doc layer.
+
+`effectiveFilterForEmission` simplifies a `caseListConfig.filter` and folds an
+all-true result to `undefined`; it is the single home of "match-all means no
+filter", so "does this filter narrow anything?" and "what do we emit?" never
+disagree. `displayConditionForEmission` does not simplify: a display condition
+is held as written, absent only when it is absent or its root is `match-all`.
+A condition that is `match-none`, or an `and` whose first clause is, would print
+the hidden flag's spelling, so the validator refuses it
+(`displayConditionStartsWithNever`).
+
+## Wire-emission boundary
+
+Every target consumes this one union from outside the package:
+`lib/commcare/xpath/wire`'s `toWire` (XForm, Vellum shadow, suite, HQ JSON and
+Preview modes), CSQL (`lib/commcare/csql`), and Postgres via
+`lib/case-store/sql`. Each first takes the same relation-scope normalization,
+then applies only its own grammar and runtime restrictions.
+
+## Barrel
+
+`index.ts` re-exports each public module wholesale via `export *`, so a new
+helper needs no parallel barrel edit. No shim remains at the old `predicate/` or
+`xpath/` paths.

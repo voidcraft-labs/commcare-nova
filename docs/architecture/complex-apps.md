@@ -44,11 +44,10 @@ their own strict `MediaAssetId`; built-in menu icons are closed `nova-icon:`
 enums, with the module/case-list family and the form family separately closed.
 
 There is no placeholder identity anywhere: a constructor with no eligible
-target is unavailable rather than seeded with an empty or fixture UUID, and a
-source tripwire (`lib/domain/__tests__/authoredIdentitySourceTripwire.test.ts`)
-fails the build on `asUuid("")` (the parse-and-throw narrowing helper), an
-`as Uuid`-family assertion, or a hard-coded authored UUID in production
-roots — narrowing helpers validate, they do not cast.
+target is unavailable rather than seeded with an empty or fixture UUID, and
+production code never writes `asUuid("")` (the parse-and-throw narrowing
+helper), an `as Uuid`-family assertion, or a hard-coded authored UUID:
+narrowing helpers validate, they do not cast.
 
 **Topology is closed as well as typed.**
 `lib/domain/blueprint.ts::blueprintTopologyIssues` is the one closure proof:
@@ -130,7 +129,12 @@ HQ footprint SQL and remote restore are outside this native corpus.
 
 A location owner term occupies exactly one slot, a case operation's complete
 owner expression, and its XForm declaration comes from the instance set its
-printed tree reads.
+printed tree reads. Form logic and a form link's condition and datum values
+read the same flat list (a place's name, level, lineage or property) by level
+and property UUID; such a read needs organization levels in the app
+(`LOCATIONS_READ_NEEDS_ORGANIZATION`), and the flat-list confirmation follows
+from it. No menu, case list or search setting reads places, since none of them
+declares the list.
 The per-worker fixture never belongs in the app's suite, and no placeholder
 question is needed to force its declaration.
 
@@ -347,16 +351,28 @@ business claim date. `lib/domain/CLAUDE.md`, `lib/doc/CLAUDE.md`,
 
 ### Expressions and prose store identity; text is a projection
 
-Every XPath-bearing slot holds the canonical `XPathExpression` AST
-(`lib/domain/xpath/ast.ts`): verbatim source in `text` runs, and reference
-leaves that carry identity — `field-ref` and `path-ref` hold the target field's
-UUID, `user-property-ref` a Nova worker-property UUID, `case-ref` a
-`(caseType, property)` pair, `user-ref` an external CommCare/session name.
-`path-ref` persists no depth-dependent bytes, so a move that changes a field's
-depth changes only the printed projection. There is no stored arm for an
-unresolved, contextual, or malformed hashtag — the parse boundary reports
-those and the gate rejects them, so a dangling reference can never sit in a
-document as UUID-shaped authored XPath.
+Every expression slot, form logic and record slots alike, holds one typed
+tree, the `Expression` union (`lib/domain/expression`); form logic stores no
+text. Every leaf holds identity: a form answer by field UUID with the author's
+path spelling kept (`#form/`, absolute `/data/`, relative `../`,
+`current()/`), a case property as a `(caseType, property)` pair, a case type by
+name, and a worker property, a Search input and a static choice option by UUID.
+A relative path is derived again from identity at every print, so a move that
+changes a field's depth changes only the print, and a move whose relative read
+could no longer be printed is refused. Editing an option's value reprints every
+comparison that names it, and an option an expression names cannot be removed
+(`lib/doc/optionRemoval.ts`). There is no stored arm for an unresolved,
+contextual or malformed reference: the parser refuses it, so a dangling
+reference can never sit in a document. Absence is the only empty expression.
+
+A session datum read holds what supplies it (`DatumRef`: a module's chosen
+case, the case a form creates, a child case it creates, the worker's record, a
+tile group's parents). Lookup tables and columns, location levels and
+properties, and translation units (a question's wording or a choice's label,
+by field and option UUID) are held by identity too, so form logic can read a
+data table, a place, the cases chosen together, a search's results, a
+question's wording (`jr:itext`) and a choice's label (`jr:choice-name`), each
+following renames.
 
 Every reference-capable field label, hint, help, validation message,
 select-option label, and case-property catalog display default holds a
@@ -369,16 +385,23 @@ and emission all walk those parts structurally — nothing scans a string.
 `(caseType, property)` pairs and external CommCare/session names are the two
 deliberate name-backed references: they are identities Nova does not own.
 Everything else resolves through a UUID, which is why renaming, moving, or
-reordering an object rewrites no stored expression.
+reordering an object rewrites no stored expression. A case-property rename
+reaches reads inside a record query too, because each such read stores its
+row's case type: from a `@case_type` literal, from a `@case_id` of a known
+source, or else the one case type that declares the property; a query that
+gets its type from none of these is refused (`case-query-untyped`).
 
 **A person still types and reads `#form/first_name`.** The CodeMirror surface
 prints current names from identity and parses once, at commit
 (`lib/doc/expressionText.ts`); nobody is asked to type, read, or repair
-`#form/<uuid>`. `projectXPath` and `projectProseTemplate` are the human
+`#form/<uuid>`. What the editor and tool reads show is the canonical print (one
+space after every comma and either side of every binary operator, parentheses
+only where needed, single quotes unless the value holds one); no source trivia
+is stored. `projectFormExpression` and `projectProseTemplate` are the human
 projections and render `[reference needs repair]` for a reference they cannot
-resolve — never the UUID; `printXPath` and `printProseTemplate` are the strict
-twins wire and runtime callers use, and throw on the same identity rather than
-emit a guess. `proseTemplateText` returns only the literal typed characters
+resolve, never the UUID. On the wire, `toWire` builds a stored expression's
+tree from identity and, like `printProseTemplate`, throws on a dangling
+identity rather than emit a guess. `proseTemplateText` returns only the literal typed characters
 and is documented as NOT a projection — it exists for search and comparison,
 where matching what was typed is the point. The prose editor is structural
 (`lib/tiptap` — one inline atom per reference part; ordinary typing and paste
@@ -402,8 +425,8 @@ old exception/empty behavior, not identical error handling. Validation still
 rejects the answer, chooses no repeated row, and leaves authored answers and
 the original media branch unchanged.
 
-Search-input references are identity too: Predicate and ValueExpression store
-`{ kind: "input", searchInputUuid }` (`lib/domain/predicate/types.ts`),
+Search-input references are identity too: the `input` leaf stores
+`{ searchInputUuid }` in every slot (`lib/domain/expression/types.ts`),
 resolved to the input's current saved wire name only at projection. Which
 runtimes evaluate a rule is a fact of the slot's profile
 (`lib/domain/expression/profiles.ts`, its targets). The editor reads every axis
@@ -415,7 +438,10 @@ device nodeset and the remote CSQL query and must satisfy both oracles.
 
 Standard case metadata has one Nova vocabulary — `case_name`, `date_opened`,
 `external_id`, `last_modified`, `owner_id`, `status`, `case_id`, and
-`case_type` (`lib/domain/standardCaseProperties.ts`).
+`case_type` (`lib/domain/standardCaseProperties.ts`). `closed_on` is
+search-only: an advanced Search rule may read it, because neither a device's
+case database nor HQ's search results carry it
+(`SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES`).
 `lib/domain/casePropertyName.ts::authoredCasePropertyNameSchema` owns the
 grammar and rejects CommCare's detail aliases `name`, `date-opened`, and
 `external-id` outright; there is no alias-coalescing helper anywhere, because
@@ -527,10 +553,8 @@ sequence with no second reducer run, and any difference raises a terminal
 `mutation_batch_id_collision`. Clearing an optional slot is always an explicit
 `null`; an own `undefined` is invalid everywhere, because `JSON.stringify`
 drops it and the stale value would reappear on the next save.
-`lib/doc/CLAUDE.md` owns the write surface, and a lifecycle source tripwire
-(`lib/doc/__tests__/mutationLifecycleSourceTripwire.test.ts`) classifies every
-production admission/reducer/writer entrypoint and fails CI on a new
-unclassified one.
+`lib/doc/CLAUDE.md` owns the write surface and names every production
+admission, reducer and writer entrypoint.
 
 ### The permanent app-change log
 
@@ -561,16 +585,11 @@ grant, and folding detail.
 self-contained historical unit — its own grammar, occurrence manifest,
 transform, repair authority, and a generated frozen validator — with one
 public door, the sibling Kysely entrypoint, whose `down` throws a forward-only
-error. Two tripwires keep it history rather than a second live dialect, and
-both must keep passing:
+error. It stays history rather than a second live dialect:
 `lib/case-store/migrations/__tests__/frozenPersistableBlueprintArtifact.test.ts`
 pins the generated validator's exact SHA-256 and proves the tree imports
-nothing outside itself but four allowed packages, and
-`lib/doc/__tests__/mutationLifecycleSourceTripwire.test.ts` proves the
-reverse — no steady-state source may import anything BEHIND that door,
-resolving specifiers rather than matching text, because a substring test
-silently passes the relative imports of the modules physically next to the
-tree.
+nothing outside itself but four allowed packages, and no steady-state source
+imports anything behind that door.
 
 That separation is the whole point. Steady state has one representation: the
 frozen tree may recognize a historical byte shape, and every live schema,
@@ -708,7 +727,8 @@ an unrelated edit to an app with stale edges converges them.
 
 ### Display conditions
 
-Modules and forms carry a typed `Predicate` display condition, validated by
+Modules and forms carry a typed display condition (an `Expression` in a
+condition slot), validated by
 `lib/commcare/validator/rules/displayConditions.ts` and emitted through
 `lib/commcare/suite/displayConditions.ts`.
 
@@ -792,7 +812,8 @@ reports condition/value property reads and writes; and names same-record or
 possible-alias overlaps. Generated creates remain distinct from existing rows,
 even of the same type; authored keys can merge an existing identity. Form-answer
 dependencies preserve their stable field identities and entry provenance.
-Quantified rows, runtime targets and unclassified XPath text are not promoted to
+A property read inside a record query is reported as a read of a runtime record
+of that query's type. Quantified rows and runtime targets are not promoted to
 proven record identity or a complete read inventory. Ordinary answer writes
 remain visible separately, including when advanced operations are empty.
 
@@ -927,8 +948,7 @@ with a letter only — so action-illegal facet combinations, platform-owned case
 types, and reserved write properties are unconstructible at the shared tool
 boundary.
 
-Lookup-backed predicates and expressions use that same complete canonical AST
-on the builder, SA, and MCP surfaces: reads return the lookup UUID leaves and
+Lookup-backed expressions use that same stored tree on the builder, SA, and MCP surfaces: reads return the lookup UUID leaves and
 all three editors may update them without hiding or partially projecting the
 operation.
 
@@ -956,6 +976,10 @@ owns at least two fully UUID-identified options, or `lookup`, which owns the
 table UUID, value-column UUID, label-column UUID, and optional row filter.
 Expressions take `table-lookup` value terms and `table-column` comparison terms
 (`lib/commcare/validator/rules/lookupOptionsSource.ts`, `lib/doc/lookupReferences.ts`).
+Form logic reads tables too (`instance('<tag>')/<tag>_list/<tag>[…]` in a
+form, `instance('item-list:<tag>')/…` in a form link), stored by table and
+column UUID, so renaming a table or column keeps the read; those reads join the
+reference edges, the publish push and the `.ccz` fixtures like every carrier.
 Source switching is a complete atomic replacement — no inactive source survives
 a switch, and there is no precedence, clear, or fallback state. Field
 duplication remints every inline option UUID while lookup table and column
@@ -1110,14 +1134,13 @@ sequence and is walked, never sorted (`lib/domain/CLAUDE.md`,
 `lib/doc/CLAUDE.md`).
 
 Custom worker-information references follow the same stable identity as
-role/persona values. Predicate / ValueExpression stores
-`session-user-property { userPropertyUuid }`; XPath stores
-`user-property-ref { userPropertyUuid }`; every target resolves the property's
-current saved slug only when it projects the AST, so a rename rewrites nothing
-and takes effect everywhere immediately. The parallel name-backed
-`session-user { field }` and XPath `user-ref { property }` arms are the final
-vocabulary for CommCare-provided or external fields that have no Nova entity —
-not compatibility spellings of the identity arm. The builder exposes the two
+role/persona values. Every slot stores
+`session-user-property { userPropertyUuid }`; every target resolves the
+property's current saved slug only when it projects the tree, so a rename
+rewrites nothing and takes effect everywhere immediately. The name-backed
+`session-user { field }` leaf is the final vocabulary for CommCare-provided or
+external fields that have no Nova entity, not a compatibility spelling of the
+identity leaf. The builder exposes the two
 as **Worker information** (UUID catalog only) and **Other user field**
 (external name only, never inferring identity from text); textual XPath
 parsing converts a custom `#user/<slug>` to identity only on an exact, unique,
@@ -1204,10 +1227,9 @@ The wire facts the shape rests on:
 than declared beside it, so it is storable but not authorable: it is absent
 from `effectiveCaseTypes` (nothing can create, close, or model it) and present
 in `buildCaseTypeMap` (the case store materializes it and the wire reads it).
-Its contents come from one derivation with two consumers — Preview's `#user/`
-answers and the materialized row — because `#user/` resolves against `casedb`
-on the wire, so two derivations would make Preview disagree with a device for
-any worker saved once.
+Its contents come from one derivation, the materialized row, which Preview's
+`#user/` reads walk in the device snapshot exactly as a device's do in
+`casedb`, so Preview cannot disagree with a device for any worker saved once.
 
 The row is Nova-managed. Materialization runs on the commit that changes a
 persona, a role, or the worker-property catalog — HQ's "each time a user is
@@ -1373,7 +1395,12 @@ preserving them is the deliberate choice.
 
 The running preview executes the blueprint in a client-side engine
 (`lib/preview/engine`) over real Postgres case rows. There is no mock mode.
-`lib/preview/CLAUDE.md` is the engine contract.
+`lib/preview/CLAUDE.md` is the engine contract. Every Preview surface
+evaluates the device's own XPath: it builds the slot's wire tree with `toWire`
+for the `preview` target and evaluates its print, so every lowering is the same
+code in Preview and on the wire. A search's Results read the Project's open
+cases of the searched type, as HQ's search does, not the worker's restore, and
+choosing a case the worker does not hold plays the claim.
 
 - Display conditions evaluate live (`displayConditionEvaluation.ts`), hiding
   conditioned items exactly as a device would, with a "hidden items (N)"
@@ -1394,10 +1421,10 @@ The running preview executes the blueprint in a client-side engine
 
 Every module carries a case-list configuration: one ordered column array carrying
 display, sort, calculated, and visibility state together, plus search inputs and
-their matching behavior. Predicates are typed ASTs throughout, so a column filter,
-a search-input condition, and a display condition all speak the same vocabulary
-and all compile to three surfaces — the on-device XPath dialect, CSQL for HQ-side
-search, and Postgres for the preview (`lib/case-store/sql`). Search-button display
+their matching behavior. Every rule is one typed `Expression`, so a column
+filter, a search-input condition and a display condition speak the same
+vocabulary and compile to three surfaces: the on-device XPath dialect, CSQL for
+HQ-side search, and Postgres for the preview (`lib/case-store/sql`). Search-button display
 conditions, results availability, and default ordering are authored in the case
 workspace; `content/docs/case-workspace.mdx` is the user-facing guide.
 
@@ -1426,6 +1453,12 @@ are empty text, boolean literals are text, and numeric equality uses Core's
 absolute tolerance. Unknown numeric/text conversions keep both branches
 reachable. This prevents admission from discarding the actual runtime branch
 when checking whether a fixed result can be quoted in the server query.
+
+A search reads `today()` as the worker's day: Nova sends Core's `today()` in a
+runtime segment, so the device's list, HQ's search and Preview read one day.
+Equality on a date-and-time property is sent as a closed instant range, which
+HQ answers by instant for every spelling its parser reads
+(`lib/commcare/csql/emitter.ts::readsInstantByRange`).
 
 #### Search first
 
@@ -1463,6 +1496,12 @@ shape every `input(...)` read on both wire paths prints
 `search-input:results:inline`, because Core registers only
 `search-input:<storage>`
 (`RemoteQuerySessionManager.java::getEvaluationContextWithUserInputInstance`).
+A form of a search-first module reads what its search found
+(`instance('results:inline')/results/case[…]`, rows of the searched case type,
+HQ's related rows excluded) wherever its entry carries the query; a read that
+depends on the order HQ returns its results in is refused
+(`search-results-order`), and Preview supplies the set the search returned,
+capped at HQ's 500.
 
 #### Register when nothing matches
 
@@ -1472,7 +1511,7 @@ completes with nothing found (`Form.entry = { kind: "search-no-matches", label? 
 type, leaves the menu (no link may target it, it carries no display condition
 and no after-submit choice, every menu projection consults `menuFormUuidsOf`),
 and its fields read the search's answers through `#search/<name>`
-(`search-answer-ref` in the XPath AST, identity-backed like every reference;
+(the `input` leaf, identity-backed like every reference;
 `lib/doc/searchNoMatchesForm.ts` plans the form and the carried fields, and
 `searchNoMatchesDependents.ts` refuses taking the search away while the form
 depends on it). A completed search is a context distinct from not-searched and
@@ -2532,7 +2571,9 @@ navigation retain the ordered set. A lower maximum never drops a choice
 silently: Continue pauses until the worker removes enough cases.
 
 Multiple selection is a form-execution contract, not only a case-list display
-flag. Follow-up and close forms consume the selected set. Ordinary primary-case
+flag. A form expression may read the selected set
+(`instance('<datum id>')/results/value`), for example to count it; reading it
+where one value is needed is refused. Follow-up and close forms consume the selected set. Ordinary primary-case
 answers begin without borrowing a value from any selected case. Every nonblank
 ordinary answer writes to every selected case, while a blank answer preserves
 each case's existing value; authored defaults and calculations count as
@@ -2748,9 +2789,15 @@ a device evaluates an ordering of either against a date and time that is not
 day-aligned is refused, and so is an equality with any date and time; an
 ordering against a day-aligned one (a date turned into a date and time, or the
 other system date) compares by day, and a comparison with a date is refused as
-any date against a date and time is. Nova's existing typed SQL comparisons retain their typed contract; mixed
-calendar/datetime operands are promoted in the worker timezone so the database
-connection timezone cannot introduce a new result difference.
+any date against a date and time is. In search results `date_opened` is the
+UTC day HQ writes and takes the same day rule, while `last_modified` there is
+HQ's instant.
+
+Postgres reads hold what the device holds: a `casedb` system date compared with
+an instant is that day's midnight in the worker's zone, which is the instant
+the device's lowering reads; an explicit coercion of a date is its UTC
+midnight; and naive datetime text is UTC. The database connection's zone
+decides nothing.
 
 ### Case choices inside forms
 

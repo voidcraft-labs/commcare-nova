@@ -236,7 +236,12 @@ holds. So no earlier document parses under it, a `blueprint-migration` batch has
 no source it can load, and a history row that carries a dropped key or installs a
 parent without its required slot does not replay. A suffix rewrite would rewrite
 every mutation kind whose payload changes, the immutable baselines and every
-recorded snapshot digest, so this horizon does not take it. A reader that folds at
+recorded snapshot digest, so this horizon does not take it. The
+`hq-round-trip-expressions` horizon takes the same route: every expression slot
+of every document changes its stored shape, so no earlier mutation that carries
+an expression parses under the current `mutationSchema`, and lifting a relative
+path or a `casedb` query in a historical row would need the form tree as it
+stood at that row. A reader that folds at
 a sequence behind an app's greatest fold baseline answers from the current saved
 app instead. The rule lives once, in
 `lib/agent/change-set/baseLoader.ts::greatestFoldBaselineSeq`, read by the build

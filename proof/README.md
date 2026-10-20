@@ -3190,8 +3190,8 @@ reused is only what a key names whole, and the reuse is audited:
   (equal). The sample turns each week: the run's ISO year and week is its
   seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
   takes the next 24 of the corpus's documents ranked by the sha256 of their
-  ids, wrapping at the end, so every document is compared within fifteen
-  weeks (for 357), and the three runs of a week check the same sample. The
+  ids, wrapping at the end, so every document is compared within seventeen
+  weeks (for 392), and the three runs of a week check the same sample. The
   seed and the sample's documents are in each sampled lane's job summary,
   its verdict and a failed week's issue, and a dispatch that names the seed
   (`sample_seed`) runs the same sample again. A sampled run checks every
@@ -4535,8 +4535,8 @@ What a pull request runs is what its changes leave out of main's store, which
 the nightly fills with both profiles, and the audit sample (four documents or
 so, observed afresh on every run to hold the store to its keys). The
 expected ends below are the model's: `plan fit` over the queues the queue
-builder's own code makes for each change, from this commit's corpus (357
-documents, 69 controls, 30 package groups: 456 groups, 4,091 box-seconds
+builder's own code makes for each change, from this commit's corpus (392
+documents, 86 controls, 30 package groups: 508 groups, 4,240 box-seconds
 whole) and `proof/timings.json`, with a store taken to hold everything the
 change's keys do not move. One row has been measured on hosted runners,
 once: the last. Pull request run 38425969767 observed every group afresh on

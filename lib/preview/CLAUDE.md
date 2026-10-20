@@ -736,7 +736,11 @@ Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one Fie
   changed relevance can change the value a structural read observes.
   Each report names the cascade edge it closed through (`CycleReport.cascade`)
   so the validator can explain the containment, which no authored expression
-  spells out. Reads name exact addressed nodes, never every navigation prefix.
+  spells out. Reads name exact addressed nodes, never every navigation prefix:
+  edges come from the stored tree's reads
+  (`lib/commcare/xpath/wire/formReads.ts::formReads`), resolved through the
+  form's node projection, so a relative or `current()` read has its edge like
+  any other read.
   Native cycle collection uses the complete finite graph, including query
   wrappers and generated count/Connect calculations, and keeps cascading
   self edges. Runtime scheduling keeps its existing settle-free handling of

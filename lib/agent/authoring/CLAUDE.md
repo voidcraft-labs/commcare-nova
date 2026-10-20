@@ -63,7 +63,10 @@ follows Zod's preserved refinement lineage, emits reusable definitions once, and
 it never identifies content by a property named `parts` or `label`.
 `authoringJsonSchema` substitutes each family position with that family's
 authored string schema before Zod walks the input schema, so the served bytes
-depend only on the authored surface. The schema walker binds values before the full
+depend only on the authored surface. A form link's datum name is the `datum`
+family, whose authored schema is a string: the model writes the target's datum
+id, and the decoder resolves it to the target entry's selected case
+(`formPreparation.ts`). The schema walker binds values before the full
 canonical schema runs its refinements. Null and omission keep their existing
 meaning. Localized values need the current translation unit's `valueKind` to
 choose plain text or reference-bearing prose; do not guess from the string.
@@ -89,6 +92,8 @@ and question behavior separately.
 `queryExpressions.ts` uses the existing Lezer grammar to produce the shared
 `Expression` union. It never evaluates code. Ordinary `div` stores real division;
 `quotient()` stores a distinct integer-division operation and rejects decimal operands.
+`-x` on a non-literal stores `negate`; a literal opposite a static-choice answer
+stores a `choice`.
 Explicit numeric types and literal punctuation survive printing and editing.
 
 Form logic uses `parseFormExpression` through the actual `ExpressionSlotRef`.
@@ -171,7 +176,14 @@ rather than becoming opaque text that renames cannot maintain.
 
 Wording is Markdown. Answer interpolation is parsed at this boundary and printed
 back to the same authoring representation. Literal braces and backslashes must
-round-trip. Conditions use Nova's existing XPath grammar. Instance and current()-rooted paths bind to typed identities in their actual slot.
+round-trip. Expressions are authored in two grammars, one per slot family: form
+logic (fields, Connect, form links) in CommCare's form XPath, and record
+expressions (filters, calculated columns, search, case operations, display
+conditions) in the record dialect. Each holds the round-trip law under the
+slot's scope: parsing a print gives back the stored tree, and printing a parse
+is canonical, so a read sent back as an edit stores the same tree. A form-logic
+re-parse of an edited slot takes its stored tree as its binding hint. Instance
+and current()-rooted paths bind to typed identities in their actual slot.
 Connect expressions resolve from their generated evaluation node through the same form graph as field expressions.
 
 Preparation runs inside the authorized workspace invocation. Agent and MCP workspaces retain incomplete construction privately; saving
