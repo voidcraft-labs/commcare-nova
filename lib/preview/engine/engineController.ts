@@ -74,6 +74,7 @@ import {
 	type PreviewDataRefusalReason,
 	type PreviewDataRefusalStage,
 	previewDataRefusalOf,
+	previewDataRefusalReadsTable,
 	workerFailureError,
 } from "./dataRefusal";
 import { buildEngineInput, repeatCountNamesOf } from "./engineInput";
@@ -186,9 +187,11 @@ export interface EngineEntryState {
 	/** CommCare refuses to open this entry: a setvalue's cast turned away a
 	 * preloaded value or a starting value (`answerCast.ts`), or the entry read
 	 * data the device holds none of (`dataRefusal.ts`). Author or Project
-	 * data, not a fault, so it is never reported; it clears on the next
-	 * document revision or case-data change, and a data refusal on the next
-	 * lookup snapshot too, which open the form again. */
+	 * data, not a fault, so it is never reported. A refusal at open clears on
+	 * the next document revision or case-data change, and one caused by a
+	 * lookup table on the next lookup snapshot too, which open the form again.
+	 * A refusal at the links comes after the form was saved, so it ends the
+	 * entry: nothing opens that form again but a new entry. */
 	readonly refusal: EngineFormRefusal | undefined;
 	/** A casedb-dependent form requested before its device snapshot is ready.
 	 * This is resource readiness, not an invalid-document fault. */
@@ -1141,12 +1144,22 @@ export class EngineController {
 	 * report: the requested activation stays, and the next document revision
 	 * opens it again, so an author's fix is seen at once. A case-data change
 	 * re-activates through the ordinary activation path.
+	 *
+	 * A refusal at the links comes after the submission wrote its cases, so
+	 * the entry is over: the requested activation goes with it, nothing opens
+	 * the form again (`linksEnded`), and the panel's way back is the next
+	 * step. Opening it again would let the same answers be submitted twice.
 	 */
 	private recordRefusal(refusal: EngineFormRefusal): void {
 		if (this.runtimeFault !== undefined || this.formRefusal !== undefined)
 			return;
 		this.clearActiveForm();
 		this.formRefusal = refusal;
+		if (refusal.kind === "data" && refusal.stage === "links") {
+			this.requestedActivation = undefined;
+			this.publishEntryState();
+			return;
+		}
 		const docStore = this.docStore;
 		if (
 			docStore !== undefined &&
@@ -1162,10 +1175,14 @@ export class EngineController {
 		this.publishEntryState();
 	}
 
-	/** Open the refused entry again, as it was requested. */
+	/** Open the entry refused at open again, as it is requested now: every
+	 * case-data change replaces the requested activation
+	 * (`useFormEngine`, `setCaseDatabaseState`), so it carries the current
+	 * case data and session. */
 	private reopenRefusedEntry(): void {
 		const refusal = this.formRefusal;
 		const requested = this.requestedActivation;
+		if (refusal?.kind === "data" && refusal.stage === "links") return;
 		this.clearRefusal();
 		if (refusal === undefined || requested?.formUuid !== refusal.formUuid) {
 			this.publishEntryState();
@@ -1177,6 +1194,7 @@ export class EngineController {
 				requested.caseData,
 				requested.caseDatabase,
 				requested.searchAnswers,
+				requested.session,
 			).catch(() => undefined);
 		} else
 			this.activateForm(
@@ -1184,7 +1202,19 @@ export class EngineController {
 				requested.caseData,
 				requested.caseDatabase,
 				requested.searchAnswers,
+				requested.session,
 			);
+	}
+
+	/** Whether this form's entry ended at its links: its form was saved, so
+	 * only a new entry, after `deactivate`, opens it again. */
+	private linksEnded(formUuid: Uuid): boolean {
+		const refusal = this.formRefusal;
+		return (
+			refusal?.kind === "data" &&
+			refusal.stage === "links" &&
+			refusal.formUuid === formUuid
+		);
 	}
 
 	private clearRefusal(): void {
@@ -1594,8 +1624,17 @@ export class EngineController {
 			return;
 		}
 		if (data === null) return;
-		/* Rows added to a table the entry found empty: open it again. */
-		if (this.formRefusal?.kind === "data" && data !== previousData) {
+		/* Rows added to a table the entry found empty at open: open it again.
+		 * A new snapshot cannot give the device places, chosen cases or search
+		 * answers, so no other refusal reopens here. */
+		const refusal = this.formRefusal;
+		if (
+			refusal?.kind === "data" &&
+			refusal.stage === "form" &&
+			data !== previousData &&
+			(previewDataRefusalReadsTable(refusal.reason, previousData) ||
+				previewDataRefusalReadsTable(refusal.reason, data))
+		) {
 			this.reopenRefusedEntry();
 			return;
 		}
@@ -1758,6 +1797,7 @@ export class EngineController {
 			this.deactivate();
 			return;
 		}
+		if (this.linksEnded(formUuid)) return;
 		this.requestedActivation = {
 			formUuid,
 			caseData,
@@ -1807,6 +1847,7 @@ export class EngineController {
 			this.deactivate();
 			return false;
 		}
+		if (this.linksEnded(formUuid)) return false;
 		this.requestedActivation = {
 			formUuid,
 			caseData,

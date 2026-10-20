@@ -423,6 +423,23 @@ describe("lookupSelectSourceRowFindings — a table with no rows", () => {
 		);
 	});
 
+	it("refuses an empty table even when a column is stale, beside the stale column's own finding", () => {
+		const doc = carrierDoc({ ...SOURCE, valueColumnId: ABSENT_COL });
+		expect(
+			lookupSelectSourceRowFindings(doc, snapshot(table(), [])).map(
+				(e) => e.code,
+			),
+		).toEqual(["LOOKUP_SELECT_SOURCE_EMPTY"]);
+		expect(
+			runValidation(doc, {
+				kind: "available",
+				projectId: "project-1",
+				projectRevision: "1" as LookupRevision,
+				definitions: [table()],
+			}).map((e) => e.code),
+		).toContain("LOOKUP_COLUMN_NOT_AVAILABLE");
+	});
+
 	it("passes a filter that leaves no choice over rows that exist", () => {
 		const doc = carrierDoc({ ...SOURCE, filter: matchNone() });
 		expect(

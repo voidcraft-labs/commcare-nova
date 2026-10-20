@@ -25,7 +25,12 @@ export const LOCATION_LEVELS = ["region", "district", "clinic"].map(
 );
 export const LOCATION_SCENARIOS = ["direct", "multirung", "plain"] as const;
 export type LocationScenario = (typeof LOCATION_SCENARIOS)[number];
-export function locationOwnerFixture(scenario: LocationScenario) {
+/** `placeRead` adds a question whose calculate reads the first place's name,
+ * a form-logic read of places beside the owner's. */
+export function locationOwnerFixture(
+	scenario: LocationScenario,
+	options: { readonly placeRead?: true } = {},
+) {
 	const doc = buildDoc({
 		appName: "Location owner evidence",
 		caseTypes: [{ name: "patient", properties: [] }],
@@ -41,7 +46,22 @@ export function locationOwnerFixture(scenario: LocationScenario) {
 						uuid: LOCATION_FORM,
 						name: "Transfer",
 						type: "followup",
-						fields: [f({ kind: "text", id: "note" })],
+						fields: [
+							f({ kind: "text", id: "note" }),
+							...(options.placeRead
+								? [
+										f({
+											kind: "hidden",
+											id: "first_place",
+											calculate: {
+												kind: "project",
+												of: { kind: "locations", where: [] },
+												value: { kind: "location-field", field: "name" },
+											},
+										}),
+									]
+								: []),
+						],
 					},
 				],
 			},

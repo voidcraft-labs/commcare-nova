@@ -645,12 +645,89 @@ describe("instance arms declare what they read, per target", () => {
 			);
 		});
 
-		it("leaves distinct-values bare, since no guard reads as its empty sequence", () => {
+		it("guards the node-set of distinct-values, index-of and weighted-checklist, which split '' into no values", () => {
 			expect(
-				printed(call("distinct-values", clinicNames()), "suite").text,
-			).toBe(`distinct-values(${places})`);
+				printed(
+					call(
+						"join",
+						term(literal(" ")),
+						call("distinct-values", clinicNames()),
+					),
+					"suite",
+				).text,
+			).toBe(`join(' ', distinct-values(${guarded(places)}))`);
+			expect(
+				printed(call("index-of", clinicNames(), term(literal("A"))), "suite")
+					.text,
+			).toBe(`index-of(${guarded(places)}, 'A')`);
+			expect(
+				printed(
+					call(
+						"weighted-checklist",
+						term(literal(0)),
+						term(literal(0)),
+						clinicNames(),
+						clinicNames(),
+					),
+					"suite",
+				).text,
+			).toBe(
+				`weighted-checklist(0, 0, ${guarded(places)}, ${guarded(places)})`,
+			);
 		});
 
+		// `if` hands the branch it takes to sum unconverted, so sum moves into
+		// each branch and each branch counts only the rows it reads: a branch
+		// over rows that exist answers as written while the other has none.
+		describe("a sum over a passed-through node-set", () => {
+			const labels: Expression = {
+				kind: "project",
+				of: { kind: "table-rows", tableId: table.id, where: [] },
+				value: tableColumn(table.id, label.id),
+			};
+			const tableLabels =
+				"instance('item-list:regions')/regions_list/regions/label";
+			const tableGuarded = (read: string) =>
+				`if(count(instance('item-list:regions')/regions_list/regions) > 0, ${read}, 0)`;
+
+			it("guards each branch of an if with the rows that branch reads", () => {
+				expect(
+					printed(
+						call(
+							"sum",
+							ifExpr(eq(literal(1), literal(1)), clinicNames(), labels),
+						),
+						"suite",
+					).text,
+				).toBe(
+					`if(1 = 1, ${guarded(`sum(${places})`, "0")}, ${tableGuarded(`sum(${tableLabels})`)})`,
+				);
+			});
+
+			it("guards a switch's cases and the last value of a coalesce", () => {
+				expect(
+					printed(
+						call(
+							"sum",
+							switchExpr(
+								term(literal("a")),
+								[switchCase(literal("a"), labels)],
+								clinicNames(),
+							),
+						),
+						"suite",
+					).text,
+				).toBe(
+					`if('a' = 'a', ${tableGuarded(`sum(${tableLabels})`)}, ${guarded(`sum(${places})`, "0")})`,
+				);
+				expect(
+					printed(
+						call("sum", coalesce(term(literal("")), clinicNames())),
+						"suite",
+					).text,
+				).toBe(guarded(`sum(coalesce('', ${places}))`, "0"));
+			});
+		});
 		it("keeps a branch bare when count reads what the branch passes through", () => {
 			const branch = ifExpr(
 				eq(literal(1), literal(1)),

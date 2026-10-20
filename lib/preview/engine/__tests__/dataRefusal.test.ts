@@ -4,7 +4,13 @@
 // says what a phone does and what to change.
 
 import { describe, expect, it } from "vitest";
+import {
+	LOCATION_FORM,
+	LOCATION_LEVELS,
+	locationOwnerFixture,
+} from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { wireTable } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
+import type { LocationFixtureRow } from "@/lib/organization/footprint";
 import { dataRefusalCopy } from "../../runtimeMessages";
 import { evaluate } from "../../xpath/evaluator";
 import { PreviewXPathRuntimeError } from "../../xpath/runtimeError";
@@ -16,9 +22,12 @@ import {
 import {
 	PreviewDataRefusal,
 	previewDataRefusalOf,
+	previewDataRefusalReadsTable,
 	previewDataRefusalSubject,
 	workerFailureError,
 } from "../dataRefusal";
+import { buildEngineInput } from "../engineInput";
+import { FormEngine } from "../formEngine";
 import { previewLookupData } from "../lookupEvaluation";
 import {
 	locationsXPathInstance,
@@ -232,5 +241,111 @@ describe("a choice list over a table with no rows", () => {
 			kind: "choices",
 			tableName: table.name,
 		});
+	});
+});
+
+// A new lookup snapshot opens a refused form again only when a table held
+// what the form found empty; places, chosen cases and search answers come
+// with the device's cases, the session and the search instead.
+describe("which refusals a lookup snapshot can change", () => {
+	it("is a table's rows or a table's choices, under either of its ids", () => {
+		for (const instanceId of [naming.xformInstanceId, naming.fixtureId])
+			expect(
+				previewDataRefusalReadsTable(
+					{ kind: "empty-instance", instanceId },
+					empty,
+				),
+			).toBe(true);
+		expect(
+			previewDataRefusalReadsTable(
+				{ kind: "empty-choice-table", tableId: table.id },
+				null,
+			),
+		).toBe(true);
+	});
+
+	it("is never the places, the chosen cases or the search answers", () => {
+		for (const instanceId of [
+			"locations",
+			"selected_cases",
+			"search-input:results",
+		])
+			expect(
+				previewDataRefusalReadsTable(
+					{ kind: "empty-instance", instanceId },
+					empty,
+				),
+			).toBe(false);
+	});
+});
+
+// The owner's move to a place prints bare, so a phone refuses the form when
+// it opens for a worker assigned nowhere (`LocationOwnerRuntimeTest`):
+// Preview refuses there too, saying why the case can't move.
+describe("a case owner moved to a place, for a worker assigned nowhere", () => {
+	const open = (
+		doc: ReturnType<typeof locationOwnerFixture>,
+		locations?: readonly LocationFixtureRow[],
+	) => {
+		const input = buildEngineInput(doc, LOCATION_FORM, null);
+		if (input === undefined) throw new Error("The fixture form is missing.");
+		return () =>
+			new FormEngine(input, "patient", undefined, null, null, {
+				rows: [],
+				indices: [],
+				...(locations === undefined ? {} : { locations }),
+			});
+	};
+	const clinic: LocationFixtureRow = {
+		id: "place-3",
+		levelUuid: LOCATION_LEVELS[2].uuid,
+		siteCode: "place-3",
+		name: "Clinic",
+		externalId: null,
+		latitude: null,
+		longitude: null,
+		values: {},
+		lineage: {},
+	};
+
+	it("refuses the form when it opens, as a refusal about the owner's place", () => {
+		let caught: unknown;
+		try {
+			open(locationOwnerFixture("direct"), [])();
+		} catch (error) {
+			caught = error;
+		}
+		const refusal = previewDataRefusalOf(caught);
+		expect(refusal?.reason).toEqual({ kind: "owner-without-place" });
+		expect(refusal?.stage).toBe("form");
+		expect(refusal && previewDataRefusalSubject(refusal.reason, null)).toEqual({
+			kind: "owner-place",
+		});
+		expect(refusal && previewDataRefusalReadsTable(refusal.reason, null)).toBe(
+			false,
+		);
+	});
+
+	it("opens once the worker has a place, without places read, and for an ordinary owner", () => {
+		expect(open(locationOwnerFixture("direct"), [clinic])).not.toThrow();
+		expect(open(locationOwnerFixture("direct"))).not.toThrow();
+		expect(open(locationOwnerFixture("plain"), [])).not.toThrow();
+	});
+
+	it("says the case has no owner to move to, naming the persona", () => {
+		expect(
+			dataRefusalCopy(
+				"eng",
+				"form",
+				{ kind: "owner-place" },
+				{ worker: "Asha" },
+			),
+		).toEqual({
+			title: "This form stops here on a phone",
+			body: "This form moves the case to Asha's place, and Asha is assigned nowhere, so the case has no owner to move to and a phone stops here. You can give Asha a place under Users and personas in App setup.",
+		});
+		expect(dataRefusalCopy("eng", "form", { kind: "owner-place" }).body).toBe(
+			"This form moves the case to your place, and you're assigned nowhere, so the case has no owner to move to and a phone stops here. You can preview as a persona who has a place.",
+		);
 	});
 });

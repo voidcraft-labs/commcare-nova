@@ -137,7 +137,7 @@ import type {
 	SubmissionOperationAnswers,
 } from "./caseDataBindingTypes";
 import { DataInstance, type DataInstanceSnapshot } from "./dataInstance";
-import { PreviewDataRefusal } from "./dataRefusal";
+import { ownerMovesToNoPlace, PreviewDataRefusal } from "./dataRefusal";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import {
 	type FormExpressionRuntime,
@@ -737,6 +737,8 @@ export class FormEngine {
 		this.caseData = caseData ?? new Map();
 		this.searchAnswers = runtimeOptions.searchAnswers ?? new Map();
 		this.sessionData = runtimeOptions.sessionData ?? {};
+		if (ownerMovesToNoPlace(input.form.caseOperations, caseDatabase?.locations))
+			throw new PreviewDataRefusal({ kind: "owner-without-place" });
 		this.secondaryInstances = secondaryXPathInstances({
 			identity: this.previewIdentity,
 			lookupData: this.lookupData,

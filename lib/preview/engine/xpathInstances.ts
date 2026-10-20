@@ -2,6 +2,12 @@ import type { CaseIndexRow } from "@/lib/case-store";
 import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
 import { INLINE_SEARCH_RESULTS_INSTANCE } from "@/lib/commcare/session";
 import { COMMCARE_SESSION_CONTEXT_FIELDS } from "@/lib/commcare/sessionContext";
+import {
+	LOCATION_ROWS,
+	locationsInstance,
+	SEARCH_INPUT_ROWS,
+	SELECTED_ENTITY_ROWS,
+} from "@/lib/commcare/xpath/wire/instances";
 import { formExpressionSlotValues } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
@@ -595,8 +601,11 @@ export function selectedCasesXPathInstance(
 	caseIds: readonly string[],
 ): XPathInstance {
 	return new StaticXPathInstance(datumId, {
-		name: "results",
-		children: caseIds.map((caseId) => ({ name: "value", value: caseId })),
+		name: SELECTED_ENTITY_ROWS.root,
+		children: caseIds.map((caseId) => ({
+			name: SELECTED_ENTITY_ROWS.row,
+			value: caseId,
+		})),
 	});
 }
 
@@ -666,8 +675,8 @@ export function locationsXPathInstance(
 		levels.map((level) => [level.uuid, level]),
 	);
 	const properties = orderedLocationProperties(organization);
-	return new StaticXPathInstance("locations", {
-		name: "locations",
+	return new StaticXPathInstance(locationsInstance().id, {
+		name: LOCATION_ROWS.root,
 		children: [...rows].sort(bySiteCode).flatMap((row): ElementSpec[] => {
 			const level = levelByUuid.get(row.levelUuid);
 			if (level === undefined) return [];
@@ -682,7 +691,7 @@ export function locationsXPathInstance(
 			};
 			return [
 				{
-					name: "location",
+					name: LOCATION_ROWS.row,
 					attributes: {
 						type: level.code,
 						id: row.id,
@@ -968,13 +977,13 @@ export function searchInputXPathInstance(
 	instanceId: string = INLINE_SEARCH_INPUT_INSTANCE_ID,
 ): XPathInstance {
 	return new StaticXPathInstance(instanceId, {
-		name: "input",
+		name: SEARCH_INPUT_ROWS.root,
 		children: [...answers].flatMap(([name, value]) =>
 			value === ""
 				? []
 				: [
 						{
-							name: "field",
+							name: SEARCH_INPUT_ROWS.row,
 							value,
 							attributes: { name },
 						},

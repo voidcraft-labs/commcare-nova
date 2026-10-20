@@ -77,28 +77,42 @@ is HQ-JSON-only. None is reachable from an authored expression.
 Core checks an absolute path before reading it (`XPathPathExpr.evalRaw` →
 `DataInstance.hasTemplatePath`, predicates ignored), and an instance Core
 builds from its data alone has no template: a lookup table, the flat place
-list, the selected entities and the search answers (`src` a `jr://fixture/…`,
-`jr://instance/selected-entities/…` or `jr://instance/search-input/…`). With
-no rows, `count` of a path into one reads 0 and every value read throws.
-`casedb` and `results:inline` read the case template and are never guarded.
-So `emitExpression` lowers every expression for its consumer (`Use`): a value
-read of such an instance prints `if(count(<root>/<row>) > 0, <read>, '')`,
-the rows being the read's first two steps with no predicates. With any row
-present the read answers as written, since `if` returns its branch
-unconverted; with none it reads blank. `count`, and the branches of `if`,
+list, the selected entities and the search answers. Their declarations carry
+their root and row element names (`instances.ts`, `InstanceDecl.rows`), the
+same constants Preview's instance builders build from. With no rows, `count`
+of a path into one reads 0 and every value read throws. `casedb` and
+`results:inline` read the case template and are never guarded. So
+`emitExpression` lowers every expression for its consumer (`Use`): a value
+read of such an instance prints `if(count(<root>/<row>) > 0, <read>, '')`.
+With any row present the read answers as written, since `if` returns its
+branch unconverted; with none it reads blank, which is also what Core reads
+for a valid empty node-set (`XPathNodeset.unpack` →
+`XPathPathExpr.unpackValue(null)`). `count`, and the branches of `if`,
 `switch`, `coalesce` or a pass-through call that `count` reads, take the bare
 path (`count('')` throws). A call's node-set arguments follow
-`NODE_SET_ARGUMENT`: `join`, `concat`, `join-chunked`, `checklist`, `min` and
-`max` take the `''` guard, which they read as an empty set; `sum` and
-`index-of` take the bare path and the call is guarded with `0` and `''`;
-`position`, `distinct-values`, `weighted-checklist` and `depend` keep it bare,
-since no string reads as their empty set. An itemset or repeat nodeset is
-generated, never lowered here, and stays bare, and so is a prompt read inside
+`NODE_SET_ARGUMENT`: `join`, `concat`, `join-chunked`, `checklist`, `min`,
+`max`, `distinct-values`, `index-of` and `weighted-checklist` take the `''`
+guard, which they read as an empty set (`distinct-values` and `index-of`
+split `''` into no values, `FunctionUtils.getSequence`). `sum` refuses
+anything but a node-set, so its argument stays bare and the call is guarded
+with `0` by `emptyRows.ts::guardNodeSetConsumer`, which follows the set
+through pass-through calls: over `if` and `cond` the sum moves into each
+branch, so each branch counts only its own rows; through `coalesce`,
+`depend` and `sleep` it sums the rebuilt call. `position` keeps it bare,
+since Core refuses `position` of an empty set too, and so does `depend`,
+which never reads its later arguments. An itemset or repeat nodeset is
+generated, never lowered here, and stays bare. So does the case owner moved
+to a place (`owner-location-at-level`, marked `WirePath.refusesEmpty`): for a
+worker assigned nowhere Core must refuse that read when the form opens, as
+`proof/native/core/LocationOwnerRuntimeTest.java::missingDestinationRefusesTheSubmittedForm`
+holds it, never write a blank owner or turn the case away after the worker
+filled the form. So is a prompt read inside
 CSQL text (`predicate/termEmitter.ts::emitSearchInputXPath`), which the
 validator admits only inside a presence envelope whose `count` covers it.
-Generated scaffolding that reads such an instance as a value applies
-`emptyRows.ts::guardValue` itself: the several-case `join` of the chosen ids
-in a batch form, a nested child list's parent filter and tile grouping. Zero
+Generated scaffolding that reads such an instance as a value guards it
+itself: the several-case `join` of the chosen ids, which a batch form, a
+nested child list's parent filter and its tile grouping all build with
+`emptyRows.ts::joinedSelectedCaseIds`. Zero
 chosen cases is reachable through a session endpoint (Formplayer splits the
 link's argument on commas), never through the list. A `<data nodeset>` over
 the chosen cases is a `TreeReference` that Core expands

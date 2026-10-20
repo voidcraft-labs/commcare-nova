@@ -49,7 +49,7 @@ import { matchModeRunsOnDevice } from "../../predicate/matchModes";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
-import { emptiableRows, guardRead, guardValue } from "./emptyRows";
+import { guardNodeSetConsumer, guardValue } from "./emptyRows";
 import { formReadToWire } from "./formReads";
 import { normalizeGeopoint, validGeopointCenter } from "./geopoint";
 import {
@@ -550,14 +550,20 @@ function term(input: Term, ctx: Context): WireExpr {
 				{ kind: "prop", caseType: input.ownerCaseType, property: "owner_id" },
 				ctx,
 			);
-			return w.instance(locationsInstance(), [
-				w.step("locations"),
-				w.step("location", [
-					w.eq(w.context([w.attr("type")]), w.str(destination.code)),
-					w.eq(w.context([w.attr(`${source.code}_id`)]), owner),
+			/* Bare: with no places, Core refuses this read when the form opens,
+			 * so a transfer never writes a blank owner, and never after the
+			 * worker filled the form and the case block is turned away. */
+			return {
+				...w.instance(locationsInstance(), [
+					w.step("locations"),
+					w.step("location", [
+						w.eq(w.context([w.attr("type")]), w.str(destination.code)),
+						w.eq(w.context([w.attr(`${source.code}_id`)]), owner),
+					]),
+					w.attr("id"),
 				]),
-				w.attr("id"),
-			]);
+				refusesEmpty: true,
+			};
 		}
 		case "table-column": {
 			const lookup = bindings.lookup;
@@ -684,14 +690,17 @@ type Use = "value" | "nodes";
 
 /** How each node-set argument Core reads whole (`expressionFunctions.ts`,
  * `manyArguments`) takes an instance read. `value`: the guarded read, whose
- * `''` these functions read as they read an empty set (`join`, `concat`,
+ * `''` these functions read as they read an empty set: `join`, `concat`,
  * `join-chunked` and `checklist` read one empty string; `min` and `max`
- * read it as NaN, their answer for no values). A number or string: the
- * argument stays bare and the call is guarded, reading that constant (what
- * the function answers for an empty set) when there are no rows. `nodes`:
- * the argument stays bare, since Core answers no empty set there
- * (`position`, `distinct-values`'s sequence, `weighted-checklist`'s paired
- * sets) or never reads it (`depend`'s later arguments). */
+ * read it as NaN, their answer for no values; `distinct-values` and
+ * `index-of` split it into no values (`FunctionUtils.getSequence` →
+ * `DataUtil.splitOnSpaces`); and `weighted-checklist` reads `''` flags as
+ * false, adding no weight. A constant: the argument stays bare and the call
+ * is guarded (`emptyRows.ts::guardNodeSetConsumer`), reading that constant
+ * when there are no rows, since `sum` refuses anything but a node-set.
+ * `nodes`: the argument stays bare, since Core refuses `position` of an
+ * empty set too (`XPathPositionFunc.evalBody`) and never reads `depend`'s
+ * later arguments. */
 const NODE_SET_ARGUMENT: Partial<
 	Record<string, "value" | "nodes" | { readonly empty: WireExpr }>
 > = {
@@ -700,11 +709,11 @@ const NODE_SET_ARGUMENT: Partial<
 	checklist: "value",
 	min: "value",
 	max: "value",
+	"distinct-values": "value",
+	"index-of": "value",
+	"weighted-checklist": "value",
 	sum: { empty: w.num(0) },
-	"index-of": { empty: w.str("") },
 	position: "nodes",
-	"distinct-values": "nodes",
-	"weighted-checklist": "nodes",
 	depend: "nodes",
 };
 
@@ -718,16 +727,12 @@ function emitCall(
 	const many = spec?.manyArguments?.(callArgs.length);
 	const passThrough = spec?.passThrough?.(callArgs.length);
 	const argument = NODE_SET_ARGUMENT[fn] ?? "nodes";
-	let guard: { readonly rows: WirePath; readonly empty: WireExpr } | undefined;
+	const guarded: number[] = [];
 	const args = callArgs.map((arg, index) => {
 		if (many?.has(index) === true) {
 			if (argument === "value") return emitExpression(arg, ctx);
-			const bare = emitExpression(arg, ctx, "nodes");
-			if (argument !== "nodes") {
-				const rows = emptiableRows(bare);
-				if (rows !== undefined) guard = { rows, empty: argument.empty };
-			}
-			return bare;
+			if (argument !== "nodes") guarded.push(index);
+			return emitExpression(arg, ctx, "nodes");
 		}
 		return emitExpression(
 			arg,
@@ -735,8 +740,24 @@ function emitCall(
 			passThrough?.has(index) === true ? use : "value",
 		);
 	});
-	const call = w.call(fn, args);
-	return guard === undefined ? call : guardRead(call, guard.rows, guard.empty);
+	if (argument === "value" || argument === "nodes") return w.call(fn, args);
+	// Each guarded argument wraps the call built from the ones inside it, so
+	// every argument's rows are counted and each branch counts only its own.
+	const guardFrom = (at: number, built: readonly WireExpr[]): WireExpr => {
+		const index = guarded[at];
+		const nodes = index === undefined ? undefined : built[index];
+		if (index === undefined || nodes === undefined) return w.call(fn, built);
+		return guardNodeSetConsumer(
+			nodes,
+			(inner) =>
+				guardFrom(
+					at + 1,
+					built.map((arg, position) => (position === index ? inner : arg)),
+				),
+			argument.empty,
+		);
+	};
+	return guardFrom(0, args);
 }
 
 function emitExpression(

@@ -216,6 +216,7 @@ describe("lookup wire coordinates", () => {
 				{
 					id: target === "xform" ? "regions" : "item-list:regions",
 					src: "jr://fixture/item-list:regions",
+					rows: { root: "regions_list", row: "regions" },
 				},
 			]);
 			expect(path(wire).steps).toEqual([

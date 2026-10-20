@@ -14,6 +14,7 @@
  */
 
 import {
+	type CaseOperation,
 	type SearchInputDef,
 	searchInputOptions,
 	type Uuid,
@@ -31,6 +32,10 @@ const SEARCH_INPUT_INSTANCE_PREFIX = "search-input:";
 export type PreviewDataRefusalReason =
 	/** A value read below an instance that holds nothing, named by its id. */
 	| { readonly kind: "empty-instance"; readonly instanceId: string }
+	/** A case owner moved to the worker's place at a level, for a worker
+	 * assigned nowhere: Core refuses the owner's read when the form opens
+	 * (`lib/commcare/xpath/wire/tree.ts::WirePath.refusesEmpty`). */
+	| { readonly kind: "owner-without-place" }
 	/** A choice list whose table has no rows. `fieldUuid` is the form's
 	 * question, where the refusal came from one. */
 	| {
@@ -54,7 +59,9 @@ export class PreviewDataRefusal extends Error {
 		super(
 			reason.kind === "empty-instance"
 				? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
-				: "CommCare refuses this choice list: its table has no rows.",
+				: reason.kind === "owner-without-place"
+					? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
+					: "CommCare refuses this choice list: its table has no rows.",
 		);
 		this.name = "PreviewDataRefusal";
 		this.reason = reason;
@@ -92,6 +99,7 @@ export function workerFailureError(failure: XPathRuntimeFailure): Error {
 /** What a refusal is about, named from the document and the lookup data. */
 export type PreviewDataRefusalSubject =
 	| { readonly kind: "places" }
+	| { readonly kind: "owner-place" }
 	| { readonly kind: "table"; readonly tableName: string }
 	| {
 			readonly kind: "choices";
@@ -125,6 +133,7 @@ export function previewDataRefusalSubject(
 				: { fieldUuid: reason.fieldUuid }),
 		};
 	}
+	if (reason.kind === "owner-without-place") return { kind: "owner-place" };
 	const { instanceId } = reason;
 	if (instanceId === LOCATIONS_INSTANCE_ID) return { kind: "places" };
 	if (instanceId.startsWith(SEARCH_INPUT_INSTANCE_PREFIX))
@@ -141,6 +150,37 @@ export function previewDataRefusalSubject(
 		};
 	}
 	return { kind: "other" };
+}
+
+/** Whether a lookup table holds the data the refusal found empty, so a new
+ * lookup snapshot can change it. */
+export function previewDataRefusalReadsTable(
+	reason: PreviewDataRefusalReason,
+	lookupData: PreviewLookupData | null | undefined,
+): boolean {
+	const subject = previewDataRefusalSubject(reason, lookupData).kind;
+	return subject === "choices" || subject === "table";
+}
+
+/**
+ * Whether the form moves a case to the worker's place at a level while the
+ * worker is assigned nowhere. The owner's read is printed bare, so Core
+ * refuses it when the form opens: a calculate runs whether or not its case
+ * block is relevant (`Triggerable.apply`). An operation inside a repeat reads
+ * it per row, so only the form's own operations count here. `locations`
+ * absent means the snapshot was read without places, which says nothing.
+ */
+export function ownerMovesToNoPlace(
+	operations: readonly CaseOperation[] | undefined,
+	locations: readonly unknown[] | undefined,
+): boolean {
+	if (locations === undefined || locations.length > 0) return false;
+	return (operations ?? []).some(
+		(operation) =>
+			operation.forEach?.repeat === undefined &&
+			operation.owner?.kind === "term" &&
+			operation.owner.term.kind === "owner-location-at-level",
+	);
 }
 
 /**

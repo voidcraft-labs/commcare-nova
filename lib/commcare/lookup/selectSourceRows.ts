@@ -208,9 +208,12 @@ function emptySourceFinding(
 
 /**
  * Validate every persisted lookup-backed select against the fixture
- * snapshot's complete rows. A source whose table or columns are absent from
- * the snapshot is skipped here — the structural validator already owns that
- * finding, and emission never runs while it stands.
+ * snapshot's complete rows. A source whose table is absent from the
+ * snapshot is skipped here, and so are the rows of one whose columns are,
+ * since the structural validator owns those findings
+ * (`LOOKUP_TABLE_NOT_AVAILABLE`, `LOOKUP_COLUMN_NOT_AVAILABLE`) and emission
+ * never runs while they stand. A table with no rows is reported whatever its
+ * columns.
  */
 export function lookupSelectSourceRowFindings(
 	doc: BlueprintDoc,
@@ -225,6 +228,12 @@ export function lookupSelectSourceRowFindings(
 		if (table === undefined) continue;
 		const rows = snapshot.rowsByTable.get(carrier.source.tableId);
 		if (rows === undefined) continue;
+		// An empty table refuses on a device whatever its columns are, so it is
+		// reported even when a column is stale too.
+		if (rows.length === 0) {
+			errors.push(emptySourceFinding(carrier, table));
+			continue;
+		}
 		const valueColumn = table.columns.find(
 			(column) => column.id === carrier.source.valueColumnId,
 		);
@@ -232,10 +241,6 @@ export function lookupSelectSourceRowFindings(
 			(column) => column.id === carrier.source.labelColumnId,
 		);
 		if (valueColumn === undefined || labelColumn === undefined) continue;
-		if (rows.length === 0) {
-			errors.push(emptySourceFinding(carrier, table));
-			continue;
-		}
 		errors.push(
 			...sourceFindings({ carrier, table, rows, valueColumn, labelColumn }),
 		);

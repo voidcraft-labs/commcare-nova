@@ -1280,18 +1280,34 @@ or the client error funnel:
 - A form: `EngineController.recordRuntimeFault` records an entry refusal of
   kind `data` (`EngineFormRefusal`, beside the setvalue refusal), with stage
   `form`, or `links` when `evaluateFormLinkXPaths` read it after the save; the
-  after-submit route then settles quietly and `FormScreen` shows the panel. The
-  next document revision, case-data change (the places ride the device
-  snapshot) or new lookup snapshot opens the form again.
+  after-submit route then settles quietly and `FormScreen` shows the panel. A
+  refusal at open clears on the next document revision or case-data change
+  (the places ride the device snapshot), each opening the form again with the
+  entry as now requested, and on a new lookup snapshot only when a table held
+  what it found empty (`previewDataRefusalReadsTable`). A refusal at the links
+  comes after the submission wrote its cases, so it ends the entry: the
+  requested activation goes, nothing opens that form again until `deactivate`
+  starts a new entry, and the panel's **Back** is the next step. Opening it
+  again would submit the same answers twice.
 - A menu's display condition and a Search prompt's choices are read while
   their screen renders, so `PreviewShell` wraps the home, module and case-list
   screens in `PreviewDataRefusalScope` (`components/preview/shared/PreviewDataRefusal.tsx`),
   an error boundary that renders the refusal for `previewDataRefusalOf` errors
   and rethrows every other error to the canvas boundary. A refused choice list
   there is the Search screen's; any other read is the menu's. It tries again
-  when the document, the lookup status or the screen changes.
+  when the lookup status or the screen changes, and on the next document
+  revision, which it watches only while a refusal shows.
 - `evaluateFormSnapshot` (App Tests, `evaluate_form`) reports the same refusal
-  as a `FormEvaluationInputError` carrying the English sentence.
+  as a `FormEvaluationInputError` carrying the sentence in the evaluation's
+  language.
+
+A case owner moved to the worker's place at a level prints bare, so a phone
+refuses that form when it opens for a worker assigned nowhere. Preview's
+owner runs in SQL at submission, so `FormEngine` refuses the same form when
+it opens (`dataRefusal.ts::ownerMovesToNoPlace`, reason
+`owner-without-place`), for an operation outside a repeat whose snapshot
+carries an empty place list, and the copy says the case has no owner to move
+to.
 
 A choice list Preview computes at form open, so Preview refuses the form at
 open where a phone refuses when the question is reached. The export boundary

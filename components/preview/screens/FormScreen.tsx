@@ -2388,8 +2388,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 	}
 
 	/* The device holds none of the data this form read (no places, a table
-	 * with no rows), so a phone stops here. Rows or places added, or an edit,
-	 * open it again. */
+	 * with no rows), so a phone stops here. At open, rows or places added, or
+	 * an edit, open it again; at the links the form is already saved, so
+	 * Back is the next step. */
 	if (mode === "preview" && dataRefusal !== undefined) {
 		return (
 			<PreviewDataRefusalPanel

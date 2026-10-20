@@ -69,6 +69,7 @@ function formRefusal(
 	doc: BlueprintDoc,
 	details: SetvalueRefusalDetails,
 	cases: FormEvaluationContext["cases"],
+	language: FormEvaluationInput["language"],
 ): FormRefusalDetails {
 	const label = (uuid: string | undefined) => {
 		const field = uuid === undefined ? undefined : doc.fields[uuid];
@@ -82,7 +83,7 @@ function formRefusal(
 	const property = (doc.caseTypes ?? [])
 		.find((type) => type.name === details.caseType)
 		?.properties.find((candidate) => candidate.name === details.property);
-	const copy = refusalCopy("eng", details, {
+	const copy = refusalCopy(language, details, {
 		...(caseName ? { caseName } : {}),
 		...(property
 			? {
@@ -108,6 +109,7 @@ function dataRefusalSentence(
 	doc: BlueprintDoc,
 	refusal: PreviewDataRefusal,
 	context: FormEvaluationContext,
+	language: FormEvaluationInput["language"],
 ): string {
 	const { reason } = refusal;
 	const field =
@@ -122,7 +124,7 @@ function dataRefusalSentence(
 	const worker =
 		personaUuid === undefined ? undefined : doc.personas?.[personaUuid]?.name;
 	const copy = dataRefusalCopy(
-		"eng",
+		language,
 		refusal.stage,
 		previewDataRefusalSubject(reason, previewLookupData(context.lookup)),
 		{
@@ -471,6 +473,7 @@ export async function evaluateFormSnapshot(
 									doc,
 									state.insertRefusal,
 									context.cases,
+									input.language,
 								).sentence,
 							}),
 					...(kind === "geopoint"
@@ -515,12 +518,12 @@ export async function evaluateFormSnapshot(
 	} catch (error) {
 		if (error instanceof SetvalueRefusal)
 			throw new FormRefusedError(
-				formRefusal(doc, error.details, context.cases),
+				formRefusal(doc, error.details, context.cases, input.language),
 			);
 		const dataRefusal = previewDataRefusalOf(error);
 		if (dataRefusal !== undefined)
 			throw new FormEvaluationInputError(
-				dataRefusalSentence(doc, dataRefusal, context),
+				dataRefusalSentence(doc, dataRefusal, context, input.language),
 			);
 		if (error instanceof FormEvaluationXPathError)
 			throw new FormEvaluationInputError(

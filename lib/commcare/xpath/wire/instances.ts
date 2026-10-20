@@ -15,7 +15,43 @@ import { type LookupWireNaming, lookupFixtureSrc } from "../../lookup/naming";
 export interface InstanceDecl {
 	readonly id: string;
 	readonly src: string;
+	/** Present when Core builds this instance from its data alone, with no
+	 * template (`CommCareInstanceInitializer.generateRoot`): a lookup table,
+	 * the flat place list, the selected entities and the search answers. With
+	 * no rows, a path through `row` is an invalid node-set
+	 * (`XPathPathExpr.evalRaw` → `DataInstance.hasTemplatePath`), so the
+	 * emitter guards its value reads by the rows' count (`emptyRows.ts`).
+	 * `casedb` and `results:inline` read the case template and have none. */
+	readonly rows?: InstanceRows;
 }
+
+/** The root element and the row element of an instance Core builds from
+ * its data. Preview's instance builders (`lib/preview/engine/xpathInstances.ts`)
+ * build their instances from these same names. */
+export interface InstanceRows {
+	readonly root: string;
+	readonly row: string;
+}
+
+/** HQ's flat place fixture: `<locations><location …>` per place
+ * (`corehq/apps/locations/fixtures.py::FlatLocationSerializer`). */
+export const LOCATION_ROWS: InstanceRows = {
+	root: "locations",
+	row: "location",
+};
+
+/** `<input><field name="…">` per answered prompt
+ * (`org/commcare/data/xml/VirtualInstances.java::SEARCH_INSTANCE_ROOT_NAME`,
+ * `SEARCH_INSTANCE_NODE_NAME`). */
+export const SEARCH_INPUT_ROWS: InstanceRows = { root: "input", row: "field" };
+
+/** `<results><value>` per chosen case
+ * (`org/commcare/data/xml/VirtualInstances.java::SELCTED_CASES_INSTANCE_ROOT_NAME`,
+ * `SELCTED_CASES_INSTANCE_NODE_NAME`). */
+export const SELECTED_ENTITY_ROWS: InstanceRows = {
+	root: "results",
+	row: "value",
+};
 
 export function caseDbInstance(): InstanceDecl {
 	return { id: "casedb", src: "jr://instance/casedb" };
@@ -26,7 +62,11 @@ export function sessionInstance(): InstanceDecl {
 }
 
 export function locationsInstance(): InstanceDecl {
-	return { id: "locations", src: "jr://fixture/locations" };
+	return {
+		id: "locations",
+		src: "jr://fixture/locations",
+		rows: LOCATION_ROWS,
+	};
 }
 
 export function resultsInstance(
@@ -41,13 +81,18 @@ export function searchInputInstance(
 	return {
 		id,
 		src: `jr://instance/search-input/${id.slice("search-input:".length)}`,
+		rows: SEARCH_INPUT_ROWS,
 	};
 }
 
 /** The caller holds the generated selection datum's exact id. No id-pattern
  * classifier reconstructs whether a string is a selected-entity instance. */
 export function selectedCasesInstance(datumId: string): InstanceDecl {
-	return { id: datumId, src: `jr://instance/selected-entities/${datumId}` };
+	return {
+		id: datumId,
+		src: `jr://instance/selected-entities/${datumId}`,
+		rows: SELECTED_ENTITY_ROWS,
+	};
 }
 
 export function lookupInstance(
@@ -64,6 +109,7 @@ export function lookupInstance(
 	return {
 		id: target === "xform" ? table.xformInstanceId : table.fixtureId,
 		src: lookupFixtureSrc(table.fixtureId),
+		rows: { root: table.listElementName, row: table.rowElementName },
 	};
 }
 

@@ -19,7 +19,7 @@ import {
 	useLocalizedField,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { FORM_PRIMARY_ACTION_CLS } from "@/components/preview/screens/formActionButtonStyles";
-import { useDocRevision } from "@/lib/doc/hooks/useDocRevision";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
@@ -135,9 +135,13 @@ interface BoundaryProps {
 	 * Search screen's, whatever this says. */
 	readonly surface: "menu";
 	readonly moduleUuid?: Uuid;
-	/** Changing it tries the screen again: the document, the lookup data
-	 * and the location each can make the data there. */
+	/** Changing it tries the screen again: the screen itself and the lookup
+	 * data each can make the data there. */
 	readonly resetKeys: readonly unknown[];
+	/** The document, which the boundary watches only while it shows a
+	 * refusal: any edit can be the one that fixes it, so each tries the
+	 * screen again. */
+	readonly doc: { readonly subscribe: (listener: () => void) => () => void };
 	readonly children: React.ReactNode;
 }
 
@@ -155,6 +159,7 @@ export class PreviewDataRefusalBoundary extends React.Component<
 	BoundaryState
 > {
 	state: BoundaryState = { error: undefined, caughtWith: undefined };
+	#unwatch: (() => void) | undefined;
 
 	static getDerivedStateFromError(error: unknown): Partial<BoundaryState> {
 		return { error };
@@ -170,6 +175,34 @@ export class PreviewDataRefusalBoundary extends React.Component<
 			state.caughtWith.length !== props.resetKeys.length ||
 			state.caughtWith.some((key, index) => key !== props.resetKeys[index]);
 		return changed ? { error: undefined, caughtWith: undefined } : null;
+	}
+
+	componentDidMount(): void {
+		this.#watchWhileRefused();
+	}
+
+	componentDidUpdate(): void {
+		this.#watchWhileRefused();
+	}
+
+	componentWillUnmount(): void {
+		this.#unwatch?.();
+		this.#unwatch = undefined;
+	}
+
+	/** Watch the document exactly while a refusal shows. */
+	#watchWhileRefused(): void {
+		const refused =
+			this.state.error !== undefined &&
+			previewDataRefusalOf(this.state.error) !== undefined;
+		if (refused && this.#unwatch === undefined) {
+			this.#unwatch = this.props.doc.subscribe(() =>
+				this.setState({ error: undefined, caughtWith: undefined }),
+			);
+		} else if (!refused && this.#unwatch !== undefined) {
+			this.#unwatch();
+			this.#unwatch = undefined;
+		}
 	}
 
 	render() {
@@ -208,13 +241,14 @@ export function PreviewDataRefusalScope({
 	readonly moduleUuid?: Uuid;
 	readonly children: React.ReactNode;
 }) {
-	const doc = useDocRevision();
+	const doc = useBlueprintDocApi();
 	const lookup = usePreviewLookupStatus();
 	return (
 		<PreviewDataRefusalBoundary
 			surface="menu"
 			{...(moduleUuid === undefined ? {} : { moduleUuid })}
-			resetKeys={[screenKey, doc, lookup]}
+			resetKeys={[screenKey, lookup]}
+			doc={doc}
 		>
 			{children}
 		</PreviewDataRefusalBoundary>

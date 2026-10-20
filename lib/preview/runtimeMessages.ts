@@ -253,6 +253,10 @@ const english = {
 		"{subject} a place, and {worker} is assigned nowhere, so a phone stops here. You can give {worker} a place under Users and personas in App setup.",
 	dataRefusalPlacesMe:
 		"{subject} a place, and you're assigned nowhere, so a phone stops here. You can preview as a persona who has a place.",
+	dataRefusalOwnerPlacePersona:
+		"This form moves the case to {worker}'s place, and {worker} is assigned nowhere, so the case has no owner to move to and a phone stops here. You can give {worker} a place under Users and personas in App setup.",
+	dataRefusalOwnerPlaceMe:
+		"This form moves the case to your place, and you're assigned nowhere, so the case has no owner to move to and a phone stops here. You can preview as a persona who has a place.",
 	dataRefusalTable:
 		"{subject} “{table}”, which has no rows, so a phone stops here. You can add rows to “{table}” in Project data.",
 	dataRefusalChoices:
@@ -526,6 +530,10 @@ const spanish: Record<RuntimeMessage, string> = {
 		"{subject} un lugar, y {worker} no tiene ningún lugar asignado, así que un teléfono se detiene aquí. Puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
 	dataRefusalPlacesMe:
 		"{subject} un lugar, y usted no tiene ningún lugar asignado, así que un teléfono se detiene aquí. Puede ver la vista previa como una persona que tenga un lugar.",
+	dataRefusalOwnerPlacePersona:
+		"Este formulario mueve el caso al lugar de {worker}, y {worker} no tiene ningún lugar asignado, así que el caso no tiene a qué propietario moverse y un teléfono se detiene aquí. Puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
+	dataRefusalOwnerPlaceMe:
+		"Este formulario mueve el caso a su lugar, y usted no tiene ningún lugar asignado, así que el caso no tiene a qué propietario moverse y un teléfono se detiene aquí. Puede ver la vista previa como una persona que tenga un lugar.",
 	dataRefusalTable:
 		"{subject} «{table}», que no tiene filas, así que un teléfono se detiene aquí. Puede añadir filas a «{table}» en los datos del proyecto.",
 	dataRefusalChoices:
@@ -683,6 +691,14 @@ export function dataRefusalCopy(
 					names.worker === undefined
 						? body("dataRefusalPlacesMe")
 						: body("dataRefusalPlacesPersona", { worker: names.worker }),
+			};
+		case "owner-place":
+			return {
+				title,
+				body:
+					names.worker === undefined
+						? body("dataRefusalOwnerPlaceMe")
+						: body("dataRefusalOwnerPlacePersona", { worker: names.worker }),
 			};
 		case "table":
 			return {
