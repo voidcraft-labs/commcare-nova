@@ -228,7 +228,6 @@ import {
 import {
 	beginSearch,
 	noMatchesActionAvailable,
-	recordSearchDeviceValues,
 	settleSearch,
 } from "@/lib/session/previewSearchState";
 import type { PreviewCaseChoice } from "@/lib/session/types";
@@ -1009,10 +1008,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			: NO_CLAIMED_CASES;
 	/* What the device works out for the submitted search's `_xpath_query`
 	 * before HQ reads it, once, as it sends the search; the server folds the
-	 * rows with it. A search-first module keeps it on the module's search
-	 * (the attempt), so its forms read the same value and returning to
-	 * Results does not work it out again; a search action keeps it here, per
-	 * Search press. Results wait for it. */
+	 * rows with it. A search-first module's search has it worked out and
+	 * kept on the session (`SearchDeviceValuesRecorder.tsx`), so its forms
+	 * read the same value and returning to Results does not work it out
+	 * again; a search action works it out here, per Search press. Results
+	 * wait for it. */
 	const ownSubmissionKey = useSubmissionKey(activeSearchInputValues);
 	const searchAttempt =
 		searchFirst &&
@@ -1020,8 +1020,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		searchState.kind !== "not-searched"
 			? searchState
 			: undefined;
-	const latestSearchState = useRef(searchState);
-	latestSearchState.current = searchState;
 	const deviceValues = useSubmittedSearchDeviceValues({
 		doc: menuSource.doc,
 		moduleUuid,
@@ -1043,15 +1041,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						values: searchAttempt.deviceValues,
 					},
 				}),
-		/* Recorded on the search the key names, and on no other: the module's
-		 * search keeps them only while it is that search. */
-		onWorkedOut: (key, values) => {
-			const current = latestSearchState.current;
-			if (moduleUuid === undefined) return;
-			const next = recordSearchDeviceValues(current, key, values.value);
-			if (next !== current) setPreviewSearchState(moduleUuid, next);
-		},
 		sessionData: stepSession.data,
+		/* A module's search has them worked out on the session from its
+		 * Search press (`SearchDeviceValuesRecorder.tsx`), so leaving
+		 * Results before they are in loses nothing; the screen waits. */
+		waitsForRecord: searchAttempt !== undefined,
 	});
 	const csqlRuntime =
 		deviceValues.kind === "ready" ? deviceValues.value : undefined;
@@ -2546,6 +2540,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						? retryDeviceCasesWithFocus
 						: retryCasesWithFocus
 				}
+				deviceCasesFailed={deviceValues.kind === "unavailable"}
 				onRetryCount={retryCountWithFocus}
 				onSignIn={() => void signIn()}
 				rows={filteredRows}
@@ -2790,6 +2785,7 @@ function ResultsBody({
 	onOpenCase,
 	selection,
 	busy,
+	deviceCasesFailed,
 }: {
 	readonly state: ReturnType<typeof useCases>["state"];
 	/** Complete case-type population, before Results/search conditions. Keeping
@@ -2830,6 +2826,8 @@ function ResultsBody({
 	) => void;
 	readonly selection: MultipleResultSelection | undefined;
 	readonly busy: boolean;
+	/** The device's cases the search reads didn't load. */
+	readonly deviceCasesFailed: boolean;
 }) {
 	const message = useWorkerMessage();
 	if (state.kind === "idle" || state.kind === "loading") {
@@ -2837,7 +2835,12 @@ function ResultsBody({
 	}
 
 	if (state.kind === "error") {
-		return <CasesLoadFailureNotice onRetry={onRetryCases} />;
+		return (
+			<CasesLoadFailureNotice
+				onRetry={onRetryCases}
+				deviceCasesFailed={deviceCasesFailed}
+			/>
+		);
 	}
 	if (state.kind === "invalid-search") {
 		return searchErrorShown ? (
@@ -3276,14 +3279,19 @@ function AvailabilityConditionsEmptyNotice() {
 
 function CasesLoadFailureNotice({
 	onRetry,
+	deviceCasesFailed,
 }: {
 	readonly onRetry: () => Promise<void>;
+	/** The device's cases the search reads didn't load, not the list. */
+	readonly deviceCasesFailed: boolean;
 }) {
 	const message = useWorkerMessage();
 	return (
 		<CaseListEmptyNotice
 			title={message("casesLoadFailed")}
-			description={message("retryCases")}
+			description={message(
+				deviceCasesFailed ? "searchDeviceCasesLoadFailed" : "retryCases",
+			)}
 			tone="error"
 			action={{ label: message("tryAgain"), onClick: () => void onRetry() }}
 		/>

@@ -50,6 +50,7 @@ CORPORA = {
         "distance-units",
         "runtime-choice",
         "chosen-case",
+        "chosen-blank",
         "worker-day",
         "worker-values",
     },

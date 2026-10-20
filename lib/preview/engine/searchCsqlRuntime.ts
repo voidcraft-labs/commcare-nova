@@ -48,6 +48,8 @@ import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	isOrdinaryCaseSearchConfig,
+	type Module,
 	materializableCaseTypes,
 	type SearchRuntimeValidationKind,
 	searchRuntimeValidationKinds,
@@ -61,6 +63,7 @@ import { expressionReferencesAnySearchInput } from "@/lib/domain/expression/walk
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
+import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import type { XPathInstance } from "../xpath/runtimeValues";
 import type { EvalContext, XPathValue } from "../xpath/types";
 import { expressionReadsCaseDatabase } from "./expressionCaseReads";
@@ -83,8 +86,9 @@ import {
  * the row its index among the composed clauses and the segment key the
  * emitter's (`csqlPositionKey` of the checker path). A row's obligations
  * are its own choice of `match-none()`, keyed by the row alone (`<row>`).
- * `refusal` is the kind of the first obligation that holds with no prompt to
- * blame and a message for the worker (06-csql.md §5): the Results read shows
+ * `refusal` is the kind of a row's obligation that holds first (the device
+ * evaluates no later one), when it has no prompt to blame and a message for
+ * the worker (06-csql.md §5): the Results read shows
  * its message (`searchRuntimeGlobalValidationMessage`), as it does for one
  * the server judges itself, rather than an empty list. `unevaluated` says
  * Preview's evaluator could not work out what the device sends for some row
@@ -134,29 +138,59 @@ function searchCsqlClauses(
 	);
 }
 
+/** Each case list config's answer, by the config's identity: an edit
+ * elsewhere in the app leaves every module's config object as it was, so
+ * the app-wide requirements walk reads each config once. */
+const configReadsCaseDatabase = new WeakMap<CaseListConfig, boolean>();
+
 /**
  * Whether a search's rows hold a runtime piece that reads the device's case
  * snapshot (`expressionCaseReads.ts::expressionReadsCaseDatabase`): its cases,
- * a chosen case's properties, the worker's record. Only such a search waits
- * for the snapshot before it sends; one with none sends without it. The rows
- * are the filter's and the advanced inputs': a simple input's derived row
- * reads its answer alone.
+ * a chosen case's properties, the worker's record. The rows are the filter's
+ * and the advanced inputs': a simple input's derived row reads its answer
+ * alone. No search row reads a repeat's row (that is a form's), so the
+ * answer depends on the config alone and is kept by its identity.
  */
 export function searchCsqlReadsCaseDatabase(
-	doc: Pick<BlueprintDoc, "fields">,
 	caseListConfig: CaseListConfig,
 ): boolean {
+	const known = configReadsCaseDatabase.get(caseListConfig);
+	if (known !== undefined) return known;
 	const rows = [
 		...(caseListConfig.filter === undefined ? [] : [caseListConfig.filter]),
 		...getAdvancedArmPredicates(caseListConfig.searchInputs).map(
 			(entry) => entry.predicate,
 		),
 	];
-	return rows.some((row) =>
+	const reads = rows.some((row) =>
 		csqlRuntimeRoots(row).some((root) =>
-			expressionReadsCaseDatabase(root.node, doc),
+			expressionReadsCaseDatabase(root.node),
 		),
 	);
+	configReadsCaseDatabase.set(caseListConfig, reads);
+	return reads;
+}
+
+/**
+ * Whether a module's search waits for the device's cases before it sends:
+ * it has a Search (any input, or the ordinary Search settings) and a runtime
+ * piece that reads them. The ONE predicate both sides decide from: the case
+ * database provider loads the snapshot for such a module
+ * (`useCaseDatabaseSnapshot.tsx::caseDatabaseRequirements`), and a
+ * submission's values wait for it (`useSearchCsqlRuntime.ts::searchWorld`),
+ * so a search never waits on a load nobody requests. Total over every module:
+ * the owner-only arm with inputs, which the blueprint schema refuses, reads
+ * as a Search here rather than throwing as `effectiveCaseSearchConfig` does.
+ */
+export function moduleSearchReadsCaseDatabase(
+	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
+): boolean {
+	const config = module.caseListConfig;
+	if (config === undefined) return false;
+	const hasSearch =
+		config.searchInputs.length > 0 ||
+		isOrdinaryCaseSearchConfig(module.caseSearchConfig);
+	return hasSearch && searchCsqlReadsCaseDatabase(config);
 }
 
 /**
@@ -176,20 +210,62 @@ export type SearchCsqlDeviceEvaluator = (
 	xpath: SearchScreenXPath,
 ) => Promise<XPathValue>;
 
+/** The most times one piece is sent while other scopes take the worker. */
+const SUPERSEDED_SENDS = 3;
+
 /**
- * Evaluate a search's runtime pieces over the Search screen's world.
- * `undefined` when the search has no clause to fold. A clause the emitter
- * cannot write yet (a lookup the held snapshot does not name) contributes
- * nothing, and the server leaves it to the store as authored.
+ * `evaluate`, sending a piece again when another scope took the Search
+ * screen's worker from under it (`stale`: another module's Search screen
+ * asked it something, so `workerClient.ts` started a fresh worker for that
+ * one). The piece never ran to an answer, so sending it again asks the
+ * device the same question. A search's values are worked out on the session
+ * whatever screen shows (`SearchDeviceValuesRecorder.tsx`), so this is how
+ * they meet another screen's checks. Any other failure, a timeout among
+ * them, is the piece's own, and stands.
+ */
+export function resendingWhenSuperseded(
+	evaluate: SearchCsqlDeviceEvaluator,
+	signal?: AbortSignal,
+): SearchCsqlDeviceEvaluator {
+	return async (xpath) => {
+		for (let sends = 1; ; sends += 1) {
+			try {
+				return await evaluate(xpath);
+			} catch (error) {
+				if (
+					sends >= SUPERSEDED_SENDS ||
+					signal?.aborted === true ||
+					!(error instanceof PreviewXPathRuntimeError) ||
+					error.failure.code !== "stale"
+				)
+					throw error;
+			}
+		}
+	};
+}
+
+/**
+ * Evaluate a search's runtime pieces over the Search screen's world, in the
+ * order Core evaluates the request. `undefined` when the search has no
+ * clause to fold. A clause the emitter cannot write yet (a lookup the held
+ * snapshot does not name) contributes nothing, and the server leaves it to
+ * the store as authored.
+ *
+ * Each row is its wrapper, `if(<or of obligations>, 'match-none()',
+ * concat(…))`: the obligations first, each in turn until one holds (XPath's
+ * `or` stops there), and only when none holds the row's text, where each
+ * choice's condition is decided before the one branch it takes. A piece in
+ * a branch the device doesn't take, or after an obligation that holds, is
+ * never evaluated.
  *
  * Each piece runs in Preview's synchronous evaluator first, which holds
  * every function but the ones only the XPath worker runs (a pattern the
- * author wrote, encryption); those go to `onDevice`. Without one (App Tests'
- * server reads, which hold no Java Pattern engine), or where the worker
- * fails too, the piece has no value. The worker's pieces, of every row, are
- * sent together and awaited together; once `signal` aborts, no further piece
- * goes to the worker. `unevaluated` comes from the pieces: a piece with no
- * value in a branch the device takes, or an obligation with none.
+ * author wrote, encryption); those go to `onDevice`, one at a time, each
+ * awaited before the next is sent, so each runs under its own full
+ * watchdog in the one worker. Without `onDevice` (App Tests' server reads,
+ * which hold no Java Pattern engine), or where the worker fails too, the
+ * piece has no value and the row is `unevaluated`: nothing more of it is
+ * sent. Once `signal` aborts, no further piece goes to the worker.
  */
 export async function evaluateSearchCsqlRuntime(
 	world: SearchCsqlWorld,
@@ -218,102 +294,53 @@ export async function evaluateSearchCsqlRuntime(
 	};
 	const instances = searchCsqlInstances(world);
 	const context = evalContext(instances);
-	/* Every piece of every row runs in the synchronous evaluator first; the
-	 * ones it can't run go to the worker together, each sent only while the
-	 * evaluation is current. A piece already sent finishes, and a superseded
-	 * evaluation's result is dropped. */
-	const deviceRuns: Promise<void>[] = [];
-	const piece = (wire: WireExpr): Piece => {
+	const piece = async (wire: WireExpr): Promise<XPathValue | undefined> => {
 		const source = serializeWire(wire, { target: "suite" }).text;
-		const result: Piece = { value: undefined };
 		try {
-			result.value = evaluate(source, context);
+			return evaluate(source, context);
 		} catch {
-			if (onDevice === undefined || signal?.aborted === true) return result;
-			let sent: Promise<XPathValue>;
+			if (onDevice === undefined || signal?.aborted === true) return undefined;
 			try {
-				sent = onDevice({ source, instances });
+				return await onDevice({ source, instances });
 			} catch {
-				return result;
+				return undefined;
 			}
-			deviceRuns.push(
-				sent.then(
-					(value) => {
-						result.value = value;
-					},
-					() => undefined,
-				),
-			);
 		}
-		return result;
 	};
-	const rows: RowPieces[] = [];
-	for (const clause of clauses) {
-		let tree: ReturnType<typeof emitCsqlTree>;
+	const segments: Record<string, string> = {};
+	const choices: Record<string, boolean> = {};
+	let refusal: SearchRuntimeValidationKind | undefined;
+	let unevaluated = false;
+	for (const [row, clause] of clauses.entries()) {
+		let tree: CsqlNode;
 		try {
 			tree = emitCsqlTree(clause.expression, {
 				types: clause.context,
 				bindings,
 			});
 		} catch {
-			rows.push(undefined);
 			continue;
 		}
-		const { reads, rejections } = csqlRuntimeRow(tree);
-		rows.push({
-			tree,
-			segments: new Map(
-				reads.segments.map(
-					(segment) => [segment.key, piece(segment.value)] as const,
-				),
-			),
-			choices: new Map(
-				reads.choices.map(
-					(choice) => [choice.key, piece(choice.condition)] as const,
-				),
-			),
-			// Each obligation as the emitter wrote it: its own guard (the
-			// condition that picks its branch, the input's presence) and its
-			// own reads, as Core judges it.
-			rejections: rejections.map((rejection) => ({
-				rejection,
-				piece: piece(rejection.condition),
-			})),
-		});
-	}
-	await Promise.all(deviceRuns);
-	const segments: Record<string, string> = {};
-	const choices: Record<string, boolean> = {};
-	let refusal: SearchRuntimeValidationKind | undefined;
-	let unevaluated = false;
-	for (const [row, pieces] of rows.entries()) {
-		if (pieces === undefined) continue;
-		for (const [key, { value }] of pieces.segments)
-			if (value !== undefined)
-				segments[rowKey(row, key)] = xpathToString(value);
-		for (const [key, { value }] of pieces.choices)
-			if (value !== undefined) choices[rowKey(row, key)] = toBoolean(value);
-		/* What the device sends is the row's text with each piece of the
-		 * branches it takes spliced in (Core's `if` is as lazy as Preview's).
-		 * Where Preview has no value for such a piece, or for an obligation,
-		 * it cannot say what the device sends. */
-		if (
-			!takenPiecesEvaluated(pieces) ||
-			pieces.rejections.some(({ piece }) => piece.value === undefined)
-		)
+		const outcome = await evaluateRow(tree, piece);
+		if (outcome.kind === "unevaluated") {
 			unevaluated = true;
-		let rejected = false;
-		for (const { rejection, piece } of pieces.rejections) {
-			if (piece.value === undefined || !toBoolean(piece.value)) continue;
-			rejected = true;
+			continue;
+		}
+		if (outcome.kind === "rejected") {
+			choices[rowKey(row)] = true;
+			const { rejection } = outcome;
 			if (
 				refusal === undefined &&
 				!isSilentRuntimeCsqlRejection(rejection.kind) &&
 				(rejection.inputNames?.length ?? 0) === 0
 			)
 				refusal = rejection.kind;
+			continue;
 		}
-		if (rejected) choices[rowKey(row)] = true;
+		for (const [key, value] of outcome.segments)
+			segments[rowKey(row, key)] = value;
+		for (const [key, value] of outcome.choices)
+			choices[rowKey(row, key)] = value;
 	}
 	return {
 		segments,
@@ -323,63 +350,104 @@ export async function evaluateSearchCsqlRuntime(
 	};
 }
 
-/** One runtime piece's value, once it is worked out. */
-interface Piece {
-	value: XPathValue | undefined;
-}
+/** One piece's value, or `undefined` where neither evaluator has one. */
+type PieceEvaluator = (wire: WireExpr) => Promise<XPathValue | undefined>;
 
-/** One row's tree and its pieces by key; `undefined` for a row the emitter
- * can't write yet. */
-type RowPieces =
+/** What the device sends for one row. */
+type RowOutcome =
+	| { readonly kind: "unevaluated" }
+	| { readonly kind: "rejected"; readonly rejection: RuntimeCsqlRejection }
 	| {
-			readonly tree: CsqlNode;
-			readonly segments: ReadonlyMap<string, Piece>;
-			readonly choices: ReadonlyMap<string, Piece>;
-			readonly rejections: readonly {
-				readonly rejection: RuntimeCsqlRejection;
-				readonly piece: Piece;
-			}[];
-	  }
-	| undefined;
+			readonly kind: "sent";
+			readonly segments: ReadonlyMap<string, string>;
+			readonly choices: ReadonlyMap<string, boolean>;
+	  };
 
-/** Whether every piece the device splices into the row has a value: each
- * choice's condition, then only the branch it takes. */
-function takenPiecesEvaluated(row: NonNullable<RowPieces>): boolean {
-	const visit = (node: CsqlNode): boolean => {
+/**
+ * One row as Core evaluates its wrapper. Each obligation is judged as the
+ * emitter wrote it, its own guards (the condition that picks its branch,
+ * the input's presence) and reads included, so one in a branch not taken
+ * holds false on its guard alone. A key the tree reads twice (a row-reading
+ * condition printed as it stands and negated) is evaluated once.
+ */
+async function evaluateRow(
+	tree: CsqlNode,
+	piece: PieceEvaluator,
+): Promise<RowOutcome> {
+	for (const rejection of csqlRuntimeRow(tree).rejections) {
+		const holds = await piece(rejection.condition);
+		if (holds === undefined) return { kind: "unevaluated" };
+		if (toBoolean(holds)) return { kind: "rejected", rejection };
+	}
+	const segments = new Map<string, string>();
+	const choices = new Map<string, boolean>();
+	const segment = async (key: string, wire: WireExpr): Promise<boolean> => {
+		if (segments.has(key)) return true;
+		const value = await piece(wire);
+		if (value === undefined) return false;
+		segments.set(key, xpathToString(value));
+		return true;
+	};
+	const choice = async (
+		key: string,
+		wire: WireExpr,
+	): Promise<boolean | undefined> => {
+		const known = choices.get(key);
+		if (known !== undefined) return known;
+		const value = await piece(wire);
+		if (value === undefined) return undefined;
+		const taken = toBoolean(value);
+		choices.set(key, taken);
+		return taken;
+	};
+	const all = async (nodes: readonly CsqlNode[]): Promise<boolean> => {
+		for (const node of nodes) if (!(await visit(node))) return false;
+		return true;
+	};
+	/* Whether every piece the device splices in under `node` has a value. The
+	 * first piece without one stops the walk: the row is unevaluated, so
+	 * nothing after it is worth sending. */
+	const visit = async (node: CsqlNode): Promise<boolean> => {
 		switch (node.k) {
 			case "cmp":
-				return visit(node.left) && visit(node.right);
+				return all([node.left, node.right]);
 			case "and":
 			case "or":
-				return node.items.every(visit);
+				return all(node.items);
 			case "not":
 			case "group":
 			case "guarded":
 				return visit(node.item);
 			case "query-call":
 			case "value-call":
-				return node.args.every(visit);
+				return all(node.args);
 			case "step":
 			case "literal":
 			case "number":
 				return true;
 			case "json-list":
-				return node.items.every(
-					(item) =>
-						item.k !== "runtime" ||
-						row.segments.get(item.hole.key)?.value !== undefined,
-				);
+				for (const item of node.items)
+					if (
+						item.k === "runtime" &&
+						!(await segment(item.hole.key, item.hole.print ?? item.hole.value))
+					)
+						return false;
+				return true;
 			case "runtime":
-				return row.segments.get(node.hole.key)?.value !== undefined;
+				return segment(node.hole.key, node.hole.value);
 			case "choice": {
-				const taken = row.choices.get(node.key)?.value;
+				const taken = await choice(node.key, node.condition);
 				if (taken === undefined) return false;
-				return visit(toBoolean(taken) ? node.then : node.else);
+				return visit(taken ? node.then : node.else);
 			}
 			case "presence": {
-				const present = row.choices.get(node.key)?.value;
+				const present = await choice(node.key, {
+					k: "call",
+					fn: "count",
+					args: [node.trigger],
+				});
 				if (present === undefined) return false;
-				return !toBoolean(present) || visit(node.clause);
+				return !present || visit(node.clause);
 			}
 			default: {
 				const exhaustive: never = node;
@@ -387,7 +455,8 @@ function takenPiecesEvaluated(row: NonNullable<RowPieces>): boolean {
 			}
 		}
 	};
-	return visit(row.tree);
+	if (!(await visit(tree))) return { kind: "unevaluated" };
+	return { kind: "sent", segments, choices };
 }
 
 /** The instances the device's query screen evaluates the request in. */

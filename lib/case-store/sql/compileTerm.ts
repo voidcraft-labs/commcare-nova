@@ -1093,6 +1093,36 @@ export function compileStoredText(
 }
 
 /**
+ * The data type of the property a stored-text read reads, `undefined` for
+ * the case type and a reserved column, which hold text. A relation read's
+ * property is its destination case type's.
+ */
+export function storedTextDataType(
+	term: Extract<Term, { kind: "prop" | "case-row-type" }>,
+	ctx: TermCompileContext,
+): CasePropertyDataType | undefined {
+	if (term.kind === "case-row-type") return undefined;
+	const { property, via } = term;
+	if (reservedColumnFor(property, ctx) !== undefined) return undefined;
+	const caseType = term.caseType ?? ctx.currentCaseType;
+	if (caseType === undefined) return undefined;
+	if (via === undefined || via.kind === "self")
+		return lookupDataType(caseType, property, ctx.caseTypeSchemas);
+	const canonical = canonicalizeRelationPath(via, {
+		caseTypes: [...ctx.caseTypeSchemas.values()],
+		currentCaseType: ctx.currentCaseType ?? caseType,
+	});
+	const destination =
+		canonical.destinationCaseType ??
+		resolveDestinationCaseType(
+			canonical.via,
+			ctx.currentCaseType ?? caseType,
+			ctx.caseTypeSchemas,
+		);
+	return lookupDataType(destination, property, ctx.caseTypeSchemas);
+}
+
+/**
  * Reserved scalar column reference. Type-erased for the same
  * reason as `jsonbColumnRead`'s prefix — runtime alias.
  */

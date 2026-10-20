@@ -99,6 +99,7 @@ import {
 	isBlankComparand,
 	recordQueryContextFor,
 	reservedColumnFor,
+	storedTextDataType,
 	type TermCompileContext,
 } from "./compileTerm";
 import type { Database } from "./database";
@@ -440,8 +441,18 @@ function compileEquality(
  * with a list, `corehq/apps/es/filters.py::term`), or on a system property's
  * field (`corehq/apps/case_search/xpath_functions/comparison.py::_create_system_query`).
  * So each item is compared as text with the text the case holds, exactly:
- * `'5.0'`, `'05'`, `' 5'` and `'5e0'` are not a stored `'5'`, and `'10:00'`
- * is not a stored `'10:00:00'`, whatever the property's type.
+ * `'10:00'` is not a stored `'10:00:00'`, and `'2026-2-1'` is not a stored
+ * `'2026-02-01'`.
+ *
+ * A number property is the one exception, because Nova doesn't store the
+ * text a device wrote for one: it stores the number
+ * (`submissionEnvelope.ts::storageValueFromEvaluation`), whose text is its
+ * canonical spelling (`formatNumeric`). An item matches the text Nova would
+ * have stored had the device written that item, so `'1.10'` finds the case
+ * a device wrote `1.10` for, as HQ's term does. What stays apart: HQ
+ * matches only the exact spelling, so where the item or the device's text
+ * is not canonical (`05` written, `'5.0'` asked), HQ misses the case and
+ * Nova finds it (`lib/case-store/sql/CLAUDE.md`).
  *
  * A `''` item matches a blank value. HQ indexes every property a case holds,
  * blank ones included, and a device's blank answer writes `''`; Nova stores
@@ -485,7 +496,15 @@ function compileValueListEquality(
 		texts.add(text);
 	}
 	const stored = compileStoredText(anchor.term, ctx);
-	const filled = [...texts].filter((text) => text !== "");
+	const dataType = storedTextDataType(anchor.term, ctx);
+	const numeric = dataType === "int" || dataType === "decimal";
+	const filled = [
+		...new Set(
+			[...texts]
+				.filter((text) => text !== "")
+				.map((text) => (numeric ? storedNumberText(text) : text)),
+		),
+	];
 	const matches: Expression<SqlBool>[] = [];
 	if (filled.length > 0) matches.push(eb(stored, "in", filled));
 	if (texts.has("")) matches.push(blankText(stored));
@@ -505,6 +524,19 @@ function listItemText(value: FormFieldBindingValue): string | undefined {
 	if (typeof value === "string") return value;
 	if (typeof value === "boolean") return String(value);
 	return undefined;
+}
+
+/**
+ * The text a number property holds once Nova stores `text` for it: the
+ * number `storageValueFromEvaluation` reads it as (`Number`), spelled as
+ * Postgres prints that JSONB number, which is `formatNumeric`'s spelling. An
+ * item that reads as no finite number is no stored number's text, and is
+ * kept as it is.
+ */
+function storedNumberText(text: string): string {
+	if (text.trim() === "") return text;
+	const value = Number(text);
+	return Number.isFinite(value) ? formatNumeric(value) : text;
 }
 
 /** A list item's value when it is decided before the query runs. */

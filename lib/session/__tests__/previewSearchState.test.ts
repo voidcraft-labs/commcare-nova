@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
 	beginSearch,
 	NOT_SEARCHED,
+	newSearchSubmission,
 	noMatchesActionAvailable,
 	recordRegisteredCase,
 	recordSearchDeviceValues,
+	searchesAwaitingDeviceValues,
 	settleSearch,
 } from "../previewSearchState";
 import type { PreviewSearchState } from "../types";
@@ -208,5 +210,80 @@ describe("a search's device values", () => {
 				undefined,
 			),
 		).toMatchObject({ deviceValues: { value: undefined } });
+	});
+});
+
+// The session works a search's values out from its Search press, whatever
+// screen shows: a search waits for them while it runs, and once recorded
+// (and carried to the settled search) nothing works them out again, so no
+// value is ever read from the device's cases after a claim.
+describe("the searches awaiting the device's values", () => {
+	const value = { segments: { '0:["right"]': "North" }, choices: {} };
+
+	it("lists a pressed search until its values are recorded, then never again", () => {
+		const running = beginSearch(undefined, answers, "s1");
+		expect(searchesAwaitingDeviceValues({ m1: running })).toEqual([
+			{ moduleUuid: "m1", submission: "s1", answers },
+		]);
+		const recorded = recordSearchDeviceValues(running, "s1", value);
+		if (recorded === undefined) throw new Error("Not recorded.");
+		expect(searchesAwaitingDeviceValues({ m1: recorded })).toEqual([]);
+		const completed = settleSearch(recorded, 1, {
+			kind: "completed",
+			matchCount: 1,
+		});
+		if (completed === undefined) throw new Error("Not settled.");
+		expect(completed).toMatchObject({ deviceValues: { value } });
+		expect(searchesAwaitingDeviceValues({ m1: completed })).toEqual([]);
+	});
+
+	it("never works out values for a settled search, nor the registered case", () => {
+		// A completed search holds its values or is the registered case, read
+		// by its id: neither is the session's to evaluate after the fact.
+		const registered = recordRegisteredCase(
+			beginSearch(undefined, answers, "s1"),
+			"case-1",
+		);
+		expect(searchesAwaitingDeviceValues({ m1: registered })).toEqual([]);
+		const failed = settleSearch(beginSearch(undefined, answers, "s2"), 1, {
+			kind: "failed",
+			reason: "invalid-search",
+		});
+		if (failed === undefined) throw new Error("Not settled.");
+		expect(searchesAwaitingDeviceValues({ m2: failed })).toEqual([]);
+	});
+
+	it("lists each module's search apart", () => {
+		expect(
+			searchesAwaitingDeviceValues({
+				m1: beginSearch(undefined, answers, "s1"),
+				m2: recordSearchDeviceValues(
+					beginSearch(undefined, answers, "s2"),
+					"s2",
+					value,
+				) as PreviewSearchState,
+			}).map((search) => search.moduleUuid),
+		).toEqual(["m1"]);
+	});
+});
+
+describe("a search's identity", () => {
+	it("is made without crypto.randomUUID, which only a secure context holds", () => {
+		const own = Object.getOwnPropertyDescriptor(
+			globalThis.crypto,
+			"randomUUID",
+		);
+		Object.defineProperty(globalThis.crypto, "randomUUID", {
+			value: undefined,
+			configurable: true,
+		});
+		try {
+			const ids = new Set([newSearchSubmission(), newSearchSubmission()]);
+			expect(ids.size).toBe(2);
+		} finally {
+			if (own === undefined)
+				Reflect.deleteProperty(globalThis.crypto, "randomUUID");
+			else Object.defineProperty(globalThis.crypto, "randomUUID", own);
+		}
 	});
 });

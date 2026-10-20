@@ -668,6 +668,18 @@ property as `''`, which is what a device's blank answer writes; Nova stores that
 key's absence (`submissionEnvelope.ts::storageValueFromEvaluation`), so the item matches the
 property absent or empty, on any type. `neq` stays the two-valued negation.
 
+**Implementation correction, 2026-10-19** (the third review of pull request 10): a number property
+(`int`, `decimal`) is the one anchor whose stored text is not what the device wrote. Nova stores
+the number (`submissionEnvelope.ts::storageValueFromEvaluation`), so `properties->>'p'` is its
+canonical spelling (`formatNumeric`), where HQ holds the device's own text. Each item that reads as
+a finite number is compared as the text Nova would store for it (`compileTerm.ts::storedTextDataType`,
+`compilePredicate.ts::storedNumberText`): `'1.10'` finds the case a device wrote `1.10` for, as HQ's
+term does, and `'5.0'`, `'05'`, `' 5'` and `'5e0'` find a stored `5`. The divergence left, recorded
+in `lib/case-store/sql/CLAUDE.md`: HQ matches only the exact spelling, so where the item or the
+device's text is not canonical (a case a device wrote `05`, which HQ stores as written; an item
+`'5.0'` for a case written `5`), HQ finds nothing and Nova finds every spelling of the same number. Value lists are held
+for import only, so no authored search meets it; step 6 decides what an imported one becomes.
+
 ### 3.7 Runtime values in raw arguments
 
 **HQ and Core.** `selected`/`selected-any` and `selected-all` pass the value argument unevaluated to
@@ -1571,6 +1583,14 @@ search reads (§3.9); this part fixes what is folded and by whose print.
   them on its search (`PreviewSearchState.deviceValues`, the first value for an attempt standing),
   so its forms' snapshot reads the same value and a claim posted mid-entry reads nothing again; a
   search action keeps them per Search press.
+- (the third review of pull request 10) Each row is evaluated in Core's order: its obligations in
+  turn until one holds, as XPath's `or` stops there, then its text, each choice's condition decided
+  before the one branch it takes, so no piece of an untaken branch is evaluated or sent to the
+  worker. The worker's pieces go one at a time, each answered before the next is sent, since its
+  watchdog starts at send and a timeout retires the worker. A search-first module's values are
+  worked out on the session from the Search press (`SearchDeviceValuesRecorder.tsx`), and its
+  Results and forms wait for that record; the form never works them out after a claim. A row's
+  refusal is the kind of the obligation that holds first, when it names no prompt and has a message.
 - The server composes the rows with the lookup naming of its own definitions snapshot, as the
   browser composes them with `world.lookup.naming`, so a lookup value folds to the literal of its
   column's type on both sides.

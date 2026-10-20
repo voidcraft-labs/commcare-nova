@@ -22,12 +22,18 @@
  * advanced input each: `closed_on`, the record's case type, the worker's
  * `today()`, a number of days as a date and as a date and time, a date and
  * time equality (an instant range), the worker's id and a user field, a
- * distance in yards, a radius and a unit the worker types, tags the worker
- * types, and a clause chosen by the worker's answer. Every input the worker
- * may leave blank is read only when answered.
+ * distance in yards, a radius the worker types (the prompt holds it to a
+ * number above zero) and a unit the worker picks from the nine HQ measures
+ * in (a lookup table), tags the worker types, and a clause chosen by the
+ * worker's answer. Every input the worker may leave blank is read only when
+ * answered.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	wireRow,
+	wireTable,
+} from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import {
 	advancedSearchInputDef,
 	plainColumn,
@@ -36,11 +42,13 @@ import {
 } from "@/lib/domain";
 import {
 	ancestorPath,
+	DISTANCE_UNITS,
 	dateCoerce,
 	datetimeCoerce,
 	datetimeLiteral,
 	double,
 	eq,
+	gt,
 	gte,
 	ifExpr,
 	input,
@@ -62,6 +70,7 @@ import {
 	chosenCaseId,
 	chosenCaseProperty,
 } from "@/lib/domain/expression/chosenCase";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
 
@@ -73,6 +82,7 @@ const NORTH = "targeted-household-north";
 const SOUTH = "targeted-household-south";
 const VISIT = "visit";
 const MEMBER = "member";
+const UNITS = "distance_unit";
 
 /** One advanced input whose predicate reads no answer: a fixed rule. */
 function rule(
@@ -88,21 +98,30 @@ function rule(
 	);
 }
 
-/** One advanced input whose predicate reads its own answer, only when answered. */
+/**
+ * One advanced input whose predicate reads its own answer, only when answered:
+ * a text box unless `type` names another widget, with what `slots` holds of
+ * its own (a validation on what the worker types, a choice list).
+ */
 function asked(
 	name: string,
 	label: string,
 	predicate: (
 		answer: ReturnType<typeof input>,
 	) => Parameters<typeof advancedSearchInputDef>[4],
+	type: Parameters<typeof advancedSearchInputDef>[3] = "text",
+	slots: (
+		answer: ReturnType<typeof input>,
+	) => Parameters<typeof advancedSearchInputDef>[5] = () => ({}),
 ) {
 	const answer = uuid(`${name}-input`);
 	return advancedSearchInputDef(
 		answer,
 		name,
 		label,
-		"text",
+		type,
 		whenInput(input(answer), predicate(input(answer))),
+		slots(input(answer)),
 	);
 }
 
@@ -123,6 +142,16 @@ function review(name: string) {
 }
 
 export function csqlComposition() {
+	// The nine units HQ measures a distance in, a worker's choice of one.
+	const units = wireTable(UNITS, [
+		{ name: "code", type: "text" },
+		{ name: "name", type: "text" },
+	]);
+	const [unitCode, unitName] = units.columns;
+	if (unitCode === undefined || unitName === undefined) {
+		throw new Error(`The ${UNITS} table has no code and name columns.`);
+	}
+	const unitRows = DISTANCE_UNITS.map((unit) => [unit, unit] as const);
 	const households = uuid("households-module");
 	const chosenHousehold = chosenCaseId(households);
 	const chosenVillage = chosenCaseProperty(households, HOUSEHOLD, "village");
@@ -167,11 +196,33 @@ export function csqlComposition() {
 			eq(prop(VISIT, "region"), term(sessionUser("region"))),
 		),
 		rule("near_in_yards", within(gps, center, 250, "yards")),
-		asked("radius", "Radius in meters", (answer) =>
-			within(gps, center, double(term(answer)), "meters"),
+		// A worker types a number of meters, and the prompt keeps back anything else.
+		asked(
+			"radius",
+			"Radius in meters",
+			(answer) => within(gps, center, double(term(answer)), "meters"),
+			"text",
+			(answer) => ({
+				validation: {
+					rule: gt(double(term(answer)), term(literal(0))),
+					message: "Enter a number of meters above zero",
+				},
+			}),
 		),
-		asked("unit", "Distance unit", (answer) =>
-			within(gps, center, 200, term(answer)),
+		// A worker picks one of HQ's nine units from a list.
+		asked(
+			"unit",
+			"Distance unit",
+			(answer) => within(gps, center, 200, term(answer)),
+			"select",
+			() => ({
+				options: {
+					kind: "lookup",
+					tableId: units.id,
+					valueColumnId: unitCode.id,
+					labelColumnId: unitName.id,
+				},
+			}),
 		),
 		asked("tags", "Tags", (answer) => ({
 			kind: "multi-select-contains",
@@ -312,6 +363,7 @@ export function csqlComposition() {
 	const member = child(MEMBER, "home_village");
 	const visit = child(VISIT, "village");
 	const restore = restoreXml({
+		tables: [{ tag: UNITS, fields: ["code", "name"], rows: unitRows }],
 		cases: [
 			household(NORTH, "North"),
 			household(SOUTH, "South"),
@@ -366,6 +418,17 @@ export function csqlComposition() {
 					"targeted-visit-north-north",
 				),
 			],
+		},
+		lookup: {
+			projectId: `project-${ID}`,
+			projectRevision: parseLookupRevision("1"),
+			definitions: [units],
+			rowsByTable: new Map([
+				[
+					units.id,
+					unitRows.map(([code, name]) => wireRow(units, code, { code, name })),
+				],
+			]),
 		},
 		files: { "restore.xml": restore },
 	});

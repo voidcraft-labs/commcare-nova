@@ -2054,7 +2054,7 @@ test("a list of values is an exact any-of, and its negation keeps the case that 
 	).toEqual([]);
 });
 
-test("a list of values matches each item as the exact text the case holds, whatever the property's type", async ({
+test("a list of values matches each item as the exact text the case holds, a number's as the text Nova stores", async ({
 	db,
 }) => {
 	await seedProperties(db, [
@@ -2070,12 +2070,16 @@ test("a list of values matches each item as the exact text the case holds, whate
 			...Expression[],
 		],
 	});
-	// HQ's terms compare the stored text: none of these spells a stored '5'.
+	// HQ's terms compare the stored text. Nova stores a number as its JSONB
+	// number, so each of these is the text Nova stores for it, `'5'`.
 	expect(
 		await matchedIds(
 			db,
 			eq(prop("patient", "age"), list("5.0", "05", " 5", "5e0")),
 		),
+	).toEqual(["five"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "age"), list("five", "50"))),
 	).toEqual([]);
 	expect(
 		await matchedIds(db, eq(prop("patient", "age"), list("5", 30))),

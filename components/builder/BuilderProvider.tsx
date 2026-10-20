@@ -51,6 +51,7 @@ import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { PreviewCaseDatabaseProvider } from "@/lib/preview/engine/useCaseDatabaseSnapshot";
 import { PreviewLookupDataProvider } from "@/lib/preview/engine/useLookupPreviewData";
+import { SearchDeviceValuesRecorder } from "@/lib/preview/hooks/SearchDeviceValuesRecorder";
 import { useCanEdit } from "@/lib/session/hooks";
 import {
 	BuilderSessionContext,
@@ -196,6 +197,9 @@ function BuilderProviderInner({
 									<LocationRecoveryEffect />
 									<PreviewCaseDatabaseProvider>
 										<PreviewLookupDataProvider>
+											{/* Works out each pressed search's device values on
+											 *  the session, whichever screen is showing. */}
+											<SearchDeviceValuesRecorder />
 											<AppNoticesProvider initial={initialNotices}>
 												{initialDoc ? <LoadAppHydrator /> : null}
 												{children}

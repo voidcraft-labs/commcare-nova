@@ -155,14 +155,13 @@ it("binds each listed value as its own parameter, and negates the list two-value
 });
 
 it.each([
-	["age", ["5.0", "05", " 5", "5e0", 5]],
-	["bmi", ["2.50", 2.5]],
 	["dob", ["2026-02-30", "2026-2-1"]],
+	["nickname", ["05", "5.0"]],
 ] as const)(
 	"compares a list with %s's stored text exactly, never read as its type",
 	(property, items) => {
-		// HQ answers the list with exact `terms` on the stored text, so '5.0'
-		// is not a stored '5': nothing is cast, and no item is dropped.
+		// HQ answers the list with exact `terms` on the stored text: nothing
+		// is cast, and no item is dropped or respelled.
 		const compiled = compiledWhere(
 			eq(prop("patient", property), valueList(...items)),
 		);
@@ -170,9 +169,29 @@ it.each([
 			`"c"."properties"->>'${property}' in (${items.map((_, index) => `$${index + 1}`).join(", ")})`,
 		);
 		expect(compiled.sql).not.toContain("cast(");
-		expect(compiled.parameters).toEqual(
-			items.map((item) => (typeof item === "number" ? String(item) : item)),
+		expect(compiled.parameters).toEqual(items);
+	},
+);
+
+it.each([
+	["age", ["5.0", "05", " 5", "5e0", 5], ["5"]],
+	["bmi", ["1.10", "2.50", 2.5, "1e-7"], ["1.1", "2.5", "0.0000001"]],
+	["age", ["five", "5"], ["five", "5"]],
+] as const)(
+	"compares a list with %s's stored number by the text Nova stores for each item",
+	(property, items, texts) => {
+		// Nova stores a number property's value as the JSONB number, whose
+		// text is its canonical spelling: a device's `1.10` is stored `1.1`,
+		// so the item `'1.10'` is compared as `'1.1'`. An item that reads as
+		// no number is kept as written.
+		const compiled = compiledWhere(
+			eq(prop("patient", property), valueList(...items)),
 		);
+		expect(compiled.sql).toContain(
+			`"c"."properties"->>'${property}' in (${texts.map((_, index) => `$${index + 1}`).join(", ")})`,
+		);
+		expect(compiled.sql).not.toContain("cast(");
+		expect(compiled.parameters).toEqual(texts);
 	},
 );
 

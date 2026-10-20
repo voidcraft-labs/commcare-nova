@@ -37,6 +37,7 @@ import { evaluateAsync } from "../../xpath/asyncEvaluator";
 import { xpathToString } from "../../xpath/coerce";
 import { evaluate } from "../../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../../xpath/generatedJavaRosaFunctions";
+import { PreviewXPathRuntimeError } from "../../xpath/runtimeError";
 import {
 	formDisplayVisibility,
 	navigationSelectedCase,
@@ -49,6 +50,7 @@ import {
 	evaluateSearchCsqlRuntime,
 	foldSearchCsql,
 	parseSearchCsqlRuntimeWire,
+	resendingWhenSuperseded,
 	type SearchCsqlDeviceEvaluator,
 	SearchCsqlRuntimeError,
 	type SearchCsqlRuntimeWire,
@@ -488,9 +490,10 @@ describe("a piece only the XPath worker runs", () => {
 		expect(asked[0]).toContain("regex(");
 	});
 
-	it("sends the worker's pieces together, not one after another", async () => {
-		// Two rows, each choosing by a pattern: both pieces are in the worker
-		// before either answers.
+	it("sends the worker one piece at a time, each answered before the next", async () => {
+		// Two rows, each choosing by a pattern. The worker's watchdog starts
+		// when a request is sent, so a piece waiting behind another would
+		// spend its budget queued: the second goes only once the first is in.
 		const { doc, moduleUuid } = withRule(
 			ifExpr(
 				matchesPattern(term(ref("mode")), "[a-z]+"),
@@ -506,28 +509,38 @@ describe("a piece only the XPath worker runs", () => {
 			eq(prop("member", "case_name"), term(literal("Bo"))),
 			eq(prop("member", "home_village"), term(literal("North"))),
 		);
-		const waiting: (() => void)[] = [];
-		const held: SearchCsqlDeviceEvaluator = (xpath) =>
-			new Promise((resolve, reject) => {
-				waiting.push(() => worker(xpath).then(resolve, reject));
-				if (waiting.length === 2) for (const answer of waiting) answer();
-			});
+		let inFlight = 0;
+		let mostInFlight = 0;
+		let asked = 0;
+		const timed: SearchCsqlDeviceEvaluator = async (xpath) => {
+			asked += 1;
+			inFlight += 1;
+			mostInFlight = Math.max(mostInFlight, inFlight);
+			try {
+				await Promise.resolve();
+				return await worker(xpath);
+			} finally {
+				inFlight -= 1;
+			}
+		};
 		const { query, unevaluated } = await searched(
 			doc,
 			moduleUuid,
 			{ mode: "abc" },
 			undefined,
-			held,
+			timed,
 		);
-		expect(waiting).toHaveLength(2);
+		expect(asked).toBe(2);
+		expect(mostInFlight).toBe(1);
 		expect(unevaluated).toBe(false);
 		expect(JSON.stringify(query)).toContain('"Ada"');
 		expect(JSON.stringify(query)).toContain('"North"');
 	});
 
 	it("works out only the branch the device takes", async () => {
-		// The pattern sits in the branch taken only for "by-pattern": with no
-		// worker, the other branch is still worked out whole.
+		// The pattern sits in the branch taken only for "by-pattern": for any
+		// other mode it never reaches the worker, and the other branch is
+		// worked out whole.
 		const { doc, moduleUuid } = withRule(
 			ifExpr(
 				eq(term(ref("mode")), term(literal("by-pattern"))),
@@ -540,13 +553,70 @@ describe("a piece only the XPath worker runs", () => {
 			),
 			["mode"],
 		);
-		expect(await searched(doc, moduleUuid, { mode: "other" })).toMatchObject({
+		const asked: string[] = [];
+		const counting: SearchCsqlDeviceEvaluator = (xpath) => {
+			asked.push(xpath.source);
+			return worker(xpath);
+		};
+		expect(
+			await searched(doc, moduleUuid, { mode: "other" }, undefined, counting),
+		).toMatchObject({
 			unevaluated: false,
 			query: eq(prop("member", "home_village"), term(literal("South"))),
 		});
+		expect(asked).toEqual([]);
 		expect(
 			(await searched(doc, moduleUuid, { mode: "by-pattern" })).unevaluated,
 		).toBe(true);
+		expect(
+			(
+				await searched(
+					doc,
+					moduleUuid,
+					{ mode: "by-pattern" },
+					undefined,
+					counting,
+				)
+			).unevaluated,
+		).toBe(false);
+		expect(asked).toHaveLength(1);
+	});
+
+	it("asks again when another screen took the worker, and never past a timeout", async () => {
+		const failing = (code: "stale" | "timeout") =>
+			new PreviewXPathRuntimeError({
+				code,
+				operation: "evaluate",
+				entryKey: "search:other",
+				revision: 0,
+				profile: "search",
+			});
+		const answering = (codes: ("stale" | "timeout")[]) => {
+			let sends = 0;
+			const evaluate: SearchCsqlDeviceEvaluator = async () => {
+				const code = codes[sends];
+				sends += 1;
+				if (code !== undefined) throw failing(code);
+				return true;
+			};
+			return { evaluate, sends: () => sends };
+		};
+		const xpath = { source: "true()", instances: new Map() };
+		const superseded = answering(["stale", "stale"]);
+		await expect(
+			resendingWhenSuperseded(superseded.evaluate)(xpath),
+		).resolves.toBe(true);
+		expect(superseded.sends()).toBe(3);
+		const timedOut = answering(["timeout"]);
+		await expect(
+			resendingWhenSuperseded(timedOut.evaluate)(xpath),
+		).rejects.toThrow(PreviewXPathRuntimeError);
+		expect(timedOut.sends()).toBe(1);
+		const always = answering(["stale", "stale", "stale", "stale"]);
+		await expect(
+			resendingWhenSuperseded(always.evaluate)(xpath),
+		).rejects.toThrow(PreviewXPathRuntimeError);
+		expect(always.sends()).toBe(3);
 	});
 
 	it("marks the search Preview can't work out where the worker can't either", async () => {

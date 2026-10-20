@@ -157,10 +157,22 @@ refuses a row left holding a device-only read no value arrived for. Any other
 node no value arrived for compiles through the ordinary bindings
 (`TermBindings.searchInputs`, `sessionContext`), which leave the CSQL path
 otherwise. A read keyed by case ids (the registered case) compiles no row of
-the search. `value-list` compiles to `<anchor> in (<item>, …)`, each item a
-bound literal of the anchor's type; an item that can't be read as that type
-matches nothing and is left out, a list with none is false, and `!=` is its
-two-valued negation (`compilePredicate.ts::compileValueListEquality`). A
+the search. `value-list` compiles to `<anchor's stored text> in (<item>, …)`,
+HQ's exact `terms` on the text a case holds (`compileTerm.ts::compileStoredText`:
+`properties->>'p'` uncast, a system anchor its column, a multi-select its
+choices joined by spaces), each item bound as the text the device sends and
+none dropped; a `''` item matches the property absent or empty, and `!=` is
+the two-valued negation (`compilePredicate.ts::compileValueListEquality`). A
+number property is the one respelling: Nova stores the number, not the text a
+device wrote (`submissionEnvelope.ts::storageValueFromEvaluation`), so its
+stored text is the canonical spelling (`formatNumeric`), and each item that
+reads as a number is compared as the text Nova would store for it (`'1.10'`
+as `'1.1'`, as HQ finds the case a device wrote `1.10` for). The divergence
+left: HQ matches only the exact spelling, so where the item or the device's
+text is not the canonical one (a case a device wrote `05`, an item `'5.0'`
+for a case written `5`), HQ finds nothing while Nova finds every spelling of
+the same number.
+Value lists are held for import only, so no authored search meets this. A
 `within-distance` whose radius or unit is a value (a browse list's filter can
 hold one; a CSQL slot's fold makes both literal) compiles as a `CASE` over the
 nine units' meter factors (`lib/domain/expression/distance.ts::METERS_PER_DISTANCE_UNIT`),

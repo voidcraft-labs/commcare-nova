@@ -16,6 +16,7 @@
  * search (its device values) is kept under `submission`, never `attempt`.
  */
 
+import { v7 as uuidv7 } from "uuid";
 import type {
 	PreviewSearchAnswers,
 	PreviewSearchDeviceValues,
@@ -35,9 +36,12 @@ function attemptOf(state: PreviewSearchState | undefined): number {
 		: state.attempt;
 }
 
-/** A new search's identity. */
+/** A new search's identity. `uuid` draws on `crypto.getRandomValues`,
+ * which every browsing context holds; `crypto.randomUUID` exists only in a
+ * secure one, so Preview opened over plain http on a LAN address would
+ * throw at Search. */
 export function newSearchSubmission(): string {
-	return crypto.randomUUID();
+	return uuidv7();
 }
 
 /** The worker pressed Search with these answers. */
@@ -105,6 +109,30 @@ export function recordSearchDeviceValues(
 	if (state.submission !== submission || state.deviceValues !== undefined)
 		return state;
 	return { ...state, deviceValues: { value } };
+}
+
+/** A search the device has yet to work out values for. */
+export interface SearchAwaitingDeviceValues {
+	readonly moduleUuid: string;
+	readonly submission: string;
+	readonly answers: PreviewSearchAnswers;
+}
+
+/**
+ * The searches whose device values are still to be worked out: each one
+ * pressed and still running with none recorded. The device works a search's
+ * values out as it sends it, so they are recorded while it runs, and every
+ * later state carries them forward (`settleSearch`); a completed search
+ * holds them, or is the registered case, read by its id with none.
+ */
+export function searchesAwaitingDeviceValues(
+	states: Readonly<Record<string, PreviewSearchState>>,
+): readonly SearchAwaitingDeviceValues[] {
+	return Object.entries(states).flatMap(([moduleUuid, state]) =>
+		state.kind === "running" && state.deviceValues === undefined
+			? [{ moduleUuid, submission: state.submission, answers: state.answers }]
+			: [],
+	);
 }
 
 /**

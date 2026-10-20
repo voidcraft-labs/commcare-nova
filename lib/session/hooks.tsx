@@ -37,6 +37,11 @@ import {
 } from "./lifecycle";
 import { claimsFor, previewClaimsWorker } from "./previewClaims";
 import {
+	recordSearchDeviceValues,
+	type SearchAwaitingDeviceValues,
+	searchesAwaitingDeviceValues,
+} from "./previewSearchState";
+import {
 	BuilderSessionContext,
 	useBuilderSession,
 	useBuilderSessionShallow,
@@ -57,6 +62,7 @@ import type {
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
+	PreviewSearchDeviceValues,
 	PreviewSearchState,
 	PreviewSelectedCase,
 	StagedUpload,
@@ -144,6 +150,42 @@ export function usePreviewSearchState(
 ): PreviewSearchState | undefined {
 	return useBuilderSession((s) =>
 		moduleUuid ? s.previewSearchStates[moduleUuid] : undefined,
+	);
+}
+
+/** The searches still waiting for the device's values
+ * (`previewSearchState.ts::searchesAwaitingDeviceValues`). */
+export function usePreviewSearchesAwaitingDeviceValues(): readonly SearchAwaitingDeviceValues[] {
+	const states = useBuilderSession((s) => s.previewSearchStates);
+	return useMemo(() => searchesAwaitingDeviceValues(states), [states]);
+}
+
+/**
+ * Record what the device worked out for search `submission` on its module's
+ * search (`previewSearchState.ts::recordSearchDeviceValues`). The state is
+ * read when the values arrive, never captured earlier, so values that settle
+ * after their screen has gone write onto the search as it now stands, and
+ * onto no other search.
+ */
+export function useRecordPreviewSearchDeviceValues(): (
+	moduleUuid: string,
+	submission: string,
+	value: PreviewSearchDeviceValues["value"],
+) => void {
+	const store = useContext(BuilderSessionContext);
+	if (!store) {
+		throw new Error(
+			"useRecordPreviewSearchDeviceValues must be used within BuilderSessionProvider",
+		);
+	}
+	return useCallback(
+		(moduleUuid, submission, value) => {
+			const state = store.getState();
+			const current = state.previewSearchStates[moduleUuid];
+			const next = recordSearchDeviceValues(current, submission, value);
+			if (next !== current) state.setPreviewSearchState(moduleUuid, next);
+		},
+		[store],
 	);
 }
 

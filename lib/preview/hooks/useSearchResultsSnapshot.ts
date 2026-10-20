@@ -15,11 +15,11 @@
  * snapshot it opened with for the whole entry, as a device's session keeps
  * its query step.
  *
- * The values are the ones kept with the search, recorded as Results worked
- * them out. A completed search that holds none (Results left before
- * recording them) has them worked out here, once, by the same evaluator and
- * recorded with the search (`useSearchCsqlRuntime.ts`); the read waits for
- * them and never runs without them.
+ * The values are the ones kept with the search, recorded on the session
+ * from the Search press (`SearchDeviceValuesRecorder.tsx`), as the device
+ * worked them out when it sent the search. The form never works them out
+ * itself, which would read the device's cases as they stand after its own
+ * claims: the read waits for that record and never runs without it.
  */
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -36,9 +36,7 @@ import {
 	useAccessPhase,
 	usePreviewClaimedCaseIds,
 	usePreviewPersonaUuid,
-	useSetPreviewSearchState,
 } from "@/lib/session/hooks";
-import { recordSearchDeviceValues } from "@/lib/session/previewSearchState";
 import type { PreviewSearchState } from "@/lib/session/types";
 import {
 	type SubmissionValuesState,
@@ -53,7 +51,14 @@ export type SearchResultsSnapshotState =
 	/** The search itself cannot run (its inputs or settings refuse it): the
 	 * same search fails again, so the worker goes back to Search. */
 	| { readonly kind: "invalid-search"; readonly message: string }
-	| { readonly kind: "error"; readonly message: string };
+	| {
+			readonly kind: "error";
+			readonly message: string;
+			/** The device's cases the search reads didn't load: the form
+			 * shows `searchDeviceCasesLoadFailed`, the case list's own copy,
+			 * and its retry reads them again. */
+			readonly reason?: "device-cases";
+	  };
 
 /** What one load of the snapshot leaves the form with. A search its inputs
  * or settings refuse keeps its own message and is not retried; any other
@@ -120,10 +125,6 @@ export function searchResultsSnapshotKey(args: {
 	]);
 }
 
-/** The form's answer while the device's cases its search reads failed to load. */
-export const SEARCH_DEVICE_CASES_FAILED_MESSAGE =
-	"The cases on this device didn't load, so what the search found can't load. Try again.";
-
 export function useSearchResultsSnapshot(args: {
 	/** The form reads what its module's search found. */
 	readonly enabled: boolean;
@@ -146,9 +147,6 @@ export function useSearchResultsSnapshot(args: {
 	const completed =
 		args.searchState?.kind === "completed" ? args.searchState : undefined;
 	const stepSession = useCaseListStepSession(args.doc, args.moduleUuid);
-	const setPreviewSearchState = useSetPreviewSearchState();
-	const latestSearchState = useRef(args.searchState);
-	latestSearchState.current = args.searchState;
 	const submissionKey = completed?.submission;
 	const answers = completed?.answers;
 	const submission = useMemo(
@@ -173,13 +171,8 @@ export function useSearchResultsSnapshot(args: {
 						values: completed.deviceValues,
 					},
 				}),
-		onWorkedOut: (key, values) => {
-			const current = latestSearchState.current;
-			if (args.moduleUuid === undefined) return;
-			const next = recordSearchDeviceValues(current, key, values.value);
-			if (next !== current) setPreviewSearchState(args.moduleUuid, next);
-		},
 		sessionData: stepSession.data,
+		waitsForRecord: true,
 	});
 	const key = searchResultsSnapshotKey({
 		ready: args.enabled && accessPhase === "authorized",
@@ -273,7 +266,11 @@ export function useSearchResultsSnapshot(args: {
 
 	const state: SearchResultsSnapshotState =
 		deviceValues.kind === "unavailable"
-			? { kind: "error", message: SEARCH_DEVICE_CASES_FAILED_MESSAGE }
+			? {
+					kind: "error",
+					message: "The device's cases this search reads didn't load.",
+					reason: "device-cases",
+				}
 			: key === undefined
 				? args.enabled && deviceValues.kind === "pending"
 					? { kind: "loading" }

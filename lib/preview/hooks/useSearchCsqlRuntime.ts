@@ -12,6 +12,13 @@
  * per submission: a device evaluates the request as it sends it and keeps it
  * for the query step. The Results read waits for them and sends them for the
  * server to fold.
+ *
+ * A search-first module's search keeps its values on the session
+ * (`PreviewSearchState.deviceValues`), and `SearchDeviceValuesRecorder`
+ * works them out there, beside the case database, from the Search press on:
+ * Results leaving before they are in doesn't stop them, and the module's
+ * Results and forms only wait for that record (`waitsForRecord`). A search
+ * action's values belong to its screen's own Search press.
  */
 "use client";
 
@@ -25,8 +32,9 @@ import { previewSessionValues } from "@/lib/preview/engine/identity";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import {
 	evaluateSearchCsqlRuntime,
+	moduleSearchReadsCaseDatabase,
+	resendingWhenSuperseded,
 	type SearchCsqlRuntimeWire,
-	searchCsqlReadsCaseDatabase,
 } from "@/lib/preview/engine/searchCsqlRuntime";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import {
@@ -121,9 +129,13 @@ export function submittedSearchDeviceValues(
  * Whether the world a search's values read is there to read. The lookup
  * tables must not still be loading. The device's cases matter only to a
  * search with a runtime piece that reads them
- * (`searchCsqlRuntime.ts::searchCsqlReadsCaseDatabase`): such a search waits
- * for them, as a device holds them before it sends, and a failed load fails
- * it rather than leaving it waiting. A search with none sends without them.
+ * (`searchCsqlRuntime.ts::moduleSearchReadsCaseDatabase`, the predicate the
+ * case database provider loads them by): such a search waits for them, as a
+ * device holds them before it sends, and a failed load fails it rather than
+ * leaving it waiting. A search with none sends without them. Since both
+ * sides read one predicate over the one live document, an `idle` load while
+ * the search reads them lasts only until the provider's layout effect
+ * installs the requirement the same commit computed.
  */
 export function searchWorld(args: {
 	readonly readsCaseDatabase: boolean;
@@ -143,7 +155,9 @@ export function searchWorld(args: {
  * evaluation starts only for a submission with none, once the world is
  * ready, and its result goes to `onWorkedOut` and is kept here for the
  * submission. A later change to the device's cases, a lookup or the session
- * does not work them out again for the same submission.
+ * does not work them out again for the same submission. With
+ * `waitsForRecord` the hook never evaluates: the values are the session's
+ * to record (`SearchDeviceValuesRecorder`), and it waits for `kept`.
  */
 export function useSubmittedSearchDeviceValues(args: {
 	readonly doc: BlueprintDoc;
@@ -158,6 +172,7 @@ export function useSubmittedSearchDeviceValues(args: {
 		values: PreviewSearchDeviceValues,
 	) => void;
 	readonly sessionData: Readonly<Record<string, string>>;
+	readonly waitsForRecord?: boolean;
 }): SubmittedSearchDeviceValues {
 	const engine = useBuilderFormEngine();
 	const deviceCases = useNavigationDeviceCases(args.doc.caseTypes ?? undefined);
@@ -168,16 +183,12 @@ export function useSubmittedSearchDeviceValues(args: {
 		readonly key: string;
 		readonly values: PreviewSearchDeviceValues;
 	}>();
-	const caseListConfig =
+	const module =
 		args.moduleUuid === undefined
 			? undefined
-			: args.doc.modules[args.moduleUuid]?.caseListConfig;
-	const readsCaseDatabase = useMemo(
-		() =>
-			caseListConfig !== undefined &&
-			searchCsqlReadsCaseDatabase(args.doc, caseListConfig),
-		[args.doc, caseListConfig],
-	);
+			: args.doc.modules[args.moduleUuid];
+	const readsCaseDatabase =
+		module !== undefined && moduleSearchReadsCaseDatabase(module);
 	const world = searchWorld({
 		readsCaseDatabase,
 		deviceCases: deviceCases.snapshot,
@@ -198,7 +209,9 @@ export function useSubmittedSearchDeviceValues(args: {
 	const latest = useRef({ args, deviceCases, identity, lookupStatus, engine });
 	latest.current = { args, deviceCases, identity, lookupStatus, engine };
 	const pendingKey =
-		status.kind === "pending" && world === "ready"
+		args.waitsForRecord !== true &&
+		status.kind === "pending" &&
+		world === "ready"
 			? args.submission?.key
 			: undefined;
 	useEffect(() => {
@@ -237,7 +250,10 @@ export function useSubmittedSearchDeviceValues(args: {
 			/* No signal reaches the worker: cancelling a request terminates it,
 			 * and with it the Search screen's other checks. A superseded
 			 * evaluation sends no further piece and its result is dropped. */
-			(xpath) => input.engine.evaluateSearchScreenXPath(moduleUuid, xpath),
+			resendingWhenSuperseded(
+				(xpath) => input.engine.evaluateSearchScreenXPath(moduleUuid, xpath),
+				controller.signal,
+			),
 			controller.signal,
 		).then(
 			(value) => keep({ value }),

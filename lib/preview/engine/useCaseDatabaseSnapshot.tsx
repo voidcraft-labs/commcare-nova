@@ -5,7 +5,6 @@ import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	type BlueprintDoc,
-	effectiveCaseSearchConfig,
 	effectivePostSubmit,
 	materializableCaseTypes,
 	proseSurfaceReads,
@@ -30,7 +29,7 @@ import {
 	appReadsPlaces,
 	expressionReadsCaseDatabase,
 } from "./expressionCaseReads";
-import { searchCsqlReadsCaseDatabase } from "./searchCsqlRuntime";
+import { moduleSearchReadsCaseDatabase } from "./searchCsqlRuntime";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 type CaseDatabaseState =
@@ -125,10 +124,7 @@ export function caseDatabaseRequirements(
 	 * them (`searchCsqlRuntime.ts::evaluateSearchCsqlRuntime`); one that reads
 	 * the device's cases waits on the same snapshot. */
 	const searchReference = Object.values(doc.modules).some(
-		(module) =>
-			module.caseListConfig !== undefined &&
-			effectiveCaseSearchConfig(module) !== undefined &&
-			searchCsqlReadsCaseDatabase(doc, module.caseListConfig),
+		moduleSearchReadsCaseDatabase,
 	);
 	/* After-submit routing can carry an existing case, select an unchanged
 	 * related case, or walk an unchanged ancestor even when none of its authored
