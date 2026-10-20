@@ -1278,6 +1278,13 @@ function inferNode(
 		case "arith": {
 			const left = readScalar(expression.left, ["left"]);
 			const right = readScalar(expression.right, ["right"]);
+			// XPathArithExpr reads each operand through toNumeric, as number() does.
+			const leftNumber = integerCodedSelect(expression.left, ctx)
+				? "int"
+				: left;
+			const rightNumber = integerCodedSelect(expression.right, ctx)
+				? "int"
+				: right;
 			for (const [value, type, side] of [
 				[expression.left, left, "left"],
 				[expression.right, right, "right"],
@@ -1294,7 +1301,9 @@ function inferNode(
 				? undefined
 				: scalar(
 						// XPathArithExpr divides as doubles: 5 div 2 is 2.5.
-						left === "int" && right === "int" && expression.op !== "div"
+						leftNumber === "int" &&
+							rightNumber === "int" &&
+							expression.op !== "div"
 							? "int"
 							: "decimal",
 						"number",
@@ -1614,12 +1623,27 @@ function inferNode(
 		}
 		case "call": {
 			const spec = FUNCTION_REGISTRY.get(expression.fn);
-			const argumentTypes = expression.args.map((argument, index) => {
-				const type = readScalar(argument, ["call", "args", index]);
+			const argumentNodes = expression.args.map((argument, index) => {
+				const type = read(argument, ["call", "args", index]);
 				if (spec?.paramTypes?.[index] === "number")
 					numericLiteral(argument, ["call", "args", index], errors);
 				return type;
 			});
+			if (spec?.returnsBranch === true) {
+				const branches = spec.passThrough?.(expression.args.length);
+				return branchResult(
+					argumentNodes.filter((_, index) => branches?.has(index) === true),
+					ctx,
+					errors,
+					["call"],
+					`${expression.fn} values must agree on type`,
+				);
+			}
+			const argumentTypes = argumentNodes.map((type, index) =>
+				integerCodedSelect(expression.args[index], ctx)
+					? "int"
+					: scalarDataType(type?.data),
+			);
 			if (spec?.integral === true) return scalar("int", "number");
 			if (
 				spec?.integralOverIntegers === true &&
@@ -1660,6 +1684,49 @@ function inferNode(
 				read(item, ["items", index]);
 			return { data: "sequence", held: "sequence" };
 	}
+}
+
+/**
+ * A single-select question whose every inline option value is an integer's
+ * text. Core reads its answer through `FunctionUtils.java::toNumeric`, whose
+ * `Double.parseDouble` gives a whole Double for such text and NaN for a blank
+ * answer, and `Recalculate.java::wrapData` stores a whole Double as
+ * `IntegerData` and NaN as null, so the read is an `int` wherever it is read
+ * as a number.
+ */
+function integerCodedSelect(
+	expression: Expression | undefined,
+	ctx: TypingContext,
+): boolean {
+	if (
+		expression?.kind !== "term" ||
+		expression.term.kind !== "field" ||
+		!("profile" in ctx)
+	)
+		return false;
+	const uuid = expression.term.uuid;
+	const field = ctx.form?.fields.get(uuid);
+	if (field?.kind !== "single_select") return false;
+	const options =
+		field.choices?.kind === "inline"
+			? field.choices.options
+			: field.choices === undefined
+				? ctx.facts.options.get(uuid)
+				: undefined;
+	return (
+		options !== undefined &&
+		options.length > 0 &&
+		options.every((option) => isIntegerText(option.value))
+	);
+}
+
+/** An optional `-` and then one or more digits: an option value, never XPath. */
+function isIntegerText(value: string): boolean {
+	const digits = value.startsWith("-") ? value.slice(1) : value;
+	if (digits.length === 0) return false;
+	for (const character of digits)
+		if (character < "0" || character > "9") return false;
+	return true;
 }
 
 function branchResult(

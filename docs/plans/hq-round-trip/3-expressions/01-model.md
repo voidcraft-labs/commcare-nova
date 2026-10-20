@@ -951,7 +951,13 @@ adds each node's `toNumeric`, `XPathMinFunc.java::min` and `XPathMaxFunc.java::m
 text through `Double.parseDouble`), and `Recalculate.java::wrapData` (lines 93 to 101) stores a whole
 `Double` as `IntegerData`, the reasoning that makes the seven functions above integral. So
 `number(text)` stays `decimal`. In form logic, branches agree on the scalar type they give, whether
-a node-set read or a scalar gives it, so `coalesce(#case/visits, 0)` is `int`.
+a node-set read or a scalar gives it, so `coalesce(#case/visits, 0)` is `int`. `cond`, the n-ary
+`if`, types as its values (each second argument and the last) agree, as an `if`'s branches do
+(`returnsBranch: true` in `FUNCTION_REGISTRY`), so `cond(c1, 1, c2, 2, 3)` is `int`. A single-select
+whose every inline option value is an optional `-` and digits is `int` wherever it is read as a
+number, in `number`, `sum`, `min`, `max` and `arith`, since `toNumeric` parses such text to a whole
+`Double` and a blank answer to NaN, which `wrapData` stores as null; a multi-select, or a select with
+any other option value, stays `decimal`.
 
 ### 3.4 Compatibility and ordering
 

@@ -2798,6 +2798,9 @@ const RULES = Object.fromEntries(
 		"module",
 		"form",
 		"consent",
+		"score",
+		"mixed",
+		"tally",
 		"n",
 		"t",
 		"d",
@@ -2855,6 +2858,37 @@ function rulesDoc(
 								options: [
 									{ value: "yes", label: "Yes" },
 									{ value: "no", label: "No" },
+								],
+							}),
+							f({
+								uuid: RULES.score,
+								id: "score",
+								kind: "single_select",
+								label: "Score",
+								options: [
+									{ value: "1", label: "One" },
+									{ value: "-2", label: "Minus two" },
+									{ value: "10", label: "Ten" },
+								],
+							}),
+							f({
+								uuid: RULES.mixed,
+								id: "mixed",
+								kind: "single_select",
+								label: "Mixed",
+								options: [
+									{ value: "1", label: "One" },
+									{ value: "a", label: "A" },
+								],
+							}),
+							f({
+								uuid: RULES.tally,
+								id: "tally",
+								kind: "multi_select",
+								label: "Tally",
+								options: [
+									{ value: "1", label: "One" },
+									{ value: "2", label: "Two" },
 								],
 							}),
 							f({ uuid: RULES.n, id: "n", kind: "int", label: "N" }),
@@ -3287,6 +3321,21 @@ describe("integral functions", () => {
 	])("keeps %s a decimal", (source) => {
 		expect(probeType(source)).toBe("decimal");
 	});
+	// Core reads a select's answer through toNumeric's Double.parseDouble, so
+	// a choice coded as an integer's text gives a whole Double.
+	it.each([
+		"number(#form/score)",
+		"#form/score + 1",
+		"number(#form/score) + number(#form/score)",
+	])("types %s over an integer-coded select as an integer", (source) => {
+		expect(probeType(source)).toBe("int");
+	});
+	it.each(["number(#form/mixed)", "#form/mixed + 1", "number(#form/tally)"])(
+		"keeps %s a decimal",
+		(source) => {
+			expect(probeType(source)).toBe("decimal");
+		},
+	);
 });
 
 describe("form branch agreement", () => {
@@ -3302,6 +3351,23 @@ describe("form branch agreement", () => {
 	});
 	it("holds no agreed type when a number branch meets text", () => {
 		expect(probeType("if(#form/n > 1, #patient/visits, #patient/note)")).toBe(
+			undefined,
+		);
+	});
+	// cond is the n-ary if: its values (each second argument, and the last)
+	// agree as an if's branches do.
+	it.each([
+		["cond(#form/n > 1, 1, #form/n > 2, 2, 3)", "int"],
+		[
+			"cond(#form/n > 1, if(#form/n > 3, 4, 5), #form/n > 2, #form/n, 1)",
+			"int",
+		],
+		["cond(#form/n > 1, 1, #form/n > 2, 1.5, 3) + 1", "decimal"],
+	])("types %s as %s", (source, type) => {
+		expect(probeType(source)).toBe(type);
+	});
+	it("holds no agreed cond type when a number value meets text", () => {
+		expect(probeType("cond(#form/n > 1, 1, #form/n > 2, 'two', 3)")).toBe(
 			undefined,
 		);
 	});

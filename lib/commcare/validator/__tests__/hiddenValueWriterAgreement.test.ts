@@ -270,6 +270,18 @@ describe("a Hidden Value's outputs against the property", () => {
 		{ calculate: "coalesce(#form/a, 0) + 1", refused: false },
 		{ calculate: "number(#form/flag)", refused: true },
 		{ calculate: "#form/a * 1.5", refused: true },
+		// cond's values agree as an if's branches do.
+		{
+			calculate: "cond(#form/a > 1, 1, #form/a > 2, 2, 3) + 1",
+			refused: false,
+		},
+		{ calculate: "cond(#form/a > 1, 1, #form/a > 2, 1.5, 3)", refused: true },
+		// Core parses a choice coded as an integer's text to a whole Double.
+		{
+			calculate: "number(#form/pick) + number(#form/pick)",
+			refused: false,
+		},
+		{ calculate: "number(#form/letter)", refused: true },
 	])(
 		"judges $calculate saved to an integer property",
 		({ calculate, refused }) => {
@@ -278,6 +290,24 @@ describe("a Hidden Value's outputs against the property", () => {
 					properties: [{ name: "score", label: "Score", data_type: "int" }],
 					register: [
 						f({ uuid: uuid("a"), kind: "int", id: "a", label: "A" }),
+						f({
+							kind: "single_select",
+							id: "pick",
+							label: "Pick",
+							options: [
+								{ value: "1", label: "One" },
+								{ value: "2", label: "Two" },
+							],
+						}),
+						f({
+							kind: "single_select",
+							id: "letter",
+							label: "Letter",
+							options: [
+								{ value: "a", label: "A" },
+								{ value: "b", label: "B" },
+							],
+						}),
 						hidden("total", { calculate }, "score"),
 					],
 				}),

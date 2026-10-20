@@ -44,6 +44,9 @@ export interface FunctionSpec {
 	/** Argument positions Core returns unchanged, so the caller unpacks them and
 	 * the call's result carries what the argument holds. */
 	passThrough?: (argumentCount: number) => ReadonlySet<number>;
+	/** The call returns one of its `passThrough` arguments as its value, so it
+	 * types as those arguments agree, as an `if` expression's branches do. */
+	returnsBranch?: true;
 	/** Core returns an integral Double, which `Recalculate.java::wrapData`
 	 * stores as `IntegerData`, so the call types `int`. */
 	integral?: true;
@@ -247,6 +250,7 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 			argumentStep: 2,
 			// XPathCondFunc: each condition goes through toBoolean; the branch
 			// taken (an odd argument, or the last) is returned as it evaluates.
+			returnsBranch: true,
 			passThrough: (argumentCount) =>
 				new Set(
 					Array.from({ length: argumentCount }, (_, index) => index).filter(
