@@ -460,6 +460,62 @@ const ENTRIES: Record<
 			deployment: DEPLOYMENT,
 		},
 	},
+	"case-property-rules-removed": documentEntries(
+		"case-property-rules-removed",
+		APP_ENTITY,
+		{ caseType: "patient", property: "age", rules: "required,validation" },
+	),
+	"expressions-follow-choices": documentEntries(
+		"expressions-follow-choices",
+		APP_ENTITY,
+		{ count: "14" },
+	),
+	"expressions-respelled": documentEntries(
+		"expressions-respelled",
+		APP_ENTITY,
+		{
+			count: "3",
+		},
+	),
+	"case-property-declared": documentEntries(
+		"case-property-declared",
+		APP_ENTITY,
+		{
+			caseType: "household",
+			property: "village_code",
+			dataType: "text",
+			form: "Visit",
+		},
+	),
+	"repeat-read-takes-first-row": documentEntries(
+		"repeat-read-takes-first-row",
+		FIELD_ENTITY,
+		{ form: "Visit", question: "Child name", repeat: "Children" },
+	),
+	"search-today-is-workers-day": documentEntries(
+		"search-today-is-workers-day",
+		MODULE_ENTITY,
+		{},
+	),
+	"search-date-time-equality-matches": documentEntries(
+		"search-date-time-equality-matches",
+		MODULE_ENTITY,
+		{},
+	),
+	"date-time-comparison-compares-moments": documentEntries(
+		"date-time-comparison-compares-moments",
+		FIELD_ENTITY,
+		{ form: "Visit", target: "xform" },
+	),
+	"case-property-type-now-known": documentEntries(
+		"case-property-type-now-known",
+		APP_ENTITY,
+		{ caseType: "visit", property: "next_due", dataType: "date", parked: "3" },
+	),
+	"expressions-sent-at-next-publish": deploymentEntries(
+		"expressions-sent-at-next-publish",
+		[],
+	),
 	"hq-app-deleted": deploymentEntries("hq-app-deleted", []),
 	"data-paths-move-once": deploymentEntries("data-paths-move-once", []),
 	"hq-app-not-nova-made": deploymentEntries("hq-app-not-nova-made", []),
@@ -1280,6 +1336,18 @@ describe("the dialog, the chip and the card", () => {
 		);
 	});
 
+	it("leads the expressions cutover's notice with what it changed", () => {
+		expect(
+			noticeLead(
+				"hq-round-trip-expressions",
+				"2026-10-21T09:00:00.000Z",
+				UTC_GB,
+			),
+		).toBe(
+			"Nova changed how it stores and checks expressions on 21 October. Here is what that means for this app.",
+		);
+	});
+
 	it("names the day in the viewer's own time zone", () => {
 		expect(
 			noticeLead("hq-round-trip-emission", "2026-10-06T23:30:00.000Z", {
@@ -1725,6 +1793,209 @@ describe("the lines about lookup tables", () => {
 			).text,
 		).toBe(
 			"The table Clinics on field-ops holds rows limited to certain users, which Nova can't keep. The next publish there stops before it sends anything. Giving the table a new export tag in Project data lets Nova publish its own table and leave that one as it is.",
+		);
+	});
+});
+
+describe("the expressions cutover's lines", () => {
+	const SAME: NoticeRenderContext = {
+		nameOf: (entity) => entity.nameAtMigration,
+	};
+	const render = (raw: unknown, ctx: NoticeRenderContext = SAME) =>
+		renderNoticeEntry(parsed(raw), ctx).text;
+	const doc = (
+		reason: string,
+		entity: unknown,
+		detail?: Record<string, string>,
+	) => ({ kind: "document", reason, entity, ...(detail && { detail }) });
+	const field = (nameAtMigration: string) => ({
+		...FIELD_ENTITY,
+		nameAtMigration,
+	});
+	const rules = (detail: Record<string, string>) =>
+		render(doc("case-property-rules-removed", APP_ENTITY, detail));
+
+	it("names which of a case property's rules were removed", () => {
+		expect(
+			rules({
+				caseType: "patient",
+				property: "age",
+				rules: "required,validation",
+			}),
+		).toBe(
+			"patient, age: Nova removed its required rule and its validation rule. No form checked them, and each question that saves age keeps its own rules. You can add rules to those questions.",
+		);
+		expect(
+			rules({ caseType: "patient", property: "age", rules: "required" }),
+		).toBe(
+			"patient, age: Nova removed its required rule. No form checked it, and each question that saves age keeps its own rules. You can add rules to those questions.",
+		);
+		expect(
+			rules({
+				caseType: "patient",
+				property: "age",
+				rules: "validation-message",
+			}),
+		).toBe(
+			"patient, age: Nova removed its validation message. No form showed it, and each question that saves age keeps its own rules and messages. You can add a message to those questions.",
+		);
+		expect(
+			rules({
+				caseType: "patient",
+				property: "age",
+				rules: "validation-message,required,validation",
+			}),
+		).toBe(
+			"patient, age: Nova removed its required rule, its validation rule and its validation message. No form checked them, and each question that saves age keeps its own rules. You can add rules to those questions.",
+		);
+		expect(rules({})).toBe(
+			"A case property: Nova removed its rules. No form checked them, and each question that saves it keeps its own rules. You can add rules to those questions.",
+		);
+	});
+
+	it("count the expressions that now name a choice and that now read in the standard spelling", () => {
+		const count = (reason: string, value?: string) =>
+			render(
+				doc(
+					reason,
+					APP_ENTITY,
+					value === undefined ? undefined : { count: value },
+				),
+			);
+		expect(count("expressions-follow-choices", "14")).toBe(
+			"14 expressions in this app now name a choice rather than its value as text. Changing that choice's value updates them, and Nova keeps the choice while an expression uses it.",
+		);
+		expect(count("expressions-follow-choices", "1")).toBe(
+			"1 expression in this app now names a choice rather than its value as text. Changing that choice's value updates it, and Nova keeps the choice while the expression uses it.",
+		);
+		expect(count("expressions-follow-choices")).toBe(
+			"Expressions in this app now name a choice rather than its value as text. Changing that choice's value updates them, and Nova keeps the choice while an expression uses it.",
+		);
+		expect(count("expressions-respelled", "3")).toBe(
+			"3 expressions in this app now read in one standard spelling, with fewer brackets and single quotes. What each one does is unchanged.",
+		);
+		expect(count("expressions-respelled", "1")).toBe(
+			"1 expression in this app now reads in one standard spelling, with fewer brackets and single quotes. What it does is unchanged.",
+		);
+		expect(count("expressions-respelled", "zero")).toBe(
+			"Expressions in this app now read in one standard spelling, with fewer brackets and single quotes. What each one does is unchanged.",
+		);
+	});
+
+	it("name a declared property, its type and a form that reads it", () => {
+		const declared = (detail: Record<string, string>) =>
+			render(doc("case-property-declared", APP_ENTITY, detail));
+		expect(
+			declared({
+				caseType: "household",
+				property: "village_code",
+				dataType: "text",
+				form: "Visit",
+			}),
+		).toBe(
+			"household, village_code: added to the case type as text, because Visit reads it. Nothing saves it yet. You can choose a question to save it, or give it a type that fits better.",
+		);
+		expect(
+			declared({
+				caseType: "household",
+				property: "size",
+				dataType: "decimal",
+				form: "Visit",
+			}),
+		).toContain("added to the case type as a number, because Visit reads it.");
+		expect(declared({})).toBe(
+			"A case property: added to the case type, because a form reads it. Nothing saves it yet. You can choose a question to save it, or give it a type that fits better.",
+		);
+	});
+
+	it("name the form, the reader, the question and the repeat a first-row read names", () => {
+		const entry = doc("repeat-read-takes-first-row", field("Summary"), {
+			form: "Visit",
+			question: "Child name",
+			repeat: "Children",
+		});
+		expect(render(entry)).toBe(
+			"Visit, Summary: it read Child name from every row of Children where one value was needed, so the form stopped once there were two rows. It now reads the first row. You can choose another row, or count or join the rows instead.",
+		);
+		const removed = renderNoticeEntry(parsed(entry), REMOVED);
+		expect(removed.parts[1]).toMatchObject({ text: "Summary", exists: false });
+		expect(render(doc("repeat-read-takes-first-row", FORM_ENTITY))).toBe(
+			"Visit: it read an answer from every row of a repeat where one value was needed, so the form stopped once there were two rows. It now reads the first row. You can choose another row, or count or join the rows instead.",
+		);
+	});
+
+	it("say what a module's search now does with today and with a date and time it names", () => {
+		expect(render(doc("search-today-is-workers-day", MODULE_ENTITY))).toBe(
+			"From the next publish, the search in Patients reads “today” as the worker's own date, the date its case list already uses. Near midnight, a worker in a different time zone from the project space may find different cases than before.",
+		);
+		expect(
+			render(doc("search-date-time-equality-matches", MODULE_ENTITY)),
+		).toBe(
+			"From the next publish, the search in Patients finds cases whose date and time matches the one it names. Until now CommCare's search found none of them, though Preview did.",
+		);
+		const present = renderNoticeEntry(
+			parsed(doc("search-today-is-workers-day", MODULE_ENTITY)),
+			PRESENT,
+		);
+		expect(present.parts[1]).toMatchObject({
+			text: "Patients today",
+			exists: true,
+		});
+	});
+
+	it("say a date-and-time comparison now compares moments, naming the form builder only where the comparison is in the form", () => {
+		const builder =
+			" CommCare HQ's form builder shows this comparison as a longer expression, and it keeps its meaning if you leave that expression as it is.";
+		const moments =
+			": from the next publish or download, phones and Web Apps compare these dates and times by the moment, as Preview already does. Until now they didn't compare the time of day, so the answer could differ from Preview.";
+		expect(
+			render(
+				doc("date-time-comparison-compares-moments", field("Follow-up due"), {
+					form: "Visit",
+					target: "xform",
+				}),
+			),
+		).toBe(`Visit, Follow-up due${moments}${builder}`);
+		expect(
+			render(
+				doc("date-time-comparison-compares-moments", field("Follow-up due")),
+			),
+		).toBe(`Follow-up due${moments}${builder}`);
+		expect(
+			render(
+				doc("date-time-comparison-compares-moments", MODULE_ENTITY, {
+					target: "suite",
+				}),
+			),
+		).toBe(`Patients${moments}`);
+		expect(
+			render(doc("date-time-comparison-compares-moments", FORM_ENTITY)),
+		).toBe(`Visit${moments}`);
+	});
+
+	it("say a property's type is now known, and how many saved values wait to review", () => {
+		const known = (detail: Record<string, string>) =>
+			render(doc("case-property-type-now-known", APP_ENTITY, detail));
+		const property = { caseType: "visit", property: "next_due" };
+		expect(known({ ...property, dataType: "date", parked: "3" })).toBe(
+			"visit, next_due: Nova now keeps it as a date, the type the calculation that saves it gives. 3 saved values that aren't dates are waiting in Data to review.",
+		);
+		expect(known({ ...property, dataType: "date", parked: "1" })).toBe(
+			"visit, next_due: Nova now keeps it as a date, the type the calculation that saves it gives. 1 saved value that isn't a date is waiting in Data to review.",
+		);
+		expect(known({ ...property, dataType: "datetime", parked: "0" })).toBe(
+			"visit, next_due: Nova now keeps it as a date and time, the type the calculation that saves it gives.",
+		);
+		expect(known({ parked: "2" })).toBe(
+			"A case property: Nova now keeps it as the type the calculation that saves it gives. 2 saved values that don't fit it are waiting in Data to review.",
+		);
+	});
+
+	it("say the next publish sends the expression changes once", () => {
+		expect(
+			render(deploymentEntries("expressions-sent-at-next-publish", []).bare),
+		).toBe(
+			"The next publish to field-ops sends these expression changes once, so CommCare HQ keeps a new version of each form and menu they touch. Data already collected stays as it is.",
 		);
 	});
 });

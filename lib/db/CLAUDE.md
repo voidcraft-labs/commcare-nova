@@ -217,13 +217,15 @@ concurrent same-batch retry that races past the read is caught by the constraint
 and converges on the deduped result). A blueprint-shape migration converts every replayable app change; no runtime
 reader accepts an alternate stored dialect. Advancing the fold horizon is not a
 route a future migration can simply take: the admit routine
-`nova_admit_app_change_fold_baseline_insert` accepts exactly four identities —
+`nova_admit_app_change_fold_baseline_insert` accepts exactly five identities —
 the frozen `fold-baseline:canonical-identity-foundation` marker and the
 sequence-one `genesis:<app_id>`, the paired
 `fold-baseline:unified-authoring` / `system:unified-authoring` operator cutover,
-and the paired `fold-baseline:hq-round-trip-emission` /
-`system:hq-round-trip-emission` operator cutover, which starts each app from the
-document its transform yields.
+the paired `fold-baseline:hq-round-trip-emission` /
+`system:hq-round-trip-emission` operator cutover, and the paired
+`fold-baseline:hq-round-trip-expressions` / `system:hq-round-trip-expressions`
+operator cutover, each of the last two starting each app from the document its
+transform yields.
 The `unified-authoring` cutover repairs incomplete historical SQL projections by
 starting from the unchanged canonical document, preserving old rows and refusing
 live holders.

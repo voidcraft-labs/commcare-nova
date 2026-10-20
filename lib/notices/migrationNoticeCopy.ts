@@ -12,6 +12,7 @@
  * and never written into a stored entry. Client-safe.
  */
 
+import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain/modules";
 import {
 	isReservedName,
@@ -241,6 +242,67 @@ function removedMediaKind(media: string | undefined): string {
 	return media === "image" || media === "audio" || media === "video"
 		? media
 		: "media";
+}
+
+/** A stored count above zero, or undefined where it is absent or not one. */
+function countOf(value: string | undefined): number | undefined {
+	const count = Number(value);
+	return value !== undefined && Number.isInteger(count) && count > 0
+		? count
+		: undefined;
+}
+
+/** "patient, age: " for a case property's line, by `detail.caseType` and `detail.property`. */
+function casePropertyLead(detail: Readonly<Record<string, string>>): string {
+	return detail.caseType !== undefined && detail.property !== undefined
+		? `${detail.caseType}, ${detail.property}: `
+		: "A case property: ";
+}
+
+/** A data type as a person reads one value of it, and several. */
+const DATA_TYPE_WORDS: Readonly<
+	Record<CasePropertyDataType, { readonly one: string; readonly many: string }>
+> = {
+	text: { one: "text", many: "text" },
+	int: { one: "a whole number", many: "whole numbers" },
+	decimal: { one: "a number", many: "numbers" },
+	date: { one: "a date", many: "dates" },
+	time: { one: "a time of day", many: "times of day" },
+	datetime: { one: "a date and time", many: "dates and times" },
+	single_select: { one: "a choice", many: "choices" },
+	multi_select: { one: "a list of choices", many: "lists of choices" },
+	geopoint: { one: "a location", many: "locations" },
+};
+
+/** The words for `detail.dataType`, or undefined where it names no type. */
+function dataTypeWords(
+	dataType: string | undefined,
+): { readonly one: string; readonly many: string } | undefined {
+	return dataType !== undefined && Object.hasOwn(DATA_TYPE_WORDS, dataType)
+		? DATA_TYPE_WORDS[dataType as CasePropertyDataType]
+		: undefined;
+}
+
+/** A case property's retired slots, by the ids `detail.rules` stores, in step order. */
+const RETIRED_PROPERTY_RULES = {
+	required: "its required rule",
+	validation: "its validation rule",
+	"validation-message": "its validation message",
+} as const;
+const RETIRED_PROPERTY_RULE_ORDER = Object.keys(
+	RETIRED_PROPERTY_RULES,
+) as readonly (keyof typeof RETIRED_PROPERTY_RULES)[];
+
+/** What a several-expression line says, by `detail.count`: one, several or uncounted. */
+function expressionCount(
+	value: string | undefined,
+	one: string,
+	several: (count: string) => string,
+): string {
+	const count = countOf(value);
+	return count === 1
+		? one
+		: several(count === undefined ? "Expressions" : `${count} expressions`);
 }
 
 export const MIGRATION_NOTICE_COPY = {
@@ -634,6 +696,75 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* The entity is the app; `detail.caseType` and `detail.property` name the
+	 * property, and `detail.rules` the comma-joined subset of `required`,
+	 * `validation` and `validation-message` it held. */
+	"case-property-rules-removed": (entry: DocumentNoticeEntry) => {
+		const detail = entry.detail ?? {};
+		const held = new Set(detailIds(detail.rules));
+		const rules = RETIRED_PROPERTY_RULE_ORDER.filter((rule) => held.has(rule));
+		const named =
+			rules.length === 0
+				? "its rules"
+				: joinedNames(rules.map((rule) => RETIRED_PROPERTY_RULES[rule]));
+		const saves = detail.property ?? "it";
+		const after =
+			rules.length === 1 && rules[0] === "validation-message"
+				? `No form showed it, and each question that saves ${saves} keeps its own rules and messages. You can add a message to those questions.`
+				: `No form checked ${rules.length === 1 ? "it" : "them"}, and each question that saves ${saves} keeps its own rules. You can add rules to those questions.`;
+		return noticeLine([
+			text(`${casePropertyLead(detail)}Nova removed ${named}. ${after}`),
+		]);
+	},
+	/* The entity is the app; `detail.count` counts the expressions. */
+	"expressions-follow-choices": (entry: DocumentNoticeEntry) =>
+		noticeLine([
+			text(
+				expressionCount(
+					entry.detail?.count,
+					"1 expression in this app now names a choice rather than its value as text. Changing that choice's value updates it, and Nova keeps the choice while the expression uses it.",
+					(several) =>
+						`${several} in this app now name a choice rather than its value as text. Changing that choice's value updates them, and Nova keeps the choice while an expression uses it.`,
+				),
+			),
+		]),
+	/* The entity is the app; `detail.count` counts the expressions. */
+	"expressions-respelled": (entry: DocumentNoticeEntry) =>
+		noticeLine([
+			text(
+				expressionCount(
+					entry.detail?.count,
+					"1 expression in this app now reads in one standard spelling, with fewer brackets and single quotes. What it does is unchanged.",
+					(several) =>
+						`${several} in this app now read in one standard spelling, with fewer brackets and single quotes. What each one does is unchanged.`,
+				),
+			),
+		]),
+	/* The entity is the app; `detail.caseType` and `detail.property` name the
+	 * declared property, `detail.dataType` its type and `detail.form` the
+	 * name of one form that reads it. */
+	"case-property-declared": (entry: DocumentNoticeEntry) => {
+		const detail = entry.detail ?? {};
+		const type = dataTypeWords(detail.dataType);
+		return noticeLine([
+			text(
+				`${casePropertyLead(detail)}added to the case type${type === undefined ? "" : ` as ${type.one}`}, because ${detail.form ?? "a form"} reads it. Nothing saves it yet. You can choose a question to save it, or give it a type that fits better.`,
+			),
+		]);
+	},
+	/* The entity is the field (with `detail.form` its form) or the form whose
+	 * expression reads the repeat; `detail.question` names the question it
+	 * read and `detail.repeat` the repeat. */
+	"repeat-read-takes-first-row": (entry: DocumentNoticeEntry, ctx) => {
+		const detail = entry.detail ?? {};
+		return noticeLine([
+			...formBeside(detail.form),
+			entityPart(entry.entity, ctx),
+			text(
+				`: it read ${detail.question ?? "an answer"} from every row of ${detail.repeat ?? "a repeat"} where one value was needed, so the form stopped once there were two rows. It now reads the first row. You can choose another row, or count or join the rows instead.`,
+			),
+		]);
+	},
 	/* The entity is the lookup table; `detail.from` and `detail.to` its old
 	 * and new export tag. The word is the one the old tag holds. */
 	"lookup-tag-renamed": (entry: DocumentNoticeEntry, ctx) => {
@@ -774,6 +905,25 @@ export const MIGRATION_NOTICE_COPY = {
 				": the list's search now also matches the fields hidden from Results.",
 			),
 		]),
+	/* The entity is the module whose search reads `today`. */
+	"search-today-is-workers-day": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			text("From the next publish, the search in "),
+			entityPart(entry.entity, ctx),
+			text(
+				" reads “today” as the worker's own date, the date its case list already uses. Near midnight, a worker in a different time zone from the project space may find different cases than before.",
+			),
+		]),
+	/* The entity is the module whose search tests a date and time for
+	 * equality. */
+	"search-date-time-equality-matches": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			text("From the next publish, the search in "),
+			entityPart(entry.entity, ctx),
+			text(
+				" finds cases whose date and time matches the one it names. Until now CommCare's search found none of them, though Preview did.",
+			),
+		]),
 	/* The entity is the column hidden from Results that carries an order
 	 * rule; `detail.menu` names its menu. */
 	"hidden-order-column-not-in-sort-menu": (entry: DocumentNoticeEntry, ctx) =>
@@ -817,6 +967,51 @@ export const MIGRATION_NOTICE_COPY = {
 			entityPart(entry.entity, ctx),
 			text(
 				`: workers now see a message when the case name from ${question ?? "its question"} is blank or longer than 255 characters. CommCare can't save a case with a name like that.`,
+			),
+		]);
+	},
+	/* The entity is the field (with `detail.form` its form), the form or the
+	 * module whose expression compares two dates and times; `detail.target`
+	 * is `xform` where the comparison sits in the form's own XForm, or
+	 * `suite` where it sits in the app's menus. Only a comparison in the
+	 * XForm shows in CommCare HQ's form builder; with no `detail.target`, a
+	 * field's comparison is taken to be one. */
+	"date-time-comparison-compares-moments": (
+		entry: DocumentNoticeEntry,
+		ctx,
+	) => {
+		const target = entry.detail?.target;
+		const inFormBuilder =
+			target === "xform" ||
+			(target === undefined && entry.entity.type === "field");
+		return noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				`: from the next publish or download, phones and Web Apps compare these dates and times by the moment, as Preview already does. Until now they didn't compare the time of day, so the answer could differ from Preview.${
+					inFormBuilder
+						? " CommCare HQ's form builder shows this comparison as a longer expression, and it keeps its meaning if you leave that expression as it is."
+						: ""
+				}`,
+			),
+		]);
+	},
+	/* The entity is the app; `detail.caseType` and `detail.property` name the
+	 * property, `detail.dataType` the type it now has and `detail.parked` how
+	 * many saved values don't fit it. */
+	"case-property-type-now-known": (entry: DocumentNoticeEntry) => {
+		const detail = entry.detail ?? {};
+		const type = dataTypeWords(detail.dataType);
+		const parked = countOf(detail.parked);
+		const waiting =
+			parked === undefined
+				? ""
+				: parked === 1
+					? ` 1 saved value that ${type === undefined ? "doesn't fit it" : `isn't ${type.one}`} is waiting in Data to review.`
+					: ` ${parked} saved values that ${type === undefined ? "don't fit it" : `aren't ${type.many}`} are waiting in Data to review.`;
+		return noticeLine([
+			text(
+				`${casePropertyLead(detail)}Nova now keeps it as ${type === undefined ? "the type" : `${type.one}, the type`} the calculation that saves it gives.${waiting}`,
 			),
 		]);
 	},
@@ -881,6 +1076,12 @@ export const MIGRATION_NOTICE_COPY = {
 		noticeLine([
 			text(
 				`The next publish to ${projectSpace(entry)} moves the form data that Nova adds to each form to new names, once. Form exports in CommCare HQ show those columns under the new names from then on.`,
+			),
+		]),
+	"expressions-sent-at-next-publish": (entry) =>
+		noticeLine([
+			text(
+				`The next publish to ${projectSpace(entry)} sends these expression changes once, so CommCare HQ keeps a new version of each form and menu they touch. Data already collected stays as it is.`,
 			),
 		]),
 	"deep-links-need-republish": (entry) =>
@@ -1141,6 +1342,8 @@ export function noticeDaySpan(
 export const MIGRATION_NOTICE_LEADS = {
 	"hq-round-trip-emission": (day: string) =>
 		`Nova changed how it writes apps for CommCare HQ on ${day}. Here is what that means for this app.`,
+	"hq-round-trip-expressions": (day: string) =>
+		`Nova changed how it stores and checks expressions on ${day}. Here is what that means for this app.`,
 } satisfies Readonly<Record<MigrationNoticeCutover, (day: string) => string>>;
 
 export function noticeLead(

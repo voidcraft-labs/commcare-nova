@@ -1,0 +1,964 @@
+{
+	"format": "hq-round-trip-expressions-base-census-1",
+	"sourceCommit": "3e78adec62d0b5c1534473ff23f43144dd001c72",
+	"emitter": "scripts/emit-hq-round-trip-expressions-base.ts, its expandDoc and compileCcz calls over each fixture assembled by assemblePersistedBlueprintJsonText and hydrated, with no lookup tables; caseTypeSchemas are each case type of buildCaseTypeMap but the worker case, through caseTypeToJsonSchema, as the stored case_type_schemas rows equal at the base",
+	"fixtures": [
+		{
+			"fixture": "targeted-datetime-ordering",
+			"caseTypeSchemas": {
+				"visit": "{\"type\":\"object\",\"properties\":{\"due\":{\"type\":\"string\",\"format\":\"date-time\"},\"seen\":{\"type\":\"string\",\"format\":\"date-time\"},\"notes\":{\"type\":\"string\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "0927c50f4c4bb2b6ef4940fe7660c15d3590b30e68299fd14d7c1a1951eca1e3",
+					"digest": "e74d082267e07c8121a439b9e0095984deeb033c078dd00438c250e745aa6e4c"
+				},
+				{
+					"file": "hq/modules/778335b05dc95554a4e52e8eeaf4fca0/forms/3ac8b7bbba605f77a4a88ac5f433c6ab/form.json",
+					"rawDigest": "36c588dbf88a231d726e49de57e01a032ea2226c998106b55bd21db5f913fc65",
+					"digest": "9c6f13af197f4de0611c124eb56edccfee9d9b4d14a689273a8f957fd79511cb"
+				},
+				{
+					"file": "hq/modules/778335b05dc95554a4e52e8eeaf4fca0/forms/47dd4b569fe955b2a635bef8327d53a6/form.json",
+					"rawDigest": "e9f10ae69d1b027bb1bdc87b7c4610af942dc27facaceab939591a3a4a2d39ff",
+					"digest": "57130d1598933df4800dca70c48a3315954c697b8c3fd7a9e2dbcde09de262d8"
+				},
+				{
+					"file": "hq/modules/778335b05dc95554a4e52e8eeaf4fca0/module.json",
+					"rawDigest": "1fb8375d0aa99983aa92b0123ba7415110870c20b6a22c7703e6e4ffa136a067",
+					"digest": "55ba246998fa834a05a06957fc58f10965f4f6b5a2b674683333d7b1bb997510"
+				},
+				{
+					"file": "hq/modules/ea242b03e9fc5db7a86343d9c7fd49d3/forms/3513c3ec4d615408a8c5b71e989dca9c/form.json",
+					"rawDigest": "d104a47a3738ac12a6661e19fcd660284c6734cd873fcba025ad25d72a00708f",
+					"digest": "899b8b6451bbfcdd269d58a27366d2213d6ebef8854ce5b21c294fb1feb28075"
+				},
+				{
+					"file": "hq/modules/ea242b03e9fc5db7a86343d9c7fd49d3/module.json",
+					"rawDigest": "48fbed057b498693b9e038d8c444c2a02ff622c17e10d935aeaf33eb7dec3a9b",
+					"digest": "a835dd8ed4afca1d0a3b9db39a2fc3cf77fee40d6cb5e3f9f907503e33401a8f"
+				},
+				{
+					"file": "hq/xforms/3513c3ec4d615408a8c5b71e989dca9c.xml",
+					"rawDigest": "a73a3164383e2c0a9f825f6bb510becc444235ac844abd6f45d88656c0c10ce6",
+					"digest": "e61d0866d9e0083da01aafb10f05a43cd422b761705097eb39b131e4fea21440"
+				},
+				{
+					"file": "hq/xforms/3ac8b7bbba605f77a4a88ac5f433c6ab.xml",
+					"rawDigest": "ccaff11d258315061bae1ef894544adfa686f28aa9b4849ee4c74218e8d18276",
+					"digest": "166063f181e518849d2a5481a5bed193840174fdf34cc1a13975990876c752f5"
+				},
+				{
+					"file": "hq/xforms/47dd4b569fe955b2a635bef8327d53a6.xml",
+					"rawDigest": "00c88b6c01c2f47ffc0d8bcb0800c02f8bf0154928f79a163f52456907f43001",
+					"digest": "305b94a626e333ee80647ab1e7f9ab8c96fa71c22b7a44eb606773cd293e97fe"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "deaafd8474e026fbe3fd273f6247a24ae3212fbc32157a76aee6f1d81fd6a791",
+					"digest": "7d43dbc0e2097d901c8e6a6f5033a9ad25688c87eb8256a50a438322e8b95a37"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F3513C3EC-4D61-5408-A8C5-B71E989DCA9C.xml",
+					"rawDigest": "308888abac0efe03d15357265e03c167d46ecb6768808ffb1099255dba84a4af",
+					"digest": "f1e45afdafced0e4ec4ba4c180950f44ea594428553c9cb0636c4a3350d99b58"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F3AC8B7BB-BA60-5F77-A4A8-8AC5F433C6AB.xml",
+					"rawDigest": "8aa18f7ad18083157409ea247ba86553c7e51205c1110602c510560bf0509ac4",
+					"digest": "e7103a77408a87111cc46d713bdbdc41b9fbd31ac7006ffad69fd9a0d0fee472"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F47DD4B56-9FE9-55B2-A635-BEF8327D53A6.xml",
+					"rawDigest": "76de9f11392c5ac79eba46e05667278fff8db410ffc1ac27b804fe1251bbbdf2",
+					"digest": "b169d4377bf9e03b297ded5c7b045d1690bdf5791685df3e4e116c963e97b677"
+				}
+			]
+		},
+		{
+			"fixture": "container-query-conditional-relative",
+			"caseTypeSchemas": {},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "b48b1ef98cd62fb6aa400d175c21ec3c7c09a5320899d2600d37341e36dfbfab",
+					"digest": "3ef62d3c4a669ff9548090fbc245b86522d514a7aed2a3712c7c4c2962aeee51"
+				},
+				{
+					"file": "hq/modules/f6d52d649e5551e0ae1c805660c22b54/forms/ee7fd92ef2de5102a254159433fd6c3e/form.json",
+					"rawDigest": "26486c0ba5f487f41b789ae76acd74eb85bfa7d9897890ae05ed6eb32abc5976",
+					"digest": "f45acc27d71dd7834bd1cbb01bf628dd3b23128908759baa086b2304d5502c9d"
+				},
+				{
+					"file": "hq/modules/f6d52d649e5551e0ae1c805660c22b54/module.json",
+					"rawDigest": "a69300bead9b5c81e0434d213eeef992c79a45b4ee4014cf48e0e56a380eaab2",
+					"digest": "7e0c5a414610b2d2cb533acb0ab0c711544ab06079602f18d2deb1af7d933277"
+				},
+				{
+					"file": "hq/xforms/ee7fd92ef2de5102a254159433fd6c3e.xml",
+					"rawDigest": "6407f40be8ed68ede9447b48e0368105a2b3285920fd6d2400a94ba4e2f7d4be",
+					"digest": "02da8512c064de331ad2b099f4aa355d0929f92a3f1685fb6a900f48ad32de5a"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "59d810ab64f8ff3427838748db6d6af5809efe8285b3ae61e7e00ad049856af8",
+					"digest": "43fd41d73642f3b1943f7d905e92ff2dcbba5bd62e8811206fb8861fa8b66883"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FEE7FD92E-F2DE-5102-A254-159433FD6C3E.xml",
+					"rawDigest": "2b875a9dccccb51ee858125b7500745dc936f8011a9fb2ffec552187fdcd0a0c",
+					"digest": "36f01e3da08078d530e79f029283893c5643432bab88bef80abba0eaaf190be2"
+				}
+			]
+		},
+		{
+			"fixture": "form-link-manual",
+			"caseTypeSchemas": {
+				"frog": "{\"type\":\"object\",\"properties\":{\"mood\":{\"type\":\"string\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "186e746fced9dd610db730f17d7713d103e2caa1a298fc0b7fc142388f55fbe0",
+					"digest": "91fec4d6ba29907ab1748c933b777c65b87375448677032cb3f00f959559200c"
+				},
+				{
+					"file": "hq/modules/460e2d6667f55a72a0bffba0c2d6ef76/forms/4befcc170845556bab73d95955f9f727/form.json",
+					"rawDigest": "73dccee8e1983a591dee0bef74eb193c7e7be77e8466a1d5ae14f8cfc660309d",
+					"digest": "d5daf4acb3f072e645a7c112d365e4d772ed2ca11061b975ae44f9a1d70edab9"
+				},
+				{
+					"file": "hq/modules/460e2d6667f55a72a0bffba0c2d6ef76/module.json",
+					"rawDigest": "4eb10b9d1bc0ab6ad1d7458e61efb6cdd9c323bba0e093631cca32e66d98030d",
+					"digest": "a3097a0e0ddf8b6adfccbe887f3583233eb1b7afc8b3a7ca7d8e58ac8d385b55"
+				},
+				{
+					"file": "hq/modules/98124e939ac3538fa048a5e54bee2c23/forms/df655056889f539aad222cd05efbc4a6/form.json",
+					"rawDigest": "cf3db74994097473d9069b39d822678181082640b1676e2446f483c83c4fd873",
+					"digest": "ed8012ac350c602f84528b9994ac98992ee79780bd2337198f89b7e4e508585c"
+				},
+				{
+					"file": "hq/modules/98124e939ac3538fa048a5e54bee2c23/module.json",
+					"rawDigest": "ceaf40fcc9f4944fc772d72fc9e6e81a08b5a6aeef2004239c9eccfff79b0806",
+					"digest": "2fc49792a1d8ee7cf6415369d1fdf6ea8f753aa57a080c8d20a715c10dca4310"
+				},
+				{
+					"file": "hq/xforms/4befcc170845556bab73d95955f9f727.xml",
+					"rawDigest": "52d47f352989afb28667197c32e4839088bcafa636b9f3606c020d2aa25a03bc",
+					"digest": "c6bfc7d0a987a54c4aed6ab40ab79b810d3c3c31930595ce8e99e2bad651dee6"
+				},
+				{
+					"file": "hq/xforms/df655056889f539aad222cd05efbc4a6.xml",
+					"rawDigest": "c50cb3e6c7a26c02116c384b361fc351776cd4327ea6efb5322eca60fe15f097",
+					"digest": "9716b21aa2504a0b08f16a8aed3fea073f9cf4df2cc46eb4efa828b590eb4c22"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "ca7015b3b5c6cdd4597c2353ba70a2235828e7e081287a487430a9ba65bfe885",
+					"digest": "730c0a3a1ff94da3044dd47d83e8acf42c85cbe6ff3c62aa7640e6ad95facb3b"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F4BEFCC17-0845-556B-AB73-D95955F9F727.xml",
+					"rawDigest": "5e223ba4d1f072685baf9125db8da690ff4df3a6e136bb99574551444d929022",
+					"digest": "c2f16604962bcfd32050bb1b16e701707ce4562e649c5f28da967810cf53d1a7"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FDF655056-889F-539A-AD22-2CD05EFBC4A6.xml",
+					"rawDigest": "3363a844284a1fc0bbbc03bca1b1acfe3e3d3ecda2085098a9f4234518db3a52",
+					"digest": "c9edcf34333afa2bc1b14dddc76cf0ff4a1f53e01e054015cf35023b2896fe2a"
+				}
+			]
+		},
+		{
+			"fixture": "arithmetic",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{\"quotient\":{\"type\":\"integer\",\"minimum\":-2147483648,\"maximum\":2147483647},\"remainder\":{\"type\":\"integer\",\"minimum\":-2147483648,\"maximum\":2147483647},\"large\":{\"type\":\"integer\",\"minimum\":-2147483648,\"maximum\":2147483647},\"mixed\":{\"type\":\"number\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "c80c3decf355f1e3653391f21e90685ef11a91e037ebe0517865daaffa5c95a1",
+					"digest": "ff05a5e188624fdfc0954045cfcdbd056b1b2ecb0b12a3ed7e164bcb5fff2b54"
+				},
+				{
+					"file": "hq/modules/675b346497035e68ab5713e2d1483254/forms/878a2d6257675b2ea8c2b9a094ccda72/form.json",
+					"rawDigest": "1f16322d341c208c4f47460f56c8a34d4594e0f47720fd2a8c475777f0bb91d2",
+					"digest": "ae8ac355b3cd660ba048814e10e9376487ebd3024915e947a92fe33469b40c2a"
+				},
+				{
+					"file": "hq/modules/675b346497035e68ab5713e2d1483254/module.json",
+					"rawDigest": "fd924c5676b7909e218bbe32c3ff0824d4afa3eee21bc5182ac85244a4323c7d",
+					"digest": "be7c78f2b055a911b51ed2abc46a3dbd336107526cc21061b3bcaa16551164ff"
+				},
+				{
+					"file": "hq/xforms/878a2d6257675b2ea8c2b9a094ccda72.xml",
+					"rawDigest": "1d6dff399f4dcbb55bb91ed73bb5232c2439adc9c003c3ac1b4ff9bacf217112",
+					"digest": "1e433c8d8c6f9c5656bc36f3199c33e8830f1e0c6f979d489de2e43e096b94bb"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "ff05695e46cfa7f62bac23c61ecd07c524f65bae7129ba31f7ba9ce3e866dbc1",
+					"digest": "51da95c1fcabb4f95e5a475e0123ea7d9dd468a4f712600adf2a1a00f9803321"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F878A2D62-5767-5B2E-A8C2-B9A094CCDA72.xml",
+					"rawDigest": "66e1294c0df9f7e7e663fa800fb4775d7b2b5895486d80e8a27a90aa243de48e",
+					"digest": "37a61d1c4206f71c5b901d12d19001201cfd767fe778fa767055ab838309aa71"
+				}
+			]
+		},
+		{
+			"fixture": "catalog-rules",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{\"age\":{\"type\":\"integer\",\"minimum\":-2147483648,\"maximum\":2147483647}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "0625d67acddadc0b7ffa21350e5bce5cc77da77b6fb42fea3f5782e078f78c13",
+					"digest": "f185e51aa5aa6a6bd6c60dc5d69c9eb9cb6383f40e78ff144f277c743ce45d46"
+				},
+				{
+					"file": "hq/modules/2d325cb0229950769c2ef4efd8749ac8/forms/b57430567a0c5ab6ba985fdbbc1ccf57/form.json",
+					"rawDigest": "2c4658c147c7fd0b5ff87c00cc3dcb76feb9f0f61642b1ac1946e732bc3c5e05",
+					"digest": "e71a9078104edf4e358f0aa01dd87be38dc07778bad1fd67e357bc0b233434ee"
+				},
+				{
+					"file": "hq/modules/2d325cb0229950769c2ef4efd8749ac8/module.json",
+					"rawDigest": "e8a42a90000e891b539909ef3354df52cb67810ef594354395d16156598037c3",
+					"digest": "cf437488e14abe7d567c02b50998814b5b9f35843abf9d846e2df224ad6f9c05"
+				},
+				{
+					"file": "hq/xforms/b57430567a0c5ab6ba985fdbbc1ccf57.xml",
+					"rawDigest": "94cae212debb3925baefb132b23c7dea7e3218baa098608c3ce795df20192f8c",
+					"digest": "4e262b42bb3836964d38f95b89433f05061a4fc75f60de77d27d024cea36f051"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "61d64401a76e137343db8b8d9fde7e164141eddf766074d85b88dad8a1072589",
+					"digest": "977b36c748b3a69a60c9d985d0b80b5087e9bfde8634745a0ee96375a568796c"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FB5743056-7A0C-5AB6-BA98-5FDBBC1CCF57.xml",
+					"rawDigest": "c1baa6b3edceb6a53f81b2f740501245498c4d2f2b7c052b2eeee8bfa0bee8e7",
+					"digest": "89766307978aa2ca4da661dc94a998974e532a118e099aa6330fee6559a0d44d"
+				}
+			]
+		},
+		{
+			"fixture": "choices",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{\"answer\":{\"type\":\"string\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "6c64de85f9c0417fe426e25e10e3ce82689ca09a78a418183313e6273c202dd9",
+					"digest": "e2a78e61aa2211f88498de6b7214f8aaffb93b019d78c36b2391e0a1250a7f9c"
+				},
+				{
+					"file": "hq/modules/8c9531f32a975566acb41a32a960b58c/forms/0128379f27ea5ff9b26bbdb6b85c4ef3/form.json",
+					"rawDigest": "1f35bfa85496c3256f1b03f6c3184c639c27a7bba145ac31a13fb74eb3305f86",
+					"digest": "6d24954ab7bfdc5a8da0e80603f46e434a3e2c55b0417324a6a55a371d49851b"
+				},
+				{
+					"file": "hq/modules/8c9531f32a975566acb41a32a960b58c/module.json",
+					"rawDigest": "dfbbc5eae3b5d10e5ab370867d17cb1dc0fb7b578d1b4fd9371214a91dc0c167",
+					"digest": "c5d53039388a75d6068a1ea76447e9bf6a4ac79b11d3fc45c22ba7a02b50390c"
+				},
+				{
+					"file": "hq/xforms/0128379f27ea5ff9b26bbdb6b85c4ef3.xml",
+					"rawDigest": "a35aa97d6b080c21e24d3a4e33707a60bc1ab06b07e64c86b8e7adee945f0160",
+					"digest": "156c22168c9dc0ee4b388a0b5184c9a870946d751fd9c09e12cd2739ce2b99c1"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "1ac2386d7983bbfce04363f62a3dc23bc5088781b01b4747f0bf7a77c9825395",
+					"digest": "d33d0a78ee73bb25bc163685ac682df6eaa576b5ab9094efa1b51cf585ffb7f8"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F0128379F-27EA-5FF9-B26B-BDB6B85C4EF3.xml",
+					"rawDigest": "729cfa6374963c9ab6b0c9ab976ad9a31a3ed983a4c20471000f27f6c10a1ff3",
+					"digest": "9249fbba262c0470153a696d4dd6156e7638223005b1be1b43abd166d8e92b41"
+				}
+			]
+		},
+		{
+			"fixture": "form-logic",
+			"caseTypeSchemas": {},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "68c040668a401e51be6f98c3e821ecde1a0b5d347e948f092460bf5fa4e12da4",
+					"digest": "cf8669acf2746a89ac1ba744b11ed469da9740049ee08677c5cb7203934a425a"
+				},
+				{
+					"file": "hq/modules/8645e84a7edf5be9bdb62c1a7b8eb027/forms/d8a36f31fcd3582486384463fedd948c/form.json",
+					"rawDigest": "68d3329093ac92e5b215d6bcf8173559f25c272f52a9780dc84663e94919ad37",
+					"digest": "ab64e14486ae22ebc6760a9c1be04378d7c6448144aad023c46188d6de9aed97"
+				},
+				{
+					"file": "hq/modules/8645e84a7edf5be9bdb62c1a7b8eb027/module.json",
+					"rawDigest": "707347b2a5f83ec08f6bab9aa191ddac1e1dbf7fbe7494a10ecabbc3bca773fc",
+					"digest": "def22adb0830b9699fc7a2ce97090c05e18fef863d5de9eb26eda5dc165f8d74"
+				},
+				{
+					"file": "hq/xforms/d8a36f31fcd3582486384463fedd948c.xml",
+					"rawDigest": "de1a79fa9c6289b695b826869e2e64a670c0e68583e8db194ceb1b88704e72bd",
+					"digest": "a200e52fc62941b43937ac7b54871ad8cb3fdb8b08a0e3b7e9154120cfa7c5ee"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "7304ca9d51fe4595baa93e81923f4a554d61d214ac470fff8ed602f9e237ebbc",
+					"digest": "984d813aad5929b748e66226c2d05f9f0058b31c0257540c2797b493a100a6cc"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FD8A36F31-FCD3-5824-8638-4463FEDD948C.xml",
+					"rawDigest": "580da41f4716663e86d9e37285aa6aedfef565163d3b0e6f904e540543fccbaf",
+					"digest": "390ad7192e68f4effc68023ee54b117f901036952a2b56d4b23e32e9a6564ecc"
+				}
+			]
+		},
+		{
+			"fixture": "case-query-bindings",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{\"known\":{\"type\":\"string\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "ff8b83b66ae9e5cbe83be755544bcf9b2847791e5f9190fe10be0e91601880fb",
+					"digest": "39aacad703a554a318266990a7b8fc7d761a77f584a75486eef2e31b11984d1d"
+				},
+				{
+					"file": "hq/modules/bd18bb62c71052bdba90b00363bf2c8b/forms/7e07810160565d94886acee7050b23e7/form.json",
+					"rawDigest": "0b2686cd70224e49cc90f5a97745a016660b4a0630db4e9eeaec54ced7996e73",
+					"digest": "1ed04d29c99e5413be4df750ffb0600cf28e24551f5f0ae85ff6fe028f8edc1e"
+				},
+				{
+					"file": "hq/modules/bd18bb62c71052bdba90b00363bf2c8b/module.json",
+					"rawDigest": "0f5355863cda8ad05f282d15dbf42f84654f26fd1df984c81e043ff87c015215",
+					"digest": "4d08fea772df1748e349b1072466a7d55110675d91536dbb161647b213b46497"
+				},
+				{
+					"file": "hq/xforms/7e07810160565d94886acee7050b23e7.xml",
+					"rawDigest": "0fbab4bcbe8fc43c9543b6c465115e5c64b026077459d678269c10e753ddd84e",
+					"digest": "5fa8681b0b899ace53d3f4066b612e73a49cf1c12859d5d0ba8f60c182311215"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "18c04deee346007c759d00c474d5ac6a51a1178bb3951e0776cef0af6d130cfb",
+					"digest": "b9702973f13a26b8c15c2c022aafa9711420134f619f8a96c2a0049342fb3f69"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F7E078101-6056-5D94-886A-CEE7050B23E7.xml",
+					"rawDigest": "fed2cf38c5cb4b5ff331a79bfe21e49983ba14a06af5d7c5f681cd17cad3cef6",
+					"digest": "147b50db49895c4362dfddde57c393dfc4ff98ea0d7a606a23b420e8ed1232b0"
+				}
+			]
+		},
+		{
+			"fixture": "declare-read-properties",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "08ba1f3d8c469aca0300dc67cbdedc5d3f148b7f515623a7ab671667b57e438d",
+					"digest": "ed8d0049658b362083d886602ec6b3f3855a0053ae00fac4840f74a089e97788"
+				},
+				{
+					"file": "hq/modules/4569c6446ec45a05bed05ff4b9cdbbdc/forms/2986d904ab17513bb50b73fd8925af20/form.json",
+					"rawDigest": "a6b8d25a494481b2690d02583d93e964118e35b3e83ffcb5315ae2c7419bf388",
+					"digest": "4a8626db4b407b345deb1c5a2aa3efa38e5ae76ac2cf81f82ce36501c4385198"
+				},
+				{
+					"file": "hq/modules/4569c6446ec45a05bed05ff4b9cdbbdc/module.json",
+					"rawDigest": "0c3a0c98800118ed97bc22cb800e01d32c5e99c0504eb9157f7e5b8eb27ac97a",
+					"digest": "8ca5630f30fb05c5d53feb3ef8ff9967ce5825a9ac659cdd5e9667a5f29ddfaa"
+				},
+				{
+					"file": "hq/xforms/2986d904ab17513bb50b73fd8925af20.xml",
+					"rawDigest": "8da86f50cbe313bb20cc2191170941ab8ce0d43534df1be7584c45d3c52de91b",
+					"digest": "e43315f911fedc98e4ffa9e640acadad3f309f8ddb3a76ab6ccf1bb989f5669c"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "1bc62c3718ffee7f12adb41a85593950541a4afc0b4c816e61fecf21f6a5760a",
+					"digest": "952255b418ff477ce722fd4a7c773f702d58b5bdbc41c13e2478110ad518c20d"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F2986D904-AB17-513B-B50B-73FD8925AF20.xml",
+					"rawDigest": "7f41885f08e53d77da44d3dd12b2d75f29c34a14cc0d37635b38ad6b37c64044",
+					"digest": "a618b6b2c65d283183e0d05e9cc822153bbc01722155cdba36158656b07e581b"
+				}
+			]
+		},
+		{
+			"fixture": "conflicting-read-types",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "bd95ebaed43f9bd438daaed5c1020b3b60dc3009eb0c40ad207f68fdd8bd371a",
+					"digest": "d6aa4bbbf1bb4965df171934d4f73cc94bb8e8cd9a23134e1231461f62185818"
+				},
+				{
+					"file": "hq/modules/f3213531cab35f6da112d14268127771/forms/4ab8964fb26d532dabacd1dd0b63c4b0/form.json",
+					"rawDigest": "e934278594d6d06b3bfd149452d6a908d519fbdde6c4903d8aba4d5f177ab40f",
+					"digest": "19e3dca3d84f188b7a9ad67e088a08c250427be790262b1cc12b456bd3279c21"
+				},
+				{
+					"file": "hq/modules/f3213531cab35f6da112d14268127771/module.json",
+					"rawDigest": "405c1a085d88dfdbbbc4d771d3a1117b27aca2b5101a7e55fb26bfed4bb4e154",
+					"digest": "22bee1fd35236862f8293934d3826a2dcd02279a1eb772342db109b04dae260e"
+				},
+				{
+					"file": "hq/xforms/4ab8964fb26d532dabacd1dd0b63c4b0.xml",
+					"rawDigest": "bf5414b526d4b6080ec2ffd78db4731bcf368961778db4127808bb058c270d1c",
+					"digest": "63a998ac767edce9d1695cb51c77b69afb4c29ea30d6dcfbed293f186c76c33d"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "c4751396f81253df5adb6bbed0b5ff55be37277ece62b18f950d1737ac6396f1",
+					"digest": "cdac0fb77c8e0cd556fb2773f662fbf9dde241b9344b102d77b20e08ff340576"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F4AB8964F-B26D-532D-ABAC-D1DD0B63C4B0.xml",
+					"rawDigest": "1ba52f5b7a0ff89ad558cc3bbc4d3af5c4b50410b0e84967d6cc9bc2b09b652a",
+					"digest": "f97bd8bd0eed48995c646f1c6954b6789e1c21437ca9b3d3342e52ed484ce3ac"
+				}
+			]
+		},
+		{
+			"fixture": "untyped-case-query",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{\"ambiguous\":{\"type\":\"string\"}},\"additionalProperties\":false}",
+				"household": "{\"type\":\"object\",\"properties\":{\"ambiguous\":{\"type\":\"string\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "cc3f0bc4e010c539e029452eef8b6ea715f80fa1ed92452debef40e1912ec5fa",
+					"digest": "61c26cc1e369b22610b761b6c24cf7a2bb3ef523d20aea8cfa335bafd0814c39"
+				},
+				{
+					"file": "hq/modules/e06a1e2453d65947be294022891dda61/forms/a7925a18a1fb54cca3c0767a1ef97e8f/form.json",
+					"rawDigest": "ddc2003902bccdf4d80e907e31b2340ca9e9f3c2fd65885ea5acd5d274dc534b",
+					"digest": "0aebb74d84b517458ed45f1f8eebea3754b5abdc817814b1e027186c20108c0b"
+				},
+				{
+					"file": "hq/modules/e06a1e2453d65947be294022891dda61/module.json",
+					"rawDigest": "6f07581dcae99bfab371715990b305f9350bdbae3c2b4c66b155fd814e5d1998",
+					"digest": "9240c8cbf1aad1d7f4f94efe3ff5dfb3033a6634576a9855de0d27a567afa4f1"
+				},
+				{
+					"file": "hq/xforms/a7925a18a1fb54cca3c0767a1ef97e8f.xml",
+					"rawDigest": "83805a753adeba4030f8ee8d25139482c4a5144a5035c285a64df6203d327912",
+					"digest": "d0060f96cee11334d31a265fede8fc6f69ac8631a98bd44134c817f09a0f230e"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "50095abff52a3a84fbfd1fb4987558051d49c042c59cf6a26970e503c5731313",
+					"digest": "06e699351d2a52547775cdee0c8d176aa54976aa5889b72a0a2feb209355a72b"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FA7925A18-A1FB-54CC-A3C0-767A1EF97E8F.xml",
+					"rawDigest": "88b7eeb60c119d18f7527ffc464afb38b2fd8e143d95bfbfb2057738f34e731b",
+					"digest": "d0bbadbbe4d573befd79d1e71e0215b572731d865a869d7be61580e009b5b4d0"
+				}
+			]
+		},
+		{
+			"fixture": "hidden-inference",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{\"score\":{\"type\":\"string\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "a3b1dd94eb3286633dfcf7d60fe659943a485f57bfb9497373a82d7dd192c102",
+					"digest": "36eed4a13178c4df6efda5aa07b8e675f3a37495c8428d4511e43c598945b1f2"
+				},
+				{
+					"file": "hq/modules/1147a6c2d06d5b2f9b12b3f4c0644308/forms/1009da4f36ad51f7aabee9ddd00ad801/form.json",
+					"rawDigest": "35c20f598e5c8c2c95ca2dcee9345c0d658bc0fb804d254a6167d79bb98ef712",
+					"digest": "abbe0fc9330124b8a776c5a214e091168237376e3cc214f34bb77deb331319d2"
+				},
+				{
+					"file": "hq/modules/1147a6c2d06d5b2f9b12b3f4c0644308/module.json",
+					"rawDigest": "2a1db0571bfec9b977ec073669a09a24d433242cc2bc0a51415c2e39a4c40dcb",
+					"digest": "47a9a361f75c8332997038a869dbc2efd1caa2cc1f1b6e7b6de1ec227a766576"
+				},
+				{
+					"file": "hq/xforms/1009da4f36ad51f7aabee9ddd00ad801.xml",
+					"rawDigest": "0ba86c6a1659242b0029ef41bcf434ef0adcd75a9345cb3d299b4e20082700ac",
+					"digest": "edfdd3ae04bb2b8e6d231223109df4c15f0dfa670267ce2ec8fb8f472c93ef12"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "65f04dfd0c7b97a2d65ea34c2168554692e332f4afb87ef7d2382f92e967278f",
+					"digest": "0c14c662a28848b9e9760c09af63938a1127fbb7897ff27b32868345bbe1c868"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F1009DA4F-36AD-51F7-AABE-E9DDD00AD801.xml",
+					"rawDigest": "6cc047e4c0d41aef1f3bb9d3aa95f4aee5af60c814cb706e5f815c355693f7f5",
+					"digest": "d50f740576862edd600b005f815cbd329eeca505a991505ec3bd7df227ff54e4"
+				}
+			]
+		},
+		{
+			"fixture": "hidden-writer-mismatch",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{\"score\":{\"type\":\"string\",\"format\":\"date\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "8bf4264437c2bc3f01944cf7707a087550193a4b38c64613e635c964dabcb4b8",
+					"digest": "93f27bfcd5a5e377d7ac42f49e850979b7a7dabfa0ec3dc343b704831c8ca2b5"
+				},
+				{
+					"file": "hq/modules/6ceed8b505185228ad2bbb18895786a1/forms/a86385628067568fa41f69aff2db4415/form.json",
+					"rawDigest": "0638557767d4c1355212294aae81dc8f3071ed66a5ec1d5c2d993673dee71e99",
+					"digest": "63d01f84a496fc9d458b0d37d80e4a7377ba4105e8080cdbf6001ae71ab4f9f4"
+				},
+				{
+					"file": "hq/modules/6ceed8b505185228ad2bbb18895786a1/module.json",
+					"rawDigest": "0c6ce6e90bc5689104557845f32106cc5542f9f32ad7e57b82b784ee5778db97",
+					"digest": "2844ede50bcf21f033be947be6952b1fa9d2aa5f11f51fd81b4ed464ae447d4d"
+				},
+				{
+					"file": "hq/xforms/a86385628067568fa41f69aff2db4415.xml",
+					"rawDigest": "27565947471874c87ff8ebc482dfb04427b01b46e6ec46be87b5c240d41a3a10",
+					"digest": "ddc7fc260d23ad8f7db60e4b81eb0c53d3246713e8a3b887ab7a8c13f32aee8c"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "2ceaadfb9dded6193d9c92dd62b74aba1f70760fbbb56ed9bd9f7956f766ad90",
+					"digest": "71830f5b2e8123043200c1a42f5dd75ff3b0a3bf5ac9502d9a510a14d527fd30"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FA8638562-8067-568F-A41F-69AFF2DB4415.xml",
+					"rawDigest": "d39f69eaa188c7c0248c030740da821d29bcb504b5c383ee1c296fe1df517bfc",
+					"digest": "8bf61835cdbd43d56149c0f7c0e7586f63ad545a59a62a7a94eb2f9e069aeaf8"
+				}
+			]
+		},
+		{
+			"fixture": "relative-cycle",
+			"caseTypeSchemas": {},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "61c6b192d4547c82315ae8d6164a1a5ce0627c5114fbe39c3694d19525670181",
+					"digest": "eef52b1c4aa507e96d8563bf8a14caa71693be8eb772836ebb436e73e4a54e03"
+				},
+				{
+					"file": "hq/modules/d9b1f3b166aa553383ea456714ac7e24/forms/fb631c4b732b5f8988947b05d1801068/form.json",
+					"rawDigest": "3bc8fe61f3fa3bb4bffd6bc14cc3ca55f74d6876ca1a1ef91d820f98d5fffcde",
+					"digest": "24af5bca8a81e01a6745913a0d724da1003aebacf1d230092a5abab58f24ae8f"
+				},
+				{
+					"file": "hq/modules/d9b1f3b166aa553383ea456714ac7e24/module.json",
+					"rawDigest": "fde0b728cb6f49ed49a7af13e6f6ed95bb69c83e6e147bf1291b18bed1faf9f9",
+					"digest": "b3c14751edef4af81ecf29e49cb5f25e5373f591fc0129bc7fa81b8437a2a79c"
+				},
+				{
+					"file": "hq/xforms/fb631c4b732b5f8988947b05d1801068.xml",
+					"rawDigest": "500a5df2a14c667cc1052ce24da6d654fe476842c880edf27c7976961da9c302",
+					"digest": "e849adefc02de298942f2bcb8fecb7f85743e352421e8b85a6ef3343131a92c8"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "843f26c04b2ff6985072e168feeb3bd9a8fc4a5b0b623d2ce3b0e4e8e4bdeae6",
+					"digest": "e9f3c547e90e9fc57011232d59dcd619927eaa8258e970a2db1148e7a9904b0c"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FFB631C4B-732B-5F89-8894-7B05D1801068.xml",
+					"rawDigest": "66e98228df123169b496660d9b1b5a56fc2cab1d51018ab119ea6d1cd3e2c8eb",
+					"digest": "9b4c55d7b78bc7e80a160402580644ec346242de5e9c97349a6eafb40aeb85f9"
+				}
+			]
+		},
+		{
+			"fixture": "prose-repeat-read",
+			"caseTypeSchemas": {},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "6d92c6705862356e68ff4af708cd7473370d6f6b6087043a92bc9fc064bcea23",
+					"digest": "417c14dfedad8a9be8941cd7d9b02e7f29823bdf15d053477b4124d2660efcfc"
+				},
+				{
+					"file": "hq/modules/b8dd05435d16590c9e31b7d0d74439dd/forms/9dcb10bf8cac5e318392d5146cc9c06a/form.json",
+					"rawDigest": "8077fccebce4fcbe9144ae1eb3a993d9fc0a593e7f8fac1e3dcf117ea96f5b42",
+					"digest": "11bb1e12935f97aa88405bf3306b72c0989d130ab888829bb497ae67a658c878"
+				},
+				{
+					"file": "hq/modules/b8dd05435d16590c9e31b7d0d74439dd/module.json",
+					"rawDigest": "22ed49a2030d1ce620788afcac97a129338b164873e06ef11255e18e16e5799f",
+					"digest": "1c112662a4c5999bfb556ae442ca6f119fce98215a254f84b8435104c10a6cd1"
+				},
+				{
+					"file": "hq/xforms/9dcb10bf8cac5e318392d5146cc9c06a.xml",
+					"rawDigest": "613d74ce5d83cf2b6aa42e4ced4d3ec4a553ca9446f159cbe510ab4cccc34ec5",
+					"digest": "c076c8015feed1d54d89e35c97dffd3057b65968ee58769eae7634d86506d4b4"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "766820d78d5b0a8930c5ccc1b5bfc6a1752cf02bf8f2b7c8340080e8638673c6",
+					"digest": "7e24ceea31b69b8d3a1bfb96c96faf1e499cfde1b08e88a1aee6ff79fa2c00d7"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F9DCB10BF-8CAC-5E31-8392-D5146CC9C06A.xml",
+					"rawDigest": "f42d994307ba0b7f9a5dcd8d2e1eba60d12825b91264811333622184804975d6",
+					"digest": "e15ee8f9adf36220e79a6747a49880c40d87de4d43f6623b84c2fa4c12e4a14f"
+				}
+			]
+		},
+		{
+			"fixture": "day-only-comparison",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "61775e60db1af0ea2930841cd49ffbe581df75cf7af0509fd15731420365dfd3",
+					"digest": "39c55409491dd6c39ea485e0f777a3ca4f2af15ce28ea3afa1da5c6c13b02d57"
+				},
+				{
+					"file": "hq/modules/1cb018f715ee5fba87ce0155d6b19447/forms/d567e0e0867f5db99c10cfe1c3180fcd/form.json",
+					"rawDigest": "ca23e2f66ec9d7aa24623e482803361f9ec80c7da3ba2415326f1f591a0af4fc",
+					"digest": "e66cb17b58a42659de4cab4c375a6d6c5062da8849ee81d09218ff9e85ba07cb"
+				},
+				{
+					"file": "hq/modules/1cb018f715ee5fba87ce0155d6b19447/module.json",
+					"rawDigest": "19a226fa3dc7d33e5632010b4b3defb4d3e843c3eb2d1dddc891d9e8f7a29292",
+					"digest": "58be898ce1899665f0702022300055c58c6a5f68dcdb7c8c6072ea191be42466"
+				},
+				{
+					"file": "hq/xforms/d567e0e0867f5db99c10cfe1c3180fcd.xml",
+					"rawDigest": "ebcde1f48f417ff167840f0bf6a266b422dc47ee7d2cce695d7b5c6c50b0fd1f",
+					"digest": "abf1d88363ff9a91eda831912ac665ecd9b142b3cda88f098141049b237843d2"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "75bff0fcb90160e6e9cec3f016cb8f52fa9cfc5eb72ecd1dd8948753c4169596",
+					"digest": "541d9d70d011a94f3274215ce497021847f19588c3be2dcc7b4a75f25f209ec2"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FD567E0E0-867F-5DB9-9C10-CFE1C3180FCD.xml",
+					"rawDigest": "a78bf5f1a7d0e39ce945ddaf02ff76aa89d0f23987bff71aad3fa5b96677a632",
+					"digest": "c0b49c744f6e5849b74a071f816cb681e67a1a0231d36060d08f0781210a45a4"
+				}
+			]
+		},
+		{
+			"fixture": "search-behavior",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{\"date\":{\"type\":\"string\",\"format\":\"date\"},\"moment\":{\"type\":\"string\",\"format\":\"date-time\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "e9d45c0bab66aeaab5d35dac5620cc0d27d1084a5587ec449dfa49fb6b210379",
+					"digest": "75aaf78aba210e502d1f070102a3555b71ec5c88692a10ccaab1c2d46e2e5708"
+				},
+				{
+					"file": "hq/modules/78b5ae70eccd5019849f6fcd3aff0b3f/forms/4517ba01dc8557d58e748609490fb397/form.json",
+					"rawDigest": "c947792098f68311c2af42be56c57d2a255254797f044fde5d4d910655d32bd8",
+					"digest": "524eda84dabacc2566843cdea9ad06b80ad87463512e748114f04f6d077f322b"
+				},
+				{
+					"file": "hq/modules/78b5ae70eccd5019849f6fcd3aff0b3f/module.json",
+					"rawDigest": "25a59781913c75940239d3591afe8587d392268c3bb98daa672d60a005ad5793",
+					"digest": "b16b79da7a190bc00a2dbe44a7e89759161858ff51a72af930f2cb143091d967"
+				},
+				{
+					"file": "hq/xforms/4517ba01dc8557d58e748609490fb397.xml",
+					"rawDigest": "8af96455375424c263b43158875d2075113e49d7b3fc9f4c69c85a167548f1c7",
+					"digest": "01971697989b5cb22f2fde82a988a21890477b77a6a1af86667c499285abd6f3"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "3a5df35e0376c0abe98fbeb8d7d284dde6383502c5fcbbf1853093c4f76ba777",
+					"digest": "3e4c5b4cfe2fe42ad621b6c29e11f67238ad4bc206923441bb2e997615282089"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F4517BA01-DC85-57D5-8E74-8609490FB397.xml",
+					"rawDigest": "38373484b453c840d9bf68fb14e40518a8b43a0438b4b12fc969b53bcaa9dc6d",
+					"digest": "a3b25a566f2d04fed108560b1a617af7e0c22d510b03d2c0f0e11ec2fb285dbe"
+				}
+			]
+		},
+		{
+			"fixture": "context-and-guards",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "43ccb8be4aceca39bf93ebaab9ff6053dea1a0a7d0f7a3a911b220dfed0b2497",
+					"digest": "61229e15111dff8399cf2ba323183e08d33696fe1ac22ab845dfb9e7535b1dea"
+				},
+				{
+					"file": "hq/modules/b9a0aa4afbc15d36802fe7b83894097e/forms/c04ea526e6985f69a3b39a614fed9252/form.json",
+					"rawDigest": "e1083d5eae302d381b68d062490709076c254e5d41a2e25607e24548f2731003",
+					"digest": "cdb27adda290cbc691978c1f66376b1753172aef677384c7d906b9c62dc2cb50"
+				},
+				{
+					"file": "hq/modules/b9a0aa4afbc15d36802fe7b83894097e/module.json",
+					"rawDigest": "3ab52c5925aaa0ab13c46bad2c1bce0ce79793a64195ee887794d7088df7692a",
+					"digest": "9a49a90fb8815aa25be74ba33d210e3b05b4664504fcf21754b48c52f9a3673c"
+				},
+				{
+					"file": "hq/xforms/c04ea526e6985f69a3b39a614fed9252.xml",
+					"rawDigest": "3bbd1e072a9404e0205eb7caca940028c7bb8acced6e26ae6e9ad41392372f1b",
+					"digest": "b15b27cc7a53062ce311ee40e2024c36a53908f23b048bebff9453adc281bb6d"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "66dade821e0ae54dfa322fb9bb85cef00f9851aa30bc865b406db425d93d1025",
+					"digest": "030b1c8ba5c254cdccc3d4daa020df7776295625ee5e577164404d434fc580e2"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FC04EA526-E698-5F69-A3B3-9A614FED9252.xml",
+					"rawDigest": "a16ee4f90582b53527258147ed8d1f85443c15fbaebae9f2fc92f23aa5597434",
+					"digest": "b03c0e090098cc5af241f2c273b4989fee8ff22ca56e4cfdda0e32c9d4d301e3"
+				}
+			]
+		},
+		{
+			"fixture": "record-inference",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{\"score\":{\"type\":\"string\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "fa4017a61fc923ecf9b3b5ebf4ea59242e9616e80a89d26f76ff64b8c0a61629",
+					"digest": "5a19aefce4a1a7fe4e90bb00fe9b90c3d507817c8e4389edfc1b4a3eac0d0da8"
+				},
+				{
+					"file": "hq/modules/0214b87d853b53d1b164978c059af740/forms/a9ddae4f8c5d57dba78e4f5b7d80d917/form.json",
+					"rawDigest": "277f8bec3d2b4889dd277ee45195aea92350dc673f2842fe05f82a18d90776b4",
+					"digest": "25af68b9b211bc78df9d54cbb950f11af661fb0fdfc4af0cd41300ada4ca77e7"
+				},
+				{
+					"file": "hq/modules/0214b87d853b53d1b164978c059af740/module.json",
+					"rawDigest": "0e4436044f99b32e039273a91d62fe1f833d57899ec3bfe3cc0119da03278acf",
+					"digest": "7e7b2abfd716d35f7ebc4b65596eea40941d7e21c8716b430541c6e07f5806e1"
+				},
+				{
+					"file": "hq/xforms/a9ddae4f8c5d57dba78e4f5b7d80d917.xml",
+					"rawDigest": "29b1f15e853af98cfe44be3ad5ca521b636771429deee9e03ed9477f7bcc9572",
+					"digest": "463a92d52bd813fd6fdb19c5aa14a79be2d9b78b87e0ea2ce03d1af828071228"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "d411330f51f062bc56ccbe0449928e3c876a35892fb5fd40e24255e6a98f24a2",
+					"digest": "4c34290f65fe0e18ceecb9d71ada00fc98dabf2982f55d01ed9fdd42b398d68b"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FA9DDAE4F-8C5D-57DB-A78E-4F5B7D80D917.xml",
+					"rawDigest": "f72c9aebf9ab6db983e289339be9edcab521b96deed516193421612a2217d99f",
+					"digest": "6836fdedbd2e9dcbd132db5fc9a0d3c82a8c1a062e654bb9acfbc33dbd3c32cc"
+				}
+			]
+		},
+		{
+			"fixture": "select-preload-write",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{\"mood\":{\"type\":\"string\",\"x-novaDataType\":\"single_select\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "aea20e82bc657df3606221a960e6e450ba3bd470d92350ec9d198cb5709b70b1",
+					"digest": "3162cfd35f4be268680f6e186405dbf714dc9f69ea26da8ae064b89ed8f9bb27"
+				},
+				{
+					"file": "hq/modules/d012da7aa3f854deb7f28124a2d109c6/forms/43e7899bb96d5ac68f7ff90c0f765b85/form.json",
+					"rawDigest": "0fb1dd1b1c6761aecc6c05e65380403e8095446f1c3619e6e307796efdca1c1e",
+					"digest": "caf831757dde76ecd8f4f537b1b90c8f19e420d304c9f208af28b84ad0787f70"
+				},
+				{
+					"file": "hq/modules/d012da7aa3f854deb7f28124a2d109c6/forms/8d404d739d695b269e4e25e8312e698e/form.json",
+					"rawDigest": "8c1640911e0ba17f971172b526e3e0c790cbba9590d127a88f70ad909b69b529",
+					"digest": "dd58781f24e7826a7c478ff98a41f9d09f7d5ccbcf0f616509b055d13af08536"
+				},
+				{
+					"file": "hq/modules/d012da7aa3f854deb7f28124a2d109c6/module.json",
+					"rawDigest": "52f4c1b16e1bef492d1d9600c615cb75bec2c70a4e3efb4e26d140166bb6463e",
+					"digest": "0aa41044d015c7447aa4a5715a7e5f0b8c89f86e461c5a25d35505ba987c3bf5"
+				},
+				{
+					"file": "hq/xforms/43e7899bb96d5ac68f7ff90c0f765b85.xml",
+					"rawDigest": "a4681eb6f824a5bda5ce0cf8051ea0b52b1f7655e305377f7f80c28572d4c177",
+					"digest": "ea5be76e127f9cab0593dbea27f78fc457a99496dba7b9d11edd8d50d15e691d"
+				},
+				{
+					"file": "hq/xforms/8d404d739d695b269e4e25e8312e698e.xml",
+					"rawDigest": "0a2b840b9c9729db47dacfcb2713c959bc25f682d033bc4ae6a08d2e0b0cb55d",
+					"digest": "9823287568f67f65362abf1f24536e113840463b8a5aced95cecf46468db93f9"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "c76bede211fba8bfe4bb8682630a2979643104d700979e334b4ef746d38cddbe",
+					"digest": "19e506fb1ded86fc3fda3d2b263464011a75b25d3ab0fda78c1bbdc6ac4d55b2"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F43E7899B-B96D-5AC6-8F7F-F90C0F765B85.xml",
+					"rawDigest": "3f39aefd51e62f922e93aac6730723f8c6bf20d237b3b14743ad090a01d674c3",
+					"digest": "03db051d9c03b7e9a3308f324edc64aef1da463932d4311773470bc6adc38a2e"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F8D404D73-9D69-5B26-9E4E-25E8312E698E.xml",
+					"rawDigest": "a74bba3ea73d739312782a9e8931ba1d4209466b2f653d3b74ca35120388393c",
+					"digest": "d1345a4039e68a2e1f2830fb04f6a009473f3e38786cc3efa8b09ca6a57240a4"
+				}
+			]
+		},
+		{
+			"fixture": "selected-cases-scalar",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "f335506c7f21c4414faf7f5e42991a636942b6736cb66a4010460ea95120f6a5",
+					"digest": "3e3fec0da79e746a7cea9976fbeb2fed39b8c85a3c3941dd3f6694ff7605001d"
+				},
+				{
+					"file": "hq/modules/fa4bc2f827045912833727f5aa1dc442/forms/54b491917f5f555ba98bcd2d532a28be/form.json",
+					"rawDigest": "f3cf25374e035d52b1ee026b47f4eb0572b15acabff2342a8398a382d63825e5",
+					"digest": "134ac2b999ab44efdecc0170b3aa54c81d42213fb672075164dc88841a56e06d"
+				},
+				{
+					"file": "hq/modules/fa4bc2f827045912833727f5aa1dc442/module.json",
+					"rawDigest": "59dab25ffcb50a6cdf687c03f0c586b4e9073dac18957e874b31a665b7737fa9",
+					"digest": "3f5fa7e53ca713de5cc0533aec603726a01313cf7858ec0ca66a12f68b7586f7"
+				},
+				{
+					"file": "hq/xforms/54b491917f5f555ba98bcd2d532a28be.xml",
+					"rawDigest": "7667b7eade8e6429fdbd4b96e1e03bbc654dacc7b89726e58b29c6269924dba7",
+					"digest": "304bc2db65c4291b834c9fb89ef8d306b1eb6b59efca4a87fa08447948efe967"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "b061ce2a04a746beb014f8f080674bd503a22f5c28a56564df6cd30b3b5a3ea5",
+					"digest": "2a2477ec5d712e4a68cf4a9f7f0ed7879310c9a0cfde829afa982b6dcd7ec825"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F54B49191-7F5F-555B-A98B-CD2D532A28BE.xml",
+					"rawDigest": "2f3d15e0286bb1b2af9857ed8136d14bb85bb8833fcd733704a360f632c860c5",
+					"digest": "a286d3c63f1884b7bbee6abeb8d7a942217f0b4c0543746f17c394e3814d722d"
+				}
+			]
+		},
+		{
+			"fixture": "orphan-read-property",
+			"caseTypeSchemas": {
+				"patient": "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "ec9be8b48f7a31b6ef154a68354e4c7629b08b383b4dd232e32f3e529f91b52a",
+					"digest": "d8f9d11173b84d69576c8499b0c17b58ebda816527b3d0c07e3531d0c9064104"
+				},
+				{
+					"file": "hq/modules/bf5b862010f25f5686c759b88e9bbc3a/forms/04f79240cc245ac1a32f032cb9453c24/form.json",
+					"rawDigest": "5982b8f91c1e81e2b2652c9b06a2aa3403aa50677271069506e0ca15f560abb9",
+					"digest": "47cc69d181fc8ff093db491e3c3cbd2b68066fbdde92be2945f8a08ec74f2729"
+				},
+				{
+					"file": "hq/modules/bf5b862010f25f5686c759b88e9bbc3a/module.json",
+					"rawDigest": "54c5e5a855ab6acb70d85d920727bbd485258302290182b69fbbb7235f47ba56",
+					"digest": "1cd7d9accee13e4ed40772eac4ffd48043760f5828d4528246186b68c2a5e69e"
+				},
+				{
+					"file": "hq/xforms/04f79240cc245ac1a32f032cb9453c24.xml",
+					"rawDigest": "c2bab8adacceffe5f580e5d3b734e4b761fe9556483810fd1cb48fc292e74f62",
+					"digest": "a351064b996a188d4ef2400f4ea8029638f700f097e6e63a060c9b5113b8de37"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "bd7551a293b2945d33b67344d4c46d000af5223c383c24c885d1815c86d978aa",
+					"digest": "43a15b39d198cf2068b4bd11db6e8c86aafea4ee5a33c66cb72c99dbe17c619d"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F04F79240-CC24-5AC1-A32F-032CB9453C24.xml",
+					"rawDigest": "64806066e1576c95c1aa9b1323c8f6b724e2a436e5db7d3010946008d4e9441a",
+					"digest": "4df24fb1d0a3f4e03f3076d5d6e5d531fe9826322449773129fe5622a7f40f10"
+				}
+			]
+		},
+		{
+			"fixture": "required-slot-guards",
+			"caseTypeSchemas": {
+				"frog": "{\"type\":\"object\",\"properties\":{\"mood\":{\"type\":\"string\"}},\"additionalProperties\":false}"
+			},
+			"files": [
+				{
+					"file": "hq/app.json",
+					"rawDigest": "186e746fced9dd610db730f17d7713d103e2caa1a298fc0b7fc142388f55fbe0",
+					"digest": "91fec4d6ba29907ab1748c933b777c65b87375448677032cb3f00f959559200c"
+				},
+				{
+					"file": "hq/modules/460e2d6667f55a72a0bffba0c2d6ef76/forms/4befcc170845556bab73d95955f9f727/form.json",
+					"rawDigest": "73dccee8e1983a591dee0bef74eb193c7e7be77e8466a1d5ae14f8cfc660309d",
+					"digest": "d5daf4acb3f072e645a7c112d365e4d772ed2ca11061b975ae44f9a1d70edab9"
+				},
+				{
+					"file": "hq/modules/460e2d6667f55a72a0bffba0c2d6ef76/module.json",
+					"rawDigest": "4eb10b9d1bc0ab6ad1d7458e61efb6cdd9c323bba0e093631cca32e66d98030d",
+					"digest": "a3097a0e0ddf8b6adfccbe887f3583233eb1b7afc8b3a7ca7d8e58ac8d385b55"
+				},
+				{
+					"file": "hq/modules/98124e939ac3538fa048a5e54bee2c23/forms/df655056889f539aad222cd05efbc4a6/form.json",
+					"rawDigest": "cf3db74994097473d9069b39d822678181082640b1676e2446f483c83c4fd873",
+					"digest": "ed8012ac350c602f84528b9994ac98992ee79780bd2337198f89b7e4e508585c"
+				},
+				{
+					"file": "hq/modules/98124e939ac3538fa048a5e54bee2c23/module.json",
+					"rawDigest": "ceaf40fcc9f4944fc772d72fc9e6e81a08b5a6aeef2004239c9eccfff79b0806",
+					"digest": "2fc49792a1d8ee7cf6415369d1fdf6ea8f753aa57a080c8d20a715c10dca4310"
+				},
+				{
+					"file": "hq/xforms/4befcc170845556bab73d95955f9f727.xml",
+					"rawDigest": "bdcdad762234d2197203f8da4e712dc01aab11c98644c34e22ad7be80057d115",
+					"digest": "978666aeca6f3bc5efd24b803929eaf48c579298d0c34e67c3cfd17cdc4f512b"
+				},
+				{
+					"file": "hq/xforms/df655056889f539aad222cd05efbc4a6.xml",
+					"rawDigest": "c50cb3e6c7a26c02116c384b361fc351776cd4327ea6efb5322eca60fe15f097",
+					"digest": "9716b21aa2504a0b08f16a8aed3fea073f9cf4df2cc46eb4efa828b590eb4c22"
+				},
+				{
+					"file": "local/suite.xml",
+					"rawDigest": "ca7015b3b5c6cdd4597c2353ba70a2235828e7e081287a487430a9ba65bfe885",
+					"digest": "730c0a3a1ff94da3044dd47d83e8acf42c85cbe6ff3c62aa7640e6ad95facb3b"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2F4BEFCC17-0845-556B-AB73-D95955F9F727.xml",
+					"rawDigest": "298e64a6c9ac9d066760ef23341539b9f3bc114ceab04ec77e507d84f05a63c1",
+					"digest": "a337e0a57990d071288b0ada4c6b9eed96cbe706faa3a37a872cfb60e07368bf"
+				},
+				{
+					"file": "local/xforms/http%3A%2F%2Fopenrosa.org%2Fformdesigner%2FDF655056-889F-539A-AD22-2CD05EFBC4A6.xml",
+					"rawDigest": "3363a844284a1fc0bbbc03bca1b1acfe3e3d3ecda2085098a9f4234518db3a52",
+					"digest": "c9edcf34333afa2bc1b14dddc76cf0ff4a1f53e01e054015cf35023b2896fe2a"
+				}
+			]
+		}
+	]
+}

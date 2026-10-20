@@ -141,3 +141,21 @@ npx tsx scripts/scan-legacy-preplan-builds.ts --prod
 The Cloud Run Job is dry-run by default. Held rows remain untouched until the
 run finishes or the reaper releases them; empty rows require an explicit
 operator decision instead of automatic recovery.
+
+## HQ round-trip expressions cutover
+
+A one-off pair, a read-only scan and a migrate script, with a read-only base emitter for the emission census. The base emitter runs from a checkout of pull request 2's head, the scan from the maintenance image's commit. Production writes run only through the Job `commcare-nova-historical-repair` as `hq-round-trip-expressions.cjs`, by `docs/plans/hq-round-trip/3-cutover-runbook.md`; neither script writes with `--prod`.
+
+```bash
+npx tsx --conditions=react-server scripts/emit-hq-round-trip-expressions-base.ts --prod > base-digests.jsonl
+npx tsx --conditions=react-server scripts/scan-hq-round-trip-expressions.ts
+npx tsx --conditions=react-server scripts/scan-hq-round-trip-expressions.ts --prod --base-digests base-digests.jsonl
+npx tsx --conditions=react-server scripts/scan-hq-round-trip-expressions.ts --prod --app <appId> --debug-details
+npx tsx --conditions=react-server scripts/scan-hq-round-trip-expressions.ts --prod --recipients [--app <appId>]
+NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-expressions.ts
+NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-expressions.ts --settle-holders
+NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-expressions.ts --rehearse
+NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-expressions.ts --execute --expect-plan-digest <digest>
+```
+
+The migrate script is a dry run unless told otherwise: it prints the plan, the content-free report and `planDigest`, and writes nothing. `--rehearse` runs the whole fleet transaction and rolls it back; it is for local databases and tests, and the Job refuses it.

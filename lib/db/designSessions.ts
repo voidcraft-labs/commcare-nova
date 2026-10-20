@@ -867,7 +867,7 @@ export async function failAndRefundDesignSessionRun(
  * (`refundStaleDesignSessionRun`). Idempotent; awaited at scan call
  * sites and from a claim's conflict nudge.
  */
-async function reapStaleDesignSessionRun(
+export async function reapStaleDesignSessionRun(
 	designSessionId: string,
 	expectedIdentity: ExactRunHolderIdentity,
 ): Promise<void> {
@@ -951,10 +951,12 @@ export async function discardDesignSession(
  * artifact workspaces, lookup protections, the thread's stream marker) and
  * move it to `abandoned`, clearing its authority. The transcript stays.
  *
- * The caller, `discardDesignSession`, has locked the row and decided after
- * its authorization and busy guards that the session may end.
+ * The caller has locked the row and decided the session may end;
+ * `discardDesignSession` after its authorization and busy guards, and the
+ * one-time stored-shape cutover for a session that held work in an earlier
+ * dialect. Both end a session through this one body so they cannot drift.
  */
-async function abandonPreAppDesignSessionInTransaction(
+export async function abandonPreAppDesignSessionInTransaction(
 	tx: Transaction<AppDatabase>,
 	row: LockedSessionRow,
 ): Promise<void> {

@@ -281,6 +281,29 @@ change kind: count, apps, and the rows `conversionImpact` finds uncastable), `ho
 and `outcome` (`ok`, `already-applied`, or `stopped` with `blocker`, `holder`, `digest`). App ids,
 deployment ids, codes and counts are content-free; names, expressions and values never appear.
 
+**Implementation correction, 2026-10-20 (pull request 13):** the layout above gains three files.
+`fleet.ts` holds every database read before the plan, so `plan.ts` stays pure: `readFleetSource`
+(the raw carriers, the active `case_type_schemas` rows, the stored case keys, the private work, the
+live deployments, each Project's lookup definitions and media), `planFleetInTransaction` and
+`readPlannedFleet` (one `REPEATABLE READ, READ ONLY` transaction), the writer's re-reads
+`readAppBase` and `readPrivateWorkCensus`, and `readRecipients`.
+`run.ts` holds what each mode of the two scripts does against a database handle and returns its
+report (step 2's `run.ts`): a script parses its arguments at load, so no test can import one, and
+the Postgres tests call `runMigrate` and `runScan` instead. `schemaPlan.ts` holds §8's two counts,
+`readSchemaChangeImpacts`, which `plan.ts` calls on the plan's own transaction: per declared pair
+the app's `cases` rows of that type holding the key, per inferred pair
+`SchemaCaseStore.conversionImpact`'s uncastable count, through a schema-only `PostgresCaseStore`
+built over that same `REPEATABLE READ, READ ONLY` transaction so both read the plan's snapshot. The
+scan also counts the marked apps first, as every migrate mode does, and an `unexplained` census
+verdict stops it as `stopped` with `unexplained`. The writer's numbered steps are reported as
+`lock`, `blocking-scan`, `already-applied`, `archive-events`, `clear-streams`, `private-work`,
+`apps`, `notices`, `postconditions` and `finish` (§9's 1 to 10), and its step 6 ends each pre-app
+session through `abandonPreAppDesignSessionInTransaction` before the fleet-wide statements, so a
+session's change sets and slice attempts retire through the body a discard uses; the end state is
+the one §9 names. Of §10's postconditions, the round-trip law runs through
+`transform.ts::roundTripFailures` over each stored document, and the schema postcondition reruns `transform.ts::plannedSchemaChanges` over the stored document and
+the stored rows and requires no unplanned difference and exactly the plan's `schemaChanges`.
+
 ## 4. Reading the old shape, and the target in two phases
 
 **`oldShape.ts`** is step 2's file: it reads `apps` and `blueprint_entities` carriers as JSON through
@@ -314,6 +337,20 @@ The slots visited are the head registry's data, never a hand-written list: every
 test builds in the head schema and decomposes through `lib/db/blueprintRows.ts::blueprintScalars` and
 `::decomposeBlueprint`, as step 2's equality test did.
 
+**Implementation correction, 2026-10-20 (pull request 13):** at the head `profiles.ts` holds the
+profile type and its constructor, and the slots are the registry's
+(`lib/domain/referenceSlots.ts`, its `expression` and `options-source` entries), which
+`steps/working.ts` reads from the raw rows through `rewriteExpressionSlotValues`, addressed by
+`expressionSlotKey` after step 2 has lifted every datum name; `equality.test.ts` holds the walk equal
+to `expressionSlotValues` over the corpus, every entry of the registry met. More slots than part
+01 §4's three refuse absence in the head schema, every one of them a record slot (a case
+operation's write value, name and target, a calculated column, an advanced search input's
+predicate, among others), so the structure holds a blank literal in each; which slots refuse it is
+read from the entity schemas, not listed, and of the form-logic slots it is exactly the three. A slot's rule set is its profile's in the structure, so a form-logic slot holding a head
+`Expression` (a second application) is carried as it is, and a stored text is told from a head
+`concat`, which also holds `parts`, by having no `kind`. The structure step 2 resolves names over
+leaves every link's `datums` out, since a link's own values do not decide what its target asks for.
+
 ## 5. The transform steps, in order
 
 ```ts
@@ -345,6 +382,28 @@ apps, in words; the dry run counts each.
 | 6 | `repeat-read-first-row` | each structural several-value read (a repeat answer read from outside the repeat, used as one value: the checker's `many-values`, part 03 §3.4) gains `FieldStepFilter { step: <repeat uuid>, where: [literal 1] }` on its repeat step, printed `[1]`, the only value Core reads without failing; then the slot is checked again | a several-value read in a prose part, which has no filter: it stays a `target-gate` finding (`XPATH_MANY_VALUES`) for the author | `repeat-read-takes-first-row`, one per read, naming the form, the field and the repeat | a few, in very few apps (in `concat` and `selected`); prose not scanned, so the dry run counts it |
 | 7 | `lift-round-trip` | none: a guard that reruns `record-position`, `SELECT_DEFAULT_NOT_AN_OPTION` and the round-trip law `parse(print(e)) = e` over every slot steps 3 to 6 wrote | `round-trip` (a lifted tree that does not survive its own print is a defect of the stack, never an author's) | none | expected none |
 
+**Implementation correction, 2026-10-20 (pull request 13):** step 2 matches the stored id to a
+scalar row of `formLinkTargetDatumIds` and takes its `selected-case` ref, as the SA's form-link
+boundary does (`lib/agent/authoring/formPreparation.ts`). Step 3 types `div`'s operands over the
+structure, which holds no expression, so every Hidden Value, and a property only Hidden writers type,
+reads as unknown; its binder is `recordChoiceFor`, held equal to `AuthoringScope.choice`. Step 4
+prints through `frozenPrinter.ts` over the raw rows and counts its classes per slot: (4a) where the
+production print of the parsed tree differs from the frozen print, (4e) any `choice` leaf. Step 5
+reads every form-logic slot's tree, a carried one included, with the uses of §5's row (`+`, `-`,
+`*`, `div`, `mod`, `quotient`, an ordering against a number, a date, a date and time; an equality or
+any other read only prints); reads that admit two types leave the property undeclared beside
+`declared-property-type-conflict`, so its reads also stay `INVALID_CASE_REF` findings of
+`target-gate`. The orphan check reads `TransformContext.storedCaseKeys`, the app's `cases` rows per
+type and key, which `fleet.ts` reads. Step 6 lifts form-logic slots only: the record dialect spells
+no step filter, so a several-value read in a record slot stays a `target-gate` finding. Step 7 holds
+each slot steps 3 to 6 wrote to its own grammar's print (`expressionSurvives`: form logic through
+the production printer and parser with no `current` tree, a record value through `queryPrinter` and
+the compiler under the scope an SA read of its owner binds, `authoringValueScope`);
+`record-position` and `SELECT_DEFAULT_NOT_AN_OPTION` are the checker's, so the gate after the last
+step reruns them over every slot (`target-gate`). `liftOverCorpus.test.ts` holds the guard over
+every stored expression of the corpus, none refused, and the lift of each corpus fixture equal to
+the head build of its document with no difference at all.
+
 Two readings above came from planning scanners, not from the production parser: the several-type
 binds and the declarations used a planning shape scanner's effective index, and the respellings part
 04's prototype printer. The dry run's counts are the production code's and replace them.
@@ -371,6 +430,19 @@ binds and the declarations used a planning shape scanner's effective index, and 
    declaration of step 5 or a property whose type step 3's inference newly knows; any other is
    `case-schema-unplanned`. The worker's own case and inactive rows are skipped, as in step 2.
 5. `behavior.ts` reads the target and returns the no-write lines (§6).
+
+**Implementation correction, 2026-10-20 (pull request 13):** where a slot could not be lifted
+(a parse refusal, an empty required slot, a dangling leaf), items 2 to 4 judge the target with that
+slot left out, or a blank stand-in where the schema requires one, so a scan shows every other
+blocker of a blocked app at once; the transform's `target` is then absent, and a slot no step lifted
+or blocked (a record value the head union does not hold) is `target-parse`. A `target-gate` or
+`target-export-readiness` blocker carries, beside its codes, `findingReasons`: each finding's
+`CODE:reason` and `CODE:checkCode:checkReason`, content-free, for part 03 §5.4's counts by reason.
+The case-schema plan decodes each stored property by the canonical shapes
+(`jsonSchema.ts::schemaForDataType`); a difference is `declared` when step 5 declared the pair and
+`inferred` when the stored row holds the property and the catalog gives it no `data_type`, so its
+type is inference's; any other difference (a property or a type the target no longer derives, a
+typed catalog property that differs, a derived type with no active row) is `case-schema-unplanned`.
 
 ## 6. Changes that write nothing and still get a line
 
@@ -400,6 +472,21 @@ Two changes get no line, each for a stated reason:
   same rows), session datums (4d), absence for an empty condition (4f), `quotient` (3a). Each reads
   and means what it did; what changes is that later renames follow them, which is what step 3 is
   for. A query that binds to no type or several is a blocker (§11), never a line.
+
+**Implementation correction, 2026-10-20 (pull request 13):** `behavior.ts` selects each search line
+from the clauses `lib/commcare/suite/case-search/xpathQuery.ts::composeXPathQueryClauses` gives a
+module whose search HQ runs (an effective Search on a module whose cases land, the gates `expandDoc`
+reads), each clause in its own slot's context: `search-today-is-workers-day` where a clause holds
+`today`, `search-date-time-equality-matches` where an `eq`, `neq` or `in` has an anchor the CSQL
+emitter sends as the closed instant range (`csql/emitter.ts::readsInstantByRange`'s rule: a custom
+date-and-time property in any slot, a system one only where no device evaluates the slot).
+`date-time-comparison-compares-moments` is written once per entity and place (`detail.target`
+`xform` or `suite`), not once per slot, and counts a `between` bound as the ordering the on-device
+emitter lowers it to. A deployment is one with an `app` mapping that no later publish left behind
+(`superseded_at`) and that CommCare HQ has not reported gone (`remote_missing_at`). Of the lines a
+change that reaches the wire, `case-property-declared` is not one, as the table gives it: the
+census still names any file a declaration moves, and a declaration that moved a byte with no other
+wire-reaching line would leave its deployments without `expressions-sent-at-next-publish`.
 
 ## 7. The emission census
 
@@ -461,6 +548,25 @@ none. The census runs with the advisory scan before the window, and again in the
 the window's `fleetSeqDigest` differs from the advisory one (§14); either run with an `unexplained`
 app stops the cutover. Both halves run on the operator's machine with
 one worker, at the cost of the host corpus emission; neither starts Docker.
+
+**Implementation correction, 2026-10-20 (pull request 13):** the head half emits each target through
+`census.ts::emitCensusFiles`, the base emitter's calls with its options, and compares only apps the
+plan admits: an app a blocker holds is listed as not compared (the head emitter refuses some
+gate-refused targets, and the blocker already stops the cutover), and a target the plan admits that
+the head emitter throws on is `unexplained`, its error never kept. A file only one half holds counts
+as moved. The attribution reads each change's entity: a field's line explains its form's two XForms
+and HQ form entry; a form's, those and `suite.xml`; a module's, its HQ module entry and `suite.xml`;
+a declaration or an inference typing, every file. The base half cannot run at the head, so the pure
+census test reads a frozen base census of the pre-step fixtures,
+`__tests__/fixtures/base-census.json`, emitted at pull request 2's head by the base emitter's own
+calls over each fixture's carriers, with each fixture's `case_type_schemas` rows as pull request 2
+derived them (every case type of `buildCaseTypeMap` but the worker's own, through
+`caseTypeToJsonSchema`), which the plan's case-schema comparison reads as the stored rows. Over the
+lifted fixtures no app is `unexplained`, and none differs by instance order alone (part 04 §5.2). The
+whole-corpus fixed-point check is its own file, `__tests__/emissionNormalCorpus.test.ts`, beside
+pull request 2's `emissionNormal.test.ts`, over the producers', workforce, targeted and fuzz-sample
+documents the proof tests build in process; the expander corpus is built only by
+`expander.test.ts` as a Vitest writer, so it is not among them.
 
 ## 8. Declaring properties: the case store
 
@@ -641,6 +747,26 @@ Each line says what changed, what a worker or a person now sees, and what is the
 `migrationNoticeCopy.test.ts` renders every new reason with present and absent details and a removed
 entity, and `migrationNotice.test.ts` holds each real entry and the lead for both cutovers.
 
+**Implementation correction, 2026-10-20 (pull request 13):** the copy above gives one example per
+reason; the renderers fix the rest, and `notice.ts` writes these `detail` fields, every value a
+string. `case-property-rules-removed`: `caseType`, `property`, and `rules`, the comma-joined subset
+of `required`, `validation` and `validation-message` the property held; one rule says "No form
+checked it", and a message alone says "No form showed it, and each question that saves {property}
+keeps its own rules and messages. You can add a message to those questions."
+`expressions-follow-choices`, `expressions-respelled`: `count`; a count of 1 reads in the singular
+("1 expression in this app now names a choice", "What it does is unchanged"), and no count reads
+"Expressions in this app". `case-property-declared`: `caseType`, `property`, `dataType` (the data
+type id, read as "text", "a number", "a date", "a date and time" and so on) and `form`, the one
+form's name. `repeat-read-takes-first-row`: the entity is the field whose expression reads (or the
+form, for a form-level slot), with `form`, `question` (the answer read) and `repeat`.
+`search-today-is-workers-day`, `search-date-time-equality-matches`: no detail; the entity is the
+module. `date-time-comparison-compares-moments`: `form` where the entity is a field, and `target`,
+`xform` or `suite`; the sentence about CommCare HQ's form builder shows only for `xform` (with no
+`target`, for a field), because a comparison in the menus never appears in the form builder.
+`case-property-type-now-known`: `caseType`, `property`, `dataType` and `parked`, the count of
+uncastable values, its sentence absent at 0 and singular at 1. `expressions-sent-at-next-publish`:
+no detail.
+
 Production at the snapshot: `case-property-rules-removed` in many apps, `expressions-follow-choices`
 in most, `expressions-respelled` in a minority, `case-property-declared`,
 `repeat-read-takes-first-row` and `date-time-comparison-compares-moments` in very few, and part 06's
@@ -684,6 +810,14 @@ lines #750 added for step 2's tool. The writer sets `apps.mutation_seq`, so
 5 has removed the arm's two completed repairs whose input the cutover's shape removes,
 `case-status-filter-repair.cjs` and `select-option-value-repair.cjs` (part 10, pull request 5), so the
 arm holds `language-identity-repair.cjs` and this tool.
+
+**Implementation correction, 2026-10-20 (pull request 13):** the Job's stored arguments are
+`["language-identity-repair.cjs"]`, and `_effective_execution_args` returns them for an execution
+with no override, so "the Job with no override" runs the language repair's dry run, not the
+cutover's. The cutover's dry run is the override `(tool,)`, which the arm admits; every cutover
+execution in the runbook names the tool, and §17's `docs/architecture/deployment.md` paragraph says
+so instead of calling the dry run the Job's stored-args form. The contract in
+`config/deployment-jobs.json` stays unchanged.
 
 **The maintenance image** is built by hand (`docker build --platform=linux/amd64 --target=maintenance`)
 from the head of pull request 14, contracts and public docs, the one beneath the removal; that commit
@@ -802,6 +936,15 @@ raw fixture still proves the pre-step validity contract above.
 | A cursor between two horizons, and below both, answers `reload`; the finished-build branch and the genesis receipt behind the second horizon answer from the saved app | real Postgres: `lib/agent/change-set/__tests__/preHorizonReads.postgres.test.ts`, kept after the removal |
 | The Job's admitted and refused argument shapes; the bundle's entrypoint runs a dry run with no database write | infra: `scripts/infra/tests/test_deployment_policy.py`, `scripts/infra/__tests__/containerArtifacts.test.ts` |
 | The new reasons and the lead render; the dialog groups both cutovers' notices | pure: `lib/notices/__tests__/migrationNoticeCopy.test.ts`, `migrationNotice.test.ts`, `components/builder/notices/__tests__/appNoticeModel.test.ts` |
+
+**Implementation correction, 2026-10-20 (pull request 13):** the stream route's cursor and the
+genesis receipt keep their pre-horizon checks beside their own fixtures (`stream.postgres.test.ts`,
+`materializeGenesis.postgres.test.ts`), as the file's header says, and pull request 13 does not add
+a second horizon there. `preHorizonReads.postgres.test.ts` holds what every reader compares: the
+admit trigger takes the step 3 pair over step 2's horizon and refuses the step 3 batch id with step
+2's actor, `greatestFoldBaselineSeq` answers the later horizon, a finished build recorded between the
+two horizons and one below both answer from the saved app, and a batch latched between them or below
+both replays without reading its row.
 
 The cutover adds no lane group and moves no proof timing; `proof/identity-moves.json` gains no entry.
 Three things are proven by the real system in the runbook and by no test: checks 1 and 2, the census

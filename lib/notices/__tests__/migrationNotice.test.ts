@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
 	DEPLOYMENT_NOTICE_REASONS,
 	DOCUMENT_NOTICE_REASONS,
+	MIGRATION_NOTICE_CUTOVERS,
+	migrationNoticeCutoverSchema,
 	migrationNoticeEntriesSchema,
 	migrationNoticeEntrySchema,
+	orderNoticeEntries,
 } from "../migrationNotice";
+import { noticeLead } from "../migrationNoticeCopy";
 
 const DEPLOYMENT_ID = "01992000-0000-7000-8000-000000000011";
 
@@ -465,6 +469,91 @@ const REAL_ENTRIES = {
 		],
 		detail: { holds: "field-properties,owned-rows" },
 	},
+	"case-property-rules-removed": {
+		kind: "document",
+		reason: "case-property-rules-removed",
+		entity: { type: "app", nameAtMigration: "Clinic visits" },
+		detail: {
+			caseType: "patient",
+			property: "age",
+			rules: "required,validation",
+		},
+	},
+	"expressions-follow-choices": {
+		kind: "document",
+		reason: "expressions-follow-choices",
+		entity: { type: "app", nameAtMigration: "Clinic visits" },
+		detail: { count: "14" },
+	},
+	"expressions-respelled": {
+		kind: "document",
+		reason: "expressions-respelled",
+		entity: { type: "app", nameAtMigration: "Clinic visits" },
+		detail: { count: "3" },
+	},
+	"case-property-declared": {
+		kind: "document",
+		reason: "case-property-declared",
+		entity: { type: "app", nameAtMigration: "Clinic visits" },
+		detail: {
+			caseType: "household",
+			property: "village_code",
+			dataType: "text",
+			form: "Visit",
+		},
+	},
+	"repeat-read-takes-first-row": {
+		kind: "document",
+		reason: "repeat-read-takes-first-row",
+		entity: {
+			type: "field",
+			uuid: "01992000-0000-7000-8000-0000000000e1",
+			nameAtMigration: "Summary",
+		},
+		detail: { form: "Visit", question: "Child name", repeat: "Children" },
+	},
+	"search-today-is-workers-day": {
+		kind: "document",
+		reason: "search-today-is-workers-day",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a1",
+			nameAtMigration: "Patients",
+		},
+	},
+	"search-date-time-equality-matches": {
+		kind: "document",
+		reason: "search-date-time-equality-matches",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a1",
+			nameAtMigration: "Patients",
+		},
+	},
+	"date-time-comparison-compares-moments": {
+		kind: "document",
+		reason: "date-time-comparison-compares-moments",
+		entity: {
+			type: "field",
+			uuid: "01992000-0000-7000-8000-0000000000e1",
+			nameAtMigration: "Follow-up due",
+		},
+		detail: { form: "Visit", target: "xform" },
+	},
+	"case-property-type-now-known": {
+		kind: "document",
+		reason: "case-property-type-now-known",
+		entity: { type: "app", nameAtMigration: "Clinic visits" },
+		detail: {
+			caseType: "visit",
+			property: "next_due",
+			dataType: "date",
+			parked: "2",
+		},
+	},
+	"expressions-sent-at-next-publish": deploymentEntry(
+		"expressions-sent-at-next-publish",
+	),
 } as const;
 
 function deploymentEntry<const R extends string>(reason: R) {
@@ -536,5 +625,101 @@ describe("migrationNoticeEntrySchema", () => {
 
 	it("refuses a notice with no entries", () => {
 		expect(migrationNoticeEntriesSchema.safeParse([]).success).toBe(false);
+	});
+});
+
+describe("the cutovers that write notices", () => {
+	it("are the emission and the expressions cutovers, each with its own lead", () => {
+		expect(MIGRATION_NOTICE_CUTOVERS).toEqual([
+			"hq-round-trip-emission",
+			"hq-round-trip-expressions",
+		]);
+		expect(migrationNoticeCutoverSchema.safeParse("other").success).toBe(false);
+		const day = { locale: "en-GB", timeZone: "UTC" } as const;
+		expect(
+			noticeLead("hq-round-trip-emission", "2026-10-06T09:00:00.000Z", day),
+		).toBe(
+			"Nova changed how it writes apps for CommCare HQ on 6 October. Here is what that means for this app.",
+		);
+		expect(
+			noticeLead("hq-round-trip-expressions", "2026-10-21T09:00:00.000Z", day),
+		).toBe(
+			"Nova changed how it stores and checks expressions on 21 October. Here is what that means for this app.",
+		);
+	});
+});
+
+describe("the reasons' order", () => {
+	const at = (reason: string) =>
+		(DOCUMENT_NOTICE_REASONS as readonly string[]).indexOf(reason);
+
+	it("puts the expressions cutover's step reasons after the emission cutover's, in step order, before lookup-tag-renamed", () => {
+		expect(
+			DOCUMENT_NOTICE_REASONS.slice(
+				at("android-form-lists-setting-stored"),
+				at("lookup-tag-renamed") + 1,
+			),
+		).toEqual([
+			"android-form-lists-setting-stored",
+			"case-property-rules-removed",
+			"expressions-follow-choices",
+			"expressions-respelled",
+			"case-property-declared",
+			"repeat-read-takes-first-row",
+			"lookup-tag-renamed",
+		]);
+	});
+
+	it("puts each reason for a change that writes nothing at its place", () => {
+		expect(
+			DOCUMENT_NOTICE_REASONS.slice(
+				at("case-list-search-matches-hidden-fields"),
+				at("hidden-order-column-not-in-sort-menu") + 1,
+			),
+		).toEqual([
+			"case-list-search-matches-hidden-fields",
+			"search-today-is-workers-day",
+			"search-date-time-equality-matches",
+			"hidden-order-column-not-in-sort-menu",
+		]);
+		expect(
+			DOCUMENT_NOTICE_REASONS.slice(
+				at("case-name-now-checked"),
+				at("unsaved-assistant-work-discarded") + 1,
+			),
+		).toEqual([
+			"case-name-now-checked",
+			"date-time-comparison-compares-moments",
+			"case-property-type-now-known",
+			"unsaved-assistant-work-discarded",
+		]);
+		const deployment = DEPLOYMENT_NOTICE_REASONS as readonly string[];
+		expect(
+			deployment.slice(
+				deployment.indexOf("data-paths-move-once"),
+				deployment.indexOf("deep-links-need-republish") + 1,
+			),
+		).toEqual([
+			"data-paths-move-once",
+			"expressions-sent-at-next-publish",
+			"deep-links-need-republish",
+		]);
+	});
+
+	it("orders a notice's real entries by those lists, deployment entries first", () => {
+		const entries = migrationNoticeEntriesSchema.parse([
+			REAL_ENTRIES["case-property-type-now-known"],
+			REAL_ENTRIES["repeat-read-takes-first-row"],
+			REAL_ENTRIES["deep-links-need-republish"],
+			REAL_ENTRIES["case-property-rules-removed"],
+			REAL_ENTRIES["expressions-sent-at-next-publish"],
+		]);
+		expect(orderNoticeEntries(entries).map((entry) => entry.reason)).toEqual([
+			"expressions-sent-at-next-publish",
+			"deep-links-need-republish",
+			"case-property-rules-removed",
+			"repeat-read-takes-first-row",
+			"case-property-type-now-known",
+		]);
 	});
 });
