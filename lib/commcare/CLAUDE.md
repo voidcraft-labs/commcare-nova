@@ -416,10 +416,11 @@ Nova writes no `build_spec`. Publish reads the target's `build_spec.version` fro
 
 A real attribute (`calculate`, `relevant`, `constraint`, `required`) and its `vellum:` shadow print from one wire tree: the real attribute in `xform` mode, the only text the device and validator parse, and the shadow in `vellum` mode, the shorthand HQ's form designer treats as source of truth on round trip (`xpath/wire/serialize.ts::serializeWire`). Every bind also gets `vellum:nodeset="#form/..."`.
 
-An expression gets a shadow only when its tree contains a field read with
-`#form/` spelling and no withheld read. Constant-only, absolute-only and
-relative-only expressions have none; a hashtag-looking string literal does
-not count as a read. Generated bind calculations and setvalue defaults never
+An expression gets a shadow only when its tree contains an authored form
+field read, spelled `#form/` or `/data/` (both print `#form/` in the shadow,
+as production's emitter always has), and no withheld read. Constant-only and
+relative-only expressions have none, nor do generated absolute paths; a
+hashtag-looking string literal does not count as a read. Generated bind calculations and setvalue defaults never
 request expression shadows.
 
 Shadows emit ONLY vocabulary the editor is GUARANTEED to know for the form, never merely plausible vocabulary: an unknown hashtag makes the editor's XPath engine (`Vellum/src/xpath.js::isValidNamespace`) mark the whole expression unparseable and re-serialize it VERBATIM into the real attribute on the user's next save — raw hashtags on the wire, failing HQ's next build ("Couldn't understand the expression"). `vellum` mode owns this projection: a field read spelled `#form/` prints `#form/<path>`. A case, worker, or Search read is an `expansion` in the tree and withholds the shadow. No shadow carries `#case/`, because a `#case/` hashtag over `case_id`, `owner_id` or `status` is saved as a child element the case database does not have, and one over a property HQ's schema does not list is an unknown question on every save. With the raw casedb path in the real attribute, the form builder's reverse map turns a listed property into its own `#case/<property>` on load and saves the same real attribute, and leaves every other read raw. `vellum` mode also withholds the shadow when a `#form/` read carries a predicate or heads a longer path: the form builder cannot parse that, writes the shadow verbatim into the real attribute, and HQ's next build fails. Outside a validation condition the serializer prints a predicate's own node as `./.` in `xform` and `vellum` modes, because the form builder reads a bare `.` in any other condition as the question referring to itself. There is NO way to teach the editor more: it reads hashtag metadata only from head elements, only as a pre-datasources fallback, and `Vellum/src/form.js::_updateHashtags` resets namespaces to `#form` + data sources once they load.
