@@ -58,8 +58,13 @@ const PREC_AND = 2;
 
 /** The segments of one CSQL tree, adjacent constants merged. */
 export function printCsql(tree: CsqlNode): CsqlSegment[] {
+	return printAt(tree, 0);
+}
+
+/** The segments of a tree printed as an operand of precedence `prec`. */
+function printAt(tree: CsqlNode, prec: number): CsqlSegment[] {
 	const out: CsqlSegment[] = [];
-	print(tree, 0, out);
+	print(tree, prec, out);
 	return mergeAdjacentConstants(out);
 }
 
@@ -162,7 +167,7 @@ function print(node: CsqlNode, prec: number, out: CsqlSegment[]): void {
 			out.push(carrier(node.obligation));
 			return;
 		case "choice":
-			choice(node.key, node.condition, node.then, node.else, out);
+			choice(node.key, node.condition, node.then, node.else, prec, out);
 			return;
 		case "presence":
 			choice(
@@ -170,6 +175,7 @@ function print(node: CsqlNode, prec: number, out: CsqlSegment[]): void {
 				w.call("count", [node.trigger]),
 				node.clause,
 				{ k: "query-call", fn: "match-all", args: [] },
+				prec,
 				out,
 			);
 			return;
@@ -263,16 +269,22 @@ function hole(runtime: CsqlRuntimeHole, out: CsqlSegment[]): void {
  * the whole row closed and an obligation of the branch not taken rejects
  * nothing. Consuming them inside the branch would leave `match-none()` as an
  * operand of a `not` or an `or`, where it broadens the search.
+ *
+ * Each branch prints at the precedence the choice itself sits at, so the text
+ * the device splices in groups as the branch would printed in its place:
+ * under an `and`, an `or` branch is parenthesised, since HQ's grammar binds
+ * `and` tighter (`eulxml/xpath/parserules.py::precedence`).
  */
 function choice(
 	key: string,
 	condition: WireExpr,
 	thenNode: CsqlNode,
 	elseNode: CsqlNode,
+	prec: number,
 	out: CsqlSegment[],
 ): void {
-	const thenPart = concatParts(printCsql(thenNode));
-	const elsePart = concatParts(printCsql(elseNode));
+	const thenPart = concatParts(printAt(thenNode, prec));
+	const elsePart = concatParts(printAt(elseNode, prec));
 	const xpath = w.call("if", [condition, thenPart.query, elsePart.query]);
 	const rejections = [
 		...thenPart.runtimeRejections.map((rejection) => ({

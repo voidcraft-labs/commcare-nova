@@ -15,6 +15,7 @@
 
 import type {
 	PreviewSearchAnswers,
+	PreviewSearchDeviceValues,
 	PreviewSearchFailure,
 	PreviewSearchState,
 } from "./types";
@@ -51,19 +52,43 @@ export function settleSearch(
 ): PreviewSearchState | undefined {
 	if (state === undefined || state.kind !== "running") return state;
 	if (state.attempt !== attempt) return state;
+	const deviceValues =
+		state.deviceValues === undefined
+			? {}
+			: { deviceValues: state.deviceValues };
 	return outcome.kind === "completed"
 		? {
 				kind: "completed",
 				attempt,
 				answers: state.answers,
 				matchCount: outcome.matchCount,
+				...deviceValues,
 			}
 		: {
 				kind: "failed",
 				attempt,
 				answers: state.answers,
 				reason: outcome.reason,
+				...deviceValues,
 			};
+}
+
+/**
+ * The device worked out the `_xpath_query` rows of search `attempt` as it
+ * sent it. The first value for an attempt stands: a device evaluates the
+ * request once and keeps it for the query step, so a later value (the
+ * device's cases after a claim, a lookup that arrived) leaves the state
+ * untouched, as does a value for any other attempt.
+ */
+export function recordSearchDeviceValues(
+	state: PreviewSearchState | undefined,
+	attempt: number,
+	value: PreviewSearchDeviceValues["value"],
+): PreviewSearchState | undefined {
+	if (state === undefined || state.kind === "not-searched") return state;
+	if (state.attempt !== attempt || state.deviceValues !== undefined)
+		return state;
+	return { ...state, deviceValues: { value } };
 }
 
 /**

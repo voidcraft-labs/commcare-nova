@@ -9,6 +9,7 @@ import {
 	actingUser,
 	ancestorPath,
 	and,
+	arith,
 	between,
 	coalesce,
 	concat,
@@ -18,7 +19,6 @@ import {
 	dateLiteral,
 	datetimeCoerce,
 	datetimeLiteral,
-	arith,
 	double,
 	type Expression,
 	eq,
@@ -57,7 +57,10 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/expression";
-import { csqlFixtureContext } from "../../__tests__/csqlFunctionFixture";
+import {
+	csqlFixtureContext,
+	csqlFunctionFixture,
+} from "../../__tests__/csqlFunctionFixture";
 import {
 	checkCsqlRepresentability,
 	normalizeCsqlPredicate,
@@ -654,4 +657,52 @@ describe("positions decide what HQ reads (06-csql.md §2, §3)", () => {
 	] as const)("admits %s", (_label, predicate) => {
 		expect(issues(predicate)).toEqual([]);
 	});
+});
+
+it("refuses a switch on a row value HQ can't compare, naming the selector", () => {
+	const selector = switchExpr(
+		concat(term(field("name")), term(literal("-x"))),
+		[switchCase(literal("a-x"), { kind: "match-all" })],
+		{ kind: "match-none" },
+	);
+	expect(issues(selector)).toEqual([
+		{ reason: "comparison-needs-case-property", path: ["switch", "on"] },
+	]);
+	expect(
+		issues(
+			switchExpr(
+				term(field("name")),
+				[switchCase(literal("a"), { kind: "match-all" })],
+				{ kind: "match-none" },
+			),
+		),
+	).toEqual([]);
+});
+
+it("refuses a list compared with a date and time, which HQ matches by text", () => {
+	// HQ's `terms` on a custom property matches stored text, so a list can't
+	// mean the moments its items name (finding 75); a system date is refused
+	// as any list placement on one is. A date keeps its typed comparison.
+	const types = csqlFixtureContext(csqlFunctionFixture()).types;
+	const list: Expression = {
+		kind: "value-list",
+		items: [term(literal("2026-01-01T09:30:00Z"))],
+	};
+	const reasons = (predicate: Expression) =>
+		checkCsqlRepresentability(predicate, types).map(({ reason, path }) => ({
+			reason,
+			path,
+		}));
+	for (const property of ["last_seen", "date_opened", "last_modified"])
+		expect(reasons(eq(field(property), list))).toEqual([
+			{ reason: "value-list-placement", path: ["right"] },
+		]);
+	expect(
+		reasons(
+			eq(field("visit_date"), {
+				kind: "value-list",
+				items: [term(literal("2026-01-01"))],
+			}),
+		),
+	).toEqual([]);
 });

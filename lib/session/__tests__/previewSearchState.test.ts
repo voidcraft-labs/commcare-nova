@@ -4,6 +4,7 @@ import {
 	NOT_SEARCHED,
 	noMatchesActionAvailable,
 	recordRegisteredCase,
+	recordSearchDeviceValues,
 	settleSearch,
 } from "../previewSearchState";
 import type { PreviewSearchState } from "../types";
@@ -130,5 +131,49 @@ describe("previewSearchState", () => {
 			matchCount: 1,
 			registeredCaseId: "case-new",
 		});
+	});
+});
+
+// A device works out a search's `_xpath_query` rows once, as it sends the
+// search, and keeps that query for the session's query step: Results and the
+// module's forms read the value kept with the attempt.
+describe("a search's device values", () => {
+	const first = { segments: { '0:["right"]': "North" }, choices: {} };
+	const later = { segments: { '0:["right"]': "South" }, choices: {} };
+
+	it("keeps the first value for the attempt and carries it to the settled search", () => {
+		const running = recordSearchDeviceValues(
+			beginSearch(undefined, answers),
+			1,
+			first,
+		);
+		expect(running).toMatchObject({ deviceValues: { value: first } });
+		expect(recordSearchDeviceValues(running, 1, later)).toBe(running);
+		expect(
+			settleSearch(running, 1, { kind: "completed", matchCount: 2 }),
+		).toEqual({
+			kind: "completed",
+			attempt: 1,
+			answers,
+			matchCount: 2,
+			deviceValues: { value: first },
+		});
+	});
+
+	it("records nothing for another attempt, and a new search starts without", () => {
+		const running = beginSearch(undefined, answers);
+		expect(recordSearchDeviceValues(running, 2, first)).toBe(running);
+		const settled = settleSearch(
+			recordSearchDeviceValues(running, 1, first),
+			1,
+			{ kind: "completed", matchCount: 0 },
+		);
+		expect(beginSearch(settled, answers)).not.toHaveProperty("deviceValues");
+	});
+
+	it("keeps a search with no row to fold apart from one not worked out", () => {
+		expect(
+			recordSearchDeviceValues(beginSearch(undefined, answers), 1, undefined),
+		).toMatchObject({ deviceValues: { value: undefined } });
 	});
 });

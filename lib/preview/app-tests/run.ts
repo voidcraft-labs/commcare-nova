@@ -130,10 +130,11 @@ async function appTestSearchResults(
 					prior.registeredCaseId !== undefined),
 		);
 	if (searchedScreen === undefined) throw refused();
-	const { read } = await prepareAppTestRecords(context, scope, {
+	const { read, refusal } = await prepareAppTestRecords(context, scope, {
 		...state,
 		screen: searchedScreen,
 	});
+	if (refusal !== undefined) throw new AppTestActionError(refusal);
 	const found = await serverSearchResults(context.store, read);
 	if (found === undefined) throw refused();
 	return found;

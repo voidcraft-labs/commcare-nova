@@ -174,7 +174,8 @@ import {
 } from "@/lib/preview/hooks/useRestoreScopeKey";
 import {
 	useCaseListStepSession,
-	useSearchCsqlRuntime,
+	useSubmissionKey,
+	useSubmittedSearchDeviceValues,
 } from "@/lib/preview/hooks/useSearchCsqlRuntime";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
@@ -227,6 +228,7 @@ import {
 import {
 	beginSearch,
 	noMatchesActionAvailable,
+	recordSearchDeviceValues,
 	settleSearch,
 } from "@/lib/session/previewSearchState";
 import type { PreviewCaseChoice } from "@/lib/session/types";
@@ -1000,14 +1002,59 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			? claimableCaseIds([previewCaseChoiceOf(row)])
 			: NO_CLAIMED_CASES;
 	/* What the device works out for the submitted search's `_xpath_query`
-	 * before HQ reads it; the server folds the rows with it. */
-	const csqlRuntime = useSearchCsqlRuntime({
+	 * before HQ reads it, once, as it sends the search; the server folds the
+	 * rows with it. A search-first module keeps it on the module's search
+	 * (the attempt), so its forms read the same value and returning to
+	 * Results does not work it out again; a search action keeps it here, per
+	 * Search press. Results wait for it. */
+	const ownSubmissionKey = useSubmissionKey(activeSearchInputValues);
+	const searchAttempt =
+		searchFirst &&
+		searchState !== undefined &&
+		searchState.kind !== "not-searched"
+			? searchState
+			: undefined;
+	const latestSearchState = useRef(searchState);
+	latestSearchState.current = searchState;
+	const deviceValues = useSubmittedSearchDeviceValues({
 		doc: menuSource.doc,
 		moduleUuid,
-		answers:
-			registeredCaseIds === undefined ? activeSearchInputValues : undefined,
+		submission:
+			registeredCaseIds !== undefined || activeSearchInputValues === undefined
+				? undefined
+				: {
+						key:
+							searchAttempt === undefined
+								? (ownSubmissionKey ?? "")
+								: `attempt:${searchAttempt.attempt}`,
+						answers: activeSearchInputValues,
+					},
+		...(searchAttempt?.deviceValues === undefined
+			? {}
+			: {
+					kept: {
+						key: `attempt:${searchAttempt.attempt}`,
+						values: searchAttempt.deviceValues,
+					},
+				}),
+		onWorkedOut: (key, values) => {
+			const current = latestSearchState.current;
+			if (
+				moduleUuid === undefined ||
+				current === undefined ||
+				current.kind === "not-searched" ||
+				key !== `attempt:${current.attempt}`
+			)
+				return;
+			setPreviewSearchState(
+				moduleUuid,
+				recordSearchDeviceValues(current, current.attempt, values.value),
+			);
+		},
 		sessionData: stepSession.data,
 	});
+	const csqlRuntime =
+		deviceValues.kind === "ready" ? deviceValues.value : undefined;
 	const {
 		state,
 		fetching,
@@ -1016,8 +1063,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	} = useCases({
 		appId,
 		/* On the Search step no results query runs: the list does not exist
-		 * until the worker's search completes. */
-		caseType: step === "search" ? undefined : caseType?.name,
+		 * until the worker's search completes, nor before the device has
+		 * worked out what the search sends. */
+		caseType:
+			step === "search" || deviceValues.kind === "pending"
+				? undefined
+				: caseType?.name,
 		...(registeredCaseIds === undefined ? {} : { caseIds: registeredCaseIds }),
 		caseListConfig: canonicalConfig,
 		blueprint: menuSource.doc,

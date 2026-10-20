@@ -21,7 +21,7 @@ import {
 	chosenCaseProperty,
 } from "@/lib/domain/expression/chosenCase";
 import type { Expression } from "@/lib/domain/expression/types";
-import { chosenCase } from "../../__tests__/csqlCompositionFixture";
+import { chosenCase, valueList } from "../../__tests__/csqlCompositionFixture";
 import { csqlInputContext } from "../../__tests__/csqlFunctionFixture";
 import { moduleExpressionContexts } from "../../expressionContext";
 import { caseListStepDatumId } from "../../formLinkProjection";
@@ -249,5 +249,45 @@ describe("foldCsqlRuntime", () => {
 				fold(sameVillage, () => ({ segments: {}, choices: {} }), chosen),
 			).toEqual(sameVillage);
 		});
+	});
+
+	it("folds a node-set item that reads no node to the blank item the device sends", () => {
+		// The device prints a node-set item as `"` + join('","', nodes) + `"`,
+		// so a node-set with no node sends `[""]`: one blank item.
+		const doc = valueList.doc();
+		const moduleUuid = doc.moduleOrder[0];
+		const rule = doc.modules[moduleUuid]?.caseListConfig?.searchInputs[0];
+		if (moduleUuid === undefined || rule === undefined)
+			throw new Error("The scenario has a module with a rule.");
+		const ctx: CsqlEmissionContext = {
+			types: moduleExpressionContexts(
+				doc,
+				moduleUuid,
+			)({
+				slot: "search_input_predicate",
+				member: { searchInputUuid: rule.uuid },
+			}),
+			bindings: {},
+		};
+		const deviceColors: Expression = {
+			kind: "project",
+			of: { kind: "cases", source: "casedb", where: [] },
+			value: prop("item", "color"),
+		};
+		const list = (...items: Expression[]) =>
+			eq(prop("item", "color"), {
+				kind: "value-list",
+				items: items as [Expression, ...Expression[]],
+			});
+		const folded = (text: string) =>
+			fold(
+				list(deviceColors),
+				(reads) => ({ segments: segments(reads, text), choices: {} }),
+				ctx,
+			);
+		expect(folded("")).toEqual(list(term(literal(""))));
+		expect(folded('red","blue')).toEqual(
+			list(term(literal("red")), term(literal("blue"))),
+		);
 	});
 });

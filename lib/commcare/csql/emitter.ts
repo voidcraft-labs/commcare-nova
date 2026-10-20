@@ -88,6 +88,7 @@ import {
 	invalidWholeNumberXPath,
 } from "./runtimeCsqlNumericSafety";
 import { collectRuntimeCsqlStringExpressionInputNames } from "./runtimeCsqlQuoteSafety";
+import { CSQL_LIST_ITEM_UNSAFE_PATTERN } from "./segment";
 import {
 	type CsqlComparison,
 	type CsqlNode,
@@ -454,12 +455,19 @@ function conditionChoice(
 	);
 }
 
-/** A `switch` between clauses: the device's choice, case by case. */
+/**
+ * A `switch` between clauses, case by case. A selector that reads no row is
+ * the device's choice; one that reads the row is HQ's own, each case
+ * `((on = when) and (then)) or (not(on = when) and (<the cases after>))`, as
+ * a row-reading `if` is.
+ */
 function switchChoice(
 	expression: Extract<Expression, { kind: "switch" }>,
 	path: CheckPath,
 	emission: Emission,
 ): CsqlNode {
+	const onPath = operandPath(expression, "on", path);
+	const native = positionAt(emission, onPath) !== "runtime";
 	let result = query(
 		expression.fallback,
 		operandPath(expression, "fallback", path),
@@ -478,6 +486,20 @@ function switchChoice(
 			{ kind: "switch-case", index, slot: "then" },
 			path,
 		);
+		const thenNode = query(entry.then, thenPath, emission);
+		if (native) {
+			const condition = compare(
+				"eq",
+				{ expression: expression.on, path: onPath },
+				{ expression: { kind: "term", term: entry.when }, path: whenPath },
+				emission,
+			);
+			result = c.or(
+				c.group(c.and(c.group(condition), c.group(thenNode))),
+				c.group(c.and(c.not(condition), c.group(result))),
+			);
+			continue;
+		}
 		result = c.choice(
 			csqlPositionKey(whenPath),
 			runtimeWire(
@@ -488,7 +510,7 @@ function switchChoice(
 				},
 				emission,
 			),
-			query(entry.then, thenPath, emission),
+			thenNode,
 			result,
 		);
 	}
@@ -500,29 +522,43 @@ function comparison(
 	path: CheckPath,
 	emission: Emission,
 ): CsqlNode {
-	const left = anchor(
-		expression.left,
-		operandPath(expression, "left", path),
+	return compare(
+		expression.kind,
+		{
+			expression: expression.left,
+			path: operandPath(expression, "left", path),
+		},
+		{
+			expression: expression.right,
+			path: operandPath(expression, "right", path),
+		},
 		emission,
 	);
-	const rightPath = operandPath(expression, "right", path);
-	const right = isSubcaseCount(expression.left)
-		? subcaseCountBound(expression.right, rightPath, emission)
-		: value(expression.right, rightPath, emission);
+}
+
+/** A comparison of a query side and a value, each at its own path. */
+function compare(
+	kind: ComparisonKind,
+	anchorSide: { readonly expression: Expression; readonly path: CheckPath },
+	valueSide: { readonly expression: Expression; readonly path: CheckPath },
+	emission: Emission,
+): CsqlNode {
+	const left = anchor(anchorSide.expression, anchorSide.path, emission);
+	const right = isSubcaseCount(anchorSide.expression)
+		? subcaseCountBound(valueSide.expression, valueSide.path, emission)
+		: value(valueSide.expression, valueSide.path, emission);
 	if (
-		(expression.kind === "eq" || expression.kind === "neq") &&
-		readsInstantByRange(expression.left, emission)
+		(kind === "eq" || kind === "neq") &&
+		readsInstantByRange(anchorSide.expression, emission)
 	) {
 		const equal = instantEquality(left, right);
-		return guardBlank(
-			expression.kind === "eq" ? c.group(equal) : c.not(equal),
-			true,
-			[right],
-		);
+		return guardBlank(kind === "eq" ? c.group(equal) : c.not(equal), true, [
+			right,
+		]);
 	}
 	return guardBlank(
-		c.cmp(COMPARISON_OPS[expression.kind], left, right),
-		needsBlankComparandGuard(expression.left, expression.kind),
+		c.cmp(COMPARISON_OPS[kind], left, right),
+		needsBlankComparandGuard(anchorSide.expression, kind),
 		[right],
 	);
 }
@@ -1328,7 +1364,7 @@ function valueList(
 				data.cardinality === "many";
 			const unsafe = (subject: WireExpr) =>
 				w.or(
-					w.call("regex", [subject, w.str('["\\\\\\p{Cntrl}]')]),
+					w.call("regex", [subject, w.str(CSQL_LIST_ITEM_UNSAFE_PATTERN)]),
 					w.call("contains", [subject, w.str("'")]),
 				);
 			if (many && read.k === "path") {

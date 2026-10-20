@@ -2053,6 +2053,32 @@ test("a list of values is an exact any-of, and its negation keeps the case that 
 	).toEqual([]);
 });
 
+test("a list of values reads each item as the property's type, and an item of no such value matches nothing", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["three", { age: 3 }],
+		["thirty", { age: 30 }],
+		["absent", {}],
+	]);
+	const ages = (...values: (string | number)[]): Expression => ({
+		kind: "value-list",
+		items: values.map((value) => term(literal(value))) as [
+			Expression,
+			...Expression[],
+		],
+	});
+	expect(
+		await matchedIds(db, eq(prop("patient", "age"), ages("3", "abc", ""))),
+	).toEqual(["three"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "age"), ages("abc", ""))),
+	).toEqual([]);
+	expect(
+		await matchedIds(db, neq(prop("patient", "age"), ages("abc", "30"))),
+	).toEqual(["absent", "three"]);
+});
+
 test("a choice between clauses takes the else branch when its condition reads nothing", async ({
 	db,
 }) => {

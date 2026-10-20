@@ -1,3 +1,4 @@
+import { CSQL_LIST_ITEM_UNSAFE_PATTERN } from "@/lib/commcare/csql/segment";
 import {
 	GEOPOINT_CENTER_PATTERN,
 	GEOPOINT_RAW_CENTER_PATTERN,
@@ -27,15 +28,22 @@ const GENERATED_PATTERNS = new Map<
 		CASE_SCALAR_BOUNDARY_PATTERN,
 		"[ \\t\\r\\n]+",
 		"^ | $",
-	].map((pattern) => {
-		/* Java Pattern's default `\\s` is the six-character ASCII class. JS
-		 * `\\s` also consumes Unicode spaces, so preserve Core's smaller set. */
-		const source = pattern.replaceAll("\\s", JAVA_ASCII_WHITESPACE);
-		return [
+	]
+		.map((pattern): readonly [string, string] => [
+			pattern,
+			/* Java Pattern's default `\\s` is the six-character ASCII class. JS
+			 * `\\s` also consumes Unicode spaces, so preserve Core's smaller set. */
+			pattern.replaceAll("\\s", JAVA_ASCII_WHITESPACE),
+		])
+		.concat([
+			/* Java's `\\p{Cntrl}` is the ASCII control class `[\\x00-\\x1F\\x7F]`;
+			 * JS has no POSIX class names. */
+			[CSQL_LIST_ITEM_UNSAFE_PATTERN, '["\\\\\\x00-\\x1F\\x7F]'],
+		])
+		.map(([pattern, source]) => [
 			pattern,
 			{ find: new RegExp(source), replace: new RegExp(source, "g") },
-		];
-	}),
+		]),
 );
 
 /**

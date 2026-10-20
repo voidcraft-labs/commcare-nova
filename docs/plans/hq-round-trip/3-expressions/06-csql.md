@@ -633,6 +633,22 @@ whose targets are CS and PG alone (`searchInputs[advanced].predicate`); in every
 `lib/commcare/csql/representability.ts`'s reason; the checker holds the type fact, an item of another
 kind than the anchor being `incompatible-values` at the item's path.
 
+**Implementation correction, 2026-10-19** (the review of pull request 10): Postgres compiles
+`p in (<item>, …)`, each item a bound literal of the anchor's type as an ordinary comparison binds
+one (`compilePredicate.ts::compileValueListEquality`), not one untyped array: an item that can't be
+read as that type (`'abc'` or `''` against a number, a day the calendar lacks) matches nothing and
+is left out, and a list with no readable item is false, as HQ's `terms` finds no stored value equal
+to it. A literal `null` stays the blank item. A node-set item that reads no node is the one blank
+item the device sends (`[""]`), never an unfolded node.
+
+**Implementation correction, 2026-10-19** (the review of pull request 10): `value-list-placement`
+also refuses a list whose anchor is a custom date-and-time property ("A list of values can't be
+compared with a date and time…"), as it refuses a system date. HQ answers `p = unwrap-list(…)` on a
+custom property with exact text terms (`es/case_search.py::case_property_query`,
+`es/filters.py::term`), finding 75's text equality, so a list can't mean the moments its items
+name. Value lists are held for import only, so no authored document is affected; step 6 decides
+what an imported one becomes. A date and every other type keep the typed comparison above.
+
 ### 3.7 Runtime values in raw arguments
 
 **HQ and Core.** `selected`/`selected-any` and `selected-all` pass the value argument unevaluated to
@@ -1001,6 +1017,15 @@ position (a choice's condition, a clause that reads no case) in an advanced pred
 case list filter while Search is effective; without Search the filter keeps the gate everywhere.
 `searchRuntimeValues.ts::walkSearchRuntimeValues` visits `csqlRuntimeRoots` and passes each root's
 `within`, and the checker infers a `query` root as a condition.
+
+**Implementation correction, 2026-10-19** (the review of pull request 10): a `switch` whose `on`
+reads the row is native as a row-reading `if` is, case by case: each case's condition is the
+comparison `on = when` (`on` its query side, `when` its value), emitted `((on = when) and (then)) or
+(not(on = when) and (<the cases after>))`, so it is the emission of the nested `if` it stands for.
+A selector HQ can't compare (`concat` of a property, say) is refused as
+`comparison-needs-case-property` at `on`. A choice's branches print at the precedence the choice
+sits at, so the text the device splices groups as the branch written in place (an `or` branch under
+an `and` is parenthesised, `eulxml/xpath/parserules.py::precedence`).
 
 ### 3.11 Several `_xpath_query` rows
 
@@ -1471,7 +1496,8 @@ search reads (§3.9); this part fixes what is folded and by whose print.
   `csqlRuntimeReads(tree)` lists what the device evaluates in a row (a segment inside a choice's
   branch included; a `when-input-present` is the choice `count(<input>)`), and `csqlRuntimeRow`
   adds the row's obligations. A runtime `selected*` value with no token is `match-none`; a node-set
-  list item splits on `","`, as the device splices it.
+  list item splits on `","`, as the device splices it, and one that reads no node is the one blank
+  item `[""]` the device sends.
 - The wire is one `{ segments, choices }` for the whole search, keyed `<row>:<segment key>`, the row
   its index among `composeXPathQueryClauses`' clauses; a row whose obligations hold is the choice
   `<row>`, its own choice of `match-none()`. The rows Preview folds are the case list filter's and
@@ -1482,10 +1508,33 @@ search reads (§3.9); this part fixes what is folded and by whose print.
   worker message (every kind but `blank-comparand` and `list-item`) travels as the wire's
   `refusal`, and the read is then `invalid-search` with that kind's global message, as the server's
   own pass answers one it judges itself.
-- Preview's synchronous evaluator has no `regex`, so the `list-item` obligation is decided over the
-  same item values in TypeScript (a `"`, `\`, an ASCII control character or `'`); any other read it
-  cannot run gives no value and leaves its node to Postgres, which compiles the kept arms through
-  the ordinary bindings.
+- Every obligation is judged as the emitter wrote it, its guards and its own reads included: the
+  `list-item` pattern joins the fixed Java patterns Preview's synchronous evaluator runs
+  (`generatedJavaRosaFunctions.ts`, checked against the compiled OpenJDK runtime). Preview also
+  evaluates each row's whole wrapper, untaken branches left alone as Core leaves them.
+- `evaluateSearchCsqlRuntime` is asynchronous: a piece the synchronous evaluator can't run (a
+  pattern the author wrote, encryption) runs in the Search screen's XPath worker over the same
+  instances (`engineController.ts::evaluateSearchScreenXPath`). Only where the worker can't either
+  does the wire carry `unevaluated`, and the Results read answers `invalid-search` saying Preview
+  can't work out the search, never a list without that row. App Tests' server reads hold no Java
+  Pattern engine, so there such a piece is `unevaluated`, and `serverRecordsRead` answers the
+  same refusal (an App Test step's Results, a form check's search). No worker request carries an
+  abort signal: cancelling one terminates the worker and every other request on it, so a
+  superseded evaluation stops sending pieces and its result is dropped.
+- The values are worked out once per submission, as a device evaluates the request when it sends
+  it and keeps it for the query step (`useSubmittedSearchDeviceValues`), once the device's cases
+  have loaded and no lookup is still loading; Results wait for them. A search-first module keeps
+  them on its search (`PreviewSearchState.deviceValues`, the first value for an attempt standing),
+  so its forms' snapshot reads the same value and a claim posted mid-entry reads nothing again; a
+  search action keeps them per Search press.
+- The server composes the rows with the lookup naming of its own definitions snapshot, as the
+  browser composes them with `world.lookup.naming`, so a lookup value folds to the literal of its
+  column's type on both sides.
+- A read keyed by case ids (the case the no-matches form registered) applies neither the search's
+  checks nor its rows: the device shows that case by its id. A row that still holds a read of what
+  only the device holds (its cases, chosen cases, places, a projection other than the chosen
+  case's property) because no value arrived for it answers the same `invalid-search` refusal
+  rather than reach the compiler.
 - The server's pass of a search's obligations judges only those whose reads it holds (answers and
   the session context); one reading the device's cases, places, a lookup or a session datum is the
   browser's, through the row it reports. App Tests evaluate the same values on the server over the

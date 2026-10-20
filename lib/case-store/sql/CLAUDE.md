@@ -150,11 +150,16 @@ in the browser, and `lib/commcare/csql/fold.ts::foldCsqlRuntime` replaces each
 with a literal, its chosen branch or `match-none` before this compiler runs, so
 no runtime leaf reaches a CSQL compile. Preview folds the rows of the case list
 filter and the advanced inputs' predicates (`lib/preview/engine/searchCsqlRuntime.ts`);
-a simple input arrives as the literal its answer is. A value Preview's
-synchronous evaluator could not work out arrives unfolded and compiles through
-the ordinary bindings (`TermBindings.searchInputs`, `sessionContext`), which
-leave the CSQL path otherwise. `value-list` compiles to
-`<anchor> = any(<array>)`, its items bound as one array parameter, with `!=` its
+a simple input arrives as the literal its answer is. A row neither Preview's
+evaluator nor its XPath worker could work out never reaches this compiler: the
+Results read refuses the search (`SearchCsqlRuntimeWire.unevaluated`), as it
+refuses a row left holding a device-only read no value arrived for. Any other
+node no value arrived for compiles through the ordinary bindings
+(`TermBindings.searchInputs`, `sessionContext`), which leave the CSQL path
+otherwise. A read keyed by case ids (the registered case) compiles no row of
+the search. `value-list` compiles to `<anchor> in (<item>, …)`, each item a
+bound literal of the anchor's type; an item that can't be read as that type
+matches nothing and is left out, a list with none is false, and `!=` is its
 two-valued negation (`compilePredicate.ts::compileValueListEquality`). A
 `within-distance` whose radius or unit is a value (a browse list's filter can
 hold one; a CSQL slot's fold makes both literal) compiles as a `CASE` over the

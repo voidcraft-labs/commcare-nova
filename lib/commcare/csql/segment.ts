@@ -14,6 +14,15 @@ import type { WireExpr } from "../xpath/wire/tree";
 // carries both quote kinds, so a string round trip is ambiguous).
 
 /**
+ * The Java Pattern a `list-item` obligation holds a value away from: a double
+ * quote, a backslash or an ASCII control character (`\p{Cntrl}` is
+ * `[\x00-\x1F\x7F]` in Java), any of which would break the JSON list
+ * `unwrap-list` reads. The obligation pairs it with `contains(v, "'")` for the
+ * CSQL literal around the list.
+ */
+export const CSQL_LIST_ITEM_UNSAFE_PATTERN = '["\\\\\\p{Cntrl}]';
+
+/**
  * Two-arm IR carrying one piece of a CSQL value's wire build-up.
  *
  *   - `constant`: printed CSQL text. The wrapper holds each constant run

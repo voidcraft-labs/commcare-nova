@@ -194,13 +194,13 @@ function deviceCases(scenario: CsqlScenario): CaseDatabaseSnapshot {
  * session, and each simple input's answer as the literal it binds. Evaluated
  * at the sending's clock, in its device zone.
  */
-function previewSearchQuery(
+async function previewSearchQuery(
 	scenario: CsqlScenario,
 	doc: BlueprintDoc,
 	moduleIndex: number,
 	sending: CsqlSending,
 	schemas: ReadonlyMap<string, CaseType>,
-): Expression | undefined {
+): Promise<Expression | undefined> {
 	const module = doc.modules[doc.moduleOrder[moduleIndex]];
 	const config = module.caseListConfig;
 	if (config === undefined || module.caseType === undefined)
@@ -233,7 +233,7 @@ function previewSearchQuery(
 		vi.setSystemTime(new Date(sending.session.clock));
 	}
 	try {
-		const wire = evaluateSearchCsqlRuntime({
+		const wire = await evaluateSearchCsqlRuntime({
 			doc,
 			moduleUuid: module.uuid,
 			caseListConfig: config,
@@ -302,7 +302,7 @@ for (const scenario of csqlScenarios) {
 					).toEqual([...sending.expected].sort());
 
 					// Preview's own path to the same search.
-					const previewQuery = previewSearchQuery(
+					const previewQuery = await previewSearchQuery(
 						scenario,
 						doc,
 						moduleIndex,

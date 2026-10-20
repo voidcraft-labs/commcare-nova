@@ -27,7 +27,11 @@ import type { FormEvaluationContext } from "./formEvaluationTypes";
 import { previewSessionValues } from "./identity";
 import { previewLookupData } from "./lookupEvaluation";
 import { previewCaseStoreBindings } from "./runtimeBindings";
-import { evaluateSearchCsqlRuntime, foldSearchCsql } from "./searchCsqlRuntime";
+import {
+	evaluateSearchCsqlRuntime,
+	SEARCH_CSQL_UNEVALUATED_MESSAGE,
+	searchCsqlForRead,
+} from "./searchCsqlRuntime";
 import type { SearchEvaluationInput } from "./searchEvaluation";
 import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
 import type {
@@ -153,26 +157,45 @@ export async function serverRecordsRead(
 		identity: world.identity,
 	});
 	const searchConfig = world.doc.modules[request.moduleUuid]?.caseListConfig;
+	const lookup = previewLookupData(world.lookup);
+	/* The case the no-matches form registered is shown by its id, as the
+	 * browser's keyed read shows it; this server holds no Java Pattern
+	 * engine, so a piece only the XPath worker runs has no value here. */
+	const wire =
+		searched && searchConfig !== undefined && registeredCaseId === undefined
+			? await evaluateSearchCsqlRuntime({
+					doc: world.doc,
+					moduleUuid: request.moduleUuid,
+					caseListConfig: searchConfig,
+					answers: search.inputValues,
+					session: previewSessionValues(world.identity),
+					sessionData: step.data,
+					caseDatabase: world.deviceCases,
+					lookup,
+				})
+			: undefined;
 	const searchCsql =
-		searched && registeredCaseId === undefined && searchConfig !== undefined
-			? foldSearchCsql(
-					world.doc,
-					request.moduleUuid,
-					searchConfig,
-					evaluateSearchCsqlRuntime({
-						doc: world.doc,
-						moduleUuid: request.moduleUuid,
-						caseListConfig: searchConfig,
-						answers: search.inputValues,
-						session: previewSessionValues(world.identity),
-						sessionData: step.data,
-						caseDatabase: world.deviceCases,
-						lookup: previewLookupData(world.lookup),
-					}) ?? { segments: {}, choices: {} },
-				)
+		searched && searchConfig !== undefined
+			? searchCsqlForRead({
+					keyed: registeredCaseId !== undefined,
+					doc: world.doc,
+					moduleUuid: request.moduleUuid,
+					caseListConfig: searchConfig,
+					wire,
+					lookupNaming: lookup.naming,
+				})
+			: undefined;
+	/* A row this server can't work out (a pattern only the XPath worker
+	 * runs), or a device read no value reached: the same refusal the
+	 * browser's Results read gives, never a list without the row. */
+	const refusal =
+		wire?.unevaluated === true || searchCsql?.unfoldedDeviceRead === true
+			? SEARCH_CSQL_UNEVALUATED_MESSAGE
 			: undefined;
 	const read: Omit<Parameters<typeof readCases>[1], "page"> | undefined =
-		!resultVisible || Object.keys(search.errors).length > 0
+		!resultVisible ||
+		Object.keys(search.errors).length > 0 ||
+		refusal !== undefined
 			? undefined
 			: {
 					appId: world.appId,
@@ -220,7 +243,7 @@ export async function serverRecordsRead(
 						? { searchPopulation: { heldBy: world.restoreScope } }
 						: { restoreScope: world.restoreScope }),
 				};
-	return { search, searched, read };
+	return { search, searched, read, refusal };
 }
 
 /**

@@ -5,12 +5,15 @@
  * The read is the completed attempt's own Results read without a page window
  * (`loadSearchResultsSnapshotAction`), so the form reads the cases Results
  * showed for that search, up to `SEARCH_RESULTS_CAP`. It is keyed by the
- * attempt, its answers, the worker and the parent selection. A search reads
- * the Project's open cases, not the worker's restore, so a claim the form's
- * entry posts reads nothing again. It is never keyed by the document's
- * identity either: an edit elsewhere in the app
- * does not read the search again, and the form keeps the snapshot it opened
- * with for the whole entry, as a device's session keeps its query step.
+ * attempt, its answers, the worker, the parent selection and what the device
+ * worked out for the search's `_xpath_query` rows when it sent the search
+ * (`PreviewSearchState.deviceValues`, the value Results read with). A search
+ * reads the Project's open cases, not the worker's restore, and those values
+ * are kept with the search, so a claim the form's entry posts reads nothing
+ * again. It is never keyed by the document's identity either: an edit
+ * elsewhere in the app does not read the search again, and the form keeps the
+ * snapshot it opened with for the whole entry, as a device's session keeps
+ * its query step.
  */
 "use client";
 import { useEffect, useRef, useState } from "react";
@@ -61,6 +64,47 @@ export function searchResultsLoadState(
 	}
 }
 
+/**
+ * The identity of one snapshot load, or `undefined` while no load can start.
+ * The device's runtime values are part of it unless the search is the one
+ * case the no-matches form registered, whose read sends none.
+ */
+export function searchResultsSnapshotKey(args: {
+	readonly ready: boolean;
+	readonly appId: string | undefined;
+	readonly moduleUuid: Uuid | undefined;
+	readonly caseType: string | undefined;
+	readonly searchState: PreviewSearchState | undefined;
+	readonly personaUuid: string | undefined;
+	readonly parentCase: ParentCaseSelection | undefined;
+	readonly csqlRuntime: SearchCsqlRuntimeWire | undefined;
+	readonly retries: number;
+}): string | undefined {
+	const completed =
+		args.searchState?.kind === "completed" ? args.searchState : undefined;
+	if (
+		!args.ready ||
+		args.appId === undefined ||
+		args.caseType === undefined ||
+		completed === undefined
+	)
+		return undefined;
+	return JSON.stringify([
+		args.appId,
+		args.moduleUuid,
+		args.caseType,
+		completed.attempt,
+		completed.answers,
+		completed.registeredCaseId ?? null,
+		args.personaUuid ?? null,
+		args.parentCase ?? null,
+		completed.registeredCaseId === undefined
+			? (args.csqlRuntime ?? null)
+			: null,
+		args.retries,
+	]);
+}
+
 export function useSearchResultsSnapshot(args: {
 	/** The form reads what its module's search found. */
 	readonly enabled: boolean;
@@ -71,38 +115,29 @@ export function useSearchResultsSnapshot(args: {
 	readonly parentCase?: ParentCaseSelection;
 	readonly caseTypes: readonly CaseType[];
 	readonly language: string;
-	/** What the device worked out for the search's `_xpath_query` rows
-	 *  (`useSearchCsqlRuntime`), read when a load starts. */
-	readonly csqlRuntime?: SearchCsqlRuntimeWire;
 }): { readonly state: SearchResultsSnapshotState; readonly retry: () => void } {
 	const accessPhase = useAccessPhase();
 	const personaUuid = usePreviewPersonaUuid();
 	const claimedCaseIds = usePreviewClaimedCaseIds(personaUuid);
 	const [retries, setRetries] = useState(0);
-	const completed =
-		args.searchState?.kind === "completed" ? args.searchState : undefined;
 	const module =
 		args.moduleUuid === undefined
 			? undefined
 			: args.doc.modules[args.moduleUuid];
-	const key =
-		args.enabled &&
-		accessPhase === "authorized" &&
-		args.appId !== undefined &&
-		module?.caseType !== undefined &&
-		completed !== undefined
-			? JSON.stringify([
-					args.appId,
-					args.moduleUuid,
-					module.caseType,
-					completed.attempt,
-					completed.answers,
-					completed.registeredCaseId ?? null,
-					personaUuid ?? null,
-					args.parentCase ?? null,
-					retries,
-				])
-			: undefined;
+	const key = searchResultsSnapshotKey({
+		ready: args.enabled && accessPhase === "authorized",
+		appId: args.appId,
+		moduleUuid: args.moduleUuid,
+		caseType: module?.caseType,
+		searchState: args.searchState,
+		personaUuid,
+		parentCase: args.parentCase,
+		csqlRuntime:
+			args.searchState?.kind === "completed"
+				? args.searchState.deviceValues?.value
+				: undefined,
+		retries,
+	});
 	/* The latest inputs, read when a load starts; the key alone decides
 	 * whether one starts. */
 	const latest = useRef({ ...args, claimedCaseIds, personaUuid });
@@ -145,10 +180,10 @@ export function useSearchResultsSnapshot(args: {
 			...(input.parentCase === undefined
 				? {}
 				: { parentCase: input.parentCase }),
-			...(input.csqlRuntime === undefined ||
+			...(search.deviceValues?.value === undefined ||
 			search.registeredCaseId !== undefined
 				? {}
-				: { csqlRuntime: input.csqlRuntime }),
+				: { csqlRuntime: search.deviceValues.value }),
 			caseTypes: input.caseTypes,
 			language: input.language,
 			viewerTimeZone: viewerTimeZone(),

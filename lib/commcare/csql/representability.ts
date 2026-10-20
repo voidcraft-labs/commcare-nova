@@ -251,6 +251,12 @@ function checkQuery(node: Expression, path: Path, walk: Walk): void {
 				);
 			if (node.kind !== "eq" && node.kind !== "neq" && containsValueList(other))
 				pushValueListPlacement([...path, swapped ? "left" : "right"], issues);
+			else if (containsValueList(other) && readsMoment(anchor, walk.context))
+				pushValueListPlacement(
+					[...path, swapped ? "left" : "right"],
+					issues,
+					MOMENT_LIST_MESSAGE,
+				);
 			else if (containsValueList(other) && !admitsValueList(anchor))
 				pushValueListPlacement([...path, swapped ? "left" : "right"], issues);
 			children(node, path, walk);
@@ -670,6 +676,23 @@ function admitsValueList(anchor: Expression): boolean {
 	return true;
 }
 
+/**
+ * Whether a list's anchor is a date and time. HQ answers `p = unwrap-list(…)`
+ * on a custom property with exact text terms (`es/case_search.py::case_property_query`,
+ * `es/filters.py::term`), the text equality of finding 75, so a list can't
+ * mean the moment each item names; the system dates are refused already.
+ */
+function readsMoment(anchor: Expression, context: ExpressionContext): boolean {
+	return (
+		anchor.kind === "term" &&
+		anchor.term.kind === "prop" &&
+		scalarDataType(typeOf(anchor, context)?.data) === "datetime"
+	);
+}
+
+const MOMENT_LIST_MESSAGE =
+	"A list of values can't be compared with a date and time. CommCare's search matches each listed value by its exact text, not by the moment it names, so compare the property with each value in its own condition instead.";
+
 function containsValueList(node: Expression): boolean {
 	return node.kind === "value-list";
 }
@@ -677,13 +700,9 @@ function containsValueList(node: Expression): boolean {
 function pushValueListPlacement(
 	path: Path,
 	issues: CsqlRepresentabilityIssue[],
+	message = "A list of values can be compared only as equal or not equal to a case value.",
 ): void {
-	issues.push({
-		reason: "value-list-placement",
-		path,
-		message:
-			"A list of values can be compared only as equal or not equal to a case value.",
-	});
+	issues.push({ reason: "value-list-placement", path, message });
 }
 
 /**

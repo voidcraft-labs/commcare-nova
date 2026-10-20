@@ -436,14 +436,14 @@ export function deriveCaseSelectionDatum(args: {
 	if (args.entryMetadataOnly)
 		return { ...selection, projectionOnlySelection: true };
 	const inline = args.caseSource === "results:inline";
-	const renderBase = (): WireExpr =>
+	const build = (datumId: typeof args.datumId): WireExpr =>
 		inline
 			? inlineSearchNodeset(
 					args.caseType,
 					args.caseListFilter,
 					args.expressions,
 					args.lookupNaming,
-					args.datumId,
+					datumId,
 				)
 			: caseLoadingNodeset(
 					args.caseType,
@@ -451,8 +451,38 @@ export function deriveCaseSelectionDatum(args: {
 					args.excludedOwnerIds,
 					args.expressions,
 					args.lookupNaming,
-					args.datumId,
+					datumId,
 				);
+	/* The nodeset depends on nothing but the ids its chosen cases resolve to,
+	 * so a render whose every resolved id is unchanged (each
+	 * `refreshDatumReferences` pass that renames nothing it reads) reuses the
+	 * last one instead of lowering the filter again. */
+	let rendered:
+		| {
+				readonly reads: readonly {
+					readonly ref: DatumRef;
+					readonly id: string | undefined;
+				}[];
+				readonly base: WireExpr;
+		  }
+		| undefined;
+	const renderBase = (): WireExpr => {
+		const resolve = args.datumId;
+		if (rendered?.reads.every(({ ref, id }) => resolve?.(ref) === id))
+			return rendered.base;
+		const reads: { ref: DatumRef; id: string | undefined }[] = [];
+		const base = build(
+			resolve === undefined
+				? undefined
+				: (ref) => {
+						const id = resolve(ref);
+						reads.push({ ref, id });
+						return id;
+					},
+		);
+		rendered = { reads, base };
+		return base;
+	};
 	const renderNodeset = (parentSelection?: SessionDatum): WireExpr => {
 		const base = renderBase();
 		if (parentSelection === undefined) return base;

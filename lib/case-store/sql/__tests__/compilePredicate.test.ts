@@ -130,28 +130,52 @@ it.each([
 	).toThrow(expect.objectContaining({ reason: "mixed-property-scopes" }));
 });
 
-it("binds a list of values as one array parameter, and negates it two-valued", () => {
+const valueList = (...values: (string | number | null)[]) => ({
+	kind: "value-list" as const,
+	items: values.map((value) => term(literal(value))) as [
+		ReturnType<typeof term>,
+		...ReturnType<typeof term>[],
+	],
+});
+const compiledWhere = (predicate: Parameters<typeof compilePredicate>[0]) =>
+	db
+		.selectFrom("cases as c")
+		.select("c.case_id")
+		.where(compilePredicate(predicate, makeCtx()))
+		.compile();
+
+it("binds each listed value as its own parameter, and negates the list two-valued", () => {
 	const hostile = "x'); SELECT 1; --";
-	const list = {
-		kind: "value-list" as const,
-		items: [term(literal("a")), term(literal(hostile))] as [
-			ReturnType<typeof term>,
-			ReturnType<typeof term>,
-		],
-	};
-	const equal = db
-		.selectFrom("cases as c")
-		.select("c.case_id")
-		.where(compilePredicate(eq(prop("patient", "nickname"), list), makeCtx()))
-		.compile();
-	expect(equal.sql).toContain("= any($1)");
-	expect(equal.parameters).toEqual([["a", hostile]]);
-	const differs = db
-		.selectFrom("cases as c")
-		.select("c.case_id")
-		.where(compilePredicate(neq(prop("patient", "nickname"), list), makeCtx()))
-		.compile();
-	expect(differs.sql).toMatch(/not coalesce\(.*= any\(\$1\), false\)/);
+	const list = valueList("a", hostile, null);
+	const equal = compiledWhere(eq(prop("patient", "nickname"), list));
+	expect(equal.sql).toContain(" in ($1, $2, $3)");
+	// A literal null is the blank comparand.
+	expect(equal.parameters).toEqual(["a", hostile, ""]);
+	const differs = compiledWhere(neq(prop("patient", "nickname"), list));
+	expect(differs.sql).toMatch(/not coalesce\(.* in \(\$1, \$2, \$3\), false\)/);
+});
+
+it("reads each listed value as the anchor's type and leaves out one that is none", () => {
+	// HQ's `terms` finds no stored number equal to 'abc' or '', so neither
+	// can match; binding them against a number would fail the query.
+	const numbers = compiledWhere(
+		eq(prop("patient", "age"), valueList("3", "abc", "", 4.5, null)),
+	);
+	expect(numbers.parameters).toEqual([3, 4.5]);
+	const days = compiledWhere(
+		eq(
+			prop("patient", "dob"),
+			valueList("2026-02-28", "2026-02-30", "not a day", "2026-02-28T10:00"),
+		),
+	);
+	expect(days.parameters).toEqual(["2026-02-28", ""]);
+	expect(days.sql).toContain("in (cast(nullif($1, $2) as date))");
+});
+
+it("answers false for a list with no value of the anchor's type", () => {
+	const none = compiledWhere(eq(prop("patient", "age"), valueList("abc", "")));
+	expect(none.sql).toContain("false");
+	expect(none.parameters).toEqual([]);
 });
 
 it("binds a runtime radius and unit and never inlines them", () => {

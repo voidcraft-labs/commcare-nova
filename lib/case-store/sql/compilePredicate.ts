@@ -73,10 +73,13 @@ import {
 	canonicalizeRelationPath,
 	normalizeRelationEvaluationScopes,
 } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { literalShape } from "@/lib/domain/expression/ruleSets";
 import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
 import type {
 	ComparisonKind,
 	Expression as DomainExpression,
+	Literal,
 	MultiSelectQuantifier,
 	PropertyRef,
 	Term,
@@ -434,19 +437,24 @@ function compileEquality(
 
 /**
  * `p = unwrap-list(...)`, HQ's exact any-of (`es/filters.py::term` turns a
- * list into `terms`): `p = any(<array>)`, the items bound as one array
- * parameter. A row whose `p` is absent matches no item, as HQ's `terms`
- * finds no value there, and `!=` is the two-valued negation of this atom
- * (`not coalesce(p = any(...), false)`), HQ's `NOT(terms)`. Each item is
- * decided before the query runs: a CSQL slot's fold has already made a
- * runtime item, and a node-set item's values, literal.
+ * list into `terms`): `p in (<item>, …)`, each item a bound literal of the
+ * anchor's type, compiled as `compileOrderedComparison` compiles one. An item
+ * that can't be read as that type (`'abc'` or `''` against a number, a date
+ * that names no day) matches nothing, as no stored value equals it in HQ's
+ * `terms`, so it is left out, and a list with no readable item is false. A
+ * row whose `p` is absent matches no item, and `!=` is the two-valued
+ * negation of this atom (`not coalesce(p in (...), false)`), HQ's
+ * `NOT(terms)`. Each item is decided before the query runs: a CSQL slot's
+ * fold has already made a runtime item, and a node-set item's values,
+ * literal.
  */
 function compileValueListEquality(
 	anchor: DomainExpression,
 	list: Extract<DomainExpression, { kind: "value-list" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	const items: unknown[] = [];
+	const type = scalarDataType(typeOf(anchor, recordQueryContextFor(ctx))?.data);
+	const items: DomainExpression[] = [];
 	for (const item of list.items) {
 		const value = decidedListItem(item, ctx);
 		if (value === undefined)
@@ -458,14 +466,95 @@ function compileValueListEquality(
 						"A list of values reaches Postgres only in a CSQL slot, whose fold makes every item a literal first.",
 				}),
 			);
-		// A literal null is the blank comparand, as every reader prints it.
-		items.push(value ?? "");
+		const literal = listItemAs(value, type);
+		if (literal !== undefined) items.push({ kind: "term", term: literal });
 	}
-	return eb(
-		compileValueExprOperand(anchor, ctx),
-		"=",
-		eb.fn("any", [eb.val(items)]),
+	if (items.length === 0) return eb.lit(false) as Expression<SqlBool>;
+	const [compiledAnchor, ...compiledItems] = compileTemporalValues(
+		[anchor, ...items],
+		expressionContextFor(ctx),
 	);
+	return eb(compiledAnchor, "in", compiledItems);
+}
+
+/**
+ * One list item as a literal of the anchor's type, or `undefined` where its
+ * value can't be read as one. A literal `null` is the blank comparand, as
+ * every reader prints it.
+ */
+function listItemAs(
+	value: FormFieldBindingValue,
+	type: ReturnType<typeof scalarDataType>,
+): Literal | undefined {
+	const text =
+		value === null
+			? ""
+			: typeof value === "number"
+				? formatNumeric(value)
+				: typeof value === "string"
+					? value
+					: typeof value === "boolean"
+						? String(value)
+						: undefined;
+	if (text === undefined) return undefined;
+	switch (type) {
+		case "int":
+		case "decimal": {
+			if (typeof value === "number")
+				return Number.isFinite(value) ? { kind: "literal", value } : undefined;
+			const trimmed = text.trim();
+			const number = Number(trimmed);
+			return trimmed !== "" && Number.isFinite(number)
+				? { kind: "literal", value: number }
+				: undefined;
+		}
+		case "date":
+		case "datetime":
+		case "time":
+			return literalShape(text)?.type === type && namesInstant(text, type)
+				? { kind: "literal", value: text, data_type: type }
+				: undefined;
+		default:
+			return { kind: "literal", value: text };
+	}
+}
+
+/**
+ * Whether text of a date, date and time or time shape names one: a day the
+ * calendar has and a time of day on the clock, so its cast can't fail the
+ * query.
+ */
+function namesInstant(
+	text: string,
+	type: "date" | "datetime" | "time",
+): boolean {
+	const [datePart, timePart] =
+		type === "time"
+			? [undefined, text]
+			: type === "date"
+				? [text, undefined]
+				: [text.slice(0, 10), text.slice(11)];
+	if (datePart !== undefined) {
+		const [year, month, day] = datePart.split("-").map(Number);
+		if (year === undefined || month === undefined || day === undefined)
+			return false;
+		const date = new Date(Date.UTC(year, month - 1, day));
+		if (
+			date.getUTCFullYear() !== year ||
+			date.getUTCMonth() !== month - 1 ||
+			date.getUTCDate() !== day
+		)
+			return false;
+	}
+	if (timePart !== undefined) {
+		const [hours, minutes, seconds] = timePart
+			.slice(0, 8)
+			.split(":")
+			.map((part) => Number.parseInt(part, 10));
+		if (hours === undefined || minutes === undefined) return false;
+		if (hours > 23 || minutes > 59 || (seconds ?? 0) > 59) return false;
+	}
+	return true;
 }
 
 /** A list item's value when it is decided before the query runs. */

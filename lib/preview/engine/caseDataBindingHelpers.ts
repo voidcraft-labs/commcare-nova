@@ -57,6 +57,10 @@ import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
+import {
+	type LookupWireNaming,
+	lookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
 import { fieldBindType } from "@/lib/commcare/xform/bindType";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
@@ -658,6 +662,7 @@ async function countAuthoredCasePopulation(
 					query: args.searchCsql.authored ?? { kind: "match-all" },
 					authored: args.searchCsql.authored,
 					readsAnswers: false,
+					unfoldedDeviceRead: false,
 				},
 	);
 	return store.count({
@@ -2557,16 +2562,32 @@ export async function loadLookupTableSchemas(
 	scope: LookupScope,
 	tableIds: readonly LookupTableId[],
 ): Promise<LookupTableSchemas | undefined> {
+	return (await loadLookupDefinitionsFor(scope, tableIds))?.schemas;
+}
+
+/** The rows-free definitions of the tables a read names: their column types
+ * for the compiler, and their wire naming, which types a search clause's
+ * lookup reads as the browser's evaluation typed them. */
+export async function loadLookupDefinitionsFor(
+	scope: LookupScope,
+	tableIds: readonly LookupTableId[],
+): Promise<
+	| { readonly schemas: LookupTableSchemas; readonly naming: LookupWireNaming }
+	| undefined
+> {
 	if (tableIds.length === 0) return undefined;
 	const snapshot = await getLookupDefinitions(scope, tableIds);
-	return new Map(
-		snapshot.definitions.map((table) => [
-			table.id as string,
-			new Map(
-				table.columns.map((column) => [column.id as string, column.dataType]),
-			),
-		]),
-	);
+	return {
+		schemas: new Map(
+			snapshot.definitions.map((table) => [
+				table.id as string,
+				new Map(
+					table.columns.map((column) => [column.id as string, column.dataType]),
+				),
+			]),
+		),
+		naming: lookupWireNaming(snapshot.definitions),
+	};
 }
 
 /**

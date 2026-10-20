@@ -28,6 +28,7 @@ import {
 	csqlRuntimeRow,
 	foldCsqlRuntime,
 } from "@/lib/commcare/csql/fold";
+import { csqlClauseWrapper } from "@/lib/commcare/csql/print";
 import { isSilentRuntimeCsqlRejection } from "@/lib/commcare/csql/segment";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import { caseListStepDatumId } from "@/lib/commcare/formLinkProjection";
@@ -48,19 +49,23 @@ import {
 	searchRuntimeValidationKinds,
 	type Uuid,
 } from "@/lib/domain";
-import type { Expression } from "@/lib/domain/expression/types";
+import { expressionChildren } from "@/lib/domain/expression/children";
+import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
+import { csqlRuntimeRoots } from "@/lib/domain/expression/csqlPositions";
+import type { Expression, Term } from "@/lib/domain/expression/types";
 import { expressionReferencesAnySearchInput } from "@/lib/domain/expression/walk";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "../xpath/runtimeValues";
-import type { EvalContext } from "../xpath/types";
+import type { EvalContext, XPathValue } from "../xpath/types";
 import type { PreviewSearchSessionValues } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
 import {
 	type SearchInputValues,
 	searchInputInstanceValues,
 } from "./runtimeBindings";
+import type { SearchScreenXPath } from "./searchExpressionEvaluation";
 import {
 	type CaseDatabaseSnapshot,
 	caseDatabaseXPathInstance,
@@ -76,13 +81,21 @@ import {
  * `refusal` is the kind of the first obligation that holds with no prompt to
  * blame and a message for the worker (06-csql.md §5): the Results read shows
  * its message (`searchRuntimeGlobalValidationMessage`), as it does for one
- * the server judges itself, rather than an empty list.
+ * the server judges itself, rather than an empty list. `unevaluated` says
+ * Preview's evaluator could not work out what the device sends for some row
+ * (a function only the XPath worker's Java engine runs), so the Results read
+ * refuses the search rather than answer it without that row.
  */
 export interface SearchCsqlRuntimeWire {
 	readonly segments: Readonly<Record<string, string>>;
 	readonly choices: Readonly<Record<string, boolean>>;
 	readonly refusal?: SearchRuntimeValidationKind;
+	readonly unevaluated?: true;
 }
+
+/** The Results read's answer to a search Preview could not work out. */
+export const SEARCH_CSQL_UNEVALUATED_MESSAGE =
+	"Preview can't work out a value this search builds on the device, so it can't show what the search finds. On a device or in Web Apps, the search runs as built.";
 
 /** What the device holds while it builds the search request. */
 export interface SearchCsqlWorld {
@@ -117,14 +130,40 @@ function searchCsqlClauses(
 }
 
 /**
+ * Where a piece Preview's synchronous evaluator can't run is evaluated: the
+ * Search screen's XPath worker, which runs the device's Java Pattern engine
+ * (`engineController.ts::evaluateSearchScreenXPath`). It throws for a piece
+ * the worker can't run either.
+ *
+ * It takes no abort signal. Cancelling a worker request terminates the
+ * worker (`workerClient.ts`: a synchronous Pattern evaluation can't read a
+ * cancel message, so termination is the only way to stop it), and with it
+ * every other request the Search screen has in flight. A superseded
+ * evaluation instead stops sending pieces and its result is dropped, and the
+ * worker stays.
+ */
+export type SearchCsqlDeviceEvaluator = (
+	xpath: SearchScreenXPath,
+) => Promise<XPathValue>;
+
+/**
  * Evaluate a search's runtime pieces over the Search screen's world.
  * `undefined` when the search has no clause to fold. A clause the emitter
  * cannot write yet (a lookup the held snapshot does not name) contributes
  * nothing, and the server leaves it to the store as authored.
+ *
+ * Each piece runs in Preview's synchronous evaluator first, which holds
+ * every function but the ones only the XPath worker runs (a pattern the
+ * author wrote, encryption); those go to `onDevice`. Without one (App Tests'
+ * server reads, which hold no Java Pattern engine), or where the worker
+ * fails too, the piece has no value. Once `signal` aborts, no further piece
+ * goes to the worker.
  */
-export function evaluateSearchCsqlRuntime(
+export async function evaluateSearchCsqlRuntime(
 	world: SearchCsqlWorld,
-): SearchCsqlRuntimeWire | undefined {
+	onDevice?: SearchCsqlDeviceEvaluator,
+	signal?: AbortSignal,
+): Promise<SearchCsqlRuntimeWire | undefined> {
 	const clauses = searchCsqlClauses(
 		world.doc,
 		world.moduleUuid,
@@ -145,20 +184,25 @@ export function evaluateSearchCsqlRuntime(
 					},
 				}),
 	};
-	const context = evalContext(searchCsqlInstances(world));
-	/* A read Preview's evaluator cannot run (a function only the XPath
-	 * worker's Java engine has) gives no value, and the server leaves its node
-	 * to the store as authored. */
-	const run = (wire: WireExpr) => {
+	const instances = searchCsqlInstances(world);
+	const context = evalContext(instances);
+	const run = async (wire: WireExpr): Promise<XPathValue | undefined> => {
+		const source = serializeWire(wire, { target: "suite" }).text;
 		try {
-			return evaluate(serializeWire(wire, { target: "suite" }).text, context);
+			return evaluate(source, context);
 		} catch {
-			return undefined;
+			if (onDevice === undefined || signal?.aborted === true) return undefined;
+			try {
+				return await onDevice({ source, instances });
+			} catch {
+				return undefined;
+			}
 		}
 	};
 	const segments: Record<string, string> = {};
 	const choices: Record<string, boolean> = {};
 	let refusal: SearchRuntimeValidationKind | undefined;
+	let unevaluated = false;
 	for (const [row, clause] of clauses.entries()) {
 		let tree: ReturnType<typeof emitCsqlTree>;
 		try {
@@ -169,30 +213,29 @@ export function evaluateSearchCsqlRuntime(
 		} catch {
 			continue;
 		}
+		/* The device evaluates the row's whole wrapper, each choice's untaken
+		 * branch left alone (Preview's `if` is as lazy as Core's). Where Preview
+		 * cannot, it cannot say what the device sends. */
+		if ((await run(csqlClauseWrapper(tree).wrapper)) === undefined)
+			unevaluated = true;
 		const { reads, rejections } = csqlRuntimeRow(tree);
-		const listItems: string[] = [];
 		for (const segment of reads.segments) {
-			const value = run(segment.value);
-			if (value === undefined) continue;
-			const text = xpathToString(value);
-			segments[rowKey(row, segment.key)] = text;
-			if (segment.listItem) listItems.push(...text.split('","'));
+			const value = await run(segment.value);
+			if (value !== undefined)
+				segments[rowKey(row, segment.key)] = xpathToString(value);
 		}
 		for (const choice of reads.choices) {
-			const value = run(choice.condition);
+			const value = await run(choice.condition);
 			if (value !== undefined)
 				choices[rowKey(row, choice.key)] = toBoolean(value);
 		}
 		let rejected = false;
 		for (const rejection of rejections) {
-			const holds =
-				rejection.kind === "list-item"
-					? listItems.some(breaksList)
-					: (() => {
-							const value = run(rejection.condition);
-							return value !== undefined && toBoolean(value);
-						})();
-			if (!holds) continue;
+			// Each obligation as the emitter wrote it: its own guard (the
+			// condition that picks its branch, the input's presence) and its own
+			// reads, as Core judges it.
+			const value = await run(rejection.condition);
+			if (value === undefined || !toBoolean(value)) continue;
 			rejected = true;
 			if (
 				refusal === undefined &&
@@ -203,30 +246,12 @@ export function evaluateSearchCsqlRuntime(
 		}
 		if (rejected) choices[rowKey(row)] = true;
 	}
-	return { segments, choices, ...(refusal === undefined ? {} : { refusal }) };
-}
-
-/**
- * Whether a list item's text would break the JSON list or the CSQL literal
- * around it: a double quote, a backslash, an ASCII control character or a
- * single quote. The `list-item` obligation's own condition is Java's
- * `regex(v, '["\\p{Cntrl}]') or contains(v, "'")`, which Preview's
- * evaluator cannot run (`regex` needs the XPath worker), so its meaning is
- * decided here over the same values.
- */
-function breaksList(value: string): boolean {
-	for (const char of value) {
-		const code = char.codePointAt(0) ?? 0;
-		if (
-			char === '"' ||
-			char === "\\" ||
-			char === "'" ||
-			code < 0x20 ||
-			code === 0x7f
-		)
-			return true;
-	}
-	return false;
+	return {
+		segments,
+		choices,
+		...(refusal === undefined ? {} : { refusal }),
+		...(unevaluated ? { unevaluated: true as const } : {}),
+	};
 }
 
 /** The instances the device's query screen evaluates the request in. */
@@ -308,20 +333,32 @@ export interface SearchCsqlQuery {
 	readonly authored: Expression | undefined;
 	/** Whether a row reads an answer, so the worker's search narrows it. */
 	readonly readsAnswers: boolean;
+	/** Whether a row still holds a read of what only the device holds (its
+	 * cases, chosen cases, places, a query's projection) because no value
+	 * arrived for it: the store can't compile one, so the read refuses. */
+	readonly unfoldedDeviceRead: boolean;
 }
 
 /**
  * The search's rows folded with the device's values: what HQ's search is
  * asked once the device has built the request. `undefined` when the search
- * has no row.
+ * has no row. `lookupNaming` names the lookup tables the rows read, as the
+ * browser's evaluation named them (`world.lookup.naming`), so both sides
+ * compose each clause in one context and key its pieces alike.
  */
 export function foldSearchCsql(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	caseListConfig: CaseListConfig,
 	wire: SearchCsqlRuntimeWire,
+	lookupNaming?: LookupWireNaming,
 ): SearchCsqlQuery | undefined {
-	const clauses = searchCsqlClauses(doc, moduleUuid, caseListConfig);
+	const clauses = searchCsqlClauses(
+		doc,
+		moduleUuid,
+		caseListConfig,
+		lookupNaming,
+	);
 	if (clauses === undefined) return undefined;
 	const rows = clauses.map((clause, row) => ({
 		readsAnswers: expressionReferencesAnySearchInput(clause.expression),
@@ -330,12 +367,69 @@ export function foldSearchCsql(
 		}),
 	}));
 	return {
+		unfoldedDeviceRead: rows.some((row) =>
+			csqlRuntimeRoots(row.folded).some((root) => readsDeviceData(root.node)),
+		),
 		query: conjunction(rows.map((row) => row.folded)) ?? { kind: "match-all" },
 		authored: conjunction(
 			rows.filter((row) => !row.readsAnswers).map((row) => row.folded),
 		),
 		readsAnswers: rows.some((row) => row.readsAnswers),
 	};
+}
+
+/**
+ * Whether a runtime piece reads what only the device holds: a query over its
+ * cases, chosen cases or places, or a projection of one. The chosen case's
+ * property is the one projection the store reads itself, from that case's
+ * row with its id bound (part 07 §5.1).
+ */
+function readsDeviceData(node: Expression | Term): boolean {
+	if (node.kind === "project" && readChosenCaseProperty(node) !== undefined)
+		return false;
+	switch (node.kind) {
+		case "cases":
+		case "selected-cases":
+		case "locations":
+		case "project":
+			return true;
+		default:
+			return expressionChildren(node).some(
+				(child) => child.kind !== "relation" && readsDeviceData(child.value),
+			);
+	}
+}
+
+/** The search of a read keyed by case ids: the case the no-matches form
+ * registered, which the device shows by its id (the wire's return frame),
+ * not by the search, so no row of the search applies. */
+const KEYED_SEARCH_CSQL: SearchCsqlQuery = {
+	query: { kind: "match-all" },
+	authored: undefined,
+	readsAnswers: false,
+	unfoldedDeviceRead: false,
+};
+
+/**
+ * The search rows one Results read compiles: none for a read keyed by case
+ * ids (`keyed`), the rows folded with the browser's values otherwise.
+ */
+export function searchCsqlForRead(args: {
+	readonly keyed: boolean;
+	readonly doc: BlueprintDoc;
+	readonly moduleUuid: Uuid;
+	readonly caseListConfig: CaseListConfig;
+	readonly wire: SearchCsqlRuntimeWire | undefined;
+	readonly lookupNaming?: LookupWireNaming;
+}): SearchCsqlQuery | undefined {
+	if (args.keyed) return KEYED_SEARCH_CSQL;
+	return foldSearchCsql(
+		args.doc,
+		args.moduleUuid,
+		args.caseListConfig,
+		args.wire ?? { segments: {}, choices: {} },
+		args.lookupNaming,
+	);
 }
 
 function conjunction(clauses: readonly Expression[]): Expression | undefined {
@@ -356,17 +450,22 @@ export function parseSearchCsqlRuntimeWire(
 	if (value === undefined) return undefined;
 	if (typeof value !== "object" || value === null)
 		throw new SearchCsqlRuntimeError();
-	const { segments, choices, refusal } = value as Record<string, unknown>;
+	const { segments, choices, refusal, unevaluated } = value as Record<
+		string,
+		unknown
+	>;
 	if (
 		!plainRecord(segments, (entry) => typeof entry === "string") ||
 		!plainRecord(choices, (entry) => typeof entry === "boolean") ||
-		!(refusal === undefined || isSearchRuntimeValidationKind(refusal))
+		!(refusal === undefined || isSearchRuntimeValidationKind(refusal)) ||
+		!(unevaluated === undefined || unevaluated === true)
 	)
 		throw new SearchCsqlRuntimeError();
 	return {
 		segments: segments as Record<string, string>,
 		choices: choices as Record<string, boolean>,
 		...(refusal === undefined ? {} : { refusal }),
+		...(unevaluated === true ? { unevaluated } : {}),
 	};
 }
 
@@ -428,7 +527,7 @@ export class ChosenCaseIdsError extends Error {
 export class SearchCsqlRuntimeError extends Error {
 	constructor() {
 		super(
-			"The values this search worked out on the device didn't arrive as text and true-or-false answers keyed by search clause, with at most one known kind of check that failed. Look at what the Search screen sent with the Results read.",
+			"The values this search worked out on the device didn't arrive as text and true-or-false answers keyed by search clause, with at most one known kind of check that failed and an optional mark that a clause couldn't be worked out. Look at what the Search screen sent with the Results read.",
 		);
 		this.name = "SearchCsqlRuntimeError";
 	}

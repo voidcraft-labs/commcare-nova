@@ -242,6 +242,21 @@ const rows: readonly Row[] = [
 		],
 	],
 	[
+		"a switch whose selector reads the row is a query throughout",
+		switchExpr(
+			term(prop("person", "status")),
+			[switchCase(literal("lead"), { kind: "match-all" })],
+			eq(name, literal("x")),
+		),
+		[
+			[[], "query"],
+			[["switch", "on"], "anchor"],
+			[["switch", "cases", 0, "when"], "server-value"],
+			[["switch", "cases", 0, "then"], "query"],
+			[["switch", "fallback"], "query"],
+		],
+	],
+	[
 		"a presence gate's trigger is read on the device",
 		whenInput(input(SEARCH), eq(name, term(input(SEARCH)))),
 		[

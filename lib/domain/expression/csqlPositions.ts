@@ -24,7 +24,9 @@
  * literal nor (in `server-value` only) one of HQ's value functions is
  * `runtime`. `today` is `runtime` everywhere (the worker's day, decision 6).
  * A choice the device makes between clauses has a `runtime` condition, and a
- * query-position clause that reads no case row is `runtime` whole.
+ * query-position clause that reads no case row is `runtime` whole. An `if`
+ * whose condition reads the row, and a `switch` whose selector does, are
+ * HQ's own clauses instead.
  *
  * Positions are keyed by the node's checker path (`CheckPath`, the path
  * `children.ts::expressionChildren` gives each child) through
@@ -239,6 +241,11 @@ function query(node: Expression, path: CheckPath, analysis: Analysis): void {
 			return;
 		}
 		if (node.kind === "switch") {
+			// Each case's condition is `on = when`. A selector that reads the row
+			// makes the choice HQ's own, case by case, as `if` does: `on` is the
+			// comparisons' query side and each `when` their value. Otherwise the
+			// device decides every case.
+			const native = readsSearchRow(node.on);
 			for (const child of children) {
 				if (child.kind === "relation") continue;
 				const branch =
@@ -246,7 +253,10 @@ function query(node: Expression, path: CheckPath, analysis: Analysis): void {
 					(child.role.kind === "operand" && child.role.slot === "fallback");
 				if (branch && child.kind === "expression")
 					query(child.value, child.path, analysis);
-				else runtime(child.value, child.path, "query", analysis);
+				else if (!native) runtime(child.value, child.path, "query", analysis);
+				else if (child.role.kind === "operand" && child.role.slot === "on")
+					anchor(child, analysis);
+				else value(child, "server-value", analysis);
 			}
 			return;
 		}

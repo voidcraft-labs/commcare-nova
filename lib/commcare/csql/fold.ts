@@ -70,8 +70,6 @@ export interface CsqlRuntimeReads {
 	readonly segments: readonly {
 		readonly key: string;
 		readonly value: WireExpr;
-		/** An `unwrap-list` item, which the `list-item` obligation holds. */
-		readonly listItem?: true;
 	}[];
 	readonly choices: readonly {
 		readonly key: string;
@@ -93,7 +91,7 @@ export interface CsqlRuntimeRow {
  * nodes is read as the device splices it, its values joined by `","`.
  */
 export function csqlRuntimeReads(tree: CsqlNode): CsqlRuntimeReads {
-	const segments: { key: string; value: WireExpr; listItem?: true }[] = [];
+	const segments: { key: string; value: WireExpr }[] = [];
 	const choices: { key: string; condition: WireExpr }[] = [];
 	const visit = (node: CsqlNode): void => {
 		switch (node.k) {
@@ -126,7 +124,6 @@ export function csqlRuntimeReads(tree: CsqlNode): CsqlRuntimeReads {
 						segments.push({
 							key: item.hole.key,
 							value: item.hole.print ?? item.hole.value,
-							listItem: true,
 						});
 				return;
 			case "runtime":
@@ -402,7 +399,9 @@ class Fold {
 
 	/** A runtime list item becomes its text; one that reads several nodes
 	 * becomes one item per node, as the device splices them `","`-joined
-	 * (the `list-item` obligation keeps a `"` out of every value). */
+	 * (the `list-item` obligation keeps a `"` out of every value). A node-set
+	 * that reads no node joins to `''`, so the device sends `[""]` there: one
+	 * blank item, exactly as it does for one blank node. */
 	private valueList(
 		node: Extract<Expression, { kind: "value-list" }>,
 		path: CheckPath,
@@ -431,13 +430,11 @@ class Fold {
 				items.push({ kind: "term", term: literalOf(text, item, types) });
 				continue;
 			}
-			if (text === "") continue;
 			for (const value of text.split('","'))
 				items.push({ kind: "term", term: { kind: "literal", value } });
 		}
+		// Every authored item gave at least one item above.
 		const [first, ...rest] = items;
-		// A node-set that read no node and no other item: nothing the list
-		// can hold, so the node stays as the device left it.
 		if (first === undefined) return node;
 		return { ...node, items: [first, ...rest] };
 	}

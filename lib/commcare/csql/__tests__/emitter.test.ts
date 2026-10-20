@@ -20,6 +20,7 @@ import {
 	exists,
 	gt,
 	gte,
+	ifExpr,
 	input,
 	isBlank,
 	isIn,
@@ -40,6 +41,8 @@ import {
 	selfPath,
 	sessionUserProperty,
 	subcasePath,
+	switchCase,
+	switchExpr,
 	term,
 	today as todayValue,
 } from "@/lib/domain/expression/builders";
@@ -366,4 +369,25 @@ it("sends today as the worker's day, a runtime segment between fixed quotes that
 	expect(emitCsql(predicate, csqlFixtureContext()).runtimeRejections).toBe(
 		undefined,
 	);
+});
+
+it("writes a switch on the row's own value as HQ's own clause, as the if it stands for", () => {
+	// Part 06 §3.10: a condition that reads the row makes the choice native,
+	// `((c) and (A)) or (not(c) and (B))`, case by case for a switch.
+	const switched = switchExpr(
+		term(name),
+		[
+			switchCase(literal("Ada"), gt(age, literal(18))),
+			switchCase(literal("Bea"), matchAll()),
+		],
+		lt(age, literal(5)),
+	);
+	const nested = ifExpr(
+		eq(name, literal("Ada")),
+		gt(age, literal(18)),
+		ifExpr(eq(name, literal("Bea")), matchAll(), lt(age, literal(5))),
+	);
+	const emitted = emitCsql(switched, contextFor(switched));
+	expect(emitted.wrapper.k).toBe("str");
+	expect(emitted).toEqual(emitCsql(nested, contextFor(nested)));
 });
