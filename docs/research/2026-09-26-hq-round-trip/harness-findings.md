@@ -1270,7 +1270,7 @@ shown. It has a targeted document with its register entries and its control.
     the device lists the cases Preview lists. Its two entries are in the
     fixed-defect register, held on the control `targeted-datetime-equality`.
 
-    *Fixed (#<PR 10>):* a search's `=`, `!=` and `in` on a date and time
+    *Fixed (#785):* a search's `=`, `!=` and `in` on a date and time
     are a closed instant range (`(p >= v and p <= v)`,
     `lib/commcare/csql/emitter.ts`), which HQ's range query reads in every
     spelling, and a date-and-time literal is held to milliseconds
