@@ -86,7 +86,8 @@ defects 11 (its second half), 18, 19 and 20.
      `TreeUtilities.java::tryBatchChildFetch`), or row by row with the row as
      context (`EvaluationContext.java::expandReferenceAccumulator`), where a
      read of the slot's own repeat names every entry. Step 3's checker reads
-     such a read in the slot's context (its part 03 §3.4); this step decides
+     such a read in the slot's context (`lib/domain/expression/typeChecker.ts`,
+     its `many-values` rule); this step decides
      the read by the evaluation Core gives it, or spells it `current()/…`,
      which names the entry under both.
 

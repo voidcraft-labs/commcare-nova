@@ -91,10 +91,6 @@ RUN npx esbuild scripts/migrate-schema-drift.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=schema-drift.cjs
-RUN npx esbuild scripts/migrate-hq-round-trip-expressions.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=hq-round-trip-expressions.cjs
 RUN npx esbuild scripts/migrate-legacy-preplan-builds.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \

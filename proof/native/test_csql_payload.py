@@ -15,10 +15,10 @@ finds are held to the fixture's.
 Every query runs under each of ``CONFIGURATIONS``: without
 ``CASE_SEARCH_RELATED_LOOKUPS``, where a search the fixture marks
 ``relatedLookups`` is refused and every other must still find its ids (the
-flag-free ancestor case id among them, part 06 §3.12); with the flag; and with
+flag-free ancestor case id among them); with the flag; and with
 the project's ``default_timezone`` set to a zone none of the device zones
 shares, which no search may read (the worker's ``today()`` is the device's
-date, part 06 §3.4). Where a scenario's searches measure distance, its
+date). Where a scenario's searches measure distance, its
 project space is configured as Nova's publish steps ask a person to
 configure it: each property they name (``gpsProperties``, from
 ``lib/commcare/distanceSearches.ts::distanceSearchProperties``) has the GPS
@@ -33,10 +33,10 @@ where Nova means an instant, a raw term HQ's index refuses, a value HQ reads
 in its own day or zone, a query that needs a flag Nova did not ask for, and a
 query HQ compiles and then finds a different set of cases with.
 
-``datetime-equality`` (part 06 §3.13, finding 75) also keeps the gate the
+``datetime-equality`` (finding 75) also keeps the gate the
 emitter's closed instant range was cleared by: the range itself, written here
-by hand in each spelling it may carry (``PROBES``), held to what the plan's
-reading of HQ predicts. Every query's answer is recorded
+by hand in each spelling it may carry (``PROBES``), held to what a reading of
+HQ's range query predicts. Every query's answer is recorded
 (``csql-payload.evidence.json`` beside the family's artifacts, and a table in
 the log), so a disagreement shows what HQ found.
 """
@@ -74,8 +74,7 @@ CONFIGURATIONS = (
     ("project-zone", frozenset({ADVANCED}), PROJECT_ZONE),
 )
 
-# From pull request 10 the query Nova emits for a datetime equality is the
-# closed range (part 06 §3.13), and HQ's search over every emitted query must
+# The query Nova emits for a datetime equality is the closed range, and HQ's search over every emitted query must
 # find the fixture's expected ids. Recorded in the evidence.
 EMITTER_WRITES_RANGES = True
 
@@ -135,7 +134,7 @@ OPENED_MISSES = {"millisecond-later-zulu": _quoted("2026-01-02T09:30:00.001Z")}
 
 
 def _datetime_equality_probes():
-    """The closed ranges part 06 §3.13 plans, by hand, with what its reading of HQ predicts each finds."""
+    """The closed ranges the emitter writes, by hand, with what a reading of HQ's range query predicts each finds."""
     probes = []
     for name, value in SEEN_SPELLINGS.items():
         probes.append((f"eq/seen/{name}", _eq("seen", value), AT_INSTANT))

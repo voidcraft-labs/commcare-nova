@@ -138,46 +138,6 @@ class JobExecutionTests(unittest.TestCase):
             with self.assertRaises(deploy.DeploymentPolicyError):
                 deploy._effective_execution_args(JOB, args)
 
-    def test_hq_round_trip_expressions_admits_its_runbook_shapes_and_nothing_else(self):
-        historical = "commcare-nova-historical-repair"
-        tool = "hq-round-trip-expressions.cjs"
-        digest = "0123456789abcdef" * 4
-        # The Job's stored args stay the language repair's dry run, so the
-        # cutover's dry run is always an explicit override.
-        self.assertEqual(
-            deploy._effective_execution_args(historical, []), ("language-identity-repair.cjs",),
-        )
-        for args in (
-            [tool],
-            [tool, "--settle-holders"],
-            [tool, "--execute", "--expect-plan-digest", digest],
-            ["language-identity-repair.cjs"],
-            ["language-identity-repair.cjs", "--execute"],
-        ):
-            with self.subTest(args=args):
-                self.assertEqual(deploy._effective_execution_args(historical, args), tuple(args))
-        for args in (
-            [tool, "--rehearse"],
-            [tool, "--execute"],
-            [tool, "--execute", "--expect-plan-digest"],
-            [tool, "--execute", "--expect-plan-digest", digest[:-1]],
-            [tool, "--execute", "--expect-plan-digest", digest + "0"],
-            [tool, "--execute", "--expect-plan-digest", digest.upper()],
-            [tool, "--execute", "--expect-plan-digest", digest + "\n"],
-            [tool, "--execute", "--expect-plan-digest", digest, "--rehearse"],
-            [tool, "--expect-plan-digest", digest, "--execute"],
-            [tool, "--settle-holders", "--execute"],
-            [tool, "--prod"],
-            [tool, "--debug-details"],
-            [tool, "--rehearse", "--execute", "--expect-plan-digest", digest],
-            ["language-identity-repair.cjs", "--settle-holders"],
-        ):
-            with self.subTest(args=args), self.assertRaises(deploy.DeploymentPolicyError):
-                deploy._effective_execution_args(historical, args)
-        for job in ("commcare-nova-migrate", "commcare-nova-case-type-schema-retirement"):
-            with self.subTest(job=job), self.assertRaises(deploy.DeploymentPolicyError):
-                deploy._effective_execution_args(job, [tool])
-
 
 class MigrationAdmissionTests(unittest.TestCase):
     def admit(self, image=IMAGE):

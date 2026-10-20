@@ -3822,8 +3822,8 @@ decoded text and child order.
   expected ids (a search the fixture marks as reading related cases is
   refused without the flag), and `csqlComposition.postgres.test.ts` holds
   Preview's Postgres to the same ids. Its `datetime-equality` scenario holds
-  finding 75's HQ half, and also sends the closed instant ranges part 06
-  §3.13 was cleared by, written by hand in every spelling a bound may carry.
+  finding 75's HQ half, and also sends the closed instant ranges the
+  emitter's range was cleared by, written by hand in every spelling a bound may carry.
   Every answer is in `csql/csql-payload.evidence.json` and printed as a
   table.
 

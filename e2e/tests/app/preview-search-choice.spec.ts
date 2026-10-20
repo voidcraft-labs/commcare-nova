@@ -4,7 +4,7 @@ import { SEARCH_CHOICE_SEED } from "../../lib/previewRuntimeSeeds";
 /**
  * A search field's condition that depends on another answer, with its
  * distance read from an answer, finds what Preview's search finds over real
- * case rows (docs/plans/hq-round-trip/3-expressions/06-csql.md §9).
+ * case rows.
  *
  * The Radius field starts as "once answered, a site's home is within 2 km of
  * 0 0". The journey makes that condition depend on a condition: while Area is
