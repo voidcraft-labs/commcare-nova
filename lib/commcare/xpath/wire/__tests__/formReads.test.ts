@@ -11,6 +11,7 @@ import { formNodeProjection } from "../../formNodeProjection";
 import { w } from "../builders";
 import { formReads } from "../formReads";
 import { toWire } from "../fromExpression";
+import { serializeWire } from "../serialize";
 
 const FORM = testUuid("wire-form");
 const OUTER = testUuid("wire-outer");
@@ -299,5 +300,65 @@ describe("form reads use native identity coordinates", () => {
 			{ node: { kind: "field", uuid: INNER }, kind: "cardinality" },
 			{ node: { kind: "field", uuid: SOURCE }, kind: "value" },
 		]);
+	});
+
+	it("gives an authored /data read the Vellum shadow its #form twin gets", () => {
+		const { lower } = fixture();
+		const read = (spelling?: "absolute"): Expression => ({
+			kind: "term",
+			term: {
+				kind: "field",
+				uuid: SOURCE,
+				...(spelling === undefined ? {} : { spelling }),
+			},
+		});
+		const runtime = { target: "xform", constraint: false } as const;
+		const shadow = { target: "vellum", constraint: false } as const;
+		const absolute = lower(read("absolute"));
+		const hashtag = lower(read());
+		expect(serializeWire(absolute, runtime).text).toBe(
+			"/data/outer/item/source",
+		);
+		expect(serializeWire(hashtag, runtime).text).toBe(
+			"/data/outer/item/source",
+		);
+		expect(serializeWire(absolute, shadow)?.text).toBe(
+			"#form/outer/item/source",
+		);
+		expect(serializeWire(hashtag, shadow)?.text).toBe(
+			"#form/outer/item/source",
+		);
+	});
+
+	it("withholds the shadow of a filtered /data read exactly like its #form twin", () => {
+		const { lower } = fixture();
+		// The filtered read sits beside a plain `#form` read, which alone would
+		// earn a shadow: only the filtered step's withholding keeps it absent.
+		const read = (spelling?: "absolute"): Expression => ({
+			kind: "arith",
+			op: "+",
+			left: {
+				kind: "term",
+				term: {
+					kind: "field",
+					uuid: SOURCE,
+					...(spelling === undefined ? {} : { spelling }),
+					filters: [{ step: { kind: "field", uuid: OUTER }, where: [truth] }],
+				},
+			},
+			right: { kind: "term", term: { kind: "field", uuid: SOURCE } },
+		});
+		const runtime = { target: "xform", constraint: false } as const;
+		const shadow = { target: "vellum", constraint: false } as const;
+		const absolute = lower(read("absolute"));
+		const hashtag = lower(read());
+		expect(serializeWire(absolute, runtime).text).toBe(
+			"/data/outer/item[true()]/source + /data/outer/item/source",
+		);
+		expect(serializeWire(hashtag, runtime).text).toBe(
+			"/data/outer/item[true()]/source + /data/outer/item/source",
+		);
+		expect(serializeWire(absolute, shadow)).toBeUndefined();
+		expect(serializeWire(hashtag, shadow)).toBeUndefined();
 	});
 });

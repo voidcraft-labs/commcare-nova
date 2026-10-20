@@ -138,11 +138,12 @@ export function formReadToWire(
 		(term.spelling === undefined || term.spelling === "absolute")
 			? "current"
 			: term.spelling;
+	// An authored `/data/...` read and its `#form/...` twin are one read to
+	// Vellum: both take the hashtag root, so the shadow exists, and is
+	// withheld, exactly where it is for `#form/`. Outside Vellum mode the root
+	// prints `/data` either way, so runtime bytes never depend on this.
 	if (spelling === undefined || spelling === "absolute")
-		return w.form(
-			coordinates.slice(1).map(step),
-			spelling === undefined ? "hashtag" : "absolute",
-		);
+		return w.form(coordinates.slice(1).map(step), "hashtag");
 	const origin = spelling === "current" ? types.sourceNode : types.contextNode;
 	const from = origin === undefined ? undefined : projection.graph.path(origin);
 	if (from === undefined)

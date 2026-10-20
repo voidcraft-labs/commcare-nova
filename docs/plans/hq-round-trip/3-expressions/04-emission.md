@@ -88,7 +88,15 @@ each run.
     real attribute. A shadow exists where it exists today and nowhere else: the tree reads a form
     field by its `#form/` spelling, and holds no read today's shadow rule withholds (a case, worker
     or search read, a `#form/` read with a predicate or heading a longer path). No shadow carries
-    `#case/`, as step 2 left it (defect 3; Departures).
+    `#case/`, as step 2 left it (defect 3; Departures). **Implementation correction, 2026-10-20
+    (pull request 5):** the lift keeps a stored `/data/...` read as a field read spelled
+    `absolute`, so printing round-trips, and `wire/formReads.ts::formReadToWire` first gave it the
+    `absolute` form root, which the serializer never spells `#form`. Today's text path printed such
+    a read as `#form/`, so its shadow vanished and a filtered one stopped withholding the bind's
+    shadow. An authored read spelled `absolute` now takes the `hashtag` root as an unspelled read
+    does; generated paths keep `w.form`'s `absolute` default. The root prints `/data` outside
+    `vellum` mode, so runtime, Preview and HQ JSON bytes are unchanged, and authoring still shows
+    `/data/` where the author wrote it.
 12. **HQ's text rewrites are serializer properties.** In HQ-bound modes a string literal is spelled
     so HQ's instance regex (`suite_xml/post_process/instances.py::instance_re`) finds nothing in
     it; in a slot HQ passes through `xpath.py::interpolate_xpath`, a literal is spelled so no
